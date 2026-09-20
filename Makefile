@@ -1,5 +1,6 @@
 .PHONY: test lint format typecheck verify shellcheck secret-scan tools-check \
 	scripts-inventory-check instrument-census-check dep-audit dep-audit-selftest dep-audit-capture \
+	bandit-audit bandit-audit-selftest bandit-audit-capture \
        oscillation update_docs clean \
        bootstrap-check drift-check deploy setup-woodpecker-cli \
        codex-init codex-skills codex-skills-check codex-install \
@@ -252,6 +253,55 @@ dep-audit-selftest:
 dep-audit-capture:
 	@python3 scripts/dependency-audit.py --capture dependency-audit-capture.json
 
+## Python static security analysis (issue #962)
+## CPP ran no Python SAST at all, across 113 tracked files under lib/ and
+## scripts/ - while lib/security/ is this repository's own secret scanner and
+## lib/creds/ handles credential retrieval. A repository shipping security
+## tooling that runs no static analysis over that tooling is the gap.
+##
+## THE INHERITED SKIP LIST IS NOT COPIED, and that is the whole of #962.
+## codex-power-pack runs `bandit -r lib scripts -ll --quiet --skip
+## B104,B108,B310,B602`; measured on this tree, that list removes 10 of 11
+## MEDIUM+ findings, because B602 (shell=True) and B108 (hard-coded /tmp) are
+## exactly what a repository of shell-out helpers and deploy locks does. The
+## skip list here is EMPTY and the residual lives one line per (file, rule) in
+## `.bandit-audit-allow`, counted, printed on every run, and red when a line
+## outlives the finding it records. The gate additionally REFUSES a --skip
+## arriving by any route and REFUSES an inline `# nosec`, so the decision is
+## mechanical rather than remembered.
+##
+## IN `verify`, unlike `dep-audit` - and the asymmetry is the reason, not an
+## inconsistency. `dep-audit` is excluded because it REQUIRES THE NETWORK and
+## verify is the gate a developer runs on a plane. bandit is a local analyser
+## pinned in the dev extra, so after `uv sync` this needs nothing but the
+## checkout, and dep-audit's pre-committed reversal trigger ("if verify ever
+## acquires another target that REQUIRES the network") is deliberately NOT
+## fired by this target.
+##
+## Run through `uv run --extra dev` rather than a bare `python3`, so the bandit
+## that runs is the one uv.lock pins. A linter's ruleset moves between releases
+## and .woodpecker.yml already records what that costs for shellcheck: "running
+## the gate under two different linters would make the control's verdict depend
+## on which container reached it."
+
+bandit-audit: bandit-audit-selftest
+	@uv run --extra dev python scripts/bandit-audit.py
+
+## The LIVE positive control, run BEFORE the audit above on purpose. A scan that
+## cannot see prints the same clean line as a clean tree, so this scans two
+## committed fixture trees first - a B307 `eval` that must report, a clean tree
+## that must not - and the real verdict is only issued afterwards. Its offline
+## sibling, controls/bandit-audit, proves the ADJUDICATION discriminates; this
+## proves bandit was invoked at all, and against the files we meant. Neither is
+## sufficient alone.
+bandit-audit-selftest:
+	@uv run --extra dev python scripts/bandit-audit.py --selftest
+
+## Record this tree's raw bandit report, for building or refreshing the offline
+## control fixtures under controls/bandit-audit/cases/.
+bandit-audit-capture:
+	@uv run --extra dev python scripts/bandit-audit.py --capture bandit-audit-capture.json
+
 ## Pre-deploy gate (runs all quality checks)
 
 ## Report knobs that have been moved BACK (issue #936, ADR 0009). It REPORTS:
@@ -280,7 +330,7 @@ dep-audit-capture:
 oscillation:
 	@python3 scripts/check-oscillation.py
 
-verify: tools-check lint test typecheck shellcheck oscillation \
+verify: tools-check lint test typecheck shellcheck bandit-audit oscillation \
 	binary-guards-check negative-fixture-check \
 	claude-md-budget-check claude-md-links-check claude-md-behavior-check \
 	project-next-check delegated-core-check \

@@ -1,0 +1,11 @@
+# The paths in the capture beside this file are FIXTURE paths, and that is
+# deliberate rather than laziness. The first cut named lib/cicd/steps.py -
+# a real file, and one the repository's own .bandit-audit-allow accepts -
+# so the case was suppressible by the very mechanism it exists to exercise
+# the moment anyone ran the gate against it with the default --allow-file.
+# tests/test_bandit_audit.py caught that and now pins the property.
+#
+# EMPTY ON PURPOSE. The capture reports one B602 and nothing accounts for
+# it, so the gate must report BANDIT-FINDING. The anchor - CxPP's
+# `--skip B104,B108,B310,B602` - drops B602 before it reaches a verdict and
+# prints a clean line, which is the blindness this case demonstrates.
