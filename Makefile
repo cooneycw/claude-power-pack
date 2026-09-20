@@ -541,6 +541,73 @@ negative-controls:
 ## tracked files only and therefore has no .venv for a runner-resolution walk to
 ## find. Under the system interpreter that battery reports every case UNKNOWN,
 ## which is an environment fact scored as a battery failure.
+## NAMED `battery-in-ci-image` rather than `negative-controls-image` for a reason
+## worth keeping: tests/test_verify_coverage_check.py asserts
+## `"make negative-controls" not in <report>` to check the battery is never listed
+## unexamined, and that is a SUBSTRING standing in for a target name - so any new
+## target whose name begins with it trips a false failure. Renaming here avoids the
+## collision without editing a file outside this issue's lane; the fragility itself
+## is reported rather than worked around silently (#1168).
+## verify-coverage: excluded battery-in-ci-image - the SUFFICIENT half of the
+## question `check-control-ci-deps` can only answer necessarily (#1168): it runs the
+## battery under the pipeline's OWN image digest, read from .woodpecker.yml rather
+## than retyped, with no network and a read-only workspace - so "would this control
+## run in CI" is answered by running it there instead of by reading it. Needs docker,
+## which is host state; ci: excluded host-state
+battery-in-ci-image:
+	@digest=$$(awk '/^  negative-controls:/{f=1; next} \
+		f && /^  [a-zA-Z0-9_-]+:/{exit} \
+		f && /^    image:/{print $$2; exit}' .woodpecker.yml); \
+	case "$$digest" in \
+		*@sha256:*) ;; \
+		*) echo "battery-in-ci-image: the battery step's image is not a pinned digest ('$$digest')."; \
+		   echo "  The selector stops at the NEXT step, so an inherited or missing image yields"; \
+		   echo "  nothing rather than silently taking a neighbour's - which would defeat the"; \
+		   echo "  pipeline-image boundary this target exists to hold (#1168). Not retyping it"; \
+		   echo "  either: an image pinned in two places is the same drift."; \
+		   exit 2 ;; \
+	esac; \
+	command -v docker >/dev/null 2>&1 || { \
+		echo "battery-in-ci-image: UNAVAILABLE - docker is not installed, so the battery"; \
+		echo "  was NOT run in the image. This is unexamined, not clean."; exit 2; }; \
+	stage=$$(mktemp -d); mkdir -p "$$stage/.ci-bin"; \
+	( cd "$$stage" && python3 "$(CURDIR)/scripts/ci-stage-jq.py" >/dev/null 2>&1 ) || true; \
+	for t in gitleaks shellcheck; do \
+		src=$$(command -v $$t 2>/dev/null) && cp "$$src" "$$stage/.ci-bin/$$t" 2>/dev/null || true; \
+	done; \
+	unusable=""; \
+	for t in jq shellcheck gitleaks; do \
+		if [ ! -x "$$stage/.ci-bin/$$t" ]; then unusable="$$unusable $$t(absent)"; continue; fi; \
+		docker run --rm --network none -v "$$stage/.ci-bin:/b:ro" "$$digest" \
+			/b/$$t --version >/dev/null 2>&1 || unusable="$$unusable $$t(does-not-run)"; \
+	done; \
+	if [ -n "$$unusable" ]; then \
+		echo "battery-in-ci-image: STAGED BUT UNUSABLE IN THE IMAGE:$$unusable"; \
+		echo "  A copy that landed is not a tool that runs. The host's jq is dynamically"; \
+		echo "  linked against libjq.so.1, which this image does not carry - so copying it"; \
+		echo "  produced a file that exists, satisfies \`command -v\`, and fails on exec."; \
+		echo "  CI does not copy jq: it stages a content-pinned static build via"; \
+		echo "  scripts/ci-stage-jq.py, which this target runs too (network HERE, on the"; \
+		echo "  host - the battery itself still runs with --network none)."; \
+		echo "  NOT RUNNING THE BATTERY. A warning beside a battery that still ran would"; \
+		echo "  leave its verdict on the table, and a success would then override the failed"; \
+		echo "  preflight - unexamined reading as clean, which is the one thing this family"; \
+		echo "  of instruments refuses (counter-model review, #1168)."; \
+		echo "  A control needing an unusable tool reports UNAVAILABLE, which bare --strict"; \
+		echo "  fails on, exactly as CI would. That is unexamined, NOT a gate that stopped"; \
+		echo "  discriminating; do not read it as BLIND."; \
+		rm -rf "$$stage"; exit 2; \
+	fi; \
+	echo "battery-in-ci-image: $$digest (--network none, workspace read-only)"; \
+	echo "  Host gitleaks/shellcheck are STAGED BY COPY and proven to RUN here, which is"; \
+	echo "  not version parity with the pipeline's pinned stagers - a scanner of a"; \
+	echo "  different version can change what a control detects (#1168, stated bound)."; \
+	docker run --rm --network none \
+		-v "$$PWD:/repo:ro" -v "$$stage/.ci-bin:/ci-bin:ro" -w /repo \
+		"$$digest" \
+		sh -c 'PATH=/ci-bin:$$PATH python3 scripts/check-negative-controls.py --strict'; \
+	rc=$$?; rm -rf "$$stage"; exit $$rc
+
 ## verify-coverage: excluded mutation-probe - each mutation runs a whole battery, and those batteries need gitleaks and jq on PATH exactly as `negative-controls` does; CI runs it with --strict in its own step (#970)
 mutation-probe:
 	@uv run --extra dev python scripts/mutation-probe.py --strict

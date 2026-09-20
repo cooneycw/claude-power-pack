@@ -1,0 +1,18 @@
+# A MINIATURE PIPELINE, not a copy of the real one. The question this fixture
+# asks is whether the gate can tell a control the battery's step can run from
+# one it cannot - so it carries exactly the shape that answer depends on: a
+# step that runs the battery, an image, and nothing staged.
+when:
+  - event: [push]
+
+steps:
+  negative-controls:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [validate]
+    commands:
+      - python3 scripts/check-negative-controls.py --strict
+
+  validate:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    commands:
+      - python3 -c "pass"

@@ -104,11 +104,13 @@ resolves against the derived set, 1 otherwise.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 import sys
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
+from typing import Optional
 
 #: NEGATIVE-CONTROL: controls/control-ci-deps
 #:
@@ -631,6 +633,326 @@ def requirements(root: Path, control_dir: Path, binary_gate) -> tuple[set[str], 
     return needed, notes
 
 
+#: Modules the interpreter always has. Derived from the running interpreter
+#: rather than listed: a hand-kept list of stdlib names is the drift this file
+#: spends its length refusing.
+#:
+#: BOUNDED, and the bound is stated rather than left to be discovered: this is
+#: the HOST interpreter's name set, not the pinned image's. It names
+#: platform-specific modules that do not import on Linux (`winreg`), and a host
+#: newer than the image's python can include names the image lacks. Both make
+#: this side of the comparison slightly generous, which is the safe direction
+#: for a NECESSARY check - it can miss, it does not invent. The sufficient
+#: answer is `make battery-in-ci-image`, which runs the battery under the
+#: pinned digest and needs no model of the stdlib at all.
+_PY_STDLIB = frozenset(sys.stdlib_module_names)
+
+#: `python3 {gate}`, or `{gate}` whose shebang names python. Anything else is
+#: not a python invocation and is COUNTED rather than walked.
+_PY_INTERPRETER = re.compile(r"^python3?$")
+
+
+def _python_entry(root: Path, control_dir: Path, spec: dict) -> Optional[Path]:
+    """The python file this control's invocation runs, or None.
+
+    Only the two shapes that are decidable without executing anything: an
+    explicit `python3 {gate}`, and `{gate}` run directly with a python shebang.
+    A `bash -c "...python3 ..."` wrapper is NOT resolved - the command is shell
+    text, the file it runs may be produced by the case, and guessing at it is
+    how a static reader starts reporting a neighbour's problem.
+    """
+    invocation = spec.get("invocation") or []
+    gate_rel = spec.get("gate", "")
+    if not gate_rel:
+        return None
+    gate = root / gate_rel
+    if not gate.is_file():
+        return None
+
+    tokens = [str(t) for t in invocation]
+    # `env VAR=V python3 {gate}` - same unwrapping the binary side does.
+    idx = 0
+    while idx < len(tokens) and (tokens[idx] == "env" or "=" in tokens[idx]):
+        idx += 1
+    if idx < len(tokens) and _PY_INTERPRETER.match(Path(tokens[idx]).name):
+        # THE SCRIPT ARGUMENT MUST BE THE GATE (counter-model review). Any
+        # invocation starting with python3 used to walk the declared gate
+        # whatever came next, so `["python3", "{case}", "{gate}"]` - which runs
+        # the CASE - was reported as the gate examined, and `-m` / `-c` forms
+        # were attributed to a file they never execute. Attributing a walk to
+        # the wrong file both misses real requirements and reports a
+        # neighbour's imports as this control's.
+        rest = [t for t in tokens[idx + 1:] if not t.startswith("-")]
+        if rest and rest[0] == "{gate}":
+            return gate
+        return None
+    if idx < len(tokens) and tokens[idx] == "{gate}":
+        first = gate.read_text(encoding="utf-8", errors="replace").splitlines()[:1]
+        if first and first[0].startswith("#!") and "python" in first[0]:
+            return gate
+    return None
+
+
+def _executing_imports(tree: ast.AST) -> tuple[list[ast.stmt], int]:
+    """Imports that run ON LOAD, and a count of those that do not.
+
+    "Module level" is not "a direct child of `tree.body`", and the difference is
+    a real miss: `if True: import pydantic`, a `try/except ImportError`
+    fallback, and a class-body import all EXECUTE when the module is loaded,
+    while a membership test against `tree.body` calls every one of them
+    deferred. Counter-model review demonstrated all three against the first cut
+    of this walker - each reported `ok`, which is the original failure recreated
+    inside the check built to catch it.
+
+    So EXECUTION SCOPE is tracked instead: everything is reached except the
+    bodies of functions and lambdas, which run on call rather than on import.
+    """
+    executing: list[ast.stmt] = []
+    deferred = 0
+
+    def visit(node: ast.AST, running: bool) -> None:
+        nonlocal deferred
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.Import, ast.ImportFrom)):
+                if running:
+                    executing.append(child)
+                else:
+                    deferred += 1
+                continue
+            visit(
+                child,
+                running
+                and not isinstance(
+                    child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+                ),
+            )
+
+    visit(tree, True)
+    return executing, deferred
+
+
+def _module_chain(dotted: str) -> list[str]:
+    """`a.b.c` -> [a, a.b, a.b.c]: every package python executes on the way in."""
+    parts = dotted.split(".")
+    return [".".join(parts[: i + 1]) for i in range(len(parts))]
+
+
+def _resolve_repo_module(
+    root: Path, dotted: str, near: Optional[Path] = None
+) -> Optional[Path]:
+    """`lib.vendor` -> `<root>/lib/vendor.py`, or its package `__init__.py`.
+
+    ``near`` is searched FIRST when given: python puts the script's own
+    directory at the head of `sys.path`, so `scripts/gate.py` importing
+    `helper` gets `scripts/helper.py`, not a root-level one. Searching only the
+    root reported a sibling import as an external package, and could resolve a
+    name against an unrelated root-level file - a finding that changes because
+    a NEIGHBOUR changed (counter-model review).
+
+    Not modelled: a gate that edits `sys.path` at run time. That is reported as
+    unresolvable rather than guessed at.
+    """
+    rel = Path(dotted.replace(".", "/"))
+    roots = [near, root] if near is not None else [root]
+    for base in roots:
+        for candidate in (base / rel.with_suffix(".py"), base / rel / "__init__.py"):
+            if candidate.is_file():
+                return candidate
+    return None
+
+
+def _namespace_dir(root: Path, dotted: str, near: Optional[Path] = None) -> bool:
+    """Is ``dotted`` a directory with no `__init__.py` - a PEP 420 package?
+
+    Such a package executes no code on import, so there is nothing for the
+    walker to follow and nothing that can be missing from the image. Treating
+    it as an unresolved distribution reds a control for importing its own
+    repository, which is how `lib/` in this tree produced a false finding.
+    """
+    rel = Path(dotted.replace(".", "/"))
+    for base in ([near, root] if near is not None else [root]):
+        candidate = base / rel
+        if candidate.is_dir() and not (candidate / "__init__.py").is_file():
+            return True
+    return False
+
+
+def _targets_for(
+    root: Path, node: ast.stmt, current: Path
+) -> tuple[list[str], list[Path]]:
+    """(external top-level names, repo-local files) this statement executes.
+
+    IMPORTING A SUBMODULE RUNS ITS PARENTS. `import a.b.c` executes
+    `a/__init__.py`, then `a/b/__init__.py`, then `a/b/c`; and `from a.b import
+    c` executes both initializers AND `a/b/c.py` when `c` is a submodule rather
+    than an attribute. The first cut walked only the deepest name for `import`
+    and only the package for `from ... import`, so a dependency sitting in a
+    parent initializer or in the imported submodule was missed - both shown by
+    counter-model review, both reporting `ok`.
+    """
+    external: list[str] = []
+    local: list[Path] = []
+
+    def add(dotted: str) -> None:
+        top = dotted.split(".")[0]
+        for step in _module_chain(dotted):
+            found = _resolve_repo_module(root, step, near=current.parent)
+            if found is not None:
+                local.append(found)
+                continue
+            # A NAMESPACE PACKAGE HAS NO `__init__.py` AND IS STILL LOCAL
+            # (PEP 420). `lib/` in this repository is exactly that, and
+            # requiring every chain step to resolve to a FILE reported
+            # `from lib.vendor import ...` as needing an external package
+            # called `lib` - a false red on the one control that imports
+            # first-party code at all. A directory with no initializer
+            # executes nothing, so there is nothing to walk; it simply is
+            # not a missing distribution.
+            if _namespace_dir(root, step, near=current.parent):
+                continue
+            if step == top:
+                # Only the TOP name can name a third-party distribution. A
+                # deeper miss under a resolved parent is a module this reader
+                # could not find, which the caller reports as unresolvable.
+                external.append(top)
+
+    if isinstance(node, ast.Import):
+        for alias in node.names:
+            if alias.name.split(".")[0] not in _PY_STDLIB:
+                add(alias.name)
+        return external, local
+
+    assert isinstance(node, ast.ImportFrom)
+    if node.level:
+        package = current.parent
+        for _ in range(node.level - 1):
+            package = package.parent
+        base = package / (node.module.replace(".", "/") if node.module else "")
+        for candidate in (base.with_suffix(".py"), base / "__init__.py"):
+            if candidate.is_file():
+                local.append(candidate)
+                break
+        for alias in node.names:
+            for candidate in (base / f"{alias.name}.py", base / alias.name / "__init__.py"):
+                if candidate.is_file():
+                    local.append(candidate)
+                    break
+        return external, local
+
+    if node.module and node.module.split(".")[0] not in _PY_STDLIB:
+        add(node.module)
+        for alias in node.names:
+            found = _resolve_repo_module(
+                root, f"{node.module}.{alias.name}", near=current.parent
+            )
+            if found is not None:
+                local.append(found)
+    return external, local
+
+
+def walk_module_level_imports(
+    root: Path, entry: Path
+) -> tuple[set[str], set[str], int, set[str]]:
+    """Follow imports that EXECUTE ON LOAD from ``entry`` through repo files.
+
+    Returns (external, repo_local, deferred_unfollowed, unresolvable).
+
+    The bound is execution scope, and it is the whole design rather than a
+    shortcut. An import that runs on load is a requirement this reader can
+    decide. An import inside a FUNCTION is conditional on the call path, and
+    deciding it needs a call graph from the invoked entry point.
+
+    Walking both would be worse than walking one. Issue #1163 deliberately
+    moved seven imports in `lib/cicd/cli.py` into the commands that use them,
+    and the `run` path - the one the finish gate takes - reaches none of them.
+    An all-imports walk reports that `-m lib.cicd` requires pydantic, which is
+    FALSE for that path, and reds a control that runs perfectly well. That is
+    the shape `check-test-binary-guards.py` measured at 266 findings of which
+    ~250 were scripts that run fine without the tool: a guess that cries wolf
+    costs more than the false negative it removes.
+
+    So deferred imports are COUNTED and reported as a number, never followed
+    and never silently dropped.
+    """
+    external: set[str] = set()
+    repo_local: set[str] = set()
+    unresolvable: set[str] = set()
+    deferred = 0
+    seen: set[Path] = set()
+    queue = [entry]
+
+    while queue:
+        current = queue.pop()
+        resolved = current.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        try:
+            tree = ast.parse(current.read_text(encoding="utf-8", errors="replace"))
+        except (OSError, SyntaxError):
+            unresolvable.add(str(current))
+            continue
+
+        executing, not_executing = _executing_imports(tree)
+        deferred += not_executing
+        for node in executing:
+            tops, locals_ = _targets_for(root, node, current)
+            external.update(tops)
+            for path in locals_:
+                repo_local.add(path.stem)
+                queue.append(path)
+    return external, repo_local, deferred, unresolvable
+
+
+def python_import_findings(
+    root: Path, registered: list[Path]
+) -> tuple[list[str], dict[str, int]]:
+    """Static half of #1168: a python gate's module-level imports must resolve.
+
+    The battery's CI step installs no python packages - it runs the image and
+    the checked-out workspace, nothing else - so the set a python gate may
+    import is the stdlib plus this repository. Anything else would raise
+    ModuleNotFoundError and take the whole register down, which is the failure
+    `check-control-ci-deps` exists to catch and could not see: it examines the
+    invocation, the shebang and a SHELL gate's binaries, never what a python
+    gate imports.
+    """
+    findings: list[str] = []
+    stats = {"walked": 0, "resolved": 0, "deferred": 0, "not_python": 0}
+
+    for control_dir in registered:
+        manifest = control_dir / "control.json"
+        if not manifest.is_file():
+            continue
+        try:
+            spec = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        entry = _python_entry(root, control_dir, spec)
+        if entry is None:
+            stats["not_python"] += 1
+            continue
+        stats["walked"] += 1
+        external, repo_local, deferred, unresolvable = walk_module_level_imports(root, entry)
+        stats["resolved"] += len(repo_local)
+        stats["deferred"] += deferred
+        for name in sorted(unresolvable):
+            findings.append(
+                f"CI_DEP: {control_dir.name}: an import could not be resolved to the "
+                f"stdlib, to a file in this repository, or to a package the step "
+                f"provides ({name}). This is UNKNOWN, not clean."
+            )
+        for name in sorted(external):
+            stats["resolved"] += 1
+            findings.append(
+                f"CI_DEP: {control_dir.name}: its python gate imports `{name}` at MODULE "
+                f"level, which the battery's CI step does not provide - the import runs "
+                f"on load, so this control would not fail alone, it would take the whole "
+                f"register down (issue #1168)"
+            )
+    return findings, stats
+
+
 def run_check(root: Path) -> int:
     controls_dir = root / CONTROLS_REL
     if not controls_dir.is_dir():
@@ -692,9 +1014,22 @@ def run_check(root: Path) -> int:
             )
             missing_total += 1
 
+    py_findings, py_stats = python_import_findings(root, registered)
+    for finding in py_findings:
+        print(finding)
+    missing_total += len(py_findings)
+
     print(f"CONTROL_CI_DEPS_REGISTERED: {len(registered)}")
     print(f"CONTROL_CI_DEPS_EXAMINED: {examined}")
     print(f"CONTROL_CI_DEPS_PROVIDED: {len(provided)}")
+    # THE FOUR COUNTS, printed on every run including the clean one. A verdict
+    # that states its population numerically cannot be read as covering more
+    # than it examined, and a zero here means "looked and found none" rather
+    # than "did not look" (issue #1168).
+    print(f"CI_DEPS_PY_GATES_WALKED: {py_stats['walked']}")
+    print(f"CI_DEPS_PY_IMPORTS_RESOLVED: {py_stats['resolved']}")
+    print(f"CI_DEPS_PY_DEFERRED_UNFOLLOWED: {py_stats['deferred']}")
+    print(f"CI_DEPS_INVOCATIONS_NOT_PYTHON: {py_stats['not_python']}")
 
     if missing_total:
         print(
@@ -707,8 +1042,17 @@ def run_check(root: Path) -> int:
         f"control-ci-deps: ok - {examined} of {len(registered)} registered control(s) declare a "
         f"binary dependency, and every one resolves against the {len(provided)} binary/ies the "
         "battery's CI step provides. Examined: the invocation command, the gate's shebang "
-        "interpreter WHEN THE GATE IS RUN DIRECTLY, and a shell gate's hard-required binaries - "
-        "NOT what a Python gate shells out to, nor what a case fixture needs."
+        "interpreter WHEN THE GATE IS RUN DIRECTLY, a shell gate's hard-required binaries, and "
+        f"since #1168 the MODULE-LEVEL imports of {py_stats['walked']} python gate(s) - "
+        "NOT what a Python gate shells out to, nor what a case fixture needs, nor "
+        f"{py_stats['deferred']} import(s) deferred inside a function, which are conditional on "
+        "a call path this reader cannot decide.\n"
+        "control-ci-deps: THIS IS NECESSARY, NOT SUFFICIENT. A green here means no examined "
+        "surface names something the step lacks; it does not mean a control RUNS there - "
+        "issue #1163's case reached lib.cicd through a case FIXTURE, which no static surface "
+        "here covers. The sufficient instrument is `make battery-in-ci-image`, which runs "
+        "the battery under the pipeline's own image digest with no network and a read-only "
+        "workspace."
     )
     return 0
 

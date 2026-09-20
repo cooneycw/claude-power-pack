@@ -640,3 +640,234 @@ def test_two_steps_running_the_battery_are_ambiguous_not_first_wins(tmp_path: Pa
     out = run(tmp_path)
     assert out.returncode == 1, out.stdout
     assert "ambiguous" in out.stdout, out.stdout
+
+
+class TestPythonImportWalk:
+    """A python gate's MODULE-LEVEL imports are examined too (issue #1168).
+
+    The gate examined the invocation, the shebang and a SHELL gate's binaries,
+    and said so - but never what a PYTHON gate imports. Twenty-six of this
+    repository's forty-one controls invoke python, and one module-level import
+    of something the battery's image lacks takes the whole register down,
+    because the battery refuses to skip a control it cannot run.
+    """
+
+    @staticmethod
+    def _toy(root: Path, gate_body: str, invocation: list[str]) -> Path:
+        (root / "scripts").mkdir(parents=True, exist_ok=True)
+        (root / "controls" / "toy").mkdir(parents=True, exist_ok=True)
+        (root / "scripts" / "toy-gate.py").write_text(gate_body)
+        (root / "controls" / "toy" / "control.json").write_text(
+            '{"gate": "scripts/toy-gate.py", "invocation": %s}' % str(invocation).replace("'", '"')
+        )
+        (root / ".woodpecker.yml").write_text(
+            "steps:\n"
+            "  negative-controls:\n"
+            f"    image: {CI_IMAGE}\n"
+            "    commands:\n"
+            "      - python3 scripts/check-negative-controls.py --strict\n"
+        )
+        return root
+
+    def test_a_module_level_third_party_import_is_a_finding(self, tmp_path):
+        root = self._toy(
+            tmp_path,
+            "#!/usr/bin/env python3\n# NEGATIVE-CONTROL: controls/toy\n"
+            "import pydantic  # noqa: F401\n",
+            ["python3", "{gate}", "--root", "{case}"],
+        )
+        out = run(root)
+        assert out.returncode != 0
+        assert "imports `pydantic` at MODULE level" in out.stdout
+        assert contract(out.stdout, "CI_DEPS_PY_GATES_WALKED") == "1"
+
+    def test_a_DEFERRED_import_is_counted_and_not_flagged(self, tmp_path):
+        """THE BOUND, and the reason it is a bound rather than a shortcut.
+
+        An import inside a function is CONDITIONAL ON THE CALL PATH. #1163
+        deliberately moved seven imports in `lib/cicd/cli.py` into the commands
+        that use them, and the `run` path the finish gate takes reaches none of
+        them - so following them would report that `-m lib.cicd` requires
+        pydantic, which is FALSE for that path, and red a control that runs.
+
+        That is the shape `check-test-binary-guards.py` measured at 266
+        findings of which ~250 were scripts that run fine without the tool. So
+        deferred imports are COUNTED, never followed and never silently
+        dropped: the count is what keeps the bound visible.
+        """
+        root = self._toy(
+            tmp_path,
+            "#!/usr/bin/env python3\n# NEGATIVE-CONTROL: controls/toy\n"
+            "def later():\n    import pydantic  # noqa: F401\n    return pydantic\n",
+            ["python3", "{gate}", "--root", "{case}"],
+        )
+        out = run(root)
+        assert "imports `pydantic` at MODULE level" not in out.stdout
+        assert contract(out.stdout, "CI_DEPS_PY_DEFERRED_UNFOLLOWED") == "1"
+        assert out.returncode == 0
+
+    def test_a_non_python_invocation_is_counted_not_walked(self, tmp_path):
+        """A `bash -c` wrapper is not resolved. The command is shell text, the
+        file it runs may be produced by the case, and guessing at it is how a
+        static reader starts reporting a neighbour's problem. It is COUNTED, so
+        the green states how much it did not walk."""
+        root = self._toy(
+            tmp_path,
+            "#!/usr/bin/env python3\n# NEGATIVE-CONTROL: controls/toy\nimport pydantic\n",
+            ["bash", "-c", "python3 {gate}"],
+        )
+        out = run(root)
+        assert "imports `pydantic` at MODULE level" not in out.stdout
+        assert contract(out.stdout, "CI_DEPS_INVOCATIONS_NOT_PYTHON") == "1"
+        assert contract(out.stdout, "CI_DEPS_PY_GATES_WALKED") == "0"
+
+    def test_the_walk_follows_repo_local_modules(self, tmp_path):
+        """Transitive through first-party files, or the walk stops at the first
+        `from lib.x import y` and calls a tree clean it never entered."""
+        root = self._toy(
+            tmp_path,
+            "#!/usr/bin/env python3\n# NEGATIVE-CONTROL: controls/toy\n"
+            "from helpers.inner import thing  # noqa: F401\n",
+            ["python3", "{gate}", "--root", "{case}"],
+        )
+        (root / "helpers").mkdir()
+        (root / "helpers" / "__init__.py").write_text("")
+        (root / "helpers" / "inner.py").write_text("import pydantic\nthing = 1\n")
+        out = run(root)
+        assert out.returncode != 0
+        assert "imports `pydantic` at MODULE level" in out.stdout
+
+    def test_the_four_counts_print_on_a_clean_run(self, tmp_path):
+        """Printed on EVERY run including the clean one: a verdict that states
+        its population numerically cannot be read as covering more than it
+        examined, and a zero means "looked and found none" rather than "did not
+        look"."""
+        root = self._toy(
+            tmp_path,
+            "#!/usr/bin/env python3\n# NEGATIVE-CONTROL: controls/toy\nimport json\n",
+            ["python3", "{gate}", "--root", "{case}"],
+        )
+        out = run(root)
+        assert out.returncode == 0
+        for key in (
+            "CI_DEPS_PY_GATES_WALKED",
+            "CI_DEPS_PY_IMPORTS_RESOLVED",
+            "CI_DEPS_PY_DEFERRED_UNFOLLOWED",
+            "CI_DEPS_INVOCATIONS_NOT_PYTHON",
+        ):
+            assert contract(out.stdout, key) is not None, f"{key} missing from a clean run"
+
+    def test_the_success_line_says_necessary_not_sufficient(self, tmp_path):
+        """The green must not be readable as "this control runs in CI".
+
+        #1163's case reached lib.cicd through a case FIXTURE, which no static
+        surface here covers - so the line names the sufficient instrument
+        instead of leaving a reader to assume this one is it.
+        """
+        root = self._toy(
+            tmp_path,
+            "#!/usr/bin/env python3\n# NEGATIVE-CONTROL: controls/toy\nimport json\n",
+            ["python3", "{gate}", "--root", "{case}"],
+        )
+        out = run(root)
+        assert "NECESSARY, NOT SUFFICIENT" in out.stdout
+        assert "battery-in-ci-image" in out.stdout
+        assert "case FIXTURE" in out.stdout
+
+    def test_imports_that_EXECUTE_on_load_are_not_called_deferred(self, tmp_path):
+        """"Module level" is not "a direct child of tree.body" (counter-model review).
+
+        `if True: import x`, a `try/except ImportError` fallback and a class-body
+        import all RUN when the module loads. The first cut tested membership in
+        `tree.body`, so each was counted deferred and the run reported ok - the
+        original failure recreated inside the check built to catch it. All three
+        were demonstrated against that cut.
+        """
+        for body in (
+            "if True:\n    import pydantic\n",
+            "try:\n    import pydantic\nexcept ImportError:\n    pydantic = None\n",
+            "class C:\n    import pydantic\n",
+            "for _ in range(1):\n    import pydantic\n",
+        ):
+            root = self._toy(
+                tmp_path / body[:6].strip().replace(":", ""),
+                "#!/usr/bin/env python3\n# NEGATIVE-CONTROL: controls/toy\n" + body,
+                ["python3", "{gate}", "--root", "{case}"],
+            )
+            out = run(root)
+            assert "imports `pydantic` at MODULE level" in out.stdout, body
+            assert out.returncode != 0, body
+
+    def test_a_parent_initializer_is_walked(self, tmp_path):
+        """`import a.b` EXECUTES `a/__init__.py` first. Walking only the deepest
+        name missed a dependency sitting in the parent - shown by review."""
+        root = self._toy(
+            tmp_path,
+            "#!/usr/bin/env python3\n# NEGATIVE-CONTROL: controls/toy\nimport helpers.inner\n",
+            ["python3", "{gate}", "--root", "{case}"],
+        )
+        (root / "helpers").mkdir()
+        (root / "helpers" / "__init__.py").write_text("import pydantic\n")
+        (root / "helpers" / "inner.py").write_text("x = 1\n")
+        assert "imports `pydantic` at MODULE level" in run(root).stdout
+
+    def test_an_imported_submodule_is_walked(self, tmp_path):
+        """`from a import b` EXECUTES `a/b.py` when b is a module. Walking only
+        the package missed it."""
+        root = self._toy(
+            tmp_path,
+            "#!/usr/bin/env python3\n# NEGATIVE-CONTROL: controls/toy\nfrom helpers import inner\n",
+            ["python3", "{gate}", "--root", "{case}"],
+        )
+        (root / "helpers").mkdir()
+        (root / "helpers" / "__init__.py").write_text("")
+        (root / "helpers" / "inner.py").write_text("import pydantic\n")
+        assert "imports `pydantic` at MODULE level" in run(root).stdout
+
+    def test_a_namespace_package_is_not_an_external_requirement(self, tmp_path):
+        """PEP 420: a directory with no `__init__.py` executes nothing.
+
+        `lib/` in this repository is exactly that, and requiring every step of
+        the chain to resolve to a FILE reported `from lib.vendor import ...` as
+        needing a distribution called `lib` - a false red on the only control
+        that imports first-party code.
+        """
+        root = self._toy(
+            tmp_path,
+            "#!/usr/bin/env python3\n# NEGATIVE-CONTROL: controls/toy\nfrom space.mod import thing  # noqa: F401\n",
+            ["python3", "{gate}", "--root", "{case}"],
+        )
+        (root / "space").mkdir()
+        (root / "space" / "mod.py").write_text("thing = 1\n")
+        out = run(root)
+        assert out.returncode == 0, out.stdout
+        assert "`space`" not in out.stdout
+
+    def test_a_sibling_import_resolves_against_the_gates_own_directory(self, tmp_path):
+        """python puts the script's directory at the head of sys.path, so
+        `scripts/gate.py` importing `helper` gets `scripts/helper.py`. Searching
+        only the repository root called that an external package."""
+        root = self._toy(
+            tmp_path,
+            "#!/usr/bin/env python3\n# NEGATIVE-CONTROL: controls/toy\nimport sidekick  # noqa: F401\n",
+            ["python3", "{gate}", "--root", "{case}"],
+        )
+        (root / "scripts" / "sidekick.py").write_text("value = 1\n")
+        out = run(root)
+        assert out.returncode == 0, out.stdout
+
+    def test_an_invocation_that_does_not_run_the_gate_is_not_attributed_to_it(
+        self, tmp_path
+    ):
+        """`["python3", "{case}", "{gate}"]` runs the CASE. Attributing the walk
+        to the gate both misses real requirements and reports a neighbour's
+        imports as this control's."""
+        root = self._toy(
+            tmp_path,
+            "#!/usr/bin/env python3\n# NEGATIVE-CONTROL: controls/toy\nimport pydantic\n",
+            ["python3", "{case}", "{gate}"],
+        )
+        out = run(root)
+        assert "imports `pydantic` at MODULE level" not in out.stdout
+        assert contract(out.stdout, "CI_DEPS_PY_GATES_WALKED") == "0"
+        assert contract(out.stdout, "CI_DEPS_INVOCATIONS_NOT_PYTHON") == "1"
