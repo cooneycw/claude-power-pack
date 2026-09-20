@@ -120,7 +120,16 @@ def test_real_repo_bundled_libraries_byte_identical():
         and "scripts" not in p.relative_to(skills).parts[1:2]
         and "__pycache__" not in p.parts
     ]
-    assert bundled, "no libraries are bundled at all - #1028's fix is gone"
+    # A POPULATION FLOOR, AND NOTHING MORE. This test compares the bytes of
+    # whatever is bundled; it cannot see a library that should be bundled and is
+    # not, because an absent file is absent from its population too. Which
+    # bundles must EXIST is asserted by the two executed tests below, and that
+    # division is deliberate - stripping flow-eli5's and project-next's
+    # libraries left flow-auto's and flow-finish's standing, and this test went
+    # green over the stripped tree exactly as its design says it should. The
+    # message says that rather than "#1028's fix is gone", which it does not
+    # check.
+    assert bundled, "nothing to compare: no libraries are bundled anywhere"
     for path in sorted(bundled):
         rel = path.relative_to(skills).parts[1:]
         source = ROOT.joinpath(*rel)
@@ -169,22 +178,39 @@ def test_real_repo_eli5_drift_check_runs_from_its_own_bundle(tmp_path):
     assert "has drifted" in result.stderr
 
 
-def test_real_repo_project_next_starts_from_its_own_bundle():
+def test_real_repo_project_next_runs_a_real_query_from_its_own_bundle(tmp_path):
     """The second live instance of the same defect, which #1028 did not name.
 
     `codex/skills/project-next/scripts/project-next.py` died on
-    `ModuleNotFoundError: No module named 'lib'` for the same reason: the
-    bundler carried the entry point and none of what it imports. One bundler
-    bug, two shipped artifacts that could not run.
+    `ModuleNotFoundError: No module named 'lib'` - the bundler carried the entry
+    point and none of what it imports. One bundler bug, two shipped artifacts
+    that could not run.
+
+    THIS ASSERTS A REAL QUERY, NOT `--help`, AND THAT IS THE LESSON. The first
+    version of this test ran `--help`, which passed the moment the imports
+    resolved - and the counter-model review found that a real invocation still
+    died on `[Errno 2] ... codex/skills/project-next/.claude/project-next-vendor.json`,
+    because the entry point reads that manifest at rank time. A test named "starts
+    from its own bundle" was true and useless: "it imports" is not "it works", and
+    the gap was invisible from the passing side.
+
+    `--input` supplies the repository state, so nothing here touches the network
+    or `gh`; the manifest read is on the same code path either way.
     """
     entry = ROOT / "codex" / "skills" / "project-next" / "scripts" / "project-next.py"
     assert entry.is_file()
+
+    state = tmp_path / "state.json"
+    state.write_text(json.dumps({
+        "repository": "o/r", "issues": [], "pull_requests": [],
+        "branches": [], "worktrees": [], "spec_features": [], "spec_tasks": [],
+    }))
     result = subprocess.run(
-        [sys.executable, str(entry), "--help"],
+        [sys.executable, str(entry), "--input", str(state), "o/r"],
         capture_output=True, text=True, timeout=120, check=False,
     )
     assert result.returncode == 0, f"{result.stdout}{result.stderr}"
-    assert "usage:" in result.stdout
+    assert "No such file or directory" not in result.stdout + result.stderr
 
 
 def test_a_mention_is_not_a_dependency(tmp_repo):
@@ -211,6 +237,108 @@ def test_a_mention_is_not_a_dependency(tmp_repo):
     bundled = tmp_repo / "codex" / "skills" / "flow-auto" / "scripts"
     assert (bundled / "really-used.sh").is_file(), "the invoked sibling was not bundled"
     assert not (bundled / "mentioned.sh").exists(), "a mention was bundled as a dependency"
+
+
+def test_an_indirect_import_is_bundled_and_the_bundle_runs(tmp_repo):
+    """Dependency discovery walks, it does not take one pass (#1028 review).
+
+    Scanning only the entry scripts meant a copied module was never itself
+    examined: `x.py` imports `lib.a`, `lib/a.py` says `from .b import value`,
+    and the bundle carried `a.py` with no `b.py`. Generation succeeded and the
+    bundled entry point died at import.
+
+    The real project-next bundle was complete only because its entry point
+    imports all six modules DIRECTLY - the transitive edges held by coincidence,
+    which is not a property anything was checking. This fixture removes the
+    coincidence: nothing imports `b` except `a`.
+
+    Executed, not inspected: the assertion that matters is that the bundled copy
+    runs, which is the claim a file-presence check cannot make.
+    """
+    lib = tmp_repo / "lib" / "deep"
+    lib.mkdir(parents=True)
+    (lib / "__init__.py").write_text("")
+    (lib / "a.py").write_text("from .b import value\n")
+    (lib / "b.py").write_text("value = 'reached the indirect module'\n")
+    # The real entry points resolve their root from their own location and
+    # insert it on sys.path; that is exactly what makes a repo-relative bundle
+    # layout work, so the fixture uses the same shape.
+    (tmp_repo / "scripts" / "importer.py").write_text(
+        "import sys\n"
+        "from pathlib import Path\n"
+        "REPO_ROOT = Path(__file__).resolve().parents[1]\n"
+        "sys.path.insert(0, str(REPO_ROOT))\n"
+        "from lib.deep.a import value\n"
+        "print(value)\n"
+    )
+    (tmp_repo / ".claude" / "commands" / "flow" / "auto.md").write_text(
+        "# Flow Auto\n\nUses scripts/importer.py.\n"
+    )
+
+    codex_skill_sync.main(["--write"])
+    bundled = tmp_repo / "codex" / "skills" / "flow-auto"
+    assert (bundled / "lib" / "deep" / "b.py").is_file(), (
+        "the indirect dependency was not bundled"
+    )
+
+    result = subprocess.run(
+        [sys.executable, str(bundled / "scripts" / "importer.py")],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    assert result.returncode == 0, f"{result.stdout}{result.stderr}"
+    assert "reached the indirect module" in result.stdout
+
+
+def test_a_runtime_data_file_the_entry_point_reads_is_bundled(tmp_repo):
+    """Code is not the whole dependency (#1028 counter-model review).
+
+    `project-next.py` imported fine and printed `--help` while a real query died
+    on a manifest the bundle did not carry. "It starts" and "it works" are
+    different claims; only the second matters to whoever runs it.
+    """
+    (tmp_repo / ".claude" / "pin.json").write_text('{"contract_version": "1"}\n')
+    (tmp_repo / "scripts" / "reader.py").write_text(
+        "from pathlib import Path\n"
+        "REPO_ROOT = Path(__file__).resolve().parents[1]\n"
+        'MANIFEST = REPO_ROOT / ".claude" / "pin.json"\n'
+        "print(MANIFEST.read_text())\n"
+    )
+    (tmp_repo / ".claude" / "commands" / "flow" / "auto.md").write_text(
+        "# Flow Auto\n\nUses scripts/reader.py.\n"
+    )
+
+    codex_skill_sync.main(["--write"])
+    bundled = tmp_repo / "codex" / "skills" / "flow-auto"
+    assert (bundled / ".claude" / "pin.json").is_file()
+
+    result = subprocess.run(
+        [sys.executable, str(bundled / "scripts" / "reader.py")],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    assert result.returncode == 0, f"{result.stdout}{result.stderr}"
+    assert "contract_version" in result.stdout
+
+
+def test_a_data_path_rooted_somewhere_other_than_the_file_is_not_bundled(tmp_repo):
+    """The narrow rule, and why narrow is correct here.
+
+    Only a constant derived from the module's own `__file__` is trusted. Without
+    that, any constant divided by a string literal that happens to exist under
+    the repository root would pull a file into the bundle - and a bundle is not
+    where you want to discover a loose heuristic.
+    """
+    (tmp_repo / ".claude" / "elsewhere.json").write_text("{}\n")
+    (tmp_repo / "scripts" / "reader.py").write_text(
+        "from pathlib import Path\n"
+        "SOMEWHERE = Path('/etc')\n"
+        'CONF = SOMEWHERE / ".claude" / "elsewhere.json"\n'
+    )
+    (tmp_repo / ".claude" / "commands" / "flow" / "auto.md").write_text(
+        "# Flow Auto\n\nUses scripts/reader.py.\n"
+    )
+    codex_skill_sync.main(["--write"])
+    bundled = tmp_repo / "codex" / "skills" / "flow-auto"
+    assert not (bundled / ".claude" / "elsewhere.json").exists()
 
 
 def test_an_unresolvable_library_import_refuses_rather_than_shipping(tmp_repo):

@@ -121,7 +121,7 @@ Makefile targets are the canonical build interface. Required local gates are:
 - `make test` - run the test suite.
 - `make typecheck` - run static type checks.
 - `make verify` - full pre-deploy verification, including persistent-context checks. It closes by naming every checker it did NOT run, with the reason; a checker accounted for nowhere reds the gate (`make verify-coverage-check`).
-- `make skills-check` - validate topic-skill names, trigger reachability, provenance, and mirror parity.
+- `make skills-check` - validate topic-skill names, trigger reachability, provenance, and mirror parity. Deliberately NOT in `make verify` (#1028): it compares host-local managed installs, so its verdict depends on the box. `verify` covers the canonical half through `make test` and names the rest as unexamined.
 - `make project-next-check` - verify the vendored project-next hash contract.
 - `make codex-skills` - regenerate mirrors after command-document changes.
 

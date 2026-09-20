@@ -158,6 +158,132 @@ def test_the_utility_tripwire_reads_flags_and_not_the_script_name(tmp_path: Path
     assert result.returncode == 0, result.stdout
 
 
+def test_a_recipe_comment_naming_a_script_is_not_an_invocation(tree: Path) -> None:
+    """What a recipe SAYS is not what it does (#1028 counter-model review).
+
+    Counting a comment as an invocation let a checker drop out of the accounting
+    on the strength of a sentence: mention `scripts/delta-check.sh` in any
+    recipe, delete its declaration, and the tree scored clean.
+    """
+    (tree / "scripts" / "delta-check.sh").write_text("#!/bin/sh\nexit 0\n")
+    text = (tree / "Makefile").read_text().replace(
+        "alpha-check:\n\t@sh scripts/alpha-check.sh",
+        "alpha-check:\n\t# see scripts/delta-check.sh for the history\n"
+        '\t@echo "scripts/delta-check.sh explains why"\n'
+        "\t@sh scripts/alpha-check.sh",
+    )
+    (tree / "Makefile").write_text(text)
+    result = run(tree)
+    assert result.returncode == 1
+    assert "UNACCOUNTED: `scripts/delta-check.sh`" in result.stdout
+
+
+def test_an_echoed_word_does_not_trip_the_utility_tripwire(tree: Path) -> None:
+    """The false-RED half, and the worse one (#1028 counter-model review).
+
+    `@echo "Run make verify before merging"` in a `utility` recipe tripped the
+    checker tripwire on the word `verify`. This gate is a `make verify`
+    prerequisite, so that false red would block every merge in the repository -
+    and a tripwire that fires on prose is one people route around.
+    """
+    text = (tree / "Makefile").read_text().replace(
+        "render:\n\t@sh scripts/render.sh --write",
+        'render:\n\t@echo "Run make verify and check the output before merging"\n'
+        "\t@sh scripts/render.sh --write",
+    )
+    (tree / "Makefile").write_text(text)
+    result = run(tree)
+    assert result.returncode == 0, result.stdout
+
+
+def test_every_target_of_a_multi_target_rule_is_accounted(tree: Path) -> None:
+    """`a b:` declares two targets (#1028 counter-model review).
+
+    Reading only the first left the second in no population at all - not
+    classified, not reported, not counted - which is the silent narrowing this
+    gate exists to catch, in the gate itself.
+    """
+    (tree / "Makefile").write_text(
+        (tree / "Makefile").read_text() + "\nfirst-check second-check:\n\t@true\n"
+    )
+    result = run(tree)
+    assert result.returncode == 1
+    assert "UNACCOUNTED: target `second-check`" in result.stdout
+
+
+def test_a_dotted_target_is_accounted_but_a_make_special_is_not(tree: Path) -> None:
+    """The universe is hardcoded; the members are derived.
+
+    `.PHONY` is make's, so it needs no directive. `.audit-deps` is an ordinary
+    target that merely starts with a dot, and anchoring the pattern on
+    `[A-Za-z]` made a whole namespace invisible.
+    """
+    (tree / "Makefile").write_text(
+        ".PHONY: alpha-check beta-check\n"
+        + (tree / "Makefile").read_text()
+        + "\n.audit-deps:\n\t@true\n"
+    )
+    result = run(tree)
+    assert result.returncode == 1
+    assert "UNACCOUNTED: target `.audit-deps`" in result.stdout
+    assert ".PHONY" not in result.stdout
+
+
+def test_a_tested_entry_must_name_a_test_module(tree: Path) -> None:
+    """`tested` and `runtime` had identical validation (#1028 counter-model review).
+
+    Any existing file that mentioned the script qualified, so pointing a
+    `tested` entry at a command document passed - and silently removed the
+    script from the unexamined report without a test existing anywhere.
+    """
+    (tree / "scripts" / "delta-check.sh").write_text("#!/bin/sh\nexit 0\n")
+    (tree / "consumer.md").write_text("runs delta-check.sh at some point\n")
+    declare(
+        tree,
+        **{
+            "delta-check.sh": {
+                "class": "tested",
+                "consumer": "consumer.md",
+                "reason": "x",
+            }
+        },
+    )
+    result = run(tree)
+    assert result.returncode == 1
+    assert "is not under tests/" in result.stdout
+
+
+def test_tested_scripts_are_reported_unexamined_when_the_runner_leaves_the_gate(
+    tree: Path,
+) -> None:
+    """`tested` is a claim about the RUNNER (#1028 counter-model review).
+
+    Drop `test` from `verify` and every `tested` instrument stops being examined
+    in that instant - silently, because each entry still names a real module
+    that still mentions it. The report has to state the condition it rests on.
+    """
+    (tree / "tests").mkdir()
+    (tree / "tests" / "test_delta.py").write_text(
+        'SCRIPT = ROOT / "scripts" / "delta-check.sh"\nimport subprocess\n'
+    )
+    (tree / "scripts" / "delta-check.sh").write_text("#!/bin/sh\nexit 0\n")
+    declare(
+        tree,
+        **{
+            "delta-check.sh": {
+                "class": "tested",
+                "consumer": "tests/test_delta.py",
+                "reason": "x",
+            }
+        },
+    )
+    # `verify` in this fixture does not reach a `test` target at all.
+    result = run(tree, "--report")
+    assert result.returncode == 0, result.stdout
+    assert "is NOT in this gate" in result.stdout
+    assert "scripts/delta-check.sh" in result.stdout
+
+
 def test_a_script_no_surface_invokes_is_unaccounted(tree: Path) -> None:
     """THE MECHANISM FOR NEW CHECKERS.
 
@@ -239,9 +365,10 @@ def test_a_census_instrument_cannot_be_filed_as_not_a_checker(tree: Path) -> Non
         "|---|---|---|---|---|\n"
         "| 1 | `delta-check.sh` | exit code | a reader | G |\n"
     )
-    (tree / "scripts" / "instrument-census-check.py").write_text(
-        (ROOT / "scripts" / "instrument-census-check.py").read_text()
-    )
+    # No copy of the census GATE is planted here on purpose: the extraction rule
+    # is loaded from the gate's own checkout, so only the census DATA has to
+    # exist in the tree being checked. Pointing `--root` at a tree must never
+    # execute that tree's Python.
     declare(tree, **{"delta-check.sh": {"class": "not-a-checker", "reason": "x"}})
     result = run(tree)
     assert result.returncode == 1
@@ -327,6 +454,28 @@ def test_the_real_report_names_control_health_as_unexamined() -> None:
     assert "make negative-controls" in result.stdout
 
 
+def test_the_real_report_names_every_1028_subject_it_does_not_run() -> None:
+    """The acceptance for items 1 and 3, which took the reporting route.
+
+    #1028 allows either remedy - wire the checker in, or have `verify` NAME it
+    as unexamined - and these two are named rather than wired, for reasons in
+    their directives: `skills-check` compares host-local managed installs, and
+    the control battery needs gitleaks and jq. Item 2 took the wiring route and
+    is asserted by test_verify_runs_this_gate_as_a_prerequisite_and_as_its_report
+    plus `codex-skills-check`'s presence in the prerequisite list.
+
+    Asserting the LINE and not merely the report's existence is the point: a
+    report that quietly stopped naming one of them would still print a heading.
+    """
+    report = run(ROOT, "--report").stdout
+    for target in ("make skills-check", "make negative-controls"):
+        assert target in report, f"{target} is no longer named as unexamined\n{report}"
+    assert "codex-skills-check" not in report, (
+        "codex-skills-check is a verify prerequisite now, so naming it unexamined "
+        "would be the report lying in the other direction"
+    )
+
+
 def test_verify_runs_this_gate_as_a_prerequisite_and_as_its_report() -> None:
     """Both wirings, asserted separately, because they fail separately.
 
@@ -338,6 +487,59 @@ def test_verify_runs_this_gate_as_a_prerequisite_and_as_its_report() -> None:
     verify = makefile.split("\nverify:", 1)[1].split("\n\n", 1)[0]
     assert "verify-coverage-check" in verify, "dropped from verify's prerequisites"
     assert "verify-coverage-check.py --report" in verify, "the closing report is gone"
+
+
+def test_every_tested_claim_names_a_module_that_drives_its_script() -> None:
+    """The half the gate cannot check, checked here (issue #1028).
+
+    `verify-coverage-check.py` opens each declared `consumer` and confirms it
+    MENTIONS the script. That is deliberately weak - it is the part that can be
+    stated as a rule for any tree - and it is not the same as the claim a
+    `tested` entry actually makes, which is that `make test` exercises the
+    script through that module.
+
+    The gap is not hypothetical. `worktree-remove.sh` was first declared
+    `tested` by `tests/test_worktree_remove_refusal.py`, which passed the gate's
+    mention check and is about `/flow:merge` REFUSING when the helper is absent
+    - it never runs the helper at all. The real driver is
+    `test_worktree_remove_occupied.py`. One wrong entry in 39, found by auditing
+    the file rather than by anything failing.
+
+    A HEURISTIC THAT FAILS LOUDLY. It asks whether the module binds the script
+    to a path and contains the machinery to run or import one. A legitimate
+    entry written in a shape it does not recognise fails here rather than
+    passing quietly, and the remedy is to name the module that really drives the
+    script - or, if none does, to reclassify the entry as `runtime`.
+    """
+    declarations = json.loads((ROOT / ".claude" / "verify-coverage.json").read_text())
+    tested = {
+        name: entry
+        for name, entry in declarations["scripts"].items()
+        if entry["class"] == "tested"
+    }
+    assert tested, "no `tested` entries at all - this pin is stale"
+
+    import re
+
+    unconfirmed = []
+    for name, entry in sorted(tested.items()):
+        body = (ROOT / entry["consumer"]).read_text()
+        binds = re.search(
+            r'(?m)^\s*[A-Z_]+\s*=\s*.*["\']' + re.escape(name) + r'["\']', body
+        ) or re.search(r'"scripts"\s*[,/]\s*"' + re.escape(name) + r'"', body)
+        runs = (
+            "subprocess" in body
+            or "spec_from_file_location" in body
+            or "main(" in body
+        )
+        if not (binds and runs):
+            unconfirmed.append(f"{name} -> {entry['consumer']}")
+
+    assert not unconfirmed, (
+        "these `tested` entries name a module that does not appear to drive the "
+        "script - a mention is not a driver, which is what the gate's own check "
+        "can and cannot see:\n  " + "\n  ".join(unconfirmed)
+    )
 
 
 def test_the_real_anchor_is_blind_to_every_committed_bad_case() -> None:

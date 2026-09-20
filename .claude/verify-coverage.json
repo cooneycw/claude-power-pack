@@ -290,7 +290,7 @@
     },
     "worktree-remove.sh": {
       "class": "tested",
-      "consumer": "tests/test_worktree_remove_refusal.py",
+      "consumer": "tests/test_worktree_remove_occupied.py",
       "reason": "decides whether a checkout is destroyed"
     }
   }

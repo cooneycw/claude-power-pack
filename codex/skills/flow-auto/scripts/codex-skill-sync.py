@@ -295,6 +295,32 @@ _SIBLING_REF = re.compile(
 #: read here.
 _LIB_IMPORT = re.compile(r"^\s*(?:from|import)\s+(lib(?:\.[A-Za-z_][A-Za-z0-9_]*)+)", re.M)
 
+#: `from .b import value` inside a bundled package module. Single-dot only:
+#: these packages are vendored whole from their own root, so a parent-relative
+#: import would reach outside the tree being bundled and is not a shape this
+#: repository has.
+_RELATIVE_IMPORT = re.compile(r"^\s*from\s+\.([A-Za-z_][A-Za-z0-9_]*)\s+import", re.M)
+
+#: A module-level constant naming a REPO-RELATIVE DATA FILE:
+#: `MANIFEST_PATH = REPO_ROOT / ".claude" / "project-next-vendor.json"`.
+#:
+#: CODE IS NOT THE WHOLE DEPENDENCY (found by the #1028 counter-model review).
+#: Bundling `project-next.py` with its library made the script IMPORT, and
+#: `--help` then printed usage - which is what the first test asserted, and it
+#: proved less than its name suggested. A real query still died on
+#: `[Errno 2] ... codex/skills/project-next/.claude/project-next-vendor.json`,
+#: because the entry point reads that manifest at rank time. "It starts" and "it
+#: works" are different claims, and only the second one matters to whoever runs it.
+_ROOT_DATA_PATH = re.compile(
+    r"(?m)^\s*[A-Z][A-Z0-9_]*\s*=\s*([A-Z][A-Z0-9_]*)((?:\s*/\s*\"[^\"]+\")+)\s*$"
+)
+
+#: A root constant is only trusted when the module derives it from its OWN
+#: location. Without this, any constant divided by a string literal that happens
+#: to exist under the repository root would pull a file into the bundle - and a
+#: bundle is not the place to find out that a heuristic was loose.
+_FILE_ROOTED = r"(?m)^\s*{name}\s*=\s*Path\(__file__\)"
+
 
 def find_bundled_scripts(body: str) -> list[str]:
     """Helper-script basenames the body references, plus what THOSE scripts run.
@@ -351,6 +377,38 @@ def _lib_package_path(dotted: str) -> Path | None:
     return None
 
 
+def find_bundled_data(scripts: list[str]) -> dict[str, Path]:
+    """Repo-relative DATA files the bundled Python scripts read at run time.
+
+    Bundled at the same relative path as the libraries, for the same reason:
+    each script resolves it from a root derived from its own `__file__`, which
+    is the skill directory once bundled.
+
+    Deliberately narrow, and narrow is the correct answer here rather than a
+    limitation to apologise for: it matches a module-level constant assigned
+    `<ROOT> / "a" / "b"` where `<ROOT>` is itself derived from `Path(__file__)`
+    and the result is an existing FILE. Across all 89 scripts in this repository
+    that is exactly two expressions. A rule that tried to chase every runtime
+    path a script might open would be guessing, and a bundle assembled by
+    guesswork is worse than one whose gaps are visible.
+    """
+    out: dict[str, Path] = {}
+    for name in scripts:
+        path = SCRIPTS_ROOT / name
+        if path.suffix != ".py":
+            continue
+        text = path.read_text()
+        for match in _ROOT_DATA_PATH.finditer(text):
+            root_name = match.group(1)
+            if not re.search(_FILE_ROOTED.format(name=re.escape(root_name)), text):
+                continue
+            rel = Path(*re.findall(r'"([^"]+)"', match.group(2)))
+            source = REPO_ROOT / rel
+            if source.is_file():
+                out[str(rel)] = source
+    return out
+
+
 def find_bundled_libs(scripts: list[str]) -> dict[str, Path]:
     """Map skill-relative path -> source path for the libraries `scripts` import.
 
@@ -359,25 +417,44 @@ def find_bundled_libs(scripts: list[str]) -> dict[str, Path]:
     indistinguishable from a working one until someone ran it.
     """
     out: dict[str, Path] = {}
+    # A WORKLIST, NOT A SINGLE PASS (found by the #1028 counter-model review).
+    # The first cut scanned only the entry scripts, so a module it copied was
+    # never itself examined: with `scripts/x.py` importing `lib.a`, and `lib/a.py`
+    # containing `from .b import value`, the bundle carried `a.py` and no `b.py`.
+    # Generation succeeded and the bundled entry point died at import.
+    #
+    # The real project-next bundle happened to be complete only because the entry
+    # point imports all six modules directly - the transitive edges were satisfied
+    # by coincidence, which is not a property anything was checking.
+    pending: list[tuple[str, Path]] = []
+    seen: set[Path] = set()
     for name in scripts:
         path = SCRIPTS_ROOT / name
-        if path.suffix != ".py":
+        if path.suffix == ".py":
+            pending.append((f"scripts/{name}", path))
+
+    while pending:
+        origin, path = pending.pop()
+        if path in seen:
             continue
-        for match in _LIB_IMPORT.finditer(path.read_text()):
+        seen.add(path)
+        text = path.read_text()
+
+        # Absolute `lib.*` imports, resolved against the repository root.
+        for match in _LIB_IMPORT.finditer(text):
             dotted = match.group(1)
             rel = _lib_package_path(dotted)
             if rel is None:
                 raise SystemExit(
-                    f"codex-skill-sync: scripts/{name} imports `{dotted}`, which "
+                    f"codex-skill-sync: {origin} imports `{dotted}`, which "
                     f"resolves to no package under the repository root or vendor/. "
                     f"Bundling it would ship a script that cannot start."
                 )
             source = REPO_ROOT / rel
-            if source.is_dir():
-                for child in sorted(source.rglob("*.py")):
-                    out[str(child.relative_to(REPO_ROOT))] = child
-            else:
-                out[str(rel)] = source
+            targets = sorted(source.rglob("*.py")) if source.is_dir() else [source]
+            for child in targets:
+                out[str(child.relative_to(REPO_ROOT))] = child
+                pending.append((str(child.relative_to(REPO_ROOT)), child))
             # EVERY `__init__.py` ON THE WAY DOWN. `from lib.project_next.rank
             # import ...` resolves to one module, so bundling only that module
             # leaves the package's own `__init__.py` behind - and the six
@@ -391,6 +468,20 @@ def find_bundled_libs(scripts: list[str]) -> dict[str, Path]:
                 init = REPO_ROOT / parent / "__init__.py"
                 if init.is_file():
                     out[str(init.relative_to(REPO_ROOT))] = init
+                    pending.append((str(init.relative_to(REPO_ROOT)), init))
+
+        # Relative imports INSIDE a bundled package - `from .b import value`.
+        # Only meaningful once we are walking a package's own modules, which is
+        # exactly what the worklist made possible.
+        if path.parent != SCRIPTS_ROOT:
+            for match in _RELATIVE_IMPORT.finditer(text):
+                sibling = path.parent / f"{match.group(1)}.py"
+                subpackage = path.parent / match.group(1) / "__init__.py"
+                for candidate in (sibling, subpackage):
+                    if candidate.is_file():
+                        rel_child = candidate.relative_to(REPO_ROOT)
+                        out[str(rel_child)] = candidate
+                        pending.append((str(rel_child), candidate))
     return out
 
 
@@ -546,6 +637,8 @@ def generate_skill(
     # Bundled at their repo-relative path, which is what makes the scripts'
     # own `parents[1]` resolution land inside the skill directory.
     for rel, source in find_bundled_libs(scripts).items():
+        files[rel] = source.read_text()
+    for rel, source in find_bundled_data(scripts).items():
         files[rel] = source.read_text()
     for doc in docs:
         # Bundled verbatim, at the same relative path, so sibling links between

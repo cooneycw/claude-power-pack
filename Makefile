@@ -355,7 +355,7 @@ verify-coverage-check:
 ## "UNSIGNALLED because the tool is absent" from "UNSIGNALLED because the gate
 ## stopped signalling", a distinction its verdict vocabulary does not yet carry.
 ## That is its own change to the instrument that decides control health, and it
-## is tracked separately rather than smuggled in here.
+## is tracked at issue #1117 rather than smuggled in here.
 ## verify-coverage: excluded negative-controls - the battery needs gitleaks and jq on PATH, and reports UNSIGNALLED without them, so a host missing either would fail verify for an environment reason. CI runs it with --strict; `make test` runs the battery but consumes only one control's verdict (#1028)
 negative-controls:
 	@python3 scripts/check-negative-controls.py --strict

@@ -146,10 +146,42 @@ CONSUMER_REQUIRED = ("tested", "runtime")
 CENSUS_REL = "docs/decisions/0008-instrument-negative-control-bound.md"
 CENSUS_GATE_REL = "scripts/instrument-census-check.py"
 
+#: Where a `tested` consumer must live, and the target that runs them. `tested`
+#: means "`make test` exercises this", so both halves are checked: the consumer
+#: is a test module, and the runner is actually reachable from `verify`.
+TESTS_REL = "tests"
+TEST_TARGET = "test"
+
 #: `name:` at column 0, and NOT `name :=` (a variable) - the `(?!=)` is what
-#: keeps `TOOLS_HARD := git python3 uv` out of the target population. Leading
-#: `.` is excluded so `.PHONY` and `.DEFAULT_GOAL` are not read as targets.
-TARGET_RE = re.compile(r"^([A-Za-z][A-Za-z0-9_-]*):(?!=)\s*(.*)$")
+#: keeps `TOOLS_HARD := git python3 uv` out of the target population.
+#:
+#: DOTTED NAMES ARE MATCHED AND THEN SUBTRACTED, never excluded by the pattern
+#: (found by the #1028 counter-model review). The first cut anchored on
+#: `[A-Za-z]`, which kept `.PHONY` out - and also made a target literally named
+#: `.my-check` invisible to the population, so it would be neither classified
+#: nor reported. A rule that skips a whole namespace to avoid a handful of known
+#: names is a rule that narrows silently: the exact shape this gate exists to
+#: catch, in the gate itself.
+#:
+#: So the UNIVERSE is hardcoded (GNU make's special targets) and the MEMBERS are
+#: derived. A dotted name that is not a make special is an ordinary target and
+#: must be accounted for like any other.
+#: SEVERAL TARGETS MAY SHARE ONE RULE - `a b:` declares both (found by the
+#: #1028 counter-model review). Reading only the first name left the second in
+#: no population at all: not classified, not reported, not counted.
+TARGET_RE = re.compile(
+    r"^(\.?[A-Za-z][A-Za-z0-9_.-]*(?:[ \t]+\.?[A-Za-z][A-Za-z0-9_.-]*)*):(?!=)\s*(.*)$"
+)
+
+#: GNU make's built-in special targets. Hardcoded deliberately - this is the
+#: fixed universe, not a population derived from the tree - and a name outside it
+#: is a real target however it is spelled.
+MAKE_SPECIAL_TARGETS = frozenset({
+    ".PHONY", ".SUFFIXES", ".DEFAULT", ".PRECIOUS", ".INTERMEDIATE", ".NOTINTERMEDIATE",
+    ".SECONDARY", ".SECONDEXPANSION", ".DELETE_ON_ERROR", ".IGNORE", ".LOW_RESOLUTION_TIME",
+    ".SILENT", ".EXPORT_ALL_VARIABLES", ".NOTPARALLEL", ".ONESHELL", ".POSIX",
+    ".DEFAULT_GOAL", ".RECIPEPREFIX", ".MAKE", ".WAIT",
+})
 
 #: `## verify-coverage: <class> <target> - <reason>`. The target is NAMED rather
 #: than inferred from position, so the directive survives being moved and a
@@ -168,6 +200,39 @@ SMELL_RE = re.compile(
     r"(?:^|\s)(?:--(?:check|strict|verify|lint|scan|drift|audit)\b"
     r"|(?:check|verify|lint)(?=\s|$))"
 )
+
+
+def _executable_recipe(text: str) -> str:
+    """Recipe text with comments and quoted strings removed.
+
+    WHAT A RECIPE SAYS IS NOT WHAT IT DOES, and reading the two as one moved
+    this gate's verdict in BOTH directions (found by the #1028 counter-model
+    review):
+
+      * a recipe comment naming `scripts/x.sh` counted as an invocation, so
+        deleting that script's declaration left the tree green - a checker
+        dropped out of the accounting on the strength of a sentence;
+      * `@echo "Run make verify before merging"` in a `utility` recipe tripped
+        the checker tripwire on the word `verify`, a false red on a target that
+        runs nothing at all. That direction is worse: this gate is a `make
+        verify` prerequisite, so it would block every merge in the repository.
+
+    Quoted strings go too, which is deliberately the safe direction for the
+    script scan: a script genuinely invoked from inside double quotes becomes
+    UNACCOUNTED - loud, and fixed by a declaration - rather than silently
+    attributed to a target it may not belong to. No recipe in this repository
+    invokes one that way.
+    """
+    out: list[str] = []
+    for line in text.splitlines():
+        stripped = line.lstrip("@-+ \t")
+        if stripped.startswith("#"):
+            continue
+        line = re.sub(r'"[^"]*"', " ", line)
+        line = re.sub(r"'[^']*'", " ", line)
+        line = re.split(r"(?:^|\s)#", line, maxsplit=1)[0]
+        out.append(line)
+    return "\n".join(out)
 
 
 def _strip_script_paths(text: str) -> str:
@@ -190,6 +255,8 @@ class Makefile:
         self.order: list[str] = []
         self.directives: dict[str, tuple[str, str, int]] = {}
         self.duplicate_directives: list[tuple[str, int]] = []
+        #: first target of a multi-target rule -> every target sharing its recipe
+        self.shared: dict[str, list[str]] = {}
         self._parse(text)
 
     def _parse(self, text: str) -> None:
@@ -214,17 +281,26 @@ class Makefile:
                 continue
             match = TARGET_RE.match(line)
             if match:
-                name, rest = match.groups()
+                names, rest = match.groups()
                 # A prerequisite list continued with trailing backslashes.
                 while rest.endswith("\\") and i + 1 < len(lines):
                     i += 1
                     rest = rest[:-1] + " " + lines[i].strip()
-                if name not in self.prereqs:
-                    self.order.append(name)
-                    self.prereqs[name] = []
-                    self.recipes[name] = []
-                self.prereqs[name].extend(rest.split())
-                current = name
+                declared = [n for n in names.split() if n not in MAKE_SPECIAL_TARGETS]
+                if not declared:
+                    # A directive to make (`.PHONY:`), not a target anyone runs.
+                    current = None
+                    i += 1
+                    continue
+                for name in declared:
+                    if name not in self.prereqs:
+                        self.order.append(name)
+                        self.prereqs[name] = []
+                        self.recipes[name] = []
+                    self.prereqs[name].extend(rest.split())
+                # Every target of a multi-target rule shares its recipe.
+                self.shared[declared[0]] = declared
+                current = declared[0]
                 i += 1
                 continue
             if line.strip():
@@ -244,10 +320,17 @@ class Makefile:
         return seen
 
     def recipe_text(self, target: str) -> str:
-        return "\n".join(self.recipes.get(target, ()))
+        """This target's recipe, including one it shares with siblings."""
+        own = self.recipes.get(target, ())
+        if own:
+            return "\n".join(own)
+        for first, group in self.shared.items():
+            if target in group:
+                return "\n".join(self.recipes.get(first, ()))
+        return ""
 
     def scripts_invoked(self, target: str) -> set[str]:
-        return set(SCRIPT_REF_RE.findall(self.recipe_text(target)))
+        return set(SCRIPT_REF_RE.findall(_executable_recipe(self.recipe_text(target))))
 
 
 def _ci_scripts(text: str) -> set[str]:
@@ -303,7 +386,12 @@ def census_instruments(root: Path) -> set[str] | None:
     the blind-scan shape this whole file is about. Callers report it.
     """
     census = root / CENSUS_REL
-    gate = root / CENSUS_GATE_REL
+    # THE RULE COMES FROM THIS CHECKOUT, THE DATA FROM THE TREE BEING CHECKED.
+    # Loading the rule from `root` instead would execute the target tree's own
+    # Python on every run - which `--root` points at fixtures and, in principle,
+    # at any tree someone hands it. It is also wrong on the merits: "what counts
+    # as an instrument" is this gate's rule, not something each tree redefines.
+    gate = REPO_ROOT / CENSUS_GATE_REL
     if not census.is_file() or not gate.is_file():
         return None
     try:
@@ -382,7 +470,9 @@ def run_check(root: Path, report: bool = False) -> int:
                 f"unexamined while it runs on every verify"
             )
         if cls == "utility":
-            smell = SMELL_RE.search(_strip_script_paths(mk.recipe_text(target)))
+            smell = SMELL_RE.search(
+                _strip_script_paths(_executable_recipe(mk.recipe_text(target)))
+            )
             if smell:
                 findings.append(
                     f"MISCLASSIFIED: `{target}` is declared `utility` but its "
@@ -467,6 +557,18 @@ def run_check(root: Path, report: bool = False) -> int:
                             f"STALE: {DECL_REL} says `{name}` is consumed by "
                             f"`{consumer}`, which does not mention it"
                         )
+                    elif cls == "tested" and not consumer.startswith(f"{TESTS_REL}/"):
+                        # `tested` MEANS "the test runner exercises it", and the
+                        # mention check alone could not tell that from `runtime`
+                        # (found by the #1028 counter-model review): pointing a
+                        # `tested` entry at a command document passed, and
+                        # silently removed the script from the unexamined report.
+                        findings.append(
+                            f"MISCLASSIFIED: {DECL_REL} classifies `{name}` "
+                            f"`tested` but its consumer `{consumer}` is not under "
+                            f"{TESTS_REL}/. `tested` claims the test runner "
+                            f"exercises it; a command document is `runtime`"
+                        )
             classified[name] = (cls, reason)
         else:
             findings.append(
@@ -542,8 +644,37 @@ def print_report(
     ci_only = sorted(n for n, (c, _) in classified.items() if c == "ci")
     runtime = sorted(n for n, (c, _) in classified.items() if c == "runtime")
 
+    gates = [t for t in mk.order if mk.directives.get(t, ("", "", 0))[0] == "gate"]
+    tested = sorted(n for n, (c, _) in classified.items() if c == "tested")
+
+    # `tested` IS A CLAIM ABOUT THE RUNNER, NOT ABOUT THE MODULE (found by the
+    # #1028 counter-model review). Every one of these scripts counts as examined
+    # only because `make test` is in this gate. Drop `test` from the prerequisite
+    # list and 39 instruments become unexamined in the same instant - silently,
+    # because each entry still names a real module that still mentions it. So the
+    # report states the condition it depends on rather than assuming it.
+    if TEST_TARGET not in examined and tested:
+        print(
+            f"  WARNING: {len(tested)} instrument(s) are recorded `tested`, but "
+            f"`make {TEST_TARGET}` is NOT in this gate - nothing here exercised "
+            f"them. They are unexamined:"
+        )
+        for name in tested:
+            print(f"    {SCRIPTS_REL}/{name}")
+        print("")
+        tested = []
+
     print("")
     print(f"make {VERIFY_TARGET}: what this run did NOT examine")
+    print("")
+    # THE DENOMINATOR, BESIDE THE NUMERATOR. A list of what was skipped, printed
+    # alone, reads as the whole picture; the same list under "18 of 33" reads as
+    # a fraction a reader can weigh. This repository already learned that at
+    # #979, on `check-negative-controls.py`'s own summary line.
+    print(
+        f"  examined: {len(gates)} check(s) in this gate, plus {len(tested)} "
+        f"instrument(s) exercised through `make test`."
+    )
     print("")
     if excluded:
         print(f"  {len(excluded)} check(s) this repository owns and this gate did not run:")
