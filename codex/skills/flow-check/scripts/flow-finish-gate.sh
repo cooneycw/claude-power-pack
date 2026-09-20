@@ -20,11 +20,16 @@
 #   documented PYTHONPATH / `uv run --project` contract (PYTHONPATH names the
 #   PARENT of lib/ so `-m lib.cicd` resolves for external projects too, and uv
 #   pins the >= 3.11 interpreter plus pydantic - issue #430). When the runner
-#   is unavailable it degrades to `make lint` + `make test` + `make typecheck`,
-#   the same fallback the command docs describe; with no Makefile gates either,
-#   it skips loudly. The fallback mirrors the runner's `finish` plan target for
-#   target: when it ran only lint + test it reproduced the exact false green the
-#   plan itself had (issue #617) for every repo without uv or a CPP checkout.
+#   is unavailable it degrades to the same Makefile gates the command docs
+#   describe - `make lint`, `make test`, `make typecheck` and, since issue
+#   #1147, `make verify`; with no Makefile gates either, it skips loudly. The
+#   fallback mirrors the runner's `finish` plan target for target: when it ran
+#   only lint + test it reproduced the exact false green the plan itself had
+#   (issue #617) for every repo without uv or a CPP checkout, and when it ran
+#   three of four it did the same thing again for `verify` (issue #1147).
+#
+#: NEGATIVE-CONTROL: controls/flow-finish-gate
+#: NEGATIVE-CONTROL: controls/flow-finish-gate-declared-gates
 #
 # Usage:
 #   flow-finish-gate.sh                  # run the 'finish' quality-gate plan
@@ -237,17 +242,80 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
     # "tests" object is not mistaken for the array (json.dumps(indent=2) always
     # multi-lines the array).
     #
-    # The alternation below IS the gate list for this helper, and it decides the
-    # reported verdict - the "skipped" array carries every skipped step, gate or
-    # not, so it has to be filtered to gates here. That makes it a SECOND copy of
-    # lib/cicd/steps.py's GATE_STEP_IDS, in a language that cannot import it, and
-    # the copies drifted (issue #890): `security_scan` was added to the Python
-    # set while this regex still listed three names, so the id reached the JSON
-    # array, was filtered out here, and the marker still said `ok`. Keep them
-    # equal; tests/test_flow_finish_gate.py::test_gate_filter_matches_GATE_STEP_IDS
-    # parses this line and fails when they differ.
-    SKIPPED_GATES=$(sed -n '/"skipped": \[/,/\]/p' "$RUNNER_JSON" 2>/dev/null \
-        | grep -oE '"(lint|test|typecheck|security_scan)"' | tr -d '"' | tr '\n' ' ' | sed 's/ *$//')
+    # WHICH IDS ARE GATES IS READ FROM THE JSON, never restated here (#1147).
+    # The "skipped" array carries every skipped step, gate or not, so it has to
+    # be filtered to gates - and this line used to do that with a hardcoded
+    # alternation, which was a SECOND copy of lib/cicd/steps.py's
+    # GATE_STEP_IDS in a language that cannot import it. The copies drifted
+    # once already (#890): `security_scan` was added to the Python set while
+    # this regex still listed three names, so the id reached the JSON, was
+    # filtered out here, and the marker still said `ok`.
+    #
+    # The alternation is DELETED rather than extended. Adding a fifth name
+    # would have left a list for the sixth gate to be omitted from, which is
+    # this issue's own defect shape. The runner now emits the derived set, so
+    # there is one declaration (`gate=` on the step) and readers follow it.
+    # The KEY LINE IS DROPPED before the values are read. The alternation this
+    # replaced could not match `"gates"` because it listed only step names; a
+    # general `"[a-z_]+"` matches the key as readily as a value, so `gates`
+    # itself landed in the set - found by running the parse rather than reading
+    # it. A spurious member is not harmless here: it is a name a skipped step
+    # could carry, and the filter would then keep a non-gate as a gate.
+    # AWK, NOT A SED RANGE, and the reason is a real bug this replaced. A
+    # `/"gates": \[/,/\]/` range NEVER ENDS ON ITS OWN START LINE - sed begins
+    # looking for the end pattern on the NEXT line - so an empty set, which
+    # json.dumps renders INLINE as `"gates": [],`, ran the range on to the next
+    # `]` in the document and swallowed the whole `step_details` block. The ids
+    # then came back as `step_details id status success`, and the accountability
+    # check below duly failed the run for not executing a gate called `status`.
+    # Same anchored, shape-aware style as the `reruns` and `coverage` parsers
+    # further down, which is what those exist for.
+    GATE_IDS=$(awk '
+        /^  "gates": \[\],?$/ { exit }
+        /^  "gates": \[$/ { in_gates = 1; next }
+        in_gates && /^  \][,]?$/ { exit }
+        in_gates {
+            id = $0
+            sub(/^[[:space:]]*"/, "", id)
+            sub(/",?$/, "", id)
+            if (id != "") print id
+        }
+    ' "$RUNNER_JSON" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
+
+    # Does the runner SAY, at all? Read here, beside the parse and while the
+    # JSON still exists - the temp file is removed further down, before the
+    # verdict lanes, so a presence test down there reads a deleted file and
+    # reports every run as unreadable. Caught by the existing suite, which is
+    # the second time in this issue a check placed away from its input answered
+    # a question about something that was no longer there.
+    GATE_FIELD_PRESENT=0
+    grep -q '"gates":' "$RUNNER_JSON" 2>/dev/null && GATE_FIELD_PRESENT=1
+
+    # WHICH STEPS ACTUALLY EXECUTED, read from the per-step record rather than
+    # inferred (issue #1147). The runner emits one object per executed step in
+    # `step_details`; anchor on that block so the scalar `"id"` keys inside a
+    # nested coverage object or a rerun entry are not mistaken for step ids.
+    RAN_IDS=$(awk '
+        /^  "step_details": \[$/ { in_details = 1; next }
+        in_details && /^  \][,]?$/ { exit }
+        in_details && /^      "id": "[^"]*",?$/ {
+            id = $0
+            sub(/^[[:space:]]*"id": "/, "", id)
+            sub(/",?$/, "", id)
+            print id
+        }
+    ' "$RUNNER_JSON" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
+
+    SKIPPED_GATES=""
+    for _sg in $(sed -n '/"skipped": \[/,/\]/{ /"skipped": \[/d; p; }' "$RUNNER_JSON" 2>/dev/null \
+        | grep -oE '"[a-z_]+"' | tr -d '"'); do
+        for _gid in $GATE_IDS; do
+            if [[ "$_sg" == "$_gid" ]]; then
+                SKIPPED_GATES="${SKIPPED_GATES:+$SKIPPED_GATES }$_sg"
+                break
+            fi
+        done
+    done
     # Pull ids only from #769 entries whose outcome is "passed-in-isolation" -
     # the token the runner records for a re-run that greened when the failed ids
     # ran alone. It was "passed" until issue #900; the rename is the point, since
@@ -338,6 +406,77 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         echo "RERUN_PASSED: $RERUN_PASSED_IDS"
     fi
     if [[ "$RUNNER_EXIT" -eq 0 ]]; then
+        # FAIL CLOSED, and do it FIRST in this lane. A runner too old to emit
+        # the field leaves this script unable to tell which skipped steps were
+        # gates; the filter then matches nothing and the marker reads `ok`.
+        # That is the silent-subset failure #1147 exists to remove, arriving
+        # through the fix for it.
+        #
+        # It sits INSIDE the green lane rather than beside the parse because
+        # this is the only lane where the unreadable set can turn into a pass.
+        # A non-zero runner already fails on its own cause, and reporting a
+        # version problem there would send a reader whose tests just failed
+        # looking at the wrong thing.
+        #
+        # `verdict` PRINTS, it does not exit - every other call site pairs it
+        # with an explicit exit. The first cut of this guard did not, so it
+        # emitted `fail (gate set unreadable)` and then fell through to
+        # `verdict ok; exit 0`: two markers, exit 0, on the exact input this
+        # guard was added to catch. Caught by tests/test_flow_finish_gate.py,
+        # which reads the LAST marker, and pinned below by a single-marker
+        # assertion so a print-without-exit cannot come back silently.
+        # PRESENCE, not emptiness. An EMPTY gate set is a legitimate answer -
+        # `--plan deploy` resolves to bootstrap/drift/deploy steps and has no
+        # quality gate in it at all - so testing `-z "$GATE_IDS"` would fail
+        # every run of such a plan while claiming the runner was too old.
+        # Conflating the two is the same error one level down as emitting the
+        # field conditionally: "this plan has no gates" and "this runner does
+        # not say" have to stay distinguishable, and the field's PRESENCE is
+        # what carries that. Found by counter-model review (#1147).
+        if [[ "$GATE_FIELD_PRESENT" -ne 1 ]]; then
+            echo "flow-finish-gate: the runner JSON carries no 'gates' field, so which steps are quality gates could not be determined." >&2
+            echo "  This is NOT a pass: a gate set that cannot be read filters nothing, and every skipped gate would go unreported (#1147)." >&2
+            echo "  Expect this against a runner older than #1147; re-run with the current lib/cicd." >&2
+            verdict "fail (gate set unreadable)"
+            exit 1
+        fi
+        # EVERY DECLARED GATE MUST BE ACCOUNTED FOR: it ran, or it was recorded
+        # as skipped. A gate that is in neither list was declared and then
+        # silently dropped from the plan, and nothing else in this script can
+        # see that - `skipped` is empty, the filter finds nothing, and the
+        # marker reads `ok`.
+        #
+        # THIS IS NOT HYPOTHETICAL AND IT IS WHY THE CHECK EXISTS. `get_plan_steps`
+        # prefers `.claude/cicd_tasks.yml` over `BUILTIN_PLANS` while GATE_STEP_IDS
+        # is derived from BUILTIN_PLANS alone, so the two populations come from
+        # different files with nothing comparing them. Adding `verify` to the
+        # built-in finish plan for #1147 left it dead config in this repository:
+        # the runner declared five gates, executed four, recorded none as skipped
+        # and printed `ok`. The manifest is fixed, but a manifest can drop any
+        # gate at any time - and #617 hit the same precedence trap and wrote the
+        # warning INTO that manifest, where a reader of this script never sees it.
+        # So the check is here, where the verdict is decided.
+        #
+        # `fail`, NOT `warn`, and the distinction is the reason. #628's
+        # `warn (skipped gates: X)` means "could not run, and here is why" - a
+        # RECORDED reason, from a runner whose accounting is consistent. This
+        # has no reason: the runner declared a gate and then its own two
+        # records of what happened to that gate both omit it. A green from an
+        # inconsistent runner is the false green this whole chain exists to
+        # stop, so it fails closed rather than degrading to a softer verdict.
+        UNACCOUNTED_GATES=""
+        for _gid in $GATE_IDS; do
+            _seen=0
+            for _rid in $RAN_IDS $SKIPPED_GATES; do
+                if [[ "$_gid" == "$_rid" ]]; then _seen=1; break; fi
+            done
+            [[ "$_seen" -eq 1 ]] || UNACCOUNTED_GATES="${UNACCOUNTED_GATES:+$UNACCOUNTED_GATES }$_gid"
+        done
+        if [[ -n "$UNACCOUNTED_GATES" ]]; then
+            echo "WARNING: the runner DECLARED these quality gates and then neither ran them nor recorded them as skipped: $UNACCOUNTED_GATES. They were dropped from the executed plan, so this gate proved nothing about them - do not read as 'safe to merge'. Check that .claude/cicd_tasks.yml lists each one under its plan: that manifest WINS over lib/cicd/steps.py, so a gate defined there and not referenced is dead config (issues #617, #1147)." >&2
+            verdict "fail (declared but never ran: $UNACCOUNTED_GATES)"
+            exit 1
+        fi
         if [[ -n "$SKIPPED_GATES" ]]; then
             echo "WARNING: quality gates did NOT run: $SKIPPED_GATES (no Makefile target and no configured tool). This gate proved nothing about those checks - do not read as 'safe to merge' (issue #628)." >&2
             verdict "warn (skipped gates: $SKIPPED_GATES)"
@@ -430,6 +569,10 @@ ZERO_COVERAGE_GATES=""
 # is a fraction of it, and a reader should not have to infer coverage from an
 # absence of complaints.
 RAN_GATES=""
+# The same information as RAN_GATES, as bare ids. RAN_GATES is display text
+# ("make lint uv:test") and the #808 aggregate detector needs to MATCH on ids,
+# so it gets its own accumulator rather than a parse of the display string.
+RAN_GATE_IDS=""
 UNRUN_AGGREGATE=""
 AGGREGATE_TARGET=""
 RERUN_PASSED_IDS=""
@@ -481,6 +624,7 @@ run_fallback_gate() {
     if grep -q "^${id}:" Makefile 2>/dev/null; then
         echo "flow-finish-gate: running fallback gate 'make ${id}'"
         RAN_GATES="${RAN_GATES:+$RAN_GATES }make ${id}"
+        RAN_GATE_IDS="${RAN_GATE_IDS:+$RAN_GATE_IDS }${id}"
         if [[ "$id" == "test" && "$RERUN_ENABLED" == "1" ]]; then
             local first_output gate_exit failed_ids failed_count
             first_output=$(mktemp "${TMPDIR:-/tmp}/flow-finish-gate-test.XXXXXX")
@@ -512,9 +656,15 @@ run_fallback_gate() {
             rm -f "$gate_output"
         fi
         RAN=1
-    elif [[ "$UV_OK" -eq 1 ]] && grep -q "${token}" pyproject.toml 2>/dev/null; then
+    # `-n "$token"` is load-bearing (#1147). `grep -q ""` matches EVERY line, so
+    # a gate with no tool equivalent - `verify`, which is a Makefile aggregate -
+    # would otherwise fall into this branch on any pyproject.toml at all and run
+    # `uv run --extra dev` with no arguments. An empty token means "there is no
+    # degraded form of this gate", and the skip below is the honest answer.
+    elif [[ "$UV_OK" -eq 1 && -n "$token" ]] && grep -q "${token}" pyproject.toml 2>/dev/null; then
         echo "flow-finish-gate: running fallback gate 'uv run --extra dev ${uvargs}' (no '${id}' Makefile target)"
         RAN_GATES="${RAN_GATES:+$RAN_GATES }uv:${id}"
+        RAN_GATE_IDS="${RAN_GATE_IDS:+$RAN_GATE_IDS }${id}"
         if [[ "$id" == "test" && "$RERUN_ENABLED" == "1" ]]; then
             local first_output gate_exit failed_ids failed_count
             first_output=$(mktemp "${TMPDIR:-/tmp}/flow-finish-gate-test.XXXXXX")
@@ -568,36 +718,85 @@ run_fallback_gate() {
 # lines, so a line-at-a-time scan would see one prerequisite and miss five.
 detect_aggregate_gate() {
     [[ -f Makefile ]] || return 0
+    # $1 = the gate ids this lane actually ran, space separated.
     awk '
         # Join backslash continuations into one logical line.
         { line = line $0
           if (line ~ /\\$/) { sub(/\\$/, " ", line); next }
           print line; line = "" }
         END { if (line != "") print line }
-    ' Makefile 2>/dev/null | awk -F: '
+    ' Makefile 2>/dev/null | awk -F: -v ran="$1" '
+        # The known-set is DERIVED from what this lane ran, never restated.
+        # It used to be the literal lint/test/typecheck - a second hardcoded
+        # copy of the gate list in the same file whose first copy is what
+        # #1147 deleted, and it went stale the moment `verify` was added: the
+        # detector would have called a `verify` prerequisite unrun while this
+        # lane was running `make verify` three lines above.
+        BEGIN { n = split(ran, r, /[[:space:]]+/); for (i = 1; i <= n; i++) if (r[i] != "") RAN[r[i]] = 1 }
         # Special targets (.PHONY, .DEFAULT_GOAL) list gate names as DATA, not
         # as prerequisites - .PHONY names every phony target in the file, so it
         # trivially "depends on" lint, test and typecheck and matched first.
         # Caught by running the detector against this repo rather than a
         # fixture: the real Makefile has a .PHONY line and a synthetic one
-        # would not have.
+        # would not.
         /^\./ { next }
-        /^[a-zA-Z0-9_-]+[[:space:]]*:[^=]/ {
-            target = $1
-            gsub(/[[:space:]]/, "", target)
-            deps = $2
-            known = 0; extra = ""
-            n = split(deps, parts, /[[:space:]]+/)
-            for (i = 1; i <= n; i++) {
-                d = parts[i]
-                if (d == "") continue
-                if (d == "lint" || d == "test" || d == "typecheck") { known++ }
-                else { extra = extra (extra == "" ? "" : " ") d }
+        # BUFFERED, because the question needs two passes. Pass one expands the
+        # ran-set with the prerequisites of targets this lane actually invoked;
+        # pass two looks for an aggregate whose prerequisites are not covered.
+        # A streaming scan cannot do that: whether `check-all` names an unrun
+        # prerequisite depends on whether `verify`, possibly defined LATER in
+        # the file, already ran it. Counter-model review found the missing
+        # expansion - with `verify: lint test typecheck extra-check` and
+        # `check-all: lint test typecheck extra-check`, running `make verify`
+        # executes extra-check and the detector still called it unrun, so
+        # adding a second aggregate that names the same prerequisites changed
+        # the verdict without changing what was verified.
+        /^[a-zA-Z0-9_-]+[[:space:]]*:[^=]/ { line[++count] = $0 }
+        END {
+            # Pass 1: running a target ran its prerequisites.
+            #
+            # One level deep, deliberately. A transitive walk would need a
+            # full dependency graph and cycle handling to answer a question
+            # whose remedy is the same either way ("run the aggregate
+            # yourself"); one level covers the shape that occurs - an
+            # aggregate naming checkers directly - and a deeper chain simply
+            # leaves the warning on, which is the safe direction.
+            for (i = 1; i <= count; i++) {
+                split(line[i], part, ":")
+                target = part[1]
+                gsub(/[[:space:]]/, "", target)
+                if (!(target in RAN)) continue
+                n = split(part[2], dep, /[[:space:]]+/)
+                for (j = 1; j <= n; j++) if (dep[j] != "") COVERED[dep[j]] = 1
             }
-            # Two of the three, plus at least one we would not have run.
-            if (known >= 2 && extra != "") {
-                print target "\t" extra
-                exit
+            for (d in COVERED) RAN[d] = 1
+
+            # Pass 2: an aggregate this lane did NOT run, naming prerequisites
+            # nothing ran either.
+            for (i = 1; i <= count; i++) {
+                split(line[i], part, ":")
+                target = part[1]
+                gsub(/[[:space:]]/, "", target)
+                # A target this lane RAN is not an unrun aggregate - running it
+                # ran its prerequisites, whatever they are. Without this the
+                # #1147 fallback call to `make verify` would be followed by a
+                # warning saying the prerequisites of verify "did NOT run
+                # here", which is the gate asserting a fact its own previous
+                # line falsified.
+                if (target in RAN) continue
+                known = 0; extra = ""
+                n = split(part[2], dep, /[[:space:]]+/)
+                for (j = 1; j <= n; j++) {
+                    d = dep[j]
+                    if (d == "") continue
+                    if (d in RAN) { known++ }
+                    else { extra = extra (extra == "" ? "" : " ") d }
+                }
+                # Two of the gates we ran, plus at least one we did not.
+                if (known >= 2 && extra != "") {
+                    print target "\t" extra
+                    exit
+                }
             }
         }
     '
@@ -610,6 +809,19 @@ if [[ -f Makefile || -f pyproject.toml ]]; then
     # runs it too - otherwise a repo that degrades here gets the same
     # local-green-then-CI-red the runner plan had before #617.
     run_fallback_gate typecheck "mypy ." "mypy"
+    # `verify` runs HERE TOO (#1147). A gate declared in the finish plan must be
+    # either invoked by this lane or named in FALLBACK_UNRUNNABLE_GATES with a
+    # reason - tests/test_runner.py asserts it - so leaving it out would have
+    # been a decision, not an omission, and the wrong one: this lane runs make
+    # targets directly, which is exactly what `verify` is.
+    #
+    # The degraded lane exists when the runner is unavailable, and that is
+    # precisely when a full local verification matters most; a lane that
+    # covered three of verify's prerequisites and called itself a gate would
+    # reproduce #1147 inside the fallback for it. The empty tool argument says
+    # there is no `uv run` equivalent: a repo with no verify target SKIPS, and
+    # run_fallback_gate reports the skip by name.
+    run_fallback_gate verify "" ""
 fi
 
 # Report what actually executed, before any verdict (issue #808). A reader
@@ -621,7 +833,7 @@ fi
 
 # Does this repo define a larger gate we did not run?
 if [[ "$RAN" -gt 0 ]]; then
-    _aggregate="$(detect_aggregate_gate)"
+    _aggregate="$(detect_aggregate_gate "$RAN_GATE_IDS")"
     if [[ -n "$_aggregate" ]]; then
         AGGREGATE_TARGET="${_aggregate%%$'\t'*}"
         UNRUN_AGGREGATE="${_aggregate#*$'\t'}"
@@ -659,7 +871,7 @@ if [[ -n "$UNRUN_AGGREGATE" ]]; then
     # Same sentence as #628's, for the same reason: this gate proved nothing
     # about those checks. The difference is only how they came to be unrun -
     # #628's could not run, these were never looked for.
-    echo "WARNING: this repo's 'make $AGGREGATE_TARGET' also runs: $UNRUN_AGGREGATE. Those did NOT run here - the fallback knows only lint/test/typecheck. This gate proved nothing about them; run 'make $AGGREGATE_TARGET' for the repo's full gate (issue #808)." >&2
+    echo "WARNING: this repo's 'make $AGGREGATE_TARGET' also runs: $UNRUN_AGGREGATE. Those did NOT run here - the fallback ran only: $RAN_GATES. This gate proved nothing about them; run 'make $AGGREGATE_TARGET' for the repo's full gate (issue #808)." >&2
     verdict "warn (not run by fallback: $UNRUN_AGGREGATE)"
     exit 3
 fi

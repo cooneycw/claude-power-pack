@@ -491,6 +491,18 @@ class TestCommandTrustBoundary:
                 "test": test,
                 "typecheck": typecheck,
                 "security_scan": ("python3 -m lib.security gate flow_finish", scan),
+                # `make verify` (#1147). A bare Makefile target with no
+                # interpolation and no `uv run` fallback - `verify` is an
+                # aggregate with no tool equivalent, so a repo without the
+                # target SKIPS on the guard rather than degrading to something
+                # else. Its shell exposure is the same shape as the three
+                # above, which is why it belongs in the same committed set:
+                # this test exists so a new command is READ before it runs
+                # under shell=True, not so the set stays short.
+                "verify": (
+                    "make verify",
+                    '! grep -q "^verify:" Makefile 2>/dev/null',
+                ),
             },
             "check": {"lint": lint, "test": test, "typecheck": typecheck},
             "deploy": {

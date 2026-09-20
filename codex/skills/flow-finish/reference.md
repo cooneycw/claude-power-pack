@@ -87,7 +87,8 @@ guard remains the final backstop.
 **Primary path:** ONE audited helper owns the deterministic-runner invocation
 (issue #613, the #581 pattern): CPP-checkout resolution, the `uv` check, the
 documented `PYTHONPATH` / `uv run --project` contract (#430), and the
-`make lint` + `make test` + `make typecheck` fallback all live in
+Makefile fallback (`make lint`, `make test`, `make typecheck` and, since
+issue #1147, `make verify`) all live in
 `scripts/flow-finish-gate.sh`.
 Do NOT re-implement any of it as inline bash - a leading env-var assignment
 plus an interpolated `$CPP_DIR` can never match a permission prefix rule, so
@@ -133,8 +134,11 @@ word, if you are scripting around this helper:
   never looked at.
 - `FLOW_FINISH_GATE: fail` (exit 1): parse the runner/make output above the
   marker, report the failed step, and **stop**. Do not proceed to PR creation.
-- `FLOW_FINISH_GATE: skipped` (exit 4): no runner AND no Makefile lint/test/typecheck
-  targets - this gate did NOT run and proved nothing; warn the user, then continue.
+- `FLOW_FINISH_GATE: skipped` (exit 4): no runner AND no Makefile gate targets
+  at all - this gate did NOT run and proved nothing; warn the user, then continue.
+- `FLOW_FINISH_GATE: warn (skipped gates: verify)` is the ORDINARY verdict in a
+  repository with no `verify:` target (issue #1147) - #628's existing rule
+  applied to a new gate, not a new policy. It does not stop the flow.
 
 ### Step 2b: Run Security Quick Scan (fallback only - runner includes this)
 

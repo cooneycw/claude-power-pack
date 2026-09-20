@@ -362,6 +362,28 @@ def generate_manifest(
         env={"PYTHONPATH": _CPP_ROOT},
     )
 
+    # `verify` is a QUALITY GATE in the finish plan (issue #1147), so it is
+    # defined here explicitly rather than falling through to the extra-targets
+    # loop below - which skips it by name, gives everything a 600s budget, and
+    # would not put it in any plan. All three matter: `make verify` measured
+    # 229.8s on this repository and grows with the suite, and a step killed by
+    # its own budget reports a timeout rather than a result (#812); and a step
+    # defined but never referenced from a plan is dead config, which is the
+    # #617/#1147 precedence trap this file already warns about twice below.
+    #
+    # Generated manifests omitting it was a counter-model review finding: the
+    # built-in plan and this repository's checked-in manifest both gained the
+    # gate while every NEWLY GENERATED manifest still produced a four-step
+    # finish plan, so a project scaffolded by CPP would never run its own
+    # verification.
+    if "verify" in makefile_targets:
+        steps["verify"] = StepModel(
+            command="make verify",
+            description="Run the repository's full verification pipeline (make verify)",
+            timeout=1800,
+            skip_if='! grep -q "^verify:" Makefile 2>/dev/null',
+        )
+
     # Add any extra Makefile targets not already covered
     for target_name in sorted(makefile_targets - set(steps.keys())):
         if target_name.startswith(".") or target_name == "verify":
@@ -385,7 +407,9 @@ def generate_manifest(
     # the PR opens, and CI (which runs `make typecheck` in every shipped
     # template) goes red. Each step is filtered on `in steps`, so a project with
     # no typecheck target still gets a two-step plan.
-    finish_steps = [s for s in ["lint", "test", "typecheck", "security_scan"] if s in steps]
+    finish_steps = [
+        s for s in ["lint", "test", "typecheck", "security_scan", "verify"] if s in steps
+    ]
     if finish_steps:
         plans["finish"] = PlanModel(
             steps=finish_steps,

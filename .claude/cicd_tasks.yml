@@ -46,6 +46,24 @@ steps:
     timeout: 120
     skip_if: "! python3 -c 'import lib.security' 2>/dev/null"
 
+  verify:
+    # THE FINISH PLAN BELOW MUST REFERENCE THIS, not merely define it (issue
+    # #1147, and #617 before it wrote the same warning four lines down). This
+    # manifest WINS over lib/cicd/steps.py BUILTIN_PLANS, so the `verify` StepDef
+    # added to the built-in finish plan was dead config here: the runner declared
+    # five gates in its JSON, executed four, recorded nothing as skipped, and
+    # printed `ok` - a worse version of the defect #1147 exists to remove,
+    # produced by the fix for it. Measured, not reasoned about: the gate ran in
+    # 163.68s, the same figure as before the change, which is what gave it away.
+    #
+    # The timeout is 1800 to match the built-in step: `make verify` measured
+    # 229.8s on this repository and grows with the suite, and a gate killed by
+    # its own budget reports a timeout rather than a result (issue #812).
+    command: make verify
+    description: Run the repository's full verification pipeline (make verify)
+    timeout: 1800
+    skip_if: '! grep -q "^verify:" Makefile 2>/dev/null'
+
   deploy_security_scan:
     command: python3 -m lib.security gate flow_deploy
     description: Run security scan before deploy
@@ -84,6 +102,7 @@ plans:
       - test
       - typecheck
       - security_scan
+      - verify
 
   check:
     description: Quick quality check for /flow:check

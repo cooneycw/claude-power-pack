@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# See the sibling case's stub for why `make` is stubbed at all. Here the failure
+# arrives through verify's PREREQUISITE rather than its own recipe - the shape a
+# repo uses when verify aggregates checkers nothing else runs.
+#
+# `verify-extras` is deliberately NOT one of lint/test/typecheck, so the #808
+# aggregate detector does not fire and the pre-#1147 anchor reaches its wrong
+# answer by exiting 0 rather than by warning. That is not cosmetic: an anchor
+# that exits 3 without the detection signal cannot be CONFIRMED to have missed
+# the input - it may have crashed - and the harness scores that UNRESOLVED
+# rather than guessing. Measured, then fixed: the first cut of this case listed
+# lint test typecheck as verify's prerequisites and scored exactly that way.
+case "$1" in
+    verify)
+        echo "verify-extras: FAILED (a checker reached only through verify)"
+        exit 1
+        ;;
+    lint|test|typecheck)
+        echo "$1: ok"
+        exit 0
+        ;;
+    *)
+        echo "make: *** No rule to make target '$1'.  Stop." >&2
+        exit 2
+        ;;
+esac

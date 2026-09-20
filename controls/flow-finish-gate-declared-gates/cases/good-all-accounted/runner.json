@@ -1,0 +1,152 @@
+{
+  "success": true,
+  "run_id": "finish-bcff5db4",
+  "plan": "finish",
+  "steps_completed": 5,
+  "steps_total": 5,
+  "tests": {
+    "test": {
+      "passed": 5245,
+      "failed": 0,
+      "skipped": 1,
+      "errors": 0,
+      "executed": 5245,
+      "framework": "pytest",
+      "invocations": 1,
+      "empty_invocations": 0,
+      "summary_streams": [
+        "stdout"
+      ]
+    }
+  },
+  "coverage": {
+    "lint": {
+      "state": "unknown",
+      "units": null,
+      "unit_name": "unit",
+      "tool": "unknown",
+      "scope": "stage",
+      "component": "",
+      "evidence": "",
+      "invocations": 0,
+      "empty_invocations": 0,
+      "streams": [
+        "stdout",
+        "stderr"
+      ]
+    },
+    "typecheck": {
+      "state": "covered",
+      "units": 292,
+      "unit_name": "source file",
+      "tool": "mypy",
+      "scope": "stage",
+      "component": "",
+      "evidence": "Success: no issues found in 292 source files",
+      "invocations": 1,
+      "empty_invocations": 0,
+      "streams": [
+        "stdout"
+      ]
+    },
+    "security_scan": {
+      "state": "covered",
+      "units": 864,
+      "unit_name": "source file",
+      "tool": "security-gate",
+      "scope": "component",
+      "component": "secrets scan",
+      "evidence": "SECURITY_GATE: flow_finish PASS (blocked=0 warned=0; secrets-scanned=864 skipped-checks=0; blocks-on=CRITICAL warns-on=HIGH)",
+      "invocations": 1,
+      "empty_invocations": 0,
+      "streams": [
+        "stdout"
+      ]
+    }
+  },
+  "gates": [
+    "lint",
+    "security_scan",
+    "test",
+    "typecheck",
+    "verify"
+  ],
+  "step_details": [
+    {
+      "id": "lint",
+      "status": "success",
+      "coverage": {
+        "state": "unknown",
+        "units": null,
+        "unit_name": "unit",
+        "tool": "unknown",
+        "scope": "stage",
+        "component": "",
+        "evidence": "",
+        "invocations": 0,
+        "empty_invocations": 0,
+        "streams": [
+          "stdout",
+          "stderr"
+        ]
+      }
+    },
+    {
+      "id": "test",
+      "status": "success",
+      "tests": {
+        "passed": 5245,
+        "failed": 0,
+        "skipped": 1,
+        "errors": 0,
+        "executed": 5245,
+        "framework": "pytest",
+        "invocations": 1,
+        "empty_invocations": 0,
+        "summary_streams": [
+          "stdout"
+        ]
+      }
+    },
+    {
+      "id": "typecheck",
+      "status": "success",
+      "coverage": {
+        "state": "covered",
+        "units": 292,
+        "unit_name": "source file",
+        "tool": "mypy",
+        "scope": "stage",
+        "component": "",
+        "evidence": "Success: no issues found in 292 source files",
+        "invocations": 1,
+        "empty_invocations": 0,
+        "streams": [
+          "stdout"
+        ]
+      }
+    },
+    {
+      "id": "security_scan",
+      "status": "success",
+      "coverage": {
+        "state": "covered",
+        "units": 864,
+        "unit_name": "source file",
+        "tool": "security-gate",
+        "scope": "component",
+        "component": "secrets scan",
+        "evidence": "SECURITY_GATE: flow_finish PASS (blocked=0 warned=0; secrets-scanned=864 skipped-checks=0; blocks-on=CRITICAL warns-on=HIGH)",
+        "invocations": 1,
+        "empty_invocations": 0,
+        "streams": [
+          "stdout"
+        ]
+      }
+    },
+    {
+      "id": "verify",
+      "status": "success"
+    }
+  ]
+}

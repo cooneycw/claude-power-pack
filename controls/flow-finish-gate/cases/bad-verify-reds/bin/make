@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Stand-in for GNU make. `make` is ABSENT from the negative-controls CI image
+# (ghcr.io/astral-sh/uv:python3.11-bookworm-slim - verified, not assumed), so a
+# case needing a real one would report UNAVAILABLE and red the battery rather
+# than discriminate.
+#
+# Nothing is lost by stubbing it: the question this control asks is whether the
+# GATE runs `make verify` and consumes its exit status, not whether GNU make
+# resolves a prerequisite graph. The Makefile beside this file is real text -
+# the gate greps it for `^verify:` - and only the EXECUTION is stood in for.
+case "$1" in
+    verify)
+        echo "verify-only-check: 1 finding (this checker runs ONLY under verify)"
+        exit 1
+        ;;
+    lint|test|typecheck)
+        echo "$1: ok"
+        exit 0
+        ;;
+    *)
+        echo "make: *** No rule to make target '$1'.  Stop." >&2
+        exit 2
+        ;;
+esac
