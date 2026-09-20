@@ -135,8 +135,17 @@ ADAPTATIONS: list[tuple[tuple[str, ...], str]] = [
     ),
     (
         ("CLAUDE.md",),
-        "`CLAUDE.md` references: Codex reads `AGENTS.md`; treat them as the"
-        " target repo's agent-context file.",
+        # CONDITIONAL, not a substitution (#1071). This line is stamped into 25
+        # skills that run in ANY repository, so it must be true in all three
+        # shapes a target repo can have: AGENTS.md alone, both files, or
+        # CLAUDE.md alone. It previously said "treat them as the target repo's
+        # agent-context file" - interchangeable - which is CPP's own shape
+        # asserted about every consumer, and which tells a session handed a THIN
+        # AGENTS.md to stop there and never follow its pointer.
+        "`CLAUDE.md` references: read `AGENTS.md` first - it is the Codex entry"
+        " point. Where it defers to `CLAUDE.md`, follow that pointer and"
+        " `CLAUDE.md` is the rules; where it does not, `AGENTS.md` is. Where the"
+        " repository has no `AGENTS.md`, read `CLAUDE.md`.",
     ),
     (
         ("`! <command>`", "the `!` prefix"),

@@ -13,6 +13,7 @@
        branch-protection-check branch-protection-apply branch-protection-show \
        host-surfaces-check host-surfaces-plan host-surfaces-prune memory-harness \
        binary-guards-check negative-fixture-check negative-controls claude-md-budget-check \
+       agents-md-budget-check \
        claude-md-links-check claude-md-behavior-check skills-check \
        install-drift-check install-drift-list \
        tools-version-check toolchain-provenance checkout-readers \
@@ -386,7 +387,7 @@ oscillation:
 ## verify-coverage: gate verify - the aggregate itself - its own failure mode is a sub-gate dropped from this list, which is what verify-coverage-check exists to catch
 verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-import-audit oscillation \
 	binary-guards-check negative-fixture-check negative-controls \
-	claude-md-budget-check claude-md-links-check claude-md-behavior-check \
+	claude-md-budget-check agents-md-budget-check claude-md-links-check claude-md-behavior-check \
 	project-next-check delegated-core-check codex-skills-check \
 	scripts-inventory-check instrument-census-check verify-coverage-check \
 	control-ci-deps-check ci-coverage-check \
@@ -648,6 +649,16 @@ negative-fixture-check:
 
 ## Keep always-loaded repository guidance bounded, resolvable, and behaviorally
 ## findable after narrative moves to owned documentation (issue #724).
+
+## verify-coverage: gate agents-md-budget-check - the Codex agent-context file stays inside its word budget; ci: runs agents-md-budget-check
+## The budget is set by what it FORBIDS (#1071): AGENTS.md is a pointer to
+## CLAUDE.md plus what is Codex-specific, and the failure it exists to prevent is
+## someone restating CLAUDE.md's Core Directives block in it - the second copy the
+## thin design removes. That block is 389 words; the legitimate content is 308; a
+## copy lands at 697. 450 admits the content with room to grow and refuses the
+## copy by 247. A cap a duplicate fits under is decoration.
+agents-md-budget-check:
+	@python3 scripts/check-claude-md-budget.py AGENTS.md --budget 450
 
 ## verify-coverage: gate claude-md-budget-check - always-loaded guidance stays inside its word budget; ci: runs claude-md-budget-check
 claude-md-budget-check:

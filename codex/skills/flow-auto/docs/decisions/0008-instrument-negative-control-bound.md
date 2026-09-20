@@ -276,7 +276,7 @@ another repo (the escalation clause); a row can be both.
 | 25 | `speckit-tasks-to-issues.sh` inventory and identity guards | refuses on an unreadable or truncated issue inventory (exit 4) and on an ambiguous task identity; otherwise creates or skips each issue | whether a GitHub issue is created, skipped, or duplicated; nothing re-checks GitHub state afterwards. The rendering of issue bodies is not an instrument | G |
 | 26 | `check-test-binary-guards.py` | exit code | `make verify`; CI `validate` via its test | G |
 | 27 | `check-negative-fixture-preconditions.py` | `negative-fixture: ok - every constructed absence ...` | `make verify`; CI `validate` (#933: its message is wider than its scan) | G |
-| 28 | `check-claude-md-budget.py` | `ok - N/2000 words` | `make verify` | G |
+| 28 | `check-claude-md-budget.py` | `ok - N/BUDGET words` | `make verify`, twice - `claude-md-budget-check` (CLAUDE.md, 2000) and `agents-md-budget-check` (AGENTS.md, 450) | G |
 | 29 | `check-claude-md-links.py` | resolves / `nothing was checked`; since #1037 also every on-disk `docs/agents/*.md` referenced by CLAUDE.md's Project Map, or `UNKNOWN` (exit 2) when the disk glob falls below its membership floor | `make verify` | G |
 | 30 | `check-claude-md-behavior.py` | findability pass/fail | `make verify` | G |
 | 31 | `project-next-ownership.py check` | per-file ownership pins match, and the contract version DERIVED from `docs/project-next-contract.md` agrees with the manifest | `make verify` | G |
