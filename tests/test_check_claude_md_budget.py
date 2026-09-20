@@ -70,17 +70,18 @@ def test_the_smaller_budget_actually_binds(tmp_path: Path, capsys) -> None:
     assert "451 words; budget is 450" in capsys.readouterr().err
 
 
-def test_the_agents_budget_refuses_a_copy_of_the_core_directives_block(
+def test_the_agents_budget_refuses_APPENDING_the_core_directives_block(
     tmp_path: Path,
 ) -> None:
-    """The budget is set by what it FORBIDS, so assert that, not the number.
+    """What the cap actually does, stated as narrowly as it is true (#1071).
 
-    AGENTS.md's legitimate content is ~308 words and CLAUDE.md's Core Directives
-    block is 389. A cap a duplicate fits under is decoration, so the real
-    property is: content passes, content plus a copy of that block does not.
-    Asserting `AGENTS_WORD_BUDGET == 450` would restate the constant; this
-    asserts the reason it has that value, and still fails if someone raises it
-    to 700 because the number "felt tight".
+    Its original form asserted the budget "forbids a copy of the Core Directives
+    block". The post-merge counter-model review showed that is false in general -
+    see the companion test below - so this one is renamed to the property that
+    holds: APPENDING the block to the current content does not fit.
+
+    Asserting `AGENTS_WORD_BUDGET == 450` would restate the constant; this asserts
+    the reason it has that value.
     """
     content_words, core_directives_words = 308, 389
 
@@ -91,4 +92,60 @@ def test_the_agents_budget_refuses_a_copy_of_the_core_directives_block(
         "word " * (content_words + core_directives_words), encoding="utf-8"
     )
     passed, count = budget.check(tmp_path / "AGENTS.md", budget=budget.AGENTS_WORD_BUDGET)
-    assert not passed, f"{count} words must not fit a budget that forbids the block"
+    assert not passed, f"{count} words must not fit a budget that forbids appending the block"
+
+
+def test_the_agents_budget_does_NOT_forbid_a_replacement_copy(tmp_path: Path) -> None:
+    """The limit, pinned so the overclaim cannot come back (#1071).
+
+    A cap is a size limit. Delete AGENTS.md's Codex-specific content, paste the
+    Core Directives block in its place, and the result is ~399 words - under the
+    cap, and exactly the second copy the thin-pointer design exists to prevent.
+
+    This asserts the instrument's BLIND SPOT on purpose. If someone later widens
+    the cap's claim back to "forbids a copy", this test fails and says why -
+    which is the only durable record that the narrow claim was the honest one.
+    The semantic property belongs to review, not to this word counter.
+    """
+    pointer_plus_block = 6 + 389
+
+    (tmp_path / "AGENTS.md").write_text("word " * pointer_plus_block, encoding="utf-8")
+    passed, count = budget.check(tmp_path / "AGENTS.md", budget=budget.AGENTS_WORD_BUDGET)
+
+    assert passed, "fixture must be under the cap for this test to say anything"
+    assert count < budget.AGENTS_WORD_BUDGET
+    # Not a defect to fix here: a size limit cannot distinguish 308 words of
+    # Codex-specific content from 308 words of restated directives.
+
+
+def test_production_and_the_tests_read_the_SAME_budget(tmp_path: Path) -> None:
+    """The budget must be observable where it is actually enforced (#1071).
+
+    The Makefile and .woodpecker.yml passed `--budget 450` as a literal, so the
+    constant these tests assert against was read by nothing in production:
+    raising both literals to 700 would have admitted a 697-word duplicate while
+    every test stayed green. The test that existed to survive someone raising the
+    budget could not see the budget anyone could raise.
+
+    Both call sites now pass the document alone, so this asserts the resolution
+    they actually depend on.
+    """
+    (tmp_path / "AGENTS.md").write_text("word " * 451, encoding="utf-8")
+
+    # No --budget: exactly what the Makefile and the CI step now invoke.
+    assert budget.main(["AGENTS.md", "--root", str(tmp_path)]) == 1
+    assert budget.DOCUMENT_BUDGETS["AGENTS.md"] == budget.AGENTS_WORD_BUDGET
+    assert budget.DOCUMENT_BUDGETS["CLAUDE.md"] == budget.WORD_BUDGET
+
+
+def test_no_production_call_site_carries_a_literal_budget() -> None:
+    """The single source is only single while nothing re-introduces a literal."""
+    root = Path(__file__).parents[1]
+    for rel in ("Makefile", ".woodpecker.yml"):
+        text = (root / rel).read_text(encoding="utf-8")
+        for line in text.splitlines():
+            if "check-claude-md-budget.py" in line:
+                assert "--budget" not in line, (
+                    f"{rel} passes a literal budget: {line.strip()!r}. "
+                    "The budget belongs in DOCUMENT_BUDGETS, where the tests can see it."
+                )

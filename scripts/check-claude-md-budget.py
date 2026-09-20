@@ -31,14 +31,33 @@ from pathlib import Path
 #:     over a document that has doubled.
 
 WORD_BUDGET = 2_000
-#: AGENTS.md's cap is SET BY WHAT IT FORBIDS, not chosen for roundness (#1071).
-#: The file is a pointer to CLAUDE.md plus what is Codex-specific; the failure it
-#: exists to prevent is someone restating CLAUDE.md's Core Directives block in it,
-#: which would recreate the two-documents-that-disagree defect the thin design
-#: removes. That block is 389 words and the legitimate content is 308, so a copy
-#: lands at 697 - this budget refuses it with 247 words to spare, and refuses even
-#: half a copy (503). A cap a duplicate fits under is decoration.
+#: AGENTS.md's cap, and what it actually does - corrected at the #1071
+#: post-merge review, which found the original claim false.
+#:
+#: IT IS A SIZE LIMIT. It rejects APPENDING CLAUDE.md's Core Directives block
+#: (389 words) to AGENTS.md's current content (308): that lands at 697 and is
+#: refused by 247. It does NOT forbid restating the rules in general, and the
+#: original comment here said it did. A document that DELETES the Codex-specific
+#: content and pastes the block in its place measures 399 words and passes -
+#: verified, not reasoned about. The second copy the thin design exists to
+#: prevent fits under this cap whenever someone makes room for it.
+#:
+#: The broader prohibition - no sentence in AGENTS.md explains a Core Directive -
+#: is a SEMANTIC property and stays with review. Building a parity instrument to
+#: enforce it is precisely what the thin-pointer design exists not to need, and
+#: widening this one to rescue an overclaim would buy the instrument the design
+#: was meant to avoid.
 AGENTS_WORD_BUDGET = 450
+
+#: THE SINGLE SOURCE for each always-loaded document's budget (#1071). The
+#: Makefile and .woodpecker.yml passed `--budget 450` as a literal, so the
+#: constant above was read by nothing in production and the regression test that
+#: guarded it could not observe the number anyone could actually raise. Both call
+#: sites now pass the document alone and the budget is resolved here.
+DOCUMENT_BUDGETS = {
+    "CLAUDE.md": WORD_BUDGET,
+    "AGENTS.md": AGENTS_WORD_BUDGET,
+}
 
 
 def word_count(path: Path) -> int:
@@ -70,8 +89,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--budget",
         type=int,
-        default=WORD_BUDGET,
-        help=f"word budget (default: {WORD_BUDGET})",
+        default=None,
+        help="word budget (default: the document's registered budget)",
     )
     parser.add_argument(
         "--root",
@@ -85,13 +104,16 @@ def main(argv: list[str] | None = None) -> int:
     if not path.is_file():
         print(f"{label}: missing {path}", file=sys.stderr)
         return 1
-    within_budget, count = check(path, budget=args.budget)
+    budget = args.budget
+    if budget is None:
+        budget = DOCUMENT_BUDGETS.get(Path(args.document).name, WORD_BUDGET)
+    within_budget, count = check(path, budget=budget)
     if within_budget:
-        print(f"{label}: ok - {count}/{args.budget} words")
+        print(f"{label}: ok - {count}/{budget} words")
         return 0
     print(
-        f"{label}: {path.name} has {count} words; budget is {args.budget} "
-        f"({count - args.budget} over)",
+        f"{label}: {path.name} has {count} words; budget is {budget} "
+        f"({count - budget} over)",
         file=sys.stderr,
     )
     return 1
