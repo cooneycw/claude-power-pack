@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+#: HOST-SURFACE: none
+#  reads ~/.claude/settings.json and project settings and reports; every ~/ occurrence in this file is inside a
+#  comment. It is REGISTERED in settings.json by /cpp:init, which is that command's write, not this script's.
+#  Reaches outside $HOME via git push, gh and docker, so it is NOT observation-certified.
+
 # hook-permission-census.sh - PermissionRequest hook: observe-only permission census.
 #
 # The grill-me retro (issue #426) treats `permission-prompt` as a first-class

@@ -693,3 +693,49 @@ below, and an undeclared one turns the gate red rather than passing quietly.
 - pytest-parallel-differential decides three things separately, because they are different diagnoses. MEMBERSHIP FLOOR - the two runs collected the same SET of node ids; a count comparison is not enough, since a substituted node keeps the count and changes the population, and a green over 3,900 tests and a green over 4,263 print the same colour. DANGEROUS - a node that FAILS serially and PASSES in parallel, which blocks: whatever made it pass was not the code under test. QUARANTINE - a node that passes serially and fails in parallel, a flake to triage rather than a reason to abandon the change, but still a DIFFERENCE and therefore still non-zero; calling it agreement because it is the safe direction would be the same overclaim pointed the other way
 - pytest-parallel-differential exits 2 with `DIFFERENTIAL-UNKNOWN:` on a missing file, unparseable XML, a duplicated node id, or a report carrying zero test cases. Zero is a denominator, not a result: two empty reports have identical node-id sets and agree perfectly, which is the most flattering wrong answer available here. Node identity is `classname::name`, not the `file` attribute, which some pytest versions omit - an identity that depends on the writer's version is not an identity
 - pytest-parallel-differential is CONTROLLED (`controls/pytest-parallel-differential/`, ADR 0008), and BOTH bad cases carry an IDENTICAL TALLY on purpose. The anchor is a constructed tally-only comparator - the first framing of the problem, and exactly what a human does glancing at two summary lines - so a bad case whose totals differed would be caught by it, the control would report INERT, and the demonstration would establish nothing about the distinction this gate exists to draw. `bad-substituted-node` keeps 3 passes on both sides while a different test ran; `bad-dangerous-flip` keeps 1 pass and 1 failure on both sides with the pass and the failure swapped between two tests. The GOOD case carries a failure present in BOTH runs, mirroring the real #1086 measurement, so the accept-an-agreeing-failure path is exercised rather than left unproven by an all-green pair
+
+## `host-surface-check` (#1139)
+
+Derives which scripts must DECLARE a host surface, from the code rather than
+from the documents. The universe is hardcoded - the two command documents that
+ARE `/cpp:init` and `/cpp:update` - and membership is derived from reachability
+out of them, walked to a fixed point, so a helper added to the install path
+cannot arrive unenumerated.
+
+`--manifest` emits the declared surfaces as JSON for a managed environment to
+read when composing a defer-set. Nothing here names any manager, reads any
+environment variable to decide behaviour, or inspects containers, mounts or
+namespaces: a consumer is the first user of a general contract, never a branch.
+
+**Catches** a reachable script with no declaration, mechanically. **Does not
+catch** a declaring script that UNDERSTATES, which needs observation rather than
+parsing - see the module docstring for why a write-verb scanner was rejected,
+and why a PATH shim to widen observation coverage was rejected with it.
+
+## `cpp-host-write` (#1139)
+
+The one place `/cpp:init` and `/cpp:update` write host surfaces, and the seam a
+managed environment defers.
+
+These writes used to sit as inline shell inside two 75KB command documents,
+which had two consequences. Nothing could DECLARE them - a manifest derived
+from the helpers missed `~/.bashrc` entirely, because no helper wrote it, the
+document did. And nothing could REFUSE them: a defer-set has no code to consult
+when the write is prose-shell in a markdown file, so the deferral half of #1139
+was not implementable until the writes lived here.
+
+The defer-set is **passed, never detected** - `--defer ~/.bashrc`, or
+`CPP_DEFER_SURFACES` for a wrapper that cannot reach argv. Nothing here names
+any manager, reads a manager's variable, or inspects containers, mounts or
+namespaces. A user who passes nothing gets today's behaviour, not because CPP
+detected they were unmanaged but because there was nothing to detect. An
+environment marker would not do: variables are inheritable, and a tmux server
+hands its environment to every pane started after it, so a marker can arrive in
+a session nothing started that way.
+
+A deferred write **exits 3 and names the surface and its declared owner** -
+distinct from both success and failure, so a caller can tell "the manager owns
+this" from "this went wrong". Skipping quietly is #1138's defect.
+
+`--no-guard` exists only to preserve an unguarded append across the #1139
+relocation and is removed by #1142.

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+#: HOST-SURFACE: none
+#  no $HOME reference. Reaches outside $HOME via docker and sudo, so it is NOT observation-certified.
+
 """mcp-drift.py - Detect and tear down orphaned Docker MCP infrastructure.
 
 Part of Claude Power Pack (CPP). Companion to scripts/drift-detect.sh
