@@ -280,6 +280,7 @@ another repo (the escalation clause); a row can be both.
 | 29 | `check-claude-md-links.py` | resolves / `nothing was checked`; since #1037 also every on-disk `docs/agents/*.md` referenced by CLAUDE.md's Project Map, or `UNKNOWN` (exit 2) when the disk glob falls below its membership floor | `make verify` | G |
 | 30 | `check-claude-md-behavior.py` | findability pass/fail | `make verify` | G |
 | 31 | `project-next-ownership.py check` | per-file ownership pins match, and the contract version DERIVED from `docs/project-next-contract.md` agrees with the manifest | `make verify` | G |
+<!-- row 32 retired under #1069; see the retirement note below. Do not close the gap. -->
 | 33 | `codex-skill-sync.py --check` | `DRIFT` / `MISSING` / `STALE` | CI `codex-skills-check`; the merge re-sync | G, X |
 | 34 | `eli5-vendor.py` (manifest; `eli5-core-drift.sh` is a shim) | vendored core matches the pinned hash | CI `eli5-vendor-check` | G |
 | 35 | `eli5-vendor.py --upstream` | upstream moved / current (fail-open, `failure: ignore`) | the revendor decision | G |
