@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1129-the-control-register-cannot-express-a-case-for-a-g",
+  "counts": {
+    "accepted": 4,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/claude-opus-5",
+  "issue": "1129",
+  "passes": 2,
+  "recorded_at": "2026-09-20T14:18:20Z",
+  "red_cases": {
+    "already_covered": 8,
+    "proposed": 8
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

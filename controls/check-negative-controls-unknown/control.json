@@ -31,8 +31,8 @@
       "sha": "n/a",
       "origin": "scripts/check-negative-controls.py",
       "path": "anchors/constructed-any-silence-is-a-refusal-check-negative-controls.py",
-      "sha256": "dffba6e2f529b0201aeb9c9f3e36d0c846947e3386c6ae4d343292e14104ace6",
-      "why": "CONSTRUCTED, reconstructing #1129 IMPLEMENTED NAIVELY rather than an earlier revision of this gate - the naive version never existed as a commit, because the declared-marker requirement landed with the expectation. ONE decision differs from the shipped harness and it is enough (the #1117 anchor needed two): _observe still PARSES unknown_signal and then never consults it, attributing any non-zero exit that did not announce a finding to a refusal. MEASURED as frozen: it scores the crashing tree PASS/exit 0 where the current harness reports UNSIGNALLED/exit 1, and agrees with the current harness on the known-good tree - so it misses the known-bad input and differs in nothing else."
+      "sha256": "d0629c68066da5983984c57493fab35906193e1d7dfcf31dfacb40ac8d12c2ba",
+      "why": "CONSTRUCTED, reconstructing #1129 IMPLEMENTED NAIVELY rather than an earlier revision of this gate - the naive version never existed as a commit, because the declared-marker requirement landed with the expectation. It is the SHIPPED harness with ONE decision changed, derived from the current file so that every other line is identical: an anchor differing in two places cannot isolate either. (Regenerated during #1129 whenever the harness changed, after counter-model fixes landed in the harness and left the frozen copy differing in four places rather than one - which would have made the demonstration unreadable without changing its verdict, the quieter half of that hazard.) THE ONE DECISION: _observe still PARSES unknown_signal and then never consults it, attributing any non-zero exit that did not announce a finding to a refusal. MEASURED as frozen: it scores the crashing tree PASS/exit 0 where the current harness reports UNSIGNALLED/exit 1, and agrees with the current harness on the known-good tree."
     }
   ]
 }

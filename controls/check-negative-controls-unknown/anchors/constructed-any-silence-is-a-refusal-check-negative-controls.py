@@ -6,14 +6,20 @@
 # the artifact is built rather than fetched, exactly as
 # controls/check-negative-controls-unavailable's anchor was for #1117.
 #
-# ONE decision differs from the shipped harness, and one is enough here (unlike
-# the #1117 anchor, which needed two): `_observe` still PARSES `unknown_signal`
-# and then never consults it, scoring any non-zero exit that did not announce a
-# finding as a refusal. That is the fail-open a reasonable person writes on
-# purpose - "the gate obviously has a refusal branch, so the exact wording
-# should not matter" - and it is issue #946's defect re-created inside the field
-# #1129 adds: a gate that FELL OVER and a gate that REFUSED exit non-zero and
-# say nothing the detection pattern matches, so this version calls both correct.
+# IT IS THE SHIPPED HARNESS WITH ONE DECISION CHANGED, and being derived from
+# the current file rather than an older copy is what keeps it that way: every
+# other difference would be a second variable, and an anchor that differs in
+# two places cannot isolate either. (It was regenerated once during #1129 for
+# exactly this reason, after fixes from the counter-model review landed in the
+# harness and left the frozen copy differing in four places rather than one.)
+#
+# THE ONE DECISION: `_observe` still PARSES `unknown_signal` and then never
+# consults it, scoring any non-zero exit that did not announce a finding as a
+# refusal. That is the fail-open a reasonable person writes on purpose - "the
+# gate obviously has a refusal branch, so the exact wording should not matter" -
+# and it is issue #946's defect re-created inside the field #1129 adds: a gate
+# that FELL OVER and a gate that REFUSED both exit non-zero and say nothing the
+# detection pattern matches, so this version calls both correct.
 #
 # As frozen it MISSES the known-bad input - the crashing toy gate, which it
 # scores PASS/exit 0 where the current harness reports UNSIGNALLED/exit 1 - and
@@ -24,6 +30,7 @@
 # DO NOT "FIX" THIS FILE. Its blindness is the measurement; repairing it silently
 # converts a working control into one that proves nothing (INERT), and the
 # sha256 in control.json is what detects an edit.
+#!/usr/bin/env python3
 #!/usr/bin/env python3
 """Run every gate's registered NEGATIVE CONTROL, and prove the control can fail (issue #924).
 
@@ -319,12 +326,31 @@ has in hand rather than against the author's intention:
      pre-#946 fail-open restored wearing a third field's name.
   2. IT MAY NOT MATCH A CLEAN RUN. A pattern anchored on the gate's ok line would
      report a working gate as having refused. Checked against the known-GOOD
-     case's REAL output.
+     case's REAL output - and, like constraint 3, against the ANCHOR's output in
+     both anchor loops: exiting like a clean run while announcing a refusal is
+     not a verdict at all, since the run cannot have examined the input and also
+     have been unable to look at it.
   3. IT MAY NOT MATCH OUTPUT THAT `detect_signal` ALSO MATCHES. This is the one
      the issue names in terms: a marker that also identified a finding would make
      a refusal and a detection the same evidence, "which is #946 undone". Checked
      on every case's real output, in both directions, so a gate whose two
      messages are genuinely inseparable is refused rather than silently ordered.
+     ALSO ON THE ANCHOR'S OUTPUT, because an anchor is a different program and a
+     check over the cases is no evidence about it - the first cut covered only
+     the cases, so ambiguous output was refused from the gate and accepted as
+     anchor agreement. NOT on a run already identified as UNAVAILABLE: there the
+     question is moot (the case is skipped, never scored), and firing would turn
+     an environment fact into an accusation about the manifest. Both corrections
+     come from the counter-model review of this change.
+
+WHAT A REFUSAL IS NOT EVIDENCE OF. It does not establish that the gate's own
+tool was installed, and the first cut of this expectation assumed it did -
+reasoning that since `unavailable_signal` is consulted first, a refusal must mean
+the gate got PAST its availability check. That holds only for a gate that checks
+its tool before validating its input, and `shellcheck-gate.sh` does the opposite:
+it refuses a non-directory `--root` one line BEFORE it looks for shellcheck. So a
+refusal stays out of the evidence that satisfies the #1117 contradiction check;
+only a clean run or a genuine detection proves the gate reached the work.
 
 PRECEDENCE: `unavailable_signal`, then `unknown_signal`, then `detect_signal` -
 most specific first, for the reason the #1117 section argues at length. It is
@@ -419,6 +445,27 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 #:     It inherits the self-registration caveat stated in full above and does
 #:     not repeat it: this harness judging itself is the weaker half, and
 #:     `tests/test_negative_controls.py` under pytest is the external opinion.
+#: NEGATIVE-CONTROL: controls/check-negative-controls-unknown
+#:     A THIRD registration on this gate (issue #1129), covering the property
+#:     the other two do not: that a gate which REFUSED a verdict is still told
+#:     apart from one that FELL OVER, now that `cases[].expect` can register the
+#:     refusal. The three sit in a row on purpose - #946 asks whether a crashing
+#:     gate is told from a detecting one, #1117 whether a silent gate is told
+#:     from one whose own TOOL is absent, and this one whether a silent gate is
+#:     told from one the INPUT defeated. Each new way for a non-zero exit to be
+#:     excused needs its own committed demonstration, because each is a fresh
+#:     route back to scoring on the exit code alone.
+#:
+#:     SEPARATE RATHER THAN TWO MORE CASES ON THE FIRST CONTROL, and this was
+#:     MEASURED rather than assumed: run against this control's known-bad tree,
+#:     that control's frozen pre-#946 anchor reports UNRESOLVED and exits 1
+#:     ("control.json has case(s) with an unknown expect value: ['UNKNOWN']").
+#:     An anchor exiting non-zero on the known-bad input reads as having CAUGHT
+#:     it, so those cases would report a working control INERT and send someone
+#:     to replace a sound artifact.
+#:
+#:     It inherits the self-registration caveat stated in full above and does
+#:     not repeat it.
 #: The registration directive, read out of the GATE file itself so the control
 #: cannot outlive the instrument it covers. Deleting the gate deletes the
 #: registration with it; a directive naming a directory that is not there is an
@@ -857,6 +904,65 @@ _MISMATCH = {
 }
 
 
+def _ambiguous(output: str, signal: re.Pattern[str], unknown: re.Pattern[str] | None) -> bool:
+    """Can a REFUSAL and a FINDING be told apart in this output? (issue #1129)
+
+    Consulting `unknown_signal` before `detect_signal` is a precedence rule, not
+    a licence for the two to overlap: where both match one output, the ordering
+    silently decides which of two honest-looking patterns wins, and a gate that
+    started REPORTING what it used to REFUSE keeps scoring UNKNOWN and passes.
+
+    A FUNCTION RATHER THAN AN INLINE TEST because it has THREE call sites, and
+    the counter-model review of this change (codex/gpt-6-astra, MEDIUM) found
+    the first cut had only one. It ran over the CASE loop alone, so ambiguous
+    output was refused when the current gate produced it and ACCEPTED as
+    anchor agreement when the ANCHOR produced it - and an anchor is a different
+    program, so a check on the gate is no evidence about it. The control then
+    reported PASS on exactly the evidence this function exists to reject.
+
+    Callers must skip it for an observation already identified as UNAVAILABLE,
+    for the reason argued at the call site.
+    """
+    return unknown is not None and bool(unknown.search(output)) and bool(signal.search(output))
+
+
+def _anchor_output_fault(
+    output: str,
+    observed: str,
+    signal: re.Pattern[str],
+    unknown: re.Pattern[str] | None,
+    raw_unknown: str,
+    raw_signal: str,
+    where: str,
+) -> str:
+    """The reason this anchor's output cannot be read at all, or "" (issue #1129).
+
+    The current gate's output is held to two rules about the refusal marker: it
+    may not be ambiguous with the detection signal, and it may not accompany a
+    CLEAN exit. Both were enforced over the cases only, and the counter-model
+    review of this change found each gap in turn - an anchor is a DIFFERENT
+    PROGRAM, so a check on the gate is no evidence about it, and both anchor
+    loops were accepting output the gate-side rules reject one function earlier.
+
+    Returned as a SENTENCE rather than a bool because both call sites need to
+    say which fault and where, and a third and fourth copy of these two
+    conditions is how they drifted apart the first time.
+    """
+    if observed != UNAVAILABLE and _ambiguous(output, signal, unknown):
+        return (
+            f"emitted BOTH the declared refusal marker /{raw_unknown}/ and the detection "
+            f"signal /{raw_signal}/ on {where}, so what it did there cannot be established"
+        )
+    # Not a verdict at all: it cannot have examined the input and also have been
+    # unable to look at it. Reading it as agreement certifies incoherent evidence.
+    if observed == GOOD and unknown is not None and unknown.search(output):
+        return (
+            f"exited like a CLEAN run on {where} while printing the declared refusal marker "
+            f"/{raw_unknown}/, so it cannot be read as having examined that input at all"
+        )
+    return ""
+
+
 def _mismatch(expected: str, observed: str) -> str:
     """The sentence for this direction, or an honest fallback naming both.
 
@@ -1135,12 +1241,23 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
         # A REFUSAL AND A FINDING MAY NOT BE THE SAME EVIDENCE (issue #1129).
         # Checked on EVERY case's real output and BEFORE anything is scored,
         # because the failure is in the MANIFEST and every downstream verdict
-        # built on these two patterns would otherwise blame the gate. Consulting
-        # `unknown_signal` first is a precedence rule, not a licence for the two
-        # to overlap: where they do, the ordering silently decides which of two
-        # honest-looking patterns wins, and a gate that started REPORTING what it
-        # used to REFUSE would keep scoring UNKNOWN and pass.
-        if unknown_sig is not None and unknown_sig.search(output) and signal.search(output):
+        # built on these two patterns would otherwise blame the gate.
+        #
+        # EXCEPT ON A RUN ALREADY IDENTIFIED AS UNAVAILABLE, which the
+        # counter-model review of this change caught (codex/gpt-6-astra,
+        # MEDIUM). This check asks "can a refusal be told from a finding"; on a
+        # run where the most specific declared pattern already said "my tool is
+        # absent", that question is moot - the case is skipped and never scored
+        # against an expectation - so firing here turns an ENVIRONMENT FACT into
+        # an accusation about the manifest. The shape that exposed it is not
+        # contrived: a detection pattern and a refusal pattern may each
+        # legitimately carry the tool-absent message as one alternative, which
+        # is the relationship `flow-driver-retirement-check.sh` already has
+        # between its unavailability line and its own detection pattern. Nothing
+        # is certified by the exemption: a control whose cases all report
+        # UNAVAILABLE lands UNAVAILABLE, which already says nothing about the
+        # gate, and a real overlap still fires on any case that actually ran.
+        if observed != UNAVAILABLE and _ambiguous(output, signal, unknown_sig):
             res.verdict = UNRESOLVED
             res.details.append(
                 f"control.json unknown_signal /{raw_unknown}/ and detect_signal /{raw_signal}/ "
@@ -1197,15 +1314,28 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
                             unavailable_reason = line.strip()
                             break
             continue
-        # A REFUSAL IS ALSO PROOF THE GATE RAN (issue #1129). Precedence puts
-        # `unavailable_signal` ahead of `unknown_signal`, so an UNKNOWN
-        # observation is by construction NOT the gate's tool-absent message: the
-        # gate got past its own availability check and refused for a reason in
-        # the case tree. That makes it evidence the tool was present, exactly as
-        # a clean run or a genuine detection is, and admitting it here
-        # STRENGTHENS the #1117 contradiction check rather than loosening it - a
-        # loose unavailability pattern now contradicts a refusal too.
-        if observed in (GOOD, BAD, UNKNOWN):
+        # A REFUSAL IS **NOT** PROOF THE GATE'S TOOL WAS PRESENT, and the first
+        # cut of #1129 had this wrong. It admitted UNKNOWN here, reasoning that
+        # precedence puts `unavailable_signal` first, so a refusal must mean the
+        # gate got PAST its own availability check.
+        #
+        # That reasoning assumes every gate checks its tool before it validates
+        # its input, and the counter-model review of this change disproved it
+        # (codex/gpt-6-astra, MEDIUM) against the very gate #1129 registers:
+        # `scripts/shellcheck-gate.sh` refuses a non-directory `--root` on line
+        # 52 and only reaches `command -v shellcheck` on line 53. So on a host
+        # WITHOUT the tool, such a case refuses for an input reason while every
+        # other case reports the tool absent - and counting the refusal as
+        # "it ran" produced the #1117 contradiction verdict, whose sentence
+        # asserts "the tool was present". That is a confident false statement
+        # about the machine, made by the file whose entire subject is verdicts
+        # nothing entitles you to, and it would defeat `--allow-unavailable` for
+        # a plain environment failure.
+        #
+        # Only a CLEAN RUN or a GENUINE DETECTION proves the gate ran: each
+        # requires the gate to have reached the work. A refusal may come from
+        # anywhere, including before the tool was ever looked for.
+        if observed in (GOOD, BAD):
             ran_cases.append(case["name"])
         if observed is UNSIGNALLED:
             res.verdict = UNSIGNALLED
@@ -1337,6 +1467,17 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
                 res.details.append(f"anchor {anchor['sha']} could not be executed - {diag}")
                 return res
             observed = _observe(code, good_exit, output, signal, unavailable, unknown_sig)
+            # The anchor is a DIFFERENT PROGRAM, so the gate-side rules about the
+            # refusal marker say nothing about its output (issue #1129,
+            # counter-model review).
+            fault = _anchor_output_fault(
+                output, observed, signal, unknown_sig, raw_unknown, raw_signal,
+                "the known-bad input",
+            )
+            if fault:
+                res.verdict = UNRESOLVED
+                res.details.append(f"anchor {anchor['sha']} {fault}")
+                return res
             # Reached only when every CASE ran, so the tool was present a moment
             # ago; an anchor reporting it absent is therefore about the anchor,
             # not the environment. UNRESOLVED either way - the required property
@@ -1394,6 +1535,17 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
                 res.details.append(f"anchor {anchor['sha']} could not be executed - {diag}")
                 return res
             observed = _observe(code, good_exit, output, signal, unavailable, unknown_sig)
+            # As in the known-bad loop above, and needed separately: an anchor can
+            # miss the known-bad input correctly and still be incoherent on the
+            # inputs meant to establish it differs in nothing else.
+            fault = _anchor_output_fault(
+                output, observed, signal, unknown_sig, raw_unknown, raw_signal,
+                f"a {kind} input",
+            )
+            if fault:
+                res.verdict = UNRESOLVED
+                res.details.append(f"anchor {anchor['sha']} {fault}")
+                return res
             if observed == UNAVAILABLE:
                 res.verdict = UNRESOLVED
                 res.details.append(

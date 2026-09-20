@@ -190,6 +190,76 @@ print("toy-gate: ok - nothing found")
 sys.exit(0)
 """
 
+#: Ambiguous on the refusal: it prints BOTH its refusal marker and its detection
+#: line on the unexaminable input. The current gate is refused for exactly this
+#: (a refusal and a finding cannot be the same evidence), and an anchor is a
+#: DIFFERENT program, so the gate-side check says nothing about it.
+AMBIGUOUS_ON_REFUSAL_ANCHOR = """#!/usr/bin/env python3
+import sys
+from pathlib import Path
+#: NEGATIVE-CONTROL: controls/toy
+root = Path(sys.argv[sys.argv.index("--root") + 1])
+if (root / "tests" / "UNEXAMINABLE").exists():
+    print("toy-gate: UNKNOWN - this input cannot be examined.", file=sys.stderr)
+    print("toy-gate: 1 finding(s)")
+    sys.exit(3)
+print("toy-gate: ok - nothing found")
+sys.exit(0)
+"""
+
+#: IT VALIDATES ITS INPUT BEFORE CHECKING ITS TOOL, which is not a contrivance:
+#: `scripts/shellcheck-gate.sh` does exactly this, refusing a non-directory
+#: `--root` on line 52 and only testing `command -v shellcheck` on line 53. So on
+#: a host without the tool, a case whose input is refused by that first check
+#: reports a REFUSAL while every other case reports the tool absent.
+REFUSES_BEFORE_CHECKING_ITS_TOOL_GATE = """#!/usr/bin/env python3
+import sys
+from pathlib import Path
+#: NEGATIVE-CONTROL: controls/toy
+root = Path(sys.argv[sys.argv.index("--root") + 1])
+if (root / "tests" / "UNEXAMINABLE").exists():
+    print("toy-gate: UNKNOWN - this input cannot be examined; 0 examined is not 0 findings.",
+          file=sys.stderr)
+    sys.exit(3)
+print("toy-gate: UNAVAILABLE - the toy tool is not installed, so nothing was examined.",
+      file=sys.stderr)
+sys.exit(3)
+"""
+
+#: Contradictory on the known-BAD input: it announces a refusal and then exits
+#: like a CLEAN run. Neither reading survives - it cannot have examined the input
+#: and also have been unable to look at it.
+CLEAN_BUT_REFUSING_ON_BAD_ANCHOR = """#!/usr/bin/env python3
+import sys
+from pathlib import Path
+#: NEGATIVE-CONTROL: controls/toy
+root = Path(sys.argv[sys.argv.index("--root") + 1])
+if (root / "tests" / "UNEXAMINABLE").exists():
+    print("toy-gate: UNKNOWN - this input cannot be examined.", file=sys.stderr)
+    sys.exit(3)
+print("toy-gate: UNKNOWN - this input cannot be examined.", file=sys.stderr)
+sys.exit(0)
+"""
+
+#: The same contradiction moved to the known-GOOD input, so it is reached in the
+#: anchor-SANITY loop rather than the known-bad one. It misses the known-bad
+#: input correctly, which is what makes the sanity loop the only thing that can
+#: catch it.
+CLEAN_BUT_REFUSING_ON_GOOD_ANCHOR = """#!/usr/bin/env python3
+import sys
+from pathlib import Path
+#: NEGATIVE-CONTROL: controls/toy
+root = Path(sys.argv[sys.argv.index("--root") + 1])
+if (root / "tests" / "UNEXAMINABLE").exists():
+    print("toy-gate: UNKNOWN - this input cannot be examined.", file=sys.stderr)
+    sys.exit(3)
+if (root / "tests" / "BAD").exists():
+    print("toy-gate: ok - nothing found")
+    sys.exit(0)
+print("toy-gate: UNKNOWN - this input cannot be examined.", file=sys.stderr)
+sys.exit(0)
+"""
+
 #: An anchor that REFUSES the known-bad input. It did not CATCH anything, so
 #: calling it INERT would accuse a sound artifact of being load-bearing; the
 #: required property is simply not established.
@@ -1981,4 +2051,121 @@ def test_an_anchor_blind_to_the_refusal_too_is_inert(tmp_path: Path) -> None:
         "the message must name the kind of input that disagreed, or a reader "
         "hunts for a clean-run disagreement that is not there\n" + result.stdout
     )
+    assert result.returncode == 1
+
+
+# --------------------------------------------------------------------------- #
+# Counter-model review of the #1129 change (codex/gpt-6-astra), accepted.
+# Each of these reproduces a way the new expectation could certify evidence the
+# change's own rules reject elsewhere.
+# --------------------------------------------------------------------------- #
+
+
+def test_an_anchor_whose_refusal_is_also_a_detection_is_unresolved(tmp_path: Path) -> None:
+    """The refusal/detection overlap check must cover the ANCHOR too.
+
+    It ran only over the CASE loop, so ambiguous output was rejected when the
+    current gate produced it and ACCEPTED as agreement when the anchor did - and
+    an anchor is a different program, so the gate-side check is no evidence about
+    it. The control then reported PASS on exactly the evidence the change
+    declares inadmissible one function earlier.
+    """
+    root = build_tree(
+        tmp_path, REFUSING_GATE, anchor_src=AMBIGUOUS_ON_REFUSAL_ANCHOR,
+        cases=UNKNOWN_CASES, unknown_signal=TOY_UNKNOWN,
+    )
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", (
+        "ambiguous anchor output must not be accepted as agreement\n" + result.stdout
+    )
+    assert result.returncode == 1
+
+
+def test_a_refusal_is_not_evidence_that_the_gates_tool_was_present(tmp_path: Path) -> None:
+    """A gate may refuse an input BEFORE it checks its own tool - and the real
+    `shellcheck-gate.sh` does, testing `[ -d "$ROOT" ]` before `command -v
+    shellcheck`.
+
+    So on a host missing the tool, the known-bad and known-good cases report
+    UNAVAILABLE while the UNKNOWN case genuinely refuses. Counting that refusal
+    as proof the gate RAN produced the #1117 contradiction verdict and the
+    sentence "so the tool was present" - a confident false statement about the
+    machine, which is the failure class this whole file exists to refuse. The
+    honest answer is UNAVAILABLE: the control is unexamined here.
+    """
+    root = build_tree(
+        tmp_path, REFUSES_BEFORE_CHECKING_ITS_TOOL_GATE, cases=UNKNOWN_CASES,
+        unavailable_signal=TOY_UNAVAILABLE, unknown_signal=TOY_UNKNOWN,
+    )
+    result = run_harness(root, "--strict", "--allow-unavailable")
+    assert verdict_of(result.stdout) == "UNAVAILABLE", (
+        "a refusal says nothing about whether the gate's TOOL was installed\n"
+        + result.stdout
+    )
+    assert "the tool was present" not in result.stdout, (
+        "the harness must not assert the tool was present on the strength of a "
+        "refusal\n" + result.stdout
+    )
+    assert result.returncode == 0
+
+
+def test_a_recognised_unavailability_is_exempt_from_the_overlap_check(tmp_path: Path) -> None:
+    """The overlap check answers "can a refusal be told from a finding". On a run
+    already identified as UNAVAILABLE by the most specific declared pattern, that
+    question is moot - the case is skipped and never scored - so firing there
+    turns an environment fact into a manifest accusation.
+
+    The registration below is the shape that exposes it: both the detection and
+    the refusal pattern legitimately include the tool-absent message as one
+    alternative, which is the same relationship
+    `flow-driver-retirement-check.sh` already has between its unavailability
+    line and its detection pattern.
+    """
+    root = build_tree(
+        tmp_path, UNAVAILABLE_GATE,
+        detect_signal=r"^toy-gate: (FINDING|UNAVAILABLE) - ",
+        unavailable_signal=TOY_UNAVAILABLE,
+        unknown_signal=r"^toy-gate: (UNKNOWN|UNAVAILABLE) - ",
+    )
+    result = run_harness(root, "--strict", "--allow-unavailable")
+    assert verdict_of(result.stdout) == "UNAVAILABLE", (
+        "an absent tool must stay an environment fact, not become an "
+        "UNRESOLVED accusation about the manifest\n" + result.stdout
+    )
+    assert result.returncode == 0
+
+
+def test_an_anchor_that_exits_clean_while_announcing_a_refusal_is_unresolved(
+    tmp_path: Path,
+) -> None:
+    """Constraint 2 ("the refusal marker may not match a clean run") has to cover
+    the ANCHOR as well, for the same reason constraint 3 does: the anchor is a
+    different program.
+
+    Exiting like a clean run while announcing a refusal is not a verdict at all -
+    it cannot have examined the input and also have been unable to look at it -
+    so reading it as "missed the known-bad input, blind as required" certifies
+    incoherent evidence as the demonstration.
+    """
+    root = build_tree(
+        tmp_path, REFUSING_GATE, anchor_src=CLEAN_BUT_REFUSING_ON_BAD_ANCHOR,
+        cases=UNKNOWN_CASES, unknown_signal=TOY_UNKNOWN,
+    )
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "exited like a CLEAN run" in result.stdout, result.stdout
+    assert result.returncode == 1
+
+
+def test_the_same_contradiction_on_a_sanity_case_is_also_unresolved(tmp_path: Path) -> None:
+    """The anchor-sanity loop needs the check too, not just the known-bad loop:
+    an anchor can miss the known-bad input correctly and still be incoherent on
+    the inputs that are supposed to establish it differs in nothing else."""
+    root = build_tree(
+        tmp_path, REFUSING_GATE, anchor_src=CLEAN_BUT_REFUSING_ON_GOOD_ANCHOR,
+        cases=UNKNOWN_CASES, unknown_signal=TOY_UNKNOWN,
+    )
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "exited like a CLEAN run" in result.stdout, result.stdout
     assert result.returncode == 1
