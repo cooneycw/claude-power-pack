@@ -1,0 +1,15 @@
+# The same two steps, written in the LIST form this reader does not speak.
+when:
+  - event: [push, pull_request]
+
+steps:
+  - name: secret-scan
+    image: example/gitleaks
+    commands:
+      - gitleaks detect --source .
+
+  - name: alpha-check
+    image: example/python
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/alpha-check.py
