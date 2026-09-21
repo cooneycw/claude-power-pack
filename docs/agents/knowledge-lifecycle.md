@@ -36,9 +36,12 @@ the narrowest maintained source that can enforce or explain it. A record of a
 DECISION is a different kind of thing and the graduation process does not apply
 to it.
 
-A `/flow:auto` plan record (`docs/flow-runs/issue-<N>.md`, issue #1080) and a
+A `/flow:auto` plan record (`docs/flow-runs/issue-<N>.md`, issue #1080), an
+as-read issue snapshot (`docs/flow-runs/issue-<N>.as-read.md`, issue #1081) and a
 counter-model receipt (`docs/measurements/counter-model/*.json`, issue #934) are
-both of this kind. Each states what was agreed, or what was reviewed, at a
+all of this kind. The as-read snapshot is the clearest case: it states what a run
+READ at a moment, which stays true however far the issue moves afterwards - and
+the whole point of keeping it is to make that movement visible. Each states what was agreed, or what was reviewed, at a
 particular moment and against a particular SHA. That claim does not go stale,
 because it is not a claim about how the system behaves now - it is a claim about
 what happened, and it stays true.

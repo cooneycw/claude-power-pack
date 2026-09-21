@@ -318,6 +318,72 @@ tracked record carrying uncommitted edits is restored to the committed version
 rather than kept, because the committed version is the one a reviewer actually
 signed - which also means this file is not a place to hand-edit between runs.
 
+#### Read the issue body, and record WHEN - fetch here, write later (issue #1081)
+
+A run's stage-1 facts all live in a GitHub issue body: mutable, carrying no SHA,
+with an edit history git cannot see. Capture what this run READ, so a later check
+can report that the source moved instead of nobody noticing.
+
+**Fetch to a TEMPORARY file here. Do NOT write anything into the worktree yet.**
+
+Fetch (needs `gh`; not controlled - stubbing it would test the stub):
+
+```bash
+AS_READ_STORE="$(git rev-parse --git-dir)/flow-as-read-42"
+if gh issue view 42 --json body --jq .body > "$AS_READ_STORE.body"; then
+    gh issue view 42 --json updatedAt --jq .updatedAt > "$AS_READ_STORE.updated" || :
+else
+    rm -f "$AS_READ_STORE.body"
+    echo "AS_READ: unresolved - could not read issue #42. The snapshot will say so."
+fi
+```
+
+Record what was read - a decision over local files, kept separate so it can be
+controlled without stubbing `gh`:
+
+```bash
+AS_READ_STORE="$(git rev-parse --git-dir)/flow-as-read-42"
+if [ -s "$AS_READ_STORE.body" ]; then
+    if D="$(sha256sum "$AS_READ_STORE.body" | cut -d' ' -f1)" && [ -n "$D" ]; then
+        printf 'digest=%s\nread_at=%s\n' "$D" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$AS_READ_STORE.meta"
+    else
+        printf 'digest=\nread_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$AS_READ_STORE.meta"
+        echo "AS_READ: unresolved - the body was read but could not be hashed."
+    fi
+fi
+```
+
+**The state lives in the GIT DIRECTORY, not in shell variables and not in the
+worktree.** An agent runs Step 1 and Step 4 in SEPARATE shell invocations, so a
+filename or digest held in a variable is gone by the time the writer needs it -
+a successful fetch would then produce an `unresolved` snapshot, and a test that
+ran both blocks in one shell would never show it (counter-model review,
+gpt-6-astra). `git rev-parse --git-dir` is deterministic, is per-worktree, and
+survives across calls.
+
+It is also invisible to the driver guard: measured, `git status --porcelain
+--untracked-files=all` reports 0 lines with a file present inside `.git`. So the
+state can be written at Step 1 without the hazard that forced the file itself to
+Step 4.
+
+**Why the file is not written here.** `flow-live-driver-guard.sh` runs later, in
+Step 4, over `git status --porcelain --untracked-files=all` with a 30-minute
+freshness window, and `docs/flow-runs/` is not excluded from it. A file written
+at Step 1 is a fresh UNTRACKED path when that guard runs, which is the phantom
+second driver - the same defect the plan record hit, arriving earlier and so more
+certainly fresh.
+
+**It would also have been intermittent, which is worse than broken.** Under 30
+minutes from Step 1 to Step 4 the guard fires; over 30 minutes it does not. Fast
+ordinary runs would break while slow deliberate ones - exactly the runs where
+someone is watching, such as one waiting at the Step 3 gate for a reviewer -
+would pass.
+
+A temporary file is invisible to the guard because it is not in the worktree. The
+evidence claim is "this is what the run read, and when", and `read_at` carries the
+"when" as a FIELD at least as well as an early write would - the early write is
+the only part the guard objects to.
+
 **Ask HEAD whether the record EXISTS, not the index.** `git ls-files` answers
 "is this path in the INDEX", which is a different question and wrong in both
 directions (counter-model review, gpt-6-astra). Measured, with the index-based
@@ -674,6 +740,92 @@ it wrong.
 
 **A verdict of `No longer needed` writes NO record.** The run stops, there is no
 plan to approve, and an empty record would assert that one was.
+
+#### Also write the as-read snapshot here (issue #1081)
+
+The body fetched at Step 1 is written now, in the same safe position and for the
+same reason:
+
+```bash
+mkdir -p docs/flow-runs
+python3 - 42 "$(git rev-parse --git-dir)/flow-as-read-42" docs/flow-runs/issue-42.as-read.md <<'PY'
+import pathlib, sys
+CAP = 16384
+issue, store, out = sys.argv[1], pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3])
+body_p, meta_p = store.with_suffix(".body"), store.with_suffix(".meta")
+meta = {}
+if meta_p.exists():
+    for line in meta_p.read_text().splitlines():
+        k, _, v = line.partition("=")
+        meta[k] = v
+digest, read_at = meta.get("digest", ""), meta.get("read_at", "")
+
+head = f"# Issue #{issue} as read by this run\n"
+if not body_p.exists() or not digest:
+    out.write_text(
+        head + "\nAS_READ: unresolved - the issue could not be read, or its body could not be\n"
+        "hashed, at Step 1. This is NOT a record that the issue was unchanged, and NOT an\n"
+        "absence of constraints. Read the issue.\n"
+    )
+    raise SystemExit(0)
+
+raw = body_p.read_bytes()
+cut = raw[:CAP]
+while cut:                      # never split a multibyte character
+    try:
+        cut.decode("utf-8"); break
+    except UnicodeDecodeError:
+        cut = cut[:-1]
+truncated = len(cut) < len(raw)
+updated = (store.with_suffix(".updated").read_text().strip()
+           if store.with_suffix(".updated").exists() else "unknown")
+
+parts = [
+    head, "\n",
+    "EVIDENCE OF WHAT THIS RUN READ, not a second statement of the contract.\n",
+    "The issue is the authority; read it. This copy exists so a later check can\n",
+    "report that the source moved. It does not graduate.\n\n",
+    f"- Issue:        #{issue}\n",
+    f"- Read at:      {read_at}\n",
+    f"- updatedAt:    {updated}   (context only - moves on comments and labels)\n",
+    f"- Body digest:  {digest}   (sha256 of the FULL body; the verdict keys on this)\n",
+    f"- Stored bytes: {len(cut)} of {len(raw)} (cap {CAP})\n",
+    "\n## Body as read\n",
+    cut.decode("utf-8"),
+]
+if truncated:
+    parts.append(
+        f"\n[TRUNCATED at {len(cut)} bytes of {len(raw)}. This extract is INCOMPLETE CONTEXT\n"
+        " TO RESOLVE by reading the issue - it is not an absence of further constraints.\n"
+        " The digest above covers the FULL body, so drift beyond this point is still\n"
+        " DETECTED; it just cannot be LOCALISED from this copy.]\n"
+    )
+out.write_text("".join(parts))
+PY
+```
+
+**The digest covers the FULL body; the 16 KB cap bounds only what is STORED.**
+Digesting the truncated copy would mean that for any issue past the cap, a change
+BEYOND it produces an identical digest and the check reports no drift - a
+blindness rendering as clean, in precisely the case the cap exists to handle.
+
+**The cap is measured, not chosen - and the measurement is a SAMPLE.** Across the
+40 most recent issues at the time of writing (2026-09-21) the mean body was 4,271
+bytes, the median 3,833, p90 6,877, and the largest 12,898 (#1132). So 16 KB held
+every body IN THAT SAMPLE with roughly 3 KB of headroom. It does not establish
+that no body in this repository has ever exceeded it, and it is not a prediction
+about future ones - which is why exceeding the cap is a supported, explicitly
+reported state rather than an error. Re-measure with:
+
+```bash
+gh issue list --state all --limit 40 --json number,body \
+  --jq '.[] | "\(.body|length) #\(.number)"' | sort -rn | head -5
+```
+
+**`updatedAt` is recorded as context and is never the verdict.** It moves on
+comments, labels and assignment, not only on body edits, so keying drift on it
+would report a changed contract for every comment - and a check that cries wolf
+gets ignored, which is worse than not having it.
 
 **Why the record is written HERE and not at the top of Step 4.** The two checks
 above are explicitly "run BEFORE the first edit", and writing the record IS the
@@ -1282,6 +1434,92 @@ git merge --no-edit origin/main
    - If PR already exists, report its URL and continue.
    - PR body: Summary of changes + test plan + `${ISSUE_REF}`
    - Analyze all commits on the branch to draft the summary.
+
+6. **Check whether the issue moved under this run** (issue #1081). The FETCH and
+   the VERDICT are separate blocks, for the same reason the Step-1 read is
+   separate from its write: the fetch is I/O that needs `gh` and a live issue,
+   the verdict is a decision over two local files. Separated, the decision can be
+   controlled with real inputs instead of a stubbed `gh` - stubbing the tool
+   whose output is the subject would test the stub.
+
+   Fetch:
+   ```bash
+   LIVE_TMP="$(mktemp -t flow-live-body-XXXXXX.md)"
+   if ! gh issue view 42 --json body --jq .body > "$LIVE_TMP"; then
+       rm -f "$LIVE_TMP"; LIVE_TMP=""
+   fi
+   ```
+
+   Verdict - `$SNAP` is the as-read snapshot, `$LIVE_TMP` the body just fetched
+   (empty when the fetch failed):
+   ```bash
+   python3 - docs/flow-runs/issue-42.as-read.md "${LIVE_TMP:-}" <<'PY'
+import hashlib, pathlib, re, sys, difflib
+CAP = 16384
+snap_p, live = pathlib.Path(sys.argv[1]), sys.argv[2]
+
+def unresolved(why):
+    print(f"ISSUE_DRIFT: unresolved ({why})"); raise SystemExit(0)
+
+if not snap_p.exists():
+    unresolved("no as-read snapshot on this branch")
+text = snap_p.read_text()
+
+# Parse the METADATA SECTION ONLY. Searching the whole file would read a
+# `- Body digest: ...` line inside the COPIED ISSUE BODY as metadata, and an
+# unchanged issue quoting one would report drift (counter-model review).
+meta_section = text.split("\n## Body as read\n", 1)[0]
+found = re.findall(r"^- Body digest:\s+([0-9a-f]{64})\b", meta_section, re.M)
+if len(found) != 1:
+    unresolved(f"snapshot carries {len(found)} usable digests, expected exactly 1")
+recorded = found[0]
+
+if not live or not pathlib.Path(live).is_file():
+    unresolved("could not read the issue - this is NOT no-drift")
+try:
+    live_bytes = pathlib.Path(live).read_bytes()
+    live_digest = hashlib.sha256(live_bytes).hexdigest()
+except OSError as exc:
+    unresolved(f"could not hash the fetched body ({exc}) - this is NOT no-drift")
+
+if live_digest == recorded:
+    print("ISSUE_DRIFT: clean (body digest unchanged since this run read it)")
+    raise SystemExit(0)
+
+print("ISSUE_DRIFT: drift - the issue body changed since this run read it.")
+stored = text.split("\n## Body as read\n", 1)[1] if "\n## Body as read\n" in text else ""
+stored = re.sub(r"\n\[TRUNCATED at .*?\]\n", "", stored, flags=re.S)
+was_truncated = "[TRUNCATED at " in text
+# Compare LIKE WITH LIKE: the stored copy is a PREFIX, so diffing it against the
+# whole live body renders the unstored tail as additions and can push the real
+# edit past the preview entirely.
+live_text = live_bytes.decode("utf-8", "replace")
+compare_against = live_text[:len(stored)] if was_truncated else live_text
+for line in list(difflib.unified_diff(
+        stored.splitlines(), compare_against.splitlines(),
+        fromfile="as-read", tofile="live", lineterm=""))[:80]:
+    print(line)
+if was_truncated:
+    print("NOTE: the stored copy was truncated, so only the captured prefix is compared.")
+    print("A change BEYOND it is DETECTED by the digest but CANNOT BE LOCALISED here.")
+print("Resolve under the EXISTING authority model: newer bytes do not by themselves")
+print("override a constraint or a plan already accepted on this issue (#1081).")
+PY
+   ```
+
+   **A failed fetch and a missing snapshot are UNRESOLVED, never clean.** The
+   check cannot answer, and an unanswerable question rendered as a clean verdict
+   is the defect this wave has met most often - including one built deliberately
+   in this very step for the plan record, where a failed query and a genuine
+   absence printed the same line and both exited 0. Note the ordering: the
+   unresolved branches are tested BEFORE the comparison, so no path reaches
+   `clean` without a digest on both sides.
+
+   **Drift prints a DIFF, not a boolean**, because "acceptance criterion 3 gained
+   a clause" is actionable where "the issue changed" sends someone to re-read the
+   whole thing. Where the stored copy was truncated the diff covers the stored
+   prefix only; the digest still covers the whole body, so DETECTION is complete
+   even when the naming is partial.
 
 6. **Confirm the plan record reached the PR** (issue #1080) - ask whether it
    EXISTS at the PR's head, not whether its name appears in a diff:
