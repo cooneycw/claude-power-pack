@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1081-snapshot-the-issue-body-as-a-bounded-sourced-drift",
+  "counts": {
+    "accepted": 8,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "991be870dfd5718325d06991a6c824040e7de62e",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1081",
+  "passes": 1,
+  "recorded_at": "2026-09-21T20:14:40Z",
+  "red_cases": {
+    "already_covered": 2,
+    "proposed": 6
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
