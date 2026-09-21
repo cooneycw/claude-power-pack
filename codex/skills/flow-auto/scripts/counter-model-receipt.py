@@ -41,6 +41,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -370,6 +371,15 @@ def build(args: argparse.Namespace) -> dict:
         "reviewer": args.reviewer,
         "implementer": args.implementer,
     }
+    # The commit this review was taken against (issue #1171). OPTIONAL, and the
+    # optionality is load-bearing: every receipt committed before #1171 has no
+    # `head`, and making it required would invalidate all 50 of them at once -
+    # `test_every_COMMITTED_receipt_is_well_formed_AND_TRACKED` would red on a
+    # corpus nobody touched. Absent therefore means "written before this field
+    # existed", which the gate reads as NOT satisfying enrolment for a current
+    # head rather than as a failure of the receipt.
+    if getattr(args, "head", None):
+        receipt["head"] = args.head
     if args.status == "skipped":
         receipt["skip_reason"] = args.reason
     else:
@@ -436,6 +446,11 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
                 f"({reviewer!r}); the reviewing model must not be the implementing model"
             )
 
+    head = receipt.get("head")
+    if head is not None:
+        if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{7,40}", head):
+            bad.append(f"{source}: head {head!r} is not a git object name")
+
     if status == "skipped":
         if receipt.get("skip_reason") not in SKIP_REASONS:
             bad.append(
@@ -481,6 +496,40 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
     return bad
 
 
+def _derive_head(explicit: str | None, cwd: Path | None = None) -> tuple[str | None, str | None]:
+    """The commit this review was taken against, DERIVED rather than asserted.
+
+    `--head` exists as an override for tests, but nothing in the flow passes it
+    and nothing should have to: the only receipt-write call site lives in
+    `.claude/commands/flow/auto.md`, and requiring a flag there would have made
+    this field depend on a document being edited in lockstep with this script -
+    the same "a marker written by the thing being measured" trap #1048 removed
+    from `--reviewer`. Deriving it here means an existing call site produces a
+    receipt the finish gate can use, with no edit at all.
+
+    Returns `(head, warning)`. A head that cannot be derived is NOT fatal: the
+    receipt is still a valid record of a review, it simply cannot satisfy the
+    finish gate's enrolment check for a commit. That is said out loud rather
+    than left for the gate to report as a bare `missing` later.
+    """
+    if explicit:
+        return explicit, None
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(cwd) if cwd else None,
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, f"could not run git to derive the reviewed commit: {exc}"
+    if out.returncode != 0:
+        return None, "not a git checkout, so no reviewed commit could be derived"
+    head = out.stdout.strip()
+    if not re.fullmatch(r"[0-9a-f]{7,40}", head):
+        return None, f"git returned {head!r}, which is not an object name"
+    return head, None
+
+
 def cmd_write(args: argparse.Namespace) -> int:
     if args.status == "ran":
         sessions_dir = args.codex_sessions_dir or _default_codex_sessions_dir()
@@ -508,6 +557,14 @@ def cmd_write(args: argparse.Namespace) -> int:
         print(f"counter-model-receipt: {error}", file=sys.stderr)
         return EXIT_INVALID
     args.implementer = implementer
+
+    args.head, head_warning = _derive_head(getattr(args, "head", None))
+    if head_warning:
+        print(
+            f"counter-model-receipt: {head_warning}; this receipt will not satisfy "
+            "the finish gate's counter-model enrolment check (issue #1171)",
+            file=sys.stderr,
+        )
 
     receipt = build(args)
     problems = validate(receipt, "new receipt")
@@ -590,6 +647,22 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return EXIT_INVALID if problems else EXIT_OK
 
 
+def cmd_skip_reasons(args: argparse.Namespace) -> int:
+    """Print the committed skip reasons, one per line.
+
+    `flow-finish-gate.sh` validates a `skipped: <reason>` enrolment line against
+    this set and reads it from HERE rather than carrying its own copy (issue
+    #1171). A second declaration in shell is the cross-language drift #890 and
+    #1147 kept removing from this repository, and it fails in the dangerous
+    direction: a shell copy still listing a reason Python has retired accepts a
+    skip the committed set refuses - which is how `explicit-opt-out` would come
+    back without anyone re-adding it to SKIP_REASONS.
+    """
+    for reason in SKIP_REASONS:
+        print(reason)
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -627,6 +700,11 @@ def main() -> int:
         w.add_argument(f"--{k}", type=int, default=0)
     w.add_argument("--red-cases-proposed", type=int, default=0)
     w.add_argument("--red-cases-already-covered", type=int, default=0)
+    w.add_argument(
+        "--head",
+        help="the commit this review was taken against (issue #1171); "
+             "the finish gate matches it against the current HEAD by ancestry",
+    )
     w.add_argument("--at", help="override the timestamp (tests)")
     w.set_defaults(func=cmd_write)
 
@@ -637,6 +715,10 @@ def main() -> int:
     v = sub.add_parser("validate", help="check the shape of every committed receipt")
     v.add_argument("--dir", default=str(RECEIPT_DIR))
     v.set_defaults(func=cmd_validate)
+
+    sr = sub.add_parser("skip-reasons",
+                        help="print the committed skip reasons, one per line")
+    sr.set_defaults(func=cmd_skip_reasons)
 
     args = ap.parse_args()
     if args.cmd == "write" and args.status == "skipped" and not args.reason:

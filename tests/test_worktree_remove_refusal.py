@@ -32,6 +32,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.isolated_env import ISOLATED_PATH
+
 REPO = Path(__file__).resolve().parent.parent
 COMMANDS = REPO / ".claude" / "commands"
 HELPER_REL = ".claude/scripts/worktree-remove.sh"
@@ -346,7 +348,7 @@ def test_the_shipped_block_behaves_both_ways(
             encoding="utf-8")
         helper.chmod(0o755)
 
-    env = {"HOME": str(home), "PATH": "/usr/bin:/bin", "LC_ALL": "C"}
+    env = {"HOME": str(home), "PATH": ISOLATED_PATH, "LC_ALL": "C"}
     # The absence this test rests on (#933). The block under test must locate
     # the helper through HOME; if `worktree-remove.sh` were also resolvable on
     # the constructed PATH, the block could find it there and this would pass
@@ -413,7 +415,7 @@ def test_a_concurrent_run_does_not_erase_a_pending_refusal(tmp_path: Path) -> No
     home = tmp_path / "home"
     (home / ".claude" / "scripts").mkdir(parents=True)
     main_repo = _fake_repo(tmp_path)
-    env = {"HOME": str(home), "PATH": "/usr/bin:/bin", "LC_ALL": "C"}
+    env = {"HOME": str(home), "PATH": ISOLATED_PATH, "LC_ALL": "C"}
     # The absence this test rests on (#933). The block under test must locate
     # the helper through HOME; if `worktree-remove.sh` were also resolvable on
     # the constructed PATH, the block could find it there and this would pass

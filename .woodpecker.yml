@@ -86,9 +86,38 @@ steps:
     commands:
       - python3 scripts/ci-stage-jq.py
 
+  # `git`, CONTENT-PINNED, staged into `.ci-bin` for the steps below (issue #1171).
+  # WHY GIT IS HERE. `flow-finish-gate.sh` derives counter-model enrolment - whether a
+  # review is recorded for this branch at a commit reachable from HEAD - and that needs
+  # `rev-parse` and `merge-base --is-ancestor`. This image has no git, measured.
+  # `check-control-ci-deps.py` reports SEVEN registered controls as needing it:
+  # `counter-model-enrolment` and the six `flow-finish-gate*` registrations, which all
+  # invoke that one script. The harness REFUSES to skip a control it cannot run, so
+  # without this the battery is a red, not a silence - the same sentence the secret-scan
+  # step makes about gitleaks.
+  #
+  # ONLY ONE OF THE SEVEN NEEDS IT AT RUNTIME, and that is recorded so nobody deletes
+  # this after measuring the other six. With jq and make staged and no git:
+  # counter-model-enrolment UNSIGNALLED; flow-finish-gate, -resume and -derivation all
+  # PASS - their cases carry no receipts directory, so the gate takes the not-enrolled
+  # path where its one git call is already `|| true`. The six are staged for anyway
+  # because `check-control-ci-deps` derives REQUIRED from what a script can REACH, not
+  # from what a control's cases execute; a static reader cannot know which path is taken.
+  #
+  # NO ENVIRONMENT IS EXPORTED INTO ANY STEP. An extracted git needs LD_LIBRARY_PATH and
+  # GIT_EXEC_PATH; setting those here would apply them to every process in the step, so
+  # all 42 controls would run under an altered loader environment to satisfy one.
+  # `.ci-bin/git` is a WRAPPER that sets both on its own exec line, so `.ci-bin` on PATH
+  # remains the entire interface, exactly as it is for jq and make.
+  git-stage:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/ci-stage-git.py
+
   validate:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
-    depends_on: [secret-scan, shellcheck-stage, jq-stage, make-stage]
+    depends_on: [secret-scan, shellcheck-stage, jq-stage, make-stage, git-stage]
     # THE CAP IS DECLARED, NEVER `auto` (issues #640, #1086). `-n auto` means one
     # worker per core, and `nproc` is 24 on the agent host while flow sessions run
     # full suites beside the pipeline; multiplied by the invocations actually in
@@ -614,7 +643,7 @@ steps:
   # --network none and a read-only workspace.
   negative-controls:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
-    depends_on: [secret-scan, shellcheck-stage, jq-stage, make-stage]
+    depends_on: [secret-scan, shellcheck-stage, jq-stage, make-stage, git-stage]
     commands:
       # `.ci-bin` carries the PINNED shellcheck staged by shellcheck-stage
       # and the PINNED jq staged by jq-stage.
