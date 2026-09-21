@@ -32,6 +32,18 @@ from pathlib import Path
 
 import pytest
 
+#: An isolated PATH that still contains git (issue #1171). The isolation is the
+#: point - these fixtures deliberately hand the subject a minimal environment - but
+#: `/usr/bin:/bin` encodes an ASSUMPTION that git lives in a system directory, and
+#: that is false wherever git is staged rather than installed. CPP's CI image ships
+#: no git at all: it is staged into `.ci-bin` and reached through PATH, so these
+#: tests skipped in every pipeline run until that staging existed, then ran for the
+#: first time and raised FileNotFoundError on a binary their own marker had just
+#: certified present. So git's REAL directory is appended to the isolated set rather
+#: than the isolation being abandoned to get a pass.
+_GIT = shutil.which("git")
+ISOLATED_PATH = f"/usr/bin:/bin:{Path(_GIT).parent}" if _GIT else "/usr/bin:/bin"
+
 REPO = Path(__file__).resolve().parent.parent
 COMMANDS = REPO / ".claude" / "commands"
 HELPER_REL = ".claude/scripts/worktree-remove.sh"
@@ -346,7 +358,7 @@ def test_the_shipped_block_behaves_both_ways(
             encoding="utf-8")
         helper.chmod(0o755)
 
-    env = {"HOME": str(home), "PATH": "/usr/bin:/bin", "LC_ALL": "C"}
+    env = {"HOME": str(home), "PATH": ISOLATED_PATH, "LC_ALL": "C"}
     # The absence this test rests on (#933). The block under test must locate
     # the helper through HOME; if `worktree-remove.sh` were also resolvable on
     # the constructed PATH, the block could find it there and this would pass
@@ -413,7 +425,7 @@ def test_a_concurrent_run_does_not_erase_a_pending_refusal(tmp_path: Path) -> No
     home = tmp_path / "home"
     (home / ".claude" / "scripts").mkdir(parents=True)
     main_repo = _fake_repo(tmp_path)
-    env = {"HOME": str(home), "PATH": "/usr/bin:/bin", "LC_ALL": "C"}
+    env = {"HOME": str(home), "PATH": ISOLATED_PATH, "LC_ALL": "C"}
     # The absence this test rests on (#933). The block under test must locate
     # the helper through HOME; if `worktree-remove.sh` were also resolvable on
     # the constructed PATH, the block could find it there and this would pass
