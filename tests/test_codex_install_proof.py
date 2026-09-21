@@ -169,6 +169,14 @@ def test_the_proof_refuses_a_dirty_generated_tree(tmp_path: Path) -> None:
     finally:
         skill_doc.write_bytes(original)
 
-    assert result.returncode != 0, "a dirty generated tree was accepted"
-    assert "uncommitted changes" in result.stderr
+    # The REFUSAL is the property; its REASON differs by environment and that is
+    # correct. With git present it refuses because the tree is dirty; with git
+    # absent it refuses because cleanliness cannot be verified at all. Asserting
+    # only the dirty message made this test pass locally and fail in CI - its
+    # verdict depended on which box ran it.
+    assert result.returncode != 0, "strict provenance accepted an unproven tree"
+    assert (
+        "uncommitted changes" in result.stderr
+        or "cannot be verified" in result.stderr
+    ), result.stderr
     assert "PROOF: ok" not in result.stdout

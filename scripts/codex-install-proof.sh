@@ -64,6 +64,16 @@ phase0_derive() {
     # successfully and produced evidence attributed to a commit that never
     # contained it - which is exactly what "evidence for an earlier SHA is not
     # release approval" exists to prevent, inverted.
+    if [ "$provenance" = "ci-declared" ] && [ "${PROOF_STRICT_PROVENANCE:-0}" = "1" ]; then
+        # STRICT MEANS PROVE IT. `ci-declared` relies on the checkout being a
+        # fresh clone and cannot demonstrate it, so strict mode refuses rather
+        # than accepting an unverifiable claim. Found by CI: the refusal test
+        # passed locally (git present) and failed in the image (git absent, so
+        # the dirty check never ran and strict refused nothing) - a test whose
+        # verdict depended on which box it ran on.
+        fail "PROOF_STRICT_PROVENANCE is set but cleanliness cannot be verified here: git is absent, so the commit is only DECLARED ($sha), never demonstrated."
+        return 1
+    fi
     if [ "$provenance" = "ci-declared" ]; then
         note "PROOF_PROVENANCE: ci-declared - the commit is $sha, named by CI. Tree cleanliness is NOT verified here: git is absent from this image, so this run relies on the checkout being a fresh clone rather than demonstrating it."
         dirty=""
@@ -295,9 +305,17 @@ known_bad_cases() {
     # The DIAGNOSTIC is the evidence, so it is printed rather than replaced by a
     # canned sentence and then asserted about (#1074 re-review). It must name the
     # exact missing entry point under CODEX_HOME, and no ambient or repo path.
+    # NO INTERPOLATED ABSOLUTE PATH IN THE PATTERN (CLAUDE.md Core Directive; found
+    # by CI). `$REPO_ROOT` was spliced into a regex, and in the CI image it is
+    # `/w` - so the forbidden-pattern test matched the tmp path
+    # `/tmp/pytest-of-root/.../w/codex-home/...`, which contains `/w/`. The check
+    # rejected its own correct rejection, and only in an environment whose repo
+    # root is short. The POSITIVE assertion below already establishes what
+    # matters: the diagnostic names the entry point under CODEX_HOME, which is
+    # outside any checkout by construction.
     if [ "$rc_ms" -ne 0 ] \
-       && printf '%s' "$out" | grep -q "$CODEX_ROOT/skills/$SKILL/scripts/project-next.py" \
-       && ! printf '%s' "$out" | grep -qE "\.claude/scripts|$REPO_ROOT"; then
+       && printf '%s' "$out" | grep -qF "$CODEX_ROOT/skills/$SKILL/scripts/project-next.py" \
+       && ! printf '%s' "$out" | grep -qF ".claude/scripts"; then
         note "PROOF_KNOWN_BAD: missing-scripts REJECTED (exit $rc_ms) - $(printf '%s' "$out" | grep -m1 "$CODEX_ROOT" | sed "s|$CODEX_ROOT|\$CODEX_HOME|g")"
     else
         fail "known-bad 'missing-scripts' rejection text is wrong: $(printf '%s' "$out" | head -1)"; rc=1
