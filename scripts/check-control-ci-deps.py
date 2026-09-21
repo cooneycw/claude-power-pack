@@ -705,7 +705,24 @@ def _executing_imports(tree: ast.AST) -> tuple[list[ast.stmt], int]:
     inside the check built to catch it.
 
     So EXECUTION SCOPE is tracked instead: everything is reached except the
-    bodies of functions and lambdas, which run on call rather than on import.
+    bodies of functions and lambdas, which run on call rather than on import -
+    and `if TYPE_CHECKING:`, which is the one condition that is False by
+    definition at runtime (issue #1162).
+
+    THAT EXEMPTION IS A LITERAL, NOT A CONDITION EVALUATOR, and the narrowness
+    is the point. `typing.TYPE_CHECKING` is False whenever the interpreter is
+    running, so its block cannot execute; `if True:` can and must still report,
+    which is the hole the review above closed and this must not reopen. Only
+    the bare name `TYPE_CHECKING` or the attribute `typing.TYPE_CHECKING`
+    qualifies - no other expression, however obviously constant.
+
+    Measured: #1163 made `lib/cicd/__init__.py` lazy with exactly this idiom,
+    re-declaring `.config` and friends under `if TYPE_CHECKING:` for type
+    checkers alone. Walking into it made this check report that
+    `verify-coverage`'s gate "imports pydantic at MODULE level, the import runs
+    on load" - about code that does not run - and blocked a ratified change.
+    An over-approximating check states a claim its input does not support,
+    which is the contract this repository holds every detector to.
     """
     executing: list[ast.stmt] = []
     deferred = 0
@@ -719,6 +736,18 @@ def _executing_imports(tree: ast.AST) -> tuple[list[ast.stmt], int]:
                 else:
                     deferred += 1
                 continue
+            if _is_type_checking_block(child):
+                # ONLY THE `if` BODY IS UNREACHABLE. The `else:` of a
+                # TYPE_CHECKING block is the branch that RUNS at runtime - the
+                # `else: import pydantic` shape is a real module-level import
+                # and must still report. Deferring the whole `If` node covered
+                # both and silently exempted it; measured on the first cut of
+                # this fix.
+                for stmt in child.body:
+                    visit_stmt(stmt, False)
+                for stmt in child.orelse:
+                    visit_stmt(stmt, running)
+                continue
             visit(
                 child,
                 running
@@ -727,8 +756,46 @@ def _executing_imports(tree: ast.AST) -> tuple[list[ast.stmt], int]:
                 ),
             )
 
+    def visit_stmt(stmt: ast.stmt, running: bool) -> None:
+        nonlocal deferred
+        if isinstance(stmt, (ast.Import, ast.ImportFrom)):
+            if running:
+                executing.append(stmt)
+            else:
+                deferred += 1
+            return
+        visit(
+            stmt,
+            running
+            and not isinstance(
+                stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+            ),
+        )
+
     visit(tree, True)
     return executing, deferred
+
+
+def _is_type_checking_block(node: ast.AST) -> bool:
+    """Is this `if TYPE_CHECKING:` - the one branch that cannot run?
+
+    Matched as a LITERAL name or attribute, never evaluated as an expression.
+    `if TYPE_CHECKING:` and `if typing.TYPE_CHECKING:` qualify; `if True:`,
+    `if not DEBUG:` and everything else do not, because an import under those
+    DOES execute and reporting it is the whole job.
+
+    The `else:` branch is not exempted: it runs at runtime, so a
+    `if TYPE_CHECKING: ... else: import pydantic` still reports - the import
+    that executes is the one that matters.
+    """
+    if not isinstance(node, ast.If):
+        return False
+    test = node.test
+    if isinstance(test, ast.Name):
+        return test.id == "TYPE_CHECKING"
+    if isinstance(test, ast.Attribute):
+        return test.attr == "TYPE_CHECKING" and isinstance(test.value, ast.Name)
+    return False
 
 
 def _module_chain(dotted: str) -> list[str]:

@@ -112,7 +112,6 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -130,7 +129,6 @@ VERIFY_TARGET = "verify"
 #: worse than one. The RULE comes from THIS checkout, the DATA from the tree
 #: being checked - `--root` points at fixture trees, and loading the parser from
 #: there would execute the inspected tree's own Python.
-PARSER_REL = "scripts/verify-coverage-check.py"
 
 #: NEGATIVE-CONTROL: controls/ci-coverage
 
@@ -194,20 +192,37 @@ def _load_makefile(root: Path):
     would let a verdict cite a line from a file the populations did not come
     from.
     """
-    parser_path = REPO_ROOT / PARSER_REL
-    if not parser_path.is_file():
-        raise Unknown(
-            f"the Makefile reader is missing at {PARSER_REL}, so no population "
-            f"could be derived"
-        )
+    # IMPORTED, NOT LOADED BY PATH (issue #1162). This used to
+    # `spec_from_file_location` its way into `scripts/verify-coverage-check.py`
+    # to borrow the class defined there - so this gate's parser was a private
+    # detail of a sibling gate, and a rename or a refactor over there broke it
+    # here with an `Unknown` that named a file rather than a cause. The reader
+    # is a module now and this is an ordinary import.
+    #
+    # sys.path is set EXPLICITLY: this runs as a CI step with no virtualenv.
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
     try:
-        spec = spec_from_file_location("verify_coverage_check", parser_path)
-        if spec is None or spec.loader is None:
-            raise ImportError("no loader")
-        module = module_from_spec(spec)
-        spec.loader.exec_module(module)
-    except Exception as exc:  # noqa: BLE001 - an unimportable parser is UNKNOWN
-        raise Unknown(f"the Makefile reader at {PARSER_REL} is unusable ({exc})") from exc
+        import lib.cicd.makefile_declaration as _declaration
+        from lib.cicd.makefile_declaration import Makefile
+    except ImportError as exc:  # pragma: no cover - reported, never guessed at
+        raise Unknown(
+            f"the Makefile declaration reader could not be imported ({exc}), so "
+            "no population can be derived - this is UNKNOWN, not clean"
+        ) from exc
+
+    # ANCHORED, NOT INFERRED (issue #1162, counter-model review). `lib` is a
+    # PEP 420 namespace package, so a foreign REGULAR `lib` anywhere on
+    # sys.path is preferred over this checkout's portion even with REPO_ROOT at
+    # position 0 - and it would answer this gate's population question with
+    # someone else's parser. A different question is not a narrower answer.
+    reader_file = Path(getattr(_declaration, "__file__", "") or "").resolve()
+    if REPO_ROOT not in reader_file.parents:
+        raise Unknown(
+            f"the Makefile declaration reader resolved to "
+            f"{reader_file or 'an unknown location'}, outside {REPO_ROOT} - "
+            f"another `lib` package is shadowing this checkout's"
+        )
 
     makefile_path = root / MAKEFILE_REL
     if not makefile_path.is_file():
@@ -217,7 +232,7 @@ def _load_makefile(root: Path):
         text = makefile_path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         raise Unknown(f"{MAKEFILE_REL} is unreadable ({exc})") from exc
-    return module.Makefile(text), text
+    return Makefile(text), text
 
 
 def verify_prerequisites(mk) -> list[str]:

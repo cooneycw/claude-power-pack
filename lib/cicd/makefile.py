@@ -14,6 +14,7 @@ from typing import Optional
 
 from .config import CICDConfig
 from .detector import detect_framework
+from .makefile_declaration import Makefile as MakefileDeclaration
 from .models import (
     FRAMEWORK_TARGETS,
     Framework,
@@ -38,48 +39,63 @@ def parse_makefile(project_root: str | Path) -> list[MakefileTarget]:
         return []
 
     content = makefile_path.read_text()
-    targets: list[MakefileTarget] = []
 
-    # Extract .PHONY declarations
-    phony_targets: set[str] = set()
-    for match in re.finditer(r"^\.PHONY:\s*(.+)$", content, re.MULTILINE):
-        phony_targets.update(match.group(1).split())
-
-    # Parse targets: lines matching "name: [deps]"
-    # Followed by tab-indented command lines
-    lines = content.split("\n")
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        # Match target definition (not .PHONY, not comments, not variable assignments)
-        target_match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*?)$", line)
-        if target_match and not line.startswith("#") and "=" not in line.split(":")[0]:
-            name = target_match.group(1)
-            deps_str = target_match.group(2).strip()
-            deps = deps_str.split() if deps_str else []
-
-            # Collect command lines (tab-indented)
-            commands: list[str] = []
-            j = i + 1
-            while j < len(lines) and lines[j].startswith("\t"):
-                cmd = lines[j].lstrip("\t")
-                commands.append(cmd)
-                j += 1
-
-            targets.append(
-                MakefileTarget(
-                    name=name,
-                    dependencies=deps,
-                    commands=commands,
-                    is_phony=name in phony_targets,
-                )
-            )
-            i = j
-        else:
-            i += 1
-
+    # THE DECLARATION READER, NOT A THIRD PARSER (issue #1162). What stood here
+    # stopped at the first PHYSICAL line of a rule and took a trailing
+    # backslash as a dependency name. Measured on this repository's own
+    # `verify`: 9 prerequisites of 29, the ninth a literal `\`. And on the
+    # consumer at `check_makefile` below, which asks whether a deploy target
+    # declares quality prerequisites:
+    #
+    #     deploy: build \
+    #         test lint
+    #
+    #     dependencies -> ['build', '\\']   ->  "runs without test/lint
+    #                                           dependencies" for a target that
+    #                                           declares both
+    #
+    # and the continuation line was swallowed into the RECIPE as well, so the
+    # recipe reader saw a command that does not exist. Two wrong answers from
+    # one bug, and the advisory told authors to add prerequisites they had.
+    #
+    # `lib/cicd/makefile_declaration.py` already answered this question
+    # correctly for `verify-coverage-check`; this is an adapter over it rather
+    # than a fourth attempt at the same parsing. `unsupported` is carried
+    # through so a caller can say what it could NOT read instead of dropping
+    # it silently.
+    declared = MakefileDeclaration(content)
+    # `.PHONY` comes from the reader's SPECIAL-target map, not from `prereqs`
+    # (issue #1162, counter-model review). A special target is deliberately not
+    # a target in its own right, so it has no `prereqs` entry - reading it there
+    # returned an empty set and made every target in every Makefile non-phony,
+    # silently, with the tests comparing only dependencies.
+    phony_targets = set(declared.special.get(".PHONY", ()))
+    targets = [
+        MakefileTarget(
+            name=name,
+            dependencies=list(declared.prereqs.get(name, ())),
+            commands=list(declared.recipe_text(name).splitlines()),
+            is_phony=name in phony_targets,
+        )
+        for name in declared.order
+    ]
     return targets
 
+
+def unsupported_targets(project_root: str | Path) -> list[tuple[str, int]]:
+    """Rule names in this Makefile the declaration reader cannot validate.
+
+    ITS OWN FUNCTION so `parse_makefile`'s published contract - a list of
+    `MakefileTarget` - is unchanged for its callers (issue #1162). The names
+    matter: a checker reporting "all targets are classified" over a population
+    that silently dropped `%.o:` and `security/check:` is claiming more than
+    its input supports, which is the failure `unsupported` exists to prevent
+    and the reason it is carried out of the reader at all.
+    """
+    makefile_path = Path(project_root) / "Makefile"
+    if not makefile_path.exists():
+        return []
+    return list(MakefileDeclaration(makefile_path.read_text()).unsupported)
 
 def check_makefile(
     project_root: str | Path,
@@ -144,6 +160,20 @@ def check_makefile(
     for target in targets:
         if target.name not in phony_set and not _target_produces_file(target):
             result.phony_missing.append(target.name)
+
+    # WHAT IT COULD NOT READ IS NAMED, NOT DROPPED (issue #1162). Every finding
+    # below is a statement about a POPULATION - "no deploy target lacks quality
+    # prerequisites", "no recipe uses bare python" - and a population that
+    # silently lost `%.o:` or `security/check:` supports a narrower claim than
+    # the report makes. The reader already tracks these; carrying them here is
+    # what stops a clean report meaning "I looked at everything" when it means
+    # "I looked at everything I could parse".
+    for name, line in MakefileDeclaration(content).unsupported:
+        result.issues.append(
+            f"Line {line}: rule name '{name}' is not one this reader can "
+            f"validate, so it is NOT included in the checks below - they "
+            f"describe the targets that could be read, not the whole Makefile"
+        )
 
     # Check for common anti-patterns
     _check_antipatterns(targets, info, result, content)
