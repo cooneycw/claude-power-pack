@@ -1079,6 +1079,54 @@ def _untracked_gates(out: str) -> dict[tuple[str, str], str]:
     return found
 
 
+def _registered_count(out: str) -> int | None:
+    """The denominator the harness states for itself, or None if it never said."""
+    for line in out.splitlines():
+        if line.startswith("NEGATIVE_CONTROL_REGISTERED: "):
+            try:
+                return int(line.split(": ", 1)[1])
+            except ValueError:
+                return None
+    return None
+
+
+def _classify_nonzero_exit(
+    returncode: int,
+    stderr: str,
+    by_gate: dict[tuple[str, str], str],
+    registered: int | None,
+    untracked: dict[tuple[str, str], str],
+) -> str:
+    """WHY did the harness exit non-zero? Pure, so it is testable.
+
+    A CRASH IS NOT A REFUSAL - the rule gate-lib.sh:399 states for its own probe,
+    found here by the #1061 counter-model review (gpt-6-astra, MEDIUM). An
+    UNTRACKED row establishes that TRACKING FAILED; it does not establish that
+    tracking is what produced the exit. A harness killed by a signal, or dying
+    with a traceback, while an untracked file HAPPENS to be present would
+    otherwise be classified `tracking` and quietly skipped - a real regression
+    hidden by a neighbour's mess, which is the same shape as the defect this
+    whole change exists to fix, one level down.
+
+    So completion is established FIRST and independently of the verdicts: the
+    strict refusal code is exactly 1 (a signal gives a negative returncode), a
+    traceback on stderr is a crash whatever the code says, and a row count short
+    of the harness's own stated denominator is truncation - which would also
+    make the whole-register claim above a claim about a prefix.
+    """
+    if returncode != 1:
+        return "crash"
+    if "Traceback (most recent call last)" in stderr:
+        return "crash"
+    if registered is None or len(by_gate) != registered:
+        return "truncated"
+    if any(v != "PASS" for v in by_gate.values()):
+        return "verdict"
+    if untracked:
+        return "tracking"
+    return "verdict"
+
+
 def test_self_registration_is_blind_to_a_verdict_assignment_breakage(tmp_path: Path) -> None:
     """HALF ONE of #964's mutation demonstration, and the uncomfortable half.
 
@@ -1136,15 +1184,22 @@ def test_self_registration_is_blind_to_a_verdict_assignment_breakage(tmp_path: P
 
     untracked = _untracked_gates(run.stdout)
     if run.returncode != 0:
-        # THE SUBJECT STILL FAILS LOUDLY. A non-zero exit with no UNTRACKED row
-        # cannot have come from tracking, so it came from the verdict axis -
-        # which IS this test's subject, and means the self-registration can see
-        # a forced-PASS mutation after all. This branch is why the UNRESOLVED
-        # path below cannot swallow a real regression.
-        assert untracked, (
-            "the mutant exited non-zero with no UNTRACKED row, so the verdict "
-            "axis produced it: the self-registration is NOT blind to a "
-            f"forced-PASS mutation.\n{run.stdout}"
+        # THE SUBJECT STILL FAILS LOUDLY, and a CRASH is not a refusal. Only an
+        # exit this test can attribute to the tracking axis may become
+        # UNRESOLVED; everything else - a signal, a traceback, output that stops
+        # short of the harness's own stated denominator, or any non-PASS row -
+        # is a failure and says which. This assertion is why the skip below
+        # cannot swallow a regression, whether the regression is this test's
+        # subject or the harness falling over.
+        why = _classify_nonzero_exit(
+            run.returncode, run.stderr, by_gate, _registered_count(run.stdout), untracked
+        )
+        assert why == "tracking", (
+            f"the mutant exited {run.returncode} and the cause is {why!r}, not the "
+            "#978 tracking axis. 'verdict' means the self-registration is NOT blind "
+            "to a forced-PASS mutation; 'crash'/'truncated' mean the run did not "
+            f"complete and nothing here can be read as evidence.\n"
+            f"stderr:\n{run.stderr}\nstdout:\n{run.stdout}"
         )
         pytest.skip(
             "UNRESOLVED, not a failure of this test's subject: the live tree "
@@ -1157,6 +1212,44 @@ def test_self_registration_is_blind_to_a_verdict_assignment_breakage(tmp_path: P
         "a harness that cannot say anything but PASS exits 0 under --strict, "
         "including about itself: the self-registration cannot see this"
     )
+
+
+_ROWS_OK = {("scripts/a.py", "controls/a"): "PASS", ("scripts/b.py", "controls/b"): "PASS"}
+_ROWS_BAD = {("scripts/a.py", "controls/a"): "BLIND", ("scripts/b.py", "controls/b"): "PASS"}
+_DIRTY = {("scripts/a.py", "controls/a"): "1 file(s) ... are NOT tracked: controls/a/x.sh"}
+
+
+@pytest.mark.parametrize(
+    ("returncode", "stderr", "rows", "registered", "untracked", "expected"),
+    [
+        # THE THREE THAT MATTER ALL CARRY AN UNTRACKED ROW. Before the #1061
+        # counter-model review each of these classified as `tracking` and was
+        # quietly skipped: a real harness regression hidden by a neighbour's
+        # untracked file, which is this change's own defect one level down.
+        (-9, "", _ROWS_OK, 2, _DIRTY, "crash"),
+        (1, "Traceback (most recent call last):\n  File ...\nKeyError: 'x'", _ROWS_OK, 2, _DIRTY, "crash"),
+        (1, "", _ROWS_OK, 44, _DIRTY, "truncated"),
+        # and the ordinary classifications
+        (1, "", _ROWS_BAD, 2, _DIRTY, "verdict"),
+        (1, "", _ROWS_OK, 2, _DIRTY, "tracking"),
+        (1, "", _ROWS_OK, 2, {}, "verdict"),
+        (2, "", _ROWS_OK, 2, _DIRTY, "crash"),
+        (1, "", _ROWS_OK, None, _DIRTY, "truncated"),
+    ],
+)
+def test_a_nonzero_exit_is_attributed_before_it_is_excused(
+    returncode: int, stderr: str, rows: dict, registered: int | None,
+    untracked: dict, expected: str,
+) -> None:
+    """The committed red cases for `_classify_nonzero_exit`.
+
+    `test_self_registration_is_blind_to_a_verdict_assignment_breakage` may turn
+    a non-zero exit into UNRESOLVED, and a tolerant path that cannot be shown to
+    refuse anything is worse than the confusing red it replaced. These are the
+    inputs that make it report the other answer - pure, deterministic, and not
+    dependent on the live tree that the test itself cannot control.
+    """
+    assert _classify_nonzero_exit(returncode, stderr, rows, registered, untracked) == expected
 
 
 def test_pytest_catches_the_breakage_the_self_registration_cannot(tmp_path: Path) -> None:
