@@ -42,6 +42,7 @@ from .steps import (
     dropped_gate_ids,
     get_plan_steps,
     plan_gate_ids,
+    reset_make_prerequisite_cache,
     subsumed_gate_ids,
 )
 
@@ -713,12 +714,27 @@ class DeterministicRunner:
         warnings: list[str] = []
         reruns: list[dict[str, Any]] = []
         skipped: list[str] = []
-        # Gates an aggregate in this plan already runs (issue #1152). Derived
-        # from the repository's OWN `verify:` prerequisite list, so a Makefile
-        # that does not name a gate does not get it deduplicated.
-        subsumable = subsumed_gate_ids(
+        # Gates an aggregate in this plan already runs (issue #1152), with
+        # WHICH ones answered by asking make rather than reading the makefile
+        # (issue #1165): a textual reader cannot evaluate `ifeq`, so it names
+        # prerequisites make will never run, and a broken gate then passes as
+        # `subsumed`.
+        # A FRESH ANSWER PER RUN. `make_prerequisites` memoises to keep
+        # `make -p -n` to one execution per aggregate, and that memo spans the
+        # PROCESS: a resumed run, or a second run in one interpreter, would
+        # otherwise suppress gates according to a makefile read earlier and
+        # possibly since changed (counter-model review).
+        reset_make_prerequisite_cache()
+        subsumable, subsumption_refusals = subsumed_gate_ids(
             state.plan_name, step_defs, str(self.project_root)
         )
+        # WHY a gate was NOT subsumed, said rather than left to inference. A
+        # reader seeing three gates deduplicated and a fourth not must see the
+        # reason without re-deriving it - and the reasons ARE the two refusals
+        # that keep this safe: make could not be asked, or the step does not run
+        # the prerequisite's command.
+        for refusal in subsumption_refusals:
+            self._log(f"  NOT SUBSUMED: {refusal}")
         # index -> aggregate id, for gates deferred to an aggregate that has
         # not run yet. Resolved when that aggregate finishes, and ONLY then:
         # whether these ran is a fact about the aggregate's outcome, not about
@@ -1210,9 +1226,16 @@ class DeterministicRunner:
                     # "verify failed" has 29 prerequisites to search.
                     step_details=state.summary(executed_from=executed_from)["steps"],
                     failed_step=step.id,
-                    failed_prerequisite=_failing_prerequisite(
-                        f"{result.output}\n{result.error or ''}"
-                    ),
+                    # ONLY WHEN IT NAMES SOMETHING ELSE. make prints the same
+                    # `*** [Makefile:N: lint]` line whether lint failed as an
+                    # aggregate's prerequisite or as the step itself, and
+                    # reporting `fail (at prerequisite lint)` for a failed
+                    # `lint` STEP tells a reader to look for an aggregate that
+                    # is not there. The field exists to save a search through
+                    # 29 prerequisites; where there is no search, it is noise.
+                    failed_prerequisite=(
+                        lambda named: named if named and named != step.id else None
+                    )(_failing_prerequisite(f"{result.output}\n{result.error or ''}")),
                     timed_out_step=step.id if timed_out else None,
                     timed_out_after=(
                         step_def.timeout_seconds if timed_out else None
