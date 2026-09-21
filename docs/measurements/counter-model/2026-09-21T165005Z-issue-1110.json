@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1110-negative-fixture-gate-numbers-waivers-with-splitli",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/claude-opus-5",
+  "issue": "1110",
+  "passes": 1,
+  "recorded_at": "2026-09-21T16:50:05Z",
+  "red_cases": {
+    "already_covered": 2,
+    "proposed": 2
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
