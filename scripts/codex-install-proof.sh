@@ -42,9 +42,21 @@ fail() { printf 'PROOF_FAIL: %s\n' "$*" >&2; FAILURES=$((FAILURES + 1)); }
 # --- phase 0: derive the expected set from the REPOSITORY -------------------
 phase0_derive() {
     local sha dirty
-    sha="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null)" || sha=""
-    if [ -z "$sha" ]; then
-        fail "could not resolve HEAD; a proof cannot attribute evidence to an unnamed commit"
+    # THREE PROVENANCE STATES, because there are three and collapsing them is how
+    # a label starts lying. git is ABSENT from the CI image (measured on the
+    # pinned digest), so requiring it made the proof unrunnable in exactly the
+    # place it most nearly means what it says - the cleanest machine available.
+    local provenance
+    if sha="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null)" && [ -n "$sha" ]; then
+        provenance="git"
+    elif [ -n "${CI_COMMIT_SHA:-}" ]; then
+        # The CI system names the commit authoritatively, and its checkout is a
+        # fresh clone - but with no git here that cleanliness cannot be VERIFIED,
+        # only relied upon. Said out loud rather than folded into "clean".
+        sha="$CI_COMMIT_SHA"
+        provenance="ci-declared"
+    else
+        fail "no SHA from git or CI_COMMIT_SHA; a proof cannot attribute evidence to an unnamed commit"
         return 1
     fi
     # THE LABEL MUST DESCRIBE THE BYTES (#1074 re-review). This read the WORKING
@@ -52,8 +64,13 @@ phase0_derive() {
     # successfully and produced evidence attributed to a commit that never
     # contained it - which is exactly what "evidence for an earlier SHA is not
     # release approval" exists to prevent, inverted.
-    dirty="$(git -C "$REPO_ROOT" status --porcelain -- codex/skills "tests/project_next/fixtures" 2>/dev/null)"
-    if [ -n "$dirty" ]; then
+    if [ "$provenance" = "ci-declared" ]; then
+        note "PROOF_PROVENANCE: ci-declared - the commit is $sha, named by CI. Tree cleanliness is NOT verified here: git is absent from this image, so this run relies on the checkout being a fresh clone rather than demonstrating it."
+        dirty=""
+    else
+        dirty="$(git -C "$REPO_ROOT" status --porcelain -- codex/skills "tests/project_next/fixtures" 2>/dev/null)"
+    fi
+    if [ "$provenance" = "git" ] && [ -n "$dirty" ]; then
         # THE LABEL MUST NOT LIE - it does not have to REFUSE. Refusing outright
         # was the first shape and it made the gate unusable in the one place
         # #1074 wired it: `make verify` runs on a dirty tree by definition during
@@ -70,7 +87,7 @@ phase0_derive() {
         fi
         sha="$sha-dirty"
         note "PROOF_PROVENANCE: DIRTY - the generated tree or fixture corpus has uncommitted changes, so these bytes are NOT $(printf '%s' "$sha" | sed 's/-dirty$//'). This run is evidence about a working tree, not about a commit."
-    else
+    elif [ "$provenance" = "git" ]; then
         note "PROOF_PROVENANCE: clean - the bytes are $sha"
     fi
     python3 - "$REPO_ROOT" "$SKILL" "$sha" "$MANIFEST" <<'PY'

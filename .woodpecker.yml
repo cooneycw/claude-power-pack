@@ -263,6 +263,11 @@ steps:
   codex-install-proof:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
     depends_on: [secret-scan]
+    # git is ABSENT from this image (measured on the pinned digest), so the proof
+    # takes the commit from CI_COMMIT_SHA and records provenance as
+    # `ci-declared`: the commit is named authoritatively, and tree cleanliness is
+    # relied upon rather than demonstrated. That is a weaker statement than the
+    # local `clean` and it says so in its own output.
     commands:
       - bash scripts/codex-install-proof.sh
 
