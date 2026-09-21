@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
-#: HOST-SURFACE: ~/.local/bin/cpp-memory owner=cpp write=symlink certified=authored
-#: HOST-SURFACE: ~/.codex/prompts/cpp-memory.md owner=cpp write=copy certified=authored
+#: HOST-SURFACE: ~/.local/bin/cpp-memory owner=cpp write=symlink certified=observed
+#: HOST-SURFACE: ~/.codex/prompts/cpp-memory.md owner=cpp write=copy certified=observed
+#: The mkdir'd parents below are declared `certified=observed`, not
+#: `authored`: they were found by running this script against a sandboxed
+#: $HOME and diffing what appeared (issue #1150), not by a person reading
+#: the code. `authored` means "a person read the code and wrote down what it
+#: writes", which would be false here - static reading produced the
+#: declaration above and missed these. scripts/host-surface-observe.py
+#: re-derives them on every run and reds when they drift.
+#: HOST-SURFACE: ~/.local owner=cpp write=mkdir certified=observed
+#: HOST-SURFACE: ~/.local/bin owner=cpp write=mkdir certified=observed
+#: HOST-SURFACE: ~/.codex owner=cpp write=mkdir certified=observed
+#: HOST-SURFACE: ~/.codex/prompts owner=cpp write=mkdir certified=observed
 
 # Install the harness-neutral common-memory surfaces so BOTH Claude Code and
 # Codex can utilize the store:

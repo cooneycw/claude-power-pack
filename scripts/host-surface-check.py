@@ -331,7 +331,15 @@ def main(argv: list[str] | None = None) -> int:
                     "complete_for": "helper-mediated writes",
                     "does_not_catch": (
                         "a declaring script that understates its surfaces; "
-                        "use the observation harness for that"
+                        "`host-surface-observe.py` observes that (#1150). THE BOUND ON "
+                        "`certified=observed`: the surface was watched appearing under a "
+                        "REDIRECTED $HOME, which contains a write that resolves home "
+                        "through $HOME. It does not mean the helper cannot write "
+                        "elsewhere - a repository-configured core.fsmonitor runs an "
+                        "arbitrary command on the `git diff`/`git ls-files` calls some "
+                        "helpers make, and that write is outside what the observation "
+                        "sees. Filesystem containment is issue #1182; until it lands, "
+                        "`observed` is the stronger of two claims, not an absolute one"
                     ),
                     "scripts": surfaces,
                     "undeclared": sorted(undeclared),
