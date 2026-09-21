@@ -85,6 +85,16 @@
       "name": "good-python-stdlib-only",
       "input": "cases/good-python-stdlib-only",
       "expect": "GOOD"
+    },
+    {
+      "name": "good-python-type-checking-only",
+      "input": "cases/good-python-type-checking-only",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-python-import-under-if-true",
+      "input": "cases/bad-python-import-under-if-true",
+      "expect": "BAD"
     }
   ],
   "anchors": [
@@ -97,5 +107,5 @@
       "why": "CONSTRUCTED: the gate is new and never shipped blind, so there is no revision to vendor - `--verify-provenance` therefore reports `unverified`, which is correct and must never be read as `ok`. This is the FIRST FRAMING, on the record: the issue asked for 'a tripwire checking each registered control's declared invocation ... against the binaries the CI image actually provides', and written straight from that sentence you get this file. It reads invocation[0] and stops, so it misses bad-missing-binary (the dependency is in the gate script) and bad-stale-image (it never checks the pin), and agrees with the real gate on good-all-present, which is what makes the demonstration isolated."
     }
   ],
-  "limits": " SINCE #1168 A PYTHON GATE'S MODULE-LEVEL IMPORTS ARE EXAMINED TOO, and `bad-python-import` is that case: a toy gate importing `pydantic` on load, which the battery's image does not provide, so the battery - which refuses to skip a control it cannot run - would be taken down by this one registration. The constructed anchor misses it for the same reason it misses the binary case: it reads `invocation[0]` and stops, and `invocation[0]` here is `python3`, which the image HAS. `good-python-stdlib-only` is the guard rail, because \"flag a python gate whose imports the image lacks\" is satisfiable by flagging every python gate - which would red 26 of this repository's 41 controls. THE WALK IS MODULE-LEVEL ONLY and that is a bound, not a shortcut: an import inside a function is conditional on a call path this reader cannot decide, and #1163 deliberately created seven such imports in `lib/cicd/cli.py` that the gate's own path never takes - following them would report a requirement that is false. Deferred imports are COUNTED in the success line instead. NECESSARY, NOT SUFFICIENT: a green here does not mean a control RUNS in the image, which `make negative-controls-image` answers by running it there."
+  "limits": " SINCE #1168 A PYTHON GATE'S MODULE-LEVEL IMPORTS ARE EXAMINED TOO, and `bad-python-import` is that case: a toy gate importing `pydantic` on load, which the battery's image does not provide, so the battery - which refuses to skip a control it cannot run - would be taken down by this one registration. The constructed anchor misses it for the same reason it misses the binary case: it reads `invocation[0]` and stops, and `invocation[0]` here is `python3`, which the image HAS. `good-python-stdlib-only` is the guard rail, because \"flag a python gate whose imports the image lacks\" is satisfiable by flagging every python gate - which would red 26 of this repository's 41 controls. THE WALK IS MODULE-LEVEL ONLY and that is a bound, not a shortcut: an import inside a function is conditional on a call path this reader cannot decide, and #1163 deliberately created seven such imports in `lib/cicd/cli.py` that the gate's own path never takes - following them would report a requirement that is false. Deferred imports are COUNTED in the success line instead. NECESSARY, NOT SUFFICIENT: a green here does not mean a control RUNS in the image, which `make negative-controls-image` answers by running it there. THE `if TYPE_CHECKING:` PAIR (#1162) BOUNDS THE ONE EXEMPTION THIS WALK MAKES. `good-python-type-checking-only` is a gate whose only pydantic import sits under `if TYPE_CHECKING:`, which is False by definition at runtime, so the gate loads in an image without pydantic and the check must NOT report it. The walk got that wrong and said the import 'runs on load' about code that does not run, which blocked a ratified change - an over-approximating check states a claim its input does not support, and that is the same contract violation as an under-approximating one. `bad-python-import-under-if-true` is its negative membership: the exemption is matched as a LITERAL name, never by evaluating the condition, so a block that looks just as constant must still report. The two are a pair; either alone would let the exemption widen into 'any if' with nothing objecting. The first cut of the fix also deferred the whole `ast.If` including its `else:`, silently exempting an import that does run, which is why only the `if` body is deferred now."
 }

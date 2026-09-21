@@ -59,6 +59,19 @@ _PROBE = textwrap.dedent(
     import lib.cicd.steps as steps
     import lib.cicd.runner as runner
 
+    # THE DECLARATION READER TOO (issue #1162). Two CI steps import it -
+    # verify-coverage-check and check-ci-coverage - and both run with no
+    # virtualenv, so a dependency acquired here is not a slow import, it is a
+    # gate that cannot start. It is also reachable from `lib.cicd.makefile`,
+    # which `lib.cicd check` loads, so a pydantic creep into it would take the
+    # #1163 guarantee with it.
+    import lib.cicd.makefile_declaration as declaration
+
+    mk = declaration.Makefile(
+        "lint:\n\t@true\ntest:\n\t@true\nverify: lint \\\n\ttest\n\t@true\n"
+    )
+    assert mk.prereqs["verify"] == ["lint", "test"], mk.prereqs["verify"]
+
     # THE CLI ENTRY POINT, not just the modules. `scripts/flow-finish-gate.sh`
     # runs `python -m lib.cicd run`, so `__main__` -> `cli` is the path that has
     # to start - and `cli.py` is where seven module-scope imports reached
