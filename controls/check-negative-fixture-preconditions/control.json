@@ -11,8 +11,10 @@
   "cases": [
     {"name": "bad-dictliteral", "input": "cases/bad-dictliteral", "expect": "BAD"},
     {"name": "bad-empty", "input": "cases/bad-empty", "expect": "BAD"},
+    {"name": "bad-shifted-exemption", "input": "cases/bad-shifted-exemption", "expect": "BAD"},
     {"name": "good-asserted", "input": "cases/good-asserted", "expect": "GOOD"},
-    {"name": "good-prepend", "input": "cases/good-prepend", "expect": "GOOD"}
+    {"name": "good-prepend", "input": "cases/good-prepend", "expect": "GOOD"},
+    {"name": "good-separator-shift", "input": "cases/good-separator-shift", "expect": "GOOD"}
   ],
   "anchors": [
     {

@@ -15,8 +15,18 @@
       "expect": "BAD"
     },
     {
+      "name": "bad-shifted-exemption",
+      "input": "cases/bad-shifted-exemption",
+      "expect": "BAD"
+    },
+    {
       "name": "good-direct-invocation",
       "input": "cases/good-direct-invocation",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-separator-shift",
+      "input": "cases/good-separator-shift",
       "expect": "GOOD"
     }
   ],
