@@ -14,7 +14,6 @@ into one shell and passed the filename in, which hid exactly that defect.
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 import shutil
 import subprocess
@@ -201,13 +200,22 @@ def test_a_body_quoting_a_digest_line_does_not_report_false_drift(tmp_path: Path
 
 
 @requires_git
-@pytest.mark.skipif(os.geteuid() == 0, reason="root can read a 000-mode file, so the case cannot reach its state")
 def test_a_body_that_cannot_be_hashed_is_unresolved_not_drift(tmp_path: Path) -> None:
     """Found by test_every_unresolved_branch_has_a_case_that_PINS_IT.
 
     A fetched body that exists but cannot be read gives an empty digest, which
     DIFFERS from the recorded one - so without this branch the check would report
-    that the issue CHANGED because it could not look at it.
+    that the issue CHANGED because it could not look at it. That is the OTHER face
+    of the cannot-answer collapse: not a false clean but a false alarm, which is
+    subtler because a check that fires looks like a check that is working.
+
+    THE SKIP PROBES THE PROPERTY, NOT THE IDENTITY. `geteuid() != 0` is the proxy
+    this repository has already rejected once
+    (tests/test_flow_wave_registry.py:734-742): it infers "can read anything" from
+    "is root", which is false for an unprivileged container entrypoint and equally
+    false the other way for CAP_DAC_OVERRIDE or a filesystem that does not enforce
+    permissions. So the case ATTEMPTS the read and skips only if it SUCCEEDS -
+    true whatever the cause.
     """
     repo = make_repo(tmp_path)
     snapshot(repo, b"## Acceptance\n- one\n")
@@ -215,7 +223,15 @@ def test_a_body_that_cannot_be_hashed_is_unresolved_not_drift(tmp_path: Path) ->
     live.write_bytes(b"## Acceptance\n- one\n")
     live.chmod(0o000)
     try:
-        assert not os.access(live, os.R_OK), "the case did not reach an unreadable state"
+        try:
+            live.read_bytes()
+        except OSError:
+            pass                      # the state is reachable here; run the case
+        else:
+            pytest.skip(
+                "this environment can read a 000-mode file, so the unreadable-body "
+                "state is unreachable and the case would assert nothing"
+            )
         out = verdict(repo, live)
     finally:
         live.chmod(0o644)
@@ -349,6 +365,16 @@ def test_every_unresolved_branch_has_a_case_that_PINS_IT() -> None:
 
     It found the fourth branch itself: `could not hash the fetched body` had no
     case when this was written.
+
+    WHAT THIS GREEN DOES NOT COVER: it checks that a case EXISTS, not that the
+    case RUNS. A case that always skips satisfies this enumeration perfectly, and
+    the pinned behaviour would then be unverified exactly where nobody is
+    watching. The suite runs under xdist, so a cross-test execution record is not
+    available to assert here; the mitigation is instead that every skip in this
+    file probes the PROPERTY it needs rather than a proxy for it, so a skip means
+    the state is genuinely unreachable and not merely that some identity differs.
+    Read a skip in this file as "unreachable here", and read this green as "each
+    branch is named by a case", never as "each branch was exercised".
     """
     block = verdict_snippet()
     messages = re.findall(r'unresolved\(f?"([^"]*)"', block)
