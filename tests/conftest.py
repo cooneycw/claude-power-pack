@@ -262,6 +262,21 @@ def unattributed_skip_reasons(
 
     Shares the sibling's boundary rule so the two partition the same population:
     every reason is in exactly one of them.
+
+    WHAT THIS DOES NOT ESTABLISH, and the report is worded to match (#1157
+    counter-model review, MEDIUM). Name matching decides membership; it does not
+    decide CAUSE, and it errs in both directions:
+
+      - a reason that NAMES a guarded binary without absence being the cause -
+        "git is installed but the required commit is missing" - is counted by
+        the sibling as a missing-binary skip and never reaches this list;
+      - a reason about a binary that is simply not in `GUARDED_BINARIES` -
+        "requires bash on PATH" - lands here, and it IS an absent-binary skip.
+
+    So this is the set the classifier could not attribute, not the set that is
+    "not about a binary". Claiming the second would be the membership-floor and
+    ownership-boundary failures that `docs/agents/detector-contracts.md` asks of
+    any check - in a hook that exists to stop a skip being read as a pass.
     """
     return [
         reason
@@ -316,8 +331,9 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config) -> None:  # no
     unattributed = unattributed_skip_reasons(reasons, binaries)
     if unattributed:
         terminalreporter.write_line(
-            f"other skips: {len(unattributed)} test(s) did not run for a reason that is not "
-            "an absent binary. A skip is not a pass - read the reason:",
+            f"unattributed skips: {len(unattributed)} test(s) this hook could not attribute to "
+            "a guarded binary. That is a statement about THIS CLASSIFIER, not about the cause - "
+            "read the reason. A skip is not a pass:",
             yellow=True,
         )
         for reason in unattributed:

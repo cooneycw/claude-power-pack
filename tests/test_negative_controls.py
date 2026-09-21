@@ -2453,6 +2453,48 @@ def test_a_recorded_digest_that_disagrees_now_fails_the_run(tmp_path: Path) -> N
     )
 
 
+@requires_git
+def test_an_empty_historical_blob_is_still_compared(tmp_path: Path) -> None:
+    """The second direction of the same defect (#1157 counter-model re-review).
+
+    The first fix for a `git show` that exits 0 printing nothing was "empty
+    stdout means unverified". That is wrong the other way round: a ZERO-BYTE
+    FILE IS A LEGITIMATE COMMITTED ARTIFACT - this repository tracks several -
+    so the rule excused a real historical anchor from verification entirely.
+    Replace such an anchor's file with content, update the manifest digest to
+    match the new bytes, and provenance read `unverified` instead of MISMATCH:
+    an anchor silently exempt from the check that exists to establish it is the
+    artifact it claims to be.
+
+    Existence is established separately now, with `git cat-file -e`, so the byte
+    comparison can include empty content. Measured on the reference that started
+    this: cat-file -e exits 128 where show exits 0.
+    """
+    root = build_tree(tmp_path, SEEING_GATE)
+    origin = "history/empty-at-that-commit"
+    (root / "history").mkdir()
+    (root / "history" / "empty-at-that-commit").write_text("", encoding="utf-8")
+    git = ["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run(["git", "init", "-q", str(root)], check=True, timeout=60)
+    subprocess.run([*git, "add", "-A"], check=True, timeout=60, capture_output=True)
+    subprocess.run([*git, "commit", "-qm", "empty"], check=True, timeout=60, capture_output=True)
+    sha = subprocess.run([*git, "rev-parse", "HEAD"], check=True, timeout=60,
+                         capture_output=True, text=True).stdout.strip()
+
+    # The anchor on disk is NOT empty, and its recorded digest matches its own
+    # bytes - so only the historical comparison can catch the disagreement.
+    anchor_path = root / "controls" / "toy" / "anchors" / "deadbee-toy.py"
+    digest = hashlib.sha256(anchor_path.read_bytes()).hexdigest()
+    _retag_anchor(root, kind="historical", sha=sha, origin=origin, sha256=digest)
+
+    result = run_harness(root, "--strict", "--verify-provenance")
+    assert "NEGATIVE_CONTROL_PROVENANCE: MISMATCH" in result.stdout, (
+        "an empty committed blob must be COMPARED, not treated as unreadable - "
+        "otherwise this anchor is exempt from provenance entirely\n" + result.stdout
+    )
+    assert result.returncode == 1, result.stdout
+
+
 def test_a_synthetic_anchor_is_not_checked_against_a_commit_it_never_had(tmp_path: Path) -> None:
     """A constructed anchor has no historical artifact, so git can say nothing.
 

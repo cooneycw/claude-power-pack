@@ -1809,7 +1809,28 @@ def _provenance(anchor: dict[str, str], anchor_path: Path, root: Path, verify: b
     #: as content: this file's own subject, inside this file.
     if anchor.get("kind") == "synthetic" or anchor.get("sha") in ("0000000", "n/a", ""):
         return "unverified"
+    #: EXISTENCE FIRST, WITH A PROBE THAT ACTUALLY REFUSES (#1157 counter-model
+    #: re-review, MEDIUM). `git show` is not an existence test: on a reference it
+    #: cannot resolve it can exit 0 and print NOTHING, so a caller hashing its
+    #: stdout compares sha256("") against a real file and calls that MISMATCH.
+    #: `git cat-file -e` answers the question actually being asked - measured on
+    #: the reference that caused this: cat-file -e exits 128 where show exits 0.
+    #:
+    #: THE FIRST FIX FOR THIS WAS "empty stdout means unverified", AND IT WAS
+    #: WRONG IN THE OTHER DIRECTION: a zero-byte file is a legitimate committed
+    #: artifact (this repository tracks several), so that rule excused a real
+    #: historical anchor from verification entirely - replace the file with
+    #: content, update the manifest digest, and it verified as `unverified`
+    #: instead of MISMATCH. Establishing existence separately lets the byte
+    #: comparison include empty content, which is the only shape that is right
+    #: in both directions.
     try:
+        probe = subprocess.run(
+            ["git", "-C", str(root), "cat-file", "-e", f"{anchor['sha']}:{anchor['origin']}"],
+            capture_output=True, timeout=30, check=False,
+        )
+        if probe.returncode != 0:
+            return "unverified"
         out = subprocess.run(
             ["git", "-C", str(root), "show", f"{anchor['sha']}:{anchor['origin']}"],
             capture_output=True, timeout=30, check=False,
@@ -1817,12 +1838,6 @@ def _provenance(anchor: dict[str, str], anchor_path: Path, root: Path, verify: b
     except (OSError, subprocess.SubprocessError):  # pragma: no cover - defensive
         return "unverified"
     if out.returncode != 0:
-        return "unverified"
-    if not out.stdout:
-        #: EXIT 0 AND NOTHING ON STDOUT ESTABLISHES NOTHING, and must never be
-        #: hashed as though it were the historical content - sha256("") is a
-        #: real-looking digest that will disagree with every file, turning "I
-        #: could not read it" into "it does not match".
         return "unverified"
     return "ok" if hashlib.sha256(out.stdout).hexdigest() == digest else "MISMATCH"
 

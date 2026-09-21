@@ -325,16 +325,25 @@ I have and there is no path" are the same output.
 **Do not rely on the exit code to tell you which situation you are in**, because
 that depends on the clone's shape rather than on the question:
 
-| clone | what happens | what you get |
-|---|---|---|
-| full | the search completes | 0 or 1, both meaningful |
-| `--depth=1` alone | the commit is not present at all | 128 - loud, and honest |
-| `--depth=1 --filter=tree:0` | the commit RESOLVES, the history behind it does not | **1** - a confident wrong answer |
+These are REPRODUCTION SCENARIOS, not a lookup table keyed on clone flags. What
+decides the exit code is whether both commit objects are AVAILABLE when the
+command runs; the flags only make one outcome or the other likely.
 
-The third row is the one that matters, and it is what CI uses. A partial clone
-fetches the commit object on demand, so the argument resolves and the command
-proceeds to a real search over an absent history. It then reports the ordinary
-"not an ancestor" exit code. Nothing anywhere is marked degraded.
+| scenario | what happens | what you get |
+|---|---|---|
+| full clone | the search completes | 0 or 1, both meaningful |
+| shallow, and the commit is absent | the argument does not resolve | 128 - loud, and honest |
+| shallow, but both commits are present - fetched tips, a partial clone filling objects on demand, an earlier fetch | the arguments RESOLVE, the history between them does not | **1** - a confident wrong answer |
+
+The third row is the one that matters and it is what CI hits, because
+`--filter=tree:0` fetches objects on demand so the arguments resolve almost
+always. But do not read the second row as a guarantee: a PLAIN `--depth=1` clone
+produces the same quiet 1 whenever both tips happen to be present and only the
+history between them is missing. The loud 128 is a courtesy of object absence,
+not a property of shallowness, so "we only use plain `--depth=1`" is not a
+defence. In every one of these the command proceeds to a real search over an
+absent history and reports the ordinary "not an ancestor" code. Nothing anywhere
+is marked degraded.
 
 This is the page's defect exactly: the diagnostic - *I could not see the history*
 - is produced by a different layer than the verdict, and the clone shape removes
