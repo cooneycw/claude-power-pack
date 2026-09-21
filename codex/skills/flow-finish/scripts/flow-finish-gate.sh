@@ -157,9 +157,19 @@ trap 'printf "FLOW_FINISH_GATE_EXIT=%d\n" "$?" >&2' EXIT
 # risks FIVE of six controls plus 85 stdout assertions in
 # tests/test_flow_finish_gate.py. Do not "finish the migration" by adopting it
 # without moving those first; the stopping point is a measurement, not fatigue.
-_gate_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/gate-lib.sh"
-[[ -f "$_gate_lib" ]] || _gate_lib="$HOME/.claude/scripts/gate-lib.sh"
-[[ -f "$_gate_lib" ]] || _gate_lib="${CLAUDE_PLUGIN_ROOT:-}/scripts/gate-lib.sh"
+# THE FILENAME IS LITERAL ON THE SOURCE LINE, and that is a requirement rather
+# than a style choice (issue #1061). `codex-skill-sync.py` bundles what a skill's
+# scripts need by READING them, and it can only follow a source whose target it can
+# see. A computed `. "$_gate_lib"` - which this used until the bundler was taught to
+# follow shell sourcing - hides the filename in an assignment above, so the
+# generator would have bundled gate-lib for the four #1127 gates that spell it
+# literally and silently missed it for THIS gate, the one that made the bundling
+# necessary. The four existing consumers already use this idiom; matching them is
+# what lets the generator's rule be a literal match rather than a shell parser.
+_gate_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+[[ -f "$_gate_lib_dir/gate-lib.sh" ]] || _gate_lib_dir="$HOME/.claude/scripts"
+[[ -f "$_gate_lib_dir/gate-lib.sh" ]] || _gate_lib_dir="${CLAUDE_PLUGIN_ROOT:-}/scripts"
+_gate_lib="$_gate_lib_dir/gate-lib.sh"
 
 # A MISSING LIBRARY IS FATAL, AND THAT IS THE WHOLE POINT OF THIS BLOCK.
 # `set -e` is deliberately NOT in force in this file, so a bare `. "$missing"`
@@ -187,7 +197,7 @@ if [[ ! -f "$_gate_lib" ]]; then
     exit 2
 fi
 # shellcheck source=scripts/gate-lib.sh
-. "$_gate_lib"
+. "$_gate_lib_dir/gate-lib.sh"
 
 # SOURCING SUCCEEDING IS NOT THE LIBRARY BEING USABLE. A truncated or partially
 # written file sources without error and defines nothing, which lands in the same

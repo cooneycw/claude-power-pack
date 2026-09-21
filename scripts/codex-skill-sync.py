@@ -440,6 +440,71 @@ def find_bundled_data(scripts: list[str]) -> dict[str, Path]:
     return out
 
 
+#: A shell `source` / `.` line, with the sourced filename LITERAL on it. The
+#: filename must be visible here or this bundler cannot follow it, which is why
+#: every gate-lib consumer spells it `. "$dir/gate-lib.sh"` rather than sourcing a
+#: variable that holds the whole path.
+_SHELL_SOURCE_RE = re.compile(r"^\s*(?:\.|source)\s+(\S+)", re.MULTILINE)
+
+
+def find_bundled_shell_libs(scripts: list[str]) -> dict[str, Path]:
+    """Map skill-relative path -> source path for the shell libraries `scripts` source.
+
+    WHY THIS EXISTS (issue #1061). `find_bundled_libs` follows PYTHON `lib.*`
+    imports and nothing else, so a bundled SHELL script's dependency was invisible
+    to the bundler. `scripts/flow-finish-gate.sh` is bundled into four skills and
+    now sources `scripts/gate-lib.sh`; without this the four shipped copies would
+    carry a gate whose library reaches none of them. Measured before choosing this
+    route rather than a reference in a command document: 26 distinct shell scripts
+    are bundled into skills and ZERO of them sourced a sibling, so gate-lib is the
+    first case and teaching the bundler changes exactly the skills that need it.
+    Closing the class also covers the four other gate-lib consumers from #1127, none
+    bundled today, each of which would otherwise reopen the identical hole the day
+    it is.
+
+    AN UNFOLLOWABLE SOURCE RAISES, and that is the load-bearing half. A `source`
+    line whose target this cannot resolve - computed, conditional, or built from a
+    variable - is exactly the shape that would ship a silently incomplete bundle,
+    which is the defect this function exists to remove. Refusing at generation is
+    the only place that failure is cheap: the alternative is discovering it in a
+    distributed copy, where nobody runs the suite.
+    """
+    out: dict[str, Path] = {}
+    pending: list[tuple[str, Path]] = []
+    seen: set[Path] = set()
+    for name in scripts:
+        path = SCRIPTS_ROOT / name
+        if path.suffix == ".sh":
+            pending.append((f"scripts/{name}", path))
+
+    while pending:
+        origin, path = pending.pop()
+        if path in seen or not path.is_file():
+            continue
+        seen.add(path)
+        for match in _SHELL_SOURCE_RE.finditer(path.read_text(encoding="utf-8")):
+            raw = match.group(1)
+            # The sourced word with quoting and any `$dir/` prefix removed. Only a
+            # LITERAL basename can be resolved; anything else is refused below.
+            candidate = raw.strip('"').strip("'").rsplit("/", 1)[-1]
+            if not candidate.endswith(".sh") or "$" in candidate:
+                raise SystemExit(
+                    f"codex-skill-sync: {origin} sources `{raw}`, whose target this "
+                    f"bundler cannot resolve. Spell the filename literally on the "
+                    f"source line (`. \"$dir/name.sh\"`), or the bundle would ship a "
+                    f"script whose dependency is missing and which cannot start."
+                )
+            source = SCRIPTS_ROOT / candidate
+            if not source.is_file():
+                raise SystemExit(
+                    f"codex-skill-sync: {origin} sources `{candidate}`, which is not "
+                    f"under scripts/. Bundling it would ship a script that cannot start."
+                )
+            out[f"scripts/{candidate}"] = source
+            pending.append((f"scripts/{candidate}", source))
+    return out
+
+
 def find_bundled_libs(scripts: list[str]) -> dict[str, Path]:
     """Map skill-relative path -> source path for the libraries `scripts` import.
 
@@ -676,6 +741,8 @@ def generate_skill(
     # Bundled at their repo-relative path, which is what makes the scripts'
     # own `parents[1]` resolution land inside the skill directory.
     for rel, source in find_bundled_libs(scripts).items():
+        files[rel] = source.read_text()
+    for rel, source in find_bundled_shell_libs(scripts).items():
         files[rel] = source.read_text()
     for rel, source in find_bundled_data(scripts).items():
         files[rel] = source.read_text()
