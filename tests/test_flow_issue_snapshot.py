@@ -269,7 +269,9 @@ def test_the_snapshot_records_the_full_body_digest(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     body = b"C" * (CAP + 4096) + b"\n"
     snap = snapshot(repo, body)
-    recorded = re.search(r"^- Body digest:\s+(\S+)", snap.read_text(), re.M).group(1)
+    m = re.search(r"^- Body digest:\s+(\S+)", snap.read_text(), re.M)
+    assert m is not None, "the snapshot records no digest line at all"
+    recorded = m.group(1)
     assert recorded == hashlib.sha256(body).hexdigest(), (
         "the recorded digest is not the digest of the FULL body"
     )
