@@ -14,6 +14,7 @@ into one shell and passed the filename in, which hid exactly that defect.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import shutil
 import subprocess
@@ -199,6 +200,33 @@ def test_a_body_quoting_a_digest_line_does_not_report_false_drift(tmp_path: Path
     assert "ISSUE_DRIFT: clean" in out, f"issue prose was parsed as metadata:\n{out}"
 
 
+@requires_git
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can read a 000-mode file, so the case cannot reach its state")
+def test_a_body_that_cannot_be_hashed_is_unresolved_not_drift(tmp_path: Path) -> None:
+    """Found by test_every_unresolved_branch_has_a_case_that_PINS_IT.
+
+    A fetched body that exists but cannot be read gives an empty digest, which
+    DIFFERS from the recorded one - so without this branch the check would report
+    that the issue CHANGED because it could not look at it.
+    """
+    repo = make_repo(tmp_path)
+    snapshot(repo, b"## Acceptance\n- one\n")
+    live = tmp_path / "live.md"
+    live.write_bytes(b"## Acceptance\n- one\n")
+    live.chmod(0o000)
+    try:
+        assert not os.access(live, os.R_OK), "the case did not reach an unreadable state"
+        out = verdict(repo, live)
+    finally:
+        live.chmod(0o644)
+
+    assert "ISSUE_DRIFT: unresolved" in out
+    assert "could not hash the fetched body" in out, (
+        f"reached a different unresolved branch:\n{out}"
+    )
+    assert "drift -" not in out, "an unreadable body was reported as a source change"
+
+
 # --------------------------------------------------------------------- the cap
 
 @requires_git
@@ -304,3 +332,56 @@ def test_the_state_survives_separate_shell_invocations(tmp_path: Path) -> None:
         "survive the process boundary"
     )
     assert re.search(r"^- Body digest:\s+[0-9a-f]{64}", text, re.M)
+
+
+# --------------------------------------------------------------------- the sweep, mechanised
+
+def test_every_unresolved_branch_has_a_case_that_PINS_IT() -> None:
+    """Mechanises the rule that a case must fail for the RIGHT reason.
+
+    Three times in one session an unresolved case asserted a phrase SHARED with a
+    neighbouring branch and passed through the wrong one. Twice that was caught by
+    a red run; the third time only because a red run was attempted at all. A rule
+    that must be remembered at each site will be forgotten at some site, so this
+    enumerates the branches from the DOCUMENTED block and requires a case naming
+    each - no attention required, and a branch added later fails here until it is
+    pinned.
+
+    It found the fourth branch itself: `could not hash the fetched body` had no
+    case when this was written.
+    """
+    block = verdict_snippet()
+    messages = re.findall(r'unresolved\(f?"([^"]*)"', block)
+    assert len(messages) >= 4, (
+        f"expected at least 4 unresolved branches in the documented block, found "
+        f"{len(messages)}: {messages}"
+    )
+    # Search ASSERTIONS ONLY. Searching the whole file would count a phrase that
+    # appears in a COMMENT - including the comment explaining that this very
+    # phrase is shared between two branches - and report a branch as pinned
+    # because it is discussed rather than because it is asserted.
+    asserts = "\n".join(
+        ln for ln in Path(__file__).read_text().splitlines() if "assert " in ln
+    )
+    def runs_of(msg: str) -> set[str]:
+        literal = re.sub(r"\{[^}]*\}", " ", msg)
+        words = [w for w in re.split(r"[^A-Za-z-]+", literal) if w]
+        return {" ".join(words[i:i + 2]) for i in range(max(1, len(words) - 1))}
+
+    all_runs = [runs_of(m) for m in messages]
+    unpinned = []
+    for i, msg in enumerate(messages):
+        # A pin must be DISTINCTIVE. A phrase this branch shares with another -
+        # "could not", "this is NOT" - is satisfied by the neighbour's case, which
+        # is the exact defect this enumeration exists to prevent, one level up.
+        others = set().union(*(r for j, r in enumerate(all_runs) if j != i))
+        distinctive = all_runs[i] - others
+        if not distinctive:
+            unpinned.append(f"{msg}  [NO DISTINCTIVE PHRASE - the message itself is ambiguous]")
+        elif not any(run in asserts for run in distinctive):
+            unpinned.append(msg)
+    assert not unpinned, (
+        "these unresolved branches have no case pinning their message, so a case "
+        "asserting only 'unresolved' could pass through them:\n  "
+        + "\n  ".join(unpinned)
+    )
