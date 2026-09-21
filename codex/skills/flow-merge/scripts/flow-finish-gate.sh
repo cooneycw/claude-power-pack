@@ -311,12 +311,31 @@ cm_receipt_matches_head() {
     # head. It satisfies this run when it is the current HEAD or an ANCESTOR of
     # it. See the ancestry note on verdict() above for why equality is not used
     # and what this weakens.
+    #
+    # THREE ANSWERS, NOT TWO. `merge-base --is-ancestor` exits 0 for yes and 1 for
+    # no, but 128 when it cannot answer at all - the commit is not in this
+    # repository. A SHALLOW CLONE is the case that matters: CI clones with
+    # `--depth=1`, so a receipt taken at any earlier commit names an object the
+    # checkout does not contain, and git says `Not a valid commit name`. Treating
+    # that as "not an ancestor" would report `missing` - a review that did not
+    # happen - for a review that demonstrably did. That is the unknown-collapsed-
+    # into-negative failure this whole issue exists to remove, so it is reported
+    # separately rather than folded in.
+    #   0   -> 0  ancestor
+    #   1   -> 1  definitively not an ancestor
+    #   else-> 2  undecidable here (missing object, shallow clone, broken repo)
     [[ -n "$1" ]] || return 1
     git merge-base --is-ancestor "$1" HEAD >/dev/null 2>&1
+    case $? in
+        0) return 0 ;;
+        1) return 1 ;;
+        *) return 2 ;;
+    esac
 }
 
 cm_enrolment_evaluate() {
     local root receipts branch f rbranch rhead rstatus rreason reasons
+    local cm_undecidable=0
     # PARTICIPATION IS ESTABLISHED BEFORE GIT IS REQUIRED, and the order is the
     # whole blast radius of this check. Asking git first reported `unknown` - and
     # so RED - for any directory that is not a checkout, which is most of what
@@ -376,7 +395,12 @@ cm_enrolment_evaluate() {
             continue
         fi
         rhead=$(cm_field "$f" head)
-        cm_receipt_matches_head "$rhead" || continue
+        cm_receipt_matches_head "$rhead"
+        case $? in
+            0) ;;
+            1) continue ;;
+            *) cm_undecidable=1; continue ;;
+        esac
         rstatus=$(cm_field "$f" status)
         if [[ "$rstatus" == "skipped" ]]; then
             rreason=$(cm_field "$f" skip_reason)
@@ -422,6 +446,14 @@ cm_enrolment_evaluate() {
         return
     done
 
+    if [[ "${cm_undecidable:-0}" -eq 1 ]]; then
+        # A receipt for this issue EXISTS and names a commit this checkout does not
+        # contain. "Did a review happen" is not answerable here, and it is not the
+        # same fact as "no review happened".
+        CM_ENROLMENT_STATE=undecidable
+        CM_ENROLMENT_LINE="undecidable: a receipt names a commit this checkout does not contain$( [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == "true" ]] && printf ' (shallow clone)' ) - enrolment cannot be decided here"
+        return
+    fi
     CM_ENROLMENT_STATE=missing
     CM_ENROLMENT_LINE="missing: no receipt${branch:+ for branch '$branch'} at a commit reachable from HEAD"
 }
