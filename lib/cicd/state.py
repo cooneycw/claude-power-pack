@@ -284,6 +284,24 @@ class RunState:
         """
         self.cleanup(project_root)
 
+    def mark_step_pending(self, index: int) -> None:
+        """Reopen a settled record so the step can be REPLAYED (issue #1166).
+
+        Used on resume for a gate the failed run recorded NOT_RUN which the
+        RESUMED tree's derivation no longer subsumes: nothing is going to run
+        it, so it must run itself, and its old verdict must not survive into
+        the new run's result.
+
+        `not_run_reason` is cleared with the status, deliberately. It names the
+        aggregate that failed last time, and a reason left attached to a record
+        that is about to be re-executed would outlive the fact it described -
+        the stale half of exactly the defect this issue is about.
+        """
+        record = self.step_records[index]
+        record.status = StepStatus.PENDING
+        record.not_run_reason = None
+        record.started_at = None
+
     def mark_step_running(self, index: int) -> None:
         """Mark a step as running."""
         record = self.step_records[index]
@@ -306,7 +324,13 @@ class RunState:
         record.exit_code = 0
         record.tests = tests
         record.coverage = coverage
-        self.current_index = index + 1
+        # THE FRONTIER NEVER RETREATS (issue #1166, counter-model review).
+        # A REPLAYED step sits BELOW `current_index` - that is what replay
+        # means - so `index + 1` would move the resume point backwards and the
+        # next invocation would re-run every settled step between the two.
+        # Measured: replaying `lint` at index 0 set the frontier to 1, putting
+        # `security_scan` (already green at index 2) back in the firing line.
+        self.current_index = max(self.current_index, index + 1)
 
     def mark_step_failed(
         self,
@@ -333,7 +357,13 @@ class RunState:
         record = self.step_records[index]
         record.status = StepStatus.SKIPPED
         record.finished_at = _now()
-        self.current_index = index + 1
+        # THE FRONTIER NEVER RETREATS (issue #1166, counter-model review).
+        # A REPLAYED step sits BELOW `current_index` - that is what replay
+        # means - so `index + 1` would move the resume point backwards and the
+        # next invocation would re-run every settled step between the two.
+        # Measured: replaying `lint` at index 0 set the frontier to 1, putting
+        # `security_scan` (already green at index 2) back in the firing line.
+        self.current_index = max(self.current_index, index + 1)
 
     def mark_step_subsumed(self, index: int, aggregate_id: str) -> None:
         """This gate RAN, as a prerequisite of ``aggregate_id`` (issue #1152).
@@ -346,6 +376,13 @@ class RunState:
         record.status = StepStatus.SUBSUMED
         record.subsumed_by = aggregate_id
         record.finished_at = _now()
+        # A SETTLED RECORD KEEPS NO FAILURE STORY (issue #1166, counter-model
+        # review). A re-deferred gate arrives here carrying the reason the
+        # PREVIOUS run recorded, and leaving it attached publishes a record
+        # that says both `status: subsumed` and `not_run_reason: verify
+        # failed` - two accounts of one gate, one of them describing a run that
+        # has since been superseded. Measured in `step_details` before this.
+        record.not_run_reason = None
 
     def mark_step_not_run(self, index: int, reason: str) -> None:
         """Deferred to an aggregate that failed, so it never ran (issue #1152)."""
@@ -416,7 +453,11 @@ class RunState:
                 continue
         return None
 
-    def summary(self, executed_from: Optional[int] = None) -> dict[str, Any]:
+    def summary(
+        self,
+        executed_from: Optional[int] = None,
+        settled_in_this_run: Optional[set[int]] = None,
+    ) -> dict[str, Any]:
         """Return a summary suitable for JSON output to the LLM.
 
         ``executed_from`` is the step index the CURRENT invocation started at
@@ -426,7 +467,20 @@ class RunState:
         carried-over ``success`` renders identically to one just earned, which
         is how a stale ``lint: SUCCESS`` was reported for a tree whose lint
         input had been edited between the two runs.
+
+        ``settled_in_this_run`` names indices BELOW ``executed_from`` that this
+        invocation nevertheless settled (issue #1166): a gate the failed run
+        left NOT_RUN, which the resume re-deferred to an aggregate that ran
+        here, or replayed outright. Index order stops being a sufficient test
+        for "carried" the moment a resume can reach backwards, and calling such
+        a step carried is wrong in both directions - it did run in this
+        invocation, and there was no earlier result to carry. Measured before
+        this: a fail-fix-resume whose three gates were freshly settled
+        ``subsumed`` by a passing aggregate still reported
+        ``warn (carried, unverified: ...)``, so a genuinely green retry read as
+        action-required - the #1166 rejection in a second costume.
         """
+        settled = settled_in_this_run or set()
         steps_summary = []
         for index, r in enumerate(self.step_records):
             entry: dict[str, Any] = {"id": r.step_id, "status": r.status.value}
@@ -445,7 +499,11 @@ class RunState:
                 entry["subsumed_by"] = r.subsumed_by
             if r.not_run_reason:
                 entry["not_run_reason"] = r.not_run_reason
-            if executed_from is not None and index < executed_from:
+            if (
+                executed_from is not None
+                and index < executed_from
+                and index not in settled
+            ):
                 # Only meaningful for a record that HAS a result; a pending
                 # step before the resume point has nothing to be stale about.
                 if r.status not in (StepStatus.PENDING, StepStatus.SKIPPED):
