@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-#: HOST-SURFACE: ~/.codex/skills/<skill> owner=cpp write=copy certified=authored mode=--install
+#: HOST-SURFACE: ~/.codex/skills/<skill> owner=cpp write=copy certified=observed mode=--install
+#: The mkdir'd parents below are declared `certified=observed`, not
+#: `authored`: they were found by running this script against a sandboxed
+#: $HOME and diffing what appeared (issue #1150), not by a person reading
+#: the code. `authored` means "a person read the code and wrote down what it
+#: writes", which would be false here - static reading produced the
+#: declaration above and missed these. scripts/host-surface-observe.py
+#: re-derives them on every run and reds when they drift.
+#: HOST-SURFACE: ~/.codex owner=cpp write=mkdir certified=observed
+#: HOST-SURFACE: ~/.codex/skills owner=cpp write=mkdir certified=observed
 
 """codex-skill-sync.py - single-source -> Codex SKILL.md skill generation.
 

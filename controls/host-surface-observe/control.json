@@ -1,0 +1,34 @@
+{
+  "gate": "scripts/host-surface-observe.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^host-surface-observe: UNDERSTATED - ",
+  "limits": "THE TWO CASES DIFFER BY EXACTLY ONE DECLARATION LINE, and that is the whole design (issue #1150). Both are classified, both run, both write the same two paths - the directory ~/.probe and the file ~/.probe/one. Only `good-declared` declares the directory. A gate that compares appeared against declared separates them; a gate that does not, cannot. #1139's control for cpp-host-write.sh nearly shipped without this property: its known-bad matched by plain string equality even with normalisation broken, and returned the correct exit against both the working gate and the blind anchor. An expected answer both sides can reach proves nothing. THE CASE TREES CARRY THEIR OWN `.host-surface-observe.json`, because a fixture script is not in the gate's built-in invocation table and would otherwise be refused as UNCLASSIFIED - the right exit code for the wrong reason, reachable by a blind gate too. That file EXTENDS the built-in decisions and its use is reported on every run. It is REFUSED at the repository root - the harness exits non-zero rather than honouring it - because the same mechanism could silence the gate for the real tree: `{\"escapes\": {\"codex-skill-sync.py\": \"fixture\"}}` committed there would skip that helper's execution AND the enforcement of its `certified=observed` declarations while still reporting clean. THIS SENTENCE PREVIOUSLY CLAIMED A TEST FORBADE IT AND NO SUCH TEST EXISTED - a claimed check that does not exist, in a control whose subject is claims nothing checks, found by counter-model review rather than by re-reading. The refusal is now in the gate and pinned by tests/test_host_surface_observe.py::test_a_classification_file_at_the_repository_root_is_refused. WHAT THIS CONTROL DOES NOT ESTABLISH: that the sandbox holds. These cases run a fixture that writes only under $HOME, so they exercise the comparison, not the refusal. The sandbox is pinned by tests/test_host_surface_observe.py, which covers BOTH failing states - HOME unset (which escapes to the real home via the getpwuid fallback) and HOME set to the real home (which does not reach that fallback at all). They fail by different mechanisms and a single test over 'HOME is wrong' would pass while one went unguarded.",
+  "cases": [
+    {
+      "name": "bad-understated",
+      "input": "cases/bad-understated",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-declared",
+      "input": "cases/good-declared",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/host-surface-observe.py",
+      "path": "anchors/constructed-blind-covered-by.py",
+      "sha256": "a1bf1824472f316e1a2292163449af3d395a98285ec8c293bc50f96a365973fc",
+      "why": "CONSTRUCTED: the gate is new, so there is no previous blind version to vendor. This is the gate with `covered_by` forced to True and nothing else changed - the narrowest blinding that removes the comparison while leaving the population, the sandbox refusal, the allowlisted child environment, the two runs and the vacuity guard intact. REGENERATED from the hardened source after the first cut was found to predate the environment allowlist: it copied the parent environment wholesale and forwarded BASH_ENV and CPP_COMMANDS_LINK_HOME into the fixture it executes. The battery RUNS an anchor, so a stale one does not merely misrepresent its gate - it carries the live escape that gate was fixed for."
+    }
+  ]
+}

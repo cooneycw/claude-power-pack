@@ -373,6 +373,27 @@ steps:
     commands:
       - python3 scripts/check-negative-fixture-preconditions.py
 
+  # Do the host-surface declarations match what the helpers actually write? (#1150)
+  #
+  # `host-surface-check` catches a script with NO declaration; it cannot catch one that
+  # UNDERSTATES, and prints that bound in its own verdict. This runs each in-$HOME helper
+  # twice against a sandboxed $HOME and diffs what APPEARED against what was DECLARED.
+  #
+  # DEMONSTRATED TO FAIL under this digest with `--root controls/host-surface-observe/cases/
+  # bad-understated` - a fixture that writes a directory it did not declare - exiting 1 and
+  # printing UNDERSTATED, not merely shown to run: a step that cannot fail in the image is
+  # green by absence (#1036). The clean run was measured under the same digest with
+  # `--network none` and a read-only workspace.
+  #
+  # It needs no git, no network and no third-party package - it executes only the repo's own
+  # in-$HOME helpers, with the six that reach outside $HOME (sudo, systemctl, docker, apt,
+  # npm -g) never run and permanently certified=authored.
+  host-surface-observe:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/host-surface-observe.py
+
   # Is CLAUDE.md still inside its 2,000-word ceiling? (#1146)
   #
   # In `make verify` since before this change and in CI since #1146, which
