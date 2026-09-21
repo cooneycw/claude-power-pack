@@ -1,0 +1,20 @@
+# Clean host cannot authenticate - measured 2026-09-21
+# codex-cli 0.155.1; HOME redirected to an empty directory; CODEX_HOME NOT pinned.
+
+== variant: no-codex-dir ==
+   home contents: 0 entr(ies), auth.json present: no
+   2026-09-21T18:50:46.783959Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 401 Unauthorized, url: wss://api.openai.com/v1/responses
+   exit=1
+
+== variant: empty-codex-dir ==
+   home contents: 1 entr(ies), auth.json present: no
+   2026-09-21T18:51:02.564239Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 401 Unauthorized, url: wss://api.openai.com/v1/responses
+   exit=1
+
+== variant: codex-dir-with-config-no-auth ==
+   home contents: 2 entr(ies), auth.json present: no
+   2026-09-21T18:51:16.306467Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 401 Unauthorized, url: wss://api.openai.com/v1/responses
+   exit=1
+
+== contrast: the committed clean-host.sh pins CODEX_HOME, which fails EARLIER ==
+   Error finding codex home: CODEX_HOME points to "/home/clean/.codex", but that path does not exist

@@ -1,0 +1,8 @@
+ARM=negative surface=absent skills_staged=0 wrapper_exit=0
+--- effect in ~/.claude/scripts ---
+  (nothing written)
+--- git checkouts under $HOME (identity shown; this is an OBSERVATION, not a network record) ---
+  (none observed)
+--- harness health ---
+  ipc_error_records=0  completed_run_markers=1
+  VERDICT: valid

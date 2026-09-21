@@ -1,0 +1,41 @@
+Counter-model review of PR #1184 (bcd1d96)
+Reviewer: codex / gpt-6-astra, thread 01a0c54c-970a-77c1-85a7-05c6cde1d494
+Implementing model: Claude Opus 5. ADR 0007 - the reviewing model is not the implementing model.
+
+## Findings
+
+### [HIGH] Measurement recreates and destroys part of the measured filesystem
+- File: docs/research/codex-clean-install-proof-2026-09-21/run-arms.sh:59
+- Issue: The measurement starts a second `clean-host.sh` invocation, which mounts a fresh `/tmp`. If the arm clones CPP into `/tmp/cpp` and installs symlinks from there, valid links become broken during measurement. If `~/.claude/scripts` itself points into `/tmp`, the harness reports `(nothing written)` despite a successful installation. The harness therefore manufactures the empty result that the differential treats as meaningful.
+- Suggestion: Run Codex and the subsequent measurement within the same bwrap invocation, or preserve the arm’s temporary filesystem across both invocations.
+
+### [MEDIUM] Failed setup does not invalidate the arm
+- File: docs/research/codex-clean-install-proof-2026-09-21/run-arms.sh:30
+- Issue: Cleanup, directory creation, credential copying, and bundle copying are unchecked because the script omits `set -e` and explicit error handling. Passing a nonexistent repository to the positive arm still labels it `surface=present` and runs Codex without that surface. Failed cleanup can also leave prior output available for measurement. Neither actual surface membership nor an initially empty destination is established before attributing results to this run.
+- Suggestion: Allocate a unique run directory, abort on required setup failures, and assert the actual surface state and absence of installed helpers before launching each arm.
+
+### [MEDIUM] IPC health check confuses transcript content with errors and reverses exit status
+- File: docs/research/codex-clean-install-proof-2026-09-21/run-arms.sh:83
+- Issue: Searching the complete transcript for `code_mode_host_duration_ns` counts echoed commands, source text, or explanations as IPC errors. A healthy command printing that name invalidates the arm, while an empty log reports zero without establishing that anything ran. Additionally, this final `grep -c` makes the script exit 1 when no matches exist and exit 0 when an invalidating match exists. `probe-write.sh` similarly finishes with a successful `echo` even when the requested write failed.
+- Suggestion: Count actual runtime error records separately from model/tool content, require evidence of completed execution, and explicitly return failure for invalid runs. Make the write probe assert its file contents and propagate failure.
+
+### [MEDIUM] Checkout detector cannot establish network provenance
+- File: docs/research/codex-clean-install-proof-2026-09-21/run-arms.sh:75
+- Issue: The detector examines only three hardcoded paths. Cloning CPP into `/home/clean/work/cpp-src` produces canonical helpers without any `NETWORK-ACQUIRED CHECKOUT` marker. Conversely, locally initializing an unrelated Git repository at `/home/clean/cpp` produces that marker despite no network acquisition. Thus absence cannot establish bundle-only execution, and presence cannot distinguish CPP acquisition from a neighbouring repository.
+- Suggestion: Record acquisition activity with repository identity and provenance, or enforce network restrictions. Until then, label this output as Git directories observed at three specified paths and explicitly leave network acquisition undetermined.
+
+### [MEDIUM] Claimed negative-arm recall is absent from the committed evidence
+- File: docs/research/codex-clean-install-proof-2026-09-21.md:40
+- Issue: The artifact presents the negative arm naming `stash-worktree-guard.sh` as a measured observation underpinning the experiment. Neither committed negative transcript nor its final response contains that name. Occurrences in positive transcripts include the installer’s printed source, which cannot establish recall without access to CPP. The committed evidence therefore does not support this claim.
+- Suggestion: Commit the specific surface-absent transcript and its setup evidence, or mark this observation as unsupported and remove the claim that recall was demonstrated.
+
+## Red cases
+
+- **Package guard (`clean-host.sh`):** Select a package lacking executable `bin/codex-code-mode-host`; it must refuse with exit 2.
+- **Filesystem containment:** Make a known host-only CPP file readable inside the sandbox; containment must fail. The current wrapper does not enforce a containment assertion.
+- **Arm setup:** Supply a nonexistent positive-arm repository; this must produce an invalid-run verdict, not `surface=present`.
+- **Effect measurement:** Install an ordinary helper to change “nothing written” into a measured entry; create a dangling symlink to produce `BROKEN`. A valid installation under `/tmp` must remain valid during measurement.
+- **Network detector:** Clone CPP into `/home/clean/cpp` to trigger its marker. Cloning into `/home/clean/work/cpp-src` should trigger the same verdict but currently does not.
+- **IPC health:** A genuine IPC decode error must invalidate the arm. A successful tool merely printing `code_mode_host_duration_ns` must remain healthy; the current matcher fails this distinction.
+- **Write probe:** An invocation that exits without creating `probe.txt` must fail the control. Currently it prints the missing-write message but exits successfully.
+- **Known-bad cases:** Removing the baseline source produces `error`; adding an allowlisted helper to the empty source produces `installed`; creating the missing source with an allowlisted helper removes its rejection. The injected-comment tamper still produces `installed`: the current installer has no authenticity-rejection verdict for that input.
