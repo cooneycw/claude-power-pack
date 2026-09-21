@@ -1801,12 +1801,26 @@ def _provenance(anchor: dict[str, str], anchor_path: Path, root: Path, verify: b
     #: design it embodies, not a path - so the lookup is meaningless, and the
     #: digest check above is the whole of what provenance can establish here.
     #:
-    #: THIS WAS NOT THEORETICAL. `git show "0000000:<that sentence>"` EXITS 0 AND
-    #: PRINTS NOTHING - no error, no stderr - so the `returncode != 0` guard
-    #: below never fired, the empty output was hashed, and controls/deletion-
-    #: accounting reported MISMATCH against a commit that does not exist. A
-    #: command reporting success while establishing nothing, its emptiness read
-    #: as content: this file's own subject, inside this file.
+    #: THIS WAS NOT THEORETICAL, AND THE MECHANISM IS EXACT. When the string
+    #: after the colon contains PATHSPEC GLOB METACHARACTERS, git stops reading
+    #: the argument as `<rev>:<path>` and reads it as a PATHSPEC - and a
+    #: pathspec that matches nothing exits 0 with no output and no stderr.
+    #: Reproduced in a fresh repository, one variable at a time:
+    #:
+    #:     git show '0000000:plain'         -> 128, "invalid object name"
+    #:     git show '0000000:has[^-]glob'   -> 0, zero bytes, empty stderr
+    #:     git show '0000000:star*'         -> 0, zero bytes, empty stderr
+    #:     git cat-file -e '0000000:...'    -> 128 for BOTH
+    #:
+    #: So it is conditional on the ORIGIN TEXT, not on the sha: an origin
+    #: sentence containing a regex or a wildcard takes the silent path and a
+    #: plain one takes the loud path. That is why exactly one of this
+    #: repository's five synthetic anchors was affected -
+    #: controls/deletion-accounting, whose origin quotes the pattern `^-[^-]`.
+    #: Its `returncode != 0` guard never fired, the empty output was hashed, and
+    #: the control was accused of disagreeing with a commit that does not exist:
+    #: a command reporting success while establishing nothing, its emptiness
+    #: read as content, inside the file written for that defect.
     if anchor.get("kind") == "synthetic" or anchor.get("sha") in ("0000000", "n/a", ""):
         return "unverified"
     #: EXISTENCE FIRST, WITH A PROBE THAT ACTUALLY REFUSES (#1157 counter-model

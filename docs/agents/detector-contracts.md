@@ -311,7 +311,7 @@ conducted *for* this pattern.
 
 ## The instance index
 
-The twenty-eight instances this contract was derived from. Kept here, in the guidance,
+The twenty-nine instances this contract was derived from. Kept here, in the guidance,
 rather than in the issue that indexed them - a finding that lives only in a closed
 issue is the condition #834 was filed to end. Link new instances here.
 
@@ -331,6 +331,7 @@ issue is the condition #834 was filed to end. Link new instances here.
 | #836 | did the delegated process exit clean | did the delegated work happen | open |
 | #1157 (a) | does this literal appear in this file | is the rule this file documents being broken | open |
 | #1157 (b) | does this literal appear in this file | is the rule being broken, where the file RECORDS COMPLIANCE | open |
+| #1157 (c) | `git show <rev>:<text>` exited 0 | the object exists and this is its content | fixed |
 | #838 | is this name at command position | is this binary invoked (assignment, quoted text) | fixed |
 | #840 | are the tests I found all guarded | are all tests guarded (0 when there are none) | fixed |
 | #841 | do the pointers I found resolve | do all pointers resolve (vacuous over zero) | fixed |
