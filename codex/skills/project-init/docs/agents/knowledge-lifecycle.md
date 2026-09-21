@@ -27,6 +27,43 @@ edited or unowned copy is still reported as duplicated policy.
 | Operational procedure, recovery, or deployment behavior | Runbook and executable checks |
 | Public or cross-team contract | Maintained user/API/interface documentation |
 | Unimplemented or deliberately deferred requirement | Linked open issue or explicit rejection record |
+| A decision that was taken, and what it was taken against | The record of that decision - it does not graduate; see below |
+
+## Records of decisions do not graduate
+
+Everything in the table above is knowledge ABOUT THE SYSTEM, and it graduates to
+the narrowest maintained source that can enforce or explain it. A record of a
+DECISION is a different kind of thing and the graduation process does not apply
+to it.
+
+A `/flow:auto` plan record (`docs/flow-runs/issue-<N>.md`, issue #1080) and a
+counter-model receipt (`docs/measurements/counter-model/*.json`, issue #934) are
+both of this kind. Each states what was agreed, or what was reviewed, at a
+particular moment and against a particular SHA. That claim does not go stale,
+because it is not a claim about how the system behaves now - it is a claim about
+what happened, and it stays true.
+
+So:
+
+- **They are never a durable home.** If a plan record contains a fact that
+  matters after delivery - an invariant, a rejected alternative, a contract -
+  that fact graduates to code, tests, or an ADR like any other. The record keeps
+  its own copy as history; the durable home is elsewhere, and the two are not
+  expected to agree forever.
+- **They are never read as current.** A plan record describes intent formed
+  BEFORE the code existed. Read as a description of the shipped system it is
+  wrong by construction, which is why each one carries its base SHA and says so
+  in its own header.
+- **They are not rewritten to stay accurate** (owner ruling, #1048: annotate, do
+  not rewrite). A corpus edited to look correct destroys the only thing it was
+  keeping - the evidence of what was actually believed at the time.
+
+The risk this section exists to bound is the accumulating one: a directory of
+committed statements about the system, written before the code, is a good way to
+build exactly the "second, drifting description" this document opens by
+forbidding. The answer is not to delete them but to be explicit that they are
+history rather than description, and that nothing may cite one as the current
+state.
 
 ## Graduation process
 
