@@ -240,6 +240,39 @@ def attribute_missing_binary_skips(
     return counts
 
 
+def unattributed_skip_reasons(
+    reasons: list[str], binaries: frozenset[str]
+) -> list[str]:
+    r"""Skip reasons naming NO guarded binary. Pure, so it is testable.
+
+    THE COMPANION HALF, and the reason it exists (issue #1157). The hook above
+    reports skips it can attribute to an absent binary and returns silently when
+    there are none, so a skip meaning "I could not evaluate this" renders in the
+    summary as a bare `1 skipped` - byte-identical to one meaning "not
+    applicable on this machine". The distinction those two need is the whole
+    subject of the issue this was found in: an unknowable answer must not read
+    as a clean one, and a test that declined to run must not read as a test that
+    ran.
+
+    MEASURED, which is how it was found rather than reasoned about: a race in
+    `tests/test_negative_controls.py` made one test render UNRESOLVED and skip on
+    EVERY full run. The suite reported `5478 passed, 2 skipped`, twice, and two
+    clean runs were nearly accepted as evidence for a subject that never
+    executed. Nothing in the summary said which test, or why.
+
+    Shares the sibling's boundary rule so the two partition the same population:
+    every reason is in exactly one of them.
+    """
+    return [
+        reason
+        for reason in reasons
+        if not any(
+            re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", reason)
+            for name in binaries
+        )
+    ]
+
+
 def pytest_terminal_summary(terminalreporter, exitstatus, config) -> None:  # noqa: ARG001
     """Name and count the skips caused by a binary being absent."""
     skipped = terminalreporter.stats.get("skipped", [])
@@ -262,12 +295,33 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config) -> None:  # no
             reasons.append(str(longrepr[2]))
     counts = attribute_missing_binary_skips(reasons, binaries)
 
-    if not counts:
-        return
-    total = sum(counts.values())
-    detail = ", ".join(f"{name}={counts[name]}" for name in sorted(counts))
-    terminalreporter.write_line(
-        f"missing-binary skips: {total} test(s) did not run because a binary is "
-        f"absent ({detail}). Those lanes are UNEXERCISED here, not verified.",
-        yellow=True,
-    )
+    if counts:
+        total = sum(counts.values())
+        detail = ", ".join(f"{name}={counts[name]}" for name in sorted(counts))
+        terminalreporter.write_line(
+            f"missing-binary skips: {total} test(s) did not run because a binary is "
+            f"absent ({detail}). Those lanes are UNEXERCISED here, not verified.",
+            yellow=True,
+        )
+
+    # NAMED, NOT COUNTED (issue #1157). The block above used to `return` when it
+    # could attribute nothing, so every skip that is not about an absent binary
+    # reached the reader as a bare `N skipped` - and "I could not evaluate this"
+    # renders there identically to "not applicable on this machine". The first
+    # of those is action-required and the second is not.
+    #
+    # The reason text is what distinguishes them and pytest prints it only under
+    # `-rs`, which `make verify` does not pass. So it is printed here, where the
+    # summary already is, rather than left to a flag nobody remembers.
+    unattributed = unattributed_skip_reasons(reasons, binaries)
+    if unattributed:
+        terminalreporter.write_line(
+            f"other skips: {len(unattributed)} test(s) did not run for a reason that is not "
+            "an absent binary. A skip is not a pass - read the reason:",
+            yellow=True,
+        )
+        for reason in unattributed:
+            first = reason.strip().splitlines()[0] if reason.strip() else "(no reason given)"
+            terminalreporter.write_line(
+                f"    {first[:160]}{'...' if len(first) > 160 else ''}", yellow=True
+            )

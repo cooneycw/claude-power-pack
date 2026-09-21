@@ -173,6 +173,57 @@ widened existing one. That is a different and harder fix than widening, and
 recognising which of the two you are looking at is the judgement this document
 asks for.
 
+## A claim a text detector cannot make
+
+Some guards enforce a rule about TEXT: a literal, a spelling, a character must
+not appear. Those guards read the same files that DOCUMENT the rule, and a
+document explaining a forbidden thing has to refer to it. So the detector sees
+the same bytes in both, and the two cases it most needs to separate are the two
+it cannot.
+
+**Direction one, the false positive.** Prose about the forbidden thing trips the
+guard. This is the familiar half and it is self-announcing: somebody writes the
+documentation, the gate reds, and the author finds out immediately. It is
+annoying and it is not dangerous, because a red that should not have fired gets
+investigated.
+
+**Direction two, the inverse, and this is the dangerous half.** Prose about
+OBEYING the rule is indistinguishable from breaking it. A sentence recording
+that a spelling must never appear contains that spelling; a sentence recording
+that it was removed contains it too. The detector reports a violation where the
+document is the compliance record. Worse, the reverse also holds - a real
+violation sitting next to an explanatory sentence reads as "just the
+documentation again", and a reader who has learned to expect that from this file
+waves it through. The guard has trained its audience to ignore it exactly where
+it is right.
+
+Note which way the harm runs. Direction one costs an investigation. Direction
+two costs a violation that is seen, classified as prose, and left.
+
+**Comparing against a known revision does not rescue direction two, and this is
+the tempting wrong fix.** Diffing the file against a baseline answers *this
+region did not change*. The property being enforced is *this literal appears
+nowhere*. A property about the whole file has no region to anchor to: a
+violation introduced in the same commit as its explanation is inside the changed
+region, and a violation that predates the baseline is inside the unchanged one.
+The comparison is a real answer to a different question, which is this
+document's subject in its own right.
+
+**The remedy is to name the subject without writing it.** Refer to the forbidden
+literal by description, by code point, by a constructed reference - anything that
+identifies it to a human and is not the bytes the guard scans for. That keeps
+the guard's population honest instead of asking the guard to become cleverer,
+and it is the one fix that works in both directions at once. Where a document
+genuinely must carry the literal, the rule needs a declared, reviewed exemption
+with the file named - not a widened pattern, because a pattern widened to spare
+documentation is a pattern that spares a violation wearing documentation's
+clothes.
+
+**The narrow answer is usually correct here.** Per the section above, the larger
+question - *is the rule actually obeyed across this repository* - wants a
+different channel, one that reads structure rather than prose, and not a text
+matcher taught to guess intent from surrounding words.
+
 ## What the two open dependents answer
 
 Stated here so each is implementable against this contract rather than against a
@@ -260,7 +311,7 @@ conducted *for* this pattern.
 
 ## The instance index
 
-The twenty-six instances this contract was derived from. Kept here, in the guidance,
+The twenty-eight instances this contract was derived from. Kept here, in the guidance,
 rather than in the issue that indexed them - a finding that lives only in a closed
 issue is the condition #834 was filed to end. Link new instances here.
 
@@ -278,6 +329,8 @@ issue is the condition #834 was filed to end. Link new instances here.
 | #833 | is this name at command position | is this binary invoked | fixed |
 | #835 | can this driver do implementation-scope / web work | can this driver do *this* task | fixed |
 | #836 | did the delegated process exit clean | did the delegated work happen | open |
+| #1157 (a) | does this literal appear in this file | is the rule this file documents being broken | open |
+| #1157 (b) | does this literal appear in this file | is the rule being broken, where the file RECORDS COMPLIANCE | open |
 | #838 | is this name at command position | is this binary invoked (assignment, quoted text) | fixed |
 | #840 | are the tests I found all guarded | are all tests guarded (0 when there are none) | fixed |
 | #841 | do the pointers I found resolve | do all pointers resolve (vacuous over zero) | fixed |

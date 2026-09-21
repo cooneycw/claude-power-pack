@@ -1,7 +1,8 @@
 # Idioms that delete the evidence
 
-Five habits, collected from five Nit Store comments and one near-miss on a real
-branch. They look nothing alike and they are one defect:
+Six habits, collected from five Nit Store comments, one near-miss on a real
+branch, and one gate that had to decide this before it could be trusted. They
+look nothing alike and they are one defect:
 
 > **The diagnostic and the success line are produced by different parts of the
 > pipeline, and the idiom removes the diagnostic while preserving the success.**
@@ -305,6 +306,58 @@ contracts](detector-contracts.md) carries a second instance of the same shape -
 `--diff-filter=D --name-only` selects deleted FILES and cannot see a deleted LINE,
 so it answered "does this diff remove a file?" for a condition that was "does this
 diff remove anything?" - with `--numstat` as the direct query there.
+
+## 6. A shallow clone deletes the evidence that a negative answer needs
+
+`git merge-base --is-ancestor A B` answers a question about history. A shallow
+clone does not have the history. The command still answers.
+
+**The rule, in one line: in a shallow repository a NEGATIVE ancestry result
+proves nothing, whatever the exit code. A POSITIVE still proves what it says.**
+
+The asymmetry is the whole content. Reachability is established by exhibiting a
+path, so finding one is conclusive no matter how much history is missing -
+truncation cannot manufacture a path that is not there. Failing to find one is
+established by exhausting the search, and a truncated repository cannot exhaust
+anything. "I looked everywhere and there is no path" and "I looked at everything
+I have and there is no path" are the same output.
+
+**Do not rely on the exit code to tell you which situation you are in**, because
+that depends on the clone's shape rather than on the question:
+
+| clone | what happens | what you get |
+|---|---|---|
+| full | the search completes | 0 or 1, both meaningful |
+| `--depth=1` alone | the commit is not present at all | 128 - loud, and honest |
+| `--depth=1 --filter=tree:0` | the commit RESOLVES, the history behind it does not | **1** - a confident wrong answer |
+
+The third row is the one that matters, and it is what CI uses. A partial clone
+fetches the commit object on demand, so the argument resolves and the command
+proceeds to a real search over an absent history. It then reports the ordinary
+"not an ancestor" exit code. Nothing anywhere is marked degraded.
+
+This is the page's defect exactly: the diagnostic - *I could not see the history*
+- is produced by a different layer than the verdict, and the clone shape removes
+the diagnostic while preserving a verdict that looks like every other verdict.
+A reader gets a true statement (the command really did exit 1) and draws a false
+conclusion (the commit really is not an ancestor).
+
+**What to do instead.** Establish the clone's shape before believing a negative,
+with `git rev-parse --is-shallow-repository`, and treat a negative from a shallow
+repository as UNKNOWN rather than as NO. Where the answer is load-bearing, deepen
+first (`git fetch --unshallow`, or `--deepen`) and ask again. Where deepening is
+not available, say the answer could not be established - which is the honest
+verdict and the one this whole page exists to protect.
+
+A worked instance is `scripts/flow-finish-gate.sh`, which decides this before it
+can be misled: it establishes shallowness first and records the enrolment
+decision as undecidable when the history is truncated, rather than reading an
+absence of receipts as an absence of review.
+
+Note also what the third row does to a control. A test that proves the guard
+fires on a plain `--depth=1` clone proves it against the LOUD shape only. The
+dangerous shape is the quiet one, and a control that never constructs it is
+green for a case it has not examined.
 
 ## Related
 
