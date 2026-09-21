@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1080-commit-the-approved-plan-as-a-branch-artifact-so-s",
+  "counts": {
+    "accepted": 5,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "9f35dec7a37749ef4e090e48eac096aa8e915398",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1080",
+  "passes": 1,
+  "recorded_at": "2026-09-21T19:47:49Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 12
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
