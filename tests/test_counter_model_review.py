@@ -32,6 +32,13 @@ from pathlib import Path
 
 import pytest
 
+from tests.isolated_env import ISOLATED_PATH
+
+requires_git = pytest.mark.skipif(
+    shutil.which("git") is None,
+    reason="the finish gate derives counter-model enrolment from git (issue #1171)",
+)
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "counter-model-receipt.py"
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "counter_model"
@@ -1481,7 +1488,7 @@ def test_the_published_staging_command_actually_tracks_a_fresh_receipt(
         return subprocess.run(
             ["git", *args], cwd=cwd, capture_output=True, text=True,
             # negative-fixture: allow PATH is isolation, not an absence
-            env={"HOME": str(tmp_path), "PATH": "/usr/bin:/bin",
+            env={"HOME": str(tmp_path), "PATH": ISOLATED_PATH,
                  "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
                  "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"},
         )
@@ -1506,7 +1513,7 @@ def test_the_published_staging_command_actually_tracks_a_fresh_receipt(
         ["bash", "-c", stage_command],
         cwd=repo, capture_output=True, text=True,
         # negative-fixture: allow PATH is isolation, not an absence
-        env={"HOME": str(tmp_path), "PATH": "/usr/bin:/bin",
+        env={"HOME": str(tmp_path), "PATH": ISOLATED_PATH,
              "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
              "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"},
     )
@@ -1516,3 +1523,96 @@ def test_the_published_staging_command_actually_tracks_a_fresh_receipt(
     assert "2026-01-01T000000Z-issue-9999.json" in tracked, (
         f"the published command did not track the fresh receipt:\n{tracked}"
     )
+
+
+# --- The reviewed commit, derived not asserted (issue #1171) -----------------
+
+
+def _git_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "r"
+    repo.mkdir()
+    def run(*a: str) -> None:
+        subprocess.run(["git", "-C", str(repo), *a], check=True,
+                       capture_output=True, text=True)
+
+    run("init", "-q", "-b", "master", ".")
+    run("config", "user.email", "t@t")
+    run("config", "user.name", "t")
+    (repo / "f.txt").write_text("x\n")
+    run("add", "-A")
+    run("commit", "-qm", "base")
+    return repo
+
+
+@requires_git
+def test_head_is_derived_from_the_checkout(tmp_path: Path) -> None:
+    """Derived, not passed in, so an unedited call site produces a usable receipt.
+
+    The only receipt-write call site is in `.claude/commands/flow/auto.md`. Requiring
+    a `--head` flag there would make this field depend on a document being edited in
+    lockstep with this script - the "a marker written by the thing being measured"
+    trap #1048 removed from `--reviewer`.
+    """
+    mod = _load()
+    repo = _git_repo(tmp_path)
+    real = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                          capture_output=True, text=True, check=True).stdout.strip()
+    head, warning = mod._derive_head(None, repo)
+    assert head == real
+    assert warning is None
+
+
+@requires_git
+def test_an_explicit_head_overrides_derivation(tmp_path: Path) -> None:
+    mod = _load()
+    head, warning = mod._derive_head("abc1234", _git_repo(tmp_path))
+    assert head == "abc1234"
+    assert warning is None
+
+
+@requires_git
+def test_outside_a_checkout_head_is_absent_and_said_out_loud(tmp_path: Path) -> None:
+    """Absent is a state, not a silent one: the receipt stays valid but cannot satisfy
+    the finish gate, and the writer says so rather than leaving the gate to report a
+    bare `missing` later."""
+    mod = _load()
+    head, warning = mod._derive_head(None, tmp_path)
+    assert head is None
+    assert warning and "not a git checkout" in warning
+
+
+def test_a_receipt_without_a_head_is_still_well_formed() -> None:
+    """Every receipt committed before #1171 lacks this field. Making it required would
+    invalidate all of them at once, so absence means 'written before the field existed'."""
+    mod = _load()
+    receipt = {
+        "schema": 1, "recorded_at": "2026-09-20T21:15:11Z", "issue": "1071",
+        "branch": "b", "status": "ran", "reviewer": "codex/gpt-6-astra",
+        "implementer": "claude/claude-opus-5", "passes": 1,
+        "counts": {"accepted": 0, "rejected": 0, "deferred": 0},
+        "red_cases": {"proposed": 0, "already_covered": 0},
+    }
+    assert mod.validate(receipt, "legacy") == []
+
+
+def test_a_head_that_is_not_an_object_name_is_refused() -> None:
+    mod = _load()
+    receipt = {
+        "schema": 1, "recorded_at": "2026-09-20T21:15:11Z", "issue": "1071",
+        "branch": "b", "head": "not-a-sha", "status": "ran",
+        "reviewer": "codex/gpt-6-astra", "implementer": "claude/claude-opus-5", "passes": 1,
+        "counts": {"accepted": 0, "rejected": 0, "deferred": 0},
+        "red_cases": {"proposed": 0, "already_covered": 0},
+    }
+    assert any("not a git object name" in p for p in mod.validate(receipt, "bad"))
+
+
+def test_the_committed_skip_reasons_are_readable_by_the_shell_lane() -> None:
+    """`flow-finish-gate.sh` validates a skip against this output. A second copy of the
+    set in shell is the cross-language drift #890/#1147 kept removing, and it fails in
+    the dangerous direction: a stale shell copy would accept a retired reason."""
+    got = subprocess.run([sys.executable, str(SCRIPT), "skip-reasons"],
+                         capture_output=True, text=True, check=True)
+    mod = _load()
+    assert got.stdout.split() == list(mod.SKIP_REASONS)
+    assert "explicit-opt-out" not in got.stdout

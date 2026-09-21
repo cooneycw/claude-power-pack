@@ -109,6 +109,50 @@ caller reading only `$?` could not tell "passed cleanly" from "passed but
 proved nothing" from "did not run at all". Read the exit code, not just the
 word, if you are scripting around this helper:
 
+**Every finish-mode run carries a counter-model line (issue #1171).** Before the
+verdict, the helper prints `FLOW_FINISH_GATE_COUNTER_MODEL:` naming one of:
+
+| Line | Meaning |
+|---|---|
+| `receipt: <file>` | a counter-model review is recorded for this branch at a commit reachable from HEAD |
+| `skipped: <reason> (<file>)` | a review did NOT happen, and the reason is one of the committed `SKIP_REASONS` |
+| `missing: ...` | nothing is recorded. **This reds the gate** (exit 1) |
+| `unknown: ...` | enrolment could not be decided - an uncommitted skip reason, or no reachable commit. **Also reds** |
+| `not-enrolled: ...` | this repository carries no counter-model receipts directory and is not asked for one |
+| `undecidable (shallow clone): ...` | a receipt names a commit this checkout does not contain AND the checkout is shallow. **Passes**, loudly - the decision was not made here. CI clones `--depth=1`, so this is the ordinary CI state |
+| `unresolvable: ...` | the same, but the checkout is NOT shallow - the receipt names a commit that exists nowhere, so it is wrong or fabricated. **Reds** |
+
+`missing` is the point of the whole mechanism, so read it as a missing required
+field rather than a complaint: before #1171 a review that never ran wrote no
+receipt and simply shrank the corpus the uniformity check reads, so a SKIPPED
+review and a CLEAN one were indistinguishable to every instrument in this
+repository. #1152 and #1163 both merged green that way and each was later found
+to carry a HIGH.
+
+**Do not resolve a `missing` by widening `SKIP_REASONS`.** The committed set is
+`codex-absent` and `reviewer-unavailable`; `explicit-opt-out` was removed
+deliberately and a re-added discretionary skip is the swing that trigger exists
+to catch, not one it authorises. Run the review, or record the skip that
+honestly applies. If an honest run reaches a state no committed reason covers,
+that is a real gap and it wants a ruling, not a wider set.
+
+**The skip allowlist has ONE declaration.** The gate validates a `skipped:`
+reason by running `scripts/counter-model-receipt.py skip-reasons`, rather than
+carrying a second copy of the set in shell - a stale shell copy would accept a
+reason the committed set had retired. It resolves that helper beside itself
+first, so a generated Codex skill bundling this gate finds its own copy, and a
+gate running from a worktree validates against that worktree rather than through
+the stable path's symlink into the primary checkout. Where no copy resolves, the
+verdict is `unknown` and the gate reds: an unvalidatable skip is not a pass.
+
+**The match is by ANCESTRY, and ancestry is not identity.** A receipt counts
+when its recorded `head` is HEAD or an ancestor of it, so a review taken earlier
+on this branch still satisfies a later commit - including after the Step-4
+commit and the Step-7 `origin/main` merge, which is what makes the re-gate
+possible at all. It also means commits made AFTER the review still pass. That is
+a deliberate limit of this instrument, not an oversight: whether a review
+covered the final diff belongs to #1082.
+
 - `FLOW_FINISH_GATE: ok` (exit 0): gates passed - via the runner, or its
   documented Makefile fallback when the runner is unavailable (the helper
   prints a NOTE naming which path ran). If the runner ran, skip to Step 2d;

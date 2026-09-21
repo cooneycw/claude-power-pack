@@ -20,6 +20,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.isolated_env import ISOLATED_PATH
+
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "check-co-authored-by-trailer.py"
 
@@ -53,7 +55,7 @@ def _run_without_git(root: Path) -> subprocess.CompletedProcess[str]:
 def _git(*args: str, cwd: Path) -> None:
     subprocess.run(
         ["git", *args], cwd=cwd, check=True, capture_output=True, text=True,
-        env={"HOME": str(cwd), "PATH": "/usr/bin:/bin",  # negative-fixture: allow PATH is isolation, not an absence
+        env={"HOME": str(cwd), "PATH": ISOLATED_PATH,  # negative-fixture: allow PATH is isolation, not an absence
              "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
              "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"},
     )

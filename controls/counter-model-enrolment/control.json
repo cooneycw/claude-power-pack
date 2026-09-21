@@ -1,0 +1,86 @@
+{
+  "gate": "scripts/flow-finish-gate.sh",
+  "invocation": [
+    "bash",
+    "-c",
+    "W=$(mktemp -d) || exit 9; cp -R \"$1\"/. \"$W\"/ || exit 9; cd \"$W\" || exit 9; bash ./setup.sh >/dev/null 2>&1 || exit 9; CPP=\"${2%/*}\"; CPP=\"${CPP%/*}\"; ARGS=\"\"; [ -f args.txt ] && ARGS=$(cat args.txt); FLOW_GATE_CPP_DIR=\"\" CM_RECEIPT_HELPER=\"$CPP/scripts/counter-model-receipt.py\" bash \"$2\" $ARGS; rc=$?; rm -rf \"$W\"; exit $rc",
+    "--",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 4,
+  "detect_signal": "^FLOW_FINISH_GATE: fail",
+  "limits": "WHAT THIS ESTABLISHES: that scripts/flow-finish-gate.sh refuses a PASS verdict when no counter-model review is recorded for the branch at a commit reachable from HEAD, and accepts one when a receipt or a committed skip reason is. WHAT IT DOES NOT: that the review was any good, or that it covered the final diff - the match is by ANCESTRY, so a review taken earlier on this branch satisfies a later commit. That weakening is deliberate and is documented on verdict() in the gate; whether a review covered the final diff belongs to #1082. THE KNOWN-BAD IS THE INTEGRATION REMOVED, NOT A MALFORMED RECEIPT. A control over counter-model-receipt.py alone still passes with the whole integration torn out, which is the vacuity #1171 exists to end reproduced one level up; tests/test_counter_model_review.py already covers receipt shape and is not what this measures. The anchor is therefore the gate's own pre-#1171 decision - pass without asking - and it is INERT on all three bad cases. EVERY CASE RUNS ON THE FALLBACK LANE (FLOW_GATE_CPP_DIR=\"\"), so the cases stay fast and hermetic and none of them depends on uv or a CPP checkout being present; the enrolment evaluation is lane-independent, sitting above both verdict lanes. CM_RECEIPT_HELPER IS INJECTED because the stable path ~/.claude/scripts/counter-model-receipt.py is a SYMLINK into the primary checkout: a case run from a worktree would otherwise score the primary checkout's helper rather than the one under test, and would have scored a copy with no `skip-reasons` verb at all while this issue was being built. THE check-summary CASE IS A GOOD CASE ABOUT A NEGATIVE: it carries the worst receipt state in the control and must still pass, because /flow:check produces no PR and so has nothing to enrol. It guards the scoping, not the check. NOT COVERED HERE, deliberately: the main-side squash-merge hazard. After a squash merge the branch commits never land and --is-ancestor answers NO for all of them, so a main-side copy of this check would red every merged PR. That is pinned as an executed fact in tests/test_flow_finish_gate.py rather than as a case, because the correct verdict there depends on WHERE the gate runs, and a control case cannot carry that context. STATUS IS CHECKED POSITIVELY: the bad-receipt-with-unusable-status case pins that a receipt matching this branch and commit but carrying a status that is neither `ran` nor `skipped` reports UNKNOWN and reds, rather than being accepted because it merely is not `skipped` - the defect the counter-model review of this change found in its first cut. THE ALLOWLIST IS ADDRESSED WITH `--`: bad-skip-reason-shaped-like-a-grep-option pins that a reason of `-ecodex-absent` is refused. Without the terminator grep read it as the option `-e codex-absent` and matched, so a reason outside the committed set passed the check that exists to close exactly that door (counter-model review pass 2). EXIT 128 HAS TWO CAUSES AND BOTH ARE PINNED. `merge-base --is-ancestor` exits 128 when it cannot answer, which happens in a SHALLOW clone (the object is elsewhere - benign, and CI clones --depth=1) and in a FULL clone whose receipt names a commit that exists nowhere (a wrong or fabricated receipt - not benign). `good-shallow-clone-is-undecidable` pins that the first passes as `undecidable`; `bad-receipt-names-a-commit-that-exists-nowhere` pins that the second REDS. Without the second case `undecidable` would be a blanket escape reachable by any cause - the permissive inverse of the unknown-collapsed-into-negative defect this gate had.",
+  "cases": [
+    {
+      "name": "bad-no-receipt",
+      "input": "cases/bad-no-receipt",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-uncommitted-skip-reason",
+      "input": "cases/bad-uncommitted-skip-reason",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-receipt-from-unrelated-history",
+      "input": "cases/bad-receipt-from-unrelated-history",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-receipt-with-unusable-status",
+      "input": "cases/bad-receipt-with-unusable-status",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-skip-reason-shaped-like-a-grep-option",
+      "input": "cases/bad-skip-reason-shaped-like-a-grep-option",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-receipt-at-head",
+      "input": "cases/good-receipt-at-head",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-receipt-at-ancestor",
+      "input": "cases/good-receipt-at-ancestor",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-committed-skip-reason",
+      "input": "cases/good-committed-skip-reason",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-not-enrolled-repo",
+      "input": "cases/good-not-enrolled-repo",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-check-summary-mode-not-enforced",
+      "input": "cases/good-check-summary-mode-not-enforced",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-shallow-clone-is-undecidable",
+      "input": "cases/good-shallow-clone-is-undecidable",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-receipt-names-a-commit-that-exists-nowhere",
+      "input": "cases/bad-receipt-names-a-commit-that-exists-nowhere",
+      "expect": "BAD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "-",
+      "origin": "scripts/flow-finish-gate.sh::verdict before #1171",
+      "path": "anchors/constructed-pass-without-asking.sh",
+      "sha256": "dfe74a7d98c4bca6a2ad020a9e79f272be19238b8da958143b981138bcd0ecde",
+      "why": "CONSTRUCTED: there is no released gate that asked this question badly - before #1171 the gate did not ask it at all, so no historical sha can serve as the anchor. It reproduces the real pre-#1171 decision: reach a pass verdict without consulting enrolment."
+    }
+  ]
+}
