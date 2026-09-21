@@ -1205,10 +1205,14 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
     #   - an unknown value is a typo that would silently read as "must agree";
     #   - `clean` without a recorded REASON is the escape hatch this field would
     #     become if the cost were optional - a bypass wearing a schema field;
-    #   - `anchor_expect` on a BAD case is IGNORED, because only GOOD and
-    #     UNKNOWN cases reach the anchor-sanity loop. A declaration nobody reads
-    #     is the defect this file exists to catch, one level in: it would sit in
-    #     the manifest looking load-bearing and govern nothing.
+    #   - `anchor_expect` on ANYTHING THAT IS NOT AN UNKNOWN CASE. Two separate
+    #     reasons, and the block below states the second where it is enforced:
+    #     on a BAD case the declaration is never read at all, because only GOOD
+    #     and UNKNOWN cases reach the anchor-sanity loop - a declaration nobody
+    #     reads is the defect this file exists to catch, one level in, sitting
+    #     in the manifest looking load-bearing and governing nothing. On a GOOD
+    #     case it IS read, and that is worse: the diagnosis it triggers blames
+    #     the manifest for what is an anchor's own false positive.
     for case in cases:
         declared = case.get("anchor_expect")
         if declared is None:
