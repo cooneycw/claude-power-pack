@@ -1,0 +1,20 @@
+{
+  "branch": "negative-control-axis-separation",
+  "counts": {
+    "accepted": 1,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "296ac7e3bce4dfcd2113cf7630be37d32f89f5b2",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1061",
+  "passes": 1,
+  "recorded_at": "2026-09-21T20:51:40Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 6
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

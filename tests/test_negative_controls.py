@@ -12,11 +12,19 @@ The REAL anchor is exercised separately, against the real gate.
 
 from __future__ import annotations
 
+import contextlib
+import errno
+import fcntl
+import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -917,15 +925,30 @@ SELF_ANCHOR = SELF_CONTROL / "anchors" / "3a90f96-check-negative-controls.py"
 
 
 
-def _verdicts_by_gate(out: str) -> dict[str, str]:
-    """Pair each NEGATIVE_CONTROL_GATE with the VERDICT that follows it."""
-    pairs: dict[str, str] = {}
+def _verdicts_by_gate(out: str) -> dict[tuple[str, str], str]:
+    """Pair each (GATE, CONTROL) with the VERDICT that follows it.
+
+    KEYED ON BOTH, and the second half is not cosmetic (issue #1061). A gate may
+    carry several registrations - #986 made discovery see them all and #1117
+    added the CONTROL line precisely so two controls on one gate stop being
+    byte-identical in their only identifying field. Keyed on the gate alone this
+    dict silently OVERWRITES: measured against the real register on 2026-09-21,
+    44 rows collapsed to 36, so 8 verdicts were discarded before any assertion
+    could read them - and `scripts/check-negative-controls.py`, the row this
+    file's own demonstration is about, was one of the gates being collapsed.
+    A whole-register claim built on it was a claim about whichever registration
+    happened to be printed last.
+    """
+    pairs: dict[tuple[str, str], str] = {}
     gate = None
+    control = ""
     for line in out.splitlines():
         if line.startswith("NEGATIVE_CONTROL_GATE: "):
-            gate = line.split(": ", 1)[1]
+            gate, control = line.split(": ", 1)[1], ""
+        elif line.startswith("NEGATIVE_CONTROL_CONTROL: "):
+            control = line.split(": ", 1)[1]
         elif line.startswith("NEGATIVE_CONTROL_VERDICT: ") and gate is not None:
-            pairs[gate] = line.split(": ", 1)[1]
+            pairs[(gate, control)] = line.split(": ", 1)[1]
             gate = None
     return pairs
 
@@ -1023,6 +1046,86 @@ def test_the_self_registration_anchor_is_blind_rather_than_crashing() -> None:
     assert current.returncode == 1
 
 
+
+# --------------------------------------------------------------------------- #
+# The live controls tree is a SHARED MUTABLE RESOURCE between tests (#1061)
+# --------------------------------------------------------------------------- #
+
+#: Keyed on ROOT so two worktrees of this repo do not serialise against each
+#: other - they have separate trees and cannot collide.
+_LIVE_TREE_LOCK = Path(tempfile.gettempdir()) / (
+    "cpp-live-controls-" + hashlib.sha256(str(ROOT).encode()).hexdigest()[:12] + ".lock"
+)
+
+
+#: `errno` values that mean SOMEBODY ELSE HOLDS IT. Everything else is a fault.
+_CONTENDED = frozenset({errno.EAGAIN, errno.EACCES, errno.EWOULDBLOCK})
+
+#: pyproject sets `timeout = 120` per test, so a lock deadline above that can
+#: NEVER fire - pytest kills the test first and the careful diagnostic below is
+#: unreachable by construction (#1061 counter-model re-review, MEDIUM). The two
+#: callers raise their own budget with `@pytest.mark.timeout` to cover waiting
+#: for the lock AND doing the work; this deadline stays comfortably inside that
+#: raised budget so the lock's explanation is what the reader gets.
+_LOCK_BUDGET = 150.0
+_TEST_BUDGET = 300
+
+
+@contextlib.contextmanager
+def live_controls_tree_exclusive(timeout: float = _LOCK_BUDGET) -> Iterator[None]:
+    """Hold the live `controls/` tree exclusively for the duration.
+
+    WHY A LOCK AND NOT A MARKER (issue #1061). Two tests in this file use the
+    REAL tree and one of them DIRTIES it: `test_an_untracked_control_file_
+    refuses_the_green` plants an untracked probe for ~19 seconds because a
+    committed one would be tracked and the case would stop reproducing. Anything
+    else scanning the tree in that window sees a control that does not exist in
+    a clean clone - which is true, and nothing to do with that scanner's
+    subject. `Makefile:155` runs `pytest -n` with no `--dist`, so xdist's
+    default `load` splits same-file tests across workers and the two overlap.
+
+    `--dist loadfile` or an xdist_group marker would also serialise them, but
+    both are suite-wide switches in files this change does not own, and both
+    would serialise every same-file pair to fix one. flock is process-level, so
+    it works across xdist workers, and the kernel releases it when the holder
+    dies - a crashed worker cannot wedge the suite.
+
+    THE TIMEOUT FAILS LOUDLY RATHER THAN PROCEEDING. Waiting forever would turn
+    a deadlock into a hung CI job with no diagnosis; proceeding anyway would
+    reintroduce exactly the race this exists to remove, silently and only under
+    load - the worst of the three outcomes.
+    """
+    deadline = time.monotonic() + timeout
+    fh = os.open(_LIVE_TREE_LOCK, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        while True:
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError as exc:
+                # CONTENTION ONLY. Catching every OSError made a LOCKING-SYSTEM
+                # failure - ENOLCK, say - report as "another test held the lock
+                # too long", blaming a neighbour for a fault that is not theirs
+                # and discarding the real errno on the way (#1061 counter-model
+                # re-review, LOW). Anything that is not contention propagates
+                # with its own cause intact.
+                if exc.errno not in _CONTENDED:
+                    raise
+                if time.monotonic() >= deadline:
+                    raise AssertionError(
+                        f"could not take the live controls tree lock within {timeout}s "
+                        f"({_LIVE_TREE_LOCK}); another test is holding it far longer "
+                        "than its ~20s window, which is a defect in that test, not here"
+                    ) from None
+                time.sleep(0.2)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+    finally:
+        os.close(fh)
+
+
 def _forced_pass_harness(tmp_path: Path) -> Path:
     """The harness with every verdict assignment forced to PASS.
 
@@ -1039,6 +1142,80 @@ def _forced_pass_harness(tmp_path: Path) -> Path:
     return out
 
 
+def _untracked_gates(out: str) -> dict[tuple[str, str], str]:
+    """Gates whose control is UNTRACKED, paired with the detail that names the path.
+
+    The harness prints TRACKING beside every VERDICT, and the two are separate
+    axes by design (#978): a control can discriminate perfectly and still not
+    exist in a clean clone. This reads the axis the verdict mutation does not
+    touch, so a caller can tell the two causes of a non-zero exit apart.
+    """
+    found: dict[tuple[str, str], str] = {}
+    gate = None
+    control = ""
+    detail = ""
+    for line in out.splitlines():
+        if line.startswith("NEGATIVE_CONTROL_GATE: "):
+            gate, control, detail = line.split(": ", 1)[1], "", ""
+        elif line.startswith("NEGATIVE_CONTROL_CONTROL: "):
+            control = line.split(": ", 1)[1]
+        elif line.startswith("NEGATIVE_CONTROL_DETAIL: ") and "NOT tracked" in line:
+            detail = line.split(": ", 1)[1]
+        elif line.startswith("NEGATIVE_CONTROL_TRACKING: ") and gate is not None:
+            if line.split(": ", 1)[1] == "UNTRACKED":
+                found[(gate, control)] = detail
+    return found
+
+
+def _registered_count(out: str) -> int | None:
+    """The denominator the harness states for itself, or None if it never said."""
+    for line in out.splitlines():
+        if line.startswith("NEGATIVE_CONTROL_REGISTERED: "):
+            try:
+                return int(line.split(": ", 1)[1])
+            except ValueError:
+                return None
+    return None
+
+
+def _classify_nonzero_exit(
+    returncode: int,
+    stderr: str,
+    by_gate: dict[tuple[str, str], str],
+    registered: int | None,
+    untracked: dict[tuple[str, str], str],
+) -> str:
+    """WHY did the harness exit non-zero? Pure, so it is testable.
+
+    A CRASH IS NOT A REFUSAL - the rule gate-lib.sh:399 states for its own probe,
+    found here by the #1061 counter-model review (gpt-6-astra, MEDIUM). An
+    UNTRACKED row establishes that TRACKING FAILED; it does not establish that
+    tracking is what produced the exit. A harness killed by a signal, or dying
+    with a traceback, while an untracked file HAPPENS to be present would
+    otherwise be classified `tracking` and quietly skipped - a real regression
+    hidden by a neighbour's mess, which is the same shape as the defect this
+    whole change exists to fix, one level down.
+
+    So completion is established FIRST and independently of the verdicts: the
+    strict refusal code is exactly 1 (a signal gives a negative returncode), a
+    traceback on stderr is a crash whatever the code says, and a row count short
+    of the harness's own stated denominator is truncation - which would also
+    make the whole-register claim above a claim about a prefix.
+    """
+    if returncode != 1:
+        return "crash"
+    if "Traceback (most recent call last)" in stderr:
+        return "crash"
+    if registered is None or len(by_gate) != registered:
+        return "truncated"
+    if any(v != "PASS" for v in by_gate.values()):
+        return "verdict"
+    if untracked:
+        return "tracking"
+    return "verdict"
+
+
+@pytest.mark.timeout(_TEST_BUDGET)
 def test_self_registration_is_blind_to_a_verdict_assignment_breakage(tmp_path: Path) -> None:
     """HALF ONE of #964's mutation demonstration, and the uncomfortable half.
 
@@ -1046,23 +1223,210 @@ def test_self_registration_is_blind_to_a_verdict_assignment_breakage(tmp_path: P
     control, because the thing doing the reporting is the thing that is broken.
     The register row therefore keeps saying the harness is covered while the
     harness has stopped being able to disagree with anything.
+
+    THE EXIT CODE CARRIES TWO CAUSES AND ONLY ONE OF THEM IS THIS TEST'S
+    SUBJECT (issue #1061, found while migrating flow-finish-gate onto
+    gate-lib). `main()` returns 1 when `failing` is non-empty, and
+    `failing` is `r.verdict != PASS OR r.tracking == "UNTRACKED"`. The forced-
+    PASS mutation rewrites the verdict assignments and deliberately does NOT
+    touch tracking, so under the mutant the verdict term is empty by
+    construction and the tracking term is the only thing that can produce a 1.
+
+    That made this test red for a reason outside its own subject, and it said
+    so in the worst available words: it asserted "the self-registration is not
+    blind to a forced-PASS mutation", which is FALSE. The true state was "the
+    live tree was dirty and I could not evaluate this". The cause was a sibling
+    in this very file - `test_an_untracked_control_file_refuses_the_green`
+    plants an untracked probe in the REAL tree for ~19 seconds, and
+    `Makefile:155` runs `pytest -n` with no `--dist`, so xdist's default `load`
+    splits same-file tests across workers. Reproduction was 2 of 2 on the full
+    suite; the pair alone under `-n 2` passes, so a green from the pair proves
+    nothing.
+
+    THE TWO AXES ARE NOW REPORTED SEPARATELY rather than one being dodged. A
+    channel carrying two causes must not report them as one - this wave's own
+    rule, applied to a test. Note what is NOT done here: the run is not scoped
+    to a single control. Scoping would silently turn the whole-tree claim below
+    into a single-row one, which is trivially true and no longer the thing it
+    was written to say; and it would work only by an unrecorded fact about
+    WHICH control the sibling happens to dirty, so the day someone plants a
+    probe elsewhere the race returns and the next person re-derives all of this
+    from scratch. Detecting the axis needs neither fact.
     """
     mutant = _forced_pass_harness(tmp_path)
-    run = subprocess.run(
-        [sys.executable, str(mutant), "--root", str(ROOT), "--strict"],
-        capture_output=True, text=True, timeout=180, check=False,
-    )
+    # HELD FOR THE SCAN. Without this the skip below is not a fallback, it is
+    # the outcome: measured on the full suite, this test skipped on EVERY run
+    # because the sibling's ~19s dirty window overlaps this ~20s scan. A true
+    # UNRESOLVED beats a false red, but an UNRESOLVED every time is a subject
+    # that never gets exercised - a green that did not run.
+    with live_controls_tree_exclusive():
+        run = subprocess.run(
+            [sys.executable, str(mutant), "--root", str(ROOT), "--strict"],
+            capture_output=True, text=True, timeout=180, check=False,
+        )
     by_gate = _verdicts_by_gate(run.stdout)
     assert by_gate, run.stdout
-    assert by_gate.get("scripts/check-negative-controls.py") == "PASS", (
+    own = {v for (g, _c), v in by_gate.items() if g == "scripts/check-negative-controls.py"}
+    assert own, (
         "the demonstration must be about the harness's OWN row; if the "
-        f"self-registration is gone this is vacuous. rows={by_gate}"
+        f"self-registration is gone this is vacuous. rows={sorted(by_gate)}"
+    )
+    assert own == {"PASS"}, f"the harness's own registration(s) did not all read PASS: {own}"
+    # THE WHOLE-TREE CLAIM, UNNARROWED - AND WITH ITS DENOMINATOR CHECKED ON
+    # EVERY EXIT, not only the non-zero one (#1061 counter-model re-review,
+    # MEDIUM). "every row reads PASS" is trivially true of one row, so output
+    # declaring 44 registrations while emitting a single self-registration PASS
+    # used to satisfy this test on a clean tree - a parser regression that
+    # collapses registrations staying green underneath the very claim it broke.
+    registered = _registered_count(run.stdout)
+    assert registered is not None and registered > 0, (
+        f"the harness stated no registration count, so there is no denominator "
+        f"for the whole-register claim below.\n{run.stdout}"
+    )
+    assert len(by_gate) == registered, (
+        f"parsed {len(by_gate)} rows but the harness registered {registered}: the "
+        "claim below would be about a prefix, not about the register.\n"
+        f"{sorted(by_gate)}"
     )
     assert set(by_gate.values()) == {"PASS"}, run.stdout
+
+    untracked = _untracked_gates(run.stdout)
+    if run.returncode != 0:
+        # THE SUBJECT STILL FAILS LOUDLY, and a CRASH is not a refusal. Only an
+        # exit this test can attribute to the tracking axis may become
+        # UNRESOLVED; everything else - a signal, a traceback, output that stops
+        # short of the harness's own stated denominator, or any non-PASS row -
+        # is a failure and says which. This assertion is why the skip below
+        # cannot swallow a regression, whether the regression is this test's
+        # subject or the harness falling over.
+        why = _classify_nonzero_exit(
+            run.returncode, run.stderr, by_gate, registered, untracked
+        )
+        assert why == "tracking", (
+            f"the mutant exited {run.returncode} and the cause is {why!r}, not the "
+            "#978 tracking axis. 'verdict' means the self-registration is NOT blind "
+            "to a forced-PASS mutation; 'crash'/'truncated' mean the run did not "
+            f"complete and nothing here can be read as evidence.\n"
+            f"stderr:\n{run.stderr}\nstdout:\n{run.stdout}"
+        )
+        pytest.skip(
+            "UNRESOLVED, not a failure of this test's subject: the live tree "
+            "carries an untracked control file, so the mutant's exit code "
+            "reports the #978 tracking axis rather than the verdict axis this "
+            "test is about. Every verdict row read PASS, which is the half "
+            f"that IS the subject and did hold. Offending: {sorted(untracked.items())}"
+        )
     assert run.returncode == 0, (
         "a harness that cannot say anything but PASS exits 0 under --strict, "
         "including about itself: the self-registration cannot see this"
     )
+
+
+_ROWS_OK = {("scripts/a.py", "controls/a"): "PASS", ("scripts/b.py", "controls/b"): "PASS"}
+_ROWS_BAD = {("scripts/a.py", "controls/a"): "BLIND", ("scripts/b.py", "controls/b"): "PASS"}
+_DIRTY = {("scripts/a.py", "controls/a"): "1 file(s) ... are NOT tracked: controls/a/x.sh"}
+
+
+@pytest.mark.parametrize(
+    ("returncode", "stderr", "rows", "registered", "untracked", "expected"),
+    [
+        # THE THREE THAT MATTER ALL CARRY AN UNTRACKED ROW. Before the #1061
+        # counter-model review each of these classified as `tracking` and was
+        # quietly skipped: a real harness regression hidden by a neighbour's
+        # untracked file, which is this change's own defect one level down.
+        (-9, "", _ROWS_OK, 2, _DIRTY, "crash"),
+        (1, "Traceback (most recent call last):\n  File ...\nKeyError: 'x'", _ROWS_OK, 2, _DIRTY, "crash"),
+        (1, "", _ROWS_OK, 44, _DIRTY, "truncated"),
+        # and the ordinary classifications
+        (1, "", _ROWS_BAD, 2, _DIRTY, "verdict"),
+        (1, "", _ROWS_OK, 2, _DIRTY, "tracking"),
+        (1, "", _ROWS_OK, 2, {}, "verdict"),
+        (2, "", _ROWS_OK, 2, _DIRTY, "crash"),
+        (1, "", _ROWS_OK, None, _DIRTY, "truncated"),
+    ],
+)
+def test_a_nonzero_exit_is_attributed_before_it_is_excused(
+    returncode: int, stderr: str, rows: dict, registered: int | None,
+    untracked: dict, expected: str,
+) -> None:
+    """The committed red cases for `_classify_nonzero_exit`.
+
+    `test_self_registration_is_blind_to_a_verdict_assignment_breakage` may turn
+    a non-zero exit into UNRESOLVED, and a tolerant path that cannot be shown to
+    refuse anything is worse than the confusing red it replaced. These are the
+    inputs that make it report the other answer - pure, deterministic, and not
+    dependent on the live tree that the test itself cannot control.
+    """
+    assert _classify_nonzero_exit(returncode, stderr, rows, registered, untracked) == expected
+
+
+def test_the_denominator_check_catches_a_register_collapsed_to_one_row() -> None:
+    """The red case for the completeness half (#1061 re-review, MEDIUM).
+
+    "every parsed row reads PASS" is trivially true of ONE row, so a parser that
+    collapsed 44 registrations into 1 would satisfy the whole-register claim on
+    a clean tree while having destroyed it. The denominator is what makes the
+    claim checkable, so the denominator needs its own red case.
+    """
+    collapsed = (
+        "NEGATIVE_CONTROL_REGISTERED: 44\n"
+        "NEGATIVE_CONTROL_GATE: scripts/check-negative-controls.py\n"
+        "NEGATIVE_CONTROL_CONTROL: controls/check-negative-controls\n"
+        "NEGATIVE_CONTROL_VERDICT: PASS\n"
+    )
+    rows = _verdicts_by_gate(collapsed)
+    assert set(rows.values()) == {"PASS"}, "the claim the old test made, and it holds"
+    assert _registered_count(collapsed) == 44
+    assert len(rows) != _registered_count(collapsed), (
+        "the denominator check must be able to see this: 1 row against a stated 44"
+    )
+
+    # ...and the honest shape passes it
+    whole = collapsed.replace("REGISTERED: 44", "REGISTERED: 1")
+    assert len(_verdicts_by_gate(whole)) == _registered_count(whole)
+
+
+def test_a_lock_system_failure_is_not_blamed_on_a_neighbouring_test(monkeypatch) -> None:
+    """The red case for the errno half (#1061 re-review, LOW).
+
+    ENOLCK is the locking system saying it cannot serve the request. Reported as
+    contention it becomes "another test is holding it far longer than its ~20s
+    window" - an accusation against a test that did nothing, with the real errno
+    discarded. It must propagate instead.
+    """
+    def _enolck(_fd: int, _op: int) -> None:
+        raise OSError(errno.ENOLCK, "no locks available")
+
+    monkeypatch.setattr(fcntl, "flock", _enolck)
+    with pytest.raises(OSError) as caught:
+        with live_controls_tree_exclusive(timeout=0.1):
+            pass
+    assert caught.value.errno == errno.ENOLCK, "the original cause must survive"
+    assert not isinstance(caught.value, AssertionError)
+
+
+def test_the_lock_deadline_is_reachable_and_says_who_to_blame() -> None:
+    """The red case for the timeout half (#1061 re-review, MEDIUM).
+
+    flock associates a lock with the OPEN FILE DESCRIPTION, so a second open of
+    the same path contends even from the same process - which makes contention
+    deterministic to exercise without a second worker. The point is that the
+    deadline FIRES: at the previous 300s default, pytest's 120s per-test budget
+    killed the test first and this diagnostic could never be reached.
+    """
+    holder = os.open(_LIVE_TREE_LOCK, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(AssertionError, match="could not take the live controls tree lock"):
+            with live_controls_tree_exclusive(timeout=0.5):
+                pass
+    finally:
+        fcntl.flock(holder, fcntl.LOCK_UN)
+        os.close(holder)
+
+    # and it is genuinely released - the same call now succeeds
+    with live_controls_tree_exclusive(timeout=5.0):
+        pass
 
 
 def test_pytest_catches_the_breakage_the_self_registration_cannot(tmp_path: Path) -> None:
@@ -1189,6 +1553,7 @@ def test_an_unparseable_adr_reports_UNKNOWN_rather_than_a_bare_numerator(tmp_pat
     reason="needs gitleaks: this test requires a GREEN battery in order to refuse it, "
            "and the secret-scan control cannot run without it",
 )
+@pytest.mark.timeout(_TEST_BUDGET)
 def test_an_untracked_control_file_refuses_the_green() -> None:
     """The red case for #978, run against the REAL register.
 
@@ -1207,24 +1572,31 @@ def test_an_untracked_control_file_refuses_the_green() -> None:
     make it tracked and the case would stop reproducing.
     """
     sneaky = REAL_CONTROL / "cases" / "untracked-probe.sh"
-    assert not sneaky.exists(), "fixture would clobber a real file"
-    before = run_harness(ROOT, "--strict")
-    assert before.returncode == 0, f"precondition: the tree is clean\n{before.stdout}"
-    sneaky.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    try:
-        tracked = subprocess.run(
-            ["git", "-C", str(ROOT), "ls-files", "--error-unmatch", str(sneaky)],
-            capture_output=True, check=False,
-        )
-        assert tracked.returncode != 0, "precondition: the probe must be UNTRACKED"
-        after = run_harness(ROOT, "--strict")
-        assert after.returncode == 1, f"an untracked control file must refuse the green\n{after.stdout}"
-        assert "NEGATIVE_CONTROL_TRACKING: UNTRACKED" in after.stdout, after.stdout
-        assert "untracked-probe.sh" in after.stdout, "the offending path must be NAMED"
-    finally:
-        sneaky.unlink(missing_ok=True)
-    restored = run_harness(ROOT, "--strict")
-    assert restored.returncode == 0, f"the tree must be clean again\n{restored.stdout}"
+    # THE DIRTY WINDOW IS HELD EXCLUSIVELY. This test deliberately makes the
+    # shared live tree not-clean for ~19 seconds, and anything else scanning it
+    # meanwhile reads a true fact about a state this test created - reported
+    # against ITS OWN subject, which is wrong (#1061). The restore is inside the
+    # lock too: releasing before `restored` is re-measured would hand over a
+    # tree this test has not finished putting back.
+    with live_controls_tree_exclusive():
+        assert not sneaky.exists(), "fixture would clobber a real file"
+        before = run_harness(ROOT, "--strict")
+        assert before.returncode == 0, f"precondition: the tree is clean\n{before.stdout}"
+        sneaky.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        try:
+            tracked = subprocess.run(
+                ["git", "-C", str(ROOT), "ls-files", "--error-unmatch", str(sneaky)],
+                capture_output=True, check=False,
+            )
+            assert tracked.returncode != 0, "precondition: the probe must be UNTRACKED"
+            after = run_harness(ROOT, "--strict")
+            assert after.returncode == 1, f"an untracked control file must refuse the green\n{after.stdout}"
+            assert "NEGATIVE_CONTROL_TRACKING: UNTRACKED" in after.stdout, after.stdout
+            assert "untracked-probe.sh" in after.stdout, "the offending path must be NAMED"
+        finally:
+            sneaky.unlink(missing_ok=True)
+        restored = run_harness(ROOT, "--strict")
+        assert restored.returncode == 0, f"the tree must be clean again\n{restored.stdout}"
 
 
 # --------------------------------------------------------------------------- #

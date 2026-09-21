@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1082-plan-versus-diff-compliance-check-with-the-committ",
+  "counts": {
+    "accepted": 8,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "a962de4e0a3df6f0759f57a6b2cb68828099fa89",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1082",
+  "passes": 1,
+  "recorded_at": "2026-09-21T20:46:23Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 7
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
