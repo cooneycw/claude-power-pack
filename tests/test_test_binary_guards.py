@@ -1853,3 +1853,148 @@ def test_a_guarded_test_is_not_counted_as_exempted(tmp_path: Path, capsys) -> No
     assert checker.main(["--root", str(root)]) == 0
     line = capsys.readouterr().out.strip()
     assert "1 guarded, 0 exempted" in line, line
+
+
+# --------------------------------------------------------------------------- #
+# Issue #1110 - waivers and sites must share ONE coordinate system
+# --------------------------------------------------------------------------- #
+
+#: The characters `str.splitlines()` ends a line on and CPython's tokenizer does
+#: not. Built with chr() rather than written literally, because a raw separator
+#: smuggled into tests/ would be read by this very gate - the fixture would
+#: become part of the population it is testing.
+SPLITLINES_ONLY = "".join(chr(c) for c in (0x2028, 0x2029, 0x0085, 0x000B, 0x000C, 0x001C))
+
+
+def _separators(count: int) -> str:
+    return "".join(SPLITLINES_ONLY[i % len(SPLITLINES_ONLY)] for i in range(count))
+
+
+def _waiver_by_splitlines(source: str) -> int:
+    return next(
+        i for i, line in enumerate(source.splitlines(), start=1) if checker.ALLOW_RE.search(line)
+    )
+
+
+def _waiver_by_tokenizer(source: str) -> int:
+    return next(
+        i for i, line in enumerate(source.split("\n"), start=1) if checker.ALLOW_RE.search(line)
+    )
+
+
+WAIVED_BODY = (
+    'SEPARATORS = "' + _separators(3) + '"\n'
+    "\n"
+    "\n"
+    "def test_shells_out() -> None:  # binary-guard: allow the fixture pins the binary\n"
+    '    subprocess.run(["git", "status"], check=False)\n'
+)
+
+
+def test_a_waiver_on_the_def_line_survives_separators(tmp_path: Path) -> None:
+    """A correct waiver keeps working when a raw separator precedes it (#1110).
+
+    COVERS SITE `_ModuleAnalysis.allow_lines` - the FINDINGS channel, which
+    here also drives the exit code and the committed control cases.
+
+    THE SHIFT MUST EXCEED ONE, and the reason is specific to this gate. There
+    is no tolerance window here - the match is exact - but the honoured SET is
+    the def line UNION the shell-out lines, and those are adjacent in this
+    layout, so a one-line shift slides the waiver from the def line onto the
+    call line, which is honoured too, and is absorbed. Measured against the
+    unfixed gate rather than reasoned about: shift 1 absorbed, shift 2
+    surfaced. (The sibling gate reaches the same bound through an actual +/-1
+    tolerance window instead. Same rule, different cause - a fourth site owes
+    its own measurement.)
+    """
+    source = PREAMBLE + WAIVED_BODY
+    shift = _waiver_by_splitlines(source) - _waiver_by_tokenizer(source)
+    assert shift > 1, (
+        f"fixture shifts the waiver by {shift} line(s); a shift of 1 lands on the "
+        "adjacent shell-out line, which is also honoured, so this test would pass "
+        "against the unfixed gate and is no longer a regression case"
+    )
+    assert _findings(tmp_path, source) == []
+
+
+def _shifted_exemption_source() -> str:
+    """A module-level waiver whose OLD number lands exactly on the def line.
+
+    Self-calibrating: the separator count is derived from the assembled source,
+    so an edit to PREAMBLE or the body cannot silently leave the waiver landing
+    somewhere harmless while this test keeps passing.
+    """
+    body = (
+        'SEPARATORS = "@SEPS@"\n'
+        "\n"
+        "# binary-guard: allow this waiver belongs to no test at all\n"
+        "\n"
+        "\n"
+        "def test_shells_out() -> None:\n"
+        '    subprocess.run(["git", "status"], check=False)\n'
+    )
+    probe = PREAMBLE + body.replace("@SEPS@", "")
+    target = next(
+        i for i, line in enumerate(probe.split("\n"), start=1) if line.startswith("def test_shells_out")
+    )
+    need = target - _waiver_by_tokenizer(probe)
+    return PREAMBLE + body.replace("@SEPS@", _separators(need))
+
+
+def test_a_shifted_waiver_does_not_exempt_an_unguarded_test(tmp_path: Path) -> None:
+    """The SILENT direction: a displaced waiver must not excuse a real test (#1110).
+
+    COVERS SITE `_ModuleAnalysis.allow_lines` - the FINDINGS channel.
+
+    The waiver here exempts nothing as written; it sits at module level. The
+    separators move its computed number onto the `def` line of a test that
+    carries no guard and no waiver, and the unfixed gate reports `ok ... 1
+    exempted` for it - a green it did not earn.
+    """
+    source = _shifted_exemption_source()
+    landed = _waiver_by_splitlines(source)
+    target = next(
+        i for i, line in enumerate(source.split("\n"), start=1) if line.startswith("def test_shells_out")
+    )
+    assert landed == target, (
+        f"the shifted waiver lands on line {landed}, not on the def at {target} - "
+        "the fixture no longer reproduces the silent exemption and this test is "
+        "not measuring anything"
+    )
+    assert _findings(tmp_path, source) != []
+
+
+def test_the_exempted_count_is_in_tokenizer_coordinates(tmp_path: Path) -> None:
+    """`scan.exempted` must count real waivers, not displaced ones (#1110).
+
+    The SECOND channel this site feeds. `allow_lines` is read at the waiver
+    check, which both suppresses a Finding and increments `scan.exempted`, so
+    one shifted number corrupts the exit code and the printed census together.
+    The unfixed gate produced, for the shifted source below:
+
+        binary-guards: ok - 1 test file(s) scanned, 1 test(s) examined, 1
+        statically reaching a guarded binary: 0 guarded, 1 exempted by
+        `# binary-guard: allow`
+
+    An exemption attributed to a test that carries no waiver. Unlike the
+    sibling gate's `survey_paths`, an exit-code control DOES reach this site,
+    so this test is a second guard rather than the only one - but the count is
+    what a reader believes, and nothing else asserts it.
+    """
+    waived = tmp_path / "test_waived.py"
+    waived.write_text(PREAMBLE + WAIVED_BODY, encoding="utf-8")
+    scan = checker.scan_paths([waived])
+    assert scan.reaching == 1
+    assert scan.exempted == 1, (
+        f"a genuinely waived test counted {scan.exempted} exemption(s); the waiver "
+        "is on the def line and must be found there"
+    )
+
+    shifted = tmp_path / "test_shifted.py"
+    shifted.write_text(_shifted_exemption_source(), encoding="utf-8")
+    scan = checker.scan_paths([shifted])
+    assert scan.exempted == 0, (
+        f"an unwaived test was counted as {scan.exempted} exemption(s) - a waiver "
+        "that belongs to no test was numbered in splitlines() coordinates and "
+        "landed on it"
+    )

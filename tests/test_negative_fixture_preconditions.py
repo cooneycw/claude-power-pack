@@ -651,3 +651,162 @@ def test_the_success_line_does_not_claim_each_site_asserts_its_own_path(
     assert "WHICH path an assertion covers" in out, (
         "and the limit must be named where the reader of the green line meets it"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Issue #1110 - waivers and sites must share ONE coordinate system
+# --------------------------------------------------------------------------- #
+
+#: The characters `str.splitlines()` ends a line on and CPython's tokenizer does
+#: not. Built with chr() rather than written literally, because a raw separator
+#: smuggled into tests/ would be read by this very gate and by every other gate
+#: that scans this directory - the fixture would become part of the population.
+SPLITLINES_ONLY = "".join(chr(c) for c in (0x2028, 0x2029, 0x0085, 0x000B, 0x000C, 0x001C))
+
+
+def _waiver_by_splitlines(source: str) -> int:
+    """Where the gate's OLD numbering put the waiver - the defective coordinate."""
+    return next(
+        i for i, line in enumerate(source.splitlines(), start=1) if checker.ALLOW_RE.search(line)
+    )
+
+
+def _waiver_by_tokenizer(source: str) -> int:
+    """Where `ast` puts the waiver - the coordinate the sites are in."""
+    return next(
+        i for i, line in enumerate(source.split("\n"), start=1) if checker.ALLOW_RE.search(line)
+    )
+
+
+def _separators(count: int) -> str:
+    """`count` raw separator characters, cycling the set."""
+    return "".join(SPLITLINES_ONLY[i % len(SPLITLINES_ONLY)] for i in range(count))
+
+
+WAIVED_AFTER_SEPARATORS = (
+    'SEPARATORS = "' + _separators(3) + '"\n'
+    "\n"
+    "\n"
+    "def test_waived(tmp_path):\n"
+    "    stub = tmp_path / 'bin'\n"
+    "    stub.mkdir()\n"
+    "    # negative-fixture: allow PATH is isolation, not an absence\n"
+    "    subprocess.run(['a'], env={'PATH': str(stub)}, capture_output=True)\n"
+)
+
+
+def test_a_correct_waiver_survives_separators_before_it(tmp_path: Path) -> None:
+    """A waiver keeps matching its site when a raw separator precedes it (#1110).
+
+    COVERS SITE `_check_module` - the FINDINGS channel, which is also what the
+    exit code and the committed control cases read.
+
+    THE SHIFT MUST EXCEED ONE LINE, and that is specific to THIS gate rather
+    than a general rule. `_function_sites` honours a waiver on the site line OR
+    the line above, so a +/-1 window absorbs a one-character shift: a
+    single-separator fixture passes against the UNFIXED gate and proves
+    nothing.
+
+    The sibling gate `check-test-binary-guards` reaches the same bound by a
+    DIFFERENT route, and the difference matters to anyone extending this to a
+    fourth site. It has no tolerance window at all - it matches exactly, via
+    `func.lineno in allow_lines` - but its honoured SET is the def line plus
+    the shell-out lines, and in the ordinary layout those are adjacent, so a
+    one-line shift slides the waiver from one honoured line onto another and is
+    absorbed anyway. Measured on the unfixed gate rather than reasoned about:
+    shift 1 absorbed, shift 2 surfaced. So `> 1` holds at every site so far,
+    but "why" is per-site and a fourth site owes its own measurement.
+
+    The precondition below fails loudly rather than letting this test quietly
+    stop measuring anything.
+    """
+    full = PREAMBLE + "import subprocess\n\n" + WAIVED_AFTER_SEPARATORS
+    shift = _waiver_by_splitlines(full) - _waiver_by_tokenizer(full)
+    assert shift > 1, (
+        f"fixture shifts the waiver by {shift} line(s); the +/-1 waiver window "
+        "absorbs a shift of 1, so this test would pass against the unfixed gate "
+        "and is no longer a regression case"
+    )
+    assert _findings(tmp_path, "import subprocess\n\n" + WAIVED_AFTER_SEPARATORS) == []
+
+
+def _shifted_exemption_source() -> tuple[str, str]:
+    """A module-level waiver whose OLD number lands exactly on an unwaived site.
+
+    Self-calibrating: the separator count is derived from the distance between
+    the waiver and the site in the assembled source, so an edit to PREAMBLE or
+    to the body cannot silently leave the waiver landing somewhere harmless.
+    """
+    body = (
+        'SEPARATORS = "@SEPS@"\n'
+        "\n"
+        "# negative-fixture: allow this waiver belongs to no site at all\n"
+        "\n"
+        "\n"
+        "def test_unwaived(tmp_path):\n"
+        "    stub = tmp_path / 'bin'\n"
+        "    stub.mkdir()\n"
+        "    subprocess.run(['b'], env={'PATH': str(stub)}, capture_output=True)\n"
+    )
+    probe = PREAMBLE + "import subprocess\n\n" + body.replace("@SEPS@", "")
+    site = next(
+        i for i, line in enumerate(probe.split("\n"), start=1) if "subprocess.run(['b']" in line
+    )
+    need = site - _waiver_by_tokenizer(probe)
+    return body.replace("@SEPS@", _separators(need)), "import subprocess\n\n"
+
+
+def test_a_shifted_waiver_does_not_exempt_an_unwaived_site(tmp_path: Path) -> None:
+    """The SILENT direction: a displaced waiver must not excuse a real site (#1110).
+
+    COVERS SITE `_check_module` - the FINDINGS channel.
+
+    This is the direction that motivated the issue. The noisy direction
+    announces itself with a red build; this one produces a green the gate did
+    not earn. The waiver here exempts nothing as written - it sits at module
+    level - and the separators move its computed number onto a replacement that
+    carries no waiver at all.
+    """
+    body, prefix = _shifted_exemption_source()
+    full = PREAMBLE + prefix + body
+    landed = _waiver_by_splitlines(full)
+    site = next(
+        i for i, line in enumerate(full.split("\n"), start=1) if "subprocess.run(['b']" in line
+    )
+    assert landed == site, (
+        f"the shifted waiver lands on line {landed}, not on the site at {site} - "
+        "the fixture no longer reproduces the silent exemption and this test is "
+        "not measuring anything"
+    )
+    assert _findings(tmp_path, prefix + body) != []
+
+
+def test_the_survey_counts_are_in_tokenizer_coordinates(tmp_path: Path) -> None:
+    """COVERS SITE `survey_paths` - and this test is the ONLY guard it has.
+
+    NOT ordinary coverage. An exit-code negative control CANNOT reach this
+    site, which was measured while fixing #1110: repairing `_check_module`
+    alone turns every committed case GREEN - both directions, both gates -
+    while `survey_paths` still numbers waivers with `splitlines()`. The
+    findings list and the exit code both come from `_check_module`; only the
+    printed COUNTS come from here. With this site still broken the gate emitted
+
+        negative-fixture: 0 of 0 wholesale PATH replacement(s) lack a
+        precondition assertion, in 1 function(s)
+
+    a self-contradicting line that no exit code distinguishes from a healthy
+    one. So if this test is deleted, weakened, or reduced to asserting the
+    findings list, site `survey_paths` has no guard whatsoever and a regression
+    there will ship green.
+
+    The assertion is therefore on the COUNTS specifically, never on findings.
+    """
+    path = tmp_path / "test_sample.py"
+    path.write_text(PREAMBLE + "import subprocess\n\n" + WAIVED_AFTER_SEPARATORS, encoding="utf-8")
+    survey = checker.survey_paths([path])
+    assert survey.sites == 0, (
+        f"survey_paths counted {survey.sites} site(s); the only replacement in "
+        "this source is waived, so a non-zero count means the waiver was numbered "
+        "in splitlines() coordinates while the site was numbered by ast"
+    )
+    assert survey.unasserted_sites == 0

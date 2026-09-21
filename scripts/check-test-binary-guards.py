@@ -138,8 +138,25 @@ import argparse
 import ast
 import os
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+
+#: sys.path is set EXPLICITLY rather than inherited: this gate runs as a CI step
+#: AND under its own negative control, both with no virtualenv and no
+#: PYTHONPATH, so an import that works from a dev shell would fail exactly where
+#: the gate is load-bearing (the verify-coverage-check.py pattern).
+#:
+#: The import is MODULE-LEVEL, where issue #1169 had to defer `lib.cicd` inside
+#: a function. The difference is the dependency, not the mechanism: `lib.cicd`
+#: pulls pydantic, and the control image ships no third-party packages at all,
+#: while `lib.sourcelines` imports nothing but `re`. Measured under both gates'
+#: controls before choosing this form - see issue #1110.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from lib.sourcelines import source_lines  # noqa: E402
 
 #: Binaries absent from the CI ``validate`` image. ``bash`` is deliberately NOT
 #: here - the image ships it, and including it would flag most of the suite.
@@ -1208,7 +1225,7 @@ class _ModuleAnalysis:
         self.tree = tree
         self.path = path
         self.allow_lines = {
-            i for i, line in enumerate(source.splitlines(), start=1) if ALLOW_RE.search(line)
+            i for i, line in enumerate(source_lines(source), start=1) if ALLOW_RE.search(line)
         }
         self.resolver = _ScriptResolver(path, tree)
         self.subprocess_aliases, self.os_aliases = self._imports()
