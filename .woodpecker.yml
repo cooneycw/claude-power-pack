@@ -118,7 +118,14 @@ steps:
       # environment a reviewer can re-derive. `-rs` over just this class prints
       # the count and any skip reason in a handful of lines, so "they ran" is
       # something a reader can SEE instead of infer from the stager's exit code.
-      - PATH="$PWD/.ci-bin:$PATH" uv run pytest tests/test_runner.py -k SubsumedGates -q -rs --no-header
+      # BOTH make-guarded classes, not just the one #1165 added. The
+      # #1166 resume tests carry the same `shutil.which("make")` guard,
+      # so a selector naming only SubsumedGates would let them skip
+      # invisibly inside `4766 passed, 591 skipped` - the exact gap this
+      # line exists to close, reopened one class over. A named check
+      # that names the wrong population is a green about nothing.
+      - PATH="$PWD/.ci-bin:$PATH" uv run pytest tests/test_runner.py
+        -k "SubsumedGates or ResumeSettlesDeferredGates" -q -rs --no-header
       - uv run mypy .
 
   # Explicit Codex-skill drift gate (issue #556): the pytest suite already checks
