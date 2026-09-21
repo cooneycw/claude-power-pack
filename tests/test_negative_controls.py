@@ -917,15 +917,30 @@ SELF_ANCHOR = SELF_CONTROL / "anchors" / "3a90f96-check-negative-controls.py"
 
 
 
-def _verdicts_by_gate(out: str) -> dict[str, str]:
-    """Pair each NEGATIVE_CONTROL_GATE with the VERDICT that follows it."""
-    pairs: dict[str, str] = {}
+def _verdicts_by_gate(out: str) -> dict[tuple[str, str], str]:
+    """Pair each (GATE, CONTROL) with the VERDICT that follows it.
+
+    KEYED ON BOTH, and the second half is not cosmetic (issue #1061). A gate may
+    carry several registrations - #986 made discovery see them all and #1117
+    added the CONTROL line precisely so two controls on one gate stop being
+    byte-identical in their only identifying field. Keyed on the gate alone this
+    dict silently OVERWRITES: measured against the real register on 2026-09-21,
+    44 rows collapsed to 36, so 8 verdicts were discarded before any assertion
+    could read them - and `scripts/check-negative-controls.py`, the row this
+    file's own demonstration is about, was one of the gates being collapsed.
+    A whole-register claim built on it was a claim about whichever registration
+    happened to be printed last.
+    """
+    pairs: dict[tuple[str, str], str] = {}
     gate = None
+    control = ""
     for line in out.splitlines():
         if line.startswith("NEGATIVE_CONTROL_GATE: "):
-            gate = line.split(": ", 1)[1]
+            gate, control = line.split(": ", 1)[1], ""
+        elif line.startswith("NEGATIVE_CONTROL_CONTROL: "):
+            control = line.split(": ", 1)[1]
         elif line.startswith("NEGATIVE_CONTROL_VERDICT: ") and gate is not None:
-            pairs[gate] = line.split(": ", 1)[1]
+            pairs[(gate, control)] = line.split(": ", 1)[1]
             gate = None
     return pairs
 
@@ -1039,6 +1054,31 @@ def _forced_pass_harness(tmp_path: Path) -> Path:
     return out
 
 
+def _untracked_gates(out: str) -> dict[tuple[str, str], str]:
+    """Gates whose control is UNTRACKED, paired with the detail that names the path.
+
+    The harness prints TRACKING beside every VERDICT, and the two are separate
+    axes by design (#978): a control can discriminate perfectly and still not
+    exist in a clean clone. This reads the axis the verdict mutation does not
+    touch, so a caller can tell the two causes of a non-zero exit apart.
+    """
+    found: dict[tuple[str, str], str] = {}
+    gate = None
+    control = ""
+    detail = ""
+    for line in out.splitlines():
+        if line.startswith("NEGATIVE_CONTROL_GATE: "):
+            gate, control, detail = line.split(": ", 1)[1], "", ""
+        elif line.startswith("NEGATIVE_CONTROL_CONTROL: "):
+            control = line.split(": ", 1)[1]
+        elif line.startswith("NEGATIVE_CONTROL_DETAIL: ") and "NOT tracked" in line:
+            detail = line.split(": ", 1)[1]
+        elif line.startswith("NEGATIVE_CONTROL_TRACKING: ") and gate is not None:
+            if line.split(": ", 1)[1] == "UNTRACKED":
+                found[(gate, control)] = detail
+    return found
+
+
 def test_self_registration_is_blind_to_a_verdict_assignment_breakage(tmp_path: Path) -> None:
     """HALF ONE of #964's mutation demonstration, and the uncomfortable half.
 
@@ -1046,6 +1086,35 @@ def test_self_registration_is_blind_to_a_verdict_assignment_breakage(tmp_path: P
     control, because the thing doing the reporting is the thing that is broken.
     The register row therefore keeps saying the harness is covered while the
     harness has stopped being able to disagree with anything.
+
+    THE EXIT CODE CARRIES TWO CAUSES AND ONLY ONE OF THEM IS THIS TEST'S
+    SUBJECT (issue #1061, found while migrating flow-finish-gate onto
+    gate-lib). `main()` returns 1 when `failing` is non-empty, and
+    `failing` is `r.verdict != PASS OR r.tracking == "UNTRACKED"`. The forced-
+    PASS mutation rewrites the verdict assignments and deliberately does NOT
+    touch tracking, so under the mutant the verdict term is empty by
+    construction and the tracking term is the only thing that can produce a 1.
+
+    That made this test red for a reason outside its own subject, and it said
+    so in the worst available words: it asserted "the self-registration is not
+    blind to a forced-PASS mutation", which is FALSE. The true state was "the
+    live tree was dirty and I could not evaluate this". The cause was a sibling
+    in this very file - `test_an_untracked_control_file_refuses_the_green`
+    plants an untracked probe in the REAL tree for ~19 seconds, and
+    `Makefile:155` runs `pytest -n` with no `--dist`, so xdist's default `load`
+    splits same-file tests across workers. Reproduction was 2 of 2 on the full
+    suite; the pair alone under `-n 2` passes, so a green from the pair proves
+    nothing.
+
+    THE TWO AXES ARE NOW REPORTED SEPARATELY rather than one being dodged. A
+    channel carrying two causes must not report them as one - this wave's own
+    rule, applied to a test. Note what is NOT done here: the run is not scoped
+    to a single control. Scoping would silently turn the whole-tree claim below
+    into a single-row one, which is trivially true and no longer the thing it
+    was written to say; and it would work only by an unrecorded fact about
+    WHICH control the sibling happens to dirty, so the day someone plants a
+    probe elsewhere the race returns and the next person re-derives all of this
+    from scratch. Detecting the axis needs neither fact.
     """
     mutant = _forced_pass_harness(tmp_path)
     run = subprocess.run(
@@ -1054,11 +1123,36 @@ def test_self_registration_is_blind_to_a_verdict_assignment_breakage(tmp_path: P
     )
     by_gate = _verdicts_by_gate(run.stdout)
     assert by_gate, run.stdout
-    assert by_gate.get("scripts/check-negative-controls.py") == "PASS", (
+    own = {v for (g, _c), v in by_gate.items() if g == "scripts/check-negative-controls.py"}
+    assert own, (
         "the demonstration must be about the harness's OWN row; if the "
-        f"self-registration is gone this is vacuous. rows={by_gate}"
+        f"self-registration is gone this is vacuous. rows={sorted(by_gate)}"
     )
+    assert own == {"PASS"}, f"the harness's own registration(s) did not all read PASS: {own}"
+    # THE WHOLE-TREE CLAIM, UNNARROWED. Under a forced-PASS mutant EVERY
+    # control's row reads PASS - that is the breakage, and it is a statement
+    # about the whole register, not about one row.
     assert set(by_gate.values()) == {"PASS"}, run.stdout
+
+    untracked = _untracked_gates(run.stdout)
+    if run.returncode != 0:
+        # THE SUBJECT STILL FAILS LOUDLY. A non-zero exit with no UNTRACKED row
+        # cannot have come from tracking, so it came from the verdict axis -
+        # which IS this test's subject, and means the self-registration can see
+        # a forced-PASS mutation after all. This branch is why the UNRESOLVED
+        # path below cannot swallow a real regression.
+        assert untracked, (
+            "the mutant exited non-zero with no UNTRACKED row, so the verdict "
+            "axis produced it: the self-registration is NOT blind to a "
+            f"forced-PASS mutation.\n{run.stdout}"
+        )
+        pytest.skip(
+            "UNRESOLVED, not a failure of this test's subject: the live tree "
+            "carries an untracked control file, so the mutant's exit code "
+            "reports the #978 tracking axis rather than the verdict axis this "
+            "test is about. Every verdict row read PASS, which is the half "
+            f"that IS the subject and did hold. Offending: {sorted(untracked.items())}"
+        )
     assert run.returncode == 0, (
         "a harness that cannot say anything but PASS exits 0 under --strict, "
         "including about itself: the self-registration cannot see this"
