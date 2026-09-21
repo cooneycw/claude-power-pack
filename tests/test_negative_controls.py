@@ -12,11 +12,18 @@ The REAL anchor is exercised separately, against the real gate.
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
+import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -1038,6 +1045,65 @@ def test_the_self_registration_anchor_is_blind_rather_than_crashing() -> None:
     assert current.returncode == 1
 
 
+
+# --------------------------------------------------------------------------- #
+# The live controls tree is a SHARED MUTABLE RESOURCE between tests (#1061)
+# --------------------------------------------------------------------------- #
+
+#: Keyed on ROOT so two worktrees of this repo do not serialise against each
+#: other - they have separate trees and cannot collide.
+_LIVE_TREE_LOCK = Path(tempfile.gettempdir()) / (
+    "cpp-live-controls-" + hashlib.sha256(str(ROOT).encode()).hexdigest()[:12] + ".lock"
+)
+
+
+@contextlib.contextmanager
+def live_controls_tree_exclusive(timeout: float = 300.0) -> Iterator[None]:
+    """Hold the live `controls/` tree exclusively for the duration.
+
+    WHY A LOCK AND NOT A MARKER (issue #1061). Two tests in this file use the
+    REAL tree and one of them DIRTIES it: `test_an_untracked_control_file_
+    refuses_the_green` plants an untracked probe for ~19 seconds because a
+    committed one would be tracked and the case would stop reproducing. Anything
+    else scanning the tree in that window sees a control that does not exist in
+    a clean clone - which is true, and nothing to do with that scanner's
+    subject. `Makefile:155` runs `pytest -n` with no `--dist`, so xdist's
+    default `load` splits same-file tests across workers and the two overlap.
+
+    `--dist loadfile` or an xdist_group marker would also serialise them, but
+    both are suite-wide switches in files this change does not own, and both
+    would serialise every same-file pair to fix one. flock is process-level, so
+    it works across xdist workers, and the kernel releases it when the holder
+    dies - a crashed worker cannot wedge the suite.
+
+    THE TIMEOUT FAILS LOUDLY RATHER THAN PROCEEDING. Waiting forever would turn
+    a deadlock into a hung CI job with no diagnosis; proceeding anyway would
+    reintroduce exactly the race this exists to remove, silently and only under
+    load - the worst of the three outcomes.
+    """
+    deadline = time.monotonic() + timeout
+    fh = os.open(_LIVE_TREE_LOCK, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        while True:
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise AssertionError(
+                        f"could not take the live controls tree lock within {timeout}s "
+                        f"({_LIVE_TREE_LOCK}); another test is holding it far longer "
+                        "than its ~20s window, which is a defect in that test, not here"
+                    ) from None
+                time.sleep(0.2)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+    finally:
+        os.close(fh)
+
+
 def _forced_pass_harness(tmp_path: Path) -> Path:
     """The harness with every verdict assignment forced to PASS.
 
@@ -1165,10 +1231,16 @@ def test_self_registration_is_blind_to_a_verdict_assignment_breakage(tmp_path: P
     from scratch. Detecting the axis needs neither fact.
     """
     mutant = _forced_pass_harness(tmp_path)
-    run = subprocess.run(
-        [sys.executable, str(mutant), "--root", str(ROOT), "--strict"],
-        capture_output=True, text=True, timeout=180, check=False,
-    )
+    # HELD FOR THE SCAN. Without this the skip below is not a fallback, it is
+    # the outcome: measured on the full suite, this test skipped on EVERY run
+    # because the sibling's ~19s dirty window overlaps this ~20s scan. A true
+    # UNRESOLVED beats a false red, but an UNRESOLVED every time is a subject
+    # that never gets exercised - a green that did not run.
+    with live_controls_tree_exclusive():
+        run = subprocess.run(
+            [sys.executable, str(mutant), "--root", str(ROOT), "--strict"],
+            capture_output=True, text=True, timeout=180, check=False,
+        )
     by_gate = _verdicts_by_gate(run.stdout)
     assert by_gate, run.stdout
     own = {v for (g, _c), v in by_gate.items() if g == "scripts/check-negative-controls.py"}
@@ -1394,24 +1466,31 @@ def test_an_untracked_control_file_refuses_the_green() -> None:
     make it tracked and the case would stop reproducing.
     """
     sneaky = REAL_CONTROL / "cases" / "untracked-probe.sh"
-    assert not sneaky.exists(), "fixture would clobber a real file"
-    before = run_harness(ROOT, "--strict")
-    assert before.returncode == 0, f"precondition: the tree is clean\n{before.stdout}"
-    sneaky.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    try:
-        tracked = subprocess.run(
-            ["git", "-C", str(ROOT), "ls-files", "--error-unmatch", str(sneaky)],
-            capture_output=True, check=False,
-        )
-        assert tracked.returncode != 0, "precondition: the probe must be UNTRACKED"
-        after = run_harness(ROOT, "--strict")
-        assert after.returncode == 1, f"an untracked control file must refuse the green\n{after.stdout}"
-        assert "NEGATIVE_CONTROL_TRACKING: UNTRACKED" in after.stdout, after.stdout
-        assert "untracked-probe.sh" in after.stdout, "the offending path must be NAMED"
-    finally:
-        sneaky.unlink(missing_ok=True)
-    restored = run_harness(ROOT, "--strict")
-    assert restored.returncode == 0, f"the tree must be clean again\n{restored.stdout}"
+    # THE DIRTY WINDOW IS HELD EXCLUSIVELY. This test deliberately makes the
+    # shared live tree not-clean for ~19 seconds, and anything else scanning it
+    # meanwhile reads a true fact about a state this test created - reported
+    # against ITS OWN subject, which is wrong (#1061). The restore is inside the
+    # lock too: releasing before `restored` is re-measured would hand over a
+    # tree this test has not finished putting back.
+    with live_controls_tree_exclusive():
+        assert not sneaky.exists(), "fixture would clobber a real file"
+        before = run_harness(ROOT, "--strict")
+        assert before.returncode == 0, f"precondition: the tree is clean\n{before.stdout}"
+        sneaky.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        try:
+            tracked = subprocess.run(
+                ["git", "-C", str(ROOT), "ls-files", "--error-unmatch", str(sneaky)],
+                capture_output=True, check=False,
+            )
+            assert tracked.returncode != 0, "precondition: the probe must be UNTRACKED"
+            after = run_harness(ROOT, "--strict")
+            assert after.returncode == 1, f"an untracked control file must refuse the green\n{after.stdout}"
+            assert "NEGATIVE_CONTROL_TRACKING: UNTRACKED" in after.stdout, after.stdout
+            assert "untracked-probe.sh" in after.stdout, "the offending path must be NAMED"
+        finally:
+            sneaky.unlink(missing_ok=True)
+        restored = run_harness(ROOT, "--strict")
+        assert restored.returncode == 0, f"the tree must be clean again\n{restored.stdout}"
 
 
 # --------------------------------------------------------------------------- #
