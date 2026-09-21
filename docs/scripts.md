@@ -900,6 +900,82 @@ this" from "this went wrong". Skipping quietly is #1138's defect.
 unguarded PS1 append across #1139's relocation, so that the move could be
 shown behaviour-preserving before the defect was repaired separately.
 
+## `check-behavioral-eval` (#1084)
+
+Reads a behavioural-eval verified-result artifact and reports. This is HALF A of
+#1084 - the CONSUMER. The behavioural case that produces such an artifact is half
+B, which depends on skillc #5 and does not live in this repository.
+
+**Its green is narrower than its neighbours' and it says so on every verdict.** A
+pass here means a reader read an artifact correctly. It establishes nothing about
+a behavioural case discriminating, because there is no behavioural case. The
+output sits in `make verify` beside gates whose greens do carry behavioural
+meaning, and a reader skimming cannot tell them apart, so each verdict names the
+population it examined and states when that population is a fixture.
+
+**`absent` is a verdict, not a pass, and it is the repository's actual state.**
+Nothing produces one of these artifacts today, so the gate reports `absent` on
+every real run. It names its blocker specifically - CPP #1084 half B and skillc
+#5 - so a reader in three months can check whether the blocker still stands
+rather than treating the line as furniture.
+
+**Advisory, and the condition that would change that is pre-committed.** It
+reports and never fails the build, because a hard prerequisite would red `main`
+permanently for the honest reason that nothing produces its input. Per
+[ADR 0009](decisions/0009-oscillation-control.md) the trigger is named rather than
+deferred to a later judgement: it becomes a blocking prerequisite when
+`docs/measurements/behavioral-eval/` contains at least one artifact recorded by a
+real behavioural case - that is, when half B lands and produces one. Until then
+there is nothing for blocking to protect, and after it there is.
+
+**`status` is DERIVED, not read - and that is the whole of what this consumer
+does.** skillc's `verified-result` contract makes `status` a derived field and
+refuses "a record whose `status` does not follow from its own `criteria`": the
+forged verdict, copied from a subject rather than computed from evidence. A
+consumer that trusted the declared `status` would launder exactly that, so this
+gate re-derives from the criteria and refuses any disagreement. Two committed
+cases are the reason: both declare `PASS`, both are well-formed JSON, and both
+parse - one over a mandatory `VIOLATED` criterion, one over no mandatory criteria
+at all. No amount of validating the record's SHAPE distinguishes either, which is
+also why the control's blind anchor misses both.
+
+The second of those is this repository's own #1014 rule arriving inside someone
+else's format: records.md fixes that no mandatory criteria yields `INCONCLUSIVE`,
+never `PASS` - an empty population must not render as a clean one.
+
+**Three refusals came from counter-model review and are the ones a single author
+would not have written.** All three were well-formed JSON that produced a
+confident wrong answer rather than noise:
+
+- A `mandatory` flag carrying the STRING `"true"`. The derivation read it as
+  falsy, so a
+  `VIOLATED` criterion silently left the population; the record then derived
+  `PASS` honestly, matched its declared `PASS`, and reported clean. One typo in a
+  producer defeated the whole forged-verdict defence - and it did so by making
+  evidence DISAPPEAR, which is why no assertion about agreement between `status`
+  and `criteria` could have caught it. `mandatory` must now be a real boolean.
+- A record of another `kind` (an `artifact-manifest`) read as a verified-result -
+  a verdict about a population the record was never part of. `kind` is now checked.
+- A `status` of `[]`, which JSON permits and `in frozenset(...)` raises
+  `TypeError` on. The traceback exited 1 - this gate's `failure` code - printing no verdict
+  line and no population note, and the advisory `|| true` wrappers swallowed it.
+  Malformed input was therefore reported as a producer's recorded failure.
+  Membership is now type-checked first.
+
+Exit codes: `pass` 0, `failure` 1, `absent` 2, `unreadable` 3, `forged` 4,
+`inconclusive` 5; a usage error is 64. Exactly one verdict maps to 0, which is
+`gate-lib.sh`'s rule - "an unknowable answer is never rendered as a clean one" in
+exit codes. gate-lib enforces that for shell gates; this one is Python, so the
+rule is restated in the gate and tested, rather than inherited by resemblance.
+
+Two of those codes exist for reasons worth stating. `inconclusive` is not folded
+into `failure`: the record format fixes five statuses and three of them mean "this
+established nothing", so reporting them as a failure would be a different wrong
+answer rather than a safer one - but they must still never be 0. And the usage
+code is 64 rather than argparse's default 2, because 2 is this gate's `absent`: a
+mistyped flag would otherwise have been indistinguishable from "I looked and found
+no artifact".
+
 ## `check-cpp-host-writes` (#1132)
 
 Refuses an inline host write in `.claude/commands/cpp/init.md` and

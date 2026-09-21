@@ -393,7 +393,8 @@ verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-impor
 	scripts-inventory-check instrument-census-check verify-coverage-check \
 	control-ci-deps-check ci-coverage-check \
 	consolidation-ledger-check host-surface-check cpp-host-writes-check \
-	version-consistency-check unicode-dashes-check co-authored-by-trailer-check
+	version-consistency-check unicode-dashes-check co-authored-by-trailer-check \
+	behavioral-eval-check
 	@python3 scripts/verify-coverage-check.py --report
 
 ## ACCOUNT FOR EVERY CHECKER, AND SAY WHAT THIS GATE SKIPPED (issue #1028)
@@ -768,6 +769,18 @@ co-authored-by-trailer-check:
 ## verify-coverage: gate claude-md-behavior-check - CLAUDE.md directives stay behaviorally findable; ci: runs claude-md-behavior-check
 claude-md-behavior-check:
 	@python3 scripts/check-claude-md-behavior.py
+
+## ADVISORY, AND THE FLIP IS PRE-COMMITTED (#1084, ADR 0009). It reports and never
+## fails the build: nothing produces its input yet - the behavioural case is #1084
+## half B, which depends on skillc #5 - so a hard prerequisite would red `main`
+## permanently for an honest reason. ADR 0009 asks for the condition that would
+## move this back, named NOW while nobody has a stake in the answer: it becomes
+## blocking when `docs/measurements/behavioral-eval/` holds at least one artifact
+## recorded by a real behavioural case. Until then there is nothing for blocking to
+## protect; after it, there is. Whoever lands half B makes that change with it.
+## verify-coverage: gate behavioral-eval-check - reads a behavioural-eval verified-result artifact and reports; advisory until #1084 half B produces one; ci: runs behavioral-eval-check
+behavioral-eval-check:
+	@python3 scripts/check-behavioral-eval.py || true
 
 ## Documentation (used by /flow:auto and /flow:finish)
 

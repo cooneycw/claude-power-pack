@@ -1,0 +1,75 @@
+{
+  "_comment": "Issue #1084 half A. The states this consumer must tell apart, plus the refusal semantics it inherits from skillc's verified-result contract - including the FORGED verdict, which is well formed and only re-derivation can catch.",
+  "gate": "scripts/check-behavioral-eval.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--dir",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^behavioral-eval: (failure|absent|unreadable|forged|inconclusive) - ",
+  "limits": "WHAT THIS ESTABLISHES: that the CONSUMER renders a recorded failure as a failure, a recorded pass as a pass, an absent artifact as neither, and an envelope it cannot read as a refusal rather than a guess. WHAT IT DOES NOT ESTABLISH, AND THE DISTINCTION IS THE WHOLE POINT OF #1084: anything at all about a behavioural case discriminating. There is no behavioural case - half B needs skillc #5. Every case here is a FIXTURE written by hand to exercise a reading, and the gate says so on every verdict it prints, because its output sits in `make verify` beside gates whose greens carry behavioural meaning and a reader skimming cannot tell them apart. A green here is evidence about a reader, never about a model. THE ABSENT CASE IS THE REPOSITORY'S ACTUAL STATE: nothing produces one of these artifacts today, so the real gate reports `absent` on every run until half B lands. That is why `absent` is a DETECTION rather than a pass - an unknowable answer is never rendered as a clean one (#1014, #800) - and why it is not a build failure either, which is the Makefile's consumption decision rather than this gate's verdict. THE FORGED PAIR IS WHY THIS GATE DERIVES RATHER THAN READS: `bad-forged-pass-violation` and `bad-forged-pass-no-mandatory` both declare status PASS, both are well-formed JSON, and both parse - their own criteria derive FAIL and INCONCLUSIVE respectively. A consumer that trusted the declared status would launder each as a clean pass, and no amount of validating the record's SHAPE would catch either. The second is this repository's #1014 rule ('an unknowable answer is never rendered as a clean one') arriving inside someone else's record format: records.md fixes that no mandatory criteria yields INCONCLUSIVE, never PASS. THREE CASES CAME FROM COUNTER-MODEL REVIEW AND ARE THE ONES A SINGLE AUTHOR WOULD NOT HAVE WRITTEN: `bad-malformed-mandatory-flag` carries `\"mandatory\": \"true\"` as a STRING, which the derivation read as falsy and silently dropped the VIOLATED criterion out of the population - the record then derived PASS honestly, matched its declared PASS, and reported clean, so no assertion about agreement between status and criteria could have caught it. `bad-wrong-kind` is an `artifact-manifest` read as a verified-result. `bad-unhashable-status` carries `\"status\": []`, which JSON permits and `in frozenset(...)` raises TypeError on - the traceback exited 1, this gate's `failure` code, printing no verdict line at all, and the advisory `|| true` wrappers swallowed it. All three are WELL-FORMED JSON and all three previously produced a confident wrong answer rather than noise.",
+  "cases": [
+    {
+      "name": "bad-records-failure",
+      "input": "cases/bad-records-failure",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-absent",
+      "input": "cases/bad-absent",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-version-newer",
+      "input": "cases/bad-version-newer",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-forged-pass-violation",
+      "input": "cases/bad-forged-pass-violation",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-forged-pass-no-mandatory",
+      "input": "cases/bad-forged-pass-no-mandatory",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-inconclusive",
+      "input": "cases/bad-inconclusive",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-malformed-mandatory-flag",
+      "input": "cases/bad-malformed-mandatory-flag",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-wrong-kind",
+      "input": "cases/bad-wrong-kind",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-unhashable-status",
+      "input": "cases/bad-unhashable-status",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-records-pass",
+      "input": "cases/good-records-pass",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/check-behavioral-eval.py",
+      "path": "anchors/constructed-well-formed-reads-as-verified.py",
+      "sha256": "60b47485f39c7251fc72dd39a810af431c709f7ecdca3e6fea0e045fe2e0e93d",
+      "why": "CONSTRUCTED: the gate is new, so there is no previous blind version to vendor. This is 'check the behavioural eval produced valid output' written directly - parse each artifact, complain if one is malformed, otherwise report clean - which is what someone writes when the artifact is thought of as OUTPUT TO BE VALIDATED rather than as a VERDICT TO BE READ. skillc's contract names this exact framing as the thing that must not be trusted: 'A valid JSON record, hash or echoed config alone does not authenticate success.' It is blind three ways at once - it never reads `status`, so a recorded FAIL reads clean; it has nothing to validate when no artifact exists, so ABSENT reads clean; and it never reads `version`, so an envelope it cannot understand reads clean. It AGREES with the real gate on a genuine PASS, which is what makes the three misses load-bearing rather than evidence the anchor is merely broken. It is blind to the FORGED pair for the same root reason and most sharply: both are well-formed and parse, so a framing built on 'validate the output' cannot distinguish them however carefully it is written - only re-deriving status from criteria can. It is equally blind to the three counter-model cases: all are valid JSON, so 'validate the output' parses each without complaint and reports clean."
+    }
+  ]
+}
