@@ -451,6 +451,22 @@ cm_enrolment_evaluate() {
         return
     done
 
+    # A SHALLOW CHECKOUT CANNOT BE TRUSTED TO SAY "NOT AN ANCESTOR" AT ALL, and this
+    # is sharper than the exit-128 case below. CI clones `--depth=1 --filter=tree:0`:
+    # the filter makes missing objects lazily FETCHABLE, so `merge-base` resolves the
+    # commit and answers - but `--depth=1` truncated the history, so it answers 1,
+    # "not an ancestor", for a commit that genuinely is one. That is worse than 128:
+    # git returns a confident WRONG answer rather than declining to answer, and
+    # nothing in the exit code says the graph was truncated underneath it.
+    #
+    # So in a shallow repository a NEGATIVE proves nothing. A positive still does -
+    # reachability found in a truncated graph is reachability - which is why this
+    # only fires when nothing matched.
+    if [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == "true" ]]; then
+        CM_ENROLMENT_STATE=undecidable
+        CM_ENROLMENT_LINE="undecidable (shallow clone): history is truncated, so 'no receipt reachable from HEAD' may be truncation rather than absence - the enrolment decision was NOT made here"
+        return
+    fi
     if [[ "${cm_undecidable:-0}" -eq 1 ]]; then
         # A receipt for this issue EXISTS and names a commit this checkout does not
         # contain. That is not the same fact as "no review happened" - but it is
@@ -466,13 +482,10 @@ cm_enrolment_evaluate() {
         # escape this whole issue exists to close. `--is-shallow-repository` is what
         # separates them, so the permissive answer is reachable ONLY where the
         # shallow cause is ESTABLISHED rather than assumed.
-        if [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == "true" ]]; then
-            CM_ENROLMENT_STATE=undecidable
-            CM_ENROLMENT_LINE="undecidable (shallow clone): a receipt names a commit this checkout does not contain, so the enrolment decision was NOT made here"
-        else
-            CM_ENROLMENT_STATE=unresolvable
-            CM_ENROLMENT_LINE="unresolvable: a receipt names a commit this FULL checkout does not contain - the receipt is wrong or fabricated"
-        fi
+        # Shallow was handled above, so reaching here means a FULL checkout whose
+        # receipt names a commit that exists nowhere: wrong, or fabricated.
+        CM_ENROLMENT_STATE=unresolvable
+        CM_ENROLMENT_LINE="unresolvable: a receipt names a commit this FULL checkout does not contain - the receipt is wrong or fabricated"
         return
     fi
     CM_ENROLMENT_STATE=missing
