@@ -2452,6 +2452,33 @@ def test_a_case_reaching_outside_its_own_control_is_refused(tmp_path: Path, esca
     assert result.returncode == 1
 
 
+def test_a_symlink_loop_does_not_take_the_whole_run_down(tmp_path: Path) -> None:
+    """One malformed control must not stop every other control being reported.
+
+    `Path.resolve()` raises RuntimeError - not OSError - on a symlink LOOP under
+    the supported 3.11/3.12, so the containment check's first handler let it
+    escape and abort the harness with a traceback (#1157 counter-model review,
+    LOW). A blanket crash is the worst possible answer for a tool whose subject
+    is instruments that report confidently about things they did not examine:
+    every OTHER control's verdict disappears, and the run says nothing about any
+    of them.
+    """
+    root = build_tree(
+        tmp_path, REFUSING_GATE, anchor_src=BLIND_TO_REFUSAL_ANCHOR,
+        cases=UNKNOWN_CASES, unknown_signal=TOY_UNKNOWN,
+    )
+    looped = root / "controls" / "toy" / "cases" / "unknown"
+    shutil.rmtree(looped)
+    looped.symlink_to(looped, target_is_directory=True)
+    result = run_harness(root, "--strict")
+    assert "Traceback" not in result.stderr, (
+        "a symlink loop must be a verdict, not a crash that deletes every other "
+        "control's result\n" + result.stderr
+    )
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert result.returncode == 1
+
+
 def test_a_symlinked_case_cannot_smuggle_the_escape_back_in(tmp_path: Path) -> None:
     """The same escape wearing a different spelling, which is why resolve() is used.
 
@@ -2538,12 +2565,25 @@ def test_a_declared_blind_anchor_that_is_not_blind_reds(tmp_path: Path) -> None:
         #: Declared where it is never read. This is the printed-but-never-consulted
         #: shape, and refusing it here is the difference between a schema field and
         #: a decoration that governs nothing.
+        #: Declared where the DIAGNOSIS would not fit. On a BAD or GOOD case a
+        #: disagreement is an anchor defect that INERT names correctly; saying
+        #: "correct the registration" there would blame the manifest for the
+        #: anchor's fault (#1157 counter-model review, MEDIUM).
         ({"anchor_expect": "clean", "anchor_expect_reason": "r", "expect": "BAD"},
-         "where it is never read"),
+         "only meaningful on an UNKNOWN case"),
+        ({"anchor_expect": "clean", "anchor_expect_reason": "r", "expect": "GOOD"},
+         "only meaningful on an UNKNOWN case"),
         #: Without the recorded cost the field is a bypass for any inconvenient
         #: anchor disagreement.
         ({"anchor_expect": "clean", "anchor_expect_reason": "   "},
          "no anchor_expect_reason"),
+        #: COUNTERFEIT REASONS. Each of these survives `str(x or "")` non-empty
+        #: and records nothing a human wrote (#1157 counter-model review). The
+        #: field charges a cost; these are forged coins.
+        ({"anchor_expect": "clean", "anchor_expect_reason": True}, "no anchor_expect_reason"),
+        ({"anchor_expect": "clean", "anchor_expect_reason": 1}, "no anchor_expect_reason"),
+        ({"anchor_expect": "clean", "anchor_expect_reason": [""]}, "no anchor_expect_reason"),
+        ({"anchor_expect": "clean", "anchor_expect_reason": {"": ""}}, "no anchor_expect_reason"),
     ],
 )
 def test_a_malformed_anchor_expect_is_refused(

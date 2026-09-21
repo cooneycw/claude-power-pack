@@ -1180,7 +1180,13 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
         rel = str(case.get("input", ""))
         try:
             resolved = (control_dir / rel).resolve()
-        except OSError:  # pragma: no cover - defensive
+        except (OSError, RuntimeError):
+            #: RuntimeError, not just OSError (#1157 counter-model review, LOW).
+            #: `Path.resolve()` raises RuntimeError on a symlink LOOP under the
+            #: supported 3.11/3.12, and an uncaught one here would abort the
+            #: whole harness with a traceback - so ONE malformed control would
+            #: stop every other control being reported at all. A control that
+            #: cannot be resolved is UNRESOLVED, which is what it means.
             resolved = None
         if resolved is None or not resolved.is_relative_to(control_root):
             res.details.append(
@@ -1214,14 +1220,37 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
                 "unrecognised one would read as 'must agree' while looking deliberate"
             )
             return res
-        if case.get("expect") not in (GOOD, UNKNOWN):
+        #: UNKNOWN ONLY, and the narrowing is a CORRECTNESS fix rather than
+        #: caution (#1157 counter-model review, MEDIUM). The first cut allowed
+        #: it on GOOD cases too, on the reasoning that both kinds reach the
+        #: sanity loop. They do - but the DIAGNOSIS below does not fit a GOOD
+        #: case: an anchor that misses the known-bad input and reports a finding
+        #: on the known-GOOD one is producing a FALSE POSITIVE, which is an
+        #: anchor defect that INERT names correctly and that removing a
+        #: declaration cannot repair. Sending that reader to "correct the
+        #: registration" would attribute an anchor's defect to the manifest -
+        #: the ownership question, failed by the check written to ask it.
+        #:
+        #: The structural impossibility this field exists for is specific to a
+        #: refusal: only there can agreement be unobtainable BY CONSTRUCTION,
+        #: because an anchor able to refuse an empty population must derive it
+        #: and would then stop being blind. A GOOD case has no such bind.
+        if case.get("expect") != UNKNOWN:
             res.details.append(
                 f"control.json case {case.get('input')!r} declares anchor_expect on a "
-                f"{case.get('expect')} case, where it is never read - only GOOD and UNKNOWN "
-                "cases reach the anchor-sanity loop, so this declaration would govern nothing"
+                f"{case.get('expect')} case. It is only meaningful on an UNKNOWN case, where "
+                "agreement can be impossible by construction; elsewhere a disagreement is a "
+                "defect in the ANCHOR, which INERT already names and no declaration repairs"
             )
             return res
-        if not str(case.get("anchor_expect_reason") or "").strip():
+        #: A STRING WITH TEXT IN IT, not merely something that survives str()
+        #: (#1157 counter-model review, MEDIUM). `str(x or "")` accepted `true`,
+        #: `1`, `[""]` and `{"": ""}` - each renders non-empty and each records
+        #: no reason whatever, so the cost the field charges could be paid in
+        #: counterfeit. The point of the reason is that a human wrote down why;
+        #: a type that cannot carry that is refused rather than coerced.
+        reason = case.get("anchor_expect_reason")
+        if not isinstance(reason, str) or not reason.strip():
             res.details.append(
                 f"control.json case {case.get('input')!r} declares anchor_expect: clean with "
                 "no anchor_expect_reason naming why this anchor cannot derive the population. "
