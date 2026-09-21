@@ -25,6 +25,8 @@ one input, two answers. A single-shell test cannot see it.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -271,6 +273,38 @@ def test_the_anchor_carries_the_sentinel_so_it_is_not_inert_for_the_wrong_reason
     because it reads as a demonstration.
     """
     assert "#: GATE-LIB-SENTINEL" in ANCHOR.read_text(encoding="utf-8")
+
+
+def test_the_manifest_records_the_anchor_that_is_actually_committed() -> None:
+    """A stale `sha256` in control.json is invisible to `make verify` (#1061).
+
+    The test above requires the anchor's RUNNER to track gate-lib.sh, so editing
+    gate-lib means editing the anchor - and an edited anchor no longer matches
+    the digest the manifest records about it. `_provenance()` notices: it
+    returns MISMATCH on a digest disagreement whatever `--verify-provenance`
+    says. But the harness PRINTS that and does not consume it - the control
+    reported `NEGATIVE_CONTROL_PROVENANCE: MISMATCH` beside
+    `NEGATIVE_CONTROL_VERDICT: PASS`, so a full green run said nothing about it.
+    Measured on this branch: the manifest sat on a digest two edits old and
+    every gate stayed green. Found by the counter-model review, not by the
+    suite, which is the point of having one.
+
+    This is the assertion that makes the disagreement fail somewhere.
+    """
+    manifest = json.loads((CONTROL / "control.json").read_text(encoding="utf-8"))
+    anchors = manifest.get("anchors") or []
+    assert anchors, "the manifest declares no anchors; this test would be vacuous"
+    for entry in anchors:
+        path = CONTROL / entry["path"] if "path" in entry else ANCHOR
+        recorded = entry.get("sha256", "")
+        assert recorded, f"{path.name} is declared with no sha256 to check against"
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        assert actual == recorded, (
+            f"{path.name} does not match the digest control.json records for it: "
+            f"recorded {recorded[:12]}..., actual {actual[:12]}.... The harness "
+            "reports this as PROVENANCE: MISMATCH and still returns PASS, so "
+            "nothing else in the suite will tell you."
+        )
 
 
 def test_the_anchor_runs_the_gates_own_check_runner_byte_for_byte() -> None:

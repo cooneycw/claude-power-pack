@@ -446,6 +446,32 @@ if _gate_self_invoked; then
     # Self-invocation is decided by the sentinel at line 4, not by $0's name:
     # when sourced, $0 is the CALLER's path and the sentinel is absent, so this
     # branch does not run and the caller's trap stands untouched.
-    trap 'printf "GATE_LIB_EXIT=%d\n" "$?" >&2' EXIT
+    #: DETECTION IS NOT AVAILABLE, SO DO NOT CLOBBER (#1061 counter-model
+    #: re-review, MEDIUM). The comment above claimed the sentinel makes a
+    #: sourced run unable to reach here. That is WRONG for one case, and the
+    #: reviewer reproduced it:
+    #:
+    #:     bash -c 'trap "echo CALLER_EXIT >&2" EXIT; . "$0"; exit 7' ./scripts/gate-lib.sh
+    #:
+    #: entered this branch, REPLACED the caller's EXIT trap and exited 2 instead
+    #: of 7. Measured afterwards: in that case bash exposes NOTHING that
+    #: separates it from direct execution - $0, ${#BASH_SOURCE[@]}, BASH_SOURCE[0]
+    #: and BASH_SOURCE[1] are all identical to a real `bash gate-lib.sh` run. The
+    #: state is undecidable from in here, so a better detector is not available
+    #: and pretending otherwise is how the first fix failed.
+    #:
+    #: The remedy is therefore to make the answer NOT MATTER: install the marker
+    #: only when nobody else's EXIT trap is there to destroy. `trap -p` is bash
+    #: (dash resets traps inside command substitution and always reports none),
+    #: which is sufficient - the hazard is a bash one, and
+    #: flow-finish-gate.sh, the caller this protects, is a bash script.
+    _gate_existing_exit_trap=""
+    if [ -n "${BASH_VERSION:-}" ]; then
+        # shellcheck disable=SC3044
+        _gate_existing_exit_trap="$(trap -p EXIT 2>/dev/null)"
+    fi
+    if [ -z "$_gate_existing_exit_trap" ]; then
+        trap 'printf "GATE_LIB_EXIT=%d\n" "$?" >&2' EXIT
+    fi
     _gate_main "$@"
 fi
