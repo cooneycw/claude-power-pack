@@ -1,0 +1,9 @@
+The workflow is blocked by missing source files:
+
+- `flow-doctor`, `flow`, and `claude` are absent from `PATH`.
+- `~/.claude` does not exist.
+- No flow-doctor workflow or CPP helper scripts were found locally.
+
+**Files installed: none.**
+
+Please provide the repository URL or local path containing the workflow and CPP scripts so I can complete the installation.
