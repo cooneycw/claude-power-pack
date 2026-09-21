@@ -804,6 +804,19 @@ out.write_text("".join(parts))
 PY
 ```
 
+**Stamp the approval baseline now, before any implementation edit** (issue
+#1082). The plan record is not COMMITTED until Step 6, which is after the work is
+written - so "unchanged since its first commit" cannot detect an implementer who
+grows the record and the diff together before that commit. The baseline is
+therefore taken here, at the moment the approved plan is written, and kept in the
+git directory where the driver guard cannot see it and `git worktree remove`
+reaps it:
+
+```bash
+sha256sum "docs/flow-runs/issue-42.md" | cut -d' ' -f1 \
+  > "$(git rev-parse --git-dir)/flow-plan-baseline-42"
+```
+
 **The digest covers the FULL body; the 16 KB cap bounds only what is STORED.**
 Digesting the truncated copy would mean that for any issue past the cap, a change
 BEYOND it produces an identical digest and the check reports no drift - a
@@ -1526,28 +1539,32 @@ PY
    better approach and owe the reviewer the reason - this surfaces that the
    substitution happened so the reason gets written down.
 
-   **First, make new files visible to the comparison.** `git diff <ref>` compares
-   the ref's tree to the INDEX for paths the index already knows, so an untracked
-   path is skipped entirely rather than shown as an addition. Without this the
-   check reports AGREEMENT with an entire unplanned new file sitting in the tree -
-   measured, and it is the exact case this issue names.
-
-   **`code_review.md` fixed this for the REVIEW diff (#1030) and that fix does not
-   reach here**: `add -N` appears nowhere in this document, and this step computes
-   its own diff. Do not assume a sibling procedure's repair applies to yours.
+   **First, make new files visible.** `git diff <ref>` compares the ref's tree to
+   the INDEX for paths the index already knows, so an untracked path is skipped
+   entirely. Without this the check reports AGREEMENT with an entire unplanned new
+   file in the tree - measured, and the exact case this issue names. `code_review.md`
+   fixed that for the REVIEW diff (#1030); `add -N` appears nowhere in this
+   document and this step computes its own diff, so it inherited nothing.
 
    ```bash
-   # ENUMERATED PATHS ONLY, never a bare `git add -N .` - see code_review.md:172.
-   # `-N .` walks the whole pathspec including tracked files DELETED from the
-   # working tree, and stages that DELETION rather than a placeholder, so a
-   # deletion nobody asked for rides along into the next commit. NUL-delimited to
-   # survive a filename containing a space or a newline.
+   # ENUMERATED PATHS ONLY, never a bare `git add -N .` - code_review.md:172 records
+   # why: `-N .` stages a tracked DELETION rather than a placeholder. NUL-delimited
+   # to survive a filename containing a space or newline.
+   #
+   # `mapfile` does NOT propagate the exit status of a process substitution, so a
+   # failed enumeration yields an EMPTY array that is indistinguishable from "no
+   # untracked files" - the guard is then skipped and agreement can be reported
+   # without ever establishing whether new files existed. Capture and CHECK first.
    GIT_ROOT="$(git rev-parse --show-toplevel)"
-   mapfile -d '' -t UNTRACKED < <(git -C "$GIT_ROOT" ls-files --others --exclude-standard -z)
+   if ! UNTRACKED_RAW="$(git -C "$GIT_ROOT" ls-files --others --exclude-standard -z)"; then
+       echo "PLAN_COMPLIANCE: unknown (could not enumerate untracked files, so new"
+       echo "  files may be invisible to the comparison)"
+       exit 0
+   fi
+   mapfile -d '' -t UNTRACKED < <(printf '%s' "$UNTRACKED_RAW")
    if [ "${#UNTRACKED[@]}" -gt 0 ] && ! git -C "$GIT_ROOT" add -N -- "${UNTRACKED[@]}"; then
        echo "PLAN_COMPLIANCE: unknown (could not mark untracked files intent-to-add;"
-       echo "  new files would be invisible and this check would report agreement over"
-       echo "  an incomplete diff). Check for a locked or unwritable index."
+       echo "  this check would otherwise report agreement over an incomplete diff)"
        exit 0
    fi
 
@@ -1567,58 +1584,64 @@ text = plan.read_text()
 if "## Section C" not in text:
     unknown("the plan record carries no Section C - it cannot be parsed")
 
+# EVERY numbered line must parse. Skipping an unmatched one silently drops an
+# approved file from the population, and then agreement means "the subset I
+# happened to understand matched" - a filename containing a space is enough.
 section = text.split("## Section C", 1)[1]
-planned = []
+planned, unparsed = [], []
 for line in section.splitlines():
     if re.match(r"^\s*(Scope|Risks):", line):
         break
-    m = re.match(r"^\s*\d+\.\s+`?([^`\s]+)`?\s*[-\u2013]", line)
-    if m:
-        planned.append(m.group(1))
+    if not re.match(r"^\s*\d+\.\s", line):
+        continue
+    m = re.match(r"^\s*\d+\.\s+`([^`]+)`\s*[-\u2013]", line) \
+        or re.match(r"^\s*\d+\.\s+(\S+)\s*[-\u2013]", line)
+    (planned.append(m.group(1)) if m else unparsed.append(line.strip()))
+if unparsed:
+    unknown(f"{len(unparsed)} Section C item(s) could not be parsed, so the approved "
+            f"file list is incomplete: {unparsed[:3]}")
 if not planned:
     unknown("Section C names no files in the documented numbered form")
 
+# --no-renames: with rename detection ON, `--name-only` reports only a rename's
+# DESTINATION, so renaming an unplanned file to a planned one reports agreement
+# while the removal was never authorised. Both endpoints must appear.
 try:
-    out = subprocess.run(["git", "diff", "--name-only", base],
+    out = subprocess.run(["git", "diff", "--no-renames", "--name-only", base],
                          capture_output=True, text=True, check=True).stdout
 except (OSError, subprocess.CalledProcessError) as exc:
     unknown(f"the diff could not be computed ({exc})")
 touched = [f for f in out.splitlines() if f]
 
-# A GENERATED MIRROR IS COVERED IFF ITS SOURCE IS PLANNED - derived, never excluded.
-# Excluding codex/skills/** outright would hide a run that touches a mirror WITHOUT
-# its source, which is real drift in the check's largest category. Reporting every
-# mirror as divergence instead would red 7 of 11 files on an ordinary run and train
-# its reader to ignore it. Deriving does neither.
+# EXACT paths, not prefixes. `docs/flow-runs/issue-42.` would also accept
+# `issue-42.notes.md`, which is neither input; the receipt directory as a prefix
+# would hide edits and deletions of OTHER runs' receipts, which #1171's enrolment
+# check does not cover - it establishes THIS branch's receipt, not that history
+# was left alone.
+EXCLUDED_EXACT = {
+    f"docs/flow-runs/issue-{issue}.md":
+        "this check's own input, the plan record - reported separately below",
+    f"docs/flow-runs/issue-{issue}.as-read.md":
+        "the as-read snapshot - NO other instrument sees it",
+}
+receipt_re = re.compile(rf"^docs/measurements/counter-model/[^/]*-issue-{issue}\.json$")
+
 def mirror_source(path):
-    """The repository path a codex mirror is generated FROM, or None."""
-    m = re.match(r"^codex/skills/[^/]+/(docs/.+|scripts/.+)$", path)
+    m = re.match(r"^codex/skills/[^/]+/((?:docs|scripts|lib)/.+)$", path)
     if m:
         return m.group(1)
-    # SKILL.md and reference.md name their own source in the generated marker,
-    # so the mapping is read from the artifact rather than guessed from the
-    # skill name - `claude-md-lint` could split at either hyphen.
     try:
-        marker = pathlib.Path(path).read_text(errors="replace")[:4000]
+        head = pathlib.Path(path).read_text(errors="replace")[:4000]
     except OSError:
-        return None
-    m = re.search(r"edit ([^\s]+) instead", marker)
+        return None                      # deleted in the worktree: unresolvable here
+    m = re.search(r"edit ([^\s]+) instead", head)
     return m.group(1) if m else None
-
-# Exclusions. EACH NAMES THE INSTRUMENT THAT DOES SEE THE PATH, or says none does.
-# An exclusion justified by "something else covers this" is a routing decision; one
-# justified by "this does not matter" is a blind spot wearing a reason.
-EXCLUDED = {
-    "docs/measurements/counter-model/":
-        "covered by the #1171 counter-model enrolment check at finish",
-    f"docs/flow-runs/issue-{issue}.":
-        "this check's own inputs - the plan record and the as-read snapshot. "
-        "NO OTHER INSTRUMENT SEES THEM, which is why they are reported separately below",
-}
 
 unplanned, unresolved_mirrors = [], []
 for f in touched:
-    if any(f.startswith(pre) for pre in EXCLUDED):
+    if f in planned:
+        continue                         # an explicitly planned path wins over any rule
+    if f in EXCLUDED_EXACT or receipt_re.match(f):
         continue
     if f.startswith("codex/skills/"):
         src = mirror_source(f)
@@ -1627,8 +1650,7 @@ for f in touched:
         elif src not in planned:
             unplanned.append(f"{f}  (mirror of {src}, which the plan does not name)")
         continue
-    if f not in planned:
-        unplanned.append(f)
+    unplanned.append(f)
 untouched = [f for f in planned if f not in touched]
 
 if not unplanned and not untouched and not unresolved_mirrors:
@@ -1645,24 +1667,26 @@ else:
     print("This is a FINDING, not a block. A substituted approach is supposed to")
     print("appear here; write the reason in the PR rather than adjusting the plan.")
 
-# THE PLAN RECORD IS THIS CHECK'S OWN INPUT, so moving it moves the goalposts.
-# Excluding it from the file-set comparison is right - it is not planned work - but
-# excluding it SILENTLY would let a run add a file to its own plan at Step 5, touch
-# that file, and report agreement. #1080's Step 1 reconcile protects the NEXT run,
-# not this one.
-first = subprocess.run(["git", "log", "--diff-filter=A", "--format=%H", "--", str(plan)],
-                       capture_output=True, text=True).stdout.split()
-if not first:
-    print("PLAN_RECORD_STABILITY: unknown (no commit on this branch adds the record)")
+# The record is this check's own input, so moving it moves the goalposts. The
+# baseline is the digest stamped at STEP 4, before implementation - not the first
+# COMMIT, which happens at Step 6 after the work is written and would miss an
+# implementer who grew the record and the diff together.
+bl = pathlib.Path(subprocess.run(["git", "rev-parse", "--git-dir"], capture_output=True,
+                                 text=True).stdout.strip()) / f"flow-plan-baseline-{issue}"
+if not bl.is_file():
+    print("PLAN_RECORD_STABILITY: unknown (no Step-4 baseline was stamped)")
 else:
-    added_at = first[-1]
-    same = subprocess.run(["git", "diff", "--quiet", added_at, "--", str(plan)]).returncode
-    if same == 0:
-        print(f"PLAN_RECORD_STABILITY: unchanged since it was first committed ({added_at[:8]})")
+    import hashlib
+    now = hashlib.sha256(plan.read_bytes()).hexdigest()
+    was = bl.read_text().split()[0] if bl.read_text().split() else ""
+    if not was:
+        print("PLAN_RECORD_STABILITY: unknown (the baseline file carries no digest)")
+    elif now == was:
+        print("PLAN_RECORD_STABILITY: unchanged since it was approved at Step 4")
     else:
-        print(f"PLAN_RECORD_STABILITY: THE PLAN RECORD CHANGED after {added_at[:8]}.")
-        print("  The approved plan moved during the run. Read the diff of the record")
-        print("  itself before reading the verdict above - the goalposts may have moved.")
+        print("PLAN_RECORD_STABILITY: THE PLAN RECORD CHANGED since Step 4.")
+        print("  The approved plan moved during the run. Read the record's own diff")
+        print("  before reading the verdict above - the goalposts may have moved.")
 
 print("EXAMINED: file names only. This says NOTHING about whether the change does")
 print("what the plan said it would - a file rewritten differently from its plan")
@@ -1671,16 +1695,14 @@ PY
    ```
 
    **`--name-only` answers "what did this change touch", never "what exists at
-   head".** A deleted path is listed by it while `git cat-file -e HEAD:<path>`
-   reports the file absent - measured. For THIS question the listing is correct,
-   because a deletion IS a touch and the plan should have named it. Item 8 below
-   asks the other question and must therefore use existence at head. One output,
-   two questions, and only one of them is this one.
+   head".** A deleted path is listed while `git cat-file -e HEAD:<path>` reports it
+   absent - measured. For THIS question the listing is correct: a deletion IS a
+   touch the plan should have named. Item 8 asks the other question and uses
+   existence at head.
 
    **The verdict says FILE SET deliberately.** A file-level comparison cannot see
    whether the change did what was agreed, so a run that rewrites a file
-   completely differently from its plan reports agreement. Wording it as "the
-   change matches the plan" would claim more than the input supports.
+   completely differently from its plan reports agreement.
 
 8. **Confirm the plan record reached the PR** (issue #1080) - ask whether it
    EXISTS at the PR's head, not whether its name appears in a diff:

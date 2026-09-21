@@ -67,6 +67,14 @@ def write_plan(repo: Path, *files: str) -> None:
     (d / "issue-42.md").write_text("\n".join(lines) + "\n")
 
 
+def stamp_baseline(repo: Path) -> None:
+    """What Step 4 does immediately after writing the approved plan."""
+    gitdir = git(repo, "rev-parse", "--git-dir").strip()
+    digest = subprocess.run(["sha256sum", "docs/flow-runs/issue-42.md"],
+                            cwd=repo, capture_output=True, text=True).stdout.split()[0]
+    (repo / gitdir / "flow-plan-baseline-42").write_text(digest + "\n")
+
+
 def run(repo: Path, base: str) -> str:
     script = block().replace('$(git merge-base HEAD origin/main)', base)
     proc = subprocess.run(["bash", "-c", script], cwd=repo, capture_output=True, text=True)
@@ -189,8 +197,9 @@ def test_an_excluded_path_is_not_divergence_but_a_neighbour_IS(tmp_path: Path) -
     repo, base = make_repo(tmp_path)
     (repo / "src").mkdir()
     (repo / "src" / "app.py").write_text("a\n")
-    (repo / "docs" / "measurements" / "counter-model").mkdir(parents=True)
-    (repo / "docs" / "measurements" / "counter-model" / "r.json").write_text("{}\n")
+    cm = repo / "docs" / "measurements" / "counter-model"
+    cm.mkdir(parents=True)
+    (cm / "2026-09-21T000000Z-issue-42.json").write_text("{}\n")   # THIS run's receipt
     write_plan(repo, "src/app.py")
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "with receipt")
@@ -215,6 +224,7 @@ def test_an_unchanged_plan_record_reports_stable(tmp_path: Path) -> None:
     (repo / "src").mkdir()
     (repo / "src" / "app.py").write_text("a\n")
     write_plan(repo, "src/app.py")
+    stamp_baseline(repo)
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "work")
     assert "PLAN_RECORD_STABILITY: unchanged" in run(repo, base)
@@ -232,6 +242,7 @@ def test_a_plan_record_edited_after_its_first_commit_is_REPORTED(tmp_path: Path)
     (repo / "src").mkdir()
     (repo / "src" / "app.py").write_text("a\n")
     write_plan(repo, "src/app.py")
+    stamp_baseline(repo)                       # the approval baseline, at Step 4
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "work")
 
@@ -315,6 +326,216 @@ def test_an_uncomputable_diff_is_unknown_never_agreement(tmp_path: Path) -> None
     assert "PLAN_COMPLIANCE: agreement" not in out
 
 
+@requires_git
+def test_a_plan_record_grown_BEFORE_its_first_commit_is_still_caught(tmp_path: Path) -> None:
+    """The HIGH finding: the record is not COMMITTED until Step 6, after the work.
+
+    Comparing against its first commit would miss an implementer who grows the
+    record and the diff together before that commit - the ordinary execution path,
+    not an exotic one. The baseline is stamped at Step 4 instead.
+    """
+    repo, base = make_repo(tmp_path)
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("a\n")
+    write_plan(repo, "src/app.py")
+    stamp_baseline(repo)                       # Step 4: approved plan, baseline taken
+
+    # implementation grows BOTH the work and the record, before any commit
+    (repo / "src" / "extra.py").write_text("extra\n")
+    write_plan(repo, "src/app.py", "src/extra.py")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "first commit of the record, post-implementation")
+
+    out = run(repo, base)
+    assert "PLAN_COMPLIANCE: agreement" in out, "the file set matches the edited plan"
+    assert "PLAN_RECORD_STABILITY: THE PLAN RECORD CHANGED" in out, (
+        f"the record grew before its first commit and was not reported:\n{out}"
+    )
+
+
+@requires_git
+def test_an_unparseable_plan_item_is_unknown_not_a_subset_comparison(tmp_path: Path) -> None:
+    """One parsed item must not be enough to proceed.
+
+    Skipping an unmatched line drops an approved file from the population, and
+    agreement then means "the subset I happened to understand matched".
+    """
+    repo, base = make_repo(tmp_path)
+    d = repo / "docs" / "flow-runs"
+    d.mkdir(parents=True)
+    (d / "issue-42.md").write_text(
+        "# Flow run record - issue #42\n## Section C - the approved plan\n"
+        "  1. `src/app.py` - change\n"
+        "  2. this line names no file in the documented form\n"
+        "Scope: 2 files\n"
+    )
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("a\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "work")
+    out = run(repo, base)
+    assert "PLAN_COMPLIANCE: unknown" in out
+    # "be parsed" is NOT distinctive - the missing-Section-C branch also ends
+    # "it cannot be parsed". Pin a phrase only this branch carries.
+    assert "item(s) could not be parsed" in out, f"reached a different unknown branch:\n{out}"
+    assert "PLAN_COMPLIANCE: agreement" not in out
+
+
+@requires_git
+def test_a_rename_into_a_planned_path_still_reports_the_removed_source(tmp_path: Path) -> None:
+    """Rename detection reports only the DESTINATION, hiding an unauthorised removal."""
+    repo, base = make_repo(tmp_path)
+    (repo / "src").mkdir()
+    (repo / "src" / "legacy.py").write_text("x\n" * 40)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "legacy exists")
+    base2 = git(repo, "rev-parse", "HEAD").strip()
+
+    git(repo, "mv", "src/legacy.py", "src/new.py")
+    write_plan(repo, "src/new.py")
+    stamp_baseline(repo)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "rename")
+
+    out = run(repo, base2)
+    assert "PLAN_COMPLIANCE: divergence" in out, (
+        f"a rename removed an unplanned file and reported agreement:\n{out}"
+    )
+    assert "src/legacy.py" in out
+
+
+@requires_git
+def test_a_neighbouring_flow_runs_file_is_not_silently_excluded(tmp_path: Path) -> None:
+    """The exclusion is two EXACT paths, not a prefix."""
+    repo, base = make_repo(tmp_path)
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("a\n")
+    write_plan(repo, "src/app.py")
+    stamp_baseline(repo)
+    (repo / "docs" / "flow-runs" / "issue-42.notes.md").write_text("sneaky\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "work")
+    out = run(repo, base)
+    assert "PLAN_COMPLIANCE: divergence" in out
+    assert "issue-42.notes.md" in out
+
+
+@requires_git
+def test_another_runs_receipt_is_not_excluded(tmp_path: Path) -> None:
+    """#1171's enrolment check establishes THIS branch's receipt, not that history
+    was left alone."""
+    repo, base = make_repo(tmp_path)
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("a\n")
+    write_plan(repo, "src/app.py")
+    stamp_baseline(repo)
+    cm = repo / "docs" / "measurements" / "counter-model"
+    cm.mkdir(parents=True)
+    (cm / "2026-01-01T000000Z-issue-999.json").write_text("{}\n")   # another run's
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "work")
+    out = run(repo, base)
+    assert "PLAN_COMPLIANCE: divergence" in out
+    assert "issue-999" in out
+
+
+@requires_git
+def test_an_explicitly_planned_codex_path_is_honoured(tmp_path: Path) -> None:
+    """A planned path wins over any derivation rule."""
+    repo, base = make_repo(tmp_path)
+    (repo / "codex" / "skills").mkdir(parents=True)
+    (repo / "codex" / "skills" / "README.md").write_text("hand-written\n")
+    write_plan(repo, "codex/skills/README.md")
+    stamp_baseline(repo)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "work")
+    assert "PLAN_COMPLIANCE: agreement" in run(repo, base)
+
+
+@requires_git
+def test_a_missing_step4_baseline_is_unknown_not_unchanged(tmp_path: Path) -> None:
+    """No baseline means the question cannot be answered, not that nothing moved."""
+    repo, base = make_repo(tmp_path)
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("a\n")
+    write_plan(repo, "src/app.py")                 # deliberately NOT stamped
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "work")
+    out = run(repo, base)
+    assert "PLAN_RECORD_STABILITY: unknown" in out
+    assert "baseline was stamped" in out, f"reached a different unknown branch:\n{out}"
+    assert "PLAN_RECORD_STABILITY: unchanged" not in out
+
+
+@requires_git
+def test_an_empty_baseline_file_is_unknown_not_unchanged(tmp_path: Path) -> None:
+    repo, base = make_repo(tmp_path)
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("a\n")
+    write_plan(repo, "src/app.py")
+    gitdir = git(repo, "rev-parse", "--git-dir").strip()
+    (repo / gitdir / "flow-plan-baseline-42").write_text("")      # stamped, but empty
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "work")
+    out = run(repo, base)
+    assert "PLAN_RECORD_STABILITY: unknown" in out
+    assert "carries no digest" in out, f"reached a different unknown branch:\n{out}"
+
+
+@requires_git
+def test_an_unenumerable_worktree_is_unknown_not_agreement(tmp_path: Path) -> None:
+    """The shell half's first unknown, and it is reachable.
+
+    Run outside a repository: `git rev-parse --show-toplevel` fails, so the
+    enumeration of untracked files cannot be performed. Reporting agreement there
+    would claim the file set matched having never established what the files were.
+    """
+    outside = tmp_path / "not-a-repo"
+    outside.mkdir()
+    script = block().replace('$(git merge-base HEAD origin/main)', "HEAD")
+    proc = subprocess.run(["bash", "-c", script], cwd=outside,
+                          capture_output=True, text=True)
+    assert "PLAN_COMPLIANCE: unknown" in proc.stdout
+    assert "enumerate untracked files" in proc.stdout, (
+        f"reached a different unknown branch:\n{proc.stdout}\n{proc.stderr}"
+    )
+    assert "PLAN_COMPLIANCE: agreement" not in proc.stdout
+
+
+@requires_git
+def test_a_failed_intent_to_add_is_unknown_not_agreement(tmp_path: Path) -> None:
+    """The shell half's second unknown.
+
+    Probes the property rather than an identity: it makes the index unwritable and
+    SKIPS if the add still succeeds, which is true for root or for a filesystem
+    that does not enforce permissions.
+    """
+    repo, base = make_repo(tmp_path)
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("a\n")
+    write_plan(repo, "src/app.py")
+    stamp_baseline(repo)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "work")
+    (repo / "src" / "surprise.py").write_text("new\n")
+
+    gitdir = Path(git(repo, "rev-parse", "--git-dir").strip())
+    index = (repo / gitdir / "index") if not gitdir.is_absolute() else gitdir / "index"
+    index.chmod(0o444)
+    try:
+        probe = subprocess.run(["git", "-C", str(repo), "add", "-N", "--", "src/surprise.py"],
+                               capture_output=True, text=True)
+        if probe.returncode == 0:
+            pytest.skip("this environment can write a read-only index; the state is unreachable")
+        out = run(repo, base)
+    finally:
+        index.chmod(0o644)
+
+    assert "PLAN_COMPLIANCE: unknown" in out
+    assert "files intent-to-add" in out, f"reached a different unknown branch:\n{out}"
+    assert "PLAN_COMPLIANCE: agreement" not in out
+
+
 # ------------------------------------------------------------------ the sweep, mechanised
 
 def test_every_unknown_branch_has_a_case_that_PINS_IT() -> None:
@@ -322,11 +543,22 @@ def test_every_unknown_branch_has_a_case_that_PINS_IT() -> None:
 
     A rule that must be remembered at each site will be forgotten at some site.
     """
-    messages = re.findall(r'unknown\(f?"([^"]*)"', block())
+    blk = block()
+    messages = re.findall(r'unknown\(f?"([^"]*)"', blk)
+    # The SHELL half emits its own unknowns before python is reached. Enumerating
+    # only the python calls omitted both of them - the gate's own population was
+    # narrower than the thing it was gating (counter-model review, gpt-6-astra).
+    messages += re.findall(r'echo "PLAN_COMPLIANCE: unknown \(([^"]*)', blk)
+    messages += re.findall(r'print\("PLAN_RECORD_STABILITY: unknown \(([^"]*)', blk)
     assert len(messages) >= 4, f"expected >=4 unknown branches, found {len(messages)}: {messages}"
-    asserts = "\n".join(
+    # NORMALISE BOTH SIDES. The runs are derived from the message with punctuation
+    # stripped, so searching them in raw assert text means "item s" can never match
+    # "item(s)" however well the branch is pinned - the gate would demand a phrase
+    # no correct assertion can contain.
+    raw_asserts = "\n".join(
         ln for ln in Path(__file__).read_text().splitlines() if "assert " in ln
     )
+    asserts = " ".join(w for w in re.split(r"[^A-Za-z-]+", raw_asserts) if w)
 
     def runs_of(msg: str) -> set[str]:
         literal = re.sub(r"\{[^}]*\}", " ", msg)
