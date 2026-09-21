@@ -159,8 +159,46 @@ trap 'printf "FLOW_FINISH_GATE_EXIT=%d\n" "$?" >&2' EXIT
 # without moving those first; the stopping point is a measurement, not fatigue.
 _gate_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/gate-lib.sh"
 [[ -f "$_gate_lib" ]] || _gate_lib="$HOME/.claude/scripts/gate-lib.sh"
+[[ -f "$_gate_lib" ]] || _gate_lib="${CLAUDE_PLUGIN_ROOT:-}/scripts/gate-lib.sh"
+
+# A MISSING LIBRARY IS FATAL, AND THAT IS THE WHOLE POINT OF THIS BLOCK.
+# `set -e` is deliberately NOT in force in this file, so a bare `. "$missing"`
+# PRINTS an error and CONTINUES - and every gate_exit call downstream then becomes
+# `command not found`, which is also non-fatal. Measured on the first cut of this
+# migration, in a checkout with no gate-lib reachable:
+#
+#     scripts/flow-finish-gate.sh: line 1333: gate_exit: command not found
+#     FLOW_FINISH_GATE: ok
+#     EXIT=127
+#
+# A green verdict over a broken instrument - the exact fall-through-to-the-good-exit
+# this migration exists to REMOVE, reintroduced by its own dependency going missing.
+# Worse, `gate_exit usage` failing the same way turned a mis-typed flag into a full
+# gate run rather than an exit 2.
+#
+# This gate is bundled into FOUR generated Codex skills while gate-lib is bundled
+# into none, so the distributed copies are exactly where this would have bitten and
+# exactly where nobody runs the suite. Pinned by
+# controls/counter-model-enrolment's sibling case and by
+# tests/test_flow_finish_gate.py::test_a_missing_gate_lib_is_fatal_not_advisory.
+if [[ ! -f "$_gate_lib" ]]; then
+    echo "flow-finish-gate: cannot find gate-lib.sh (looked beside this script, in ~/.claude/scripts, and in \$CLAUDE_PLUGIN_ROOT/scripts)." >&2
+    echo "  Refusing to run: without it every verdict would fall through to a clean exit." >&2
+    exit 2
+fi
 # shellcheck source=scripts/gate-lib.sh
 . "$_gate_lib"
+
+# SOURCING SUCCEEDING IS NOT THE LIBRARY BEING USABLE. A truncated or partially
+# written file sources without error and defines nothing, which lands in the same
+# fall-through. Assert the three functions this gate actually calls.
+for _fn in gate_map gate_exit gate_arg_value; do
+    if ! declare -F "$_fn" >/dev/null 2>&1; then
+        echo "flow-finish-gate: $_gate_lib sourced but does not define $_fn; refusing to run." >&2
+        exit 2
+    fi
+done
+unset _fn
 
 # `usage=2` IS DECLARED, NEVER DEFAULTED. gate-lib defaults GATE_USAGE_EXIT=64 and
 # rebinds it only when a caller declares `usage=N` (gate-lib.sh:224). This gate has
@@ -431,6 +469,22 @@ cm_enrolment_evaluate() {
         branch=""
     fi
 
+    # COMPUTED ONCE, WITH AN EXPLICIT BRANCH, because the nested-expansion form is
+    # wrong in both directions and the wrong version renders plausibly (#1061).
+    # It was `${branch:+}${branch:-  (detached ...)}`: the `:+` word is EMPTY, so it
+    # expands to nothing whether branch is set or not - dead code - and the `:-`
+    # then emits the BRANCH NAME itself in the set case, giving
+    # `receipt: <file>.json<branch>` with no separator, on the one line whose job is
+    # to say WHICH receipt satisfied the gate. Substituting text into the `:+` half
+    # does not fix it either: `${branch:+ for branch '$branch'}${branch:-  (...)}`
+    # renders `for branch 'x'x`, which reads fine at a glance and is why this is an
+    # if/else rather than a cleverer expansion.
+    if [[ -n "$branch" ]]; then
+        _cm_where=" for branch '$branch'"
+    else
+        _cm_where="  (detached HEAD: matched by ancestry, branch not comparable)"
+    fi
+
     for f in "$receipts"/*.json; do
         [[ -e "$f" ]] || continue
         rbranch=$(cm_field "$f" branch)
@@ -471,7 +525,7 @@ cm_enrolment_evaluate() {
                 return
             fi
             CM_ENROLMENT_STATE=skipped
-            CM_ENROLMENT_LINE="skipped: $rreason ($(basename "$f"))${branch:+}${branch:-  (detached HEAD: matched by ancestry, branch not comparable)}"
+            CM_ENROLMENT_LINE="skipped: $rreason ($(basename "$f"))$_cm_where"
             return
         fi
         # STATUS IS CHECKED POSITIVELY, never by not-being-skipped (counter-model
@@ -487,7 +541,7 @@ cm_enrolment_evaluate() {
             return
         fi
         CM_ENROLMENT_STATE=receipt
-        CM_ENROLMENT_LINE="receipt: $(basename "$f")${branch:+}${branch:-  (detached HEAD: matched by ancestry, branch not comparable)}"
+        CM_ENROLMENT_LINE="receipt: $(basename "$f")$_cm_where"
         return
     done
 
