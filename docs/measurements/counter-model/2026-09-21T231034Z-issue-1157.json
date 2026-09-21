@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1157-pr-two",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "a1b4f5e0b54ce36b92f6ca949cf6ce430c47b3fe",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1157",
+  "passes": 1,
+  "recorded_at": "2026-09-21T23:10:34Z",
+  "red_cases": {
+    "already_covered": 1,
+    "proposed": 3
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
