@@ -1163,6 +1163,33 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
             "refusal by this gate cannot be told from a crash (issue #1129)"
         )
         return res
+    # A CASE MUST LIVE UNDER ITS OWN CONTROL (issue #1157). What makes a control
+    # a readable unit is that everything it needs is beneath it: the register can
+    # be understood one directory at a time, and moving a control moves its
+    # cases with it. One `input` reaching out with `../../` ends that - the
+    # registration still looks valid after a directory move that silently broke
+    # it, and a reader can no longer tell what a control covers by looking at it.
+    #
+    # REFUSED RATHER THAN DISCOURAGED. It was raised as a way to register #1146's
+    # two trees without relocating them, rejected on the property above, and a
+    # schema that permits a path it never intends to see is a schema that will
+    # eventually see it. `resolve()` is deliberate: a case that reaches outside
+    # THROUGH A SYMLINK is the same escape wearing a different spelling.
+    control_root = control_dir.resolve()
+    for case in cases:
+        rel = str(case.get("input", ""))
+        try:
+            resolved = (control_dir / rel).resolve()
+        except OSError:  # pragma: no cover - defensive
+            resolved = None
+        if resolved is None or not resolved.is_relative_to(control_root):
+            res.details.append(
+                f"control.json case {case.get('name', rel)!r} has input {rel!r}, which resolves "
+                f"outside its own control directory. A control is a unit: everything it needs "
+                "lives under it, or a directory move breaks a registration that still looks valid"
+            )
+            return res
+
     # `anchor_expect` DECLARES WHAT THE ANCHOR MUST DO ON THIS CASE (issue
     # #1157), and it is FAIL-CLOSED: absent means "must agree with the current
     # gate", which is what every case meant before this field existed, so no

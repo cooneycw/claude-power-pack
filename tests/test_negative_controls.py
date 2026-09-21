@@ -2420,6 +2420,62 @@ DECLARED_BLIND_CASES = [
 ]
 
 
+@pytest.mark.parametrize(
+    "escaping",
+    [
+        "../../tests/fixtures/ci-coverage/no-verify-target",
+        "../other-control/cases/good",
+        "/etc",
+    ],
+)
+def test_a_case_reaching_outside_its_own_control_is_refused(tmp_path: Path, escaping: str) -> None:
+    """The red case for the containment rule (#1157).
+
+    This was proposed as a way to register #1146's two trees without moving
+    them, and refused: what makes a control a readable unit is that everything
+    it needs lives beneath it. Once one case reaches out, the register cannot be
+    read one directory at a time, and a directory move silently breaks a
+    registration that still looks valid.
+
+    Refused in the schema rather than agreed in prose, because a schema that
+    permits a path it never intends to see is one that will eventually see it.
+    """
+    cases = [dict(c) for c in UNKNOWN_CASES]
+    cases[1]["input"] = escaping
+    root = build_tree(
+        tmp_path, REFUSING_GATE, anchor_src=BLIND_TO_REFUSAL_ANCHOR,
+        cases=cases, unknown_signal=TOY_UNKNOWN,
+    )
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "outside its own control directory" in result.stdout, result.stdout
+    assert result.returncode == 1
+
+
+def test_a_symlinked_case_cannot_smuggle_the_escape_back_in(tmp_path: Path) -> None:
+    """The same escape wearing a different spelling, which is why resolve() is used.
+
+    A relative `../..` is the obvious form and the only one anybody would
+    propose. A case directory that IS a symlink pointing outside the control
+    satisfies any string-level check perfectly and lands in exactly the same
+    place - the registration names a path under the control, and the bytes
+    exercised are somewhere else entirely.
+    """
+    outside = tmp_path / "elsewhere" / "tests"
+    outside.mkdir(parents=True)
+    (outside / "UNEXAMINABLE").write_text("x", encoding="utf-8")
+    root = build_tree(
+        tmp_path, REFUSING_GATE, anchor_src=BLIND_TO_REFUSAL_ANCHOR,
+        cases=UNKNOWN_CASES, unknown_signal=TOY_UNKNOWN,
+    )
+    smuggled = root / "controls" / "toy" / "cases" / "unknown"
+    shutil.rmtree(smuggled)
+    smuggled.symlink_to(outside.parent, target_is_directory=True)
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "outside its own control directory" in result.stdout, result.stdout
+
+
 def test_a_case_may_declare_that_its_anchor_is_blind_to_the_refusal(tmp_path: Path) -> None:
     """The change #1157 exists to make, on the shape #1146 actually hit.
 

@@ -34,7 +34,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 GATE = ROOT / "scripts" / "check-ci-coverage.py"
 CASES = ROOT / "controls" / "ci-coverage" / "cases"
-FIXTURES = ROOT / "tests" / "fixtures" / "ci-coverage"
+#: The two empty-population trees live under the CONTROL since #1157, because
+#: they are registered cases now rather than fixtures this file alone drives.
+#: They keep their pytest coverage - the registration asserts the anchor
+#: relationship, these tests assert the exit code and the NAMED population,
+#: and neither subsumes the other.
+FIXTURES = CASES
 MAKEFILE = ROOT / "Makefile"
 WOODPECKER = ROOT / ".woodpecker.yml"
 
@@ -62,7 +67,7 @@ def test_a_makefile_with_no_verify_target_is_unknown_and_never_ok() -> None:
     absence. A reformatted `verify:` rule reaches this branch with nobody
     having edited the gate.
     """
-    tree = FIXTURES / "no-verify-target"
+    tree = FIXTURES / "unknown-no-verify-target"
     # PRECONDITION: the fixture really does construct the absence under test.
     # Without this the test still fails if someone restores a `verify:` rule,
     # but it fails opaquely - on an exit code, with no sentence saying why.
@@ -85,7 +90,7 @@ def test_a_pipeline_in_the_list_form_is_unknown_and_never_ok() -> None:
     this reader does not speak, and reading zero steps out of a pipeline with
     two must not license a green.
     """
-    tree = FIXTURES / "steps-in-list-form"
+    tree = FIXTURES / "unknown-steps-in-list-form"
     text = (tree / ".woodpecker.yml").read_text()
     # PRECONDITION, both halves: the list form is present AND the mapping form
     # this reader speaks is absent. Asserting only the first would pass over a
