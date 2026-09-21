@@ -284,6 +284,36 @@ steps:
     commands:
       - python3 scripts/check-claude-md-behavior.py
 
+  # Does this repository render a behavioural-eval verdict correctly? (#1084 half A)
+  #
+  # IT RUNS HERE BECAUSE THE ACCEPTANCE IS ABOUT A PATH, not about a checker
+  # existing. #1084 asks that "a change to CLAUDE.md or to a skill causes it to
+  # run", and CI does NOT run `make verify` - it runs the named steps in this
+  # file. A gate added only to the verify list would run on a developer's box and
+  # nowhere else, which is the defect the verify-coverage-check comment below
+  # records: a checker that "ran ONLY inside `make verify` and appeared nowhere"
+  # here, so main was red while CI was green.
+  #
+  # The pipeline declares `when: event: [push, pull_request]` and carries no path
+  # filters at all, so this fires on every change including one to CLAUDE.md or a
+  # skill. That is the whole of link four and it needed no arranging.
+  #
+  # ADVISORY here as in `make verify`: nothing produces its input yet, so it
+  # reports `absent` and must not fail the pipeline for that. The condition that
+  # makes it blocking is pre-committed in the Makefile beside its directive.
+  # The behavioural-eval CONSUMER reports on a verified-result artifact (#1084
+  # half A). ADVISORY on purpose - `|| true` - because nothing produces its input
+  # yet, so a blocking step would red every build for the honest reason that the
+  # producer is half B, blocked on skillc #5. The condition that ends the advisory
+  # posture is pre-committed at the Makefile target and pinned by
+  # tests/test_behavioral_eval.py, not left to a later judgement (ADR 0009).
+  # Reads a directory of JSON only - no git, no network - so it runs in this image.
+  behavioral-eval-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/check-behavioral-eval.py || true
+
   # The Codex agent-context file stays inside its word budget (#1071). Reads
   # AGENTS.md only - no git, no network - so it runs in this image unchanged.
   agents-md-budget-check:

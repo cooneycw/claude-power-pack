@@ -1,0 +1,2 @@
+{"version": 1, "kind": "artifact-manifest", "attempt_id": "att-fixture-8", "status": "PASS",
+ "criteria": [{"id": "c1", "mandatory": true, "outcome": "SATISFIED"}]}
