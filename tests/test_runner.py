@@ -51,6 +51,23 @@ def tmp_project(tmp_path: Path) -> Path:
     return tmp_path
 
 
+requires_make = pytest.mark.skipif(
+    shutil.which("make") is None, reason="requires make on PATH"
+)
+
+
+def _not_run_ids(result) -> list[str]:
+    """Gate ids the run recorded NOT-RUN, read the way the shell reads them.
+
+    `flow-finish-gate.sh` takes these from the per-step records, so the tests
+    ask the same question of the same artifact rather than a field invented for
+    their convenience.
+    """
+    return sorted(
+        d["id"] for d in result.step_details if d.get("status") == "not-run"
+    )
+
+
 requires_git = pytest.mark.skipif(
     shutil.which("git") is None, reason="git not available (e.g. Woodpecker validate container)"
 )
@@ -2205,6 +2222,363 @@ class TestSkippedGateReporting:
         assert "#621" in " ".join(result.warnings)
 
 
+class TestResumeSettlesDeferredGates:
+    """A resume must settle what the failed run left open (issue #1166).
+
+    The failed run deferred lint/test/typecheck into `verify` and recorded them
+    NOT_RUN when verify failed - honest, because make stops at its first failing
+    prerequisite. The resume re-runs only verify, which now passes, and before
+    #1166 those three records still said `not-run`: `flow-finish-gate.sh`
+    refuses a success carrying one (#1152) and reported
+    `fail (recorded not-run: lint test typecheck)`. A genuinely green retry
+    rejected, naming gates that did run.
+
+    SETTLED FROM A FRESH DERIVATION, NEVER FROM THE PERSISTED MAP. The record
+    carries `not_run_reason` naming the aggregate, so the relationship is
+    reconstructable - and reconstructing it is the false green these tests
+    exist to refuse, because the fix may have changed the Makefile.
+    """
+
+    @staticmethod
+    def _plan(makefile_lists_lint: bool, lint_ok: bool):
+        """The finish shape in miniature: three gates, an aggregate, a scan."""
+        prereqs = "lint test typecheck" if makefile_lists_lint else "test typecheck"
+        return prereqs, lint_ok
+
+    @requires_make
+    def test_a_green_retry_settles_the_not_run_records_as_subsumed(self, tmp_path):
+        """Fail at the aggregate, fix the tree, resume: the three must settle.
+
+        Measured on 9162b8e: verify passes on the resume, the runner returns
+        success, and lint/test/typecheck are still `not-run` - so the gate
+        refuses the pass. Here they end `subsumed`, and `security_scan` is NOT
+        re-run, because it already succeeded.
+        """
+        (tmp_path / "Makefile").write_text(
+            "lint:\n\t@true\ntest:\n\t@true\ntypecheck:\n\t@true\n"
+            "verify: lint test typecheck\n\t@exit 1\n"
+        )
+        steps = [
+            StepDef(id="lint", command="make lint", gate=True, timeout_seconds=60),
+            StepDef(id="test", command="make test", gate=True, timeout_seconds=60),
+            StepDef(id="typecheck", command="make typecheck", gate=True, timeout_seconds=60),
+            StepDef(id="security_scan", command="echo scanned", gate=True, timeout_seconds=60),
+            StepDef(id="verify", command="make verify", gate=True, timeout_seconds=60),
+        ]
+        runner = DeterministicRunner(project_root=tmp_path, output=StringIO())
+        first = runner.run("finish", step_defs=steps)
+        assert not first.success, "verify must fail in phase 1"
+        assert _not_run_ids(first) == ["lint", "test", "typecheck"], (
+            f"the failed run must record the three as not-run, got "
+            f"{_not_run_ids(first)}"
+        )
+
+        # FIX THE TREE. The Makefile still lists all three, so the resumed
+        # derivation agrees with the failed one and they re-defer.
+        (tmp_path / "Makefile").write_text(
+            "lint:\n\t@true\ntest:\n\t@true\ntypecheck:\n\t@true\n"
+            "verify: lint test typecheck\n\t@true\n"
+        )
+        second = runner.run("finish", step_defs=steps)
+        assert second.success, "the retry is green and must be reported so"
+        assert _not_run_ids(second) == [], (
+            f"a success cannot carry a not-run record - the gate refuses it "
+            f"(#1152). Got {_not_run_ids(second)}"
+        )
+        assert sorted(second.subsumed_gates) == ["lint", "test", "typecheck"]
+
+        by_id = {d["id"]: d for d in second.step_details}
+        assert by_id["security_scan"]["carried_from_previous_run"] is True, (
+            "security_scan passed in phase 1 and must not be re-run by the "
+            "resume; replaying a gate must not drag its neighbours back in"
+        )
+
+    @requires_make
+    def test_a_gate_the_resumed_tree_no_longer_subsumes_is_REPLAYED(self, tmp_path):
+        """The path where settling from the persisted map is a FALSE GREEN.
+
+        Phase 1's Makefile lists lint under verify; lint is broken and verify
+        fails, so lint is recorded not-run naming verify. Phase 2's Makefile no
+        longer lists lint - the "fix" removed it - and lint is still broken.
+
+        Settling from the persisted map records lint `subsumed` by a verify that
+        does not run it, and reports ok: a check recorded as passed that nothing
+        executed. Re-deriving finds lint unsubsumed, REPLAYS it, and it fails.
+        """
+        (tmp_path / "Makefile").write_text(
+            "lint:\n\t@exit 1\ntest:\n\t@true\n"
+            "verify: lint test\n\t@true\n"
+        )
+        steps = [
+            StepDef(id="lint", command="make lint", gate=True, timeout_seconds=60),
+            StepDef(id="test", command="make test", gate=True, timeout_seconds=60),
+            # A SUCCEEDING, NON-DEFERRED STEP BETWEEN THE GATES AND THE
+            # AGGREGATE. Without it `current_index` never advances past the
+            # deferred gates, the resume re-enters them by accident, and this
+            # test passes on the UNFIXED code - measured. The real finish plan
+            # has exactly this shape (security_scan sits between typecheck and
+            # verify), which is why the defect is reachable there.
+            StepDef(id="security_scan", command="echo scanned", gate=True, timeout_seconds=60),
+            StepDef(id="verify", command="make verify", gate=True, timeout_seconds=60),
+        ]
+        runner = DeterministicRunner(project_root=tmp_path, output=StringIO())
+        first = runner.run("finish", step_defs=steps)
+        assert not first.success
+        assert "lint" in _not_run_ids(first)
+
+        # THE TREE LEAVES lint BEHIND. verify no longer runs it; lint is still
+        # broken. Nothing is going to run lint unless lint runs.
+        (tmp_path / "Makefile").write_text(
+            "lint:\n\t@exit 1\ntest:\n\t@true\n"
+            "verify: test\n\t@true\n"
+        )
+        second = runner.run("finish", step_defs=steps)
+        assert not second.success, (
+            "lint is broken and no aggregate runs it any more, so the resume "
+            "must REPLAY it and fail. Reporting success here is the false "
+            "green that settling from the persisted map produces."
+        )
+        assert second.failed_step == "lint"
+        assert "lint" not in second.subsumed_gates
+
+    @requires_make
+    def test_a_replayed_step_uses_its_ORIGINAL_step_def(self, tmp_path):
+        """Replay runs the StepDef the plan declares, env included.
+
+        THE CANARY IS `env`, NOT THE COMMAND, and that is forced rather than
+        stylistic: to be deferred at all the command must be byte-equal to
+        `make lint` (#1165 recognises by equality with its producer), so a
+        command decorated to leave a marker is never subsumed and never
+        deferred - it just runs in phase 1, and the test passes having exercised
+        nothing. Measured: an earlier draft did exactly that. `env` rides along
+        with the StepDef without changing the command's bytes, so it can prove
+        the ORIGINAL definition was used and still reach the deferred path.
+        """
+        (tmp_path / "Makefile").write_text(
+            "lint:\n\t@echo \"$$REPLAY_CANARY\" > canary.txt\n\t@exit 1\n"
+            "test:\n\t@true\nverify: lint test\n\t@true\n"
+        )
+        steps = [
+            StepDef(
+                id="lint",
+                command="make lint",
+                gate=True,
+                timeout_seconds=60,
+                env={"REPLAY_CANARY": "original-stepdef"},
+            ),
+            StepDef(id="test", command="make test", gate=True, timeout_seconds=60),
+            StepDef(id="security_scan", command="echo scanned", gate=True, timeout_seconds=60),
+            # THE AGGREGATE CARRIES THE SAME env, and it has to. #1165 refuses
+            # to subsume a prerequisite whose step declares a different
+            # environment from the aggregate's - the same command under a
+            # different env is not the same check - so an env set on lint alone
+            # makes lint UNSUBSUMABLE and it simply runs in phase 1, testing
+            # nothing. Measured: that is what the first draft did.
+            StepDef(
+                id="verify",
+                command="make verify",
+                gate=True,
+                timeout_seconds=60,
+                env={"REPLAY_CANARY": "original-stepdef"},
+            ),
+        ]
+        runner = DeterministicRunner(project_root=tmp_path, output=StringIO())
+        first = runner.run("finish", step_defs=steps)
+        assert not first.success
+        assert "lint" in _not_run_ids(first), "lint must be DEFERRED, not run, in phase 1"
+
+        # The aggregate's own run of the lint target wrote the file with an
+        # empty canary (the verify step carries no such env). Remove it, so what
+        # the assertion reads can only have come from the replayed step.
+        (tmp_path / "canary.txt").unlink(missing_ok=True)
+        (tmp_path / "Makefile").write_text(
+            "lint:\n\t@echo \"$$REPLAY_CANARY\" > canary.txt\n\t@exit 1\n"
+            "test:\n\t@true\nverify: test\n\t@true\n"
+        )
+        second = runner.run("finish", step_defs=steps)
+        assert not second.success and second.failed_step == "lint"
+        canary = (tmp_path / "canary.txt")
+        assert canary.is_file(), "the replayed lint must actually have run"
+        assert canary.read_text().strip() == "original-stepdef", (
+            "the replayed step must carry the env from the StepDef the plan "
+            f"declares, not a reconstruction. Got {canary.read_text()!r}"
+        )
+
+    @requires_make
+    def test_a_FAILED_replay_is_reopened_by_the_NEXT_resume(self, tmp_path):
+        """The false green this fix introduced, and the review caught.
+
+        Reopening only NOT_RUN records left a hole exactly where replay had
+        just made one reachable: a replayed step that FAILS is recorded FAILED
+        below the frontier, which is not NOT_RUN, so the next resume skipped it
+        entirely. Measured on the first draft of this fix - fail at verify,
+        drop lint from its prerequisites, let the replayed lint fail, and the
+        THIRD invocation returned success=True with lint still recorded
+        `failed` and still broken.
+
+        Worse than the defect #1166 reports: that one REJECTED a green retry,
+        this one ACCEPTS a red tree. A repair for a false negative that
+        produces a false positive has moved the problem, not fixed it.
+        """
+        from lib.cicd.steps import StepDef
+
+        def makefile(verify_prereqs, lint_ok):
+            (tmp_path / "Makefile").write_text(
+                f"lint:\n\t@{'true' if lint_ok else 'exit 1'}\n"
+                f"test:\n\t@true\nsecurity_scan:\n\t@true\n"
+                f"verify: {verify_prereqs}\n\t@true\n"
+            )
+
+        steps = [
+            StepDef(id="lint", command="make lint", gate=True, timeout_seconds=60),
+            StepDef(id="test", command="make test", gate=True, timeout_seconds=60),
+            StepDef(id="security_scan", command="echo scanned", gate=True, timeout_seconds=60),
+            StepDef(id="verify", command="make verify", gate=True, timeout_seconds=60),
+        ]
+        runner = DeterministicRunner(project_root=tmp_path, output=StringIO())
+
+        makefile("lint test", lint_ok=False)
+        assert not runner.run("finish", step_defs=steps).success
+
+        # The tree drops lint from verify; lint is still broken, so the replay
+        # runs it and it fails.
+        makefile("test", lint_ok=False)
+        second = runner.run("finish", step_defs=steps)
+        assert not second.success and second.failed_step == "lint"
+
+        # THE THIRD INVOCATION. Nothing has been fixed, so nothing may pass.
+        third = runner.run("finish", step_defs=steps)
+        assert not third.success, (
+            "lint is still broken and no aggregate runs it. A resume that "
+            "skips a FAILED replay reports success over a red tree."
+        )
+        assert third.failed_step == "lint"
+
+        # And when it IS fixed, the run goes green without re-running the
+        # neighbour that already passed.
+        makefile("test", lint_ok=True)
+        fourth = runner.run("finish", step_defs=steps)
+        assert fourth.success
+        assert fourth.carried_from_previous_run == ["security_scan"], (
+            "a successful replay must not drag settled neighbours back in - "
+            "the frontier may never retreat. Got "
+            f"{fourth.carried_from_previous_run}"
+        )
+
+    @requires_make
+    def test_a_settled_record_carries_no_stale_failure_reason(self, tmp_path):
+        """`status: subsumed` and `not_run_reason: verify failed` cannot both hold.
+
+        A re-deferred gate arrives at `mark_step_subsumed` carrying the reason
+        the PREVIOUS run recorded, and leaving it attached publishes two
+        accounts of one gate in `step_details` - one of them describing a run
+        that has since been superseded. Measured before the fix.
+        """
+        from lib.cicd.steps import StepDef
+
+        def makefile(verify_ok):
+            (tmp_path / "Makefile").write_text(
+                "lint:\n\t@true\ntest:\n\t@true\nsecurity_scan:\n\t@true\n"
+                f"verify: lint test\n\t@{'true' if verify_ok else 'exit 1'}\n"
+            )
+
+        steps = [
+            StepDef(id="lint", command="make lint", gate=True, timeout_seconds=60),
+            StepDef(id="test", command="make test", gate=True, timeout_seconds=60),
+            StepDef(id="security_scan", command="echo scanned", gate=True, timeout_seconds=60),
+            StepDef(id="verify", command="make verify", gate=True, timeout_seconds=60),
+        ]
+        runner = DeterministicRunner(project_root=tmp_path, output=StringIO())
+        makefile(verify_ok=False)
+        assert not runner.run("finish", step_defs=steps).success
+        makefile(verify_ok=True)
+        second = runner.run("finish", step_defs=steps)
+        assert second.success
+
+        for entry in second.step_details:
+            if entry.get("status") == "subsumed":
+                assert "not_run_reason" not in entry, (
+                    f"{entry['id']} is subsumed and still carries "
+                    f"{entry.get('not_run_reason')!r} - two accounts of one gate"
+                )
+
+    @requires_make
+    def test_a_resume_whose_aggregate_fails_AGAIN_keeps_the_records(self, tmp_path):
+        """Failing twice must read exactly like failing once.
+
+        A GUARD, NOT A REGRESSION TEST, and labelled so deliberately: it passes
+        on 9162b8e too, because there the records are never touched and here
+        they are re-deferred and then re-marked - same observable either way.
+        Its red case is this FIX going wrong (settling a record the retry never
+        earned), not the old code. Calling it a regression test would be a name
+        claiming more than the assertion does.
+        """
+        (tmp_path / "Makefile").write_text(
+            "lint:\n\t@true\ntest:\n\t@true\nverify: lint test\n\t@exit 1\n"
+        )
+        steps = [
+            StepDef(id="lint", command="make lint", gate=True, timeout_seconds=60),
+            StepDef(id="test", command="make test", gate=True, timeout_seconds=60),
+            # A SUCCEEDING, NON-DEFERRED STEP BETWEEN THE GATES AND THE
+            # AGGREGATE. Without it `current_index` never advances past the
+            # deferred gates, the resume re-enters them by accident, and this
+            # test passes on the UNFIXED code - measured. The real finish plan
+            # has exactly this shape (security_scan sits between typecheck and
+            # verify), which is why the defect is reachable there.
+            StepDef(id="security_scan", command="echo scanned", gate=True, timeout_seconds=60),
+            StepDef(id="verify", command="make verify", gate=True, timeout_seconds=60),
+        ]
+        runner = DeterministicRunner(project_root=tmp_path, output=StringIO())
+        assert not runner.run("finish", step_defs=steps).success
+        second = runner.run("finish", step_defs=steps)
+        assert not second.success
+        assert _not_run_ids(second) == ["lint", "test"], (
+            "a retry that fails again leaves the not-run records standing, "
+            f"exactly as a fresh run does. Got {_not_run_ids(second)}"
+        )
+
+    @requires_make
+    def test_a_tree_that_left_the_grammar_between_runs_replays_everything(
+        self, tmp_path
+    ):
+        """The resumed derivation goes through the same grammar check (#1165).
+
+        A Makefile that acquires a conditional between the failure and the
+        resume is outside the grammar, so it subsumes NOTHING - and every
+        open record must replay rather than settle.
+        """
+        (tmp_path / "Makefile").write_text(
+            "lint:\n\t@true\ntest:\n\t@true\nverify: lint test\n\t@exit 1\n"
+        )
+        steps = [
+            StepDef(id="lint", command="make lint", gate=True, timeout_seconds=60),
+            StepDef(id="test", command="make test", gate=True, timeout_seconds=60),
+            # A SUCCEEDING, NON-DEFERRED STEP BETWEEN THE GATES AND THE
+            # AGGREGATE. Without it `current_index` never advances past the
+            # deferred gates, the resume re-enters them by accident, and this
+            # test passes on the UNFIXED code - measured. The real finish plan
+            # has exactly this shape (security_scan sits between typecheck and
+            # verify), which is why the defect is reachable there.
+            StepDef(id="security_scan", command="echo scanned", gate=True, timeout_seconds=60),
+            StepDef(id="verify", command="make verify", gate=True, timeout_seconds=60),
+        ]
+        runner = DeterministicRunner(project_root=tmp_path, output=StringIO())
+        assert not runner.run("finish", step_defs=steps).success
+
+        (tmp_path / "Makefile").write_text(
+            "lint:\n\t@true\ntest:\n\t@true\n"
+            "ifeq (1,1)\nverify: lint test\nendif\n\t@true\n"
+        )
+        second = runner.run("finish", step_defs=steps)
+        assert second.subsumed_gates == {}, (
+            "a tree outside the grammar subsumes nothing, on a resume as on a "
+            f"fresh run. Got {second.subsumed_gates}"
+        )
+        assert _not_run_ids(second) == [], (
+            "and nothing may stay not-run: those gates were replayed"
+        )
+
+
 class TestResumedRunReportsWhatActuallyRan:
     """The runner must record where THIS invocation began (issue #838 f/u).
 
@@ -2808,9 +3182,6 @@ class TestCarriedZeroCoverageSurvivesResume:
         ), second.warnings
 
 
-requires_make = pytest.mark.skipif(
-    shutil.which("make") is None, reason="requires make on PATH"
-)
 
 
 class TestSubsumedGates:

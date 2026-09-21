@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# TWO-PHASE DRIVER, standing in for `uv run --project <CPP> python -m lib.cicd`.
+#
+# The defect is only reachable ACROSS two invocations: a run that defers gates
+# into an aggregate and fails AT the aggregate, then a resume. The gate script
+# invokes the runner once, so the case supplies the first phase itself:
+#
+#   phase 1  run the REAL lib.cicd against `Makefile` - it must FAIL, leaving
+#            the deferred gates recorded not-run and a state file to resume
+#   swap     replace Makefile with Makefile.phase2 (identical, in the cases
+#            where the tree is not what changed)
+#   phase 2  run the REAL lib.cicd again - this is the RESUME, and its result
+#            is what the gate sees and judges
+#
+# Phase 1's output goes to stderr so it cannot be mistaken for the verdict; the
+# gate reads phase 2 alone. The module that executes is the repository's own in
+# both phases, so this measures the real resume path rather than a
+# re-description of it.
+#
+# SPLIT ON THE INTERPRETER, not on keywords: `run` appears twice in the real
+# invocation (uv's subcommand and lib.cicd's command), and a filter keyed on it
+# eats both (#1165 note, kept because the trap is the same here).
+project=""
+args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        python|python3) shift; args=("$@"); break ;;
+        --project) project="$2"; shift 2 ;;
+        --extra|--with) shift 2 ;;
+        *) shift ;;
+    esac
+done
+[[ -n "$project" ]] || { echo "uv-stub: no --project in the invocation" >&2; exit 2; }
+export PYTHONPATH="$project${PYTHONPATH:+:$PYTHONPATH}"
+
+if [[ ! -f .phase1-done ]]; then
+    touch .phase1-done
+    echo "uv-stub: PHASE 1 (must fail at the aggregate)" >&2
+    python3 "${args[@]}" >&2 2>&1
+    rc=$?
+
+    # THE PRECONDITION IS ASSERTED, NOT ASSUMED (CLAUDE.md: a fixture that
+    # constructs a NEGATIVE condition must assert it before exercising the
+    # code; counter-model review of #1166 caught its absence here).
+    #
+    # Swallowing phase 1's outcome made this control keep its expected verdicts
+    # for the WRONG REASON. Measured by the reviewer: with subsumption disabled
+    # outright, the good case still exits 3 - because previously successful
+    # steps are carried regardless - and the bad case still fails, at a
+    # standalone lint that was never deferred. Neither exercised the deferred
+    # record settlement the control exists to measure. A case that holds its
+    # verdict when its subject is removed is measuring something else.
+    #
+    # So phase 1 must have FAILED, and must have left the deferred gates
+    # recorded not-run BEFORE the resume point. Exit 9 is the harness's
+    # "the case could not be set up" code, distinct from the gate's own
+    # verdicts, so a broken fixture can never be read as a verdict.
+    if [[ $rc -eq 0 ]]; then
+        echo "uv-stub: PRECONDITION FAILED - phase 1 exited 0; this case needs" >&2
+        echo "  a run that FAILS at the aggregate, or there is nothing to resume." >&2
+        exit 9
+    fi
+    state=$(ls .claude/runs/*.json 2>/dev/null | head -1)
+    if [[ -z "$state" ]]; then
+        echo "uv-stub: PRECONDITION FAILED - phase 1 left no state file, so" >&2
+        echo "  phase 2 would be a FRESH run, not a resume." >&2
+        exit 9
+    fi
+    if ! grep -q '"status": "not-run"' "$state"; then
+        echo "uv-stub: PRECONDITION FAILED - phase 1 recorded no not-run gate." >&2
+        echo "  Nothing was deferred, so the resume has nothing to settle and" >&2
+        echo "  this case cannot measure its subject." >&2
+        exit 9
+    fi
+    echo "uv-stub: precondition ok - phase 1 failed and left not-run record(s)" >&2
+
+    [[ -f Makefile.phase2 ]] && cp Makefile.phase2 Makefile
+    echo "uv-stub: PHASE 2 (the resume; its result is the verdict)" >&2
+fi
+exec python3 "${args[@]}"

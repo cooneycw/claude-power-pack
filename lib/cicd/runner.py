@@ -504,9 +504,13 @@ class DeterministicRunner:
             if aggregate_ok:
                 state.mark_step_subsumed(index, finished_step_id)
             else:
+                # `verify failed at prerequisite verify` says nothing and
+                # points a reader at the aggregate they already know failed.
+                # Same rule as the gate marker (#1165): name the prerequisite
+                # only when it differs from the step that failed.
                 at = (
                     f" at prerequisite {failing_prerequisite}"
-                    if failing_prerequisite
+                    if failing_prerequisite and failing_prerequisite != finished_step_id
                     else ""
                 )
                 state.mark_step_not_run(
@@ -650,10 +654,21 @@ class DeterministicRunner:
         softens accordingly; callers that can't verify (no git, old state
         file) get the original, more cautious wording.
         """
+        # A NOT-RUN RECORD IS NOT A CARRIED RESULT (issue #1166). It is an
+        # OPEN one: the run that wrote it never established anything about that
+        # gate, and this invocation is about to settle it - re-deferred to an
+        # aggregate that runs here, or replayed. Listing it as "will NOT run
+        # and keeps its earlier result" is wrong twice over: the step may well
+        # run, and there is no earlier result to keep. Measured before this:
+        # a fail-fix-resume whose three gates were re-deferred and then settled
+        # `subsumed` by a passing aggregate still reported
+        # `warn (carried, unverified: lint test typecheck ...)`, so a genuinely
+        # green retry read as action-required.
         carried = [
             record.step_id
             for record in state.step_records[: state.current_index]
-            if record.status not in (StepStatus.PENDING, StepStatus.SKIPPED)
+            if record.status
+            not in (StepStatus.PENDING, StepStatus.SKIPPED, StepStatus.NOT_RUN)
         ]
         if not carried:
             return
@@ -709,6 +724,9 @@ class DeterministicRunner:
 
         completed = state.current_index
         self._executed_from = executed_from
+        # Always defined: a fresh run settles nothing backwards, and a summary
+        # that reached for a missing attribute would fail on the common path.
+        self._settled_here: set[int] = set()
         tests: dict[str, dict[str, Any]] = {}
         coverage: dict[str, dict[str, Any]] = {}
         warnings: list[str] = []
@@ -741,7 +759,103 @@ class DeterministicRunner:
         # the derivation.
         deferred: dict[int, str] = {}
 
-        for idx in range(state.current_index, len(state.step_records)):
+        # A RESUME MUST SETTLE WHAT THE FAILED RUN LEFT OPEN (issue #1166).
+        #
+        # `deferred` is rebuilt empty on every invocation and, before this, was
+        # populated only from `state.current_index` forward. A run that deferred
+        # lint/test/typecheck into `verify` and then failed AT verify persists
+        # those three as `not-run` and leaves `current_index` pointing at verify
+        # - so on resume the three sit BEFORE the loop's start, nothing
+        # re-enters them, `_resolve_deferred` finds nothing, and a verify that
+        # now PASSES returns success with three `not-run` records still
+        # standing. `flow-finish-gate.sh` then refuses the pass (#1152, a
+        # success and a not-run record cannot both be true) and names gates that
+        # did in fact run. The shell is right on its inputs; the runner
+        # published a state it should have settled.
+        #
+        # NOT SETTLED FROM THE PERSISTED MAP, and this is the whole design
+        # decision (orchestrator ratification; #1166's own body prefers the
+        # other way and is overruled on the issue with the reason). The record
+        # carries `not_run_reason` naming the aggregate, so the relationship is
+        # RECONSTRUCTABLE - and reconstructing it would be a false green. The
+        # premise of a resume is that the failure was FIXED, and the fix may
+        # have touched the Makefile: if `verify` no longer lists `lint` on the
+        # resumed tree, settling `lint` as `subsumed` from the old map records a
+        # check as passed that no aggregate ran. That is #1165's defect
+        # manufactured by the fix for a false negative.
+        #
+        # So the question is asked again, of THIS tree, and only the new answer
+        # is used - `subsumable` above is a fresh derivation, grammar check
+        # included. Each open record goes one of two ways:
+        #
+        #   still subsumed, by an aggregate this invocation will run
+        #       -> re-defer; it settles on that aggregate's REAL outcome
+        #   not subsumed any more (or its aggregate will not run here)
+        #       -> REPLAY it: nothing is going to run it, so it must run itself
+        #
+        # A replayed step executes with its ORIGINAL StepDef - the command, env
+        # and timeout the plan declares - never a reconstruction.
+        replay: list[int] = []
+        # Indices this invocation settles despite sitting BELOW
+        # `current_index`, so the summary does not call them carried.
+        if state.current_index:
+            for idx in range(state.current_index):
+                record = state.step_records[idx]
+                # UNSETTLED, NOT MERELY NOT-RUN (issue #1166, counter-model
+                # review). Reopening only NOT_RUN records left a hole exactly
+                # where this fix had just made one reachable: a REPLAYED step
+                # that fails is recorded FAILED below the frontier, and a
+                # PENDING one may have been reopened and never reached. Neither
+                # is NOT_RUN, so the NEXT resume skipped both.
+                #
+                # Measured, and it is worse than the defect this issue reports:
+                # fail at verify, drop lint from its prerequisites, let the
+                # replayed lint FAIL - then a third invocation returned
+                # success=True with lint still recorded `failed` and still
+                # broken. A false green, introduced by the repair for a false
+                # negative. Only SUCCESS, SKIPPED and SUBSUMED are settled.
+                if record.status not in (
+                    StepStatus.NOT_RUN,
+                    StepStatus.FAILED,
+                    StepStatus.PENDING,
+                ):
+                    continue
+                aggregate = subsumable.get(record.step_id)
+                aggregate_idx = next(
+                    (i for i, d in enumerate(step_defs) if d.id == aggregate),
+                    None,
+                )
+                if aggregate is not None and aggregate_idx is not None and (
+                    aggregate_idx >= state.current_index or aggregate_idx in replay
+                ):
+                    deferred[idx] = aggregate
+                    self._settled_here.add(idx)
+                    self._log(
+                        f"  RE-DEFERRED: {record.step_id} -> `{aggregate}`, on the "
+                        f"resumed tree's own derivation (issue #1166)"
+                    )
+                else:
+                    state.mark_step_pending(idx)
+                    replay.append(idx)
+                    self._settled_here.add(idx)
+                    why = (
+                        f"no longer a prerequisite of `{aggregate}`"
+                        if aggregate is None
+                        else f"`{aggregate}` does not run in this resume"
+                    )
+                    if record.status is StepStatus.FAILED:
+                        why = f"{why}; its previous replay FAILED"
+
+                    self._log(
+                        f"  REPLAYED: {record.step_id} - not subsumed on the "
+                        f"resumed tree's derivation ({why}), so it runs here"
+                    )
+
+        # REPLAYS FIRST, THEN THE RESUME RANGE. An explicit index list rather
+        # than a bare `range()`, so a replayed gate re-enters the loop WITHOUT
+        # dragging every already-successful step back in with it: a resume that
+        # replays `lint` must not re-run `security_scan`, which already passed.
+        for idx in replay + list(range(state.current_index, len(state.step_records))):
             step_def = step_defs[idx]
             # An aggregate that something was deferred TO inherits the need to
             # parse a test summary from whatever it subsumes (issue #1152).
@@ -1224,7 +1338,10 @@ class DeterministicRunner:
                     # the `not-run (verify failed at prerequisite lint)` rows
                     # are exactly what a reader needs THERE. A reader told only
                     # "verify failed" has 29 prerequisites to search.
-                    step_details=state.summary(executed_from=executed_from)["steps"],
+                    step_details=state.summary(
+                        executed_from=executed_from,
+                        settled_in_this_run=self._settled_here,
+                    )["steps"],
                     failed_step=step.id,
                     # ONLY WHEN IT NAMES SOMETHING ELSE. make prints the same
                     # `*** [Makefile:N: lint]` line whether lint failed as an
@@ -1325,7 +1442,10 @@ class DeterministicRunner:
         # FileNotFoundError, which is why `step_details` was previously
         # failure-only and why a resumed GREEN run could not say which of its
         # steps had actually run.
-        success_details = state.summary(executed_from=executed_from)["steps"]
+        success_details = state.summary(
+            executed_from=executed_from,
+            settled_in_this_run=self._settled_here,
+        )["steps"]
         # Re-derive the coverage roll-up and its warnings from the PERSISTED
         # records, not only from the steps this invocation executed (issue
         # #1027, cross-model review). `coverage` and `warnings` start empty on
