@@ -432,5 +432,20 @@ _gate_main() {
 }
 
 if _gate_self_invoked; then
+    # THE EXIT LINE GOES INSIDE THIS BRANCH, and that placement is the whole
+    # design (#1031 applied to a file that is both a library and a program).
+    # `trap ... EXIT` installs into the CURRENT shell, and when this file is
+    # SOURCED that shell belongs to the caller - flow-finish-gate.sh, which
+    # installs its own `FLOW_FINISH_GATE_EXIT=` trap at line 137 and then
+    # sources this file at line 200. A top-level trap here would silently
+    # REPLACE it, deleting the one line the gate's caller reads to tell a
+    # refusal from a pipe. That is the #1031 chainer hazard arriving from the
+    # one direction the CHAINERS list cannot see, because the offending trap
+    # would not be in the gate's own file at all.
+    #
+    # Self-invocation is decided by the sentinel at line 4, not by $0's name:
+    # when sourced, $0 is the CALLER's path and the sentinel is absent, so this
+    # branch does not run and the caller's trap stands untouched.
+    trap 'printf "GATE_LIB_EXIT=%d\n" "$?" >&2' EXIT
     _gate_main "$@"
 fi
