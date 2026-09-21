@@ -287,10 +287,11 @@ before Step 2, on EVERY lane including `current-branch` and `resume`:
 
 ```bash
 REC="docs/flow-runs/issue-42.md"
-if git ls-files --error-unmatch "$REC" >/dev/null 2>&1; then
-    git checkout HEAD -- "$REC"   # tracked: restore the last COMMITTED version
+if git cat-file -e "HEAD:$REC" 2>/dev/null; then
+    git checkout HEAD -- "$REC"                      # in HEAD: restore index AND worktree
 else
-    rm -f "$REC"             # untracked: a dead run's scratch, never approved
+    git rm -q --cached --ignore-unmatch "$REC" >/dev/null 2>&1   # drop a staged addition
+    rm -f "$REC"                                     # and the scratch itself
 fi
 ```
 
@@ -316,6 +317,24 @@ So tracked is EVIDENCE and is restored; untracked is SCRATCH and is removed. A
 tracked record carrying uncommitted edits is restored to the committed version
 rather than kept, because the committed version is the one a reviewer actually
 signed - which also means this file is not a place to hand-edit between runs.
+
+**Ask HEAD whether the record EXISTS, not the index.** `git ls-files` answers
+"is this path in the INDEX", which is a different question and wrong in both
+directions (counter-model review, gpt-6-astra). Measured, with the index-based
+test:
+
+| state | result |
+|---|---|
+| committed record with a STAGED DELETION (`git rm --cached`) | file deleted, deletion still staged - an APPROVED record destroyed |
+| record STAGED but never committed | `UNAPPROVED scratch` left in place and still staged |
+
+Both are reachable, and the second is the exact failure the untracked branch
+exists to prevent. `git cat-file -e HEAD:<path>` asks the question the invariant
+is written in - "was this ever committed on this branch" - and
+`git checkout HEAD -- <path>` then restores the index as well as the worktree, so
+a staged deletion is undone rather than preserved. With the HEAD-based test the
+same two states yield `approved by A` with nothing staged, and absent with
+nothing staged.
 
 **`HEAD --`, never a bare `--`.** `git checkout -- <path>` restores from the
 INDEX, not from HEAD, and the state where those differ is reachable by this
@@ -517,6 +536,64 @@ There is deliberately no `auto-granted` value: a field that can still be produce
 
 ### Step 4: Implement - Write the Code
 
+**Re-check for a second driver (issue #597) - run BEFORE the first edit.** The
+#503 live-driver guard fires once, in Step 1. Everything between Step 1 and here
+- analysis, the ELI5 gate, the approval pause - is wall-clock time in which
+another session can enter this checkout, and one did: on `flow:auto #13` a
+concurrent session wrote a file into this worktree between the Step-1 clear
+verdict and the Step-4 merge, which then aborted on their dirty tree. A guard
+that runs only at Step 1 cannot see that. Re-run it bare, against the worktree
+(#581 invocation discipline; advisory, fail-open):
+
+```bash
+~/.claude/scripts/flow-live-driver-guard.sh
+```
+
+- `FLOW_LIVE_DRIVER: clear` - proceed.
+- `FLOW_LIVE_DRIVER: suspected` - dirty files here were modified in the last
+  30m and you have not written anything yet, so they are NOT yours. **STOP** and
+  ask the user before editing: another session is mid-implementation in this
+  checkout. Editing now means two drivers fighting over one tree.
+- Confirm the claim is still ours if anything looks off:
+  `~/.claude/scripts/flow-worktree-claim.sh check .` - `FLOW_CLAIM: self` is the
+  healthy answer; `held` means someone took the checkout over.
+
+**Early stale-base check (issue #473) - run BEFORE editing.** A sibling PR that
+merges during implementation moves `origin/main` under you; discovering it only
+at the Step-7 #462 guard means your edits were already made against stale copies
+of the very files the sibling changed. Surface it now - a bare invocation
+(advisory: warns, never blocks; the #581 invocation discipline from Step 1
+applies to every helper call below). Pass the worktree path from the Step-1
+contract (`WT_PATH`) verbatim as the trailing literal argument - the checkout
+is DECLARED, never inferred from the Bash cwd, which drifts on any earlier
+`cd` and once made this advisory answer for the wrong tree (issue #614, the
+#592 rule); the emitted `FLOW_STALE_PATH:` line must name the run's worktree:
+
+```bash
+~/.claude/scripts/flow-stale-check.sh origin/main /path/to/worktree
+```
+
+(Exit 127 - helper family not installed: fall back to
+`${CLAUDE_PLUGIN_ROOT}/scripts/flow-stale-check.sh` (bundled with the plugin,
+#590), else `$CPP_DIR/scripts/flow-stale-check.sh` after locating the CPP
+checkout; either may prompt. This guard is advisory - if no copy exists, note it
+and continue. `/flow-repair` installs the family at the stable path.)
+
+- If it reports `FLOW_STALE_BASE: collision` - or names a file you are about to
+  touch under "Changed upstream" - bring the base in now, before piling edits on
+  a stale tree: `git merge --no-edit origin/main`, resolve any conflict in the
+  named file(s), then implement. If git refuses to START the merge because
+  local changes overlap incoming ones, commit the work first (`git add -A` +
+  `git commit -m "wip(flow): pre-merge snapshot"`) and merge on the clean tree
+  - never stash: the stash stack is SHARED across every worktree of the repo
+  and a bare pop can restore a sibling session's work (#635). If the merge touched any
+  `.claude/commands/**/*.md`, re-run the LOCAL
+  `python3 scripts/codex-skill-sync.py --write`, then stage `codex/skills/`, so
+  the generated Codex surface does not drift (issue #506; Codex skills #555,
+  marketplace retired #662).
+- If it reports `current` or `moved-clean` with no overlap, proceed - the Step-7
+  #462 guard remains the final backstop.
+
 #### First, write the plan record (issue #1080)
 
 **Step 4 is reached only when Step 3's approval was granted**, so this is the
@@ -598,64 +675,16 @@ it wrong.
 **A verdict of `No longer needed` writes NO record.** The run stops, there is no
 plan to approve, and an empty record would assert that one was.
 
-
-**Re-check for a second driver (issue #597) - run BEFORE the first edit.** The
-#503 live-driver guard fires once, in Step 1. Everything between Step 1 and here
-- analysis, the ELI5 gate, the approval pause - is wall-clock time in which
-another session can enter this checkout, and one did: on `flow:auto #13` a
-concurrent session wrote a file into this worktree between the Step-1 clear
-verdict and the Step-4 merge, which then aborted on their dirty tree. A guard
-that runs only at Step 1 cannot see that. Re-run it bare, against the worktree
-(#581 invocation discipline; advisory, fail-open):
-
-```bash
-~/.claude/scripts/flow-live-driver-guard.sh
-```
-
-- `FLOW_LIVE_DRIVER: clear` - proceed.
-- `FLOW_LIVE_DRIVER: suspected` - dirty files here were modified in the last
-  30m and you have not written anything yet, so they are NOT yours. **STOP** and
-  ask the user before editing: another session is mid-implementation in this
-  checkout. Editing now means two drivers fighting over one tree.
-- Confirm the claim is still ours if anything looks off:
-  `~/.claude/scripts/flow-worktree-claim.sh check .` - `FLOW_CLAIM: self` is the
-  healthy answer; `held` means someone took the checkout over.
-
-**Early stale-base check (issue #473) - run BEFORE editing.** A sibling PR that
-merges during implementation moves `origin/main` under you; discovering it only
-at the Step-7 #462 guard means your edits were already made against stale copies
-of the very files the sibling changed. Surface it now - a bare invocation
-(advisory: warns, never blocks; the #581 invocation discipline from Step 1
-applies to every helper call below). Pass the worktree path from the Step-1
-contract (`WT_PATH`) verbatim as the trailing literal argument - the checkout
-is DECLARED, never inferred from the Bash cwd, which drifts on any earlier
-`cd` and once made this advisory answer for the wrong tree (issue #614, the
-#592 rule); the emitted `FLOW_STALE_PATH:` line must name the run's worktree:
-
-```bash
-~/.claude/scripts/flow-stale-check.sh origin/main /path/to/worktree
-```
-
-(Exit 127 - helper family not installed: fall back to
-`${CLAUDE_PLUGIN_ROOT}/scripts/flow-stale-check.sh` (bundled with the plugin,
-#590), else `$CPP_DIR/scripts/flow-stale-check.sh` after locating the CPP
-checkout; either may prompt. This guard is advisory - if no copy exists, note it
-and continue. `/flow-repair` installs the family at the stable path.)
-
-- If it reports `FLOW_STALE_BASE: collision` - or names a file you are about to
-  touch under "Changed upstream" - bring the base in now, before piling edits on
-  a stale tree: `git merge --no-edit origin/main`, resolve any conflict in the
-  named file(s), then implement. If git refuses to START the merge because
-  local changes overlap incoming ones, commit the work first (`git add -A` +
-  `git commit -m "wip(flow): pre-merge snapshot"`) and merge on the clean tree
-  - never stash: the stash stack is SHARED across every worktree of the repo
-  and a bare pop can restore a sibling session's work (#635). If the merge touched any
-  `.claude/commands/**/*.md`, re-run the LOCAL
-  `python3 scripts/codex-skill-sync.py --write`, then stage `codex/skills/`, so
-  the generated Codex surface does not drift (issue #506; Codex skills #555,
-  marketplace retired #662).
-- If it reports `current` or `moved-clean` with no overlap, proceed - the Step-7
-  #462 guard remains the final backstop.
+**Why the record is written HERE and not at the top of Step 4.** The two checks
+above are explicitly "run BEFORE the first edit", and writing the record IS the
+first edit. `flow-live-driver-guard.sh` collects tracked-modified AND untracked
+paths touched within 30 minutes; a record written before it is a fresh untracked
+file, so the guard would report `suspected` on every ordinary single-driver run
+and the procedure would stop to ask about a second driver that does not exist.
+Its own text states the premise this breaks: "dirty files here were modified in
+the last 30m and you have not written anything yet, so they are NOT yours."
+Found by counter-model review (gpt-6-astra); the ordering is load-bearing, not
+cosmetic.
 
 **Worktree path-resolution rule (issue #486) - a native `EnterWorktree` session
 edits the worktree, but the worktree lives *inside* the main repo at
@@ -1254,11 +1283,19 @@ git merge --no-edit origin/main
    - PR body: Summary of changes + test plan + `${ISSUE_REF}`
    - Analyze all commits on the branch to draft the summary.
 
-6. **Confirm the plan record reached the PR** (issue #1080) - ask the PR, not
-   the worktree:
+6. **Confirm the plan record reached the PR** (issue #1080) - ask whether it
+   EXISTS at the PR's head, not whether its name appears in a diff:
    ```bash
-   gh pr diff --name-only | grep -qx "docs/flow-runs/issue-42.md" \
-     || echo "STOP: the plan record is not in the PR diff."
+   REC="docs/flow-runs/issue-42.md"
+   if ! PR_HEAD=$(gh pr view --json headRefOid --jq .headRefOid); then
+       echo "STOP: could not read the PR head - the record is UNVERIFIED, not absent."
+       exit 1
+   fi
+   git fetch -q origin "$PR_HEAD" 2>/dev/null || true
+   if ! git cat-file -e "$PR_HEAD:$REC" 2>/dev/null; then
+       echo "STOP: the plan record does not exist at the PR head ($PR_HEAD)."
+       exit 1
+   fi
    ```
    A record present in the worktree but absent from the PR is the failure this
    check exists for, and it is silent at every earlier stage: `git add` skips an
@@ -1266,6 +1303,20 @@ git merge --no-edit origin/main
    given. Checking `git status` locally would confirm the file exists and prove
    nothing about what ships. Skip this when the run wrote no record - a
    `No longer needed` verdict has none to find.
+
+   **Three ways the obvious version of this check is wrong**, all found by
+   counter-model review (gpt-6-astra) and all reproduced:
+   - `gh pr diff --name-only` lists DELETED paths too, so a run that removed the
+     record passes a name check while the PR head carries no record at all.
+     Existence at the head SHA is the question; a diff is not.
+   - `grep -qx "docs/flow-runs/issue-42.md"` treats `.` as any character and
+     accepts the neighbouring name `docs/flow-runs/issue-42Xmd` - reproduced
+     exactly. Compare paths literally (`-F`), or better, do not compare strings
+     at all, as above.
+   - `... || echo "STOP: ..."` makes a failed query and a genuine absence print
+     the same line and BOTH exit 0, so the advertised STOP cannot stop anything
+     and "I could not look" is rendered as "I looked and it is missing". The
+     form above separates the two and exits non-zero on either.
 
 Report: `Step 6/9: Finish complete - PR #XX created`
 

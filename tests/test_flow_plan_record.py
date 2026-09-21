@@ -52,10 +52,12 @@ def extract_reconcile_snippet() -> str:
     if not m:
         raise AssertionError("no fenced bash block follows the reconcile heading")
     snippet = m.group(1)
-    if "ls-files" not in snippet:
+    if 'cat-file -e "HEAD:' not in snippet:
         raise AssertionError(
-            "the reconcile snippet no longer consults the index; these cases "
-            f"would no longer be testing the tracked/untracked distinction:\n{snippet}"
+            "the reconcile snippet no longer asks HEAD whether the record was "
+            "COMMITTED. An index-based test (`git ls-files`) answers a different "
+            "question and is wrong in both directions - see the staged-deletion "
+            f"and staged-addition cases below:\n{snippet}"
         )
     return snippet
 
@@ -78,11 +80,55 @@ def make_repo(tmp_path: Path) -> Path:
     return repo
 
 
-def run_reconcile(repo: Path) -> None:
-    subprocess.run(
-        ["bash", "-c", extract_reconcile_snippet()],
-        cwd=repo, capture_output=True, text=True, check=False,
+WRITE_HEADING = "#### First, write the plan record (issue #1080)"
+
+
+def extract_write_snippet() -> str:
+    """The bash block that WRITES the record, or raise.
+
+    The squash case used to create its own hardcoded record, so deleting the
+    documented write left every case green - the tests would have kept passing
+    over a procedure that no longer wrote anything (counter-model review,
+    gpt-6-astra). Running the documented block is what ties them to it.
+    """
+    text = AUTO_MD.read_text()
+    if text.count(WRITE_HEADING) != 1:
+        raise AssertionError(
+            f"expected exactly one {WRITE_HEADING!r}, found {text.count(WRITE_HEADING)}"
+        )
+    after = text.split(WRITE_HEADING, 1)[1]
+    m = re.search(r"```bash\n(.*?)```", after, re.DOTALL)
+    if not m:
+        raise AssertionError("no fenced bash block follows the write heading")
+    snippet = m.group(1)
+    if RECORD_REL not in snippet:
+        raise AssertionError(
+            f"the documented write no longer targets {RECORD_REL}:\n{snippet}"
+        )
+    return snippet
+
+
+def run_snippet(repo: Path, snippet: str) -> None:
+    """Run a documented snippet and REQUIRE it to succeed.
+
+    The status used to be discarded, so a snippet that mutated the tree and then
+    failed would leave the assertions green.
+    """
+    proc = subprocess.run(
+        ["bash", "-c", snippet], cwd=repo, capture_output=True, text=True
     )
+    assert proc.returncode == 0, (
+        f"the documented snippet exited {proc.returncode}\n"
+        f"stdout: {proc.stdout}\nstderr: {proc.stderr}"
+    )
+
+
+def run_reconcile(repo: Path) -> None:
+    run_snippet(repo, extract_reconcile_snippet())
+
+
+def run_documented_write(repo: Path) -> None:
+    run_snippet(repo, extract_write_snippet())
 
 
 def staged_paths(repo: Path) -> list[str]:
@@ -200,9 +246,9 @@ def test_a_committed_record_survives_a_squash_merge(tmp_path: Path) -> None:
     """
     repo = make_repo(tmp_path)
     git(repo, "checkout", "-q", "-b", "issue-42")
+    run_documented_write(repo)          # the procedure's own write, not a fixture
     rec = repo / RECORD_REL
-    rec.parent.mkdir(parents=True)
-    rec.write_text("# Flow run record - issue #42\nApproval: granted\n")
+    assert rec.exists(), "the documented write produced no record"
     (repo / "code.py").write_text("x = 2\n")
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "feat: the work, plus its approved plan")
@@ -215,7 +261,45 @@ def test_a_committed_record_survives_a_squash_merge(tmp_path: Path) -> None:
     assert RECORD_REL in tracked, (
         f"the squash dropped the plan record; HEAD carries {tracked}"
     )
-    assert (repo / RECORD_REL).read_text().startswith("# Flow run record")
+    assert "Flow run record" in (repo / RECORD_REL).read_text()
+
+
+@requires_git
+def test_a_committed_record_with_a_staged_deletion_is_restored(tmp_path: Path) -> None:
+    """`git ls-files` answers about the INDEX, which is the wrong question.
+
+    With the record committed and then `git rm --cached`'d, an index-based
+    existence test fails, the else-branch deletes the remaining approved file,
+    and the staged deletion survives - an APPROVED record destroyed.
+    """
+    repo = make_repo(tmp_path)
+    rec = repo / RECORD_REL
+    rec.parent.mkdir(parents=True)
+    rec.write_text("approved by A\n")
+    git(repo, "add", RECORD_REL)
+    git(repo, "commit", "-qm", "run A")
+    git(repo, "rm", "-q", "--cached", RECORD_REL)
+
+    run_reconcile(repo)
+
+    assert rec.exists(), "an approved, committed record was destroyed"
+    assert rec.read_text() == "approved by A\n"
+    assert staged_paths(repo) == [], "the staged deletion survived"
+
+
+@requires_git
+def test_a_staged_record_absent_from_head_is_removed(tmp_path: Path) -> None:
+    """The mirror state: staged, never committed, so never approved."""
+    repo = make_repo(tmp_path)
+    rec = repo / RECORD_REL
+    rec.parent.mkdir(parents=True)
+    rec.write_text("UNAPPROVED scratch\n")
+    git(repo, "add", RECORD_REL)
+
+    run_reconcile(repo)
+
+    assert not rec.exists(), "unapproved scratch survived and would be committed"
+    assert staged_paths(repo) == [], "unapproved scratch is still staged"
 
 
 @requires_git
