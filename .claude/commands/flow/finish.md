@@ -117,6 +117,8 @@ verdict, the helper prints `FLOW_FINISH_GATE_COUNTER_MODEL:` naming one of:
 | `missing: ...` | nothing is recorded. **This reds the gate** (exit 1) |
 | `unknown: ...` | enrolment could not be decided - an uncommitted skip reason, or no reachable commit. **Also reds** |
 | `not-enrolled: ...` | this repository carries no counter-model receipts directory and is not asked for one |
+| `undecidable (shallow clone): ...` | a receipt names a commit this checkout does not contain AND the checkout is shallow. **Passes**, loudly - the decision was not made here. CI clones `--depth=1`, so this is the ordinary CI state |
+| `unresolvable: ...` | the same, but the checkout is NOT shallow - the receipt names a commit that exists nowhere, so it is wrong or fabricated. **Reds** |
 
 `missing` is the point of the whole mechanism, so read it as a missing required
 field rather than a complaint: before #1171 a review that never ran wrote no

@@ -230,7 +230,12 @@ verdict() {
         case "$1" in
             ok|warn*|skipped)
                 case "$CM_ENROLMENT_STATE" in
-                    receipt|skipped|not-enrolled) ;;
+                    # `undecidable` passes ONLY because the shallow cause was
+                    # established above - never on exit 128 alone. It is never
+                    # rendered as `ok` and never as a receipt id: the line says the
+                    # decision was not made here, which is the whole point of
+                    # letting it through.
+                    receipt|skipped|not-enrolled|undecidable) ;;
                     *)
                         echo "flow-finish-gate: no counter-model review is recorded for this branch at this commit, so this gate cannot tell a review that found nothing from one that never ran (issue #1171)." >&2
                         echo "  Run the Step 6 counter-model review, or record an explicit skip with a committed reason:" >&2
@@ -448,10 +453,26 @@ cm_enrolment_evaluate() {
 
     if [[ "${cm_undecidable:-0}" -eq 1 ]]; then
         # A receipt for this issue EXISTS and names a commit this checkout does not
-        # contain. "Did a review happen" is not answerable here, and it is not the
-        # same fact as "no review happened".
-        CM_ENROLMENT_STATE=undecidable
-        CM_ENROLMENT_LINE="undecidable: a receipt names a commit this checkout does not contain$( [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == "true" ]] && printf ' (shallow clone)' ) - enrolment cannot be decided here"
+        # contain. That is not the same fact as "no review happened" - but it is
+        # also TWO different facts, and only one of them is benign:
+        #
+        #   shallow clone + a real earlier commit  -> the object is simply elsewhere
+        #   FULL clone    + a commit that is nowhere -> the receipt is wrong or fabricated
+        #
+        # Both exit 128. Letting every 128 pass would be the inverse of the defect
+        # this branch exists to fix: I collapsed cannot-answer into answered-NO, and
+        # collapsing two causes into one BENIGN state is the same error pointing the
+        # other way - the direction that fails open, and the fabricated-receipt
+        # escape this whole issue exists to close. `--is-shallow-repository` is what
+        # separates them, so the permissive answer is reachable ONLY where the
+        # shallow cause is ESTABLISHED rather than assumed.
+        if [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == "true" ]]; then
+            CM_ENROLMENT_STATE=undecidable
+            CM_ENROLMENT_LINE="undecidable (shallow clone): a receipt names a commit this checkout does not contain, so the enrolment decision was NOT made here"
+        else
+            CM_ENROLMENT_STATE=unresolvable
+            CM_ENROLMENT_LINE="unresolvable: a receipt names a commit this FULL checkout does not contain - the receipt is wrong or fabricated"
+        fi
         return
     fi
     CM_ENROLMENT_STATE=missing
