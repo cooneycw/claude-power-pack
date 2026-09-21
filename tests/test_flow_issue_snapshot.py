@@ -1,16 +1,19 @@
 """Control for the /flow:auto as-read issue snapshot (issue #1081).
 
-The FETCH needs `gh` and a live issue and is not controlled here - stubbing the
-tool whose output is the subject would test the stub. So `auto.md` separates the
-fetch from the two things that ARE decisions over local files: writing the
-snapshot, and deciding drift. Those are extracted and run.
+The FETCH needs `gh` and a live issue and is not controlled - stubbing the tool
+whose output is the subject would test the stub. Everything downstream of the
+fetch is a decision over local files, and those blocks are extracted from
+`auto.md` and RUN.
 
-If a heading or a block goes missing these raise rather than silently testing
-nothing.
+EACH DOCUMENTED BLOCK RUNS IN ITS OWN PROCESS. An agent executes Step 1 and Step
+4 in separate shell invocations, so state held in a shell variable is gone by the
+time the writer needs it. An earlier version of this file concatenated the blocks
+into one shell and passed the filename in, which hid exactly that defect.
 """
 
 from __future__ import annotations
 
+import hashlib
 import re
 import shutil
 import subprocess
@@ -18,16 +21,19 @@ from pathlib import Path
 
 import pytest
 
-requires_bash = pytest.mark.skipif(
-    shutil.which("bash") is None or shutil.which("sha256sum") is None,
-    reason="requires bash and sha256sum",
+requires_git = pytest.mark.skipif(
+    shutil.which("git") is None or shutil.which("bash") is None
+    or shutil.which("sha256sum") is None,
+    reason="requires git, bash and sha256sum (absent in the CI validate container)",
 )
 
 REPO = Path(__file__).resolve().parents[1]
 AUTO_MD = REPO / ".claude" / "commands" / "flow" / "auto.md"
+RECORD_MARKER = "Record what was read - a decision over local files"
 WRITER_HEADING = "#### Also write the as-read snapshot here (issue #1081)"
 VERDICT_MARKER = "Verdict - `$SNAP` is the as-read snapshot"
 CAP = 16384
+SNAP_REL = "docs/flow-runs/issue-42.as-read.md"
 
 
 def _block_after(marker: str, *, must_contain: str) -> str:
@@ -40,199 +46,259 @@ def _block_after(marker: str, *, must_contain: str) -> str:
     snippet = re.sub(r"^   ", "", m.group(1), flags=re.M)
     if must_contain not in snippet:
         raise AssertionError(
-            f"the block after {marker!r} no longer contains {must_contain!r}; these "
-            f"cases would test something else:\n{snippet}"
+            f"the block after {marker!r} no longer contains {must_contain!r}:\n{snippet}"
         )
     return snippet
 
 
+def record_snippet() -> str:
+    return _block_after(RECORD_MARKER, must_contain="sha256sum")
+
+
 def writer_snippet() -> str:
-    return _block_after(WRITER_HEADING, must_contain="Body digest:")
+    return _block_after(WRITER_HEADING, must_contain="Body digest")
 
 
 def verdict_snippet() -> str:
-    return _block_after(VERDICT_MARKER, must_contain="ISSUE_DRIFT:")
+    return _block_after(VERDICT_MARKER, must_contain="ISSUE_DRIFT")
 
 
-def run(script: str, cwd: Path, env_lines: str = "") -> str:
+def sh(script: str, cwd: Path, env_lines: str = "") -> str:
+    """Run ONE documented block in ITS OWN process."""
     proc = subprocess.run(
         ["bash", "-c", env_lines + "\n" + script],
         cwd=cwd, capture_output=True, text=True,
     )
-    assert proc.returncode == 0, f"snippet exited {proc.returncode}\n{proc.stderr}"
+    assert proc.returncode == 0, f"block exited {proc.returncode}\n{proc.stderr}"
     return proc.stdout
 
 
-RECORD_MARKER = "Record what was read - a decision over a local file"
+def make_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "wt"
+    repo.mkdir()
+    for args in (["init", "-q", "-b", "main"], ["config", "user.email", "t@e.com"],
+                 ["config", "user.name", "t"]):
+        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+    (repo / "f").write_text("x\n")
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "base"], check=True,
+                   capture_output=True)
+    return repo
 
 
-def record_snippet() -> str:
-    return _block_after(RECORD_MARKER, must_contain="AS_READ_DIGEST=")
+def store_body(repo: Path, body: bytes, updated: str = "2026-09-21T11:59:00Z") -> None:
+    """Stand in for the FETCH only - the one part that needs `gh`."""
+    gitdir = subprocess.run(["git", "-C", str(repo), "rev-parse", "--git-dir"],
+                            capture_output=True, text=True, check=True).stdout.strip()
+    base = (repo / gitdir) / "flow-as-read-42"
+    base.with_suffix(".body").write_bytes(body)
+    base.with_suffix(".updated").write_text(updated + "\n")
 
 
-def write_snapshot(tmp: Path, body: str) -> Path:
-    """Run the DOCUMENTED record+writer blocks over a body Step 1 would have fetched.
-
-    The digest is computed by the DOCUMENTED block, never by this test. Supplying
-    it here would make the full-body-digest case assert this file's own
-    arithmetic - a test that cannot fail however wrong the procedure is.
-    """
-    src = tmp / "fetched.md"
-    src.write_text(body)
-    env = (
-        f'AS_READ_TMP="{src}"\n'
-        'AS_READ_UPDATED="2026-09-21T11:59:00Z"\n'
-    )
-    run(record_snippet() + "\n" + writer_snippet(), tmp, env)
-    return tmp / "docs" / "flow-runs" / "issue-42.as-read.md"
+def snapshot(repo: Path, body: bytes) -> Path:
+    """Fetch (stood in), then RECORD and WRITE in SEPARATE processes."""
+    store_body(repo, body)
+    sh(record_snippet(), repo)
+    sh(writer_snippet(), repo)
+    return repo / SNAP_REL
 
 
-def verdict(tmp: Path, live: Path | None) -> str:
-    env = f'LIVE_TMP="{live}"\n' if live is not None else 'LIVE_TMP=""\n'
-    return run(verdict_snippet(), tmp, env)
+def verdict(repo: Path, live: Path | None) -> str:
+    return sh(verdict_snippet(), repo,
+              f'LIVE_TMP="{live}"' if live is not None else 'LIVE_TMP=""')
 
 
-# --------------------------------------------------------------------------
-# The two cases the issue requires, and neither is optional.
-# --------------------------------------------------------------------------
+# --------------------------------------------------------------------- the two required cases
 
-@requires_bash
+@requires_git
 def test_an_unchanged_issue_reports_clean(tmp_path: Path) -> None:
-    body = "## Acceptance\n- criterion one\n- criterion two\n"
-    write_snapshot(tmp_path, body)
+    repo = make_repo(tmp_path)
+    body = b"## Acceptance\n- criterion one\n- criterion two\n"
+    snapshot(repo, body)
     live = tmp_path / "live.md"
-    live.write_text(body)
-    assert "ISSUE_DRIFT: clean" in verdict(tmp_path, live)
+    live.write_bytes(body)
+    assert "ISSUE_DRIFT: clean" in verdict(repo, live)
 
 
-@requires_bash
+@requires_git
 def test_an_edited_issue_reports_drift_AND_NAMES_THE_CHANGED_REGION(tmp_path: Path) -> None:
-    """Drift must NAME what changed, not merely that something did.
-
-    Asserting only "drift was reported" would let `diff` degrade to "prints
-    something" at the first refactor, and the argument for a diff over a boolean
-    would be untested.
-    """
-    write_snapshot(tmp_path, "## Acceptance\n- criterion one\n- criterion two\n")
+    repo = make_repo(tmp_path)
+    snapshot(repo, b"## Acceptance\n- criterion one\n- criterion two\n")
     live = tmp_path / "live.md"
-    live.write_text("## Acceptance\n- criterion one\n- criterion two, now with a clause\n")
+    live.write_bytes(b"## Acceptance\n- criterion one\n- criterion two, now with a clause\n")
 
-    out = verdict(tmp_path, live)
+    out = verdict(repo, live)
 
     assert "ISSUE_DRIFT: drift" in out
     assert "now with a clause" in out, f"the output does not NAME the change:\n{out}"
-    assert "criterion two" in out
     assert "authority model" in out, "drift must not read as an override"
 
 
-# --------------------------------------------------------------------------
-# Cannot-answer must never render as clean.
-# --------------------------------------------------------------------------
+# --------------------------------------------------------------------- cannot-answer
 
-@requires_bash
+@requires_git
 def test_a_missing_snapshot_is_unresolved_not_clean(tmp_path: Path) -> None:
-    (tmp_path / "docs" / "flow-runs").mkdir(parents=True)
+    repo = make_repo(tmp_path)
     live = tmp_path / "live.md"
-    live.write_text("anything\n")
-    out = verdict(tmp_path, live)
-    # Assert the case reached the branch it claims to test. Three branches print
-    # "unresolved", so asserting the word alone would let this pass through the
-    # wrong one - an instrument that answers nothing looks like one that found
-    # nothing (worker-B, three instances in its own harnesses today).
+    live.write_bytes(b"anything\n")
+    out = verdict(repo, live)
     assert "ISSUE_DRIFT: unresolved" in out
     assert "no as-read snapshot" in out, f"reached a different unresolved branch:\n{out}"
     assert "clean" not in out
 
 
-@requires_bash
+@requires_git
 def test_a_failed_fetch_is_unresolved_not_clean(tmp_path: Path) -> None:
-    write_snapshot(tmp_path, "## Acceptance\n- criterion one\n")
-    out = verdict(tmp_path, None)          # the fetch failed: LIVE_TMP is empty
+    repo = make_repo(tmp_path)
+    snapshot(repo, b"## Acceptance\n- one\n")
+    out = verdict(repo, None)
     assert "ISSUE_DRIFT: unresolved" in out
+    # Pin THIS branch. "NOT no-drift" is shared with the hash-failure message, so
+    # asserting it let the case pass through that branch when the fetch guard was
+    # removed entirely - verified by mutating the guard to `if False:` and
+    # watching this case still pass.
+    assert "could not read the issue" in out, f"reached a different unresolved branch:\n{out}"
     assert "clean" not in out
-    assert "NOT no-drift" in out
 
 
-@requires_bash
+@requires_git
 def test_a_snapshot_without_a_digest_is_unresolved(tmp_path: Path) -> None:
-    snap = tmp_path / "docs" / "flow-runs" / "issue-42.as-read.md"
+    repo = make_repo(tmp_path)
+    snap = repo / SNAP_REL
     snap.parent.mkdir(parents=True)
-    snap.write_text("# Issue #42 as read by this run\n\nno digest line here\n")
+    snap.write_text("# Issue #42 as read by this run\n\nno digest line\n\n## Body as read\nx\n")
     live = tmp_path / "live.md"
-    live.write_text("anything\n")
-    out = verdict(tmp_path, live)
+    live.write_bytes(b"x\n")
+    out = verdict(repo, live)
     assert "ISSUE_DRIFT: unresolved" in out
-    assert "carries no digest" in out, f"reached a different unresolved branch:\n{out}"
+    assert "usable digests" in out, f"reached a different unresolved branch:\n{out}"
     assert "clean" not in out
 
 
-# --------------------------------------------------------------------------
-# The cap bounds what is STORED; the digest covers the FULL body.
-# --------------------------------------------------------------------------
+@requires_git
+def test_a_body_quoting_a_digest_line_does_not_report_false_drift(tmp_path: Path) -> None:
+    """Issue prose must not be parsed as snapshot metadata.
 
-@requires_bash
-def test_a_change_BEYOND_the_cap_still_reports_drift(tmp_path: Path) -> None:
-    """The reason the digest is taken over the full body.
-
-    Digesting the truncated copy would give an identical digest for any change
-    past the cap - a blindness rendering as clean, in the one case the cap exists
-    for.
+    An unchanged issue whose body quotes `- Body digest: example` would otherwise
+    yield two extracted values and report drift with no source change at all.
     """
-    head = "A" * CAP
-    write_snapshot(tmp_path, head + "\ntail criterion: original\n")
+    repo = make_repo(tmp_path)
+    # A DIGEST-SHAPED value, not prose. The extractor requires 64 hex characters,
+    # so `- Body digest: example` could never collide and a fixture using it
+    # proves nothing - verified by mutating the extractor to scan the whole file
+    # and watching this case still pass. The real hazard is an issue that quotes
+    # a real snapshot header, which people do when reporting one.
+    body = (b"## Notes\nA snapshot header looks like:\n- Body digest:  "
+            + b"d" * 64 + b"   (sha256 of the FULL body)\n")
+    snapshot(repo, body)
     live = tmp_path / "live.md"
-    live.write_text(head + "\ntail criterion: CHANGED\n")
+    live.write_bytes(body)
 
-    out = verdict(tmp_path, live)
+    out = verdict(repo, live)
+
+    assert "ISSUE_DRIFT: clean" in out, f"issue prose was parsed as metadata:\n{out}"
+
+
+# --------------------------------------------------------------------- the cap
+
+@requires_git
+def test_a_change_BEYOND_the_cap_still_reports_drift(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    head = b"A" * CAP
+    snapshot(repo, head + b"\ntail criterion: original\n")
+    live = tmp_path / "live.md"
+    live.write_bytes(head + b"\ntail criterion: CHANGED\n")
+
+    out = verdict(repo, live)
 
     assert "ISSUE_DRIFT: drift" in out, (
-        "a change beyond the storage cap went undetected - the digest is being "
-        "taken over the truncated copy rather than the full body"
+        "a change beyond the storage cap went undetected - the digest is being taken "
+        "over the truncated copy rather than the full body"
     )
+    assert "CANNOT BE LOCALISED" in out, "a truncated comparison must say what it cannot do"
 
 
-@requires_bash
-def test_a_truncated_snapshot_says_so_and_does_not_imply_no_constraints(tmp_path: Path) -> None:
-    body = "B" * (CAP + 500) + "\n"
-    assert len(body.encode()) > CAP, "fixture does not exceed the cap; nothing to truncate"
-    snap = write_snapshot(tmp_path, body)
-    text = snap.read_text()
-    assert "TRUNCATED" in text
-    assert "INCOMPLETE CONTEXT TO RESOLVE" in text
-    assert "not an absence of further constraints" in text
-    assert len(text.encode()) < CAP * 2
+@requires_git
+def test_the_writer_stores_at_most_the_cap_and_says_how_much(tmp_path: Path) -> None:
+    """Pins the bound EXACTLY.
 
-
-@requires_bash
-def test_the_snapshot_records_the_full_body_digest_not_the_stored_one(tmp_path: Path) -> None:
-    body = "C" * (CAP + 4096) + "\n"
-    snap = write_snapshot(tmp_path, body)
-    recorded = re.search(r"^- Body digest:\s+(\S+)", snap.read_text(), re.M).group(1)
-    full = subprocess.run(
-        ["sha256sum", "-"], input=body, capture_output=True, text=True
-    ).stdout.split()[0]
-    assert recorded == full, "the recorded digest is not the digest of the FULL body"
-
-
-@requires_bash
-def test_an_unreadable_issue_yields_an_unresolved_snapshot(tmp_path: Path) -> None:
-    """Step 1 could not read the issue: the artifact must say so.
-
-    It must not be a record that the issue was unchanged, and must not read as an
-    absence of constraints.
+    A loose assertion let `head -c 16384` be replaced by `cat` while every other
+    case still passed - the suite green over a writer with no bound at all.
     """
-    (tmp_path / "docs" / "flow-runs").mkdir(parents=True)
-    run(writer_snippet(), tmp_path, 'AS_READ_TMP=""\n')
-    text = (tmp_path / "docs" / "flow-runs" / "issue-42.as-read.md").read_text()
+    repo = make_repo(tmp_path)
+    body = b"B" * (CAP * 4)
+    snap = snapshot(repo, body)
+    text = snap.read_text()
+
+    stored = text.split("\n## Body as read\n", 1)[1].split("\n[TRUNCATED", 1)[0]
+    assert len(stored.encode()) <= CAP, f"writer stored {len(stored.encode())} bytes, cap is {CAP}"
+    assert f"of {len(body)}" in text, "the header does not report the FULL body length"
+    shown = [ln for ln in text.splitlines() if "Stored bytes" in ln]
+    assert re.search(rf"- Stored bytes: {len(stored.encode())} of {len(body)}", text), (
+        f"Stored bytes must report EMITTED vs FULL, not full vs full: {shown}"
+    )
+    assert "TRUNCATED" in text
+    assert "not an absence of further constraints" in text
+
+
+@requires_git
+def test_truncation_never_splits_a_multibyte_character(tmp_path: Path) -> None:
+    """A byte-wise cut can land inside a UTF-8 sequence and corrupt the evidence."""
+    repo = make_repo(tmp_path)
+    body = b"A" * (CAP - 1) + "€".encode() + b"tail\n"
+    snap = snapshot(repo, body)
+    raw = snap.read_bytes()
+    raw.decode("utf-8")          # raises if the writer split the character
+    assert "TRUNCATED" in snap.read_text()
+
+
+# --------------------------------------------------------------------- honesty of the artifact
+
+@requires_git
+def test_an_unreadable_issue_yields_an_unresolved_snapshot(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    (repo / "docs" / "flow-runs").mkdir(parents=True)
+    sh(writer_snippet(), repo)           # no .body, no .meta: the fetch failed
+    text = (repo / SNAP_REL).read_text()
     assert "AS_READ: unresolved" in text
     assert "NOT a record that the issue was unchanged" in text
 
 
-@requires_bash
+@requires_git
+def test_the_snapshot_records_the_full_body_digest(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    body = b"C" * (CAP + 4096) + b"\n"
+    snap = snapshot(repo, body)
+    recorded = re.search(r"^- Body digest:\s+(\S+)", snap.read_text(), re.M).group(1)
+    assert recorded == hashlib.sha256(body).hexdigest(), (
+        "the recorded digest is not the digest of the FULL body"
+    )
+
+
+@requires_git
 def test_the_snapshot_denies_being_the_contract(tmp_path: Path) -> None:
-    """The fifth acceptance item: never what an implementer works from."""
-    snap = write_snapshot(tmp_path, "## Acceptance\n- one\n")
-    text = snap.read_text()
+    repo = make_repo(tmp_path)
+    text = snapshot(repo, b"## Acceptance\n- one\n").read_text()
     assert "EVIDENCE OF WHAT THIS RUN READ" in text
     assert "The issue is the authority" in text
     assert "does not graduate" in text
+
+
+@requires_git
+def test_the_state_survives_separate_shell_invocations(tmp_path: Path) -> None:
+    """The HIGH finding, pinned.
+
+    Step 1 and Step 4 run in different processes. If the handoff rides a shell
+    variable, a SUCCESSFUL fetch produces an `unresolved` snapshot - and a test
+    that ran both blocks in one shell would never show it.
+    """
+    repo = make_repo(tmp_path)
+    store_body(repo, b"## Acceptance\n- one\n")
+    sh(record_snippet(), repo)                     # process 1
+    sh(writer_snippet(), repo)                     # process 2, no shared environment
+    text = (repo / SNAP_REL).read_text()
+    assert "AS_READ: unresolved" not in text, (
+        "a successful fetch produced an unresolved snapshot - the state did not "
+        "survive the process boundary"
+    )
+    assert re.search(r"^- Body digest:\s+[0-9a-f]{64}", text, re.M)

@@ -326,27 +326,45 @@ can report that the source moved instead of nobody noticing.
 
 **Fetch to a TEMPORARY file here. Do NOT write anything into the worktree yet.**
 
-Fetch (needs `gh`; not controlled - see the note below):
+Fetch (needs `gh`; not controlled - stubbing it would test the stub):
 
 ```bash
-AS_READ_TMP="$(mktemp -t flow-as-read-XXXXXX.md)"
-if gh issue view 42 --json body --jq .body > "$AS_READ_TMP"; then
-    AS_READ_UPDATED="$(gh issue view 42 --json updatedAt --jq .updatedAt)"
+AS_READ_STORE="$(git rev-parse --git-dir)/flow-as-read-42"
+if gh issue view 42 --json body --jq .body > "$AS_READ_STORE.body"; then
+    gh issue view 42 --json updatedAt --jq .updatedAt > "$AS_READ_STORE.updated" || :
 else
-    rm -f "$AS_READ_TMP"; AS_READ_TMP=""
+    rm -f "$AS_READ_STORE.body"
     echo "AS_READ: unresolved - could not read issue #42. The snapshot will say so."
 fi
 ```
 
-Record what was read - a decision over a local file, kept separate so it can be
+Record what was read - a decision over local files, kept separate so it can be
 controlled without stubbing `gh`:
 
 ```bash
-if [ -n "$AS_READ_TMP" ]; then
-    AS_READ_DIGEST="$(sha256sum "$AS_READ_TMP" | cut -d' ' -f1)"   # the FULL body
-    AS_READ_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+AS_READ_STORE="$(git rev-parse --git-dir)/flow-as-read-42"
+if [ -s "$AS_READ_STORE.body" ]; then
+    if D="$(sha256sum "$AS_READ_STORE.body" | cut -d' ' -f1)" && [ -n "$D" ]; then
+        printf 'digest=%s\nread_at=%s\n' "$D" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$AS_READ_STORE.meta"
+    else
+        printf 'digest=\nread_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$AS_READ_STORE.meta"
+        echo "AS_READ: unresolved - the body was read but could not be hashed."
+    fi
 fi
 ```
+
+**The state lives in the GIT DIRECTORY, not in shell variables and not in the
+worktree.** An agent runs Step 1 and Step 4 in SEPARATE shell invocations, so a
+filename or digest held in a variable is gone by the time the writer needs it -
+a successful fetch would then produce an `unresolved` snapshot, and a test that
+ran both blocks in one shell would never show it (counter-model review,
+gpt-6-astra). `git rev-parse --git-dir` is deterministic, is per-worktree, and
+survives across calls.
+
+It is also invisible to the driver guard: measured, `git status --porcelain
+--untracked-files=all` reports 0 lines with a file present inside `.git`. So the
+state can be written at Step 1 without the hazard that forced the file itself to
+Step 4.
 
 **Why the file is not written here.** `flow-live-driver-guard.sh` runs later, in
 Step 4, over `git status --porcelain --untracked-files=all` with a 30-minute
@@ -729,39 +747,61 @@ The body fetched at Step 1 is written now, in the same safe position and for the
 same reason:
 
 ```bash
-SNAP="docs/flow-runs/issue-42.as-read.md"
 mkdir -p docs/flow-runs
-if [ -n "$AS_READ_TMP" ] && [ -s "$AS_READ_TMP" ]; then
-    {
-      echo "# Issue #42 as read by this run"
-      echo
-      echo "EVIDENCE OF WHAT THIS RUN READ, not a second statement of the contract."
-      echo "The issue is the authority; read it. This copy exists so a later check can"
-      echo "report that the source moved. It does not graduate."
-      echo
-      echo "- Issue:        #42"
-      echo "- Read at:      $AS_READ_AT"
-      echo "- updatedAt:    $AS_READ_UPDATED   (context only - moves on comments and labels)"
-      echo "- Body digest:  $AS_READ_DIGEST   (sha256 of the FULL body; the verdict keys on this)"
-      echo "- Stored bytes: $(wc -c < "$AS_READ_TMP") of $(wc -c < "$AS_READ_TMP") (cap 16384)"
-      echo
-      echo "## Body as read"
-      head -c 16384 "$AS_READ_TMP"
-      if [ "$(wc -c < "$AS_READ_TMP")" -gt 16384 ]; then
-          echo
-          echo "[TRUNCATED at 16384 bytes. This extract is INCOMPLETE CONTEXT TO RESOLVE by"
-          echo " reading the issue - it is not an absence of further constraints. The digest"
-          echo " above covers the FULL body, so drift beyond this point is still detected.]"
-      fi
-    } > "$SNAP"
-    rm -f "$AS_READ_TMP"
-else
-    printf '# Issue #42 as read by this run
+python3 - 42 "$(git rev-parse --git-dir)/flow-as-read-42" docs/flow-runs/issue-42.as-read.md <<'PY'
+import pathlib, sys
+CAP = 16384
+issue, store, out = sys.argv[1], pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3])
+body_p, meta_p = store.with_suffix(".body"), store.with_suffix(".meta")
+meta = {}
+if meta_p.exists():
+    for line in meta_p.read_text().splitlines():
+        k, _, v = line.partition("=")
+        meta[k] = v
+digest, read_at = meta.get("digest", ""), meta.get("read_at", "")
 
-AS_READ: unresolved - the issue could not be read at Step 1.
-This is NOT a record that the issue was unchanged, and NOT an absence of constraints.
-' > "$SNAP"
-fi
+head = f"# Issue #{issue} as read by this run\n"
+if not body_p.exists() or not digest:
+    out.write_text(
+        head + "\nAS_READ: unresolved - the issue could not be read, or its body could not be\n"
+        "hashed, at Step 1. This is NOT a record that the issue was unchanged, and NOT an\n"
+        "absence of constraints. Read the issue.\n"
+    )
+    raise SystemExit(0)
+
+raw = body_p.read_bytes()
+cut = raw[:CAP]
+while cut:                      # never split a multibyte character
+    try:
+        cut.decode("utf-8"); break
+    except UnicodeDecodeError:
+        cut = cut[:-1]
+truncated = len(cut) < len(raw)
+updated = (store.with_suffix(".updated").read_text().strip()
+           if store.with_suffix(".updated").exists() else "unknown")
+
+parts = [
+    head, "\n",
+    "EVIDENCE OF WHAT THIS RUN READ, not a second statement of the contract.\n",
+    "The issue is the authority; read it. This copy exists so a later check can\n",
+    "report that the source moved. It does not graduate.\n\n",
+    f"- Issue:        #{issue}\n",
+    f"- Read at:      {read_at}\n",
+    f"- updatedAt:    {updated}   (context only - moves on comments and labels)\n",
+    f"- Body digest:  {digest}   (sha256 of the FULL body; the verdict keys on this)\n",
+    f"- Stored bytes: {len(cut)} of {len(raw)} (cap {CAP})\n",
+    "\n## Body as read\n",
+    cut.decode("utf-8"),
+]
+if truncated:
+    parts.append(
+        f"\n[TRUNCATED at {len(cut)} bytes of {len(raw)}. This extract is INCOMPLETE CONTEXT\n"
+        " TO RESOLVE by reading the issue - it is not an absence of further constraints.\n"
+        " The digest above covers the FULL body, so drift beyond this point is still\n"
+        " DETECTED; it just cannot be LOCALISED from this copy.]\n"
+    )
+out.write_text("".join(parts))
+PY
 ```
 
 **The digest covers the FULL body; the 16 KB cap bounds only what is STORED.**
@@ -769,9 +809,18 @@ Digesting the truncated copy would mean that for any issue past the cap, a chang
 BEYOND it produces an identical digest and the check reports no drift - a
 blindness rendering as clean, in precisely the case the cap exists to handle.
 
-**The cap is measured, not chosen.** Across the 40 most recent issues in this
-repository the mean body is 4,271 bytes, the median 3,833, p90 6,877, and the
-largest 12,898. 16 KB holds every body this repository has actually produced.
+**The cap is measured, not chosen - and the measurement is a SAMPLE.** Across the
+40 most recent issues at the time of writing (2026-09-21) the mean body was 4,271
+bytes, the median 3,833, p90 6,877, and the largest 12,898 (#1132). So 16 KB held
+every body IN THAT SAMPLE with roughly 3 KB of headroom. It does not establish
+that no body in this repository has ever exceeded it, and it is not a prediction
+about future ones - which is why exceeding the cap is a supported, explicitly
+reported state rather than an error. Re-measure with:
+
+```bash
+gh issue list --state all --limit 40 --json number,body \
+  --jq '.[] | "\(.body|length) #\(.number)"' | sort -rn | head -5
+```
 
 **`updatedAt` is recorded as context and is never the verdict.** It moves on
 comments, labels and assignment, not only on body edits, so keying drift on it
@@ -1404,23 +1453,58 @@ git merge --no-edit origin/main
    Verdict - `$SNAP` is the as-read snapshot, `$LIVE_TMP` the body just fetched
    (empty when the fetch failed):
    ```bash
-   SNAP="docs/flow-runs/issue-42.as-read.md"
-   if [ ! -f "$SNAP" ]; then
-       echo "ISSUE_DRIFT: unresolved (no as-read snapshot on this branch)"
-   elif ! RECORDED="$(sed -n 's/^- Body digest: *//p' "$SNAP" | awk '{print $1}')" || [ -z "$RECORDED" ]; then
-       echo "ISSUE_DRIFT: unresolved (snapshot carries no digest)"
-   elif [ -z "$LIVE_TMP" ] || [ ! -f "$LIVE_TMP" ]; then
-       echo "ISSUE_DRIFT: unresolved (could not read the issue - this is NOT no-drift)"
-   elif [ "$(sha256sum "$LIVE_TMP" | cut -d' ' -f1)" = "$RECORDED" ]; then
-       echo "ISSUE_DRIFT: clean (body digest unchanged since this run read it)"
-   else
-       echo "ISSUE_DRIFT: drift - the issue body changed since this run read it."
-       sed -n '/^## Body as read$/,$p' "$SNAP" | tail -n +2 > "$SNAP.asread.$$"
-       diff -u "$SNAP.asread.$$" "$LIVE_TMP" | head -n 80
-       rm -f "$SNAP.asread.$$"
-       echo "Resolve under the EXISTING authority model: newer bytes do not by themselves"
-       echo "override a constraint or a plan already accepted on this issue (#1081)."
-   fi
+   python3 - docs/flow-runs/issue-42.as-read.md "${LIVE_TMP:-}" <<'PY'
+import hashlib, pathlib, re, sys, difflib
+CAP = 16384
+snap_p, live = pathlib.Path(sys.argv[1]), sys.argv[2]
+
+def unresolved(why):
+    print(f"ISSUE_DRIFT: unresolved ({why})"); raise SystemExit(0)
+
+if not snap_p.exists():
+    unresolved("no as-read snapshot on this branch")
+text = snap_p.read_text()
+
+# Parse the METADATA SECTION ONLY. Searching the whole file would read a
+# `- Body digest: ...` line inside the COPIED ISSUE BODY as metadata, and an
+# unchanged issue quoting one would report drift (counter-model review).
+meta_section = text.split("\n## Body as read\n", 1)[0]
+found = re.findall(r"^- Body digest:\s+([0-9a-f]{64})\b", meta_section, re.M)
+if len(found) != 1:
+    unresolved(f"snapshot carries {len(found)} usable digests, expected exactly 1")
+recorded = found[0]
+
+if not live or not pathlib.Path(live).is_file():
+    unresolved("could not read the issue - this is NOT no-drift")
+try:
+    live_bytes = pathlib.Path(live).read_bytes()
+    live_digest = hashlib.sha256(live_bytes).hexdigest()
+except OSError as exc:
+    unresolved(f"could not hash the fetched body ({exc}) - this is NOT no-drift")
+
+if live_digest == recorded:
+    print("ISSUE_DRIFT: clean (body digest unchanged since this run read it)")
+    raise SystemExit(0)
+
+print("ISSUE_DRIFT: drift - the issue body changed since this run read it.")
+stored = text.split("\n## Body as read\n", 1)[1] if "\n## Body as read\n" in text else ""
+stored = re.sub(r"\n\[TRUNCATED at .*?\]\n", "", stored, flags=re.S)
+was_truncated = "[TRUNCATED at " in text
+# Compare LIKE WITH LIKE: the stored copy is a PREFIX, so diffing it against the
+# whole live body renders the unstored tail as additions and can push the real
+# edit past the preview entirely.
+live_text = live_bytes.decode("utf-8", "replace")
+compare_against = live_text[:len(stored)] if was_truncated else live_text
+for line in list(difflib.unified_diff(
+        stored.splitlines(), compare_against.splitlines(),
+        fromfile="as-read", tofile="live", lineterm=""))[:80]:
+    print(line)
+if was_truncated:
+    print("NOTE: the stored copy was truncated, so only the captured prefix is compared.")
+    print("A change BEYOND it is DETECTED by the digest but CANNOT BE LOCALISED here.")
+print("Resolve under the EXISTING authority model: newer bytes do not by themselves")
+print("override a constraint or a plan already accepted on this issue (#1081).")
+PY
    ```
 
    **A failed fetch and a missing snapshot are UNRESOLVED, never clean.** The
