@@ -110,6 +110,11 @@ PACKAGES: tuple[tuple[str, str], ...] = (
 )
 
 #: The EXTRACTED binary, pinned separately from the archive that carried it.
+#: The only paths the wrapper needs: the binary, git-core's helper programs, and
+#: the shared libraries the closure supplies. Everything else in these archives is
+#: documentation, man pages, contrib and changelogs - see `_extract_into`.
+_KEEP_PREFIXES = ("usr/bin/", "usr/lib/git-core/", "usr/lib/x86_64-linux-gnu/")
+
 GIT_BINARY_SHA256 = "2540879925a6881e3877ff7e3330746ba3027b04edf16a3a12dccd1644c4f32d"
 GIT_VERSION = "git version 2.39.5"
 
@@ -217,6 +222,17 @@ def _extract_into(tar: tarfile.TarFile, root: Path) -> None:
     safe = []
     for member in tar.getmembers():
         if not (member.isfile() or member.isdir() or member.issym() or member.islnk()):
+            continue
+        # STAGE THE CLOSURE, NOT THE MANUAL. A .deb carries documentation, contrib
+        # scripts and man pages alongside the runtime, and everything here lands in
+        # the WORKSPACE, which later CI steps walk. git's own contrib ships PYTHON 2
+        # (`usr/share/doc/git/contrib/fast-import/import-zips.py`), so
+        # `undeclared-import-audit` tried to parse it and reported UNKNOWN, and
+        # `shellcheck` scanned contrib shell the same way - two CI steps red on files
+        # this change merely unpacked and nothing executes. Keeping only what the
+        # wrapper actually needs is also why this tree is small rather than 49MB.
+        name = member.name.lstrip("./")
+        if not name.startswith(_KEEP_PREFIXES):
             continue
         target = (root / member.name.lstrip("./")).resolve()
         if root not in target.parents and target != root:
