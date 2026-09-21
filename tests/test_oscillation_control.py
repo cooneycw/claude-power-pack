@@ -28,6 +28,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.isolated_env import ISOLATED_PATH
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "check-oscillation.py"
 
@@ -51,7 +53,7 @@ CHECK = _load()
 #: on a different environment from the one the fixture actually runs in - green
 #: on a host where git sits in /usr/bin, FileNotFoundError on one where it does
 #: not, and the guard that was supposed to skip would have said nothing.
-FIXTURE_PATH = "/usr/bin:/bin"
+FIXTURE_PATH = ISOLATED_PATH
 
 
 def _env(home: Path) -> dict[str, str]:

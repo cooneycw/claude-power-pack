@@ -39,6 +39,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.isolated_env import ISOLATED_PATH
+
 REPO = Path(__file__).resolve().parent.parent
 COMMAND = REPO / ".claude" / "commands" / "codex" / "code_review.md"
 
@@ -89,7 +91,7 @@ def test_the_prefix_form_reproduces_the_artifact_and_the_fixed_form_does_not(
             # not contain the sibling's line - is asserted explicitly in the body
             # below, and git's availability is covered by the skipif guard.
             # negative-fixture: allow PATH is isolation, not an absence
-            env={"HOME": str(tmp_path), "PATH": "/usr/bin:/bin",
+            env={"HOME": str(tmp_path), "PATH": ISOLATED_PATH,
                  "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
                  "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"},
         ).stdout
@@ -197,7 +199,7 @@ def test_a_new_untracked_file_is_invisible_without_intent_to_add_and_visible_wit
         return subprocess.run(
             ["git", *args], cwd=cwd, check=True, capture_output=True, text=True,
             # negative-fixture: allow PATH is isolation, not an absence
-            env={"HOME": str(tmp_path), "PATH": "/usr/bin:/bin",
+            env={"HOME": str(tmp_path), "PATH": ISOLATED_PATH,
                  "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
                  "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"},
         ).stdout
@@ -238,7 +240,7 @@ def test_intent_to_add_does_not_disturb_other_staged_work(tmp_path: Path) -> Non
         return subprocess.run(
             ["git", *args], cwd=cwd, check=True, capture_output=True, text=True,
             # negative-fixture: allow PATH is isolation, not an absence
-            env={"HOME": str(tmp_path), "PATH": "/usr/bin:/bin",
+            env={"HOME": str(tmp_path), "PATH": ISOLATED_PATH,
                  "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
                  "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"},
         ).stdout
@@ -285,7 +287,7 @@ def test_intent_to_add_does_not_stage_an_unrelated_tracked_deletion(tmp_path: Pa
         return subprocess.run(
             ["git", *args], cwd=cwd, check=True, capture_output=True, text=True,
             # negative-fixture: allow PATH is isolation, not an absence
-            env={"HOME": str(tmp_path), "PATH": "/usr/bin:/bin",
+            env={"HOME": str(tmp_path), "PATH": ISOLATED_PATH,
                  "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
                  "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"},
         ).stdout
@@ -399,7 +401,7 @@ requires_git = pytest.mark.skipif(shutil.which("git") is None, reason="requires 
 
 
 def _git(*args: str, cwd: Path, env_extra: dict[str, str] | None = None) -> str:
-    env = {"PATH": "/usr/bin:/bin",  # negative-fixture: allow PATH is isolation, not an absence
+    env = {"PATH": ISOLATED_PATH,  # negative-fixture: allow PATH is isolation, not an absence
            "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"}
     if env_extra:
@@ -433,7 +435,7 @@ def test_step2_from_a_subdirectory_still_sees_a_sibling_new_file(tmp_path: Path)
     (work / "sibling_new.py").write_text("def g():\n    return 2\n", encoding="utf-8")
 
     # negative-fixture: allow PATH is isolation, not an absence
-    full_env = {**os.environ, "HOME": str(home), "PATH": "/usr/bin:/bin",
+    full_env = {**os.environ, "HOME": str(home), "PATH": ISOLATED_PATH,
                 "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
                 "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x",
                 "BASE": "HEAD"}
@@ -481,7 +483,7 @@ def test_step2_fails_loudly_when_intent_to_add_cannot_run(tmp_path: Path) -> Non
     (work / ".git" / "index.lock").touch()
     try:
         # negative-fixture: allow PATH is isolation, not an absence
-        full_env = {**os.environ, "HOME": str(home), "PATH": "/usr/bin:/bin",
+        full_env = {**os.environ, "HOME": str(home), "PATH": ISOLATED_PATH,
                     "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
                     "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x",
                     "BASE": "HEAD"}
@@ -534,7 +536,7 @@ def test_the_failure_guard_actually_guards_something(tmp_path: Path) -> None:
     (work / ".git" / "index.lock").touch()
     try:
         # negative-fixture: allow PATH is isolation, not an absence
-        full_env = {**os.environ, "HOME": str(home), "PATH": "/usr/bin:/bin",
+        full_env = {**os.environ, "HOME": str(home), "PATH": ISOLATED_PATH,
                     "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
                     "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x",
                     "BASE": "HEAD"}

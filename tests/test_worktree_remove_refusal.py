@@ -32,17 +32,7 @@ from pathlib import Path
 
 import pytest
 
-#: An isolated PATH that still contains git (issue #1171). The isolation is the
-#: point - these fixtures deliberately hand the subject a minimal environment - but
-#: `/usr/bin:/bin` encodes an ASSUMPTION that git lives in a system directory, and
-#: that is false wherever git is staged rather than installed. CPP's CI image ships
-#: no git at all: it is staged into `.ci-bin` and reached through PATH, so these
-#: tests skipped in every pipeline run until that staging existed, then ran for the
-#: first time and raised FileNotFoundError on a binary their own marker had just
-#: certified present. So git's REAL directory is appended to the isolated set rather
-#: than the isolation being abandoned to get a pass.
-_GIT = shutil.which("git")
-ISOLATED_PATH = f"/usr/bin:/bin:{Path(_GIT).parent}" if _GIT else "/usr/bin:/bin"
+from tests.isolated_env import ISOLATED_PATH
 
 REPO = Path(__file__).resolve().parent.parent
 COMMANDS = REPO / ".claude" / "commands"

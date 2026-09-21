@@ -349,17 +349,32 @@ cm_enrolment_evaluate() {
         CM_ENROLMENT_LINE="unknown: the counter-model receipts directory exists but this is not a git checkout, so no review can be attributed to a commit"
         return
     fi
+    # A DETACHED HEAD IS NORMAL, NOT UNKNOWN, and treating it as unknown made this
+    # gate unable to pass in the pipeline it was being added to. CI checks out a
+    # SHA, so `rev-parse --abbrev-ref HEAD` is literally `HEAD` on every Woodpecker
+    # run - and the six `controls/flow-finish-gate*` registrations run their cases
+    # IN PLACE inside the checkout, so each of their good cases redded on a branch
+    # name that does not exist there. Locally the branch is set and everything
+    # passed, which is exactly the shape that only CI can show you.
+    #
+    # The branch is a NARROWING, not the match. Ancestry is what establishes that a
+    # review belongs to this history; the branch additionally excludes a receipt
+    # recorded on a sibling branch whose head happens to be reachable. Where no
+    # branch exists that narrowing is simply unavailable, so it is dropped and SAID,
+    # rather than failing closed on a state every CI run is in.
     branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
     if [[ -z "$branch" || "$branch" == "HEAD" ]]; then
-        CM_ENROLMENT_STATE=unknown
-        CM_ENROLMENT_LINE="unknown: detached HEAD, so no branch to attribute a review to"
-        return
+        branch=""
     fi
 
     for f in "$receipts"/*.json; do
         [[ -e "$f" ]] || continue
         rbranch=$(cm_field "$f" branch)
-        [[ "$rbranch" == "$branch" ]] || continue
+        # With no branch to compare, ancestry alone decides - see the detached-HEAD
+        # note above.
+        if [[ -n "$branch" && "$rbranch" != "$branch" ]]; then
+            continue
+        fi
         rhead=$(cm_field "$f" head)
         cm_receipt_matches_head "$rhead" || continue
         rstatus=$(cm_field "$f" status)
@@ -387,7 +402,7 @@ cm_enrolment_evaluate() {
                 return
             fi
             CM_ENROLMENT_STATE=skipped
-            CM_ENROLMENT_LINE="skipped: $rreason ($(basename "$f"))"
+            CM_ENROLMENT_LINE="skipped: $rreason ($(basename "$f"))${branch:+}${branch:-  (detached HEAD: matched by ancestry, branch not comparable)}"
             return
         fi
         # STATUS IS CHECKED POSITIVELY, never by not-being-skipped (counter-model
@@ -403,12 +418,12 @@ cm_enrolment_evaluate() {
             return
         fi
         CM_ENROLMENT_STATE=receipt
-        CM_ENROLMENT_LINE="receipt: $(basename "$f")"
+        CM_ENROLMENT_LINE="receipt: $(basename "$f")${branch:+}${branch:-  (detached HEAD: matched by ancestry, branch not comparable)}"
         return
     done
 
     CM_ENROLMENT_STATE=missing
-    CM_ENROLMENT_LINE="missing: no receipt for branch '$branch' at a commit reachable from HEAD"
+    CM_ENROLMENT_LINE="missing: no receipt${branch:+ for branch '$branch'} at a commit reachable from HEAD"
 }
 
 # Resolve the receipt helper the same way every other flow helper resolves

@@ -32,6 +32,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.isolated_env import ISOLATED_PATH
+
 requires_git = pytest.mark.skipif(
     shutil.which("git") is None,
     reason="the finish gate derives counter-model enrolment from git (issue #1171)",
@@ -1486,7 +1488,7 @@ def test_the_published_staging_command_actually_tracks_a_fresh_receipt(
         return subprocess.run(
             ["git", *args], cwd=cwd, capture_output=True, text=True,
             # negative-fixture: allow PATH is isolation, not an absence
-            env={"HOME": str(tmp_path), "PATH": "/usr/bin:/bin",
+            env={"HOME": str(tmp_path), "PATH": ISOLATED_PATH,
                  "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
                  "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"},
         )
@@ -1511,7 +1513,7 @@ def test_the_published_staging_command_actually_tracks_a_fresh_receipt(
         ["bash", "-c", stage_command],
         cwd=repo, capture_output=True, text=True,
         # negative-fixture: allow PATH is isolation, not an absence
-        env={"HOME": str(tmp_path), "PATH": "/usr/bin:/bin",
+        env={"HOME": str(tmp_path), "PATH": ISOLATED_PATH,
              "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
              "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"},
     )
