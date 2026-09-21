@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1061-wave-deepen-the-74-instruments-behind-one-gate-int",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "edfba25a255ca8be0ee150f0caabcb2172cbaeda",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1061",
+  "passes": 1,
+  "recorded_at": "2026-09-21T21:59:38Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 7
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

@@ -2213,14 +2213,30 @@ def _gate(repo: Path) -> subprocess.CompletedProcess:
 
 
 def test_every_verdict_call_is_terminal() -> None:
-    """The enrolment enforcement in `verdict()` relies on this and would otherwise change flow.
+    """The enrolment enforcement in `verdict()` relies on this (#1171), and #1061 widened it.
 
     `verdict()` downgrades a PASS verdict to `fail` by printing and EXITING. That
     is only safe because every call site already exits immediately afterwards, so
     the exit it pre-empts was coming anyway. A later edit that adds a `verdict`
     call which FALLS THROUGH would silently acquire an early exit it never asked
     for - so the invariant is pinned here rather than trusted, in the file that
-    depends on it (issue #1171).
+    depends on it.
+
+    THE TERMINAL SET IS ENUMERATED, NEVER A WILDCARD. #1061 migrated the 25
+    hand-rolled `exit N` successors onto `gate_exit`, so the idiom moved while the
+    property did not. `gate_exit` is admitted because it is UNCONDITIONALLY
+    TERMINAL - measured, not assumed: all four paths out of gate-lib.sh:308-318 end
+    in `exit` (:309 and :310 and :312 via `_gate_refuse`, :317 on the mapped
+    verdict), and the `return 1` inside `_gate_code_for` is consumed by the `if !`
+    at :312 rather than returned to the caller. A loose alternation matching any `gate_`-prefixed helper
+    would admit a future helper that returns, which is the fall-through this test
+    exists to catch.
+
+    AND IT NOW CHECKS AGREEMENT, which the old `exit N` form could not express
+    without duplicating gate_map here: a `gate_exit` successor's verdict word must
+    EQUAL the verdict call's leading word. `verdict "ok"` followed by
+    `gate_exit fail` is a gate that says one thing and exits another, and under the
+    old idiom only a second copy of the map could have caught it.
     """
     lines = SCRIPT.read_text().splitlines()
     calls = [i for i, ln in enumerate(lines) if re.match(r"^\s*verdict\s", ln)]
@@ -2228,11 +2244,35 @@ def test_every_verdict_call_is_terminal() -> None:
     non_terminal = [
         (i + 1, lines[i].strip())
         for i in calls
-        if i + 1 >= len(lines) or not re.match(r"^\s*exit\s", lines[i + 1])
+        if i + 1 >= len(lines)
+        or not re.match(r"^\s*(?:exit\s+\d+|gate_exit\s+[a-z-]+)\s*(?:#.*)?$", lines[i + 1])
     ]
     assert non_terminal == [], (
         "verdict() exits when it downgrades a pass verdict, which is only safe "
         f"while every call is terminal; these are not: {non_terminal}"
+    )
+
+    disagreeing = []
+    for i in calls:
+        successor = lines[i + 1] if i + 1 < len(lines) else ""
+        if not re.match(r"^\s*gate_exit\b", successor):
+            continue
+        # NOT `if not got: continue`. A spelling this pattern cannot read -
+        # `gate_exit "fail"`, or a trailing comment - would then be SKIPPED by the
+        # agreement check, and a skipped line and a conforming line are the same
+        # colour. The whole-successor match above already refuses those shapes as
+        # non-terminal, so reaching here with an unreadable one is a contradiction
+        # worth failing on rather than passing over (counter-model review, #1061).
+        got = re.match(r"^\s*gate_exit\s+([a-z-]+)\s*(?:#.*)?$", successor)
+        assert got, f"line {i + 2}: gate_exit successor is not in a readable form: {successor.strip()}"
+        said = re.match(r'^\s*verdict\s+"?([a-z-]+)', lines[i])
+        assert said, f"line {i + 1} calls verdict with no readable verdict word: {lines[i].strip()}"
+        if said.group(1) != got.group(1):
+            disagreeing.append((i + 1, said.group(1), got.group(1)))
+    assert disagreeing == [], (
+        "a gate that prints one verdict and exits with another is indistinguishable "
+        "from one that agrees, to every caller reading only $?; these disagree "
+        f"(line, printed, exited): {disagreeing}"
     )
 
 
@@ -2377,3 +2417,74 @@ def test_a_skip_reason_shaped_like_a_grep_option_is_refused(tmp_path: Path) -> N
     got = _gate(repo)
     assert "FLOW_FINISH_GATE: fail (counter-model line unknown)" in got.stdout
     assert got.returncode == 1
+
+
+@requires_bash
+def test_a_missing_gate_lib_is_fatal_not_advisory(tmp_path: Path) -> None:
+    """The accident that produced this test, committed as its case (issue #1061).
+
+    `set -e` is not in force in this gate, so a bare `. "$missing"` PRINTS and
+    CONTINUES, and every `gate_exit` downstream then becomes `command not found` -
+    also non-fatal. Constructed by accident while reproducing the distribution gap,
+    the observed output was:
+
+        scripts/flow-finish-gate.sh: line 1333: gate_exit: command not found
+        FLOW_FINISH_GATE: ok
+        EXIT=127
+
+    A green verdict over a broken instrument: the fall-through-to-the-good-exit this
+    migration exists to REMOVE, reintroduced by its own dependency going missing. It
+    matters because this gate is bundled into four generated Codex skills while
+    gate-lib is bundled into none, so the distributed copies are exactly where it
+    would bite and exactly where nobody runs this suite.
+    """
+    lone = tmp_path / "scripts"
+    lone.mkdir()
+    shutil.copy(SCRIPT, lone / SCRIPT.name)
+    env = dict(os.environ)
+    env.update(HOME=str(tmp_path / "nohome"), CLAUDE_PLUGIN_ROOT="", FLOW_GATE_CPP_DIR="")
+    got = subprocess.run(
+        ["bash", str(lone / SCRIPT.name)],
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120,
+    )
+    assert got.returncode == 2, (
+        f"a gate that cannot find its library must refuse, not proceed; got {got.returncode}\n"
+        f"{got.stdout}\n{got.stderr}"
+    )
+    assert "cannot find gate-lib.sh" in got.stderr
+    assert "FLOW_FINISH_GATE: ok" not in got.stdout, (
+        "the pre-fix failure mode: a clean verdict printed after gate_exit was unavailable"
+    )
+
+
+@requires_git
+def test_the_receipt_line_separates_the_filename_from_the_branch(tmp_path: Path) -> None:
+    """Found by worker-A while merging main; two sites, and the obvious fix is wrong.
+
+    The line's only job is to say WHICH receipt satisfied the gate, and it rendered
+    `receipt: 2026-...-issue-1080.jsonissue-1080-commit-...` - the filename running
+    straight into the branch with no separator, so the filename's boundary is
+    unfindable. The construct was `${branch:+}${branch:-  (detached ...)}`: the `:+`
+    word is EMPTY, so it expands to nothing in BOTH cases, and the `:-` then emits
+    the branch NAME in the set case.
+
+    Substituting text into the `:+` half does not fix it - `${branch:+ for branch
+    '$branch'}${branch:-  (...)}` renders `for branch 'x'x`, which reads plausibly
+    enough to pass review. Hence one computed suffix behind an explicit if/else, and
+    hence this test asserts BOTH renderings rather than just the one that was
+    reported.
+    """
+    repo = _enrolled_repo(tmp_path)
+    _git(repo, "checkout", "-q", "-B", "feat-x")
+    head = _git(repo, "rev-parse", "HEAD")
+    _write_receipt(repo, head)
+
+    on_branch = _gate(repo).stdout
+    assert "receipt: receipt.json for branch 'feat-x'" in on_branch, on_branch
+    assert "'feat-x'feat-x" not in on_branch, "the obvious-but-wrong fix"
+    assert "receipt.jsonfeat-x" not in on_branch, "the original defect"
+
+    _git(repo, "checkout", "-q", "--detach", "HEAD")
+    detached = _gate(repo).stdout
+    assert "receipt: receipt.json  (detached HEAD:" in detached, detached
+    assert "for branch" not in detached.split("COUNTER_MODEL:")[1].split("\n")[0]

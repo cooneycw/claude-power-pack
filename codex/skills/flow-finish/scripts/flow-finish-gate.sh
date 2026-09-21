@@ -136,34 +136,122 @@ set -uo pipefail
 # Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
 trap 'printf "FLOW_FINISH_GATE_EXIT=%d\n" "$?" >&2' EXIT
 
+# --- The shared gate conventions (issue #1061) ------------------------------
+# SIBLING FIRST, like every other helper this repository resolves: a generated
+# Codex skill bundles this gate under its own `scripts/`, and a gate running from
+# a worktree must read THAT worktree's library rather than the primary checkout's
+# through the stable path's symlink.
+#
+# THIS GATE ADOPTS THREE OF GATE-LIB'S FOUR FUNCTIONS, AND THE FOURTH IS
+# DELIBERATELY NOT ADOPTED. `gate_map`, `gate_exit` and `gate_arg_value` carry the
+# SAFETY property #1061 exists for - one verdict maps to 0, each verdict gets its
+# own code, and an unmapped verdict REFUSES instead of falling through to the good
+# exit. `gate_emit` carries a line FORMAT, and this gate's format is load-bearing
+# published contract: it emits `FLOW_FINISH_GATE: <verdict> (<detail>)` on STDOUT,
+# while gate_emit emits `KEY: verdict - detail` and routes non-zero verdicts to
+# STDERR. Measured against the six `controls/flow-finish-gate*` registrations:
+# THREE require the parenthesised detail (`declared-gates`, `plan-reconciliation`,
+# `subsumption`) and TWO MORE are END-ANCHORED on `^FLOW_FINISH_GATE: fail$`
+# (`derivation`, `flow-finish-gate` itself), which any appended detail breaks. Only
+# `resume`'s unanchored regex survives a format change - so adopting gate_emit
+# risks FIVE of six controls plus 85 stdout assertions in
+# tests/test_flow_finish_gate.py. Do not "finish the migration" by adopting it
+# without moving those first; the stopping point is a measurement, not fatigue.
+# THE FILENAME IS LITERAL ON THE SOURCE LINE, and that is a requirement rather
+# than a style choice (issue #1061). `codex-skill-sync.py` bundles what a skill's
+# scripts need by READING them, and it can only follow a source whose target it can
+# see. A computed `. "$_gate_lib"` - which this used until the bundler was taught to
+# follow shell sourcing - hides the filename in an assignment above, so the
+# generator would have bundled gate-lib for the four #1127 gates that spell it
+# literally and silently missed it for THIS gate, the one that made the bundling
+# necessary. The four existing consumers already use this idiom; matching them is
+# what lets the generator's rule be a literal match rather than a shell parser.
+_gate_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+[[ -f "$_gate_lib_dir/gate-lib.sh" ]] || _gate_lib_dir="$HOME/.claude/scripts"
+[[ -f "$_gate_lib_dir/gate-lib.sh" ]] || _gate_lib_dir="${CLAUDE_PLUGIN_ROOT:-}/scripts"
+_gate_lib="$_gate_lib_dir/gate-lib.sh"
+
+# A MISSING LIBRARY IS FATAL, AND THAT IS THE WHOLE POINT OF THIS BLOCK.
+# `set -e` is deliberately NOT in force in this file, so a bare `. "$missing"`
+# PRINTS an error and CONTINUES - and every gate_exit call downstream then becomes
+# `command not found`, which is also non-fatal. Measured on the first cut of this
+# migration, in a checkout with no gate-lib reachable:
+#
+#     scripts/flow-finish-gate.sh: line 1333: gate_exit: command not found
+#     FLOW_FINISH_GATE: ok
+#     EXIT=127
+#
+# A green verdict over a broken instrument - the exact fall-through-to-the-good-exit
+# this migration exists to REMOVE, reintroduced by its own dependency going missing.
+# Worse, `gate_exit usage` failing the same way turned a mis-typed flag into a full
+# gate run rather than an exit 2.
+#
+# This gate is bundled into FOUR generated Codex skills while gate-lib is bundled
+# into none, so the distributed copies are exactly where this would have bitten and
+# exactly where nobody runs the suite. Pinned by
+# controls/counter-model-enrolment's sibling case and by
+# tests/test_flow_finish_gate.py::test_a_missing_gate_lib_is_fatal_not_advisory.
+if [[ ! -f "$_gate_lib" ]]; then
+    echo "flow-finish-gate: cannot find gate-lib.sh (looked beside this script, in ~/.claude/scripts, and in \$CLAUDE_PLUGIN_ROOT/scripts)." >&2
+    echo "  Refusing to run: without it every verdict would fall through to a clean exit." >&2
+    exit 2
+fi
+# shellcheck source=scripts/gate-lib.sh
+. "$_gate_lib_dir/gate-lib.sh"
+
+# SOURCING SUCCEEDING IS NOT THE LIBRARY BEING USABLE. A truncated or partially
+# written file sources without error and defines nothing, which lands in the same
+# fall-through. Assert the three functions this gate actually calls.
+for _fn in gate_map gate_exit gate_arg_value; do
+    if ! declare -F "$_fn" >/dev/null 2>&1; then
+        echo "flow-finish-gate: $_gate_lib sourced but does not define $_fn; refusing to run." >&2
+        exit 2
+    fi
+done
+unset _fn
+
+# `usage=2` IS DECLARED, NEVER DEFAULTED. gate-lib defaults GATE_USAGE_EXIT=64 and
+# rebinds it only when a caller declares `usage=N` (gate-lib.sh:224). This gate has
+# used 2 for a mis-typed flag since before gate-lib existed, and its header pins
+# that deliberately - 2 means "you typed the flag wrong" HERE, and must not collide
+# with the repository's usual 2-means-UNKNOWN. Omitting this line would silently
+# move every usage error from 2 to 64, which no test that does not assert the usage
+# exit specifically would notice.
+gate_map ok=0 fail=1 usage=2 warn=3 skipped=4
+
 PLAN="finish"
 MODE="gate"
 RERUN_ENABLED="${FLOW_GATE_RERUN:-1}"
 MAX_RERUN_IDS=25
-expect_plan=0
-for arg in "$@"; do
-    if [[ "$expect_plan" -eq 1 ]]; then
-        PLAN="$arg"
-        expect_plan=0
-        continue
-    fi
-    case "$arg" in
-        --plan) expect_plan=1 ;;
-        --plan=*) PLAN="${arg#--plan=}" ;;
-        --check-summary) MODE="check-summary" ;;
+# A `while`/`shift` loop rather than the `for arg` + deferred-flag shape it
+# replaces, because `gate_arg_value` needs to see the REMAINING argument count to
+# tell "--plan with a value" from "--plan as the last argument" (issue #1061). The
+# old shape carried that state by hand in `expect_plan` and re-checked it after the
+# loop; the library does it at the point of use, which is the copying this seam
+# removes. `--help` keeps a bare `exit 0`: it is not a verdict, so it is not
+# gate_map's to name.
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --plan)
+            gate_arg_value "$1" "$#" "${2-}"
+            PLAN="$GATE_VALUE"
+            shift 2
+            ;;
+        --plan=*) PLAN="${1#--plan=}"; shift ;;
+        --check-summary) MODE="check-summary"; shift ;;
         --help|-h)
             sed -n '2,90p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
-            echo "flow-finish-gate: unknown argument: $arg" >&2
-            exit 2
+            echo "flow-finish-gate: unknown argument: $1" >&2
+            gate_exit usage
             ;;
     esac
 done
-if [[ "$expect_plan" -eq 1 || -z "$PLAN" ]]; then
+if [[ -z "$PLAN" ]]; then
     echo "flow-finish-gate: --plan requires a value" >&2
-    exit 2
+    gate_exit usage
 fi
 
 #: --- Counter-model enrolment (issue #1171) ---------------------------------
@@ -241,7 +329,7 @@ verdict() {
                         echo "  Run the Step 6 counter-model review, or record an explicit skip with a committed reason:" >&2
                         echo "    python3 <cpp>/scripts/counter-model-receipt.py write --status skipped --reason <reason> --head \"\$(git rev-parse HEAD)\" ..." >&2
                         echo "FLOW_FINISH_GATE: fail (counter-model line $CM_ENROLMENT_STATE)"
-                        exit 1
+                        gate_exit fail
                         ;;
                 esac
                 ;;
@@ -275,20 +363,20 @@ if [[ "$MODE" == "check-summary" ]]; then
     if [[ "$RUNNER_OK" -eq 0 ]]; then
         echo "NOTE: lib.cicd unavailable ($REASON); skipping Makefile completeness check." >&2
         verdict skipped
-        exit 4
+        gate_exit skipped
     fi
     if [[ ! -f Makefile ]]; then
         echo "NOTE: no Makefile here; skipping Makefile completeness check." >&2
         verdict skipped
-        exit 4
+        gate_exit skipped
     fi
     PYTHONPATH="$CPP_DIR:${PYTHONPATH:-}" uv run --project "$CPP_DIR" python -m lib.cicd check --summary
     if [[ $? -eq 0 ]]; then
         verdict ok
-        exit 0
+        gate_exit ok
     else
         verdict warn
-        exit 3
+        gate_exit warn
     fi
 fi
 
@@ -391,6 +479,22 @@ cm_enrolment_evaluate() {
         branch=""
     fi
 
+    # COMPUTED ONCE, WITH AN EXPLICIT BRANCH, because the nested-expansion form is
+    # wrong in both directions and the wrong version renders plausibly (#1061).
+    # It was `${branch:+}${branch:-  (detached ...)}`: the `:+` word is EMPTY, so it
+    # expands to nothing whether branch is set or not - dead code - and the `:-`
+    # then emits the BRANCH NAME itself in the set case, giving
+    # `receipt: <file>.json<branch>` with no separator, on the one line whose job is
+    # to say WHICH receipt satisfied the gate. Substituting text into the `:+` half
+    # does not fix it either: `${branch:+ for branch '$branch'}${branch:-  (...)}`
+    # renders `for branch 'x'x`, which reads fine at a glance and is why this is an
+    # if/else rather than a cleverer expansion.
+    if [[ -n "$branch" ]]; then
+        _cm_where=" for branch '$branch'"
+    else
+        _cm_where="  (detached HEAD: matched by ancestry, branch not comparable)"
+    fi
+
     for f in "$receipts"/*.json; do
         [[ -e "$f" ]] || continue
         rbranch=$(cm_field "$f" branch)
@@ -431,7 +535,7 @@ cm_enrolment_evaluate() {
                 return
             fi
             CM_ENROLMENT_STATE=skipped
-            CM_ENROLMENT_LINE="skipped: $rreason ($(basename "$f"))${branch:+}${branch:-  (detached HEAD: matched by ancestry, branch not comparable)}"
+            CM_ENROLMENT_LINE="skipped: $rreason ($(basename "$f"))$_cm_where"
             return
         fi
         # STATUS IS CHECKED POSITIVELY, never by not-being-skipped (counter-model
@@ -447,7 +551,7 @@ cm_enrolment_evaluate() {
             return
         fi
         CM_ENROLMENT_STATE=receipt
-        CM_ENROLMENT_LINE="receipt: $(basename "$f")${branch:+}${branch:-  (detached HEAD: matched by ancestry, branch not comparable)}"
+        CM_ENROLMENT_LINE="receipt: $(basename "$f")$_cm_where"
         return
     done
 
@@ -823,7 +927,7 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
             echo "  This is NOT a pass: a gate set that cannot be read filters nothing, and every skipped gate would go unreported (#1147)." >&2
             echo "  Expect this against a runner older than #1147; re-run with the current lib/cicd." >&2
             verdict "fail (gate set unreadable)"
-            exit 1
+            gate_exit fail
         fi
         # EVERY DECLARED GATE MUST BE ACCOUNTED FOR: it ran, or it was recorded
         # as skipped. A gate that is in neither list was declared and then
@@ -863,7 +967,7 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
             echo "flow-finish-gate: the runner JSON carries no 'dropped_gates' field, so whether this plan dropped a declared gate was NOT checked." >&2
             echo "  Not checked is not clean: re-run with a lib/cicd carrying #1155." >&2
             verdict "fail (reconciliation unavailable)"
-            exit 1
+            gate_exit fail
         fi
         if [[ "$DROPPED_NOT_APPLICABLE" -eq 1 ]]; then
             echo "flow-finish-gate: gate reconciliation not applicable: no builtin plan named '${PLAN_NAME:-?}', so there is no declaration to compare this plan against (#1155)." >&2
@@ -872,7 +976,7 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
             echo "  The manifest WINS over lib/cicd/steps.py, so those gates are not in the plan at all - they did not run and nothing recorded them as skipped." >&2
             echo "  This gate proved nothing about them. Add each id under plans.${PLAN_NAME:-<plan>}.steps; if this repo has no such target, LIST the step anyway and let skip_if skip it, which reports it by name instead of silently (#617, #1147, #1155)." >&2
             verdict "fail (gate dropped from the plan: $DROPPED_GATES)"
-            exit 1
+            gate_exit fail
         fi
 
         UNACCOUNTED_GATES=""
@@ -886,7 +990,7 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         if [[ -n "$UNACCOUNTED_GATES" ]]; then
             echo "WARNING: the runner DECLARED these quality gates and then neither ran them nor recorded them as skipped: $UNACCOUNTED_GATES. They were dropped from the executed plan, so this gate proved nothing about them - do not read as 'safe to merge'. Check that .claude/cicd_tasks.yml lists each one under its plan: that manifest WINS over lib/cicd/steps.py, so a gate defined there and not referenced is dead config (issues #617, #1147)." >&2
             verdict "fail (declared but never ran: $UNACCOUNTED_GATES)"
-            exit 1
+            gate_exit fail
         fi
         # Report the DERIVATION by name, never silently (issue #1152). A reader
         # seeing three gates absent from the executed list must be able to see
@@ -905,7 +1009,7 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
             echo "  A gate is recorded not-run when it was deferred to an aggregate that FAILED - make stops at its first failing prerequisite - so these were never executed and nothing proved anything about them." >&2
             echo "  A success verdict and a not-run gate cannot both be true; this gate believes the per-step record (issue #1152)." >&2
             verdict "fail (recorded not-run: $NOT_RUN_IDS)"
-            exit 1
+            gate_exit fail
         fi
         if [[ -n "$SUBSUMED_GATES" ]]; then
             echo "flow-finish-gate: SUBSUMED: $SUBSUMED_GATES ran as direct prerequisite(s) of 'make ${SUBSUMED_BY:-the aggregate}', which passed - not re-run (issue #1152)."
@@ -913,12 +1017,12 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         if [[ -n "$SKIPPED_GATES" ]]; then
             echo "WARNING: quality gates did NOT run: $SKIPPED_GATES (no Makefile target and no configured tool). This gate proved nothing about those checks - do not read as 'safe to merge' (issue #628)." >&2
             verdict "warn (skipped gates: $SKIPPED_GATES)"
-            exit 3
+            gate_exit warn
         fi
         if [[ -n "$ZERO_COVERAGE_GATES" ]]; then
             echo "WARNING: quality gate(s) RAN but a MEASURED PART of them examined NOTHING: $ZERO_COVERAGE_GATES. A green from a check with no input is not evidence about this change - do not read as 'safe to merge'. The runner warning above names what was measured; for a multi-check gate it is that check, not the whole gate (issue #1027)." >&2
             verdict "warn (zero coverage: $ZERO_COVERAGE_GATES)"
-            exit 3
+            gate_exit warn
         fi
         # A carried step is fine when the runner PROVED the tree hadn't
         # changed (tree_verified) - that is a genuine crash-resume, and
@@ -930,13 +1034,13 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         if [[ -n "$CARRIED" && "$TREE_VERIFIED" -ne 1 ]]; then
             echo "WARNING: step(s) carried a result from an earlier invocation WITHOUT proof the tree was unchanged since: $CARRIED. This gate did not verify those steps against the current tree - do not read as 'safe to merge' until you know why verification was unavailable (issue #804)." >&2
             verdict "warn (carried, unverified: $CARRIED)"
-            exit 3
+            gate_exit warn
         fi
         if [[ -n "$RERUN_PASSED_IDS" ]]; then
             RERUN_COUNT=$(awk '{ print NF }' <<< "$RERUN_PASSED_IDS")
             echo "WARNING: $RERUN_COUNT test(s) FAILED on the first attempt and PASSED when re-run against only their failed ids (issue #769): $RERUN_PASSED_IDS. The flow is not stopped - but this run is NOT a clean pass: either these are the documented host-state flakes, or you have a real intermittent failure. Never summarize this run as \"tests passed\"." >&2
             verdict "warn (rerun passed: $RERUN_PASSED_IDS)"
-            exit 3
+            gate_exit warn
         fi
         if [[ "$QUALIFIED" -eq 1 ]]; then
             # Do NOT name a single cause here (issue #939). QUALIFIED is set by
@@ -960,10 +1064,10 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
             # pinned in tests/test_flow_finish_gate.py rather than the wording.
             echo "WARNING: the gate passed but the runner QUALIFIED it (see \"warnings\" above) - at least one test step's result is not a clean pass, and the warnings state which. Do not read this as 'safe to merge' until you know why." >&2
             verdict warn
-            exit 3
+            gate_exit warn
         fi
         verdict ok
-        exit 0
+        gate_exit ok
     fi
     if [[ -n "$TIMED_OUT_STEP" ]]; then
         # Distinguished from a test failure deliberately. A reader told
@@ -977,7 +1081,7 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         echo "        CPP_GATE_TEST_TIMEOUT=<seconds> <re-run the gate>" >&2
         echo "  If it times out at a budget far above the suite's real cost, suspect a hang rather than growth (issue #812)." >&2
         verdict "fail (timeout: $TIMED_OUT_STEP after ${TIMED_OUT_AFTER:-?}s)"
-        exit 1
+        gate_exit fail
     fi
     if [[ -n "$FAILED_PREREQ" ]]; then
         # An aggregate has many prerequisites - `verify` has 29 in this repo -
@@ -985,10 +1089,10 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         # one it stopped at; carry it (issue #1152).
         echo "flow-finish-gate: the failing step is an aggregate; make stopped at prerequisite '$FAILED_PREREQ'." >&2
         verdict "fail (at prerequisite $FAILED_PREREQ)"
-        exit 1
+        gate_exit fail
     fi
     verdict fail
-    exit 1
+    gate_exit fail
 fi
 
 # --- Fallback: Makefile gates (same degrade path the command docs document) --
@@ -1073,11 +1177,11 @@ run_fallback_gate() {
         RAN_GATES="${RAN_GATES:+$RAN_GATES }make ${id}"
         RAN_GATE_IDS="${RAN_GATE_IDS:+$RAN_GATE_IDS }${id}"
         if [[ "$id" == "test" && "$RERUN_ENABLED" == "1" ]]; then
-            local first_output gate_exit failed_ids failed_count
+            local first_output step_exit failed_ids failed_count
             first_output=$(mktemp "${TMPDIR:-/tmp}/flow-finish-gate-test.XXXXXX")
             make "${id}" 2>&1 | tee "$first_output"
-            gate_exit=${PIPESTATUS[0]}
-            if [[ "$gate_exit" -ne 0 ]]; then
+            step_exit=${PIPESTATUS[0]}
+            if [[ "$step_exit" -ne 0 ]]; then
                 failed_ids=$(parse_fallback_failed_ids "$first_output")
                 failed_count=$(awk '{ print NF }' <<< "$failed_ids")
                 if [[ -n "$failed_ids" && "$failed_count" -le "$MAX_RERUN_IDS" ]]; then
@@ -1113,12 +1217,12 @@ run_fallback_gate() {
         RAN_GATES="${RAN_GATES:+$RAN_GATES }uv:${id}"
         RAN_GATE_IDS="${RAN_GATE_IDS:+$RAN_GATE_IDS }${id}"
         if [[ "$id" == "test" && "$RERUN_ENABLED" == "1" ]]; then
-            local first_output gate_exit failed_ids failed_count
+            local first_output step_exit failed_ids failed_count
             first_output=$(mktemp "${TMPDIR:-/tmp}/flow-finish-gate-test.XXXXXX")
             # shellcheck disable=SC2086
             uv run --extra dev ${uvargs} 2>&1 | tee "$first_output"
-            gate_exit=${PIPESTATUS[0]}
-            if [[ "$gate_exit" -ne 0 ]]; then
+            step_exit=${PIPESTATUS[0]}
+            if [[ "$step_exit" -ne 0 ]]; then
                 failed_ids=$(parse_fallback_failed_ids "$first_output")
                 failed_count=$(awk '{ print NF }' <<< "$failed_ids")
                 if [[ -n "$failed_ids" && "$failed_count" -le "$MAX_RERUN_IDS" ]]; then
@@ -1290,7 +1394,7 @@ fi
 if [[ "$RAN" -eq 0 && -z "$SKIPPED_GATES" ]]; then
     echo "WARNING: no deterministic runner and no Makefile/pyproject lint/test/typecheck gates - quality gates SKIPPED." >&2
     verdict skipped
-    exit 4
+    gate_exit skipped
 fi
 # Print the #769 evidence BEFORE verdict precedence, exactly as the runner path
 # does: a later gate failing is the more serious verdict, but it must not erase a
@@ -1302,17 +1406,17 @@ if [[ -n "$RERUN_PASSED_IDS" ]]; then
 fi
 if [[ "$FAILED" -eq 1 ]]; then
     verdict fail
-    exit 1
+    gate_exit fail
 fi
 if [[ -n "$SKIPPED_GATES" ]]; then
     echo "WARNING: quality gates did NOT run: $SKIPPED_GATES (no Makefile target and no runnable tool). This gate proved nothing about those checks - do not read as 'safe to merge' (issue #628)." >&2
     verdict "warn (skipped gates: $SKIPPED_GATES)"
-    exit 3
+    gate_exit warn
 fi
 if [[ -n "$ZERO_COVERAGE_GATES" ]]; then
     echo "WARNING: quality gate(s) RAN but a MEASURED PART of them examined NOTHING: $ZERO_COVERAGE_GATES. A green from a check with no input is not evidence about this change - do not read as 'safe to merge'. The runner warning above names what was measured; for a multi-check gate it is that check, not the whole gate (issue #1027)." >&2
     verdict "warn (zero coverage: $ZERO_COVERAGE_GATES)"
-    exit 3
+    gate_exit warn
 fi
 if [[ -n "$UNRUN_AGGREGATE" ]]; then
     # Same sentence as #628's, for the same reason: this gate proved nothing
@@ -1320,13 +1424,13 @@ if [[ -n "$UNRUN_AGGREGATE" ]]; then
     # #628's could not run, these were never looked for.
     echo "WARNING: this repo's 'make $AGGREGATE_TARGET' also runs: $UNRUN_AGGREGATE. Those did NOT run here - the fallback ran only: $RAN_GATES. This gate proved nothing about them; run 'make $AGGREGATE_TARGET' for the repo's full gate (issue #808)." >&2
     verdict "warn (not run by fallback: $UNRUN_AGGREGATE)"
-    exit 3
+    gate_exit warn
 fi
 if [[ -n "$RERUN_PASSED_IDS" ]]; then
     RERUN_COUNT=$(awk '{ print NF }' <<< "$RERUN_PASSED_IDS")
     echo "WARNING: $RERUN_COUNT test(s) FAILED on the first attempt and PASSED when re-run against only their failed ids (issue #769): $RERUN_PASSED_IDS. The flow is not stopped - but this run is NOT a clean pass: either these are the documented host-state flakes, or you have a real intermittent failure. Never summarize this run as \"tests passed\"." >&2
     verdict "warn (rerun passed: $RERUN_PASSED_IDS)"
-    exit 3
+    gate_exit warn
 fi
 verdict ok
-exit 0
+gate_exit ok

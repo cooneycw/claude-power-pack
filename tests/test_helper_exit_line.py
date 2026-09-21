@@ -76,6 +76,10 @@ NAMESPACES = {
     "flow-driver-capability.sh": "FLOW_DRIVER",
     "flow-vantage.sh": "FLOW_VANTAGE",
     "flow-finish-gate.sh": "FLOW_FINISH_GATE",
+    # Both a sourced LIBRARY and a runnable `--check` program; its exit line is
+    # installed inside the self-invocation branch so sourcing it cannot replace
+    # the caller's trap. Marker prefix `GATE_LIB:` already, hence the namespace.
+    "gate-lib.sh": "GATE_LIB",
     "flow-ci-status.sh": "FLOW_CI",
     "flow-pr-watch.sh": "FLOW_PR_WATCH",
     "gh-pr-merge.sh": "GH_PR_MERGE",
@@ -97,17 +101,60 @@ NAMESPACES = {
 CHAINERS = ("flow-wave-registry.sh", "flow-wave-mailbox.sh", "lane-serveability-check.sh")
 
 
-def installed_helpers() -> list[str]:
-    """The `HELPERS=(...)` array in flow-helpers-install.sh - the family itself."""
-    text = INSTALLER.read_text(encoding="utf-8")
+def installed_helpers(text: str | None = None) -> list[str]:
+    """The `HELPERS=(...)` array in flow-helpers-install.sh - the family itself.
+
+    COMMENTS ARE NOT MEMBERS (issue #1061). The first cut admitted every
+    non-blank line inside the array, which was correct for as long as the array
+    had never carried one. The day a member needed a sentence beside it -
+    `gate-lib.sh` is a sourced library, and why a library is installed with the
+    executables is worth explaining at the line that installs it - three
+    comments were derived as three helpers. The derivation does not FAIL there;
+    it fabricates members, and every test parametrized over this population
+    then asks the filesystem for a file named `# Installing the gate alone...`.
+    A derived population is only as trustworthy as its derivation, and that is
+    the half nobody reviews.
+
+    `text` is injectable for exactly one caller - the red case below - because a
+    derivation that can only ever read the real file cannot be shown a known-bad
+    input, and then its correctness is an assertion rather than a measurement.
+    """
+    if text is None:
+        text = INSTALLER.read_text(encoding="utf-8")
     match = re.search(r"^HELPERS=\(\n(.*?)^\)", text, re.MULTILINE | re.DOTALL)
     assert match, "flow-helpers-install.sh no longer declares HELPERS=( ... )"
-    names = [line.strip() for line in match.group(1).splitlines() if line.strip()]
+    names = [
+        stripped
+        for line in match.group(1).splitlines()
+        if (stripped := line.strip()) and not stripped.startswith("#")
+    ]
     assert len(names) > 10, f"parsed an implausibly small family: {names}"
     return names
 
 
 # --- membership ------------------------------------------------------------ #
+
+def test_the_derivation_does_not_admit_a_comment_as_a_helper() -> None:
+    """The known-bad input for `installed_helpers`, committed as a case.
+
+    Both halves matter and the positive one is not decoration: a derivation
+    that returned nothing at all would satisfy "no comment was admitted"
+    perfectly. So this asserts the extractor can still SEE an ordinary member
+    in the same input it is being asked to reject a comment from.
+    """
+    synthetic = (
+        "HELPERS=(\n"
+        + "".join(f"    h{i}.sh\n" for i in range(12))
+        + "    # why the next one is here at all\n"
+        + "    real.sh\n"
+        + ")\n"
+    )
+    names = installed_helpers(synthetic)
+    assert "real.sh" in names, f"the extractor cannot see a real member: {names}"
+    assert not [n for n in names if n.startswith("#")], (
+        f"a comment line was admitted as a family member: {names}"
+    )
+
 
 def test_the_declared_table_covers_exactly_the_installed_family() -> None:
     """A helper added to the family without a namespace fails HERE, loudly.
@@ -229,6 +276,7 @@ def last_stderr(*argv: str) -> tuple[int, str]:
         (["flow-finish-gate.sh", "--help"], "flow-finish-gate.sh"),
         (["flow-driver-capability.sh", "list"], "flow-driver-capability.sh"),
         (["friction-log.sh"], "friction-log.sh"),
+        (["gate-lib.sh", "--help"], "gate-lib.sh"),
     ],
 )
 def test_a_clean_run_reports_zero(argv: list[str], name: str) -> None:
@@ -239,7 +287,7 @@ def test_a_clean_run_reports_zero(argv: list[str], name: str) -> None:
 
 @pytest.mark.parametrize(
     ("script", "expected"),
-    [("worktree-remove.sh", 1), ("gh-pr-merge.sh", 2)],
+    [("worktree-remove.sh", 1), ("gh-pr-merge.sh", 2), ("gate-lib.sh", 2)],
 )
 def test_a_refusal_reports_its_own_status(script: str, expected: int) -> None:
     """BOTH DIRECTIONS. A line wedged at 0 would pass every zero-exit test above

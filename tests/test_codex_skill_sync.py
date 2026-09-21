@@ -1112,3 +1112,58 @@ def test_the_two_success_lines_cannot_be_read_as_the_same_question(
     assert install_root in install_line, (
         "the one mode whose subject IS the install tree must say so"
     )
+
+
+def test_a_bundled_shell_script_brings_the_library_it_sources(tmp_path: Path) -> None:
+    """The generator is an instrument, so it gets its own red case (issue #1061).
+
+    `find_bundled_libs` follows PYTHON `lib.*` imports only, so a bundled SHELL
+    script's dependency was invisible. `scripts/flow-finish-gate.sh` is bundled into
+    four skills and sources `scripts/gate-lib.sh`; without this the four shipped
+    copies carry a gate whose library reaches none of them, and since the gate now
+    REFUSES when it cannot find gate-lib, those copies would exit 2 on every
+    invocation - a functional regression against main, where the gate does not
+    source it at all.
+    """
+    mod = codex_skill_sync
+    got = mod.find_bundled_shell_libs(["flow-finish-gate.sh"])
+    assert "scripts/gate-lib.sh" in got, (
+        "a bundled shell script must bring what it sources, or the bundle cannot start"
+    )
+    assert got["scripts/gate-lib.sh"].is_file()
+
+
+def test_the_shell_lib_rule_does_not_widen_to_unrelated_scripts() -> None:
+    """The half that catches a predicate matching too much.
+
+    A rule that bundled a library for every script would be indistinguishable from
+    a correct one on the skills that need it, and would quietly grow every other
+    bundle. Asserted against a script that sources nothing.
+    """
+    mod = codex_skill_sync
+    assert mod.find_bundled_shell_libs(["flow-vantage.sh"]) == {}, (
+        "a script that sources nothing must pull in nothing"
+    )
+    both = mod.find_bundled_shell_libs(["flow-finish-gate.sh", "flow-vantage.sh"])
+    assert set(both) == {"scripts/gate-lib.sh"}, (
+        f"only the sourced library may be added; got {sorted(both)}"
+    )
+
+
+def test_a_source_line_the_bundler_cannot_follow_refuses(tmp_path: Path) -> None:
+    """An unfollowable source RAISES rather than shipping a silently incomplete bundle.
+
+    A source target built from a variable - `. "$_gate_lib"` - hides the filename
+    from a reader that is not a shell parser. That is the exact shape of the bug
+    this function fixes, so it must fail at GENERATION, where the failure is cheap,
+    rather than in a distributed copy where nobody runs the suite.
+    """
+    mod = codex_skill_sync
+    victim = mod.SCRIPTS_ROOT / "zz-unfollowable-probe.sh"
+    victim.write_text('#!/usr/bin/env bash\n_x=/tmp/gate-lib.sh\n. "$_x"\n')
+    try:
+        with pytest.raises(SystemExit) as caught:
+            mod.find_bundled_shell_libs([victim.name])
+        assert "cannot resolve" in str(caught.value)
+    finally:
+        victim.unlink()
