@@ -10,11 +10,16 @@
 # same sentence as "a broken install would have been noticed".
 #
 # WHAT IT CATCHES: a file missing from the installed tree.
-# WHAT IT MISSES: all three known-bad cases, because each is a tree whose files
-# are all PRESENT and whose BYTES are wrong - a stale bundled helper, a drifted
-# payload, and (from its point of view) a scripts/ dir that it never re-reads
-# after the happy path succeeded. It reports GOOD on cases/bad-drifted-install
-# (blind, as required) and GOOD on cases/good-matching-install (anchor sanity).
+# WHAT IT MISSES: BYTE DRIFT - a tree whose files are all present and whose
+# contents are wrong, which is what the registered known-bad case is.
+#
+# CLAIM CORRECTED at the #1074 re-review. This said it was blind to "all three
+# known-bad cases". It is not: remove `scripts/` and this presence loop reports
+# MISSING and exits non-zero, so it DETECTS that one. The control registers byte
+# drift and that is what this anchor is blind to - so that is what is claimed
+# here now. Claiming blindness the artifact does not have is the same overclaim
+# class this whole issue keeps producing, and an anchor is the last place it
+# belongs, since the anchor is what proves the control can fail.
 #
 # Stdlib and coreutils only, like the proof.
 set -uo pipefail

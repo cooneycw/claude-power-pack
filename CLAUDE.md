@@ -42,6 +42,7 @@ these rules remain in [commands-reference.md](docs/commands-reference.md) and
 - `docs/agents/knowledge-lifecycle.md` - canonical completed-spec graduation policy.
 - `docs/agents/delivery-pilots.md` - maintained report on what the balanced-delivery wave observed: evidence classes, what each does not establish, and the wave's own approval/duplication/requirement failures.
 - `docs/agents/glossary.md` - defined terms: instrument (with the ADR 0008 bound), harness, counter-model.
+- `docs/agents/codex-install-proof.md` - what the clean-install proof demonstrates, at which SHA, and how to re-run it against a newer one.
 - `docs/agents/closing-report-contract.md` - canonical closing-report contract: owner TO-DO first, then plain language, then evidence.
 - `docs/agents/shared-stash-stack.md` - why a worktree shares one stash stack, the safe alternatives, and what `stash-worktree-guard.sh` does and cannot do.
 - `docs/agents/evidence-deleting-idioms.md` - the git and shell idioms that remove the diagnostic and keep the success line: the pinned base, deletion accounting before a push, `$?` after a pipe, and which distinction a tidying flag deletes.

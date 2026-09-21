@@ -130,6 +130,45 @@ def test_an_empty_expected_set_is_refused_rather_than_passing(tmp_path: Path) ->
     )
 
     result = _run("--root", str(case))
-    assert result.returncode != 0 or "PROOF_COMPARED: 0" not in result.stdout, (
-        "an empty expected set reported success; a comparison over nothing is not a pass"
-    )
+
+    # ALL THREE, not an `or` (#1074 re-review): the original accepted exit 0 with
+    # only "PROOF: ok", which is precisely the successful empty run it forbids.
+    assert result.returncode != 0, "an empty expected set exited 0"
+    assert "manifest names no files" in result.stderr, result.stdout + result.stderr
+    assert "PROOF: ok" not in result.stdout, "it printed the success marker anyway"
+
+
+@requires_bash
+def test_the_proof_refuses_a_dirty_generated_tree(tmp_path: Path) -> None:
+    """Evidence must describe the SHA it names (#1074 re-review).
+
+    The manifest is labelled with `rev-parse HEAD` while the bytes come from the
+    WORKING TREE, so an uncommitted change would compare successfully and produce
+    evidence attributed to a commit that never contained it - "evidence for an
+    earlier SHA is not release approval", inverted.
+
+    By default the proof RUNS on a dirty tree and labels the manifest `-dirty`,
+    because refusing outright made it unusable as a `verify` prerequisite - every
+    developer run would red on provenance rather than on the install. The label
+    is what must not lie. `PROOF_STRICT_PROVENANCE=1` restores the refusal for a
+    release claim, and that is what this test exercises.
+    """
+    import os
+
+    env = dict(os.environ)
+    env["PROOF_WORK"] = str(tmp_path / "w")
+    env["PROOF_STRICT_PROVENANCE"] = "1"
+
+    skill_doc = ROOT / "codex" / "skills" / "project-next" / "SKILL.md"
+    original = skill_doc.read_bytes()
+    try:
+        skill_doc.write_bytes(original + b"\n# uncommitted\n")
+        result = subprocess.run(
+            ["bash", str(PROOF)], capture_output=True, text=True, check=False, env=env
+        )
+    finally:
+        skill_doc.write_bytes(original)
+
+    assert result.returncode != 0, "a dirty generated tree was accepted"
+    assert "uncommitted changes" in result.stderr
+    assert "PROOF: ok" not in result.stdout

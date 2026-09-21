@@ -256,6 +256,16 @@ steps:
     commands:
       - python3 scripts/check-claude-md-budget.py AGENTS.md
 
+  # The generated Codex surface installs onto a clean host and runs a workflow
+  # end to end (#1074). The CI image is the cleanest machine we own, so this is
+  # where the clean-install proof most nearly means what it says. It constructs
+  # its own CODEX_HOME under a temp dir and never writes to $HOME/.codex.
+  codex-install-proof:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - bash scripts/codex-install-proof.sh
+
   # Is every host write in /cpp:init and /cpp:update still through the seam? (#1132)
   #
   # IN CI ON ARRIVAL, not filed for later: #1146 recorded ten `make verify`

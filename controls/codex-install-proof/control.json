@@ -49,7 +49,7 @@
       "origin": "scripts/codex-install-proof.sh",
       "path": "anchors/constructed-happy-path-only-codex-install-proof.sh",
       "sha256": "0f6e670d532f9f577e328dfd0a1812d4d22ba7aa495c7aabf302d0b4d782ec13",
-      "why": "CONSTRUCTED: the proof is new at #1074, so no earlier version exists and inventing one would be a fiction. This is the plausible weaker proof - install, confirm every manifest path is PRESENT, run the happy path, report success. It catches a missing file and is blind to wrong bytes, which is what all three known-bad inputs are. It MISSES the known-bad input and AGREES on the known-good one."
+      "why": "CONSTRUCTED: the proof is new at #1074, so no earlier version exists and inventing one would be a fiction. This is the plausible weaker proof - install, confirm every manifest path is PRESENT, run the happy path, report success. It catches a missing file and is blind to WRONG BYTES, which is what this control's registered known-bad case is. It is NOT blind to a removed scripts/ directory - corrected at the re-review, which found the original claim of blindness to all three known-bad inputs false. It MISSES the known-bad input and AGREES on the known-good one."
     }
   ]
 }

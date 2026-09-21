@@ -41,8 +41,38 @@ fail() { printf 'PROOF_FAIL: %s\n' "$*" >&2; FAILURES=$((FAILURES + 1)); }
 
 # --- phase 0: derive the expected set from the REPOSITORY -------------------
 phase0_derive() {
-    local sha
-    sha="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
+    local sha dirty
+    sha="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null)" || sha=""
+    if [ -z "$sha" ]; then
+        fail "could not resolve HEAD; a proof cannot attribute evidence to an unnamed commit"
+        return 1
+    fi
+    # THE LABEL MUST DESCRIBE THE BYTES (#1074 re-review). This read the WORKING
+    # TREE and labelled it with HEAD's SHA, so an uncommitted change compared
+    # successfully and produced evidence attributed to a commit that never
+    # contained it - which is exactly what "evidence for an earlier SHA is not
+    # release approval" exists to prevent, inverted.
+    dirty="$(git -C "$REPO_ROOT" status --porcelain -- codex/skills "tests/project_next/fixtures" 2>/dev/null)"
+    if [ -n "$dirty" ]; then
+        # THE LABEL MUST NOT LIE - it does not have to REFUSE. Refusing outright
+        # was the first shape and it made the gate unusable in the one place
+        # #1074 wired it: `make verify` runs on a dirty tree by definition during
+        # development, so every developer run would have redded on provenance
+        # rather than on the install. The property the re-review actually named
+        # is that evidence must not be attributed to a commit that never
+        # contained the bytes - so the label carries `-dirty` and the contract
+        # says so out loud. PROOF_STRICT_PROVENANCE=1 restores the refusal for a
+        # release claim, where "runs anyway, honestly labelled" is not enough.
+        if [ "${PROOF_STRICT_PROVENANCE:-0}" = "1" ]; then
+            fail "the generated tree or fixture corpus has uncommitted changes, so bytes here are not $sha:"
+            printf '%s\n' "$dirty" | sed 's/^/    /' >&2
+            return 1
+        fi
+        sha="$sha-dirty"
+        note "PROOF_PROVENANCE: DIRTY - the generated tree or fixture corpus has uncommitted changes, so these bytes are NOT $(printf '%s' "$sha" | sed 's/-dirty$//'). This run is evidence about a working tree, not about a commit."
+    else
+        note "PROOF_PROVENANCE: clean - the bytes are $sha"
+    fi
     python3 - "$REPO_ROOT" "$SKILL" "$sha" "$MANIFEST" <<'PY'
 import hashlib, json, sys
 from pathlib import Path
@@ -63,8 +93,13 @@ scenarios = json.loads((src / "tests" / "project_next" / "fixtures" / "scenarios
     if (src / "tests" / "project_next" / "fixtures" / "scenarios.json").is_file() else None
 if scenarios is None:
     scenarios = json.loads((Path(repo) / "tests" / "project_next" / "fixtures" / "scenarios.json").read_text())
-state = scenarios["active_pr_and_safe_issue"]["state"]
-Path(out).with_name("state.json").write_text(json.dumps(state))
+scenario = scenarios["active_pr_and_safe_issue"]
+Path(out).with_name("state.json").write_text(json.dumps(scenario["state"]))
+# The EXPECTED RESULT travels as data too (#1074 re-review). Checking only that
+# keys exist accepted next_startable_issue=999: a broken recommendation satisfied
+# the end-to-end proof. The scenario already declares the answer; phase 0 was
+# discarding it.
+Path(out).with_name("expected_result.json").write_text(json.dumps(scenario["expected"]))
 print(f"PROOF_EXPECTED_FILES: {len(files)}")
 print(f"PROOF_SOURCE_SHA: {sha}")
 PY
@@ -93,9 +128,13 @@ assert_absences() {
         fail "absence 'invocation is path-qualified' is NOT real: the proof was told to invoke by name"; ok=1
     else note "PROOF_ABSENCE: invocation-path-qualified ok"; fi
 
-    if command -v project-next.py >/dev/null 2>&1; then
-        fail "absence 'no ambient project-next on PATH' is NOT real"; ok=1
-    else note "PROOF_ABSENCE: no-ambient-on-path ok"; fi
+    # An ambient `project-next.py` on PATH was asserted absent here until the
+    # #1074 re-review. THIRD instance of the same defect in this file: it is host
+    # INVENTORY, and every invocation in this proof is `python3 <absolute path>`,
+    # which never consults PATH - so an unrelated neighbour failed the proof while
+    # changing nothing it measures. The property is carried by
+    # `engine-resolves-inside-codex-home`, observed in the workflow's own process.
+    note "PROOF_ABSENCE: path-inventory-check RETIRED - superseded by engine-resolves-inside-codex-home"
 
     if git -C "$EXERCISE_CWD" rev-parse --show-toplevel >/dev/null 2>&1; then
         fail "absence 'no repo reachable' is NOT real: $EXERCISE_CWD is inside a checkout"; ok=1
@@ -108,15 +147,28 @@ phase1_install() {
     CODEX_HOME="$CODEX_ROOT" python3 "$REPO_ROOT/scripts/codex-skill-sync.py" --install >/dev/null 2>&1 \
         || { fail "install failed"; return 1; }
     note "PROOF_INSTALLED_AT: $CODEX_ROOT/skills/$SKILL"
-    # THE ABSENCE THAT BEARS WEIGHT: the engine the installed skill executes must
-    # resolve inside $CODEX_HOME. A sibling checkout existing on the box is not
-    # the hazard - the skill reaching one is, and that is what this measures.
+    # THE ABSENCE THAT BEARS WEIGHT, observed in the workflow's OWN environment
+    # (#1074 re-review). The first version inserted the installed directory into
+    # sys.path itself and then asserted the import came from there - it supplied
+    # the answer it was checking for. It now runs with the SAME scrubbed
+    # environment the workflow uses and lets the entry point resolve on its own.
     local resolved
-    resolved=$( cd "$EXERCISE_CWD" && CODEX_HOME="$CODEX_ROOT" python3 -c "
-import sys
-sys.path.insert(0, '$CODEX_ROOT/skills/$SKILL')
-import lib.project_next.rank as r
-print(r.__file__)" 2>/dev/null )
+    resolved=$( cd "$EXERCISE_CWD" && env -u PYTHONPATH -u PYTHONSTARTUP \
+        CODEX_HOME="$CODEX_ROOT" python3 - "$CODEX_ROOT/skills/$SKILL/scripts/project-next.py" <<'PROBE' 2>/dev/null
+import contextlib, io, runpy, sys
+entry = sys.argv[1]
+sys.argv = [entry, "--help"]
+# The entry point's own output is not the answer; where its IMPORTS resolved is.
+# Swallow it so the probe prints exactly one line.
+with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+    try:
+        runpy.run_path(entry, run_name="__main__")
+    except (SystemExit, Exception):
+        pass
+mod = sys.modules.get("lib.project_next.rank")
+sys.stdout.write((mod.__file__ if mod else "") + "\n")
+PROBE
+)
     case "$resolved" in
         "$CODEX_ROOT"/*) note "PROOF_ABSENCE: engine-resolves-inside-codex-home ok ($resolved)" ;;
         "")              fail "the installed skill's engine could not be imported at all" ;;
@@ -161,21 +213,32 @@ PY
 
 run_workflow() {
     local state="$1" out="$WORK/workflow.json"
-    ( cd "$EXERCISE_CWD" && python3 "$CODEX_ROOT/skills/$SKILL/scripts/project-next.py" \
+    ( cd "$EXERCISE_CWD" && env -u PYTHONPATH -u PYTHONSTARTUP CODEX_HOME="$CODEX_ROOT" \
+        python3 "$CODEX_ROOT/skills/$SKILL/scripts/project-next.py" \
         "$EXERCISE_CWD" --input "$state" --json ) > "$out" 2>"$WORK/workflow.err"
     local rc=$?
     if [ $rc -ne 0 ]; then
         fail "workflow exited $rc"; sed 's/^/    /' "$WORK/workflow.err" >&2; return 1
     fi
-    python3 - "$out" <<'PY'
+    python3 - "$out" "$WORK/expected_result.json" <<'PY'
 import json, sys
 payload = json.loads(open(sys.argv[1]).read())
+expected = json.loads(open(sys.argv[2]).read())
 for key in ("contract_version", "decision_policy", "next_startable_issue"):
     if key not in payload:
         print(f"PROOF_FAIL: workflow output has no {key!r}", file=sys.stderr)
         raise SystemExit(1)
+# COMPARE THE VALUE, not merely its presence.
+want = expected.get("next_startable")
+if payload["next_startable_issue"] != want:
+    print(f"PROOF_FAIL: next_startable_issue is {payload['next_startable_issue']!r}, "
+          f"the scenario declares {want!r}", file=sys.stderr)
+    raise SystemExit(1)
+if not payload["contract_version"] or not payload["decision_policy"]:
+    print("PROOF_FAIL: contract_version or decision_policy is empty", file=sys.stderr)
+    raise SystemExit(1)
 print(f"PROOF_WORKFLOW: ok - contract v{payload['contract_version']}, "
-      f"next_startable_issue={payload['next_startable_issue']}")
+      f"next_startable_issue={payload['next_startable_issue']} (matches the scenario)")
 PY
 }
 
@@ -192,8 +255,12 @@ known_bad_cases() {
     local victim="$CODEX_ROOT/skills/$SKILL/lib/project_next/rank.py"
     cp "$victim" "$WORK/rank.py.orig"
     printf '# stale\n' >> "$victim"
-    out=$(compare_against_manifest 2>&1)
-    if printf '%s' "$out" | grep -q "DRIFT: lib/project_next/rank.py"; then
+    cmp -s "$victim" "$WORK/rank.py.orig" && { fail "mutation for 'stale-bundled-helper' did not apply"; return 1; }
+    out=$(compare_against_manifest 2>&1); local rc_kb=$?
+    # STATUS **AND** DIAGNOSTIC (#1074 re-review). Grepping the text alone
+    # accepted a comparator that printed DRIFT and exited 0 - a rejection that
+    # rejects nothing.
+    if [ "$rc_kb" -ne 0 ] && printf '%s' "$out" | grep -q "DRIFT: lib/project_next/rank.py"; then
         note "PROOF_KNOWN_BAD: stale-bundled-helper REJECTED - $(printf '%s' "$out" | grep -m1 'DRIFT:')"
     else
         fail "known-bad 'stale-bundled-helper' was NOT rejected"; rc=1
@@ -204,11 +271,17 @@ known_bad_cases() {
     #    ambient or repo copy. The rejection TEXT is pinned: it must name a path
     #    under $CODEX_HOME and must not name ~/.claude/scripts or a repo path.
     mv "$CODEX_ROOT/skills/$SKILL/scripts" "$WORK/scripts.stash"
-    out=$( cd "$EXERCISE_CWD" && python3 "$CODEX_ROOT/skills/$SKILL/scripts/project-next.py" \
-             "$EXERCISE_CWD" --input "$WORK/state.json" --json 2>&1 )
-    if printf '%s' "$out" | grep -q "$CODEX_ROOT" \
+    [ -e "$CODEX_ROOT/skills/$SKILL/scripts" ] && { fail "mutation for 'missing-scripts' did not apply"; return 1; }
+    out=$( cd "$EXERCISE_CWD" && env -u PYTHONPATH CODEX_HOME="$CODEX_ROOT" \
+             python3 "$CODEX_ROOT/skills/$SKILL/scripts/project-next.py" \
+             "$EXERCISE_CWD" --input "$WORK/state.json" --json 2>&1 ); local rc_ms=$?
+    # The DIAGNOSTIC is the evidence, so it is printed rather than replaced by a
+    # canned sentence and then asserted about (#1074 re-review). It must name the
+    # exact missing entry point under CODEX_HOME, and no ambient or repo path.
+    if [ "$rc_ms" -ne 0 ] \
+       && printf '%s' "$out" | grep -q "$CODEX_ROOT/skills/$SKILL/scripts/project-next.py" \
        && ! printf '%s' "$out" | grep -qE "\.claude/scripts|$REPO_ROOT"; then
-        note "PROOF_KNOWN_BAD: missing-scripts REJECTED - names a path under CODEX_HOME, no ambient or repo path"
+        note "PROOF_KNOWN_BAD: missing-scripts REJECTED (exit $rc_ms) - $(printf '%s' "$out" | grep -m1 "$CODEX_ROOT" | sed "s|$CODEX_ROOT|\$CODEX_HOME|g")"
     else
         fail "known-bad 'missing-scripts' rejection text is wrong: $(printf '%s' "$out" | head -1)"; rc=1
     fi
@@ -218,8 +291,9 @@ known_bad_cases() {
     local doc="$CODEX_ROOT/skills/$SKILL/SKILL.md"
     cp "$doc" "$WORK/SKILL.md.orig"
     printf '\ndrifted\n' >> "$doc"
-    out=$(compare_against_manifest 2>&1)
-    if printf '%s' "$out" | grep -q "DRIFT: SKILL.md"; then
+    cmp -s "$doc" "$WORK/SKILL.md.orig" && { fail "mutation for 'payload-drift' did not apply"; return 1; }
+    out=$(compare_against_manifest 2>&1); local rc_kb=$?
+    if [ "$rc_kb" -ne 0 ] && printf '%s' "$out" | grep -q "DRIFT: SKILL.md"; then
         note "PROOF_KNOWN_BAD: payload-drift REJECTED - $(printf '%s' "$out" | grep -m1 'DRIFT: SKILL.md')"
     else
         fail "known-bad 'payload-drift' was NOT rejected"; rc=1

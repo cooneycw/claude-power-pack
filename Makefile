@@ -388,6 +388,7 @@ oscillation:
 verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-import-audit oscillation \
 	binary-guards-check negative-fixture-check negative-controls \
 	claude-md-budget-check agents-md-budget-check claude-md-links-check claude-md-behavior-check \
+	codex-install-proof \
 	project-next-check delegated-core-check codex-skills-check \
 	scripts-inventory-check instrument-census-check verify-coverage-check \
 	control-ci-deps-check ci-coverage-check \
@@ -723,13 +724,16 @@ negative-fixture-check:
 ## constructed CODEX_HOME and run one workflow end to end, with the four
 ## constructed absences asserted and three known-bad inputs rejected.
 ##
-## NOT a `verify` prerequisite, and that is deliberate. Its verdict is about a
-## HOST - it installs, and it reads what landed on this box - so a red would mean
-## "this machine is wrong" as often as "this change is wrong", which is the
-## host-state class `verify` already excludes elsewhere (skills-check,
-## host-surfaces-check). Its green is read by people, not by a gate, which keeps
-## it squarely inside ADR 0008's bound rather than outside it.
-## verify-coverage: excluded codex-install-proof - installs into a constructed CODEX_HOME and inspects this host, so its verdict is about the box rather than the commit; ci: excluded host-state
+## IT IS A GATE, and the distinction that makes it one is worth stating because I
+## argued the other way first. `skills-check` and `host-surfaces-check` are
+## host-state because their INPUT is whatever the box already has. This proof
+## CONSTRUCTS its input: a temp CODEX_HOME, the generated tree and installer at
+## this commit, a golden fixture. After the absence asserts were corrected from
+## host inventory to reachability-in-effect, nothing in its verdict is about this
+## machine - so a red is a fact about the commit, and #1074 requires that fact
+## re-established after every relevant merge. The CI image is the cleanest
+## machine available, so a proof that runs there IS the clean-install proof.
+## verify-coverage: gate codex-install-proof - the generated Codex surface installs onto a clean host and runs a workflow end to end; ci: runs codex-install-proof
 codex-install-proof:
 	@bash scripts/codex-install-proof.sh
 

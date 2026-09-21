@@ -2864,9 +2864,12 @@ class TestSubsumedGates:
 
         prereqs = make_prerequisites(str(root), "verify")
         assert prereqs is not None, "make could not be asked what `verify` runs"
-        assert len(prereqs) == 29, (
+        # 30 since #1074 added `codex-install-proof` to `verify:` - the proof is a
+        # gate because it CONSTRUCTS its input rather than reading whatever the box
+        # has, so its verdict is about the commit.
+        assert len(prereqs) == 30, (
             f"make reports {len(prereqs)} prerequisites for this repository's "
-            f"`verify` rule, not 29. If the Makefile genuinely changed, update "
+            f"`verify` rule, not 30. If the Makefile genuinely changed, update "
             f"the number; if it did not, something changed what make RESOLVES - "
             f"a conditional, an include, or a variable - and the subsumed set "
             f"moved with it (#1165)"
