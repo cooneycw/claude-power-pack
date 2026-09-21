@@ -13,6 +13,7 @@ The REAL anchor is exercised separately, against the real gate.
 from __future__ import annotations
 
 import contextlib
+import errno
 import fcntl
 import hashlib
 import json
@@ -1057,8 +1058,21 @@ _LIVE_TREE_LOCK = Path(tempfile.gettempdir()) / (
 )
 
 
+#: `errno` values that mean SOMEBODY ELSE HOLDS IT. Everything else is a fault.
+_CONTENDED = frozenset({errno.EAGAIN, errno.EACCES, errno.EWOULDBLOCK})
+
+#: pyproject sets `timeout = 120` per test, so a lock deadline above that can
+#: NEVER fire - pytest kills the test first and the careful diagnostic below is
+#: unreachable by construction (#1061 counter-model re-review, MEDIUM). The two
+#: callers raise their own budget with `@pytest.mark.timeout` to cover waiting
+#: for the lock AND doing the work; this deadline stays comfortably inside that
+#: raised budget so the lock's explanation is what the reader gets.
+_LOCK_BUDGET = 150.0
+_TEST_BUDGET = 300
+
+
 @contextlib.contextmanager
-def live_controls_tree_exclusive(timeout: float = 300.0) -> Iterator[None]:
+def live_controls_tree_exclusive(timeout: float = _LOCK_BUDGET) -> Iterator[None]:
     """Hold the live `controls/` tree exclusively for the duration.
 
     WHY A LOCK AND NOT A MARKER (issue #1061). Two tests in this file use the
@@ -1088,7 +1102,15 @@ def live_controls_tree_exclusive(timeout: float = 300.0) -> Iterator[None]:
             try:
                 fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 break
-            except OSError:
+            except OSError as exc:
+                # CONTENTION ONLY. Catching every OSError made a LOCKING-SYSTEM
+                # failure - ENOLCK, say - report as "another test held the lock
+                # too long", blaming a neighbour for a fault that is not theirs
+                # and discarding the real errno on the way (#1061 counter-model
+                # re-review, LOW). Anything that is not contention propagates
+                # with its own cause intact.
+                if exc.errno not in _CONTENDED:
+                    raise
                 if time.monotonic() >= deadline:
                     raise AssertionError(
                         f"could not take the live controls tree lock within {timeout}s "
@@ -1193,6 +1215,7 @@ def _classify_nonzero_exit(
     return "verdict"
 
 
+@pytest.mark.timeout(_TEST_BUDGET)
 def test_self_registration_is_blind_to_a_verdict_assignment_breakage(tmp_path: Path) -> None:
     """HALF ONE of #964's mutation demonstration, and the uncomfortable half.
 
@@ -1249,9 +1272,22 @@ def test_self_registration_is_blind_to_a_verdict_assignment_breakage(tmp_path: P
         f"self-registration is gone this is vacuous. rows={sorted(by_gate)}"
     )
     assert own == {"PASS"}, f"the harness's own registration(s) did not all read PASS: {own}"
-    # THE WHOLE-TREE CLAIM, UNNARROWED. Under a forced-PASS mutant EVERY
-    # control's row reads PASS - that is the breakage, and it is a statement
-    # about the whole register, not about one row.
+    # THE WHOLE-TREE CLAIM, UNNARROWED - AND WITH ITS DENOMINATOR CHECKED ON
+    # EVERY EXIT, not only the non-zero one (#1061 counter-model re-review,
+    # MEDIUM). "every row reads PASS" is trivially true of one row, so output
+    # declaring 44 registrations while emitting a single self-registration PASS
+    # used to satisfy this test on a clean tree - a parser regression that
+    # collapses registrations staying green underneath the very claim it broke.
+    registered = _registered_count(run.stdout)
+    assert registered is not None and registered > 0, (
+        f"the harness stated no registration count, so there is no denominator "
+        f"for the whole-register claim below.\n{run.stdout}"
+    )
+    assert len(by_gate) == registered, (
+        f"parsed {len(by_gate)} rows but the harness registered {registered}: the "
+        "claim below would be about a prefix, not about the register.\n"
+        f"{sorted(by_gate)}"
+    )
     assert set(by_gate.values()) == {"PASS"}, run.stdout
 
     untracked = _untracked_gates(run.stdout)
@@ -1264,7 +1300,7 @@ def test_self_registration_is_blind_to_a_verdict_assignment_breakage(tmp_path: P
         # cannot swallow a regression, whether the regression is this test's
         # subject or the harness falling over.
         why = _classify_nonzero_exit(
-            run.returncode, run.stderr, by_gate, _registered_count(run.stdout), untracked
+            run.returncode, run.stderr, by_gate, registered, untracked
         )
         assert why == "tracking", (
             f"the mutant exited {run.returncode} and the cause is {why!r}, not the "
@@ -1322,6 +1358,75 @@ def test_a_nonzero_exit_is_attributed_before_it_is_excused(
     dependent on the live tree that the test itself cannot control.
     """
     assert _classify_nonzero_exit(returncode, stderr, rows, registered, untracked) == expected
+
+
+def test_the_denominator_check_catches_a_register_collapsed_to_one_row() -> None:
+    """The red case for the completeness half (#1061 re-review, MEDIUM).
+
+    "every parsed row reads PASS" is trivially true of ONE row, so a parser that
+    collapsed 44 registrations into 1 would satisfy the whole-register claim on
+    a clean tree while having destroyed it. The denominator is what makes the
+    claim checkable, so the denominator needs its own red case.
+    """
+    collapsed = (
+        "NEGATIVE_CONTROL_REGISTERED: 44\n"
+        "NEGATIVE_CONTROL_GATE: scripts/check-negative-controls.py\n"
+        "NEGATIVE_CONTROL_CONTROL: controls/check-negative-controls\n"
+        "NEGATIVE_CONTROL_VERDICT: PASS\n"
+    )
+    rows = _verdicts_by_gate(collapsed)
+    assert set(rows.values()) == {"PASS"}, "the claim the old test made, and it holds"
+    assert _registered_count(collapsed) == 44
+    assert len(rows) != _registered_count(collapsed), (
+        "the denominator check must be able to see this: 1 row against a stated 44"
+    )
+
+    # ...and the honest shape passes it
+    whole = collapsed.replace("REGISTERED: 44", "REGISTERED: 1")
+    assert len(_verdicts_by_gate(whole)) == _registered_count(whole)
+
+
+def test_a_lock_system_failure_is_not_blamed_on_a_neighbouring_test(monkeypatch) -> None:
+    """The red case for the errno half (#1061 re-review, LOW).
+
+    ENOLCK is the locking system saying it cannot serve the request. Reported as
+    contention it becomes "another test is holding it far longer than its ~20s
+    window" - an accusation against a test that did nothing, with the real errno
+    discarded. It must propagate instead.
+    """
+    def _enolck(_fd: int, _op: int) -> None:
+        raise OSError(errno.ENOLCK, "no locks available")
+
+    monkeypatch.setattr(fcntl, "flock", _enolck)
+    with pytest.raises(OSError) as caught:
+        with live_controls_tree_exclusive(timeout=0.1):
+            pass
+    assert caught.value.errno == errno.ENOLCK, "the original cause must survive"
+    assert not isinstance(caught.value, AssertionError)
+
+
+def test_the_lock_deadline_is_reachable_and_says_who_to_blame() -> None:
+    """The red case for the timeout half (#1061 re-review, MEDIUM).
+
+    flock associates a lock with the OPEN FILE DESCRIPTION, so a second open of
+    the same path contends even from the same process - which makes contention
+    deterministic to exercise without a second worker. The point is that the
+    deadline FIRES: at the previous 300s default, pytest's 120s per-test budget
+    killed the test first and this diagnostic could never be reached.
+    """
+    holder = os.open(_LIVE_TREE_LOCK, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(AssertionError, match="could not take the live controls tree lock"):
+            with live_controls_tree_exclusive(timeout=0.5):
+                pass
+    finally:
+        fcntl.flock(holder, fcntl.LOCK_UN)
+        os.close(holder)
+
+    # and it is genuinely released - the same call now succeeds
+    with live_controls_tree_exclusive(timeout=5.0):
+        pass
 
 
 def test_pytest_catches_the_breakage_the_self_registration_cannot(tmp_path: Path) -> None:
@@ -1448,6 +1553,7 @@ def test_an_unparseable_adr_reports_UNKNOWN_rather_than_a_bare_numerator(tmp_pat
     reason="needs gitleaks: this test requires a GREEN battery in order to refuse it, "
            "and the secret-scan control cannot run without it",
 )
+@pytest.mark.timeout(_TEST_BUDGET)
 def test_an_untracked_control_file_refuses_the_green() -> None:
     """The red case for #978, run against the REAL register.
 
