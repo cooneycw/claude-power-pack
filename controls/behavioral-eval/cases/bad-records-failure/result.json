@@ -1,0 +1,2 @@
+{"version": 1, "kind": "verified-result", "attempt_id": "att-fixture-1", "status": "FAIL",
+ "criteria": [{"id": "c1", "mandatory": true, "outcome": "VIOLATED"}]}
