@@ -1795,7 +1795,56 @@ def _provenance(anchor: dict[str, str], anchor_path: Path, root: Path, verify: b
         return "unverified"
     if not shutil.which("git"):
         return "unverified"
+    #: A SYNTHETIC ANCHOR HAS NO HISTORICAL ARTIFACT TO BE COMPARED WITH, so the
+    #: git step below cannot say anything about it (issue #1157). Its `sha` is
+    #: `0000000` by construction and its `origin` is a SENTENCE describing the
+    #: design it embodies, not a path - so the lookup is meaningless, and the
+    #: digest check above is the whole of what provenance can establish here.
+    #:
+    #: THIS WAS NOT THEORETICAL, AND THE MECHANISM IS EXACT. When the string
+    #: after the colon contains PATHSPEC GLOB METACHARACTERS, git stops reading
+    #: the argument as `<rev>:<path>` and reads it as a PATHSPEC - and a
+    #: pathspec that matches nothing exits 0 with no output and no stderr.
+    #: Reproduced in a fresh repository, one variable at a time:
+    #:
+    #:     git show '0000000:plain'         -> 128, "invalid object name"
+    #:     git show '0000000:has[^-]glob'   -> 0, zero bytes, empty stderr
+    #:     git show '0000000:star*'         -> 0, zero bytes, empty stderr
+    #:     git cat-file -e '0000000:...'    -> 128 for BOTH
+    #:
+    #: So it is conditional on the ORIGIN TEXT, not on the sha: an origin
+    #: sentence containing a regex or a wildcard takes the silent path and a
+    #: plain one takes the loud path. That is why exactly one of this
+    #: repository's five synthetic anchors was affected -
+    #: controls/deletion-accounting, whose origin quotes the pattern `^-[^-]`.
+    #: Its `returncode != 0` guard never fired, the empty output was hashed, and
+    #: the control was accused of disagreeing with a commit that does not exist:
+    #: a command reporting success while establishing nothing, its emptiness
+    #: read as content, inside the file written for that defect.
+    if anchor.get("kind") == "synthetic" or anchor.get("sha") in ("0000000", "n/a", ""):
+        return "unverified"
+    #: EXISTENCE FIRST, WITH A PROBE THAT ACTUALLY REFUSES (#1157 counter-model
+    #: re-review, MEDIUM). `git show` is not an existence test: on a reference it
+    #: cannot resolve it can exit 0 and print NOTHING, so a caller hashing its
+    #: stdout compares sha256("") against a real file and calls that MISMATCH.
+    #: `git cat-file -e` answers the question actually being asked - measured on
+    #: the reference that caused this: cat-file -e exits 128 where show exits 0.
+    #:
+    #: THE FIRST FIX FOR THIS WAS "empty stdout means unverified", AND IT WAS
+    #: WRONG IN THE OTHER DIRECTION: a zero-byte file is a legitimate committed
+    #: artifact (this repository tracks several), so that rule excused a real
+    #: historical anchor from verification entirely - replace the file with
+    #: content, update the manifest digest, and it verified as `unverified`
+    #: instead of MISMATCH. Establishing existence separately lets the byte
+    #: comparison include empty content, which is the only shape that is right
+    #: in both directions.
     try:
+        probe = subprocess.run(
+            ["git", "-C", str(root), "cat-file", "-e", f"{anchor['sha']}:{anchor['origin']}"],
+            capture_output=True, timeout=30, check=False,
+        )
+        if probe.returncode != 0:
+            return "unverified"
         out = subprocess.run(
             ["git", "-C", str(root), "show", f"{anchor['sha']}:{anchor['origin']}"],
             capture_output=True, timeout=30, check=False,
@@ -1954,15 +2003,43 @@ def main(argv: list[str] | None = None) -> int:
         if (args.strict and args.allow_unavailable)
         else set()
     )
+    # PROVENANCE IS A THIRD AXIS AND IT IS NOW READ (issue #1157). It was
+    # computed on every run, printed on every run, and consumed by nothing: a
+    # control could report `NEGATIVE_CONTROL_PROVENANCE: MISMATCH` beside
+    # `NEGATIVE_CONTROL_VERDICT: PASS` and the gate stayed green. Observed on a
+    # real branch, where a manifest sat on a digest two edits old through a full
+    # green `make verify` - the disagreement was on screen the whole time.
+    #
+    # A reader seeing both lines reasonably assumes the verdict accounted for
+    # the one above it. It did not, and that is worse than not printing it: the
+    # parser defects this file guards against lose evidence BEFORE the verdict,
+    # while this had the evidence, correct, and did not look at it.
+    #
+    # `unverified` MUST NOT FAIL, and keeping that distinction is the whole
+    # reason this is safe to switch on: it is the ordinary state of a synthetic
+    # anchor, of a run without `--verify-provenance`, and of the CI image, which
+    # has no git. Only MISMATCH - the recorded digest disagreeing with the bytes
+    # actually committed - is a claim that something is wrong.
     failing = [
         r for r in results
-        if (r.verdict != PASS or r.tracking == "UNTRACKED") and id(r) not in excused
+        if (r.verdict != PASS or r.tracking == "UNTRACKED" or r.provenance == "MISMATCH")
+        and id(r) not in excused
     ]
     if not args.quiet:
         print()
         if failing:
             for res in failing:
-                print(f"negative-controls: {res.gate} -> {res.verdict}")
+                #: NAME THE AXIS THAT FAILED. Printing the VERDICT alone produced
+                #: lines reading `negative-controls: scripts/x.sh -> PASS` for a
+                #: control that had just failed on tracking or provenance - a
+                #: failure announcing a pass, which cost a reader real time
+                #: (#1061) before it cost this line.
+                axes = [res.verdict] if res.verdict != PASS else []
+                if res.tracking == "UNTRACKED":
+                    axes.append("UNTRACKED")
+                if res.provenance == "MISMATCH":
+                    axes.append("PROVENANCE:MISMATCH")
+                print(f"negative-controls: {res.gate} -> {'/'.join(axes) or res.verdict}")
                 for line in res.details:
                     print(f"    {line}")
         else:

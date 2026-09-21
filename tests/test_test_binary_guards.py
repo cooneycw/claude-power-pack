@@ -1579,6 +1579,67 @@ def _attribute(reasons: list[str], binaries: set[str] | None = None) -> dict[str
     )
 
 
+def _unattributed(reasons: list[str], binaries: set[str] | None = None) -> list[str]:
+    conf = _load_conftest()
+    return conf.unattributed_skip_reasons(
+        reasons, frozenset(binaries if binaries is not None else {"ps", "git", "jq", "curl"})
+    )
+
+
+def test_the_two_classifiers_partition_the_same_population() -> None:
+    """Every reason is in exactly one of them, or the report lies by omission.
+
+    The sibling above counts what it can attribute; this one names what it
+    cannot. If they overlapped, a skip would be reported twice; if they left a
+    gap, a skip would vanish from BOTH and read as a pass - which is the failure
+    `unattributed_skip_reasons` exists to close (#1157).
+    """
+    reasons = [
+        "requires git on PATH",
+        "needs ps for the watcher scan",
+        "no .ci-bin on PATH - this run declares no staged toolchain",
+        "UNRESOLVED: the live tree carries an untracked control file",
+    ]
+    attributed = sum(_attribute(reasons).values())
+    unattributed = _unattributed(reasons)
+    assert attributed == 2, _attribute(reasons)
+    assert len(unattributed) == 2, unattributed
+    assert attributed + len(unattributed) == len(reasons)
+
+
+def test_an_unattributed_reason_is_returned_whole_not_counted() -> None:
+    """NAMED, NOT COUNTED. The reason text is the entire value of the report.
+
+    A bare count reproduces the defect: `1 skipped` is what the summary already
+    said, and it is why a test that declined to run on EVERY full suite run went
+    unnoticed through two clean runs.
+    """
+    reason = "UNRESOLVED, not a failure of this test's subject: the tree was dirty"
+    assert _unattributed([reason]) == [reason]
+
+
+def test_the_classifier_claims_only_what_name_matching_establishes() -> None:
+    """Both directions of the overclaim, committed as cases (#1157 review).
+
+    Name matching decides MEMBERSHIP, never CAUSE, and it errs both ways. The
+    report is worded as a statement about this classifier for exactly this
+    reason - calling these "not about a binary" would be the ownership-boundary
+    and membership-floor failures that `docs/agents/detector-contracts.md` asks
+    any check about, in a hook that exists to stop a skip reading as a pass.
+    """
+    # NAMES a guarded binary, but absence is not the cause. Counted as a
+    # missing-binary skip anyway, and so absent from the unattributed list.
+    misleading = "git is installed but the required commit is missing"
+    assert _attribute([misleading]) == {"git": 1}
+    assert _unattributed([misleading]) == []
+
+    # IS an absent-binary skip, but names one nobody guards - so it lands in the
+    # unattributed list despite being exactly what the sibling is looking for.
+    unguarded = "requires bash on PATH"
+    assert _attribute([unguarded]) == {}
+    assert _unattributed([unguarded]) == [unguarded]
+
+
 def test_a_missing_binary_skip_is_attributed_to_its_binary() -> None:
     counts = _attribute([
         "needs ps: the fallback lane shells out to it",

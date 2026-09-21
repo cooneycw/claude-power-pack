@@ -2404,6 +2404,141 @@ def test_an_anchor_that_refuses_the_known_bad_input_is_unresolved_not_inert(
 
 
 # --------------------------------------------------------------------------- #
+# #1157 - provenance is COMPUTED, PRINTED, and now actually READ
+# --------------------------------------------------------------------------- #
+
+def _retag_anchor(root: Path, **fields: object) -> None:
+    """Rewrite the toy control's single anchor entry in place."""
+    manifest_path = root / "controls" / "toy" / "control.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["anchors"][0].update(fields)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def test_a_recorded_digest_that_disagrees_now_fails_the_run(tmp_path: Path) -> None:
+    """RED CASE for the axis that was printed and ignored (#1157).
+
+    `_provenance()` returned MISMATCH whenever the bytes on disk disagree with
+    the digest the manifest records about them - and `failing` never looked at
+    it, so a control printed
+
+        NEGATIVE_CONTROL_PROVENANCE: MISMATCH
+        NEGATIVE_CONTROL_VERDICT: PASS
+
+    and the gate stayed green. Observed on a real branch, where a manifest sat
+    on a digest two edits old through a full green `make verify`. A reader
+    seeing both lines reasonably assumes the verdict accounted for the one
+    above it.
+
+    This is not the parser class, and the difference is worth keeping: those
+    lose evidence BEFORE the verdict. This had the evidence, correct, on
+    screen, and did not consult it.
+    """
+    root = build_tree(tmp_path, SEEING_GATE)
+    _retag_anchor(root, sha256="0" * 64)
+    result = run_harness(root, "--strict")
+    assert "NEGATIVE_CONTROL_PROVENANCE: MISMATCH" in result.stdout, result.stdout
+    assert verdict_of(result.stdout) == "PASS", (
+        "the DISCRIMINATION verdict is genuinely PASS - that is the point. The "
+        "run must fail on the provenance axis, not by relabelling the verdict\n"
+        + result.stdout
+    )
+    assert result.returncode == 1, (
+        "a recorded digest disagreeing with the committed bytes must fail the "
+        "run\n" + result.stdout
+    )
+    assert "PROVENANCE:MISMATCH" in result.stdout, (
+        "the failing line must NAME the axis; printing `-> PASS` for a failing "
+        "control is a failure announcing a pass\n" + result.stdout
+    )
+
+
+@requires_git
+def test_an_empty_historical_blob_is_still_compared(tmp_path: Path) -> None:
+    """The second direction of the same defect (#1157 counter-model re-review).
+
+    The first fix for a `git show` that exits 0 printing nothing was "empty
+    stdout means unverified". That is wrong the other way round: a ZERO-BYTE
+    FILE IS A LEGITIMATE COMMITTED ARTIFACT - this repository tracks several -
+    so the rule excused a real historical anchor from verification entirely.
+    Replace such an anchor's file with content, update the manifest digest to
+    match the new bytes, and provenance read `unverified` instead of MISMATCH:
+    an anchor silently exempt from the check that exists to establish it is the
+    artifact it claims to be.
+
+    Existence is established separately now, with `git cat-file -e`, so the byte
+    comparison can include empty content. Measured on the reference that started
+    this: cat-file -e exits 128 where show exits 0.
+    """
+    root = build_tree(tmp_path, SEEING_GATE)
+    origin = "history/empty-at-that-commit"
+    (root / "history").mkdir()
+    (root / "history" / "empty-at-that-commit").write_text("", encoding="utf-8")
+    git = ["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run(["git", "init", "-q", str(root)], check=True, timeout=60)
+    subprocess.run([*git, "add", "-A"], check=True, timeout=60, capture_output=True)
+    subprocess.run([*git, "commit", "-qm", "empty"], check=True, timeout=60, capture_output=True)
+    sha = subprocess.run([*git, "rev-parse", "HEAD"], check=True, timeout=60,
+                         capture_output=True, text=True).stdout.strip()
+
+    # The anchor on disk is NOT empty, and its recorded digest matches its own
+    # bytes - so only the historical comparison can catch the disagreement.
+    anchor_path = root / "controls" / "toy" / "anchors" / "deadbee-toy.py"
+    digest = hashlib.sha256(anchor_path.read_bytes()).hexdigest()
+    _retag_anchor(root, kind="historical", sha=sha, origin=origin, sha256=digest)
+
+    result = run_harness(root, "--strict", "--verify-provenance")
+    assert "NEGATIVE_CONTROL_PROVENANCE: MISMATCH" in result.stdout, (
+        "an empty committed blob must be COMPARED, not treated as unreadable - "
+        "otherwise this anchor is exempt from provenance entirely\n" + result.stdout
+    )
+    assert result.returncode == 1, result.stdout
+
+
+def test_a_synthetic_anchor_is_not_checked_against_a_commit_it_never_had(tmp_path: Path) -> None:
+    """A constructed anchor has no historical artifact, so git can say nothing.
+
+    Its `sha` is `0000000` by construction and its `origin` is a SENTENCE
+    describing the design it embodies rather than a path. Verifying that against
+    history is meaningless - and it did not merely return nothing useful, it
+    returned a WRONG ANSWER: `git show "0000000:<sentence>"` exits 0 and prints
+    NOTHING, so the `returncode != 0` guard never fired, sha256 of the empty
+    string was compared against a real file, and `controls/deletion-accounting`
+    reported MISMATCH against a commit that does not exist.
+
+    A command reporting success while establishing nothing, its emptiness read
+    as content - this repository's own subject, inside the tool written for it.
+    """
+    root = build_tree(tmp_path, SEEING_GATE)
+    _retag_anchor(root, kind="synthetic", sha="0000000",
+                  origin="the design refuted by this control, not a path")
+    result = run_harness(root, "--strict", "--verify-provenance")
+    assert "NEGATIVE_CONTROL_PROVENANCE: unverified" in result.stdout, result.stdout
+    assert "MISMATCH" not in result.stdout, (
+        "a synthetic anchor must not be accused of disagreeing with a commit it "
+        "never came from\n" + result.stdout
+    )
+    assert result.returncode == 0
+
+
+@requires_git
+def test_the_real_synthetic_anchors_are_not_reported_as_mismatched() -> None:
+    """The regression this actually fixed, pinned on the real register.
+
+    `controls/deletion-accounting` carries a synthetic anchor and reported
+    MISMATCH under `--verify-provenance` before #1157. With provenance now
+    FAILING the run, that false alarm would have become a false red on a real
+    control - so the two changes are inseparable: switching the axis on without
+    this fix would have manufactured exactly the kind of failure the axis exists
+    to prevent.
+    """
+    result = run_harness(ROOT, "--verify-provenance")
+    assert "NEGATIVE_CONTROL_PROVENANCE: MISMATCH" not in result.stdout, (
+        "a synthetic anchor is being compared against history again\n" + result.stdout
+    )
+
+
+# --------------------------------------------------------------------------- #
 # #1157 - a case may DECLARE that its anchor is blind to the refusal
 # --------------------------------------------------------------------------- #
 
