@@ -318,6 +318,54 @@ tracked record carrying uncommitted edits is restored to the committed version
 rather than kept, because the committed version is the one a reviewer actually
 signed - which also means this file is not a place to hand-edit between runs.
 
+#### Read the issue body, and record WHEN - fetch here, write later (issue #1081)
+
+A run's stage-1 facts all live in a GitHub issue body: mutable, carrying no SHA,
+with an edit history git cannot see. Capture what this run READ, so a later check
+can report that the source moved instead of nobody noticing.
+
+**Fetch to a TEMPORARY file here. Do NOT write anything into the worktree yet.**
+
+Fetch (needs `gh`; not controlled - see the note below):
+
+```bash
+AS_READ_TMP="$(mktemp -t flow-as-read-XXXXXX.md)"
+if gh issue view 42 --json body --jq .body > "$AS_READ_TMP"; then
+    AS_READ_UPDATED="$(gh issue view 42 --json updatedAt --jq .updatedAt)"
+else
+    rm -f "$AS_READ_TMP"; AS_READ_TMP=""
+    echo "AS_READ: unresolved - could not read issue #42. The snapshot will say so."
+fi
+```
+
+Record what was read - a decision over a local file, kept separate so it can be
+controlled without stubbing `gh`:
+
+```bash
+if [ -n "$AS_READ_TMP" ]; then
+    AS_READ_DIGEST="$(sha256sum "$AS_READ_TMP" | cut -d' ' -f1)"   # the FULL body
+    AS_READ_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+fi
+```
+
+**Why the file is not written here.** `flow-live-driver-guard.sh` runs later, in
+Step 4, over `git status --porcelain --untracked-files=all` with a 30-minute
+freshness window, and `docs/flow-runs/` is not excluded from it. A file written
+at Step 1 is a fresh UNTRACKED path when that guard runs, which is the phantom
+second driver - the same defect the plan record hit, arriving earlier and so more
+certainly fresh.
+
+**It would also have been intermittent, which is worse than broken.** Under 30
+minutes from Step 1 to Step 4 the guard fires; over 30 minutes it does not. Fast
+ordinary runs would break while slow deliberate ones - exactly the runs where
+someone is watching, such as one waiting at the Step 3 gate for a reviewer -
+would pass.
+
+A temporary file is invisible to the guard because it is not in the worktree. The
+evidence claim is "this is what the run read, and when", and `read_at` carries the
+"when" as a FIELD at least as well as an early write would - the early write is
+the only part the guard objects to.
+
 **Ask HEAD whether the record EXISTS, not the index.** `git ls-files` answers
 "is this path in the INDEX", which is a different question and wrong in both
 directions (counter-model review, gpt-6-astra). Measured, with the index-based
@@ -674,6 +722,61 @@ it wrong.
 
 **A verdict of `No longer needed` writes NO record.** The run stops, there is no
 plan to approve, and an empty record would assert that one was.
+
+#### Also write the as-read snapshot here (issue #1081)
+
+The body fetched at Step 1 is written now, in the same safe position and for the
+same reason:
+
+```bash
+SNAP="docs/flow-runs/issue-42.as-read.md"
+mkdir -p docs/flow-runs
+if [ -n "$AS_READ_TMP" ] && [ -s "$AS_READ_TMP" ]; then
+    {
+      echo "# Issue #42 as read by this run"
+      echo
+      echo "EVIDENCE OF WHAT THIS RUN READ, not a second statement of the contract."
+      echo "The issue is the authority; read it. This copy exists so a later check can"
+      echo "report that the source moved. It does not graduate."
+      echo
+      echo "- Issue:        #42"
+      echo "- Read at:      $AS_READ_AT"
+      echo "- updatedAt:    $AS_READ_UPDATED   (context only - moves on comments and labels)"
+      echo "- Body digest:  $AS_READ_DIGEST   (sha256 of the FULL body; the verdict keys on this)"
+      echo "- Stored bytes: $(wc -c < "$AS_READ_TMP") of $(wc -c < "$AS_READ_TMP") (cap 16384)"
+      echo
+      echo "## Body as read"
+      head -c 16384 "$AS_READ_TMP"
+      if [ "$(wc -c < "$AS_READ_TMP")" -gt 16384 ]; then
+          echo
+          echo "[TRUNCATED at 16384 bytes. This extract is INCOMPLETE CONTEXT TO RESOLVE by"
+          echo " reading the issue - it is not an absence of further constraints. The digest"
+          echo " above covers the FULL body, so drift beyond this point is still detected.]"
+      fi
+    } > "$SNAP"
+    rm -f "$AS_READ_TMP"
+else
+    printf '# Issue #42 as read by this run
+
+AS_READ: unresolved - the issue could not be read at Step 1.
+This is NOT a record that the issue was unchanged, and NOT an absence of constraints.
+' > "$SNAP"
+fi
+```
+
+**The digest covers the FULL body; the 16 KB cap bounds only what is STORED.**
+Digesting the truncated copy would mean that for any issue past the cap, a change
+BEYOND it produces an identical digest and the check reports no drift - a
+blindness rendering as clean, in precisely the case the cap exists to handle.
+
+**The cap is measured, not chosen.** Across the 40 most recent issues in this
+repository the mean body is 4,271 bytes, the median 3,833, p90 6,877, and the
+largest 12,898. 16 KB holds every body this repository has actually produced.
+
+**`updatedAt` is recorded as context and is never the verdict.** It moves on
+comments, labels and assignment, not only on body edits, so keying drift on it
+would report a changed contract for every comment - and a check that cries wolf
+gets ignored, which is worse than not having it.
 
 **Why the record is written HERE and not at the top of Step 4.** The two checks
 above are explicitly "run BEFORE the first edit", and writing the record IS the
@@ -1282,6 +1385,57 @@ git merge --no-edit origin/main
    - If PR already exists, report its URL and continue.
    - PR body: Summary of changes + test plan + `${ISSUE_REF}`
    - Analyze all commits on the branch to draft the summary.
+
+6. **Check whether the issue moved under this run** (issue #1081). The FETCH and
+   the VERDICT are separate blocks, for the same reason the Step-1 read is
+   separate from its write: the fetch is I/O that needs `gh` and a live issue,
+   the verdict is a decision over two local files. Separated, the decision can be
+   controlled with real inputs instead of a stubbed `gh` - stubbing the tool
+   whose output is the subject would test the stub.
+
+   Fetch:
+   ```bash
+   LIVE_TMP="$(mktemp -t flow-live-body-XXXXXX.md)"
+   if ! gh issue view 42 --json body --jq .body > "$LIVE_TMP"; then
+       rm -f "$LIVE_TMP"; LIVE_TMP=""
+   fi
+   ```
+
+   Verdict - `$SNAP` is the as-read snapshot, `$LIVE_TMP` the body just fetched
+   (empty when the fetch failed):
+   ```bash
+   SNAP="docs/flow-runs/issue-42.as-read.md"
+   if [ ! -f "$SNAP" ]; then
+       echo "ISSUE_DRIFT: unresolved (no as-read snapshot on this branch)"
+   elif ! RECORDED="$(sed -n 's/^- Body digest: *//p' "$SNAP" | awk '{print $1}')" || [ -z "$RECORDED" ]; then
+       echo "ISSUE_DRIFT: unresolved (snapshot carries no digest)"
+   elif [ -z "$LIVE_TMP" ] || [ ! -f "$LIVE_TMP" ]; then
+       echo "ISSUE_DRIFT: unresolved (could not read the issue - this is NOT no-drift)"
+   elif [ "$(sha256sum "$LIVE_TMP" | cut -d' ' -f1)" = "$RECORDED" ]; then
+       echo "ISSUE_DRIFT: clean (body digest unchanged since this run read it)"
+   else
+       echo "ISSUE_DRIFT: drift - the issue body changed since this run read it."
+       sed -n '/^## Body as read$/,$p' "$SNAP" | tail -n +2 > "$SNAP.asread.$$"
+       diff -u "$SNAP.asread.$$" "$LIVE_TMP" | head -n 80
+       rm -f "$SNAP.asread.$$"
+       echo "Resolve under the EXISTING authority model: newer bytes do not by themselves"
+       echo "override a constraint or a plan already accepted on this issue (#1081)."
+   fi
+   ```
+
+   **A failed fetch and a missing snapshot are UNRESOLVED, never clean.** The
+   check cannot answer, and an unanswerable question rendered as a clean verdict
+   is the defect this wave has met most often - including one built deliberately
+   in this very step for the plan record, where a failed query and a genuine
+   absence printed the same line and both exited 0. Note the ordering: the
+   unresolved branches are tested BEFORE the comparison, so no path reaches
+   `clean` without a digest on both sides.
+
+   **Drift prints a DIFF, not a boolean**, because "acceptance criterion 3 gained
+   a clause" is actionable where "the issue changed" sends someone to re-read the
+   whole thing. Where the stored copy was truncated the diff covers the stored
+   prefix only; the digest still covers the whole body, so DETECTION is complete
+   even when the naming is partial.
 
 6. **Confirm the plan record reached the PR** (issue #1080) - ask whether it
    EXISTS at the PR's head, not whether its name appears in a diff:
