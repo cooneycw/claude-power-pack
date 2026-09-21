@@ -279,6 +279,75 @@ cannot be locked) is normal and never blocks the run.
 
 Report: `Step 1/9: Start complete - worktree at {path}, verified on branch {branch}`
 
+#### Reconcile the plan record (issue #1080)
+
+A previous run in this worktree may have left a plan record at
+`docs/flow-runs/issue-<N>.md`. Reconcile it to its last COMMITTED state now,
+before Step 2, on EVERY lane including `current-branch` and `resume`:
+
+```bash
+REC="docs/flow-runs/issue-42.md"
+if git cat-file -e "HEAD:$REC" 2>/dev/null; then
+    git checkout HEAD -- "$REC"                      # in HEAD: restore index AND worktree
+else
+    git rm -q --cached --ignore-unmatch "$REC" >/dev/null 2>&1   # drop a staged addition
+    rm -f "$REC"                                     # and the scratch itself
+fi
+```
+
+**The invariant:** after this, the record on disk is exactly the last APPROVED
+record for this issue, or absent because none was ever approved on this branch.
+That is what makes a later absence mean something - "Step 3 was not reached in
+this run" rather than "nobody got around to writing one".
+
+**Why not simply delete it.** Deleting unconditionally was the first design and
+it fails worse than the staleness it prevents. Run A completes, writes its record
+and commits it. Run B reuses the worktree, deletes the record here, then stops
+before Step 3 or is killed. The branch now carries run A's code with NO approval
+record, and if anything stages that deletion the PR shows the record being
+removed. A stale record is a WRONG answer; no record over committed code is NO
+answer, on a branch that previously had one.
+
+**Why not simply leave it.** An UNTRACKED record is a dead run's scratch: some
+earlier run wrote it at Step 3 and died before committing. Left in place, Step
+6's staging sweeps it into THIS run's commit, and a plan nobody approved in this
+run ships as though it were this run's approval.
+
+So tracked is EVIDENCE and is restored; untracked is SCRATCH and is removed. A
+tracked record carrying uncommitted edits is restored to the committed version
+rather than kept, because the committed version is the one a reviewer actually
+signed - which also means this file is not a place to hand-edit between runs.
+
+**Ask HEAD whether the record EXISTS, not the index.** `git ls-files` answers
+"is this path in the INDEX", which is a different question and wrong in both
+directions (counter-model review, gpt-6-astra). Measured, with the index-based
+test:
+
+| state | result |
+|---|---|
+| committed record with a STAGED DELETION (`git rm --cached`) | file deleted, deletion still staged - an APPROVED record destroyed |
+| record STAGED but never committed | `UNAPPROVED scratch` left in place and still staged |
+
+Both are reachable, and the second is the exact failure the untracked branch
+exists to prevent. `git cat-file -e HEAD:<path>` asks the question the invariant
+is written in - "was this ever committed on this branch" - and
+`git checkout HEAD -- <path>` then restores the index as well as the worktree, so
+a staged deletion is undone rather than preserved. With the HEAD-based test the
+same two states yield `approved by A` with nothing staged, and absent with
+nothing staged.
+
+**`HEAD --`, never a bare `--`.** `git checkout -- <path>` restores from the
+INDEX, not from HEAD, and the state where those differ is reachable by this
+document's own design: Step 6 stages the record, so a run that stages it and then
+dies leaves the record tracked AND staged with that run's content. A bare `--`
+there restores the STAGED version - a plan approved in a DIFFERENT run - and this
+run then commits it at Step 6 as its own approval, which is precisely the failure
+the untracked branch above exists to prevent, arriving by the staged path.
+Measured: with run B's scratch staged over run A's commit, `git checkout --`
+yields run B's text while `git checkout HEAD --` yields run A's and clears the
+staged diff. The invariant says "approved on this branch", which means COMMITTED,
+and the HEAD anchor is what makes the command mean that.
+
 **Compose-project safety - RUN-WIDE (issue #626).** `docker compose` derives its
 project name from the current directory basename when `COMPOSE_PROJECT_NAME` is
 unset, and this run works inside a worktree whose basename is
@@ -524,6 +593,98 @@ and continue. `/flow-repair` installs the family at the stable path.)
   marketplace retired #662).
 - If it reports `current` or `moved-clean` with no overlap, proceed - the Step-7
   #462 guard remains the final backstop.
+
+#### First, write the plan record (issue #1080)
+
+**Step 4 is reached only when Step 3's approval was granted**, so this is the
+first point at which a record of an APPROVED plan can honestly be written, and
+writing it here leaves the approval gate itself byte-identical. A
+`No longer needed` verdict stops at Step 3 and never reaches this line, so it
+writes no record - there was no plan to approve, and an empty record would
+assert that there was.
+
+That placement is deliberate and was corrected here: the first draft wrote the
+record inside Step 3, which widened the gate the issue explicitly says not to
+widen ("Do not widen Step 3's contract. Only the destination is new") and was
+caught by `test_counter_model_review.py::test_adding_the_stage_LEFT_THE_ELI5_
+GATE_BYTE_IDENTICAL`, which asserts that section is unchanged from `origin/main`.
+The destination is new; the gate is not.
+
+**Only after approval is granted, and never before**, write the approved plan to
+the branch so the approval leaves a durable record:
+
+```bash
+mkdir -p docs/flow-runs
+cat > "docs/flow-runs/issue-42.md" <<'RECORD'
+# Flow run record - issue #42
+
+HISTORICAL RECORD of what was agreed BEFORE the code was written, at the base SHA
+below. It is not a description of the shipped system, it is not a second
+statement of the issue contract or of a Tier 3 spec, and it does not graduate.
+
+- Issue:             #42
+- Base SHA:          <SHA this plan was formed against>
+- Necessity verdict: Still needed | Partially addressed | Needs reframing
+- Approval:          granted
+- Approver:          <who this run understood the approver to be>
+- Recorded at:       <ISO 8601 UTC>
+
+## Section B evidence
+<the commit SHAs, merged PR numbers and duplicate/superseding issue numbers
+ Section B enumerated, or an explicit "none">
+
+## Section C - the approved plan
+<the numbered per-file change list, the scope estimate and the named risk(s),
+ exactly as approved>
+RECORD
+```
+
+**The record does not name the knowledge-lifecycle document, deliberately, and
+this paragraph must not name it either.** That policy has exactly three bounded
+entry points among command bodies (`claude-md/lint.md`, `flow/finish.md`,
+`project/init.md`, plus their generated mirrors), and
+`check-claude-md-behavior.py` reports any fourth as a
+`non-boundary-lifecycle-pointer` by matching the FILENAME anywhere in the file -
+so a paragraph explaining the rule trips it exactly as a real pointer would.
+That is not a flaw in the check; a bounded set of entry points cannot be
+enforced by a matcher that tries to tell a citation from an explanation.
+
+The authority names its subjects rather than the other way round: the
+knowledge-lifecycle document names flow run records and counter-model receipts
+as records of decisions that do not graduate, so the linkage exists where it can
+be maintained. The record states its own status in its header instead, which is
+what a reader of one actually needs.
+
+**Markdown, and that is a measured constraint rather than a preference.**
+`.gitignore` carries a blanket `*.json`, so a JSON record at this path is
+ignored - and `git add` skips an ignored path and reports no error, so the record
+would vanish from every PR silently. Verified by EXIT CODE, not by reading
+`check-ignore`'s output: `docs/flow-runs/issue-N.md` exits 1 (not ignored),
+`docs/flow-runs/issue-N.json` exits 0 (ignored, via `.gitignore:54`). A
+machine-readable form needs its own `!` negation FIRST, exactly as
+`docs/measurements/counter-model/*.json` has at `.gitignore:160` - see the note
+at Step 6 item 1 on why the negation is what makes a plain `git add` safe there.
+
+**There is no `auto-granted` value and no code path that writes this file without
+an approver** (issue #775). The record is written only after approval, and its
+approver field comes from the actual approval event - so there is no value to
+validate against. A field that can still be PRODUCED means something can still
+skip the gate, and a validator rejecting the value is only a second chance to get
+it wrong.
+
+**A verdict of `No longer needed` writes NO record.** The run stops, there is no
+plan to approve, and an empty record would assert that one was.
+
+**Why the record is written HERE and not at the top of Step 4.** The two checks
+above are explicitly "run BEFORE the first edit", and writing the record IS the
+first edit. `flow-live-driver-guard.sh` collects tracked-modified AND untracked
+paths touched within 30 minutes; a record written before it is a fresh untracked
+file, so the guard would report `suspected` on every ordinary single-driver run
+and the procedure would stop to ask about a second driver that does not exist.
+Its own text states the premise this breaks: "dirty files here were modified in
+the last 30m and you have not written anything yet, so they are NOT yours."
+Found by counter-model review (gpt-6-astra); the ordering is load-bearing, not
+cosmetic.
 
 **Worktree path-resolution rule (issue #486) - a native `EnterWorktree` session
 edits the worktree, but the worktree lives *inside* the main repo at
@@ -1121,6 +1282,41 @@ git merge --no-edit origin/main
    - If PR already exists, report its URL and continue.
    - PR body: Summary of changes + test plan + `${ISSUE_REF}`
    - Analyze all commits on the branch to draft the summary.
+
+6. **Confirm the plan record reached the PR** (issue #1080) - ask whether it
+   EXISTS at the PR's head, not whether its name appears in a diff:
+   ```bash
+   REC="docs/flow-runs/issue-42.md"
+   if ! PR_HEAD=$(gh pr view --json headRefOid --jq .headRefOid); then
+       echo "STOP: could not read the PR head - the record is UNVERIFIED, not absent."
+       exit 1
+   fi
+   git fetch -q origin "$PR_HEAD" 2>/dev/null || true
+   if ! git cat-file -e "$PR_HEAD:$REC" 2>/dev/null; then
+       echo "STOP: the plan record does not exist at the PR head ($PR_HEAD)."
+       exit 1
+   fi
+   ```
+   A record present in the worktree but absent from the PR is the failure this
+   check exists for, and it is silent at every earlier stage: `git add` skips an
+   ignored path without an error, and the Step 7 squash flattens whatever it was
+   given. Checking `git status` locally would confirm the file exists and prove
+   nothing about what ships. Skip this when the run wrote no record - a
+   `No longer needed` verdict has none to find.
+
+   **Three ways the obvious version of this check is wrong**, all found by
+   counter-model review (gpt-6-astra) and all reproduced:
+   - `gh pr diff --name-only` lists DELETED paths too, so a run that removed the
+     record passes a name check while the PR head carries no record at all.
+     Existence at the head SHA is the question; a diff is not.
+   - `grep -qx "docs/flow-runs/issue-42.md"` treats `.` as any character and
+     accepts the neighbouring name `docs/flow-runs/issue-42Xmd` - reproduced
+     exactly. Compare paths literally (`-F`), or better, do not compare strings
+     at all, as above.
+   - `... || echo "STOP: ..."` makes a failed query and a genuine absence print
+     the same line and BOTH exit 0, so the advertised STOP cannot stop anything
+     and "I could not look" is rendered as "I looked and it is missing". The
+     form above separates the two and exits non-zero on either.
 
 Report: `Step 6/9: Finish complete - PR #XX created`
 
