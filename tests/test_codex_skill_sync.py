@@ -1112,3 +1112,26 @@ def test_the_two_success_lines_cannot_be_read_as_the_same_question(
     assert install_root in install_line, (
         "the one mode whose subject IS the install tree must say so"
     )
+
+
+# --- the install destination is addressable (#1074) ---------------------------
+
+
+def test_install_dest_root_honours_codex_home(monkeypatch, tmp_path) -> None:
+    """An installer that cannot be pointed anywhere cannot be TESTED anywhere.
+
+    It was hardcoded to `Path.home()`, so the only way to exercise `--install`
+    was to override HOME for the whole process - which also redirects uv's cache
+    and git config, making the run measure a configuration nobody ships. #1074's
+    clean-install proof needs a destination it can construct.
+    """
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
+    assert codex_skill_sync.install_dest_root() == tmp_path / "codex" / "skills"
+
+
+def test_install_dest_root_falls_back_to_the_home_default(monkeypatch, tmp_path) -> None:
+    """Unset must behave exactly as before, or this is a behaviour change to
+    every existing install rather than a new capability."""
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    monkeypatch.setattr(codex_skill_sync.Path, "home", staticmethod(lambda: tmp_path / "h"))
+    assert codex_skill_sync.install_dest_root() == tmp_path / "h" / ".codex" / "skills"

@@ -1,0 +1,1 @@
+PROOF = 'fixture placeholder'

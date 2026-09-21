@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#: HOST-SURFACE: ~/.codex/skills/<skill> owner=cpp write=copy certified=authored mode=--install
+#: HOST-SURFACE: ${CODEX_HOME:-~/.codex}/skills/<skill> owner=cpp write=copy certified=authored mode=--install
 
 """codex-skill-sync.py - single-source -> Codex SKILL.md skill generation.
 
@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import sys
@@ -877,7 +878,19 @@ def run_write(selected: list[str]) -> int:
 
 
 def install_dest_root() -> Path:
-    return Path.home() / ".codex" / "skills"
+    """Where `--install` copies skill dirs.
+
+    HONOURS `CODEX_HOME` (#1074), which is the variable Codex itself uses, with
+    `~/.codex` as the fallback - so behaviour with the variable unset is exactly
+    what it was. It was hardcoded to `Path.home()`, which meant the installer
+    could not be pointed anywhere, and an installer that cannot be pointed
+    anywhere cannot be TESTED anywhere: the only way to exercise it was to
+    override HOME for the whole process, which also redirects uv's cache and git
+    config, so the run would measure a configuration nobody ships.
+    """
+    codex_home = os.environ.get("CODEX_HOME")
+    root = Path(codex_home) if codex_home else Path.home() / ".codex"
+    return root / "skills"
 
 
 def find_installed_orphans(dest_root: Path, source_names: set[str]) -> list[Path]:

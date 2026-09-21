@@ -1,0 +1,10 @@
+{
+  "skill": "project-next",
+  "source_sha": "0000000fixture",
+  "files": {
+    "SKILL.md": "fe01296bcab0f64674d5dcf0b7ffb673d50d130834ebe695a47ec309a43ff869",
+    "scripts/project-next.py": "652472dc17eec61975453865a3fc722009e25ec1ddf3021ee5c5767eb75625b1",
+    "lib/project_next/__init__.py": "729518b84a10bec472a3dbb2d138b0561c6224279631889d1e8b3a02da5d9812",
+    "lib/project_next/rank.py": "708bc1c6595984f2d3443564f0fbbbcd29b924983f185132dd7fd9bfee69477d"
+  }
+}

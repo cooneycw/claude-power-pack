@@ -1,0 +1,55 @@
+{
+  "_comment": [
+    "Registration for scripts/codex-install-proof.sh (issue #1074).",
+    "",
+    "WHY THIS NEEDS A COMMITTED CASE (ADR 0008): this proof's green is read as",
+    "'the shipped Codex surface works on a clean host' by people who will not",
+    "re-derive it, and nothing else in the tree examines an INSTALLED copy at",
+    "all. A blind version prints the same 'PROOF: ok' over an install whose",
+    "bytes are wrong.",
+    "",
+    "THE CASES CARRY THE COMPARISON HALF, not the install. The full proof",
+    "installs into a constructed CODEX_HOME, and a committed case cannot carry",
+    "an install - so `--root` aims the manifest comparison at a fixture tree",
+    "instead of at this host. The install, absence and known-bad halves are",
+    "exercised by tests/test_codex_install_proof.py and by the proof's own run,",
+    "whose four precondition red runs are recorded in the PR body.",
+    "",
+    "The pins are computed from UNMUTATED content: the bad case is a tree that",
+    "drifted AFTER it was pinned, which is the failure mode."
+  ],
+  "gate": "scripts/codex-install-proof.sh",
+  "invocation": [
+    "bash",
+    "{gate}",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^PROOF_FAIL: DRIFT: .+$",
+  "limits": "Covers the manifest comparison of an installed tree. It says nothing about the install step, the four constructed absences, or the three known-bad cases - those need a live install and are exercised by the proof's own run and by tests/test_codex_install_proof.py.",
+  "cases": [
+    {
+      "name": "bad-drifted-install",
+      "input": "cases/bad-drifted-install",
+      "expect": "BAD",
+      "why": "An installed tree whose rank.py gained a line AFTER it was pinned - every file present, one file's bytes wrong. This is the shape all three known-bad inputs share, and the shape a presence-only check cannot see."
+    },
+    {
+      "name": "good-matching-install",
+      "input": "cases/good-matching-install",
+      "expect": "GOOD",
+      "why": "The same tree matching its manifest. Separates a working proof from one wedged at 'fail', which the bad case alone cannot do."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/codex-install-proof.sh",
+      "path": "anchors/constructed-happy-path-only-codex-install-proof.sh",
+      "sha256": "0f6e670d532f9f577e328dfd0a1812d4d22ba7aa495c7aabf302d0b4d782ec13",
+      "why": "CONSTRUCTED: the proof is new at #1074, so no earlier version exists and inventing one would be a fiction. This is the plausible weaker proof - install, confirm every manifest path is PRESENT, run the happy path, report success. It catches a missing file and is blind to wrong bytes, which is what all three known-bad inputs are. It MISSES the known-bad input and AGREES on the known-good one."
+    }
+  ]
+}

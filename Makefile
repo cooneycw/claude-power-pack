@@ -6,7 +6,7 @@
        bootstrap-check drift-check deploy setup-woodpecker-cli \
        codex-init codex-skills codex-skills-check codex-install \
        eli5-check eli5-drift eli5-revendor \
-       project-next-check project-next-repin \
+       project-next-check project-next-repin codex-install-proof \
        host-surface-check host-surface-manifest \
        cpp-host-writes-check ci-coverage-check \
        tool-risk-check tool-risk-drift \
@@ -718,6 +718,20 @@ negative-fixture-check:
 
 ## Keep always-loaded repository guidance bounded, resolvable, and behaviorally
 ## findable after narrative moves to owned documentation (issue #724).
+
+## The clean-install proof (#1074): install the generated Codex surface into a
+## constructed CODEX_HOME and run one workflow end to end, with the four
+## constructed absences asserted and three known-bad inputs rejected.
+##
+## NOT a `verify` prerequisite, and that is deliberate. Its verdict is about a
+## HOST - it installs, and it reads what landed on this box - so a red would mean
+## "this machine is wrong" as often as "this change is wrong", which is the
+## host-state class `verify` already excludes elsewhere (skills-check,
+## host-surfaces-check). Its green is read by people, not by a gate, which keeps
+## it squarely inside ADR 0008's bound rather than outside it.
+## verify-coverage: excluded codex-install-proof - installs into a constructed CODEX_HOME and inspects this host, so its verdict is about the box rather than the commit; ci: excluded host-state
+codex-install-proof:
+	@bash scripts/codex-install-proof.sh
 
 ## verify-coverage: gate agents-md-budget-check - the Codex agent-context file stays inside its word budget; ci: runs agents-md-budget-check
 ## The cap is a SIZE LIMIT, and the #1071 post-merge review found the original
