@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1171-a-skipped-counter-model-review-is-indistinguishabl",
+  "counts": {
+    "accepted": 10,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "e3a053f738d1769a4fd220693fc60890c5db9530",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1171",
+  "passes": 2,
+  "recorded_at": "2026-09-21T17:00:08Z",
+  "red_cases": {
+    "already_covered": 8,
+    "proposed": 10
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

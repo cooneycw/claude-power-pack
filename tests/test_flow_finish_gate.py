@@ -40,6 +40,11 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "flow-finish-gate.sh"
 
+requires_git = pytest.mark.skipif(
+    shutil.which("git") is None,
+    reason="the finish gate derives counter-model enrolment from git (issue #1171)",
+)
+
 requires_bash = pytest.mark.skipif(
     shutil.which("bash") is None,
     reason="requires bash on PATH",
@@ -224,6 +229,7 @@ def _runner_json(warning: str) -> str:
 
 
 @requires_bash
+@requires_git
 def test_qualified_gate_does_not_assert_a_cause_it_did_not_establish(
     tmp_path: Path,
 ) -> None:
@@ -261,6 +267,7 @@ def test_qualified_gate_does_not_assert_a_cause_it_did_not_establish(
 
 
 @requires_bash
+@requires_git
 def test_the_qualified_line_still_fires_for_a_real_no_tests_warning(
     tmp_path: Path,
 ) -> None:
@@ -291,6 +298,7 @@ def test_the_qualified_line_still_fires_for_a_real_no_tests_warning(
 
 
 @requires_bash
+@requires_git
 def test_runner_ok(tmp_path: Path) -> None:
     cpp = _fake_cpp(tmp_path)
     proc, bindir = _run(
@@ -303,6 +311,7 @@ def test_runner_ok(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_runner_fail(tmp_path: Path) -> None:
     cpp = _fake_cpp(tmp_path)
     proc, _ = _run(tmp_path, cpp_dir=str(cpp), uv_exit=1)
@@ -311,6 +320,7 @@ def test_runner_fail(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_plan_passthrough(tmp_path: Path) -> None:
     cpp = _fake_cpp(tmp_path)
     proc, bindir = _run(
@@ -329,6 +339,7 @@ def test_plan_passthrough(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_fallback_all_gate_targets_is_ok(tmp_path: Path) -> None:
     """Every gate the finish plan declares has a target here, `verify` included
     (issue #1147) - so the fallback runs all four and reports a bare `ok`."""
@@ -344,6 +355,7 @@ def test_fallback_all_gate_targets_is_ok(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_fallback_missing_verify_target_reports_warn_named(tmp_path: Path) -> None:
     """The red case for the fallback half of #1147.
 
@@ -369,6 +381,7 @@ def test_fallback_missing_verify_target_reports_warn_named(tmp_path: Path) -> No
 
 
 @requires_bash
+@requires_git
 def test_fallback_missing_gate_reports_warn_named(tmp_path: Path) -> None:
     """A repo with lint+test targets but no typecheck target and no configured
     mypy: the gate did not run, so the marker is `warn (skipped gates: ...)` and
@@ -385,6 +398,7 @@ def test_fallback_missing_gate_reports_warn_named(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_fallback_uses_uv_when_no_makefile_but_pyproject(tmp_path: Path) -> None:
     """No Makefile at all, but pyproject configures ruff/pytest/mypy and uv is
     available: the fallback runs each gate via `uv run --extra dev <tool>`
@@ -408,6 +422,7 @@ def test_fallback_uses_uv_when_no_makefile_but_pyproject(tmp_path: Path) -> None
 
 
 @requires_bash
+@requires_git
 def test_fallback_fail(tmp_path: Path) -> None:
     (tmp_path / "Makefile").write_text("lint:\n\ttrue\ntest:\n\ttrue\n")
     proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None, make_exit=1)
@@ -416,6 +431,7 @@ def test_fallback_fail(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_skipped_when_no_runner_and_no_makefile(tmp_path: Path) -> None:
     proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None)
     assert proc.returncode == 4
@@ -427,6 +443,7 @@ def test_skipped_when_no_runner_and_no_makefile(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_check_summary_ok(tmp_path: Path) -> None:
     cpp = _fake_cpp(tmp_path)
     (tmp_path / "Makefile").write_text("lint:\n\ttrue\n")
@@ -437,6 +454,7 @@ def test_check_summary_ok(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_check_summary_warn_is_exit_three(tmp_path: Path) -> None:
     cpp = _fake_cpp(tmp_path)
     (tmp_path / "Makefile").write_text("lint:\n\ttrue\n")
@@ -446,6 +464,7 @@ def test_check_summary_warn_is_exit_three(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_check_summary_skipped_without_runner(tmp_path: Path) -> None:
     (tmp_path / "Makefile").write_text("lint:\n\ttrue\n")
     proc, _ = _run(tmp_path, "--check-summary", cpp_dir="", uv_exit=None)
@@ -454,6 +473,7 @@ def test_check_summary_skipped_without_runner(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_check_summary_skipped_without_makefile(tmp_path: Path) -> None:
     cpp = _fake_cpp(tmp_path)
     proc, _ = _run(tmp_path, "--check-summary", cpp_dir=str(cpp), uv_exit=0)
@@ -462,6 +482,7 @@ def test_check_summary_skipped_without_makefile(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_unknown_argument_is_usage_error(tmp_path: Path) -> None:
     proc, _ = _run(tmp_path, "--bogus", cpp_dir="")
     assert proc.returncode == 2
@@ -543,6 +564,7 @@ def _run_with_uv_stub(
 
 
 @requires_bash
+@requires_git
 def test_qualified_run_reports_warn_not_ok(tmp_path: Path) -> None:
     """The runner qualifies an all-skipped test step; this helper is the layer
     the flow commands read, so flattening that back to a bare `ok` would re-hide
@@ -571,6 +593,7 @@ def test_qualified_run_reports_warn_not_ok(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_unqualified_run_still_reports_ok(tmp_path: Path) -> None:
     cpp = _fake_cpp(tmp_path)
     payload = '{\n  "success": true,\n  "steps_completed": 3,\n  "steps_total": 3\n}'
@@ -581,6 +604,7 @@ def test_unqualified_run_still_reports_ok(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_failed_run_is_fail_even_with_warnings(tmp_path: Path) -> None:
     cpp = _fake_cpp(tmp_path)
     payload = '{\n  "success": false,\n  "warnings": ["test: exited 0 but executed NO tests"]\n}'
@@ -593,6 +617,7 @@ def test_failed_run_is_fail_even_with_warnings(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_runner_rerun_passed_reports_warn_and_ids(tmp_path: Path) -> None:
     cpp = _fake_cpp(tmp_path)
     payload = """{
@@ -629,6 +654,7 @@ def test_runner_rerun_passed_reports_warn_and_ids(tmp_path: Path) -> None:
     "rerun_outcome",
     ["failed", "inconclusive", "new-failures", "failed-unattributed"],
 )
+@requires_git
 def test_uncleared_rerun_has_no_rerun_passed_line(
     tmp_path: Path, rerun_outcome: str
 ) -> None:
@@ -655,6 +681,7 @@ def test_uncleared_rerun_has_no_rerun_passed_line(
 
 
 @requires_bash
+@requires_git
 def test_gate_enables_runner_rerun_by_default(tmp_path: Path) -> None:
     cpp = _fake_cpp(tmp_path)
     payload = '{\n  "success": true\n}'
@@ -667,6 +694,7 @@ def test_gate_enables_runner_rerun_by_default(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_gate_can_disable_runner_rerun(tmp_path: Path) -> None:
     cpp = _fake_cpp(tmp_path)
     payload = '{\n  "success": true\n}'
@@ -679,6 +707,7 @@ def test_gate_can_disable_runner_rerun(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_disabled_rerun_overrides_an_inherited_opt_in(tmp_path: Path) -> None:
     """FLOW_GATE_RERUN=0 must OVERRIDE an inherited CPP_GATE_RERUN_FAILED=1, not
     merely decline to set it. A nested gate is the normal case - CPP's own suite
@@ -707,6 +736,7 @@ def test_disabled_rerun_overrides_an_inherited_opt_in(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_runner_rerun_reports_multiple_ids(tmp_path: Path) -> None:
     cpp = _fake_cpp(tmp_path)
     payload = """{
@@ -761,6 +791,7 @@ def _fallback_make_stub(
 
 
 @requires_bash
+@requires_git
 def test_fallback_rerun_passes_and_warns(tmp_path: Path) -> None:
     (tmp_path / "Makefile").write_text(
         "lint:\n\ntest:\n\ntypecheck:\n\nverify:\n"
@@ -780,6 +811,7 @@ def test_fallback_rerun_passes_and_warns(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_fallback_rerun_failure_stays_failed(tmp_path: Path) -> None:
     (tmp_path / "Makefile").write_text(
         "lint:\n\ntest:\n\ntypecheck:\n\nverify:\n"
@@ -797,6 +829,7 @@ def test_fallback_rerun_failure_stays_failed(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_skipped_gates_win_but_rerun_ids_are_still_printed(tmp_path: Path) -> None:
     cpp = _fake_cpp(tmp_path)
     payload = """{
@@ -824,6 +857,7 @@ def test_skipped_gates_win_but_rerun_ids_are_still_printed(tmp_path: Path) -> No
 
 
 @requires_bash
+@requires_git
 def test_fallback_prints_rerun_ids_even_when_a_later_gate_fails(
     tmp_path: Path,
 ) -> None:
@@ -848,6 +882,7 @@ def test_fallback_prints_rerun_ids_even_when_a_later_gate_fails(
 
 
 @requires_bash
+@requires_git
 def test_fallback_rerun_appends_to_host_pytest_addopts(tmp_path: Path) -> None:
     """The runner's rerun_env APPENDS to any host PYTEST_ADDOPTS; the fallback
     must not replace it, or the two attempts are not the same invocation and the
@@ -890,6 +925,7 @@ def test_rerun_id_cap_matches_the_runner() -> None:
 
 
 @requires_bash
+@requires_git
 def test_runner_skipped_gates_report_warn_named(tmp_path: Path) -> None:
     """The runner emits a "skipped": [...] array for skip_if-skipped gates. This
     helper is the layer the flow commands read, so it must report `warn` and NAME
@@ -910,6 +946,7 @@ def test_runner_skipped_gates_report_warn_named(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_runner_skipped_non_gate_still_ok(tmp_path: Path) -> None:
     """A skipped NON-gate step is a legitimate skip - the marker stays `ok`.
 
@@ -981,6 +1018,7 @@ def test_runner_json_carries_the_derived_gate_set() -> None:
 
 
 @requires_bash
+@requires_git
 def test_the_shell_reads_the_gate_set_from_the_json_not_a_list(
     tmp_path: Path,
 ) -> None:
@@ -1013,6 +1051,7 @@ def test_the_shell_reads_the_gate_set_from_the_json_not_a_list(
 
 
 @requires_bash
+@requires_git
 def test_a_non_gate_skip_is_still_ok_when_the_json_says_so(
     tmp_path: Path,
 ) -> None:
@@ -1143,6 +1182,7 @@ def test_a_generated_manifest_runs_the_verify_gate() -> None:
 
 
 @requires_bash
+@requires_git
 def test_an_empty_gate_set_is_not_an_unreadable_one(tmp_path: Path) -> None:
     """`"gates": []` is an ANSWER; an absent field is not (#1147).
 
@@ -1170,6 +1210,7 @@ def test_an_empty_gate_set_is_not_an_unreadable_one(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_an_aggregate_prerequisite_run_by_verify_is_not_called_unrun(
     tmp_path: Path,
 ) -> None:
@@ -1197,6 +1238,7 @@ def test_an_aggregate_prerequisite_run_by_verify_is_not_called_unrun(
 
 
 @requires_bash
+@requires_git
 def test_a_prerequisite_nothing_ran_is_still_reported(tmp_path: Path) -> None:
     """The guard rail: the expansion must not silence #808 generally.
 
@@ -1219,6 +1261,7 @@ def test_a_prerequisite_nothing_ran_is_still_reported(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_subsumption_is_reported_by_name(tmp_path: Path) -> None:
     """A gate absent from the executed list because an aggregate ran it must
     SAY so (issue #1152).
@@ -1252,6 +1295,7 @@ def test_subsumption_is_reported_by_name(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_a_not_run_record_cannot_coexist_with_a_pass(tmp_path: Path) -> None:
     """The shell-reachable half of #1152's standing question.
 
@@ -1284,6 +1328,7 @@ def test_a_not_run_record_cannot_coexist_with_a_pass(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_an_aggregate_failure_names_the_prerequisite(tmp_path: Path) -> None:
     """`verify` has 29 direct prerequisites in this repository, so `fail` alone
     asks a reader to search all of them (issue #1152).
@@ -1312,6 +1357,7 @@ def test_an_aggregate_failure_names_the_prerequisite(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_the_fallback_lane_says_it_does_not_deduplicate(tmp_path: Path) -> None:
     """Stated, never silent (issue #1152).
 
@@ -1334,6 +1380,7 @@ def test_the_fallback_lane_says_it_does_not_deduplicate(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_a_manifest_that_drops_a_declared_gate_fails_by_name(
     tmp_path: Path,
 ) -> None:
@@ -1374,6 +1421,7 @@ def test_a_manifest_that_drops_a_declared_gate_fails_by_name(
 
 
 @requires_bash
+@requires_git
 def test_a_reconciled_plan_with_nothing_dropped_stays_ok(tmp_path: Path) -> None:
     """The guard rail. "Fail when a gate is dropped" is satisfiable by failing
     always, which would take the whole gate down; an empty `dropped_gates` is
@@ -1395,6 +1443,7 @@ def test_a_reconciled_plan_with_nothing_dropped_stays_ok(tmp_path: Path) -> None
 
 
 @requires_bash
+@requires_git
 def test_a_plan_with_no_builtin_declaration_says_not_applicable(
     tmp_path: Path,
 ) -> None:
@@ -1429,6 +1478,7 @@ def test_a_plan_with_no_builtin_declaration_says_not_applicable(
 
 
 @requires_bash
+@requires_git
 def test_a_runner_that_cannot_reconcile_is_not_a_pass(tmp_path: Path) -> None:
     """A runner carrying #1147 but not #1155 publishes `gates` and no
     `dropped_gates`. Reconciliation did not happen, and NOT CHECKED must not
@@ -1449,6 +1499,7 @@ def test_a_runner_that_cannot_reconcile_is_not_a_pass(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_a_declared_gate_that_never_ran_is_not_ok(tmp_path: Path) -> None:
     """The guard for the defect above, at the layer that prints the verdict.
 
@@ -1487,6 +1538,7 @@ def test_a_declared_gate_that_never_ran_is_not_ok(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_gates_that_all_ran_stay_ok(tmp_path: Path) -> None:
     """The guard rail for the test above.
 
@@ -1514,6 +1566,7 @@ def test_gates_that_all_ran_stay_ok(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_a_declared_gate_recorded_as_skipped_is_accounted_for(
     tmp_path: Path,
 ) -> None:
@@ -1542,6 +1595,7 @@ def test_a_declared_gate_recorded_as_skipped_is_accounted_for(
 
 
 @requires_bash
+@requires_git
 def test_a_runner_json_without_a_gate_set_fails_closed(tmp_path: Path) -> None:
     """The absence case, and it is NEVER a pass.
 
@@ -1590,6 +1644,7 @@ def test_a_runner_json_without_a_gate_set_fails_closed(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_carried_unverified_is_warn(tmp_path: Path) -> None:
     """No tree_verified key at all - e.g. a runner too old to set it, or one
     that could not compute a signature (no git). The helper cannot prove the
@@ -1607,6 +1662,7 @@ def test_carried_unverified_is_warn(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_carried_verified_stays_ok(tmp_path: Path) -> None:
     """tree_verified: true means the runner hashed the tree at persist time
     and again at resume time and they matched - a proven crash-resume, not an
@@ -1626,6 +1682,7 @@ def test_carried_verified_stays_ok(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_multiple_carried_steps_are_all_named(tmp_path: Path) -> None:
     cpp = _fake_cpp(tmp_path)
     payload = (
@@ -1638,6 +1695,7 @@ def test_multiple_carried_steps_are_all_named(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_skipped_gates_still_win_over_unverified_carry(tmp_path: Path) -> None:
     """Same precedence question #769 answered against #628: two true things can
     be wrong about a run at once, and the verdict has to pick the more serious
@@ -1672,6 +1730,7 @@ def test_skipped_gates_still_win_over_unverified_carry(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_fallback_names_the_gates_it_ran(tmp_path: Path) -> None:
     """Coverage should be readable, not inferred from an absence of complaint."""
     (tmp_path / "Makefile").write_text(
@@ -1686,6 +1745,7 @@ def test_fallback_names_the_gates_it_ran(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_an_aggregate_gate_the_fallback_cannot_run_is_a_warn(tmp_path: Path) -> None:
     """#808 holds for an aggregate this lane does NOT run.
 
@@ -1713,6 +1773,7 @@ def test_an_aggregate_gate_the_fallback_cannot_run_is_a_warn(tmp_path: Path) -> 
 
 
 @requires_bash
+@requires_git
 def test_an_aggregate_this_lane_runs_is_not_reported_as_unrun(
     tmp_path: Path,
 ) -> None:
@@ -1744,6 +1805,7 @@ def test_an_aggregate_this_lane_runs_is_not_reported_as_unrun(
 
 
 @requires_bash
+@requires_git
 def test_a_repo_where_the_fallback_is_the_gate_is_still_ok(tmp_path: Path) -> None:
     """The guard rail. Without it, "warn on an aggregate" is satisfiable by
     warning on everything, which would train readers to ignore the warning -
@@ -1757,6 +1819,7 @@ def test_a_repo_where_the_fallback_is_the_gate_is_still_ok(tmp_path: Path) -> No
 
 
 @requires_bash
+@requires_git
 def test_a_phony_declaration_is_not_mistaken_for_an_aggregate(tmp_path: Path) -> None:
     """.PHONY lists gate names as DATA, not as prerequisites.
 
@@ -1776,6 +1839,7 @@ def test_a_phony_declaration_is_not_mistaken_for_an_aggregate(tmp_path: Path) ->
 
 
 @requires_bash
+@requires_git
 def test_a_multi_line_aggregate_is_detected(tmp_path: Path) -> None:
     """A real aggregate spans continuation lines, so a line-at-a-time scan
     would see one prerequisite and miss five.
@@ -1800,6 +1864,7 @@ def test_a_multi_line_aggregate_is_detected(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_the_skipped_threshold_is_unchanged(tmp_path: Path) -> None:
     """Pinned by #808/#809, which explicitly excluded exit-code changes from
     its own scope: a repo with no gate targets reports `skipped`. #1027 is the
@@ -1823,6 +1888,7 @@ def test_the_skipped_threshold_is_unchanged(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_a_runner_timeout_is_surfaced_as_a_timeout(tmp_path: Path) -> None:
     cpp = _fake_cpp(tmp_path)
     runner_json = (
@@ -1845,6 +1911,7 @@ def test_a_runner_timeout_is_surfaced_as_a_timeout(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_an_ordinary_failure_is_still_a_bare_fail(tmp_path: Path) -> None:
     """The guard rail: a change that called every failure a timeout would pass
     the test above while destroying the distinction it exists for."""
@@ -1857,6 +1924,7 @@ def test_an_ordinary_failure_is_still_a_bare_fail(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_runner_zero_coverage_reports_warn_named(tmp_path: Path) -> None:
     """A gate that RAN and examined NOTHING must not read as a clean pass (#1027).
 
@@ -1890,6 +1958,7 @@ def test_runner_zero_coverage_reports_warn_named(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_runner_covered_stage_stays_ok(tmp_path: Path) -> None:
     """The other half of the control, and the one that catches a blind gate.
 
@@ -1915,6 +1984,7 @@ def test_runner_covered_stage_stays_ok(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_runner_unknown_coverage_stays_ok(tmp_path: Path) -> None:
     """`unknown` is RECORDED but never graded on - the deliberate bound (#1027).
 
@@ -1943,6 +2013,7 @@ def test_runner_unknown_coverage_stays_ok(tmp_path: Path) -> None:
 
 
 @requires_bash
+@requires_git
 def test_skipped_gates_win_over_zero_coverage(tmp_path: Path) -> None:
     """Precedence, asserted rather than left to source order.
 
@@ -1984,6 +2055,7 @@ def _zero_coverage_make_stub(bindir: Path, lint_output: str) -> None:
 
 
 @requires_bash
+@requires_git
 def test_fallback_lane_detects_a_gate_that_examined_nothing(tmp_path: Path) -> None:
     """The FALLBACK lane needs this too, and needs it more (#1027).
 
@@ -2021,6 +2093,7 @@ def test_fallback_lane_detects_a_gate_that_examined_nothing(tmp_path: Path) -> N
 
 
 @requires_bash
+@requires_git
 def test_fallback_lane_stays_ok_when_the_gates_examined_something(
     tmp_path: Path,
 ) -> None:
@@ -2050,6 +2123,7 @@ def test_fallback_lane_stays_ok_when_the_gates_examined_something(
 
 
 @requires_bash
+@requires_git
 def test_fallback_lane_still_reports_a_failing_gate(tmp_path: Path) -> None:
     """The `tee` capture must not swallow the command's exit status.
 
@@ -2089,3 +2163,217 @@ def test_fallback_lane_still_reports_a_failing_gate(tmp_path: Path) -> None:
 
     assert proc.returncode == 1
     assert "FLOW_FINISH_GATE: fail" in proc.stdout
+
+
+# --- Counter-model enrolment (issue #1171) ----------------------------------
+
+
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(repo), *args],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+
+def _enrolled_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "master", ".")
+    _git(repo, "config", "user.email", "t@t")
+    _git(repo, "config", "user.name", "t")
+    (repo / "docs" / "measurements" / "counter-model").mkdir(parents=True)
+    (repo / "base.txt").write_text("base\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "base")
+    return repo
+
+
+def _write_receipt(repo: Path, head: str, status: str = "ran", reason: str | None = None) -> None:
+    import json
+
+    r = {
+        "schema": 1, "recorded_at": "2026-09-21T12:00:00Z", "issue": "1171",
+        "branch": _git(repo, "rev-parse", "--abbrev-ref", "HEAD"),
+        "head": head, "status": status,
+        "reviewer": None if status == "skipped" else "codex/gpt-6-astra",
+        "implementer": "claude/claude-opus-5",
+    }
+    if reason:
+        r["skip_reason"] = reason
+    (repo / "docs/measurements/counter-model/receipt.json").write_text(json.dumps(r, indent=2))
+
+
+def _gate(repo: Path) -> subprocess.CompletedProcess:
+    env = dict(os.environ)
+    env["FLOW_GATE_CPP_DIR"] = ""
+    env["CM_RECEIPT_HELPER"] = str(ROOT / "scripts" / "counter-model-receipt.py")
+    return subprocess.run(
+        ["bash", str(SCRIPT)], cwd=repo, env=env, capture_output=True, text=True,
+    )
+
+
+def test_every_verdict_call_is_terminal() -> None:
+    """The enrolment enforcement in `verdict()` relies on this and would otherwise change flow.
+
+    `verdict()` downgrades a PASS verdict to `fail` by printing and EXITING. That
+    is only safe because every call site already exits immediately afterwards, so
+    the exit it pre-empts was coming anyway. A later edit that adds a `verdict`
+    call which FALLS THROUGH would silently acquire an early exit it never asked
+    for - so the invariant is pinned here rather than trusted, in the file that
+    depends on it (issue #1171).
+    """
+    lines = SCRIPT.read_text().splitlines()
+    calls = [i for i, ln in enumerate(lines) if re.match(r"^\s*verdict\s", ln)]
+    assert calls, "no verdict calls found - this test is not measuring anything"
+    non_terminal = [
+        (i + 1, lines[i].strip())
+        for i in calls
+        if i + 1 >= len(lines) or not re.match(r"^\s*exit\s", lines[i + 1])
+    ]
+    assert non_terminal == [], (
+        "verdict() exits when it downgrades a pass verdict, which is only safe "
+        f"while every call is terminal; these are not: {non_terminal}"
+    )
+
+
+@requires_git
+def test_missing_counter_model_line_reds_a_run_that_would_otherwise_pass(tmp_path: Path) -> None:
+    repo = _enrolled_repo(tmp_path)
+    got = _gate(repo)
+    assert "FLOW_FINISH_GATE: fail (counter-model line missing)" in got.stdout
+    assert got.returncode == 1
+
+
+@requires_git
+def test_a_receipt_at_an_ancestor_commit_still_satisfies(tmp_path: Path) -> None:
+    """The ancestry rule, and the reason strict head equality was rejected.
+
+    auto.md writes the receipt at :940, runs this gate at :1021, COMMITS at :1097
+    and runs the gate again at :1240 after merging origin/main. Under strict head
+    equality the second run reds while holding a perfectly valid review.
+    """
+    repo = _enrolled_repo(tmp_path)
+    reviewed = _git(repo, "rev-parse", "HEAD")
+    _write_receipt(repo, reviewed)
+    (repo / "later.txt").write_text("later\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "commit after the review")
+    assert _git(repo, "rev-parse", "HEAD") != reviewed
+    got = _gate(repo)
+    assert "FLOW_FINISH_GATE: fail" not in got.stdout
+    assert "FLOW_FINISH_GATE_COUNTER_MODEL: receipt:" in got.stdout
+
+
+@requires_git
+def test_a_skip_reason_outside_the_committed_set_reds(tmp_path: Path) -> None:
+    """`explicit-opt-out` was removed deliberately; it must not come back by the side door."""
+    repo = _enrolled_repo(tmp_path)
+    _write_receipt(repo, _git(repo, "rev-parse", "HEAD"), "skipped", "explicit-opt-out")
+    got = _gate(repo)
+    assert "FLOW_FINISH_GATE: fail (counter-model line unknown)" in got.stdout
+    assert got.returncode == 1
+
+
+@requires_git
+def test_a_committed_skip_reason_passes_with_the_skip_named(tmp_path: Path) -> None:
+    repo = _enrolled_repo(tmp_path)
+    _write_receipt(repo, _git(repo, "rev-parse", "HEAD"), "skipped", "codex-absent")
+    got = _gate(repo)
+    assert "FLOW_FINISH_GATE_COUNTER_MODEL: skipped: codex-absent" in got.stdout
+    assert "FLOW_FINISH_GATE: fail" not in got.stdout
+
+
+@requires_git
+def test_a_repository_that_does_not_participate_is_not_red(tmp_path: Path) -> None:
+    """This helper is installed globally and runs in repositories that have no receipts at all."""
+    repo = tmp_path / "other"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "master", ".")
+    _git(repo, "config", "user.email", "t@t")
+    _git(repo, "config", "user.name", "t")
+    (repo / "f.txt").write_text("x\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "base")
+    got = _gate(repo)
+    assert "FLOW_FINISH_GATE: fail" not in got.stdout
+    assert "not-enrolled" in got.stdout
+
+
+@requires_git
+def test_main_side_after_a_squash_merge_would_red_which_is_why_this_is_branch_side(
+    tmp_path: Path,
+) -> None:
+    """The squash-merge hazard, as an executed fact rather than a comment.
+
+    CPP squash-merges, so a branch's commits never land on main. `--is-ancestor`
+    then answers NO for every one of them, and a main-side copy of this check
+    would red every merged PR in the repository. The gate is invoked branch-side
+    only (auto.md Steps 6 and 7), where the branch commits are still reachable.
+    This reproduces the squash and asserts the red, so the reason for that
+    scoping is committed rather than described.
+    """
+    repo = _enrolled_repo(tmp_path)
+    _git(repo, "checkout", "-q", "-b", "feature")
+    (repo / "work.txt").write_text("work\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "the work")
+    reviewed = _git(repo, "rev-parse", "HEAD")
+    _write_receipt(repo, reviewed)
+    branch_receipt = (repo / "docs/measurements/counter-model/receipt.json").read_text()
+
+    # Squash the branch onto main exactly as gh pr merge --squash does: the
+    # content lands, the commits do not.
+    _git(repo, "checkout", "-q", "master")
+    _git(repo, "merge", "--squash", "feature")
+    (repo / "docs/measurements/counter-model/receipt.json").write_text(branch_receipt)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "squashed (#1171)")
+
+    assert subprocess.run(
+        ["git", "-C", str(repo), "merge-base", "--is-ancestor", reviewed, "HEAD"],
+    ).returncode != 0, "the reviewed commit is reachable after a squash - premise of this test is gone"
+
+    got = _gate(repo)
+    assert "FLOW_FINISH_GATE: fail (counter-model line missing)" in got.stdout, (
+        "a main-side run after a squash reds - which is the finding this test records, "
+        "and the reason the check must stay branch-side"
+    )
+
+
+@requires_git
+def test_a_receipt_whose_status_says_nothing_is_unknown_not_a_review(tmp_path: Path) -> None:
+    """Found by the counter-model review of this change (HIGH).
+
+    The first cut accepted every matching receipt whose status was not exactly
+    `skipped`, so a receipt with `"status": "garbage"` - or none at all - satisfied
+    the gate while recording neither a review nor an allowed skip. Status is checked
+    positively now: only `ran` is a review.
+    """
+    repo = _enrolled_repo(tmp_path)
+    head = _git(repo, "rev-parse", "HEAD")
+    for bad in ("garbage", None):
+        import json as _json
+        r = {"schema": 1, "recorded_at": "2026-09-21T12:00:00Z", "issue": "1171",
+             "branch": _git(repo, "rev-parse", "--abbrev-ref", "HEAD"),
+             "head": head, "reviewer": "codex/gpt-6-astra", "implementer": "claude/claude-opus-5"}
+        if bad is not None:
+            r["status"] = bad
+        (repo / "docs/measurements/counter-model/receipt.json").write_text(_json.dumps(r, indent=2))
+        got = _gate(repo)
+        assert "FLOW_FINISH_GATE: fail (counter-model line unknown)" in got.stdout, bad
+        assert got.returncode == 1
+
+
+@requires_git
+def test_a_skip_reason_shaped_like_a_grep_option_is_refused(tmp_path: Path) -> None:
+    """Found by the counter-model review of this change, pass 2 (MEDIUM).
+
+    `grep -qxF "$reason"` without `--` reads `-ecodex-absent` as the option
+    `-e codex-absent` and matches, so a reason outside the committed set passed the
+    allowlist. An allowlist addressable with its own matcher's flags is not one.
+    """
+    repo = _enrolled_repo(tmp_path)
+    _write_receipt(repo, _git(repo, "rev-parse", "HEAD"), "skipped", "-ecodex-absent")
+    got = _gate(repo)
+    assert "FLOW_FINISH_GATE: fail (counter-model line unknown)" in got.stdout
+    assert got.returncode == 1

@@ -166,7 +166,84 @@ if [[ "$expect_plan" -eq 1 || -z "$PLAN" ]]; then
     exit 2
 fi
 
-verdict() { echo "FLOW_FINISH_GATE: $1"; }
+#: --- Counter-model enrolment (issue #1171) ---------------------------------
+#: NEGATIVE-CONTROL: controls/counter-model-enrolment
+#:
+#: WHAT THIS EXISTS FOR. `counter-model-uniformity-check.py` reads the receipts
+#: that EXIST. A review that never ran writes no receipt and simply shrinks the
+#: population, so a SKIPPED review and a CLEAN one are the same bytes to every
+#: instrument here. Measured on #1152 and #1163: both merged green with no
+#: receipt, both later found to carry a HIGH. There was no per-issue enrolment -
+#: nothing ever said "this issue owes a review", so nothing could say one was
+#: missing. This makes absence REPRESENTABLE: every finish-mode run emits a
+#: counter-model line, and no line reds the gate.
+#:
+#: WHY IT LIVES IN `verdict()`. Every one of the 25 verdict call sites in this
+#: file is immediately followed by `exit`, so this is the one choke point a pass
+#: verdict cannot get past. Enforcing at the two `verdict ok` sites instead
+#: would leave `warn` and `skipped` - both of which PROCEED to a commit and a PR
+#: - able to ship with no review recorded. The terminality this relies on is
+#: pinned by tests/test_flow_finish_gate.py::test_every_verdict_call_is_terminal,
+#: which fails if a later edit adds a verdict call that falls through.
+#:
+#: THE MATCH IS BY ANCESTRY, AND ANCESTRY IS NOT IDENTITY. A receipt satisfies
+#: this run when its recorded `head` is the current HEAD *or an ancestor of it*.
+#: So a review taken earlier on this branch still counts, and COMMITS MADE AFTER
+#: THE REVIEW STILL PASS. That is a real weakening and it is written here rather
+#: than only in the PR, because this comment is where the next reader meets it.
+#: Strict head EQUALITY was the first design and it is unimplementable on this
+#: flow: auto.md writes the receipt at :940, runs this gate at :1021, COMMITS at
+#: :1097, merges origin/main at :1230 and re-runs this gate at :1240 - so
+#: equality passes at :1021 and reds at :1240 on every run that reaches Step 7
+#: behind main, holding a perfectly valid review. Whether a review COVERED the
+#: final diff is a different instrument's subject (#1082), not this one's.
+#: THIS HAPPENED DURING THE WAVE THAT SHIPPED THIS GATE, so read it as a warning
+#: and not a caveat. worker-A's #1110 was reviewed clean at head 85587f11, then
+#: landed material changes to the very gate logic under review - a new verdict
+#: path, a new Survey field, an early return, three tests - advancing to df7ddd9
+#: while its receipt still described 85587f11. 85587f11 IS an ancestor of df7ddd9,
+#: so this check would have accepted that receipt and reported the PR enrolled over
+#: a review that never saw the code that merges. A human caught it and re-ran the
+#: review; no instrument here would have said a word. In worker-A's phrasing, such
+#: a receipt is "honest about WHO reviewed and silently wrong about WHAT".
+#: A tree signature is the honest tighter thing and is deliberately NOT done
+#: here - it is a separate decision under ADR 0009 oscillation control, and one
+#: contrary datum on the day a rule ships is not grounds to widen it.
+#:
+#: SCOPED TO THE BRANCH SIDE, DELIBERATELY. This runs at Step 6 and Step 7,
+#: where the branch commits are still reachable. DO NOT extend this check to
+#: main after a merge: CPP squash-merges, so the branch commits never land and
+#: `--is-ancestor` answers NO for every one of them - a main-side copy of this
+#: check would red every merged PR in the repository. Pinned by
+#: controls/counter-model-enrolment case `bad-squash-merged-main-side`.
+CM_ENROLMENT_ENFORCE=0
+CM_ENROLMENT_STATE=unevaluated
+CM_ENROLMENT_LINE="unevaluated"
+
+verdict() {
+    # A PASS verdict may not be printed while enrolment is unsatisfied. `ok`,
+    # every `warn (...)` and `skipped` all PROCEED to a commit and a PR, so all
+    # three are pass verdicts for this purpose. `fail` is left alone: a run that
+    # is already red does not need a second reason, and rewriting its verdict
+    # would hide the failure the developer actually has to fix.
+    if [[ "$CM_ENROLMENT_ENFORCE" -eq 1 ]]; then
+        case "$1" in
+            ok|warn*|skipped)
+                case "$CM_ENROLMENT_STATE" in
+                    receipt|skipped|not-enrolled) ;;
+                    *)
+                        echo "flow-finish-gate: no counter-model review is recorded for this branch at this commit, so this gate cannot tell a review that found nothing from one that never ran (issue #1171)." >&2
+                        echo "  Run the Step 6 counter-model review, or record an explicit skip with a committed reason:" >&2
+                        echo "    python3 <cpp>/scripts/counter-model-receipt.py write --status skipped --reason <reason> --head \"\$(git rev-parse HEAD)\" ..." >&2
+                        echo "FLOW_FINISH_GATE: fail (counter-model line $CM_ENROLMENT_STATE)"
+                        exit 1
+                        ;;
+                esac
+                ;;
+        esac
+    fi
+    echo "FLOW_FINISH_GATE: $1"
+}
 
 # --- Locate the CPP checkout (same search the command docs use) -------------
 if [[ -n "${FLOW_GATE_CPP_DIR+x}" ]]; then
@@ -209,6 +286,162 @@ if [[ "$MODE" == "check-summary" ]]; then
         exit 3
     fi
 fi
+
+# --- Evaluate counter-model enrolment (issue #1171) -------------------------
+# THE PLACEMENT IS THE /flow:check EXCLUSION. Every branch of the check-summary
+# block above exits, so check-summary mode never reaches this line and never has
+# enrolment enforced. It must not: /flow:check Step 5 is an advisory
+# Makefile-completeness read that produces no PR, so it has nothing to enrol, and
+# a check that fired there would red a command with no way to satisfy it. Do not
+# move this evaluation above that block. Pinned by the control case
+# `good-check-summary-mode-not-enforced`.
+
+cm_field() {
+    # One flat JSON string field out of a receipt. Receipts are written by
+    # json.dump(indent=2) with string values only at this level, so a line-scoped
+    # read is exact here - this is deliberately NOT a general JSON parser, and it
+    # must not grow into one. `jq` is not assumed: this helper runs in repos that
+    # are not CPP and on the fallback lane, which exists precisely when the
+    # richer toolchain is missing.
+    sed -n "s/^[[:space:]]*\"$2\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$1" 2>/dev/null | head -1
+}
+
+cm_receipt_matches_head() {
+    # THE MATCH PREDICATE, in one place on purpose. $1 is a receipt's recorded
+    # head. It satisfies this run when it is the current HEAD or an ANCESTOR of
+    # it. See the ancestry note on verdict() above for why equality is not used
+    # and what this weakens.
+    [[ -n "$1" ]] || return 1
+    git merge-base --is-ancestor "$1" HEAD >/dev/null 2>&1
+}
+
+cm_enrolment_evaluate() {
+    local root receipts branch f rbranch rhead rstatus rreason reasons
+    # PARTICIPATION IS ESTABLISHED BEFORE GIT IS REQUIRED, and the order is the
+    # whole blast radius of this check. Asking git first reported `unknown` - and
+    # so RED - for any directory that is not a checkout, which is most of what
+    # this gate is pointed at outside a flow run: 50 of the 92 tests in
+    # tests/test_flow_finish_gate.py run the gate in a plain tmp dir and every one
+    # of them went red on the first cut. A repository that does not participate
+    # must be answerable without git, because it is not being asked about a
+    # review at all.
+    root=$(git rev-parse --show-toplevel 2>/dev/null) || true
+    [[ -n "$root" ]] || root="$PWD"
+    receipts="$root/docs/measurements/counter-model"
+    if [[ ! -d "$receipts" ]]; then
+        # THIS REPOSITORY DOES NOT PARTICIPATE, and that is a state rather than
+        # a pass. This helper is installed globally and /flow:auto runs it in
+        # other repositories, which have never run a counter-model review and
+        # have no receipts directory; reding them would break every unrelated
+        # repo's finish gate on the day this shipped. The bound is deliberately
+        # narrow and visible: the directory's PRESENCE is the participation
+        # signal, it is tracked in CPP with 50 receipts, and removing it to
+        # silence this gate would be a visible deletion rather than a quiet one.
+        CM_ENROLMENT_STATE=not-enrolled
+        CM_ENROLMENT_LINE="not-enrolled: this repository carries no counter-model receipts directory"
+        return
+    fi
+    # Participation is established, so git is now REQUIRED: an enrolled
+    # repository that cannot name a commit cannot attribute a review to one, and
+    # that is UNKNOWN rather than a pass.
+    if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
+        CM_ENROLMENT_STATE=unknown
+        CM_ENROLMENT_LINE="unknown: the counter-model receipts directory exists but this is not a git checkout, so no review can be attributed to a commit"
+        return
+    fi
+    branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+    if [[ -z "$branch" || "$branch" == "HEAD" ]]; then
+        CM_ENROLMENT_STATE=unknown
+        CM_ENROLMENT_LINE="unknown: detached HEAD, so no branch to attribute a review to"
+        return
+    fi
+
+    for f in "$receipts"/*.json; do
+        [[ -e "$f" ]] || continue
+        rbranch=$(cm_field "$f" branch)
+        [[ "$rbranch" == "$branch" ]] || continue
+        rhead=$(cm_field "$f" head)
+        cm_receipt_matches_head "$rhead" || continue
+        rstatus=$(cm_field "$f" status)
+        if [[ "$rstatus" == "skipped" ]]; then
+            rreason=$(cm_field "$f" skip_reason)
+            # The committed set is read from its ONE declaration rather than
+            # copied into shell (issue #1171). A second list here is the
+            # cross-language drift #890/#1147 kept removing, and it fails in the
+            # dangerous direction: a shell copy still naming a retired reason
+            # would accept a skip the committed set refuses.
+            reasons=$(python3 "$CM_RECEIPT_HELPER" skip-reasons 2>/dev/null)
+            if [[ -z "$reasons" ]]; then
+                CM_ENROLMENT_STATE=unknown
+                CM_ENROLMENT_LINE="unknown: cannot read the committed skip reasons, so '$rreason' cannot be checked against them"
+                return
+            fi
+            # `--` IS LOAD-BEARING (counter-model review pass 2, MEDIUM). Without
+            # it a reason of `-ecodex-absent` is read by grep as the OPTION
+            # `-e codex-absent`, which matches - so a reason absent from the
+            # committed set passed the allowlist. An allowlist that can be
+            # addressed with its own matcher's flags is not an allowlist.
+            if ! printf '%s\n' "$reasons" | grep -qxF -- "$rreason"; then
+                CM_ENROLMENT_STATE=unknown
+                CM_ENROLMENT_LINE="unknown: skip reason '$rreason' is not in the committed set"
+                return
+            fi
+            CM_ENROLMENT_STATE=skipped
+            CM_ENROLMENT_LINE="skipped: $rreason ($(basename "$f"))"
+            return
+        fi
+        # STATUS IS CHECKED POSITIVELY, never by not-being-skipped (counter-model
+        # review, HIGH). Treating "anything that is not `skipped`" as a completed
+        # review accepted a receipt with NO status field and one reading
+        # `"status": "garbage"` - so incomplete evidence satisfied the gate without
+        # recording either a review or an allowed skip. That is this issue's own
+        # defect one level in: a receipt that cannot say what happened is not
+        # evidence that anything did.
+        if [[ "$rstatus" != "ran" ]]; then
+            CM_ENROLMENT_STATE=unknown
+            CM_ENROLMENT_LINE="unknown: receipt $(basename "$f") has status '${rstatus:-<absent>}', which is neither 'ran' nor 'skipped'"
+            return
+        fi
+        CM_ENROLMENT_STATE=receipt
+        CM_ENROLMENT_LINE="receipt: $(basename "$f")"
+        return
+    done
+
+    CM_ENROLMENT_STATE=missing
+    CM_ENROLMENT_LINE="missing: no receipt for branch '$branch' at a commit reachable from HEAD"
+}
+
+# Resolve the receipt helper the same way every other flow helper resolves
+# (#581/#590): stable path, then the plugin copy, then the CPP checkout.
+# INJECTABLE, like FLOW_GATE_CPP_DIR above and for the same reason. The stable
+# path is a SYMLINK into the primary checkout, so a run inside a worktree reads
+# the primary checkout's helper, not the one under test - which makes a control
+# case non-hermetic and silently scores the wrong copy. A case sets this to the
+# copy it means (issue #1171).
+if [[ -z "${CM_RECEIPT_HELPER:-}" ]]; then
+    # SIBLING FIRST (counter-model review, MEDIUM). A generated Codex skill ships
+    # this gate under its own `scripts/` directory, and the old order searched only
+    # the Claude install paths and a full CPP checkout - so on a Codex-only host
+    # with neither, an otherwise valid `skipped:` receipt resolved no helper,
+    # reported UNKNOWN and blocked finishing. Looking beside ourselves first also
+    # fixes a hazard in the ordinary checkout: the stable path is a SYMLINK into
+    # the PRIMARY checkout, so a gate running from a worktree was validating
+    # against the primary checkout's helper rather than its own - which, while
+    # this issue was being built, meant a copy with no `skip-reasons` verb at all.
+    _cm_self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+    CM_RECEIPT_HELPER="${_cm_self_dir}/counter-model-receipt.py"
+    [[ -f "$CM_RECEIPT_HELPER" ]] || CM_RECEIPT_HELPER="$HOME/.claude/scripts/counter-model-receipt.py"
+    [[ -f "$CM_RECEIPT_HELPER" ]] || CM_RECEIPT_HELPER="${CLAUDE_PLUGIN_ROOT:-}/scripts/counter-model-receipt.py"
+    [[ -f "$CM_RECEIPT_HELPER" ]] || CM_RECEIPT_HELPER="$CPP_DIR/scripts/counter-model-receipt.py"
+fi
+
+cm_enrolment_evaluate
+CM_ENROLMENT_ENFORCE=1
+# Emitted on EVERY finish-mode run, pass or fail, because the issue's fix shape
+# is that the gate's own output carries the line - not that it carries one when
+# something is wrong. A line that appears only on failure is a line no reader
+# learns to look for.
+echo "FLOW_FINISH_GATE_COUNTER_MODEL: $CM_ENROLMENT_LINE"
 
 # --- Primary path: the deterministic runner ---------------------------------
 if [[ "$RUNNER_OK" -eq 1 ]]; then

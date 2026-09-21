@@ -42,7 +42,9 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import re
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -97,6 +99,192 @@ def derive_evidence(manifest: Path) -> tuple[str | None, str | None]:
         # The shared helper handles missing files; invalid encodings/paths may
         # still raise. They are unusable evidence, not a reviewer disagreement.
         return None, f"cannot derive reviewer: {exc}"
+
+
+#: How a landed commit names the issue it closes. CPP squash-merges, so every
+#: first-parent commit on the default branch IS one pull request, and its subject
+#: carries the reference. Deliberately NOT just `#N`: the trailing `(#N)` GitHub
+#: appends is the PR number, not the issue, and counting it as an issue would
+#: invent enrolments nobody owed.
+ISSUE_REF_RE = re.compile(r"\b(?:Closes|Fixes|Resolves|Refs)\s+#(\d+)", re.IGNORECASE)
+
+
+#: Weakest evidence first. A commit is classified by the WORST status among the
+#: issues it names, so a skip cannot be hidden behind a sibling issue that was
+#: reviewed.
+_RANK = {"invalid": 0, "unverifiable": 1, "skipped": 2, "ran": 3}
+
+
+def enrolment_scan(repo: Path, receipts_dir: Path, ref: str, limit: int) -> tuple[int, str]:
+    """Which landed changes owed a counter-model review and did not record one.
+
+    THIS IS THE HALF THAT MAKES ABSENCE A FINDING (issue #1171). `scan()` above
+    reads the receipts that EXIST, so a review that never happened simply shrinks
+    its population and reports nothing - which is why #1152 and #1163 merged green
+    with no receipt and were each later found to carry a HIGH. Here the population
+    comes from the HISTORY instead: every first-parent commit is a merged PR, and
+    one naming an issue with no receipt is a review that is missing, not a
+    corpus that is smaller.
+
+    UNATTRIBUTABLE IS NOT MISSING. A commit whose subject names no issue cannot be
+    said to owe anything, so it is counted and reported separately rather than
+    folded into the findings. Collapsing the two would inflate every number here
+    with commits that were never in the population.
+
+    THE THREE VERDICTS, WITH THE INPUT THAT PRODUCES EACH. "It can also report OK"
+    is the half of a discrimination claim a reader cannot re-derive without being
+    told where to look, so the windows are NAMED here rather than described. Fixed
+    SHAs, never HEAD~N: a relative ref slides as the branch moves and stops
+    reproducing the moment someone merges.
+
+        FINDING  --enrolment-scan origin/main --enrolment-limit 23
+                 -> reviewed=7 skipped=0 missing=16, exit 1
+        OK       --enrolment-scan ff4936eef78a39126ddb5d9b1b4411be91f9e951 --enrolment-limit 8
+                 -> reviewed=8 skipped=0 missing=0, exit 0
+        UNKNOWN  --enrolment-scan no-such-ref
+                 -> ENROLMENT-UNKNOWN naming the git failure, exit 2
+
+    The FINDING window is the measurement that motivated #1171 and is expected to
+    drift as receipts land; the OK window is historical and is expected to keep
+    reproducing exactly.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(repo), "log", "--first-parent", f"-{limit}",
+             "--format=%H%x09%s", ref],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return EXIT_UNKNOWN, f"ENROLMENT-UNKNOWN: could not read history: {exc}"
+    if out.returncode != 0:
+        return EXIT_UNKNOWN, (
+            f"ENROLMENT-UNKNOWN: git log failed for ref {ref!r}: {out.stderr.strip()}"
+        )
+
+    # STATUS IS CARRIED, NOT DISCARDED (counter-model review, MEDIUM). Keying only
+    # on "a receipt mentions this issue" counted an explicit `skipped:
+    # codex-absent` as a completed review and then said "recorded a review" - which
+    # recreates, in the instrument built to remove it, the exact skipped-versus-
+    # reviewed ambiguity #1171 is about. An allowed skip may satisfy enrolment, but
+    # the report has to NAME it as a skip.
+    # A SKIP IS ONLY A SKIP IF ITS REASON IS IN THE COMMITTED SET (counter-model
+    # review pass 2, MEDIUM). The scan accepted every `"status": "skipped"` receipt
+    # as satisfying enrolment without looking at `skip_reason`, so `explicit-opt-out`
+    # - the reason removed deliberately - and a receipt with no reason at all both
+    # produced ENROLMENT-OK while the finish gate reds on exactly those states. A
+    # historical report that certifies what the gate refuses is worse than no
+    # report. Read from the same declaration the gate reads, never a second copy.
+    allowed = tuple(getattr(RECEIPT, "SKIP_REASONS", ()))
+
+    have: dict[str, set[str]] = {}
+    for path in receipts_dir.rglob("*.json"):
+        if not path.is_file():
+            continue
+        try:
+            receipt = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(receipt, dict) or receipt.get("issue") is None:
+            continue
+        status = receipt.get("status")
+        if status == "ran":
+            cls = "ran"
+        elif status == "skipped":
+            if not allowed:
+                cls = "unverifiable"
+            elif receipt.get("skip_reason") in allowed:
+                cls = "skipped"
+            else:
+                cls = "invalid"
+        else:
+            cls = "invalid"
+        have.setdefault(str(receipt["issue"]), set()).add(cls)
+
+    missing: list[str] = []
+    invalid: list[str] = []
+    mixed: list[str] = []
+    reviewed = skipped = unattributable = 0
+    seen_issue_commits: dict[str, int] = {}
+    for line in out.stdout.splitlines():
+        sha, _, subject = line.partition("\t")
+        issues = set(ISSUE_REF_RE.findall(subject))
+        if not issues:
+            unattributable += 1
+            continue
+        for i in issues:
+            seen_issue_commits[i] = seen_issue_commits.get(i, 0) + 1
+        absent = sorted(i for i in issues if i not in have)
+        if absent:
+            missing.append(f"{sha[:8]} {subject[:72]} -> no receipt for #{', #'.join(absent)}")
+            continue
+        # CLASSIFY BY THE WEAKEST EVIDENCE, NOT THE STRONGEST (counter-model review
+        # pass 2, MEDIUM). Unioning every issue's statuses and preferring `ran` meant
+        # a commit naming a reviewed #11 and a skipped #12 reported `reviewed=1
+        # skipped=0` - the skip vanished, which is this issue's own ambiguity yet
+        # again. A change is only as reviewed as its least-reviewed issue, and a
+        # commit whose issues disagree is NAMED rather than rounded either way.
+        per_issue = {i: min(have[i], key=_RANK.get) for i in issues}
+        worst = min(per_issue.values(), key=_RANK.get)
+        if len(set(per_issue.values())) > 1:
+            mixed.append(
+                f"{sha[:8]} {subject[:72]} -> issues disagree: "
+                + ", ".join(f"#{i}={c}" for i, c in sorted(per_issue.items()))
+            )
+        if worst == "invalid":
+            invalid.append(
+                f"{sha[:8]} {subject[:72]} -> a receipt exists but records nothing usable "
+                "(status is not 'ran', or a skip names a reason outside the committed set)"
+            )
+        elif worst == "unverifiable":
+            invalid.append(
+                f"{sha[:8]} {subject[:72]} -> a skip could not be checked against the "
+                "committed reasons, so it is not evidence of anything"
+            )
+        elif worst == "ran":
+            reviewed += 1
+        else:
+            skipped += 1
+
+    # PER-ISSUE, AND IT SAYS SO (counter-model review, MEDIUM). One receipt covers
+    # every commit naming its issue, so two changes closing #11 both read as
+    # covered while only one was reviewed. Correlating a receipt with an individual
+    # merged change is not possible from this data - a receipt records an issue and
+    # a branch, not a squash sha - so the honest move is to report the keying and
+    # name the multiply-counted issues rather than let "covered" be read as a
+    # per-change claim it cannot support.
+    shared = sorted(i for i, n in seen_issue_commits.items() if n > 1)
+    attributable = reviewed + skipped + len(missing) + len(invalid)
+    denominator = (
+        f"commits={len(out.stdout.splitlines())} attributable={attributable} "
+        f"reviewed={reviewed} skipped={skipped} missing={len(missing)} "
+        f"invalid={len(invalid)} unattributable={unattributable}"
+    )
+    shared_note = (
+        f"ENROLMENT-NOTE: coverage is keyed per ISSUE, not per change; "
+        f"issue(s) #{', #'.join(shared)} are named by more than one commit here, so one "
+        "receipt satisfies several - per-change coverage is UNKNOWN for those"
+        if shared else
+        "ENROLMENT-NOTE: coverage is keyed per ISSUE, not per change; no issue in this "
+        "range is named by more than one commit"
+    )
+    if attributable == 0:
+        return EXIT_UNKNOWN, (
+            f"ENROLMENT-UNKNOWN: {denominator} - no commit in this range names an issue, "
+            "so nothing could be attributed; this is an unrun check, not a clean one"
+        )
+    mixed_lines = [f"ENROLMENT-NOTE: {m}" for m in mixed]
+    if missing or invalid:
+        lines = [f"ENROLMENT-FINDING: {m}" for m in (*missing, *invalid)]
+        lines.append(f"ENROLMENT-SUMMARY: {denominator}")
+        lines.append(shared_note)
+        lines.extend(mixed_lines)
+        return EXIT_FINDING, "\n".join(lines)
+    return EXIT_OK, "\n".join([
+        f"ENROLMENT-OK: {denominator} - every attributable change has a receipt for its "
+        f"issue ({reviewed} reviewed, {skipped} explicitly skipped)",
+        shared_note,
+        *mixed_lines,
+    ])
 
 
 def scan(receipts_dir: Path, evidence_dir: Path | None = None) -> tuple[int, str]:
@@ -194,9 +382,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--receipts-dir", type=Path, default=Path("docs/measurements/counter-model"))
     parser.add_argument("--evidence-dir", type=Path, help="manifests with paths relative to each manifest, or absolute")
     parser.add_argument("--selftest", action="store_true", help="run the five committed cases; ignore input flags")
+    parser.add_argument("--enrolment-scan", metavar="REF", nargs="?", const="HEAD",
+                        help="derive the population from history instead of from the receipts that "
+                             "exist, and report a landed change with no receipt as a FINDING (#1171)")
+    parser.add_argument("--repo", type=Path, default=Path("."),
+                        help="repository to read history from with --enrolment-scan")
+    parser.add_argument("--enrolment-limit", type=int, default=50,
+                        help="how many first-parent commits to examine (default 50)")
     args = parser.parse_args(argv)
     if args.selftest:
         return selftest()
+    if args.enrolment_scan:
+        code, output = enrolment_scan(
+            args.repo, args.receipts_dir, args.enrolment_scan, args.enrolment_limit
+        )
+        print(output)
+        return code
     code, output = scan(args.receipts_dir, args.evidence_dir)
     print(output)
     return code
