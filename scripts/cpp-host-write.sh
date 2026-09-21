@@ -11,12 +11,22 @@
 #: before this marker was added.
 #:
 #: HOST-SURFACE: ~/.claude/settings.json owner=cpp write=merge certified=authored
-#: HOST-SURFACE: ~/.claude owner=cpp write=mkdir certified=authored
-#: HOST-SURFACE: ~/.claude/scripts owner=cpp write=mkdir certified=authored
-#: HOST-SURFACE: ~/.bashrc owner=user write=append certified=authored
-#: HOST-SURFACE: ~/.zshrc owner=user write=append certified=authored
+#: HOST-SURFACE: ~/.claude owner=cpp write=mkdir certified=observed
+#: HOST-SURFACE: ~/.claude/scripts owner=cpp write=mkdir certified=observed
+#: HOST-SURFACE: ~/.bashrc owner=user write=append certified=observed
+#: HOST-SURFACE: ~/.zshrc owner=user write=append certified=observed
 #: HOST-SURFACE: ~/.config/opencode/opencode.json owner=cpp write=json-merge certified=authored
-#: HOST-SURFACE: ~/.config/claude-power-pack/secrets/cpp-memories.backend owner=cpp write=replace certified=authored
+#: HOST-SURFACE: ~/.config/claude-power-pack/secrets/cpp-memories.backend owner=cpp write=replace certified=observed
+#: The mkdir'd parents below are declared `certified=observed`, not
+#: `authored`: they were found by running this script against a sandboxed
+#: $HOME and diffing what appeared (issue #1150), not by a person reading
+#: the code. `authored` means "a person read the code and wrote down what it
+#: writes", which would be false here - static reading produced the
+#: declaration above and missed these. scripts/host-surface-observe.py
+#: re-derives them on every run and reds when they drift.
+#: HOST-SURFACE: ~/.config owner=cpp write=mkdir certified=observed
+#: HOST-SURFACE: ~/.config/claude-power-pack owner=cpp write=mkdir certified=observed
+#: HOST-SURFACE: ~/.config/claude-power-pack/secrets owner=cpp write=mkdir certified=observed
 #  The shell rc is chosen at run time from $SHELL, so BOTH are declared:
 #  a defer-set must be able to name what the code CAN write, not only what
 #  it happened to write on the machine someone last looked at. A zsh user

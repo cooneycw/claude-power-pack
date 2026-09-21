@@ -3235,7 +3235,7 @@ class TestSubsumedGates:
 
         prereqs = make_prerequisites(str(root), "verify")
         assert prereqs is not None, "make could not be asked what `verify` runs"
-        assert len(prereqs) == 29, (
+        assert len(prereqs) == 30, (
             f"make reports {len(prereqs)} prerequisites for this repository's "
             f"`verify` rule, not 29. If the Makefile genuinely changed, update "
             f"the number; if it did not, something changed what make RESOLVES - "

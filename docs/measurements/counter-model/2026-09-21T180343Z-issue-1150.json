@@ -1,0 +1,19 @@
+{
+  "branch": "issue-1150-certify-host-surface-declarations-by-observation-r",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/claude-opus-5",
+  "issue": "1150",
+  "passes": 1,
+  "recorded_at": "2026-09-21T18:03:43Z",
+  "red_cases": {
+    "already_covered": 8,
+    "proposed": 8
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

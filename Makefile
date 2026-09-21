@@ -387,6 +387,7 @@ oscillation:
 ## verify-coverage: gate verify - the aggregate itself - its own failure mode is a sub-gate dropped from this list, which is what verify-coverage-check exists to catch
 verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-import-audit oscillation \
 	binary-guards-check negative-fixture-check negative-controls \
+	host-surface-observe \
 	claude-md-budget-check agents-md-budget-check claude-md-links-check claude-md-behavior-check \
 	project-next-check delegated-core-check codex-skills-check \
 	scripts-inventory-check instrument-census-check verify-coverage-check \
@@ -701,6 +702,16 @@ consolidation-ledger-check:
 ## verify-coverage: gate binary-guards-check - tests that shell out to git/docker/gitleaks guard the binary; ci: runs binary-guards-check
 binary-guards-check:
 	@python3 scripts/check-test-binary-guards.py
+
+## Certify host-surface declarations by OBSERVATION (issue #1150). host-surface-check
+## catches a script with NO declaration; it cannot catch one that UNDERSTATES, and says
+## so in its own verdict. This runs each in-$(HOME) helper twice against a sandboxed
+## $(HOME) and diffs what appeared against what it declared. The six helpers that reach
+## outside $(HOME) are not executed and stay certified=authored, each with its escaping
+## binary named.
+## verify-coverage: gate host-surface-observe - runs each in-$(HOME) helper against a sandboxed $(HOME) and diffs appeared-vs-declared surfaces; ci: runs host-surface-observe
+host-surface-observe:
+	@python3 scripts/host-surface-observe.py
 
 ## Enforce the CLAUDE.md "a negative-condition fixture asserts its own
 ## precondition" directive (issue #697). A fixture that builds an absence
