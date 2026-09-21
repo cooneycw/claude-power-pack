@@ -2403,6 +2403,205 @@ def test_an_anchor_that_refuses_the_known_bad_input_is_unresolved_not_inert(
     assert result.returncode == 1
 
 
+# --------------------------------------------------------------------------- #
+# #1157 - a case may DECLARE that its anchor is blind to the refusal
+# --------------------------------------------------------------------------- #
+
+#: The same UNKNOWN registration, plus the declaration and the reason the field
+#: requires. Everything else is byte-identical to UNKNOWN_CASES, so a difference
+#: in outcome between the two is attributable to the declaration alone.
+DECLARED_BLIND_CASES = [
+    {"name": "bad", "input": "cases/bad", "expect": "BAD"},
+    {"name": "good", "input": "cases/good", "expect": "GOOD"},
+    {"name": "unknown", "input": "cases/unknown", "expect": "UNKNOWN",
+     "anchor_expect": "clean",
+     "anchor_expect_reason": "this anchor predates the refusal branch and never derives the "
+                             "population, so it answers with a confident clean"},
+]
+
+
+@pytest.mark.parametrize(
+    "escaping",
+    [
+        "../../tests/fixtures/ci-coverage/no-verify-target",
+        "../other-control/cases/good",
+        "/etc",
+    ],
+)
+def test_a_case_reaching_outside_its_own_control_is_refused(tmp_path: Path, escaping: str) -> None:
+    """The red case for the containment rule (#1157).
+
+    This was proposed as a way to register #1146's two trees without moving
+    them, and refused: what makes a control a readable unit is that everything
+    it needs lives beneath it. Once one case reaches out, the register cannot be
+    read one directory at a time, and a directory move silently breaks a
+    registration that still looks valid.
+
+    Refused in the schema rather than agreed in prose, because a schema that
+    permits a path it never intends to see is one that will eventually see it.
+    """
+    cases = [dict(c) for c in UNKNOWN_CASES]
+    cases[1]["input"] = escaping
+    root = build_tree(
+        tmp_path, REFUSING_GATE, anchor_src=BLIND_TO_REFUSAL_ANCHOR,
+        cases=cases, unknown_signal=TOY_UNKNOWN,
+    )
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "outside its own control directory" in result.stdout, result.stdout
+    assert result.returncode == 1
+
+
+def test_a_symlink_loop_does_not_take_the_whole_run_down(tmp_path: Path) -> None:
+    """One malformed control must not stop every other control being reported.
+
+    `Path.resolve()` raises RuntimeError - not OSError - on a symlink LOOP under
+    the supported 3.11/3.12, so the containment check's first handler let it
+    escape and abort the harness with a traceback (#1157 counter-model review,
+    LOW). A blanket crash is the worst possible answer for a tool whose subject
+    is instruments that report confidently about things they did not examine:
+    every OTHER control's verdict disappears, and the run says nothing about any
+    of them.
+    """
+    root = build_tree(
+        tmp_path, REFUSING_GATE, anchor_src=BLIND_TO_REFUSAL_ANCHOR,
+        cases=UNKNOWN_CASES, unknown_signal=TOY_UNKNOWN,
+    )
+    looped = root / "controls" / "toy" / "cases" / "unknown"
+    shutil.rmtree(looped)
+    looped.symlink_to(looped, target_is_directory=True)
+    result = run_harness(root, "--strict")
+    assert "Traceback" not in result.stderr, (
+        "a symlink loop must be a verdict, not a crash that deletes every other "
+        "control's result\n" + result.stderr
+    )
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert result.returncode == 1
+
+
+def test_a_symlinked_case_cannot_smuggle_the_escape_back_in(tmp_path: Path) -> None:
+    """The same escape wearing a different spelling, which is why resolve() is used.
+
+    A relative `../..` is the obvious form and the only one anybody would
+    propose. A case directory that IS a symlink pointing outside the control
+    satisfies any string-level check perfectly and lands in exactly the same
+    place - the registration names a path under the control, and the bytes
+    exercised are somewhere else entirely.
+    """
+    outside = tmp_path / "elsewhere" / "tests"
+    outside.mkdir(parents=True)
+    (outside / "UNEXAMINABLE").write_text("x", encoding="utf-8")
+    root = build_tree(
+        tmp_path, REFUSING_GATE, anchor_src=BLIND_TO_REFUSAL_ANCHOR,
+        cases=UNKNOWN_CASES, unknown_signal=TOY_UNKNOWN,
+    )
+    smuggled = root / "controls" / "toy" / "cases" / "unknown"
+    shutil.rmtree(smuggled)
+    smuggled.symlink_to(outside.parent, target_is_directory=True)
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "outside its own control directory" in result.stdout, result.stdout
+
+
+def test_a_case_may_declare_that_its_anchor_is_blind_to_the_refusal(tmp_path: Path) -> None:
+    """The change #1157 exists to make, on the shape #1146 actually hit.
+
+    Identical inputs to `test_an_anchor_blind_to_the_refusal_too_is_inert`
+    below, which is INERT and is the cost that forbade registering a refusal
+    case at all. The ONLY difference is the declaration, so the outcome is
+    attributable to it and to nothing else.
+
+    THIS TEST'S PASS IS NOT SELF-SUFFICIENT and saying so is the point: a
+    sanity loop that silently SKIPPED declared cases would produce exactly this
+    PASS, and look identical to one that scored them. What establishes that the
+    case was EXERCISED is its partner below, where a wrong declaration must red
+    - a skipped case cannot red. Read the two together or neither means much.
+    """
+    root = build_tree(
+        tmp_path, REFUSING_GATE, anchor_src=BLIND_TO_REFUSAL_ANCHOR,
+        cases=DECLARED_BLIND_CASES, unknown_signal=TOY_UNKNOWN,
+    )
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "PASS", result.stdout
+    assert result.returncode == 0
+
+
+def test_a_declared_blind_anchor_that_is_not_blind_reds(tmp_path: Path) -> None:
+    """RED CASE (i), and the proof that a declared case is scored at all.
+
+    `BLIND_BUT_REFUSING_ANCHOR` misses the known-bad input, so it clears the
+    anchor loop - but it REFUSES the unexaminable one, so it can derive the
+    population the declaration says it cannot. The declaration is falsified and
+    the recorded reason is stale.
+
+    UNRESOLVED RATHER THAN INERT, DELIBERATELY. INERT means "the anchor is not
+    blind enough, replace it", which here would send someone to discard an
+    artifact just shown to be MORE capable than the manifest records. Nothing is
+    wrong with the anchor or the gate; the REGISTRATION is what stopped being
+    true, which is UNRESOLVED's own documented meaning - "the manifest is
+    incomplete... NOT a failure of the gate".
+
+    A loop that skipped declared cases would return PASS here, so this test is
+    also what makes its partner above mean something.
+    """
+    root = build_tree(
+        tmp_path, REFUSING_GATE, anchor_src=BLIND_BUT_REFUSING_ANCHOR,
+        cases=DECLARED_BLIND_CASES, unknown_signal=TOY_UNKNOWN,
+    )
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "declared blind" in result.stdout, result.stdout
+    assert "correct the registration rather than replacing the anchor" in result.stdout, (
+        "the message must send the reader to the manifest, not to the anchor\n" + result.stdout
+    )
+    assert result.returncode == 1
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected_phrase"),
+    [
+        #: A typo would otherwise read as "must agree" while looking deliberate.
+        ({"anchor_expect": "cleanish"}, "the only value that changes anything is 'clean'"),
+        #: Declared where it is never read. This is the printed-but-never-consulted
+        #: shape, and refusing it here is the difference between a schema field and
+        #: a decoration that governs nothing.
+        #: Declared where the DIAGNOSIS would not fit. On a BAD or GOOD case a
+        #: disagreement is an anchor defect that INERT names correctly; saying
+        #: "correct the registration" there would blame the manifest for the
+        #: anchor's fault (#1157 counter-model review, MEDIUM).
+        ({"anchor_expect": "clean", "anchor_expect_reason": "r", "expect": "BAD"},
+         "only meaningful on an UNKNOWN case"),
+        ({"anchor_expect": "clean", "anchor_expect_reason": "r", "expect": "GOOD"},
+         "only meaningful on an UNKNOWN case"),
+        #: Without the recorded cost the field is a bypass for any inconvenient
+        #: anchor disagreement.
+        ({"anchor_expect": "clean", "anchor_expect_reason": "   "},
+         "no anchor_expect_reason"),
+        #: COUNTERFEIT REASONS. Each of these survives `str(x or "")` non-empty
+        #: and records nothing a human wrote (#1157 counter-model review). The
+        #: field charges a cost; these are forged coins.
+        ({"anchor_expect": "clean", "anchor_expect_reason": True}, "no anchor_expect_reason"),
+        ({"anchor_expect": "clean", "anchor_expect_reason": 1}, "no anchor_expect_reason"),
+        ({"anchor_expect": "clean", "anchor_expect_reason": [""]}, "no anchor_expect_reason"),
+        ({"anchor_expect": "clean", "anchor_expect_reason": {"": ""}}, "no anchor_expect_reason"),
+    ],
+)
+def test_a_malformed_anchor_expect_is_refused(
+    tmp_path: Path, mutate: dict, expected_phrase: str
+) -> None:
+    """The manifest half. Each of these would otherwise be silently inert."""
+    cases = [dict(c) for c in DECLARED_BLIND_CASES]
+    cases[2].update(mutate)
+    root = build_tree(
+        tmp_path, REFUSING_GATE, anchor_src=BLIND_TO_REFUSAL_ANCHOR,
+        cases=cases, unknown_signal=TOY_UNKNOWN,
+    )
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert expected_phrase in result.stdout, result.stdout
+    assert result.returncode == 1
+
+
 def test_an_anchor_blind_to_the_refusal_too_is_inert(tmp_path: Path) -> None:
     """Anchor-sanity applies to a refusal exactly as it does to a clean run: an
     anchor that disagrees there differs for reasons beyond the blindness under
@@ -2412,6 +2611,16 @@ def test_an_anchor_blind_to_the_refusal_too_is_inert(tmp_path: Path) -> None:
     whoever adds the next case: an anchor frozen from before a gate's refusal
     branch existed reports clean where the gate refuses, and forbids any UNKNOWN
     case on that control while it stands.
+
+    SINCE #1157 THIS IS ALSO RED CASE (ii), AND IT IS THE LOAD-BEARING ONE.
+    `anchor_expect` is an OPTIONAL field added to an instrument's case schema,
+    which is a WIDENING - and the question a widening has to answer is not "does
+    the new field work" but "did every case that does not use it keep its
+    meaning". This registration declares nothing, so it must STILL red exactly
+    as it did before the field existed. Its inputs are identical to
+    `test_a_case_may_declare_that_its_anchor_is_blind_to_the_refusal` above
+    except for the declaration, so the pair isolates the field's effect to the
+    declaration alone.
     """
     root = build_tree(
         tmp_path, REFUSING_GATE, anchor_src=BLIND_TO_REFUSAL_ANCHOR,

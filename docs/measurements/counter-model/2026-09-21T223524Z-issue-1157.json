@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1157-check-negative-controls-an-anchor-frozen-before-a",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "59a9956470a0fccb2f6dd339d7161915657ebacf",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1157",
+  "passes": 1,
+  "recorded_at": "2026-09-21T22:35:24Z",
+  "red_cases": {
+    "already_covered": 2,
+    "proposed": 4
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

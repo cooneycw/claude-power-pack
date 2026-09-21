@@ -1163,6 +1163,105 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
             "refusal by this gate cannot be told from a crash (issue #1129)"
         )
         return res
+    # A CASE MUST LIVE UNDER ITS OWN CONTROL (issue #1157). What makes a control
+    # a readable unit is that everything it needs is beneath it: the register can
+    # be understood one directory at a time, and moving a control moves its
+    # cases with it. One `input` reaching out with `../../` ends that - the
+    # registration still looks valid after a directory move that silently broke
+    # it, and a reader can no longer tell what a control covers by looking at it.
+    #
+    # REFUSED RATHER THAN DISCOURAGED. It was raised as a way to register #1146's
+    # two trees without relocating them, rejected on the property above, and a
+    # schema that permits a path it never intends to see is a schema that will
+    # eventually see it. `resolve()` is deliberate: a case that reaches outside
+    # THROUGH A SYMLINK is the same escape wearing a different spelling.
+    control_root = control_dir.resolve()
+    for case in cases:
+        rel = str(case.get("input", ""))
+        try:
+            resolved = (control_dir / rel).resolve()
+        except (OSError, RuntimeError):
+            #: RuntimeError, not just OSError (#1157 counter-model review, LOW).
+            #: `Path.resolve()` raises RuntimeError on a symlink LOOP under the
+            #: supported 3.11/3.12, and an uncaught one here would abort the
+            #: whole harness with a traceback - so ONE malformed control would
+            #: stop every other control being reported at all. A control that
+            #: cannot be resolved is UNRESOLVED, which is what it means.
+            resolved = None
+        if resolved is None or not resolved.is_relative_to(control_root):
+            res.details.append(
+                f"control.json case {case.get('name', rel)!r} has input {rel!r}, which resolves "
+                f"outside its own control directory. A control is a unit: everything it needs "
+                "lives under it, or a directory move breaks a registration that still looks valid"
+            )
+            return res
+
+    # `anchor_expect` DECLARES WHAT THE ANCHOR MUST DO ON THIS CASE (issue
+    # #1157), and it is FAIL-CLOSED: absent means "must agree with the current
+    # gate", which is what every case meant before this field existed, so no
+    # existing registration changes meaning.
+    #
+    # THREE REFUSALS, and the third is the one that would otherwise rot quietly:
+    #   - an unknown value is a typo that would silently read as "must agree";
+    #   - `clean` without a recorded REASON is the escape hatch this field would
+    #     become if the cost were optional - a bypass wearing a schema field;
+    #   - `anchor_expect` on ANYTHING THAT IS NOT AN UNKNOWN CASE. Two separate
+    #     reasons, and the block below states the second where it is enforced:
+    #     on a BAD case the declaration is never read at all, because only GOOD
+    #     and UNKNOWN cases reach the anchor-sanity loop - a declaration nobody
+    #     reads is the defect this file exists to catch, one level in, sitting
+    #     in the manifest looking load-bearing and governing nothing. On a GOOD
+    #     case it IS read, and that is worse: the diagnosis it triggers blames
+    #     the manifest for what is an anchor's own false positive.
+    for case in cases:
+        declared = case.get("anchor_expect")
+        if declared is None:
+            continue
+        if declared != "clean":
+            res.details.append(
+                f"control.json case {case.get('input')!r} declares anchor_expect "
+                f"{declared!r}; the only value that changes anything is 'clean', and an "
+                "unrecognised one would read as 'must agree' while looking deliberate"
+            )
+            return res
+        #: UNKNOWN ONLY, and the narrowing is a CORRECTNESS fix rather than
+        #: caution (#1157 counter-model review, MEDIUM). The first cut allowed
+        #: it on GOOD cases too, on the reasoning that both kinds reach the
+        #: sanity loop. They do - but the DIAGNOSIS below does not fit a GOOD
+        #: case: an anchor that misses the known-bad input and reports a finding
+        #: on the known-GOOD one is producing a FALSE POSITIVE, which is an
+        #: anchor defect that INERT names correctly and that removing a
+        #: declaration cannot repair. Sending that reader to "correct the
+        #: registration" would attribute an anchor's defect to the manifest -
+        #: the ownership question, failed by the check written to ask it.
+        #:
+        #: The structural impossibility this field exists for is specific to a
+        #: refusal: only there can agreement be unobtainable BY CONSTRUCTION,
+        #: because an anchor able to refuse an empty population must derive it
+        #: and would then stop being blind. A GOOD case has no such bind.
+        if case.get("expect") != UNKNOWN:
+            res.details.append(
+                f"control.json case {case.get('input')!r} declares anchor_expect on a "
+                f"{case.get('expect')} case. It is only meaningful on an UNKNOWN case, where "
+                "agreement can be impossible by construction; elsewhere a disagreement is a "
+                "defect in the ANCHOR, which INERT already names and no declaration repairs"
+            )
+            return res
+        #: A STRING WITH TEXT IN IT, not merely something that survives str()
+        #: (#1157 counter-model review, MEDIUM). `str(x or "")` accepted `true`,
+        #: `1`, `[""]` and `{"": ""}` - each renders non-empty and each records
+        #: no reason whatever, so the cost the field charges could be paid in
+        #: counterfeit. The point of the reason is that a human wrote down why;
+        #: a type that cannot carry that is refused rather than coerced.
+        reason = case.get("anchor_expect_reason")
+        if not isinstance(reason, str) or not reason.strip():
+            res.details.append(
+                f"control.json case {case.get('input')!r} declares anchor_expect: clean with "
+                "no anchor_expect_reason naming why this anchor cannot derive the population. "
+                "Without that cost the field is a bypass for any inconvenient disagreement"
+            )
+            return res
+
     if BAD not in expects:
         res.details.append("control.json registers no BAD case, so nothing exercises the blindness")
         return res
@@ -1382,23 +1481,53 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
     #: differs for reasons beyond the blindness under test, so the demonstration
     #: is not isolated.
     #:
-    #: AN UNKNOWN CASE IS HELD TO THAT SAME STANDARD, not a new one (issue
-    #: #1129). The anchor must refuse where the gate refuses. That is the
-    #: conservative direction - it refuses MORE, never less - and the
+    #: AN UNKNOWN CASE IS HELD TO THAT SAME STANDARD BY DEFAULT, not a new
+    #: one (issue #1129). The anchor must refuse where the gate refuses. That is
+    #: the conservative direction - it refuses MORE, never less - and the
     #: alternative was considered and rejected: accepting either agreement OR
     #: blindness would admit two outcomes, discriminate less, and invent a third
     #: anchor semantics for no gain.
     #:
-    #: IT HAS A REAL COST, and it is a property of the PAIR rather than of
-    #: either file, so it is stated here where someone adding a case will hit
-    #: it: an anchor frozen from before a gate's refusal branch existed reports
-    #: CLEAN where the gate refuses, lands INERT, and thereby forbids any
-    #: UNKNOWN case on that control while it stands. Same shape as the
+    #: THAT REJECTION STILL STANDS AS WRITTEN, AND IT IS WHY `anchor_expect` IS
+    #: A PER-CASE DECLARATION RATHER THAN A RELAXED RULE (issue #1157). Taking
+    #: its three objections one at a time, because only one of them reaches the
+    #: field below and it would be easy - and wrong - to claim none do:
+    #:
+    #:   "admit two outcomes"  does NOT reach it. A declared expectation admits
+    #:       exactly ONE outcome per case and reds on anything else.
+    #:   "discriminate less"   does NOT reach it; it follows from the first.
+    #:   "invent a third anchor semantics"  DOES REACH IT. There were exactly
+    #:       two - GOOD/UNKNOWN must AGREE, BAD must MISS - and `anchor_expect:
+    #:       clean` is a third. The field does not avoid inventing one; it IS
+    #:       the third semantics.
+    #:
+    #: What defeats the third objection is its own final clause - FOR NO GAIN -
+    #: and the gain is measurable rather than argued. MEASURED on the register
+    #: at e9a58b6: 45 controls, 190 cases, and UNKNOWN = 1. One refusal case in
+    #: the whole register, because the rule below forbade the rest.
+    #:
+    #: THE COST IT WAS PAYING, which is a property of the PAIR rather than of
+    #: either file: an anchor frozen from before a gate's refusal branch existed
+    #: reports CLEAN where the gate refuses, lands INERT, and thereby forbade
+    #: any UNKNOWN case on that control while it stood. Same shape as the
     #: `sh-extension` entry in controls/shellcheck-gate, and found the same way.
-    #: MEASURED for the one control registering an UNKNOWN case today: ed5349c
-    #: also reports UNKNOWN on a root with no shell files, so it agrees.
+    #: MEASURED on controls/ci-coverage, which is why #1146 could not register
+    #: the two trees it had already committed:
+    #:
+    #:     gate    exit 2  "UNKNOWN - derived 0 prerequisites ... the population
+    #:                      is empty, so a clean verdict would rest on nothing"
+    #:     anchor  exit 0  "ok - 2 declaration(s) found: 1 run in CI, 1 excluded"
+    #:
+    #: The anchor answers with a CONFIDENT COUNT over a population the gate
+    #: refuses to judge. That is the blindness the case exists to demonstrate,
+    #: so a case may now DECLARE it - and pay for the declaration with a
+    #: recorded reason - instead of being refused registration for it.
+    #:
+    #: The default is unchanged and fail-closed: no `anchor_expect` means "must
+    #: agree", and a declaration that stops being true reds as UNRESOLVED rather
+    #: than decaying into silence.
     sanity_cases = [
-        (control_dir / c["input"], c["expect"])
+        (control_dir / c["input"], c["expect"], c.get("anchor_expect"))
         for c in cases
         if c["expect"] in (GOOD, UNKNOWN)
     ]
@@ -1489,7 +1618,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
                 return res
             res.details.append(f"anchor {anchor['sha']}: missed the known-bad input (blind, as required)")
 
-        for case_path, case_expect in sanity_cases:
+        for case_path, case_expect, anchor_expect in sanity_cases:
             #: "known-GOOD" for a GOOD case, "known-UNEXAMINABLE" for an UNKNOWN
             #: one. The property is identical - the anchor must AGREE - but a
             #: message naming the wrong kind of input sends a reader looking for
@@ -1528,7 +1657,32 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
                     + (f" [stderr: {diag}]" if diag else "")
                 )
                 return res
-            if observed != case_expect:
+            #: WHAT THE ANCHOR IS HELD TO. Absent `anchor_expect`, it is the
+            #: gate's own verdict - the original property, unchanged for every
+            #: case that does not declare otherwise. A case declaring `clean`
+            #: asserts the opposite: this anchor cannot derive the population at
+            #: all, so it returns a confident GOOD where the gate refuses, and
+            #: THAT is the blindness the case exists to show.
+            expected = GOOD if anchor_expect == "clean" else case_expect
+            if observed != expected:
+                if anchor_expect == "clean":
+                    #: NOT INERT, AND THE DIFFERENCE IS THE WHOLE POINT OF
+                    #: HAVING SEVEN VERDICTS. INERT means "the anchor is not
+                    #: blind enough, replace it" - which here would send someone
+                    #: to discard an anchor that has just been shown to be MORE
+                    #: capable than the manifest records. Nothing is wrong with
+                    #: the anchor or the gate; the REGISTRATION is stale, which
+                    #: is UNRESOLVED's own definition ("the manifest is
+                    #: incomplete... NOT a failure of the gate").
+                    res.verdict = UNRESOLVED
+                    res.details.append(
+                        f"anchor {anchor['sha']} is declared blind on a {kind} input "
+                        f"(anchor_expect: clean) but observed {observed}, so it CAN derive the "
+                        "population the declaration says it cannot. The recorded "
+                        "anchor_expect_reason is stale: correct the registration rather than "
+                        "replacing the anchor"
+                    )
+                    return res
                 res.verdict = INERT
                 res.details.append(
                     f"anchor {anchor['sha']} disagrees with the current gate on a {kind} input "
