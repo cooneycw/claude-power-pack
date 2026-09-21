@@ -1,0 +1,19 @@
+{
+  "branch": "fix-1071-budget-overclaim-and-single-source",
+  "counts": {
+    "accepted": 4,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "claude/claude-opus-5",
+  "issue": "1071",
+  "passes": 2,
+  "recorded_at": "2026-09-20T21:15:11Z",
+  "red_cases": {
+    "already_covered": 2,
+    "proposed": 5
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

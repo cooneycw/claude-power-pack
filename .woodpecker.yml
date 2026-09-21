@@ -254,7 +254,7 @@ steps:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
     depends_on: [secret-scan]
     commands:
-      - python3 scripts/check-claude-md-budget.py AGENTS.md --budget 450
+      - python3 scripts/check-claude-md-budget.py AGENTS.md
 
   # Is every host write in /cpp:init and /cpp:update still through the seam? (#1132)
   #

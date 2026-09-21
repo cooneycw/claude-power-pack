@@ -720,14 +720,19 @@ negative-fixture-check:
 ## findable after narrative moves to owned documentation (issue #724).
 
 ## verify-coverage: gate agents-md-budget-check - the Codex agent-context file stays inside its word budget; ci: runs agents-md-budget-check
-## The budget is set by what it FORBIDS (#1071): AGENTS.md is a pointer to
-## CLAUDE.md plus what is Codex-specific, and the failure it exists to prevent is
-## someone restating CLAUDE.md's Core Directives block in it - the second copy the
-## thin design removes. That block is 389 words; the legitimate content is 308; a
-## copy lands at 697. 450 admits the content with room to grow and refuses the
-## copy by 247. A cap a duplicate fits under is decoration.
+## The cap is a SIZE LIMIT, and the #1071 post-merge review found the original
+## comment here claimed more (corrected in place rather than deleted, so the
+## overclaim is legible). It rejects APPENDING CLAUDE.md's Core Directives block
+## (389 words) to AGENTS.md's content (308): that lands at 697, refused by 247.
+## It does NOT forbid restating the rules - a document that deletes the
+## Codex-specific content and pastes the block in its place measures 399 and
+## passes. "No sentence explains a Core Directive" is semantic and stays with
+## review; a parity instrument is what the thin-pointer design exists not to need.
+## The budget itself lives in scripts/check-claude-md-budget.py, not here: this
+## target passed `--budget 450` as a literal, so the constant was read by nothing
+## and the test guarding it could not see the number anyone could raise.
 agents-md-budget-check:
-	@python3 scripts/check-claude-md-budget.py AGENTS.md --budget 450
+	@python3 scripts/check-claude-md-budget.py AGENTS.md
 
 ## verify-coverage: gate claude-md-budget-check - always-loaded guidance stays inside its word budget; ci: runs claude-md-budget-check
 claude-md-budget-check:
