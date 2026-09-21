@@ -2213,14 +2213,30 @@ def _gate(repo: Path) -> subprocess.CompletedProcess:
 
 
 def test_every_verdict_call_is_terminal() -> None:
-    """The enrolment enforcement in `verdict()` relies on this and would otherwise change flow.
+    """The enrolment enforcement in `verdict()` relies on this (#1171), and #1061 widened it.
 
     `verdict()` downgrades a PASS verdict to `fail` by printing and EXITING. That
     is only safe because every call site already exits immediately afterwards, so
     the exit it pre-empts was coming anyway. A later edit that adds a `verdict`
     call which FALLS THROUGH would silently acquire an early exit it never asked
     for - so the invariant is pinned here rather than trusted, in the file that
-    depends on it (issue #1171).
+    depends on it.
+
+    THE TERMINAL SET IS ENUMERATED, NEVER A WILDCARD. #1061 migrated the 25
+    hand-rolled `exit N` successors onto `gate_exit`, so the idiom moved while the
+    property did not. `gate_exit` is admitted because it is UNCONDITIONALLY
+    TERMINAL - measured, not assumed: all four paths out of gate-lib.sh:308-318 end
+    in `exit` (:309 and :310 and :312 via `_gate_refuse`, :317 on the mapped
+    verdict), and the `return 1` inside `_gate_code_for` is consumed by the `if !`
+    at :312 rather than returned to the caller. A loose alternation matching any `gate_`-prefixed helper
+    would admit a future helper that returns, which is the fall-through this test
+    exists to catch.
+
+    AND IT NOW CHECKS AGREEMENT, which the old `exit N` form could not express
+    without duplicating gate_map here: a `gate_exit` successor's verdict word must
+    EQUAL the verdict call's leading word. `verdict "ok"` followed by
+    `gate_exit fail` is a gate that says one thing and exits another, and under the
+    old idiom only a second copy of the map could have caught it.
     """
     lines = SCRIPT.read_text().splitlines()
     calls = [i for i, ln in enumerate(lines) if re.match(r"^\s*verdict\s", ln)]
@@ -2228,11 +2244,28 @@ def test_every_verdict_call_is_terminal() -> None:
     non_terminal = [
         (i + 1, lines[i].strip())
         for i in calls
-        if i + 1 >= len(lines) or not re.match(r"^\s*exit\s", lines[i + 1])
+        if i + 1 >= len(lines)
+        or not re.match(r"^\s*(?:exit|gate_exit)\s", lines[i + 1])
     ]
     assert non_terminal == [], (
         "verdict() exits when it downgrades a pass verdict, which is only safe "
         f"while every call is terminal; these are not: {non_terminal}"
+    )
+
+    disagreeing = []
+    for i in calls:
+        successor = lines[i + 1] if i + 1 < len(lines) else ""
+        got = re.match(r"^\s*gate_exit\s+([a-z-]+)\s*$", successor)
+        if not got:
+            continue
+        said = re.match(r'^\s*verdict\s+"?([a-z-]+)', lines[i])
+        assert said, f"line {i + 1} calls verdict with no readable verdict word: {lines[i].strip()}"
+        if said.group(1) != got.group(1):
+            disagreeing.append((i + 1, said.group(1), got.group(1)))
+    assert disagreeing == [], (
+        "a gate that prints one verdict and exits with another is indistinguishable "
+        "from one that agrees, to every caller reading only $?; these disagree "
+        f"(line, printed, exited): {disagreeing}"
     )
 
 

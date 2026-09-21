@@ -265,6 +265,25 @@ gate_arg_value() {
 # The good verdict goes to stdout and everything else to stderr, which is the
 # convention already in `shellcheck-gate.sh` and what lets a pipeline separate a
 # clean run from a reported one without parsing.
+# A KNOWN, MEASURED NON-ADOPTER (issue #1061). `scripts/flow-finish-gate.sh` uses
+# `gate_map`, `gate_exit` and `gate_arg_value` and deliberately does NOT use this
+# function. That is not an unfinished migration and should not be "completed"
+# without moving what depends on it first.
+#
+# It emits `FLOW_FINISH_GATE: <verdict> (<detail>)` on STDOUT. This function emits
+# `KEY: verdict - detail` and routes any non-zero verdict to STDERR. Both
+# differences are load-bearing there, measured against its six registered controls:
+#
+#   parenthesised detail required   3  declared-gates, plan-reconciliation, subsumption
+#   end-anchored `^...: fail$`      2  derivation, flow-finish-gate  (ANY detail breaks these)
+#   unanchored, survives            1  resume
+#
+# So adopting it there risks FIVE of six controls, plus 85 assertions in
+# tests/test_flow_finish_gate.py that read the verdict from stdout. The safety
+# property #1061 exists for - one verdict maps to 0, per-verdict exit codes, and an
+# unmapped verdict refusing rather than falling through - lives entirely in the
+# other three functions, which that gate does adopt. This one carries a line
+# format.
 gate_emit() {
     _gate_require_map gate_emit
     [ $# -ge 2 ] || _gate_refuse "gate_emit needs <KEY> <verdict> [detail ...]; got $# argument(s)"
