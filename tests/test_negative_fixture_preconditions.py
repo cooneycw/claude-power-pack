@@ -651,3 +651,319 @@ def test_the_success_line_does_not_claim_each_site_asserts_its_own_path(
     assert "WHICH path an assertion covers" in out, (
         "and the limit must be named where the reader of the green line meets it"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Issue #1110 - waivers and sites must share ONE coordinate system
+# --------------------------------------------------------------------------- #
+
+#: The characters `str.splitlines()` ends a line on and CPython's tokenizer does
+#: not. Built with chr() rather than written literally, because a raw separator
+#: smuggled into tests/ would be read by this very gate and by every other gate
+#: that scans this directory - the fixture would become part of the population.
+SPLITLINES_ONLY = "".join(chr(c) for c in (0x2028, 0x2029, 0x0085, 0x000B, 0x000C, 0x001C))
+
+
+def _waiver_by_splitlines(source: str) -> int:
+    """Where the gate's OLD numbering put the waiver - the defective coordinate."""
+    return next(
+        i for i, line in enumerate(source.splitlines(), start=1) if checker.ALLOW_RE.search(line)
+    )
+
+
+def _waiver_by_tokenizer(source: str) -> int:
+    """Where `ast` puts the waiver - the coordinate the sites are in."""
+    return next(
+        i for i, line in enumerate(source.split("\n"), start=1) if checker.ALLOW_RE.search(line)
+    )
+
+
+def _separators(count: int) -> str:
+    """`count` raw separator characters, cycling the set."""
+    return "".join(SPLITLINES_ONLY[i % len(SPLITLINES_ONLY)] for i in range(count))
+
+
+WAIVED_AFTER_SEPARATORS = (
+    'SEPARATORS = "' + _separators(3) + '"\n'
+    "\n"
+    "\n"
+    "def test_waived(tmp_path):\n"
+    "    stub = tmp_path / 'bin'\n"
+    "    stub.mkdir()\n"
+    "    # negative-fixture: allow PATH is isolation, not an absence\n"
+    "    subprocess.run(['a'], env={'PATH': str(stub)}, capture_output=True)\n"
+)
+
+
+def test_a_correct_waiver_survives_separators_before_it(tmp_path: Path) -> None:
+    """A waiver keeps matching its site when a raw separator precedes it (#1110).
+
+    COVERS SITE `_check_module` - the FINDINGS channel, which is also what the
+    exit code and the committed control cases read.
+
+    THE SHIFT MUST EXCEED ONE LINE, and that is specific to THIS gate rather
+    than a general rule. `_function_sites` honours a waiver on the site line OR
+    the line above, so a +/-1 window absorbs a one-character shift: a
+    single-separator fixture passes against the UNFIXED gate and proves
+    nothing.
+
+    The sibling gate `check-test-binary-guards` reaches the same bound by a
+    DIFFERENT route, and the difference matters to anyone extending this to a
+    fourth site. It has no tolerance window at all - it matches exactly, via
+    `func.lineno in allow_lines` - but its honoured SET is the def line plus
+    the shell-out lines, and in the ordinary layout those are adjacent, so a
+    one-line shift slides the waiver from one honoured line onto another and is
+    absorbed anyway. Measured on the unfixed gate rather than reasoned about:
+    shift 1 absorbed, shift 2 surfaced. So `> 1` holds at every site so far,
+    but "why" is per-site and a fourth site owes its own measurement.
+
+    The precondition below fails loudly rather than letting this test quietly
+    stop measuring anything.
+    """
+    full = PREAMBLE + "import subprocess\n\n" + WAIVED_AFTER_SEPARATORS
+    shift = _waiver_by_splitlines(full) - _waiver_by_tokenizer(full)
+    assert shift > 1, (
+        f"fixture shifts the waiver by {shift} line(s); the +/-1 waiver window "
+        "absorbs a shift of 1, so this test would pass against the unfixed gate "
+        "and is no longer a regression case"
+    )
+    assert _findings(tmp_path, "import subprocess\n\n" + WAIVED_AFTER_SEPARATORS) == []
+
+
+def _shifted_exemption_source() -> tuple[str, str]:
+    """A module-level waiver whose OLD number lands exactly on an unwaived site.
+
+    Self-calibrating: the separator count is derived from the distance between
+    the waiver and the site in the assembled source, so an edit to PREAMBLE or
+    to the body cannot silently leave the waiver landing somewhere harmless.
+    """
+    body = (
+        'SEPARATORS = "@SEPS@"\n'
+        "\n"
+        "# negative-fixture: allow this waiver belongs to no site at all\n"
+        "\n"
+        "\n"
+        "def test_unwaived(tmp_path):\n"
+        "    stub = tmp_path / 'bin'\n"
+        "    stub.mkdir()\n"
+        "    subprocess.run(['b'], env={'PATH': str(stub)}, capture_output=True)\n"
+    )
+    probe = PREAMBLE + "import subprocess\n\n" + body.replace("@SEPS@", "")
+    site = next(
+        i for i, line in enumerate(probe.split("\n"), start=1) if "subprocess.run(['b']" in line
+    )
+    need = site - _waiver_by_tokenizer(probe)
+    return body.replace("@SEPS@", _separators(need)), "import subprocess\n\n"
+
+
+def test_a_shifted_waiver_does_not_exempt_an_unwaived_site(tmp_path: Path) -> None:
+    """The SILENT direction: a displaced waiver must not excuse a real site (#1110).
+
+    COVERS SITE `_check_module` - the FINDINGS channel.
+
+    This is the direction that motivated the issue. The noisy direction
+    announces itself with a red build; this one produces a green the gate did
+    not earn. The waiver here exempts nothing as written - it sits at module
+    level - and the separators move its computed number onto a replacement that
+    carries no waiver at all.
+    """
+    body, prefix = _shifted_exemption_source()
+    full = PREAMBLE + prefix + body
+    landed = _waiver_by_splitlines(full)
+    site = next(
+        i for i, line in enumerate(full.split("\n"), start=1) if "subprocess.run(['b']" in line
+    )
+    assert landed == site, (
+        f"the shifted waiver lands on line {landed}, not on the site at {site} - "
+        "the fixture no longer reproduces the silent exemption and this test is "
+        "not measuring anything"
+    )
+    assert _findings(tmp_path, prefix + body) != []
+
+
+def test_the_survey_counts_are_in_tokenizer_coordinates(tmp_path: Path) -> None:
+    """COVERS SITE `survey_paths` - and this test is the ONLY guard it has.
+
+    NOT ordinary coverage. An exit-code negative control CANNOT reach this
+    site, which was measured while fixing #1110: repairing `_check_module`
+    alone turns every committed case GREEN - both directions, both gates -
+    while `survey_paths` still numbers waivers with `splitlines()`. The
+    findings list and the exit code both come from `_check_module`; only the
+    printed COUNTS come from here. With this site still broken the gate emitted
+
+        negative-fixture: 0 of 0 wholesale PATH replacement(s) lack a
+        precondition assertion, in 1 function(s)
+
+    a self-contradicting line that no exit code distinguishes from a healthy
+    one. So if this test is deleted, weakened, or reduced to asserting the
+    findings list, site `survey_paths` has no guard whatsoever and a regression
+    there will ship green.
+
+    The assertion is therefore on the COUNTS specifically, never on findings.
+    """
+    path = tmp_path / "test_sample.py"
+    path.write_text(PREAMBLE + "import subprocess\n\n" + WAIVED_AFTER_SEPARATORS, encoding="utf-8")
+    survey = checker.survey_paths([path])
+    assert survey.sites == 0, (
+        f"survey_paths counted {survey.sites} site(s); the only replacement in "
+        "this source is waived, so a non-zero count means the waiver was numbered "
+        "in splitlines() coordinates while the site was numbered by ast"
+    )
+    assert survey.unasserted_sites == 0
+
+
+def test_survey_paths_does_not_crash_on_an_unparseable_file(tmp_path: Path) -> None:
+    """REPRODUCES A CRASH against pre-guard code (#1110).
+
+    `_check_module` swallows SyntaxError and returns [] - "a broken test file is
+    pytest's problem" - and `survey_paths` re-parsed the same source two lines
+    later with no guard, so the gate died with an uncaught SyntaxError on exactly
+    the input the comment above it says is tolerated. It produced no verdict at
+    all and redded `make verify` for a reason unrelated to what it checks.
+
+    PRE-EXISTING, not a regression from this issue's fix: reproduces against
+    merge base e3a053f. Stated as a ref a reviewer can check, because "predates
+    my change" is not checkable and "reproduces against e3a053f" is.
+    """
+    path = tmp_path / "test_broken.py"
+    path.write_text("def test_broken(\n", encoding="utf-8")
+
+    survey = checker.survey_paths([path])  # raised SyntaxError before the guard
+
+    assert survey.unparseable == (path,)
+    assert survey.sites == 0
+
+
+def test_an_unparseable_file_never_renders_as_a_clean_bill(tmp_path: Path, capsys) -> None:
+    """Skipping the file is not enough - the verdict must not read `ok` (#1110).
+
+    The guard alone converted a loud wrong-reason crash into a SILENT unearned
+    green: `files_scanned` counts what was handed to the gate, not what it read,
+    so an unparseable file sat in the denominator asserting an inspection that
+    never happened. The fixture below hides a REAL unwaived wholesale PATH
+    replacement inside the unparseable file, which is the case that makes this a
+    false negative rather than a cosmetic overclaim.
+
+    This is #840's rule at file granularity: that issue keyed the `ok` message on
+    "a tests/ that exists but holds no test files" being the same
+    examined-nothing condition as a missing directory. A file that exists but
+    cannot be parsed is that condition one level down.
+    """
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_broken.py").write_text(
+        'import subprocess\ndef test_broken(\n    subprocess.run(["a"], env={"PATH": "/x"})\n',
+        encoding="utf-8",
+    )
+
+    exit_code = checker.main(["--root", str(tmp_path)])
+    out = capsys.readouterr().out
+
+    assert exit_code == 1, "an unexaminable population member must not exit 0"
+    assert "UNKNOWN - " in out, (
+        "the refusal must carry the harness's refusal marker, or the control "
+        "scores it as a successful DETECTION - see the disjointness test below"
+    )
+    assert "could not be parsed" in out
+    assert "test_broken.py" in out, "the unreadable file must be NAMED, not just counted"
+    assert "ok -" not in out, (
+        "the gate rendered its clean verdict over a file it could not read - the "
+        "exact false clean bill #840 keyed the `ok` message against"
+    )
+
+
+def test_the_gate_still_reports_clean_when_every_file_parses(tmp_path: Path, capsys) -> None:
+    """THE POSITIVE CONTROL for the test above, and it is not decoration.
+
+    "An unparseable file does not produce a clean bill" passes trivially on a
+    gate that has stopped being able to report clean AT ALL - a guard that reds
+    everything satisfies it perfectly while destroying the instrument. This
+    asserts the other direction on the same code path: a tree whose files all
+    parse still reaches `ok` and still exits 0.
+
+    Together the two pin a DISCRIMINATION rather than a behaviour: the verdict
+    tracks whether the population was readable, not merely whether the gate is
+    capable of saying no.
+    """
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_fine.py").write_text(
+        "def test_fine():\n    assert True\n", encoding="utf-8"
+    )
+
+    exit_code = checker.main(["--root", str(tmp_path)])
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "ok -" in out
+    assert "could not be parsed" not in out
+
+
+def test_a_parse_refusal_is_not_scored_as_a_detection(tmp_path: Path, capsys) -> None:
+    """The refusal marker and the detection marker must be DISJOINT (#1110).
+
+    FOUND BY COUNTER-MODEL REVIEW, against the first version of this fix. That
+    version deliberately ended the refusal line in the gate's own "nothing was
+    scanned" idiom so the registered control's `detect_signal` would match it
+    with no regex change. The reasoning was about the detector's COVERAGE and
+    missed what the match MEANS: `detect_signal` is how the harness scores a
+    SUCCESSFUL DETECTION. A case whose neighbouring file merely failed to parse
+    then earned `BAD` even when its planted violation was silently waived, so
+    the control could no longer tell detecting OUR defect from failing to
+    examine a NEIGHBOUR'S - detector-contracts question 2, breaking inside the
+    instrument built to answer it.
+
+    #1129's `unknown_signal` is the harness's first-class way to say "refused
+    because of this input", and it is checked BEFORE `detect_signal`. This test
+    asserts the two markers cannot both claim the same output, in BOTH
+    directions - a refusal must not read as a detection, and a real detection
+    must not read as a refusal. One direction alone would pass on a gate that
+    emitted neither marker at all.
+
+    It reads the live control.json rather than hardcoding the patterns, so
+    editing either signal without re-checking the pairing fails here.
+    """
+    import json
+    import re
+
+    manifest = json.loads(
+        (ROOT / "controls" / "check-negative-fixture-preconditions" / "control.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    detect = manifest["detect_signal"]
+    unknown = manifest["unknown_signal"]
+
+    # --- a refusal -------------------------------------------------------- #
+    refusal_dir = tmp_path / "refusal" / "tests"
+    refusal_dir.mkdir(parents=True)
+    (refusal_dir / "test_broken.py").write_text("def test_broken(\n", encoding="utf-8")
+    assert checker.main(["--root", str(tmp_path / "refusal")]) == 1
+    refusal_out = capsys.readouterr().out
+
+    assert re.search(unknown, refusal_out, re.MULTILINE), "refusal must match unknown_signal"
+    assert not re.search(detect, refusal_out, re.MULTILINE), (
+        "the refusal line matches detect_signal, so the harness will score a "
+        "parse refusal as a successful detection and the control can no longer "
+        "distinguish its planted defect from an unparseable neighbour"
+    )
+
+    # --- a real detection, the other direction ---------------------------- #
+    detect_dir = tmp_path / "detect" / "tests"
+    detect_dir.mkdir(parents=True)
+    (detect_dir / "test_real.py").write_text(
+        "import subprocess\n\n\n"
+        "def test_unwaived(tmp_path):\n"
+        "    stub = tmp_path / 'bin'\n"
+        "    stub.mkdir()\n"
+        "    subprocess.run(['a'], env={'PATH': str(stub)}, capture_output=True)\n",
+        encoding="utf-8",
+    )
+    assert checker.main(["--root", str(tmp_path / "detect")]) == 1
+    detect_out = capsys.readouterr().out
+
+    assert re.search(detect, detect_out, re.MULTILINE), "a real violation must match detect_signal"
+    assert not re.search(unknown, detect_out, re.MULTILINE), (
+        "a real detection matches unknown_signal, so the harness would excuse it "
+        "as a refusal - the fail-open direction of the same collision"
+    )
