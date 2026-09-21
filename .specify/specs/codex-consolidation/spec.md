@@ -333,6 +333,24 @@ feature, where the relevant migration contracts can be met independently.
 
 ## Bounded release matrix
 
+> **RETIRED 2026-09-20, preserved in place - NOT deleted.** The dual-client
+> release matrix was retired along with the distribution program by the owner's
+> Q1-Q10 rulings, recorded in `807ffa5`. It is kept here because #1074 was
+> rescoped *against* it: a reader arriving from that issue needs to see what the
+> scope used to be, and deleting the section would make the rescope unreadable
+> while leaving the issue pointing at nothing.
+>
+> **What replaced it:** one demonstration - a Codex host, from a clean install,
+> reaching CPP's surface and running a workflow end to end (#1074).
+>
+> **What survived it verbatim,** and now binds that demonstration: a cell that
+> was not run is recorded as **not run**, never inferred from a neighbour; and
+> known-bad inputs must be **rejected**, with the rejection shown.
+>
+> **Status of the nine cells below: NOT RUN.** None was demonstrated, and none
+> is inferred from any neighbour. Evidence for the surviving demonstration is
+> `docs/research/codex-clean-install-proof-2026-09-21.md`.
+
 Before cutover (#1075), each cell is demonstrated from an **isolated install** -
 no neighbouring CxPP checkout on the host, and the CPP artifact pinned.
 

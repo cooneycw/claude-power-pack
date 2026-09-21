@@ -1,0 +1,51 @@
+Installed **29 executable symlinks** into [~/.claude/scripts](/home/clean/.claude/scripts), sourced from a CPP checkout at `~/.claude-power-pack` (commit `71ff29779142a3939ccc08edf12e3d74ccf270d7`).
+
+Verification passed: installer reported `FLOW_HELPERS: ok`, examining **26/26** helpers. The three additional core scripts also match their source and are executable.
+
+| Diagnostic | Result |
+|---|---|
+| Git / GitHub CLI | Installed: 2.43.0 / 2.45.0 |
+| GitHub authentication | Missing; issue/PR checks failed |
+| `uv` | Missing |
+| Workspace | Empty, not a Git repository; no remote or worktrees |
+| Git identity | Name and email unset |
+| Makefile / hooks | Missing |
+| Flow permission allowlist | Settings file missing; 0/52 rules present |
+| MCP wiring | No servers configured |
+| CI/CD | No project configuration; automated checks blocked by missing `uv` |
+
+Exactly these files were installed under `~/.claude/scripts/`:
+
+```text
+check-ignored-additions.sh
+cpp-commands-link.sh
+delegated-run-check.sh
+flow-ci-status.sh
+flow-driver-capability.sh
+flow-finish-gate.sh
+flow-helpers-install.sh
+flow-live-driver-guard.sh
+flow-pr-watch.sh
+flow-stale-check.sh
+flow-start-resolve.sh
+flow-vantage.sh
+flow-wave-lexicon.sh
+flow-wave-mailbox.sh
+flow-wave-plan.py
+flow-wave-registry.sh
+flow-worktree-claim.sh
+flow-worktree-guard.sh
+flow-worktree-sweep.sh
+friction-log.sh
+gh-pr-merge.sh
+hook-mask-output.sh
+install-drift.sh
+lane-serveability-check.sh
+prompt-context.sh
+secrets-mask.sh
+speckit-context.py
+stash-worktree-guard.sh
+worktree-remove.sh
+```
+
+To make flow ready for project work, authenticate with `gh auth login`, configure Git identity, and initialize flow in an actual project repository. Install `uv` for CPP’s CI/CD checks.

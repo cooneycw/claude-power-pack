@@ -1,0 +1,6 @@
+== SAME invocation (what run-arms.sh does now) ==
+    helper-a.sh          link      18 sha=299001868fb8
+    entries=1 broken=0
+== SPLIT invocation (the defect) ==
+    helper-a.sh          link  BROKEN -> /tmp/fakecheckout/scripts/helper-a.sh
+    entries=1 broken=1

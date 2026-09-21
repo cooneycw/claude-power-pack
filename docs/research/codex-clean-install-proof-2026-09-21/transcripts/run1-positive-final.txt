@@ -1,0 +1,24 @@
+Ran flow-doctor and installed exactly these four files from the bundled skill:
+
+- [flow-helpers-install.sh](/home/clean/.claude/scripts/flow-helpers-install.sh)
+- [flow-worktree-claim.sh](/home/clean/.claude/scripts/flow-worktree-claim.sh)
+- [hook-mask-output.sh](/home/clean/.claude/scripts/hook-mask-output.sh)
+- [worktree-remove.sh](/home/clean/.claude/scripts/worktree-remove.sh)
+
+All four are executable, match their source files, and pass Bash syntax checks.
+
+**The flow setup remains incomplete.**
+
+| Check | Result |
+|---|---|
+| Tools | Git 2.43.0 and gh 2.45.0 installed; uv missing |
+| GitHub | Not authenticated; issue/PR checks failed |
+| Repository | Workspace is not a Git repository; identity unset |
+| Configuration | Makefile, hooks, and user permission settings missing |
+| MCP | No configured servers found |
+| CI/CD | Skipped: CPP `lib/cicd` unavailable |
+| Helpers | Bundle contains only 3 of the installer’s 26 helpers, plus the masking hook |
+
+The bundled freshness check passed for those **3/26 helpers only**. The installed checker reports `unverifiable` because it cannot discover an upstream checkout.
+
+Remaining setup requires a full CPP checkout, the missing helpers—including `prompt-context.sh` and `secrets-mask.sh`—GitHub authentication, and repository configuration.

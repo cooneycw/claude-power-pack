@@ -1,0 +1,31 @@
+  check-ignored-additions.sh   link     4597  sha256=6d84bf201725b5de01f184803ac2048fbc3d6aa4e93eca520fa88fea329f8194
+  cpp-commands-link.sh         link    19336  sha256=71e7fe31652bfe5c6c5050d95532c59284e52e7259c8c448015c6db46fb5e050
+  delegated-run-check.sh       link    37644  sha256=111d4ed2c1ad91f726665b5634fce97a361a89f6908bb64aba1b04c167004dc0
+  flow-ci-status.sh            link    18260  sha256=1f753a02030058f0e2311f9878dfdd09587fd012b848313eaa679ea996f7ba98
+  flow-driver-capability.sh    link    27935  sha256=4e8132ddc02ced5c17c2e86cf2031bf2cb9232ee0093dee437af4c430452d82b
+  flow-finish-gate.sh          link    56702  sha256=1c9b03aaa2a020dbecc76e209938c306e0d6c0118efa32c13bb8505100752f5d
+  flow-helpers-install.sh      link    15010  sha256=619666ec2c0bb2aa4857729a010df1ddd06a025b6afa8af4521cb700b6adea69
+  flow-live-driver-guard.sh    link     6490  sha256=179cc0b6126859f876c60c8ba5ee6cb462114960996315d6592a35594b6181c2
+  flow-pr-watch.sh             link    25430  sha256=7779b06f45f33458c22388e9403ef77032f8bed050c04516e6edf8b2809ee616
+  flow-stale-check.sh          link    10733  sha256=0197b10e564650a895bbfb9809b25e83238ca8d0763d720471f66f4c2296f4c0
+  flow-start-resolve.sh        link    31170  sha256=223c88e2850c807759c176325712b9c4c87f8987c62ef57d99ea77781bbe4812
+  flow-vantage.sh              link    17767  sha256=abf0ef9f5421bb958f4ccdd973c65c33bc2533c4ce2ab91b5447346add197248
+  flow-wave-lexicon.sh         link    45613  sha256=51ed770a294344b6c150978159b899ad2539f1f5f71aba1e9a92a406810863a5
+  flow-wave-mailbox.sh         link   151875  sha256=a7e2186e58c86f52c69809e4f37d26c9fc59c62738ba0f2385dfeaf39ff9d410
+  flow-wave-plan.py            link    34872  sha256=710d4a4cd82f3a0446ed01d94c1804fd4a909e04bc37118dc93d220555b2679a
+  flow-wave-registry.sh        link   211323  sha256=fab3bd463315004b4376c2a46b117e619ed7f48890bcf58acc4251a946345ca4
+  flow-worktree-claim.sh       link    24411  sha256=5b2e977afd7930321abfa746ede9b2137b024022ec79fa1624689741b21ae53a
+  flow-worktree-guard.sh       link    14144  sha256=16edebc5ec96685d45b6ad6228fb904f61b12ff6caccf97d667f173ff7370280
+  flow-worktree-sweep.sh       link    26350  sha256=cf34a5aa54ee236438ff1575f048d9c938d59879b448b33f838beeda46d5dcc5
+  friction-log.sh              link     7271  sha256=16302cb9f88ce225f2673dc3730667cd9081f8c44f2696b7f5ee732b27555660
+  gh-pr-merge.sh               link    83560  sha256=f40e7f7591af537d9e30973205242df6ba718b20443feb1bcdd9d4af0b490aa0
+  hook-mask-output.sh          link     4537  sha256=a3af9a07cc69e15a760fce3450fad0e0dc69103b123c0588d25e3518abd0dbb8
+  install-drift.sh             link    37229  sha256=944a606d43be5ef98e42ce9618bb98116eb38558115b7620da48b4d4b99e5bdc
+  lane-serveability-check.sh   link    32625  sha256=a4972ae717cfc8a3952d8a37ffb64249428e7970d1d20b908cb7478fd3ba775f
+  prompt-context.sh            link     2928  sha256=5bf9bb112cd18f24e387f036010bb66d44d0993565c565acfb305ec65fe5a49a
+  secrets-mask.sh              link     6497  sha256=320f30e330935d97a3dbd1bf4f6534c1e9fed62d1db285d194638ceb7d5abed4
+  speckit-context.py           link    32676  sha256=0909790cc9e29f072c73acc324d85664fd5aee329ec5bd5cfe326d372cb3efe4
+  stash-worktree-guard.sh      link    25652  sha256=cc7e9fee8358f959310ee38b221825511065c413386f39e5291a78ca33959745
+  worktree-remove.sh           link    40075  sha256=d57ee08d00f108ae708fcd791fcfe66e49f266a44fd90cd99ad38cc649edc318
+  entries=29 broken=0
+  NETWORK-ACQUIRED CHECKOUT: /home/clean/.claude-power-pack at 71ff29779142a3939ccc08edf12e3d74ccf270d7

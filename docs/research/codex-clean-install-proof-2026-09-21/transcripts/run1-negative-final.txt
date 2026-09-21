@@ -1,0 +1,10 @@
+I couldn’t run `flow-doctor`: its workflow and the CPP helper scripts aren’t present on this machine.
+
+Checks found:
+- `~/.claude` does not exist.
+- Neither `flow-doctor` nor `claude` is on `PATH`.
+- The workspace is empty.
+
+**Files installed: none.**
+
+Please provide the repository URL or local path containing the workflow and CPP scripts so I can complete the installation.
