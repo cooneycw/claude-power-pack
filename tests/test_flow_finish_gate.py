@@ -2516,6 +2516,7 @@ def _control_path(proc: subprocess.CompletedProcess[str]) -> str:
     return hits[-1]
 
 
+@requires_git
 def test_the_runner_isolates_outside_every_git_repository(tmp_path: Path):
     """The isolation IS the location, so pin the location.
 
@@ -2531,6 +2532,7 @@ def test_the_runner_isolates_outside_every_git_repository(tmp_path: Path):
     assert "FLOW_FINISH_GATE_CONTROL: unavailable" not in proc.stdout
 
 
+@requires_git
 def test_the_real_repo_marker_is_LOAD_BEARING(tmp_path: Path):
     """The marker must change behaviour, or the case that names it is a costume.
 
@@ -2547,6 +2549,7 @@ def test_the_real_repo_marker_is_LOAD_BEARING(tmp_path: Path):
     assert _control_path(_run_case(case)) == "real-repo"
 
 
+@requires_git
 def test_the_committed_real_repo_case_still_takes_the_real_path():
     """Condition from the approving review: one case stays on the real path.
 
@@ -2558,24 +2561,70 @@ def test_the_committed_real_repo_case_still_takes_the_real_path():
     assert _control_path(_run_case(case)) == "real-repo"
 
 
+@requires_git
 def test_a_CRASHING_gate_still_does_not_read_as_detection():
     """The other half of the discriminating pair, and the reason `\\b` is safe.
 
-    `detect_signal` was loosened from `^FLOW_FINISH_GATE: fail$` to
-    `...fail\\b` because a committed case proved the anchor could not match any
-    refusal carrying a reason. A looser pattern creates a defect one layer down
-    if it lets a CRASH read as a detection - a crash exits non-zero exactly as a
-    refusal does. So the crash fixture is committed beside the refusal one, and
-    this pins that it produces NO verdict line at all: there is nothing for any
-    pattern, loose or strict, to match.
+    THE FIRST VERSION OF THIS TEST PASSED WHEN THE GATE NEVER STARTED
+    (counter-model review, codex, MEDIUM). It asserted only "non-zero AND no
+    verdict line on stdout", and `TMPDIR=/dev/null/not-a-directory` satisfies
+    both: the runner exits 2 with `unavailable` having never run the gate.
+    Reproduced before fixing. A test that reports success over nothing
+    exercised is the failure this whole branch is about, one level in.
+
+    So: require the CRASH status specifically, reject an unavailable run by
+    name, prove the crash fixture actually executed, and read BOTH streams -
+    the harness matches detection signals against stdout and stderr together,
+    so checking one is a narrower question than the one being asked.
     """
     case = ROOT / "controls" / "flow-finish-gate" / "cases" / "probe-crash-must-not-read-as-detected"
     proc = _run_case(case)
-    assert proc.returncode != 0, "a crash fixture that exits 0 proves nothing"
-    verdicts = re.findall(r"^FLOW_FINISH_GATE: ", proc.stdout, re.M)
-    assert verdicts == [], f"a crash must emit NO verdict line, got {verdicts}:\n{proc.stdout}"
+    combined = proc.stdout + proc.stderr
+
+    assert "FLOW_FINISH_GATE_CONTROL: unavailable" not in combined, (
+        "the runner never reached the gate, so this run says nothing about a crash:\n"
+        + combined
+    )
+    assert _control_path(proc) == "isolated", "the crash fixture must have been run"
+    # SIGKILL. Not merely non-zero: a refusal is non-zero too, and the whole
+    # point of the pair is that those two are different things.
+    assert proc.returncode == 137, f"expected a signal death (137), got {proc.returncode}"
+    verdicts = re.findall(r"^FLOW_FINISH_GATE: .*$", combined, re.M)
+    assert verdicts == [], f"a crash must emit NO verdict line, got {verdicts}:\n{combined}"
 
 
+@requires_git
+def test_the_real_repo_path_case_is_owned_by_its_planted_defect(tmp_path: Path):
+    """Why the real-repo path is pinned HERE and not by a control case.
+
+    A control case on the real path was written and WITHDRAWN: `detect_signal`
+    is control-level, so no case can say "only my planted defect counts", and
+    measurement showed the case was satisfied by its neighbour. With every gate
+    passing - the planted defect entirely removed - it still emitted
+    `FLOW_FINISH_GATE: fail`, because the ENCLOSING repository has no
+    counter-model receipt for the current branch.
+
+    A test can assert what a case cannot: that the real path runs in place, AND
+    that the failure belongs to the planted defect rather than to the
+    repository the fixture happens to sit in.
+    """
+    case = ROOT / "controls" / "flow-finish-gate" / "cases" / "bad-verify-reds-ON-THE-REAL-REPO-PATH"
+    assert (case / REAL_REPO_MARKER).is_file(), "the fixture lost its marker"
+    proc = _run_case(case)
+    assert _control_path(proc) == "real-repo", "this fixture must NOT be isolated"
+
+    # OWNERSHIP: the planted defect must be what redded. The fixture's own
+    # verify target is the subject; a failure attributable only to enrolment
+    # would be the neighbour's, and is the reason the case was withdrawn.
+    combined = proc.stdout + proc.stderr
+    assert proc.returncode != 0, combined
+    assert "verify" in combined, (
+        "the planted verify defect left no trace, so this run cannot claim the "
+        "real path exercised its own subject:\n" + combined
+    )
+
+
+@requires_git
 def test_the_runner_reports_UNAVAILABLE_rather_than_clean_when_it_cannot_isolate(
     tmp_path: Path,
 ):
