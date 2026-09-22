@@ -16,8 +16,6 @@ import json
 import subprocess
 from pathlib import Path
 
-import pytest
-
 ROOT = Path(__file__).resolve().parents[1]
 MASKER = ROOT / "scripts" / "hook-mask-output.sh"
 
@@ -106,25 +104,35 @@ def test_genuinely_empty_output_is_still_quiet():
 # --- REGISTRATION: the half this change does NOT fix ------------------------
 
 
-def test_the_hook_is_STILL_NOT_REGISTERED_where_claude_code_reads():
-    """ASSERTS THE UNFIXED STATE. This test failing is the good news.
+def test_no_PROJECT_settings_file_declares_the_masker(tmp_path: Path):
+    """ASSERTS THE UNFIXED STATE, scoped to the MASKER rather than to a filename.
 
-    The masker is fixed; the hook is still declared only in
-    `.claude/hooks.json`, which nothing Claude Code reads. Registering it is a
-    HOST WRITE into `~/.claude/settings.json` by the installer - the pattern
-    `docs/HOST_MANAGED_ARTIFACTS.md:107-112` documents for the PermissionRequest
-    census hook at /cpp:init Step 7.7, and the reason PermissionRequest fires
-    today while PostToolUse does not.
+    The first version of this test checked only whether `.claude/settings.json`
+    EXISTED, and the counter-model review showed that fails the ownership
+    question in both directions: an unrelated settings file added for any other
+    reason would break it, and registering the masker in the DOCUMENTED place -
+    the user-level `~/.claude/settings.json` - would leave it green. It claimed
+    installer work would trip it and it would not have.
 
-    That is another role's lane, held for an owner decision, so this change does
-    not do it and must not appear to.
+    So it keys on a masker-specific declaration in a specific artifact.
 
-    WHEN THE INSTALLER LANDS, THIS TEST FAILS. That is the notification, not a
-    regression: whoever does that work inverts this assertion as part of it.
+    HOST REGISTRATION IS UNEXAMINED, NOT ASSERTED ABSENT. `~/.claude/settings.json`
+    is the user's own config; this suite does not read it, does not write it, and
+    makes no claim about it. Whether the hook is registered THERE is exactly the
+    fact no test in this repository can settle, and pretending otherwise would
+    repeat #1206's original confusion.
     """
-    assert not (ROOT / ".claude" / "settings.json").exists(), (
-        "a tracked .claude/settings.json appeared - if the registration work "
-        "landed, invert this test; if not, note that .gitignore:206 ignores "
+    project_settings = ROOT / ".claude" / "settings.json"
+    if not project_settings.is_file():
+        return  # nothing declares it here, which is the current state
+    declared = json.loads(project_settings.read_text()).get("hooks", {}).get("PostToolUse", [])
+    masking = [
+        e for e in declared
+        if any("hook-mask-output" in (h.get("command") or "") for h in (e.get("hooks") or []))
+    ]
+    assert not masking, (
+        "a project settings file now declares the masker - if the registration "
+        "work landed, invert this test; note that .gitignore:206 ignores "
         ".claude/settings*.json deliberately and the documented home for this "
         "hook is the USER settings file, written by the installer"
     )
@@ -144,3 +152,58 @@ def test_hooks_json_is_still_the_only_declaration_and_is_not_a_read_location():
         "the matcher shape changed in a file nothing reads - that is a fix that "
         "looks like a fix and changes nothing; fix the LOCATION first"
     )
+
+
+# --- Counter-model findings, each reproduced before it was fixed ------------
+
+
+def test_a_NUL_BYTE_CANNOT_RECONSTRUCT_THE_SECRET_AFTER_FILTERING():
+    """The filter used to CREATE the secret it exists to remove.
+
+    `pass<NUL>word=VALUE` does not match the password pattern - the NUL sits
+    between the letters - so Python passed it through unchanged. The result was
+    then captured with `MASKED_OUTPUT=$(...)`, and BASH STRIPS NULs during
+    command substitution, so the script emitted `password=VALUE` with exit 0.
+
+    A shell variable cannot hold a NUL, so no quoting fixes it: the capture
+    itself was the defect. Python's stdout is now this script's stdout.
+    """
+    payload = json.dumps({"tool_output": "pass" + chr(0) + "word=SYNTHETIC_VALUE"})
+    out = subprocess.run(
+        ["bash", str(MASKER)], input=payload.encode(), capture_output=True, check=False
+    )
+    emitted = out.stdout.decode("utf-8", "replace")
+    assert "password=SYNTHETIC_VALUE" not in emitted, (
+        "the masker reconstructed a recognisable secret after filtering:\n" + emitted
+    )
+
+
+def test_INVALID_SHAPES_are_announced_and_not_silently_successful():
+    """"The field is missing or the wrong type" is not "the output was empty".
+
+    All three used to exit 0 with empty stdout and no diagnostic, which is this
+    script's "no change" answer - so a caller supplying output under another
+    field bypassed masking entirely and the run looked clean.
+    """
+    for payload in ('{}', '{"tool_output": null}', '{"tool_output": []}'):
+        out = _mask(payload)
+        assert out.returncode != 0, f"{payload} exited 0: {out.stdout!r}"
+        assert "FAILED to process" in out.stderr, payload
+        assert "NOT masked" in out.stderr, payload
+
+
+def test_NON_UTF8_input_is_announced_rather_than_traced():
+    """The read sat outside the try, so this path bypassed the announcement.
+
+    It produced exit 1 with a raw UnicodeDecodeError traceback and no "NOT
+    masked" line - the exact behaviour this change exists to remove, on a path
+    the first round of tests did not cover.
+    """
+    out = subprocess.run(
+        ["bash", str(MASKER)],
+        input=bytes([255, 254]) + b" not utf8",
+        capture_output=True, check=False,
+    )
+    err = out.stderr.decode("utf-8", "replace")
+    assert out.returncode != 0
+    assert "NOT masked" in err, "an undecodable payload must still announce:\n" + err
