@@ -45,6 +45,12 @@ codex_skill_sync = module_from_spec(_spec)  # type: ignore[arg-type]
 _spec.loader.exec_module(codex_skill_sync)  # type: ignore[union-attr]
 sys.modules["codex_skill_sync"] = codex_skill_sync
 
+# DERIVED from the generator, never spelled twice (issue #1185). A test
+# carrying its own copy of the manifest filename would keep excluding
+# "SHA256SUMS" after the generator started writing something else, and the
+# exclusion would then hide a real orphan under the old name.
+MANIFEST_NAME = codex_skill_sync.MANIFEST_NAME
+
 
 # ---------------------------------------------------------------------------
 # Real-repo pins (this is the CI drift gate)
@@ -96,10 +102,31 @@ def test_real_repo_excluded_commands_not_generated():
 
 
 def test_real_repo_bundled_scripts_byte_identical():
+    """Every bundled script is a byte-identical copy of its repo source.
+
+    `SHA256SUMS` is excluded BY NAME rather than by "skip anything with no
+    source" (issue #1185). It is the one file under `scripts/` that is
+    GENERATED rather than copied, so it has no repo-side source by design - but
+    a blanket skip would also pass over a genuinely orphaned bundled script,
+    which is the defect this test exists to catch. Naming the exception keeps
+    the population exactly one file smaller instead of unboundedly smaller.
+    """
+    seen_manifest = False
     for bundled in sorted((ROOT / "codex" / "skills").glob("*/scripts/*")):
+        if bundled.name == MANIFEST_NAME:
+            seen_manifest = True
+            continue
         source = ROOT / "scripts" / bundled.name
         assert source.is_file(), bundled
         assert bundled.read_bytes() == source.read_bytes(), bundled
+    # The exclusion above is only safe while the thing it excludes EXISTS. If
+    # the manifest ever stops being generated, this test would quietly go back
+    # to covering a population that no longer contains it - and the integrity
+    # check in flow-helpers-install.sh would have nothing to read.
+    assert seen_manifest, (
+        f"no {MANIFEST_NAME} under any bundle - the exclusion above is excluding "
+        "nothing, and bundled helpers are no longer verifiable (#1185)"
+    )
 
 
 def test_real_repo_bundled_libraries_byte_identical():
@@ -1167,3 +1194,149 @@ def test_a_source_line_the_bundler_cannot_follow_refuses(tmp_path: Path) -> None
         assert "cannot resolve" in str(caught.value)
     finally:
         victim.unlink()
+
+
+# --- The bundled-scripts manifest (issue #1185) -----------------------------
+#
+# A bundle is the one surface where "is this source authentic" stops being
+# answerable by looking around: there is no checkout to compare against. The
+# manifest is what a Codex host reads instead. These pin that it EXISTS, that it
+# is COMPLETE, and that it MOVES when its subject does - an immobile digest list
+# certifies whatever it is handed.
+
+
+def test_every_bundle_with_scripts_carries_a_manifest():
+    bundles = sorted((ROOT / "codex" / "skills").glob("*/scripts"))
+    assert bundles, "no bundled scripts at all - this test would be vacuous"
+    for scripts_dir in bundles:
+        payload = [
+            f for f in scripts_dir.iterdir() if f.is_file() and f.name != MANIFEST_NAME
+        ]
+        if not payload:
+            continue
+        assert (scripts_dir / MANIFEST_NAME).is_file(), (
+            f"{scripts_dir} bundles {len(payload)} script(s) and no {MANIFEST_NAME}"
+        )
+
+
+def test_the_manifest_covers_every_script_in_its_own_bundle():
+    """Completeness, not merely presence.
+
+    A manifest listing a SUBSET is the failure mode that reads as protection:
+    the installer verifies the rows it is given, reports success, and the file
+    nobody listed was never compared to anything.
+    """
+    for manifest in sorted((ROOT / "codex" / "skills").glob("*/scripts/" + MANIFEST_NAME)):
+        scripts_dir = manifest.parent
+        listed = {
+            line.split()[1]
+            for line in manifest.read_text().splitlines()
+            if line.strip() and not line.startswith("#")
+        }
+        present = {
+            f.name for f in scripts_dir.iterdir() if f.is_file() and f.name != MANIFEST_NAME
+        }
+        assert listed == present, (
+            f"{manifest}: listed-but-absent {sorted(listed - present)}, "
+            f"present-but-unlisted {sorted(present - listed)}"
+        )
+
+
+def test_the_manifest_does_not_list_itself():
+    for manifest in sorted((ROOT / "codex" / "skills").glob("*/scripts/" + MANIFEST_NAME)):
+        rows = [
+            line for line in manifest.read_text().splitlines()
+            if line.strip() and not line.startswith("#")
+        ]
+        assert all(line.split()[1] != MANIFEST_NAME for line in rows), manifest
+
+
+def test_the_manifest_digests_match_the_bundled_bytes():
+    """The generator's digest is of the CONTENT STRING; the host hashes the FILE.
+
+    Those are the same bytes only while nothing transforms on the way to disk.
+    If they ever diverge, every bundled host refuses every helper - a total,
+    silent outage of the install path that no unit test of the writer alone
+    would catch, because the writer would still agree with itself.
+    """
+    import hashlib
+
+    checked = 0
+    for manifest in sorted((ROOT / "codex" / "skills").glob("*/scripts/" + MANIFEST_NAME)):
+        for line in manifest.read_text().splitlines():
+            if not line.strip() or line.startswith("#"):
+                continue
+            digest, name = line.split()[0], line.split()[1]
+            actual = hashlib.sha256((manifest.parent / name).read_bytes()).hexdigest()
+            assert actual == digest, f"{manifest.parent / name}: {actual} != {digest}"
+            checked += 1
+    assert checked > 0, "no manifest rows checked - this test would be vacuous"
+
+
+def test_the_manifest_moves_when_a_bundled_script_changes(tmp_path: Path):
+    """A digest list that does not move certifies whatever it is handed.
+
+    THE FIRST VERSION OF THIS TEST PASSED WITHOUT ANY MUTATION (counter-model
+    review, codex, LOW). It fed generate_skill's whole output back into
+    scripts_manifest, and that output ALREADY contains scripts/SHA256SUMS - so
+    the recomputation added a row for the manifest itself and differed from the
+    original no matter what happened to the victim. The assertion held for a
+    reason that had nothing to do with its subject.
+
+    Two halves now, and the first is what makes the second mean anything: an
+    UNCHANGED input must reproduce the manifest byte-for-byte. Without that, a
+    "they differ" assertion cannot tell a sensitive digest from a noisy one.
+    """
+    files = codex_skill_sync.generate_skill(
+        ROOT / ".claude" / "commands" / "flow" / "doctor.md",
+        "flow",
+        codex_skill_sync.generated_names(["flow"]),
+    )
+    before = files.get(f"scripts/{MANIFEST_NAME}")
+    assert before is not None, "flow-doctor bundles scripts but produced no manifest"
+
+    # CONTROL: unchanged in, identical out. This is the half that was missing.
+    assert codex_skill_sync.scripts_manifest(dict(files)) == before, (
+        "recomputing over an unchanged bundle changed the manifest, so a "
+        "difference cannot be attributed to a changed script"
+    )
+
+    victim = next(
+        rel for rel in files
+        if rel.startswith("scripts/") and not rel.endswith(MANIFEST_NAME)
+    )
+    mutated = dict(files)
+    mutated[victim] = files[victim] + "\n# changed\n"
+    after = codex_skill_sync.scripts_manifest(mutated)
+    assert after != before, f"changing {victim} did not move the manifest"
+
+    # And the difference must be IN THE VICTIM'S ROW, not anywhere else.
+    victim_name = victim.split("/", 1)[1]
+    row_before = [ln for ln in before.splitlines() if ln.endswith(f"  {victim_name}")]
+    row_after = [ln for ln in after.splitlines() if ln.endswith(f"  {victim_name}")]
+    assert row_before and row_after and row_before != row_after, (
+        f"the manifest moved but {victim_name}'s own row did not"
+    )
+
+
+def test_the_manifest_never_lists_itself_whatever_the_caller_passes():
+    """Correctness that depends on the caller's call order is not correctness."""
+    out = codex_skill_sync.scripts_manifest(
+        {"scripts/a.sh": "x", f"scripts/{MANIFEST_NAME}": "whatever"}
+    )
+    assert out is not None
+    assert all(
+        line.split()[1] != MANIFEST_NAME
+        for line in out.splitlines()
+        if line.strip() and not line.startswith("#")
+    ), out
+
+
+def test_a_bundle_with_no_scripts_carries_no_empty_manifest():
+    """An empty manifest and a missing one mean different things to the reader.
+
+    The installer refuses an empty manifest as `unverifiable-source` - it
+    verifies nothing - so emitting one for a skill that legitimately bundles no
+    scripts would manufacture a refusal out of a normal state.
+    """
+    assert codex_skill_sync.scripts_manifest({"SKILL.md": "x"}) is None

@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1185-no-integrity-verification-of-a-bundled-helper-a-ta",
+  "counts": {
+    "accepted": 4,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "4615c42df5647b06939b34cc43dcb5fcb954c01a",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1185",
+  "passes": 1,
+  "recorded_at": "2026-09-22T11:57:25Z",
+  "red_cases": {
+    "already_covered": 4,
+    "proposed": 7
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
