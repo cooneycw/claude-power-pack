@@ -179,3 +179,124 @@ def test_a_missing_baseline_row_still_fails(tmp_path: Path, capsys) -> None:
     assert _run(ledger, snapshot, None) == 1
     out = capsys.readouterr().out
     assert "LEDGER_MISSING: cxpp#199" in out, out
+
+
+# --------------------------------------------------------------------------- #
+# Counter-model findings, 2026-09-22 (codex). Each of these passed before the
+# review: the axis was added to remove a population ceiling and then carried
+# four more ways to report clean over a population it had not established.
+# --------------------------------------------------------------------------- #
+def test_an_empty_live_file_is_unknown_not_an_observed_empty_population(
+    tmp_path: Path, capsys
+) -> None:
+    """`gh ... > live.txt` that FAILS leaves a zero-byte file.
+
+    That file is byte-identical to a successful observation that nothing is
+    open, so reading it as a clean live axis buys the strongest possible clean
+    result with the cheapest possible failure. The frozen axis already refuses
+    its own empty parse; this one must too.
+    """
+    ledger, snapshot, _ = _tree(tmp_path, live=None)
+    empty = tmp_path / "live-empty.txt"
+    empty.write_text("# a comment, no numbers\n", encoding="utf-8")
+    assert _run(ledger, snapshot, empty) == 2
+    assert "UNKNOWN" in capsys.readouterr().err
+
+
+def test_an_unreadable_live_file_is_unknown_not_a_ledger_defect(
+    tmp_path: Path, capsys
+) -> None:
+    """A crash must not render as a verdict, and not as THIS gate's verdict.
+
+    `read_snapshot` calls int() on every non-comment line, so a malformed file
+    raised an uncaught ValueError and the process exited 1 - which is this
+    gate's code for a LEDGER DEFECT. Unreadable evidence would have been
+    reported as an incomplete ledger.
+    """
+    ledger, snapshot, _ = _tree(tmp_path, live=None)
+    bad = tmp_path / "live-bad.txt"
+    bad.write_text("101\ninvalid\n", encoding="utf-8")
+    assert _run(ledger, snapshot, bad) == 2
+    err = capsys.readouterr().err
+    assert "UNKNOWN" in err
+    assert "Traceback" not in err
+
+
+def test_a_live_row_with_no_disposition_does_not_discharge_the_obligation(
+    tmp_path: Path, capsys
+) -> None:
+    """An EMPTY row is not a disposition, and the baseline axis cannot cover it.
+
+    `| cxpp#103 | | | | |` lands in `undisposed`. Subtracting that set let a new
+    obligation pass on the strength of a row recording nothing - and the
+    baseline axis, which is what reports undisposed rows, cannot reach #103
+    because it is outside the frozen snapshot.
+    """
+    ledger, snapshot, live = _tree(tmp_path, live=[101, 102, 103])
+    ledger.write_text(
+        LEDGER_FIXTURE + "| cxpp#103 - a new obligation with an empty row | open | | | |\n",
+        encoding="utf-8",
+    )
+    assert _run(ledger, snapshot, live) == 1
+    out = capsys.readouterr().out
+    assert "cxpp#103" in out
+    assert "NO disposition" in out, out
+
+
+def test_the_github_query_ceiling_is_unknown_not_a_complete_population(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    """`--limit N` truncates SILENTLY, so N returned entries means N-or-more.
+
+    Reporting "every open entry has a row" over a truncated set is the same
+    population-ceiling defect this whole axis was added to remove, reintroduced
+    one layer out - in the code that fetches the population rather than the file
+    that freezes it.
+    """
+    class _Done:
+        returncode = 0
+        stdout = "\n".join(str(n) for n in range(1, checker.GH_LIMIT + 1))
+
+    monkeypatch.setattr(checker.subprocess, "run", lambda *a, **k: _Done())
+    assert checker.fetch_live_open() is None, (
+        "a result sitting exactly on the query ceiling was treated as the whole "
+        "population"
+    )
+
+
+def test_the_capture_date_is_read_from_the_snapshot_not_invented(
+    tmp_path: Path, capsys
+) -> None:
+    """Provenance is reported from the artifact, or reported as absent.
+
+    A literal date printed `captured 2026-09-19` for every snapshot, including a
+    custom one and one `--refresh` had just regenerated, giving a file false
+    historical provenance.
+    """
+    ledger, snapshot, _ = _tree(tmp_path, live=None)
+    snapshot.write_text("# Captured: 2026-09-30\n101\n102\n", encoding="utf-8")
+    assert _run(ledger, snapshot, None) == 0
+    assert "captured 2026-09-30" in capsys.readouterr().out
+
+    undated = tmp_path / "undated.txt"
+    undated.write_text("101\n102\n", encoding="utf-8")
+    assert _run(ledger, undated, None) == 0
+    assert "capture date not recorded" in capsys.readouterr().out
+
+
+def test_a_cpp_row_does_not_discharge_a_cxpp_obligation(tmp_path: Path, capsys) -> None:
+    """The ledger cites BOTH repositories; only `cxpp#` rows are subjects here.
+
+    §C of the real ledger is a table of CPP issues, so `cpp#` and `cxpp#` numbers
+    share the document and can collide numerically. A `cpp#103` row satisfying a
+    live `cxpp#103` would discharge a CxPP obligation with an unrelated CPP
+    issue - the cross-namespace version of the cross-reference defect the row
+    parser already guards against inside a single cell.
+    """
+    ledger, snapshot, live = _tree(tmp_path, live=[101, 102, 103])
+    ledger.write_text(
+        LEDGER_FIXTURE + "| cpp#103 - a CPP issue that is not the CxPP one | open | x | y | `already-covered` - parity |\n",
+        encoding="utf-8",
+    )
+    assert _run(ledger, snapshot, live) == 1
+    assert "LEDGER_UNSEEN: cxpp#103" in capsys.readouterr().out

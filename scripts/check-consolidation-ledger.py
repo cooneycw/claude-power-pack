@@ -57,6 +57,9 @@ DEFAULT_LEDGER = ".specify/specs/codex-consolidation/ledger.md"
 DEFAULT_SNAPSHOT = ".specify/specs/codex-consolidation/baseline-open.txt"
 CXPP_REPO = "cooneycw/codex-power-pack"
 
+#: `gh ... --limit N` truncates SILENTLY, so N is a ceiling and not a count.
+GH_LIMIT = 200
+
 #: A ledger row claims an entry by naming it `cxpp#<n>` IN THE FIRST CELL of a
 #: table row. Two halves, and both were measured against the real document.
 #:
@@ -241,14 +244,43 @@ def refresh(snapshot: Path) -> int:
     return 0
 
 
-def read_live_open(path: Path) -> set[int]:
-    """Numbers open RIGHT NOW, from a supplied file. Same format as the snapshot.
+def read_capture_date(path: Path) -> str | None:
+    """The `# Captured: <date>` the snapshot records about ITSELF, or None.
+
+    Hardcoding a date here printed "captured 2026-09-19" for every snapshot,
+    including a custom one and one `--refresh` had just regenerated - inventing
+    provenance for a file that carries its own (counter-model finding,
+    2026-09-22). Absent, the line says the date is not recorded rather than
+    supplying one.
+    """
+    try:
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            m = re.match(r"#\s*Captured:\s*(\S+)", raw.strip())
+            if m:
+                return m.group(1)
+    except (OSError, UnicodeDecodeError):
+        return None
+    return None
+
+
+def read_live_open(path: Path) -> set[int] | None:
+    """Numbers open RIGHT NOW, from a supplied file, or None if unreadable.
 
     A FILE rather than a network call by default, for two reasons: the gate runs
     in a CI image with no `gh` credentials, and a test needs to drive this axis
     deterministically. `--live-from-github` is the online form.
+
+    None, NOT AN EXCEPTION (counter-model finding, 2026-09-22). `read_snapshot`
+    calls `int()` on every non-comment line, so `101\ninvalid\n` raised an
+    uncaught ValueError and the process exited 1 - which is this gate's code for
+    A LEDGER DEFECT. An unreadable input would have been reported as an
+    incomplete ledger: a crash rendering as a verdict, and the wrong verdict.
+    Permission and decoding failures had the same shape.
     """
-    return read_snapshot(path)
+    try:
+        return read_snapshot(path)
+    except (OSError, ValueError, UnicodeDecodeError):
+        return None
 
 
 def fetch_live_open() -> set[int] | None:
@@ -264,16 +296,24 @@ def fetch_live_open() -> set[int] | None:
         try:
             out = subprocess.run(
                 ["gh", kind, "list", "--repo", CXPP_REPO, "--state", "open",
-                 "--limit", "200", "--json", "number", "--jq", ".[].number"],
+                 "--limit", str(GH_LIMIT), "--json", "number", "--jq", ".[].number"],
                 capture_output=True, text=True, timeout=60, check=False,
             )
         except (OSError, subprocess.SubprocessError):
             return None
         if out.returncode != 0:
             return None
-        for token in out.stdout.split():
-            if token.strip().isdigit():
-                numbers.add(int(token))
+        got = [int(t) for t in out.stdout.split() if t.strip().isdigit()]
+        # THE CEILING IS NOT A COUNT, IT IS AN UNKNOWN (counter-model finding,
+        # 2026-09-22). `--limit N` truncates silently, so a repository with more
+        # than N open entries returns exactly N and the axis would report "every
+        # open entry has a row" over a population it did not see - the SAME
+        # population-ceiling defect this axis was added to remove, reintroduced
+        # one layer out. At the ceiling we cannot establish completeness, so we
+        # decline to answer rather than answer from a truncated set.
+        if len(got) >= GH_LIMIT:
+            return None
+        numbers.update(got)
     return numbers
 
 
@@ -302,6 +342,10 @@ def main(argv: list[str] | None = None) -> int:
             # deleted ledger indistinguishable from a complete one.
             print(f"check-consolidation-ledger: {what} not found at {path}", file=sys.stderr)
             return 2
+
+    captured = read_capture_date(snapshot)
+    captured_clause = (f"captured {captured}" if captured
+                       else "capture date not recorded in the snapshot")
 
     required = read_snapshot(snapshot)
     if not required:
@@ -345,6 +389,23 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         live = read_live_open(args.live_open)
         live_source = str(args.live_open)
+        if live is None:
+            print(f"check-consolidation-ledger: UNKNOWN - {args.live_open} could not be "
+                  f"read or parsed as a list of issue numbers. An unreadable input is not "
+                  f"a ledger defect and must not be reported as one.", file=sys.stderr)
+            return 2
+        if not live:
+            # AN EMPTY FILE IS NOT AN OBSERVED EMPTY POPULATION (counter-model
+            # finding, 2026-09-22). `gh ... > live.txt` that FAILS leaves a
+            # zero-byte file behind, and that is byte-identical to a successful
+            # observation that nothing is open. The frozen axis already refuses
+            # its own empty parse for this reason; the live axis must too, or
+            # the cheapest possible failure buys the strongest possible clean.
+            print(f"check-consolidation-ledger: UNKNOWN - {args.live_open} parsed to 0 "
+                  f"live entries. A failed capture leaves an empty file that is "
+                  f"indistinguishable from 'nothing is open', so this is refused rather "
+                  f"than read as a clean live axis.", file=sys.stderr)
+            return 2
     elif args.live_from_github:
         live = fetch_live_open()
         live_source = f"GitHub ({CXPP_REPO})"
@@ -362,11 +423,23 @@ def main(argv: list[str] | None = None) -> int:
     unseen: list[int] = []
     resolved: list[int] = []
     if live is not None:
-        unseen = sorted(live - claimed - undisposed)
+        # SUBTRACTING `undisposed` HERE WOULD LET AN EMPTY ROW DISCHARGE A NEW
+        # OBLIGATION (counter-model finding, 2026-09-22). `| cxpp#103 | | | | |`
+        # lands in `undisposed`, and the baseline axis - which is what reports
+        # undisposed rows - cannot reach #103 because it is outside the frozen
+        # set. So the live axis owns that case for its own population, exactly
+        # as the baseline axis owns it for its own, and the two messages say
+        # which of the two conditions was found.
+        unseen = sorted(live - claimed)
         resolved = sorted(required - live)
         for num in unseen:
-            print(f"LEDGER_UNSEEN: cxpp#{num} is open NOW and has no row in {ledger} - "
-                  f"an obligation that postdates the {snapshot.name} baseline")
+            if num in undisposed:
+                print(f"LEDGER_UNSEEN: cxpp#{num} is open NOW and has a row in {ledger} "
+                      f"with NO disposition, so nothing is recorded about what happens "
+                      f"to it - an obligation that postdates the {snapshot.name} baseline")
+            else:
+                print(f"LEDGER_UNSEEN: cxpp#{num} is open NOW and has no row in {ledger} - "
+                      f"an obligation that postdates the {snapshot.name} baseline")
 
     if missing or unseen:
         parts = []
@@ -383,7 +456,7 @@ def main(argv: list[str] | None = None) -> int:
     # would be a number that cannot be wrong and therefore cannot be evidence.
     if live is None:
         print(f"check-consolidation-ledger: ok on the BASELINE axis only - every entry in "
-              f"the {snapshot.name} snapshot (captured 2026-09-19) has a row in "
+              f"the {snapshot.name} snapshot ({captured_clause}) has a row in "
               f"{ledger.name} carrying one of the {len(DISPOSITIONS)} dispositions. "
               f"THE LIVE AXIS WAS NOT EXAMINED: an obligation opened since that capture "
               f"would not appear in this answer. Pass --live-open <file> or "
@@ -392,7 +465,7 @@ def main(argv: list[str] | None = None) -> int:
 
     drift = (", ".join(f"cxpp#{n}" for n in resolved) if resolved else "none")
     print("check-consolidation-ledger: ok on BOTH axes")
-    print(f"  BASELINE ({snapshot.name}, captured 2026-09-19): every entry has a row in "
+    print(f"  BASELINE ({snapshot.name}, {captured_clause}): every entry has a row in "
           f"{ledger.name} carrying one of the {len(DISPOSITIONS)} dispositions.")
     print(f"  LIVE ({live_source}): every open entry has a row. "
           f"live-without-a-row is THE GAP, and it is empty.")
