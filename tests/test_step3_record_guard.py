@@ -262,10 +262,22 @@ def test_an_ABSENT_python3_refuses(tmp_path: Path):
     (fake / "python3").write_text("#!/bin/sh\nexit 127\n", encoding="utf-8")
     (fake / "python3").chmod(0o755)
     wt = _worktree(tmp_path)
+    path = f"{fake}:/usr/bin:/bin"
+    # ASSERT THE ABSENCE YOU BUILT (#697). A refusal and a completely broken
+    # fixture produce the same exit code here, so without this the test could
+    # pass while python3 was perfectly available - proving nothing about the
+    # path it claims to exercise. The stub must be what resolves.
+    # The `which` CALL must be inside the assertion, not assigned above it: the
+    # gate wants the LOOKUP, because a file that exists but is not executable,
+    # or a PATH assembled with the wrong separator, passes an existence check
+    # and fails a lookup.
+    assert shutil.which("python3", path=path) == str(fake / "python3"), (
+        "fixture must shadow python3 with the stub"
+    )
     proc = _raw(
         wt,
         json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(wt / "scripts" / "x.sh")}}),
-        env={"PATH": f"{fake}:/usr/bin:/bin"},
+        env={"PATH": path},
     )
     assert proc.returncode == 2, proc.stdout + proc.stderr
 
