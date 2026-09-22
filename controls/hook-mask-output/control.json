@@ -1,0 +1,35 @@
+{
+  "gate": "scripts/hook-mask-output.sh",
+  "invocation": [
+    "sh",
+    "controls/hook-mask-output/run-case.sh",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^hook-mask-output: FAILED to process",
+  "unavailable_signal": "^MASK_CONTROL: unavailable - ",
+  "limits": "THIS CONTROL MEASURES THE MASKER, AND ONLY THE MASKER. Its gate is scripts/hook-mask-output.sh, so its cases are inputs to that script: can it mask, and does a failure ANNOUNCE itself rather than reading as 'nothing to mask'. REGISTRATION IS A DIFFERENT SUBJECT AND IS PINNED IN tests/test_hook_mask_output.py INSTEAD. Registration cases were written here first and WITHDRAWN, for a reason worth keeping: they probe settings FILES and never invoke the gate, so the pre-fix anchor produced identical results on them and the framework correctly reported the whole control INERT - 'the anchor CAUGHT the known-bad input, so this control would not notice the gate regressing to it'. A control mixing two subjects cannot demonstrate discrimination on either. THE THREE FACTS #1206 IS ABOUT, kept apart on purpose: CAPABILITY (can it mask - provable here, and it was provable for the three months the hook was inert, which is why proving it alone is not evidence); REGISTRATION (is it declared where Claude Code reads - NOT fixed in this change, pinned by tests); DISPATCH (does the harness route output to it - NOT reachable from a subprocess at all, because a control cannot make a Claude Code tool call). #1206 exists because the first was mistaken for the third. THE LIVE PAIR IS HALF-OWED AND LABELLED: the UNMASKED half was observed on 2026-09-22 - a synthetic value emitted through a real Bash call in a session with no PostToolUse hook loaded, which came through verbatim. The MASKED half needs a session STARTED AFTER a registration that this change deliberately does not add, so it is owed by whoever lands the installer work. Nothing here shows that masking now happens. THE ''' PAYLOAD IS PINNED BY A TEST, NOT A CASE, and the framework is what showed why. It was written here as a GOOD case and WITHDRAWN: the pre-fix anchor CRASHES on it - SyntaxError, which is the defect itself - so the anchor-sanity check could not resolve, an anchor being required to AGREE with the fixed gate on known-good inputs. That is correct and it exposes a mislabelling: the ''' payload is the DEFECT TRIGGER, not a good input, and its real assertion is 'the output is masked', which no detect_signal can express - this framework asks whether a gate DETECTS, and a masker TRANSFORMS. Where a property does not fit the model, it belongs in a test where the specific evidence can be asserted.",
+  "cases": [
+    {
+      "name": "bad-parse-failure-is-announced",
+      "input": "cases/bad-parse-failure-is-announced",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-masks-a-secret",
+      "input": "cases/good-masks-a-secret",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "0643349",
+      "origin": "scripts/hook-mask-output.sh",
+      "path": "anchors/0643349-pre-1206-hook-mask-output.sh",
+      "sha256": "a3af9a07cc69e15a760fce3450fad0e0dc69103b123c0588d25e3518abd0dbb8",
+      "why": "HISTORICAL, not constructed: the masker exactly as it stood at 0643349. No reconstruction was needed because the blindness is the shipped behaviour - it interpolated stdin as '''$INPUT''' into Python source, so a payload containing ''' produced a SyntaxError, exit 1 and EMPTY STDOUT, and empty stdout is this script's documented 'no change' answer. The unmasked value therefore went through while the run looked clean. Run against good-triple-quote-payload-still-masks it emits nothing; against bad-parse-failure-is-announced it says nothing either, because its except branch printed to stderr and exited 0. It MISSES both known-bad inputs, which is what makes the post-fix green a change in the gate rather than a change in the cases."
+    }
+  ]
+}

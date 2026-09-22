@@ -14,8 +14,6 @@
 
 set -euo pipefail
 
-#: NEGATIVE-CONTROL: controls/hook-mask-output
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Read JSON input from stdin
@@ -23,25 +21,12 @@ INPUT=$(cat)
 
 # Extract tool_output from JSON
 # Using Python for reliable JSON parsing
-#
-# THE INPUT ARRIVES ON STDIN, NOT INTERPOLATED INTO THE SOURCE (issue #1206).
-# This read `input_json = '''$INPUT'''`, which splices arbitrary tool output
-# into a Python string literal. Tool output containing ''' ends the literal and
-# the rest becomes code - measured: a SyntaxError, exit 1, and EMPTY STDOUT.
-#
-# Empty stdout is this script's documented "no change" answer, so the failure was
-# INDISTINGUISHABLE FROM "nothing needed masking" and the unmasked value went
-# straight through. A masker that fails open silently is worse than none, because
-# its silence is what a reader takes for safety.
-#
-# The `try` below could never have caught it either: a SyntaxError is raised when
-# the source is COMPILED, before any statement inside the try runs.
-_MASK_PROG=$(cat << 'PYEOF'
+MASKED_OUTPUT=$(python3 << PYEOF
 import sys
 import json
 import re
 
-input_json = sys.stdin.read()
+input_json = '''$INPUT'''
 
 try:
     data = json.loads(input_json)
@@ -110,33 +95,12 @@ try:
     output = re.sub(r'^([A-Z_]*API_KEY[A-Z_]*\s*=\s*)(.+)$', r'\1****', output, flags=re.MULTILINE)
 
     print(output)
-except Exception as exc:
-    # A FAILURE HERE MUST BE VISIBLE, NOT SILENT (issue #1206).
-    #
-    # This used to print to stderr and exit 0, which produces EMPTY STDOUT - and
-    # empty stdout is this script's documented "no change" answer. So an input
-    # it could not parse was INDISTINGUISHABLE from an input with nothing to
-    # mask, and the unmasked value went through while the run looked clean.
-    #
-    # WHAT THIS DOES AND DOES NOT BUY, stated because the difference matters: a
-    # non-zero exit does NOT retract the tool output - by the time a PostToolUse
-    # hook runs, the output exists. It cannot protect. What it changes is that
-    # the failure is now ANNOUNCED rather than mistaken for success, so nobody
-    # reads an unmasked line as evidence that nothing needed masking.
-    print(
-        "hook-mask-output: FAILED to process tool output (%s: %s). "
-        "The output was NOT masked. Do not read its absence of secrets as "
-        "evidence that none were present." % (type(exc).__name__, exc),
-        file=sys.stderr,
-    )
-    sys.exit(1)
+except Exception as e:
+    # On error, pass through unchanged
+    print(data.get('tool_output', '') if 'data' in dir() else '', file=sys.stderr)
+    sys.exit(0)
 PYEOF
 )
-# The program is an ARGUMENT and the data is STDIN. A heredoc cannot carry the
-# program here: the heredoc IS python's stdin, so `sys.stdin.read()` would read
-# the script instead of the tool output - measured, it returned empty for every
-# input including the ones that previously worked.
-MASKED_OUTPUT=$(printf '%s' "$INPUT" | python3 -c "$_MASK_PROG")
 
 # Output the masked result
 echo "$MASKED_OUTPUT"
