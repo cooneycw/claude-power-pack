@@ -241,6 +241,42 @@ def refresh(snapshot: Path) -> int:
     return 0
 
 
+def read_live_open(path: Path) -> set[int]:
+    """Numbers open RIGHT NOW, from a supplied file. Same format as the snapshot.
+
+    A FILE rather than a network call by default, for two reasons: the gate runs
+    in a CI image with no `gh` credentials, and a test needs to drive this axis
+    deterministically. `--live-from-github` is the online form.
+    """
+    return read_snapshot(path)
+
+
+def fetch_live_open() -> set[int] | None:
+    """Live open issues AND PRs from GitHub, or None if they cannot be obtained.
+
+    None is NOT an empty set, and the caller must not conflate them: an empty
+    set would mean "nothing is open", which is a finding; None means "I could
+    not look", which is UNKNOWN. Returning `set()` on failure would report the
+    strongest possible clean result at exactly the moment the gate went blind.
+    """
+    numbers: set[int] = set()
+    for kind in ("issue", "pr"):
+        try:
+            out = subprocess.run(
+                ["gh", kind, "list", "--repo", CXPP_REPO, "--state", "open",
+                 "--limit", "200", "--json", "number", "--jq", ".[].number"],
+                capture_output=True, text=True, timeout=60, check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if out.returncode != 0:
+            return None
+        for token in out.stdout.split():
+            if token.strip().isdigit():
+                numbers.add(int(token))
+    return numbers
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--root", type=Path, default=Path("."))
@@ -248,6 +284,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--snapshot", type=Path, default=None)
     ap.add_argument("--refresh", action="store_true",
                     help="re-capture the snapshot from GitHub (needs network + gh)")
+    ap.add_argument("--live-open", type=Path, default=None,
+                    help="file of numbers open RIGHT NOW; enables the LIVE axis offline")
+    ap.add_argument("--live-from-github", action="store_true",
+                    help="enable the LIVE axis by querying GitHub (needs network + gh)")
     args = ap.parse_args(argv)
 
     ledger = args.ledger or args.root / DEFAULT_LEDGER
@@ -279,15 +319,86 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"LEDGER_MISSING: cxpp#{num} is open at the baseline and has no row in {ledger}")
 
-    if missing:
-        print(f"check-consolidation-ledger: FAIL - {len(missing)} of {len(required)} "
-              f"open entry(ies) are unaccounted for")
+    # ---------------------------------------------------------------- #
+    # AXIS 2 - LIVE. The frozen snapshot answers "is every obligation that
+    # existed AT THE BASELINE accounted for". It is structurally incapable of
+    # answering "does an obligation exist that this ledger has never seen",
+    # because its population is a 2026-09-19 file: an issue opened afterwards
+    # is not absent from the answer, it is absent from the QUESTION.
+    #
+    # Measured when this axis was added: baseline = 41, live = 41, and the
+    # sets differ in BOTH directions - cxpp#290 arrived, cxpp#239 left. The
+    # totals are identical, so nothing that compares counts can see it. That
+    # is why every line below names MEMBERS.
+    #
+    # The snapshot is deliberately NOT refreshed to close this. Refreshing it
+    # would destroy the historical baseline the completeness argument rests
+    # on, and would make the gate unable to answer its original question in
+    # order to answer this one. Two axes, two populations, each named.
+    # ---------------------------------------------------------------- #
+    live: set[int] | None = None
+    live_source = None
+    if args.live_open is not None:
+        if not args.live_open.is_file():
+            print(f"check-consolidation-ledger: live-open file not found at "
+                  f"{args.live_open}", file=sys.stderr)
+            return 2
+        live = read_live_open(args.live_open)
+        live_source = str(args.live_open)
+    elif args.live_from_github:
+        live = fetch_live_open()
+        live_source = f"GitHub ({CXPP_REPO})"
+        if live is None:
+            # UNKNOWN, NEVER CLEAN. The axis was REQUESTED and could not run,
+            # which is not the same as not asking. Exiting 0 here would report
+            # the strongest clean result at the moment the gate went blind -
+            # the failure this whole file exists to make impossible.
+            print(f"check-consolidation-ledger: UNKNOWN - the live axis was requested "
+                  f"but {CXPP_REPO} could not be read (no gh, no credentials, or no "
+                  f"network). This run says NOTHING about obligations opened since "
+                  f"{snapshot.name} was captured.", file=sys.stderr)
+            return 2
+
+    unseen: list[int] = []
+    resolved: list[int] = []
+    if live is not None:
+        unseen = sorted(live - claimed - undisposed)
+        resolved = sorted(required - live)
+        for num in unseen:
+            print(f"LEDGER_UNSEEN: cxpp#{num} is open NOW and has no row in {ledger} - "
+                  f"an obligation that postdates the {snapshot.name} baseline")
+
+    if missing or unseen:
+        parts = []
+        if missing:
+            parts.append("baseline-without-a-row " + ", ".join(f"cxpp#{n}" for n in missing))
+        if unseen:
+            parts.append("live-without-a-row " + ", ".join(f"cxpp#{n}" for n in unseen))
+        print(f"check-consolidation-ledger: FAIL - {'; '.join(parts)}")
         return 1
 
-    print(f"check-consolidation-ledger: ok - all {len(required)} open entry(ies) in the "
-          f"{snapshot.name} snapshot have a row in {ledger.name} carrying one of the "
-          f"{len(DISPOSITIONS)} dispositions (presence and non-emptiness only; this gate "
-          f"does not judge whether a disposition is RIGHT)")
+    # THE SUCCESS LINE NAMES MEMBERS, NOT TOTALS, and says which direction is
+    # the gap. `41 == 41` was true on the day this axis was written while the
+    # sets disagreed on two members in opposite directions, so a total here
+    # would be a number that cannot be wrong and therefore cannot be evidence.
+    if live is None:
+        print(f"check-consolidation-ledger: ok on the BASELINE axis only - every entry in "
+              f"the {snapshot.name} snapshot (captured 2026-09-19) has a row in "
+              f"{ledger.name} carrying one of the {len(DISPOSITIONS)} dispositions. "
+              f"THE LIVE AXIS WAS NOT EXAMINED: an obligation opened since that capture "
+              f"would not appear in this answer. Pass --live-open <file> or "
+              f"--live-from-github to check it.")
+        return 0
+
+    drift = (", ".join(f"cxpp#{n}" for n in resolved) if resolved else "none")
+    print("check-consolidation-ledger: ok on BOTH axes")
+    print(f"  BASELINE ({snapshot.name}, captured 2026-09-19): every entry has a row in "
+          f"{ledger.name} carrying one of the {len(DISPOSITIONS)} dispositions.")
+    print(f"  LIVE ({live_source}): every open entry has a row. "
+          f"live-without-a-row is THE GAP, and it is empty.")
+    print(f"  baseline entries no longer live - ordinary resolution, NOT a gap: {drift}")
+    print("  (Presence and non-emptiness only; this gate does not judge whether a "
+          "disposition is RIGHT.)")
     return 0
 
 
