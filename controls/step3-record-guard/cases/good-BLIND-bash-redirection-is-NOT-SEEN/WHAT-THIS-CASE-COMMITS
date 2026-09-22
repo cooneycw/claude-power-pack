@@ -1,0 +1,34 @@
+THIS CASE COMMITS A GAP, NOT A CAPABILITY. Do not "fix" it to BAD.
+
+The fixture is a flow worktree with NO approved-plan record - identical to
+bad-no-record-refuses in every way except HOW the edit is made. Here it is made
+by Bash redirection, and the guard does not fire. Its expectation is therefore
+GOOD (allowed), and that is the point: the gap is committed evidence rather than
+a sentence in the limits.
+
+Why it matters more here than elsewhere: in THIS fleet, Bash-first is the
+INSTRUCTED DEFAULT - sessions are steered to "make file changes with sed,
+heredocs, or short scripts, rather than using the dedicated Read, Edit, or Write
+tools". Measured: three plan records across three runs of one session, all
+written with `cat > ... <<EOF`, zero via Write. So the guard's silence in this
+fleet is not coverage, and a reader must not take it as such.
+
+WHAT THIS CASE ACTUALLY ESTABLISHES, narrowed after a counter-model review
+found the first wording claimed more than the case can support:
+
+  IT ESTABLISHES that the SCRIPT ignores a Bash tool request. Nothing more.
+
+It does NOT observe harness steering, does not read the installed matcher, and
+does not execute the edit - the runner feeds it a fixed payload. So it CANNOT
+notice if the fleet stops steering to Bash; replacing the redirection in that
+payload with `true` produces the same verdict, which is the tell.
+
+IT DOES FLIP if the guard grows Bash matching, because that changes the script,
+which is the thing it reads. That is a real notification and it is the only one
+this case can honestly promise.
+
+The first version of this file claimed the case would flip on a STEERING change
+too. It cannot, and claiming it would have made this file the very thing the
+third detector-contract question is about: evidence that reads as stronger than
+it is. Catching that in a file whose subject is a committed gap is the sharper
+version of the lesson.

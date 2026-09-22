@@ -1,0 +1,50 @@
+{
+  "gate": "scripts/step3-record-guard.sh",
+  "invocation": [
+    "sh",
+    "controls/step3-record-guard/run-case.sh",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^step3-record-guard: REFUSED - ",
+  "unavailable_signal": "^STEP3_GUARD_CONTROL: unavailable - ",
+  "limits": "THIS GUARD IS A FLOOR AND THIS CONTROL MEASURES THE FLOOR, NOT #775. It establishes that an approved-plan ARTIFACT is present, never that an APPROVAL OCCURRED, and only on the tool paths the hook is matched against. Nothing here should be read as evidence that #775 is enforced - meeting that needs /flow:auto to RECORD Step 3 where a hook can read it before the first edit, which is a command-document change and was deliberately not attempted. THE ANTI-CONTROL PROPERTY IS THE ONE THAT MATTERS: bad-no-record-refuses and good-record-present-allows are the SAME fixture differing only in whether the record exists, so a guard that blocked unconditionally would fail the second and a guard that allowed unconditionally would fail the first. A control whose bad case still passes with its planted defect removed is not a weaker control, it is an ANTI-CONTROL - it manufactures confidence - and that is exactly what #1203 found in a real-repo case that still matched with its defect entirely gone. COVERAGE DIFFERS BY AUDIENCE AND BOTH HALVES ARE STATED ON PURPOSE. In THIS fleet coverage is NEAR ZERO: sessions are steered to make file changes through Bash heredocs rather than Write/Edit, so the unseen path is the instructed default - measured, three plan records across three runs of one session, zero via Write - and good-BLIND-bash-redirection-is-NOT-SEEN commits that blindness as a CASE so that a change in the steer or the matcher flips it and the flip is the notification. WHERE IT SHIPS coverage is genuinely useful, because Bash-first steering is a property of how this fleet is operated and not of the hook mechanism. THE RECORD PATH IS THE ONLY EXEMPTION and good-record-path-is-exempt pins it: the record is written BY an edit, so a guard without that exemption blocks the write that would unblock it and every run deadlocks on its first edit. The exemption is a hole - anything able to write the record can write itself an approval - and it is subsumed by the wider Bash hole rather than being the marginal risk. FIXTURES ARE BUILT, NEVER THE LIVE WORKTREE: each case gets a real throwaway git repository outside every checkout with a branch named issue-<N>-<slug>, and the runner REFUSES when TMPDIR sits inside a repository, because a control reading ambient state measures its environment instead of its subject.",
+  "cases": [
+    {
+      "name": "bad-no-record-refuses",
+      "input": "cases/bad-no-record-refuses",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-record-present-but-unapproved",
+      "input": "cases/bad-record-present-but-unapproved",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-record-present-allows",
+      "input": "cases/good-record-present-allows",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-record-path-is-exempt",
+      "input": "cases/good-record-path-is-exempt",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-BLIND-bash-redirection-is-NOT-SEEN",
+      "input": "cases/good-BLIND-bash-redirection-is-NOT-SEEN",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "synthetic",
+      "sha": "0000000",
+      "origin": "scripts/step3-record-guard.sh",
+      "path": "anchors/0000000-no-guard-at-all.sh",
+      "sha256": "158401f1485e0e997488c1f2c06de6bc3d493b58685dce7af1c6842168d90b6c",
+      "why": "There is no pre-fix version of this guard: before #1083 NOTHING enforced #775 - .claude/hooks.json carried one SessionStart notice and two PostToolUse masks, verified in the issue at 5ceb966. So the anchor is the state this replaces, which is the ABSENCE of a guard, vendored as a script that allows everything. Run against these cases it allows the known-bad inputs, which is precisely what the repository did before this change. Provenance reads unverified for that structural reason rather than a temporary one: there is nothing in git history for --verify-provenance to resolve, and there never will be."
+    }
+  ]
+}
