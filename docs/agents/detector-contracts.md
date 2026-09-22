@@ -90,7 +90,7 @@ check does not merely get over-read - it defeats the broad one.
 If it does, the control is not a weaker control. It is an **anti-control**: it
 manufactures confidence. A control that passes either way certifies nothing and
 reads exactly like one that certifies something, which is worse than having none
-— the absence of a control is at least visible.
+- the absence of a control is at least visible.
 
 Questions 1 and 2 are about what a check CLAIMS. This one is about whether the
 evidence for that claim can fail. A control is itself a detector, and the state
@@ -103,12 +103,12 @@ what.
 
 **Worked example, from this repository, 2026-09-22 (#1203).** Six controls tested
 `flow-finish-gate.sh`. Their cases ran IN PLACE inside the checkout, so the gate
-read the ENCLOSING repository's git state — and on a branch with no counter-model
+read the ENCLOSING repository's git state - and on a branch with no counter-model
 receipt it refused. The fix isolated the cases; one was deliberately kept on the
 real-repo path as a guard against the isolation drifting into a false green.
 
-That guard was an anti-control. With its planted defect **entirely removed** —
-every gate in the fixture passing — it still emitted `FLOW_FINISH_GATE: fail` and
+That guard was an anti-control. With its planted defect **entirely removed** -
+every gate in the fixture passing - it still emitted `FLOW_FINISH_GATE: fail` and
 still matched, because the enclosing repository had no receipt. It could not tell
 its own planted defect from its neighbour's state. The guard against the coupling
 had re-imported the coupling.
@@ -117,7 +117,7 @@ had re-imported the coupling.
 per CONTROL, not per case, so no case can say "only my planted defect counts".
 That is a structural limit and not an oversight, and it decides the remedy: where
 a property cannot be expressed as a case, pin it in a test, where the specific
-evidence — that the failure belongs to the planted defect — can be asserted
+evidence - that the failure belongs to the planted defect - can be asserted
 directly. Record in `control.json` WHY a case cannot express it, or the next
 reader will add the case back.
 

@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -28,7 +29,7 @@ ROOT = Path(__file__).resolve().parents[1]
 GUARD = ROOT / "scripts" / "step3-record-guard.sh"
 
 requires_git = pytest.mark.skipif(
-    __import__("shutil").which("git") is None,
+    shutil.which("git") is None,
     reason="needs git: the guard reads the worktree's branch to find its subject",
 )
 
