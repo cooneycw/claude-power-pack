@@ -14,6 +14,8 @@
 
 set -euo pipefail
 
+#: NEGATIVE-CONTROL: controls/hook-mask-output
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Read JSON input from stdin
@@ -21,18 +23,50 @@ INPUT=$(cat)
 
 # Extract tool_output from JSON
 # Using Python for reliable JSON parsing
-MASKED_OUTPUT=$(python3 << PYEOF
+#
+# THE INPUT ARRIVES ON STDIN, NOT INTERPOLATED INTO THE SOURCE (issue #1206).
+# This read `input_json = '''$INPUT'''`, which splices arbitrary tool output
+# into a Python string literal. Tool output containing ''' ends the literal and
+# the rest becomes code - measured: a SyntaxError, exit 1, and EMPTY STDOUT.
+#
+# Empty stdout is this script's documented "no change" answer, so the failure was
+# INDISTINGUISHABLE FROM "nothing needed masking" and the unmasked value went
+# straight through. A masker that fails open silently is worse than none, because
+# its silence is what a reader takes for safety.
+#
+# The `try` below could never have caught it either: a SyntaxError is raised when
+# the source is COMPILED, before any statement inside the try runs.
+_MASK_PROG=$(cat << 'PYEOF'
 import sys
 import json
 import re
 
-input_json = '''$INPUT'''
-
 try:
+    # READ INSIDE THE TRY (counter-model review, MEDIUM). This sat above it, so
+    # a payload that is not valid UTF-8 raised UnicodeDecodeError OUTSIDE the
+    # handler: exit 1, a raw traceback, and NO "NOT masked" announcement - the
+    # exact behaviour this change exists to remove, on a path its first tests
+    # did not cover.
+    input_json = sys.stdin.read()
     data = json.loads(input_json)
-    output = data.get('tool_output', '')
+
+    # SHAPE IS VALIDATED, AND A WRONG SHAPE IS ANNOUNCED (counter-model review,
+    # MEDIUM). `{}`, `{"tool_output": null}` and `{"tool_output": []}` all used
+    # to exit 0 with empty output and no diagnostic, so "the field is missing or
+    # the wrong type" was indistinguishable from "the output was empty". Only
+    # the second of those is a clean answer.
+    if not isinstance(data, dict):
+        raise ValueError("tool request is not an object")
+    if 'tool_output' not in data:
+        raise ValueError("tool request carries no tool_output field")
+    output = data['tool_output']
+    if not isinstance(output, str):
+        raise ValueError(
+            "tool_output is %s, not a string" % type(output).__name__
+        )
 
     if not output:
+        # GENUINELY EMPTY. The one case where silence is the honest answer.
         sys.exit(0)
 
     # Connection strings - mask password
@@ -95,12 +129,44 @@ try:
     output = re.sub(r'^([A-Z_]*API_KEY[A-Z_]*\s*=\s*)(.+)$', r'\1****', output, flags=re.MULTILINE)
 
     print(output)
-except Exception as e:
-    # On error, pass through unchanged
-    print(data.get('tool_output', '') if 'data' in dir() else '', file=sys.stderr)
-    sys.exit(0)
+except Exception as exc:
+    # A FAILURE HERE MUST BE VISIBLE, NOT SILENT (issue #1206).
+    #
+    # This used to print to stderr and exit 0, which produces EMPTY STDOUT - and
+    # empty stdout is this script's documented "no change" answer. So an input
+    # it could not parse was INDISTINGUISHABLE from an input with nothing to
+    # mask, and the unmasked value went through while the run looked clean.
+    #
+    # WHAT THIS DOES AND DOES NOT BUY, stated because the difference matters: a
+    # non-zero exit does NOT retract the tool output - by the time a PostToolUse
+    # hook runs, the output exists. It cannot protect. What it changes is that
+    # the failure is now ANNOUNCED rather than mistaken for success, so nobody
+    # reads an unmasked line as evidence that nothing needed masking.
+    print(
+        "hook-mask-output: FAILED to process tool output (%s: %s). "
+        "The output was NOT masked. Do not read its absence of secrets as "
+        "evidence that none were present." % (type(exc).__name__, exc),
+        file=sys.stderr,
+    )
+    sys.exit(1)
 PYEOF
 )
-
-# Output the masked result
-echo "$MASKED_OUTPUT"
+# The program is an ARGUMENT and the data is STDIN. A heredoc cannot carry the
+# program here: the heredoc IS python's stdin, so `sys.stdin.read()` would read
+# the script instead of the tool output - measured, it returned empty for every
+# input including the ones that previously worked.
+# STREAMED, NEVER CAPTURED INTO A SHELL VARIABLE (counter-model review, HIGH).
+#
+# This was `MASKED_OUTPUT=$(... python3 ...)` followed by `echo "$MASKED_OUTPUT"`,
+# and that capture RECONSTRUCTED THE SECRET THE FILTER HAD JUST REMOVED.
+# Measured: tool output containing `pass<NUL>word=VALUE` does not match the
+# password pattern - the NUL is between the letters - so Python passes it
+# through unchanged. Bash then STRIPS THE NUL during command substitution, and
+# the masker emits `password=VALUE` with exit 0. The filter created the secret
+# it exists to remove, and reported success.
+#
+# A shell variable cannot hold a NUL, so no amount of quoting fixes this; the
+# capture itself is the defect. Streaming removes the class rather than the
+# instance: Python's stdout becomes this script's stdout and nothing rewrites
+# the bytes in between.
+printf '%s' "$INPUT" | python3 -c "$_MASK_PROG"
