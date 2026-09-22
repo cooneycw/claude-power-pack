@@ -810,3 +810,257 @@ def test_the_survey_counts_are_in_tokenizer_coordinates(tmp_path: Path) -> None:
         "in splitlines() coordinates while the site was numbered by ast"
     )
     assert survey.unasserted_sites == 0
+
+
+def test_survey_paths_does_not_crash_on_an_unparseable_file(tmp_path: Path) -> None:
+    """REPRODUCES A CRASH against pre-guard code (#1110).
+
+    `_check_module` swallows SyntaxError and returns [] - "a broken test file is
+    pytest's problem" - and `survey_paths` re-parsed the same source two lines
+    later with no guard, so the gate died with an uncaught SyntaxError on exactly
+    the input the comment above it says is tolerated. It produced no verdict at
+    all and redded `make verify` for a reason unrelated to what it checks.
+
+    PRE-EXISTING, not a regression from this issue's fix: reproduces against
+    merge base e3a053f. Stated as a ref a reviewer can check, because "predates
+    my change" is not checkable and "reproduces against e3a053f" is.
+    """
+    path = tmp_path / "test_broken.py"
+    path.write_text("def test_broken(\n", encoding="utf-8")
+
+    survey = checker.survey_paths([path])  # raised SyntaxError before the guard
+
+    assert survey.unparseable == (path,)
+    assert survey.sites == 0
+
+
+def test_an_unparseable_file_never_renders_as_a_clean_bill(tmp_path: Path, capsys) -> None:
+    """Skipping the file is not enough - the verdict must not read `ok` (#1110).
+
+    The guard alone converted a loud wrong-reason crash into a SILENT unearned
+    green: `files_scanned` counts what was handed to the gate, not what it read,
+    so an unparseable file sat in the denominator asserting an inspection that
+    never happened. The fixture below hides a REAL unwaived wholesale PATH
+    replacement inside the unparseable file, which is the case that makes this a
+    false negative rather than a cosmetic overclaim.
+
+    This is #840's rule at file granularity: that issue keyed the `ok` message on
+    "a tests/ that exists but holds no test files" being the same
+    examined-nothing condition as a missing directory. A file that exists but
+    cannot be parsed is that condition one level down.
+    """
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_broken.py").write_text(
+        'import subprocess\ndef test_broken(\n    subprocess.run(["a"], env={"PATH": "/x"})\n',
+        encoding="utf-8",
+    )
+
+    exit_code = checker.main(["--root", str(tmp_path)])
+    out = capsys.readouterr().out
+
+    assert exit_code == 1, "an unexaminable population member must not exit 0"
+    assert "UNKNOWN - " in out, (
+        "the refusal must carry the harness's refusal marker, or the control "
+        "scores it as a successful DETECTION - see the disjointness test below"
+    )
+    assert "could not be parsed" in out
+    assert "test_broken.py" in out, "the unreadable file must be NAMED, not just counted"
+    assert "ok -" not in out, (
+        "the gate rendered its clean verdict over a file it could not read - the "
+        "exact false clean bill #840 keyed the `ok` message against"
+    )
+
+
+def test_the_gate_still_reports_clean_when_every_file_parses(tmp_path: Path, capsys) -> None:
+    """THE POSITIVE CONTROL for the test above, and it is not decoration.
+
+    "An unparseable file does not produce a clean bill" passes trivially on a
+    gate that has stopped being able to report clean AT ALL - a guard that reds
+    everything satisfies it perfectly while destroying the instrument. This
+    asserts the other direction on the same code path: a tree whose files all
+    parse still reaches `ok` and still exits 0.
+
+    Together the two pin a DISCRIMINATION rather than a behaviour: the verdict
+    tracks whether the population was readable, not merely whether the gate is
+    capable of saying no.
+    """
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_fine.py").write_text(
+        "def test_fine():\n    assert True\n", encoding="utf-8"
+    )
+
+    exit_code = checker.main(["--root", str(tmp_path)])
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "ok -" in out
+    assert "could not be parsed" not in out
+
+
+def test_a_parse_refusal_is_not_scored_as_a_detection(tmp_path: Path, capsys) -> None:
+    """The refusal marker and the detection marker must be DISJOINT (#1110).
+
+    FOUND BY COUNTER-MODEL REVIEW, against the first version of this fix. That
+    version deliberately ended the refusal line in the gate's own "nothing was
+    scanned" idiom so the registered control's `detect_signal` would match it
+    with no regex change. The reasoning was about the detector's COVERAGE and
+    missed what the match MEANS: `detect_signal` is how the harness scores a
+    SUCCESSFUL DETECTION. A case whose neighbouring file merely failed to parse
+    then earned `BAD` even when its planted violation was silently waived, so
+    the control could no longer tell detecting OUR defect from failing to
+    examine a NEIGHBOUR'S - detector-contracts question 2, breaking inside the
+    instrument built to answer it.
+
+    #1129's `unknown_signal` is the harness's first-class way to say "refused
+    because of this input", and it is checked BEFORE `detect_signal`. This test
+    asserts the two markers cannot both claim the same output, in BOTH
+    directions - a refusal must not read as a detection, and a real detection
+    must not read as a refusal. One direction alone would pass on a gate that
+    emitted neither marker at all.
+
+    It reads the live control.json rather than hardcoding the patterns, so
+    editing either signal without re-checking the pairing fails here.
+    """
+    import json
+    import re
+
+    manifest = json.loads(
+        (ROOT / "controls" / "check-negative-fixture-preconditions" / "control.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    detect = manifest["detect_signal"]
+    unknown = manifest["unknown_signal"]
+
+    # --- a refusal -------------------------------------------------------- #
+    refusal_dir = tmp_path / "refusal" / "tests"
+    refusal_dir.mkdir(parents=True)
+    (refusal_dir / "test_broken.py").write_text("def test_broken(\n", encoding="utf-8")
+    assert checker.main(["--root", str(tmp_path / "refusal")]) == 1
+    refusal_out = capsys.readouterr().out
+
+    assert re.search(unknown, refusal_out, re.MULTILINE), "refusal must match unknown_signal"
+    assert not re.search(detect, refusal_out, re.MULTILINE), (
+        "the refusal line matches detect_signal, so the harness will score a "
+        "parse refusal as a successful detection and the control can no longer "
+        "distinguish its planted defect from an unparseable neighbour"
+    )
+
+    # --- a real detection, the other direction ---------------------------- #
+    detect_dir = tmp_path / "detect" / "tests"
+    detect_dir.mkdir(parents=True)
+    (detect_dir / "test_real.py").write_text(
+        "import subprocess\n\n\n"
+        "def test_unwaived(tmp_path):\n"
+        "    stub = tmp_path / 'bin'\n"
+        "    stub.mkdir()\n"
+        "    subprocess.run(['a'], env={'PATH': str(stub)}, capture_output=True)\n",
+        encoding="utf-8",
+    )
+    assert checker.main(["--root", str(tmp_path / "detect")]) == 1
+    detect_out = capsys.readouterr().out
+
+    assert re.search(detect, detect_out, re.MULTILINE), "a real violation must match detect_signal"
+    assert not re.search(unknown, detect_out, re.MULTILINE), (
+        "a real detection matches unknown_signal, so the harness would excuse it "
+        "as a refusal - the fail-open direction of the same collision"
+    )
+
+
+def test_a_mixed_tree_resolves_to_exactly_one_verdict_marker(tmp_path: Path, capsys) -> None:
+    """THE UNION OF THE TWO STATES, which is what nobody tested (issue #1180).
+
+    The sibling above checks a refusal and a detection SEPARATELY and passes on
+    a gate that emits both at once. That is the defect this issue exists for,
+    and it is the transferable part: the disjointness test was written for the
+    exact property that broke and was blind to it, because it tested the two
+    members and never their pair. The orchestrator's independent verification
+    reproduced the same separate checks and missed it too - agreement between
+    two parties who can only fail the same way is not evidence.
+
+    A tree holding BOTH an unparseable file AND a real unwaived violation used
+    to print both markers, so `unknown_signal` and `detect_signal` both matched
+    one output and the harness scored it UNRESOLVED.
+
+    THE RULE: when any file could not be parsed, UNKNOWN is the SOLE verdict
+    marker. The findings from readable files still print, as diagnostics, and
+    the exit stays 1 - nothing is let through. What is given up is the scoring
+    of a real detection while coverage is incomplete, and that trade is the
+    point: a masked marker is RECOVERABLE (fix the syntax error, re-run) while
+    a refusal scored as a detection is NOT - the control then certifies a blind
+    instrument as sighted, which is the one failure this gate exists to prevent.
+
+    It uses the harness's OWN `_ambiguous`, not a local re-implementation, so a
+    change to the precedence rule cannot pass here while breaking the scorer.
+    """
+    import json
+    import re
+
+    manifest = json.loads(
+        (ROOT / "controls" / "check-negative-fixture-preconditions" / "control.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    detect = re.compile(manifest["detect_signal"], re.MULTILINE)
+    unknown = re.compile(manifest["unknown_signal"], re.MULTILINE)
+
+    spec = importlib.util.spec_from_file_location(
+        "check_negative_controls", ROOT / "scripts" / "check-negative-controls.py"
+    )
+    assert spec is not None and spec.loader is not None
+    harness = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = harness
+    spec.loader.exec_module(harness)
+
+    violation = (
+        "import subprocess\n\n\n"
+        "def test_unwaived(tmp_path):\n"
+        "    stub = tmp_path / 'bin'\n"
+        "    stub.mkdir()\n"
+        "    subprocess.run(['a'], env={'PATH': str(stub)}, capture_output=True)\n"
+    )
+
+    # --- the union: unparseable file AND a real violation ----------------- #
+    mixed = tmp_path / "mixed" / "tests"
+    mixed.mkdir(parents=True)
+    (mixed / "test_real.py").write_text(violation, encoding="utf-8")
+    (mixed / "test_broken.py").write_text("def broken(\n", encoding="utf-8")
+
+    assert checker.main(["--root", str(tmp_path / "mixed")]) == 1
+    mixed_out = capsys.readouterr().out
+
+    assert unknown.search(mixed_out), "a tree with an unparseable file must refuse"
+    assert not detect.search(mixed_out), (
+        "the mixed tree still emits the detection marker alongside the refusal, "
+        "so both manifest patterns match one output and the harness scores it "
+        "UNRESOLVED - the #1180 defect"
+    )
+    assert not harness._ambiguous(mixed_out, detect, unknown), (
+        "the harness's own ambiguity predicate still fires on this output"
+    )
+
+    # The finding must still be REPORTED. Without this, suppressing findings
+    # entirely would satisfy every assertion above - passing by destroying the
+    # information the gate exists to surface.
+    assert "test_real.py" in mixed_out, (
+        "the violation vanished from the mixed run: the marker was removed by "
+        "dropping the finding rather than by declining to score it"
+    )
+
+    # --- positive control, same test ------------------------------------- #
+    # Without it this test passes on a gate that never emits `detect_signal` at
+    # all, which is the vacuous way to satisfy every assertion above.
+    alone = tmp_path / "alone" / "tests"
+    alone.mkdir(parents=True)
+    (alone / "test_real.py").write_text(violation, encoding="utf-8")
+
+    assert checker.main(["--root", str(tmp_path / "alone")]) == 1
+    alone_out = capsys.readouterr().out
+
+    assert detect.search(alone_out), (
+        "the same violation without an unparseable neighbour no longer scores "
+        "as a detection, so the gate was not narrowed - it was disarmed"
+    )
+    assert not unknown.search(alone_out)

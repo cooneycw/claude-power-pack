@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1180-check-negative-fixture-preconditions-refusal-seman",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "7d6af49e5d6bd9a4e6950c019e4597e75084bd1b",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1180",
+  "passes": 1,
+  "recorded_at": "2026-09-22T11:34:45Z",
+  "red_cases": {
+    "already_covered": 7,
+    "proposed": 7
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
