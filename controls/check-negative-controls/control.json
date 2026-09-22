@@ -9,7 +9,7 @@
   ],
   "good_exit": 0,
   "detect_signal": "^negative-controls: \\S+ -> (BLIND|INERT|UNPROVEN|UNSIGNALLED|UNRESOLVED)$",
-  "limits": "SELF-REGISTERED, and a weaker member of this register than the other rows. It demonstrates that the harness still tells a crashing gate from a detecting one - the #946 property - because the anchor is a frozen copy of a DIFFERENT program and carries the discrimination. It CANNOT detect a breakage in the harness's own verdict assignment: a harness mutated to emit PASS unconditionally reports PASS about itself. What detects that is tests/test_negative_controls.py, run by pytest in the 'validate' CI step - a different process asserting on exit codes rather than on this harness's judgement of itself. Do not read this row as the harness verifying itself.",
+  "limits": "SELF-REGISTERED, and a weaker member of this register than the other rows. It demonstrates that the harness still tells a crashing gate from a detecting one - the #946 property - because the anchor is a frozen copy of a DIFFERENT program and carries the discrimination. It CANNOT detect a breakage in the harness's own verdict assignment: a harness mutated to emit PASS unconditionally reports PASS about itself. What detects that is tests/test_negative_controls.py, run by pytest in the 'validate' CI step - a different process asserting on exit codes rather than on this harness's judgement of itself. Do not read this row as the harness verifying itself. WHY THE subject_kind CASES ARE A TEST AND NOT CASES HERE (issue #1085). Three scenarios decide whether the `subject_kind` relaxation leaks - a GATE control with no BAD case must still report UNRESOLVED, a reporter with no qualifying UNKNOWN case must still report UNRESOLVED, and a reporter WITH one must pass - and none of them can be a case in THIS control, for a structural reason worth recording. This control's anchor is a FROZEN COPY OF THE HARNESS ITSELF. On the two scenarios whose behaviour the change does not alter, the anchor behaves identically to the fixed gate and so DETECTS them, scoring INERT - an anchor accused of not being blind when it is merely being asked about behaviour nobody changed. On the third, the anchor must DISAGREE by construction (that is the whole point), but it is a GOOD case and the sanity loop requires agreement there, and `anchor_expect` is refused outside an UNKNOWN case for reasons #1196 already argues. So the registered BAD case is `bad-unrecognised-subject-kind`, where the anchor is genuinely blind: the old harness IGNORES an unknown top-level key and reports ok, while the fixed one refuses `subject_kind: \"Reporter\"` rather than defaulting it. That is the property most worth controlling anyway - defaulting on a typo is how a narrow exception becomes a wide one. The other three live in tests/test_negative_controls.py, driving the same committed toy trees through the same entry point.",
   "cases": [
     {
       "name": "bad-crashing-gate",
@@ -20,6 +20,11 @@
       "name": "good-discriminating-gate",
       "input": "cases/good-discriminating-gate",
       "expect": "GOOD"
+    },
+    {
+      "name": "bad-unrecognised-subject-kind",
+      "input": "cases/bad-unrecognised-subject-kind",
+      "expect": "BAD"
     }
   ],
   "anchors": [

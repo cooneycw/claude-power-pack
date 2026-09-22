@@ -2977,3 +2977,101 @@ def test_no_fixture_exclusion_is_a_directory_or_glob() -> None:
         assert "*" not in entry and "?" not in entry, (
             f"fixture exclusion {entry!r} is a glob; name the file instead"
         )
+
+
+# --------------------------------------------------------------------------- #
+# `subject_kind` - the reporter relaxation, and the three ways it must not leak
+# (issue #1085)
+# --------------------------------------------------------------------------- #
+SUBJECT_CASES = ROOT / "controls" / "check-negative-controls" / "cases"
+
+
+def test_a_gate_control_with_no_bad_case_still_reports_unresolved() -> None:
+    """THE LEAK GUARD. If this ever passes, the relaxation reached every control.
+
+    `subject_kind: reporter` lets an instrument demonstrate blindness on the
+    refusal axis instead of with a BAD case. The whole risk is that the
+    exception widens: a GATE control that simply forgot its known-bad input
+    must keep being refused exactly as it was before the field existed.
+
+    This cannot be a CASE in `controls/check-negative-controls` because that
+    control's anchor is a frozen copy of the harness, and on behaviour this
+    change does not alter the anchor behaves identically to the fixed gate and
+    scores INERT. It is asserted here instead, over the same committed tree.
+    """
+    out = run_harness(SUBJECT_CASES / "bad-gate-control-without-a-bad-case", "--strict")
+    assert out.returncode != 0
+    assert "registers no BAD case" in out.stdout + out.stderr, out.stdout
+
+
+def test_a_reporter_without_a_qualifying_unknown_case_is_refused() -> None:
+    """`reporter` is a SECOND WAY TO PAY, never a waiver.
+
+    Declaring the kind must not by itself discharge the requirement. A reporter
+    still has to put up an input it refuses and the anchor answers clean; with
+    no such case there is nothing demonstrating the anchor is blind at all.
+    """
+    out = run_harness(SUBJECT_CASES / "bad-reporter-without-a-qualifying-unknown", "--strict")
+    assert out.returncode != 0
+    body = out.stdout + out.stderr
+    assert "registers no UNKNOWN case carrying `anchor_expect: clean`" in body, body
+    assert "never a waiver" in body
+
+
+def test_a_reporter_demonstrating_blindness_on_the_refusal_axis_passes() -> None:
+    """The positive control, without which the two above pass on a harness that
+    refuses everything.
+
+    The toy refuses an input it cannot examine (exit 2, UNKNOWN); its anchor has
+    no refusal branch and answers the same input with a confident clean. The
+    fixed instrument refuses, the blind one does not - that is a discrimination,
+    and it is the one a reporter can actually make.
+    """
+    out = run_harness(SUBJECT_CASES / "good-reporter-on-the-refusal-axis", "--strict")
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert "-> PASS" in out.stdout or "ok -" in out.stdout, out.stdout
+
+
+def test_an_unrecognised_subject_kind_is_refused_not_defaulted() -> None:
+    """Defaulting on a typo is how a narrow exception becomes a wide one.
+
+    `"Reporter"` is what a real author writes. Silently treating it as `gate`
+    would be merely confusing; silently treating it as `reporter` would hand out
+    the relaxation to anyone who miscapitalised. Neither: it is refused and the
+    value is named.
+    """
+    out = run_harness(SUBJECT_CASES / "bad-unrecognised-subject-kind", "--strict")
+    assert out.returncode != 0
+    body = out.stdout + out.stderr
+    assert "declares subject_kind 'Reporter'" in body, body
+    assert "refused rather than defaulted" in body
+
+
+def test_absent_cases_key_is_named_differently_from_a_one_sided_case_list(
+    tmp_path: Path
+) -> None:
+    """ABSENT is not EMPTY, and the message must not confuse them.
+
+    `spec.get("cases", [])` turned a manifest declaring no `cases` key into one
+    declaring an empty list, so a file with no cases at all was reported as
+    "registers no BAD case" - a sentence about cases, to someone whose file has
+    none. Both refuse, so this was never a false clean; it named the wrong
+    defect and sent the reader looking for a list that does not exist.
+    """
+    (tmp_path / "scripts").mkdir()
+    gate = tmp_path / "scripts" / "toy-gate.sh"
+    gate.write_text("#!/bin/sh\n#: NEGATIVE-CONTROL: controls/toy\necho ok\n", encoding="utf-8")
+    toy = tmp_path / "controls" / "toy"
+    toy.mkdir(parents=True)
+    (toy / "control.json").write_text(
+        json.dumps({"gate": "scripts/toy-gate.sh",
+                    "invocation": ["sh", "{gate}"],
+                    "good_exit": 0,
+                    "detect_signal": "^toy",
+                    "anchors": []}),
+        encoding="utf-8",
+    )
+    out = run_harness(tmp_path, "--strict")
+    body = out.stdout + out.stderr
+    assert "declares no `cases` key at all" in body, body
+    assert "registers no BAD case" not in body, "absent was reported as one-sided"

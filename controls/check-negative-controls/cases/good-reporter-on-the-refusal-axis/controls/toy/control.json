@@ -1,0 +1,36 @@
+{
+  "gate": "scripts/toy-gate.sh",
+  "invocation": [
+    "sh",
+    "{gate}",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "subject_kind": "reporter",
+  "detect_signal": "^toy-gate: FINDING",
+  "unknown_signal": "^toy-gate: UNKNOWN - ",
+  "cases": [
+    {
+      "name": "good",
+      "input": "cases/good",
+      "expect": "GOOD"
+    },
+    {
+      "name": "unreadable",
+      "input": "cases/unreadable",
+      "expect": "UNKNOWN",
+      "anchor_expect": "clean",
+      "anchor_expect_reason": "this anchor has no refusal branch at all, so it answers the unexaminable input with a confident clean - that IS the blindness under test, and an anchor able to refuse here would have to derive what it cannot see and would stop being blind"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/toy-gate.sh",
+      "path": "anchors/0000000-toy-gate.sh",
+      "sha256": "9d1db2133a1eae98d0c97988c467bc8348f3e2a6782a8b9634ead5535e754ac1"
+    }
+  ]
+}
