@@ -276,9 +276,14 @@ fewest readers, because the code it lives in does not look like a detector at
 all.
 
 **A payload carried through command substitution is silently rewritten.**
-`$(...)` strips trailing newlines and it strips NUL bytes, and the shell
+In `bash`, `$(...)` strips trailing newlines and strips NUL bytes, and the
 variable that receives it cannot hold a NUL at all. That is usually harmless: a
 verdict line survives the trip, and nobody notices what was removed.
+
+**Scoped to `bash` deliberately**, because the class is about a shell's
+behaviour and not a universal one: `zsh` can hold NULs in parameters, so the
+same script is subject to a different rewrite there. Check the shell your
+instrument actually runs under rather than the one you had in mind.
 
 **In a FILTER it is not harmless, because the rewrite can manufacture the thing
 the filter exists to remove.**
@@ -286,7 +291,9 @@ the filter exists to remove.**
 ### The worked example, measured in this repository
 
 `scripts/hook-mask-output.sh` masks secrets in tool output. Given
-`pass<NUL>word=VALUE` it behaved like this, before #1206:
+`pass<NUL>word=VALUE` the chain below was measured during #1206, on the
+INTERMEDIATE implementation - after the input handling had been repaired and
+before the output capture was removed:
 
 1. The masking regex **correctly declined to match**. `pass<NUL>word` is not
    `password` - the NUL sits between the letters - so Python passed the string
@@ -299,23 +306,39 @@ The filter reconstructed the secret it exists to remove, and reported success.
 Every part a reviewer reads - the regexes, the JSON handling, the masking logic -
 was correct. The defect was in a line that reads as plumbing.
 
+**The attribution matters and was corrected under review.** The version that
+shipped BEFORE #1206 does not reach this chain: it interpolated stdin into
+Python source, so the `\u0000` escape was decoded before the JSON was parsed,
+parsing failed, and the run produced a bare newline and exit 0 - a different
+fail-open, and the one #1206 was filed about. The reconstruction appeared only
+once that first defect was repaired, and was removed in the same change.
+
+So this class was introduced and closed inside a single fix, which is the part
+worth carrying: **repairing one instrument's input path exposed a defect in its
+output path**, and only an end-to-end measurement with the pathological payload
+would have found it. Neither half is visible from reading the other.
+
 **No amount of quoting fixes it.** A shell variable cannot hold a NUL, so the
 CAPTURE is the defect rather than its spelling. The repair is to stop capturing:
 let the program's stdout be the script's stdout, so nothing rewrites the bytes in
-between. That removes the class; hardening the quoting removes one instance.
+between. That removes the class. Quoting removes nothing here - the assignment in the
+example is already quoted, and the value is lost before any expansion sees it.
 
 ### And the shell said so, every time
 
-`bash` prints `command substitution: ignored null byte in input` on every such
-run. **The rewrite was announced for as long as the defect existed and nothing
-was listening**, because no instrument reads a warning on a stream nobody
-consumes.
+`bash` 4.4 and newer print `ignored null byte in input` on every such run -
+earlier versions discarded the byte silently. **The rewrite was announced and
+nothing was listening**, because no instrument reads a warning on a stream
+nobody consumes.
 
 That is the same failure as one this repository had in prose at the same moment:
 `docs/decisions/0008-instrument-negative-control-bound.md` recorded that the
 masking hook was "filters, not verdicts ... nobody is entitled to rely on it",
 while `README.md` promised that Bash and Read output was masked. Two committed
-documents made incompatible claims about one artifact for months.
+documents made incompatible claims about one artifact, and neither reconciled
+the other: the ADR wording landed 2026-09-14 and the README was corrected
+2026-09-22, so those two statements stood together for eight days - while the
+hook they disagreed about had been declared in an unread file since 2025-12-06.
 
 Both are diagnostics emitted into a channel no instrument reads. The mechanical
 guards were all working; the contradiction lived where none of them look. A
@@ -456,7 +479,7 @@ issue is the condition #834 was filed to end. Link new instances here.
 | this change (index rule) | does this diff delete any FILE | does this change delete anything | fixed in flight |
 | kyle#994 | is this variable one of the nine safe ones | is this variable safe to forward | fixed |
 | kyle#997 | what did the task *wrapper* exit with | what did the *watch* exit with | fixed |
-| #1206 | did the masking pattern match this string | was the emitted output masked | fixed |
+| #1206 | did the masking step run without error | was the emitted output masked | fixed |
 
 Three further instances are not in the table at all: they were found in
 instruments and in relays rather than in shipped checks, so there is no detector

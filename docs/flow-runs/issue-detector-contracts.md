@@ -52,3 +52,29 @@ exactly the thing being filtered for.
 2. Over-indexing on the instance rather than the shape would make it read as one
    script's bug. The section leads with the shape and uses the example to prove
    it, in that order.
+
+## Correction to Section B, appended after the counter-model review
+
+This record does not graduate, so the evidence above is left exactly as it was
+when the plan was approved - including the part of it that was wrong. The
+correction is appended instead, because what a plan was approved ON is the thing
+a later reader is trying to recover, and silently repairing it destroys that.
+
+**Section B's second bullet misattributes the worked example.** It says the
+reconstruction was the behaviour "before #1206". Measured against the frozen
+pre-#1206 anchor, that implementation emits a bare newline and exit 0 and never
+reconstructs the secret: it interpolated stdin into Python SOURCE, so the JSON
+NUL escape decoded before the JSON was parsed and parsing then failed. That is a
+different fail-open - the one #1206 was filed about.
+
+The reconstruction belongs to the INTERMEDIATE implementation, after the input
+handling was repaired and before the output capture was removed. The chain is
+real and was measured; it existed only inside the fix.
+
+Section B's FIRST bullet - the two shell measurements - stands, now scoped to
+`bash`: `zsh` can hold NULs in parameters, and the "ignored null byte in input"
+warning is bash 4.4 and newer.
+
+The approved plan is unaffected: the section still leads with the shape and uses
+the example to prove it. Only the example's attribution moved, and the landed
+prose now says which implementation it is measuring.
