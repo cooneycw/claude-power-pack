@@ -1,0 +1,6 @@
+#!/bin/sh
+# The gate FALLS OVER: dies by signal, emits no verdict at all. A crash exits
+# non-zero exactly as a refusal does, so the exit code alone cannot separate
+# them - which is why detection requires the gate to have SAID its signal.
+kill -9 $PPID 2>/dev/null
+exit 1

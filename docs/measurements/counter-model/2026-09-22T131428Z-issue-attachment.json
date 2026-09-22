@@ -1,0 +1,20 @@
+{
+  "branch": "attachment-coupling",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "7b007d24bcfcc6c1bc841fcb99c13cab532e3e70",
+  "implementer": "claude/claude-opus-5",
+  "issue": "attachment",
+  "passes": 1,
+  "recorded_at": "2026-09-22T13:14:28Z",
+  "red_cases": {
+    "already_covered": 9,
+    "proposed": 11
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
