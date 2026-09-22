@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1075-codex-consolidation-reversible-consumer-cutover-an",
+  "counts": {
+    "accepted": 5,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "716201c3f5e44b9cc4932ecc8c9a64a693849585",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1075",
+  "passes": 1,
+  "recorded_at": "2026-09-22T12:26:45Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 5
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
