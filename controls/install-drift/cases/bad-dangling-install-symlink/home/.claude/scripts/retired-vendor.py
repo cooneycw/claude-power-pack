@@ -1,1 +1,0 @@
-../../../checkout/scripts/retired-vendor.py
