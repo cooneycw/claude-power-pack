@@ -1,0 +1,18 @@
+THIS CASE COMMITS A GAP, NOT A CAPABILITY. Do not "fix" it to BAD.
+
+The fixture is a flow worktree with NO approved-plan record - identical to
+bad-no-record-refuses in every way except HOW the edit is made. Here it is made
+by Bash redirection, and the guard does not fire. Its expectation is therefore
+GOOD (allowed), and that is the point: the gap is committed evidence rather than
+a sentence in the limits.
+
+Why it matters more here than elsewhere: in THIS fleet, Bash-first is the
+INSTRUCTED DEFAULT - sessions are steered to "make file changes with sed,
+heredocs, or short scripts, rather than using the dedicated Read, Edit, or Write
+tools". Measured: three plan records across three runs of one session, all
+written with `cat > ... <<EOF`, zero via Write. So the guard's silence in this
+fleet is not coverage, and a reader must not take it as such.
+
+WHEN THIS CASE CHANGES, THAT IS THE NOTIFICATION. If the harness stops steering
+to Bash, or the guard grows Bash matching, this case flips from GOOD to BAD and
+the control reds. A sentence in `limits` cannot do that; a case can.
