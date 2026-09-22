@@ -295,7 +295,9 @@ def test_a_cpp_row_does_not_discharge_a_cxpp_obligation(tmp_path: Path, capsys) 
     """
     ledger, snapshot, live = _tree(tmp_path, live=[101, 102, 103])
     ledger.write_text(
-        LEDGER_FIXTURE + "| cpp#103 - a CPP issue that is not the CxPP one | open | x | y | `already-covered` - parity |\n",
+        LEDGER_FIXTURE
+        + "| cpp#103 - a CPP issue that is not the CxPP one | open | x | y "
+        + "| `already-covered` - parity |\n",
         encoding="utf-8",
     )
     assert _run(ledger, snapshot, live) == 1
