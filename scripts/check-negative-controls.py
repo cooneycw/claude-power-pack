@@ -2176,20 +2176,38 @@ def main(argv: list[str] | None = None) -> int:
             # arriving in this repository changes a number on a line everyone
             # already reads. Same doctrine as printing members rather than
             # totals, pointed at the taxonomy itself.
-            gates = sum(1 for r in discriminating if r.subject_kind == GATE_SUBJECT)
+            gate_rs = [r for r in discriminating if r.subject_kind == GATE_SUBJECT]
             reps = [r for r in discriminating if r.subject_kind == REPORTER_SUBJECT]
-            breakdown = f"{gates} gate"
+
+            # THE CLAIM IS BUILT FROM THE POPULATION, NOT ASSERTED OVER IT
+            # (counter-model finding, 2026-09-22). This line used to end "each
+            # reporting its declared detection signal on the known-bad input"
+            # UNIVERSALLY, and then append the kind breakdown after it. Over a
+            # battery of reporters that certified a detection that cannot
+            # happen: a reporter has no known-bad input and emits no detection
+            # signal, by the same structural fact that made this whole change
+            # necessary. The appended explanation EXPLAINED the contradiction
+            # instead of removing it, which is a success message claiming more
+            # than its input population supports - the exact question this file
+            # makes every other gate answer.
+            claims: list[str] = []
+            if gate_rs:
+                claims.append(
+                    f"{len(gate_rs)} gate control(s), each reporting its declared detection "
+                    f"signal on the known-bad input and demonstrated against an anchor that "
+                    f"misses it"
+                )
             if reps:
-                breakdown += (f", {len(reps)} reporter ("
-                              + ", ".join(sorted(r.control_dir for r in reps))
-                              + ") - a reporter demonstrates blindness on the REFUSAL axis, "
-                                "not with a BAD case")
-            else:
-                breakdown += ", 0 reporter"
-            print(f"negative-controls: ok - {headline}, "
-                  "each reporting its declared detection signal on the known-bad input "
-                  "and demonstrated against an anchor that misses it; "
-                  f"subject kinds: {breakdown}")
+                claims.append(
+                    f"{len(reps)} reporter control(s) ("
+                    + ", ".join(sorted(r.control_dir for r in reps))
+                    + "), each REFUSING an input its anchor answers clean - a reporter has no "
+                      "known-bad input to detect, so it demonstrates blindness on the refusal "
+                      "axis instead"
+                )
+            if not claims:
+                claims.append("0 gate control(s) and 0 reporter control(s)")
+            print(f"negative-controls: ok - {headline}; " + "; ".join(claims))
     # NAMED, NOT COUNTED, AND PRINTED ON EVERY RUN THAT HAS ANY - including a
     # failing one, where an unexamined control is part of why the picture is
     # incomplete. A tolerated verdict that is not said out loud is the silence

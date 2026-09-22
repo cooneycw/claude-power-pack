@@ -3075,3 +3075,33 @@ def test_absent_cases_key_is_named_differently_from_a_one_sided_case_list(
     body = out.stdout + out.stderr
     assert "declares no `cases` key at all" in body, body
     assert "registers no BAD case" not in body, "absent was reported as one-sided"
+
+
+def test_a_reporter_only_battery_does_not_claim_a_detection_it_never_made() -> None:
+    """The success line must be built from the population, not asserted over it.
+
+    FOUND BY COUNTER-MODEL REVIEW. The summary ended "each reporting its
+    declared detection signal on the known-bad input" UNIVERSALLY, with the
+    kind breakdown appended after. Over a battery of reporters that certifies a
+    detection which cannot happen - a reporter has no known-bad input and emits
+    no detection signal, by the same structural fact that made `subject_kind`
+    necessary. The appended clause EXPLAINED the contradiction rather than
+    removing it.
+
+    That is a success message claiming more than its input population supports,
+    which is the first question this file makes every other gate answer. Getting
+    it wrong here is worse than getting it wrong elsewhere.
+    """
+    out = run_harness(
+        ROOT / "controls" / "check-negative-controls" / "cases"
+        / "good-reporter-on-the-refusal-axis", "--strict"
+    )
+    assert out.returncode == 0, out.stdout + out.stderr
+    ok = [ln for ln in out.stdout.splitlines() if ln.startswith("negative-controls: ok")]
+    assert len(ok) == 1, out.stdout
+    line = ok[0]
+    assert "reporter control(s)" in line, line
+    assert "each REFUSING an input its anchor answers clean" in line, line
+    assert "detection signal on the known-bad input" not in line, (
+        "a reporter-only battery claimed a detection it never made: " + line
+    )
