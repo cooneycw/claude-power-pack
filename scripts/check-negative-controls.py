@@ -1126,7 +1126,20 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
     res.subject_kind = raw_subject
 
     raw_signal = spec.get("detect_signal", "")
-    has_signal = isinstance(raw_signal, str) and bool(raw_signal.strip())
+    #: OMITTED IS NOT INVALID (counter-model finding, 2026-09-22). The first cut
+    #: keyed the exemption on `has_signal` - "is there a usable pattern" - which
+    #: is true of an ABSENT field and equally true of `"detect_signal": ""`,
+    #: `null`, `0` or `[]`. A control that DECLARED a broken signal therefore
+    #: took the reporter branch, had the sentinel substituted, and passed with
+    #: its validations disabled: the author said something and the harness
+    #: silently heard nothing.
+    #:
+    #: The exemption is for a control that makes NO detection claim. Making a
+    #: bad one is a different act and keeps the old answer, so an explicit value
+    #: of any shape falls through to the usable-pattern check below and is
+    #: refused there. This is the absent-versus-empty distinction that this very
+    #: change's rationale is built on, written into the change itself.
+    signal_omitted = "detect_signal" not in spec
     raw_unknown_peek = spec.get("unknown_signal", "")
     has_unknown = isinstance(raw_unknown_peek, str) and bool(raw_unknown_peek.strip())
 
@@ -1153,7 +1166,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
     # may not match the gate's CLEAN output. Relocating a requirement without
     # its guards would be the same defect one boundary further out; these were
     # checked rather than assumed.
-    if raw_subject == REPORTER_SUBJECT and not has_signal:
+    if raw_subject == REPORTER_SUBJECT and signal_omitted:
         if not has_unknown:
             res.details.append(
                 "control.json declares subject_kind 'reporter' with neither a detect_signal "
