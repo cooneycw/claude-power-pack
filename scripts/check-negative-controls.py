@@ -1113,7 +1113,79 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
     # matches" turns every genuine detection into an UNSIGNALLED red with an
     # unrelated diagnosis, and an EMPTY pattern matches every output, which
     # restores exit-code-only scoring while looking like a fix.
+    # PARSED BEFORE THE SIGNAL REQUIREMENTS, because WHICH marker is required
+    # depends on what kind of instrument this is (issue #1085 follow-up).
+    raw_subject = spec.get("subject_kind", GATE_SUBJECT)
+    if raw_subject not in SUBJECT_KINDS:
+        res.details.append(
+            f"control.json declares subject_kind {raw_subject!r}, which is not one of "
+            f"{list(SUBJECT_KINDS)}. It is refused rather than defaulted: a value this "
+            f"harness does not recognise must not silently acquire the rules of one it does"
+        )
+        return res
+    res.subject_kind = raw_subject
+
     raw_signal = spec.get("detect_signal", "")
+    #: OMITTED IS NOT INVALID (counter-model finding, 2026-09-22). The first cut
+    #: keyed the exemption on `has_signal` - "is there a usable pattern" - which
+    #: is true of an ABSENT field and equally true of `"detect_signal": ""`,
+    #: `null`, `0` or `[]`. A control that DECLARED a broken signal therefore
+    #: took the reporter branch, had the sentinel substituted, and passed with
+    #: its validations disabled: the author said something and the harness
+    #: silently heard nothing.
+    #:
+    #: The exemption is for a control that makes NO detection claim. Making a
+    #: bad one is a different act and keeps the old answer, so an explicit value
+    #: of any shape falls through to the usable-pattern check below and is
+    #: refused there. This is the absent-versus-empty distinction that this very
+    #: change's rationale is built on, written into the change itself.
+    signal_omitted = "detect_signal" not in spec
+    raw_unknown_peek = spec.get("unknown_signal", "")
+    has_unknown = isinstance(raw_unknown_peek, str) and bool(raw_unknown_peek.strip())
+
+    # THE MARKER REQUIREMENT RELOCATES FOR A REPORTER, IT IS NOT REMOVED.
+    #
+    # `detect_signal` is required because a non-zero exit must be tellable from
+    # a CRASH (#946). For a GATE that is the detection marker, because a gate's
+    # non-zero exit IS its finding. A REPORTER has no finding: its only non-zero
+    # exit is a refusal, and `unknown_signal` is what separates that from a
+    # crash. So a reporter may omit `detect_signal` and must then declare
+    # `unknown_signal` - the same guarantee, carried by the marker that can
+    # actually carry it.
+    #
+    # THE TEST FOR WHETHER A FIELD MAY BE OPTIONAL IS ALREADY IN THIS FILE, at
+    # the `unavailable_signal` asymmetry: "`detect_signal` had to be required
+    # because defaulting it left every control exactly as blind as before the
+    # fix. Omitting `unavailable_signal` has the opposite effect ... Absence
+    # fails CLOSED here, so it costs nothing to allow." This meets that test -
+    # absence of `detect_signal` on a reporter fails closed, because the
+    # requirement moves rather than lapsing, and nothing is left unmarked.
+    #
+    # AND THE GUARDS MOVE WITH IT. `unknown_signal` carries the same two
+    # protections `detect_signal` has: it may not match EMPTY output, and it
+    # may not match the gate's CLEAN output. Relocating a requirement without
+    # its guards would be the same defect one boundary further out; these were
+    # checked rather than assumed.
+    if raw_subject == REPORTER_SUBJECT and signal_omitted:
+        if not has_unknown:
+            res.details.append(
+                "control.json declares subject_kind 'reporter' with neither a detect_signal "
+                "nor an unknown_signal, so a non-zero exit from this instrument cannot be "
+                "told from a crash (issue #946). A reporter may omit detect_signal - it has "
+                "no finding to mark - but it must then declare unknown_signal, because the "
+                "requirement RELOCATES and does not lapse"
+            )
+            return res
+        #: A pattern that cannot match anything, standing in for "this subject
+        #: makes no detection claim". Downstream, `_observe` then returns
+        #: UNSIGNALLED for any non-zero exit that carries no refusal marker -
+        #: which is the correct verdict for a reporter that exited oddly, and
+        #: is why omitting the field does not open a hole.
+        raw_signal = r"(?!x)x"
+        signal_is_declared = False
+    else:
+        signal_is_declared = True
+
     if not isinstance(raw_signal, str) or not raw_signal.strip():
         res.details.append(
             "control.json declares no detect_signal, so a non-zero exit from this gate "
@@ -1132,7 +1204,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
     # scoring restored wholesale, wearing this field's own name. Measured: `.*`
     # and `toy-gate: [0-9]+ finding|` each produced PASS for a gate that crashed
     # on the known-bad input (found by the Codex review of this change).
-    if signal.search(""):
+    if signal_is_declared and signal.search(""):
         res.details.append(
             f"control.json detect_signal /{raw_signal}/ matches empty output, so it cannot "
             "separate a finding from a crash (issue #946)"
@@ -1321,16 +1393,6 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
     # is REFUSED rather than defaulted: defaulting on a typo is how a narrow
     # exception becomes a wide one, and `"Reporter"` must not silently buy the
     # relaxation that `"reporter"` buys.
-    raw_subject = spec.get("subject_kind", GATE_SUBJECT)
-    if raw_subject not in SUBJECT_KINDS:
-        res.details.append(
-            f"control.json declares subject_kind {raw_subject!r}, which is not one of "
-            f"{list(SUBJECT_KINDS)}. It is refused rather than defaulted: a value this "
-            f"harness does not recognise must not silently acquire the rules of one it does"
-        )
-        return res
-    res.subject_kind = raw_subject
-
     if GOOD not in expects:
         res.details.append("control.json registers no GOOD case, so a gate wedged at 'fail' would pass")
         return res
@@ -1521,7 +1583,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
         # neighbour's. The distinguishing condition is a CLEAN EXIT whose output
         # still matches: the gate said "nothing here" and the pattern matched
         # anyway. A wedged gate exits non-zero and stays BLIND, where it belongs.
-        if expected == GOOD and observed == GOOD and signal.search(output):
+        if signal_is_declared and expected == GOOD and observed == GOOD and signal.search(output):
             res.verdict = UNRESOLVED
             res.details.append(
                 f"control.json detect_signal /{raw_signal}/ also matches this gate's known-GOOD "
