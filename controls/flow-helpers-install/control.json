@@ -1,0 +1,50 @@
+{
+  "gate": "scripts/flow-helpers-install.sh",
+  "invocation": [
+    "sh",
+    "controls/flow-helpers-install/run-case.sh",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_HELPERS: (tampered|unverifiable-source)\\b",
+  "unavailable_signal": "^FLOW_HELPERS_CONTROL: unavailable - ",
+  "limits": "Covers SOURCE-vs-ITS-RECORDED-DIGEST on a bundle, and nothing else. It does NOT cover installed-copy-vs-source, which is drift and is what flow-helpers-install.sh:244/:321 and install-drift.sh:246 already do correctly - #1185 exists because those two questions were confused, so this control must not repeat the confusion by claiming both. THE BOUND THAT MATTERS: the manifest TRAVELS INSIDE THE BUNDLE IT CERTIFIES, so a match establishes only that these bytes are the bytes recorded WHEN THE BUNDLE WAS GENERATED. It detects accidental corruption, a partial edit that missed the manifest, and modification after generation. It does NOT detect a coherently regenerated bundle, and it says NOTHING ABOUT ARRIVAL - a bundle tampered with before it reached the host carries a manifest that agrees with it perfectly. Covering arrival needs a signature checked against a key that is NOT in the bundle; that is a different problem and deliberately not this one. detect_signal is deliberately NOT anchored at the end of the line: an anchored `$` would stop matching the moment a verdict gained a parenthetical reason, and every reasoned refusal would then read as UNSIGNALLED - i.e. indistinguishable from a crash - at the exact moment the gate spoke most clearly. That failure was observed on a sibling control in this repository on 2026-09-22. The cases install into a throwaway temp home, never the developer's ~/.claude/scripts: a control whose verdict depended on host state would be contaminated by the repository it lives in.",
+  "cases": [
+    {
+      "name": "good-intact-bundle",
+      "input": "cases/good-intact-bundle",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-tampered-byte",
+      "input": "cases/bad-tampered-byte",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-manifest-deleted",
+      "input": "cases/bad-manifest-deleted",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-unlisted-file-added",
+      "input": "cases/bad-unlisted-file-added",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-listed-file-removed",
+      "input": "cases/bad-listed-file-removed",
+      "expect": "BAD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "5a4d7fc",
+      "origin": "scripts/flow-helpers-install.sh",
+      "path": "anchors/5a4d7fc-pre-1185-flow-helpers-install.sh",
+      "sha256": "c296d280e9d9ba561f073dcff04e24b8dc8cc3838c736d18c74c1b76f24f9c52",
+      "why": "HISTORICAL, not constructed: this is the installer exactly as it stood at 5a4d7fc, the commit this work branched from, vendored byte-for-byte. No reconstruction was needed because the blindness is the shipped behaviour - the pre-fix program has no notion of a source digest at all, so on every known-bad bundle it prints `FLOW_HELPERS: installed` and exits 0, and the injected bytes reach the install target. That is the measurement in the issue, reproduced from the control rather than asserted. The anchor is the real pre-fix program, not a synthetic stand-in, because this defect HAS a pre-fix version and it is one commit away. Run against these same cases it installs every BAD bundle and reports FLOW_HELPERS: installed with exit 0 - which is the measurement in the issue, reproduced from the control rather than asserted. That is what makes the post-fix green mean something: the cases are known to be reachable by the old program, so a green here is a change in the gate and not a change in the cases."
+    }
+  ]
+}

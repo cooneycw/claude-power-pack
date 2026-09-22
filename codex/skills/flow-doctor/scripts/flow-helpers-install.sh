@@ -21,7 +21,8 @@
 #   flow-helpers-install.sh --force    # overwrite even when content already matches
 #
 # Output ends with a machine-readable verdict line:
-#   FLOW_HELPERS: ok | installed | unverifiable | missing | stale | error
+#   FLOW_HELPERS: ok | installed | unverifiable | unverifiable-source
+#                 | tampered | missing | stale | error
 #
 #   `unverifiable` (issue #927) is NOT a lesser `ok`. It means the helpers are
 #   installed and NO SOURCE OF TRUTH was reachable, so this run could not tell
@@ -80,6 +81,7 @@ emit_provenance() {
     echo "FLOW_HELPERS_EXAMINED: $EXAMINED"
     echo "FLOW_HELPERS_SOURCE_KIND: ${SOURCE_KIND:-unknown}"
     echo "FLOW_HELPERS_SOURCE_DIR: ${SOURCE_DIR:-unknown}"
+    echo "FLOW_HELPERS_MANIFEST: ${MANIFEST_STATE:-unchecked}"
     echo "FLOW_HELPERS_REASON: $REASON"
 }
 
@@ -223,6 +225,151 @@ if [[ "$NO_UPSTREAM" -eq 1 ]]; then
 fi
 
 echo "flow-helpers-install: source $SOURCE_DIR ($SOURCE_KIND), target $TARGET_DIR"
+
+# --- Source integrity (issue #1185) -----------------------------------------
+#: NEGATIVE-CONTROL: controls/flow-helpers-install
+# Everything above compares an INSTALLED COPY against its SOURCE. That is drift,
+# and it is what those checks are for. It is silent about whether the SOURCE is
+# the file we shipped - and on a Codex host, installed from a bundle with no
+# checkout attached, there is nothing to look around at. Measured before this
+# existed: a tampered worktree-remove.sh (canonical d57ee08d00f1) installed with
+# `FLOW_HELPERS: installed`, the injected line reached ~/.claude/scripts, and a
+# subsequent `--check` reported `FLOW_HELPERS: ok` - the existing check did not
+# merely miss the tampering, it CERTIFIED the tampered install as healthy.
+#
+# WHAT THIS DOES NOT COVER, stated here and not only in the docs. The manifest
+# TRAVELS INSIDE THE BUNDLE IT CERTIFIES. Anyone able to rewrite a bundled
+# script can rewrite the manifest, so a match establishes only that these bytes
+# are the bytes recorded WHEN THE BUNDLE WAS GENERATED. It detects accidental
+# corruption, a partial edit that missed the manifest, and modification after
+# generation. It does NOT detect a coherently regenerated bundle and says
+# NOTHING ABOUT ARRIVAL: a bundle already tampered with before it reached this
+# host carries a manifest that agrees with it perfectly. Covering arrival needs
+# a signature checked against a key that is NOT in the bundle. That is a
+# different problem and deliberately not this one.
+#
+# TWO VERDICTS, NEVER COLLAPSED INTO ONE WORD, distinct through to the exit
+# code, because they are different facts and a reader acts differently on each:
+#   tampered            (exit 5) the source DISAGREES with its manifest
+#   unverifiable-source (exit 6) this run COULD NOT ASK the question
+# Folding "cannot verify" into "verified" is the failure this whole issue is
+# about, one level up; folding it into "tampered" would cry wolf on a host with
+# no digest tool. Both refuse: nothing is installed either way.
+MANIFEST_NAME="SHA256SUMS"
+MANIFEST_PATH="$SOURCE_DIR/$MANIFEST_NAME"
+MANIFEST_STATE="absent"
+
+# A BUNDLE is identified by a sibling SKILL.md, not by SOURCE_KIND=plugin. The
+# broader test would also catch the CLAUDE_PLUGIN_ROOT legacy cache from the
+# #662/#663 migration, which carries no manifest and would then be refused for a
+# reason that has nothing to do with it. The narrow test names exactly the
+# surface #1185 is about.
+IS_BUNDLE=0
+if [[ -f "$SOURCE_DIR/../SKILL.md" ]]; then
+    IS_BUNDLE=1
+fi
+
+DIGEST_CMD=()
+if command -v sha256sum >/dev/null 2>&1; then
+    DIGEST_CMD=(sha256sum)
+elif command -v shasum >/dev/null 2>&1; then
+    DIGEST_CMD=(shasum -a 256)
+fi
+
+_digest_of() {
+    [[ "${#DIGEST_CMD[@]}" -gt 0 ]] || return 1
+    "${DIGEST_CMD[@]}" "$1" 2>/dev/null | awk '{print $1}'
+}
+
+if [[ -f "$MANIFEST_PATH" ]]; then
+    if [[ "${#DIGEST_CMD[@]}" -eq 0 ]]; then
+        # A manifest's PRESENCE is a declaration that verification is expected.
+        # Falling open here would make an absent guard indistinguishable from a
+        # guard that passed, which is the #823 shape this repository refuses.
+        MANIFEST_STATE="no-digest-tool"
+        echo "flow-helpers-install: $MANIFEST_NAME is present but neither sha256sum nor" >&2
+        echo "  shasum is installed, so this run CANNOT verify the source. Nothing installed." >&2
+        REASON="no-digest-tool"
+        emit_provenance
+        echo "FLOW_HELPERS: unverifiable-source"
+        exit 6
+    fi
+    listed=0
+    bad=0
+    declare -A MANIFEST_ROWS=()
+    while read -r m_digest m_name; do
+        case "$m_digest" in '#'*|'') continue ;; esac
+        [[ -n "$m_name" ]] || continue
+        MANIFEST_ROWS["$m_name"]=1
+        listed=$((listed + 1))
+        m_file="$SOURCE_DIR/$m_name"
+        if [[ ! -f "$m_file" ]]; then
+            echo "TAMPERED $m_name (listed in $MANIFEST_NAME, absent from the source)" >&2
+            bad=$((bad + 1))
+            continue
+        fi
+        actual="$(_digest_of "$m_file")"
+        if [[ "$actual" != "$m_digest" ]]; then
+            echo "TAMPERED $m_name (recorded ${m_digest:0:12}, found ${actual:0:12})" >&2
+            bad=$((bad + 1))
+        fi
+    done < "$MANIFEST_PATH"
+
+    # THE OTHER DIRECTION, and it is the one a digest check usually forgets.
+    # Verifying only the rows the manifest lists is trivially bypassed by ADDING
+    # a file rather than modifying one: an unlisted script named in HELPERS would
+    # be installed without ever being compared to anything. A bundle's manifest
+    # is complete by construction - the generator writes a row for every script
+    # it bundles - so an unlisted file in a bundle is an addition, and refusing
+    # it is what makes the listed-row check mean anything. Scoped to bundles:
+    # a hand-placed manifest elsewhere may legitimately be partial.
+    if [[ "$IS_BUNDLE" -eq 1 ]]; then
+        for f in "$SOURCE_DIR"/*; do
+            [[ -f "$f" ]] || continue
+            b="${f##*/}"
+            [[ "$b" == "$MANIFEST_NAME" ]] && continue
+            if [[ -z "${MANIFEST_ROWS[$b]:-}" ]]; then
+                echo "TAMPERED $b (present in the bundle, listed in no $MANIFEST_NAME row)" >&2
+                bad=$((bad + 1))
+            fi
+        done
+    fi
+
+    if [[ "$listed" -eq 0 ]]; then
+        MANIFEST_STATE="empty"
+        echo "flow-helpers-install: $MANIFEST_NAME carries no digest rows, so it verifies" >&2
+        echo "  nothing. An empty manifest is not a clean one. Nothing installed." >&2
+        REASON="manifest-empty"
+        emit_provenance
+        echo "FLOW_HELPERS: unverifiable-source"
+        exit 6
+    fi
+    if [[ "$bad" -gt 0 ]]; then
+        MANIFEST_STATE="mismatch"
+        echo "flow-helpers-install: $bad of $listed source file(s) disagree with $MANIFEST_NAME." >&2
+        echo "  REFUSING to install. This detects a bundle that changed after it was built;" >&2
+        echo "  it does NOT prove the bundle was authentic when it arrived - the manifest" >&2
+        echo "  ships inside the bundle it certifies." >&2
+        REASON="manifest-mismatch"
+        emit_provenance
+        echo "FLOW_HELPERS: tampered"
+        exit 5
+    fi
+    MANIFEST_STATE="verified"
+    echo "flow-helpers-install: $listed source file(s) match $MANIFEST_NAME"
+elif [[ "$IS_BUNDLE" -eq 1 ]]; then
+    # A bundle always carries a manifest once generated by codex-skill-sync.py,
+    # so its ABSENCE on a bundle is either a pre-#1185 bundle or a manifest that
+    # was removed - and deleting the manifest must not be the way past the check.
+    MANIFEST_STATE="absent-on-bundle"
+    echo "flow-helpers-install: this source is a skill bundle but carries no" >&2
+    echo "  $MANIFEST_NAME, so its scripts cannot be verified. Nothing installed." >&2
+    echo "  A bundle generated before #1185 predates the manifest: re-generate it." >&2
+    REASON="manifest-absent-on-bundle"
+    emit_provenance
+    echo "FLOW_HELPERS: unverifiable-source"
+    exit 6
+fi
 
 # --- Check mode (read-only) -------------------------------------------------
 if [[ "$MODE" == "check" ]]; then
