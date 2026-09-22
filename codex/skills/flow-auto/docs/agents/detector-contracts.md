@@ -268,6 +268,72 @@ question - *is the rule actually obeyed across this repository* - wants a
 different channel, one that reads structure rather than prose, and not a text
 matcher taught to guess intent from surrounding words.
 
+## The channel can rewrite the verdict
+
+Every section above is about what a detector CONCLUDES. This one is about what
+happens to the conclusion on its way out, and it is the failure mode with the
+fewest readers, because the code it lives in does not look like a detector at
+all.
+
+**A payload carried through command substitution is silently rewritten.**
+`$(...)` strips trailing newlines and it strips NUL bytes, and the shell
+variable that receives it cannot hold a NUL at all. That is usually harmless: a
+verdict line survives the trip, and nobody notices what was removed.
+
+**In a FILTER it is not harmless, because the rewrite can manufacture the thing
+the filter exists to remove.**
+
+### The worked example, measured in this repository
+
+`scripts/hook-mask-output.sh` masks secrets in tool output. Given
+`pass<NUL>word=VALUE` it behaved like this, before #1206:
+
+1. The masking regex **correctly declined to match**. `pass<NUL>word` is not
+   `password` - the NUL sits between the letters - so Python passed the string
+   through unchanged. Nothing was wrong with the pattern.
+2. The result was captured: `MASKED_OUTPUT=$(printf '%s' "$INPUT" | python3 ...)`.
+   **Bash stripped the NUL**, and the two halves became `password=VALUE`.
+3. The script emitted that, with **exit 0**.
+
+The filter reconstructed the secret it exists to remove, and reported success.
+Every part a reviewer reads - the regexes, the JSON handling, the masking logic -
+was correct. The defect was in a line that reads as plumbing.
+
+**No amount of quoting fixes it.** A shell variable cannot hold a NUL, so the
+CAPTURE is the defect rather than its spelling. The repair is to stop capturing:
+let the program's stdout be the script's stdout, so nothing rewrites the bytes in
+between. That removes the class; hardening the quoting removes one instance.
+
+### And the shell said so, every time
+
+`bash` prints `command substitution: ignored null byte in input` on every such
+run. **The rewrite was announced for as long as the defect existed and nothing
+was listening**, because no instrument reads a warning on a stream nobody
+consumes.
+
+That is the same failure as one this repository had in prose at the same moment:
+`docs/decisions/0008-instrument-negative-control-bound.md` recorded that the
+masking hook was "filters, not verdicts ... nobody is entitled to rely on it",
+while `README.md` promised that Bash and Read output was masked. Two committed
+documents made incompatible claims about one artifact for months.
+
+Both are diagnostics emitted into a channel no instrument reads. The mechanical
+guards were all working; the contradiction lived where none of them look. A
+detector contract that says only "check your patterns" misses this entire class,
+which is why it is written down here.
+
+### What to ask
+
+> **Does anything rewrite this detector's payload between the decision and the
+> output?**
+
+For a detector whose output is a VERDICT the answer is usually "yes, harmlessly".
+For a detector whose output is **the data itself** - a filter, a masker, a
+redactor, a sanitiser - the honest answer is that the transport is part of the
+instrument, and it must be measured with the same known-bad input as the logic.
+Feed it the pathological payload end to end and look at the bytes that come out,
+rather than satisfying yourself that the matching is right.
+
 ## What the two open dependents answer
 
 Stated here so each is implementable against this contract rather than against a
@@ -355,7 +421,7 @@ conducted *for* this pattern.
 
 ## The instance index
 
-The twenty-nine instances this contract was derived from. Kept here, in the guidance,
+The thirty instances this contract was derived from. Kept here, in the guidance,
 rather than in the issue that indexed them - a finding that lives only in a closed
 issue is the condition #834 was filed to end. Link new instances here.
 
@@ -390,6 +456,7 @@ issue is the condition #834 was filed to end. Link new instances here.
 | this change (index rule) | does this diff delete any FILE | does this change delete anything | fixed in flight |
 | kyle#994 | is this variable one of the nine safe ones | is this variable safe to forward | fixed |
 | kyle#997 | what did the task *wrapper* exit with | what did the *watch* exit with | fixed |
+| #1206 | did the masking pattern match this string | was the emitted output masked | fixed |
 
 Three further instances are not in the table at all: they were found in
 instruments and in relays rather than in shipped checks, so there is no detector
