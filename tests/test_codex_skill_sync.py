@@ -1274,7 +1274,19 @@ def test_the_manifest_digests_match_the_bundled_bytes():
 
 
 def test_the_manifest_moves_when_a_bundled_script_changes(tmp_path: Path):
-    """A digest list that does not move certifies whatever it is handed."""
+    """A digest list that does not move certifies whatever it is handed.
+
+    THE FIRST VERSION OF THIS TEST PASSED WITHOUT ANY MUTATION (counter-model
+    review, codex, LOW). It fed generate_skill's whole output back into
+    scripts_manifest, and that output ALREADY contains scripts/SHA256SUMS - so
+    the recomputation added a row for the manifest itself and differed from the
+    original no matter what happened to the victim. The assertion held for a
+    reason that had nothing to do with its subject.
+
+    Two halves now, and the first is what makes the second mean anything: an
+    UNCHANGED input must reproduce the manifest byte-for-byte. Without that, a
+    "they differ" assertion cannot tell a sensitive digest from a noisy one.
+    """
     files = codex_skill_sync.generate_skill(
         ROOT / ".claude" / "commands" / "flow" / "doctor.md",
         "flow",
@@ -1282,6 +1294,12 @@ def test_the_manifest_moves_when_a_bundled_script_changes(tmp_path: Path):
     )
     before = files.get(f"scripts/{MANIFEST_NAME}")
     assert before is not None, "flow-doctor bundles scripts but produced no manifest"
+
+    # CONTROL: unchanged in, identical out. This is the half that was missing.
+    assert codex_skill_sync.scripts_manifest(dict(files)) == before, (
+        "recomputing over an unchanged bundle changed the manifest, so a "
+        "difference cannot be attributed to a changed script"
+    )
 
     victim = next(
         rel for rel in files
@@ -1291,6 +1309,27 @@ def test_the_manifest_moves_when_a_bundled_script_changes(tmp_path: Path):
     mutated[victim] = files[victim] + "\n# changed\n"
     after = codex_skill_sync.scripts_manifest(mutated)
     assert after != before, f"changing {victim} did not move the manifest"
+
+    # And the difference must be IN THE VICTIM'S ROW, not anywhere else.
+    victim_name = victim.split("/", 1)[1]
+    row_before = [ln for ln in before.splitlines() if ln.endswith(f"  {victim_name}")]
+    row_after = [ln for ln in after.splitlines() if ln.endswith(f"  {victim_name}")]
+    assert row_before and row_after and row_before != row_after, (
+        f"the manifest moved but {victim_name}'s own row did not"
+    )
+
+
+def test_the_manifest_never_lists_itself_whatever_the_caller_passes():
+    """Correctness that depends on the caller's call order is not correctness."""
+    out = codex_skill_sync.scripts_manifest(
+        {"scripts/a.sh": "x", f"scripts/{MANIFEST_NAME}": "whatever"}
+    )
+    assert out is not None
+    assert all(
+        line.split()[1] != MANIFEST_NAME
+        for line in out.splitlines()
+        if line.strip() and not line.startswith("#")
+    ), out
 
 
 def test_a_bundle_with_no_scripts_carries_no_empty_manifest():

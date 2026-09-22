@@ -713,10 +713,18 @@ def scripts_manifest(files: dict[str, str]) -> str | None:
     carries no empty manifest - an empty manifest and a missing one would
     otherwise look alike to the installer, and they mean different things.
     """
+    # NEVER LIST ITSELF, whatever the caller passes (counter-model review,
+    # codex, LOW). generate_skill calls this BEFORE adding the manifest, so
+    # production was correct - but a caller handing back a dict that already
+    # contains one got a self-row, which silently made a test that recomputed
+    # the manifest pass without any mutation at all. Correctness that depends
+    # on the caller's call order is not correctness.
     names = sorted(
         rel.split("/", 1)[1]
         for rel in files
-        if rel.startswith("scripts/") and "/" not in rel.split("/", 1)[1]
+        if rel.startswith("scripts/")
+        and "/" not in rel.split("/", 1)[1]
+        and rel.split("/", 1)[1] != MANIFEST_NAME
     )
     if not names:
         return None

@@ -276,9 +276,22 @@ elif command -v shasum >/dev/null 2>&1; then
     DIGEST_CMD=(shasum -a 256)
 fi
 
+# RETURNS NON-ZERO WHEN IT COULD NOT HASH, and the caller must act on that
+# (counter-model review, codex, MEDIUM). Swallowing the status made an empty
+# result compare unequal to every recorded digest, so an unreadable file or a
+# failing digest executable reported `tampered` with exit 5 over an INTACT
+# bundle - a false accusation, and precisely the collapse between "the bytes
+# disagree" and "I could not ask" that this whole change exists to prevent.
+# Reproduced with an `exit 1` stub on PATH before the fix.
 _digest_of() {
+    local out
     [[ "${#DIGEST_CMD[@]}" -gt 0 ]] || return 1
-    "${DIGEST_CMD[@]}" "$1" 2>/dev/null | awk '{print $1}'
+    out="$("${DIGEST_CMD[@]}" "$1" 2>/dev/null)" || return 1
+    out="${out%% *}"
+    # A 64-hex-character answer or nothing. A truncated or empty result must not
+    # be compared: it would differ from the recorded digest and read as tamper.
+    [[ "$out" =~ ^[0-9a-f]{64}$ ]] || return 1
+    printf '%s' "$out"
 }
 
 if [[ -f "$MANIFEST_PATH" ]]; then
@@ -308,7 +321,17 @@ if [[ -f "$MANIFEST_PATH" ]]; then
             bad=$((bad + 1))
             continue
         fi
-        actual="$(_digest_of "$m_file")"
+        if ! actual="$(_digest_of "$m_file")"; then
+            # COULD NOT ASK, not "the answer is no". Refuse on the unverifiable
+            # path rather than accusing an intact file of being tampered.
+            echo "flow-helpers-install: could not compute a digest for $m_name, so this" >&2
+            echo "  run cannot verify the source. Nothing installed." >&2
+            MANIFEST_STATE="digest-failed"
+            REASON="digest-failed"
+            emit_provenance
+            echo "FLOW_HELPERS: unverifiable-source"
+            exit 6
+        fi
         if [[ "$actual" != "$m_digest" ]]; then
             echo "TAMPERED $m_name (recorded ${m_digest:0:12}, found ${actual:0:12})" >&2
             bad=$((bad + 1))

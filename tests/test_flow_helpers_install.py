@@ -685,3 +685,60 @@ def test_the_GENERATED_manifest_is_accepted_by_the_INSTALLER(tmp_path: Path):
         "and the reader disagree on the format"
     )
     assert _verdict(proc) == "installed"
+
+
+def test_a_failing_digest_tool_is_UNVERIFIABLE_not_TAMPERED(
+    tmp_path: Path, bundle_source: Path
+):
+    """Counter-model review (codex, MEDIUM), reproduced before fixing.
+
+    `_digest_of` swallowed its exit status, so an unreadable file or a failing
+    digest executable produced an empty string, compared unequal to every
+    recorded digest, and reported `tampered` with exit 5 over an INTACT bundle.
+    That is a false accusation AND the exact collapse this change exists to
+    prevent: "the bytes disagree" and "I could not ask" are different facts.
+    """
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    for tool in ("sha256sum", "shasum"):
+        stub = fake_bin / tool
+        stub.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+        stub.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env.get('PATH', '')}"
+    env["FLOW_HELPERS_HOME"] = str(tmp_path / "home")
+    env["FLOW_HELPERS_SOURCE"] = str(bundle_source)
+    proc = subprocess.run(
+        [str(INSTALLER)], check=False, capture_output=True, text=True, env=env
+    )
+
+    assert _verdict(proc) == "unverifiable-source", proc.stdout + proc.stderr
+    assert proc.returncode == 6
+    assert _installed(tmp_path / "home") == []
+
+
+def test_a_truncated_digest_is_not_compared(tmp_path: Path, bundle_source: Path):
+    """The other direction of the same fix.
+
+    A tool that succeeds but prints something that is not a digest must not have
+    its output compared either - it would differ from the recorded value and
+    read as tampering for a reason that is not tampering.
+    """
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    for tool in ("sha256sum", "shasum"):
+        stub = fake_bin / tool
+        stub.write_text("#!/bin/sh\necho 'deadbeef  x'\n", encoding="utf-8")
+        stub.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env.get('PATH', '')}"
+    env["FLOW_HELPERS_HOME"] = str(tmp_path / "home")
+    env["FLOW_HELPERS_SOURCE"] = str(bundle_source)
+    proc = subprocess.run(
+        [str(INSTALLER)], check=False, capture_output=True, text=True, env=env
+    )
+
+    assert _verdict(proc) == "unverifiable-source", proc.stdout + proc.stderr
+    assert proc.returncode == 6

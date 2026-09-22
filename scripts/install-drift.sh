@@ -319,6 +319,28 @@ if [ -n "$SCRIPTS_DIR" ] && [ -d "$SCRIPTS_DIR" ]; then
             */scripts/"$base") ;;
             *) continue ;;
         esac
+        # SHAPE IS NOT OWNERSHIP (counter-model review, codex, MEDIUM). A host
+        # link such as ~/.claude/scripts/tool.sh -> /another-project/scripts/
+        # tool.sh has the same shape, and was reported as OUR orphan the moment
+        # that other project moved - judging a neighbour's file, which is the
+        # cry-wolf failure the host-owned rule exists to prevent. Reproduced
+        # before the fix; the existing negative case missed it only because its
+        # target had no `scripts/` component.
+        #
+        # So the link's ROOT must still be a CPP checkout. Resolved relative to
+        # the LINK'S OWN DIRECTORY when the target is relative, because that is
+        # what the kernel does - resolving against the caller's cwd would answer
+        # about a different path than the one that will actually be followed.
+        link_root="${target%/scripts/$base}"
+        case "$link_root" in
+            /*) ;;
+            *)  link_root="${installed%/*}/$link_root" ;;
+        esac
+        # DECLARED LIMIT: a link into a checkout that has been removed ENTIRELY
+        # cannot be attributed to us any more, so it is not reported. That is
+        # the conservative direction - an unreported orphan is a gap, an
+        # unattributed accusation about someone else's file is a defect.
+        [ -f "$link_root/CLAUDE.md" ] && [ -d "$link_root/.claude/commands" ] || continue
         # EXISTENCE, not shape. `-e` follows the link, which is exactly "does
         # the checkout still have something at the end of this link".
         [ -e "$installed" ] && continue
@@ -562,7 +584,16 @@ if [ "$CLAUDE_SKILLS_CHECKED" -eq 1 ]; then
     esac
 fi
 
+# HELPERS_ORPHANED IS PART OF "DID WE FIND ANYTHING" (counter-model review,
+# codex, MEDIUM). HELPERS_TOTAL counts only entries the checkout still ships, so
+# a host whose ONLY installed helpers are orphans scored zero on every term
+# above and took this exit - reporting "no installed checkout helpers found",
+# omitting the orphan fields from --json entirely, and printing nothing in quiet
+# mode. The axis was invisible in exactly the population where it is the only
+# thing there is to say. Every orphan fixture happened to include a current
+# helper, which is why the tests did not reach it.
 if [ "$RETIRED" -eq 0 ] && [ "$HELPERS_TOTAL" -eq 0 ] && [ "$HELPERS_MISSING" -eq 0 ] \
+   && [ "$HELPERS_ORPHANED" -eq 0 ] \
    && [ "$CODEX_SKILLS_CHECKED" -eq 0 ] && [ "$CLAUDE_SKILLS_MANAGED" -eq 0 ] \
    && [ "$CLAUDE_SKILLS_UNANSWERED" -eq 0 ] && [ "$CLAUDE_SKILLS_UNJUDGED" -eq 0 ]; then
     emit_skip "no retired CPP marketplace surface, installed checkout helpers, or installed Codex/Claude skills found"

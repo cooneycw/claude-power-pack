@@ -39,6 +39,16 @@ trap 'rm -rf "$home"' EXIT INT TERM
 # ~/.claude/scripts. That is not hygiene: a control that installed into the live
 # host would make its verdict depend on host state, which is exactly the
 # contamination this battery exists to detect.
+# A case may ship a bin/ directory to seam the environment - the same device
+# controls/flow-finish-gate uses. It is how the DIGEST-TOOL-UNAVAILABLE state
+# becomes a committed case rather than only a unit test, and that state is the
+# whole point of this change: "the bytes disagree" and "I could not ask" are
+# different facts and must never collapse into one word.
+case_path="$case_dir"
+if [ -d "$case_path/bin" ]; then
+    PATH="$case_path/bin:$PATH"
+    export PATH
+fi
 FLOW_HELPERS_HOME="$home" \
 FLOW_HELPERS_SOURCE="$case_dir/bundle/scripts" \
     "$gate"

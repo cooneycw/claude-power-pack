@@ -1280,3 +1280,54 @@ def test_a_clean_install_reports_zero_orphans(tmp_path: Path):
     assert payload["helpers_orphaned"] == 0, payload
     assert payload["orphaned_helpers"] == [], payload
     assert "0 orphaned" in _run(checkout, home).stdout
+
+
+def test_another_projects_link_is_NOT_our_orphan(tmp_path: Path):
+    """Counter-model review (codex, MEDIUM), reproduced before fixing.
+
+    The install SHAPE is not ownership. A host link such as
+    ~/.claude/scripts/tool.sh -> /another-project/scripts/tool.sh has exactly
+    the same shape, and was reported as OUR orphan the moment that other project
+    moved - judging a neighbour's file, which is the cry-wolf failure the
+    host-owned rule exists to prevent.
+
+    The existing negative case missed this because its target had no `scripts/`
+    component, so it never exercised the shape test at all. This one does.
+    """
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    scripts = _make_helpers(home)
+    other = tmp_path / "another-project" / "scripts" / "tool.sh"
+    other.parent.mkdir(parents=True)
+    (scripts / "tool.sh").symlink_to(other)
+    assert not (scripts / "tool.sh").exists(), "fixture must dangle"
+
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+    assert payload["orphaned_helpers"] == [], payload
+
+
+def test_an_orphan_only_population_is_still_reported(tmp_path: Path):
+    """Counter-model review (codex, MEDIUM), reproduced before fixing.
+
+    HELPERS_TOTAL counts only entries the checkout still ships, so a host whose
+    ONLY installed helpers are orphans scored zero on every term of the early
+    "nothing found" exit. It reported no installed helpers, omitted the orphan
+    fields from --json entirely, and printed nothing in quiet mode - invisible
+    in exactly the population where the axis is the only thing there is to say.
+
+    Every other orphan fixture here includes a current helper, which is why none
+    of them reached this path. That is the gap this one closes.
+    """
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    scripts = home / ".claude" / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "retired-vendor.py").symlink_to(checkout / "scripts" / "retired-vendor.py")
+    assert not (scripts / "retired-vendor.py").exists(), "fixture must dangle"
+    assert not (scripts / HELPER).exists(), "the population must be orphan-ONLY"
+
+    report = _run(checkout, home)
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert "retired-vendor.py" in report.stdout, report.stdout
+    assert payload["orphaned_helpers"] == ["retired-vendor.py"], payload
