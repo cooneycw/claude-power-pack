@@ -3213,6 +3213,22 @@ def test_an_explicitly_invalid_detect_signal_is_refused_not_treated_as_omitted()
     finally:
         toy.write_text(original, encoding="utf-8")
 
+    # A VALID BUT OVER-BROAD PATTERN IS A THIRD CASE, and it takes a different
+    # path: `.*` is a usable regex, so it is NOT an omission and NOT invalid -
+    # it goes through normal validation and is refused by the empty-output
+    # guard. Pinned here because "declared something broken" and "declared
+    # something too wide" fail for different reasons and a reader chasing
+    # either should land in the right place.
+    try:
+        doc = _json.loads(original)
+        doc["detect_signal"] = ".*"
+        toy.write_text(_json.dumps(doc, indent=2), encoding="utf-8")
+        out = run_harness(toy.parents[2], "--strict")
+        assert out.returncode != 0
+        assert "matches empty output" in out.stdout + out.stderr, out.stdout
+    finally:
+        toy.write_text(original, encoding="utf-8")
+
     # ...and omission itself still passes, or the assertions above are vacuous.
     out = run_harness(toy.parents[2], "--strict")
     assert out.returncode == 0, out.stdout + out.stderr
