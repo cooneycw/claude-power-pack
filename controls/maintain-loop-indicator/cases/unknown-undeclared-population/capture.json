@@ -1,0 +1,4 @@
+{
+ "captured_at": "2026-09-20T00:00:00Z",
+ "source": "KNOWN-UNEXAMINABLE: valid JSON that never declares its population. It parses, so a reader could mistake it for an observation of nothing."
+}
