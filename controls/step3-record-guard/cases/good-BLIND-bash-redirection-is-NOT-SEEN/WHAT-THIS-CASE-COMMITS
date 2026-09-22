@@ -13,6 +13,22 @@ tools". Measured: three plan records across three runs of one session, all
 written with `cat > ... <<EOF`, zero via Write. So the guard's silence in this
 fleet is not coverage, and a reader must not take it as such.
 
-WHEN THIS CASE CHANGES, THAT IS THE NOTIFICATION. If the harness stops steering
-to Bash, or the guard grows Bash matching, this case flips from GOOD to BAD and
-the control reds. A sentence in `limits` cannot do that; a case can.
+WHAT THIS CASE ACTUALLY ESTABLISHES, narrowed after a counter-model review
+found the first wording claimed more than the case can support:
+
+  IT ESTABLISHES that the SCRIPT ignores a Bash tool request. Nothing more.
+
+It does NOT observe harness steering, does not read the installed matcher, and
+does not execute the edit - the runner feeds it a fixed payload. So it CANNOT
+notice if the fleet stops steering to Bash; replacing the redirection in that
+payload with `true` produces the same verdict, which is the tell.
+
+IT DOES FLIP if the guard grows Bash matching, because that changes the script,
+which is the thing it reads. That is a real notification and it is the only one
+this case can honestly promise.
+
+The first version of this file claimed the case would flip on a STEERING change
+too. It cannot, and claiming it would have made this file the very thing the
+third detector-contract question is about: evidence that reads as stronger than
+it is. Catching that in a file whose subject is a committed gap is the sharper
+version of the lesson.

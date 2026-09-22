@@ -73,10 +73,10 @@ def test_an_edit_with_no_record_is_REFUSED(tmp_path: Path):
     wt = _worktree(tmp_path)
     proc = _run(wt, "Write", str(wt / "scripts" / "x.sh"))
     assert proc.returncode == 2, proc.stdout + proc.stderr
-    assert "step3-record-guard: REFUSED" in proc.stdout
+    assert "step3-record-guard: REFUSED" in proc.stderr
     # The refusal must be RECOVERABLE, not merely a refusal.
-    assert "docs/flow-runs/issue-4242.md" in proc.stdout, "names what is missing"
-    assert "WHAT TO DO" in proc.stdout, "names the route to approval"
+    assert "docs/flow-runs/issue-4242.md" in proc.stderr, "names what is missing"
+    assert "WHAT TO DO" in proc.stderr, "names the route to approval"
 
 
 @requires_git
@@ -85,7 +85,7 @@ def test_an_edit_WITH_an_approved_record_proceeds(tmp_path: Path):
     (wt / "docs" / "flow-runs" / "issue-4242.md").write_text(APPROVED, encoding="utf-8")
     proc = _run(wt, "Write", str(wt / "scripts" / "x.sh"))
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert proc.stdout == "", "an allowed edit must be silent"
+    assert proc.stdout == "" and proc.stderr == "", "an allowed edit must be silent"
 
 
 @requires_git
@@ -96,8 +96,8 @@ def test_a_record_WITHOUT_an_approval_is_still_refused(tmp_path: Path):
         "# Flow run record - issue #4242\n\n- Approval:          pending\n", encoding="utf-8"
     )
     proc = _run(wt, "Write", str(wt / "scripts" / "x.sh"))
-    assert proc.returncode == 2, proc.stdout
-    assert "does not record an approval" in proc.stdout
+    assert proc.returncode == 2, proc.stderr
+    assert "does not record an approval" in proc.stderr
 
 
 @requires_git
@@ -110,7 +110,7 @@ def test_the_record_path_is_exempt_or_every_run_DEADLOCKS(tmp_path: Path):
     wt = _worktree(tmp_path)
     for target in ("docs/flow-runs/issue-4242.md", "docs/flow-runs/issue-4242.as-read.md"):
         proc = _run(wt, "Write", str(wt / target))
-        assert proc.returncode == 0, f"{target} must be writable with no record:\n{proc.stdout}"
+        assert proc.returncode == 0, f"{target} must be writable with no record:\n{proc.stderr}"
 
 
 @requires_git
@@ -124,14 +124,14 @@ def test_the_exemption_is_EXACTLY_ONE_PATTERN(tmp_path: Path):
     wt = _worktree(tmp_path)
     for target in ("docs/flow-runs/issue-9999.md", "docs/flow-runs/notes.md"):
         proc = _run(wt, "Write", str(wt / target))
-        assert proc.returncode == 2, f"{target} must NOT be exempt:\n{proc.stdout}"
+        assert proc.returncode == 2, f"{target} must NOT be exempt:\n{proc.stderr}"
 
 
 @requires_git
 def test_a_NON_flow_branch_is_not_this_guards_business(tmp_path: Path):
     wt = _worktree(tmp_path, branch="some-other-branch")
     proc = _run(wt, "Write", str(wt / "scripts" / "x.sh"))
-    assert proc.returncode == 0, proc.stdout
+    assert proc.returncode == 0, proc.stderr
 
 
 @requires_git
@@ -153,7 +153,7 @@ def test_an_UNBORN_branch_does_not_FAIL_OPEN(tmp_path: Path):
     proc = _run(wt, "Write", str(wt / "scripts" / "x.sh"))
     assert proc.returncode == 2, (
         "an unborn flow branch must still be refused - allowing here is the "
-        f"fail-open the issue forbids:\n{proc.stdout}{proc.stderr}"
+        f"fail-open the issue forbids:\n{proc.stderr}"
     )
 
 
@@ -193,7 +193,7 @@ def test_the_TEMPLATE_matcher_and_the_SCRIPT_agree_on_the_matched_tools():
     block = re.search(r"```json\n(.*?)```", doc, re.S)
     assert block, "the template document ships no installable hook block"
     template = json.loads(block.group(1))
-    matcher = template["hooks"]["PreToolUse"][0]["matcher"]["tool_name"]
+    matcher = template["hooks"]["PreToolUse"][0]["matcher"]
     advertised = set(matcher.split("|"))
 
     source = GUARD.read_text()
@@ -223,3 +223,112 @@ def test_the_template_does_not_claim_to_enforce_775():
     lowered = doc.lower()
     for overclaim in ("enforces #775", "guarantees", "cannot be bypassed"):
         assert overclaim not in lowered, f"the template overclaims: {overclaim!r}"
+
+
+# --- Fail-opens found by counter-model review, each reproduced first ---------
+#
+# #1083 calls fail-open the one non-negotiable thing, and this guard shipped
+# three of them past its own author. Every test below was RED before its fix.
+
+
+def _raw(wt: Path, payload: str, env: dict | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", str(GUARD)], input=payload, capture_output=True, text=True,
+        cwd=wt, check=False, env={**os.environ, **(env or {})},
+    )
+
+
+@requires_git
+def test_MALFORMED_input_refuses_rather_than_allowing(tmp_path: Path):
+    """An inability to look is not a clean look."""
+    wt = _worktree(tmp_path)
+    proc = _raw(wt, "not json at all")
+    assert proc.returncode == 2, proc.stderr
+    assert "REFUSED" in proc.stderr
+
+
+@requires_git
+def test_a_request_with_NO_TOOL_NAME_refuses(tmp_path: Path):
+    wt = _worktree(tmp_path)
+    proc = _raw(wt, json.dumps({"tool_input": {"file_path": str(wt / "scripts" / "x.sh")}}))
+    assert proc.returncode == 2, proc.stderr
+
+
+@requires_git
+def test_an_ABSENT_python3_refuses(tmp_path: Path):
+    """The parser is a dependency, and a missing dependency used to ALLOW."""
+    fake = tmp_path / "bin"
+    fake.mkdir()
+    (fake / "python3").write_text("#!/bin/sh\nexit 127\n", encoding="utf-8")
+    (fake / "python3").chmod(0o755)
+    wt = _worktree(tmp_path)
+    proc = _raw(
+        wt,
+        json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(wt / "scripts" / "x.sh")}}),
+        env={"PATH": f"{fake}:/usr/bin:/bin"},
+    )
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+
+
+@requires_git
+def test_a_BROKEN_GIT_refuses_but_a_GENUINE_non_repo_does_not(tmp_path: Path):
+    """The discriminator, in BOTH directions, because only one is safe to allow.
+
+    Both failures say "not a git repository". They differ in the parenthetical:
+    a genuine walk-up failure says "(or any of the parent directories)", a
+    broken GIT_DIR names a path. Matching the GENERAL phrase allowed the broken
+    environment - reproduced - so the specific one is matched instead, which
+    puts the fragility in the safe direction.
+    """
+    wt = _worktree(tmp_path)
+    payload = json.dumps(
+        {"tool_name": "Write", "tool_input": {"file_path": str(wt / "scripts" / "x.sh")}}
+    )
+    broken = _raw(wt, payload, env={"GIT_DIR": "/nonexistent"})
+    assert broken.returncode == 2, f"a broken git must refuse:\n{broken.stderr}"
+
+    outside = tmp_path / "plain"
+    outside.mkdir()
+    ok = _raw(
+        outside,
+        json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(outside / "x.sh")}}),
+    )
+    assert ok.returncode == 0, (
+        "a target genuinely outside any repository is DETERMINED and out of "
+        f"scope; refusing it would block every edit outside a checkout:\n{ok.stderr}"
+    )
+
+
+@requires_git
+def test_the_subject_is_the_TARGETS_worktree_not_the_hooks_cwd(tmp_path: Path):
+    """The ownership question, on the guard's own subject.
+
+    Resolving from the hook's cwd let the verdict describe a NEIGHBOUR: an edit
+    into a recordless worktree returned 0 when the hook happened to run from an
+    approved one.
+    """
+    approved = _worktree(tmp_path / "a")
+    (approved / "docs" / "flow-runs" / "issue-4242.md").write_text(APPROVED, encoding="utf-8")
+    recordless = _worktree(tmp_path / "b")
+
+    proc = _raw(
+        approved,
+        json.dumps(
+            {"tool_name": "Write", "tool_input": {"file_path": str(recordless / "scripts" / "x.sh")}}
+        ),
+    )
+    assert proc.returncode == 2, (
+        "the verdict must describe the worktree the EDIT LANDS IN, not the one "
+        f"the hook runs in:\n{proc.stderr}"
+    )
+
+
+@requires_git
+def test_a_LOOKALIKE_path_is_not_exempt(tmp_path: Path):
+    """The exemption is two exact paths under the resolved root, not a suffix."""
+    wt = _worktree(tmp_path)
+    (wt / "vendor" / "docs" / "flow-runs").mkdir(parents=True)
+    proc = _run(wt, "Write", str(wt / "vendor" / "docs" / "flow-runs" / "issue-4242.md"))
+    assert proc.returncode == 2, (
+        f"a nested lookalike must not be exempt:\n{proc.stderr}"
+    )

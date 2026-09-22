@@ -48,14 +48,14 @@ CPP ships this template and installs nothing. A hook that blocks edits must not
 arrive unannounced in someone else's repository.
 
 1. Install the script where your hooks can reach it, e.g. `~/.claude/scripts/`.
-2. Merge this block into your own `.claude/hooks.json`:
+2. Merge this block into your own `.claude/settings.json`:
 
 ```json
 {
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": { "tool_name": "Write|Edit|NotebookEdit" },
+        "matcher": "Write|Edit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
