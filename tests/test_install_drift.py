@@ -1124,3 +1124,159 @@ def test_provenance_carries_its_own_qualification(tmp_path: Path):
     assert payload["toolchain_behind"] is None
     assert payload["toolchain_upstream"] is None
     assert payload["toolchain_fetch_age_seconds"] is None
+
+
+# --- The host-helpers ORPHAN axis (nit store #864) --------------------------
+#
+# The parity loop reports current/stale/missing over a population derived
+# ENTIRELY FROM THE CHECKOUT, so it could not see an installed helper the
+# checkout no longer ships. These pin the axis that can.
+#
+# EVERY ONE OF THESE ASSERTS MEMBERS, NEVER COUNTS. Over a real install
+# directory the two candidate predicates both yield 91 entries and are DISJOINT
+# on two members, so a count reconcile passes with the wrong set - which is how
+# the blind spot was carried in originally, by #829's 20-vs-21 reconcile.
+
+
+def test_a_dangling_installed_helper_is_reported_as_an_orphan(tmp_path: Path):
+    """The live specimen's shape: installed, its checkout target deleted.
+
+    A dangling symlink is FALSE under both `-e` and `-f` and TRUE only under
+    `-L`, so both obvious install-side filters drop the exact file this axis
+    exists to catch.
+    """
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    scripts = _make_helpers(home)
+    (scripts / "retired-vendor.py").symlink_to(checkout / "scripts" / "retired-vendor.py")
+    assert not (scripts / "retired-vendor.py").exists(), "fixture must dangle"
+    assert (scripts / "retired-vendor.py").is_symlink()
+
+    report = _run(checkout, home)
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert "retired-vendor.py" in report.stdout, report.stdout
+    assert payload["orphaned_helpers"] == ["retired-vendor.py"], payload
+    assert payload["helpers_orphaned"] == 1, payload
+
+
+def test_a_host_owned_plain_file_is_NOT_an_orphan(tmp_path: Path):
+    """The agreed predicate was REFUTED by an existing committed contract.
+
+    The remedy this axis was approved under used `[ -f ] || [ -L ]` on the
+    install side, which reports every host-owned file in ~/.claude/scripts as an
+    orphan - and `test_host_only_scripts_are_not_judged` pins the opposite, on
+    purpose: flagging those would make the axis cry wolf on every host that
+    keeps a tool there. So "orphan" is narrowed to something WE INSTALLED, which
+    the install SHAPE identifies and file type does not.
+
+    DECLARED LIMIT, asserted here so it is checkable rather than only prose: a
+    COPY-installed helper whose source was deleted is a plain file, and this
+    axis does NOT report it. Catching that needs the HELPERS allowlist, which is
+    not plumbed into this script.
+    """
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    scripts = _make_helpers(home)
+    (scripts / "my-own-tool.sh").write_text("#!/bin/sh\necho host\n", encoding="utf-8")
+
+    report = _run(checkout, home)
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert payload["orphaned_helpers"] == [], payload
+    assert "my-own-tool.sh" not in report.stdout
+
+
+def test_a_symlink_that_is_not_an_install_is_NOT_an_orphan(tmp_path: Path):
+    """The shape test must be a shape test, not "any dangling symlink".
+
+    A host's own broken symlink is still the host's business. Ours point at
+    `<checkout>/scripts/<same basename>`; this one does not.
+    """
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    scripts = _make_helpers(home)
+    (scripts / "hosts-link.sh").symlink_to(tmp_path / "somewhere-else" / "hosts-link.sh")
+    assert (scripts / "hosts-link.sh").is_symlink()
+    assert not (scripts / "hosts-link.sh").exists()
+
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+    assert payload["orphaned_helpers"] == [], payload
+
+
+def test_a_pycache_directory_is_NOT_an_orphan_even_on_a_fresh_clone(tmp_path: Path):
+    """The false positive that would get this axis muted within a week.
+
+    `__pycache__` appears in an install directory as soon as anything imports a
+    Python helper from it, and it is gitignored - so a FRESH CLONE has none, and
+    the two sides are asymmetric on the ordinary host rather than an exotic one.
+    Keeping it out is the INSTALL-SIDE shape filter's job, not the source side's:
+    a source-side `-f` would report it wherever the checkout lacks one.
+    """
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    scripts = _make_helpers(home)
+    (scripts / "__pycache__").mkdir()
+    (scripts / "__pycache__" / "x.cpython-312.pyc").write_bytes(b"\x00")
+    assert not (checkout / "scripts" / "__pycache__").exists(), (
+        "the fresh-clone shape is the point of this test"
+    )
+
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+    assert payload["orphaned_helpers"] == [], payload
+    assert "__pycache__" not in _run(checkout, home).stdout
+
+
+def test_an_orphan_is_NAMED_not_merely_counted(tmp_path: Path):
+    """A count cannot confirm a set.
+
+    Two predicates over one directory can agree on the total and disagree on
+    membership, so the names are the only output a reader can check.
+    """
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    scripts = _make_helpers(home)
+    for name in ("alpha-gone.sh", "beta-gone.sh"):
+        (scripts / name).symlink_to(checkout / "scripts" / name)
+        assert not (scripts / name).exists(), "fixture must dangle"
+
+    report = _run(checkout, home)
+    assert "alpha-gone.sh" in report.stdout and "beta-gone.sh" in report.stdout, report.stdout
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+    assert sorted(payload["orphaned_helpers"]) == ["alpha-gone.sh", "beta-gone.sh"], payload
+
+
+def test_an_orphan_alone_does_not_make_the_verdict_drift(tmp_path: Path):
+    """Mirrors the Codex arm, which has never counted its orphans as drift.
+
+    An orphan is a thing to notice, not a reason to refuse: the live specimen is
+    a retired helper nothing invokes. The success sentence must still not claim
+    it found nothing, so the orphan is named on the ok path too.
+    """
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    scripts = _make_helpers(home)
+    (scripts / "gone-from-checkout.sh").symlink_to(
+        checkout / "scripts" / "gone-from-checkout.sh"
+    )
+    assert not (scripts / "gone-from-checkout.sh").exists(), "fixture must dangle"
+
+    report = _run(checkout, home)
+    assert "INSTALL_DRIFT: ok" in report.stdout, report.stdout
+    assert report.returncode == 0
+    assert "gone-from-checkout.sh" in report.stdout
+    assert "orphaned helper(s) named above" in report.stdout, (
+        "the ok sentence must not imply nothing was found when something was named"
+    )
+
+
+def test_a_clean_install_reports_zero_orphans(tmp_path: Path):
+    """The other direction: the axis must not invent an orphan on a clean host."""
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    _make_helpers(home)
+
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+    assert payload["helpers_orphaned"] == 0, payload
+    assert payload["orphaned_helpers"] == [], payload
+    assert "0 orphaned" in _run(checkout, home).stdout

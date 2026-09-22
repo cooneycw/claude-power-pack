@@ -253,80 +253,6 @@ if [ -n "$SCRIPTS_DIR" ] && [ -d "$SCRIPTS_DIR" ]; then
 fi
 HELPERS_TOTAL=$(( HELPERS_CURRENT + HELPERS_STALE ))
 
-# --- Installed helper ORPHAN detection (nit store #864) ---------------------
-#: NEGATIVE-CONTROL: controls/install-drift
-# The parity loop above reports current/stale/missing over a population derived
-# ENTIRELY FROM THE CHECKOUT, so it cannot see an installed helper the checkout
-# no longer ships. The Codex arm one block down has carried an `orphaned` axis
-# since it was written; this arm had none, and this host already had an orphan
-# it could not report: ~/.claude/scripts/project-next-vendor.py, a dangling
-# symlink since af348f8 (#1144) deleted its target. Measured before the fix,
-# install-drift printed `90 current, 0 stale, 0 missing` and `installed helpers
-# and Codex skills match the checkout`, exit 0. The count reconciled exactly:
-# 91 entries resolved into the checkout, one target was absent, 91 - 1 = 90.
-#
-# THE DEFECT IS THE SOURCE-SIDE GUARD IN THE LOOP ABOVE, NOT THE ENTRY-SIDE ONE.
-# `[ -f "$source_helper" ]` reads like an existence test and is a REGULAR-FILE
-# test: it rejects absent, directory and dangling alike, so it drops an orphan
-# type-agnostically and on its own. The entry-side `[ -f "$installed" ]` is
-# REDUNDANT for this failure - patching it to `-e` was measured to be a NO-OP,
-# byte-identical output - and it is doing its own job, so it stays as it is.
-#
-# WHAT "ORPHAN" MEANS HERE, and this is NARROWER than the obvious reading. An
-# orphan is something WE INSTALLED whose checkout source is now gone. It is NOT
-# "any installed entry with no checkout counterpart": this repository has a
-# deliberate, committed contract that a script the user put in ~/.claude/scripts
-# is none of this check's business, pinned by
-# test_host_only_scripts_are_not_judged - and flagging those would make the axis
-# cry wolf on every host that keeps a tool there, which is how a new axis gets
-# muted within a week of shipping.
-#
-# The discriminator is the INSTALL SHAPE, not the file type. /cpp:init and
-# /cpp:update install via `cpp-host-write.sh link-into`, i.e. as symlinks INTO
-# the checkout, so a symlink whose target lies under $CHECKOUT is ours by
-# construction and a host-owned plain file can never be mistaken for one. That
-# is also why a `__pycache__` directory cannot false-positive here: it is not a
-# symlink, so it never enters the population - which matters because
-# `__pycache__` is gitignored, so a fresh clone has none and the two sides are
-# asymmetric on the ORDINARY host rather than an exotic one.
-#
-# DECLARED LIMIT: this therefore does NOT cover a COPY-installed helper whose
-# source was deleted - on the legacy-cache lane a copy is a plain file and is
-# indistinguishable from a host-owned one without consulting the HELPERS
-# allowlist, which is not plumbed in here. Naming that gap is the point; a
-# silent partial axis is the failure this whole ticket is about.
-#
-# THIS IS REPORTED, NOT A DRIFT VERDICT, mirroring the Codex arm exactly:
-# CODEX_SKILLS_ORPHANED contributes a summary clause and a count and does not
-# feed VERDICT=drift. An orphan is a thing to notice, not a reason to refuse.
-HELPERS_ORPHANED=0
-ORPHANED_HELPERS=()
-if [ -n "$SCRIPTS_DIR" ] && [ -d "$SCRIPTS_DIR" ]; then
-    for installed in "$SCRIPTS_DIR"/*; do
-        # OURS BY CONSTRUCTION: a symlink with the INSTALL SHAPE - it points at
-        # `<some checkout>/scripts/<its own basename>`, which is what
-        # `cpp-host-write.sh link-into` creates and what nothing else does.
-        #
-        # Keyed on the SHAPE and not on "target is under $CHECKOUT", which was
-        # the first attempt and is wrong: the installed links point at WHICHEVER
-        # checkout installed them, which need not be the one this run compares
-        # against. Measured - run from a worktree, that version reported the
-        # live specimen as 0 orphaned while it was sitting right there.
-        [ -L "$installed" ] || continue
-        base="${installed##*/}"
-        target="$(readlink "$installed")" || continue
-        case "$target" in
-            */scripts/"$base") ;;
-            *) continue ;;
-        esac
-        # EXISTENCE, not shape. `-e` follows the link, which is exactly "does
-        # the checkout still have something at the end of this link".
-        [ -e "$installed" ] && continue
-        HELPERS_ORPHANED=$(( HELPERS_ORPHANED + 1 ))
-        ORPHANED_HELPERS+=("$base")
-    done
-fi
-
 # --- Installed helper MISSING detection (#828) ------------------------------
 # See the extended job-1 header comment above for the full rationale. Shells
 # out to flow-helpers-install.sh --check (read-only - see its own header) and
@@ -611,9 +537,6 @@ if [ "$MODE" = "quiet" ]; then
     if [ "$CODEX_SKILLS_STALE" -gt 0 ]; then
         clauses+=("${CODEX_SKILLS_STALE} Codex skill(s) stale - run codex-skill-sync.py --install")
     fi
-    if [ "$HELPERS_ORPHANED" -gt 0 ]; then
-        clauses+=("${HELPERS_ORPHANED} installed helper(s) orphaned (no longer in the checkout)")
-    fi
     if [ "$CODEX_SKILLS_ORPHANED" -gt 0 ]; then
         clauses+=("${CODEX_SKILLS_ORPHANED} Codex skill(s) orphaned (no longer shipped)")
     fi
@@ -680,15 +603,6 @@ if [ "$MODE" = "json" ]; then
         printf '%s"%s"' "$separator" "$helper"
         separator=,
     done
-    # The orphan axis reaches the MACHINE surface too. An axis reported to a
-    # human and absent from the JSON is consumable by nobody, which is the
-    # "printed but never consulted" shape this repository treats as decoration.
-    printf '],"helpers_orphaned":%s,"orphaned_helpers":[' "$HELPERS_ORPHANED"
-    separator=""
-    for helper in "${ORPHANED_HELPERS[@]}"; do
-        printf '%s"%s"' "$separator" "$helper"
-        separator=,
-    done
     printf '],"split":%s,"codex_skills_checked":%s,"codex_skills_current":%s,' \
         "$([ "$SPLIT" -eq 1 ] && echo true || echo false)" \
         "$([ "$CODEX_SKILLS_CHECKED" -eq 1 ] && echo true || echo false)" \
@@ -732,7 +646,7 @@ fi
 
 echo "install-drift: checkout $CHECKOUT"
 echo "  host helpers       ${SCRIPTS_DIR:-<none>}"
-echo "    ${HELPERS_CURRENT} current, ${HELPERS_STALE} stale, ${HELPERS_MISSING} missing, ${HELPERS_ORPHANED} orphaned"
+echo "    ${HELPERS_CURRENT} current, ${HELPERS_STALE} stale, ${HELPERS_MISSING} missing"
 if [ "${#STALE_HELPERS[@]}" -gt 0 ]; then
     echo ""
     echo "  Stale helpers: ${STALE_HELPERS[*]}"
@@ -740,14 +654,6 @@ fi
 if [ "${#MISSING_HELPERS[@]}" -gt 0 ]; then
     echo ""
     echo "  Missing helpers: ${MISSING_HELPERS[*]}"
-fi
-if [ "${#ORPHANED_HELPERS[@]}" -gt 0 ]; then
-    echo ""
-    # NAMED, never merely counted. Over this install directory the two
-    # candidate predicates both yield 91 entries and are DISJOINT on two
-    # members, so anyone reconciling this axis by count passes with the
-    # wrong set. The names are the only checkable output.
-    echo "  Orphaned helpers (installed, no longer in the checkout): ${ORPHANED_HELPERS[*]}"
 fi
 if [ "$HELPERS_MISSING_CHECKED" -eq 0 ]; then
     echo ""
@@ -848,12 +754,6 @@ case "$VERDICT" in
         # than its input population supports is the detector-contract failure this
         # repository gates on elsewhere.
         ok_subjects="installed helpers and Codex skills"
-        # An orphan does not make this `drift` (the Codex arm treats its own
-        # the same way), but the success sentence must not imply it found
-        # nothing when it named something. Say it on the ok path too.
-        if [ "$HELPERS_ORPHANED" -gt 0 ]; then
-            ok_subjects="$ok_subjects (with ${HELPERS_ORPHANED} orphaned helper(s) named above)"
-        fi
         if [ "$CLAUDE_SKILLS_MANAGED" -gt 0 ]; then
             ok_subjects="$ok_subjects and ${CLAUDE_SKILLS_MANAGED} CPP-marked Claude skill(s)"
         fi
