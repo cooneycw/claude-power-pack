@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1083-give-the-step-3-no-bypass-gate-a-deterministic-lay",
+  "counts": {
+    "accepted": 7,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "889c24c82978fd20a2858936d016434a27aa42af",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1083",
+  "passes": 1,
+  "recorded_at": "2026-09-22T14:21:24Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 12
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
