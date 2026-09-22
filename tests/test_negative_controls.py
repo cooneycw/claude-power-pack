@@ -2885,3 +2885,95 @@ def test_the_same_contradiction_on_a_sanity_case_is_also_unresolved(tmp_path: Pa
     assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
     assert "exited like a CLEAN run" in result.stdout, result.stdout
     assert result.returncode == 1
+
+
+# --------------------------------------------------------------------------- #
+# The ruff fixture exclusions - a tolerance that must not grow silently (#1180)
+# --------------------------------------------------------------------------- #
+EXPECTED_RUFF_EXCLUDE = [
+    "controls/*/anchors",
+    "controls/check-negative-fixture-preconditions/cases/unknown-unparseable-neighbour/tests/test_broken.py",
+    "controls/check-negative-fixture-preconditions/cases/unknown-unparseable-with-violation/tests/test_broken.py",
+]
+
+
+def _live_ruff_exclude() -> list[str]:
+    """The exclude list AS SHIPPED, not the expectation above.
+
+    The property tests below must read this. An earlier cut iterated
+    EXPECTED_RUFF_EXCLUDE and so asserted facts about a literal in this file -
+    it stayed green through a mutation that added `controls/*/cases/**` to the
+    real config, which is the exact widening it was written to forbid. Caught
+    by running the mutation and counting the failures: one, where two were due.
+    """
+    import tomllib
+
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    return list(config["tool"]["ruff"]["exclude"])
+
+
+def test_the_ruff_fixture_exclusions_have_not_grown() -> None:
+    """The lint exclusion is an instrument change, so it gets a guard (#1180).
+
+    `pyproject.toml` excludes two fixture FILES from ruff because the
+    `check-negative-fixture-preconditions` control needs a case whose input does
+    not parse, and a fixture that cannot lint cannot coexist with a policy that
+    lints every fixture. Taking that exception is correct; letting it SPREAD is
+    not. A widened pattern would silently excuse the next unparseable fixture
+    somebody adds by accident - removing, for every other fixture in the tree,
+    exactly the distinction ruff is there to draw.
+
+    Asserting exact membership rather than "the two are present" is what makes
+    this a guard: the failure it must catch is an ADDITION, and a containment
+    check cannot see one.
+    """
+    exclude = _live_ruff_exclude()
+
+    assert sorted(exclude) == sorted(EXPECTED_RUFF_EXCLUDE), (
+        "the ruff exclude list changed. Every entry here suppresses linting for "
+        "something, so adding one is a deliberate act that belongs in a review: "
+        f"added={sorted(set(exclude) - set(EXPECTED_RUFF_EXCLUDE))} "
+        f"removed={sorted(set(EXPECTED_RUFF_EXCLUDE) - set(exclude))}"
+    )
+
+
+def test_each_excluded_fixture_is_actually_unparseable_and_actually_present() -> None:
+    """A stale exclusion is a silent tolerance for a file that now lints fine.
+
+    The two entries are justified ONLY by the files being unparseable by
+    construction. If one is deleted, renamed, or quietly repaired, the exclusion
+    stops paying for itself and becomes a standing hole nobody is watching - and
+    nothing else in the suite would notice, because an exclusion that covers
+    nothing produces no output at all.
+
+    This also pins the direction that matters for the control: the file must
+    STILL fail to parse, or `unknown-unparseable-*` silently stops exercising
+    the refusal branch and starts testing an ordinary clean tree.
+    """
+    import ast
+
+    fixtures = [e for e in _live_ruff_exclude() if e.endswith(".py")]
+    assert fixtures, "no fixture files are excluded, so this guard is watching nothing"
+
+    for rel in fixtures:
+        path = ROOT / rel
+        assert path.is_file(), f"excluded fixture {rel} is missing; the exclusion is stale"
+        with pytest.raises(SyntaxError):
+            ast.parse(path.read_text(encoding="utf-8"))
+
+
+def test_no_fixture_exclusion_is_a_directory_or_glob() -> None:
+    """Only `controls/*/anchors` may be a pattern; a fixture exception is per-file.
+
+    The anchors entry is a directory pattern for a different and settled reason
+    (#924: an anchor is a frozen byte-identical copy). The #1180 exceptions are
+    not allowed to borrow that shape - a glob is precisely how "two known files"
+    becomes "anything under here" without anyone deciding to.
+    """
+    for entry in _live_ruff_exclude():
+        if entry == "controls/*/anchors":
+            continue
+        assert entry.endswith(".py"), f"fixture exclusion {entry!r} is not a single file"
+        assert "*" not in entry and "?" not in entry, (
+            f"fixture exclusion {entry!r} is a glob; name the file instead"
+        )

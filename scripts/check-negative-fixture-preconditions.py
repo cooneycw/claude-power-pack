@@ -365,6 +365,12 @@ class Survey:
 
     So the denominator ships with the verdict. Counted from the same walk that
     produces the findings, never a second traversal.
+
+    `unparseable` is the same argument one level down (#1110). `files_scanned`
+    counts what was HANDED to the gate, not what it managed to read, so a file
+    that failed to parse sat inside the denominator asserting an inspection that
+    never happened - the exact "I could not see any of them" green this class
+    was created to remove, at file granularity instead of site granularity.
     """
 
     files_scanned: int
@@ -372,6 +378,10 @@ class Survey:
     unasserted_sites: int
     files_with_sites: int
     findings: list[Finding]
+    #: Files whose source could not be parsed, so NOTHING in them was examined.
+    #: Not a sub-count of anything above: those counts are silent about it,
+    #: which is why it has to be carried separately and keyed on by `main`.
+    unparseable: tuple[Path, ...] = ()
 
 
 #: What this gate cannot see. Named in the OUTPUT, not only in the docstring:
@@ -411,11 +421,31 @@ def survey_paths(paths: list[Path]) -> Survey:
     sites = 0
     unasserted = 0
     files_with_sites = 0
+    unparseable: list[Path] = []
     for path in sorted(paths):
         source = path.read_text(encoding="utf-8")
         findings.extend(_check_module(path, source))
 
-        tree = ast.parse(source)
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            # `_check_module` swallows this two lines above and returns [], so an
+            # unguarded re-parse here died on exactly the input it tolerates: the
+            # gate produced no verdict at all and redded `make verify` for a
+            # reason unrelated to what it checks. Same duplication that produced
+            # #1110's divergent line numbering, in a second direction.
+            #
+            # SKIPPING IS NOT ENOUGH, and matching `_check_module` exactly would
+            # be the wrong fix. Silence means different things in the two
+            # functions: a FINDINGS function that skips a file reports nothing,
+            # while a SURVEY function that skips one still reports having LOOKED
+            # at it, because it owns the denominator. Bare `continue` therefore
+            # turned a loud wrong-reason crash into a silent CLEAN BILL over a
+            # file that may hold a real unwaived replacement - #1110's own defect
+            # class, reintroduced in the function the fix was applied to. So the
+            # skip is RECORDED and `main` refuses to render `ok` over it.
+            unparseable.append(path)
+            continue
         allow_lines = {
             i for i, line in enumerate(source_lines(source), start=1) if ALLOW_RE.search(line)
         }
@@ -443,6 +473,7 @@ def survey_paths(paths: list[Path]) -> Survey:
         unasserted_sites=unasserted,
         files_with_sites=files_with_sites,
         findings=sorted(findings, key=lambda f: (str(f.path), f.assign_lineno)),
+        unparseable=tuple(sorted(unparseable)),
     )
 
 
@@ -466,6 +497,26 @@ def test_files(tests_dir: Path) -> list[Path]:
 def check_tree(tests_dir: Path) -> list[Finding]:
     """Check every ``test_*.py`` (and ``conftest.py``) under ``tests_dir``."""
     return check_paths(test_files(tests_dir))
+
+
+def _render_findings(findings: list[Finding], root: Path) -> None:
+    """Print the finding lines and the remedy, carrying NO verdict marker.
+
+    Factored out because the same body is printed under TWO headings (#1180):
+    the ordinary detection marker, and - when some file could not be parsed -
+    a plain diagnostic heading that must not match `detect_signal`. One body
+    means the two cannot drift into describing the same findings differently.
+    """
+    for finding in findings:
+        print(f"  {finding.render(root)}")
+    print(
+        "\nAssert the absence you built (CLAUDE.md core directive, issue #697):\n"
+        '    assert shutil.which("git", path=str(stub_path)) is None, "fixture must lack git"\n'
+        "\nA fail-open test's success assertions - nothing printed, exit code\n"
+        "unchanged - are also what a completely broken fixture produces. The\n"
+        "precondition guard is what separates them, and it costs one line.\n"
+        "Intentional exception: append `# negative-fixture: allow <reason>`."
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -497,6 +548,90 @@ def main(argv: list[str] | None = None) -> int:
 
     survey = survey_paths(paths)
     findings = survey.findings
+
+    # THE #840 SHAPE, AT FILE GRANULARITY (issue #1110). #840 established that a
+    # tests/ directory holding no test files is "the same examined-nothing
+    # condition as a missing directory", and that leaving the `ok` message
+    # un-keyed on it would claim a clean bill "for a population of zero - a false
+    # clean bill of health, not merely a missed report". A file that exists but
+    # cannot be PARSED is that same condition one level down: it sits inside
+    # `files_scanned` while contributing nothing, so the denominator asserts an
+    # inspection that did not happen.
+    #
+    # So this is not a new verdict vocabulary - it is #840's existing rule
+    # applied per file instead of per directory, and it exits 1 for #840's
+    # reason: an unexaminable population member must never render as `ok`. The
+    # files are NAMED, because a count tells a reader something is wrong and the
+    # names tell them where.
+    if survey.unparseable:
+        print(
+            # THE `UNKNOWN - ` MARKER IS LOAD-BEARING, and the obvious phrasing
+            # was wrong (counter-model review, #1110). The first cut ENDED this
+            # line in the gate's own "nothing was scanned" idiom so the control's
+            # existing `detect_signal` would match with no regex change. That
+            # reasoning was about the detector's COVERAGE and ignored what the
+            # match MEANS: `detect_signal` is how the harness scores a
+            # SUCCESSFUL DETECTION, so a parse refusal was being counted as the
+            # gate catching its planted defect. A case whose neighbouring file
+            # merely failed to parse then earned `BAD` even when the planted
+            # violation was silently waived - the control could no longer tell
+            # detecting our thing from failing to examine a neighbour's, which is
+            # detector-contracts question 2 breaking inside the instrument built
+            # to answer it.
+            #
+            # A REFUSAL IS NOT A DETECTION. #1129 gave the harness a first-class
+            # way to say so: `unknown_signal`, checked BEFORE `detect_signal`, for
+            # "the gate refused because of THIS input". So the line carries the
+            # `UNKNOWN - ` marker the other refusal-bearing gates use
+            # (shellcheck-gate, check-ci-coverage), and deliberately avoids the
+            # words "nothing was scanned" - that phrase would still match
+            # `detect_signal`'s second alternative and re-create the collision
+            # one layer down, precedence or not.
+            f"negative-fixture: UNKNOWN - {len(survey.unparseable)} of "
+            f"{survey.files_scanned} test file(s) could not be parsed, so nothing "
+            f"in them was examined"
+        )
+        for path in survey.unparseable:
+            try:
+                shown = path.relative_to(root)
+            except ValueError:  # pragma: no cover - a path outside the root
+                shown = path
+            print(f"  {shown}")
+        print(
+            "\nA file this gate cannot parse may hold an unwaived wholesale "
+            f"{TARGET_ENV_VAR} replacement; it was not examined either way, so "
+            "this run is NOT a clean bill for it. Fix the syntax error and re-run."
+        )
+        # UNKNOWN IS THE SOLE VERDICT MARKER, so this branch is TERMINAL
+        # (issue #1180 part 4). It used to fall through when `findings` was
+        # non-empty, printing the detection marker underneath this refusal -
+        # both `unknown_signal` and `detect_signal` then matched one output and
+        # the harness `_ambiguous()` scored it UNRESOLVED.
+        #
+        # The decision, and its cost, recorded where the code makes it: a
+        # MASKED MARKER IS RECOVERABLE - fix the syntax error and re-run, and
+        # the detection is scored normally - while A REFUSAL SCORED AS A
+        # DETECTION IS NOT: the control then certifies a blind instrument as
+        # sighted, which is the one failure this gate exists to prevent. So the
+        # refusal wins, and the price is that a real finding below stops being
+        # scored while coverage is incomplete. Nothing is let through: the exit
+        # is 1 either way and the findings still print.
+        #
+        # They print WITHOUT the marker. `detect_signal` is
+        # `^negative-fixture: (?:[0-9]+ of [0-9]+ wholesale|.*nothing was
+        # scanned)`, so the heading below avoids both alternatives by not
+        # opening with `negative-fixture:` at all, rather than relying on
+        # indentation to break the `^` anchor - an anchor a later edit could
+        # silently unindent.
+        if findings:
+            print(
+                "\nAlso found, in the files that DID parse - DIAGNOSTICS, not a "
+                "verdict.\nThis run made no coverage claim, so these are reported "
+                "and not scored:"
+            )
+            _render_findings(findings, root)
+        return 1
+
     if not findings:
         # The denominator, not a quantifier (#933, the #952 form). "every" was a
         # claim about a class this gate inspects three syntactic shapes of; a
@@ -520,16 +655,7 @@ def main(argv: list[str] | None = None) -> int:
         f"{len(findings)} function(s) "
         f"({survey.files_scanned} test file(s) scanned)\n"
     )
-    for finding in findings:
-        print(f"  {finding.render(root)}")
-    print(
-        "\nAssert the absence you built (CLAUDE.md core directive, issue #697):\n"
-        '    assert shutil.which("git", path=str(stub_path)) is None, "fixture must lack git"\n'
-        "\nA fail-open test's success assertions - nothing printed, exit code\n"
-        "unchanged - are also what a completely broken fixture produces. The\n"
-        "precondition guard is what separates them, and it costs one line.\n"
-        "Intentional exception: append `# negative-fixture: allow <reason>`."
-    )
+    _render_findings(findings, root)
     return 1
 
 
