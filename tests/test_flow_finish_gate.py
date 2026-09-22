@@ -2488,3 +2488,114 @@ def test_the_receipt_line_separates_the_filename_from_the_branch(tmp_path: Path)
     detached = _gate(repo).stdout
     assert "receipt: receipt.json  (detached HEAD:" in detached, detached
     assert "for branch" not in detached.split("COUNTER_MODEL:")[1].split("\n")[0]
+
+
+# --- The control runner's isolation (attachment coupling, 2026-09-22) -------
+#
+# The six controls/flow-finish-gate* registrations used to `cd` into their case
+# IN PLACE, inside this repository, so the gate read the ENCLOSING repository's
+# git state - a fact the fixture never chose. Measured at one sha: attached to a
+# branch -> fail, DETACHED at the same sha -> ok, attached to main -> fail. So
+# ATTACHMENT was the variable, main failed permanently, and CI - always detached
+# - could never see any of it.
+
+RUNNER = ROOT / "controls" / "flow-finish-gate" / "run-case.sh"
+REAL_REPO_MARKER = "RUN-ON-THE-REAL-REPO-PATH"
+
+
+def _run_case(case_dir: Path, cpp_mode: str = "empty") -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["sh", str(RUNNER), str(case_dir), str(SCRIPT), cpp_mode],
+        capture_output=True, text=True, check=False, cwd=ROOT,
+    )
+
+
+def _control_path(proc: subprocess.CompletedProcess[str]) -> str:
+    hits = re.findall(r"^FLOW_FINISH_GATE_CONTROL_PATH: (\S+)", proc.stdout, re.M)
+    assert hits, f"the runner reported no path:\n{proc.stdout}\n{proc.stderr}"
+    return hits[-1]
+
+
+def test_the_runner_isolates_outside_every_git_repository(tmp_path: Path):
+    """The isolation IS the location, so pin the location.
+
+    A copy that landed anywhere inside a checkout would silently restore the
+    coupling and the case would go green while measuring the wrong repository -
+    worse than the red it replaced, because nothing would say so.
+    """
+    case = tmp_path / "case"
+    case.mkdir()
+    (case / "Makefile").write_text("lint:\n\t@echo ok\n", encoding="utf-8")
+    proc = _run_case(case)
+    assert _control_path(proc) == "isolated"
+    assert "FLOW_FINISH_GATE_CONTROL: unavailable" not in proc.stdout
+
+
+def test_the_real_repo_marker_is_LOAD_BEARING(tmp_path: Path):
+    """The marker must change behaviour, or the case that names it is a costume.
+
+    A BAD case reds on EITHER path, so the verdict alone cannot show which path
+    ran. Without the runner saying so, a marker that silently stopped working
+    would leave a case named for the real path quietly running isolated - the
+    exact drift that case exists to catch, wearing the costume of the guard.
+    """
+    case = tmp_path / "case"
+    case.mkdir()
+    (case / "Makefile").write_text("lint:\n\t@echo ok\n", encoding="utf-8")
+    assert _control_path(_run_case(case)) == "isolated"
+    (case / REAL_REPO_MARKER).write_text("deliberate\n", encoding="utf-8")
+    assert _control_path(_run_case(case)) == "real-repo"
+
+
+def test_the_committed_real_repo_case_still_takes_the_real_path():
+    """Condition from the approving review: one case stays on the real path.
+
+    Asserted against the COMMITTED case rather than a fixture, because the
+    condition is about what ships.
+    """
+    case = ROOT / "controls" / "flow-finish-gate" / "cases" / "bad-verify-reds-ON-THE-REAL-REPO-PATH"
+    assert (case / REAL_REPO_MARKER).is_file(), "the committed case lost its marker"
+    assert _control_path(_run_case(case)) == "real-repo"
+
+
+def test_a_CRASHING_gate_still_does_not_read_as_detection():
+    """The other half of the discriminating pair, and the reason `\\b` is safe.
+
+    `detect_signal` was loosened from `^FLOW_FINISH_GATE: fail$` to
+    `...fail\\b` because a committed case proved the anchor could not match any
+    refusal carrying a reason. A looser pattern creates a defect one layer down
+    if it lets a CRASH read as a detection - a crash exits non-zero exactly as a
+    refusal does. So the crash fixture is committed beside the refusal one, and
+    this pins that it produces NO verdict line at all: there is nothing for any
+    pattern, loose or strict, to match.
+    """
+    case = ROOT / "controls" / "flow-finish-gate" / "cases" / "probe-crash-must-not-read-as-detected"
+    proc = _run_case(case)
+    assert proc.returncode != 0, "a crash fixture that exits 0 proves nothing"
+    verdicts = re.findall(r"^FLOW_FINISH_GATE: ", proc.stdout, re.M)
+    assert verdicts == [], f"a crash must emit NO verdict line, got {verdicts}:\n{proc.stdout}"
+
+
+def test_the_runner_reports_UNAVAILABLE_rather_than_clean_when_it_cannot_isolate(
+    tmp_path: Path,
+):
+    """A battery that silently runs fewer cases is unscanned-reads-as-clean.
+
+    TMPDIR pointed at a path that cannot be created is the reachable form: the
+    runner must say so in its own words and exit non-zero, never fall through to
+    the gate and report whatever the enclosing repository happens to produce.
+    """
+    env = os.environ.copy()
+    env["TMPDIR"] = str(tmp_path / "does" / "not" / "exist")
+    case = tmp_path / "case"
+    case.mkdir()
+    (case / "Makefile").write_text("lint:\n\t@echo ok\n", encoding="utf-8")
+    proc = subprocess.run(
+        ["sh", str(RUNNER), str(case), str(SCRIPT), "empty"],
+        capture_output=True, text=True, check=False, cwd=ROOT, env=env,
+    )
+    assert proc.returncode != 0, proc.stdout + proc.stderr
+    assert "FLOW_FINISH_GATE_CONTROL: unavailable" in proc.stdout, proc.stdout
+    assert "FLOW_FINISH_GATE: " not in proc.stdout, (
+        "an unavailable run must not also emit a gate verdict"
+    )
