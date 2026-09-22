@@ -1,0 +1,1 @@
+../../../other-project/scripts/tool.sh

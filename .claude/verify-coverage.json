@@ -125,8 +125,9 @@
       "reason": "the /flow:finish quality gate, whose verdict the commit, push and PR read"
     },
     "flow-helpers-install.sh": {
-      "class": "not-a-checker",
-      "reason": "installs the flow helper family into ~/.claude/scripts; it issues no verdict"
+      "class": "tested",
+      "consumer": "tests/test_flow_helpers_install.py",
+      "reason": "installs the flow helper family into ~/.claude/scripts AND issues a verdict the install decision consumes - FLOW_HELPERS: ok|installed|unverifiable|unverifiable-source|tampered|missing|stale|error. It was declared not-a-checker on the grounds that it issues no verdict, which was already false when written and which #1185 made emphatically so: it now REFUSES to install a source that disagrees with its recorded digest"
     },
     "flow-live-driver-guard.sh": {
       "class": "tested",

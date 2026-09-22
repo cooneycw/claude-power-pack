@@ -138,6 +138,69 @@ def test_the_pinned_exclusions_are_narrow_and_do_not_blind_the_check(tmp_path: P
 
 
 @requires_git
+def test_the_as_read_suffix_is_excluded_without_blinding_its_own_directory(
+    tmp_path: Path,
+) -> None:
+    """The #1185 exclusion boundary, in BOTH directions, same shape as above.
+
+    `docs/flow-runs/issue-N.as-read.md` is #1187's byte-faithful copy of a
+    GitHub issue body, digested over the full text. Its value IS fidelity, so
+    normalising its dashes would make it a lie about what the run read - and the
+    dashes are the issue author's, not this repository's.
+
+    DIRECTION 2 IS THE ONE THAT MATTERS, and it is why this is a SUFFIX rule and
+    not a `docs/flow-runs/` prefix. The plan record `issue-N.md` lives in the
+    same directory and IS authored by this repository, so it must stay covered.
+    A prefix exclusion passes direction 1 identically and FAILS this half - it
+    would swallow the plan record with the snapshot, keying on location where
+    the honest key is provenance.
+
+    Measured before the exclusion was added: 9 of 23 recent open CPP issues
+    carry an em or en dash, so roughly two in five /flow:auto runs would red the
+    suite for a reason naming neither feature.
+    """
+    dash = "Something \u2014 with an em dash outside a fence.\n"
+
+    # Direction 1: the snapshot carries the issue author's dashes; tree is clean.
+    files = _padded_population(60)
+    files["docs/flow-runs/issue-4242.as-read.md"] = f"# Issue #4242 as read\n\n{dash}"
+    (tmp_path / "excluded").mkdir()
+    repo = _init_repo_with_md_files(tmp_path / "excluded", files)
+    proc = _run(repo)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+    # Direction 2: the plan record NEXT TO IT is ours, and is still caught.
+    files["docs/flow-runs/issue-4242.md"] = f"# Flow run record\n\n{dash}"
+    (tmp_path / "not-excluded").mkdir()
+    repo = _init_repo_with_md_files(tmp_path / "not-excluded", files)
+    proc = _run(repo)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "docs/flow-runs/issue-4242.md" in proc.stderr, (
+        "the plan record shares a directory with the snapshot and is AUTHORED by "
+        "this repository - a directory-prefix exclusion would have swallowed it"
+    )
+    assert "issue-4242.as-read.md" not in proc.stderr
+
+
+@requires_git
+def test_the_exclusion_predicates_are_both_applied(tmp_path: Path) -> None:
+    """A prefix rule and a suffix rule are two comparisons, not one.
+
+    The comment at the rule site used to say `str.startswith` takes a tuple "so
+    this stays one comparison". Adding a suffix rule made that false. This pins
+    that BOTH predicates are live, so a refactor collapsing back to one is a red
+    test rather than a silently re-blinded check.
+    """
+    dash = "Something \u2014 with an em dash outside a fence.\n"
+    files = _padded_population(60)
+    files["docs/project-next-contract.md"] = f"# Contract\n\n{dash}"      # prefix rule
+    files["docs/flow-runs/issue-4242.as-read.md"] = f"# As read\n\n{dash}"  # suffix rule
+    repo = _init_repo_with_md_files(tmp_path, files)
+    proc = _run(repo)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+@requires_git
 def test_a_dash_inside_a_blockquoted_fence_passes(tmp_path: Path) -> None:
     """Codex review (#1037): a fence marker prefixed by Markdown blockquote
     (`> \\`\\`\\``) is still a fence, not prose - a legitimate quoted code

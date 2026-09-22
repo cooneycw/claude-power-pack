@@ -1,0 +1,1 @@
+# a generated skill (fixture)
