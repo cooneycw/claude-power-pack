@@ -19,9 +19,9 @@ The failure is never a wrong answer. It is a *correct narrow answer read as a
 broad one*, which is why ordinary review does not catch it: the code does exactly
 what it says, and what it says is not what the caller needs.
 
-## The two questions
+## The three questions
 
-Ask both of any check in a diff. They are the whole contract; everything below is
+Ask all three of any check in a diff. They are the whole contract; everything below is
 evidence that they are worth asking.
 
 ### 1. Membership floor
@@ -82,9 +82,53 @@ overridden by a narrow one. In #869 `kill -0` correctly says the pid is dead and
 the presence of a socket file says otherwise, and the file wins. Here the narrow
 check does not merely get over-read - it defeats the broad one.
 
+### 3. Anti-control
+
+> **Does this check's own control still pass when the defect it detects is
+> removed from the case?**
+
+If it does, the control is not a weaker control. It is an **anti-control**: it
+manufactures confidence. A control that passes either way certifies nothing and
+reads exactly like one that certifies something, which is worse than having none
+- the absence of a control is at least visible.
+
+Questions 1 and 2 are about what a check CLAIMS. This one is about whether the
+evidence for that claim can fail. A control is itself a detector, and the state
+it must be able to represent is "my subject is not broken".
+
+**The check is one command: remove the planted defect from the known-bad case
+and run it again.** It must stop reporting detection. If it does not, the case
+is being satisfied by something other than its subject, and you have to find out
+what.
+
+**Worked example, from this repository, 2026-09-22 (#1203).** Six controls tested
+`flow-finish-gate.sh`. Their cases ran IN PLACE inside the checkout, so the gate
+read the ENCLOSING repository's git state - and on a branch with no counter-model
+receipt it refused. The fix isolated the cases; one was deliberately kept on the
+real-repo path as a guard against the isolation drifting into a false green.
+
+That guard was an anti-control. With its planted defect **entirely removed** -
+every gate in the fixture passing - it still emitted `FLOW_FINISH_GATE: fail` and
+still matched, because the enclosing repository had no receipt. It could not tell
+its own planted defect from its neighbour's state. The guard against the coupling
+had re-imported the coupling.
+
+**Why no per-case expectation could rescue it:** `detect_signal` is declared
+per CONTROL, not per case, so no case can say "only my planted defect counts".
+That is a structural limit and not an oversight, and it decides the remedy: where
+a property cannot be expressed as a case, pin it in a test, where the specific
+evidence - that the failure belongs to the planted defect - can be asserted
+directly. Record in `control.json` WHY a case cannot express it, or the next
+reader will add the case back.
+
+This question was added because the orchestrator reviewing that change asked for
+a committed case expressing a property `detect_signal` structurally cannot
+express, and the vacuity was found by measuring rather than by arguing: running
+a fixture with no planted defect at all, and watching it match.
+
 ## Writing the answer into the code
 
-For any check in a diff, ask the two questions and **write the answer into the
+For any check in a diff, ask the three questions and **write the answer into the
 code as a test.** A comment saying what the check does not cover decays; a test
 named for the state the detector cannot currently represent does not.
 
@@ -236,7 +280,7 @@ conversation:
 
 ## Seven properties that let it survive review
 
-These are why the two questions are worth asking explicitly rather than trusting
+These are why the three questions are worth asking explicitly rather than trusting
 a careful reader to notice.
 
 **It survives awareness.** The kyle#994 workaround named four variables and had no
