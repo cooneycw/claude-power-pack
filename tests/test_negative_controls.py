@@ -3105,3 +3105,67 @@ def test_a_reporter_only_battery_does_not_claim_a_detection_it_never_made() -> N
     assert "detection signal on the known-bad input" not in line, (
         "a reporter-only battery claimed a detection it never made: " + line
     )
+
+
+# --------------------------------------------------------------------------- #
+# `detect_signal` optional for a reporter - the requirement RELOCATES (#1085)
+# --------------------------------------------------------------------------- #
+def test_a_reporter_may_omit_detect_signal_when_it_declares_unknown_signal() -> None:
+    """THE POSITIVE CONTROL. Without it the three guards below pass on a harness
+    that refuses every reporter.
+
+    A reporter has no finding to mark: its only non-zero exit is a refusal, and
+    `unknown_signal` is what separates that from a crash. So `detect_signal` has
+    nothing to match, and every pattern one could write is dishonest - either it
+    matches the ordinary measurement output, or it can never match at all.
+    """
+    out = run_harness(
+        ROOT / "controls" / "check-negative-controls" / "cases"
+        / "good-reporter-without-detect-signal", "--strict"
+    )
+    assert out.returncode == 0, out.stdout + out.stderr
+
+
+def test_a_reporter_with_neither_marker_is_refused() -> None:
+    """THE RELOCATED FAIL-OPEN, and the case that decides whether this ships.
+
+    `detect_signal` is required because a non-zero exit must be tellable from a
+    CRASH (#946). Letting a reporter drop it without requiring `unknown_signal`
+    would not relax that guarantee, it would DELETE it - the same hole, moved.
+    """
+    out = run_harness(
+        ROOT / "controls" / "check-negative-controls" / "cases"
+        / "bad-reporter-with-no-markers", "--strict"
+    )
+    assert out.returncode != 0
+    body = out.stdout + out.stderr
+    assert "neither a detect_signal nor an unknown_signal" in body, body
+    assert "RELOCATES and does not lapse" in body
+
+
+def test_a_reporter_declaring_a_dishonest_detect_signal_is_still_refused() -> None:
+    """Optional is not unchecked. A reporter that DOES declare one is validated
+    exactly as a gate is, so the relaxation cannot be used to smuggle a marker
+    that identifies a clean run as readily as a finding.
+    """
+    out = run_harness(
+        ROOT / "controls" / "check-negative-controls" / "cases"
+        / "bad-reporter-detect-matches-clean", "--strict"
+    )
+    assert out.returncode != 0
+    assert "also matches this gate's known-GOOD output" in out.stdout + out.stderr
+
+
+def test_a_gate_with_no_detect_signal_is_still_refused() -> None:
+    """THE LEAK GUARD. If this passes, the relaxation escaped its subject kind.
+
+    Same shape as the guard on the BAD-case requirement: the exception is for
+    reporters, and a gate that simply forgot its detection marker must keep
+    being refused exactly as before the field existed.
+    """
+    out = run_harness(
+        ROOT / "controls" / "check-negative-controls" / "cases"
+        / "bad-gate-with-no-detect-signal", "--strict"
+    )
+    assert out.returncode != 0
+    assert "declares no detect_signal" in out.stdout + out.stderr
