@@ -1336,3 +1336,154 @@ class TestAnEmptyQuoteMarkerIsNotLiveContent:
             tmp_path, "LEDGER\ndelivered: the fix\nin-scope: the tests\nresidual: none\n"
         )
         assert _verdict(proc) == "ok", proc.stdout
+
+
+# --------------------------------------------------------------------------
+# ci-concurrency - a checker that COULD NOT RUN is not a checker that looked
+# --------------------------------------------------------------------------
+
+
+#: The shim is the deliverable, not a formality. It is the only thing that
+#: separates this fix from code that merely happens to pass on an unloaded
+#: machine: it reproduces the CI failure on demand instead of waiting for the
+#: agent to be busy enough to produce it again.
+_GREP_SHIM = """#!/bin/sh
+if [ -n "$SHIM_ALWAYS_FAIL" ]; then
+  echo "grep: fork: Resource temporarily unavailable" >&2; exit 127
+fi
+C="$SHIM_COUNTER"
+n=$(cat "$C" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$C"
+if [ "$n" = "$SHIM_FAIL_ON" ]; then
+  echo "grep: fork: Resource temporarily unavailable" >&2; exit 127
+fi
+exec %s "$@"
+"""
+
+_LEDGER_BODY = (
+    "LEDGER\n"
+    "delivered: the parser\n"
+    "in-scope: the mailbox wiring\n"
+    "residual: register.md, filed as #706\n"
+)
+
+
+def _with_failing_grep(tmp: Path, body: str, **shim_env: str):
+    """Run `validate` with a `grep` that cannot exec, and return the process."""
+    real_grep = shutil.which("grep")
+    assert real_grep, "precondition: a real grep must exist to delegate to"
+    shim_dir = tmp / "shim"
+    shim_dir.mkdir(exist_ok=True)
+    shim = shim_dir / "grep"
+    shim.write_text(_GREP_SHIM % real_grep, encoding="utf-8")
+    shim.chmod(0o755)
+
+    body_file = tmp / "body.md"
+    body_file.write_text(body, encoding="utf-8")
+
+    env = dict(os.environ)
+    env["PATH"] = f"{shim_dir}:{env['PATH']}"
+    env["SHIM_COUNTER"] = str(tmp / "counter")
+    env.update(shim_env)
+    return subprocess.run(
+        ["bash", str(LEXICON), "validate", "--body-file", str(body_file)],
+        capture_output=True, text=True, env=env,
+    )
+
+
+@requires_bash
+class TestACheckerThatCouldNotRunIsNotAVerdict:
+    """The ci-concurrency defect, and the red case that proves it is gone.
+
+    MEASURED IN CI on 2026-09-23: pipelines 2504 (push) and 2505 (pull_request)
+    built the SAME commit, their `validate` steps started in the SAME SECOND on
+    one agent running WOODPECKER_MAX_WORKFLOWS=2, and 2505 failed with
+    `LEDGER is missing section(s): delivered` on a body that plainly contained
+    it. `push` is not a required check; `ci/woodpecker/pr/woodpecker` is the
+    only entry in branch protection - so the run that failed is the one that
+    governs the merge.
+
+    The cause was three `grep` processes, one per section. `grep` reports "no
+    match" with exit 1, and a `grep` that CANNOT BE STARTED also exits
+    non-zero, so `|| missing=...` fired on a section that was present.
+
+    ONE section, never three, is the signature that identified it: a truncated
+    or malformed block loses all three, so a single missing section means one
+    check failed while its two siblings succeeded on the same input microseconds
+    apart.
+    """
+
+    @pytest.mark.parametrize(
+        "fail_on,would_have_been",
+        [("1", "delivered"), ("2", "in-scope"), ("3", "residual")],
+    )
+    def test_a_grep_that_cannot_exec_no_longer_invents_a_missing_section(
+        self, tmp_path: Path, fail_on: str, would_have_been: str
+    ):
+        """Each of the three calls, because the failure picked one arbitrarily.
+
+        Before the fix these produced exactly the CI text. Asserting only the
+        exit code would let a version that reports a DIFFERENT false section
+        pass, so the section name is asserted absent from the output too.
+        """
+        proc = _with_failing_grep(tmp_path, _LEDGER_BODY, SHIM_FAIL_ON=fail_on)
+        assert proc.returncode == 0, (
+            f"a grep that could not run was read as a verdict: {proc.stderr}"
+        )
+        assert "missing section" not in proc.stderr, proc.stderr
+        assert would_have_been not in proc.stderr, (
+            f"{would_have_been!r} still named: the conflation survives for that call"
+        )
+
+    def test_the_whole_block_survives_grep_being_entirely_unavailable(
+        self, tmp_path: Path
+    ):
+        """The all-three shape, which is what a truncated body looks like.
+
+        Kept distinct from the per-call cases above because the two shapes are
+        the diagnostic: one section means a failed fork, three means the body
+        never arrived. A fix that handled only the first would pass those three
+        and fail this.
+        """
+        proc = _with_failing_grep(tmp_path, _LEDGER_BODY, SHIM_ALWAYS_FAIL="1")
+        assert proc.returncode == 0, proc.stderr
+        assert "missing section" not in proc.stderr, proc.stderr
+
+
+@requires_bash
+class TestTheMatcherStillAcceptsAndRejectsWhatItDid:
+    """CONDITION (ii): the translation changed the ENGINE, not the meaning.
+
+    `grep -E` and bash `=~` are both POSIX ERE and the pattern is byte-identical,
+    but that is an argument, not evidence. These are the spellings the grep
+    implementation accepted and rejected, pinned from it BEFORE the change, so a
+    silent change in which ledgers validate fails here.
+
+    The could-not-run tests above would pass throughout such a change: they
+    exercise a different axis entirely.
+    """
+
+    ACCEPTED = [
+        "delivered:", "  delivered:", "\tdelivered:", "- delivered:",
+        "* delivered:", "-delivered:", "  -  delivered  :", "DELIVERED:",
+        "Delivered :", "delivered  :",
+    ]
+    REJECTED = [
+        "-- delivered:", "** delivered:", "# delivered:", "xdelivered:",
+        "delivered", "delivered x:", "+ delivered:",
+    ]
+
+    @pytest.mark.parametrize("opener", ACCEPTED)
+    def test_previously_accepted_openers_are_still_accepted(self, tmp_path, opener):
+        body = f"LEDGER\n{opener} the parser\nin-scope: x\nresidual: none\n"
+        proc = _validate(tmp_path, body)
+        assert "delivered" not in proc.stderr, (
+            f"{opener!r} was accepted by the grep implementation and is now rejected"
+        )
+
+    @pytest.mark.parametrize("opener", REJECTED)
+    def test_previously_rejected_openers_are_still_rejected(self, tmp_path, opener):
+        body = f"LEDGER\n{opener} the parser\nin-scope: x\nresidual: none\n"
+        proc = _validate(tmp_path, body)
+        assert "missing section(s): delivered" in proc.stderr, (
+            f"{opener!r} was rejected by the grep implementation and is now accepted"
+        )
