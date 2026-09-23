@@ -849,7 +849,13 @@ def test_bare_push_from_fresh_worktree_reaches_the_branchs_own_remote_ref(tmp_pa
 @requires_git
 def test_failed_bare_push_never_offers_HEAD_colon_main_as_a_remedy(tmp_path: Path):
     origin, wt, _ = _fresh_worktree(tmp_path)
-    hook = origin / ".git" / "hooks" / "pre-receive"
+    # The fixture OWNS its hooks directory: the CI image's git creates repos
+    # with no .git/hooks at all, and a host-level core.hooksPath would send the
+    # hook somewhere git never reads. The marker assertion below proves it ran.
+    hooks = tmp_path / "origin-hooks"
+    hooks.mkdir()
+    _git(origin, "config", "core.hooksPath", str(hooks))
+    hook = hooks / "pre-receive"
     hook.write_text("#!/bin/sh\necho 'rejected by test hook' >&2\nexit 1\n")
     hook.chmod(0o755)
     _git(wt, "commit", "-q", "--allow-empty", "-m", "work")
