@@ -702,11 +702,39 @@ parse_merge() { # parse_merge LINENO REST
   pred="${pred%%,*}"
   pred="$(trim "$pred")"
   local bare
-  bare="$(lower "$pred")"
+  #: SAME CONFLATION AS parse_ledger, POINTING THE OTHER WAY (ci-concurrency).
+  #: This was `bare="$(lower "$pred")"` plus
+  #: `[ -z "$bare" ] || printf '%s' "$bare" | grep -Eqx "$VAGUE_PREDICATES"`,
+  #: and the two forks fail in OPPOSITE directions:
+  #:
+  #:   `grep` cannot run -> the pipeline exits non-zero -> the OR is false ->
+  #:      the `if` does NOT fire -> A VAGUE PREDICATE IS ACCEPTED. False
+  #:      negative: the guard silently stops guarding under load.
+  #:   `tr` cannot run  -> `bare` is empty -> `[ -z "$bare" ]` is TRUE ->
+  #:      the error FIRES -> a perfectly specific predicate is called vague.
+  #:      False positive, from the same root, in the same statement.
+  #:
+  #: One defect, two directions, which is why it is fixed with :759 rather than
+  #: after it: fixing either alone leaves the other, and the two are harder to
+  #: recognise as one thing once they are no longer adjacent in a diff.
+  #:
+  #: `grep -Eqx` anchors the WHOLE line, so the bash form wraps the alternation
+  #: in ^(...)$ - `=~` is ERE like `grep -E`, so the class itself is unchanged.
+  #: `,,[A-Z]` AND NOT `,,` - the range is load-bearing (counter-model review).
+  #: Bash's unrestricted `${x,,}` is LOCALE-AWARE and folds beyond ASCII, while
+  #: `tr '[:upper:]' '[:lower:]'` does not. Measured under LC_ALL=C.utf8 on
+  #: `DELIVERED` spelled with U+0130 (dotted capital I): tr yields `del\u0130vered`,
+  #: `${x,,}` yields `delivered`. End to end that flipped a body from `invalid`
+  #: to `ok` - a silent change in WHICH ledgers validate, from a change that was
+  #: supposed to swap the engine and not the meaning. `${x,,[A-Z]}` restricts
+  #: the fold to ASCII A-Z and reproduces tr exactly on both inputs.
+  #: The 17-spelling pin did not catch this because every spelling in it was
+  #: ASCII; the pin was sound and its POPULATION was too narrow.
+  bare="${pred,,[A-Z]}"
   bare="${bare% reports success}"; bare="${bare% reports pass}"
   bare="${bare% is green}"; bare="${bare% passes}"
   bare="$(trim "$bare")"
-  if [ -z "$bare" ] || printf '%s' "$bare" | grep -Eqx "$VAGUE_PREDICATES"; then
+  if [ -z "$bare" ] || [[ "$bare" =~ ^($VAGUE_PREDICATES)$ ]]; then
     add_err "$ln" "MERGE: AUTHORIZED #$issue names a vague predicate ('$pred') - name the CHECK (e.g. 'ci/woodpecker/pr/woodpecker'), since 'CI' does not distinguish the PR pipeline from the push pipeline"
     return
   fi
@@ -751,12 +779,73 @@ parse_pushback() { # parse_pushback LINENO REST BLOCK_START
   add_tr "PUSHBACK" "${rest:-${block%%$'\n'*}}"
 }
 
+# has_section BLOCK SECT -> 0 when a line of BLOCK opens SECT, 1 otherwise.
+#
+# NO SUBPROCESS, AND THAT IS THE WHOLE POINT (ci-concurrency).
+#
+# This was `printf '%s\n' "$block" | grep -Eq "..." || missing="$missing $sect"`,
+# three forks per LEDGER token. `grep` reports "no match" with exit 1 - and a
+# `grep` that CANNOT BE STARTED also exits non-zero. Under load the two are the
+# same answer, so the `||` fired and a section that was plainly present was
+# reported missing. Measured in CI on 2026-09-23: pipelines 2504 (push) and
+# 2505 (pull_request) built the SAME commit, their `validate` steps started in
+# the SAME SECOND on a single agent running WOODPECKER_MAX_WORKFLOWS=2, and 2505
+# failed with `LEDGER is missing section(s): delivered` on a body that contained
+# it. Reproduced exactly with a `grep` shim that fails to exec on its Nth call:
+# fail call 1 -> "delivered", call 2 -> "in-scope", call 3 -> "residual". ONE
+# section, never three, which is what distinguishes a failed fork from a
+# truncated body and is how the mechanism was found.
+#
+# The remedy REMOVES the could-not-run state rather than reporting it more
+# carefully: with no process to start, there is no failure-to-start to mistake
+# for a verdict. Handling it instead would mean re-deciding "ran and found
+# nothing" versus "could not run" at every call site, forever.
+#
+# THE PATTERN IS BYTE-IDENTICAL to the ERE `grep -E` was given, because bash's
+# `=~` is POSIX ERE too - so this is a change of ENGINE, not of meaning, and
+# nothing had to be translated. Matching is per LINE, exactly as `grep` did:
+# `[[:space:]]` matches a newline, so testing the whole block in one go would
+# let a match begin on one line and end on another. The split is pure parameter
+# expansion - no herestring, no `mapfile`, no temp file.
+#
+# WHAT THIS DOES NOT CLAIM, because an earlier draft of this very comment
+# claimed it and was wrong: parse_ledger is not fork-free. It still runs
+# `$(block_lines ...)` and `$(trim ...)`, and a command substitution forks a
+# subshell even when the callee is a pure-builtin shell function. What is gone
+# is the PER-SECTION exec: three `grep` processes whose individual failure
+# reported one section missing. The residual substitutions fail differently -
+# an empty `block`, hence ALL THREE sections missing - which is the truncation
+# shape, distinguishable from the one-section shape this fixed, and is why the
+# CI signature pointed here rather than there. Removing them means changing
+# `block_lines` to return through a variable, which its other callers share;
+# that is a separate change and is not smuggled in here.
+has_section() {
+  local block="$1" sect="$2" rest="$1" bl
+  while [ -n "$rest" ]; do
+    bl="${rest%%$'\n'*}"
+    if [ "$bl" = "$rest" ]; then rest=""; else rest="${rest#*$'\n'}"; fi
+    if [[ "$bl" =~ ^[[:space:]]*[-*]?[[:space:]]*${sect}[[:space:]]*: ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 parse_ledger() { # parse_ledger LINENO BLOCK_START
   local ln="$1" start="$2" block missing=""
-  block="$(lower "$(block_lines "$start")")"
+  #: `${x,,}` rather than `lower`, for the same reason: `lower` is `tr`, one
+  #: more fork, and ITS failure yields an empty block - which reports all three
+  #: sections missing. Leaving it would have kept a could-not-run path in the
+  #: very function this fixes, wearing the truncation shape instead. `lower`
+  #: itself and its other callers are untouched; only this site stops forking.
+  block="$(block_lines "$start")"
+  #: ASCII-restricted for the reason given at the parse_merge site: unrestricted
+  #: `,,` is locale-aware and diverges from the `tr` it replaced on non-ASCII
+  #: uppercase, which silently changes which ledgers validate.
+  block="${block,,[A-Z]}"
   local sect
   for sect in delivered in-scope residual; do
-    printf '%s\n' "$block" | grep -Eq "^[[:space:]]*[-*]?[[:space:]]*${sect}[[:space:]]*:" || missing="$missing $sect"
+    has_section "$block" "$sect" || missing="$missing $sect"
   done
   missing="$(trim "$missing")"
   if [ -n "$missing" ]; then
