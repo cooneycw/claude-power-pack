@@ -447,6 +447,35 @@ def test_the_scan_can_find_something_before_it_is_believed():
         "(files at rest; not a live hook) |"
     )
     assert not _asserts_active_masking("| secrets-mask.sh | ✅/❌ | Output masking filter |")
+    # Filename and description on ONE line - the collision the separate rows missed.
+    assert not _asserts_active_masking(
+        "| hook-mask-output.sh | Output masking filter for files at rest |"
+    )
+
+
+#: Removed from CLAUDE.md in #1206 run 3. It says true words and still implies
+#: that output masking exists - an IMPLICATION no shape predicate can see, so it
+#: is pinned by name rather than by widening `_asserts_active_masking`.
+_CLAUDE_MD_REMOVED = "output masking does not protect response text"
+
+
+def _claude_md_mentions_output_masking(text: str) -> bool:
+    return "output masking" in text.lower()
+
+
+def test_CLAUDE_md_no_longer_implies_output_masking():
+    """CLAUDE.md is always loaded, so an implied protection there is read every
+    session. It has no occasion to say "output masking" at all after #1206."""
+    text = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    assert text.strip(), "CLAUDE.md read empty - this test would prove nothing"
+    # Positive control: the removed sentence, verbatim, must trip the check.
+    assert _claude_md_mentions_output_masking(
+        "- **NEVER output API keys.** Output masking does not protect response text."
+    )
+    assert _CLAUDE_MD_REMOVED not in text.lower()
+    assert not _claude_md_mentions_output_masking(text), (
+        "CLAUDE.md mentions output masking again; CPP masks nothing (#1206)"
+    )
     # The wrapped form, verbatim from the masker header the review caught.
     wrapped = _claim_windows(
         "# This hook receives tool output on stdin and masks sensitive data\n"
@@ -545,8 +574,11 @@ def _asserts_active_masking(line: str) -> bool:
     # and #1224's scan read past it. "output masking" beside the word "hook" is
     # that shape. It deliberately does NOT fire on "hook" + "mask" alone: the
     # retained doctor row names `hook-mask-output.sh` as a helper for files at
-    # rest, which is the tool this change keeps.
-    if "output masking" in low and re.search(r"\bhooks?\b", low):
+    # rest, which is the tool this change keeps. The word must stand alone:
+    # `\b` treats `-` as a boundary, so `hook-mask-output.sh` would read as
+    # "hook" and a helper described as an output-masking filter would be
+    # flagged as a hook feature (counter-model review).
+    if "output masking" in low and re.search(r"(?<![\w-])hooks?(?![\w-])", low):
         return True
     # SECOND SHAPE, and it exists because the first one missed the masker's own
     # header. `scripts/hook-mask-output.sh` said it masks output "before it's
