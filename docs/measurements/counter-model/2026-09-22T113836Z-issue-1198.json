@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1198-cpp-update-reports-success-for-host-writes-that-ex",
+  "counts": {
+    "accepted": 9,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "19cafd3752db06722368abfb101aa22ab6dc35bb",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1198",
+  "passes": 2,
+  "recorded_at": "2026-09-22T11:38:36Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 13
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

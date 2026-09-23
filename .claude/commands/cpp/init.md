@@ -76,6 +76,17 @@ else
   # answers the question the probe asks, so a deferred probe reports `no`
   # rather than writing to find out what it was already told.
   surface_writable=$(~/.claude/scripts/cpp-host-write.sh probe-writable ~/.claude/commands 2>/dev/null)
+  #: EXIT 0 AND 3 ARE BOTH ANSWERS (issue #1198): the helper prints yes/no and
+  #: returns 0, or prints no and returns 3 when the surface is deferred. Any
+  #: other status means the seam could not run, and the capture is then EMPTY -
+  #: which this line used to print as though it were a probe result, under a
+  #: label saying "probed, not inferred from mode bits". There is no checkout
+  #: here by construction, so there is nothing to bootstrap from: the honest
+  #: answer is that it was not probed.
+  case $? in
+    0|3) : ;;
+    *)   surface_writable="unknown (seam not installed here, so this was NOT probed)" ;;
+  esac
 
   echo "No claude-power-pack CHECKOUT found at any known path."
   echo "  CPP command surface served here: $cpp_surface (~/.claude/commands/cpp/init.md readable)"
@@ -638,14 +649,47 @@ stands.
 ### Tier 2 Execution
 
 ```bash
-# Create scripts directory
-~/.claude/scripts/cpp-host-write.sh ensure-dir ~/.claude/scripts
+# BOOTSTRAP THE SEAM, AND CREATE ITS DIRECTORY IN ONE CALL (issue #1198).
+#
+# This line used to invoke ~/.claude/scripts/cpp-host-write.sh to CREATE
+# ~/.claude/scripts - the directory the helper itself gets linked into, two
+# statements below. On a fresh host, which is exactly what /cpp:init is for,
+# that symlink does not exist yet: the call exited 127, Tier 2 installed
+# nothing, and every later step reported success anyway.
+#
+# The checkout copy always exists when a checkout does, and installing the seam
+# THROUGH the seam keeps the write declared and deferrable rather than making it
+# a carve-out the check-cpp-host-writes gate has to be taught to ignore.
+# `link-into` does its own `mkdir -p`, so this single call replaces the
+# ensure-dir it supersedes.
+"$CPP_DIR/scripts/cpp-host-write.sh" link-into \
+  "$CPP_DIR/scripts/cpp-host-write.sh" ~/.claude/scripts cpp-host-write.sh
+case $? in
+  0) SEAM_STATUS="available" ;;
+  3) SEAM_STATUS="the seam's own install was deferred by request" ;;
+  *) SEAM_STATUS="UNAVAILABLE - the seam could not be installed" ;;
+esac
+echo "Host-write seam: $SEAM_STATUS"
+#: THE STATUS SAYS WHAT IT MEASURED (counter-model review). An earlier draft
+#: announced that a deferred bootstrap meant "every host write below will
+#: report deferred", which this call does not establish: --defer
+#: ~/.claude/scripts defers the SEAM'S OWN INSTALL and says nothing about
+#: ~/.claude/settings.json or ~/.bashrc, each of which consults its own
+#: defer-set entry and reports its own verdict below. Overclaiming from one
+#: surface to all of them is this issue's defect wearing the fix's clothes.
+#:
+#: /cpp:init CREATING ~/.claude/scripts is correct here and is the difference
+#: from /cpp:update's Step 5a, which must not: this is the Tier 2 installer,
+#: the tier the user just chose, so the directory is the deliverable rather
+#: than a side effect. Update refreshes an EXISTING install and promises never
+#: to self-upgrade a tier, so it reads the directory before bootstrapping.
 
 # Symlink all executable helpers, regardless of extension (issue #669: the
 # old *.sh-only glob skipped flow-wave-plan.py, so its shipped allow rule in
 # templates/claude-settings-permissions.json pointed at a nonexistent path).
 # The executability gate skips non-executable .py library files, directories,
 # and __pycache__.
+SEAM_OK=0; SEAM_DEFERRED=0; SEAM_FAILED=0
 for script in "$CPP_DIR"/scripts/*; do
   [ -f "$script" ] && [ -x "$script" ] || continue
   name=$(basename "$script")
@@ -653,7 +697,16 @@ for script in "$CPP_DIR"/scripts/*; do
   # ninety-odd links at run time, which is why no per-site enumeration found
   # this write. The helper carries the already-linked skip this block had.
   ~/.claude/scripts/cpp-host-write.sh link-into "$script" ~/.claude/scripts "$name"
+  #: COMPOSE A VERDICT, do not just run (issue #1198). Ninety calls that drew no
+  #: conclusion meant an absent seam linked nothing and the step said so nowhere.
+  case $? in
+    0) SEAM_OK=$((SEAM_OK + 1)) ;;
+    3) SEAM_DEFERRED=$((SEAM_DEFERRED + 1)) ;;
+    *) SEAM_FAILED=$((SEAM_FAILED + 1)) ;;
+  esac
 done
+echo "→ Helper scripts: $SEAM_OK linked/current, $SEAM_DEFERRED deferred, $SEAM_FAILED failed"
+[ "$SEAM_FAILED" -gt 0 ] && echo "  WARNING: $SEAM_FAILED script(s) were NOT linked. The allowlist rules installed below cite ~/.claude/scripts/<name> paths that will not exist."
 
 # Copy hooks.json if not exists
 if [ ! -f ".claude/hooks.json" ]; then
@@ -737,9 +790,29 @@ BEFORE=$([ -f "$TARGET" ] && jq '(.permissions.allow // []) | length' "$TARGET" 
 # the jq program. A managed environment passes --defer ~/.claude/settings.json
 # and gets a stated refusal naming the surface and its owner.
 ~/.claude/scripts/cpp-host-write.sh settings-merge "$TEMPLATE"
-AFTER=$(jq '.permissions.allow | length' "$TARGET")
+#: READ THE VERDICT (issue #1198). This pair printed a checkmark whether the
+#: seam wrote, deferred by request, failed, or was absent. The delta softened it
+#: - a failed merge shows "0 new rules" - but "✓ merged ... 0 new rules" still
+#: asserts a merge, and on a fresh host AFTER is read from a file the merge
+#: never touched.
+SEAM_RC=$?
+AFTER=$(jq '.permissions.allow | length' "$TARGET" 2>/dev/null || echo 0)
 
-echo "✓ Flow allowlist merged into ~/.claude/settings.json ($((AFTER - BEFORE)) new rules, $AFTER total)"
+case "$SEAM_RC" in
+  0) echo "✓ Flow allowlist merged into ~/.claude/settings.json ($((AFTER - BEFORE)) new rules, $AFTER total)" ;;
+  3) echo "→ Flow allowlist DEFERRED by request - ~/.claude/settings.json was NOT modified" ;;
+  127) echo "✗ Flow allowlist NOT merged - the host-write seam is not installed (see Tier 2 bootstrap)" ;;
+#: A FAILURE DOES NOT ESTABLISH THAT THE SURFACE IS UNCHANGED (counter-model
+#: review). The first draft of these handlers said "... is unchanged" on the
+#: failure branch, which asserts a rollback nothing performs. Measured: given a
+#: malformed template and no existing file, `settings-merge` exits 1 AND leaves
+#: a newly created ~/.claude/settings.json containing `{}`. Append and
+#: replace operations can likewise modify a file before an I/O error. So the
+#: failure branch reports the failure and sends the reader to look - claiming
+#: an unverified rollback is the same overclaim as claiming an unperformed
+#: write, pointed the other way.
+  *) echo "✗ Flow allowlist merge FAILED - check ~/.claude/settings.json - a failed write may have modified it" ;;
+esac
 echo "  Note: sed is allowed for the flow slug pipeline; see the template doc for the sed -i caveat."
 ```
 
@@ -790,7 +863,12 @@ CENSUS_CMD="~/.claude/scripts/hook-permission-census.sh"
     else .hooks.PermissionRequest += [{"hooks":[{"type":"command","command":$cmd}]}]
     end
 JQ
-echo "✓ PermissionRequest census hook registered in ~/.claude/settings.json"
+case $? in
+  0) echo "✓ PermissionRequest census hook registered in ~/.claude/settings.json" ;;
+  3) echo "→ Census hook registration DEFERRED by request - settings.json was NOT modified" ;;
+  127) echo "✗ Census hook NOT registered - the host-write seam is not installed" ;;
+  *) echo "✗ Census hook registration FAILED - check settings.json - a failed write may have modified it" ;;
+esac
 ```
 
 If no:
@@ -848,7 +926,12 @@ RETRO_CMD="~/.claude/scripts/hook-pending-retro.sh"
     else .hooks.SessionStart += [{"hooks":[{"type":"command","command":$cmd}]}]
     end
 JQ
-echo "✓ Session-open retro reminder registered in ~/.claude/settings.json"
+case $? in
+  0) echo "✓ Session-open retro reminder registered in ~/.claude/settings.json" ;;
+  3) echo "→ Session-open retro reminder DEFERRED by request - settings.json was NOT modified" ;;
+  127) echo "✗ Session-open retro reminder NOT registered - the seam is not installed" ;;
+  *) echo "✗ Session-open retro reminder registration FAILED - check settings.json - a failed write may have modified it" ;;
+esac
 ```
 
 If no:
@@ -884,7 +967,12 @@ If yes:
 # Claude Power Pack - worktree context in prompt
 export PS1='$(~/.claude/scripts/prompt-context.sh)\w $ '
 PS1_EOF
-echo "✓ Shell prompt configured (restart shell or source ~/.bashrc)"
+case $? in
+  0) echo "✓ Shell prompt configured (restart shell or source ~/.bashrc)" ;;
+  3) echo "→ Shell prompt DEFERRED by request - ~/.bashrc was NOT modified" ;;
+  127) echo "✗ Shell prompt NOT configured - the host-write seam is not installed" ;;
+  *) echo "✗ Shell prompt configuration FAILED - check ~/.bashrc - a failed write may have modified it" ;;
+esac
 ```
 
 **Tmux Auto-Start (Optional)**
@@ -922,6 +1010,12 @@ if command -v tmux &>/dev/null && [ -z "$TMUX" ] && [[ $- == *i* ]]; then
     tmux new-session
 fi
 TMUX_EOF
+case $? in
+  0) echo "✓ tmux auto-start configured in ~/.bashrc" ;;
+  3) echo "→ tmux auto-start DEFERRED by request - ~/.bashrc was NOT modified" ;;
+  127) echo "✗ tmux auto-start NOT configured - the host-write seam is not installed" ;;
+  *) echo "✗ tmux auto-start configuration FAILED - check ~/.bashrc - a failed write may have modified it" ;;
+esac
 fi
 ```
 
@@ -1590,7 +1684,12 @@ If yes:
 # Claude Power Pack - Qwen serving endpoint (issue #755)
 export QWEN_OLLAMA_URL=$QWEN_ENDPOINT
 QWEN_RC_EOF
-echo "  Restart the shell or source $QWEN_RC_DISPLAY"
+case $? in
+  0) echo "  Restart the shell or source $QWEN_RC_DISPLAY" ;;
+  3) echo "  → DEFERRED by request - $QWEN_RC_DISPLAY was NOT modified; export QWEN_OLLAMA_URL yourself" ;;
+  127) echo "  ✗ NOT written - the host-write seam is not installed; export QWEN_OLLAMA_URL yourself" ;;
+  *) echo "  ✗ FAILED - check $QWEN_RC_DISPLAY - a failed write may have modified it; export QWEN_OLLAMA_URL yourself" ;;
+esac
 ```
 
 If no:
@@ -1747,7 +1846,12 @@ If yes:
 # Claude Power Pack - Gemma serving endpoint (issue #755)
 export GEMMA_OLLAMA_URL=$GEMMA_ENDPOINT
 GEMMA_RC_EOF
-echo "  Restart the shell or source $GEMMA_RC_DISPLAY"
+case $? in
+  0) echo "  Restart the shell or source $GEMMA_RC_DISPLAY" ;;
+  3) echo "  → DEFERRED by request - $GEMMA_RC_DISPLAY was NOT modified; export GEMMA_OLLAMA_URL yourself" ;;
+  127) echo "  ✗ NOT written - the host-write seam is not installed; export GEMMA_OLLAMA_URL yourself" ;;
+  *) echo "  ✗ FAILED - check $GEMMA_RC_DISPLAY - a failed write may have modified it; export GEMMA_OLLAMA_URL yourself" ;;
+esac
 ```
 
 If no:
@@ -1771,6 +1875,12 @@ OC_CONFIG="$HOME/.config/opencode/opencode.json"
 # redirect, cp, tee, mv or ln. Same .update() semantics, moved not improved.
 ~/.claude/scripts/cpp-host-write.sh json-merge-sections \
   "$CPP_DIR/templates/opencode-gemma.json" "$OC_CONFIG" provider agent
+case $? in
+  0) echo "✓ gemma-ollama provider and gemma-implementer fence merged into $OC_CONFIG" ;;
+  3) echo "→ DEFERRED by request - $OC_CONFIG was NOT modified; this run did not install or refresh the mechanical fence, and whether one is already present is unverified" ;;
+  127) echo "✗ NOT merged - the host-write seam is not installed; this run did not install or refresh the mechanical fence, and whether one is already present is unverified" ;;
+  *) echo "✗ Merge FAILED - check $OC_CONFIG - a failed write may have modified it; this run did not install or refresh the mechanical fence, and its current state is unverified" ;;
+esac
 ```
 
 Two things are being installed here, and the second is the safety-critical one:
@@ -2086,12 +2196,28 @@ BACKEND_FILE="$HOME/.config/claude-power-pack/secrets/cpp-memories.backend"
 case "$MEM_BACKEND_CHOICE" in
   i|md)
     ~/.claude/scripts/cpp-host-write.sh file-write "$BACKEND_FILE" "md"
-    echo "✓ common-memory backend: md (tier i) - local-only, no federation"
+    #: The backend record decides which store later sessions read (issue #1198).
+    #: An unwritten record does not fail loudly - it leaves the PREVIOUS backend
+    #: selected, or none, while this line said the choice was applied.
+    case $? in
+      0) echo "✓ common-memory backend: md (tier i) - local-only, no federation" ;;
+      3) echo "→ common-memory backend selection DEFERRED by request - $BACKEND_FILE was NOT written; whichever backend was already recorded, if any, is unchanged by this run" ;;
+      127) echo "✗ common-memory backend NOT recorded - the host-write seam is not installed" ;;
+      *) echo "✗ common-memory backend selection FAILED - check $BACKEND_FILE - a failed write may have modified it" ;;
+    esac
     echo "  Ledger: <repo>/.claude/learnings.md  (+ .claude/learnings.rejected.jsonl)"
     ;;
   ii|local-pg)
     ~/.claude/scripts/cpp-host-write.sh file-write "$BACKEND_FILE" "local-pg"
-    echo "✓ common-memory backend: local-pg (tier ii) - full dedup, no federation"
+    #: The backend record decides which store later sessions read (issue #1198).
+    #: An unwritten record does not fail loudly - it leaves the PREVIOUS backend
+    #: selected, or none, while this line said the choice was applied.
+    case $? in
+      0) echo "✓ common-memory backend: local-pg (tier ii) - full dedup, no federation" ;;
+      3) echo "→ common-memory backend selection DEFERRED by request - $BACKEND_FILE was NOT written; whichever backend was already recorded, if any, is unchanged by this run" ;;
+      127) echo "✗ common-memory backend NOT recorded - the host-write seam is not installed" ;;
+      *) echo "✗ common-memory backend selection FAILED - check $BACKEND_FILE - a failed write may have modified it" ;;
+    esac
     if command -v docker >/dev/null 2>&1; then
       read -r -p "Start the local postgres:17 store now (docker compose up -d)? [y/N] " START_PG
       if [[ "$START_PG" =~ ^[Yy]$ ]]; then
@@ -2107,7 +2233,15 @@ case "$MEM_BACKEND_CHOICE" in
     ;;
   iii|remote-pg)
     ~/.claude/scripts/cpp-host-write.sh file-write "$BACKEND_FILE" "remote-pg"
-    echo "✓ common-memory backend: remote-pg (tier iii) - full dedup, FLEET federation"
+    #: The backend record decides which store later sessions read (issue #1198).
+    #: An unwritten record does not fail loudly - it leaves the PREVIOUS backend
+    #: selected, or none, while this line said the choice was applied.
+    case $? in
+      0) echo "✓ common-memory backend: remote-pg (tier iii) - full dedup, FLEET federation" ;;
+      3) echo "→ common-memory backend selection DEFERRED by request - $BACKEND_FILE was NOT written; whichever backend was already recorded, if any, is unchanged by this run" ;;
+      127) echo "✗ common-memory backend NOT recorded - the host-write seam is not installed" ;;
+      *) echo "✗ common-memory backend selection FAILED - check $BACKEND_FILE - a failed write may have modified it" ;;
+    esac
     echo "  DSN resolves fail-open: CPP_MEMORIES_DSN -> ~/.config/claude-power-pack/secrets/cpp-memories.dsn -> AWS SM (essent-ai)."
     echo "  Provision a new remote store with scripts/memories-db-setup.sh (idempotent)."
     if bash "$CPP_DIR/scripts/cpp-memory" ping 2>/dev/null | grep -q '"reachable": true'; then
