@@ -42,10 +42,19 @@ having a trigger for it.
 
 ## The fix, and what it deliberately is not
 
-The helper is called UNCONDITIONALLY at all three sites - `flow/auto.md` Step 6,
-`flow/auto.md` Step 7, `flow/finish.md` - and nothing cleverer. It already
-decides for itself at a measured 0.14s on a clean tree, so a condition here could
-only ever be a worse oracle than the one inside it.
+The helper is called unconditionally WITH RESPECT TO BASE MOVEMENT AND CHANGED
+PATHS at all three sites - `flow/auto.md` Step 6, `flow/auto.md` Step 7,
+`flow/finish.md` - and nothing cleverer. It already decides for itself at a
+measured 0.14s on a clean tree, so a condition here could only ever be a worse
+oracle than the one inside it.
+
+ONE CONDITION IS DELIBERATELY RETAINED and a reconstruction of S4 must keep it:
+each site still wraps the call in `if [ -x scripts/codex-skill-resync.sh ]`.
+That is an EXISTENCE guard, not a decision about what changed. `/flow:auto` and
+`/flow:finish` run in other repositories, which have neither this helper nor the
+generator, and a bare call there dies with exit 127 before the helper can report
+its own `unavailable`. "Unconditional" above means "not gated on the base"; it
+does not mean "ungated".
 
 **It is deliberately NOT built on an enumerated path set**, and the temptation was
 concrete: `--list-mirrors` (#1151) had shipped an hour earlier and would have
@@ -99,10 +108,34 @@ found it:
   call and returned `[]`, byte-identical to "examined and found nothing".
 
 The second is detector-contract question 1 failing INSIDE a tripwire built to
-guard that class. The repair is the one that generalises: the walk now
-RECONCILES against every invocation in the document and returns what it could not
-parse as UNEXAMINED, asserted separately. An empty offender list now means "I
-looked at all of them".
+guard that class. The repair generalises: the walk RECONCILES against every
+invocation it RECOGNISES and returns what it could not parse as UNEXAMINED,
+asserted separately, so a passing tripwire requires BOTH lists empty rather than
+just the offender list.
+
+**AND THE GUARANTEE IS NARROWER THAN THAT SENTENCE WANTS TO BE** - found by the
+counter-model review of THIS RECORD, which is the third time the same class
+surfaced in one change. The walk recognises an invocation only when the stripped
+line is EXACTLY `bash scripts/codex-skill-resync.sh`. Measured:
+
+    base-gated, exact spelling          -> caught
+    base-gated, with `--quiet`          -> SILENT: escapes BOTH lists
+    base-gated, with a trailing comment -> SILENT: escapes BOTH lists
+
+So the repair fixed PARSE blindness and not RECOGNITION blindness: a spelling the
+recogniser does not know is invisible to the offender list AND to UNEXAMINED,
+which is precisely the two-state collapse the third state exists to prevent. All
+three shipped sites use the exact spelling today, so the tripwire is correct
+about the current tree - but "every invocation is accounted for" holds only for
+that one spelling, and a future site written `... --quiet` would be unguarded and
+silent about it. RESIDUAL, reported to the orchestrator rather than fixed here:
+the recogniser should match the invocation by its SCRIPT rather than by its whole
+line.
+
+The separate fence-narrowing guarantee is unaffected and does hold for the
+recognised population: the fence walk only inspects blocks mentioning
+`codex-skill`, and that cannot hide a recognised invocation because the
+invocation's own text contains the string.
 
 One narrowing is stated rather than assumed: the fence walk only inspects blocks
 mentioning `codex-skill`, and that CANNOT hide an invocation, because the
