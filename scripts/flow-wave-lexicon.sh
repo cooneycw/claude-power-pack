@@ -720,7 +720,17 @@ parse_merge() { # parse_merge LINENO REST
   #:
   #: `grep -Eqx` anchors the WHOLE line, so the bash form wraps the alternation
   #: in ^(...)$ - `=~` is ERE like `grep -E`, so the class itself is unchanged.
-  bare="${pred,,}"
+  #: `,,[A-Z]` AND NOT `,,` - the range is load-bearing (counter-model review).
+  #: Bash's unrestricted `${x,,}` is LOCALE-AWARE and folds beyond ASCII, while
+  #: `tr '[:upper:]' '[:lower:]'` does not. Measured under LC_ALL=C.utf8 on
+  #: `DELIVERED` spelled with U+0130 (dotted capital I): tr yields `del\u0130vered`,
+  #: `${x,,}` yields `delivered`. End to end that flipped a body from `invalid`
+  #: to `ok` - a silent change in WHICH ledgers validate, from a change that was
+  #: supposed to swap the engine and not the meaning. `${x,,[A-Z]}` restricts
+  #: the fold to ASCII A-Z and reproduces tr exactly on both inputs.
+  #: The 17-spelling pin did not catch this because every spelling in it was
+  #: ASCII; the pin was sound and its POPULATION was too narrow.
+  bare="${pred,,[A-Z]}"
   bare="${bare% reports success}"; bare="${bare% reports pass}"
   bare="${bare% is green}"; bare="${bare% passes}"
   bare="$(trim "$bare")"
@@ -829,7 +839,10 @@ parse_ledger() { # parse_ledger LINENO BLOCK_START
   #: very function this fixes, wearing the truncation shape instead. `lower`
   #: itself and its other callers are untouched; only this site stops forking.
   block="$(block_lines "$start")"
-  block="${block,,}"
+  #: ASCII-restricted for the reason given at the parse_merge site: unrestricted
+  #: `,,` is locale-aware and diverges from the `tr` it replaced on non-ASCII
+  #: uppercase, which silently changes which ledgers validate.
+  block="${block,,[A-Z]}"
   local sect
   for sect in delivered in-scope residual; do
     has_section "$block" "$sect" || missing="$missing $sect"

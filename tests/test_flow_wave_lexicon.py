@@ -1359,6 +1359,32 @@ fi
 exec %s "$@"
 """
 
+def _assert_ledger_was_actually_examined(proc, context: str) -> None:
+    """Positive evidence that the block was PARSED, not merely not-complained-about.
+
+    COUNTER-MODEL REVIEW FOUND THIS IN THIS FILE'S OWN CONTROL, which is this
+    issue's defect class committed inside the test for it. Asserting only
+    `returncode == 0` and `"missing section" not in stderr` is satisfied by a run
+    that never examined anything: make the body-reading `cat` exit 127 and the
+    script emits `FLOW_LEXICON: none` with `FLOW_LEXICON_TRANSITIONS=0` and exit
+    0 - measured. Every assertion above would have passed on it.
+
+    So a positive case must show the parser REACHED the ledger: verdict `ok` AND
+    a LEDGER transition present. "Nothing went wrong" is not evidence that
+    anything happened.
+    """
+    assert proc.returncode == 0, f"{context}: exit {proc.returncode}\n{proc.stderr}"
+    assert _verdict(proc) == "ok", (
+        f"{context}: verdict {_verdict(proc)!r}, not 'ok' - a run that never "
+        f"examined the body reports 'none' and would otherwise pass\n{proc.stderr}"
+    )
+    kinds = [t.split(":", 1)[0].split()[0] for t in _transitions(proc)]
+    assert "LEDGER" in kinds, (
+        f"{context}: no LEDGER transition was recorded, so the section checks "
+        f"were never reached: {_transitions(proc)}"
+    )
+
+
 _LEDGER_BODY = (
     "LEDGER\n"
     "delivered: the parser\n"
@@ -1426,9 +1452,7 @@ class TestACheckerThatCouldNotRunIsNotAVerdict:
         pass, so the section name is asserted absent from the output too.
         """
         proc = _with_failing_grep(tmp_path, _LEDGER_BODY, SHIM_FAIL_ON=fail_on)
-        assert proc.returncode == 0, (
-            f"a grep that could not run was read as a verdict: {proc.stderr}"
-        )
+        _assert_ledger_was_actually_examined(proc, f"grep call {fail_on} failing")
         assert "missing section" not in proc.stderr, proc.stderr
         assert would_have_been not in proc.stderr, (
             f"{would_have_been!r} still named: the conflation survives for that call"
@@ -1445,7 +1469,7 @@ class TestACheckerThatCouldNotRunIsNotAVerdict:
         and fail this.
         """
         proc = _with_failing_grep(tmp_path, _LEDGER_BODY, SHIM_ALWAYS_FAIL="1")
-        assert proc.returncode == 0, proc.stderr
+        _assert_ledger_was_actually_examined(proc, "grep entirely unavailable")
         assert "missing section" not in proc.stderr, proc.stderr
 
 
@@ -1476,6 +1500,9 @@ class TestTheMatcherStillAcceptsAndRejectsWhatItDid:
     def test_previously_accepted_openers_are_still_accepted(self, tmp_path, opener):
         body = f"LEDGER\n{opener} the parser\nin-scope: x\nresidual: none\n"
         proc = _validate(tmp_path, body)
+        #: Positive evidence, not merely an absent complaint: an unrelated
+        #: process failure leaves stderr without "delivered" too.
+        _assert_ledger_was_actually_examined(proc, f"accepted opener {opener!r}")
         assert "delivered" not in proc.stderr, (
             f"{opener!r} was accepted by the grep implementation and is now rejected"
         )
@@ -1484,6 +1511,96 @@ class TestTheMatcherStillAcceptsAndRejectsWhatItDid:
     def test_previously_rejected_openers_are_still_rejected(self, tmp_path, opener):
         body = f"LEDGER\n{opener} the parser\nin-scope: x\nresidual: none\n"
         proc = _validate(tmp_path, body)
+        #: The rejected direction carries its own positive evidence - the
+        #: diagnostic names the section - but the verdict is asserted too, so a
+        #: run that failed for an unrelated reason cannot satisfy it.
+        assert _verdict(proc) == "invalid", (
+            f"{opener!r}: verdict {_verdict(proc)!r}, not 'invalid'\n{proc.stderr}"
+        )
         assert "missing section(s): delivered" in proc.stderr, (
             f"{opener!r} was rejected by the grep implementation and is now accepted"
         )
+
+
+@requires_bash
+class TestTheControlsThemselvesCanFail:
+    """Tests of the tests, because both were found unable to fail.
+
+    Counter-model review established two ways this file's own controls were
+    vacuous, and each is pinned here so the repair cannot silently rot back.
+    """
+
+    def test_a_run_that_never_examined_the_body_does_not_satisfy_our_guard(
+        self, tmp_path: Path
+    ):
+        """The exact input that satisfied the old assertions.
+
+        With the body-reading `cat` unable to exec, the script emits
+        `FLOW_LEXICON: none` with zero transitions and exit 0. The previous
+        assertions - exit 0, and "missing section" absent from stderr - were
+        both true of it. `_assert_ledger_was_actually_examined` must reject it,
+        and this asserts that it does rather than trusting that it would.
+        """
+        shim_dir = tmp_path / "catshim"
+        shim_dir.mkdir()
+        (shim_dir / "cat").write_text("#!/bin/sh\nexit 127\n", encoding="utf-8")
+        (shim_dir / "cat").chmod(0o755)
+        body_file = tmp_path / "body.md"
+        body_file.write_text(_LEDGER_BODY, encoding="utf-8")
+
+        env = dict(os.environ)
+        env["PATH"] = f"{shim_dir}:{env['PATH']}"
+        proc = subprocess.run(
+            ["bash", str(LEXICON), "validate", "--body-file", str(body_file)],
+            capture_output=True, text=True, env=env,
+        )
+
+        #: The shape that fooled the old control: clean exit, no complaint.
+        assert proc.returncode == 0
+        assert "missing section" not in proc.stderr
+
+        #: And the guard refuses it anyway. If this stops raising, every
+        #: positive case in this file has gone vacuous again.
+        with pytest.raises(AssertionError):
+            _assert_ledger_was_actually_examined(proc, "unreadable body")
+
+    @pytest.mark.parametrize(
+        "opener,accepted,because",
+        [
+            # U+0130 LATIN CAPITAL LETTER I WITH DOT ABOVE.
+            ("DEL\u0130VERED:", False,
+             "tr leaves it alone, so the section never matched - unrestricted "
+             "bash ${x,,} folds it to ASCII 'i' and would ACCEPT this"),
+            ("DELIVERED:", True, "plain ASCII uppercase always matched"),
+        ],
+    )
+    def test_case_folding_is_ascii_only_exactly_as_tr_was(
+        self, tmp_path: Path, opener: str, accepted: bool, because: str
+    ):
+        """CONDITION (ii) with the population the first pin was missing.
+
+        The 17 spellings pinned from the grep implementation were ALL ASCII, so
+        they could not see that `${x,,}` is locale-aware where
+        `tr '[:upper:]' '[:lower:]'` is not. Measured under LC_ALL=C.utf8:
+        tr yields `del\u0130vered`, `${x,,}` yields `delivered`, and a body
+        using that spelling flipped from `invalid` to `ok`. The fix restricts
+        the fold with `${x,,[A-Z]}`; this is the case that distinguishes them.
+
+        The pin was sound and its POPULATION was too narrow - which is the more
+        useful lesson than the encoding detail.
+        """
+        body = f"LEDGER\n{opener} the parser\nin-scope: x\nresidual: none\n"
+        env = dict(os.environ)
+        env["LC_ALL"] = "C.utf8"
+        body_file = tmp_path / "body.md"
+        body_file.write_text(body, encoding="utf-8")
+        proc = subprocess.run(
+            ["bash", str(LEXICON), "validate", "--body-file", str(body_file)],
+            capture_output=True, text=True, env=env,
+        )
+        if accepted:
+            _assert_ledger_was_actually_examined(proc, f"{opener!r} ({because})")
+        else:
+            assert "missing section(s): delivered" in proc.stderr, (
+                f"{opener!r} should NOT match: {because}\n{proc.stderr}"
+            )
