@@ -303,3 +303,52 @@ Tier 2 block had just dropped, and a comment describing failure semantics in
 terms of "by the time a PostToolUse hook runs" inside a script that is no longer
 one. A control with no negation carve-out catches the person most motivated to
 write around it.
+
+---
+
+# Run 3 - issue #1206, the two claims #1224 missed
+
+A THIRD run on the same issue. Runs 1 and 2 above are left exactly as approved.
+
+- Issue:             #1206, Decision 1 remainder
+- Base SHA:          99670b5
+- Necessity verdict: Partially addressed
+- Approval:          granted ("approved"), with the two open questions taken at
+                     their proposed defaults: (a) delete the CLAUDE.md:10
+                     sentence, (b) cpp/init.md:209 routed to the Nit Store
+- Approver:          the owner, directly in this session
+- Recorded at:       2026-09-23T21:55:00Z
+
+## Section B evidence
+
+Commits since filing touching the claim surfaces: 658d971 (#1208), 86e1c8d
+(#1199), e1379c7 (#1224). Merged PRs: #1208, #1209, #1224. Duplicates or
+superseding issues: none open (#439 and #598 are closed and historical).
+
+Every item in the owner-ruling list is on main at 99670b5. Two claims are not:
+
+- `.claude/commands/cpp/help.md:56` - `**Hooks**: Security (command validation,
+  output masking)`, which /cpp:help prints to every user. The claim control
+  missed it: no "PostToolUse", no dispatch token, and the file is not in
+  CLAIM_BEARING.
+- `CLAUDE.md:10` - "Output masking does not protect response text." It predates
+  #1224 (411968e6, 2026-08-16) and implies that output masking exists.
+
+## Section C - the approved plan (run 3)
+
+Items for this run, restated in prose so the Section C parser, which reads
+run 1's section, is not given a second list:
+
+- cpp/help.md - the Hooks bullet now says what Tier 2 actually offers: optional,
+  default-N user-level hooks, with no safety claim.
+- codex/skills/cpp-help/reference.md - regenerated mirror, never hand-edited.
+- CLAUDE.md - the sentence at line 10 is deleted and the NEVER directive is kept.
+- tests/test_hook_mask_output.py - help.md is added to CLAIM_BEARING, plus a
+  third shape (hooks paired with output masking as a feature). Red case: the
+  old help.md:56 text is flagged. Negative case: the doctor.md at-rest helper
+  row is not flagged.
+
+Scope: 4 files plus one mirror, about 40 lines. Risk: the new shape could
+false-positive on a description of the at-rest tool; the committed negative
+case guards that. Out of scope: cpp/init.md:209 ("rely on hooks for safety"),
+routed to the Nit Store.
