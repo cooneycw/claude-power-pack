@@ -1021,15 +1021,22 @@ def run_write(selected: list[str]) -> int:
     return 0
 
 
-def _repo_relative(raw: str) -> str:
-    """A caller's path as the generator spells it: repo-relative, POSIX."""
-    path = Path(raw)
-    if path.is_absolute():
-        try:
-            path = path.relative_to(REPO_ROOT)
-        except ValueError:
-            return path.as_posix()
-    return Path(*[p for p in path.parts if p != "."]).as_posix()
+def _repo_relative(raw: str) -> str | None:
+    """A caller's path as the generator spells it, or None if it is not one.
+
+    RESOLVED, never string-trimmed (counter-model review). A lexical prefix
+    strip called `scripts/../scripts/gh-pr-merge.sh` unbundled while the plain
+    spelling of the same file enumerated fine, and an absolute alias failed the
+    same way. Resolution also answers CONTAINMENT: a path outside the repository
+    is not a source here at all, and saying so is the honest answer rather than
+    searching for it and finding nothing.
+    """
+    try:
+        candidate = Path(raw)
+        resolved = (candidate if candidate.is_absolute() else REPO_ROOT / candidate).resolve()
+        return resolved.relative_to(REPO_ROOT.resolve()).as_posix()
+    except (ValueError, OSError):
+        return None
 
 
 def mirrors_for(sources: list[str], selected: list[str]) -> tuple[dict[str, list[str]], list[str]]:
@@ -1055,6 +1062,21 @@ def mirrors_for(sources: list[str], selected: list[str]) -> tuple[dict[str, list
 
     for raw in sources:
         source = _repo_relative(raw)
+
+        #: A SOURCE IS A FILE THAT EXISTS IN THE REPOSITORY, and checking that
+        #: first is what stops the generator's OWN OUTPUT being accepted as
+        #: input (counter-model review). `SKILL.md`, `reference.md` and
+        #: `scripts/<MANIFEST_NAME>` are synthesised names that appear as keys in
+        #: every skill's outputs, so a bare name-match answered
+        #: `--list-mirrors SKILL.md` with 74 paths and exit 0 - a confident
+        #: answer to a question nobody can ask, which is this issue's own defect
+        #: wearing the other hat. None of the three exists as a repository file,
+        #: so existence separates them without a list of synthesised names to
+        #: keep in step.
+        if source is None or not (REPO_ROOT / source).is_file():
+            unknown.append(raw)
+            continue
+
         hits: list[str] = []
 
         parts = source.split("/")
@@ -1062,6 +1084,14 @@ def mirrors_for(sources: list[str], selected: list[str]) -> tuple[dict[str, list
             len(parts) == 4
             and parts[0] == ".claude"
             and parts[1] == "commands"
+            #: THE FAMILY IS VALIDATED, not just the concatenation. `<family>` and
+            #: `<stem>` are joined by a hyphen to name the skill, which loses the
+            #: boundary: the nonexistent `.claude/commands/second/opinion-help.md`
+            #: composes to `second-opinion-help`, a REAL skill generated from
+            #: `.claude/commands/second-opinion/help.md`. Checking only the
+            #: composed name handed an unknown source a neighbour's mirrors and
+            #: called it success.
+            and parts[2] in FAMILIES
             and source.endswith(".md")
         ):
             skill = f"{parts[2]}-{parts[3][: -len('.md')]}"
@@ -1120,11 +1150,14 @@ def run_list_mirrors(sources: list[str], selected: list[str]) -> int:
         return 0
 
     found, unknown = mirrors_for(sources, selected)
-    for source in sources:
-        for mirror in found.get(_repo_relative(source), []):
-            print(mirror)
+    #: A UNION, not a concatenation (counter-model review). Passing one source
+    #: twice printed it twice, and two scripts sharing a skill repeated that
+    #: skill's manifest - so the output was not a mirror SET, which is what a
+    #: caller declaring a lane needs.
+    for mirror in sorted({m for mirrors in found.values() for m in mirrors}):
+        print(mirror)
 
-    for source in unknown:
+    for source in dict.fromkeys(unknown):
         #: NAMED, AND NON-ZERO. A tool built to answer "what IS the mirror set"
         #: that returned SILENCE for a source it does not know would reproduce
         #: the exact defect it exists to remove - the caller cannot tell "this

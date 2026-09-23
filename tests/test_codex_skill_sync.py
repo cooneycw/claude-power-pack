@@ -28,6 +28,7 @@ git-less validate container (see the cpp_validate_container_no_git learning).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import subprocess
@@ -1370,27 +1371,44 @@ def test_list_mirrors_names_every_generated_path(capsys):
     assert printed, "a repository with skills must enumerate at least one mirror"
 
 
-def test_list_mirrors_writes_NOTHING(capsys):
-    """Non-mutating is the whole point: `--write` already names the set, by
-    changing the tree, and that is why it could not be used for this.
+def test_list_mirrors_writes_NOTHING(capsys, monkeypatch):
+    """Non-mutating is the whole point, and EQUAL VERDICTS DO NOT ESTABLISH IT.
 
-    THE PROPERTY IS "THE VERDICT IS UNCHANGED", not "the verdict is zero". The
-    first draft asserted `== 0` and failed the moment it ran on a tree with
-    pending drift - which is the ordinary state midway through any change that
-    edits a bundled source, including this one. That encodes an assumption about
-    TREE STATE instead of the property under test, and it fails for a reason
-    that has nothing to do with whether `--list-mirrors` writes anything.
+    The first draft compared `--check` exit codes before and after. That passes
+    if the enumeration rewrites identical bytes, touches an unrelated file, or
+    turns one already-drifted mirror into a differently-drifted one - the verdict
+    is unchanged in all three (counter-model review). It asserted a proxy for the
+    property, not the property.
+
+    So: every file under codex/skills is inventoried BY CONTENT either side, and
+    every write path the generator uses is trapped. The trap is what covers the
+    identical-byte rewrite that digests cannot see.
     """
-    before = codex_skill_sync.main(["--check"])
+    root = ROOT / "codex" / "skills"
+
+    def inventory():
+        return {
+            path.relative_to(ROOT).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sorted(root.rglob("*"))
+            if path.is_file()
+        }
+
+    def refuse(self, *a, **kw):  # noqa: ANN001 - test double
+        raise AssertionError(f"--list-mirrors wrote to {self}")
+
+    before = inventory()
+    assert before, "fixture precondition: there are mirror files to protect"
+
+    monkeypatch.setattr(Path, "write_text", refuse)
+    monkeypatch.setattr(Path, "write_bytes", refuse)
+    monkeypatch.setattr(Path, "mkdir", refuse)
+    monkeypatch.setattr(Path, "unlink", refuse)
+
+    assert codex_skill_sync.main(["--list-mirrors"]) == 0
     capsys.readouterr()
-    codex_skill_sync.main(["--list-mirrors"])
-    capsys.readouterr()
-    after = codex_skill_sync.main(["--check"])
-    capsys.readouterr()
-    assert after == before, (
-        "--list-mirrors must leave the tree exactly as it found it, whatever "
-        f"state that was (--check said {before} before, {after} after)"
-    )
+
+    monkeypatch.undo()
+    assert inventory() == before, "--list-mirrors changed the tree"
 
 
 def test_list_mirrors_maps_a_bundled_script_to_every_skill_that_bundles_it(capsys):
@@ -1518,3 +1536,131 @@ def test_list_mirrors_never_names_a_path_the_generator_would_not_produce(capsys)
     assert set(printed) <= every_real_path, (
         f"named paths the generator does not produce: {sorted(set(printed) - every_real_path)}"
     )
+
+
+def test_the_manifest_is_emitted_ONLY_where_the_generator_writes_one(monkeypatch, capsys):
+    """THE ABSENT-MANIFEST SIDE, which the real tree cannot exercise.
+
+    Every skill that bundles a script currently has a manifest, so a test using
+    real outputs passes whether the manifest rule is conditional or
+    unconditional - it cannot tell them apart (counter-model review). Removing
+    the presence guard in memory left the earlier subset test green.
+
+    This supplies outputs where one skill bundles a script WITHOUT a manifest,
+    asserts that precondition before exercising the code (the negative-fixture
+    rule), and requires the enumeration to emit the script alone for it.
+    """
+    source = "scripts/gh-pr-merge.sh"  # a real repo file, so the existence check passes
+    controlled = {
+        "with-manifest": {source: "body", f"scripts/{MANIFEST_NAME}": "sums"},
+        "without-manifest": {source: "body"},
+    }
+    assert f"scripts/{MANIFEST_NAME}" not in controlled["without-manifest"], (
+        "fixture precondition: this skill must bundle a script and NO manifest"
+    )
+    assert f"scripts/{MANIFEST_NAME}" in controlled["with-manifest"], (
+        "fixture precondition: the paired skill must have one"
+    )
+    monkeypatch.setattr(
+        codex_skill_sync, "expected_outputs", lambda selected: controlled
+    )
+
+    assert codex_skill_sync.main(["--list-mirrors", source]) == 0
+    printed = [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
+
+    assert f"codex/skills/with-manifest/scripts/{MANIFEST_NAME}" in printed
+    assert f"codex/skills/without-manifest/scripts/{MANIFEST_NAME}" not in printed, (
+        "the manifest must be emitted only where the generator writes one"
+    )
+    assert f"codex/skills/without-manifest/{source}" in printed
+
+
+def test_repeated_and_overlapping_sources_yield_a_SET(capsys):
+    """The output is a mirror SET, not a concatenation (counter-model review).
+
+    Passing one source twice printed it twice, and two sources sharing a skill
+    repeated that skill's manifest - so a caller declaring a lane from this got
+    duplicates, and a count of lines meant nothing.
+    """
+    once = codex_skill_sync.main(["--list-mirrors", "scripts/gh-pr-merge.sh"])
+    first = [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
+    twice = codex_skill_sync.main(
+        ["--list-mirrors", "scripts/gh-pr-merge.sh", "scripts/gh-pr-merge.sh"]
+    )
+    second = [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
+
+    assert once == twice == 0
+    assert first == second, "a repeated source must not repeat its mirrors"
+    assert len(second) == len(set(second)), "the output must contain no duplicates"
+
+
+def test_a_GENERATED_filename_is_not_accepted_as_a_source(capsys):
+    """The generator's own OUTPUT is not INPUT (counter-model review).
+
+    `SKILL.md`, `reference.md` and `scripts/<MANIFEST_NAME>` are synthesised
+    names present in every skill's outputs, so a bare name match answered
+    `--list-mirrors SKILL.md` with 74 paths and exit 0 - a confident answer to a
+    question nobody can ask, which is this issue's defect wearing the other hat.
+    """
+    for generated in ("SKILL.md", "reference.md", f"scripts/{MANIFEST_NAME}"):
+        assert not (ROOT / generated).is_file(), (
+            f"fixture precondition: {generated} must not exist as a repository file"
+        )
+        rc = codex_skill_sync.main(["--list-mirrors", generated])
+        captured = capsys.readouterr()
+        assert rc != 0, f"{generated} must not report success"
+        assert [ln for ln in captured.out.splitlines() if ln.strip()] == []
+        assert f"NOT BUNDLED: {generated}" in captured.err
+
+
+def test_a_hyphen_collision_does_not_hand_over_a_NEIGHBOURS_mirrors(capsys):
+    """`<family>-<stem>` loses the boundary between its two halves.
+
+    The nonexistent `.claude/commands/second/opinion-help.md` composes to
+    `second-opinion-help`, which is a REAL skill generated from
+    `.claude/commands/second-opinion/help.md`. Checking only the composed name
+    returned success and named a neighbour's mirrors (counter-model review).
+    """
+    real = ROOT / ".claude" / "commands" / "second-opinion" / "help.md"
+    assert real.is_file(), "fixture precondition: the colliding REAL source exists"
+    bogus = ".claude/commands/second/opinion-help.md"
+    assert not (ROOT / bogus).is_file(), "fixture precondition: the bogus path does not"
+
+    rc = codex_skill_sync.main(["--list-mirrors", bogus])
+    captured = capsys.readouterr()
+    assert rc != 0
+    assert [ln for ln in captured.out.splitlines() if ln.strip()] == []
+
+    assert codex_skill_sync.main(["--list-mirrors", str(real)]) == 0
+    assert [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
+
+
+def test_equivalent_spellings_of_one_source_agree(capsys):
+    """Resolution, not lexical trimming (counter-model review).
+
+    `scripts/../scripts/x` and an absolute alias are the SAME source; a lexical
+    prefix strip called them unbundled while the plain spelling worked.
+    """
+    spellings = [
+        "scripts/gh-pr-merge.sh",
+        "./scripts/gh-pr-merge.sh",
+        "scripts/../scripts/gh-pr-merge.sh",
+        str(ROOT / "scripts" / "gh-pr-merge.sh"),
+    ]
+    results = []
+    for spelling in spellings:
+        assert codex_skill_sync.main(["--list-mirrors", spelling]) == 0, spelling
+        results.append([ln for ln in capsys.readouterr().out.splitlines() if ln.strip()])
+    assert all(r == results[0] for r in results), results
+    assert results[0], "fixture precondition: this source has mirrors"
+
+
+def test_a_path_OUTSIDE_the_repository_is_refused(capsys):
+    """Containment is answered by resolution, and a path outside the tree is not
+    a source here - saying so is the honest answer rather than searching for it
+    and reporting nothing found."""
+    rc = codex_skill_sync.main(["--list-mirrors", "/etc/hosts"])
+    captured = capsys.readouterr()
+    assert rc != 0
+    assert [ln for ln in captured.out.splitlines() if ln.strip()] == []
+    assert "NOT BUNDLED: /etc/hosts" in captured.err
