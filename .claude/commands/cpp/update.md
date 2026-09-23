@@ -74,6 +74,17 @@ else
   # answers the question the probe asks, so a deferred probe reports `no`
   # rather than writing to find out what it was already told.
   surface_writable=$(~/.claude/scripts/cpp-host-write.sh probe-writable ~/.claude/commands 2>/dev/null)
+  #: EXIT 0 AND 3 ARE BOTH ANSWERS (issue #1198): the helper prints yes/no and
+  #: returns 0, or prints no and returns 3 when the surface is deferred. Any
+  #: other status means the seam could not run, and the capture is then EMPTY -
+  #: which this line used to print as though it were a probe result, under a
+  #: label saying "probed, not inferred from mode bits". There is no checkout
+  #: here by construction, so there is nothing to bootstrap from: the honest
+  #: answer is that it was not probed.
+  case $? in
+    0|3) : ;;
+    *)   surface_writable="unknown (seam not installed here, so this was NOT probed)" ;;
+  esac
 
   echo "No claude-power-pack CHECKOUT found at any known path."
   echo "  CPP command surface served here: $cpp_surface (~/.claude/commands/cpp/init.md readable)"
@@ -589,6 +600,57 @@ echo "$RUNTIME_STATUS"
 
 ---
 
+## Step 5a: Bootstrap the Host-Write Seam (issue #1198)
+
+Every host write below goes through `~/.claude/scripts/cpp-host-write.sh`. That
+symlink is itself one of the things Step 5b installs, so on a host that does not
+have it yet EVERY call below exits 127 - and before #1198 the next line printed a
+checkmark regardless. Measured on 2026-09-22: `/cpp:update` reported
+`Flow allowlist merged (52 total allow rules)` having merged nothing, because the
+count it printed was read BEFORE the merge it never performed.
+
+The bootstrap goes through the seam too, invoked at its CHECKOUT path - which
+always exists when a checkout does. That keeps it declared and deferrable like
+every other write, rather than a carve-out the `check-cpp-host-writes` gate has
+to be taught to ignore. `link-into` does its own `mkdir -p`, so this one call is
+the whole bootstrap.
+
+**IT MUST NOT CREATE `~/.claude/scripts`.** `link-into` does its own `mkdir -p`,
+so bootstrapping unconditionally would create that directory on a Tier 0/1 host
+- and Step 5b's `[ -d ~/.claude/scripts ]` guard would then pass for the first
+time and install ninety helpers, silently upgrading an install the next step
+explicitly promises never to self-upgrade. So the tier is read BEFORE the
+bootstrap, and decides it (counter-model review).
+
+```bash
+if [ -d ~/.claude/scripts ]; then
+  "$CPP_DIR/scripts/cpp-host-write.sh" link-into \
+    "$CPP_DIR/scripts/cpp-host-write.sh" ~/.claude/scripts cpp-host-write.sh
+  case $? in
+    0) SEAM_STATUS="available" ;;
+    3) SEAM_STATUS="the seam's own install was deferred by request" ;;
+    *) SEAM_STATUS="UNAVAILABLE - the seam could not be installed" ;;
+  esac
+else
+  SEAM_STATUS="not installed (Tier 0/1: no ~/.claude/scripts, and this command will not create one)"
+fi
+echo "Host-write seam: $SEAM_STATUS"
+```
+
+Report `SEAM_STATUS` and continue. Anything but `available` is a supported
+state, not a stop: the steps below each read their own call's verdict, so they
+say which of the four things happened rather than claiming the write landed.
+
+**The status says what it measured, and nothing wider.** An earlier draft had
+the deferred branch announce that "every host write below will report deferred"
+- which is not something this call establishes. `--defer ~/.claude/scripts`
+defers the SEAM'S OWN INSTALL; it says nothing about `~/.claude/settings.json`
+or `~/.bashrc`, whose calls each consult their own defer-set entry and report
+their own verdict. Overclaiming from one surface to all of them is this issue's
+defect wearing the fix's clothes.
+
+---
+
 ## Step 5b: Script Symlink Refresh (Tier 2)
 
 The git pull may have ADDED new helper scripts under `scripts/` (e.g. the flow
@@ -606,13 +668,26 @@ idempotent link loop as `/cpp:init` Tier 2; skip when this install has no
 
 ```bash
 if [ -d ~/.claude/scripts ]; then
+  SEAM_OK=0; SEAM_DEFERRED=0; SEAM_FAILED=0
   for script in "$CPP_DIR"/scripts/*; do
     [ -f "$script" ] && [ -x "$script" ] || continue
     name=$(basename "$script")
     # Through the declaring seam (#1132). The helper carries the already-linked
     # skip this block had, and honours --defer ~/.claude/scripts by name.
     ~/.claude/scripts/cpp-host-write.sh link-into "$script" ~/.claude/scripts "$name"
+    #: COMPOSE A VERDICT, do not just run (issue #1198). This loop made ninety
+    #: calls and drew no conclusion, so a seam that was absent linked nothing and
+    #: the step said so nowhere - measured on 2026-09-22, 25 scripts unlinked
+    #: while the run reported success. The tally is what makes the next step's
+    #: "npm-global-upgrade.sh is not installed" traceable to a cause here.
+    case $? in
+      0) SEAM_OK=$((SEAM_OK + 1)) ;;
+      3) SEAM_DEFERRED=$((SEAM_DEFERRED + 1)) ;;
+      *) SEAM_FAILED=$((SEAM_FAILED + 1)) ;;
+    esac
   done
+  echo "→ Script refresh: $SEAM_OK linked/current, $SEAM_DEFERRED deferred, $SEAM_FAILED failed"
+  [ "$SEAM_FAILED" -gt 0 ] && echo "  WARNING: $SEAM_FAILED script(s) were NOT linked. Allowlist rules and command docs citing ~/.claude/scripts/<name> point at paths that do not exist."
 else
   echo "→ Script refresh skipped (no ~/.claude/scripts - Tier 0/1 install)"
 fi
@@ -1037,6 +1112,14 @@ PYSTATUS
   # a redirect, cp, tee, mv or ln. Same .update() semantics, moved not improved.
   ~/.claude/scripts/cpp-host-write.sh json-merge-sections \
     "$CPP_DIR/templates/opencode-gemma.json" "$OC_CONFIG" provider agent
+  #: $GEMMA_PROFILE_STATUS was computed BEFORE the merge, so on its own it
+  #: describes the state the merge was meant to change - printing it
+  #: unconditionally reported a refreshed profile over a refusal (issue #1198).
+  case $? in
+    0) : ;;
+    3) GEMMA_PROFILE_STATUS="DEFERRED by request - the profile was NOT merged" ;;
+    *) GEMMA_PROFILE_STATUS="NOT merged (the seam failed or is not installed)" ;;
+  esac
 
   echo "✓ Tier 7 Gemma profile: $GEMMA_PROFILE_STATUS"
   echo "    Re-merge keeps the gemma-implementer mechanical fence from going stale."
@@ -1465,7 +1548,27 @@ If yes, run the same merge as `/cpp:init`:
 ```bash
 # Through the declaring seam (#1132), same call /cpp:init makes.
 ~/.claude/scripts/cpp-host-write.sh settings-merge "$TEMPLATE"
-echo "✓ Flow allowlist merged ($(jq '.permissions.allow | length' "$TARGET") total allow rules)"
+#: THE MEASURED CASE (issue #1198). This pair printed
+#: "✓ Flow allowlist merged (2 total allow rules)" with the seam absent and
+#: nothing merged, and printed the same line with the surface DEFERRED exactly
+#: as asked. The count made it worse, not better: read after a failed merge it
+#: is the PRE-merge total, so the false claim carried a plausible number and
+#: read as a smaller install rather than an error.
+case $? in
+  0) echo "✓ Flow allowlist merged ($(jq '.permissions.allow | length' "$TARGET") total allow rules)" ;;
+  3) echo "→ Flow allowlist DEFERRED by request - ~/.claude/settings.json was NOT modified" ;;
+  127) echo "✗ Flow allowlist NOT merged - the host-write seam is not installed (see Step 5a)" ;;
+#: A FAILURE DOES NOT ESTABLISH THAT THE SURFACE IS UNCHANGED (counter-model
+#: review). The first draft of these handlers said "... is unchanged" on the
+#: failure branch, which asserts a rollback nothing performs. Measured: given a
+#: malformed template and no existing file, `settings-merge` exits 1 AND leaves
+#: a newly created ~/.claude/settings.json containing `{}`. Append and
+#: replace operations can likewise modify a file before an I/O error. So the
+#: failure branch reports the failure and sends the reader to look - claiming
+#: an unverified rollback is the same overclaim as claiming an unperformed
+#: write, pointed the other way.
+  *) echo "✗ Flow allowlist merge FAILED - check ~/.claude/settings.json - a failed write may have modified it" ;;
+esac
 ```
 
 If no: report `→ Flow allowlist refresh skipped` and continue.
@@ -1526,7 +1629,12 @@ If yes, run the same idempotent merge as `/cpp:init`:
     else .hooks.PermissionRequest += [{"hooks":[{"type":"command","command":$cmd}]}]
     end
 JQ
-echo "✓ PermissionRequest census hook registered in ~/.claude/settings.json"
+case $? in
+  0) echo "✓ PermissionRequest census hook registered in ~/.claude/settings.json" ;;
+  3) echo "→ Census hook registration DEFERRED by request - settings.json was NOT modified" ;;
+  127) echo "✗ Census hook NOT registered - the host-write seam is not installed (see Step 5a)" ;;
+  *) echo "✗ Census hook registration FAILED - check settings.json - a failed write may have modified it" ;;
+esac
 ```
 
 If no: report `→ Permission-prompt census hook registration skipped` and continue.
@@ -1592,7 +1700,12 @@ If yes, run the same idempotent merge as `/cpp:init`:
     else .hooks.SessionStart += [{"hooks":[{"type":"command","command":$cmd}]}]
     end
 JQ
-echo "✓ Session-open pending-retro reminder registered in ~/.claude/settings.json"
+case $? in
+  0) echo "✓ Session-open pending-retro reminder registered in ~/.claude/settings.json" ;;
+  3) echo "→ Pending-retro reminder DEFERRED by request - settings.json was NOT modified" ;;
+  127) echo "✗ Pending-retro reminder NOT registered - the seam is not installed (see Step 5a)" ;;
+  *) echo "✗ Pending-retro reminder registration FAILED - check settings.json - a failed write may have modified it" ;;
+esac
 ```
 
 If no: report `→ Pending-retro reminder registration skipped (default)` and continue.

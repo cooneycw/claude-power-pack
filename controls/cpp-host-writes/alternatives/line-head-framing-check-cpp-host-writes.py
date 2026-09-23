@@ -1,83 +1,26 @@
-#!/usr/bin/env python3
-"""Refuse an inline host write in the cpp command documents (issue #1132).
+"""ALTERNATIVE - the LINE-HEAD framing of the unread-verdict check (#1198).
 
-`/cpp:init` and `/cpp:update` write host surfaces. #1132 routed every one of
-them through `scripts/cpp-host-write.sh`, which declares what it writes and can
-be told to defer a surface. This gate keeps it that way.
+Not constructed. This is the SECOND real implementation of this gate,
+recovered from the index between counter-model passes - the one written to
+fix the proximity framing's two errors. It fixed both, and introduced three
+more, which is the reason it is kept:
 
-WITHOUT IT THE SEAM IS TOTAL TODAY AND PARTIAL THE FIRST TIME SOMEBODY ADDS A
-`printf`. That is not hypothetical: #1139 routed two `~/.bashrc` blocks and left
-two more writing the same file inline, so a defer-set naming `~/.bashrc` refused
-two writes, PRINTED A STATED REFUSAL, and wrote the file anyway. A caller told
-the surface was protected, and it was not.
+  MISSED  `true && echo ready; <seam call>`. It required the seam at the
+          head of the LOGICAL LINE, so an invocation after a `;` was
+          invisible. A fix for a false positive that creates a false
+          NEGATIVE is not a narrower gate; it is a differently blind one.
+  ACCEPTED `<seam>; echo done && echo ready` - the `&&` belongs to `echo
+          done`, and a neighbour's chain discharged the seam's obligation.
+  ACCEPTED `<seam>` then `true && rc=$?` - `rc` holds `true`'s status.
+  FLAGGED `./not-cpp-host-write.sh settings-merge` - a NEIGHBOUR's script,
+          reported under our seam's name, because the path pattern accepted
+          any prefix.
 
-## Four write FORMS, not five surfaces
-
-Every enumeration by surface missed something, so this scans by FORM:
-
-- **shell redirect** to a `$HOME`/`~` path, or to a variable holding one
-- **indirect shell**: the target is assigned twenty lines above its use, so the
-  verb and the path never share a line. This is the shape that hid the
-  `~/.bashrc` writes through two separate reviews
-- **embedded python** inside a heredoc: `write_text`, `json.dump`, `open(...,"w")`
-  satisfy no grep for a redirect, `cp`, `tee`, `mv` or `ln`. This is the shape
-  that hid `~/.config/opencode/opencode.json`
-- **`mkdir -p`** of a host directory, and `ln -s` into one. A loop matters here:
-  one `ln -sf` in the source becomes ninety-odd links at run time, so the
-  surface is the DIRECTORY and one site is not one write
-
-## The comment filter is itself a way to be blind
-
-Comments must not red — three false positives in this issue's own analysis came
-from a `#` line quoting a write. But a filter that drops any line containing `#`
-excuses the write most likely to look like one:
-
-    printf '# managed by cpp' >> "$RC"
-
-So a line is a comment only when its FIRST non-whitespace character is `#`. A
-`#` inside a string is not a comment, and `controls/cpp-host-writes` carries
-both directions as committed cases.
-
-Usage:
-    check-cpp-host-writes.py [--root DIR]
-
-## Two properties, two finding types (issue #1198)
-
-Routing a write through the seam is half the guarantee. The seam answers with
-THREE verdicts - wrote (0), deferred by request (3), failed (1) - plus the 127
-it returns when it is not installed at all, and a caller that never reads the
-answer gets the same checkmark from all four.
-
-Measured on 2026-09-22: `/cpp:update` printed `Flow allowlist merged (52 total
-allow rules)` with the seam DEFERRING the surface exactly as asked, and printed
-`merged (2 total allow rules)` - the PRE-merge count - with the seam absent
-entirely. That is #1139's defect pointing the other way: there, a caller was
-told a surface was protected and it was written; here, a caller is told it was
-written and it was protected.
-
-So this gate reports two kinds of finding, named separately because they are
-different properties and a single red would otherwise mean two things:
-
-- `INLINE-HOST-WRITE:` - a write that does not go through the seam (#1132)
-- `UNREAD-SEAM-VERDICT:` - a write that goes through the seam and discards
-  its answer (#1198)
-
-THE RULE FOR THE SECOND IS "ALWAYS", NOT "WHEN A CLAIM FOLLOWS". Keying on a
-nearby success message would exempt the shape that started this: a `link-into`
-loop that calls the seam ninety times, claims nothing, and silently links
-nothing when the seam is absent. There is no legitimate reason to write a host
-surface and not care whether it happened, so the requirement has no exceptions
-to enumerate - and a rule with no exceptions cannot be defeated by phrasing a
-claim differently.
-
-Usage:
-    check-cpp-host-writes.py [--root DIR]
-
-Output: one `INLINE-HOST-WRITE:` / `UNREAD-SEAM-VERDICT:` line per finding, then
-a verdict naming the population scanned and BOTH counts. Exit 0 clean, 1 on any
-finding, 2 when the population is empty, which is UNKNOWN rather than clean.
+Two successive implementations of one check, each correcting the last and
+each wrong in a new way, is the honest record of what this gate cost - and
+the cases below are the only reason the third is known to be better rather
+than merely newer.
 """
-
 from __future__ import annotations
 
 import argparse
@@ -171,50 +114,6 @@ CONSULT_OPENER_RE = re.compile(r"^\s*(?:if|while|until|elif)\b")
 #: A chain that must appear AFTER the invocation, never merely on the line.
 CONSULT_CHAIN_RE = re.compile(r"(?:\|\||&&)\s*\S")
 CONSULT_STATUS_RE = re.compile(r"\$\?")
-
-
-#: Shell separators that END a command. Quote-aware below: a `;` inside a
-#: string is data, not a separator.
-_SEPARATORS = ("||", "&&", ";")
-
-
-def _split_commands(statement: str) -> list[tuple[str, str]]:
-    """Split a statement into `(command, operator_that_follows_it)` pairs.
-
-    The operator matters as much as the split. `<seam> && handler` is consulted
-    because `&&` reads the seam's status; `<seam>; echo done && echo ready` is
-    NOT, because there the `&&` belongs to `echo done` - and accepting it was
-    how a neighbouring command's handler discharged the seam's obligation
-    (counter-model review, second pass).
-    """
-    out: list[tuple[str, str]] = []
-    buf: list[str] = []
-    quote = ""
-    i = 0
-    while i < len(statement):
-        ch = statement[i]
-        if quote:
-            buf.append(ch)
-            if ch == quote:
-                quote = ""
-            i += 1
-            continue
-        if ch in "\"'":
-            quote = ch
-            buf.append(ch)
-            i += 1
-            continue
-        for sep in _SEPARATORS:
-            if statement.startswith(sep, i):
-                out.append(("".join(buf), sep))
-                buf = []
-                i += len(sep)
-                break
-        else:
-            buf.append(ch)
-            i += 1
-    out.append(("".join(buf), ""))
-    return out
 
 
 def _first_command_reads_status(statement: str) -> bool:
@@ -311,13 +210,9 @@ def scan(text: str) -> list[tuple[int, str, str]]:
 #: without a keyword list of commands to excuse.
 SEAM_INVOKE_RE = re.compile(
     r"""^\s*                               # statement head
-        (?:[A-Za-z_][A-Za-z0-9_]*=\$\(\s*)?   # ONLY the $( form is a command
+        (?:[A-Za-z_][A-Za-z0-9_]*=\$?\(?\s*)?  # optional VAR= or VAR=$( capture
         (?P<q>["']?)                       # optional opening quote
-        (?:[^\s"';|&=]*/)?                  # optional path, CLOSED BY A SLASH
-        #: `=` is excluded from the path so `SEAM=~/.../cpp-host-write.sh cmd`
-        #: is not read as an invocation: that is an ENVIRONMENT ASSIGNMENT
-        #: whose executed command is `cmd`, and flagging it attributes a
-        #: neighbouring command to the seam.
+        [^\s"';|&]*                         # the path, no shell metacharacters
         """ + re.escape(SEAM) + r"""
         (?P=q)                             # the SAME quote closes it
         \s+[a-z][a-z-]*\b                   # and a subcommand follows
@@ -379,33 +274,27 @@ def scan_unread_verdicts(text: str) -> list[tuple[int, str]]:
     findings: list[tuple[int, str]] = []
     statements = list(_shell_statements(text))
     for idx, (lineno, line) in enumerate(statements):
+        hit = SEAM_INVOKE_RE.search(line)
+        if not hit:
+            continue
         if CONSULT_OPENER_RE.match(line):
             continue
-        #: PER COMMAND, not per line (counter-model review, second pass). The
-        #: line-head version could not see `true && echo ready; <seam call>` at
-        #: all - a fix for a false positive that introduced a false negative.
-        commands = _split_commands(line)
-        for pos, (command, following_op) in enumerate(commands):
-            if not SEAM_INVOKE_RE.search(command):
-                continue
-            #: Only the operator IMMEDIATELY after the seam reads its status.
-            if following_op in ("&&", "||"):
-                continue
-            #: The very next command: in this statement after a `;`, else the
-            #: first command of the next NON-BLANK statement. A blank line
-            #: before `case $?` is ordinary formatting, and calling it "no
-            #: handler" reported correct code as unguarded.
-            successor = ""
-            if pos + 1 < len(commands):
-                successor = commands[pos + 1][0]
-            else:
-                for _, candidate in statements[idx + 1:]:
-                    if candidate.strip():
-                        successor = _split_commands(candidate)[0][0]
-                        break
-            if _first_command_reads_status(successor):
-                continue
-            findings.append((lineno, command.strip() or line.strip()))
+        #: Only what follows the INVOCATION can be its handler. A chain
+        #: belonging to a neighbouring command on the same line used to
+        #: discharge the seam's obligation.
+        if _same_statement_handler(line[hit.end():]):
+            continue
+        #: The next NON-BLANK statement. A blank line between a call and its
+        #: `case $?` is ordinary formatting, and treating it as "no handler"
+        #: reported correct code as unguarded.
+        following = ""
+        for _, candidate in statements[idx + 1:]:
+            if candidate.strip():
+                following = candidate
+                break
+        if _first_command_reads_status(following):
+            continue
+        findings.append((lineno, line.strip()))
     return findings
 
 
