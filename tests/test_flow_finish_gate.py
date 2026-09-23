@@ -1294,6 +1294,72 @@ def test_subsumption_is_reported_by_name(tmp_path: Path) -> None:
     assert "skipped gates" not in proc.stdout
 
 
+def test_subsumption_refusal_is_reported(tmp_path: Path) -> None:
+    """WHY nothing was subsumed, said rather than left to silence (issue #1192).
+
+    The gate printed a SUBSUMED line when dedup happened and NOTHING when it
+    was refused, so "your makefile is outside the grammar and every gate ran
+    twice" and "there was nothing to deduplicate" were the same output - to the
+    only reader who pays the difference.
+
+    The refusal that motivated this is an `-include` of an optional env file:
+    ordinary configuration, neither of the two hazards the grammar is written
+    for, and refused all the same.
+    """
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "plan": "finish",\n'
+        '  "gates": [\n    "lint",\n    "verify"\n  ],\n'
+        '  "dropped_gates": [],\n'
+        '  "subsumed_gates": {},\n'
+        '  "subsumption_refusals": [\n'
+        '    "the makefile is outside the grammar subsumption requires '
+        '(line 1: an include), so nothing is subsumed and every gate runs"\n'
+        "  ],\n"
+        '  "step_details": [\n'
+        '    {\n      "id": "lint",\n      "status": "success"\n    },\n'
+        '    {\n      "id": "verify",\n      "status": "success"\n    }\n'
+        "  ]\n}"
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload, inject_gates=False)
+
+    assert proc.returncode == 0
+    assert "SUBSUMPTION REFUSED" in proc.stdout
+    assert "an include" in proc.stdout
+    assert "FLOW_FINISH_GATE: ok" in proc.stdout
+
+
+def test_no_refusal_prints_NOTHING(tmp_path: Path) -> None:
+    """THE SILENCE HALF, and it is as load-bearing as the printed line.
+
+    A gate that announced a refusal unconditionally would satisfy the test
+    above while telling every ordinary run it had been refused - and a line
+    that appears on every run is one nobody reads, which is the state this
+    change exists to leave.
+
+    Both no-refusal shapes are covered: `[]` (derived, nothing refused) and
+    `null` (not derived at all, the resume-on-finished-run path). Neither is a
+    refusal, so neither prints.
+    """
+    cpp = _fake_cpp(tmp_path)
+    for refusals in ('  "subsumption_refusals": [],\n', '  "subsumption_refusals": null,\n'):
+        payload = (
+            '{\n  "success": true,\n  "plan": "finish",\n'
+            '  "gates": [\n    "lint",\n    "verify"\n  ],\n'
+            '  "dropped_gates": [],\n'
+            '  "subsumed_gates": {},\n'
+            + refusals
+            + '  "step_details": [\n'
+            '    {\n      "id": "lint",\n      "status": "success"\n    },\n'
+            '    {\n      "id": "verify",\n      "status": "success"\n    }\n'
+            "  ]\n}"
+        )
+        proc = _run_with_uv_stub(tmp_path, cpp, payload, inject_gates=False)
+
+        assert proc.returncode == 0, refusals
+        assert "SUBSUMPTION REFUSED" not in proc.stdout, refusals
+
+
 @requires_bash
 @requires_git
 def test_a_not_run_record_cannot_coexist_with_a_pass(tmp_path: Path) -> None:

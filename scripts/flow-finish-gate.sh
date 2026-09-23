@@ -752,6 +752,25 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         in_s && /^  \}[,]?$/ { exit }
         in_s { v = $0; sub(/^.*": "/, "", v); sub(/",?$/, "", v); print v }
     ' "$RUNNER_JSON" 2>/dev/null | head -1)
+    # WHY nothing was subsumed (issue #1192). Without this the gate prints a
+    # SUBSUMED line when dedup happens and NOTHING when it is refused, so
+    # "your makefile is outside the grammar and every gate ran twice" and
+    # "there was nothing to deduplicate" are the same output - to the one
+    # reader who pays the difference. `null` (not derived) and `[]` (derived,
+    # nothing refused) both yield no lines here, and that is correct: neither
+    # is a refusal to report.
+    SUBSUMPTION_REFUSALS=$(awk '
+        /^  "subsumption_refusals": null,?$/ { exit }
+        /^  "subsumption_refusals": \[\],?$/ { exit }
+        /^  "subsumption_refusals": \[$/ { in_r = 1; next }
+        in_r && /^  \][,]?$/ { exit }
+        in_r {
+            v = $0
+            sub(/^[[:space:]]*"/, "", v)
+            sub(/",?$/, "", v)
+            if (v != "") print v
+        }
+    ' "$RUNNER_JSON" 2>/dev/null)
     # Gates recorded NOT-RUN: deferred to an aggregate that then failed, so
     # they never ran (issue #1152). Read from the per-step records because that
     # is where the runner puts them.
@@ -1013,6 +1032,12 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         fi
         if [[ -n "$SUBSUMED_GATES" ]]; then
             echo "flow-finish-gate: SUBSUMED: $SUBSUMED_GATES ran as direct prerequisite(s) of 'make ${SUBSUMED_BY:-the aggregate}', which passed - not re-run (issue #1152)."
+        fi
+        if [[ -n "$SUBSUMPTION_REFUSALS" ]]; then
+            while IFS= read -r _refusal; do
+                [[ -n "$_refusal" ]] || continue
+                echo "flow-finish-gate: SUBSUMPTION REFUSED: $_refusal (issue #1192)."
+            done <<< "$SUBSUMPTION_REFUSALS"
         fi
         if [[ -n "$SKIPPED_GATES" ]]; then
             echo "WARNING: quality gates did NOT run: $SKIPPED_GATES (no Makefile target and no configured tool). This gate proved nothing about those checks - do not read as 'safe to merge' (issue #628)." >&2

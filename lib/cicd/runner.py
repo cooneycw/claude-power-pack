@@ -349,6 +349,20 @@ class RunResult:
     # report NAMES the derivation: a reader seeing three gates absent from the
     # executed list must be able to see WHY without re-deriving it.
     subsumed_gates: dict[str, str] = field(default_factory=dict)
+    # WHY nothing was subsumed, when nothing was (issue #1192). The refusals
+    # were computed and LOGGED and never serialised, so the shell gate - the
+    # only reader who pays for a duplicate run - could not tell "your makefile
+    # is outside the grammar, so every gate ran twice" from "there was nothing
+    # to deduplicate". Those are the same bytes today and they send a reader to
+    # completely different places.
+    #
+    # THREE STATES, like `dropped_gates` above and for the same reason. `None`
+    # means NOT DERIVED in this invocation - `resume` on an already-finished run
+    # reports a stored status and never asks - which is a different fact from
+    # `[]`, derived and nothing refused. Defaulting to `[]` would have this
+    # field claim a look nobody took, which is the exact conflation it exists to
+    # remove.
+    subsumption_refusals: Optional[list[str]] = None
     # When an AGGREGATE gate failed and make named the prerequisite it stopped
     # at (issue #1152). `verify` has 29 prerequisites here, so "verify failed"
     # asks a reader to search all of them; this is the one make pointed at.
@@ -451,6 +465,12 @@ class RunResult:
         # does not deduplicate" must not be the same bytes, for the same reason
         # `gates` is unconditional (#1147).
         d["subsumed_gates"] = dict(sorted(self.subsumed_gates.items()))
+        # Unconditional, `null` and `[]` both preserved (issue #1192): a field
+        # absent when empty collapses "derived, nothing refused" into "this
+        # runner is too old to say", which is the #1155 lesson one field over.
+        d["subsumption_refusals"] = (
+            None if self.subsumption_refusals is None else list(self.subsumption_refusals)
+        )
         if self.failed_prerequisite:
             d["failed_prerequisite"] = self.failed_prerequisite
         d["dropped_gates"] = (
@@ -1332,6 +1352,7 @@ class DeterministicRunner:
                         for r in state.step_records
                         if r.subsumed_by
                     },
+                    subsumption_refusals=list(subsumption_refusals),
                     # CARRIED ON THE FAILURE PATH TOO (issue #1152). It was
                     # only on the success result, so a run that failed inside
                     # an aggregate published no per-step records at all - and
@@ -1528,6 +1549,7 @@ class DeterministicRunner:
             gates=plan_gate_ids(state.plan_name, step_defs),
             dropped_gates=dropped_gate_ids(state.plan_name, step_defs),
             subsumed_gates=resolved_subsumed,
+            subsumption_refusals=list(subsumption_refusals),
             tests=tests,
             coverage=coverage,
             warnings=warnings,
