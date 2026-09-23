@@ -35,14 +35,30 @@ halves:
   zero. **Measured**, from a single session's own transcript across five
   delivered issues: **468 `Bash` tool calls against 0 `Write`, `Edit` or
   `NotebookEdit` calls** - so this hook would have fired zero times over every
-  plan record and every source edit that session made. (An earlier, smaller
-  count is recorded in the control's limits: three plan records across three
-  runs, none via `Write`. Same direction, two orders of magnitude more input.)
+  plan record and every source edit that session made. (An earlier count is
+  recorded in the control's limits: three plan records across three runs, none
+  via `Write`. Same direction; see the note on units below.)
 
   Stated plainly, because the parent issue promises *enforced rather than
-  asserted*: in that fleet it is **enforced for the tool path nobody uses, and
-  asserted for the one everybody does.** That is an argument about coverage, not
-  about correctness - the hook does what it says on the paths it matches.
+  asserted*: **in the measured session** this hook was enforced for a tool path
+  that session never used, and asserted for the one it used throughout. Whether
+  that holds fleet-wide is an **inference, not a measurement** - it follows from
+  the Bash-first steer being written into session instructions rather than
+  chosen per run, and a second session independently reported the same steer in
+  its own instructions. Two sessions on one host is corroboration; it is not a
+  survey. Do not read the numbers above as a claim about every session or every
+  host.
+
+  The two measurements are kept with their **units distinct** and deliberately
+  not combined into a ratio: three *plan-record writes* and 468 *Bash tool
+  calls* count different things, and most Bash calls in a session are reads,
+  searches and tests rather than edits. The zero supports "this hook would not
+  have fired"; it does not support a hundredfold claim about comparable
+  evidence, and counting write-like shell commands to manufacture one would be
+  the path-set prediction this repository keeps declining.
+
+  That is an argument about coverage, not about correctness - the hook does what
+  it says on the paths it matches.
 
 **So the hook's silence is not evidence that no edit happened.** If your setup
 resembles the second case, install it knowing that, or do not install it.

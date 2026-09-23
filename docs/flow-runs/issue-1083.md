@@ -87,16 +87,29 @@ not have stopped the waiver, and would not have stopped this session proceeding
 on it.
 
 THE HONEST POSITION, since the issue promises "enforced rather than asserted":
-enforced for the tool path nobody here uses, asserted for the one everybody does.
+IN THE MEASURED SESSION it was enforced for a tool path that session never used,
+and asserted for the one it used throughout. "Nobody" and "everybody" would be
+fleet-wide claims this measurement does not support - one session, one host. That
+it holds more widely is an INFERENCE from the Bash-first steer being written into
+session instructions rather than chosen per run, corroborated by a second session
+reporting the same steer in its own. Two sessions is corroboration, not a survey.
+
+AND THE TWO MEASUREMENTS ARE NOT COMBINED INTO A RATIO. Three plan-record writes
+and 468 Bash tool calls count DIFFERENT THINGS - most Bash calls in a session are
+reads, searches and tests, not edits. The zero supports "this hook would not have
+fired"; it does not support a magnitude claim about comparable evidence, and
+counting write-like shell commands to manufacture one would be the path-set
+prediction this repository keeps declining (counter-model review).
+
 That is an argument about COVERAGE, not about correctness. The hook does what it
 says on the paths it matches.
 
 ## Section C - the approved plan
 
 1. `controls/step3-record-guard/control.json` - replace the coverage ESTIMATE in
-   `limits` with the MEASUREMENT above. The earlier figure is recorded as
-   superseded rather than corrected: same direction, two orders of magnitude more
-   input.
+   `limits` with the MEASUREMENT above, bounded to the session it came from. The
+   earlier figure STANDS ALONGSIDE it rather than being replaced: the two count
+   different things and are not combined into a ratio.
 2. `templates/hooks/step3-record-guard.md` - the same measurement for a consumer,
    plus the TRUST-ROOTS note: hook-delivery trust roots are now this hook's,
    because the issue that was going to own them was cancelled rather than
