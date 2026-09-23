@@ -1887,9 +1887,22 @@ fill this step.
    fi
    ```
 
-   **If the merge above ran** (the branch was behind), re-run the FULL quality
-   gate on the MERGED tree - the same Step-6 helper, invoked BARE as a separate
-   call (#613; the #581 discipline - never fold it back into a compound block):
+   **If EITHER the merge OR the re-sync changed the branch**, re-run the FULL
+   quality gate - the same Step-6 helper, invoked BARE as a separate call (#613;
+   the #581 discipline - never fold it back into a compound block).
+
+   THE RE-SYNC IS NOW A SECOND WAY THIS BRANCH GAINS A COMMIT (S4,
+   counter-model review). This used to read "if the merge above ran", which was
+   complete while the re-sync could only happen inside the merge block. It no
+   longer is: a run on a CURRENT base whose diff staled a mirror now regenerates
+   and COMMITS those mirrors here, and gating the re-gate on the merge would let
+   that commit reach the squash without ever being validated - and without being
+   pushed, so the PR the squash reads would not contain it. Test for a changed
+   branch, not for a merge:
+
+   ```bash
+   git rev-parse HEAD                     # compare against the SHA before this step
+   ```
 
    ```bash
    ~/.claude/scripts/flow-finish-gate.sh
