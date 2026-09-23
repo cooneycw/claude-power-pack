@@ -1083,15 +1083,32 @@ _is_incidental_close_match() {
     # legitimate case) must still be handed to grep AS one empty line, not as
     # no input at all: printf '%s\n' (never bare '%s') makes that distinction
     # for every check below.
+    # THE NEGATION TEST NOW COMES FIRST, and this reorder is issue #1191's, not
+    # #794's (counter-model review). The possessive test used to be checked
+    # first and unconditionally. That was harmless while the scan was
+    # line-oriented, because a construction that is BOTH negated and possessive
+    # spans a paragraph and neither guard could see it. This change makes such a
+    # construction visible, and with the old order BOTH guards fire on it: the
+    # operator is refused at exit 5, consciously passes --allow-negated-close,
+    # and is refused again at exit 7 for the same sentence. The file's own
+    # header forbids exactly that - "the two must never both fire off the same
+    # text asking for two different overrides of what is, to a human, one
+    # decision."
+    #
+    # A match carrying an adjacent negation therefore BELONGS to
+    # guard_negated_close_keywords, which uses this same negation pattern on this
+    # same prefix, so ownership is symmetric rather than a guess. #794's two real
+    # shapes ("closes #N's investigation", "the resolved #N/topic finding") are
+    # not negated, so neither moves - and the self-check below pins that.
+    if printf '%s\n' "$prefix" | grep -Pqi "$negation_re"; then
+        echo 0
+        return
+    fi
     if printf '%s\n' "$immediate_suffix" | grep -Pq "$bad_suffix_re"; then
         echo 1
         return
     fi
     if printf '%s\n' "$prefix" | grep -Pq "$clause_initial_re"; then
-        echo 0
-        return
-    fi
-    if printf '%s\n' "$prefix" | grep -Pqi "$negation_re"; then
         echo 0
         return
     fi
@@ -1109,13 +1126,18 @@ _is_incidental_close_match() {
 # Exits 8 (a distinct code from every merge-refusal exit) and refuses to
 # proceed if the classifier's own answer ever changes.
 _incidental_close_selfcheck() {
-    local hit_position hit_suffix miss
+    local hit_position hit_suffix miss owned
     hit_position=$(_is_incidental_close_match "note: the resolved " "")
     hit_suffix=$(_is_incidental_close_match "" "'s inv")
     miss=$(_is_incidental_close_match "" "")
-    if [[ "$hit_position" != 1 || "$hit_suffix" != 1 || "$miss" != 0 ]]; then
+    # OWNERSHIP (issue #1191): a negated prefix belongs to the #726 guard, so
+    # this classifier must decline it even when the suffix is possessive -
+    # otherwise one sentence demands two overrides. Pinned here because the
+    # ordering that produces it is invisible to the three cases above.
+    owned=$(_is_incidental_close_match "## What this does NOT " "'s rem")
+    if [[ "$hit_position" != 1 || "$hit_suffix" != 1 || "$miss" != 0 || "$owned" != 0 ]]; then
         echo "GH_PR_MERGE_INCIDENTAL_CLOSE_SELFCHECK: broken - classifier answered" \
-             "position=$hit_position suffix=$hit_suffix miss=$miss (expected 1, 1, 0)" >&2
+             "position=$hit_position suffix=$hit_suffix miss=$miss owned=$owned (expected 1, 1, 0, 0)" >&2
         echo "CLEAN STOP: the incidental-close classifier failed its own self-check - refusing to" >&2
         echo "  trust a clean scan rather than silently merging (issue #794)." >&2
         exit 8
@@ -1153,6 +1175,15 @@ guard_incidental_close_keywords() {
             issue=${match##*#}
             after=$(( offset + ${#match} ))
             immediate_suffix=${text:after:4}
+            # IMMEDIATE means immediate (counter-model review, issue #1191).
+            # Now that the match span may cross a newline, this window can too -
+            # and `_is_incidental_close_match` tests it with a LINE-oriented grep
+            # anchored on `^`, so `printf '%s\n'` on a multi-line value hands grep
+            # SEVERAL lines and `^/[[:alpha:]]` matches a later one. Measured: a
+            # legitimate directive followed by a paragraph opening "/api ..." was
+            # classified as a slash-compound modifier and refused with exit 7,
+            # blocking a merge because of a neighbouring paragraph it does not own.
+            immediate_suffix=${immediate_suffix%%$'\n'*}
             if [[ "$(_is_incidental_close_match "$prefix" "$immediate_suffix")" != 1 ]]; then
                 continue
             fi
