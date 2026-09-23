@@ -1,5 +1,84 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **2026-09-22 - `/cpp:init` and `/cpp:update` reported success for host writes
+  that never happened** (issue #1198) - #1132 routed every host write in the two
+  cpp command documents through `scripts/cpp-host-write.sh`, the declaring seam
+  that says what it touches and can be told to defer a surface. That made the
+  seam **total**. Nothing checked that it was **reachable**, or that its answer
+  was read. The seam returns `0` wrote / `3` deferred-by-request / `1` failed,
+  and `127` when it is not installed, and **all twenty call sites discarded it**
+  - six in `update.md`, fourteen in `init.md`, every one followed by an
+  unconditional success line.
+
+  Measured on a real host, not reasoned about: `/cpp:update` printed
+  `✓ Flow allowlist merged (52 total allow rules)` with the seam **absent** and
+  zero of 52 rules merged, and printed the same claim over the seam's own
+  `DEFERRED ~/.claude/settings.json - not written, by request`. The count made
+  it worse rather than better - read after a merge that did not happen it is the
+  **pre-merge** total, so the false claim carried a plausible number and read as
+  a smaller install rather than as an error.
+
+  The deferred case is **#1139's defect inverted**. There, a caller was told a
+  surface was protected and it was written anyway. Here, a caller is told it was
+  written and it was protected - and in both halves the seam did its job
+  correctly and the document overrode it.
+
+  `init.md` was the worse of the two: its Tier 2 block asked the **not yet
+  installed** helper to create `~/.claude/scripts`, the directory that helper is
+  linked into two statements later. On the fresh host `/cpp:init` exists for,
+  the whole tier silently installed nothing. The bootstrap now runs through the
+  seam at its **checkout** path - which always exists when a checkout does - so
+  it stays declared and deferrable instead of becoming a carve-out the gate has
+  to be taught to ignore.
+
+  Every site now reports which of the four things happened. `scripts/
+  check-cpp-host-writes.py` grew a second finding type, `UNREAD-SEAM-VERDICT:`,
+  reported and counted separately from `INLINE-HOST-WRITE:` so one red does not
+  mean two things. The rule is **always read the status**, not "read it when a
+  success message follows": keying on a nearby checkmark excuses the shape that
+  actually bit, a `link-into` loop calling the seam ninety times, claiming
+  nothing, and leaving 25 scripts unlinked in silence.
+
+  **The remedy was itself an overclaim, twice, and counter-model review caught
+  both.** The first draft replaced "claim a write happened" with "the file is
+  unchanged" on fourteen failure branches - an unverified rollback claim,
+  measured false: given a malformed template and no existing file,
+  `settings-merge` exits 1 AND leaves a newly created `settings.json`
+  containing `{}`. Three more followed the same shape: a bootstrap that said a
+  deferred seam install meant every later write would defer (it says nothing
+  about `~/.bashrc`), a Gemma handler asserting "the mechanical fence is NOT
+  installed" when a failed re-run leaves an existing fence untouched, and an
+  `update.md` bootstrap that created `~/.claude/scripts` and so silently
+  upgraded a Tier 0/1 install past the invariant the next step promises.
+
+  **And the gate could not see its own fix.** The bootstrap is a QUOTED
+  invocation; the first detector required whitespace immediately after the
+  `.sh`, where a closing quote sits - so deleting the bootstrap's handlers
+  still produced a clean verdict. Fixing that by requiring the seam at the head
+  of the logical line then hid `true && echo ready; <seam call>` entirely: a
+  fix for a false positive that created a false negative. The third framing
+  decides PER COMMAND, splitting on `;`/`&&`/`||`, because the command is the
+  thing that actually has an exit status. All three implementations are
+  committed - the two superseded ones under
+  `controls/cpp-host-writes/alternatives/`, recovered from the index rather
+  than reconstructed - and each committed case names which one it separates the
+  gate from.
+
+  Negative control (ADR 0008 - this gate lets work through): 21 cases in
+  `controls/cpp-host-writes`, each shown to discriminate. The
+  gate reds with 20 findings on the pre-fix documents at `5a4d7fc` and passes on
+  the fixed ones - same gate, same run, only the input differs - and
+  `tests/test_cpp_host_writes.py` pins that SHA so the regression keeps its
+  subject after this lands. Three wrong implementations are committed under
+  `controls/cpp-host-writes/alternatives/`, with a test naming which case each
+  one excuses; none is registered as an *anchor*, because the battery requires
+  an anchor to be blind to the whole register and was measured reporting
+  `anchor constructed CAUGHT the known-bad input` when one was.
+
 ## [8.0.0] - 2026-09-15
 
 > **Scope note.** This section is everything accumulated **since the previous

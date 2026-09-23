@@ -30,7 +30,76 @@
     "blind version. A case whose expected answer BOTH sides produce demonstrates",
     "nothing about the difference between them - the same trap that nearly",
     "shipped in #1139's control. The form is still exercised on every run, by the",
-    "real documents."
+    "real documents.",
+    "",
+    "SECOND PROPERTY, ADDED BY #1198: the seam's VERDICT must be read. #1132",
+    "made every host write go through one door and nobody checked that the",
+    "door could be opened, or that its answer was listened to. The seam",
+    "returns 0 wrote / 3 deferred-by-request / 1 failed, plus 127 when it is",
+    "not installed - and all twenty call sites in the two documents discarded",
+    "it, so a checkmark was printed for all four.",
+    "",
+    "Measured 2026-09-22: /cpp:update printed 'Flow allowlist merged (52 total",
+    "allow rules)' with the surface DEFERRED exactly as asked, and 'merged (2",
+    "total allow rules)' - the PRE-merge count - with the seam absent.",
+    "",
+    "NO NEW ANCHOR IS NEEDED, and that is a finding rather than a shortcut. The",
+    "battery's contract is that an anchor must MISS every committed bad case -",
+    "it marks the control INERT otherwise, correctly, since an anchor stands for",
+    "the version the gate replaced. `first-framing` already satisfies that for",
+    "all seven: it misses the four #1132 forms AND the three #1198 ones, having",
+    "no unread-verdict check at all.",
+    "",
+    "Three OTHER wrong implementations are committed under alternatives/ and",
+    "driven by tests/test_cpp_host_writes.py, because none of them is blind in",
+    "the battery's sense and registering one was MEASURED to report 'anchor",
+    "constructed CAUGHT the known-bad input':",
+    "  - pre-1198 is the full previous gate, so it catches the four #1132 cases",
+    "  - naive-next-line is PARTIALLY blind: it catches the claim-shaped case",
+    "    and misses the silent loop and the heredoc-data one",
+    "  - over-broad is the opposite error: it catches every bad case and reds on",
+    "    the FIX, which is what the good- cases separate the gate from",
+    "",
+    "committed bad case' - it marks the control INERT if an anchor catches one,",
+    "which is correct: an anchor is the version the gate replaced. Only pre-1198",
+    "meets that here. Two other wrong implementations are committed under",
+    "alternatives/ and driven by the test instead: naive-next-line is PARTIALLY",
+    "blind (it catches the claim-shaped case, misses the silent loop and heredoc",
+    "data) and over-broad is the opposite error (it catches every bad case and",
+    "reds on the fix). Registering either as an anchor was measured to produce",
+    "'anchor constructed CAUGHT the known-bad input'.",
+    "",
+    "each excuses a different case. pre-1198 is the gate as it shipped and",
+    "misses every bad case. naive keys on a nearby checkmark and reads the raw",
+    "next LINE, so it excuses the silent loop and a $? that is heredoc data.",
+    "over-broad flags every seam invocation, passes every bad case, and reds on",
+    "the FIX - which is why the good- cases are load-bearing rather than",
+    "decorative. A gate that cannot be satisfied is a gate that gets removed.",
+    "",
+    "FIVE CASES ADDED AFTER COUNTER-MODEL REVIEW OF THIS ISSUE'S OWN FIX. Every",
+    "one of them was a REPRODUCED defect in the first implementation of the",
+    "unread-verdict check, not a hazard someone imagined - which is why the",
+    "alternative they discriminate against, alternatives/proximity-framing, is",
+    "recovered from the index rather than constructed. The sharpest:",
+    "bad-quoted-invocation-unguarded. #1198's own bootstrap is a QUOTED",
+    "invocation, the first pattern required whitespace immediately after the",
+    ".sh, and a closing quote sits exactly there - so the gate could not see the",
+    "calls its fix had just added, and removing their handlers still read clean.",
+    "A gate blind to its own remedy is the failure this whole issue is about,",
+    "committed once inside the instrument built to catch it.",
+    "",
+    "A SECOND COUNTER-MODEL PASS PRODUCED FIVE MORE CASES, and the reason is",
+    "worth more than the cases: the FIX for the first pass's false positive",
+    "introduced a false NEGATIVE. Requiring the seam at the head of the logical",
+    "line stopped it flagging prose, and stopped it seeing `true && echo ready;",
+    "<seam call>` entirely. Three implementations of one check now exist - all",
+    "three committed, two under alternatives/ - and each corrected its",
+    "predecessor while being wrong in a new way. That progression is the only",
+    "evidence the third is better rather than merely newer.",
+    "",
+    "The third framing decides PER COMMAND rather than per line, because the",
+    "command is the thing that actually has an exit status - which is what the",
+    "whole issue is about."
   ],
   "gate": "scripts/check-cpp-host-writes.py",
   "invocation": [
@@ -40,7 +109,7 @@
     "{case}"
   ],
   "good_exit": 0,
-  "detect_signal": "^INLINE-HOST-WRITE: ",
+  "detect_signal": "^(INLINE-HOST-WRITE|UNREAD-SEAM-VERDICT): ",
   "unknown_signal": "^check-cpp-host-writes: UNKNOWN - ",
   "cases": [
     {
@@ -72,6 +141,102 @@
       "input": "cases/good-writes-only-in-comments",
       "expect": "GOOD",
       "why": "Every write FORM present, each inside a real comment, plus one harmless echo. Three false positives in this issue's own analysis came from quoting a write in prose, so the filter must exist; this case is what stops it being removed, and it is byte-adjacent to the bad case above so the pair isolates the filter's rule rather than its existence."
+    },
+    {
+      "name": "bad-unguarded-seam-call",
+      "input": "cases/bad-unguarded-seam-call",
+      "expect": "BAD",
+      "why": "The measured shape: settings-merge followed by an unconditional checkmark. Discriminates against pre-1198, which has no unread-verdict check at all."
+    },
+    {
+      "name": "bad-unguarded-loop-no-claim",
+      "input": "cases/bad-unguarded-loop-no-claim",
+      "expect": "BAD",
+      "why": "A link-into loop that claims nothing. This is what actually bit on 2026-09-22 - ninety calls, 25 scripts left unlinked, and the step reported no verdict either way. Discriminates against naive, which keys the finding on a nearby success claim and therefore excuses exactly this."
+    },
+    {
+      "name": "bad-status-only-inside-heredoc",
+      "input": "cases/bad-status-only-inside-heredoc",
+      "expect": "BAD",
+      "why": "`$?` appears on the line immediately after the seam call, inside a <<'JQ' body, where it is jq program text and not a handler. Discriminates against naive, which reads the raw next line and is satisfied by data."
+    },
+    {
+      "name": "good-guarded-seam-call",
+      "input": "cases/good-guarded-seam-call",
+      "expect": "GOOD",
+      "why": "The fix shape - `case $?` naming wrote/deferred/failed. Discriminates against over-broad, which reds on every seam invocation and so cannot be satisfied by correcting the defect."
+    },
+    {
+      "name": "good-seam-call-chained",
+      "input": "cases/good-seam-call-chained",
+      "expect": "GOOD",
+      "why": "`|| handler` consults the status without a `case`. Keeps the check reading shell FORMS rather than one blessed spelling; discriminates against over-broad."
+    },
+    {
+      "name": "good-continuation-then-handler",
+      "input": "cases/good-continuation-then-handler",
+      "expect": "GOOD",
+      "why": "A backslash continuation puts the statement's own ARGUMENTS on the following line and the handler after that. Discriminates against naive, which reports this correct code as unguarded - a false positive on the fix, which is the direction of error that gets a gate switched off."
+    },
+    {
+      "name": "bad-quoted-invocation-unguarded",
+      "input": "cases/bad-quoted-invocation-unguarded",
+      "expect": "BAD",
+      "why": "A QUOTED invocation - \"$CPP_DIR/.../cpp-host-write.sh\" link-into - with no handler. This is the shape #1198's own bootstrap uses, and the first implementation of this gate could not see it: a closing quote sits where the pattern wanted whitespace, so deleting the bootstrap's handlers still produced a clean verdict. The gate was blind to its own fix. Discriminates against alternatives/proximity-framing."
+    },
+    {
+      "name": "bad-neighbour-command-status",
+      "input": "cases/bad-neighbour-command-status",
+      "expect": "BAD",
+      "why": "`<seam call>` then `echo done; rc=$?`. `rc` holds ECHO's status, not the seam's, so the answer was discarded - and the first implementation accepted it, which is this issue's own defect living inside its detector. Discriminates against alternatives/proximity-framing."
+    },
+    {
+      "name": "good-seam-named-in-prose",
+      "input": "cases/good-seam-named-in-prose",
+      "expect": "GOOD",
+      "why": "An `echo` that NAMES the helper without invoking it. The first implementation reported it as an unread verdict; a gate that reds on its own documentation gets deleted rather than fixed. Discriminates against alternatives/proximity-framing."
+    },
+    {
+      "name": "good-blank-line-before-handler",
+      "input": "cases/good-blank-line-before-handler",
+      "expect": "GOOD",
+      "why": "A blank line between the call and its `case $?`. Ordinary formatting, reported as unguarded by the first implementation - a false positive on the FIX itself. Discriminates against alternatives/proximity-framing."
+    },
+    {
+      "name": "good-same-line-status-capture",
+      "input": "cases/good-same-line-status-capture",
+      "expect": "GOOD",
+      "why": "`<seam call>; rc=$?` - the handler on the invocation's own statement, after a `;`. A legitimate spelling the first implementation called unguarded. Discriminates against alternatives/proximity-framing."
+    },
+    {
+      "name": "bad-invocation-after-separator",
+      "input": "cases/bad-invocation-after-separator",
+      "expect": "BAD",
+      "why": "`true && echo ready; <seam call>` with an unconditional success message. The LINE-HEAD framing could not see the invocation at all - its fix for a false positive had created a false negative. Discriminates against alternatives/line-head-framing."
+    },
+    {
+      "name": "bad-neighbour-chain-after-semicolon",
+      "input": "cases/bad-neighbour-chain-after-semicolon",
+      "expect": "BAD",
+      "why": "`<seam>; echo done && echo ready`. The `&&` reads ECHO's status, not the seam's, but a chain searched anywhere after the invocation accepted it. Discriminates against alternatives/line-head-framing."
+    },
+    {
+      "name": "bad-status-captured-after-another-command",
+      "input": "cases/bad-status-captured-after-another-command",
+      "expect": "BAD",
+      "why": "`<seam>` then `true && rc=$?`. `rc` holds `true`'s status; the seam's answer was discarded. Discriminates against alternatives/line-head-framing."
+    },
+    {
+      "name": "good-neighbouring-script-not-the-seam",
+      "input": "cases/good-neighbouring-script-not-the-seam",
+      "expect": "GOOD",
+      "why": "`./not-cpp-host-write.sh settings-merge` - a NEIGHBOUR's script. The path pattern accepted any prefix, so a finding named our seam for somebody else's command: a non-zero that cannot tell our thing from a neighbour's. Discriminates against alternatives/line-head-framing."
+    },
+    {
+      "name": "good-seam-path-as-assignment-value",
+      "input": "cases/good-seam-path-as-assignment-value",
+      "expect": "GOOD",
+      "why": "`SEAM=<path> settings-merge` - an environment assignment whose executed command is `settings-merge`; the seam path is a VALUE, not the command. Discriminates against alternatives/line-head-framing."
     }
   ],
   "anchors": [

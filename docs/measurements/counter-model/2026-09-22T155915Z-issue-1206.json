@@ -1,0 +1,20 @@
+{
+  "branch": "detector-contracts-substitution",
+  "counts": {
+    "accepted": 5,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "7971a75ea71fb179c92ac528cba26826973d03cd",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1206",
+  "passes": 1,
+  "recorded_at": "2026-09-22T15:59:15Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

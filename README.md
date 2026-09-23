@@ -17,7 +17,7 @@
 - **Woodpecker CI** - Self-hosted pipeline (secret-scan, lint, test, typecheck, Dockerfile lint) with programmatic status polling
 - **Project scaffolding** (`/project:init`) - Zero-to-GitHub-repo setup with Makefile, CI pipeline, and Docker config
 - **Skills ecosystem** - Discover, install, and manage agent skills from [skills.sh](https://skills.sh/) via native `npx skills` and the `/plugin` marketplace (the CPP `/skills:*` wrapper was retired in issue #437)
-- **Secret-masking hook** - a PostToolUse hook in `.claude/hooks.json` masks secrets (connection strings, API keys, env vars) in Bash/Read output; host installation is managed by `/cpp:init` / `/cpp:update`; destructive commands are handled by Claude Code's native git auto-blocking + OS sandbox
+- **Secret-masking hook** - `scripts/hook-mask-output.sh` CAN mask secrets (connection strings, API keys, env vars) in Bash/Read output, and a PostToolUse declaration for it lives in `.claude/hooks.json`. **IT IS NOT CURRENTLY REGISTERED ANYWHERE CLAUDE CODE READS, so no masking happens** (issue #1206): `.claude/hooks.json` is not a config path Claude Code loads, and the documented home for a hook like this is the user-level `~/.claude/settings.json`, written by the installer - the route `/cpp:init` Step 7.7 already uses for the PermissionRequest census hook. Until that lands, **do not read unmasked output as evidence that nothing needed masking**; the masker's capability and the hook's wiring are different facts and only the first is currently true. Destructive commands are handled by Claude Code's native git auto-blocking + OS sandbox.
 
 ## Requirements
 
