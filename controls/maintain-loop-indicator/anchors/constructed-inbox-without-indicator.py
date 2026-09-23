@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""CONSTRUCTED ANCHOR for maintain-loop-indicator (issue #1085).
+
+Not a historical commit: this instrument is new, so no frozen prior version
+exists. This reproduces the state of the world #1085 was written against, in
+the issue's own words - "CPP has the inbox and not the indicator":
+
+    `.claude/friction.jsonl`, the `cpp-memory` ledger, the Nit Store (#864),
+    and `/self-improvement:retro` all capture findings. Nothing measures
+    whether they move.
+
+So it COUNTS the population and says nothing about timing. It reads the same
+capture document and reports a confident total, which is exactly the blindness
+under test: a count of recorded findings cannot distinguish findings that
+reached the backlog in a day from findings that have been sitting for a week,
+and it never emits the detection marker because it computes no delay.
+
+It is deliberately NOT a broken copy of the real script. An anchor that differs
+by a typo proves only that the typo matters; this one differs by the CAPABILITY
+the issue adds, which is what the control needs to demonstrate.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--input", type=Path, default=None)
+    ap.add_argument("--capture", type=Path, default=None)
+    ap.add_argument("--root", type=Path, default=Path("."))
+    args = ap.parse_args(argv)
+
+    # AN UNREADABLE CAPTURE IS REPORTED AS ZERO FINDINGS, NOT AS A REFUSAL.
+    # This is the blindness under test and it must be UNIFORM: the pre-#1085
+    # world had an inbox and no indicator, so it counts what it can read and
+    # says nothing about what it cannot - which means an empty file, a truncated
+    # one and a document declaring no population all come back as "0 finding(s)
+    # recorded", confidently, exit 0.
+    #
+    # An earlier cut exited 2 with an unmarked message here. That was worse than
+    # wrong, it was UNCLASSIFIABLE: a non-zero exit carrying neither a detection
+    # marker nor a refusal marker cannot be told from a crash, so the harness
+    # correctly reported that it could not resolve the anchor-sanity check at
+    # all. A blind instrument does not refuse; refusing is the capability it
+    # lacks.
+    doc = {}
+    if args.input is not None and args.input.is_file():
+        try:
+            loaded = json.loads(args.input.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            loaded = {}
+        if isinstance(loaded, dict):
+            doc = loaded
+
+    comments = doc.get("comments") or []
+    friction = doc.get("friction") or []
+    total = len(comments) + len(friction)
+    # A COUNT, offered with confidence. No delay, no partition, no undetermined
+    # set - the inbox reporting its own size and calling that the answer.
+    print(f"maintain-loop: {total} finding(s) recorded "
+          f"({len(comments)} nit-store, {len(friction)} friction)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
