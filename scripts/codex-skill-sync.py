@@ -1021,6 +1021,128 @@ def run_write(selected: list[str]) -> int:
     return 0
 
 
+def _repo_relative(raw: str) -> str:
+    """A caller's path as the generator spells it: repo-relative, POSIX."""
+    path = Path(raw)
+    if path.is_absolute():
+        try:
+            path = path.relative_to(REPO_ROOT)
+        except ValueError:
+            return path.as_posix()
+    return Path(*[p for p in path.parts if p != "."]).as_posix()
+
+
+def mirrors_for(sources: list[str], selected: list[str]) -> tuple[dict[str, list[str]], list[str]]:
+    """`(source -> its mirror paths, sources that feed no mirror)`.
+
+    TWO RULES, BOTH DERIVED FROM `expected_outputs` rather than from a path
+    table. A table would be a second population to keep in step with the
+    generator - the defect this repository has already paid for twice in the
+    neighbouring re-sync trigger (#1136).
+
+      - A COMMAND DOCUMENT maps to its whole skill: it generates `SKILL.md` and
+        `reference.md`, and it is what pulls in everything else the skill
+        bundles.
+      - ANY OTHER bundled file maps to THE SAME relative path under every skill
+        that bundles it. Measured across all 271 mirror files: the generator
+        preserves the repo-relative path for `docs/`, `lib/` and `.claude/`
+        sources, and `scripts/<name>` is already `scripts/<name>` on both sides,
+        so one rule covers every shape rather than four.
+    """
+    outputs = expected_outputs(selected)
+    found: dict[str, list[str]] = {}
+    unknown: list[str] = []
+
+    for raw in sources:
+        source = _repo_relative(raw)
+        hits: list[str] = []
+
+        parts = source.split("/")
+        if (
+            len(parts) == 4
+            and parts[0] == ".claude"
+            and parts[1] == "commands"
+            and source.endswith(".md")
+        ):
+            skill = f"{parts[2]}-{parts[3][: -len('.md')]}"
+            if skill in outputs:
+                hits = [f"codex/skills/{skill}/{rel}" for rel in sorted(outputs[skill])]
+
+        if not hits:
+            #: THE MANIFEST TRAVELS WITH THE SCRIPT. A skill that bundles any
+            #: script also carries `scripts/<MANIFEST_NAME>` over those scripts,
+            #: so changing one bundled script changes TWO files in that skill.
+            #: Measured on this change itself: editing `codex-skill-sync.py`
+            #: drifted 2 script copies AND their 2 manifests - and the manifests
+            #: are exactly the paths that showed up as unexplained lane-check
+            #: extras twice on 2026-09-23.
+            #:
+            #: It is derived, not listed: the manifest is emitted only for
+            #: skills whose outputs actually contain it, so a generator that
+            #: stops writing one, or renames it, cannot leave this naming a path
+            #: that no longer exists.
+            found_in = [
+                skill for skill, files in outputs.items() if source in files
+            ]
+            hits = sorted(
+                f"codex/skills/{skill}/{source}" for skill in found_in
+            )
+            if source.startswith("scripts/"):
+                hits += sorted(
+                    f"codex/skills/{skill}/scripts/{MANIFEST_NAME}"
+                    for skill in found_in
+                    if f"scripts/{MANIFEST_NAME}" in outputs[skill]
+                )
+                hits = sorted(hits)
+
+        if hits:
+            found[source] = hits
+        else:
+            unknown.append(source)
+
+    return found, unknown
+
+
+def run_list_mirrors(sources: list[str], selected: list[str]) -> int:
+    """Print the mirror set WITHOUT touching the tree (issue #1151).
+
+    `--check` answers "are the mirrors in sync". It was being read for "what IS
+    the mirror set", which is the question a lane declaration asks - and those
+    agree only on a DIRTY tree. On a clean one `--check` names nothing, and the
+    only way to learn the set was `--write`, which answers by changing the tree.
+    """
+    outputs = expected_outputs(selected)
+
+    if not sources:
+        for skill in sorted(outputs):
+            for rel in sorted(outputs[skill]):
+                print(f"codex/skills/{skill}/{rel}")
+        return 0
+
+    found, unknown = mirrors_for(sources, selected)
+    for source in sources:
+        for mirror in found.get(_repo_relative(source), []):
+            print(mirror)
+
+    for source in unknown:
+        #: NAMED, AND NON-ZERO. A tool built to answer "what IS the mirror set"
+        #: that returned SILENCE for a source it does not know would reproduce
+        #: the exact defect it exists to remove - the caller cannot tell "this
+        #: feeds nothing" from "I did not understand your path".
+        print(
+            f"NOT BUNDLED: {source} feeds no Codex skill mirror", file=sys.stderr
+        )
+    if unknown:
+        print(
+            "codex-skill-sync: a BUNDLED source always has at least one mirror, so zero"
+            " lines above means the path is not bundled - never a bundled source with an"
+            " empty mirror set, which cannot occur.",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
 def install_dest_root() -> Path:
     return Path.home() / ".codex" / "skills"
 
@@ -1087,6 +1209,10 @@ def main(argv: list[str] | None = None) -> int:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--check", action="store_true", help="fail on drift (default)")
     mode.add_argument("--write", action="store_true", help="(re)generate codex/skills/")
+    mode.add_argument(
+        "--list-mirrors", nargs="*", metavar="SOURCE", default=None,
+        help="print the codex/skills/ paths SOURCE(s) feed, or all of them; writes nothing",
+    )
     parser.add_argument(
         "--install", action="store_true",
         help="copy codex/skills/ dirs (generated + curated) to ~/.codex/skills/",
@@ -1103,6 +1229,11 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
+
+    if args.list_mirrors is not None:
+        #: Returns directly: this mode writes nothing, so `--install` after it
+        #: would install a tree this invocation never generated.
+        return run_list_mirrors(args.list_mirrors, selected)
 
     if args.write:
         rc = run_write(selected)

@@ -1340,3 +1340,181 @@ def test_a_bundle_with_no_scripts_carries_no_empty_manifest():
     scripts would manufacture a refusal out of a normal state.
     """
     assert codex_skill_sync.scripts_manifest({"SKILL.md": "x"}) is None
+
+
+# ---------------------------------------------------------------------------
+# --list-mirrors: a NON-MUTATING enumeration of the mirror set (issue #1151)
+#
+# `--check` answers "are the mirrors in sync". It was being read for "what IS
+# the mirror set", which is what declaring a lane asks - and the two agree only
+# on a DIRTY tree. On a clean one `--check` names nothing at all, and the only
+# way to learn the set was `--write`, which answers by changing the tree.
+# ---------------------------------------------------------------------------
+def test_list_mirrors_names_every_generated_path(capsys):
+    """The enumeration is PINNED TO THE GENERATOR, not to a number.
+
+    A hardcoded count would pass while the generator's scope changed underneath
+    it, which is how the neighbouring re-sync trigger stayed blind (#1136). This
+    compares against `expected_outputs` itself, so the two cannot drift apart.
+    """
+    assert codex_skill_sync.main(["--list-mirrors"]) == 0
+    printed = [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
+
+    outputs = codex_skill_sync.expected_outputs(codex_skill_sync.FAMILIES)
+    expected = sorted(
+        f"codex/skills/{skill}/{rel}"
+        for skill, files in outputs.items()
+        for rel in files
+    )
+    assert sorted(printed) == expected
+    assert printed, "a repository with skills must enumerate at least one mirror"
+
+
+def test_list_mirrors_writes_NOTHING(capsys):
+    """Non-mutating is the whole point: `--write` already names the set, by
+    changing the tree, and that is why it could not be used for this.
+
+    THE PROPERTY IS "THE VERDICT IS UNCHANGED", not "the verdict is zero". The
+    first draft asserted `== 0` and failed the moment it ran on a tree with
+    pending drift - which is the ordinary state midway through any change that
+    edits a bundled source, including this one. That encodes an assumption about
+    TREE STATE instead of the property under test, and it fails for a reason
+    that has nothing to do with whether `--list-mirrors` writes anything.
+    """
+    before = codex_skill_sync.main(["--check"])
+    capsys.readouterr()
+    codex_skill_sync.main(["--list-mirrors"])
+    capsys.readouterr()
+    after = codex_skill_sync.main(["--check"])
+    capsys.readouterr()
+    assert after == before, (
+        "--list-mirrors must leave the tree exactly as it found it, whatever "
+        f"state that was (--check said {before} before, {after} after)"
+    )
+
+
+def test_list_mirrors_maps_a_bundled_script_to_every_skill_that_bundles_it(capsys):
+    """A source feeds MORE THAN ONE mirror, which is the fact that makes the
+    enumeration worth having - an author editing one script has no way to know
+    how far it reaches.
+
+    Pinned against the generator rather than against the numbers observed when
+    this was written: the counts move as bundling changes, and a test asserting
+    `2` would fail for the right reason on the wrong day.
+    """
+    source = "scripts/gh-pr-merge.sh"
+    assert codex_skill_sync.main(["--list-mirrors", source]) == 0
+    printed = [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
+
+    outputs = codex_skill_sync.expected_outputs(codex_skill_sync.FAMILIES)
+    bundling = [skill for skill, files in outputs.items() if source in files]
+    # The copy AND the manifest that travels with it - see the manifest test
+    # below for why the second half is not optional.
+    expected = sorted(
+        [f"codex/skills/{skill}/{source}" for skill in bundling]
+        + [
+            f"codex/skills/{skill}/scripts/{MANIFEST_NAME}"
+            for skill in bundling
+            if f"scripts/{MANIFEST_NAME}" in outputs[skill]
+        ]
+    )
+    assert printed == expected
+    assert len(bundling) > 1, "this source is bundled by more than one skill"
+
+
+def test_list_mirrors_maps_a_command_document_to_its_whole_skill(capsys):
+    """A command document generates SKILL.md and reference.md AND pulls in
+    everything else its skill bundles, so it maps to the skill, not to a path."""
+    assert codex_skill_sync.main(["--list-mirrors", ".claude/commands/flow/merge.md"]) == 0
+    printed = [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
+
+    outputs = codex_skill_sync.expected_outputs(codex_skill_sync.FAMILIES)
+    expected = sorted(f"codex/skills/flow-merge/{rel}" for rel in outputs["flow-merge"])
+    assert printed == expected
+    assert "codex/skills/flow-merge/SKILL.md" in printed
+
+
+def test_an_UNBUNDLED_source_is_named_and_NON_ZERO_not_silent(capsys):
+    """THE NEGATIVE CONTROL, and the one the issue asks for by name.
+
+    A tool built to answer "what IS the mirror set" that returned SILENCE for a
+    source it does not know would reproduce the exact defect it exists to
+    remove: the caller cannot tell "this feeds nothing" from "I did not
+    understand your path". So an unknown source is NAMED, on stderr, with a
+    non-zero verdict - and the message states that a bundled source with an
+    empty mirror set cannot occur, which is what makes zero lines readable.
+    """
+    rc = codex_skill_sync.main(["--list-mirrors", "README.md"])
+    captured = capsys.readouterr()
+
+    assert rc != 0, "an unknown source must not report success"
+    assert [ln for ln in captured.out.splitlines() if ln.strip()] == []
+    assert "NOT BUNDLED: README.md" in captured.err
+    assert "cannot occur" in captured.err
+
+
+def test_a_bundled_and_an_unbundled_source_together_report_BOTH(capsys):
+    """The two answers must not mask each other: the bundled source still
+    enumerates, and the unknown one is still named and still fails."""
+    rc = codex_skill_sync.main(
+        ["--list-mirrors", "scripts/gh-pr-merge.sh", "README.md"]
+    )
+    captured = capsys.readouterr()
+
+    assert rc != 0
+    assert [ln for ln in captured.out.splitlines() if ln.strip()], (
+        "the bundled source must still be enumerated alongside the unknown one"
+    )
+    assert "NOT BUNDLED: README.md" in captured.err
+
+
+def test_list_mirrors_includes_the_MANIFEST_that_travels_with_a_script(capsys):
+    """A bundled script drifts TWO files per skill, not one.
+
+    Every skill bundling any script also carries `scripts/<MANIFEST_NAME>` over
+    those scripts, so changing one script changes the copy AND the manifest.
+    Measured while building this: editing `codex-skill-sync.py` drifted 2 script
+    copies and their 2 manifests, and the first cut of `--list-mirrors` named
+    only the 2 copies - so a lane declared from its output would have been
+    short by exactly the paths that turned up as unexplained extras in
+    `lane-check` twice on 2026-09-23.
+
+    MANIFEST_NAME is read from the generator, never spelled here, for the #1185
+    reason: a test carrying its own copy keeps asserting the old name.
+    """
+    source = "scripts/gh-pr-merge.sh"
+    assert codex_skill_sync.main(["--list-mirrors", source]) == 0
+    printed = [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
+
+    outputs = codex_skill_sync.expected_outputs(codex_skill_sync.FAMILIES)
+    bundling = [s for s, files in outputs.items() if source in files]
+    assert bundling, "fixture assumption: this source is bundled somewhere"
+
+    for skill in bundling:
+        assert f"codex/skills/{skill}/{source}" in printed
+        if f"scripts/{MANIFEST_NAME}" in outputs[skill]:
+            assert f"codex/skills/{skill}/scripts/{MANIFEST_NAME}" in printed, (
+                f"the manifest travels with the script, but {skill}'s was not named"
+            )
+
+
+def test_list_mirrors_never_names_a_path_the_generator_would_not_produce(capsys):
+    """THE OTHER SIDE of the manifest rule.
+
+    Adding the manifest by rule rather than by asking the generator would name
+    `scripts/<MANIFEST_NAME>` under skills that have no manifest at all. Every
+    path this prints must exist in `expected_outputs` - otherwise a lane
+    declared from it claims a file that is never written.
+    """
+    assert codex_skill_sync.main(["--list-mirrors", "scripts/gh-pr-merge.sh"]) == 0
+    printed = [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
+
+    outputs = codex_skill_sync.expected_outputs(codex_skill_sync.FAMILIES)
+    every_real_path = {
+        f"codex/skills/{skill}/{rel}"
+        for skill, files in outputs.items()
+        for rel in files
+    }
+    assert set(printed) <= every_real_path, (
+        f"named paths the generator does not produce: {sorted(set(printed) - every_real_path)}"
+    )
