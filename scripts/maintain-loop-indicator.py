@@ -339,10 +339,10 @@ def capture(dest: Path, root: Path) -> int:
     # lines above as "a PARTIAL capture is worse than none".
     fpath = _friction_path(root)
     if fpath is None or not fpath.is_file():
-        print(f"maintain-loop: UNKNOWN - the friction ledger could not be located "
-              f"(looked for .claude/friction.jsonl beside the git common dir). No "
-              f"capture was written: an absent ledger is not an empty one, and a "
-              f"capture missing half its population would parse and look complete.",
+        print("maintain-loop: UNKNOWN - the friction ledger could not be located "
+              "(looked for .claude/friction.jsonl beside the git common dir). No "
+              "capture was written: an absent ledger is not an empty one, and a "
+              "capture missing half its population would parse and look complete.",
               file=sys.stderr)
         return UNKNOWN_EXIT
     try:

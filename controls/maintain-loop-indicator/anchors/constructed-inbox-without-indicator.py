@@ -35,16 +35,27 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--root", type=Path, default=Path("."))
     args = ap.parse_args(argv)
 
-    if args.input is None or not args.input.is_file():
-        print("maintain-loop: no capture to read", file=sys.stderr)
-        return 2
-    try:
-        doc = json.loads(args.input.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        print("maintain-loop: no capture to read", file=sys.stderr)
-        return 2
-    if not isinstance(doc, dict):
-        return 2
+    # AN UNREADABLE CAPTURE IS REPORTED AS ZERO FINDINGS, NOT AS A REFUSAL.
+    # This is the blindness under test and it must be UNIFORM: the pre-#1085
+    # world had an inbox and no indicator, so it counts what it can read and
+    # says nothing about what it cannot - which means an empty file, a truncated
+    # one and a document declaring no population all come back as "0 finding(s)
+    # recorded", confidently, exit 0.
+    #
+    # An earlier cut exited 2 with an unmarked message here. That was worse than
+    # wrong, it was UNCLASSIFIABLE: a non-zero exit carrying neither a detection
+    # marker nor a refusal marker cannot be told from a crash, so the harness
+    # correctly reported that it could not resolve the anchor-sanity check at
+    # all. A blind instrument does not refuse; refusing is the capability it
+    # lacks.
+    doc = {}
+    if args.input is not None and args.input.is_file():
+        try:
+            loaded = json.loads(args.input.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            loaded = {}
+        if isinstance(loaded, dict):
+            doc = loaded
 
     comments = doc.get("comments") or []
     friction = doc.get("friction") or []

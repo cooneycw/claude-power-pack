@@ -80,6 +80,11 @@
       "consumer": "tests/test_cpp_commands_link.py",
       "reason": "installs the user-scope command surface AND issues five verdicts - ok|installed|drift|drift-missing|unowned - which /cpp:init Tier 1 and /cpp:update Step 5b act on. SUPERSEDED BY #1138: this entry read class `not-a-checker`, reason `links command documents onto the host; it issues no verdict`. That was false when written, and is kept here rather than overwritten because the pair it formed with ADR 0008's exclusions row is the point - the cross-check between the two documents PASSED, both being wrong in the same direction, one having been written from the other. Agreement is evidence only when the parties could have disagreed."
     },
+    "cpp-host-write.sh": {
+      "class": "runtime",
+      "consumer": ".claude/commands/cpp/init.md",
+      "reason": "issues three verdicts - 0 wrote, 3 deferred by request, 1 failed - and /cpp:init reads the exit to decide whether to proceed, skip-and-say-so, or stop, without re-deriving whether the write happened. Invoked by a command document rather than a Makefile target, so no build surface runs it"
+    },
     "cpp-memory": {
       "class": "not-a-checker",
       "reason": "the common-memory CLI; it records and retrieves, and issues no verdict"
@@ -103,11 +108,6 @@
       "class": "tested",
       "consumer": "tests/test_flow_ci_status.py",
       "reason": "resolves a pipeline for a commit SHA; /flow:auto Step 8 deploys or stops on it"
-    },
-    "flow-vantage.sh": {
-      "class": "tested",
-      "consumer": "tests/test_flow_vantage.py",
-      "reason": "derives which side of the container boundary this session is on; its verdict decides the delivery lane, and flow-wave-registry.sh serves it to an orchestrator that cannot re-derive it"
     },
     "flow-driver-capability.sh": {
       "class": "tested",
@@ -148,6 +148,11 @@
       "class": "tested",
       "consumer": "tests/test_flow_start_resolve.py",
       "reason": "decides whether a checkout is created, entered or taken over"
+    },
+    "flow-vantage.sh": {
+      "class": "tested",
+      "consumer": "tests/test_flow_vantage.py",
+      "reason": "derives which side of the container boundary this session is on; its verdict decides the delivery lane, and flow-wave-registry.sh serves it to an orchestrator that cannot re-derive it"
     },
     "flow-wave-lexicon.sh": {
       "class": "tested",
@@ -226,6 +231,11 @@
       "consumer": "tests/test_lane_serveability.py",
       "reason": "decides whether /qwen:auto and /gemma:auto delegate at all"
     },
+    "maintain-loop-indicator.py": {
+      "class": "tested",
+      "reason": "the #1085 maintain-loop leading indicator: it reports a PARTITION (attributable / excluded / UNDETERMINED) over recorded findings, not a pass-fail verdict, so no build surface invokes it - `make verify` would be asserting that a number is acceptable, which is a BAND and #1085 defers thresholds to ADR 0009. Its behaviour is driven by tests/test_maintain_loop_indicator.py through the same entry point the registered control runs, and controls/maintain-loop-indicator exercises the three input states an observed empty population, a zero-byte capture, and an unreadable one must be told apart by",
+      "consumer": "tests/test_maintain_loop_indicator.py"
+    },
     "mcp-drift.py": {
       "class": "tested",
       "consumer": "tests/test_mcp_drift.py",
@@ -300,25 +310,20 @@
       "consumer": "tests/test_speckit_tasks_to_issues.py",
       "reason": "refuses on an unreadable inventory or an ambiguous task identity before creating issues"
     },
-    "step3-record-guard.sh": {
-      "class": "tested",
-      "consumer": "tests/test_step3_record_guard.py",
-      "reason": "a PreToolUse hook refusing an edit in a flow worktree with no approved-plan record (#1083). The EDIT is the consumer and nothing downstream re-derives it. It is a FLOOR and does NOT enforce #775: it establishes an artifact is present, not that an approval occurred, and only on the tool paths it is matched against"
-    },
     "stash-worktree-guard.sh": {
       "class": "tested",
       "consumer": "tests/test_stash_worktree_guard.py",
       "reason": "refuses a stash push from a linked worktree"
     },
+    "step3-record-guard.sh": {
+      "class": "tested",
+      "consumer": "tests/test_step3_record_guard.py",
+      "reason": "a PreToolUse hook refusing an edit in a flow worktree with no approved-plan record (#1083). The EDIT is the consumer and nothing downstream re-derives it. It is a FLOOR and does NOT enforce #775: it establishes an artifact is present, not that an approval occurred, and only on the tool paths it is matched against"
+    },
     "worktree-remove.sh": {
       "class": "tested",
       "consumer": "tests/test_worktree_remove_occupied.py",
       "reason": "decides whether a checkout is destroyed"
-    },
-    "cpp-host-write.sh": {
-      "class": "runtime",
-      "consumer": ".claude/commands/cpp/init.md",
-      "reason": "issues three verdicts - 0 wrote, 3 deferred by request, 1 failed - and /cpp:init reads the exit to decide whether to proceed, skip-and-say-so, or stop, without re-deriving whether the write happened. Invoked by a command document rather than a Makefile target, so no build surface runs it"
     }
   }
 }
