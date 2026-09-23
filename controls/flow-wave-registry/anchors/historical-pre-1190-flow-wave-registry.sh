@@ -433,14 +433,7 @@ SELF_SESSION="${CLAUDE_CODE_SESSION_ID:--}"
 SELF_HOST="${FLOW_WAVE_HOST:-${HOSTNAME:-$(hostname 2>/dev/null || echo unknown)}}"
 NOW="${FLOW_WAVE_NOW:-$(date +%s)}"
 
-#: NEGATIVE-CONTROL: controls/flow-wave-registry
-usage_fail() { echo "flow-wave-registry: $1" >&2; emit error; exit 2; }
-#: A refusal must announce itself in the DOCUMENTED words (#1190). This is one
-#: function behind ~45 call sites, so the population is fixed here rather than
-#: at the four sites the issue happened to name. `emit` is defined below this
-#: point but every usage_fail CALL happens after it, which is what makes the
-#: forward reference safe. The exit CODE is deliberately unchanged: this adds
-#: the missing line, it does not renumber the contract.
+usage_fail() { echo "flow-wave-registry: $1" >&2; exit 2; }
 
 # Driver capability (#783). The roster's job here is to SURFACE the fence at
 # assignment time; the fence itself is declared once in the sibling helper and
@@ -833,25 +826,6 @@ with_lock() {
       exit 3
     fi
   ) 9>"$LOCK_FILE"
-  #: A FAILED WRITE MUST NOT REPORT SUCCESS (#1190).
-  #:
-  #: The three failure paths above exit 3 inside this SUBSHELL, and nothing used
-  #: to read that status - so the script carried on and emitted its own verdict.
-  #: Measured before the fix: with a corrupt registry.json, `register` printed
-  #: `FLOW_WAVE: registered` and exited 0 while the update had failed and NOTHING
-  #: was recorded. That is worse than the missing verdict this issue is named for:
-  #: the line is present, well-formed, and says the opposite of what happened.
-  #:
-  #: So exit 3 never reached a caller at all, and "preserve the exit code" had no
-  #: behaviour to preserve. Surfacing it necessarily changes the observed exit
-  #: from 0 to 3 on a path that was already broken.
-  lock_status=$?
-  if [ "$lock_status" -ne 0 ]; then
-    echo "flow-wave-registry: the registry was NOT updated - nothing was recorded." >&2
-    echo "  Treat this as a refusal, not a slow write: re-run once the cause is fixed." >&2
-    emit error
-    exit "$lock_status"
-  fi
 }
 
 read_registry() {
@@ -1004,90 +978,6 @@ cwd_is_shared_parent() {
     [ -e "$d.git" ] && count=$((count + 1))
     [ "$count" -ge 2 ] && return 0
   done
-  return 1
-}
-
-# overlap_cwd_is_artefact A_CWD A_REPO B_CWD B_REPO -> 0 when a same/nested
-# worktree match between these two roles is an ARTEFACT of registering before a
-# worktree existed, rather than a real shared checkout (#1190).
-#
-# WHY THIS PREDICATE EXISTS. `report_overlap` is an elif chain - ONE warning per
-# pair - and the worktree arm sits ABOVE the file-lane arm. That precedence is
-# deliberate and correct: a genuinely shared checkout IS a stronger statement
-# about a pair than a shared file, and reporting both would be noise.
-#
-# It rests on the higher arm being at least as TRUE, and for one case it is not.
-# `cwd_is_shared_parent` exists precisely to name a worktree match that is an
-# artefact of #670 worker-first registration, and its own comment claimed such a
-# false positive "costs one line of stderr and never changes a verdict". It did
-# change one: it silenced the file-lane arm for that pair. And because the #683
-# lane-less exemption requires an EMPTY file lane, declaring the lane you were
-# granted is exactly what loses you the exemption - so DECLARING A LANE MADE
-# COLLISION DETECTION STRICTLY WORSE THAN DECLARING NOTHING, at the one moment a
-# lane is being handed over and is most likely to collide.
-#
-# Observed in production, not hypothesised: an orchestrator granted
-# `docs/scripts.md` to three roles at once and told a worker in writing that two
-# files were free while another role held them, then concluded it had failed to
-# re-read the roster between grants. The roster could not have told it.
-#
-# THE FIX IS NARROW ON PURPOSE. Making the file-lane arm additive instead would
-# restore the noise the precedence was built to control, and the next person to
-# meet that noise would re-suppress it - the oscillation. So only the match that
-# `cwd_is_shared_parent` ALREADY identifies as an artefact is stood down, and
-# only when it is the ancestor side; identical cwds stay a real collision.
-#
-# REVERSAL TRIGGER, recorded here because this is a two-sided change: if REAL
-# nested-worktree pairs start being reported twice, or a genuine shared checkout
-# stops being reported at all, this predicate was drawn wrong - redraw IT. Do
-# NOT restore blanket precedence, which is what reintroduces the blindness.
-# _is_checkout_root DIR -> 0 when DIR is itself a git checkout.
-#
-# `cwd_is_shared_parent`'s second signature - "contains 2+ git checkouts" - is a
-# heuristic for the ~/Projects shape, and a REAL checkout holding two submodules
-# satisfies it too. That is harmless where the heuristic only prints an advisory
-# line, which is every other call site. Here it would stand down a worktree
-# warning between a genuine checkout and a role working in a subdirectory of it,
-# and a suppressed TRUE warning is the thing this whole change exists to stop.
-#
-# Found by counter-model review; the nested-worktree guard test used empty
-# directories and could not see it.
-_is_checkout_root() { [ -e "$1/.git" ]; }
-
-# _is_inside_checkout DIR -> 0 when DIR is at or below a git checkout root.
-#
-# Protecting only the checkout ROOT was not enough (re-review). Given /repo/.git
-# with submodules at /repo/modules/one and /repo/modules/two, the directory
-# /repo/modules has no .git of its own, differs from the declared repo, and
-# still satisfies the two-child-checkouts heuristic - so a role there paired with
-# one in /repo/modules/workdir was classified as an artefact and a GENUINE nested
-# collision went unreported. The projects-parent heuristic is about a directory
-# that merely HOLDS checkouts; anywhere inside one is a lane, not a parent.
-_is_inside_checkout() {
-  local d="${1%/}"
-  while [ -n "$d" ] && [ "$d" != "/" ]; do
-    [ -e "$d/.git" ] && return 0
-    d="${d%/*}"
-  done
-  return 1
-}
-
-overlap_cwd_is_artefact() {
-  local ca="$1" ra="$2" cb="$3" rb="$4"
-  # Identical cwds are two sessions in ONE directory - never an artefact.
-  [ "$ca" = "$cb" ] && return 1
-  # A strictly contains B, and A is a projects parent rather than a lane.
-  case "$cb/" in "$ca"/*)
-    _is_inside_checkout "$ca" && return 1
-    [ -n "$ra" ] && [ "$ca" = "${ra%/}" ] && return 1
-    cwd_is_shared_parent "$ca" "$ra" && return 0 ;;
-  esac
-  # ...and the mirror case.
-  case "$ca/" in "$cb"/*)
-    _is_inside_checkout "$cb" && return 1
-    [ -n "$rb" ] && [ "$cb" = "${rb%/}" ] && return 1
-    cwd_is_shared_parent "$cb" "$rb" && return 0 ;;
-  esac
   return 1
 }
 
@@ -1320,7 +1210,7 @@ report_overlap() {
   elif [ -n "$ba" ] && [ "$ba" = "$bb" ]; then
     echo "  WARNING: '$al' and '$bl' both claim branch '$ba' - same checkout, guaranteed collision."
     WARNED=1
-  elif [ -n "$ca" ] && [ -n "$cb" ] && { [ "$ca" = "$cb" ] || case "$ca/" in "$cb"/*) true ;; *) false ;; esac || case "$cb/" in "$ca"/*) true ;; *) false ;; esac; } && ! overlap_cwd_is_artefact "$ca" "$ra" "$cb" "$rb"; then
+  elif [ -n "$ca" ] && [ -n "$cb" ] && { [ "$ca" = "$cb" ] || case "$ca/" in "$cb"/*) true ;; *) false ;; esac || case "$cb/" in "$ca"/*) true ;; *) false ;; esac; }; then
     echo "  WARNING: '$al' ($ca) and '$bl' ($cb) have same/nested worktrees - edits will collide."
     WARNED=1
   elif [ -n "$ra" ] && [ "$ra" = "$rb" ] && [ -n "$shared" ]; then
@@ -2051,21 +1941,6 @@ case "$VERB" in
           ;;
       esac
     fi
-    #: NO VERDICT HERE, DELIBERATELY (#1190). `self-address` is a VALUE-RETURNING
-    #: query, not a reporting verb: its stdout IS the address, so callers capture
-    #: it with `$(...)`. Appending the detail block and a `FLOW_WAVE:` line would
-    #: make that capture multi-line garbage and break every such caller.
-    #:
-    #: This was tried during #1190 and reverted. Two long-standing tests pin the
-    #: contract - `test_self_address_names_why_it_failed` and
-    #: `test_self_address_walk_starts_at_the_session_pid` both assert
-    #: `stdout.strip()` equals the address EXACTLY - and they caught it. They are
-    #: the contract, not an obstacle to it.
-    #:
-    #: So this sits with `--help` and the `--any-live-only` sub-mode: a query
-    #: whose payload is its output. The verdict contract binds the REPORTING
-    #: verbs. `tests/test_flow_wave_registry.py` carries a guard asserting this
-    #: stays verdict-free, so the next reader of the contract does not "fix" it.
     exit 0
     ;;
 
