@@ -2940,3 +2940,147 @@ def test_no_record_is_written_when_the_pr_head_is_another_branch(tmp_path: Path)
     assert not any("cpp-merged-head" in c for c in _calls(stubs)), (
         "a record was written for a PR whose head is a different branch"
     )
+
+
+# --------------------------------------------------------------------------- #
+# A keyword in a markdown HEADING, with the reference opening the paragraph
+# below it (issue #1191).
+#
+# The pattern always tolerated a newline between the keyword and the reference;
+# the scan handed it one LINE at a time, so it could never see both halves.
+# Measured on the real body from cooneycw/kyle PR #1313: line-by-line scanning
+# yields ZERO matches, the identical pattern over the whole text matches.
+#
+# This shape is the highest-risk one precisely because it is the most idiomatic
+# way to write a disclaimer - and the disclaiming sentence is what performed the
+# closure.
+# --------------------------------------------------------------------------- #
+def test_keyword_in_markdown_heading_with_reference_below_refuses(tmp_path: Path):
+    # Reconstructed from the real cooneycw/kyle PR #1313 body rather than
+    # invented: nobody designed this text to be caught, which is the point.
+    body = (
+        "Refs #99. This PR uses a non-closing reference throughout.\n"
+        "\n"
+        "## What this does NOT close\n"
+        "\n"
+        "#99's remaining criteria are **observations**, and they are\n"
+        "consolidated as a follow-up.\n"
+    )
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        pr_title="docs: consolidate the remaining criteria",
+        pr_body=body,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1191-heading")
+    assert result.returncode == 5, result.stderr
+    assert "CLEAN STOP" in result.stderr
+    assert "#99" in result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert merge_calls == [], "the heading stop must leave the PR untouched"
+
+
+def test_keyword_in_heading_stops_ONCE_not_twice(tmp_path: Path):
+    """One construction, one CLEAN STOP, ONE override - verified through BOTH.
+
+    This text is negated AND its reference carries a possessive, so before issue
+    #1191 made it visible neither guard could see it, and with the possessive
+    tested first BOTH would fire: refused at 5, operator consciously passes
+    --allow-negated-close, refused again at 7 for the same sentence. The file's
+    own header forbids that, and test_negated_close_override_flag_bypasses_guard
+    already pins the single-line form of the same invariant.
+
+    The first half alone would NOT establish the claim in this test's name - it
+    only shows the first refusal. The override half is what proves there is one
+    decision and not two (counter-model review).
+    """
+    body = "## What this does NOT close\n\n#99's criteria are observations.\n"
+    # Two independent stub roots: the refusal half and the override half must not
+    # share call logs, or the second assertion could read the first run's output.
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+
+    refusing = _make_stubs(
+        tmp_path / "a",
+        pr_state="OPEN",
+        pr_title="docs: consolidate the remaining criteria",
+        pr_body=body,
+    )
+    first = _run(_linked_worktree(tmp_path / "a"), refusing, "42", "issue-1191-order")
+    assert first.returncode == 5, (
+        f"expected the negated guard (5), not the incidental guard (7): {first.stderr}"
+    )
+    assert "issue #726" in first.stderr
+
+    merging = _make_stubs(
+        tmp_path / "b",
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_title="docs: consolidate the remaining criteria",
+        pr_body=body,
+    )
+    second = _run(
+        _linked_worktree(tmp_path / "b"),
+        merging,
+        "--allow-negated-close",
+        "42",
+        "issue-1191-order",
+    )
+    assert second.returncode == 0, (
+        f"one override must carry the whole decision, not just the first guard: {second.stderr}"
+    )
+    assert "override consumed: --allow-negated-close bypassed" in second.stderr
+    assert "GH_PR_MERGE_INCIDENTAL_CLOSE" not in second.stderr, (
+        "the incidental guard must not re-refuse a negation the sibling guard owns"
+    )
+    assert any(c.startswith("gh pr merge") for c in _calls(merging))
+
+
+def test_a_directive_followed_by_an_unrelated_slash_paragraph_still_merges(tmp_path: Path):
+    """The classifier's window must stay IMMEDIATE (counter-model review, #1191).
+
+    Once the match span could cross a newline the suffix window could too, and
+    `_is_incidental_close_match` tests it with a line-oriented grep anchored on
+    `^`. Measured: a legitimate directive followed by a paragraph opening
+    "/api ..." was read as a slash-compound modifier and refused at exit 7 -
+    a merge blocked by a neighbouring paragraph the match does not own.
+    """
+    body = "Closes #99\n\n/api now returns the consolidated payload.\n"
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_title="feat: consolidate the payload",
+        pr_body=body,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1191-suffix")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_INCIDENTAL_CLOSE" not in result.stderr
+    assert any(c.startswith("gh pr merge") for c in _calls(stubs))
+
+
+def test_a_keyword_separated_from_the_reference_by_WORDS_still_merges(tmp_path: Path):
+    """THE BOUND on the widening, and the case that keeps issue #772 honest.
+
+    The span now crosses WHITESPACE, not prose. A keyword in a heading whose
+    paragraph mentions the reference several words later is not the proximity
+    shape GitHub acts on, and must still merge - otherwise this fix would be
+    re-introducing the over-broad guard #772 was filed to narrow.
+    """
+    body = (
+        "Refs #99.\n"
+        "\n"
+        "## What this does not close\n"
+        "\n"
+        "The remaining criteria for #99 are tracked separately.\n"
+    )
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_title="docs: consolidate the remaining criteria",
+        pr_body=body,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1191-bound")
+    assert result.returncode == 0, result.stderr
+    assert any(c.startswith("gh pr merge") for c in _calls(stubs))

@@ -1,0 +1,11 @@
+============================= test session starts ==============================
+collected 6433 items
+
+-- BAD case: worker scoping collapsed, same invocation --
+FAILED tests/test_xdist_isolation.py::test_worker_scoped_paths_carry_this_worker_id
+FAILED tests/test_xdist_isolation.py::test_the_collapse_override_is_not_set_in_this_run
+XDIST_ISOLATION: ok
+
+=========================== short test summary info ============================
+FAILED journal/tests/test_views.py::TestNoSecretsInSession::test_unlock - AssertionError
+======================== 1 failed, 6432 passed =========================

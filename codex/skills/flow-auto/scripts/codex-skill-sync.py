@@ -1021,6 +1021,175 @@ def run_write(selected: list[str]) -> int:
     return 0
 
 
+def _repo_relative(raw: str) -> str | None:
+    """A caller's path as the generator spells it, or None if it is not one.
+
+    RESOLVED, never string-trimmed (counter-model review). A lexical prefix
+    strip called `scripts/../scripts/gh-pr-merge.sh` unbundled while the plain
+    spelling of the same file enumerated fine, and an absolute alias failed the
+    same way. Resolution also answers CONTAINMENT: a path outside the repository
+    is not a source here at all, and saying so is the honest answer rather than
+    searching for it and finding nothing.
+    """
+    try:
+        candidate = Path(raw)
+        resolved = (candidate if candidate.is_absolute() else REPO_ROOT / candidate).resolve()
+        return resolved.relative_to(REPO_ROOT.resolve()).as_posix()
+    except (ValueError, OSError):
+        return None
+
+
+def mirrors_for(sources: list[str], selected: list[str]) -> tuple[dict[str, list[str]], list[str]]:
+    """`(source -> its mirror paths, sources that feed no mirror)`.
+
+    TWO RULES, BOTH DERIVED FROM `expected_outputs` rather than from a path
+    table. A table would be a second population to keep in step with the
+    generator - the defect this repository has already paid for twice in the
+    neighbouring re-sync trigger (#1136).
+
+      - A COMMAND DOCUMENT maps to its whole skill: it generates `SKILL.md` and
+        `reference.md`, and it is what pulls in everything else the skill
+        bundles.
+      - ANY OTHER bundled file maps to THE SAME relative path under every skill
+        that bundles it. Measured across all 271 mirror files: the generator
+        preserves the repo-relative path for `docs/`, `lib/` and `.claude/`
+        sources, and `scripts/<name>` is already `scripts/<name>` on both sides,
+        so one rule covers every shape rather than four.
+    """
+    outputs = expected_outputs(selected)
+    found: dict[str, list[str]] = {}
+    unknown: list[str] = []
+
+    for raw in sources:
+        source = _repo_relative(raw)
+
+        #: A SOURCE IS A FILE THAT EXISTS IN THE REPOSITORY, and checking that
+        #: first is what stops the generator's OWN OUTPUT being accepted as
+        #: input (counter-model review). `SKILL.md`, `reference.md` and
+        #: `scripts/<MANIFEST_NAME>` are synthesised names that appear as keys in
+        #: every skill's outputs, so a bare name-match answered
+        #: `--list-mirrors SKILL.md` with 74 paths and exit 0 - a confident
+        #: answer to a question nobody can ask, which is this issue's own defect
+        #: wearing the other hat. None of the three exists as a repository file,
+        #: so existence separates them without a list of synthesised names to
+        #: keep in step.
+        if source is None or not (REPO_ROOT / source).is_file():
+            unknown.append(raw)
+            continue
+
+        hits: list[str] = []
+
+        parts = source.split("/")
+        if (
+            len(parts) == 4
+            and parts[0] == ".claude"
+            and parts[1] == "commands"
+            #: THE FAMILY IS VALIDATED, not just the concatenation. `<family>` and
+            #: `<stem>` are joined by a hyphen to name the skill, which loses the
+            #: boundary: the nonexistent `.claude/commands/second/opinion-help.md`
+            #: composes to `second-opinion-help`, a REAL skill generated from
+            #: `.claude/commands/second-opinion/help.md`. Checking only the
+            #: composed name handed an unknown source a neighbour's mirrors and
+            #: called it success.
+            and parts[2] in FAMILIES
+            and source.endswith(".md")
+        ):
+            skill = f"{parts[2]}-{parts[3][: -len('.md')]}"
+            if skill in outputs:
+                hits = [f"codex/skills/{skill}/{rel}" for rel in sorted(outputs[skill])]
+
+        if not hits:
+            #: THE MANIFEST TRAVELS WITH THE SCRIPT. A skill that bundles any
+            #: script also carries `scripts/<MANIFEST_NAME>` over those scripts,
+            #: so changing one bundled script changes TWO files in that skill.
+            #: Measured on this change itself: editing `codex-skill-sync.py`
+            #: drifted 2 script copies AND their 2 manifests - and the manifests
+            #: are exactly the paths that showed up as unexplained lane-check
+            #: extras twice on 2026-09-23.
+            #:
+            #: It is derived, not listed: the manifest is emitted only for
+            #: skills whose outputs actually contain it, so a generator that
+            #: stops writing one, or renames it, cannot leave this naming a path
+            #: that no longer exists.
+            found_in = [
+                skill for skill, files in outputs.items() if source in files
+            ]
+            hits = sorted(
+                f"codex/skills/{skill}/{source}" for skill in found_in
+            )
+            if source.startswith("scripts/"):
+                hits += sorted(
+                    f"codex/skills/{skill}/scripts/{MANIFEST_NAME}"
+                    for skill in found_in
+                    if f"scripts/{MANIFEST_NAME}" in outputs[skill]
+                )
+                hits = sorted(hits)
+
+        if hits:
+            found[source] = hits
+        else:
+            unknown.append(source)
+
+    return found, unknown
+
+
+def run_list_mirrors(sources: list[str], selected: list[str]) -> int:
+    """Print the mirror set WITHOUT touching the tree (issue #1151).
+
+    `--check` answers "are the mirrors in sync". It was being read for "what IS
+    the mirror set", which is the question a lane declaration asks - and those
+    agree only on a DIRTY tree. On a clean one `--check` names nothing, and the
+    only way to learn the set was `--write`, which answers by changing the tree.
+
+    THIS IS THE LANE QUESTION, NOT THE DRIFT QUESTION, and the two are not the
+    same set. For a bundled SCRIPT they coincide - the script and its manifest
+    are exactly what goes stale - which is why they are easy to confuse. For a
+    COMMAND DOCUMENT they diverge sharply: the document produces its whole skill,
+    so editing one puts every file of that skill in the lane while only the
+    generated `SKILL.md` / `reference.md` actually drift. Measured: editing
+    `flow/auto.md` and `flow/finish.md` listed 50 paths and drifted 2.
+
+    So DO NOT use this to decide whether a re-sync is needed. `--check` answers
+    that, in 0.14s, by comparing the generated output against the tree; this
+    answers what a lane must DECLARE. Building a re-sync trigger on an enumerated
+    path set would also be the hazard #1136 removed - "a hardcoded universe
+    again, one entry longer" - but it would be wrong on its own terms first.
+    """
+    outputs = expected_outputs(selected)
+
+    if not sources:
+        for skill in sorted(outputs):
+            for rel in sorted(outputs[skill]):
+                print(f"codex/skills/{skill}/{rel}")
+        return 0
+
+    found, unknown = mirrors_for(sources, selected)
+    #: A UNION, not a concatenation (counter-model review). Passing one source
+    #: twice printed it twice, and two scripts sharing a skill repeated that
+    #: skill's manifest - so the output was not a mirror SET, which is what a
+    #: caller declaring a lane needs.
+    for mirror in sorted({m for mirrors in found.values() for m in mirrors}):
+        print(mirror)
+
+    for source in dict.fromkeys(unknown):
+        #: NAMED, AND NON-ZERO. A tool built to answer "what IS the mirror set"
+        #: that returned SILENCE for a source it does not know would reproduce
+        #: the exact defect it exists to remove - the caller cannot tell "this
+        #: feeds nothing" from "I did not understand your path".
+        print(
+            f"NOT BUNDLED: {source} feeds no Codex skill mirror", file=sys.stderr
+        )
+    if unknown:
+        print(
+            "codex-skill-sync: a BUNDLED source always has at least one mirror, so zero"
+            " lines above means the path is not bundled - never a bundled source with an"
+            " empty mirror set, which cannot occur.",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
 def install_dest_root() -> Path:
     return Path.home() / ".codex" / "skills"
 
@@ -1087,6 +1256,14 @@ def main(argv: list[str] | None = None) -> int:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--check", action="store_true", help="fail on drift (default)")
     mode.add_argument("--write", action="store_true", help="(re)generate codex/skills/")
+    mode.add_argument(
+        "--list-mirrors", nargs="*", metavar="SOURCE", default=None,
+        help=(
+            "print the codex/skills/ paths SOURCE(s) feed, or all of them; writes"
+            " nothing. This is what a LANE must declare, NOT what will drift - use"
+            " --check for that"
+        ),
+    )
     parser.add_argument(
         "--install", action="store_true",
         help="copy codex/skills/ dirs (generated + curated) to ~/.codex/skills/",
@@ -1103,6 +1280,11 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
+
+    if args.list_mirrors is not None:
+        #: Returns directly: this mode writes nothing, so `--install` after it
+        #: would install a tree this invocation never generated.
+        return run_list_mirrors(args.list_mirrors, selected)
 
     if args.write:
         rc = run_write(selected)
