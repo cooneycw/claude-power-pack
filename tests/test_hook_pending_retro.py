@@ -239,9 +239,12 @@ def test_not_registered_by_anything_cpp_ships():
     So the subject widens from one file to everything CPP ships. That is
     strictly stronger than what it replaced, which could only ever see one path.
     """
-    assert not (ROOT / ".claude" / "hooks.json").exists(), (
-        "CPP ships a hooks file again; this test's original subject is back"
-    )
+    # Tracked, not present: an ignored leftover from an older install is the
+    # supported migration state, not a regression (counter-model pass 2).
+    assert not subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files", "--", ".claude/hooks.json"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip(), "CPP tracks a hooks file again; this test's subject is back"
     # SAME TWO CORRECTIONS AS THE MASKER CONTROL (counter-model review):
     # authoritative population, and a read count rather than a path count.
     #

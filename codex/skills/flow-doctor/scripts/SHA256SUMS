@@ -9,5 +9,5 @@
 # Verifying arrival needs a key that is not in this bundle.
 26a97f4798570d79700a3bfa284a888c3a8362ec9c3e2634ebdc56fc05457735  flow-helpers-install.sh
 5b2e977afd7930321abfa746ede9b2137b024022ec79fa1624689741b21ae53a  flow-worktree-claim.sh
-95ac5656d995b99fb2c64da62185b9cb34a4bfdc8bdeab16f9422603cbd7171b  hook-mask-output.sh
+640abba1ca769096743bf95866221aae624d6a5b4634c575a1fd45f85937b055  hook-mask-output.sh
 d57ee08d00f108ae708fcd791fcfe66e49f266a44fd90cd99ad38cc649edc318  worktree-remove.sh

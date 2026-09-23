@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -159,14 +160,24 @@ def test_no_declaration_of_the_masker_ships_anywhere():
     to notice the file coming back; this one names the exact path and fails if
     it returns.
     """
-    assert not (ROOT / ".claude" / "hooks.json").exists(), (
-        ".claude/hooks.json is back. CPP does not ship it (#1206 Decision 1): "
-        "Claude Code never loaded that path, so its only effect was to make "
-        "people believe their tool output was masked. If registration is being "
-        "revisited, the documented home is the USER settings file written by "
-        "the installer, not this one."
+    # ASK THE SHIPPED INVENTORY, NOT THE FILESYSTEM. An `exists()` check fails on
+    # an IGNORED leftover from an older install - which is the supported
+    # migration state this change explicitly caters for (/cpp:update Step 4.7
+    # offers its removal, default N). Reporting the user's own leftover as a
+    # repository regression would contradict the migration in the same PR
+    # (counter-model pass 2).
+    tracked = subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files", "--", ".claude/hooks.json"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    assert not tracked, (
+        ".claude/hooks.json is tracked again. CPP does not ship it (#1206 "
+        "Decision 1): Claude Code never loaded that path, so its only effect "
+        "was to make people believe their tool output was masked. If "
+        "registration is being revisited, the documented home is the USER "
+        "settings file written by the installer, not this one."
     )
-    declaring = _files_declaring("hook-mask-output")
+    declaring = _files_declaring("hook-mask-output", _shipped_surfaces())
     assert not declaring, (
         "a shipped file declares the masker as a hook command: " + ", ".join(declaring)
     )
@@ -293,7 +304,7 @@ def test_the_named_claim_surfaces_are_clean_and_were_actually_read():
 
 
 
-def _files_declaring(helper_name: str) -> list[str]:
+def _files_declaring(helper_name: str, surfaces: list[Path]) -> list[str]:
     """Shipped files that register `helper_name` as a hook command.
 
     JSON IS PARSED, NOT GREPPED (counter-model finding). The first cut required
@@ -311,17 +322,30 @@ def _files_declaring(helper_name: str) -> list[str]:
     """
     found: list[str] = []
 
-    def walk(node: object, path: Path, trail: str) -> None:
+    #: A `command` field only REGISTERS the helper when it sits under a hooks
+    #: structure. Counting every matching command anywhere reported
+    #: `{"tasks": [{"command": "hook-mask-output.sh < archive.json"}]}` as a
+    #: registration - which is the explicitly RETAINED standalone use of the
+    #: masker over a file at rest, i.e. the one thing this change preserves on
+    #: purpose. A neighbour's task definition would have failed a
+    #: hook-registration check (counter-model pass 2).
+    EVENTS = {
+        "hooks", "PostToolUse", "PreToolUse", "SessionStart", "SessionEnd",
+        "PermissionRequest", "Stop", "SubagentStop", "Notification",
+        "UserPromptSubmit", "PreCompact",
+    }
+
+    def walk(node: object, path: Path, trail: str, under_hook: bool) -> None:
         if isinstance(node, dict):
             for k, v in node.items():
-                if k == "command" and isinstance(v, str) and helper_name in v:
+                if k == "command" and isinstance(v, str) and helper_name in v and under_hook:
                     found.append(f"{path.relative_to(ROOT)}:{trail}.command")
-                walk(v, path, f"{trail}.{k}")
+                walk(v, path, f"{trail}.{k}", under_hook or k in EVENTS)
         elif isinstance(node, list):
             for i, v in enumerate(node):
-                walk(v, path, f"{trail}[{i}]")
+                walk(v, path, f"{trail}[{i}]", under_hook)
 
-    for path in _shipped_surfaces():
+    for path in surfaces:
         if path.suffix not in {".json", ".md", ".sh"}:
             continue
         try:
@@ -330,7 +354,7 @@ def _files_declaring(helper_name: str) -> list[str]:
             continue
         if path.suffix == ".json":
             try:
-                walk(json.loads(text), path, "$")
+                walk(json.loads(text), path, "$", False)
                 continue
             except json.JSONDecodeError:
                 pass  # not valid JSON after all - fall through to the line scan
@@ -423,39 +447,63 @@ def test_the_scan_can_find_something_before_it_is_believed():
 
 
 def _claim_windows(text: str) -> list[tuple[int, str]]:
-    """Consecutive non-blank lines joined into 1-, 2- and 3-line windows.
+    """Group lines into SENTENCES, not into fixed-size windows.
 
-    A LINE-ORIENTED SCAN CANNOT SEE A CLAIM THAT WRAPS, and the masker's own
-    header proved it. The assertion was:
+    The first cut joined 1-, 2- and 3-line runs, and the counter-model review
+    broke it in both directions at once:
 
-        # This hook receives tool output on stdin and masks sensitive data
-        # before it's shown to Claude, preventing secrets from entering context.
+      TOO NARROW - a claim spread over four lines matched nothing:
+          # PostToolUse processes command output
+          # from Bash and Read invocations,
+          # automatically removing credentials and
+          # masking secrets before delivery.
 
-    Line one carries "masks" and no dispatch token; line two carries the
-    dispatch token and no "mask". Each line is individually innocent and the
-    pair is the claim, so a per-line predicate reads the file and passes - the
-    same structural defect the counter-model review found in the JSON
-    declaration scan, which required `"command"` and the helper name on one
-    line.
+      TOO WIDE - two unrelated bullets became a claim neither makes:
+          - PostToolUse runs the audit logger.
+          - secrets-mask.sh masks files at rest.
 
-    Three lines is the cap. It is a bound, not a proof: a claim spread over four
-    would still slip, which is why CLAIM_BEARING names the files outright rather
-    than trusting this to be exhaustive.
+    Widening the window fixes the first and worsens the second, so the size was
+    never the right dial. The unit is: a claim is a SENTENCE, and a sentence
+    wraps. A line CONTINUES the previous one when the previous did not close a
+    sentence and this one does not open a new item - so a wrapped claim of any
+    length is one unit, and two adjacent list items are two.
     """
-    lines = text.splitlines()
-    windows: list[tuple[int, str]] = []
-    for i, line in enumerate(lines):
-        if not line.strip():
+    units: list[tuple[int, str]] = []
+    start = 0
+    parts: list[str] = []
+
+    def flush() -> None:
+        if parts:
+            units.append((start + 1, " ".join(parts)))
+
+    def strip_marker(raw: str) -> str:
+        body = raw.strip()
+        while body[:1] in {"#", "*", "|"}:
+            body = body[1:].lstrip()
+        if body[:2] in {"- ", "+ "}:
+            body = body[2:].lstrip()
+        return body
+
+    def opens_item(raw: str) -> bool:
+        body = raw.strip().lstrip("#").lstrip()
+        return body[:2] in {"- ", "* ", "+ ", "| "} or body[:1] == "|"
+
+    prev_raw = ""
+    for i, raw in enumerate(text.splitlines()):
+        if not raw.strip():
+            flush()
+            parts, prev_raw = [], ""
             continue
-        for span in (1, 2, 3):
-            chunk = lines[i:i + span]
-            if len(chunk) < span or any(not c.strip() for c in chunk):
-                continue
-            # Strip comment markers and list bullets so a wrapped comment reads
-            # as one sentence rather than as fragments glued to punctuation.
-            joined = " ".join(c.lstrip().lstrip("#").lstrip("-*").strip() for c in chunk)
-            windows.append((i + 1, joined))
-    return windows
+        closed = prev_raw.rstrip().endswith((".", ":", ";", "!", "?", '"', "`"))
+        if parts and (closed or opens_item(raw)):
+            flush()
+            parts = []
+        if not parts:
+            start = i
+        parts.append(strip_marker(raw))
+        prev_raw = raw
+    flush()
+    return units
 
 
 def _asserts_active_masking(line: str) -> bool:
@@ -509,13 +557,23 @@ def test_no_shipped_surface_claims_active_masking():
     That red run is the evidence. Re-reading the removal would only confirm
     what it MEANT; this is what it CAN say.
     """
+    #: Extensions whose bytes are not prose. Anything ELSE that fails to read is
+    #: a finding, not a skip: the aggregate read threshold below absorbed a
+    #: single unreadable surface, and the narrow scan never visits a file
+    #: outside CLAIM_BEARING - so a new tracked document could go unexamined by
+    #: both halves at once while both reported clean (counter-model pass 2).
+    BINARY = {".png", ".jpg", ".jpeg", ".gif", ".ico", ".pdf", ".woff", ".woff2",
+              ".ttf", ".otf", ".zip", ".gz", ".whl", ".so", ".dylib", ".class"}
     offenders: list[str] = []
+    unreadable: list[str] = []
     read_ok = 0
     for path in _shipped_surfaces():
         try:
             text = path.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
-            continue  # binary or unreadable: it is not a surface a user reads
+        except (UnicodeDecodeError, OSError) as exc:
+            if path.suffix.lower() not in BINARY:
+                unreadable.append(f"{path.relative_to(ROOT)}: {type(exc).__name__}")
+            continue
         read_ok += 1
         for n, window in _claim_windows(text):
             if _asserts_active_masking(window):
@@ -526,6 +584,10 @@ def test_no_shipped_surface_claims_active_masking():
     # offenders - a broken extractor whose zero is indistinguishable from a real
     # one. This is the same distinction the whole issue is about, applied to the
     # instrument enforcing it.
+    assert not unreadable, (
+        "a tracked text surface could not be read, so this scan proves nothing "
+        "about it: " + ", ".join(unreadable)
+    )
     assert read_ok > 100, (
         f"only {read_ok} of {len(_shipped_surfaces())} surfaces could be read; "
         "a zero from this scan would mean nothing"
@@ -539,16 +601,17 @@ def test_no_shipped_surface_claims_active_masking():
     )
 
 
-def test_the_declaration_scan_sees_a_declaration_the_formatter_wrapped(tmp_path):
-    """The red case for the JSON walk, committed rather than planted.
+def test_the_declaration_scan_sees_a_declaration_the_formatter_wrapped(tmp_path, monkeypatch):
+    """The red case for the JSON walk, driven through the PRODUCTION scanner.
 
-    Planting a real file cannot be done here: `.gitignore` ignores `*.json`
-    except an allowlist, and #1206 just removed `.claude/hooks.json` from it -
-    so a planted file would be untracked and invisible to a `git ls-files`
-    population. The walk is therefore exercised directly.
+    The first version of this test defined its OWN walker and asserted on that.
+    Replacing `_files_declaring` with a stub returning `[]` left it green - it
+    was exercising a copy, so it protected nothing. It now patches the
+    population and calls the real function.
 
-    The grep this replaced required `"command"` and the helper name on ONE line.
-    Both payloads below are the same registration; only the line break moves.
+    Planting a file in the repo is not an option: `.gitignore` ignores `*.json`
+    bar an allowlist, and #1206 just removed `.claude/hooks.json` from it, so a
+    planted file would be untracked and outside a `git ls-files` population.
     """
     wrapped = tmp_path / "hooks.json"
     wrapped.write_text(
@@ -559,29 +622,42 @@ def test_the_declaration_scan_sees_a_declaration_the_formatter_wrapped(tmp_path)
         '    ]\n  }\n}\n',
         encoding="utf-8",
     )
-    doc = json.loads(wrapped.read_text(encoding="utf-8"))
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
 
-    found: list[str] = []
+    assert _files_declaring("hook-mask-output", [wrapped]), (
+        "a declaration whose value starts on the next line must still be found"
+    )
+    assert not _files_declaring("hook-pending-retro", [wrapped]), (
+        "the scan must not report a helper the file never mentions"
+    )
 
-    def walk(node, trail):
-        if isinstance(node, dict):
-            for k, v in node.items():
-                if k == "command" and isinstance(v, str) and "hook-mask-output" in v:
-                    found.append(trail + ".command")
-                walk(v, f"{trail}.{k}")
-        elif isinstance(node, list):
-            for i, v in enumerate(node):
-                walk(v, f"{trail}[{i}]")
+    # And the same command OUTSIDE a hooks structure is NOT a registration -
+    # it is the retained standalone use of the masker over a file at rest.
+    task = tmp_path / "tasks.json"
+    task.write_text(
+        '{"tasks": [{"command": "scripts/hook-mask-output.sh < archive.json"}]}',
+        encoding="utf-8",
+    )
+    assert not _files_declaring("hook-mask-output", [task]), (
+        "a standalone invocation is not a hook registration"
+    )
 
-    walk(doc, "$")
-    assert found, "a wrapped declaration must still be found"
 
-    # And the line scan it replaced does NOT see it - which is the finding.
-    line_scan = [
-        n for n, line in enumerate(wrapped.read_text(encoding="utf-8").splitlines(), 1)
-        if "hook-mask-output" in line and '"command"' in line
-    ]
-    assert not line_scan, (
-        "the old same-line grep unexpectedly matched; this test no longer "
-        "demonstrates the gap it was written for"
+def test_a_claim_spanning_four_lines_is_one_unit_and_two_bullets_are_two():
+    """Both directions the fixed-size window got wrong (counter-model pass 2)."""
+    four_lines = (
+        "# PostToolUse processes command output\n"
+        "# from Bash and Read invocations,\n"
+        "# automatically removing credentials and\n"
+        "# masking secrets before delivery.\n"
+    )
+    assert any(_asserts_active_masking(u) for _, u in _claim_windows(four_lines)), (
+        "a claim wrapped over four lines is invisible; the window is too narrow"
+    )
+    two_bullets = (
+        "- PostToolUse runs the audit logger.\n"
+        "- secrets-mask.sh masks files at rest.\n"
+    )
+    assert not any(_asserts_active_masking(u) for _, u in _claim_windows(two_bullets)), (
+        "two unrelated list items were joined into a claim neither one makes"
     )

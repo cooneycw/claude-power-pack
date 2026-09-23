@@ -147,10 +147,11 @@ except Exception as exc:
     # mask, and the unmasked value went through while the run looked clean.
     #
     # WHAT THIS DOES AND DOES NOT BUY, stated because the difference matters: a
-    # non-zero exit does NOT retract the tool output - by the time a PostToolUse
-    # hook runs, the output exists. It cannot protect. What it changes is that
-    # the failure is now ANNOUNCED rather than mistaken for success, so nobody
-    # reads an unmasked line as evidence that nothing needed masking.
+    # non-zero exit does NOT retract anything. This filter runs over text that
+    # already exists - and since #1206 it is not wired into a live channel at
+    # all. It cannot protect. What it changes is that the failure is now
+    # ANNOUNCED rather than mistaken for success, so nobody reads an unfiltered
+    # line as evidence that nothing needed filtering.
     print(
         "hook-mask-output: FAILED to process tool output (%s: %s). "
         "The output was NOT masked. Do not read its absence of secrets as "
