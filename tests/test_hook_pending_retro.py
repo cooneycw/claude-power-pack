@@ -22,6 +22,7 @@ bash is required).
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -226,12 +227,79 @@ def test_skip_env_suppresses_only_the_drift_half(tmp_path: Path):
     assert "CPP retro:" in r.stdout
 
 
-def test_not_registered_in_shipped_hooks_json():
-    # Opt-in integrity (the whole point): the reminder must NOT live in the
-    # shipped .claude/hooks.json, which /cpp:init copies into user projects -
-    # that would turn it on for everyone by default. It is registered only via
-    # the user-confirmed (default N) settings.json path in /cpp:init|update.
-    hooks = (ROOT / ".claude" / "hooks.json").read_text(encoding="utf-8")
-    assert "hook-pending-retro" not in hooks, (
-        "hook-pending-retro must stay opt-in: never in the shipped .claude/hooks.json"
+def test_not_registered_by_anything_cpp_ships():
+    """Opt-in integrity: the property outlived its subject (#1206).
+
+    This read `.claude/hooks.json` and asserted the reminder was absent from it.
+    #1206 deleted that file, so the read raises FileNotFoundError - and a test
+    that cannot run is not a test that passes. The PROPERTY is unchanged and
+    still matters: registering this reminder by default would turn it on for
+    everyone, which is the imposition the feature exists to avoid.
+
+    So the subject widens from one file to everything CPP ships. That is
+    strictly stronger than what it replaced, which could only ever see one path.
+    """
+    # Tracked, not present: an ignored leftover from an older install is the
+    # supported migration state, not a regression (counter-model pass 2).
+    assert not subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files", "--", ".claude/hooks.json"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip(), "CPP tracks a hooks file again; this test's subject is back"
+    # SAME TWO CORRECTIONS AS THE MASKER CONTROL (counter-model review):
+    # authoritative population, and a read count rather than a path count.
+    #
+    # The walk could not tell a file CPP SHIPS from a user's own ignored
+    # `.claude/settings.local.json`, in which an explicit opt-in registration is
+    # correct and expected - so it would have reported the user's own choice as
+    # a CPP regression. And discarding read failures silently meant an entirely
+    # unreadable tree passed.
+    if shutil.which("git") is None:
+        pytest.skip("git absent in the CI validate image")
+    listed = subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files", "-z"],
+        capture_output=True, text=True, check=True,
+    ).stdout.split("\0")
+    skip = ("tests/", "docs/", "controls/", ".specify/", "codex/skills/")
+    offenders = []
+    read_ok = 0
+    for rel in listed:
+        if not rel or rel.startswith(skip):
+            continue
+        path = ROOT / rel
+        if not path.is_file() or path.suffix not in {".json", ".md", ".sh"}:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        read_ok += 1
+        if path.suffix == ".json":
+            try:
+                doc = json.loads(text)
+            except json.JSONDecodeError:
+                doc = None
+            if doc is not None:
+                stack = [doc]
+                hit = False
+                while stack:
+                    node = stack.pop()
+                    if isinstance(node, dict):
+                        for k, v in node.items():
+                            if k == "command" and isinstance(v, str) and "hook-pending-retro" in v:
+                                hit = True
+                            stack.append(v)
+                    elif isinstance(node, list):
+                        stack.extend(node)
+                if hit:
+                    offenders.append(rel)
+                continue
+        for n, line in enumerate(text.splitlines(), 1):
+            if "hook-pending-retro" in line and '"command"' in line:
+                offenders.append(f"{rel}:{n}")
+    assert read_ok > 20, (
+        f"only {read_ok} shipped files could be read; a zero here would mean nothing"
+    )
+    assert not offenders, (
+        "hook-pending-retro must stay opt-in - something now registers it as a "
+        "hook command by default: " + ", ".join(offenders)
     )

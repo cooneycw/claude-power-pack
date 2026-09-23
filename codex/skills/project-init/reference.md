@@ -370,11 +370,9 @@ if [ -n "$CPP_DIR" ]; then
         echo "Symlinked .claude/skills"
     fi
 
-    # Copy hooks.json
-    if [ ! -f ".claude/hooks.json" ]; then
-        cp "$CPP_DIR/.claude/hooks.json" .claude/hooks.json 2>/dev/null || true
-        echo "Copied hooks.json"
-    fi
+    # No hooks.json is installed (issue #1206): Claude Code never loads
+    # .claude/hooks.json, so shipping it only created the impression of a
+    # protection that was not running.
 fi
 ```
 

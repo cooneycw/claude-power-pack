@@ -9,5 +9,5 @@
 # Verifying arrival needs a key that is not in this bundle.
 6a22f84050aac94ffcd697d2839ece04fbe3e2e9c62c252a150e327ea0895f8d  classify-tool-risk.py
 16302cb9f88ce225f2673dc3730667cd9081f8c44f2696b7f5ee732b27555660  friction-log.sh
-3d90b920eca49639e09636dc8c4a5d4da746f3b1993223818e5f1e60d61817a4  hook-permission-census.sh
+31ff4ea2c863e580c40fa80f3fad66d1b443382140d6e7f397435825809c05e3  hook-permission-census.sh
 57955a0b38f551bd3dd17bd2c521024bfa683faccc281910f0a83c915ac66562  tool-risk-drift.py

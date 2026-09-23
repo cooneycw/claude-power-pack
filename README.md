@@ -17,7 +17,7 @@
 - **Woodpecker CI** - Self-hosted pipeline (secret-scan, lint, test, typecheck, Dockerfile lint) with programmatic status polling
 - **Project scaffolding** (`/project:init`) - Zero-to-GitHub-repo setup with Makefile, CI pipeline, and Docker config
 - **Skills ecosystem** - Discover, install, and manage agent skills from [skills.sh](https://skills.sh/) via native `npx skills` and the `/plugin` marketplace (the CPP `/skills:*` wrapper was retired in issue #437)
-- **Secret-masking hook** - `scripts/hook-mask-output.sh` CAN mask secrets (connection strings, API keys, env vars) in Bash/Read output, and a PostToolUse declaration for it lives in `.claude/hooks.json`. **IT IS NOT CURRENTLY REGISTERED ANYWHERE CLAUDE CODE READS, so no masking happens** (issue #1206): `.claude/hooks.json` is not a config path Claude Code loads, and the documented home for a hook like this is the user-level `~/.claude/settings.json`, written by the installer - the route `/cpp:init` Step 7.7 already uses for the PermissionRequest census hook. Until that lands, **do not read unmasked output as evidence that nothing needed masking**; the masker's capability and the hook's wiring are different facts and only the first is currently true. Destructive commands are handled by Claude Code's native git auto-blocking + OS sandbox.
+- **CPP does not mask tool output.** `scripts/hook-mask-output.sh` still ships and still works - it is a filter you can run over a file at rest, and `/security:*` uses it that way - but nothing routes live Bash or Read output through it, and CPP no longer declares anything that claims otherwise (issue #1206). **Do not read unmasked output as evidence that nothing needed masking**: assume everything a command prints reaches the transcript verbatim. Destructive commands are handled by Claude Code's native git auto-blocking + OS sandbox.
 
 ## Requirements
 
@@ -74,7 +74,6 @@ make verify
 ```
 claude-power-pack/
   .claude/commands/     Slash commands (/flow:*, /cicd:*, /security:*, etc.)
-  .claude/hooks.json    Safety hooks (pre/post tool use)
   .mcp.json             Client pointer for the external second-opinion server
   codex/skills/         Generated Codex SKILL.md skills, second harness surface (#555)
   codex/cpp-memory.md   Curated Codex /cpp-memory prompt (#433; flat codex/prompts/ retired #556)

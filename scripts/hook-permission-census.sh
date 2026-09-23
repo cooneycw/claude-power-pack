@@ -147,7 +147,8 @@ WRITE_LOCAL_TOKENS = {"mkdir", "touch", "tee", "cp", "ln", "chmod", "chown", "mv
 # honour, so a retro that trusted the `fix` field would allowlist `cat`.
 #
 # 1. File-dumpers: their whole purpose is to print file contents verbatim, so a
-#    standing allow rule defeats the PostToolUse masking hook on a secret file.
+#    standing allow rule puts a secret file's contents straight into the
+#    transcript, and since #1206 nothing masks them on the way.
 #    `head -20 .env` leaks exactly as `cat .env` does - the whole family goes.
 NO_ALLOW_CANDIDATE = {
     "cat", "head", "tail", "less", "more", "tac", "nl",
