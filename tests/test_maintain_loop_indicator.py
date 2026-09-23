@@ -223,3 +223,177 @@ def test_the_output_proposes_no_band(capsys) -> None:
     for word in ("threshold", "breach", "healthy", "unhealthy", "too slow", "acceptable"):
         for ln in graded:
             assert word not in ln.lower(), f"output grades the number with {word!r}: {ln}"
+
+
+# --------------------------------------------------------------------------- #
+# Counter-model findings, 2026-09-23. Eight, and the common thread is that each
+# one turned an incomplete or unreadable input into a confident answer.
+# --------------------------------------------------------------------------- #
+def _capture(tmp_path: Path, **doc) -> Path:
+    base = {"captured_at": "2026-09-20T00:00:00Z", "comments": [], "issues": [], "friction": []}
+    base.update(doc)
+    path = tmp_path / "capture.json"
+    path.write_text(json.dumps(base), encoding="utf-8")
+    return path
+
+
+def test_a_malformed_population_member_is_unknown_not_an_observed_zero(
+    tmp_path: Path, capsys
+) -> None:
+    """Dropping a member reports a SMALLER population as though it were the whole one.
+
+    `{"comments":[null],"friction":["broken"]}` passed validation, lost both
+    records to an `isinstance` filter, and reported an OBSERVED EMPTY
+    POPULATION - the strongest clean answer this instrument has - over a
+    capture whose lists were not empty at all.
+    """
+    path = _capture(tmp_path, comments=[None], friction=["broken"])
+    # `_run` already drains capsys, so read the stderr IT returns rather than
+    # calling readouterr() again - the second call returns nothing and the
+    # assertion would pass on an empty string.
+    code, _, err = _run(path, capsys)
+    assert code == indicator.UNKNOWN_EXIT
+    assert "malformed member" in err, err
+
+
+def test_a_mixed_population_does_not_silently_understate_the_denominator(
+    tmp_path: Path, capsys
+) -> None:
+    """The mixed case, which is the one a filter hides best.
+
+    All-malformed is conspicuous; one bad member among good ones just moves
+    every percentage without moving anything a reader can see.
+    """
+    good = {"id": "1", "created_at": "2026-09-10T00:00:00Z", "body": "x"}
+    path = _capture(tmp_path, comments=[good, None, good])
+    assert _run(path, capsys)[0] == indicator.UNKNOWN_EXIT
+
+
+def test_the_window_shape_is_reported_as_a_number_and_never_as_a_label(
+    tmp_path: Path, capsys
+) -> None:
+    """A CONDITIONAL LABEL IS A BAND, and #1085 forbids bands.
+
+    This printed `wave-shaped: ...` when the top three days held >= 50% and a
+    plainer sentence otherwise, so SIX equally-populated days earned the label
+    and SEVEN did not. That is a threshold-based classification in the
+    instrument built to honour the no-bands constraint, and the first output
+    test missed it by checking only selected words.
+
+    Both sides of the old boundary are asserted, because a test on one side
+    passes on an instrument that labels everything.
+    """
+    for n in (6, 7):
+        comments = [{"id": str(i), "created_at": f"2026-09-0{i}T00:00:00Z", "body": "x"}
+                    for i in range(1, n + 1)]
+        path = _capture(tmp_path, comments=comments)
+        _, out, _ = _run(path, capsys)
+        assert "top 3 day(s) carry" in out, out
+        assert "wave-shaped" not in out, f"{n} days got a qualitative label: {out}"
+
+
+def test_any_negative_delay_is_inverted_however_small(tmp_path: Path, capsys) -> None:
+    """A tolerance is a threshold, and this one admitted a real inversion.
+
+    With one second of slack, a filing event 0.5s BEFORE its finding entered
+    the median as `-0.00d` and counted as attributable - a demonstrably earlier
+    issue read as a fast filing.
+    """
+    path = _capture(
+        tmp_path,
+        comments=[{"id": "1", "created_at": "2026-09-10T00:00:00Z", "body": "x"}],
+        issues=[{"number": 9, "created_at": "2026-09-09T23:59:59Z", "body": "issuecomment-1"}],
+    )
+    _, out, _ = _run(path, capsys)
+    assert "NO attributable finding(s)" in out, out
+    assert "1 attribution(s)" in out, out
+
+
+def test_filing_events_are_ordered_by_instant_not_by_string(tmp_path: Path, capsys) -> None:
+    """`2026-09-10T02:00:00+03:00` sorts AFTER `...T00:30:00Z` and is earlier.
+
+    The earliest citing issue is the filing event, so comparing raw strings
+    picks the wrong one whenever two offsets differ - which can convert an
+    inversion into an attribution, or a long delay into a short one.
+    """
+    path = _capture(
+        tmp_path,
+        comments=[{"id": "1", "created_at": "2026-09-09T00:00:00Z", "body": "x"}],
+        issues=[
+            {"number": 1, "created_at": "2026-09-10T02:00:00+03:00", "body": "issuecomment-1"},
+            {"number": 2, "created_at": "2026-09-10T00:30:00Z", "body": "issuecomment-1"},
+        ],
+    )
+    _, out, _ = _run(path, capsys)
+    # 2026-09-10T02:00+03:00 is 23:00Z on the 9th - the EARLIER instant.
+    assert "median 0.96d" in out, out
+
+
+def test_a_timezone_free_timestamp_does_not_crash_the_run(tmp_path: Path, capsys) -> None:
+    """A naive timestamp parsed fine and then raised TypeError at subtraction.
+
+    That is a crash escaping the three verdicts this instrument declares. It is
+    now simply not a readable instant, so the finding is UNDETERMINED.
+    """
+    path = _capture(
+        tmp_path,
+        comments=[{"id": "1", "created_at": "2026-09-10T00:00:00", "body": "x"}],
+        issues=[{"number": 9, "created_at": "2026-09-12T00:00:00Z", "body": "issuecomment-1"}],
+    )
+    code, out, err = _run(path, capsys)
+    assert code == 0, err
+    assert "Traceback" not in err
+    assert "1 UNDETERMINED" in out, out
+
+
+def test_a_negated_dismissal_is_not_an_exclusion(tmp_path: Path, capsys) -> None:
+    """"This finding was NOT dismissed" is not a disposition.
+
+    The exclusion set separates a finding decided AGAINST from one that took
+    forever. A prose match anywhere in the body caught negations, quotations and
+    descriptions of somebody else's decision - measured on the real population,
+    17 of 18 exclusions were mentions rather than dispositions.
+
+    The marker must OPEN a line. And the pattern may not use `\\s*`, which
+    matches newlines: the first line-anchored cut anchored at a BLANK line and
+    crossed into a later one, which left exactly one match on the real
+    population and that match was on an empty line.
+    """
+    body = "This finding was not dismissed; it still needs a fix.\n"
+    path = _capture(
+        tmp_path,
+        comments=[{"id": "1", "created_at": "2026-09-10T00:00:00Z", "body": body}],
+    )
+    _, out, _ = _run(path, capsys)
+    assert "0 excluded as dismissed" in out, out
+    assert "1 UNDETERMINED" in out, out
+
+    # ...and the positive half, or the assertion above passes on a rule that
+    # excludes nothing at all. A marker that OPENS a line is a disposition.
+    second = tmp_path / "opened"
+    second.mkdir()
+    path2 = _capture(
+        second,
+        comments=[{"id": "1", "created_at": "2026-09-10T00:00:00Z",
+                   "body": "Dismissed - covered by cpp#1 already.\n"}],
+    )
+    _, out2, _ = _run(path2, capsys)
+    assert "1 excluded as dismissed" in out2, out2
+
+
+def test_dated_friction_records_are_in_the_window(tmp_path: Path, capsys) -> None:
+    """They are in the POPULATION, which is what the concentration divides by.
+
+    Counting them in the denominator while ignoring their dates reported a
+    window covering only the comments, and a friction-only capture reported
+    "no dated records" with every record carrying a timestamp.
+    """
+    path = _capture(
+        tmp_path,
+        comments=[{"id": "1", "created_at": "2026-09-10T00:00:00Z", "body": "x"}],
+        friction=[{"ts": "2026-09-01T00:00:00Z", "signal": "a"},
+                  {"ts": "2026-09-20T00:00:00Z", "signal": "b"}],
+    )
+    _, out, _ = _run(path, capsys)
+    assert "window 2026-09-01..2026-09-20" in out, out
+    assert "3 active day(s)" in out, out
