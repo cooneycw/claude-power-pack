@@ -1,0 +1,35 @@
+{
+  "gate": "scripts/flow-wave-plan.py",
+  "invocation": [
+    "sh",
+    "controls/flow-wave-plan/run-case.sh",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_WAVE_PLAN_CONTROL: finding\\b",
+  "unavailable_signal": "^FLOW_WAVE_PLAN_CONTROL: unavailable - ",
+  "limits": "WHAT THIS ESTABLISHES: that a recorded HOLD is still enforced when the same ledger carries a ruling the planner cannot schedule against. Both cases hold the same two issues and a ledger containing the same slug ruling; the only difference is whether a NUMERIC hold sits beside it. A planner that reads the ledger reports the hold in one and nothing in the other.\n\nWHY IT EXISTS. Every entry was keyed `latest[int(e['issue'])] = e`, so a ruling whose subject is not a number did not merely go unrecorded - int() raised and the whole ledger was rejected, taking every other ruling with it. The wave's own residual rule routes small in-lane findings to a fix rather than a ticket, and that work still reaches a gate, so the better a wave follows its own don't-file-it rule the more of its decisions land in a file one bad line can disable.\n\nWHAT IT DOES NOT ESTABLISH. Nothing about the PRODUCER: no GATE token can emit a slug subject today, because flow-wave-lexicon.sh still refuses a non-numeric subject, and that half is deferred on a lane constraint. The fixtures are hand-written ledgers, which is a genuine input this reader already accepts rather than a stand-in. Nothing about whether the RULING ITSELF is right - only that one unplannable entry no longer silences the rest. Nothing about the reason-harvesting defect (#1189 defect 1), which lives in the lexicon.\n\nTHE CASES NAME NO ANSWER: each holds an issues.json and a verdicts.json and nothing else. The runner passes the planner's own exit through.",
+  "cases": [
+    {
+      "name": "bad-hold-survives-an-unplannable-ruling",
+      "input": "cases/bad-hold-survives-an-unplannable-ruling",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-no-ruling-holds-anything",
+      "input": "cases/good-no-ruling-holds-anything",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "250d56f",
+      "origin": "scripts/flow-wave-plan.py",
+      "path": "anchors/historical-pre-1189-flow-wave-plan.py",
+      "sha256": "710d4a4cd82f3a0446ed01d94c1804fd4a909e04bc37118dc93d220555b2679a",
+      "why": "The planner as it stood before #1189, vendored from 250d56f. MEASURED against both cases: it MISSES the known-bad input, reporting no hold, because it refuses the ledger outright on the slug entry. Note what the runner has to get right for that to be a miss rather than an unavailability: the pre-fix planner exits 2, and exit 2 is two different answers. 'cannot read verdict ledger' on this input is the defect - it read a readable file and threw it away - while any other exit 2 is a gate that could not run. Scoring the first as `unavailable` would record the blind planner as unable to look, when it looked and discarded the record."
+    }
+  ]
+}

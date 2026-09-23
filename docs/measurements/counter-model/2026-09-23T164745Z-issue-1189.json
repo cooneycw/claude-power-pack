@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1189-flow-wave-verdict-ledger-a-hold-s-reason-is-silent",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "50a85140cda095c64d113849d29a7b3d151dff1a",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1189",
+  "passes": 2,
+  "recorded_at": "2026-09-23T16:47:45Z",
+  "red_cases": {
+    "already_covered": 4,
+    "proposed": 8
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

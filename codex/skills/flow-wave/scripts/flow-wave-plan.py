@@ -362,19 +362,91 @@ def transitive_blockers(issues: dict[int, dict]) -> dict[int, list[int]]:
     return {n: sorted(walk(n, frozenset({n}))) for n in issues}
 
 
-def parse_verdicts(path: Path) -> dict[int, dict]:
-    """Last-entry-wins ruling per issue (#645): a later ledger entry for the
-    same issue SUPERSEDES earlier ones - overriding a ruling is a recorded
-    act, never a silent contradiction."""
+#: NEGATIVE-CONTROL: controls/flow-wave-plan
+def parse_verdicts(path: Path) -> tuple[dict[int, dict], int]:
+    """Last-entry-wins ruling per subject (#645): a later ledger entry for the
+    same subject SUPERSEDES earlier ones - overriding a ruling is a recorded
+    act, never a silent contradiction.
+
+    Returns the PLANNABLE map plus a count of rulings that named a subject the
+    planner cannot schedule against.
+
+    ONE UNRECORDABLE RULING MUST NOT DISABLE THE RECORD (#1189). Every entry used
+    to be keyed `latest[int(e["issue"])] = e`, so a ruling whose subject is not a
+    number did not merely go unrecorded - int() raised, and the caller rejected
+    THE WHOLE LEDGER. Measured before the fix: a file holding a numeric hold and
+    one slug entry exited 2 with `invalid literal for int()`, so the hold stopped
+    being read because of an entry that had nothing to do with it.
+
+    Why a non-numeric subject exists at all: the wave's residual rule routes small
+    in-lane findings to a fix rather than a ticket, and that work still reaches a
+    gate. A ledger keyed only on issue numbers cannot record the rulings its own
+    doctrine produces, and the better a wave follows the rule the more of its
+    decisions fall outside the record.
+
+    A slug is READ and left in the file, and is never used for planning - the
+    planner only schedules issues, so a ruling about ticketless work can never
+    gate one. It is COUNTED rather than dropped in silence: a skipped entry that
+    nothing mentions is indistinguishable from a file that never held one.
+
+    TOLERANCE STOPS AT THE SUBJECT. An entry with no ruling, or with neither
+    `issue` nor `subject`, is a broken record rather than an unplannable one, and
+    still refuses the file. Trading one silence for another would be the same
+    defect wearing the fix's clothes.
+    """
     entries = json.loads(path.read_text())
     if not isinstance(entries, list):
         raise ValueError("verdict ledger must be a JSON array of ruling entries")
     latest: dict[int, dict] = {}
+    unplannable = 0
     for e in entries:
-        if not isinstance(e, dict) or "issue" not in e or "ruling" not in e:
+        if not isinstance(e, dict) or "ruling" not in e:
             raise ValueError("each ledger entry needs 'issue' and 'ruling'")
-        latest[int(e["issue"])] = e
-    return latest
+        # THE KEY NAME DECLARES INTENT, AND THAT IS WHAT DRAWS THE LINE.
+        #
+        # `issue` asserts "this is an issue number". A value that is not one is a
+        # BROKEN RECORD, and it still refuses the file exactly as before. The
+        # first cut of this change keyed both fields through one int() and
+        # counted every failure as a slug, which turned `{"issue": "#10"}` from a
+        # loud refusal into a SILENTLY UNENFORCED HOLD - a typo quietly
+        # un-gating its issue. That is this issue's own defect class, introduced
+        # by its fix, and found by counter-model review.
+        #
+        # `subject` asserts "this may name work that has no issue". A
+        # non-numeric value there is the case this change exists to carry.
+        def _as_issue_number(v):
+            """An issue number however it was spelled, or None."""
+            if isinstance(v, bool) or not isinstance(v, (str, int)):
+                return None          # null, arrays, objects: not a spelling of anything
+            text = str(v).strip()
+            if text.startswith("#"):
+                text = text[1:].strip()
+            try:
+                return int(text)
+            except ValueError:
+                return None
+
+        if "issue" in e:
+            key = _as_issue_number(e["issue"])
+            if key is None:
+                raise ValueError(
+                    "a ledger entry's 'issue' must be an issue number - use 'subject' "
+                    "for work that deliberately has none"
+                )
+        elif "subject" in e:
+            raw = e["subject"]
+            if isinstance(raw, bool) or not isinstance(raw, (str, int)) or not str(raw).strip():
+                raise ValueError(
+                    "a ledger entry's 'subject' must be an issue number or a non-empty name"
+                )
+            key = _as_issue_number(raw)
+            if key is None:
+                unplannable += 1
+                continue
+        else:
+            raise ValueError("each ledger entry needs 'issue' and 'ruling'")
+        latest[key] = e
+    return latest, unplannable
 
 
 def build_plan(
@@ -599,10 +671,18 @@ def main(argv: list[str]) -> int:
     verdicts: dict[int, dict] | None = None
     if verdicts_path is not None:
         try:
-            verdicts = parse_verdicts(verdicts_path)
+            verdicts, unplannable = parse_verdicts(verdicts_path)
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             sys.stderr.write(f"flow-wave-plan: cannot read verdict ledger: {exc}\n")
             return 2
+        if unplannable:
+            sys.stderr.write(
+                f"flow-wave-plan: {unplannable} ruling(s) recorded against a non-issue "
+                "subject - read, retained in the ledger, and NOT used for planning. "
+                "A slug names work that deliberately has no issue, so it can never "
+                "gate one; this line exists so a skipped entry is distinguishable "
+                "from a file that never held one.\n"
+            )
 
     plan = build_plan(issues, spec_edges, unresolved_tasks, in_flight, verdicts)
     json.dump(plan, sys.stdout, indent=2)

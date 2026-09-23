@@ -26,6 +26,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "flow-wave-plan.py"
 
@@ -596,3 +598,149 @@ class TestVerdictConflictReportNamesThePopulation:
         assert "live contradiction" in proc.stderr, proc.stderr
         # ...and it must NOT print the reassurance meant for the other population.
         assert "standing hold WORKING" not in proc.stderr, proc.stderr
+
+
+# ── #1189 defect 2: one unrecordable ruling must not disable the ledger ──────
+#
+# The verdict ledger exists so rulings outlive the session that made them. Every
+# entry was keyed `latest[int(e["issue"])] = e`, so an entry whose subject is not
+# a number did not merely go unrecorded - int() raised, and the planner rejected
+# THE WHOLE FILE, taking every other ruling down with it.
+#
+# The wave's own doctrine routes small in-lane findings to a fix rather than a
+# ticket, and that work still reaches a gate. So the better a wave follows its
+# own don't-file-it rule, the more of its decisions fall outside the record built
+# to keep decisions - and, before this change, one hand-written line disabled the
+# rest of it.
+#
+# The fixtures are hand-written ledgers. That is a genuine input the reader
+# already accepts, not a stand-in: no producer can emit a slug subject yet, since
+# the GATE parser still refuses one, and that half is deferred on a lane
+# constraint rather than on judgement.
+
+
+class TestALedgerSurvivesAnUnplannableRuling:
+    NUMERIC_HOLD = {"issue": 10, "ruling": "hold", "reason": "waits behind #11", "ts": "t"}
+    SLUG_RULING = {
+        "subject": "journal-false-red",
+        "ruling": "approved",
+        "reason": "no ticket by design",
+        "ts": "t",
+    }
+
+    def _run(self, tmp_path: Path, entries: list[dict]) -> subprocess.CompletedProcess[str]:
+        issues_file = tmp_path / "issues.json"
+        issues_file.write_text(json.dumps([_issue(10), _issue(11)]))
+        ledger = tmp_path / "verdicts.json"
+        ledger.write_text(json.dumps(entries))
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), str(issues_file), "--verdicts", str(ledger),
+             "--in-flight", ""],
+            capture_output=True, text=True, check=False,
+        )
+
+    def test_a_slug_subject_does_not_take_the_whole_ledger_down(self, tmp_path: Path) -> None:
+        """THE RED CASE. A numeric hold and a slug ruling in one file.
+
+        The numeric hold must still be enforced. Before this change the planner
+        exited 2 with `invalid literal for int()` and produced no plan at all, so
+        the hold on #10 stopped being read because of an entry that had nothing
+        to do with #10.
+        """
+        proc = self._run(tmp_path, [self.NUMERIC_HOLD, self.SLUG_RULING])
+        assert proc.returncode == 4, (
+            "one unplannable ruling rejected the whole ledger:\n" + proc.stderr
+        )
+        assert "standing hold" in proc.stderr, proc.stderr
+
+    def test_a_slug_ruling_is_reported_rather_than_silently_dropped(
+        self, tmp_path: Path
+    ) -> None:
+        """A skipped entry that nothing mentions is indistinguishable from a file
+        that never held one. The planner says how many rulings it read but could
+        not plan against, so `0` and `some` stay different observations."""
+        proc = self._run(tmp_path, [self.NUMERIC_HOLD, self.SLUG_RULING])
+        assert "1 ruling(s) recorded against a non-issue subject" in proc.stderr, proc.stderr
+
+    def test_a_numeric_looking_subject_still_gates_its_issue(self, tmp_path: Path) -> None:
+        """The guard on the tolerant side.
+
+        `subject: "10"` names issue 10 in every sense a reader cares about, and a
+        run that treated it as an unplannable slug would silently STOP ENFORCING a
+        hold - the failure this change exists to prevent, arriving through its own
+        new field. A numeric subject is a numeric subject however it was spelled.
+        """
+        entry = dict(self.NUMERIC_HOLD)
+        del entry["issue"]
+        entry["subject"] = "10"
+        proc = self._run(tmp_path, [entry])
+        assert proc.returncode == 4, (
+            "a numeric subject stopped gating its issue:\n" + proc.stderr
+        )
+        assert "non-issue subject" not in proc.stderr, (
+            "a numeric subject was miscounted as unplannable:\n" + proc.stderr
+        )
+
+    def test_a_genuinely_malformed_entry_still_refuses(self, tmp_path: Path) -> None:
+        """The guard on the strict side, and it must already pass.
+
+        Tolerating a slug must not become tolerating anything. An entry with no
+        ruling at all is not an unplannable subject - it is a broken record, and
+        refusing the file is the right answer. If this ever goes green only
+        because the loader stopped checking, the change has traded one silence
+        for another.
+        """
+        proc = self._run(tmp_path, [{"issue": 10}])
+        assert proc.returncode == 2, proc.stderr
+        assert "cannot read verdict ledger" in proc.stderr, proc.stderr
+
+    def test_a_hash_prefixed_issue_number_still_gates_its_issue(
+        self, tmp_path: Path
+    ) -> None:
+        """`{"issue": "#10"}` names issue 10, and must still hold it.
+
+        The first cut of this change keyed `issue` and `subject` through one
+        int() and counted every failure as an unplannable slug. That turned a
+        typo'd issue reference from a LOUD refusal into a SILENTLY UNENFORCED
+        HOLD - the planner exited 0 with no conflicts and #10 became startable.
+        A hold that stops being enforced because of how its number was spelled is
+        this issue's own defect class, arriving through its fix.
+        """
+        proc = self._run(tmp_path, [{"issue": "#10", "ruling": "hold", "reason": "r", "ts": "t"}])
+        assert proc.returncode == 4, (
+            "a '#'-spelled issue number stopped gating its issue:\n" + proc.stderr
+        )
+        assert "non-issue subject" not in proc.stderr, (
+            "an issue number was miscounted as unplannable:\n" + proc.stderr
+        )
+
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            pytest.param({"issue": "abc", "ruling": "hold"}, id="issue-not-a-number"),
+            pytest.param({"issue": None, "ruling": "hold"}, id="issue-null"),
+            pytest.param({"issue": [], "ruling": "hold"}, id="issue-array"),
+            pytest.param({"subject": "", "ruling": "hold"}, id="subject-empty"),
+            pytest.param({"subject": None, "ruling": "hold"}, id="subject-null"),
+            pytest.param({"subject": [], "ruling": "hold"}, id="subject-array"),
+        ],
+    )
+    def test_a_malformed_identifier_refuses_rather_than_becoming_a_slug(
+        self, tmp_path: Path, entry: dict
+    ) -> None:
+        """THE TOLERANCE BOUNDARY, and it is drawn by the KEY NAME.
+
+        `issue` asserts "this is an issue number"; a value that is not one is a
+        broken record and must refuse the file, exactly as before this change.
+        `subject` asserts "this may name work with no issue", but null, a
+        container or an empty string names nothing at all.
+
+        Counting any of these as a deliberately-ticketless subject would claim
+        the ledger recorded a decision about work nobody can identify, and would
+        let a mistyped hold pass as a successful plan.
+        """
+        proc = self._run(tmp_path, [entry])
+        assert proc.returncode == 2, (
+            f"{entry} was accepted as an unplannable subject:\n" + proc.stderr
+        )
+        assert "cannot read verdict ledger" in proc.stderr, proc.stderr
