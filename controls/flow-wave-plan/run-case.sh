@@ -14,6 +14,28 @@ set -u
 case_dir="$1"
 gate="$2"
 
+# ESTABLISH THE FIXTURE BEFORE BLAMING THE GATE (counter-model review).
+#
+# The planner prints "cannot read verdict ledger" for a MISSING file, a
+# permission error and malformed JSON as well as for the subject rejection this
+# control is about. Matching that text alone let a broken fixture score as a
+# demonstrated MISS - so a case nobody could read would certify the anchor blind
+# without ever exercising it, which is the "could not examine" state wearing the
+# "examined and found nothing" verdict.
+#
+# So the runner proves BOTH inputs are present and parseable first. If they are
+# not, that is this control being unavailable, never a finding and never a miss.
+for f in issues verdicts; do
+    if [ ! -r "$case_dir/$f.json" ]; then
+        echo "FLOW_WAVE_PLAN_CONTROL: unavailable - $f.json is missing or unreadable" >&2
+        exit 3
+    fi
+    if ! python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$case_dir/$f.json" 2>/dev/null; then
+        echo "FLOW_WAVE_PLAN_CONTROL: unavailable - $f.json is not valid JSON" >&2
+        exit 3
+    fi
+done
+
 out=$(python3 "$gate" "$case_dir/issues.json" --verdicts "$case_dir/verdicts.json" \
         --in-flight '' 2>&1)
 status=$?
@@ -41,6 +63,9 @@ case "$status" in
      # a gate that could not run, and stays unavailable. A crash must never
      # score as a detection (#946); it must not score as a MISS either, or a
      # broken anchor would certify a control it never exercised.
+     # Reached only with both fixtures proven readable and valid JSON above, so
+     # a ledger rejection here is about the ledger's CONTENT - which is the
+     # defect - rather than about reaching the file at all.
      if printf '%s' "$out" | grep -q 'cannot read verdict ledger'; then
          printf '%s\n' "$out"
          exit 0

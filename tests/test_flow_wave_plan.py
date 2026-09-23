@@ -26,6 +26,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "flow-wave-plan.py"
 
@@ -690,4 +692,55 @@ class TestALedgerSurvivesAnUnplannableRuling:
         """
         proc = self._run(tmp_path, [{"issue": 10}])
         assert proc.returncode == 2, proc.stderr
+        assert "cannot read verdict ledger" in proc.stderr, proc.stderr
+
+    def test_a_hash_prefixed_issue_number_still_gates_its_issue(
+        self, tmp_path: Path
+    ) -> None:
+        """`{"issue": "#10"}` names issue 10, and must still hold it.
+
+        The first cut of this change keyed `issue` and `subject` through one
+        int() and counted every failure as an unplannable slug. That turned a
+        typo'd issue reference from a LOUD refusal into a SILENTLY UNENFORCED
+        HOLD - the planner exited 0 with no conflicts and #10 became startable.
+        A hold that stops being enforced because of how its number was spelled is
+        this issue's own defect class, arriving through its fix.
+        """
+        proc = self._run(tmp_path, [{"issue": "#10", "ruling": "hold", "reason": "r", "ts": "t"}])
+        assert proc.returncode == 4, (
+            "a '#'-spelled issue number stopped gating its issue:\n" + proc.stderr
+        )
+        assert "non-issue subject" not in proc.stderr, (
+            "an issue number was miscounted as unplannable:\n" + proc.stderr
+        )
+
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            pytest.param({"issue": "abc", "ruling": "hold"}, id="issue-not-a-number"),
+            pytest.param({"issue": None, "ruling": "hold"}, id="issue-null"),
+            pytest.param({"issue": [], "ruling": "hold"}, id="issue-array"),
+            pytest.param({"subject": "", "ruling": "hold"}, id="subject-empty"),
+            pytest.param({"subject": None, "ruling": "hold"}, id="subject-null"),
+            pytest.param({"subject": [], "ruling": "hold"}, id="subject-array"),
+        ],
+    )
+    def test_a_malformed_identifier_refuses_rather_than_becoming_a_slug(
+        self, tmp_path: Path, entry: dict
+    ) -> None:
+        """THE TOLERANCE BOUNDARY, and it is drawn by the KEY NAME.
+
+        `issue` asserts "this is an issue number"; a value that is not one is a
+        broken record and must refuse the file, exactly as before this change.
+        `subject` asserts "this may name work with no issue", but null, a
+        container or an empty string names nothing at all.
+
+        Counting any of these as a deliberately-ticketless subject would claim
+        the ledger recorded a decision about work nobody can identify, and would
+        let a mistyped hold pass as a successful plan.
+        """
+        proc = self._run(tmp_path, [entry])
+        assert proc.returncode == 2, (
+            f"{entry} was accepted as an unplannable subject:\n" + proc.stderr
+        )
         assert "cannot read verdict ledger" in proc.stderr, proc.stderr

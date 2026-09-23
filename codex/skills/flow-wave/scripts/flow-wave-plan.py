@@ -402,21 +402,49 @@ def parse_verdicts(path: Path) -> tuple[dict[int, dict], int]:
     for e in entries:
         if not isinstance(e, dict) or "ruling" not in e:
             raise ValueError("each ledger entry needs 'issue' and 'ruling'")
+        # THE KEY NAME DECLARES INTENT, AND THAT IS WHAT DRAWS THE LINE.
+        #
+        # `issue` asserts "this is an issue number". A value that is not one is a
+        # BROKEN RECORD, and it still refuses the file exactly as before. The
+        # first cut of this change keyed both fields through one int() and
+        # counted every failure as a slug, which turned `{"issue": "#10"}` from a
+        # loud refusal into a SILENTLY UNENFORCED HOLD - a typo quietly
+        # un-gating its issue. That is this issue's own defect class, introduced
+        # by its fix, and found by counter-model review.
+        #
+        # `subject` asserts "this may name work that has no issue". A
+        # non-numeric value there is the case this change exists to carry.
+        def _as_issue_number(v):
+            """An issue number however it was spelled, or None."""
+            if isinstance(v, bool) or not isinstance(v, (str, int)):
+                return None          # null, arrays, objects: not a spelling of anything
+            text = str(v).strip()
+            if text.startswith("#"):
+                text = text[1:].strip()
+            try:
+                return int(text)
+            except ValueError:
+                return None
+
         if "issue" in e:
-            subject = e["issue"]
+            key = _as_issue_number(e["issue"])
+            if key is None:
+                raise ValueError(
+                    "a ledger entry's 'issue' must be an issue number - use 'subject' "
+                    "for work that deliberately has none"
+                )
         elif "subject" in e:
-            subject = e["subject"]
+            raw = e["subject"]
+            if isinstance(raw, bool) or not isinstance(raw, (str, int)) or not str(raw).strip():
+                raise ValueError(
+                    "a ledger entry's 'subject' must be an issue number or a non-empty name"
+                )
+            key = _as_issue_number(raw)
+            if key is None:
+                unplannable += 1
+                continue
         else:
             raise ValueError("each ledger entry needs 'issue' and 'ruling'")
-        try:
-            # A NUMERIC SUBJECT IS NUMERIC HOWEVER IT WAS SPELLED. `subject: "10"`
-            # names issue 10 in every sense a reader cares about, and reading it
-            # as an unplannable slug would silently STOP ENFORCING that hold -
-            # this change's own defect, arriving through its own new field.
-            key = int(subject)
-        except (TypeError, ValueError):
-            unplannable += 1
-            continue
         latest[key] = e
     return latest, unplannable
 
