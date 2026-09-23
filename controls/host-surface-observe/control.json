@@ -27,7 +27,7 @@
       "sha": "n/a",
       "origin": "scripts/host-surface-observe.py",
       "path": "anchors/constructed-blind-covered-by.py",
-      "sha256": "96c3abc6ff1a6c5f5bc18e5b6d09148bdcf4da86aeffa8cb56d7bd4bc5e6d2cd",
+      "sha256": "aab157644552cf6c845ef226da85ec5043e2b65a87fd21c5d79920830d96fd0c",
       "why": "CONSTRUCTED: the gate is new, so there is no previous blind version to vendor. This is the gate with `covered_by` forced to True and nothing else changed - the narrowest blinding that removes the comparison while leaving the population, the sandbox refusal, the allowlisted child environment, the two runs and the vacuity guard intact. REGENERATED from the hardened source after the first cut was found to predate the environment allowlist: it copied the parent environment wholesale and forwarded BASH_ENV and CPP_COMMANDS_LINK_HOME into the fixture it executes. The battery RUNS an anchor, so a stale one does not merely misrepresent its gate - it carries the live escape that gate was fixed for. REGENERATED AGAIN for issue #1182: the gate now neutralises the command-executing git configuration a repository can carry (core.fsmonitor, plus any configured filter driver) and REFUSES when that cannot be verified. An anchor left at the pre-#1182 source would have kept executing git with the live fsmonitor route open - the same failure recorded above, one hardening later."
     }
   ]

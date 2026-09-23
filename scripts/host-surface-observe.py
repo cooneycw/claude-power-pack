@@ -446,25 +446,92 @@ GIT_EXEC_CONFIG_NEUTRALISED: dict[str, str] = {"core.fsmonitor": "false"}
 #: Filter drivers cannot be neutralised BY NAME - the driver name is arbitrary -
 #: so they are DISCOVERED in the configuration that is actually in force and
 #: disabled individually. An empty value is what disables one; measured.
-_GIT_EXEC_FILTER_RE = re.compile(r"^filter\..+\.(?:clean|smudge|process)$")
+#: `.*`, NOT `.+` (counter-model review round 2, #1182). Git accepts an EMPTY
+#: subsection - `[filter ""]`, selected by the attribute `filter=` - and lists
+#: it as `filter..clean`. `.+` rejected that, so the driver stayed live while
+#: the verdict claimed configured filters were neutralised. Measured.
+_GIT_EXEC_FILTER_RE = re.compile(r"^filter\..*\.(?:clean|smudge|process)$")
+
+#: THE GIT ENVIRONMENT IS A CLOSED ALLOWLIST, NOT A DENYLIST (counter-model
+#: review rounds 1 and 2, #1182). Measured: with `GIT_CONFIG=<file>` exported,
+#: `git -C <scratch> config core.fsmonitor <cmd>` writes into <file> and leaves
+#: <scratch> untouched - so this probe wrote a `core.fsmonitor` into the
+#: CALLER'S OWN git configuration, a host surface, from the instrument whose
+#: entire job is bounding host-surface writes, and its cleanup then deleted the
+#: script that entry pointed at.
+#:
+#: The first fix enumerated the selectors to STRIP. That was the wrong shape and
+#: round 2 proved it with a variable the list had not imagined: `GIT_TRACE` takes
+#: an ABSOLUTE PATH and git appends to it, measured at 75 bytes written outside
+#: the scratch tree by discovery alone. A denylist can only name the overrides
+#: somebody already thought of - which is the reasoning ENV_ALLOWLIST itself
+#: records one screen above, applied here a round later than it should have been.
+#:
+#: So git subprocesses inherit exactly ENV_ALLOWLIST plus a scratch HOME. That
+#: HOME is also what keeps DISCOVERY honest: the children read config under a
+#: fresh sandbox HOME, so discovery must too, or it reads a global configuration
+#: the children will never see.
+
+
+class GitDiscoveryError(RuntimeError):
+    """Raised when the configuration in force could not be READ.
+
+    A discovery that failed is not a discovery that found nothing. Returning the
+    fixed overrides on error made an unreadable configuration byte-identical to
+    a clean one, which is the defect this whole script exists to refuse, located
+    in its own plumbing.
+    """
+
+
+def sanitised_git_env(home: str | os.PathLike[str]) -> dict[str, str]:
+    """An environment in which the PARENT cannot redirect git, at all.
+
+    Built from ENV_ALLOWLIST rather than by removing known-bad names, so a
+    selector nobody has thought of is excluded by construction.
+    """
+    env = {k: v for k, v in os.environ.items() if k in ENV_ALLOWLIST}
+    env["HOME"] = str(home)
+    return env
+
+
+_OVERRIDES_CACHE: dict[str, list[tuple[str, str]]] = {}
 
 
 def git_exec_config_overrides(repo: Path) -> list[tuple[str, str]]:
-    """`(key, value)` pairs disabling every command-executing config we can name."""
+    """`(key, value)` pairs disabling every command-executing config we can name.
+
+    Raises `GitDiscoveryError` when the configuration cannot be read.
+    """
+    key = str(repo)
+    if key in _OVERRIDES_CACHE:
+        return list(_OVERRIDES_CACHE[key])
     overrides = sorted(GIT_EXEC_CONFIG_NEUTRALISED.items())
+    #: `--null --name-only` instead of parsing `key=value` (counter-model review,
+    #: #1182). Git accepts a subsection containing `=`: `[filter "a=b"]` renders
+    #: as `filter.a=b.clean=<cmd>`, and splitting on the first `=` yields
+    #: `filter.a`, so no override was installed and that filter stayed live while
+    #: the verdict claimed configured filters were neutralised. Measured, and the
+    #: fsmonitor-only canary cannot see it.
+    scratch_home = Path(tempfile.mkdtemp(prefix="cpp-observe-githome-"))
     try:
         res = subprocess.run(
-            ["git", "-C", str(repo), "config", "--list"],
+            ["git", "-C", str(repo), "config", "--null", "--name-only", "--list"],
             capture_output=True, text=True, timeout=30,
+            env=sanitised_git_env(scratch_home),
         )
-    except (OSError, subprocess.SubprocessError):
-        #: A repo we cannot read is not a repo with no filters. The fixed keys
-        #: still go in, and `verify_git_containment` is what actually decides.
-        return overrides
-    for line in (res.stdout or "").splitlines():
-        key = line.split("=", 1)[0]
-        if _GIT_EXEC_FILTER_RE.match(key):
-            overrides.append((key, ""))
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise GitDiscoveryError(f"could not read the git configuration in force ({exc})") from exc
+    finally:
+        shutil.rmtree(scratch_home, ignore_errors=True)
+    if res.returncode != 0:
+        raise GitDiscoveryError(
+            "could not read the git configuration in force "
+            f"(git exited {res.returncode}: {(res.stderr or '').strip()[:200]})"
+        )
+    for name in (res.stdout or "").split("\0"):
+        if _GIT_EXEC_FILTER_RE.match(name):
+            overrides.append((name, ""))
+    _OVERRIDES_CACHE[key] = list(overrides)
     return overrides
 
 
@@ -481,7 +548,18 @@ def _with_git_overrides(env: dict[str, str], repo: Path) -> dict[str, str]:
     """
     for stale in [k for k in env if k.startswith("GIT_CONFIG")]:
         del env[stale]
-    overrides = git_exec_config_overrides(repo)
+    try:
+        overrides = git_exec_config_overrides(repo)
+    except GitDiscoveryError:
+        #: NARROW, and deliberately not a general fail-open. With no git binary
+        #: there is no git child to redirect, so the fixed keys are inert and
+        #: injecting them costs nothing; `verify_git_containment` has already
+        #: reported that state in the bound. With git PRESENT, a failed
+        #: discovery is a REFUSAL that happened before this point, so reaching
+        #: here means something is wrong and it must not be swallowed.
+        if shutil.which("git") is not None:
+            raise
+        overrides = sorted(GIT_EXEC_CONFIG_NEUTRALISED.items())
     env["GIT_CONFIG_COUNT"] = str(len(overrides))
     for i, (key, value) in enumerate(overrides):
         env[f"GIT_CONFIG_KEY_{i}"] = key
@@ -505,7 +583,14 @@ def containment_bound_text() -> str:
         "command-executing git config it can name ("
         + ", ".join(sorted(GIT_EXEC_CONFIG_NEUTRALISED))
         + ", plus any filter driver configured in the checkout), verified by a "
-        "canary REQUIRED to fire with the neutralisation removed. It still does "
+        "canary REQUIRED to fire with the neutralisation removed"
+        + (
+            "" if shutil.which("git") is not None else
+            " - BUT NO GIT BINARY IS PRESENT on this host, so that route does not "
+            "exist here and the canary did not run; this line reports that state "
+            "rather than folding it into 'verified'"
+        )
+        + ". It still does "
         "not CONFINE the filesystem. That neutralisation is an ENUMERATION and "
         "is only as strong as its candidate list: a git config key nobody has "
         "measured, or a write through a channel that is not git at all, remains "
@@ -523,22 +608,45 @@ def verify_git_containment() -> list[str]:
     what a broken probe looks like from outside. Checking only the neutralised
     side would be the blind instrument this whole script exists to refuse.
     """
+    #: GIT ABSENT IS NOT A REFUSAL, AND IS NOT SILENCE EITHER (counter-model
+    #: review, #1182). With no git binary the route does not exist: the members
+    #: that would reach it guard on `command -v git` and return early. Refusing
+    #: here would make this gate unrunnable in the CI `validate` image, which
+    #: ships no git - turning a containment check into a availability check. The
+    #: state is REPORTED by the bound rather than folded into "verified".
+    if shutil.which("git") is None:
+        return []
+
+    try:
+        git_exec_config_overrides(REPO_ROOT)
+    except GitDiscoveryError as exc:
+        #: A DISCOVERY THAT FAILED IS NOT A CLEAN ONE. Returning the fixed
+        #: overrides here would leave a configured filter live while the verdict
+        #: said configured filters were neutralised.
+        return [str(exc)]
+
     problems: list[str] = []
     workdir = Path(tempfile.mkdtemp(prefix="cpp-observe-git-"))
-    quiet = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
     try:
         repo = workdir / "repo"
         canary_script = workdir / "canary.sh"
         canary_file = workdir / "fired"
+        probe_home = workdir / "home"
+        setup_env = sanitised_git_env(probe_home)
         try:
+            probe_home.mkdir()
             repo.mkdir()
             canary_script.write_text(_CANARY_SCRIPT, encoding="utf-8")
             canary_script.chmod(0o755)
-            subprocess.run(["git", "init", "-q", str(repo)], check=True, timeout=30, **quiet)
+            subprocess.run(
+                ["git", "init", "-q", str(repo)], check=True, timeout=30,
+                env=setup_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
             (repo / "a.txt").write_text("hi\n", encoding="utf-8")
             subprocess.run(
                 ["git", "-C", str(repo), "config", "core.fsmonitor", str(canary_script)],
-                check=True, timeout=30, **quiet,
+                check=True, timeout=30, env=setup_env,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
         except (OSError, subprocess.SubprocessError) as exc:
             return [
@@ -546,27 +654,49 @@ def verify_git_containment() -> list[str]:
                 "cannot establish that a repo-configured command is neutralised"
             ]
 
-        def fired(env: dict[str, str]) -> bool:
+        def probe(env: dict[str, str]) -> tuple[bool, str]:
+            """`(fired, failure)`. A non-empty failure means it did NOT COMPLETE.
+
+            Collapsing those into one boolean made a timeout or a launch failure
+            read as "did not fire", so an UNEXECUTED measurement reported
+            containment (counter-model review, #1182).
+            """
             canary_file.unlink(missing_ok=True)
             env = dict(env, CPP_OBSERVE_CANARY=str(canary_file))
             try:
-                subprocess.run(
-                    ["git", "-C", str(repo), "status"], env=env, timeout=30, **quiet
+                res = subprocess.run(
+                    ["git", "-C", str(repo), "status"], env=env, timeout=30,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 )
-            except (OSError, subprocess.SubprocessError):
-                pass
-            return canary_file.exists()
+            except (OSError, subprocess.SubprocessError) as exc:
+                return False, f"the probe invocation did not complete ({exc})"
+            #: A NONZERO EXIT IS ALSO "did not complete" (counter-model review
+            #: round 2). `git status` exits 0 even when the fsmonitor command
+            #: fires AND fails - measured - so requiring success does not
+            #: suppress the positive control; it only removes the case where git
+            #: died at 128, or on a signal, before ever reaching the hook, and
+            #: the absent canary read as successful neutralisation.
+            if res.returncode != 0:
+                return False, f"the probe invocation exited {res.returncode}"
+            return canary_file.exists(), ""
 
-        base = {k: v for k, v in os.environ.items() if k in ENV_ALLOWLIST}
-        base["HOME"] = str(workdir / "home")
-
-        if not fired(dict(base)):
+        unprotected, failure = probe(sanitised_git_env(probe_home))
+        if failure:
+            return [f"the git-containment probe could not be established: {failure}"]
+        if not unprotected:
             return [
                 "the git-containment probe is BLIND: a planted core.fsmonitor did "
                 "NOT fire even with the neutralisation removed, so a clean result "
                 "from it would say nothing about containment"
             ]
-        if fired(_with_git_overrides(dict(base), repo)):
+
+        protected, failure = probe(_with_git_overrides(sanitised_git_env(probe_home), repo))
+        if failure:
+            return [
+                "the NEUTRALISED half of the git-containment probe did not "
+                f"complete, so its silence is not evidence: {failure}"
+            ]
+        if protected:
             problems.append(
                 "a repo-configured core.fsmonitor EXECUTED under the sandbox "
                 "environment, so this run cannot bound what a member wrote"
@@ -601,7 +731,6 @@ def verify_sandbox(sandbox: Path, real_home: Path) -> list[str]:
         except (OSError, ValueError):  # pragma: no cover - defensive
             pass
     return problems
-
 
 INVOCATIONS_FOR: dict[str, list[list[str]]] = {}
 

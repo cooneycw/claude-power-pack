@@ -17,16 +17,23 @@ DECISIONS the harness makes about what it sees, against fixtures. The harness
 running for real over the tree is what `make host-surface-observe` does, and its
 committed control is what proves it can fail.
 
-This module shells out to nothing but `sys.executable`, which is how the child
-sandbox probe works and is not a guarded binary.
+This module shells out to `sys.executable` and, since issue #1182, to `git`.
+The git-dependent cases carry a `shutil.which` skip guard: the CI `validate`
+image (`uv:python3.11-bookworm-slim`) ships no git, and an unguarded test there
+raises `FileNotFoundError` rather than skipping. The guard is invisible to
+`check-test-binary-guards.py`'s direct lane because the calls are reached
+through a helper, which is exactly how #830 was missed - so it is written here
+deliberately, not because a gate demanded it.
 """
 
 from __future__ import annotations
 
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -590,10 +597,28 @@ def test_an_executable_shell_helper_still_runs(tmp_path: Path, capsys) -> None:
 # run still reports clean. These cases pin that it is closed, and - the part
 # that matters - that the closing can be SEEN to fail.
 # --------------------------------------------------------------------------- #
-def _git(*args: str) -> None:
-    subprocess.run(args, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+requires_git = pytest.mark.skipif(
+    shutil.which("git") is None, reason="git absent (the CI validate image ships none)"
+)
 
 
+def _git(*args: str, home: Path | None = None) -> None:
+    """Run git with the PARENT's selectors stripped.
+
+    The fixtures here write config with `git config`, and an inherited
+    `GIT_CONFIG` redirects that write into the caller's own file - the exact
+    escape the production probe was fixed for, reproduced by the regression
+    tests written to pin it (counter-model review round 2, #1182).
+    """
+    with tempfile.TemporaryDirectory() as scratch:
+        env = hso.sanitised_git_env(home or scratch)
+        subprocess.run(
+            args, check=True, env=env,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+
+
+@requires_git
 def test_git_containment_holds_as_shipped() -> None:
     """THE POSITIVE CONTROL for the refusal cases below.
 
@@ -603,6 +628,7 @@ def test_git_containment_holds_as_shipped() -> None:
     assert hso.verify_git_containment() == []
 
 
+@requires_git
 def test_the_canary_FIRES_when_the_neutralisation_IS_REMOVED(monkeypatch) -> None:
     """THE LOAD-BEARING CASE OF ISSUE #1182, and the reason the rest is evidence.
 
@@ -617,6 +643,7 @@ def test_the_canary_FIRES_when_the_neutralisation_IS_REMOVED(monkeypatch) -> Non
     assert any("EXECUTED under the sandbox environment" in p for p in problems)
 
 
+@requires_git
 def test_a_probe_that_CANNOT_fire_is_refused_rather_than_reported_clean(monkeypatch) -> None:
     """Absence of a signal is only evidence once the extractor is controlled.
 
@@ -660,6 +687,7 @@ def test_a_parent_set_GIT_CONFIG_cannot_reach_the_child(monkeypatch, tmp_path: P
     assert "/tmp/hostile.sh" not in env.values()
 
 
+@requires_git
 def test_a_configured_filter_driver_is_DISCOVERED_and_neutralised(tmp_path: Path) -> None:
     """The enumeration found `filter.<driver>.clean` firing on `git status` and
     `git diff` - a route #1182 does not name. Driver names are arbitrary, so
@@ -679,6 +707,7 @@ def test_a_configured_filter_driver_is_DISCOVERED_and_neutralised(tmp_path: Path
     assert overrides.get("core.fsmonitor") == "false", "the fixed keys still apply"
 
 
+@requires_git
 def test_a_clean_repo_yields_only_the_fixed_neutralisations(tmp_path: Path) -> None:
     """The absence half, meaningful only beside the discovery case above."""
     repo = tmp_path / "repo"
@@ -717,3 +746,184 @@ def test_the_bound_does_not_claim_containment(monkeypatch) -> None:
     assert "not contained" in text
     assert "not proven confined" in text
     assert "ENUMERATION" in text
+
+
+# --------------------------------------------------------------------------- #
+# The counter-model findings (issue #1182, gpt-6-astra). Each case below is the
+# concrete input that made the FIRST cut of this change report the wrong thing.
+# --------------------------------------------------------------------------- #
+@requires_git
+def test_a_parent_GIT_CONFIG_cannot_redirect_the_probes_own_writes(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The probe must not write into configuration it does not own.
+
+    MEASURED before the fix: with `GIT_CONFIG=<file>` exported,
+    `git -C <scratch> config core.fsmonitor <cmd>` wrote into <file> and left
+    <scratch> untouched - so this instrument planted a `core.fsmonitor` in the
+    caller's own git configuration, and its cleanup then deleted the script that
+    entry pointed at. An instrument whose subject is host-surface writes was
+    making one.
+    """
+    outside = tmp_path / "outside.gitconfig"
+    outside.write_text("[core]\n\tsentinel = original\n", encoding="utf-8")
+    before = outside.read_text(encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG", str(outside))
+
+    hso.verify_git_containment()
+
+    assert outside.read_text(encoding="utf-8") == before, (
+        "the containment probe wrote into a git configuration it does not own"
+    )
+
+
+@requires_git
+def test_a_filter_name_containing_an_equals_sign_is_still_discovered(tmp_path: Path) -> None:
+    """Git accepts `[filter "a=b"]`, rendering as `filter.a=b.clean=<cmd>`.
+
+    MEASURED: splitting that on the first `=` yields `filter.a`, so no override
+    was installed and the driver stayed live while the verdict claimed
+    configured filters were neutralised. The fsmonitor canary cannot see it,
+    which is why the parser - not the probe - is what this pins.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git("git", "init", "-q", str(repo))
+    _git("git", "-C", str(repo), "config", "filter.a=b.clean", "/tmp/canary.sh")
+
+    overrides = dict(hso.git_exec_config_overrides(repo))
+
+    assert overrides.get("filter.a=b.clean") == "", (
+        f"a filter whose name contains '=' escaped neutralisation: {sorted(overrides)}"
+    )
+
+
+@requires_git
+def test_a_discovery_that_FAILED_is_not_a_discovery_that_found_nothing(tmp_path: Path) -> None:
+    """Unreadable configuration must raise, never return the fixed overrides.
+
+    Returning them made an unreadable configuration byte-identical to a clean
+    one - this script's own subject, located in its own plumbing.
+    """
+    with pytest.raises(hso.GitDiscoveryError):
+        hso.git_exec_config_overrides(tmp_path / "does-not-exist")
+
+
+@requires_git
+def test_a_neutralised_probe_that_DID_NOT_RUN_is_refused(monkeypatch) -> None:
+    """Silence from a probe that never completed is not evidence of containment.
+
+    `fired()` returned a bare boolean, so a timeout on the protected invocation
+    read as "did not fire" and the run reported containment established from a
+    measurement that never happened.
+    """
+    real_run = hso.subprocess.run
+    seen = {"status": 0}
+
+    def flaky(cmd, *a, **kw):
+        if isinstance(cmd, list) and "status" in cmd:
+            seen["status"] += 1
+            if seen["status"] == 2:          # the NEUTRALISED half only
+                raise hso.subprocess.TimeoutExpired(cmd, 30)
+        return real_run(cmd, *a, **kw)
+
+    monkeypatch.setattr(hso.subprocess, "run", flaky)
+    problems = hso.verify_git_containment()
+
+    assert problems, "a protected probe that never ran must not report containment"
+    assert any("did not complete" in p for p in problems)
+
+
+# --------------------------------------------------------------------------- #
+# Counter-model round 2 (#1182, gpt-6-astra). Every one of these is a case the
+# ROUND-1 FIX did not cover: the fix addressed the site that was named and not
+# the class it belonged to.
+# --------------------------------------------------------------------------- #
+@requires_git
+def test_an_EMPTY_filter_subsection_is_still_discovered(tmp_path: Path) -> None:
+    """Git accepts `[filter ""]`, selected by the attribute `filter=`, and lists
+    it as `filter..clean`. The round-1 regex required a non-empty driver name,
+    so that driver stayed live while the verdict claimed filters were
+    neutralised. Measured; the fsmonitor canary cannot see it.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git("git", "init", "-q", str(repo))
+    _git("git", "-C", str(repo), "config", "filter..clean", "/tmp/canary.sh")
+
+    overrides = dict(hso.git_exec_config_overrides(repo))
+
+    assert overrides.get("filter..clean") == "", (
+        f"an empty-named filter escaped neutralisation: {sorted(overrides)}"
+    )
+
+
+@requires_git
+def test_a_probe_that_exited_NONZERO_is_refused(monkeypatch) -> None:
+    """`git status` exits 0 even when the fsmonitor fires AND fails - measured -
+    so a nonzero exit means git died before reaching the hook. The absent canary
+    then read as successful neutralisation.
+    """
+    real_run = hso.subprocess.run
+    seen = {"status": 0}
+
+    class _Dead:
+        returncode = 128
+
+    def flaky(cmd, *a, **kw):
+        if isinstance(cmd, list) and "status" in cmd:
+            seen["status"] += 1
+            if seen["status"] == 2:          # the NEUTRALISED half only
+                return _Dead()
+        return real_run(cmd, *a, **kw)
+
+    monkeypatch.setattr(hso.subprocess, "run", flaky)
+    problems = hso.verify_git_containment()
+
+    assert problems, "a probe that exited 128 must not report containment"
+    assert any("exited 128" in p for p in problems)
+
+
+@requires_git
+def test_a_parent_GIT_TRACE_cannot_write_outside_the_probe(monkeypatch, tmp_path: Path) -> None:
+    """`GIT_TRACE` takes an ABSOLUTE PATH and git appends to it - 75 bytes
+    written by discovery alone, measured. The round-1 sanitiser was a DENYLIST
+    and had not imagined this variable, which is the argument for the closed
+    allowlist that replaced it: a selector nobody thought of is excluded by
+    construction rather than by memory.
+    """
+    trace = tmp_path / "trace.log"
+    monkeypatch.setenv("GIT_TRACE", str(trace))
+    monkeypatch.setenv("GIT_TRACE_SETUP", str(trace))
+
+    hso.verify_git_containment()
+
+    assert not trace.exists(), (
+        "a parent GIT_TRACE destination was written by the containment probe"
+    )
+
+
+@requires_git
+def test_the_test_fixtures_do_not_corrupt_caller_configuration(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The regression fixtures must not reproduce the defect they pin.
+
+    `_git()` inherited the full parent environment, so running this suite with
+    `GIT_CONFIG` set redirected the fixtures' own `git config` writes into that
+    file - production fixed, fixtures still guilty.
+    """
+    outside = tmp_path / "caller.gitconfig"
+    outside.write_text("[core]\n\tsentinel = original\n", encoding="utf-8")
+    before = outside.read_text(encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG", str(outside))
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git("git", "init", "-q", str(repo))
+    _git("git", "-C", str(repo), "config", "filter.canary.clean", "/tmp/canary.sh")
+
+    assert outside.read_text(encoding="utf-8") == before
+    assert dict(hso.git_exec_config_overrides(repo)).get("filter.canary.clean") == "", (
+        "the fixture's write did not reach the repo it was aimed at"
+    )

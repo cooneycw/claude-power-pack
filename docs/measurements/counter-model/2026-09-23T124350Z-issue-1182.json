@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1182-host-surface-observe-the-containment-claim-exceeds",
+  "counts": {
+    "accepted": 9,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "39e07177dd560bc7c5850555dc06eda8bae9aa65",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1182",
+  "passes": 2,
+  "recorded_at": "2026-09-23T12:43:50Z",
+  "red_cases": {
+    "already_covered": 4,
+    "proposed": 8
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
