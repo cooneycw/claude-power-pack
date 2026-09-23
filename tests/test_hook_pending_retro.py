@@ -241,16 +241,17 @@ def test_not_registered_by_anything_cpp_ships():
     assert not (ROOT / ".claude" / "hooks.json").exists(), (
         "CPP ships a hooks file again; this test's original subject is back"
     )
-    listed = subprocess.run(
-        ["git", "-C", str(ROOT), "ls-files", "-z"],
-        capture_output=True, text=True, check=True,
-    ).stdout.split("\0")
+    # Walked, not `git ls-files` - same reason as the claim control in
+    # tests/test_hook_mask_output.py: a binary guard here would be a skipif, and
+    # a skipif switches this off in the CI image with no git.
+    skip = ("tests/", "docs/", "controls/", ".specify/", "codex/skills/",
+            ".git/", ".venv/", "node_modules/", "__pycache__/")
     offenders = []
-    for rel in listed:
-        if not rel or rel.startswith(("tests/", "docs/", "controls/", ".specify/", "codex/skills/")):
-            continue
-        path = ROOT / rel
+    for path in ROOT.rglob("*"):
         if not path.is_file() or path.suffix not in {".json", ".md", ".sh"}:
+            continue
+        rel = path.relative_to(ROOT).as_posix()
+        if rel.startswith(skip):
             continue
         try:
             text = path.read_text(encoding="utf-8")

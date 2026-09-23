@@ -268,16 +268,36 @@ def _shipped_surfaces() -> list[Path]:
     excluded = (
         "docs/flow-runs/", "docs/research/", "docs/reviews/", "docs/decisions/",
         "docs/measurements/", ".specify/", "controls/", "tests/", "codex/skills/",
+        # Not surfaces at all: VCS internals, build output, dependency trees,
+        # and this repository's own generated run artifacts.
+        ".git/", ".venv/", "node_modules/", "__pycache__/", ".pytest_cache/",
+        ".ruff_cache/", ".mypy_cache/", "htmlcov/", "dist/", "build/",
+        ".claude/runs/",
     )
-    listed = subprocess.run(
-        ["git", "-C", str(ROOT), "ls-files", "-z"],
-        capture_output=True, text=True, check=True,
-    ).stdout.split("\0")
-    return [
-        ROOT / p for p in listed
-        if p and p != "CHANGELOG.md" and not p.startswith(excluded)
-        and (ROOT / p).is_file()
-    ]
+    # `.git` IS A FILE IN A LINKED WORKTREE, not a directory, so the ".git/"
+    # prefix above does not cover it - and its one line is the absolute path of
+    # a worktree whose directory is named after the branch. On this very branch
+    # that name contains both "posttooluse" and "masking", so the scan matched
+    # THE CHECKOUT'S OWN IDENTITY and reported a claim nobody wrote.
+    # `.claude/runs/` is the same shape one step out: the finish gate writes
+    # this test's own failure output there, so a second run reads the first
+    # run's complaint as a fresh offender.
+    not_a_surface = {".git"}
+    # NO `git ls-files` HERE, deliberately. The repository's binary-guard rule
+    # would require a skipif, and a skipif makes this control INERT in the CI
+    # image that carries no git - silently, in the one environment nobody is
+    # watching it. That is the exact shape #1206 is about. A filesystem walk
+    # differs from `git ls-files` only by UNTRACKED files, which makes the scan
+    # stricter rather than weaker, and every failure names its path.
+    out: list[Path] = []
+    for path in ROOT.rglob("*"):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(ROOT).as_posix()
+        if rel == "CHANGELOG.md" or rel in not_a_surface or rel.startswith(excluded):
+            continue
+        out.append(path)
+    return out
 
 
 def test_the_scan_can_find_something_before_it_is_believed():
@@ -291,6 +311,18 @@ def test_the_scan_can_find_something_before_it_is_believed():
     """
     surfaces = _shipped_surfaces()
     assert len(surfaces) > 100, f"population collapsed to {len(surfaces)} files"
+    # A size check alone does not connect the population to the files that
+    # matter - 100 files could all be fixtures. Name the four surfaces this
+    # issue is actually about and require each one IN, so a deny list that
+    # grows too greedy is caught by the test rather than by a later reader.
+    must_scan = {
+        "CLAUDE.md", "README.md", "docs/scripts.md",
+        ".claude/commands/cpp/update.md",
+    }
+    present = {p.relative_to(ROOT).as_posix() for p in surfaces}
+    assert must_scan <= present, (
+        "the scan no longer reads: " + ", ".join(sorted(must_scan - present))
+    )
     planted = "- **PostToolUse (Bash/Read)**: Secret masking via `hook-mask-output.sh`"
     assert _asserts_active_masking(planted), (
         "the predicate does not match a line taken verbatim from the pre-removal "

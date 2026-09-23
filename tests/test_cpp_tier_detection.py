@@ -19,6 +19,7 @@ entirely - the test would be supplying the thing under test.
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -52,11 +53,25 @@ def _run_tier(tmp_path: Path, *, scripts: tuple[str, ...], hooks_json: bool) -> 
     if hooks_json:
         (project / ".claude" / "hooks.json").write_text('{"hooks": {}}')
 
+    # ASSERT THE ABSENCE YOU BUILT (CLAUDE.md core directive, #697). This
+    # replaces both HOME and PATH wholesale. A sandbox that silently still
+    # resolved the real HOME would count the operator's own ~/.claude/scripts
+    # and report TIER=2 for reasons that have nothing to do with the fixture -
+    # identical output, vacuous test.
+    sandbox_path = "/usr/bin:/bin"
+    assert shutil.which("bash", path=sandbox_path) is not None, (
+        "the sandbox PATH must carry the shell the predicate runs under"
+    )
+    assert not (Path.home() / ".claude" / "scripts").samefile(home / ".claude" / "scripts") \
+        if (Path.home() / ".claude" / "scripts").exists() else True, (
+        "the fixture HOME must not resolve to the operator's real one"
+    )
+
     script = f'cd "{project}"\n' + _extract_tier_block() + "\necho \"TIER=$TIER\"\n"
     out = subprocess.run(
         ["bash", "-c", script],
         capture_output=True, text=True, check=False,
-        env={"HOME": str(home), "PATH": "/usr/bin:/bin"},
+        env={"HOME": str(home), "PATH": sandbox_path},
     )
     assert out.returncode == 0, out.stderr
     m = re.search(r"TIER=(\d+)", out.stdout)
