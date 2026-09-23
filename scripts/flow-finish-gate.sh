@@ -913,6 +913,19 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
     if [[ -n "$RERUN_PASSED_IDS" ]]; then
         echo "RERUN_PASSED: $RERUN_PASSED_IDS"
     fi
+    # REPORTED WHATEVER THE OUTCOME (counter-model review, issue #1192). This
+    # sat inside the success branch, so a repository outside the grammar whose
+    # gates then FAILED learned nothing about why it had also paid for every
+    # gate twice - and that is the run where the duplicate cost hurts most,
+    # because the failure is about to be re-run. The refusal is a fact about
+    # the DERIVATION, not about the verdict, so it belongs with the
+    # unconditional evidence above rather than behind the outcome.
+    if [[ -n "$SUBSUMPTION_REFUSALS" ]]; then
+        while IFS= read -r _refusal; do
+            [[ -n "$_refusal" ]] || continue
+            echo "flow-finish-gate: SUBSUMPTION REFUSED: $_refusal (issue #1192)."
+        done <<< "$SUBSUMPTION_REFUSALS"
+    fi
     if [[ "$RUNNER_EXIT" -eq 0 ]]; then
         # FAIL CLOSED, and do it FIRST in this lane. A runner too old to emit
         # the field leaves this script unable to tell which skipped steps were
@@ -1032,12 +1045,6 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         fi
         if [[ -n "$SUBSUMED_GATES" ]]; then
             echo "flow-finish-gate: SUBSUMED: $SUBSUMED_GATES ran as direct prerequisite(s) of 'make ${SUBSUMED_BY:-the aggregate}', which passed - not re-run (issue #1152)."
-        fi
-        if [[ -n "$SUBSUMPTION_REFUSALS" ]]; then
-            while IFS= read -r _refusal; do
-                [[ -n "$_refusal" ]] || continue
-                echo "flow-finish-gate: SUBSUMPTION REFUSED: $_refusal (issue #1192)."
-            done <<< "$SUBSUMPTION_REFUSALS"
         fi
         if [[ -n "$SKIPPED_GATES" ]]; then
             echo "WARNING: quality gates did NOT run: $SKIPPED_GATES (no Makefile target and no configured tool). This gate proved nothing about those checks - do not read as 'safe to merge' (issue #628)." >&2

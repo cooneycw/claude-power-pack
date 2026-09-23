@@ -1294,6 +1294,8 @@ def test_subsumption_is_reported_by_name(tmp_path: Path) -> None:
     assert "skipped gates" not in proc.stdout
 
 
+@requires_bash
+@requires_git
 def test_subsumption_refusal_is_reported(tmp_path: Path) -> None:
     """WHY nothing was subsumed, said rather than left to silence (issue #1192).
 
@@ -1323,12 +1325,60 @@ def test_subsumption_refusal_is_reported(tmp_path: Path) -> None:
     )
     proc = _run_with_uv_stub(tmp_path, cpp, payload, inject_gates=False)
 
+    # THE DIAGNOSTIC LINES, not raw stdout (counter-model review). The gate
+    # TEES the runner JSON to stdout, so `"an include" in proc.stdout` is
+    # satisfied by the echoed payload alone - it would pass with the diagnostic
+    # printing WRONG REASON, or printing no reason at all. Select the lines the
+    # gate itself emits and assert on those.
+    reported = [
+        line for line in proc.stdout.splitlines()
+        if line.startswith("flow-finish-gate: SUBSUMPTION REFUSED:")
+    ]
     assert proc.returncode == 0
-    assert "SUBSUMPTION REFUSED" in proc.stdout
-    assert "an include" in proc.stdout
+    assert reported, proc.stdout
+    assert any("an include" in line for line in reported), reported
+    assert any("outside the grammar" in line for line in reported), reported
     assert "FLOW_FINISH_GATE: ok" in proc.stdout
 
 
+@requires_bash
+@requires_git
+def test_the_refusal_survives_a_FAILING_run(tmp_path: Path) -> None:
+    """The refusal is a fact about the DERIVATION, not about the verdict.
+
+    The diagnostic sat inside the success branch, so a repository outside the
+    grammar whose gates then failed learned nothing about why it had ALSO paid
+    for every gate twice (counter-model review, issue #1192) - and that is the
+    run where the duplicate cost hurts most, because the failure is about to be
+    re-run.
+    """
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": false,\n  "plan": "finish",\n'
+        '  "gates": [\n    "lint",\n    "verify"\n  ],\n'
+        '  "dropped_gates": [],\n'
+        '  "subsumed_gates": {},\n'
+        '  "subsumption_refusals": [\n'
+        '    "the makefile is outside the grammar subsumption requires '
+        '(line 1: an include), so nothing is subsumed and every gate runs"\n'
+        "  ],\n"
+        '  "step_details": [\n'
+        '    {\n      "id": "lint",\n      "status": "failed"\n    }\n'
+        "  ]\n}"
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload, exit_code=1, inject_gates=False)
+
+    reported = [
+        line for line in proc.stdout.splitlines()
+        if line.startswith("flow-finish-gate: SUBSUMPTION REFUSED:")
+    ]
+    assert proc.returncode != 0, "the run failed; the verdict must still say so"
+    assert reported, proc.stdout
+    assert any("an include" in line for line in reported), reported
+
+
+@requires_bash
+@requires_git
 def test_no_refusal_prints_NOTHING(tmp_path: Path) -> None:
     """THE SILENCE HALF, and it is as load-bearing as the printed line.
 
@@ -1356,8 +1406,12 @@ def test_no_refusal_prints_NOTHING(tmp_path: Path) -> None:
         )
         proc = _run_with_uv_stub(tmp_path, cpp, payload, inject_gates=False)
 
+        reported = [
+            line for line in proc.stdout.splitlines()
+            if line.startswith("flow-finish-gate: SUBSUMPTION REFUSED:")
+        ]
         assert proc.returncode == 0, refusals
-        assert "SUBSUMPTION REFUSED" not in proc.stdout, refusals
+        assert reported == [], (refusals, reported)
 
 
 @requires_bash
