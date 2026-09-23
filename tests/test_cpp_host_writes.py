@@ -267,6 +267,18 @@ def test_the_gate_can_see_the_bootstrap_this_issue_added() -> None:
     """
     import importlib.util
     spec = importlib.util.spec_from_file_location("gate_mod", GATE)
+    #: NARROWED DELIBERATELY, and not merely to satisfy the type checker.
+    #: `spec_from_file_location` returns None, and `spec.loader` can be None,
+    #: when the gate module cannot be loaded at all. Left unguarded this test
+    #: dies with an AttributeError on line 271 - an error about attribute
+    #: access, naming neither the gate nor the reason - when what actually
+    #: happened is "the subject could not be loaded". That is "could not
+    #: look", and it must be said plainly rather than surfacing as a type
+    #: error in CI, which is exactly how it surfaced.
+    assert spec is not None and spec.loader is not None, (
+        f"could not load the gate module from {GATE}; this test cannot "
+        f"measure what the gate sees if the gate will not import"
+    )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     for rel, expected in ((".claude/commands/cpp/init.md", 14),
