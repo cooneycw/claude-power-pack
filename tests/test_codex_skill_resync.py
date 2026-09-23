@@ -503,3 +503,145 @@ def test_both_bundled_source_classes_are_registered_as_known_bad():
         paths = (CONTROL / "cases" / case / "changed-paths.txt").read_text().split()
         assert paths and all(p.startswith(prefix) for p in paths), (case, paths)
         assert not any(p.startswith(".claude/commands/") for p in paths), (case, paths)
+
+
+# ---------------------------------------------------------------------------
+# The trigger must key on the DIFF, not on the BASE (S4, sibling of #1136)
+#
+# #1136 replaced a path-pattern condition with a helper that decides for itself.
+# What it did NOT touch is the condition WRAPPING that call: all three sites sit
+# inside `if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]`, so the
+# helper runs only when the BASE MOVED. Mirror drift is caused by EDITING a file
+# the skills bundle, which is independent of the base - so an ordinary run that
+# edits a bundled script on a current base never re-syncs, and `make verify` is
+# the only thing that says so, at the cost of a full gate cycle.
+#
+# Measured: #1191 staled two mirrors, #1192 staled four, and neither run had a
+# moved base.
+# ---------------------------------------------------------------------------
+BASE_MOVED = re.compile(r"rev-list\s+--count\s+HEAD\.\.origin/")
+
+RESYNC_CALL = "bash scripts/codex-skill-resync.sh"
+
+
+def _resync_calls_gated_on_base_moved(text: str) -> list[tuple[int, str]]:
+    """Re-sync invocations that sit inside an OPEN base-moved conditional.
+
+    Narrowed the same two ways as `_resync_pattern_matches`, for the same two
+    detector questions, because the same traps apply:
+
+    * NON-COMMENT lines only - this module and `auto.md` both discuss the base
+      condition in prose, and a scan matching its own documentation is the trap
+      good comments make MORE likely.
+    * Only inside a fenced block that MENTIONS `codex-skill`, so an unrelated
+      stale-base check elsewhere in a command document is a NEIGHBOUR'S thing,
+      not ours. `flow/auto.md` legitimately branches on a moved base for the
+      MERGE itself, and that must not read as this defect.
+
+    It is STRUCTURAL rather than textual: an `if`/`fi` depth walk, so what is
+    reported is an invocation actually ENCLOSED by the condition, not one that
+    merely shares a block with it. A line-proximity scan would flag a re-sync
+    placed correctly AFTER an unrelated base-moved block.
+    """
+    hits: list[tuple[int, str]] = []
+    in_fence = False
+    block: list[tuple[int, str]] = []
+
+    for n, line in enumerate(text.splitlines(), 1):
+        if line.lstrip().startswith("```"):
+            if in_fence:
+                body = "\n".join(b for _, b in block)
+                if "codex-skill" in body:
+                    open_base_moved: list[bool] = []
+                    for ln, raw in block:
+                        stripped = raw.strip()
+                        if stripped.startswith(("#", ">")):
+                            continue
+                        if re.match(r"^(if|elif)\b", stripped):
+                            open_base_moved.append(bool(BASE_MOVED.search(raw)))
+                        elif stripped == "fi" and open_base_moved:
+                            open_base_moved.pop()
+                        elif stripped == RESYNC_CALL and any(open_base_moved):
+                            hits.append((ln, raw))
+                block = []
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            block.append((n, line))
+    return hits
+
+
+def test_the_base_moved_tripwire_CAN_FIRE():
+    """THE POSITIVE CONTROL, and it comes first deliberately.
+
+    A structural walk that silently matched nothing - a changed fence marker, an
+    `fi` spelling it does not recognise - would satisfy the tripwire below
+    perfectly while detecting nothing at all. This constructs the exact shape the
+    tripwire exists to catch and requires it to be seen.
+    """
+    constructed = "\n".join(
+        [
+            "```bash",
+            "# codex-skill mirrors",
+            'if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then',
+            "    git merge --no-edit origin/main",
+            f"    {RESYNC_CALL}",
+            "fi",
+            "```",
+        ]
+    )
+    assert _resync_calls_gated_on_base_moved(constructed), (
+        "the tripwire cannot see the shape it exists to catch"
+    )
+
+
+def test_the_base_moved_tripwire_does_not_accuse_a_CORRECT_call_site():
+    """THE OTHER SIDE. A tripwire that fired on the fixed shape would be
+    un-fixable, and the fix would look like the defect."""
+    correct = "\n".join(
+        [
+            "```bash",
+            "# codex-skill mirrors",
+            'if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then',
+            "    git merge --no-edit origin/main",
+            "fi",
+            f"{RESYNC_CALL}",
+            "```",
+        ]
+    )
+    assert _resync_calls_gated_on_base_moved(correct) == [], (
+        "a re-sync placed AFTER the base-moved block is correct and must not be flagged"
+    )
+
+
+def test_the_base_moved_tripwire_ignores_a_NEIGHBOURS_base_check():
+    """Our thing from a neighbour's: a base-moved block in a fence that never
+    mentions codex-skill cannot be a mirror trigger, and must not be reported."""
+    neighbour = "\n".join(
+        [
+            "```bash",
+            'if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then',
+            "    git merge --no-edit origin/main",
+            "fi",
+            "```",
+        ]
+    )
+    assert _resync_calls_gated_on_base_moved(neighbour) == []
+
+
+def test_no_call_site_gates_the_resync_on_a_MOVED_BASE():
+    """THE TRIPWIRE. Mirror drift is caused by the DIFF, never by the base.
+
+    A run that edits a bundled script on a current base must still re-sync. The
+    helper costs 0.14s on a clean tree and decides for itself; gating it on the
+    base is what made it silent for the ordinary case.
+    """
+    offenders = []
+    for doc in COMMANDS.rglob("*.md"):
+        for n, line in _resync_calls_gated_on_base_moved(doc.read_text()):
+            offenders.append(f"{doc.relative_to(REPO)}:{n}: {line.strip()[:90]}")
+    assert not offenders, (
+        "a command document runs the re-sync only when the BASE moved, but mirror "
+        "drift comes from the DIFF - an edit to a bundled file on a current base "
+        "never re-syncs (S4, sibling of #1136).\n" + "\n".join(offenders)
+    )
