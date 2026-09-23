@@ -7,7 +7,7 @@ helpers own deterministic behavior.
 
 ## Core Directives
 
-- **NEVER output API keys, passwords, connection strings, or `.env` file contents in responses.** Output masking does not protect response text.
+- **NEVER output API keys, passwords, connection strings, or `.env` file contents in responses.**
 - **Use `make` targets for build/test/deploy operations.** If a needed target is missing, add it to the Makefile.
 - **Progressive disclosure:** do not auto-load documentation; load the topic-specific source only when the task requires it.
 - **Python 3.11+, uv for dependencies.** Each component owns its dependency configuration.
