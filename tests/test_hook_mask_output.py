@@ -460,7 +460,9 @@ _CLAUDE_MD_REMOVED = "output masking does not protect response text"
 
 
 def _claude_md_mentions_output_masking(text: str) -> bool:
-    return "output masking" in text.lower()
+    # Whitespace-normalised: Markdown renders "Output\n  masking" as the same
+    # sentence, so line wrapping must not defeat the guard (counter-model pass 2).
+    return "output masking" in " ".join(text.split()).lower()
 
 
 def test_CLAUDE_md_no_longer_implies_output_masking():
@@ -472,7 +474,10 @@ def test_CLAUDE_md_no_longer_implies_output_masking():
     assert _claude_md_mentions_output_masking(
         "- **NEVER output API keys.** Output masking does not protect response text."
     )
-    assert _CLAUDE_MD_REMOVED not in text.lower()
+    assert _claude_md_mentions_output_masking(
+        "Output\n  masking does not protect response text."
+    ), "a wrapped sentence evades the guard"
+    assert _CLAUDE_MD_REMOVED not in " ".join(text.split()).lower()
     assert not _claude_md_mentions_output_masking(text), (
         "CLAUDE.md mentions output masking again; CPP masks nothing (#1206)"
     )
@@ -577,7 +582,10 @@ def _asserts_active_masking(line: str) -> bool:
     # rest, which is the tool this change keeps. The word must stand alone:
     # `\b` treats `-` as a boundary, so `hook-mask-output.sh` would read as
     # "hook" and a helper described as an output-masking filter would be
-    # flagged as a hook feature (counter-model review).
+    # flagged as a hook feature (counter-model review). Like the first shape it
+    # is a WORD-PAIR TRIPWIRE, not a semantic reading: a sentence describing a
+    # separate helper and a separate hook together also trips it, loudly. The
+    # remedy is to reword that sentence, not to add a carve-out.
     if "output masking" in low and re.search(r"(?<![\w-])hooks?(?![\w-])", low):
         return True
     # SECOND SHAPE, and it exists because the first one missed the masker's own
