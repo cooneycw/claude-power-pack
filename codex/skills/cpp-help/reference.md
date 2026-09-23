@@ -51,7 +51,7 @@ CPP uses a tiered installation model:
 
 ### Tier 2 - Standard
 - **Scripts**: Secret masking, worktree cleanup, shell prompt context, bash-prep
-- **Hooks**: Security (command validation, output masking)
+- **Hooks (optional, default N)**: `/cpp:init` offers two user-level hooks - an observe-only PermissionRequest census and a pending-retro SessionStart notice. Neither validates commands or filters output
 - **Shell prompt**: Worktree context display (`[CPP #42]`)
 - **Workstation tuning**: Optional swap, sysctl, inotify optimization
 
