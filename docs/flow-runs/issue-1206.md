@@ -266,3 +266,40 @@ both cited the masking hook as context for refusing to allowlist file-dumpers
 that case. It does the opposite and the text now says so: with nothing masking
 anything, the prompt in front of `cat .env` is the only thing between a secret
 file and the transcript.
+
+## Section E - what the counter-model review changed, both passes
+
+Eleven findings across two passes, all MEDIUM, all accepted, none rejected or
+deferred. Receipt `2026-09-23T165616Z-issue-1206.json`, reviewer
+`codex/gpt-6-astra` derived from the exec-log thread id. Two passes is the
+documented ceiling, so pass 2's findings were fixed WITHOUT a third review.
+
+**Six of the eleven were defects in the instruments, not in the removal.** The
+prose sweep itself was largely sound; what kept failing was the thing measuring
+it. Worth recording, because the instrument is the artifact nobody reviews:
+
+| pass | finding | what it was |
+|---|---|---|
+| 1 | Step 4.7 detection | keyed on the RETIRED hook's name, so it could not see the file CPP itself shipped - a promise (`/cpp:status` now points users at it) with no mechanism |
+| 1 | masker header | the claim survived in the body of the file whose title I had just corrected |
+| 1 | read failures discarded | population counted PATHS, not READS: 400 unopened files reported zero offenders |
+| 1 | walk could not attribute | an untracked local note, or a user's own opted-in `settings.local.json`, read as a CPP regression |
+| 1 | same-line JSON grep | a registration wrapped by a formatter passed untouched |
+| 2 | window wrong BOTH ways | missed a 4-line claim AND fused two unrelated bullets into one |
+| 2 | test tested a copy | the regression test drove its own walker; stubbing the production scanner left it green |
+| 2 | unreadable new surface | the broad scan's aggregate threshold absorbed it and the narrow scan never visits it |
+| 2 | standalone call read as registration | flagged the retained file-at-rest use this change exists to preserve |
+| 2 | ignored leftover read as regression | contradicted this PR's own migration path, inside the same PR |
+
+**The pattern across both passes:** every one of my repairs was correct about
+the thing it was aimed at and wrong about something adjacent. The fixed-size
+window is the clearest - added in pass 1 to catch a wrapped claim, it was too
+narrow for a four-line one and too wide for two bullets, simultaneously. Size
+was never the dial; the UNIT was. A claim is a sentence.
+
+**Three times the control caught its own author**, which is the part worth
+keeping: prose written to explain the removal, a comment naming the file the
+Tier 2 block had just dropped, and a comment describing failure semantics in
+terms of "by the time a PostToolUse hook runs" inside a script that is no longer
+one. A control with no negation carve-out catches the person most motivated to
+write around it.
