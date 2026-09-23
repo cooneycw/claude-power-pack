@@ -3571,6 +3571,117 @@ class TestSubsumedGates:
         assert any("ruff check" in r and "lint" in r for r in refusals), refusals
 
     @requires_make
+    def test_an_include_puts_a_makefile_outside_the_grammar_and_SAYS_SO(self, tmp_path):
+        """The bound is far wider than the hazards it is written for (#1192).
+
+        `-include` of an optional env file is ordinary project configuration,
+        not recursive make and not a flag-sensitive conditional - and it is
+        refused all the same, so such a repository pays every gate twice and
+        #1152's dedup never reaches it.
+
+        Paired with the conforming case below, which is what makes this a
+        verdict rather than the output of a function that always refuses.
+        """
+        from lib.cicd.steps import get_plan_steps, subsumed_gate_ids
+
+        root = self._tree(
+            tmp_path,
+            "-include $(COMPOSE_ENV_FILE)\n\n"
+            "lint:\n\t@true\ntest:\n\t@true\ntypecheck:\n\t@true\n"
+            "verify: lint test typecheck\n\t@true\n",
+        )
+        (root / ".claude").mkdir()
+        (root / ".claude" / "cicd_tasks.yml").write_text(
+            'version: "1"\n'
+            "steps:\n"
+            "  lint:\n    command: make lint\n"
+            "  test:\n    command: make test\n"
+            "  typecheck:\n    command: make typecheck\n"
+            "  verify:\n    command: make verify\n"
+            "plans:\n  finish:\n    steps: [lint, test, typecheck, verify]\n"
+        )
+        steps = get_plan_steps("finish", project_root=str(root))
+        subsumed, refusals = subsumed_gate_ids("finish", steps, str(root))
+
+        assert subsumed == {}, "an include must suppress subsumption entirely"
+        assert any("an include" in r for r in refusals), refusals
+        assert any("outside the grammar" in r for r in refusals), refusals
+
+    @requires_make
+    def test_a_conforming_makefile_is_NOT_refused(self, tmp_path):
+        """THE NEGATIVE CONTROL for the case above.
+
+        Without it, a grammar check that refused everything would satisfy the
+        include test perfectly while making subsumption dead for every tree.
+        """
+        from lib.cicd.steps import get_plan_steps, subsumed_gate_ids
+
+        root = self._tree(
+            tmp_path,
+            "lint:\n\t@true\ntest:\n\t@true\ntypecheck:\n\t@true\n"
+            "verify: lint test typecheck\n\t@true\n",
+        )
+        (root / ".claude").mkdir()
+        (root / ".claude" / "cicd_tasks.yml").write_text(
+            'version: "1"\n'
+            "steps:\n"
+            "  lint:\n    command: make lint\n"
+            "  test:\n    command: make test\n"
+            "  typecheck:\n    command: make typecheck\n"
+            "  verify:\n    command: make verify\n"
+            "plans:\n  finish:\n    steps: [lint, test, typecheck, verify]\n"
+        )
+        steps = get_plan_steps("finish", project_root=str(root))
+        subsumed, refusals = subsumed_gate_ids("finish", steps, str(root))
+
+        assert {"lint", "test", "typecheck"} <= set(subsumed)
+        assert not any("outside the grammar" in r for r in refusals), refusals
+
+    def test_the_refusal_REACHES_to_dict(self):
+        """A field that never reaches the JSON cannot be acted on (#812, #1192).
+
+        The refusals were computed and logged and never serialised, so the
+        shell gate could not see them however carefully they were phrased.
+        """
+        from lib.cicd.runner import RunResult
+
+        result = RunResult(
+            success=True,
+            run_id="r1",
+            plan_name="finish",
+            steps_completed=1,
+            steps_total=1,
+            subsumption_refusals=["the makefile is outside the grammar (line 1: an include)"],
+        )
+        payload = result.to_dict()
+
+        assert "subsumption_refusals" in payload
+        assert any("an include" in r for r in payload["subsumption_refusals"])
+
+    def test_NOT_DERIVED_and_NOTHING_REFUSED_are_not_the_same_bytes(self):
+        """Three states, like `dropped_gates` and for the same reason (#1192).
+
+        `resume` on an already-finished run reports a stored status and never
+        derives subsumption at all. Defaulting that to `[]` would have the field
+        claim a look nobody took - which is the exact conflation this field
+        exists to remove, committed inside the fix for it.
+        """
+        from lib.cicd.runner import RunResult
+
+        def payload(**kw):
+            return RunResult(
+                success=True, run_id="r", plan_name="finish",
+                steps_completed=1, steps_total=1, **kw
+            ).to_dict()
+
+        not_derived = payload()
+        derived_clean = payload(subsumption_refusals=[])
+
+        assert not_derived["subsumption_refusals"] is None
+        assert derived_clean["subsumption_refusals"] == []
+        assert not_derived["subsumption_refusals"] != derived_clean["subsumption_refusals"]
+
+    @requires_make
     def test_the_query_does_not_inherit_the_OUTER_make(self, monkeypatch):
         """A derivation run from inside a make recipe asks the same question.
 
