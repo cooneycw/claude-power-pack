@@ -61,6 +61,10 @@
 #     DEFAULT_BRANCH=<default branch name>
 #     REMOTE_BRANCH=origin/<...>       (remote-pickup lane only)
 #     WT_CREATED=0|1        1 = this run already ran `git worktree add`
+#                           and left the branch tracking origin/<BRANCH> - its
+#                           OWN name, never the base (issue #1221), so a bare
+#                           `git push` pushes the branch and git can never offer
+#                           `HEAD:main` as the remedy for a failed one
 #     WT_BASE=<ref, or a note naming a reused branch>       (WT_CREATED=1 only)
 #                           what the checkout actually stands on: BASE_REF (or
 #                           REMOTE_BRANCH) for a newly created branch, or a note
@@ -171,11 +175,30 @@ create_worktree() {
       fail "local branch '$branch' already exists at $tip and is unmerged - it is not an ancestor of '$start_ref', so it may carry another worker's or earlier in-flight work; refusing to check it out silently (issue #793). Delete or rename the branch, or rebase it onto $start_ref, then retry."
     fi
     WT_BASE_USED="pre-existing branch '$branch' (ancestor of $start_ref), not freshly branched from it"
-    "$GIT" -C "$TARGET_REPO" worktree add "$path" "$branch" >&2
+    "$GIT" -C "$TARGET_REPO" worktree add "$path" "$branch" >&2 || return 1
   else
     WT_BASE_USED="$start_ref"
-    "$GIT" -C "$TARGET_REPO" worktree add -b "$branch" "$path" "$start_ref" >&2
+    "$GIT" -C "$TARGET_REPO" worktree add --no-track -b "$branch" "$path" "$start_ref" >&2 || return 1
   fi
+  set_own_upstream "$branch"
+}
+
+# set_own_upstream BRANCH - make BRANCH track origin/BRANCH (issue #1221).
+#
+# Branching from origin/<default> makes git record origin/<default> as the
+# upstream (branch.autoSetupMerge). A bare `git push` then exits 128, and git's
+# FIRST suggested remedy is `git push origin HEAD:main` - which ships the branch
+# onto the default branch past every review gate. `--no-track` above stops that
+# for a new branch; this also repairs a REUSED branch that an older resolver
+# pointed at the base. The remote ref need not exist yet: `git status` shows the
+# upstream as [gone] until the first push, and a bare push creates it.
+# Written as config because `branch --set-upstream-to` refuses a ref that does
+# not exist. No origin remote (a local-only fixture) means nothing to track.
+set_own_upstream() {
+  local branch="$1"
+  "$GIT" -C "$TARGET_REPO" remote get-url origin >/dev/null 2>&1 || return 0
+  "$GIT" -C "$TARGET_REPO" config "branch.$branch.remote" origin &&
+    "$GIT" -C "$TARGET_REPO" config "branch.$branch.merge" "refs/heads/$branch"
 }
 
 GIT=git

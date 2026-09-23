@@ -791,3 +791,104 @@ def test_verify_fails_without_expected_branch_to_normalize_to(tmp_path: Path):
     res = _run("--verify", "42", cwd=clone, gh=_fake_gh(tmp_path))
     assert res.returncode == 1
     assert "FLOW_START_VERIFY: fail" in res.stdout
+
+
+# --- upstream: a flow branch tracks ITSELF, never the base (issue #1221) -----
+#
+# `git worktree add -b <branch> <path> origin/main` sets the new branch's
+# upstream to origin/main (branch.autoSetupMerge). A bare `git push` then exits
+# 128, and git's FIRST suggested remedy is `git push origin HEAD:main` - which
+# ships the feature branch onto the default branch past every review gate. The
+# resolver must leave the branch tracking origin/<its own name>.
+
+
+def _fresh_worktree(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
+    origin, clone = _make_origin_and_clone(tmp_path)
+    res = _run("42", "--session-cwd", str(clone), cwd=clone, gh=_fake_gh(tmp_path))
+    assert res.returncode == 0, res.stderr
+    c = _contract(res)
+    assert c["WT_CREATED"] == "1"
+    return origin, Path(c["WT_PATH"]), c
+
+
+def _push(wt: Path) -> subprocess.CompletedProcess[str]:
+    # A BARE push, exactly as a hurried worker or a wrapper would run it. The
+    # host's own push.default must not decide the result, so pin git's default.
+    return subprocess.run(
+        ["git", "-c", "push.default=simple", "push"],
+        cwd=wt,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+
+@requires_git
+def test_fresh_worktree_upstream_is_its_own_branch_not_the_base(tmp_path: Path):
+    _, wt, c = _fresh_worktree(tmp_path)
+    assert _git(wt, "config", f"branch.{c['BRANCH']}.remote").strip() == "origin"
+    assert _git(wt, "config", f"branch.{c['BRANCH']}.merge").strip() == f"refs/heads/{c['BRANCH']}"
+
+
+@requires_git
+def test_bare_push_from_fresh_worktree_reaches_the_branchs_own_remote_ref(tmp_path: Path):
+    origin, wt, c = _fresh_worktree(tmp_path)
+    (wt / "b.txt").write_text("work\n")
+    _git(wt, "add", "-A")
+    _git(wt, "commit", "-q", "-m", "work")
+    main_before = _git(origin, "rev-parse", "main").strip()
+    res = _push(wt)
+    assert res.returncode == 0, res.stderr
+    # Verify the OUTCOME, not the exit code: the ref exists on origin at our tip,
+    # and main on origin did not move.
+    remote = _git(wt, "ls-remote", "origin", f"refs/heads/{c['BRANCH']}").split()
+    assert remote and remote[0] == _git(wt, "rev-parse", "HEAD").strip()
+    assert _git(origin, "rev-parse", "main").strip() == main_before
+
+
+@requires_git
+def test_failed_bare_push_never_offers_HEAD_colon_main_as_a_remedy(tmp_path: Path):
+    origin, wt, _ = _fresh_worktree(tmp_path)
+    hook = origin / ".git" / "hooks" / "pre-receive"
+    hook.write_text("#!/bin/sh\necho 'rejected by test hook' >&2\nexit 1\n")
+    hook.chmod(0o755)
+    _git(wt, "commit", "-q", "--allow-empty", "-m", "work")
+    res = _push(wt)
+    assert res.returncode != 0, "the control must reach the FAILURE path"
+    assert "HEAD:main" not in res.stdout + res.stderr
+    # ...and it was OUR rejection, not some earlier failure that never reached
+    # origin (a missing push destination would also be non-zero without HEAD:main).
+    assert "rejected by test hook" in res.stderr
+
+
+@requires_git
+def test_reused_leftover_branch_tracking_the_base_is_repointed_at_itself(tmp_path: Path):
+    _, clone = _make_origin_and_clone(tmp_path)
+    branch = "issue-42-fix-the-frobnicator"
+    _git(clone, "branch", "--track", branch, "origin/main")  # the pre-#1221 shape
+    res = _run("42", "--session-cwd", str(clone), cwd=clone, gh=_fake_gh(tmp_path))
+    assert res.returncode == 0, res.stderr
+    c = _contract(res)
+    assert c["LANE"] == "local-pickup" and c["BRANCH"] == branch
+    assert _git(clone, "config", f"branch.{branch}.merge").strip() == f"refs/heads/{branch}"
+
+
+@requires_git
+def test_local_pickup_of_a_branch_whose_pr_already_merged_requires_confirmation(tmp_path: Path):
+    # #1221 comment, instance 2: a leftover branch whose PR merged yesterday must
+    # not be entered as if it were fresh work.
+    _, clone = _make_origin_and_clone(tmp_path)
+    _git(clone, "branch", "issue-42-old-slug", "origin/main")
+    res = _run(
+        "42",
+        "--session-cwd",
+        str(clone),
+        cwd=clone,
+        gh=_fake_gh(tmp_path),
+        extra_env={"FAKE_GH_PR": "1208:MERGED"},
+    )
+    assert res.returncode == 0, res.stderr
+    c = _contract(res)
+    assert c["LANE"] == "local-pickup"
+    assert c["PR_HEAD"] == "1208:MERGED"
+    assert c["CONFIRM_REQUIRED"] == "1"
