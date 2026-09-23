@@ -2940,3 +2940,92 @@ def test_no_record_is_written_when_the_pr_head_is_another_branch(tmp_path: Path)
     assert not any("cpp-merged-head" in c for c in _calls(stubs)), (
         "a record was written for a PR whose head is a different branch"
     )
+
+
+# --------------------------------------------------------------------------- #
+# A keyword in a markdown HEADING, with the reference opening the paragraph
+# below it (issue #1191).
+#
+# The pattern always tolerated a newline between the keyword and the reference;
+# the scan handed it one LINE at a time, so it could never see both halves.
+# Measured on the real body from cooneycw/kyle PR #1313: line-by-line scanning
+# yields ZERO matches, the identical pattern over the whole text matches.
+#
+# This shape is the highest-risk one precisely because it is the most idiomatic
+# way to write a disclaimer - and the disclaiming sentence is what performed the
+# closure.
+# --------------------------------------------------------------------------- #
+def test_keyword_in_markdown_heading_with_reference_below_refuses(tmp_path: Path):
+    # Reconstructed from the real cooneycw/kyle PR #1313 body rather than
+    # invented: nobody designed this text to be caught, which is the point.
+    body = (
+        "Refs #99. This PR uses a non-closing reference throughout.\n"
+        "\n"
+        "## What this does NOT close\n"
+        "\n"
+        "#99's remaining criteria are **observations**, and they are\n"
+        "consolidated as a follow-up.\n"
+    )
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        pr_title="docs: consolidate the remaining criteria",
+        pr_body=body,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1191-heading")
+    assert result.returncode == 5, result.stderr
+    assert "CLEAN STOP" in result.stderr
+    assert "#99" in result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert merge_calls == [], "the heading stop must leave the PR untouched"
+
+
+def test_keyword_in_heading_stops_ONCE_not_twice(tmp_path: Path):
+    """One construction, one CLEAN STOP, one override.
+
+    This text is negated AND its reference carries a possessive, so both guards
+    match it. The negated guard runs first and exits 5; the operator must not be
+    asked for two different overrides of what is, to a human, one decision - the
+    helper's own header states that rule and this pins the ordering rather than
+    leaving it to call order.
+    """
+    body = "## What this does NOT close\n\n#99's criteria are observations.\n"
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        pr_title="docs: consolidate the remaining criteria",
+        pr_body=body,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1191-order")
+    assert result.returncode == 5, (
+        f"expected the negated guard (5), not the incidental guard (7): {result.stderr}"
+    )
+    assert "issue #726" in result.stderr
+    assert "--allow-incidental-close" not in result.stderr
+
+
+def test_a_keyword_separated_from_the_reference_by_WORDS_still_merges(tmp_path: Path):
+    """THE BOUND on the widening, and the case that keeps issue #772 honest.
+
+    The span now crosses WHITESPACE, not prose. A keyword in a heading whose
+    paragraph mentions the reference several words later is not the proximity
+    shape GitHub acts on, and must still merge - otherwise this fix would be
+    re-introducing the over-broad guard #772 was filed to narrow.
+    """
+    body = (
+        "Refs #99.\n"
+        "\n"
+        "## What this does not close\n"
+        "\n"
+        "The remaining criteria for #99 are tracked separately.\n"
+    )
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_title="docs: consolidate the remaining criteria",
+        pr_body=body,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1191-bound")
+    assert result.returncode == 0, result.stderr
+    assert any(c.startswith("gh pr merge") for c in _calls(stubs))

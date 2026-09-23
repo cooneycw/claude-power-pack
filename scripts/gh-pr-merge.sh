@@ -984,7 +984,7 @@ close_keyword_scan_sources() {
 # call. The per-merge override is deliberately loud so consuming it leaves an
 # audit trail.
 guard_negated_close_keywords() {
-    local keyword_re auxiliary_re negation_re source text line entry offset match issue
+    local keyword_re auxiliary_re negation_re source text entry offset match issue
     local after prefix suffix context found=0 idx
     local en_dash=$'\xE2\x80\x93' em_dash=$'\xE2\x80\x94' apostrophe=$'\xE2\x80\x99'
     # grep -b reports byte offsets, so keep Bash and the grep children byte-oriented.
@@ -993,32 +993,58 @@ guard_negated_close_keywords() {
     auxiliary_re='does|do|did|will|would|shall|should|can|could|must|may|might|is|are|was|were|be|been|has|have|had'
     negation_re="(?i)(?:\\b(?:(?:${auxiliary_re})\\h+not|not|never|no)\\b|\\b[[:alpha:]]+n(?:'|${apostrophe})t\\b)(?:\\h+[[:alpha:]]+){0,2}\\h*$"
 
+    # SCAN EACH SOURCE AS ONE TEXT, NOT LINE BY LINE (issue #1191). The keyword
+    # pattern above already tolerates a newline between the keyword and `#N`
+    # (`\s*`), but feeding it one line at a time meant it could never be handed
+    # both halves. Measured on the real body from cooneycw/kyle PR #1313:
+    # line-by-line scanning yields ZERO matches while the identical pattern over
+    # the whole text matches. `grep -Pob` reports PER-LINE offsets even on
+    # multi-line input, so `-z` is what makes the whole source one record and
+    # the offsets text-relative.
+    #
+    # The hazard shape: a markdown heading ending on the keyword, then the
+    # reference opening the paragraph below it. That is the most idiomatic way
+    # to write a disclaimer, which is why it is the highest-risk placement.
+    #
+    # WIDENING THE MATCH SPAN DOES NOT WIDEN THE NEGATION WINDOW, and that is
+    # what keeps issue #772 intact: #772 narrowed this guard because it fired on
+    # any negation earlier in the sentence and blocked valid merges. NEWLINE is
+    # therefore part of the prefix trim set below, so the window still cannot
+    # reach past the keyword's own line.
+    #
+    # REVERSAL TRIGGER, pre-committed rather than decided later under pressure:
+    # if valid merges start being refused after this, narrow the SPAN to the
+    # enclosing markdown block. Do NOT restore line-orientation - that is the
+    # blindness this issue exists to remove. The allow-side cases that would go
+    # red first are test_distant_not_in_issue_771_title_does_not_block_merge,
+    # test_distant_no_in_summary_clause_does_not_block_merge and
+    # test_plain_close_keyword_passes.
     close_keyword_scan_sources
     for idx in "${!CLOSE_SCAN_SOURCES[@]}"; do
         source="${CLOSE_SCAN_SOURCES[$idx]}"
         text="${CLOSE_SCAN_TEXTS[$idx]}"
-        while IFS= read -r line || [[ -n "$line" ]]; do
-            while IFS= read -r entry; do
-                [[ -z "$entry" ]] && continue
-                offset=${entry%%:*}
-                match=${entry#*:}
-                prefix=${line:0:offset}
-                prefix=${prefix##*[.!?,;:()]}
-                prefix=${prefix##*"$en_dash"}
-                prefix=${prefix##*"$em_dash"}
-                if ! printf '%s\n' "$prefix" | grep -Pqi "$negation_re"; then
-                    continue
-                fi
-                issue=${match##*#}
-                after=$(( offset + ${#match} ))
-                suffix=${line:after:30}
-                suffix=${suffix%%[.!?]*}
-                context="${prefix}${match}${suffix}"
-                printf 'GH_PR_MERGE_NEGATED_CLOSE: %s matched #%s in "%s"\n' \
-                    "$source" "$issue" "$context" >&2
-                found=1
-            done < <(printf '%s\n' "$line" | grep -Pob "$keyword_re" || true)
-        done <<< "$text"
+        while IFS= read -r -d '' entry; do
+            [[ -z "$entry" ]] && continue
+            offset=${entry%%:*}
+            match=${entry#*:}
+            prefix=${text:0:offset}
+            prefix=${prefix##*$'\n'}
+            prefix=${prefix##*[.!?,;:()]}
+            prefix=${prefix##*"$en_dash"}
+            prefix=${prefix##*"$em_dash"}
+            if ! printf '%s\n' "$prefix" | grep -Pqi "$negation_re"; then
+                continue
+            fi
+            issue=${match##*#}
+            after=$(( offset + ${#match} ))
+            suffix=${text:after:30}
+            suffix=${suffix%%[.!?]*}
+            suffix=${suffix%%$'\n'*}
+            context="${prefix}${match}${suffix}"
+            printf 'GH_PR_MERGE_NEGATED_CLOSE: %s matched #%s in "%s"\n' \
+                "$source" "$issue" "$context" >&2
+            found=1
+        done < <(printf '%s' "$text" | grep -Pzob "$keyword_re" || true)
     done
 
     (( found == 0 )) && return 0
@@ -1103,7 +1129,7 @@ _incidental_close_selfcheck() {
 # negated guard (title, body, every commit subject), same CLEAN STOP shape, own
 # escape hatch.
 guard_incidental_close_keywords() {
-    local keyword_re source text line entry offset match issue idx
+    local keyword_re source text entry offset match issue idx
     local after prefix suffix display_suffix context found=0 immediate_suffix
     local en_dash=$'\xE2\x80\x93' em_dash=$'\xE2\x80\x94'
     local -x LC_ALL=C
@@ -1115,29 +1141,29 @@ guard_incidental_close_keywords() {
     for idx in "${!CLOSE_SCAN_SOURCES[@]}"; do
         source="${CLOSE_SCAN_SOURCES[$idx]}"
         text="${CLOSE_SCAN_TEXTS[$idx]}"
-        while IFS= read -r line || [[ -n "$line" ]]; do
-            while IFS= read -r entry; do
-                [[ -z "$entry" ]] && continue
-                offset=${entry%%:*}
-                match=${entry#*:}
-                prefix=${line:0:offset}
-                prefix=${prefix##*[.!?,;:()]}
-                prefix=${prefix##*"$en_dash"}
-                prefix=${prefix##*"$em_dash"}
-                issue=${match##*#}
-                after=$(( offset + ${#match} ))
-                immediate_suffix=${line:after:4}
-                if [[ "$(_is_incidental_close_match "$prefix" "$immediate_suffix")" != 1 ]]; then
-                    continue
-                fi
-                suffix=${line:after:30}
-                display_suffix=${suffix%%[.!?]*}
-                context="${prefix}${match}${display_suffix}"
-                printf 'GH_PR_MERGE_INCIDENTAL_CLOSE: %s matched #%s in "%s"\n' \
-                    "$source" "$issue" "$context" >&2
-                found=1
-            done < <(printf '%s\n' "$line" | grep -Pob "$keyword_re" || true)
-        done <<< "$text"
+        while IFS= read -r -d '' entry; do
+            [[ -z "$entry" ]] && continue
+            offset=${entry%%:*}
+            match=${entry#*:}
+            prefix=${text:0:offset}
+            prefix=${prefix##*$'\n'}
+            prefix=${prefix##*[.!?,;:()]}
+            prefix=${prefix##*"$en_dash"}
+            prefix=${prefix##*"$em_dash"}
+            issue=${match##*#}
+            after=$(( offset + ${#match} ))
+            immediate_suffix=${text:after:4}
+            if [[ "$(_is_incidental_close_match "$prefix" "$immediate_suffix")" != 1 ]]; then
+                continue
+            fi
+            suffix=${text:after:30}
+            display_suffix=${suffix%%[.!?]*}
+            display_suffix=${display_suffix%%$'\n'*}
+            context="${prefix}${match}${display_suffix}"
+            printf 'GH_PR_MERGE_INCIDENTAL_CLOSE: %s matched #%s in "%s"\n' \
+                "$source" "$issue" "$context" >&2
+            found=1
+        done < <(printf '%s' "$text" | grep -Pzob "$keyword_re" || true)
     done
 
     (( found == 0 )) && return 0
