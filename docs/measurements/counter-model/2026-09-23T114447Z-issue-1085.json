@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1085-maintain-loop-leading-indicator-time-from-a-record",
+  "counts": {
+    "accepted": 8,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "26576f498bed7483835463142844fde301152914",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1085",
+  "passes": 1,
+  "recorded_at": "2026-09-23T11:44:47Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 3
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
