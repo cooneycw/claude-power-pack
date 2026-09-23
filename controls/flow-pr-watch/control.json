@@ -1,0 +1,35 @@
+{
+  "gate": "scripts/flow-pr-watch.sh",
+  "invocation": [
+    "sh",
+    "controls/flow-pr-watch/run-case.sh",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_PR_WATCH_CONTROL: finding\\b",
+  "unavailable_signal": "^FLOW_PR_WATCH_CONTROL: unavailable - ",
+  "limits": "WHAT THIS ESTABLISHES: that the watcher declares WHICH REGION of the step log its failure set came from, so an unbounded set cannot be read as authoritative. The BAD case is a killed run - collection started, nothing concluded, no pytest summary - whose log nonetheless carries a `FAILED <id>` line a negative control echoed on purpose. There is no summary to bound a scrape to, so the set may be contaminated, and the watcher must SAY so (FLOW_PR_WATCH_SCRAPE_SCOPE=whole-log) rather than present it as the pipeline's own. The GOOD case carries the same kind of echo ABOVE a real summary, where bounding is possible and is reported.\n\nWHY THE FINDING IS THE CAVEAT AND NOT THE red/green VERDICT. The pre-fix watcher reports `red` MORE often than the fixed one, never less - it over-reports by harvesting a control's deliberate failures - so no case keyed on red could ever show it MISSING something, and an anchor that catches every bad input proves nothing. What the pre-fix watcher cannot do at all is state that its own scrape was unbounded. That is the property a control can catch the gate regressing to, and it is the issue's own rule: unbounded must never render as clean.\n\nWHAT THIS DOES NOT ESTABLISH, and where that lives instead. It does NOT establish the bounding itself - that a control's echoed failures are excluded when a summary DOES exist. That is pinned by tests/test_flow_pr_watch.py, whose case was run against the pre-fix script first and failed there, reporting four failures against a log saying `1 failed`. It is asserted there rather than here because the pre-fix gate reports the contaminated set as RED, which a harness scoring by exit code reads as a successful detection. Two instruments, two properties; neither one alone covers both.\n\nTHE CASES NAME NO ANSWER: each holds a log and a baseline, and the runner greps only for the gate's own contract line.",
+  "cases": [
+    {
+      "name": "good-bounded-scrape-declares-its-region",
+      "input": "cases/good-bounded-scrape-declares-its-region",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-unbounded-scrape-must-declare-itself",
+      "input": "cases/bad-unbounded-scrape-must-declare-itself",
+      "expect": "BAD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "d3f474b",
+      "origin": "scripts/flow-pr-watch.sh",
+      "path": "anchors/historical-pre-1190-flow-pr-watch.sh",
+      "sha256": "7779b06f45f33458c22388e9403ef77032f8bed050c04516e6edf8b2809ee616",
+      "why": "The watcher as it stood before #1190, vendored from d3f474b. MEASURED against both cases: it emits no FLOW_PR_WATCH_SCRAPE_SCOPE line at all, so it scores GOOD on both and MISSES the killed-run case entirely. It does not merely fail to warn - it presents a failure set scraped from an inconclusive log exactly as it presents one pytest actually summarised, which is the conflation this control exists to keep out."
+    }
+  ]
+}

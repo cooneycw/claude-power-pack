@@ -67,8 +67,6 @@
 #                   rule): the Bash process cwd drifts on any earlier `cd`.
 #                   Default: process cwd.
 #
-#: NEGATIVE-CONTROL: controls/flow-pr-watch
-#
 # Output ends with a machine-readable contract - detail lines first, verdict last
 # (the flow-wave-mailbox shape, which the issue's own proposal uses):
 #   FLOW_PR_WATCH_PR=<number>
@@ -77,13 +75,6 @@
 #   FLOW_PR_WATCH_URL=<url|->
 #   FLOW_PR_WATCH_SUPERSEDED_BY=<number|->    (set whenever a newer run exists)
 #   FLOW_PR_WATCH_FAILED=<test ids, space-separated|->  (flake and red)
-#   FLOW_PR_WATCH_SCRAPE_SCOPE=summary | whole-log   which region the ids came
-#                   from. `whole-log` means pytest printed no summary to bound
-#                   to, so the set may include lines a negative control echoed
-#                   on purpose - unbounded, and said so rather than silently.
-#   FLOW_PR_WATCH_SUMMARY_FAILED=<count|->  pytest's OWN failure count, read
-#                   from its summary line independently of the scrape, so the
-#                   two can be seen to disagree. `-` when there is no summary.
 #   FLOW_PR_WATCH_BASELINE=<file|->
 #   FLOW_PR_WATCH_ASSERT=<test id>: <first `E` line>    (repeated, red only)
 #   FLOW_PR_WATCH: green | cancelled | flake | red | timeout | unknown
@@ -148,15 +139,7 @@ while [[ $# -gt 0 ]]; do
         --baseline=*) BASELINE="${1#*=}"; shift ;;
         --path)       CHECK_PATH="${2:-}"; [[ -n "$CHECK_PATH" ]] || die_usage "--path needs a directory"; shift 2 ;;
         --path=*)     CHECK_PATH="${1#*=}"; shift ;;
-        # Print the whole comment header rather than a hand-counted line range.
-        # The fixed `2,103p` silently truncated the moment the header grew - it
-        # did, in this change, and --help stopped before the env-hook section.
-        # Same defect and same repair as flow-wave-registry.sh (#699), and the
-        # same species as the issue this change is about: a hardcoded number
-        # that keeps returning a plausible answer after it stops being right.
-        # `/^$/` is the first TRULY empty line, which the all-`#` header cannot
-        # contain, so it tracks the header however long it gets.
-        -h|--help)    sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help)    sed -n '2,103p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         -*)           die_usage "unknown argument: $1" ;;
         *)
             [[ -z "$PR_NUMBER" ]] || die_usage "unexpected argument: $1"
@@ -190,8 +173,6 @@ emit() {
     else
         echo "FLOW_PR_WATCH_FAILED=-"
     fi
-    echo "FLOW_PR_WATCH_SCRAPE_SCOPE=${SCRAPE_SCOPE:--}"
-    echo "FLOW_PR_WATCH_SUMMARY_FAILED=${SUMMARY_FAILED:--}"
     echo "FLOW_PR_WATCH_BASELINE=${BASELINE:--}"
     for line in ${ASSERT_LINES+"${ASSERT_LINES[@]}"}; do
         echo "FLOW_PR_WATCH_ASSERT=$line"
@@ -472,105 +453,6 @@ fi
 # "ERROR" in ordinary log prose cannot be mistaken for a summary line, and the
 # token is matched field-wise rather than by regex so a parametrized id full of
 # brackets and dots cannot corrupt the pattern.
-# BOUND THE SCRAPE TO PYTEST'S OWN SUMMARY REGION (#1190).
-#
-# Walking the WHOLE log harvests any line shaped like a summary line, and a
-# repository that commits its red cases prints exactly those on purpose: a
-# two-sided control runs a BAD case that MUST fail and `tail`s its log, so the
-# BAD case's `FAILED <id>` lines land in the step output. Measured on pipeline
-# 2512 (PR #1310) this reported FOUR failures where pytest reported `1 failed`,
-# three of them the control's own - and the control's verdict four lines later
-# was `XDIST_ISOLATION: ok`.
-#
-# It is not cosmetic, which is why this is bounded rather than merely reported.
-# `--baseline` matches declared-flaky ids against FLOW_PR_WATCH_FAILED, so the
-# natural response to seeing a control's test named red on an unrelated PR is to
-# add it to the baseline - and from that point the REAL failure of that test,
-# whose whole job is to say an isolation assertion is being made about an
-# isolation that is not there, is silently excused. A misattribution that feeds
-# an excuse list is a route to a hidden defect, and the better a repo is about
-# committing red cases the more of this it generates.
-#
-# EVERY REGION, AND EACH ONE ENDS AT ITS OWN TOTALS LINE.
-#
-# The first cut of this fix took only the LAST marker and ran to end-of-log.
-# Both halves were wrong, and a counter-model review reproduced both:
-#
-#   - Discarding earlier regions EXCUSES A REAL FAILURE. A log with two pytest
-#     runs - a first carrying a non-baselined regression, a second carrying only
-#     a baselined failure - kept just the second, so every reported id was in the
-#     baseline and the verdict became `flake`, exit 0. That is strictly worse
-#     than the over-reporting this issue is about: over-reporting is noisy and
-#     visible, a false flake is silent, and it is the same excuse-list harm
-#     arriving through the repair.
-#   - Running to end-of-log re-admits the contamination. A control that echoes
-#     `FAILED <id>` AFTER the totals line was scraped anyway, while the scope
-#     label still claimed `summary` - a caveat overstating its own coverage.
-#
-# So: collect from every region, and close each at the totals line that belongs
-# to it, which is the run's own conclusion. BOTH totals spellings count: the
-# decorated `==== N failed, M passed ====` and `pytest -q`'s bare
-# `N failed, M passed in 0.4s` - a re-review reproduced a quiet-mode run whose
-# region never closed, so a later echo stayed inside it and the count read `-`
-# for a run that had concluded.
-#
-# The header is ANCHORED to pytest's own section shape rather than matched as a
-# substring: an assertion message containing the words "short test summary info"
-# would otherwise reset the region and DISCARD the failure carrying it.
-SUMMARY_REGION="$(awk '
-    /^=+ short test summary info =+$/ { inregion = 1; next }
-    inregion && (/^=+ .*(passed|failed|error)/ || /^[0-9]+ (passed|failed|error|skipped)/) { inregion = 0; next }
-    inregion { print }
-' <<<"$LOG")"
-
-# Whether a region EXISTED is a different question from whether it held any
-# failures - a green run prints a summary with nothing under it. Keying the
-# scope on the region's CONTENT would report `whole-log` for a clean run and
-# invite the caveat to be read as contamination.
-HAS_SUMMARY_REGION="$(awk '
-    /^=+ short test summary info =+$/ { found = 1 }
-    END { print (found ? 1 : 0) }
-' <<<"$LOG")"
-
-# NO SUMMARY REGION IS A REPORTED STATE, NOT A SILENT FALLBACK. A killed or
-# truncated log never printed one; bounding to nothing would drop real failures,
-# which is worse than the over-reporting this fixes. So the scrape stays
-# whole-log there and SAYS which region it read. Unbounded must never render as
-# clean - that is the same defect one level up.
-if [[ "$HAS_SUMMARY_REGION" -eq 1 ]]; then
-    SCRAPE_SCOPE="summary"
-    SCRAPE_INPUT="$SUMMARY_REGION"
-else
-    SCRAPE_SCOPE="whole-log"
-    SCRAPE_INPUT="$LOG"
-fi
-
-# pytest's OWN count, read from its summary line and never from the scrape, so
-# the two are independent and can be seen to disagree. `-` when the run printed
-# no summary: a log with no conclusion has no authoritative count, and emitting
-# 0 there would assert a measurement nobody took.
-# SUM THE TOTALS THAT BELONG TO THE SELECTED RUNS, and keep `0` apart from `-`.
-#
-# The first cut remembered the last line anywhere containing `N failed`, which a
-# control's echoed totals could supply while the real run ended `1 error` - the
-# count then described a different run from the ids. It also printed `-` for a
-# completed error-only run, conflating AN OBSERVED ZERO with NO MEASUREMENT,
-# which is the absent-is-not-empty confusion this issue exists to remove.
-#
-# So the count is read only from a totals line that CLOSES a summary region, and
-# `-` is reserved for "no region concluded at all".
-SUMMARY_FAILED="$(awk '
-    /^=+ short test summary info =+$/ { inregion = 1; next }
-    inregion && (/^=+ .*(passed|failed|error)/ || /^[0-9]+ (passed|failed|error|skipped)/) {
-        inregion = 0; seen = 1
-        if (match($0, /[0-9]+ failed/)) {
-            n = substr($0, RSTART, RLENGTH); sub(/ failed/, "", n); total += n
-        }
-        next
-    }
-    END { if (seen) print total + 0; else print "-" }
-' <<<"$LOG")"
-
 mapfile -t FAILED_IDS < <(awk '
     {
         for (i = 1; i < NF; i++) {
@@ -580,7 +462,7 @@ mapfile -t FAILED_IDS < <(awk '
             }
         }
     }
-' <<<"$SCRAPE_INPUT")
+' <<<"$LOG")
 [[ "${#FAILED_IDS[@]}" -eq 1 && -z "${FAILED_IDS[0]}" ]] && FAILED_IDS=()
 [[ "${#FAILED_IDS[@]}" -gt 0 ]] && HAS_SUMMARY=1
 

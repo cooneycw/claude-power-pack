@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1190-three-flow-contract-lines-return-a-wrong-value-rat",
+  "counts": {
+    "accepted": 7,
+    "deferred": 2,
+    "rejected": 0
+  },
+  "head": "d3f474b69b45a6011fd676a1e70e18c40edbd932",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1190",
+  "passes": 2,
+  "recorded_at": "2026-09-23T12:52:07Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 15
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

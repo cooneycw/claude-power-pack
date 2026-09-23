@@ -1,0 +1,5 @@
+============================= test session starts ==============================
+collected 812 items
+tests/test_core.py ..........................
+-- BAD case: deliberately failing control, echoed mid-run --
+FAILED tests/test_xdist_isolation.py::test_the_collapse_override_is_not_set_in_this_run
