@@ -102,8 +102,35 @@ target-version = "py311"
 line-length = 120
 # A negative-control ANCHOR is a frozen copy of a historical commit (issue
 # #924). `ruff --fix` would rewrite it and break the byte-identity that is the
-# only thing making it evidence, so anchors are not linted. Fixtures are.
-exclude = ["controls/*/anchors"]
+# only thing making it evidence, so anchors are not linted.
+#
+# FIXTURES ARE LINTED, with exactly two NAMED exceptions (issue #1180). The
+# `check-negative-fixture-preconditions` gate has a verdict - UNKNOWN, "a test
+# file here could not be parsed, so nothing in it was examined" - and a control
+# case for that verdict must contain a file that does not parse. A fixture that
+# cannot lint and a policy that lints every fixture cannot both hold.
+#
+# The earlier workaround was a fixture-local `.ruff.toml`, and it was REFUSED:
+# it takes the exception while leaving the sentence at the policy site reading
+# true and being false, so a reader here would believe every fixture is linted
+# with nothing where the rule lives to say otherwise. A correct guard worked
+# around where the workaround is invisible from the rule is worse than a
+# declared gap. So the exception is taken HERE, where the rule is.
+#
+# It names INDIVIDUAL FILES, never a directory or a glob. A pattern would
+# silently excuse the next unparseable fixture somebody adds by accident -
+# which is exactly the distinction ruff is here to draw over every other
+# fixture in the tree, and a tolerance added to an instrument removes the
+# distinction it existed to make.
+#
+# tests/test_negative_controls.py::test_the_ruff_fixture_exclusions_have_not_grown
+# pins this list's exact membership, so widening it has to be a deliberate edit
+# to a red test rather than a quiet extra line.
+exclude = [
+    "controls/*/anchors",
+    "controls/check-negative-fixture-preconditions/cases/unknown-unparseable-neighbour/tests/test_broken.py",
+    "controls/check-negative-fixture-preconditions/cases/unknown-unparseable-with-violation/tests/test_broken.py",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]

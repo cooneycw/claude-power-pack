@@ -1,0 +1,20 @@
+{
+  "branch": "harness-subject-kind",
+  "counts": {
+    "accepted": 1,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "1e838e66dbebabd6c69438dbfd605c5fa7865367",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1085",
+  "passes": 1,
+  "recorded_at": "2026-09-22T14:25:50Z",
+  "red_cases": {
+    "already_covered": 4,
+    "proposed": 4
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

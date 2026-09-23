@@ -471,6 +471,27 @@ UNKNOWN = "UNKNOWN"
 #: agree.
 REGISTRABLE = (GOOD, BAD, UNKNOWN)
 
+#: WHAT KIND OF INSTRUMENT THIS CONTROL IS ABOUT (issue #1085). Every control
+#: until now was a GATE - something that lets work through or stops it - and the
+#: blindness requirement was written for exactly that: a BAD case, which the
+#: harness scores by EXIT CODE (`if exit_code == good_exit: return GOOD`), so a
+#: detection must be non-zero.
+#:
+#: A REPORTER has no non-zero verdict to give. Its job is to produce a number a
+#: person reads; its legitimate answers are a measurement, an observed zero, and
+#: "I could not look". Requiring it to fail on some input means inventing a
+#: threshold - a BAND - which is precisely what the issue that needed this
+#: forbids. So a reporter demonstrates blindness on the REFUSAL AXIS instead: an
+#: UNKNOWN case where the ANCHOR reports CLEAN. The fixed instrument refuses the
+#: input, the blind one answers it confidently. That is a discrimination.
+#:
+#: NOT NAMED `kind`, deliberately: `kind` already exists one level down on
+#: anchors (constructed, historical, synthetic, vendored). One file, one word,
+#: two unrelated taxonomies is a tax on every future reader.
+GATE_SUBJECT = "gate"
+REPORTER_SUBJECT = "reporter"
+SUBJECT_KINDS = (GATE_SUBJECT, REPORTER_SUBJECT)
+
 PASS = "PASS"
 BLIND = "BLIND"
 INERT = "INERT"
@@ -483,6 +504,10 @@ class Result:
     gate: str
     control_dir: str
     verdict: str
+    #: Which blindness requirement this control was held to (issue #1085).
+    #: Defaults to `gate`, which is what every control meant before the field
+    #: existed, so a Result built anywhere else reads as a gate.
+    subject_kind: str = "gate"
     provenance: str = "unverified"
     #: Whether this control's files are IN THE REPOSITORY (issue #978).
     #: `tracked` / `UNTRACKED` / `unverified` when git is absent - the same
@@ -1019,7 +1044,14 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
 
     invocation: list[str] = spec.get("invocation", [])
     good_exit: int = int(spec.get("good_exit", 0))
-    cases: list[dict[str, str]] = spec.get("cases", [])
+    #: ABSENT IS NOT EMPTY. `spec.get("cases", [])` turned a manifest that
+    #: declares no `cases` key at all into one declaring an empty list, and the
+    #: requirement checks below then reported it as "registers no BAD case" -
+    #: a sentence about cases, for a file that has none. Both refuse, so this
+    #: was never a false clean, but it named the wrong defect and sent a reader
+    #: looking for a case list that does not exist.
+    cases_declared = isinstance(spec.get("cases"), list)
+    cases: list[dict[str, str]] = spec.get("cases") if cases_declared else []
     anchors: list[dict[str, str]] = spec.get("anchors", [])
 
     # The manifest's `gate` is authoritative for WHAT IS INVOKED; the directive's
@@ -1047,8 +1079,29 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
             f"registration lives in {directive_file.name} but declares gate {declared}"
         )
         return res
-    if not invocation or not cases:
-        res.details.append("control.json names no invocation or no cases")
+    # THREE STATES, THREE SENTENCES (issue #1085). This was one message for
+    # "no invocation", "no `cases` key at all" and "an empty `cases` list",
+    # which are three different repairs. ABSENT is not EMPTY: `spec.get("cases",
+    # [])` renders a manifest that never declares the key as one declaring an
+    # empty list, and the reader is then sent looking for a case list that does
+    # not exist. Neither was ever a false clean - all three refuse - but a
+    # refusal that names the wrong defect costs the same time as no refusal.
+    if not invocation:
+        res.details.append(
+            "control.json names no `invocation`, so there is no way to run the gate"
+        )
+        return res
+    if not cases_declared:
+        res.details.append(
+            "control.json declares no `cases` key at all, so there is nothing to run - "
+            "which is a different defect from declaring an empty list, and from declaring "
+            "a one-sided one"
+        )
+        return res
+    if not cases:
+        res.details.append(
+            "control.json declares an EMPTY `cases` list, so nothing is exercised"
+        )
         return res
 
     # A REQUIRED field, refused on absence rather than defaulted (issue #946).
@@ -1060,7 +1113,79 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
     # matches" turns every genuine detection into an UNSIGNALLED red with an
     # unrelated diagnosis, and an EMPTY pattern matches every output, which
     # restores exit-code-only scoring while looking like a fix.
+    # PARSED BEFORE THE SIGNAL REQUIREMENTS, because WHICH marker is required
+    # depends on what kind of instrument this is (issue #1085 follow-up).
+    raw_subject = spec.get("subject_kind", GATE_SUBJECT)
+    if raw_subject not in SUBJECT_KINDS:
+        res.details.append(
+            f"control.json declares subject_kind {raw_subject!r}, which is not one of "
+            f"{list(SUBJECT_KINDS)}. It is refused rather than defaulted: a value this "
+            f"harness does not recognise must not silently acquire the rules of one it does"
+        )
+        return res
+    res.subject_kind = raw_subject
+
     raw_signal = spec.get("detect_signal", "")
+    #: OMITTED IS NOT INVALID (counter-model finding, 2026-09-22). The first cut
+    #: keyed the exemption on `has_signal` - "is there a usable pattern" - which
+    #: is true of an ABSENT field and equally true of `"detect_signal": ""`,
+    #: `null`, `0` or `[]`. A control that DECLARED a broken signal therefore
+    #: took the reporter branch, had the sentinel substituted, and passed with
+    #: its validations disabled: the author said something and the harness
+    #: silently heard nothing.
+    #:
+    #: The exemption is for a control that makes NO detection claim. Making a
+    #: bad one is a different act and keeps the old answer, so an explicit value
+    #: of any shape falls through to the usable-pattern check below and is
+    #: refused there. This is the absent-versus-empty distinction that this very
+    #: change's rationale is built on, written into the change itself.
+    signal_omitted = "detect_signal" not in spec
+    raw_unknown_peek = spec.get("unknown_signal", "")
+    has_unknown = isinstance(raw_unknown_peek, str) and bool(raw_unknown_peek.strip())
+
+    # THE MARKER REQUIREMENT RELOCATES FOR A REPORTER, IT IS NOT REMOVED.
+    #
+    # `detect_signal` is required because a non-zero exit must be tellable from
+    # a CRASH (#946). For a GATE that is the detection marker, because a gate's
+    # non-zero exit IS its finding. A REPORTER has no finding: its only non-zero
+    # exit is a refusal, and `unknown_signal` is what separates that from a
+    # crash. So a reporter may omit `detect_signal` and must then declare
+    # `unknown_signal` - the same guarantee, carried by the marker that can
+    # actually carry it.
+    #
+    # THE TEST FOR WHETHER A FIELD MAY BE OPTIONAL IS ALREADY IN THIS FILE, at
+    # the `unavailable_signal` asymmetry: "`detect_signal` had to be required
+    # because defaulting it left every control exactly as blind as before the
+    # fix. Omitting `unavailable_signal` has the opposite effect ... Absence
+    # fails CLOSED here, so it costs nothing to allow." This meets that test -
+    # absence of `detect_signal` on a reporter fails closed, because the
+    # requirement moves rather than lapsing, and nothing is left unmarked.
+    #
+    # AND THE GUARDS MOVE WITH IT. `unknown_signal` carries the same two
+    # protections `detect_signal` has: it may not match EMPTY output, and it
+    # may not match the gate's CLEAN output. Relocating a requirement without
+    # its guards would be the same defect one boundary further out; these were
+    # checked rather than assumed.
+    if raw_subject == REPORTER_SUBJECT and signal_omitted:
+        if not has_unknown:
+            res.details.append(
+                "control.json declares subject_kind 'reporter' with neither a detect_signal "
+                "nor an unknown_signal, so a non-zero exit from this instrument cannot be "
+                "told from a crash (issue #946). A reporter may omit detect_signal - it has "
+                "no finding to mark - but it must then declare unknown_signal, because the "
+                "requirement RELOCATES and does not lapse"
+            )
+            return res
+        #: A pattern that cannot match anything, standing in for "this subject
+        #: makes no detection claim". Downstream, `_observe` then returns
+        #: UNSIGNALLED for any non-zero exit that carries no refusal marker -
+        #: which is the correct verdict for a reporter that exited oddly, and
+        #: is why omitting the field does not open a hole.
+        raw_signal = r"(?!x)x"
+        signal_is_declared = False
+    else:
+        signal_is_declared = True
+
     if not isinstance(raw_signal, str) or not raw_signal.strip():
         res.details.append(
             "control.json declares no detect_signal, so a non-zero exit from this gate "
@@ -1079,7 +1204,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
     # scoring restored wholesale, wearing this field's own name. Measured: `.*`
     # and `toy-gate: [0-9]+ finding|` each produced PASS for a gate that crashed
     # on the known-bad input (found by the Codex review of this change).
-    if signal.search(""):
+    if signal_is_declared and signal.search(""):
         res.details.append(
             f"control.json detect_signal /{raw_signal}/ matches empty output, so it cannot "
             "separate a finding from a crash (issue #946)"
@@ -1262,12 +1387,47 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
             )
             return res
 
-    if BAD not in expects:
-        res.details.append("control.json registers no BAD case, so nothing exercises the blindness")
-        return res
+    # WHICH BLINDNESS REQUIREMENT APPLIES DEPENDS ON THE SUBJECT (issue #1085).
+    # Absent means `gate`, which is what every control meant before this field
+    # existed, so all of them take the unchanged branch. An UNRECOGNISED value
+    # is REFUSED rather than defaulted: defaulting on a typo is how a narrow
+    # exception becomes a wide one, and `"Reporter"` must not silently buy the
+    # relaxation that `"reporter"` buys.
     if GOOD not in expects:
         res.details.append("control.json registers no GOOD case, so a gate wedged at 'fail' would pass")
         return res
+
+    if raw_subject == GATE_SUBJECT:
+        if BAD not in expects:
+            res.details.append(
+                "control.json registers no BAD case, so nothing exercises the blindness"
+            )
+            return res
+    else:
+        # A REPORTER PAYS DIFFERENTLY, IT DOES NOT PAY LESS. It must still put
+        # up a case where the anchor and the fixed instrument DISAGREE - an
+        # UNKNOWN case carrying `anchor_expect: clean`, meaning the anchor
+        # answers confidently where this instrument refuses.
+        #
+        # The manifest check is only half of it, and deliberately so: the other
+        # half is DEMONSTRATED, not declared. #1196 already runs the anchor on
+        # every UNKNOWN case and reds as UNRESOLVED when a declaration stops
+        # being true, so a reporter whose anchor quietly learns to refuse loses
+        # its qualification automatically. Nothing new watches it, because
+        # something already does.
+        qualifying = [
+            c for c in cases
+            if c.get("expect") == UNKNOWN and c.get("anchor_expect") == "clean"
+        ]
+        if not qualifying:
+            res.details.append(
+                "control.json declares subject_kind 'reporter' but registers no UNKNOWN "
+                "case carrying `anchor_expect: clean`, so nothing exercises the blindness. "
+                "A reporter demonstrates it on the refusal axis - an input this instrument "
+                "refuses and the anchor answers clean - and 'reporter' is a second way to "
+                "pay, never a waiver"
+            )
+            return res
 
     # -- DISCRIMINATION ---------------------------------------------------- #
     bad_cases: list[Path] = []
@@ -1423,7 +1583,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
         # neighbour's. The distinguishing condition is a CLEAN EXIT whose output
         # still matches: the gate said "nothing here" and the pattern matched
         # anyway. A wedged gate exits non-zero and stays BLIND, where it belongs.
-        if expected == GOOD and observed == GOOD and signal.search(output):
+        if signal_is_declared and expected == GOOD and observed == GOOD and signal.search(output):
             res.verdict = UNRESOLVED
             res.details.append(
                 f"control.json detect_signal /{raw_signal}/ also matches this gate's known-GOOD "
@@ -2070,9 +2230,46 @@ def main(argv: list[str] | None = None) -> int:
                 discriminating, census, disc_members, disc_nonmembers, whence,
                 registered=len(registrations),
             )
-            print(f"negative-controls: ok - {headline}, "
-                  "each reporting its declared detection signal on the known-bad input "
-                  "and demonstrated against an anchor that misses it")
+            # THE KIND BREAKDOWN IS NAMED, NOT IMPLIED (issue #1085). The
+            # residual risk this design cannot close is a GATE author declaring
+            # `reporter` to escape needing a BAD case - a mis-declaration, not
+            # a mechanism failure, and the only defence against it is that
+            # somebody SEES it. A count in the summary is how: a reporter
+            # arriving in this repository changes a number on a line everyone
+            # already reads. Same doctrine as printing members rather than
+            # totals, pointed at the taxonomy itself.
+            gate_rs = [r for r in discriminating if r.subject_kind == GATE_SUBJECT]
+            reps = [r for r in discriminating if r.subject_kind == REPORTER_SUBJECT]
+
+            # THE CLAIM IS BUILT FROM THE POPULATION, NOT ASSERTED OVER IT
+            # (counter-model finding, 2026-09-22). This line used to end "each
+            # reporting its declared detection signal on the known-bad input"
+            # UNIVERSALLY, and then append the kind breakdown after it. Over a
+            # battery of reporters that certified a detection that cannot
+            # happen: a reporter has no known-bad input and emits no detection
+            # signal, by the same structural fact that made this whole change
+            # necessary. The appended explanation EXPLAINED the contradiction
+            # instead of removing it, which is a success message claiming more
+            # than its input population supports - the exact question this file
+            # makes every other gate answer.
+            claims: list[str] = []
+            if gate_rs:
+                claims.append(
+                    f"{len(gate_rs)} gate control(s), each reporting its declared detection "
+                    f"signal on the known-bad input and demonstrated against an anchor that "
+                    f"misses it"
+                )
+            if reps:
+                claims.append(
+                    f"{len(reps)} reporter control(s) ("
+                    + ", ".join(sorted(r.control_dir for r in reps))
+                    + "), each REFUSING an input its anchor answers clean - a reporter has no "
+                      "known-bad input to detect, so it demonstrates blindness on the refusal "
+                      "axis instead"
+                )
+            if not claims:
+                claims.append("0 gate control(s) and 0 reporter control(s)")
+            print(f"negative-controls: ok - {headline}; " + "; ".join(claims))
     # NAMED, NOT COUNTED, AND PRINTED ON EVERY RUN THAT HAS ANY - including a
     # failing one, where an unexamined control is part of why the picture is
     # incomplete. A tolerated verdict that is not said out loud is the silence

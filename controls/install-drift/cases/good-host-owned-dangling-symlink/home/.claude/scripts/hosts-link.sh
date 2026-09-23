@@ -1,0 +1,1 @@
+/nowhere/that/exists/hosts-link.sh

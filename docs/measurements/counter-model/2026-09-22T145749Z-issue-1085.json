@@ -1,0 +1,20 @@
+{
+  "branch": "reporter-signal-optional",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "53bd10440029b5c6d00c6ed562837478a45661ce",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1085",
+  "passes": 1,
+  "recorded_at": "2026-09-22T14:57:49Z",
+  "red_cases": {
+    "already_covered": 7,
+    "proposed": 7
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

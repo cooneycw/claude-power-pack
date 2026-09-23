@@ -2885,3 +2885,350 @@ def test_the_same_contradiction_on_a_sanity_case_is_also_unresolved(tmp_path: Pa
     assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
     assert "exited like a CLEAN run" in result.stdout, result.stdout
     assert result.returncode == 1
+
+
+# --------------------------------------------------------------------------- #
+# The ruff fixture exclusions - a tolerance that must not grow silently (#1180)
+# --------------------------------------------------------------------------- #
+EXPECTED_RUFF_EXCLUDE = [
+    "controls/*/anchors",
+    "controls/check-negative-fixture-preconditions/cases/unknown-unparseable-neighbour/tests/test_broken.py",
+    "controls/check-negative-fixture-preconditions/cases/unknown-unparseable-with-violation/tests/test_broken.py",
+]
+
+
+def _live_ruff_exclude() -> list[str]:
+    """The exclude list AS SHIPPED, not the expectation above.
+
+    The property tests below must read this. An earlier cut iterated
+    EXPECTED_RUFF_EXCLUDE and so asserted facts about a literal in this file -
+    it stayed green through a mutation that added `controls/*/cases/**` to the
+    real config, which is the exact widening it was written to forbid. Caught
+    by running the mutation and counting the failures: one, where two were due.
+    """
+    import tomllib
+
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    return list(config["tool"]["ruff"]["exclude"])
+
+
+def test_the_ruff_fixture_exclusions_have_not_grown() -> None:
+    """The lint exclusion is an instrument change, so it gets a guard (#1180).
+
+    `pyproject.toml` excludes two fixture FILES from ruff because the
+    `check-negative-fixture-preconditions` control needs a case whose input does
+    not parse, and a fixture that cannot lint cannot coexist with a policy that
+    lints every fixture. Taking that exception is correct; letting it SPREAD is
+    not. A widened pattern would silently excuse the next unparseable fixture
+    somebody adds by accident - removing, for every other fixture in the tree,
+    exactly the distinction ruff is there to draw.
+
+    Asserting exact membership rather than "the two are present" is what makes
+    this a guard: the failure it must catch is an ADDITION, and a containment
+    check cannot see one.
+    """
+    exclude = _live_ruff_exclude()
+
+    assert sorted(exclude) == sorted(EXPECTED_RUFF_EXCLUDE), (
+        "the ruff exclude list changed. Every entry here suppresses linting for "
+        "something, so adding one is a deliberate act that belongs in a review: "
+        f"added={sorted(set(exclude) - set(EXPECTED_RUFF_EXCLUDE))} "
+        f"removed={sorted(set(EXPECTED_RUFF_EXCLUDE) - set(exclude))}"
+    )
+
+
+def test_each_excluded_fixture_is_actually_unparseable_and_actually_present() -> None:
+    """A stale exclusion is a silent tolerance for a file that now lints fine.
+
+    The two entries are justified ONLY by the files being unparseable by
+    construction. If one is deleted, renamed, or quietly repaired, the exclusion
+    stops paying for itself and becomes a standing hole nobody is watching - and
+    nothing else in the suite would notice, because an exclusion that covers
+    nothing produces no output at all.
+
+    This also pins the direction that matters for the control: the file must
+    STILL fail to parse, or `unknown-unparseable-*` silently stops exercising
+    the refusal branch and starts testing an ordinary clean tree.
+    """
+    import ast
+
+    fixtures = [e for e in _live_ruff_exclude() if e.endswith(".py")]
+    assert fixtures, "no fixture files are excluded, so this guard is watching nothing"
+
+    for rel in fixtures:
+        path = ROOT / rel
+        assert path.is_file(), f"excluded fixture {rel} is missing; the exclusion is stale"
+        with pytest.raises(SyntaxError):
+            ast.parse(path.read_text(encoding="utf-8"))
+
+
+def test_no_fixture_exclusion_is_a_directory_or_glob() -> None:
+    """Only `controls/*/anchors` may be a pattern; a fixture exception is per-file.
+
+    The anchors entry is a directory pattern for a different and settled reason
+    (#924: an anchor is a frozen byte-identical copy). The #1180 exceptions are
+    not allowed to borrow that shape - a glob is precisely how "two known files"
+    becomes "anything under here" without anyone deciding to.
+    """
+    for entry in _live_ruff_exclude():
+        if entry == "controls/*/anchors":
+            continue
+        assert entry.endswith(".py"), f"fixture exclusion {entry!r} is not a single file"
+        assert "*" not in entry and "?" not in entry, (
+            f"fixture exclusion {entry!r} is a glob; name the file instead"
+        )
+
+
+# --------------------------------------------------------------------------- #
+# `subject_kind` - the reporter relaxation, and the three ways it must not leak
+# (issue #1085)
+# --------------------------------------------------------------------------- #
+SUBJECT_CASES = ROOT / "controls" / "check-negative-controls" / "cases"
+
+
+def test_a_gate_control_with_no_bad_case_still_reports_unresolved() -> None:
+    """THE LEAK GUARD. If this ever passes, the relaxation reached every control.
+
+    `subject_kind: reporter` lets an instrument demonstrate blindness on the
+    refusal axis instead of with a BAD case. The whole risk is that the
+    exception widens: a GATE control that simply forgot its known-bad input
+    must keep being refused exactly as it was before the field existed.
+
+    This cannot be a CASE in `controls/check-negative-controls` because that
+    control's anchor is a frozen copy of the harness, and on behaviour this
+    change does not alter the anchor behaves identically to the fixed gate and
+    scores INERT. It is asserted here instead, over the same committed tree.
+    """
+    out = run_harness(SUBJECT_CASES / "bad-gate-control-without-a-bad-case", "--strict")
+    assert out.returncode != 0
+    assert "registers no BAD case" in out.stdout + out.stderr, out.stdout
+
+
+def test_a_reporter_without_a_qualifying_unknown_case_is_refused() -> None:
+    """`reporter` is a SECOND WAY TO PAY, never a waiver.
+
+    Declaring the kind must not by itself discharge the requirement. A reporter
+    still has to put up an input it refuses and the anchor answers clean; with
+    no such case there is nothing demonstrating the anchor is blind at all.
+    """
+    out = run_harness(SUBJECT_CASES / "bad-reporter-without-a-qualifying-unknown", "--strict")
+    assert out.returncode != 0
+    body = out.stdout + out.stderr
+    assert "registers no UNKNOWN case carrying `anchor_expect: clean`" in body, body
+    assert "never a waiver" in body
+
+
+def test_a_reporter_demonstrating_blindness_on_the_refusal_axis_passes() -> None:
+    """The positive control, without which the two above pass on a harness that
+    refuses everything.
+
+    The toy refuses an input it cannot examine (exit 2, UNKNOWN); its anchor has
+    no refusal branch and answers the same input with a confident clean. The
+    fixed instrument refuses, the blind one does not - that is a discrimination,
+    and it is the one a reporter can actually make.
+    """
+    out = run_harness(SUBJECT_CASES / "good-reporter-on-the-refusal-axis", "--strict")
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert "-> PASS" in out.stdout or "ok -" in out.stdout, out.stdout
+
+
+def test_an_unrecognised_subject_kind_is_refused_not_defaulted() -> None:
+    """Defaulting on a typo is how a narrow exception becomes a wide one.
+
+    `"Reporter"` is what a real author writes. Silently treating it as `gate`
+    would be merely confusing; silently treating it as `reporter` would hand out
+    the relaxation to anyone who miscapitalised. Neither: it is refused and the
+    value is named.
+    """
+    out = run_harness(SUBJECT_CASES / "bad-unrecognised-subject-kind", "--strict")
+    assert out.returncode != 0
+    body = out.stdout + out.stderr
+    assert "declares subject_kind 'Reporter'" in body, body
+    assert "refused rather than defaulted" in body
+
+
+def test_absent_cases_key_is_named_differently_from_a_one_sided_case_list(
+    tmp_path: Path
+) -> None:
+    """ABSENT is not EMPTY, and the message must not confuse them.
+
+    `spec.get("cases", [])` turned a manifest declaring no `cases` key into one
+    declaring an empty list, so a file with no cases at all was reported as
+    "registers no BAD case" - a sentence about cases, to someone whose file has
+    none. Both refuse, so this was never a false clean; it named the wrong
+    defect and sent the reader looking for a list that does not exist.
+    """
+    (tmp_path / "scripts").mkdir()
+    gate = tmp_path / "scripts" / "toy-gate.sh"
+    gate.write_text("#!/bin/sh\n#: NEGATIVE-CONTROL: controls/toy\necho ok\n", encoding="utf-8")
+    toy = tmp_path / "controls" / "toy"
+    toy.mkdir(parents=True)
+    (toy / "control.json").write_text(
+        json.dumps({"gate": "scripts/toy-gate.sh",
+                    "invocation": ["sh", "{gate}"],
+                    "good_exit": 0,
+                    "detect_signal": "^toy",
+                    "anchors": []}),
+        encoding="utf-8",
+    )
+    out = run_harness(tmp_path, "--strict")
+    body = out.stdout + out.stderr
+    assert "declares no `cases` key at all" in body, body
+    assert "registers no BAD case" not in body, "absent was reported as one-sided"
+
+
+def test_a_reporter_only_battery_does_not_claim_a_detection_it_never_made() -> None:
+    """The success line must be built from the population, not asserted over it.
+
+    FOUND BY COUNTER-MODEL REVIEW. The summary ended "each reporting its
+    declared detection signal on the known-bad input" UNIVERSALLY, with the
+    kind breakdown appended after. Over a battery of reporters that certifies a
+    detection which cannot happen - a reporter has no known-bad input and emits
+    no detection signal, by the same structural fact that made `subject_kind`
+    necessary. The appended clause EXPLAINED the contradiction rather than
+    removing it.
+
+    That is a success message claiming more than its input population supports,
+    which is the first question this file makes every other gate answer. Getting
+    it wrong here is worse than getting it wrong elsewhere.
+    """
+    out = run_harness(
+        ROOT / "controls" / "check-negative-controls" / "cases"
+        / "good-reporter-on-the-refusal-axis", "--strict"
+    )
+    assert out.returncode == 0, out.stdout + out.stderr
+    ok = [ln for ln in out.stdout.splitlines() if ln.startswith("negative-controls: ok")]
+    assert len(ok) == 1, out.stdout
+    line = ok[0]
+    assert "reporter control(s)" in line, line
+    assert "each REFUSING an input its anchor answers clean" in line, line
+    assert "detection signal on the known-bad input" not in line, (
+        "a reporter-only battery claimed a detection it never made: " + line
+    )
+
+
+# --------------------------------------------------------------------------- #
+# `detect_signal` optional for a reporter - the requirement RELOCATES (#1085)
+# --------------------------------------------------------------------------- #
+@pytest.mark.skipif(shutil.which("sh") is None, reason="drives a toy gate through sh")
+def test_a_reporter_may_omit_detect_signal_when_it_declares_unknown_signal() -> None:
+    """THE POSITIVE CONTROL. Without it the three guards below pass on a harness
+    that refuses every reporter.
+
+    A reporter has no finding to mark: its only non-zero exit is a refusal, and
+    `unknown_signal` is what separates that from a crash. So `detect_signal` has
+    nothing to match, and every pattern one could write is dishonest - either it
+    matches the ordinary measurement output, or it can never match at all.
+    """
+    out = run_harness(
+        ROOT / "controls" / "check-negative-controls" / "cases"
+        / "good-reporter-without-detect-signal", "--strict"
+    )
+    assert out.returncode == 0, out.stdout + out.stderr
+
+
+@pytest.mark.skipif(shutil.which("sh") is None, reason="drives a toy gate through sh")
+def test_a_reporter_with_neither_marker_is_refused() -> None:
+    """THE RELOCATED FAIL-OPEN, and the case that decides whether this ships.
+
+    `detect_signal` is required because a non-zero exit must be tellable from a
+    CRASH (#946). Letting a reporter drop it without requiring `unknown_signal`
+    would not relax that guarantee, it would DELETE it - the same hole, moved.
+    """
+    out = run_harness(
+        ROOT / "controls" / "check-negative-controls" / "cases"
+        / "bad-reporter-with-no-markers", "--strict"
+    )
+    assert out.returncode != 0
+    body = out.stdout + out.stderr
+    assert "neither a detect_signal nor an unknown_signal" in body, body
+    assert "RELOCATES and does not lapse" in body
+
+
+@pytest.mark.skipif(shutil.which("sh") is None, reason="drives a toy gate through sh")
+def test_a_reporter_declaring_a_dishonest_detect_signal_is_still_refused() -> None:
+    """Optional is not unchecked. A reporter that DOES declare one is validated
+    exactly as a gate is, so the relaxation cannot be used to smuggle a marker
+    that identifies a clean run as readily as a finding.
+    """
+    out = run_harness(
+        ROOT / "controls" / "check-negative-controls" / "cases"
+        / "bad-reporter-detect-matches-clean", "--strict"
+    )
+    assert out.returncode != 0
+    assert "also matches this gate's known-GOOD output" in out.stdout + out.stderr
+
+
+@pytest.mark.skipif(shutil.which("sh") is None, reason="drives a toy gate through sh")
+def test_a_gate_with_no_detect_signal_is_still_refused() -> None:
+    """THE LEAK GUARD. If this passes, the relaxation escaped its subject kind.
+
+    Same shape as the guard on the BAD-case requirement: the exception is for
+    reporters, and a gate that simply forgot its detection marker must keep
+    being refused exactly as before the field existed.
+    """
+    out = run_harness(
+        ROOT / "controls" / "check-negative-controls" / "cases"
+        / "bad-gate-with-no-detect-signal", "--strict"
+    )
+    assert out.returncode != 0
+    assert "declares no detect_signal" in out.stdout + out.stderr
+
+
+@pytest.mark.skipif(shutil.which("sh") is None, reason="drives a toy gate through sh")
+def test_an_explicitly_invalid_detect_signal_is_refused_not_treated_as_omitted() -> None:
+    """OMITTED is not INVALID - the distinction this whole change rests on.
+
+    FOUND BY COUNTER-MODEL REVIEW. The exemption first keyed on "is there a
+    usable pattern", which is true of an absent field and equally true of
+    `"detect_signal": ""`, `null`, `0` or `[]`. A control that DECLARED a broken
+    signal therefore took the reporter branch, had the sentinel substituted, and
+    passed with its validations disabled - the author said something and the
+    harness silently heard nothing.
+
+    Declaring nothing and declaring something broken are different acts. The
+    first is what the exemption is for; the second keeps the old answer.
+
+    The irony is load-bearing rather than decorative: this is the absent-versus-
+    empty conflation that the change's own rationale is built on, written into
+    the change itself. It is asserted here so the next edit cannot reintroduce
+    it quietly.
+    """
+    import json as _json
+
+    toy = (ROOT / "controls" / "check-negative-controls" / "cases"
+           / "good-reporter-without-detect-signal" / "controls" / "toy" / "control.json")
+    original = toy.read_text(encoding="utf-8")
+    assert "detect_signal" not in _json.loads(original), (
+        "the fixture must OMIT detect_signal for this test to mean anything"
+    )
+    try:
+        for bad in ("", " ", None, 0, []):
+            doc = _json.loads(original)
+            doc["detect_signal"] = bad
+            toy.write_text(_json.dumps(doc, indent=2), encoding="utf-8")
+            out = run_harness(toy.parents[2], "--strict")
+            assert out.returncode != 0, f"detect_signal={bad!r} was treated as omitted"
+            assert "declares no detect_signal" in out.stdout + out.stderr, out.stdout
+    finally:
+        toy.write_text(original, encoding="utf-8")
+
+    # A VALID BUT OVER-BROAD PATTERN IS A THIRD CASE, and it takes a different
+    # path: `.*` is a usable regex, so it is NOT an omission and NOT invalid -
+    # it goes through normal validation and is refused by the empty-output
+    # guard. Pinned here because "declared something broken" and "declared
+    # something too wide" fail for different reasons and a reader chasing
+    # either should land in the right place.
+    try:
+        doc = _json.loads(original)
+        doc["detect_signal"] = ".*"
+        toy.write_text(_json.dumps(doc, indent=2), encoding="utf-8")
+        out = run_harness(toy.parents[2], "--strict")
+        assert out.returncode != 0
+        assert "matches empty output" in out.stdout + out.stderr, out.stdout
+    finally:
+        toy.write_text(original, encoding="utf-8")
+
+    # ...and omission itself still passes, or the assertions above are vacuous.
+    out = run_harness(toy.parents[2], "--strict")
+    assert out.returncode == 0, out.stdout + out.stderr

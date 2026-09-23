@@ -95,16 +95,48 @@ def _tracked_md_files(root: Path) -> list[str]:
         return []
     return [
         line for line in proc.stdout.splitlines()
-        if line and not line.startswith(EXCLUDED_PREFIXES)
+        if line
+        and not line.startswith(EXCLUDED_PREFIXES)
+        and not line.endswith(EXCLUDED_SUFFIXES)
     ]
 
 
-#: Hash-pinned contract text and engine-rendered golden output - see the module
+#: WHAT EVERY EXCLUSION HERE CLAIMS: "this is text the repository does not
+#: author". Hash-pinned contract text, engine-rendered golden output, and - since
+#: #1185 - a verbatim copy of somebody else's issue body. See the module
 #: docstring for why each is excluded and why the ORIGINAL reason no longer
-#: applies. `str.startswith` takes a tuple, so this stays one comparison.
+#: applies.
+#:
+#: TWO PREDICATES, NOT ONE. This comment used to end "`str.startswith` takes a
+#: tuple, so this stays one comparison", and that stopped being true the moment a
+#: SUFFIX rule was added below. A sentence at a rule site that reads true and is
+#: false is the defect #1180 spent a whole issue correcting one file over, so it
+#: is corrected here rather than left to be discovered.
 EXCLUDED_PREFIXES = (
     "docs/project-next-contract.md",
     "tests/project_next/fixtures/",
+)
+
+#: A SUFFIX, DELIBERATELY, AND NOT THE DIRECTORY (issue #1185, #1187's artifact).
+#: `docs/flow-runs/issue-N.as-read.md` is a byte-faithful copy of a GitHub issue
+#: body, digested over the full text - its whole value is fidelity, so
+#: normalising its dashes would make it a lie about what the run read. Its
+#: neighbour `docs/flow-runs/issue-N.md` is the plan record, which this
+#: repository DOES author and which must stay covered.
+#:
+#: So the key is PROVENANCE, not LOCATION. A `docs/flow-runs/` prefix would key
+#: on where the file sits and would silently swallow the plan record with it;
+#: `.as-read.md` encodes provenance in the name itself. That is the same
+#: distinction the #864 orphan axis needed on the same day: "no checkout
+#: counterpart" keys on location and cannot separate a retired helper from a
+#: host-owned script, because the distinguishing fact is provenance and no
+#: location test carries it.
+#:
+#: Measured before adding it: 9 of 23 recent open CPP issues carry an em or en
+#: dash, so roughly two in five /flow:auto runs would otherwise red the suite for
+#: a reason naming neither feature.
+EXCLUDED_SUFFIXES = (
+    ".as-read.md",
 )
 
 

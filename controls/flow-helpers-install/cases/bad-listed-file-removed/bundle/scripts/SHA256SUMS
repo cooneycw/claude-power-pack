@@ -1,0 +1,3 @@
+# fixture manifest - see controls/flow-helpers-install/control.json
+fb84952f9e099b4d7717d9a6927b173737d553924a2f620e1ae6324edc4ecdc7  flow-vantage.sh
+7de3908fb63193f2083df9682d702deaf705444bf5cf0610c2c199df817e124d  worktree-remove.sh

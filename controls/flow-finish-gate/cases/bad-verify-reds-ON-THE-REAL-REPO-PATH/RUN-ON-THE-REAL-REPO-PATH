@@ -1,0 +1,18 @@
+This case runs IN PLACE, inside the checkout, on purpose. Do not "fix" it.
+
+Every other case here is copied outside the repository first, so the gate sees
+no git and takes the path CI takes. That isolation is the fix for the attachment
+coupling - but an isolated fixture can DRIFT from how the gate really runs, and
+the failure it would then hide is a false GREEN, which is strictly worse than
+the red the isolation removed.
+
+So one case stays on the real path deliberately, and it is a BAD case on
+purpose. Only GOOD cases were ever contaminated by attachment: a failing gate
+step short-circuits before the counter-model check, so a BAD case reds correctly
+in place. That makes this the one case that can hold the real path without
+re-importing the defect.
+
+What it protects: if the gate ever stops refusing when run inside a real
+repository - because the isolation drifted, or because someone "simplified" the
+runner to always isolate - this case goes from BAD to something else, and the
+control reds. The isolated cases cannot notice that, by construction.

@@ -125,8 +125,9 @@
       "reason": "the /flow:finish quality gate, whose verdict the commit, push and PR read"
     },
     "flow-helpers-install.sh": {
-      "class": "not-a-checker",
-      "reason": "installs the flow helper family into ~/.claude/scripts; it issues no verdict"
+      "class": "tested",
+      "consumer": "tests/test_flow_helpers_install.py",
+      "reason": "installs the flow helper family into ~/.claude/scripts AND issues a verdict the install decision consumes - FLOW_HELPERS: ok|installed|unverifiable|unverifiable-source|tampered|missing|stale|error. It was declared not-a-checker on the grounds that it issues no verdict, which was already false when written and which #1185 made emphatically so: it now REFUSES to install a source that disagrees with its recorded digest"
     },
     "flow-live-driver-guard.sh": {
       "class": "tested",
@@ -298,6 +299,11 @@
       "class": "tested",
       "consumer": "tests/test_speckit_tasks_to_issues.py",
       "reason": "refuses on an unreadable inventory or an ambiguous task identity before creating issues"
+    },
+    "step3-record-guard.sh": {
+      "class": "tested",
+      "consumer": "tests/test_step3_record_guard.py",
+      "reason": "a PreToolUse hook refusing an edit in a flow worktree with no approved-plan record (#1083). The EDIT is the consumer and nothing downstream re-derives it. It is a FLOOR and does NOT enforce #775: it establishes an artifact is present, not that an approval occurred, and only on the tool paths it is matched against"
     },
     "stash-worktree-guard.sh": {
       "class": "tested",
