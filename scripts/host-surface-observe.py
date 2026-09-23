@@ -100,6 +100,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -404,7 +405,175 @@ def sandbox_env(sandbox: Path) -> dict[str, str]:
     #: we SEE it rather than miss it.
     env["TMPDIR"] = str(sandbox / ".tmp")
     (sandbox / ".tmp").mkdir(parents=True, exist_ok=True)
+    return _with_git_overrides(env, REPO_ROOT)
+
+
+#: GIT EXECUTES COMMANDS THE REPOSITORY CONFIGURES, AND $HOME DOES NOT REACH
+#: THEM (issue #1182). Redirecting HOME sandboxes a write that RESOLVES home
+#: through $HOME. It does nothing about `core.fsmonitor`, which lives in the
+#: checkout's own `.git/config` and which git EXECUTES on the `git diff` and
+#: `git ls-files` calls some members make - `cpp-commands-link.sh:345-346` is
+#: the live one. Such a write lands outside these snapshots entirely and the
+#: run still reports clean.
+#:
+#: THIS TABLE IS MEASURED, NOT REASONED. Every candidate was planted with a
+#: canary in a scratch repo and the three git commands these members actually
+#: run were executed against it (git 2.43.0, 2026-09-23):
+#:
+#:     core.fsmonitor              FIRES on status, diff --name-only, ls-files
+#:     filter.<driver>.clean       FIRES on status, diff --name-only
+#:     filter.<driver>.smudge      -
+#:     diff.external               -
+#:     diff.<driver>.textconv      -
+#:     core.pager / core.editor    -
+#:     core.askPass                -
+#:     credential.helper           -
+#:     core.sshCommand             -
+#:     core.gitProxy               -
+#:     uploadpack.packObjectsHook  -
+#:     core.alternateRefsCommand   -
+#:     gpg.program                 -
+#:     sequence.editor             -
+#:     trailer.<token>.command     -
+#:
+#: `filter.<driver>.clean` was NOT one of the three routes #1182 was filed for.
+#: It was found by RUNNING this enumeration, which is the whole argument for
+#: acceptance item 3: the dashes above are worth reading only because
+#: `core.fsmonitor` in the same column FIRES. A search that has never been shown
+#: to find a route cannot tell "no more routes" from "cannot see one".
+GIT_EXEC_CONFIG_NEUTRALISED: dict[str, str] = {"core.fsmonitor": "false"}
+
+#: Filter drivers cannot be neutralised BY NAME - the driver name is arbitrary -
+#: so they are DISCOVERED in the configuration that is actually in force and
+#: disabled individually. An empty value is what disables one; measured.
+_GIT_EXEC_FILTER_RE = re.compile(r"^filter\..+\.(?:clean|smudge|process)$")
+
+
+def git_exec_config_overrides(repo: Path) -> list[tuple[str, str]]:
+    """`(key, value)` pairs disabling every command-executing config we can name."""
+    overrides = sorted(GIT_EXEC_CONFIG_NEUTRALISED.items())
+    try:
+        res = subprocess.run(
+            ["git", "-C", str(repo), "config", "--list"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        #: A repo we cannot read is not a repo with no filters. The fixed keys
+        #: still go in, and `verify_git_containment` is what actually decides.
+        return overrides
+    for line in (res.stdout or "").splitlines():
+        key = line.split("=", 1)[0]
+        if _GIT_EXEC_FILTER_RE.match(key):
+            overrides.append((key, ""))
+    return overrides
+
+
+def _with_git_overrides(env: dict[str, str], repo: Path) -> dict[str, str]:
+    """Inject the neutralising config as `-c`-equivalent environment entries.
+
+    AFTER the ENV_ALLOWLIST filter, and the keys are NEVER MEMBERS OF IT (issue
+    #1182). These values are SET BY US. Adding `GIT_CONFIG_*` to the allowlist
+    would instead let a PARENT-set value through into the child - a new escape of
+    exactly the shape #1150 closed when it replaced the wholesale environment
+    copy with a closed allowlist, so the fix would reintroduce the class it
+    exists to close. A comment does not prevent that; the red case in
+    tests/test_host_surface_observe.py does.
+    """
+    for stale in [k for k in env if k.startswith("GIT_CONFIG")]:
+        del env[stale]
+    overrides = git_exec_config_overrides(repo)
+    env["GIT_CONFIG_COUNT"] = str(len(overrides))
+    for i, (key, value) in enumerate(overrides):
+        env[f"GIT_CONFIG_KEY_{i}"] = key
+        env[f"GIT_CONFIG_VALUE_{i}"] = value
     return env
+
+
+_CANARY_SCRIPT = '#!/bin/sh\n: > "$CPP_OBSERVE_CANARY"\nexit 1\n'
+
+
+def containment_bound_text() -> str:
+    """The containment bound, DERIVING the key names from what is enforced.
+
+    A hand-written list drifts from the table it describes, and the drifted
+    version reads exactly as authoritative as the accurate one. Extracted from
+    `main` so the agreement can be tested without running the whole gate - an
+    assertion that costs minutes is one that gets deleted.
+    """
+    return (
+        "  not contained: this run REDIRECTS $HOME and NEUTRALISES the "
+        "command-executing git config it can name ("
+        + ", ".join(sorted(GIT_EXEC_CONFIG_NEUTRALISED))
+        + ", plus any filter driver configured in the checkout), verified by a "
+        "canary REQUIRED to fire with the neutralisation removed. It still does "
+        "not CONFINE the filesystem. That neutralisation is an ENUMERATION and "
+        "is only as strong as its candidate list: a git config key nobody has "
+        "measured, or a write through a channel that is not git at all, remains "
+        "outside what these snapshots can see. `observed` means watched through "
+        "those paths, not proven confined (issue #1182)."
+    )
+
+
+def verify_git_containment() -> list[str]:
+    """Refuse unless a planted `core.fsmonitor` fails to fire under the sandbox
+    environment - AND fires with the neutralisation removed.
+
+    The second half is the POSITIVE CONTROL and is not optional. "The canary did
+    not fire" is equally consistent with a canary that could never fire, which is
+    what a broken probe looks like from outside. Checking only the neutralised
+    side would be the blind instrument this whole script exists to refuse.
+    """
+    problems: list[str] = []
+    workdir = Path(tempfile.mkdtemp(prefix="cpp-observe-git-"))
+    quiet = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+    try:
+        repo = workdir / "repo"
+        canary_script = workdir / "canary.sh"
+        canary_file = workdir / "fired"
+        try:
+            repo.mkdir()
+            canary_script.write_text(_CANARY_SCRIPT, encoding="utf-8")
+            canary_script.chmod(0o755)
+            subprocess.run(["git", "init", "-q", str(repo)], check=True, timeout=30, **quiet)
+            (repo / "a.txt").write_text("hi\n", encoding="utf-8")
+            subprocess.run(
+                ["git", "-C", str(repo), "config", "core.fsmonitor", str(canary_script)],
+                check=True, timeout=30, **quiet,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return [
+                f"could not build the git-containment probe ({exc}), so this run "
+                "cannot establish that a repo-configured command is neutralised"
+            ]
+
+        def fired(env: dict[str, str]) -> bool:
+            canary_file.unlink(missing_ok=True)
+            env = dict(env, CPP_OBSERVE_CANARY=str(canary_file))
+            try:
+                subprocess.run(
+                    ["git", "-C", str(repo), "status"], env=env, timeout=30, **quiet
+                )
+            except (OSError, subprocess.SubprocessError):
+                pass
+            return canary_file.exists()
+
+        base = {k: v for k, v in os.environ.items() if k in ENV_ALLOWLIST}
+        base["HOME"] = str(workdir / "home")
+
+        if not fired(dict(base)):
+            return [
+                "the git-containment probe is BLIND: a planted core.fsmonitor did "
+                "NOT fire even with the neutralisation removed, so a clean result "
+                "from it would say nothing about containment"
+            ]
+        if fired(_with_git_overrides(dict(base), repo)):
+            problems.append(
+                "a repo-configured core.fsmonitor EXECUTED under the sandbox "
+                "environment, so this run cannot bound what a member wrote"
+            )
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+    return problems
 
 
 def verify_sandbox(sandbox: Path, real_home: Path) -> list[str]:
@@ -583,6 +752,25 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     real_home = Path(os.path.expanduser("~"))
+
+    #: ENFORCEMENT, NOT A CAVEAT (issue #1182 acceptance item 2). #1150 stated
+    #: the containment bound in its own verdict, which is the right place for a
+    #: bound - but a statement nothing checks is decoration, and its broken
+    #: version is indistinguishable from its working one. So the claim is now a
+    #: PRECONDITION of certifying anything: if a planted command-executing git
+    #: config either executes under the sandbox environment, or fails to execute
+    #: with the neutralisation removed (a blind probe), nothing is certified.
+    containment = verify_git_containment()
+    if containment:
+        for problem in containment:
+            print(f"host-surface-observe: {problem}", file=sys.stderr)
+        print(
+            "host-surface-observe: REFUSED - git containment could not be "
+            "established, so this run certifies no declaration: "
+            + "; ".join(containment)
+        )
+        return 1
+
     observations: list[Observation] = []
 
     for name in sorted(members):
@@ -768,14 +956,12 @@ def main(argv: list[str] | None = None) -> int:
         "  this design does not do and #1182 does not answer either.",
         file=out,
     )
-    print(
-        "  not contained: this run REDIRECTS $HOME, it does not CONFINE the "
-        "filesystem. A write that does not resolve home through $HOME - a "
-        "repo-configured core.fsmonitor firing on a helper's `git diff`, for "
-        "instance - is outside what these snapshots can see. `observed` means "
-        "watched through those paths, not proven confined (issue #1182).",
-        file=out,
-    )
+    #: THE BOUND NAMES THE ENFORCED KEYS BY DERIVING THEM, never by restating
+    #: them. A hand-written list drifts from the table it describes, and the
+    #: drifted version reads exactly as authoritative as the accurate one.
+    #: tests/test_host_surface_observe.py pins that this line and
+    #: GIT_EXEC_CONFIG_NEUTRALISED cannot disagree.
+    print(containment_bound_text(), file=out)
     for o in escaping:
         print(f"    {o.name}: escapes via {o.reason}", file=out)
     return 0

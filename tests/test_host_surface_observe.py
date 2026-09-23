@@ -7,6 +7,9 @@ Contract:
 - The sandbox is verified IN THE CHILD, and both failing states are covered.
 - Coverage depends on the write VERB.
 - `certified=observed` is enforced, not decoration.
+- Git containment is ENFORCED, not merely stated: a repo-configured
+  command-executing config is neutralised, and the check that says so is
+  itself required to fail when the neutralisation is removed (issue #1182).
 
 WHAT THESE TESTS DELIBERATELY DO NOT DO. They do not execute the sixteen real
 helpers - that is the harness's own job and it takes minutes. They pin the
@@ -22,6 +25,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -575,3 +579,141 @@ def test_an_executable_shell_helper_still_runs(tmp_path: Path, capsys) -> None:
     code, out = _run(root, capsys)
     assert code == 0, out
     assert "1 member(s) were watched writing" in out, out
+
+
+# --------------------------------------------------------------------------- #
+# Git containment (issue #1182) - the route that redirecting $HOME cannot close
+#
+# `core.fsmonitor` lives in the CHECKOUT'S OWN `.git/config`, and git EXECUTES
+# it on the `git diff` / `git ls-files` calls some members make. $HOME never
+# reaches it, so a write through that route lands outside the snapshots and the
+# run still reports clean. These cases pin that it is closed, and - the part
+# that matters - that the closing can be SEEN to fail.
+# --------------------------------------------------------------------------- #
+def _git(*args: str) -> None:
+    subprocess.run(args, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def test_git_containment_holds_as_shipped() -> None:
+    """THE POSITIVE CONTROL for the refusal cases below.
+
+    Without it, a verifier that refused everything would satisfy every refusal
+    test here while making the harness unable to certify anything at all.
+    """
+    assert hso.verify_git_containment() == []
+
+
+def test_the_canary_FIRES_when_the_neutralisation_IS_REMOVED(monkeypatch) -> None:
+    """THE LOAD-BEARING CASE OF ISSUE #1182, and the reason the rest is evidence.
+
+    `verify_git_containment` returning `[]` is worth nothing on its own: a canary
+    that could never fire produces exactly that. This removes the neutralisation
+    and requires the refusal to appear, which is what establishes that the clean
+    result above is a measurement rather than a blind instrument.
+    """
+    monkeypatch.setattr(hso, "GIT_EXEC_CONFIG_NEUTRALISED", {})
+    problems = hso.verify_git_containment()
+    assert problems, "a planted core.fsmonitor must EXECUTE once unneutralised"
+    assert any("EXECUTED under the sandbox environment" in p for p in problems)
+
+
+def test_a_probe_that_CANNOT_fire_is_refused_rather_than_reported_clean(monkeypatch) -> None:
+    """Absence of a signal is only evidence once the extractor is controlled.
+
+    A canary script that never writes its file makes the neutralised run look
+    identical to a working one. That must read as REFUSED - "I cannot tell" - and
+    never as containment established.
+    """
+    monkeypatch.setattr(hso, "_CANARY_SCRIPT", "#!/bin/sh\nexit 1\n")
+    problems = hso.verify_git_containment()
+    assert problems, "a canary that cannot fire must not report containment"
+    assert any("BLIND" in p for p in problems)
+
+
+def test_GIT_CONFIG_keys_are_never_members_of_the_env_allowlist() -> None:
+    """R3, the static half. The neutralising keys are SET BY US, after the
+    allowlist filter. A `GIT_CONFIG_*` entry IN the allowlist would instead admit
+    a PARENT-set value into the child - the exact escape shape #1150 closed when
+    it replaced the wholesale environment copy with a closed allowlist.
+    """
+    assert [k for k in hso.ENV_ALLOWLIST if k.startswith("GIT_CONFIG")] == []
+
+
+def test_a_parent_set_GIT_CONFIG_cannot_reach_the_child(monkeypatch, tmp_path: Path) -> None:
+    """R3, the half that goes red if the static one is ever 'fixed' by widening.
+
+    A comment cannot prevent this; only a case that fails can. The parent here
+    exports a hostile `core.fsmonitor` through the documented `GIT_CONFIG_*`
+    channel, and the child environment must carry OUR value, not the parent's.
+    """
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.fsmonitor")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "/tmp/hostile.sh")
+
+    env = hso.sandbox_env(tmp_path)
+
+    injected = {
+        env[f"GIT_CONFIG_KEY_{i}"]: env[f"GIT_CONFIG_VALUE_{i}"]
+        for i in range(int(env["GIT_CONFIG_COUNT"]))
+    }
+    assert injected.get("core.fsmonitor") == "false"
+    assert "/tmp/hostile.sh" not in env.values()
+
+
+def test_a_configured_filter_driver_is_DISCOVERED_and_neutralised(tmp_path: Path) -> None:
+    """The enumeration found `filter.<driver>.clean` firing on `git status` and
+    `git diff` - a route #1182 does not name. Driver names are arbitrary, so
+    they cannot be neutralised by name and must be discovered instead.
+
+    This is also the POSITIVE CONTROL for the clean-repo case below: that one is
+    only meaningful because this one shows the discovery can find something.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git("git", "init", "-q", str(repo))
+    _git("git", "-C", str(repo), "config", "filter.canary.clean", "/tmp/canary.sh")
+
+    overrides = dict(hso.git_exec_config_overrides(repo))
+
+    assert overrides.get("filter.canary.clean") == "", "a configured clean filter must be disabled"
+    assert overrides.get("core.fsmonitor") == "false", "the fixed keys still apply"
+
+
+def test_a_clean_repo_yields_only_the_fixed_neutralisations(tmp_path: Path) -> None:
+    """The absence half, meaningful only beside the discovery case above."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git("git", "init", "-q", str(repo))
+
+    overrides = dict(hso.git_exec_config_overrides(repo))
+
+    assert [k for k in overrides if k.startswith("filter.")] == []
+    assert overrides == dict(hso.GIT_EXEC_CONFIG_NEUTRALISED)
+
+
+def test_the_printed_bound_names_the_keys_it_actually_enforces(monkeypatch) -> None:
+    """The bound and the enforcement cannot drift apart.
+
+    A bound naming `core.fsmonitor` while the table had quietly stopped
+    neutralising it would read exactly as authoritative as an accurate one. The
+    planted key proves the text is DERIVED rather than merely happening to
+    contain the right words today.
+    """
+    for key in hso.GIT_EXEC_CONFIG_NEUTRALISED:
+        assert key in hso.containment_bound_text()
+
+    monkeypatch.setattr(
+        hso, "GIT_EXEC_CONFIG_NEUTRALISED", {"core.someNewHook": "false"}
+    )
+    assert "core.someNewHook" in hso.containment_bound_text()
+
+
+def test_the_bound_does_not_claim_containment(monkeypatch) -> None:
+    """R1, affirmed by the wave orchestrator: closing a measured route does not
+    earn a stronger word. An enumeration is only as strong as its candidate list,
+    so the text must keep saying `observed` is not `confined`.
+    """
+    text = hso.containment_bound_text()
+    assert "not contained" in text
+    assert "not proven confined" in text
+    assert "ENUMERATION" in text
