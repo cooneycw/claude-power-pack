@@ -1140,6 +1140,20 @@ def run_list_mirrors(sources: list[str], selected: list[str]) -> int:
     the mirror set", which is the question a lane declaration asks - and those
     agree only on a DIRTY tree. On a clean one `--check` names nothing, and the
     only way to learn the set was `--write`, which answers by changing the tree.
+
+    THIS IS THE LANE QUESTION, NOT THE DRIFT QUESTION, and the two are not the
+    same set. For a bundled SCRIPT they coincide - the script and its manifest
+    are exactly what goes stale - which is why they are easy to confuse. For a
+    COMMAND DOCUMENT they diverge sharply: the document produces its whole skill,
+    so editing one puts every file of that skill in the lane while only the
+    generated `SKILL.md` / `reference.md` actually drift. Measured: editing
+    `flow/auto.md` and `flow/finish.md` listed 50 paths and drifted 2.
+
+    So DO NOT use this to decide whether a re-sync is needed. `--check` answers
+    that, in 0.14s, by comparing the generated output against the tree; this
+    answers what a lane must DECLARE. Building a re-sync trigger on an enumerated
+    path set would also be the hazard #1136 removed - "a hardcoded universe
+    again, one entry longer" - but it would be wrong on its own terms first.
     """
     outputs = expected_outputs(selected)
 
@@ -1244,7 +1258,11 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--write", action="store_true", help="(re)generate codex/skills/")
     mode.add_argument(
         "--list-mirrors", nargs="*", metavar="SOURCE", default=None,
-        help="print the codex/skills/ paths SOURCE(s) feed, or all of them; writes nothing",
+        help=(
+            "print the codex/skills/ paths SOURCE(s) feed, or all of them; writes"
+            " nothing. This is what a LANE must declare, NOT what will drift - use"
+            " --check for that"
+        ),
     )
     parser.add_argument(
         "--install", action="store_true",

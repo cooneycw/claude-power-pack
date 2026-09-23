@@ -73,9 +73,26 @@ if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
     # report its own `unavailable`. This is an EXISTENCE guard, not a decision
     # about what changed - the path-pattern condition it replaced is the one
     # that must not come back.
-    if [ -x scripts/codex-skill-resync.sh ]; then
-        bash scripts/codex-skill-resync.sh
-    fi
+fi
+# KEYED ON THE DIFF, NOT ON THE BASE (S4, sibling of #1136). This call used to
+# sit INSIDE the base-moved block above, so it ran only when `origin/main` had
+# moved. Mirror drift is caused by EDITING a file the skills bundle, which is
+# independent of the base - so an ordinary run that edits `scripts/<name>` on a
+# CURRENT base never re-synced, and `make verify` was the only thing that said
+# so, at the cost of a full gate cycle. Measured: #1191 staled two mirrors and
+# #1192 staled four, neither with a moved base.
+#
+# It is called UNCONDITIONALLY and nothing cleverer. The helper already decides
+# for itself by asking `codex-skill-sync.py --check` - 0.14s on a clean tree -
+# so a condition here could only ever be a worse oracle than the one inside it.
+# In particular: do NOT gate this on an enumerated set of bundled paths. That is
+# a path-set prediction, and #1136 removed exactly that - "the fix is not a
+# wider glob - that is a hardcoded universe again, one entry longer" - which
+# `--list-mirrors` (#1151) does not change, because enumerating the set is a
+# different job from deciding whether it drifted.
+# tests/test_codex_skill_resync.py fails if this is re-gated on the base.
+if [ -x scripts/codex-skill-resync.sh ]; then
+    bash scripts/codex-skill-resync.sh
 fi
 ```
 

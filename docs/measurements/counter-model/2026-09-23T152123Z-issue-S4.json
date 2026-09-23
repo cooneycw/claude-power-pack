@@ -1,0 +1,20 @@
+{
+  "branch": "s4-codex-resync-trigger-keys-on-the-diff-not-the-base",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "4113818e288cd111754dc05908666cd18df8d154",
+  "implementer": "claude/claude-opus-5",
+  "issue": "S4",
+  "passes": 1,
+  "recorded_at": "2026-09-23T15:21:23Z",
+  "red_cases": {
+    "already_covered": 2,
+    "proposed": 6
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
