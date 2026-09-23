@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1192-1152-s-gate-dedup-is-inert-for-any-makefile-contai",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "c8f584b7a9e9c8651cc92600f1c8c6e75db3a40f",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1192",
+  "passes": 1,
+  "recorded_at": "2026-09-23T14:25:58Z",
+  "red_cases": {
+    "already_covered": 1,
+    "proposed": 3
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
