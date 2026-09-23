@@ -3856,3 +3856,281 @@ def test_merge_strict_suppression_is_reported_on_every_render_path(tmp_path: Pat
     for args in (("list", "--wave", "zz"), ("list", "--wave", "zz", "--json")):
         out = _run(tmp_path, *args, live=SELF_PID)
         assert "FLOW_WAVE_MERGE_STRICT_SUPPRESSING=" in out.stdout, (args, out.stdout)
+
+
+# ── #1190: a contract line that is missing, and one that is masked ──────────
+#
+# Both defects in this file are the same species as the issue's title: the
+# reader receives something of the RIGHT SHAPE and the WRONG CONTENT, with no
+# way to tell. One is an absent verdict that reads as silence; the other is a
+# present warning that names the wrong collision.
+
+
+@requires_tools
+class TestEveryExitPathCarriesAVerdict:
+    """#1190 defect 2: a refusal that does not announce itself in the
+    documented words.
+
+    The published contract says every verb ends with a machine-readable
+    ``FLOW_WAVE:`` verdict and lists ``error`` among them. ``usage_fail``
+    printed a human line and exited 2 without one, so a contract-conformant
+    caller grepping the documented marker saw NOTHING on a refusal - which
+    reads as "no news", not as "your command was rejected". A worker hit this
+    while re-registering a lane: its check came back empty and the
+    registration had in fact been refused.
+    """
+
+    def test_a_usage_failure_emits_the_documented_error_verdict(
+        self, tmp_path: Path
+    ) -> None:
+        """The issue's own reproducer: ``register`` with no role."""
+        p = _run(tmp_path, "register")
+        assert p.returncode == 2
+        assert _verdict(p) == "error"
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            pytest.param(["register"], id="register-no-role"),
+            pytest.param(["get"], id="get-no-role"),
+            pytest.param(["verify"], id="verify-no-role"),
+            pytest.param(["release"], id="release-no-role"),
+            pytest.param(["not-a-verb"], id="unknown-verb"),
+            pytest.param(["register", "A", "--not-an-option"], id="unknown-option"),
+            pytest.param(["register", "A", "--wave"], id="flag-missing-value"),
+            pytest.param(["verify", "A", "--wave", "w"], id="verify-no-from"),
+        ],
+    )
+    def test_every_usage_failure_path_emits_a_verdict(
+        self, tmp_path: Path, args: list[str]
+    ) -> None:
+        """The issue named four paths; they are four call sites of ONE
+        function with ~45 of them. Fixing the reproducer alone would leave the
+        rest silent, so the population is what is pinned here - a rule invoked
+        once where many candidates exist is the tell.
+
+        The exit CODE is asserted unchanged deliberately: this change adds the
+        missing verdict, it does not renumber the contract. Changing an exit
+        code is a contract change for every caller and belongs in its own
+        change.
+        """
+        p = _run(tmp_path, *args)
+        assert p.returncode == 2, f"{args} should stay a usage error"
+        assert _verdict(p) == "error", f"{args} emitted no FLOW_WAVE: verdict"
+
+    def test_self_address_stays_verdict_free_because_its_stdout_is_captured(
+        self, tmp_path: Path
+    ) -> None:
+        """The GUARD on the other side of this fix, and it exists because the
+        obvious reading of the contract is wrong here.
+
+        "Every verb ends in a verdict" invites adding one to ``self-address``.
+        I did, during #1190, and it was wrong: this is a VALUE-RETURNING query
+        whose stdout IS the address, captured by callers with ``$(...)``.
+        Appending the detail block makes that capture multi-line garbage.
+
+        Two long-standing tests already pin it - both assert ``stdout.strip()``
+        equals the address exactly - and they are what caught the mistake. This
+        one states the RULE rather than a consequence of it, so the next reader
+        of the contract does not repeat the change and then relax those two
+        assertions to make room for it.
+
+        The verdict contract binds the REPORTING verbs. ``self-address``,
+        ``--help`` and the ``--any-live-only`` sub-mode are payload queries.
+        """
+        p = _run(tmp_path, "self-address")
+        assert _verdict(p) == "", (
+            "self-address emitted a FLOW_WAVE: verdict - that breaks "
+            "ADDR=$(flow-wave-registry.sh self-address) for every caller"
+        )
+        assert len(p.stdout.strip().splitlines()) == 1, (
+            "self-address stdout must stay a single capturable line"
+        )
+
+    def test_a_corrupt_registry_update_emits_a_verdict(self, tmp_path: Path) -> None:
+        """A registry write that FAILED must not be reported as success.
+
+        This started as "the with_lock paths exit 3 with no verdict". Measured,
+        that premise was wrong and the truth is worse. The ``exit 3`` happens
+        inside the ``with_lock`` SUBSHELL and nothing read its status, so the
+        script carried on: with a corrupt ``registry.json``, ``register``
+        printed ``FLOW_WAVE: registered`` and exited **0** while the update had
+        failed and NOTHING was recorded.
+
+        So exit 3 never reached a caller, and there was no "documented exit
+        code" to preserve - the observable behaviour was a confident false
+        success. That is the same species as the rest of #1190 and the most
+        severe instance of it: the contract line is present, well-formed, and
+        says the opposite of what happened.
+        """
+        reg = tmp_path / "reg"
+        reg.mkdir(parents=True, exist_ok=True)
+        (reg / "registry.json").write_text("{ this is not json")
+        p = _run(tmp_path, "register", "A", "--wave", "cpp")
+        assert p.returncode == 3
+        assert _verdict(p) == "error", "a corrupt-registry refusal emitted no verdict"
+
+
+@requires_tools
+class TestASharedParentCwdDoesNotMaskAFileLaneCollision:
+    """#1190, found while working the issue: the overlap detector goes quiet
+    exactly when it is most needed.
+
+    ``report_overlap`` is an elif chain - ONE warning per pair - and the
+    worktree arm sits above the file-lane arm. That precedence is deliberate
+    and documented: a real nested worktree IS a stronger statement about a
+    pair. But ``cwd_is_shared_parent`` exists precisely to identify a worktree
+    match that is an ARTEFACT of registering before cutting a worktree, and its
+    own comment claims such a false positive "never changes a verdict".
+
+    It does. It silences the file-lane arm for that pair. And because the
+    lane-less exemption requires an EMPTY file lane, declaring the lane you
+    were granted is what loses you the exemption - so declaring a lane made
+    collision detection strictly WORSE than declaring nothing, at the exact
+    moment a lane is handed over.
+
+    Observed in production: an orchestrator granted ``docs/scripts.md`` to
+    three roles at once and told a worker in writing that two files were free
+    while another role held them, then concluded it had failed to re-read the
+    roster. The roster could not have told it.
+    """
+
+    def _register_pair(self, tmp: Path, cwd_a: Path, cwd_b: Path) -> None:
+        for (role, pid, session), cwd in (
+            ((("A"), SELF_PID, SELF_SESSION), cwd_a),
+            ((("B"), OTHER_PID, OTHER_SESSION), cwd_b),
+        ):
+            _run(
+                tmp, "register", role, "--wave", "cpp",
+                "--socket", f"uds:/tmp/{role}.sock",
+                "--repo", "/repo", "--cwd", str(cwd), "--files", "shared.py",
+                pid=pid, session=session,
+            )
+
+    def test_a_shared_parent_cwd_does_not_mask_a_file_lane_overlap(
+        self, tmp_path: Path
+    ) -> None:
+        """THE RED CASE. Two live roles declare the SAME file in the same repo.
+        Role A's cwd is a shared projects parent - two checkouts under it - and
+        therefore nests over role B's worktree.
+
+        Pre-fix this reports only "same/nested worktrees" and never names
+        ``shared.py``, so a reader who tidies the cwd sees the pair go clean
+        while the real collision remains.
+        """
+        parent = tmp_path / "projects"
+        (parent / "one" / ".git").mkdir(parents=True)
+        (parent / "two" / ".git").mkdir(parents=True)
+        worktree = parent / "repo-issue-1"
+        worktree.mkdir()
+
+        self._register_pair(tmp_path, parent, worktree)
+        p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+
+        assert "overlapping FILE LANES" in p.stdout, (
+            "the file-lane collision was masked by a worktree match that "
+            "cwd_is_shared_parent already knows is an artefact"
+        )
+        assert "shared.py" in p.stdout, "the colliding path was never named"
+
+    def test_a_real_nested_worktree_pair_still_reports_the_worktree_collision(
+        self, tmp_path: Path
+    ) -> None:
+        """The guard on the other side, so the fix cannot over-suppress.
+
+        Here the nesting is REAL - neither cwd is a shared projects parent -
+        so the worktree arm must still fire and keep its precedence. A fix that
+        simply stopped trusting the worktree arm would pass the test above and
+        silently break this one, which is the oscillation this pair pins.
+        """
+        outer = tmp_path / "wt"
+        inner = outer / "inner"
+        inner.mkdir(parents=True)
+
+        self._register_pair(tmp_path, outer, inner)
+        p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+
+        assert "same/nested worktrees" in p.stdout, (
+            "a genuine nested-worktree collision stopped being reported"
+        )
+
+    def test_a_real_checkout_with_submodules_is_not_treated_as_a_projects_parent(
+        self, tmp_path: Path
+    ) -> None:
+        """#1190 round 2, found by counter-model review.
+
+        ``cwd_is_shared_parent``'s second signature is "contains 2+ git
+        checkouts", a heuristic for the ~/Projects shape. A REAL checkout
+        holding two submodules satisfies it too. That is harmless at its other
+        call sites, which only print an advisory line - but in the artefact
+        predicate it would stand down a worktree warning between a genuine
+        checkout and a role working inside it.
+
+        A suppressed TRUE warning is precisely what this whole change exists to
+        stop, so the fix that removes one blind spot must not open another. The
+        nested-worktree guard above uses EMPTY directories and cannot see this
+        case, which is why it gets its own.
+        """
+        checkout = tmp_path / "realrepo"
+        (checkout / ".git").mkdir(parents=True)
+        (checkout / "sub1" / ".git").mkdir(parents=True)
+        (checkout / "sub2" / ".git").mkdir(parents=True)
+        inner = checkout / "workdir"
+        inner.mkdir()
+
+        for (role, pid, session), cwd, files, issue in (
+            (("A", SELF_PID, SELF_SESSION), checkout, "a.py", "11"),
+            (("B", OTHER_PID, OTHER_SESSION), inner, "b.py", "22"),
+        ):
+            _run(
+                tmp_path, "register", role, "--wave", "cpp",
+                "--socket", f"uds:/tmp/{role}.sock",
+                "--repo", "/repo", "--cwd", str(cwd),
+                "--files", files, "--issue", issue,
+                pid=pid, session=session,
+            )
+        p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+
+        assert "same/nested worktrees" in p.stdout, (
+            "a genuine shared checkout was exempted as a pre-worktree artefact "
+            "because it happens to contain two submodules"
+        )
+
+    def test_a_directory_inside_a_checkout_is_not_a_projects_parent(
+        self, tmp_path: Path
+    ) -> None:
+        """#1190 round 3, from the re-review.
+
+        Protecting only the checkout ROOT was not enough. Given ``/repo/.git``
+        with submodules at ``/repo/modules/one`` and ``/repo/modules/two``, the
+        directory ``/repo/modules`` has no ``.git`` of its own, differs from the
+        declared repo, and still satisfies the two-child-checkouts heuristic -
+        so a pair working there was exempted and a genuine nested collision went
+        unreported.
+
+        Anywhere INSIDE a checkout is a lane, not a projects parent.
+        """
+        repo = tmp_path / "repo"
+        (repo / ".git").mkdir(parents=True)
+        modules = repo / "modules"
+        (modules / "one" / ".git").mkdir(parents=True)
+        (modules / "two" / ".git").mkdir(parents=True)
+        inner = modules / "workdir"
+        inner.mkdir()
+
+        for (role, pid, session), cwd, files, issue in (
+            (("A", SELF_PID, SELF_SESSION), modules, "a.py", "11"),
+            (("B", OTHER_PID, OTHER_SESSION), inner, "b.py", "22"),
+        ):
+            _run(
+                tmp_path, "register", role, "--wave", "cpp",
+                "--socket", f"uds:/tmp/{role}.sock",
+                "--repo", str(repo), "--cwd", str(cwd),
+                "--files", files, "--issue", issue,
+                pid=pid, session=session,
+            )
+        p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+
+        assert "same/nested worktrees" in p.stdout, (
+            "a directory inside a checkout was treated as a projects parent"
+        )
