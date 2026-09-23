@@ -393,25 +393,24 @@ if [ -L "$HOOK_LINK" ] || [ -f "$HOOK_LINK" ]; then
   # On user confirm:  rm -f "$HOOK_LINK" && echo "Removed $HOOK_LINK"
 fi
 
-# 2. Stale PreToolUse block in this project's copied hooks.json
-if [ -f ".claude/hooks.json" ] && \
-   grep -q "hook-validate-command.sh" .claude/hooks.json 2>/dev/null; then
+# 2. Leftover hooks.json in this project (CPP no longer ships one)
+# DETECT THE FILE, NOT THE RETIRED SCRIPT NAME. Keying on
+# hook-validate-command.sh missed every project carrying the hooks.json CPP
+# itself shipped - it holds only SessionStart and masking declarations, so the
+# grep never matched and the offer /cpp:status promises was never made.
+if [ -f ".claude/hooks.json" ]; then
   echo "This project's .claude/hooks.json is a leftover: CPP no longer ships it (#1206)."
-  echo "  Claude Code never loaded that path, so nothing in it ever ran."
-  echo "  Offer to remove the whole file."
-  # On user confirm, strip the retired hook while preserving everything else:
-  #   python3 - <<'PY'
-  #   import json, pathlib
-  #   p = pathlib.Path(".claude/hooks.json"); d = json.loads(p.read_text())
-  #   pre = d.get("hooks", {}).get("PreToolUse", [])
-  #   kept = [m for m in pre
-  #           if not any("hook-validate-command.sh" in h.get("command", "")
-  #                      for h in m.get("hooks", []))]
-  #   if kept: d["hooks"]["PreToolUse"] = kept
-  #   else: d["hooks"].pop("PreToolUse", None)
-  #   p.write_text(json.dumps(d, indent=2) + "\n")
-  #   print("Stripped retired PreToolUse hook from .claude/hooks.json")
-  #   PY
+  echo "  Claude Code never loaded that path, so nothing in it ever ran -"
+  echo "  neither the masking declarations nor the SessionStart notice."
+  if grep -q "hook-validate-command.sh" .claude/hooks.json 2>/dev/null; then
+    echo "  It also still references the PreToolUse hook retired in #439."
+  fi
+  echo "  Offer to remove the WHOLE FILE (user-confirmed; default N)."
+  # On user confirm, remove the file outright - there is nothing in it to
+  # preserve, since Claude Code loads none of it:
+  #   rm .claude/hooks.json
+  # (The older recipe stripped only the PreToolUse block and KEPT the file,
+  # which is no longer the right outcome - nothing in it is loaded.)
 fi
 ```
 

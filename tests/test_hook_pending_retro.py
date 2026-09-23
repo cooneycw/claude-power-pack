@@ -23,6 +23,7 @@ bash is required).
 from __future__ import annotations
 
 import os
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -241,25 +242,60 @@ def test_not_registered_by_anything_cpp_ships():
     assert not (ROOT / ".claude" / "hooks.json").exists(), (
         "CPP ships a hooks file again; this test's original subject is back"
     )
-    # Walked, not `git ls-files` - same reason as the claim control in
-    # tests/test_hook_mask_output.py: a binary guard here would be a skipif, and
-    # a skipif switches this off in the CI image with no git.
-    skip = ("tests/", "docs/", "controls/", ".specify/", "codex/skills/",
-            ".git/", ".venv/", "node_modules/", "__pycache__/")
+    # SAME TWO CORRECTIONS AS THE MASKER CONTROL (counter-model review):
+    # authoritative population, and a read count rather than a path count.
+    #
+    # The walk could not tell a file CPP SHIPS from a user's own ignored
+    # `.claude/settings.local.json`, in which an explicit opt-in registration is
+    # correct and expected - so it would have reported the user's own choice as
+    # a CPP regression. And discarding read failures silently meant an entirely
+    # unreadable tree passed.
+    if shutil.which("git") is None:
+        pytest.skip("git absent in the CI validate image")
+    listed = subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files", "-z"],
+        capture_output=True, text=True, check=True,
+    ).stdout.split("\0")
+    skip = ("tests/", "docs/", "controls/", ".specify/", "codex/skills/")
     offenders = []
-    for path in ROOT.rglob("*"):
-        if not path.is_file() or path.suffix not in {".json", ".md", ".sh"}:
+    read_ok = 0
+    for rel in listed:
+        if not rel or rel.startswith(skip):
             continue
-        rel = path.relative_to(ROOT).as_posix()
-        if rel.startswith(skip):
+        path = ROOT / rel
+        if not path.is_file() or path.suffix not in {".json", ".md", ".sh"}:
             continue
         try:
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
+        read_ok += 1
+        if path.suffix == ".json":
+            try:
+                doc = json.loads(text)
+            except json.JSONDecodeError:
+                doc = None
+            if doc is not None:
+                stack = [doc]
+                hit = False
+                while stack:
+                    node = stack.pop()
+                    if isinstance(node, dict):
+                        for k, v in node.items():
+                            if k == "command" and isinstance(v, str) and "hook-pending-retro" in v:
+                                hit = True
+                            stack.append(v)
+                    elif isinstance(node, list):
+                        stack.extend(node)
+                if hit:
+                    offenders.append(rel)
+                continue
         for n, line in enumerate(text.splitlines(), 1):
             if "hook-pending-retro" in line and '"command"' in line:
                 offenders.append(f"{rel}:{n}")
+    assert read_ok > 20, (
+        f"only {read_ok} shipped files could be read; a zero here would mean nothing"
+    )
     assert not offenders, (
         "hook-pending-retro must stay opt-in - something now registers it as a "
         "hook command by default: " + ", ".join(offenders)

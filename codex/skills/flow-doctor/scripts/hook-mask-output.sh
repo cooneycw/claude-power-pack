@@ -2,14 +2,23 @@
 #
 # hook-mask-output.sh - mask secrets in a Claude hook-shaped JSON payload
 #
-# This hook receives tool output on stdin and masks sensitive data
-# before it's shown to Claude, preventing secrets from entering context.
+# Reads a Claude hook-shaped JSON payload on stdin and rewrites its
+# `tool_output` field through the sibling secrets-mask.sh.
 #
-# Usage (called by Claude Code hooks system):
+# CPP DOES NOT REGISTER OR DISPATCH THIS HELPER (#1206, Decision 1). Nothing
+# routes live tool output through it, and no shipped file claims otherwise.
+# Decision 2 - registering it - was put to the owner and DECLINED. Do not read
+# this file's existence as evidence that anything is being masked.
+#
+# It is kept because it works, and because /security:* runs it over files AT
+# REST, where a false positive costs a glance rather than corrupting a live
+# channel.
+#
+# Usage (standalone):
 #   echo '{"tool_output": "password=secret123"}' | hook-mask-output.sh
 #
-# Input: JSON with tool_name, tool_input, tool_output
-# Output: Modified tool_output (or empty for no change)
+# Input:  JSON with tool_name, tool_input, tool_output
+# Output: modified tool_output (or empty for no change)
 #
 
 set -euo pipefail
