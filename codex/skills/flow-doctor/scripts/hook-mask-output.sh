@@ -1,15 +1,24 @@
 #!/bin/bash
 #
-# hook-mask-output.sh - PostToolUse hook to mask secrets in tool output
+# hook-mask-output.sh - mask secrets in a Claude hook-shaped JSON payload
 #
-# This hook receives tool output on stdin and masks sensitive data
-# before it's shown to Claude, preventing secrets from entering context.
+# Reads a Claude hook-shaped JSON payload on stdin and rewrites its
+# `tool_output` field through the sibling secrets-mask.sh.
 #
-# Usage (called by Claude Code hooks system):
+# CPP DOES NOT REGISTER OR DISPATCH THIS HELPER (#1206, Decision 1). Nothing
+# routes live tool output through it, and no shipped file claims otherwise.
+# Decision 2 - registering it - was put to the owner and DECLINED. Do not read
+# this file's existence as evidence that anything is being masked.
+#
+# It is kept because it works, and because /security:* runs it over files AT
+# REST, where a false positive costs a glance rather than corrupting a live
+# channel.
+#
+# Usage (standalone):
 #   echo '{"tool_output": "password=secret123"}' | hook-mask-output.sh
 #
-# Input: JSON with tool_name, tool_input, tool_output
-# Output: Modified tool_output (or empty for no change)
+# Input:  JSON with tool_name, tool_input, tool_output
+# Output: modified tool_output (or empty for no change)
 #
 
 set -euo pipefail
@@ -138,10 +147,11 @@ except Exception as exc:
     # mask, and the unmasked value went through while the run looked clean.
     #
     # WHAT THIS DOES AND DOES NOT BUY, stated because the difference matters: a
-    # non-zero exit does NOT retract the tool output - by the time a PostToolUse
-    # hook runs, the output exists. It cannot protect. What it changes is that
-    # the failure is now ANNOUNCED rather than mistaken for success, so nobody
-    # reads an unmasked line as evidence that nothing needed masking.
+    # non-zero exit does NOT retract anything. This filter runs over text that
+    # already exists - and since #1206 it is not wired into a live channel at
+    # all. It cannot protect. What it changes is that the failure is now
+    # ANNOUNCED rather than mistaken for success, so nobody reads an unfiltered
+    # line as evidence that nothing needed filtering.
     print(
         "hook-mask-output: FAILED to process tool output (%s: %s). "
         "The output was NOT masked. Do not read its absence of secrets as "

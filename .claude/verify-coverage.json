@@ -210,7 +210,7 @@
     },
     "hook-mask-output.sh": {
       "class": "not-a-checker",
-      "reason": "the PostToolUse masking hook; it rewrites output and issues no verdict"
+      "reason": "a secret-masking filter for files at rest; it rewrites text and issues no verdict"
     },
     "hook-pending-retro.sh": {
       "class": "not-a-checker",

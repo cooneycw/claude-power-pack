@@ -54,7 +54,6 @@ desktop.ini
 *.json
 !package.json
 !tsconfig.json
-!.claude/hooks.json
 !renovate.json
 !.mcp.json
 !templates/claude-settings-permissions.json
