@@ -1,0 +1,7 @@
+{
+ "captured_at": "2026-09-20T00:00:00Z",
+ "source": "KNOWN-GOOD fixture: an OBSERVED empty population. The lists are present and explicitly empty, which is what distinguishes this from an unread input.",
+ "comments": [],
+ "issues": [],
+ "friction": []
+}

@@ -1,0 +1,11 @@
+{
+ "captured_at": "2026-09-20T00:00:00Z",
+ "source": "KNOWN-BAD fixture: one finding, one filing event, a delay of exactly 3.00 days",
+ "comments": [
+  {"id": "900001", "created_at": "2026-09-10T00:00:00Z", "body": "A finding that was recorded and later filed."}
+ ],
+ "issues": [
+  {"number": 4242, "created_at": "2026-09-13T00:00:00Z", "body": "Filed from the nit store: https://github.com/cooneycw/claude-power-pack/issues/864#issuecomment-900001"}
+ ],
+ "friction": []
+}
