@@ -61,10 +61,11 @@ echo "Scripts: $SCRIPTS_INSTALLED/$SCRIPTS_TOTAL installed in ~/.claude/scripts/
 
 # Check hooks.json
 if [ -f ".claude/hooks.json" ]; then
-  HOOK_COUNT=$(grep -c '"event"' .claude/hooks.json 2>/dev/null || echo "0")
-  echo "[x] Hooks configured: $HOOK_COUNT hooks in .claude/hooks.json"
+  echo "[!] Leftover .claude/hooks.json from an older install (#1206)."
+  echo "    Claude Code does not load this path, so nothing in it runs."
+  echo "    /cpp:update Step 4.7 offers to remove it."
 else
-  echo "[ ] Hooks: .claude/hooks.json not found"
+  echo "[x] No .claude/hooks.json - correct since #1206; CPP registers no hooks here"
 fi
 
 # Check shell prompt integration (look for prompt-context.sh in bashrc/zshrc)

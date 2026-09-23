@@ -226,12 +226,40 @@ def test_skip_env_suppresses_only_the_drift_half(tmp_path: Path):
     assert "CPP retro:" in r.stdout
 
 
-def test_not_registered_in_shipped_hooks_json():
-    # Opt-in integrity (the whole point): the reminder must NOT live in the
-    # shipped .claude/hooks.json, which /cpp:init copies into user projects -
-    # that would turn it on for everyone by default. It is registered only via
-    # the user-confirmed (default N) settings.json path in /cpp:init|update.
-    hooks = (ROOT / ".claude" / "hooks.json").read_text(encoding="utf-8")
-    assert "hook-pending-retro" not in hooks, (
-        "hook-pending-retro must stay opt-in: never in the shipped .claude/hooks.json"
+def test_not_registered_by_anything_cpp_ships():
+    """Opt-in integrity: the property outlived its subject (#1206).
+
+    This read `.claude/hooks.json` and asserted the reminder was absent from it.
+    #1206 deleted that file, so the read raises FileNotFoundError - and a test
+    that cannot run is not a test that passes. The PROPERTY is unchanged and
+    still matters: registering this reminder by default would turn it on for
+    everyone, which is the imposition the feature exists to avoid.
+
+    So the subject widens from one file to everything CPP ships. That is
+    strictly stronger than what it replaced, which could only ever see one path.
+    """
+    assert not (ROOT / ".claude" / "hooks.json").exists(), (
+        "CPP ships a hooks file again; this test's original subject is back"
+    )
+    listed = subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files", "-z"],
+        capture_output=True, text=True, check=True,
+    ).stdout.split("\0")
+    offenders = []
+    for rel in listed:
+        if not rel or rel.startswith(("tests/", "docs/", "controls/", ".specify/", "codex/skills/")):
+            continue
+        path = ROOT / rel
+        if not path.is_file() or path.suffix not in {".json", ".md", ".sh"}:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        for n, line in enumerate(text.splitlines(), 1):
+            if "hook-pending-retro" in line and '"command"' in line:
+                offenders.append(f"{rel}:{n}")
+    assert not offenders, (
+        "hook-pending-retro must stay opt-in - something now registers it as a "
+        "hook command by default: " + ", ".join(offenders)
     )

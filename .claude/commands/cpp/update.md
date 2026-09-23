@@ -374,9 +374,11 @@ fi
 ## Step 4.7: Retired PreToolUse Hook Cleanup
 
 The PreToolUse dangerous-command hook (`hook-validate-command.sh`) was retired
-(issue #439) - native destructive-git blocking + OS sandboxing now cover it, and
-the PostToolUse secret-masking hook is retained. Because scripts are symlinked
-into `~/.claude/scripts/` and `hooks.json` is **copied** into each project, an
+(issue #439) - native destructive-git blocking + OS sandboxing now cover it. The
+secret-masking hook that used to be declared alongside it is gone too (issue
+#1206): it was never registered where Claude Code reads, so it never ran.
+Because scripts are symlinked into `~/.claude/scripts/` and `hooks.json` was
+**copied** into each project, an
 older install can be left with a dangling `hook-validate-command.sh` symlink and
 a stale `PreToolUse` block that points at it. A dangling hook command exits
 non-zero and would **block every Bash command**, so sweep both. This is a
@@ -394,9 +396,9 @@ fi
 # 2. Stale PreToolUse block in this project's copied hooks.json
 if [ -f ".claude/hooks.json" ] && \
    grep -q "hook-validate-command.sh" .claude/hooks.json 2>/dev/null; then
-  echo "This project's .claude/hooks.json still references the retired PreToolUse hook."
-  echo "  Native git-blocking + sandbox cover it; the PostToolUse masking hook is kept."
-  echo "  Offer to strip only the validate-command PreToolUse block (masking untouched)."
+  echo "This project's .claude/hooks.json is a leftover: CPP no longer ships it (#1206)."
+  echo "  Claude Code never loaded that path, so nothing in it ever ran."
+  echo "  Offer to remove the whole file."
   # On user confirm, strip the retired hook while preserving everything else:
   #   python3 - <<'PY'
   #   import json, pathlib
@@ -1652,7 +1654,7 @@ installed-vs-checkout command drift via the sibling `scripts/install-drift.sh`
 report. The script is re-linked
 into `~/.claude/scripts/` by the Tier 2 refresh; this step registers it in
 `~/.claude/settings.json` if not already there. Opt-in and user-confirmed
-(default N) - it is deliberately NOT shipped in `.claude/hooks.json`, so it never
+(default N) - CPP ships no hooks file at all since #1206, so it never
 turns itself on.
 
 ```bash
@@ -1856,12 +1858,16 @@ if [ -L ".claude/commands" ] || [ -d ".claude/commands" ]; then
   TIER=1
 fi
 
-# Tier 2: scripts + hooks
+# Tier 2: scripts (hooks conjunct dropped in #1206 - see below)
 SCRIPTS_COUNT=0
 for script in prompt-context.sh worktree-remove.sh secrets-mask.sh hook-mask-output.sh; do
   [ -f ~/.claude/scripts/$script ] || [ -L ~/.claude/scripts/$script ] && SCRIPTS_COUNT=$((SCRIPTS_COUNT + 1))
 done
-[ -f ".claude/hooks.json" ] && [ "$SCRIPTS_COUNT" -ge 3 ] && TIER=2
+# Scripts ALONE decide Tier 2 since #1206. Requiring .claude/hooks.json here
+# capped every newly initialised project at Tier 1 once CPP stopped shipping it -
+# a predicate that cannot become true, degrading silently while the ladder still
+# advertised the rung.
+[ "$SCRIPTS_COUNT" -ge 3 ] && TIER=2
 
 # Tier 3: MCP servers
 MCP_LIST=$(claude mcp list 2>/dev/null || echo "")

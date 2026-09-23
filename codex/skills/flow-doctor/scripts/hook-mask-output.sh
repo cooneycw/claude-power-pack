@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# hook-mask-output.sh - PostToolUse hook to mask secrets in tool output
+# hook-mask-output.sh - mask secrets in a Claude hook-shaped JSON payload
 #
 # This hook receives tool output on stdin and masks sensitive data
 # before it's shown to Claude, preventing secrets from entering context.

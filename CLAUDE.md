@@ -131,7 +131,7 @@ in [scripts.md](docs/scripts.md).
 
 ## Security
 
-- Never print, commit, or expose secrets. The PostToolUse hook masks tool output but does not authorize reading credentials.
+- Never print, commit, or expose secrets.
 - Destructive commands remain subject to native safeguards and explicit user authorization.
 - The PermissionRequest hook is an observe-only, fail-open permission-prompt census; it never decides permissions.
 - Never allowlist file-dumpers or bare tool namespaces. Raw shipping actions remain excluded from the user-level flow allowlist.

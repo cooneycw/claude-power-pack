@@ -138,19 +138,37 @@ def test_no_PROJECT_settings_file_declares_the_masker(tmp_path: Path):
     )
 
 
-def test_hooks_json_is_still_the_only_declaration_and_is_not_a_read_location():
-    """The positive half of the same fact, so it cannot be read as 'no config'."""
-    hooks = json.loads((ROOT / ".claude" / "hooks.json").read_text())
-    post = hooks.get("hooks", {}).get("PostToolUse", [])
-    masking = [
-        e for e in post
-        if any("hook-mask-output" in (h.get("command") or "") for h in (e.get("hooks") or []))
-    ]
-    assert masking, "the masking hook's declaration vanished from .claude/hooks.json"
-    # And the shape defect is still there, unobservable until the location is fixed.
-    assert all(isinstance(e.get("matcher"), dict) for e in masking), (
-        "the matcher shape changed in a file nothing reads - that is a fix that "
-        "looks like a fix and changes nothing; fix the LOCATION first"
+def test_no_declaration_of_the_masker_ships_anywhere():
+    """Run 1 of #1206 pinned that `.claude/hooks.json` still HELD the declaration.
+
+    Decision 1 deleted the file, so that assertion's subject is gone and the
+    test inverts rather than being deleted: what matters now is that no shipped
+    file re-creates a declaration Claude Code would never load anyway.
+
+    Inverting rather than deleting is deliberate. A removed test leaves nothing
+    to notice the file coming back; this one names the exact path and fails if
+    it returns.
+    """
+    assert not (ROOT / ".claude" / "hooks.json").exists(), (
+        ".claude/hooks.json is back. CPP does not ship it (#1206 Decision 1): "
+        "Claude Code never loaded that path, so its only effect was to make "
+        "people believe their tool output was masked. If registration is being "
+        "revisited, the documented home is the USER settings file written by "
+        "the installer, not this one."
+    )
+    declaring = []
+    for path in _shipped_surfaces():
+        if path.suffix not in {".json", ".md", ".sh"}:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        for n, line in enumerate(text.splitlines(), 1):
+            if "hook-mask-output" in line and '"command"' in line:
+                declaring.append(f"{path.relative_to(ROOT)}:{n}")
+    assert not declaring, (
+        "a shipped file declares the masker as a hook command: " + ", ".join(declaring)
     )
 
 
@@ -207,3 +225,119 @@ def test_NON_UTF8_input_is_announced_rather_than_traced():
     err = out.stderr.decode("utf-8", "replace")
     assert out.returncode != 0
     assert "NOT masked" in err, "an undecodable payload must still announce:\n" + err
+
+
+# --- THE CLAIM CONTROL (#1206 Decision 1) -----------------------------------
+#
+# Everything above tests a BEHAVIOUR. This tests a CLAIM, and it is the control
+# the removal needs: the owner ruled that CPP stops asserting a protection it
+# does not provide, so the thing that can regress is the SENTENCE, not the code.
+#
+# It is the #1083 shape - a test that FAILS if the assertion returns - and it
+# was shown RED against the pre-removal tree before the removal was written. A
+# claim control written afterwards passes over an empty population and proves
+# nothing about what it would catch.
+
+
+def _shipped_surfaces() -> list[Path]:
+    """Files whose text a USER reads as a statement about their install.
+
+    The population is `git ls-files`, so an untracked scratch file cannot
+    inflate it and an ignored one cannot hide in it. Exclusions are a DENY
+    list, never an allow list: a new top-level directory is therefore scanned
+    by default rather than silently skipped, and the failure direction of a
+    too-narrow deny list is a loud false positive rather than a silence.
+
+    What is excluded, and why each one is a RECORD rather than a claim:
+
+      docs/flow-runs, docs/research, docs/reviews, docs/decisions,
+      docs/measurements, .specify, CHANGELOG.md
+                    history. An ADR saying what was true in September is not a
+                    claim about what ships today, and rewriting it to match the
+                    present is how a decision record stops being one.
+      controls/     fixtures and frozen anchors. An anchor is a byte-exact copy
+                    of a past implementation; editing one destroys the control.
+      tests/        this file argues about the claim, so it must contain the
+                    words. A scanner that reads its own assertions is the
+                    text-search-matches-its-own-documentation trap.
+      codex/skills/ byte-identical generated mirrors. They are regenerated from
+                    the sources above, so flagging them would report every
+                    finding twice and invite fixing the copy instead of the
+                    source.
+    """
+    excluded = (
+        "docs/flow-runs/", "docs/research/", "docs/reviews/", "docs/decisions/",
+        "docs/measurements/", ".specify/", "controls/", "tests/", "codex/skills/",
+    )
+    listed = subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files", "-z"],
+        capture_output=True, text=True, check=True,
+    ).stdout.split("\0")
+    return [
+        ROOT / p for p in listed
+        if p and p != "CHANGELOG.md" and not p.startswith(excluded)
+        and (ROOT / p).is_file()
+    ]
+
+
+def test_the_scan_can_find_something_before_it_is_believed():
+    """The extractor control. A broken scan's zero looks exactly like a real one.
+
+    `test_no_shipped_surface_claims_active_masking` reports a POPULATION OF
+    ZERO on a healthy tree, and that is indistinguishable from a scan that
+    reads no files, decodes nothing, or matches nothing ever. So prove the
+    machinery can produce a hit: run the same predicate over a line that is a
+    known instance of exactly what it looks for.
+    """
+    surfaces = _shipped_surfaces()
+    assert len(surfaces) > 100, f"population collapsed to {len(surfaces)} files"
+    planted = "- **PostToolUse (Bash/Read)**: Secret masking via `hook-mask-output.sh`"
+    assert _asserts_active_masking(planted), (
+        "the predicate does not match a line taken verbatim from the pre-removal "
+        "tree - it would report every tree clean"
+    )
+    assert not _asserts_active_masking("- PostToolUse hooks are not used by CPP.")
+
+
+def _asserts_active_masking(line: str) -> bool:
+    """`PostToolUse` and `mask` on ONE line, in either order, any case.
+
+    A SHAPE rather than a phrase list, deliberately. The eight surfaces this
+    issue set out to fix were found from three anchors; this shape found three
+    MORE that nobody had named - `.claude/verify-coverage.json`,
+    `scripts/hook-permission-census.sh` and
+    `templates/claude-settings-permissions.md` - because a list of today's
+    wordings only ever catches today's wordings.
+
+    There is no negation carve-out, and that is the point: after this change
+    CPP ships no PostToolUse masking hook, so a shipped file has no occasion to
+    put the two words together even to deny it. Re-adding the pairing must be a
+    deliberate act that also edits this predicate, which is what makes the
+    control a record of the decision rather than a spell-checker.
+    """
+    low = line.lower()
+    return "posttooluse" in low and "mask" in low
+
+
+def test_no_shipped_surface_claims_active_masking():
+    """RED before this change: 14 lines across 10 files, CLAUDE.md:134 among them.
+
+    That red run is the evidence. Re-reading the removal would only confirm
+    what it MEANT; this is what it CAN say.
+    """
+    offenders: list[str] = []
+    for path in _shipped_surfaces():
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue  # binary or unreadable: it is not a surface a user reads
+        for n, line in enumerate(text.splitlines(), 1):
+            if _asserts_active_masking(line):
+                offenders.append(f"{path.relative_to(ROOT)}:{n}: {line.strip()[:120]}")
+    assert not offenders, (
+        "a shipped surface pairs PostToolUse with masking again. CPP does not "
+        "register a PostToolUse masking hook (owner ruling, #1206 Decision 1); "
+        "the masker survives as a file-at-rest tool for /security:*. If this is "
+        "a deliberate reversal, change the ruling and this test together:\n  "
+        + "\n  ".join(offenders)
+    )

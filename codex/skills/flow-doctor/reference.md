@@ -95,6 +95,7 @@ Use the detection result to suggest the specific template file in the Actions Ne
 
 ```bash
 # hooks.json exists?
+# A hooks.json here is a LEFTOVER, not a feature (#1206). Report it as such.
 if [ -f ".claude/hooks.json" ]; then
   # Check for expected hooks
   grep -l "SessionStart\|PostToolUse" .claude/hooks.json
@@ -103,10 +104,12 @@ fi
 
 Check for the two expected hook types:
 - **SessionStart**: Upstream change detection
-- **PostToolUse (Bash/Read)**: Secret masking via `hook-mask-output.sh`
 
 The PreToolUse dangerous-command hook was retired (issue #439); native
-destructive-git blocking + OS sandboxing cover it.
+destructive-git blocking + OS sandboxing cover it. The output-masking hook that
+was declared alongside it is gone too (#1206): it lived where Claude Code does
+not read, so it never ran. A `.claude/hooks.json` found here is a leftover from
+an older install and `/cpp:update` Step 4.7 offers to remove it.
 
 ### Step 5: Scripts Availability
 
@@ -344,8 +347,8 @@ Output a single diagnostic report in this format:
 | Check | Status | Details |
 |-------|--------|---------|
 | Makefile | ✅/⚠️/❌ | Targets: lint, test, deploy / Not found |
-| hooks.json | ✅/❌ | 2 hooks configured / Not found |
-| mask-output hook | ✅/❌ | ~/.claude/scripts/hook-mask-output.sh |
+| hooks.json | ⚠️/✅ | Leftover from an older install / Absent, as expected since #1206 |
+| mask-output helper | ✅/❌ | ~/.claude/scripts/hook-mask-output.sh (files at rest; not a live hook) |
 | prompt-context.sh | ✅/❌ | Shell prompt context |
 | worktree-remove.sh | ✅/⚠️ | Git-lane cleanup (issue #627; inline `git worktree remove` fallback) |
 | secrets-mask.sh | ✅/❌ | Output masking filter |
