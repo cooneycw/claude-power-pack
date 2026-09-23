@@ -128,9 +128,9 @@ COMMANDS_INSTALLED=false
 [ -L ".claude/commands" ] || [ -d ".claude/commands" ] && COMMANDS_INSTALLED=true
 
 # Tier 2 checks (count every linked helper, not just .sh - issue #669)
+# Scripts ALONE decide Tier 2 since #1206: CPP no longer ships .claude/hooks.json,
+# so a predicate that also required it could never become true for a new project.
 SCRIPTS_COUNT=$(find ~/.claude/scripts -maxdepth 1 -type l 2>/dev/null | wc -l)
-HOOKS_EXIST=false
-[ -f ".claude/hooks.json" ] && HOOKS_EXIST=true
 
 # Tier 3 checks
 # CPP no longer runs a Docker MCP stack. Second Opinion is an external
@@ -291,8 +291,8 @@ If user selects "Custom", ask which categories to enable using multi-select:
 
 - **Deny rules are always enforced** - Dangerous patterns blocked regardless of profile
 - **Native blocking + sandbox are the first layer** - Claude Code natively auto-blocks destructive git commands and OS-sandboxes filesystem/system operations, even if auto-approved
-- **Hooks provide the secret-masking layer** - the PostToolUse hook masks secrets in output (which native tooling does not do)
-- **Trusted profile requires Tier 2** - Won't offer Trusted unless hooks are enabled
+- **Nothing masks tool output** - CPP registers no output filter, so treat anything a command prints as reaching the transcript verbatim
+- **Trusted profile requires Tier 2** - Won't offer Trusted unless the helper scripts are installed
 
 ---
 
@@ -347,12 +347,8 @@ This will make the following changes:
   [Tier 2 - Scripts] (~/.claude/scripts/)
     • prompt-context.sh       - Shell prompt worktree context
     • worktree-remove.sh      - Safe worktree cleanup
-    • secrets-mask.sh         - Output masking filter
-    • hook-mask-output.sh     - PostToolUse secret masking
-
-  [Tier 2 - Hooks] (.claude/hooks.json)
-    • SessionStart: upstream change detection
-    • PostToolUse: mask secrets in output
+    • secrets-mask.sh         - Secret-masking filter for files at rest
+    • hook-mask-output.sh     - JSON wrapper around secrets-mask.sh
 
   [Tier 2 - Shell Prompt] (optional)
     • Add worktree context to PS1: [CPP #42] ~/project $
@@ -708,14 +704,14 @@ done
 echo "→ Helper scripts: $SEAM_OK linked/current, $SEAM_DEFERRED deferred, $SEAM_FAILED failed"
 [ "$SEAM_FAILED" -gt 0 ] && echo "  WARNING: $SEAM_FAILED script(s) were NOT linked. The allowlist rules installed below cite ~/.claude/scripts/<name> paths that will not exist."
 
-# Copy hooks.json if not exists
-if [ ! -f ".claude/hooks.json" ]; then
-  cp "$CPP_DIR/.claude/hooks.json" .claude/hooks.json
-  echo "✓ Hooks configured"
-else
-  echo "→ Hooks already configured (skipped)"
-  echo "  Note: You may want to merge with $CPP_DIR/.claude/hooks.json"
-fi
+# NO HOOKS ARE INSTALLED HERE (issue #1206). CPP used to copy
+# .claude/hooks.json into every initialised project. Claude Code never loads
+# that path, so nothing in it ever ran and its only effect was to make people
+# believe their tool output was being masked. Removed rather than relocated:
+# the owner ruled against registering it (Decision 2 declined).
+#
+# A project that already has one from an older install is offered its removal
+# by /cpp:update Step 4.7.
 ```
 
 **Permission Profile Configuration**
@@ -893,7 +889,7 @@ of the other:
    #663 restores the canonical symlink tier.
 
 It only SURFACES; it never codifies, and it is silent when there is nothing to
-report. It is deliberately NOT shipped in `.claude/hooks.json`, so it never turns
+report. CPP ships no hooks file at all since #1206, so it never turns
 itself on; registering it edits `~/.claude/settings.json` (the user-level trust
 boundary), so it is offered, not applied - default N:
 

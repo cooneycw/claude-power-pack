@@ -34,9 +34,10 @@ whether the allowlist is installed.
   deterministic `/flow:finish` path the user invokes on purpose).
 - **`cat`, and every other file-dumper (`head`, `tail`, `less`, `more`, `tac`,
   `nl`, `strings`, `xxd`, `od`, `hexdump`, `base64`)** - they read file contents
-  into terminal output. In CPP repos the PostToolUse masking hook redacts
-  secrets, but this allowlist is user-level and applies in repos WITHOUT that
-  hook; excluding them keeps secret-file reads behind a prompt. (Claude's Read
+  into terminal output. NOTHING redacts them on the way past - CPP registers no
+  output filter at all since #1206 - so excluding the family keeps secret-file
+  reads behind a prompt, which is the only thing standing between `cat .env` and
+  the transcript. (Claude's Read
   tool is governed separately.) `head` and `tail` shipped here until issue #598:
   `head -20 .env` leaks exactly as `cat .env` does, so the convenience was
   buying a hole the `cat` exclusion was meant to close. The same set is

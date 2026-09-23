@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1206-posttooluse-secret-masking-hook-is-inert-the-maske",
+  "counts": {
+    "accepted": 11,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "3406ea5e95e97f7180b16c0f16a88e4b5d2b2843",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1206",
+  "passes": 2,
+  "recorded_at": "2026-09-23T16:56:16Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 11
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

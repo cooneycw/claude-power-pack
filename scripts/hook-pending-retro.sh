@@ -7,7 +7,7 @@
 # /self-improvement:retro; it never codifies, never applies, never blocks.
 #
 # OPT-IN by design. This hook is NOT registered by default and is deliberately
-# NOT shipped in .claude/hooks.json (which /cpp:init copies into user projects) -
+# NOT registered by default. CPP ships no hooks file into user projects (#1206) -
 # putting it there would turn it on for everyone, which is exactly the imposition
 # this feature avoids (see PR #527/#529). /cpp:init and /cpp:update instead OFFER
 # to register it in ~/.claude/settings.json SessionStart, default N. A fresh
