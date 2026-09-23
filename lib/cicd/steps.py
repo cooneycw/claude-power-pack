@@ -1044,6 +1044,43 @@ def makefile_grammar_refusal(project_root: str) -> Optional[str]:
     file outside the grammar is never queried, so `$(MAKE)` recursion and
     MAKEFLAGS-sensitive conditionals never execute at all. Both this and the
     query must agree or nothing is subsumed.
+
+    THE NET IS MUCH WIDER THAN THE TWO HAZARDS ABOVE (issue #1192). EVERY
+    include form is refused, and that includes ones neither hazard describes.
+    Measured, git 2.43.0 era, against fixtures in this repository:
+
+        plain rules only               -> None          <- the negative control
+        -include $(VAR)                -> 'line N: an include'
+        -include .env  (a plain path)  -> 'line N: an include'
+        include config.mk              -> 'line N: an include'
+
+    An `-include` of an optional env file is ordinary project configuration,
+    not recursive make and not a flag-sensitive conditional. Such a repository
+    pays every gate twice, and #1152's dedup - whose measured saving was 390s
+    down to 233s - never reaches it.
+
+    THIS REPOSITORY CANNOT OBSERVE THAT. CPP's own Makefile returns None: it is
+    inside the grammar, it benefits from the dedup, and so the population that
+    would notice the bound is exactly the population that does not run this
+    code. A different repository had to surface it. That is why the refusal is
+    now REPORTED by the runner and the finish gate (`subsumption_refusals`,
+    `SUBSUMPTION REFUSED`) rather than left to whoever thinks to call this
+    function: a bound nobody can see from inside the tree it is maintained in
+    is discoverable only by accident.
+
+    THE REFUSAL IS CORRECT AND STAYS WIDE. Refusing costs a duplicate run;
+    accepting wrongly costs the thing the gate exists for. Admitting an
+    `include` of a VARIABLE would query a tree whose included CONTENT was never
+    inspected - `_reads_makeflags` reads the top-level makefile only and says
+    so - and admitting only a statically resolvable include is safe precisely
+    because it excludes the variable form, so it would not reach the consumer
+    that motivated the issue. Either the admission is unsafe or it is useless.
+
+    OSCILLATION TRIGGER, pre-committed rather than decided later under
+    pressure: what would move this bound is NOT a consumer asking for it. It is
+    someone making an included file's contents statically VERIFIABLE. If that
+    lands, the admission widens because the verification widened - never the
+    reverse.
     """
     makefile = Path(project_root) / "Makefile"
     try:

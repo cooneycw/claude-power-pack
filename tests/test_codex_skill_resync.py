@@ -503,3 +503,298 @@ def test_both_bundled_source_classes_are_registered_as_known_bad():
         paths = (CONTROL / "cases" / case / "changed-paths.txt").read_text().split()
         assert paths and all(p.startswith(prefix) for p in paths), (case, paths)
         assert not any(p.startswith(".claude/commands/") for p in paths), (case, paths)
+
+
+# ---------------------------------------------------------------------------
+# The trigger must key on the DIFF, not on the BASE (S4, sibling of #1136)
+#
+# #1136 replaced a path-pattern condition with a helper that decides for itself.
+# What it did NOT touch is the condition WRAPPING that call: all three sites sit
+# inside `if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]`, so the
+# helper runs only when the BASE MOVED. Mirror drift is caused by EDITING a file
+# the skills bundle, which is independent of the base - so an ordinary run that
+# edits a bundled script on a current base never re-syncs, and `make verify` is
+# the only thing that says so, at the cost of a full gate cycle.
+#
+# Measured: #1191 staled two mirrors, #1192 staled four, and neither run had a
+# moved base.
+# ---------------------------------------------------------------------------
+BASE_MOVED = re.compile(r"rev-list\s+--count\s+HEAD\.\.origin/")
+
+RESYNC_CALL = "bash scripts/codex-skill-resync.sh"
+
+
+IF_THEN = re.compile(r"^(if|elif)\b.*;\s*then\s*(#.*)?$")
+FI = re.compile(r"^fi\b\s*(#.*)?$")
+FENCE = re.compile(r"^(```|~~~)")
+
+
+def _resync_call_audit(text: str) -> tuple[list[tuple[int, str]], list[tuple[int, str]]]:
+    """`(gated, unexamined)` - EVERY invocation accounted for, one way or the other.
+
+    The first cut returned only the offenders, and its silence could not be
+    read (counter-model review). Measured, it failed in BOTH directions:
+
+      * FALSE POSITIVE - `elif` pushed a second level for a condition that
+        belongs to the open `if`, and `fi # comment` never popped, so a
+        correctly-placed call AFTER either read as gated. Both are valid bash
+        and neither involves this call at all: a change to the neighbouring
+        merge block could fail this test.
+      * FALSE NEGATIVE - a multiline `if` (condition on the next line, bare
+        `then`) or a `~~~bash` fence was not recognised at all, and a REAL
+        base-gated call inside one returned `[]` - byte-identical to "examined
+        and found nothing".
+
+    The second is the one that matters, and it is detector-contract question 1
+    failing inside a tripwire built to guard that class. So the walk no longer
+    just looks for offenders: it reconciles against every invocation in the
+    document, and anything it could not reason about is returned as UNEXAMINED
+    rather than dropped. A zero from this function now means "I looked at all of
+    them", because the caller asserts both lists are empty.
+    """
+    gated: list[tuple[int, str]] = []
+    unexamined: list[tuple[int, str]] = []
+    seen: set[int] = set()
+
+    in_fence = False
+    block: list[tuple[int, str]] = []
+    for n, line in enumerate(text.splitlines(), 1):
+        if FENCE.match(line.lstrip()):
+            if in_fence:
+                body = "\n".join(b for _, b in block)
+                if "codex-skill" in body:
+                    stack: list[bool] = []
+                    parseable = True
+                    for ln, raw in block:
+                        stripped = raw.strip()
+                        if stripped.startswith(("#", ">")):
+                            continue
+                        if IF_THEN.match(stripped):
+                            base = bool(BASE_MOVED.search(raw))
+                            #: `elif` CONTINUES the open conditional; it does not
+                            #: open a new one. Pushing for it left the base
+                            #: condition on the stack past its own `fi`.
+                            if stripped.startswith("elif") and stack:
+                                stack[-1] = stack[-1] or base
+                            else:
+                                stack.append(base)
+                        elif FI.match(stripped):
+                            if stack:
+                                stack.pop()
+                            else:
+                                parseable = False
+                        elif re.match(r"^(if|elif)\b", stripped) or stripped == "then":
+                            #: A CONDITIONAL SHAPE THIS WALK CANNOT READ - a
+                            #: multiline `if`, or a bare `then`. Everything after
+                            #: it in this block is unreasoned, so say so.
+                            parseable = False
+                        elif stripped == RESYNC_CALL:
+                            seen.add(ln)
+                            if not parseable:
+                                unexamined.append((ln, raw))
+                            elif any(stack):
+                                gated.append((ln, raw))
+                block = []
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            block.append((n, line))
+
+    #: RECONCILE. An invocation in a fence this walk never entered - an
+    #: unrecognised fence marker, or one not mentioning codex-skill - would
+    #: otherwise vanish silently. Counting them here is what lets a caller read
+    #: an empty `gated` as evidence rather than as absence.
+    for n, line in enumerate(text.splitlines(), 1):
+        if line.strip() == RESYNC_CALL and n not in seen:
+            unexamined.append((n, line))
+
+    return gated, unexamined
+
+
+def _resync_calls_gated_on_base_moved(text: str) -> list[tuple[int, str]]:
+    """Back-compat shim for the controls below: the gated list alone."""
+    return _resync_call_audit(text)[0]
+
+
+def test_the_base_moved_tripwire_CAN_FIRE():
+    """THE POSITIVE CONTROL, and it comes first deliberately.
+
+    A structural walk that silently matched nothing - a changed fence marker, an
+    `fi` spelling it does not recognise - would satisfy the tripwire below
+    perfectly while detecting nothing at all. This constructs the exact shape the
+    tripwire exists to catch and requires it to be seen.
+    """
+    constructed = "\n".join(
+        [
+            "```bash",
+            "# codex-skill mirrors",
+            'if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then',
+            "    git merge --no-edit origin/main",
+            f"    {RESYNC_CALL}",
+            "fi",
+            "```",
+        ]
+    )
+    assert _resync_calls_gated_on_base_moved(constructed), (
+        "the tripwire cannot see the shape it exists to catch"
+    )
+
+
+def test_the_base_moved_tripwire_does_not_accuse_a_CORRECT_call_site():
+    """THE OTHER SIDE. A tripwire that fired on the fixed shape would be
+    un-fixable, and the fix would look like the defect."""
+    correct = "\n".join(
+        [
+            "```bash",
+            "# codex-skill mirrors",
+            'if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then',
+            "    git merge --no-edit origin/main",
+            "fi",
+            f"{RESYNC_CALL}",
+            "```",
+        ]
+    )
+    assert _resync_calls_gated_on_base_moved(correct) == [], (
+        "a re-sync placed AFTER the base-moved block is correct and must not be flagged"
+    )
+
+
+def test_the_base_moved_tripwire_ignores_a_NEIGHBOURS_base_check():
+    """Our thing from a neighbour's: a base-moved block in a fence that never
+    mentions codex-skill cannot be a mirror trigger, and must not be reported."""
+    neighbour = "\n".join(
+        [
+            "```bash",
+            'if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then',
+            "    git merge --no-edit origin/main",
+            "fi",
+            "```",
+        ]
+    )
+    assert _resync_calls_gated_on_base_moved(neighbour) == []
+
+
+def test_no_call_site_gates_the_resync_on_a_MOVED_BASE():
+    """THE TRIPWIRE. Mirror drift is caused by the DIFF, never by the base.
+
+    A run that edits a bundled script on a current base must still re-sync. The
+    helper costs 0.14s on a clean tree and decides for itself; gating it on the
+    base is what made it silent for the ordinary case.
+    """
+    offenders, unexamined = [], []
+    for doc in COMMANDS.rglob("*.md"):
+        g, u = _resync_call_audit(doc.read_text())
+        offenders += [f"{doc.relative_to(REPO)}:{n}: {ln.strip()[:90]}" for n, ln in g]
+        unexamined += [f"{doc.relative_to(REPO)}:{n}: {ln.strip()[:90]}" for n, ln in u]
+
+    assert not offenders, (
+        "a command document runs the re-sync only when the BASE moved, but mirror "
+        "drift comes from the DIFF - an edit to a bundled file on a current base "
+        "never re-syncs (S4, sibling of #1136).\n" + "\n".join(offenders)
+    )
+    #: AN UNEXAMINED CALL IS NOT A CLEAN ONE. Without this the walk's silence
+    #: covers both "every invocation is correctly placed" and "I could not read
+    #: the syntax around one", which is the failure this tripwire exists to
+    #: prevent, reached through the tripwire itself.
+    assert not unexamined, (
+        "a re-sync invocation could not be reasoned about, so this tripwire proves "
+        "NOTHING about it - an unexamined call must never read as a clean one.\n"
+        + "\n".join(unexamined)
+    )
+
+
+# ---------------------------------------------------------------------------
+# The tripwire's own failure modes (counter-model review of S4). It failed in
+# BOTH directions, and the false negatives are the ones that matter: a real
+# base-gated call returned `[]`, which is byte-identical to "examined and found
+# nothing" - detector-contract question 1, failing inside the tripwire built to
+# guard that class.
+# ---------------------------------------------------------------------------
+def _fence(*lines: str, marker: str = "```") -> str:
+    return "\n".join([f"{marker}bash", "# codex-skill", *lines, marker])
+
+
+def test_an_elif_does_not_leave_the_base_condition_open():
+    """`elif` CONTINUES the open conditional; it does not open a new one.
+
+    Pushing a second level for it left the base condition on the stack past its
+    own `fi`, so a correctly-placed call AFTER the block read as gated - and
+    nothing about that fixture involves this call at all, so a change to the
+    neighbouring MERGE block could have failed this suite.
+    """
+    correct = _fence(
+        'if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then',
+        "    git merge --no-edit origin/main",
+        "elif false; then",
+        "    :",
+        "fi",
+        RESYNC_CALL,
+    )
+    gated, unexamined = _resync_call_audit(correct)
+    assert gated == [], "a call after the block is correctly placed"
+    assert unexamined == [], "and it WAS examined - this shape is readable"
+
+
+def test_a_commented_fi_still_closes_the_block():
+    """`fi # end merge check` is valid bash and never popped the stack."""
+    correct = _fence(
+        'if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then',
+        "    git merge --no-edit origin/main",
+        "fi # end merge check",
+        RESYNC_CALL,
+    )
+    assert _resync_call_audit(correct) == ([], [])
+
+
+def test_a_conditional_shape_the_walk_CANNOT_READ_is_reported_unexamined():
+    """THE FINDING THAT MATTERS. A multiline `if` hid a REAL base-gated call and
+    returned nothing - indistinguishable from a clean document.
+
+    It is now reported as UNEXAMINED, which the tripwire fails on separately, so
+    the walk's silence means "I read all of them" rather than "I read what I
+    could".
+    """
+    hidden = _fence(
+        "if \\",
+        '    [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]',
+        "then",
+        f"    {RESYNC_CALL}",
+        "fi",
+    )
+    gated, unexamined = _resync_call_audit(hidden)
+    assert unexamined, "an unreadable conditional must be reported, never skipped"
+    assert gated == [], "and it must not be guessed at either"
+
+
+def test_an_alternate_fence_marker_is_still_walked():
+    """A `~~~bash` fence hid the whole block, so a real base-gated call inside
+    one escaped entirely."""
+    tilde = _fence(
+        'if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then',
+        f"    {RESYNC_CALL}",
+        "fi",
+        marker="~~~",
+    )
+    gated, _ = _resync_call_audit(tilde)
+    assert gated, "a base-gated call inside a ~~~ fence must still be caught"
+
+
+def test_an_invocation_outside_any_fence_is_reconciled_not_dropped():
+    """Every invocation is ACCOUNTED FOR. One the fence walk never reaches would
+    otherwise vanish, and its absence would read as a clean verdict."""
+    stray = f"prose about re-syncing\n{RESYNC_CALL}\nmore prose\n"
+    gated, unexamined = _resync_call_audit(stray)
+    assert unexamined, "an invocation outside any fence must be reported"
+    assert gated == []
+
+
+def test_the_block_mention_narrowing_cannot_exclude_an_invocation():
+    """A NARROWING THAT CANNOT SILENCE THIS CHECK, stated because the sibling
+    #1136 scan's equivalent narrowing CAN.
+
+    The fence walk only inspects blocks mentioning `codex-skill` - but the
+    invocation's own text contains that string, so a fence holding one always
+    qualifies. The narrowing therefore cannot hide a call; it only excludes
+    blocks that could not contain one.
+    """
+    assert "codex-skill" in RESYNC_CALL

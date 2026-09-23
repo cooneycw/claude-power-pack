@@ -1296,6 +1296,126 @@ def test_subsumption_is_reported_by_name(tmp_path: Path) -> None:
 
 @requires_bash
 @requires_git
+def test_subsumption_refusal_is_reported(tmp_path: Path) -> None:
+    """WHY nothing was subsumed, said rather than left to silence (issue #1192).
+
+    The gate printed a SUBSUMED line when dedup happened and NOTHING when it
+    was refused, so "your makefile is outside the grammar and every gate ran
+    twice" and "there was nothing to deduplicate" were the same output - to the
+    only reader who pays the difference.
+
+    The refusal that motivated this is an `-include` of an optional env file:
+    ordinary configuration, neither of the two hazards the grammar is written
+    for, and refused all the same.
+    """
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": true,\n  "plan": "finish",\n'
+        '  "gates": [\n    "lint",\n    "verify"\n  ],\n'
+        '  "dropped_gates": [],\n'
+        '  "subsumed_gates": {},\n'
+        '  "subsumption_refusals": [\n'
+        '    "the makefile is outside the grammar subsumption requires '
+        '(line 1: an include), so nothing is subsumed and every gate runs"\n'
+        "  ],\n"
+        '  "step_details": [\n'
+        '    {\n      "id": "lint",\n      "status": "success"\n    },\n'
+        '    {\n      "id": "verify",\n      "status": "success"\n    }\n'
+        "  ]\n}"
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload, inject_gates=False)
+
+    # THE DIAGNOSTIC LINES, not raw stdout (counter-model review). The gate
+    # TEES the runner JSON to stdout, so `"an include" in proc.stdout` is
+    # satisfied by the echoed payload alone - it would pass with the diagnostic
+    # printing WRONG REASON, or printing no reason at all. Select the lines the
+    # gate itself emits and assert on those.
+    reported = [
+        line for line in proc.stdout.splitlines()
+        if line.startswith("flow-finish-gate: SUBSUMPTION REFUSED:")
+    ]
+    assert proc.returncode == 0
+    assert reported, proc.stdout
+    assert any("an include" in line for line in reported), reported
+    assert any("outside the grammar" in line for line in reported), reported
+    assert "FLOW_FINISH_GATE: ok" in proc.stdout
+
+
+@requires_bash
+@requires_git
+def test_the_refusal_survives_a_FAILING_run(tmp_path: Path) -> None:
+    """The refusal is a fact about the DERIVATION, not about the verdict.
+
+    The diagnostic sat inside the success branch, so a repository outside the
+    grammar whose gates then failed learned nothing about why it had ALSO paid
+    for every gate twice (counter-model review, issue #1192) - and that is the
+    run where the duplicate cost hurts most, because the failure is about to be
+    re-run.
+    """
+    cpp = _fake_cpp(tmp_path)
+    payload = (
+        '{\n  "success": false,\n  "plan": "finish",\n'
+        '  "gates": [\n    "lint",\n    "verify"\n  ],\n'
+        '  "dropped_gates": [],\n'
+        '  "subsumed_gates": {},\n'
+        '  "subsumption_refusals": [\n'
+        '    "the makefile is outside the grammar subsumption requires '
+        '(line 1: an include), so nothing is subsumed and every gate runs"\n'
+        "  ],\n"
+        '  "step_details": [\n'
+        '    {\n      "id": "lint",\n      "status": "failed"\n    }\n'
+        "  ]\n}"
+    )
+    proc = _run_with_uv_stub(tmp_path, cpp, payload, exit_code=1, inject_gates=False)
+
+    reported = [
+        line for line in proc.stdout.splitlines()
+        if line.startswith("flow-finish-gate: SUBSUMPTION REFUSED:")
+    ]
+    assert proc.returncode != 0, "the run failed; the verdict must still say so"
+    assert reported, proc.stdout
+    assert any("an include" in line for line in reported), reported
+
+
+@requires_bash
+@requires_git
+def test_no_refusal_prints_NOTHING(tmp_path: Path) -> None:
+    """THE SILENCE HALF, and it is as load-bearing as the printed line.
+
+    A gate that announced a refusal unconditionally would satisfy the test
+    above while telling every ordinary run it had been refused - and a line
+    that appears on every run is one nobody reads, which is the state this
+    change exists to leave.
+
+    Both no-refusal shapes are covered: `[]` (derived, nothing refused) and
+    `null` (not derived at all, the resume-on-finished-run path). Neither is a
+    refusal, so neither prints.
+    """
+    cpp = _fake_cpp(tmp_path)
+    for refusals in ('  "subsumption_refusals": [],\n', '  "subsumption_refusals": null,\n'):
+        payload = (
+            '{\n  "success": true,\n  "plan": "finish",\n'
+            '  "gates": [\n    "lint",\n    "verify"\n  ],\n'
+            '  "dropped_gates": [],\n'
+            '  "subsumed_gates": {},\n'
+            + refusals
+            + '  "step_details": [\n'
+            '    {\n      "id": "lint",\n      "status": "success"\n    },\n'
+            '    {\n      "id": "verify",\n      "status": "success"\n    }\n'
+            "  ]\n}"
+        )
+        proc = _run_with_uv_stub(tmp_path, cpp, payload, inject_gates=False)
+
+        reported = [
+            line for line in proc.stdout.splitlines()
+            if line.startswith("flow-finish-gate: SUBSUMPTION REFUSED:")
+        ]
+        assert proc.returncode == 0, refusals
+        assert reported == [], (refusals, reported)
+
+
+@requires_bash
+@requires_git
 def test_a_not_run_record_cannot_coexist_with_a_pass(tmp_path: Path) -> None:
     """The shell-reachable half of #1152's standing question.
 

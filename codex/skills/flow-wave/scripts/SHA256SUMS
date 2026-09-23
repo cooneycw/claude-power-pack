@@ -8,12 +8,12 @@
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
 4e8132ddc02ced5c17c2e86cf2031bf2cb9232ee0093dee437af4c430452d82b  flow-driver-capability.sh
-7779b06f45f33458c22388e9403ef77032f8bed050c04516e6edf8b2809ee616  flow-pr-watch.sh
+b7eba96d9bfe514839970fa3c2708c34913eb217ae0865c3bf2dfb517d438de5  flow-pr-watch.sh
 abf0ef9f5421bb958f4ccdd973c65c33bc2533c4ce2ab91b5447346add197248  flow-vantage.sh
 cc5b5769e5764a278a16500f3c70143883e2b4a2fafe71e4d28294ecc40986cc  flow-wave-lexicon.sh
 a7e2186e58c86f52c69809e4f37d26c9fc59c62738ba0f2385dfeaf39ff9d410  flow-wave-mailbox.sh
 710d4a4cd82f3a0446ed01d94c1804fd4a909e04bc37118dc93d220555b2679a  flow-wave-plan.py
-fab3bd463315004b4376c2a46b117e619ed7f48890bcf58acc4251a946345ca4  flow-wave-registry.sh
+465c6971fe132e4ad66d9318a477c6520ed93469159fb09b8eae841ebcb020d2  flow-wave-registry.sh
 aba5a616aca96a290a1db5046c9667484747afa0211ddb733d695128cfb05f9c  flow-wave-residuals.py
 5b2e977afd7930321abfa746ede9b2137b024022ec79fa1624689741b21ae53a  flow-worktree-claim.sh
 cf34a5aa54ee236438ff1575f048d9c938d59879b448b33f838beeda46d5dcc5  flow-worktree-sweep.sh

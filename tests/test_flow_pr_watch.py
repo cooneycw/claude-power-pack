@@ -876,3 +876,292 @@ def test_helper_is_executable_and_installed_at_the_stable_path():
         encoding="utf-8"
     )
     assert "Bash(~/.claude/scripts/flow-pr-watch.sh:*)" in template
+
+
+# ── #1190 defect 1: a negative control's echo scraped as the pipeline's own ──
+#
+# Reconstructed from the measurement in the issue (pipeline 2512, PR #1310).
+# `scripts/check-xdist-isolation.sh` runs a two-sided control and `tail`s its
+# BAD-case log, so the BAD case's deliberate `FAILED ...::...` lines appear in
+# the step log. The scrape walked the WHOLE log and harvested them alongside the
+# one real failure, reporting four.
+#
+# It is not cosmetic. `--baseline` matches declared-flaky ids against
+# FLOW_PR_WATCH_FAILED, so the natural response to seeing a control's test named
+# red on an unrelated PR is to add it to the baseline - and from then on that
+# test's REAL failures are excused. A misattribution that feeds an excuse list
+# is a route to a hidden defect, and the more thoroughly a repo commits its red
+# cases the more of this there is.
+
+CONTROL_ECHO_LOG = (
+    "============================= test session starts ==============================\n"
+    "collected 6433 items\n"
+    "tests/test_core.py ..........................\n"
+    "\n"
+    "-- BAD case: worker scoping collapsed, same invocation --\n"
+    "FAILED tests/test_xdist_isolation.py::test_worker_scoped_paths_carry_this_worker_id\n"
+    "FAILED tests/test_xdist_isolation.py::test_the_collapse_override_is_not_set_in_this_run\n"
+    "FAILED tests/test_xdist_isolation.py::test_no_two_workers_named_the_same_database_or_tmux_socket\n"
+    "XDIST_ISOLATION: ok\n"
+    "\n"
+    "____________________________ test_unlock ____________________________\n"
+    "    assert 'secret' not in session\n"
+    "E   AssertionError: assert 1 == 0\n"
+    "=========================== short test summary info ============================\n"
+    "FAILED journal/tests/test_views.py::TestNoSecretsInSession::test_unlock - AssertionError\n"
+    "======================== 1 failed, 6432 passed =========================\n"
+)
+
+REAL_FAILURE = "journal/tests/test_views.py::TestNoSecretsInSession::test_unlock"
+CONTROL_ECHOED = "tests/test_xdist_isolation.py::test_the_collapse_override_is_not_set_in_this_run"
+
+
+def _failing_pipeline(tmp_path, log: str):
+    """A red pipeline whose step log is ``log``."""
+    gh = _write_fake_gh(
+        tmp_path, heads=[HEAD], rollup=["https://wp.example/repos/7/pipeline/2512|FAILURE"]
+    )
+    wpcli = _write_fake_wpcli(
+        tmp_path,
+        ls_rows=[f"2512|failure|{HEAD}"],
+        ps_rows=["validate|failure|2026-09-21T19:29:21Z"],
+        log=log,
+    )
+    return {"FLOW_PR_WATCH_GH": str(gh), "FLOW_PR_WATCH_WPCLI": str(wpcli)}
+
+
+@requires_bash
+def test_a_controls_echoed_failures_are_not_the_pipelines_own(tmp_path):
+    """THE RED CASE. Four `FAILED ...::...` lines in the log, one real failure.
+
+    Pre-fix this reported all four, including the control's own BAD-case tests -
+    whose whole job is to fail on purpose so the checker can prove it still
+    detects a failure.
+    """
+    env = _failing_pipeline(tmp_path, CONTROL_ECHO_LOG)
+    result = _run(tmp_path, "42", "--repo", "o/r", env=env)
+    fields = _fields(result.stdout)
+
+    assert fields["VERDICT"] == ["red"], result.stdout + result.stderr
+    assert fields["FLOW_PR_WATCH_FAILED"] == [REAL_FAILURE], (
+        "the control's echoed BAD-case failures were scraped as the pipeline's own"
+    )
+    assert CONTROL_ECHOED not in result.stdout, (
+        "a deliberately-failing control test was named as a pipeline failure - "
+        "adding it to the flake baseline would excuse its real failures forever"
+    )
+
+
+@requires_bash
+def test_the_scrape_reports_which_region_it_read(tmp_path):
+    """A bounded scrape and an unbounded one must be distinguishable.
+
+    The count is emitted beside the ids so four named failures and `1 failed`
+    can be seen to disagree, which is the issue's own minimum ask.
+    """
+    env = _failing_pipeline(tmp_path, CONTROL_ECHO_LOG)
+    result = _run(tmp_path, "42", "--repo", "o/r", env=env)
+    fields = _fields(result.stdout)
+
+    assert fields["FLOW_PR_WATCH_SCRAPE_SCOPE"] == ["summary"]
+    assert fields["FLOW_PR_WATCH_SUMMARY_FAILED"] == ["1"]
+
+
+@requires_bash
+def test_a_log_with_no_summary_reports_itself_unbounded_never_clean(tmp_path):
+    """A killed or truncated log has no summary region to bound to.
+
+    The scrape stays whole-log there - losing a real failure would be worse -
+    but it must SAY so. Unbounded rendering as clean is the defect one level up,
+    and is exactly what this issue is about.
+    """
+    env = _failing_pipeline(tmp_path, TRUNCATED_LOG)
+    result = _run(tmp_path, "42", "--repo", "o/r", env=env)
+    fields = _fields(result.stdout)
+
+    assert fields["FLOW_PR_WATCH_SCRAPE_SCOPE"] == ["whole-log"]
+    assert fields["FLOW_PR_WATCH_SUMMARY_FAILED"] == ["-"], (
+        "a log with no summary has no authoritative count; it must not report one"
+    )
+
+
+@requires_bash
+def test_an_ordinary_failure_is_still_reported_in_full(tmp_path):
+    """The other side of the guard: bounding the scrape must not lose failures
+    that pytest genuinely summarised. Two real failures, both named."""
+    log = _pytest_log(
+        "tests/test_a.py::test_one",
+        "tests/test_b.py::test_two",
+    )
+    env = _failing_pipeline(tmp_path, log)
+    result = _run(tmp_path, "42", "--repo", "o/r", env=env)
+    fields = _fields(result.stdout)
+
+    assert fields["VERDICT"] == ["red"], result.stdout + result.stderr
+    assert fields["FLOW_PR_WATCH_FAILED"] == ["tests/test_a.py::test_one tests/test_b.py::test_two"]
+    assert fields["FLOW_PR_WATCH_SUMMARY_FAILED"] == ["2"]
+
+
+# ── #1190 round 2: defects the FIRST CUT of the bounding fix introduced ──────
+#
+# All three were found by counter-model review and reproduced before being
+# fixed. They are kept as named cases because each is a way the repair
+# reintroduced the harm it was written to remove.
+
+TWO_RUN_LOG = (
+    "=========================== short test summary info ============================\n"
+    "FAILED tests/test_real.py::test_regression_nobody_baselined - AssertionError\n"
+    "======================== 1 failed, 40 passed =========================\n"
+    "=========================== short test summary info ============================\n"
+    "FAILED journal/tests/test_views.py::TestNoSecretsInSession::test_unlock - AssertionError\n"
+    "======================== 1 failed, 6432 passed =========================\n"
+)
+
+TRAILING_ECHO_LOG = (
+    "=========================== short test summary info ============================\n"
+    "FAILED journal/tests/test_views.py::TestNoSecretsInSession::test_unlock - AssertionError\n"
+    "======================== 1 failed, 6432 passed =========================\n"
+    "-- BAD case: control echo AFTER the run concluded --\n"
+    "FAILED tests/test_control.py::test_deliberate\n"
+)
+
+ERROR_ONLY_LOG = (
+    "=========================== short test summary info ============================\n"
+    "ERROR tests/test_boot.py::test_fixture - fixture 'db' not found\n"
+    "======================== 1 error in 0.40s =========================\n"
+)
+
+
+@requires_bash
+def test_an_earlier_runs_failure_is_not_discarded_by_a_later_summary(tmp_path):
+    """A false FLAKE is worse than the false RED this issue is about.
+
+    Two pytest runs in one log: the first carries a regression nobody
+    baselined, the second only a baselined failure. Taking the LAST summary
+    region dropped the first, so every reported id was in the baseline and the
+    verdict became `flake` at exit 0 - a real failure silently excused, by the
+    very fix meant to stop failures being mis-attributed.
+
+    Over-reporting is noisy and gets noticed; this is a silent green.
+    """
+    baseline = tmp_path / "baseline.txt"
+    baseline.write_text(
+        "journal/tests/test_views.py::TestNoSecretsInSession::test_unlock\n", encoding="utf-8"
+    )
+    env = _failing_pipeline(tmp_path, TWO_RUN_LOG)
+    result = _run(tmp_path, "42", "--repo", "o/r", "--baseline", str(baseline), env=env)
+    fields = _fields(result.stdout)
+
+    assert "tests/test_real.py::test_regression_nobody_baselined" in \
+        fields["FLOW_PR_WATCH_FAILED"][0], "an earlier run's failure was discarded"
+    assert fields["VERDICT"] == ["red"], (
+        "a non-baselined regression was excused as a flake"
+    )
+    assert fields["FLOW_PR_WATCH_SUMMARY_FAILED"] == ["2"], "totals must sum both runs"
+
+
+@requires_bash
+def test_output_after_the_totals_line_is_not_part_of_the_summary(tmp_path):
+    """Each region ends at its own totals line.
+
+    Running a region to end-of-log re-admitted exactly the contamination the
+    bounding exists to exclude - a control echoing `FAILED <id>` after the run
+    concluded - while the scope label still said `summary`, so the caveat
+    overstated its own coverage.
+    """
+    baseline = tmp_path / "baseline.txt"
+    baseline.write_text(
+        "journal/tests/test_views.py::TestNoSecretsInSession::test_unlock\n", encoding="utf-8"
+    )
+    env = _failing_pipeline(tmp_path, TRAILING_ECHO_LOG)
+    result = _run(tmp_path, "42", "--repo", "o/r", "--baseline", str(baseline), env=env)
+    fields = _fields(result.stdout)
+
+    assert "tests/test_control.py::test_deliberate" not in result.stdout, (
+        "a control echo after the totals line was scraped as a pipeline failure"
+    )
+    assert fields["VERDICT"] == ["flake"], (
+        "the trailing echo flipped a baselined failure from flake to red"
+    )
+
+
+@requires_bash
+def test_a_concluded_run_with_no_failures_reports_zero_not_absent(tmp_path):
+    """`0` is an observation; `-` is the absence of one.
+
+    An error-only run concluded and reported no FAILED tests. Rendering that as
+    `-` conflates a measured zero with no measurement - the absent-is-not-empty
+    confusion this issue exists to remove, reappearing in its own fix.
+    """
+    env = _failing_pipeline(tmp_path, ERROR_ONLY_LOG)
+    result = _run(tmp_path, "42", "--repo", "o/r", env=env)
+    fields = _fields(result.stdout)
+
+    assert fields["FLOW_PR_WATCH_SUMMARY_FAILED"] == ["0"], (
+        "a concluded run with zero failures must report 0, never '-'"
+    )
+    assert fields["FLOW_PR_WATCH_SCRAPE_SCOPE"] == ["summary"]
+
+
+# ── #1190 round 3: defects the SECOND cut introduced, from the re-review ─────
+
+HEADER_PHRASE_LOG = (
+    "=========================== short test summary info ============================\n"
+    "FAILED tests/test_real.py::test_regression - AssertionError: expected short test summary info\n"
+    "FAILED journal/tests/test_views.py::TestNoSecretsInSession::test_unlock - AssertionError\n"
+    "======================== 2 failed, 40 passed =========================\n"
+)
+
+QUIET_TOTALS_LOG = (
+    "=========================== short test summary info ============================\n"
+    "FAILED journal/tests/test_views.py::TestNoSecretsInSession::test_unlock - AssertionError\n"
+    "1 failed, 40 passed in 0.40s\n"
+    "-- BAD case: control echo after quiet totals --\n"
+    "FAILED tests/test_control.py::test_deliberate\n"
+)
+
+
+@requires_bash
+def test_the_header_phrase_inside_an_assertion_does_not_delete_that_failure(tmp_path):
+    """The section header is matched by SHAPE, not as a substring.
+
+    An unanchored match also fired on an assertion message quoting the phrase,
+    which reset the region and discarded the failure carrying it - so a real
+    regression vanished while the count still said two.
+    """
+    baseline = tmp_path / "baseline.txt"
+    baseline.write_text(
+        "journal/tests/test_views.py::TestNoSecretsInSession::test_unlock\n", encoding="utf-8"
+    )
+    env = _failing_pipeline(tmp_path, HEADER_PHRASE_LOG)
+    result = _run(tmp_path, "42", "--repo", "o/r", "--baseline", str(baseline), env=env)
+    fields = _fields(result.stdout)
+
+    assert "tests/test_real.py::test_regression" in fields["FLOW_PR_WATCH_FAILED"][0], (
+        "a failure was deleted because its assertion text quoted the header phrase"
+    )
+    assert fields["VERDICT"] == ["red"]
+
+
+@requires_bash
+def test_quiet_mode_totals_close_the_region(tmp_path):
+    """`pytest -q` prints `N failed, M passed in 0.4s` with no `=` decoration.
+
+    Requiring the decorated form left the region open, so a later control echo
+    stayed inside it and the count read `-` for a run that had concluded.
+    """
+    baseline = tmp_path / "baseline.txt"
+    baseline.write_text(
+        "journal/tests/test_views.py::TestNoSecretsInSession::test_unlock\n", encoding="utf-8"
+    )
+    env = _failing_pipeline(tmp_path, QUIET_TOTALS_LOG)
+    result = _run(tmp_path, "42", "--repo", "o/r", "--baseline", str(baseline), env=env)
+    fields = _fields(result.stdout)
+
+    assert "tests/test_control.py::test_deliberate" not in result.stdout, (
+        "an echo after quiet-mode totals stayed inside the region"
+    )
+    assert fields["FLOW_PR_WATCH_SUMMARY_FAILED"] == ["1"], (
+        "quiet-mode totals were not read as a concluded run"
+    )
+    assert fields["VERDICT"] == ["flake"]

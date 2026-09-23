@@ -1034,9 +1034,26 @@ if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
     # report its own `unavailable`. This is an EXISTENCE guard, not a decision
     # about what changed - the path-pattern condition it replaced is the one
     # that must not come back.
-    if [ -x scripts/codex-skill-resync.sh ]; then
-        bash scripts/codex-skill-resync.sh
-    fi
+fi
+# KEYED ON THE DIFF, NOT ON THE BASE (S4, sibling of #1136). This call used to
+# sit INSIDE the base-moved block above, so it ran only when `origin/main` had
+# moved. Mirror drift is caused by EDITING a file the skills bundle, which is
+# independent of the base - so an ordinary run that edits `scripts/<name>` on a
+# CURRENT base never re-synced, and `make verify` was the only thing that said
+# so, at the cost of a full gate cycle. Measured: #1191 staled two mirrors and
+# #1192 staled four, neither with a moved base.
+#
+# It is called UNCONDITIONALLY and nothing cleverer. The helper already decides
+# for itself by asking `codex-skill-sync.py --check` - 0.14s on a clean tree -
+# so a condition here could only ever be a worse oracle than the one inside it.
+# In particular: do NOT gate this on an enumerated set of bundled paths. That is
+# a path-set prediction, and #1136 removed exactly that - "the fix is not a
+# wider glob - that is a hardcoded universe again, one entry longer" - which
+# `--list-mirrors` (#1151) does not change, because enumerating the set is a
+# different job from deciding whether it drifted.
+# tests/test_codex_skill_resync.py fails if this is re-gated on the base.
+if [ -x scripts/codex-skill-resync.sh ]; then
+    bash scripts/codex-skill-resync.sh
 fi
 ```
 
@@ -1839,19 +1856,53 @@ fill this step.
        # report its own `unavailable`. This is an EXISTENCE guard, not a decision
        # about what changed - the path-pattern condition it replaced is the one
        # that must not come back.
-       if [ -x scripts/codex-skill-resync.sh ]; then
-           bash scripts/codex-skill-resync.sh
-       fi
-       if ! git diff --quiet -- codex/skills/; then
-           git add codex/skills/
-           git commit -m "chore(generated): re-sync codex skill copies after merging origin/main (#506)"
-       fi
+   fi
+   # KEYED ON THE DIFF, NOT ON THE BASE (S4, sibling of #1136). This call used to
+   # sit INSIDE the base-moved block above, so it ran only when `origin/main` had
+   # moved. Mirror drift is caused by EDITING a file the skills bundle, which is
+   # independent of the base - so an ordinary run that edits `scripts/<name>` on a
+   # CURRENT base never re-synced, and `make verify` was the only thing that said
+   # so, at the cost of a full gate cycle. Measured: #1191 staled two mirrors and
+   # #1192 staled four, neither with a moved base.
+   #
+   # It is called UNCONDITIONALLY and nothing cleverer. The helper already decides
+   # for itself by asking `codex-skill-sync.py --check` - 0.14s on a clean tree -
+   # so a condition here could only ever be a worse oracle than the one inside it.
+   # In particular: do NOT gate this on an enumerated set of bundled paths. That is
+   # a path-set prediction, and #1136 removed exactly that - "the fix is not a
+   # wider glob - that is a hardcoded universe again, one entry longer" - which
+   # `--list-mirrors` (#1151) does not change, because enumerating the set is a
+   # different job from deciding whether it drifted.
+   # tests/test_codex_skill_resync.py fails if this is re-gated on the base.
+   # The COMMIT travels with the re-sync: this branch is squashed straight after
+   # the push with no further commit step, so an uncommitted codex/skills/ would
+   # leave the squash carrying stale copies. Moving the re-sync out and leaving
+   # the commit behind would re-sync and then not commit it.
+   if [ -x scripts/codex-skill-resync.sh ]; then
+       bash scripts/codex-skill-resync.sh
+   fi
+   if ! git diff --quiet -- codex/skills/; then
+       git add codex/skills/
+       git commit -m "chore(generated): re-sync codex skill copies after a bundled source changed (#506)"
    fi
    ```
 
-   **If the merge above ran** (the branch was behind), re-run the FULL quality
-   gate on the MERGED tree - the same Step-6 helper, invoked BARE as a separate
-   call (#613; the #581 discipline - never fold it back into a compound block):
+   **If EITHER the merge OR the re-sync changed the branch**, re-run the FULL
+   quality gate - the same Step-6 helper, invoked BARE as a separate call (#613;
+   the #581 discipline - never fold it back into a compound block).
+
+   THE RE-SYNC IS NOW A SECOND WAY THIS BRANCH GAINS A COMMIT (S4,
+   counter-model review). This used to read "if the merge above ran", which was
+   complete while the re-sync could only happen inside the merge block. It no
+   longer is: a run on a CURRENT base whose diff staled a mirror now regenerates
+   and COMMITS those mirrors here, and gating the re-gate on the merge would let
+   that commit reach the squash without ever being validated - and without being
+   pushed, so the PR the squash reads would not contain it. Test for a changed
+   branch, not for a merge:
+
+   ```bash
+   git rev-parse HEAD                     # compare against the SHA before this step
+   ```
 
    ```bash
    ~/.claude/scripts/flow-finish-gate.sh

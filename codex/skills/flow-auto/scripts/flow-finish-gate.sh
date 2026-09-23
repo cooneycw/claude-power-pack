@@ -752,6 +752,25 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         in_s && /^  \}[,]?$/ { exit }
         in_s { v = $0; sub(/^.*": "/, "", v); sub(/",?$/, "", v); print v }
     ' "$RUNNER_JSON" 2>/dev/null | head -1)
+    # WHY nothing was subsumed (issue #1192). Without this the gate prints a
+    # SUBSUMED line when dedup happens and NOTHING when it is refused, so
+    # "your makefile is outside the grammar and every gate ran twice" and
+    # "there was nothing to deduplicate" are the same output - to the one
+    # reader who pays the difference. `null` (not derived) and `[]` (derived,
+    # nothing refused) both yield no lines here, and that is correct: neither
+    # is a refusal to report.
+    SUBSUMPTION_REFUSALS=$(awk '
+        /^  "subsumption_refusals": null,?$/ { exit }
+        /^  "subsumption_refusals": \[\],?$/ { exit }
+        /^  "subsumption_refusals": \[$/ { in_r = 1; next }
+        in_r && /^  \][,]?$/ { exit }
+        in_r {
+            v = $0
+            sub(/^[[:space:]]*"/, "", v)
+            sub(/",?$/, "", v)
+            if (v != "") print v
+        }
+    ' "$RUNNER_JSON" 2>/dev/null)
     # Gates recorded NOT-RUN: deferred to an aggregate that then failed, so
     # they never ran (issue #1152). Read from the per-step records because that
     # is where the runner puts them.
@@ -893,6 +912,19 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
     # that also occurred earlier in the same run.
     if [[ -n "$RERUN_PASSED_IDS" ]]; then
         echo "RERUN_PASSED: $RERUN_PASSED_IDS"
+    fi
+    # REPORTED WHATEVER THE OUTCOME (counter-model review, issue #1192). This
+    # sat inside the success branch, so a repository outside the grammar whose
+    # gates then FAILED learned nothing about why it had also paid for every
+    # gate twice - and that is the run where the duplicate cost hurts most,
+    # because the failure is about to be re-run. The refusal is a fact about
+    # the DERIVATION, not about the verdict, so it belongs with the
+    # unconditional evidence above rather than behind the outcome.
+    if [[ -n "$SUBSUMPTION_REFUSALS" ]]; then
+        while IFS= read -r _refusal; do
+            [[ -n "$_refusal" ]] || continue
+            echo "flow-finish-gate: SUBSUMPTION REFUSED: $_refusal (issue #1192)."
+        done <<< "$SUBSUMPTION_REFUSALS"
     fi
     if [[ "$RUNNER_EXIT" -eq 0 ]]; then
         # FAIL CLOSED, and do it FIRST in this lane. A runner too old to emit
