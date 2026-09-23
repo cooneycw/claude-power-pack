@@ -1,13 +1,12 @@
 # Issue #1083 as read by this run
 
 EVIDENCE OF WHAT THIS RUN READ, not a second statement of the contract.
-The issue is the authority; read it. This copy exists so a later check can
-report that the source moved. It does not graduate.
+The issue is the authority; read it. It does not graduate.
 
 - Issue:        #1083
-- Read at:      2026-09-22T13:40:33Z
-- updatedAt:    2026-09-20T14:34:40Z   (context only - moves on comments and labels)
-- Body digest:  e81bd087ea7a2f83f907c134351b5bc610cb98095a1d0638842526009f40ecfb   (sha256 of the FULL body; the verdict keys on this)
+- Read at:      2026-09-23T15:35:47Z
+- updatedAt:    2026-09-20T14:34:40Z   (context only)
+- Body digest:  e81bd087ea7a2f83f907c134351b5bc610cb98095a1d0638842526009f40ecfb   (sha256 of the FULL body)
 - Stored bytes: 3215 of 3215 (cap 16384)
 
 ## Body as read

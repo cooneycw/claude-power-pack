@@ -32,8 +32,17 @@ halves:
   `cat > file` - **the hook does not see those edits at all.** It is matched on
   tool names, and a shell redirection is a `Bash` call. In the fleet where this
   was written that steering is the instructed default, so coverage there is near
-  zero. Measured: three plan records across three runs of one session, every one
-  written with `cat > … <<EOF`, none via `Write`.
+  zero. **Measured**, from a single session's own transcript across five
+  delivered issues: **468 `Bash` tool calls against 0 `Write`, `Edit` or
+  `NotebookEdit` calls** - so this hook would have fired zero times over every
+  plan record and every source edit that session made. (An earlier, smaller
+  count is recorded in the control's limits: three plan records across three
+  runs, none via `Write`. Same direction, two orders of magnitude more input.)
+
+  Stated plainly, because the parent issue promises *enforced rather than
+  asserted*: in that fleet it is **enforced for the tool path nobody uses, and
+  asserted for the one everybody does.** That is an argument about coverage, not
+  about correctness - the hook does what it says on the paths it matches.
 
 **So the hook's silence is not evidence that no edit happened.** If your setup
 resembles the second case, install it knowing that, or do not install it.
@@ -41,6 +50,28 @@ resembles the second case, install it knowing that, or do not install it.
 `controls/step3-record-guard` commits that gap as a **case** rather than as a
 sentence, so if the matcher grows or the steering changes, the case flips and
 the change is the notification.
+
+### If you later ship hooks into `~/.codex/`, the trust roots are this hook's
+
+Recorded here because it is a design consequence that gets discovered late.
+
+CPP's hook delivery was going to be owned by a separate piece of work - issue
+#1073, *"ship pinned Codex plugins from CPP with safe hook update and rollback"*.
+That issue was closed **`NOT_PLANNED`**: cancelled, not delivered. The owner's
+rulings removed its premise, so CPP ships no Codex plugins and installs no hooks
+into `~/.codex/`.
+
+**The dependency did not lapse; it inverted.** It existed so hook delivery would
+not be built twice, with the second build forced to preserve the first one's
+trust roots. With no second builder coming, *this* hook is the sole hook-delivery
+surface in CPP, and any later Codex hook work inherits **these** trust roots
+rather than the other way round.
+
+One boundary, checked: a `PreToolUse` entry in `.claude/hooks.json` is the
+**Claude** namespace and does not reach `~/.codex/`, so the dormant
+safe-hook-update capability stays dormant. If hook delivery here ever does reach
+`~/.codex/`, that capability has to be **rebuilt rather than remembered** - the
+script that once provided it was retired with CxPP.
 
 ## Install (opt-in, on purpose)
 
