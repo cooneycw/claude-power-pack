@@ -1,0 +1,20 @@
+{
+  "branch": "issue-ci-concurrency-lexicon-fork-conflation",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "4209ef09b03e2db3933d3e4bc386ac80c06af2e7",
+  "implementer": "claude/claude-opus-5",
+  "issue": "ci-concurrency",
+  "passes": 2,
+  "recorded_at": "2026-09-23T17:10:21Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 14
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
