@@ -1,0 +1,55 @@
+{
+ "gate": "scripts/maintain-loop-indicator.py",
+ "invocation": [
+  "python3",
+  "{gate}",
+  "--input",
+  "{case}/capture.json"
+ ],
+ "good_exit": 0,
+ "subject_kind": "reporter",
+ "unknown_signal": "^maintain-loop: UNKNOWN - ",
+ "limits": "A BLIND INSTRUMENT DOES NOT REFUSE - refusing is the capability it lacks. That sentence is the whole reason this control's anchor looks the way it does, and it was learned by getting it wrong: an earlier anchor exited 2 on an unreadable capture with an unmarked \"no capture to read\", and `check-negative-controls.py` correctly reported it could not tell that from a crash. An anchor that refuses is not demonstrating blindness, it is demonstrating a DIFFERENT competence - the very one the fixed instrument is supposed to have and the anchor is supposed to lack. It now answers EVERY unreadable input with a confident `0 finding(s) recorded` and exit 0, uniformly, which is #1085's own thesis turned into a fixture: \"a broken extractor's zeros look exactly like real ones\". THIS CONTROL DECLARES NO `detect_signal`, AND THAT IS THE POINT. This instrument is a REPORTER: it produces a number a person reads, and its verdicts are a measurement, an observed zero, and UNKNOWN. It has no finding to mark, so every detection pattern it could declare is dishonest - one that matches its ordinary measurement output (which the harness correctly refuses as identifying a clean run as readily as a finding, and did refuse for exactly as long as this control declared one), or one that can never match, which is a declared detector that cannot detect. Forcing one would have meant giving a measured delay a non-zero exit: a threshold at zero, asserting that any delay is a failure, which is a BAND and which #1085 forbids. `unknown_signal` carries the marker requirement instead, per #1085's harness follow-up. THE HARNESS CANNOT EXPRESS THIS INSTRUMENT'S PRIMARY DISCRIMINATION, and that bound is declared here rather than worked around. #1085 asks for a control showing the extractor reports a KNOWN DELAY on a fixture containing one, and reports ZERO on a fixture containing none. Both of those are VALID MEASUREMENTS and both exit 0, and `check-negative-controls.py` decides its observation from the exit code FIRST (`if exit_code == good_exit: return GOOD`), so it scores them identically. THE AVAILABLE WORKAROUND WAS REFUSED: giving 'a measurement with attributable findings' a non-zero exit would make the harness see a detection, but a non-zero exit on a measured delay IS A BAND - a threshold at zero, asserting that any delay is a failure - and #1085 forbids bands and defers the first threshold to ADR 0009. Contorting a REPORTER into detect/clean semantics to satisfy a harness built for GATES would make the control pass while the instrument lied about what it is. WHAT IS REGISTERED HERE is the axis the harness CAN express: whether an input is an OBSERVATION or is UNEXAMINABLE. `good-known-delay` and `good-no-findings` are both real measurements (exit 0); the three `unknown-*` cases are the three ways an input fails to be one - a ZERO-BYTE capture (what a failed `gh ... > capture.json` leaves behind), unparseable JSON, and a document that never declares its population. That is the axis #1085's acceptance turns on: 'Unmeasurable reads as unknown, never as zero.' WHAT COVERS THE DELAY-VERSUS-ZERO DISCRIMINATION INSTEAD: tests/test_maintain_loop_indicator.py drives `main()` - the same entry point this control's invocation runs - over the SAME two committed fixtures, asserting that `good-known-delay` reports `median 3.00d` (the planted delay, exactly) and that `good-no-findings` reports an EMPTY population rather than a delay of zero. Neither subsumes the other: the registration asserts the anchor relationship and the refusal axis, the tests assert the measurement. THE ANCHOR IS CONSTRUCTED, not historical, because this instrument is new. It reproduces the state #1085 was written against, in the issue's words - 'CPP has the inbox and not the indicator' - by counting the population and computing no delay. Its most instructive case is `unknown-undeclared-population`, where it exits 0 and prints `0 finding(s) recorded` over a document that declares no population: an unread input rendered as a confident zero, which is the #1085 defect in its purest form and why that case carries `anchor_expect: clean`. NOT COVERED BY A CASE: the live `--capture` path needs GitHub and is exercised only by the tests with the network call stubbed. The BASELINE is not a control subject - it is a measurement over a stated window recorded in docs/flow-runs/issue-1085.md, and this gate does not judge whether a baseline is good. NO BAND is proposed or implied.",
+ "cases": [
+  {
+   "name": "good-known-delay",
+   "input": "cases/good-known-delay",
+   "expect": "GOOD"
+  },
+  {
+   "name": "good-no-findings",
+   "input": "cases/good-no-findings",
+   "expect": "GOOD"
+  },
+  {
+   "name": "unknown-empty-file",
+   "input": "cases/unknown-empty-file",
+   "expect": "UNKNOWN",
+   "anchor_expect": "clean",
+   "anchor_expect_reason": "the anchor has no refusal branch at all: a zero-byte capture is simply nothing to count, so it reports `0 finding(s) recorded` and exits 0 over an input that was never read. A failed capture rendered as a confident zero IS the blindness under test, and it is the precise shape #1085 names - 'a broken extractor's zeros look exactly like real ones'"
+  },
+  {
+   "name": "unknown-unparseable",
+   "input": "cases/unknown-unparseable",
+   "expect": "UNKNOWN",
+   "anchor_expect": "clean",
+   "anchor_expect_reason": "same structural blindness: the anchor cannot distinguish a truncated document from an empty one because it derives no population, so invalid JSON reports as zero findings rather than as an unreadable input"
+  },
+  {
+   "name": "unknown-undeclared-population",
+   "input": "cases/unknown-undeclared-population",
+   "expect": "UNKNOWN",
+   "anchor_expect": "clean",
+   "anchor_expect_reason": "the anchor never derives a population, so a document that declares none reads to it as zero findings and it exits 0 with a confident `0 finding(s) recorded`. An anchor able to refuse here would have to derive the population - at which point it would also compute the delay and stop being blind to good-known-delay"
+  }
+ ],
+ "anchors": [
+  {
+   "kind": "constructed",
+   "sha": "n/a",
+   "origin": "scripts/maintain-loop-indicator.py",
+   "path": "anchors/constructed-inbox-without-indicator.py",
+   "sha256": "b4ad200d6583de076ad2e8eb511a76182f21f1007b194ab6fc16fc93b519139f"
+  }
+ ]
+}
