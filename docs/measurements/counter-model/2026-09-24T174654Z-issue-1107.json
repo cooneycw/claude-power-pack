@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1107-flow-wave-mailbox-sh-supervise-an-explicit-opt-in",
+  "counts": {
+    "accepted": 2,
+    "deferred": 1,
+    "rejected": 0
+  },
+  "head": "37bd61c30a671f01a9b0c565a777fd636fdb4cbf",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1107",
+  "passes": 2,
+  "recorded_at": "2026-09-24T17:46:54Z",
+  "red_cases": {
+    "already_covered": 7,
+    "proposed": 8
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

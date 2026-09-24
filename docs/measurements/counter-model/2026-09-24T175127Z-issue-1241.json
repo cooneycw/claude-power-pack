@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1241-ci-validate-is-intermittently-red-repo-wide-the-fo",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "37bd61c30a671f01a9b0c565a777fd636fdb4cbf",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1241",
+  "passes": 2,
+  "recorded_at": "2026-09-24T17:51:27Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 7
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

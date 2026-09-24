@@ -1041,6 +1041,65 @@ class TestAnyLive:
         assert p.returncode == 2
         assert _detail(p, "FLOW_WAVE_ANY_LIVE") == "undeterminable"
 
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "  \n",
+            "null\n",
+            "null\n{}\n",
+            '{"%(w)s": {"roles": false}}',
+            '{"%(w)s": {"roles": []}}',
+            '{"%(w)s": 7}',
+        ],
+        ids=["whitespace-only", "json-null", "two-documents", "roles-false", "roles-array", "wave-scalar"],
+    )
+    def test_a_registry_that_parses_to_no_object_reads_undeterminable(
+        self, tmp_path: Path, content: str
+    ) -> None:
+        """Counter-model review, #1107: both of these make jq exit 0 with no
+        object read - whitespace yields zero inputs, `null` falls through
+        `// {}` - so they read `no-roles-registered`, an affirmative claim
+        that the wave is empty, from a file nothing parsed. `supervise
+        --registry-required` turns that word into exit 7 `misconfigured`.
+        The second pass added the rest: two documents (jq -e judged only the
+        last), and a roster that is not an object (`// {}` or `keys[]` made
+        it read empty). RED before the check (all read
+        `no-roles-registered`)."""
+        reg_dir = tmp_path / "reg"
+        reg_dir.mkdir(parents=True, exist_ok=True)
+        (reg_dir / "registry.json").write_text(content % {"w": "default"} if "%(w)s" in content else content)
+        assert (reg_dir / "registry.json").stat().st_size > 0  # not the absent case
+        p = _run(tmp_path, "list", "--any-live")
+        assert p.returncode == 2
+        assert _detail(p, "FLOW_WAVE_ANY_LIVE") == "undeterminable"
+
+    def test_a_valid_registry_without_this_wave_still_reads_no_roles_registered(
+        self, tmp_path: Path
+    ) -> None:
+        """The object check must not over-reach: a well-formed registry whose
+        only entries belong to ANOTHER wave, or whose wave has an explicit
+        empty roster, is affirmative evidence that this wave is empty."""
+        reg_dir = tmp_path / "reg"
+        reg_dir.mkdir(parents=True, exist_ok=True)
+        for content in ('{"some-other-wave": {"roles": {"1": {}}}}', '{"default": {"roles": {}}}'):
+            (reg_dir / "registry.json").write_text(content)
+            p = _run(tmp_path, "list", "--any-live")
+            assert p.returncode == 1, content
+            assert _detail(p, "FLOW_WAVE_ANY_LIVE") == "no-roles-registered", content
+
+    def test_a_zero_byte_registry_still_reads_no_roles_registered(
+        self, tmp_path: Path
+    ) -> None:
+        """The other side of the object check: a 0-byte file is how an
+        absent registry looks to `read_registry`, and it must keep its
+        affirmative empty answer rather than be swept into undeterminable."""
+        reg_dir = tmp_path / "reg"
+        reg_dir.mkdir(parents=True, exist_ok=True)
+        (reg_dir / "registry.json").write_text("")
+        p = _run(tmp_path, "list", "--any-live")
+        assert p.returncode == 1
+        assert _detail(p, "FLOW_WAVE_ANY_LIVE") == "no-roles-registered"
+
 
 @requires_tools
 class TestUndeterminableLivenessIsItsOwnState:
