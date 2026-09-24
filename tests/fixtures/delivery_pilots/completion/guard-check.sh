@@ -21,6 +21,7 @@ shift
 [ -f "$GUARD_SRC" ] || { echo "FATAL: guard source not found: $GUARD_SRC"; exit 1; }
 [ "$#" -gt 0 ] || { echo "FATAL: no body files given"; exit 1; }
 
+# shellcheck disable=SC2034  # read by the sourced merge guard (#972)
 ALLOW_INCIDENTAL_CLOSE=0          # the guard's own opt-out, explicitly OFF
 failures=0
 
@@ -35,6 +36,7 @@ grep -q '^guard_incidental_close_keywords()' "$tmp" || {
 source "$tmp"
 close_keyword_scan_sources() { :; }   # arrays are supplied directly below
 
+# shellcheck disable=SC2034  # CLOSE_SCAN_* are read by the sourced merge guard (#972)
 run_guard() {   # $1 = body; echoes "exit|first diagnostic line"
     CLOSE_SCAN_SOURCES_LOADED=1
     CLOSE_SCAN_SOURCES=(title body)

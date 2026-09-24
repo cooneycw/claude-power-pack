@@ -271,11 +271,11 @@ parse_reason() {
 # lock_reason_for PATH - print the lock reason for a worktree ('' when
 # unlocked). Locked-with-no-reason prints the sentinel '(no reason)'.
 lock_reason_for() {
-  local want cur="" locked_line=""
+  local want cur=""
   want="$(abspath "$1")"
   while IFS= read -r line; do
     case "$line" in
-      "worktree "*) cur="$(abspath "${line#worktree }")"; locked_line="" ;;
+      "worktree "*) cur="$(abspath "${line#worktree }")" ;;
       "locked "*)
         [ "$cur" = "$want" ] && { printf '%s' "${line#locked }"; return 0; }
         ;;

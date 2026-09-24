@@ -67,6 +67,7 @@ set -u
 # for. Parameter expansion forks nothing and needs nothing on PATH.
 _gate_lib_dir=${0%/*}
 [ "$_gate_lib_dir" = "$0" ] && _gate_lib_dir=.
+# shellcheck disable=SC1091  # gate-lib.sh is resolved at run time and linted as its own file (#972)
 . "$_gate_lib_dir/gate-lib.sh"
 
 gate_map upgraded=0 downgraded=1 unknown=2 error=3

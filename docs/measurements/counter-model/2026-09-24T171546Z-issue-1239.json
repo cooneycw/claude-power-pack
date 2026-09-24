@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1239-check-negative-controls-gitignored-pycache-under-a",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "693c4773c885ac9d3224e8f74d70f45d71f15fab",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1239",
+  "passes": 1,
+  "recorded_at": "2026-09-24T17:15:46Z",
+  "red_cases": {
+    "already_covered": 1,
+    "proposed": 3
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

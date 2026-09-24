@@ -116,6 +116,13 @@ class StepDef:
     # the step rather than in a list kept somewhere else (issue #890). See
     # GATE_STEP_IDS, which is derived from these declarations.
     gate: bool = False
+    # A RECORDED DECISION that this step's test runner is one CPP does not
+    # parse, naming it (e.g. "go test") - issue #977. It is the only thing that
+    # may quiet the "no test summary could be parsed" UNKNOWN warning for this
+    # step, because it turns an unmeasured fact into a stated, reviewable one.
+    # It never makes the result clean: the outcome is still not measured, and
+    # the runner still logs that. None means nothing was declared.
+    unsupported_runner: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {

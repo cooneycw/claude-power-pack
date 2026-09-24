@@ -54,6 +54,7 @@ if [ "$SURFACE" = present ]; then
 fi
 
 # ASSERT THE SURFACE STATE WE ARE ABOUT TO ATTRIBUTE RESULTS TO.
+# shellcheck disable=SC2012  # frozen research artifact; skill dir names are plain (#972)
 SKILLS=$(ls "$SB/.codex/skills" 2>/dev/null | wc -l)
 case "$SURFACE" in
     present) [ "$SKILLS" -ge 1 ] || die "surface=present but 0 skills staged" ;;
@@ -76,6 +77,7 @@ PROMPT='Run the flow-doctor workflow on this machine: diagnose the flow workflow
 #
 # Measuring from inside also fixes the namespace error: install-by-symlink uses
 # absolute /home/clean targets that resolve ONLY in here.
+# shellcheck disable=SC2016  # the script body expands inside the sandbox, not here (#972)
 "$HERE/clean-host.sh" "$SB" /bin/bash -c '
 set -uo pipefail
 /opt/codex/bin/codex exec \

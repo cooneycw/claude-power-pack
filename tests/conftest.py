@@ -2,13 +2,23 @@
 
 from __future__ import annotations
 
+import os
 import re
 import textwrap
 from pathlib import Path
 
 import pytest
 
+import tests as _tests_package
 from tests.supervise_reap import drain_unreaped, reap_supervise_daemons
+
+#: The checkout, anchored on the IMPORTED `tests` package rather than on this
+#: file's own location. `Path(__file__).parents[1]` is wrong in the one case that
+#: matters: a `pytester` sub-run is given a COPY of this conftest in a temporary
+#: directory, where that expression resolves to the temporary directory's parent
+#: and every repo-relative lookup below silently finds nothing. The package is
+#: imported off `PYTHONPATH`, so it resolves to the real checkout either way.
+REPO_ROOT = Path(_tests_package.__file__).resolve().parents[1]
 
 
 @pytest.fixture(autouse=True)
@@ -49,6 +59,74 @@ def _reap_leaked_supervise_daemons(tmp_path: Path):
         f"supervise daemon(s) {sorted({*result.survivors, *unreaped})} survived "
         "cleanup; they still hold this test's working directory"
     )
+
+
+# --------------------------------------------------------------------------- #
+# The suite must not be able to write to the host's Codex skill directory (#1232)
+# --------------------------------------------------------------------------- #
+# One test called `codex-skill-sync.py --install` without redirecting its
+# destination, so `run_install()` installed a two-entry fixture over the
+# developer's real `~/.codex/skills` and pruned the other 72 skills as orphans -
+# correct behaviour on the wrong source tree. It happened on every `make test`
+# and every `make verify`, in every checkout, and the test PASSED while doing it:
+# nothing it asserted had anything to do with the host.
+#
+# ARMED HERE, ENFORCED IN THE SCRIPT. The refusal lives in
+# `scripts/codex-skill-sync.py` and keys on an exact PATH this sets. That
+# placement is what makes it cover a SUBPROCESS as well as an in-process call: a
+# future test that shells out to `--install` inherits this variable. A conftest
+# that monkeypatched the module attribute instead would be blind to exactly that
+# caller, and blind to any test that loaded the module under another name.
+#
+# PLAIN ASSIGNMENT, never `setdefault`. A `pytester` sub-run inherits this
+# process's environment and must recompute the value against ITS OWN `$HOME`;
+# keeping the parent's value would protect a directory the child never writes to
+# and leave the one it does write to unguarded.
+#
+# There is no opt-out, and that is deliberate: no test has a legitimate reason to
+# write to this path. The `tmp_home` fixture in
+# `tests/test_codex_skill_sync.py` satisfies the prohibition by pointing the
+# destination somewhere else, which is what an opted-in test looks like.
+#
+# WHAT THIS DOES NOT DO, so its silence is not read as coverage: it guards ONE
+# destination. It says nothing about any other write a test might make under the
+# real `$HOME`.
+
+#: Populated when the guard could NOT be armed. Read by the terminal summary, so
+#: an unarmed guard reports itself instead of looking like a clean run - the whole
+#: failure mode here is a green that means "nothing checked".
+_HOST_INSTALL_GUARD_UNARMED: list[str] = []
+
+
+def _refuse_install_dest_env() -> str:
+    """The env var name, READ FROM THE SCRIPT that consumes it.
+
+    Spelling it twice would mean a rename in the script leaves this conftest
+    exporting a variable nothing reads - the guard silently absent, with no
+    signal. Derived, a rename breaks the derivation and the summary says so.
+    """
+    import importlib.util
+    import sys
+
+    script = REPO_ROOT / "scripts" / "codex-skill-sync.py"
+    spec = importlib.util.spec_from_file_location("_cpp_codex_skill_sync_env", script)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"could not load {script}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["_cpp_codex_skill_sync_env"] = module
+    spec.loader.exec_module(module)
+    return str(module.REFUSE_INSTALL_DEST_ENV)
+
+
+def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
+    """Arm the host-install refusal for this process and everything it spawns."""
+    try:
+        name = _refuse_install_dest_env()
+        dest = Path.home() / ".codex" / "skills"
+    except Exception as exc:  # noqa: BLE001 - reported, never silent
+        _HOST_INSTALL_GUARD_UNARMED.append(f"{type(exc).__name__}: {exc}")
+        return
+    os.environ[name] = str(dest)
 
 
 @pytest.fixture
@@ -290,6 +368,18 @@ def unattributed_skip_reasons(
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config) -> None:  # noqa: ARG001
     """Name and count the skips caused by a binary being absent."""
+    # FIRST, and before any early return: an unarmed host-install guard (#1232)
+    # must be reported on a run with no skips at all, which is the ordinary run.
+    # The blocks below return early when `skipped` is empty, so anything printed
+    # after them is printed only on runs that happened to skip something.
+    for why in _HOST_INSTALL_GUARD_UNARMED:
+        terminalreporter.write_line(
+            "host-install guard: NOT ARMED - the suite could write to the host's "
+            f"~/.codex/skills and nothing would stop it ({why}). This run proved "
+            "nothing about that (issue #1232).",
+            red=True,
+        )
+
     skipped = terminalreporter.stats.get("skipped", [])
     if not skipped:
         return

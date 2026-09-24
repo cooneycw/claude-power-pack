@@ -494,7 +494,22 @@ def sanitised_git_env(home: str | os.PathLike[str]) -> dict[str, str]:
     return env
 
 
-_OVERRIDES_CACHE: dict[str, list[tuple[str, str]]] = {}
+#: KEYED ON WHAT THE VALUE IS DERIVED FROM, not on the repo alone (issue #1242).
+#: The cached value is computed from the repo's git configuration AND from
+#: `GIT_EXEC_CONFIG_NEUTRALISED`, so a repo-only key lets a call made under a
+#: DIFFERENT table install its answer as the answer for that repo. That is not
+#: hypothetical: `test_the_canary_FIRES_when_the_neutralisation_IS_REMOVED` empties
+#: the table to prove the sandbox's alarm can fire, reaches this function, and
+#: cached `[]` for the checkout. `monkeypatch` restores the ATTRIBUTE and knows
+#: nothing about this dict, so every later `sandbox_env()` in that process got
+#: `GIT_CONFIG_COUNT=0` - a sandbox neutralising nothing - and whichever test
+#: asserted a neutralisation next failed. Under `pytest -n 4` the grouping varies,
+#: so it surfaced on a rotating innocent test on whatever PR was in flight, and
+#: passed when run alone.
+#:
+#: `_GIT_EXEC_FILTER_RE` is the only other input and nothing patches it; if that
+#: changes, it belongs in this key too.
+_OVERRIDES_CACHE: dict[tuple[str, tuple[tuple[str, str], ...]], list[tuple[str, str]]] = {}
 
 
 def git_exec_config_overrides(repo: Path) -> list[tuple[str, str]]:
@@ -502,10 +517,11 @@ def git_exec_config_overrides(repo: Path) -> list[tuple[str, str]]:
 
     Raises `GitDiscoveryError` when the configuration cannot be read.
     """
-    key = str(repo)
+    neutralised = tuple(sorted(GIT_EXEC_CONFIG_NEUTRALISED.items()))
+    key = (str(repo), neutralised)
     if key in _OVERRIDES_CACHE:
         return list(_OVERRIDES_CACHE[key])
-    overrides = sorted(GIT_EXEC_CONFIG_NEUTRALISED.items())
+    overrides = list(neutralised)
     #: `--null --name-only` instead of parsing `key=value` (counter-model review,
     #: #1182). Git accepts a subsection containing `=`: `[filter "a=b"]` renders
     #: as `filter.a=b.clean=<cmd>`, and splitting on the first `=` yields

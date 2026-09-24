@@ -25,8 +25,6 @@ set -euo pipefail
 
 #: NEGATIVE-CONTROL: controls/hook-mask-output
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 # Read JSON input from stdin
 INPUT=$(cat)
 

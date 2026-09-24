@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1235-codex-skill-sync-install-is-observably-inconsisten",
+  "counts": {
+    "accepted": 6,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "be8c679aa5ffe14c0dc95905b26f6c0065cb1dc8",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1235",
+  "passes": 2,
+  "recorded_at": "2026-09-24T11:01:21Z",
+  "red_cases": {
+    "already_covered": 10,
+    "proposed": 12
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

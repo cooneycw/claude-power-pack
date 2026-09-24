@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1232-make-verify-deletes-the-user-s-installed-codex-ski",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "69cdd6edc823c48a5d563d44933f6f58bbe0e974",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1232",
+  "passes": 1,
+  "recorded_at": "2026-09-24T09:43:45Z",
+  "red_cases": {
+    "already_covered": 4,
+    "proposed": 4
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

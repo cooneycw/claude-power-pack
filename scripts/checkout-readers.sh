@@ -367,7 +367,6 @@ case "$MODE" in
         fi
         exit 0 ;;
     json)
-        num_or_null() { [ "$1" = "-" ] && printf 'null' || printf '%s' "$1"; }
         # Escape before quoting - a tree path containing `"` or `\` produced
         # invalid JSON. Backslash first, or it doubles what it just inserted.
         json_escape() {

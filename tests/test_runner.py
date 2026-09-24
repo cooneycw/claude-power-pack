@@ -1735,6 +1735,262 @@ class TestUnparsedTestOutcomeReadsUnknown:
         assert "UNKNOWN" not in log.getvalue()
 
 
+def _run_test_step(
+    tmp_project: Path, command: str, unsupported_runner: str | None = None
+):
+    step = StepDef(
+        id="test",
+        command=command,
+        timeout_seconds=30,
+        unsupported_runner=unsupported_runner,
+    )
+    log = StringIO()
+    result = DeterministicRunner(project_root=tmp_project, output=log).run(
+        "check", step_defs=[step]
+    )
+    return result, log.getvalue()
+
+
+# One specimen per cause. Printed with `printf` so the fixture is the output a
+# runner would produce, not a value handed to the code under test.
+_SUPPORTED_EMPTY_CMD = (
+    "printf '============ test session starts ============\\n"
+    "collected 3 items\\nKilled\\n'"
+)
+_UNCLASSIFIABLE_CMD = "printf 'ok 1 - something\\nok 2 - another\\n'"
+
+
+class TestUnparsedCausesAreDistinct:
+    """Issue #977: UNKNOWN stays, and its causes are separated in DETAIL.
+
+    The ruling: a supported runner that came back empty is a per-run alarm, an
+    output nobody can classify is an unmeasured fact, and a runner the project
+    DECLARED unsupported is a recorded decision that may be quiet. The first
+    two share one verdict (UNKNOWN, warn) and differ only in wording - and
+    nothing downstream reads the wording, so the difference is pinned here.
+    """
+
+    def test_the_two_warning_causes_produce_different_text(
+        self, tmp_project: Path
+    ) -> None:
+        """THE CONTROL the ruling asked for: a collapse of the causes goes red.
+
+        Asserting each wording separately would stay green if both branches
+        were edited into the same sentence; asserting they DIFFER is what
+        catches it.
+        """
+        empty, empty_log = _run_test_step(tmp_project, _SUPPORTED_EMPTY_CMD)
+        unclassified, unclassified_log = _run_test_step(
+            tmp_project, _UNCLASSIFIABLE_CMD
+        )
+
+        assert len(empty.warnings) == 1 and len(unclassified.warnings) == 1
+        # Both remain UNKNOWN - the verdict is shared, only DETAIL differs.
+        for w in (empty.warnings[0], unclassified.warnings[0]):
+            assert "UNKNOWN, not clean" in w
+        assert empty.warnings[0] != unclassified.warnings[0]
+        assert "supported runner pytest was recognised" in empty.warnings[0]
+        assert "could not be classified" in unclassified.warnings[0]
+        # Neither is allowed to call itself "unsupported": that word belongs
+        # to a declaration, and inferring it is what the ruling forbids.
+        for w in (empty.warnings[0], unclassified.warnings[0]):
+            assert "declared unsupported" not in w
+        assert "PYTEST CAME BACK EMPTY" in empty_log
+        assert "OUTPUT UNCLASSIFIABLE" in unclassified_log
+
+    def test_a_declared_runner_is_quiet_but_not_called_clean(
+        self, tmp_project: Path
+    ) -> None:
+        result, log = _run_test_step(
+            tmp_project, _UNCLASSIFIABLE_CMD, unsupported_runner="tap harness"
+        )
+
+        assert result.success
+        assert not result.warnings, "a recorded decision may be quiet"
+        assert "TEST OUTCOME NOT MEASURED" in log
+        assert "declared unsupported: tap harness" in log
+        assert "test" not in result.tests, "no counts were measured"
+
+    def test_the_declaration_is_what_silences_it(self, tmp_project: Path) -> None:
+        """Negative half of the test above: the same output, undeclared, warns."""
+        result, _ = _run_test_step(tmp_project, _UNCLASSIFIABLE_CMD)
+        assert result.warnings
+
+    def test_a_declaration_cannot_mute_a_supported_runner_gone_silent(
+        self, tmp_project: Path
+    ) -> None:
+        """The alarm the warning exists for survives a (stale) declaration."""
+        result, _ = _run_test_step(
+            tmp_project, _SUPPORTED_EMPTY_CMD, unsupported_runner="go test"
+        )
+
+        assert len(result.warnings) == 1
+        warning = result.warnings[0]
+        assert "UNKNOWN, not clean" in warning
+        assert "supported runner pytest was recognised" in warning
+        assert "does not silence a runner CPP supports" in warning
+
+    def test_a_declared_step_whose_output_parses_uses_the_counts_and_notes_it(
+        self, tmp_project: Path
+    ) -> None:
+        """A measurement beats a declaration, and the gap is logged, not warned."""
+        result, log = _run_test_step(
+            tmp_project,
+            "printf '==== 3 passed in 0.10s ====\\n'",
+            unsupported_runner="go test",
+        )
+
+        assert result.success
+        assert result.tests["test"]["passed"] == 3, "the measurement is used"
+        assert not result.warnings
+        assert "counts come from a parsed pytest summary" in log
+        assert "(go test), if any, is NOT measured" in log
+
+    def test_a_mixed_step_is_not_told_its_declaration_is_wrong(
+        self, tmp_project: Path
+    ) -> None:
+        """Counter-model finding: a neighbouring pytest suite proves nothing
+        about the declared Go runner, so it must not produce a per-run warning
+        telling the author to remove the declaration."""
+        result, log = _run_test_step(
+            tmp_project,
+            "printf 'ok  \\texample.com/pkg\\t0.012s\\n"
+            "==== 3 passed in 0.10s ====\\n'",
+            unsupported_runner="go test",
+        )
+
+        assert not result.warnings
+        assert "remove it" not in log
+        assert "is NOT measured" in log
+
+    def test_application_output_cannot_override_a_declaration(
+        self, tmp_project: Path
+    ) -> None:
+        """Counter-model finding, pass 2, end to end."""
+        result, _ = _run_test_step(
+            tmp_project,
+            "printf 'collected 3 items from queue\\nall checks passed\\n'",
+            unsupported_runner="shell harness",
+        )
+        assert not result.warnings
+
+    def test_an_uncorroborated_signature_does_not_override_a_declaration(
+        self, tmp_project: Path
+    ) -> None:
+        """Counter-model finding: any harness can print `PASS src/app.test.ts`.
+
+        It names jest in DETAIL when nothing is declared, but it is not strong
+        enough to turn a recorded decision back into a per-run warning.
+        """
+        cmd = "printf 'PASS src/app.test.ts\\nall done\\n'"
+        declared, declared_log = _run_test_step(
+            tmp_project, cmd, unsupported_runner="shell harness"
+        )
+        undeclared, _ = _run_test_step(tmp_project, cmd)
+
+        assert not declared.warnings
+        assert "declared unsupported: shell harness" in declared_log
+        # The same weak signature still sets the undeclared DETAIL.
+        assert len(undeclared.warnings) == 1
+        assert "supported runner jest was recognised" in undeclared.warnings[0]
+
+    def test_an_undeclared_parsed_suite_carries_no_declaration_warning(
+        self, tmp_project: Path
+    ) -> None:
+        result, _ = _run_test_step(
+            tmp_project, "printf '==== 3 passed in 0.10s ====\\n'"
+        )
+        assert not result.warnings
+
+
+class TestClassifyUnparsed:
+    """The narrow recogniser behind the supported-empty cause (issue #977)."""
+
+    @pytest.mark.parametrize(
+        ("text", "framework"),
+        [
+            ("===== test session starts =====\nplatform linux\n", "pytest"),
+            ("collected 12 items\n", "pytest"),
+            ("Test Suites: 1 failed, 1 total\n", "jest"),
+            ("PASS src/app.test.ts\n", "jest"),
+            ("FAIL  src/app.test.js (5 ms)\n", "jest"),
+            ("Ran 4 tests in 0.002s\n", "unittest"),
+        ],
+    )
+    def test_supported_signatures_are_recognised(self, text: str, framework: str) -> None:
+        from lib.cicd.outcomes import classify_unparsed
+
+        found = classify_unparsed(text)
+        assert found is not None and found[0] == framework
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "",
+            "ok 1 - something\nok 2 - else\n1..2\n",  # TAP
+            "ok  \texample.com/pkg\t0.012s\n",  # go test
+            "test result: ok. 3 passed; 0 failed; 0 ignored\n",  # cargo test
+            "all good\n",
+        ],
+    )
+    def test_foreign_output_is_unclassifiable_not_supported(self, text: str) -> None:
+        from lib.cicd.outcomes import classify_unparsed
+
+        assert classify_unparsed(text) is None
+
+    @pytest.mark.parametrize(
+        "text",
+        ["collected 5 items / 2 deselected / 3 selected\n", "collected 1 item\n"],
+    )
+    def test_pytest_collection_lines_are_corroborated(self, text: str) -> None:
+        from lib.cicd.outcomes import classify_unparsed
+
+        found = classify_unparsed(text, corroborated_only=True)
+        assert found is not None and found[0] == "pytest"
+
+    def test_application_output_that_starts_like_pytest_is_not_pytest(self) -> None:
+        """Counter-model finding, pass 2: a prefix match let this override."""
+        from lib.cicd.outcomes import classify_unparsed
+
+        assert classify_unparsed("collected 3 items from queue\n") is None
+
+    def test_a_bare_pass_line_is_not_corroborated(self) -> None:
+        from lib.cicd.outcomes import classify_unparsed
+
+        text = "PASS src/app.test.ts\n"
+        assert classify_unparsed(text) == ("jest", "PASS src/app.test.ts")
+        assert classify_unparsed(text, corroborated_only=True) is None
+        assert classify_unparsed(
+            "Test Suites: 1 failed, 1 total\n", corroborated_only=True
+        ) is not None
+
+
+class TestManifestCarriesTheDeclaration:
+    """The declaration is configured on the manifest step (issue #977)."""
+
+    def test_round_trip_into_the_step_def(self) -> None:
+        from lib.cicd.manifest import StepModel, step_model_to_step_def
+
+        step = step_model_to_step_def(
+            "test", StepModel(command="go test ./...", unsupported_runner=" go test ")
+        )
+        assert step.unsupported_runner == "go test"
+
+    def test_absent_means_nothing_declared(self) -> None:
+        from lib.cicd.manifest import StepModel, step_model_to_step_def
+
+        step = step_model_to_step_def("test", StepModel(command="make test"))
+        assert step.unsupported_runner is None
+
+    def test_an_empty_declaration_is_refused(self) -> None:
+        from pydantic import ValidationError
+
+        from lib.cicd.manifest import StepModel
+
+        with pytest.raises(ValidationError):
+            StepModel(command="go test ./...", unsupported_runner="  ")
+
+
 class TestSkippedSuiteReporting:
     """A test step that exits 0 having executed nothing must not be reported as a
     bare SUCCESS (issue #621). pytest exits 0 when every test skips, so the plan

@@ -481,6 +481,19 @@ ticket with a different binary:
   is not. `shellcheck` shipped with **zero** suppressions and no `.shellcheckrc`
   at all - the day one is needed, the file appears with the reason in the same
   commit.
+- **The residual closes by raising the severity, not by annotating around it.**
+  #972 did this for `shellcheck`: 139 source findings below `error` were each
+  fixed or suppressed ON ITS OWN LINE with its reason (still no `.shellcheckrc`,
+  still no file-wide disable), and the gate's default moved from `error` to
+  `style`. The largest class was not what the ticket predicted - 65 of the 68
+  "unreachable" findings were one function with no caller since #505, deleted
+  rather than suppressed. A raised severity needs its own BAD case, because every
+  pre-existing case offended at `error` and so could not tell the new default
+  from the old one: `controls/shellcheck-gate/cases/bad-note-severity` reports
+  BLIND when the default is reverted. *What would move this back (ADR 0009):*
+  repeated churn from note-level findings that are suppressed rather than fixed.
+  The step back is to `warning`, never to `error`, which re-opens an unreviewed
+  residual.
 - **An anchor for a BRAND NEW gate cannot be historical on main, and that is
   accepted rather than worked around.** A control for a pre-existing gate anchors
   to a real commit in main's history (row 1's `c6df826` does). A gate introduced

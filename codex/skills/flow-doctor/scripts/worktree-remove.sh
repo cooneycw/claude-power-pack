@@ -224,7 +224,7 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
 fi
 
 # Get the main repository path from the worktree's .git file
-MAIN_REPO=$(cat "$WORKTREE_PATH/.git" | sed 's/gitdir: //' | sed 's|/.git/worktrees/.*||')
+MAIN_REPO=$(sed 's/gitdir: //' "$WORKTREE_PATH/.git" | sed 's|/.git/worktrees/.*||')
 
 if [[ ! -d "$MAIN_REPO/.git" ]]; then
     echo -e "${RED}Error: Could not find main repository${NC}" >&2

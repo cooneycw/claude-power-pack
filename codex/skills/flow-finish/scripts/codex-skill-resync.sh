@@ -143,8 +143,7 @@ fi
     echo "  A bundled doc can do this without any command document changing; that is issue #1136." >&2
 }
 
-WRITE_OUT="$("$SYNC" --write 2>&1)"
-if [ $? -ne 0 ]; then
+if ! WRITE_OUT="$("$SYNC" --write 2>&1)"; then
     printf '%s\n' "$WRITE_OUT" >&2
     echo "codex-skill-resync: codex-skill-sync.py --write FAILED; the mirrors are still stale." >&2
     echo "CODEX_RESYNC: error"
@@ -158,8 +157,7 @@ fi
 # the same false-success shape as the verdict this helper replaced. So the
 # repair is VERIFIED rather than assumed, and the remaining diagnostics are the
 # ones a reader needs.
-RECHECK_OUT="$("$SYNC" --check 2>&1)"
-if [ $? -ne 0 ]; then
+if ! RECHECK_OUT="$("$SYNC" --check 2>&1)"; then
     printf '%s\n' "$RECHECK_OUT" >&2
     echo "codex-skill-resync: --write succeeded and --check STILL fails; this is not drift the" >&2
     echo "  generator can repair (an unpackaged command or family reports the same way)." >&2

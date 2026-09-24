@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1222-release-records-the-release-but-clears-no-lane-fac",
+  "counts": {
+    "accepted": 1,
+    "deferred": 1,
+    "rejected": 0
+  },
+  "head": "f45256f8c6473242a93d7b70451f29e515e372b9",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1222",
+  "passes": 2,
+  "recorded_at": "2026-09-24T12:07:18Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 4
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

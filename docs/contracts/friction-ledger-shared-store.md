@@ -1,8 +1,10 @@
 # Contract: Shared Friction-Knowledge Ledger (multi-harness)
 
-Status: stable (issue #557). Consumers: claude-power-pack (this repo) and
-codex-power-pack (epic cooneycw/codex-power-pack#67, "Codex friction telemetry
-writing to the shared fleet ledger", its epic E writer).
+Status: stable (issue #557). Consumer: claude-power-pack (this repo). Former
+consumer: codex-power-pack (epic cooneycw/codex-power-pack#67, "Codex friction
+telemetry writing to the shared fleet ledger", its epic E writer), dormant since
+the repository went private on 2026-09-22 (#1076). The contract stays stable for
+any Codex-side writer.
 
 This is the **write/read contract** for the shared Postgres friction ledger so a
 second harness (Codex) can feed the same store Claude Code already feeds, with a
@@ -48,7 +50,7 @@ cpp-memory record \
 | Value | Producer |
 |-------|----------|
 | `claude` | Claude Code (CPP retro / memory routines) |
-| `codex` | Codex (codex-power-pack telemetry writer) |
+| `codex` | Codex (originally the codex-power-pack telemetry writer, dormant since 2026-09-22) |
 | `shell` | plain shell / other scripted caller |
 
 Values are a **convention**, folded to lower-case, NOT enforced by a DB `CHECK`
@@ -129,4 +131,4 @@ coordinated across both repos before either relies on it.
 - `docs/skills/common-memory.md` - operator routine, backends (md|local-pg|remote-pg), DSN.
 - `lib/cpp_memory/harness.py` - `resolve_harness` (the resolution order above).
 - `lib/cpp_memory/sql/schema.sql` - canonical DDL.
-- codex-power-pack epic cooneycw/codex-power-pack#67 - the Codex-side consumer.
+- codex-power-pack epic cooneycw/codex-power-pack#67 - the former Codex-side consumer (dormant since 2026-09-22, #1076).

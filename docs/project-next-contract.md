@@ -1,25 +1,28 @@
 # Project Next Behavioral Contract
 
-`project-next` is a read-only, deterministic recommendation workflow. Codex
-Power Pack owns the executable contract, fixtures, Python core, Codex skill,
-and installed project-plugin runtime. Claude Power Pack may retain a
-harness-specific collector or renderer, but fidelity changes originate in this
-contract and its fixture corpus; a second prompt-only decision policy is not an
-authoritative implementation. CPP adoption is tracked by
-[claude-power-pack#636](https://github.com/cooneycw/claude-power-pack/issues/636).
+`project-next` is a read-only, deterministic recommendation workflow. Claude
+Power Pack owns the executable contract, fixtures and Python core outright
+(issue #1069): the package is `lib/project_next/`, the fixtures are
+`tests/project_next/fixtures/`, and this document is the contract. Fidelity
+changes originate in this contract and its fixture corpus; a second
+prompt-only decision policy is not an authoritative implementation. The engine
+was authored in codex-power-pack and vendored from it until #1069; that
+repository has been private and dormant since 2026-09-22 (#1076), and
+[the provenance record](project-next-provenance.md) keeps the history.
 
 ## Version and entry points
 
 Contract version `1.3` accepts a structured `RepositoryState` and emits a
-structured `RecommendationResult`. Run it from a CxPP checkout with:
+structured `RecommendationResult`. Run it from a CPP checkout with:
 
 ```bash
 python3 scripts/project-next.py [repository] [--brief|--compact|--full|--json]
 ```
 
-Installed project plugins use the byte-identical entry point and generated
-runtime under `plugins/project/`. `scripts/project_next_sync.py --check` blocks
-drift from the authoritative `lib/project_next/` package.
+Normal installations expose the same entry point as
+`~/.claude/scripts/project-next.py`. `make project-next-check` verifies the
+package, contract and fixtures against their ownership pins in
+`.claude/project-next-ownership.json`.
 
 ## Input contract
 

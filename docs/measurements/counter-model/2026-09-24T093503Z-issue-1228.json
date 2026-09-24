@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1228-flow-register-flow-wave-prescribe-supervise-whose",
+  "counts": {
+    "accepted": 4,
+    "deferred": 1,
+    "rejected": 0
+  },
+  "head": "c5b1c5edb180db748738878e577809b47d112611",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1228",
+  "passes": 2,
+  "recorded_at": "2026-09-24T09:35:03Z",
+  "red_cases": {
+    "already_covered": 8,
+    "proposed": 11
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
