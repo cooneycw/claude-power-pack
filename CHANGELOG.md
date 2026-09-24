@@ -4,6 +4,18 @@
 
 ### Fixed
 
+- **2026-09-24 - `/qwen:auto` and `/gemma:auto` re-delegated on an expired
+  serveability pass** (issue #921, half 2 of 2; half 1 was PR #991) - the Step-6
+  fix loop re-executed the model on the Step-4 probe's verdict, taken before the
+  whole first run and the quality gates and so far past its 120s window. Both
+  fix loops now age that verdict with `--check-age` before each re-execute; a
+  `stale` or `unknown` answer probes ONCE, immediately before the call, and
+  `dead`/`unreachable`/`unknown` stops the loop instead of spending a retry.
+  There is deliberately no timer or free-standing re-probe: the owner ruled that
+  the serving hosts are to be treated as not pinning their models, so every cold
+  probe is a full weight load - the operation observed being killed - and a probe is only
+  load-neutral when the call it precedes would load the model anyway.
+
 - **2026-09-22 - `/cpp:init` and `/cpp:update` reported success for host writes
   that never happened** (issue #1198) - #1132 routed every host write in the two
   cpp command documents through `scripts/cpp-host-write.sh`, the declaring seam

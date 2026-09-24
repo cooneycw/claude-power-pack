@@ -373,6 +373,12 @@ Act on `LANE_SERVE_STATUS`:
 - `unknown` -> the probe could not be PERFORMED (no `curl`). That is
   **unchecked, not clean** - say so, and do not report the lane as ready.
 
+**Keep the verdict AND its timestamp (issue #921).** On `serving`, note the
+literal `LANE_SERVE_AT` and `LANE_SERVE_STATUS` values from the probe output.
+Step 6 re-delegates long after this probe - a full run plus the quality gates -
+and ages this verdict before it does. Carry them as literals, like a PR number;
+a shell variable does not survive to Step 6.
+
 (Exit 127 - the helper family is not installed: fall back to
 `${CLAUDE_PLUGIN_ROOT}/scripts/lane-serveability-check.sh`, else the
 CPP-checkout copy; either may prompt once. Tell the user to run **`/flow:repair`**
@@ -791,7 +797,38 @@ If quality gates fail:
    message, and continue only with independent authorized work. Do not implement
    part of the boundary change to make the gate pass.
    ```
-3. **Re-execute** with the same invocation as Step 4 (same sandbox, same
+3. **Age the Step-4 verdict before re-delegating (issue #921).** The pass
+   Step 4 recorded is a reading with a timestamp, and by now it is usually past
+   its 120s window. Ask whether it is still current - this probes nothing:
+   ```bash
+   ~/.claude/scripts/lane-serveability-check.sh --check-age 1789000000 --recorded serving --lane qwen
+   ```
+   (substituting the literal `LANE_SERVE_AT` / `LANE_SERVE_STATUS` from Step 4,
+   or from the latest re-probe below).
+   - `fresh` -> re-execute.
+   - `stale` or `unknown` -> probe ONCE, immediately before the re-execute, then
+     act on it exactly as Step 4 does (set the endpoint and model variables as
+     Step 4 does, in the same call - they do not survive from Step 4's shell):
+     ```bash
+     ~/.claude/scripts/lane-serveability-check.sh --endpoint "$QWEN_ENDPOINT" --model "$QWEN_MODEL" --lane qwen
+     ```
+     - `serving` -> re-execute, and carry this probe's `LANE_SERVE_AT` forward.
+     - `dead` or `unreachable` -> **STOP** the fix loop, report
+       `LANE_SERVE_DETAIL` verbatim, and say the **qwen lane is down** - the
+       re-execute would have failed the same way, minutes in.
+     - `unknown` -> **STOP** the fix loop and say the lane is **unverified**: the
+       probe could not run (no `curl`), so it observed nothing and is not an
+       outage diagnosis. Report `LANE_SERVE_DETAIL`; do not re-execute unchecked.
+
+   **Never probe on a timer, and never probe without a delegated call right
+   behind it** (owner ruling on #921: treat the serving host as NOT pinning its
+   model, whatever it was once configured to do). On an unpinned host every probe
+   of a cold model IS a full weight load - the operation that was observed being
+   killed. A probe placed directly before a re-execute performs
+   the load that re-execute would perform anyway: if it passes the model is
+   resident for the call, if it fails the call is not spent. A probe anywhere
+   else is an extra load on the exact resource that was exhausted.
+   Then **Re-execute** with the same invocation as Step 4 (same sandbox, same
    provider flags), REDIRECTING to `/tmp/qwen-fix-${ISSUE_NUM}-${RETRY}.jsonl`
    - never piping through `tee` - with the exit capture in the SAME block, then
    checking the payload (issue #798):
