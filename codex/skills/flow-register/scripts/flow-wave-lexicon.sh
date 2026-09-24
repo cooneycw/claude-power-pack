@@ -110,9 +110,11 @@
 # the mitigation, so its failure is the trigger; do not widen the skip further
 # without retiring this note and saying why.
 #
-#   GATE: GO #N [reason]
-#   GATE: HOLD #N behind #M[, #M...] [reason]
-#   GATE: GO-WITH-CONDITIONS #N
+#   GATE: GO <subject> [reason]
+#   GATE: HOLD <subject> behind #M[, #M...] <reason>
+#                                       (or '- <reason>' lines beneath; a HOLD
+#                                        with neither is refused, #1189)
+#   GATE: GO-WITH-CONDITIONS <subject>
 #     - <condition>                     (>=1 required; list items)
 #     serializes: <marker>              (optional; unions into the ledger's
 #                                        adds_serialized, the two-`0009`s fix)
@@ -130,9 +132,13 @@
 # Each requirement traces to a specific failure, and is enforced rather than
 # recommended:
 #
-#   - a GATE verdict must NAME ITS SUBJECT (`#N`). A verdict whose subject is
-#     implied by conversational context is exactly what goes stale between
-#     composition and reading.
+#   - a GATE verdict must NAME ITS SUBJECT: `#N` for an issue, or a lowercase
+#     kebab slug of at least two parts (`journal-false-red`) for work that
+#     deliberately has no issue (#1189). A verdict whose subject is implied by
+#     conversational context is exactly what goes stale between composition and
+#     reading. A bare number is refused ("did you mean #N"), not read as a slug.
+#   - a HOLD must STATE WHY, inline or as `- ` lines beneath (#1189): prose
+#     beneath the token was silently stored as "(no reason given)".
 #   - a HOLD must name what it waits BEHIND, because wave.md requires it and a
 #     hold with no blocker cannot be superseded on evidence.
 #   - GO-WITH-CONDITIONS must carry conditions. A conditional approval with the
@@ -257,7 +263,7 @@ declare -a LINE_CLASS=()
 declare -a TR_KIND=() TR_DETAIL=()
 declare -a ERR_LINE=() ERR_MSG=()
 declare -a CITE_LINE=() CITE_CTX=() CITE_TEXT=()
-declare -a GATE_ISSUE=() GATE_RULING=() GATE_BEHIND=() GATE_REASON=() GATE_SERIAL=()
+declare -a GATE_ISSUE=() GATE_SUBJECT=() GATE_RULING=() GATE_BEHIND=() GATE_REASON=() GATE_SERIAL=()
 
 read_body() {
   local raw
@@ -517,9 +523,10 @@ block_lines() {
   done
 }
 
+#: NEGATIVE-CONTROL: controls/flow-wave-lexicon
 parse_gate() { # parse_gate LINENO REST BLOCK_START
   local ln="$1" rest="$2" start="$3"
-  local verb args issue behind reason serial conds block
+  local verb args issue subject label behind reason serial conds block
   rest="$(trim "$rest")"
   verb="${rest%%[[:space:]]*}"
   args="$(trim "${rest#"$verb"}")"
@@ -531,12 +538,41 @@ parse_gate() { # parse_gate LINENO REST BLOCK_START
   esac
 
   # Subject: a verdict that does not name what it judges is the staleness bug.
-  if [[ ! "$args" =~ ^#([0-9]+)([[:space:]]|$) ]]; then
-    add_err "$ln" "GATE: $verb must name its subject issue (e.g. 'GATE: $verb #701')"
+  #
+  # `#N` names an issue. A KEBAB SLUG of at least two parts (`journal-false-red`)
+  # names work that deliberately has NO issue (#1189): the wave's residual rule
+  # routes small in-lane findings to a fix rather than a ticket, and that work
+  # still reaches a gate - so a ledger that only takes `#N` cannot record the
+  # rulings the wave's own doctrine produces. flow-wave-plan.py reads a slug
+  # `subject` and ignores it for planning (#1223), counting it rather than
+  # dropping it.
+  #
+  # The slug shape is deliberately NARROW, because the failure on the other side
+  # is a forgotten `#` turning into a ruling about something else:
+  #   - a BARE NUMBER is refused, never read as a slug or as an issue - the
+  #     planner treats a numeric-looking subject as that issue, so `GATE: GO 701`
+  #     must stay a loud typo rather than a quiet ruling;
+  #   - a SINGLE WORD is refused, so `GATE: GO approved` cannot become a ruling
+  #     about a subject called "approved".
+  # A kebab-shaped word typed where `#N` was meant (`GATE: GO looks-good`) still
+  # passes; the two-part rule narrows that, it does not remove it.
+  subject=""
+  if [[ "$args" =~ ^#([0-9]+)([[:space:]]|$) ]]; then
+    issue="${BASH_REMATCH[1]}"
+    args="$(trim "${args#"#$issue"}")"
+    label="#$issue"
+  elif [[ "$args" =~ ^([0-9]+)([[:space:]]|$) ]]; then
+    add_err "$ln" "GATE: $verb subject '${BASH_REMATCH[1]}' is a bare number - did you mean '#${BASH_REMATCH[1]}'? (an issueless subject is a kebab slug, e.g. 'journal-false-red')"
+    return
+  elif [[ "$args" =~ ^([a-z0-9]+(-[a-z0-9]+)+)([[:space:]]|$) ]]; then
+    subject="${BASH_REMATCH[1]}"
+    issue=""
+    args="$(trim "${args#"$subject"}")"
+    label="$subject"
+  else
+    add_err "$ln" "GATE: $verb must name its subject issue (e.g. 'GATE: $verb #701'), or - for work that deliberately has no issue - a lowercase kebab slug of at least two parts (e.g. 'GATE: $verb journal-false-red')"
     return
   fi
-  issue="${BASH_REMATCH[1]}"
-  args="$(trim "${args#"#$issue"}")"
 
   behind=""
   if [[ "$args" =~ ^behind[[:space:]]+(#[0-9]+([[:space:],]+#[0-9]+)*) ]]; then
@@ -546,7 +582,7 @@ parse_gate() { # parse_gate LINENO REST BLOCK_START
   fi
 
   if [ "$verb" = "HOLD" ] && [ -z "$behind" ]; then
-    add_err "$ln" "GATE: HOLD #$issue must name what it waits behind (e.g. 'behind #56')"
+    add_err "$ln" "GATE: HOLD $label must name what it waits behind (e.g. 'behind #56')"
     return
   fi
 
@@ -556,11 +592,31 @@ parse_gate() { # parse_gate LINENO REST BLOCK_START
   serial="$(trim "$serial")"
 
   if [ "$verb" = "GO-WITH-CONDITIONS" ] && [ -z "$(trim "$conds")" ]; then
-    add_err "$ln" "GATE: GO-WITH-CONDITIONS #$issue carries no conditions - list them as '- <condition>' lines beneath it. Note that a fenced or '>' quoted line is INERT (issue #980): a condition shown inside a fence is a specimen, not a condition, and a quoted token ENDS the block, so conditions below one are read as belonging to what you quoted"
+    add_err "$ln" "GATE: GO-WITH-CONDITIONS $label carries no conditions - list them as '- <condition>' lines beneath it. Note that a fenced or '>' quoted line is INERT (issue #980): a condition shown inside a fence is a specimen, not a condition, and a quoted token ENDS the block, so conditions below one are read as belonging to what you quoted"
     return
   fi
 
   reason="$(trim "$args")"
+
+  # A HOLD MUST STATE WHY (#1189). It is the one verdict that keeps an issue out
+  # of the assignment pool for every LATER session, and before this it was also
+  # the one with no guard on its reason: GO-WITH-CONDITIONS refuses an empty
+  # harvest (above) and `MERGE: PRIORITY` refuses a missing argument, but a HOLD
+  # whose argument was typed as prose beneath the token was stored as `GATE: HOLD
+  # (no reason given)` while `record` printed success. The enforcement survived
+  # and the argument did not, so a successor inherited an unexplained standing
+  # hold with no way to tell a terse ruling from a misplaced one.
+  #
+  # THE REMEDY IS THIS REFUSAL, NOT A WIDER HARVEST. Reading every prose line
+  # beneath a HOLD as its reason would make a HOLD absorb whatever follows it -
+  # commentary, a second topic, a signature - which is a different defect, and
+  # the one GO-WITH-CONDITIONS already avoids by harvesting only list items.
+  # A GO stays reason-optional: a terse approval is a deliberate shape.
+  if [ "$verb" = "HOLD" ] && [ -z "$reason" ] && [ -z "$(trim "$conds")" ]; then
+    add_err "$ln" "GATE: HOLD $label must state WHY - on the token line ('GATE: HOLD $label behind #${behind%% *} <reason>') or as '- <reason>' lines beneath it. Prose beneath the token is NOT read as the reason, so it would be recorded as '(no reason given)' - and a hold outlives this session"
+    return
+  fi
+
   if [ -n "$(trim "$conds")" ]; then
     # Conditions ARE the reason for a conditional approval; joining them keeps
     # the ledger entry self-describing to a successor orchestrator.
@@ -574,9 +630,9 @@ parse_gate() { # parse_gate LINENO REST BLOCK_START
     HOLD)               GATE_RULING+=("hold") ;;
     GO-WITH-CONDITIONS) GATE_RULING+=("approved-with-conditions") ;;
   esac
-  GATE_ISSUE+=("$issue"); GATE_BEHIND+=("$behind")
+  GATE_ISSUE+=("$issue"); GATE_SUBJECT+=("$subject"); GATE_BEHIND+=("$behind")
   GATE_REASON+=("$reason"); GATE_SERIAL+=("$serial")
-  add_tr "GATE" "$verb #$issue"
+  add_tr "GATE" "$verb $label"
 }
 
 parse_lane() { # parse_lane LINENO REST
@@ -1043,14 +1099,22 @@ case "$VERB" in
           if [ -n "${GATE_SERIAL[$i]}" ]; then
             serial_json="$(jq -nc --arg m "${GATE_SERIAL[$i]}" '[$m]')"
           fi
+          # An issue ruling keeps the pre-#1189 shape byte for byte (`issue`, a
+          # number); only a slug ruling carries `subject`, which is the key
+          # flow-wave-plan.py reads as "may name work with no issue" (#1223).
+          if [ -n "${GATE_SUBJECT[$i]}" ]; then
+            key_json="$(jq -nc --arg s "${GATE_SUBJECT[$i]}" '{subject: $s}')"
+          else
+            key_json="$(jq -nc --argjson n "${GATE_ISSUE[$i]}" '{issue: $n}')"
+          fi
           cur="$(printf '%s' "$cur" | jq -c \
-            --argjson issue "${GATE_ISSUE[$i]}" \
+            --argjson key "$key_json" \
             --arg ruling "${GATE_RULING[$i]}" \
             --argjson behind "$behind_json" \
             --argjson serial "$serial_json" \
             --arg reason "${GATE_REASON[$i]}" \
             --arg ts "$TS" \
-            '. + [ ({issue: $issue, ruling: $ruling, reason: $reason, ts: $ts}
+            '. + [ ($key + {ruling: $ruling, reason: $reason, ts: $ts}
                     + (if ($behind | length) > 0 then {holds_behind: $behind} else {} end)
                     + (if ($serial | length) > 0 then {adds_serialized: $serial} else {} end)) ]')" || exit 3
           n=$((n + 1))
