@@ -42,8 +42,10 @@ cpp-memory reject --fingerprint <fp> --actor <user> --note "<why not>"     # sto
 harness (`claude` | `codex` | `shell`; defaults to `$CPP_HARNESS`, then
 auto-detected Claude Code, else NULL). `query --fingerprint` reports a
 `sightings_by_harness` split so friction can be attributed per harness. The
-machine write/read contract the codex-power-pack telemetry writer targets is
-`docs/contracts/friction-ledger-shared-store.md`.
+machine write/read contract a second harness writes against is
+`docs/contracts/friction-ledger-shared-store.md`; its first such writer was
+codex-power-pack's telemetry writer, dormant since the repository went private
+on 2026-09-22 (#1076).
 
 `cpp-memory` is a thin wrapper: it self-locates the CPP repo, sets `PYTHONPATH`,
 and runs via `uv` (fetching `psycopg[binary]` on demand - the `binary` extra

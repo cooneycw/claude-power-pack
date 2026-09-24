@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1236-codex-consolidation-close-out-dormancy-r6-stale-re",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "c1a60bf623260381d203ed6d35dd3be74145e0e9",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1236",
+  "passes": 2,
+  "recorded_at": "2026-09-24T09:49:15Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
