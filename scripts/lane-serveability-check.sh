@@ -528,6 +528,7 @@ BODY_FILE=$(mktemp -t lane-serve-XXXXXX.json)
 # silently discard the LANE_SERVE_EXIT= line installed at the top of this file,
 # and nothing would report its absence. $? is captured FIRST, before the
 # cleanup runs, or the reported status becomes `rm`'s.
+# shellcheck disable=SC2154  # _rc is assigned inside the trap string itself (#972)
 trap '_rc=$?; rm -f "$BODY_FILE"; printf "LANE_SERVE_EXIT=%d\n" "$_rc" >&2' EXIT
 
 # -s so progress noise stays out of the contract; deliberately NOT -f, which

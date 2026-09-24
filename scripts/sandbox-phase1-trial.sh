@@ -103,6 +103,7 @@ EOF
 # false keep the boundary the only enforcement.
 SANDBOX_BASE='"enabled": true, "failIfUnavailable": true, "allowUnsandboxedCommands": false, "excludedCommands": [], "network": {"allowedDomains": ["*.github.com"]}'
 
+# shellcheck disable=SC2016  # hook body is written to a file and expands when the hook runs (#972)
 ALLOW_HOOK_BODY='#!/usr/bin/env bash
 # Ten0-style PreToolUse allow hook: allow any Bash call that is NOT asking to escape
 # the sandbox; DEFER (exit 0, no decision) on a dangerouslyDisableSandbox call so the
@@ -224,6 +225,7 @@ hr
 # E3 - does an auto-allowed command still raise a PermissionRequest hook?
 ##############################################################################
 log "E3: PermissionRequest census interaction under auto-allow (headless-observed)"
+# shellcheck disable=SC2016  # hook body is written to a file and expands when the hook runs (#972)
 PRHOOK_BODY='#!/usr/bin/env bash
 # Sentinel PermissionRequest hook: record that it fired, emit no decision.
 cat >/dev/null
@@ -275,7 +277,7 @@ log "R1: residual #43713 replay - command-substitution + var-expansion under aut
 SUB="r1_subst_$$"; VAR="r1_var_$$"
 PR1="$(mkproj r1-residual "{\"sandbox\": {$SANDBOX_BASE, \"autoAllowBashIfSandboxed\": true}}")"
 OUTR1S="$(run_claude "$PR1" "Using the Bash tool, run EXACTLY: touch \"./${SUB}_\$(echo z)\". Do nothing else.")"
-OUTR1V="$(run_claude "$PR1" "Using the Bash tool, run EXACTLY: X=./${VAR}; touch \"\$X\". Do nothing else.")"
+run_claude "$PR1" "Using the Bash tool, run EXACTLY: X=./${VAR}; touch \"\$X\". Do nothing else." >/dev/null
 SUB_MADE="no"; ls "$PR1"/${SUB}_* >/dev/null 2>&1 && SUB_MADE="yes"
 VAR_MADE="no"; [ -f "$PR1/$VAR" ] && VAR_MADE="yes"
 log "  command-substitution shape auto-allowed+ran: $SUB_MADE (expect no = residual gap live)"

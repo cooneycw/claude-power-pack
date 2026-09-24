@@ -878,7 +878,7 @@ surface_deletions() {
     echo "GH_PR_MERGE_DELETIONS: $n $(printf '%s\n' "$deletions" | tr '\n' ' ' | sed 's/ $//')"
     echo "warning: this squash will land $n deletion(s) vs origin/${PR_BASE_BRANCH} - confirm they are" >&2
     echo "         intended by PR #$PR_NUMBER, not a collapse onto a moved base (issue #657):" >&2
-    printf '         deleted: %s\n' $deletions >&2
+    printf '%s\n' "$deletions" | sed 's/^/         deleted: /' >&2
     if [[ "${GH_PR_MERGE_STRICT_DELETIONS:-0}" == "1" ]]; then
         echo "CLEAN STOP: GH_PR_MERGE_STRICT_DELETIONS=1 and the PR deletes files - not merging (issue #657)." >&2
         echo "  The PR is left open and untouched. Review the paths above; if the deletions are" >&2
@@ -985,6 +985,7 @@ close_keyword_scan_sources() {
 # audit trail.
 guard_negated_close_keywords() {
     local keyword_re auxiliary_re negation_re source text entry offset match issue
+    # shellcheck disable=SC2178  # found is a scalar flag here; a same-named array lives in another function (#972)
     local after prefix suffix context found=0 idx
     local en_dash=$'\xE2\x80\x93' em_dash=$'\xE2\x80\x94' apostrophe=$'\xE2\x80\x99'
     # grep -b reports byte offsets, so keep Bash and the grep children byte-oriented.
@@ -1043,6 +1044,7 @@ guard_negated_close_keywords() {
             context="${prefix}${match}${suffix}"
             printf 'GH_PR_MERGE_NEGATED_CLOSE: %s matched #%s in "%s"\n' \
                 "$source" "$issue" "$context" >&2
+            # shellcheck disable=SC2178  # found is a scalar flag here; a same-named array lives in another function (#972)
             found=1
         done < <(printf '%s' "$text" | grep -Pzob "$keyword_re" || true)
     done
@@ -1152,6 +1154,7 @@ _incidental_close_selfcheck() {
 # escape hatch.
 guard_incidental_close_keywords() {
     local keyword_re source text entry offset match issue idx
+    # shellcheck disable=SC2178  # found is a scalar flag here; a same-named array lives in another function (#972)
     local after prefix suffix display_suffix context found=0 immediate_suffix
     local en_dash=$'\xE2\x80\x93' em_dash=$'\xE2\x80\x94'
     local -x LC_ALL=C
@@ -1193,6 +1196,7 @@ guard_incidental_close_keywords() {
             context="${prefix}${match}${display_suffix}"
             printf 'GH_PR_MERGE_INCIDENTAL_CLOSE: %s matched #%s in "%s"\n' \
                 "$source" "$issue" "$context" >&2
+            # shellcheck disable=SC2178  # found is a scalar flag here; a same-named array lives in another function (#972)
             found=1
         done < <(printf '%s' "$text" | grep -Pzob "$keyword_re" || true)
     done
@@ -1497,14 +1501,14 @@ verify_completeness() {
     while IFS= read -r path; do
         [[ -z "$path" ]] && continue
         if ! grep -qxF "$path" <<<"$files"; then
-            extras+="$path "
+            extras+="$path"$'\n'
         fi
     done <<<"$landed"
     if [[ -n "$extras" ]]; then
         echo "GH_PR_MERGE_COMPLETENESS: violation"
         echo "warning: the landed squash ${merge_sha:0:7} touched path(s) OUTSIDE PR #$PR_NUMBER's" >&2
         echo "         file list (issue #657) - the merge landed, but investigate before building on it:" >&2
-        printf '         unexpected: %s\n' $extras >&2
+        printf '%s' "$extras" | sed 's/^/         unexpected: /' >&2
     else
         echo "GH_PR_MERGE_COMPLETENESS: ok"
     fi
