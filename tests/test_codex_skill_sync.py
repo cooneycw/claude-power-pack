@@ -1109,12 +1109,23 @@ def test_write_success_line_does_not_claim_the_install_tree(tmp_repo, capsys):
 
 
 def test_the_two_success_lines_cannot_be_read_as_the_same_question(
-    tmp_repo, capsys
+    tmp_repo, tmp_home, capsys
 ):
     """The pairing test #1029 asks for, as an assertion rather than a claim.
 
     `--check`'s subject is the checkout; `--install`'s subject is the host. If a
     future edit collapses them back to interchangeable wording, this reds.
+
+    `tmp_home` IS LOAD-BEARING, and its absence is what issue #1232 was (74
+    installed skills to 2, measured). `tmp_repo` redirects the SOURCE roots and
+    says nothing about the DESTINATION, so without this fixture the
+    `main(["--install"])` below ran against the developer's real
+    `~/.codex/skills` with a two-entry fixture as its source - installing the
+    fixture and pruning every real skill as an orphan, on every `make test`, and
+    passing. Every other `--install` test in this file already requested it;
+    this one call site did not. The prohibition is now enforced in the script
+    rather than left to whoever writes the next test: see
+    `refuse_forbidden_install_dest`, armed by `tests/conftest.py`.
     """
     codex_skill_sync.main(["--write"])
     capsys.readouterr()
@@ -1140,6 +1151,138 @@ def test_the_two_success_lines_cannot_be_read_as_the_same_question(
     assert install_root in install_line, (
         "the one mode whose subject IS the install tree must say so"
     )
+
+
+# ---------------------------------------------------------------------------
+# The host destination is unreachable from the suite (issue #1232)
+#
+# THE NEGATIVE CONTROL for the guard armed in `tests/conftest.py`. That guard's
+# green is consumed by `make verify`, and nothing downstream re-derives it, so
+# ADR 0008's bound requires a committed input that makes it report the OTHER
+# verdict. Re-reading the guard checks what it MEANT; only a real install attempt
+# checks what it CAN refuse.
+#
+# IT RUNS THE GUARD FOR REAL, IN A REAL PYTEST, over the REAL `tests/conftest.py`
+# - copied in, never restated. Delete `pytest_configure` from that file, rename
+# the script's `REFUSE_INSTALL_DEST_ENV`, or remove the refusal from
+# `run_install()`, and this goes red. That is the property that makes it a
+# control rather than a second description of the guard.
+#
+# AND IT IS SAFE, which is the part that needed designing. A control whose red
+# case destroys the developer's skills would be worse than no control at all: the
+# inner run gets its own `$HOME` in a temporary directory, so "the host's real
+# skill directory" means a temp path INSIDE the sub-run. With the guard removed
+# the inner test installs into that temp path and this test reds - nothing on the
+# real host is touched in either direction.
+# ---------------------------------------------------------------------------
+
+#: The sub-run's test file. Module level and unindented, so it needs no dedent -
+#: one less transformation between what is read here and what is executed there.
+_GUARD_INNER_TEST = '''\
+import os
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
+
+import pytest
+
+_spec = spec_from_file_location("codex_skill_sync_inner", {script!r})
+sync = module_from_spec(_spec)
+_spec.loader.exec_module(sync)
+
+
+def _one_skill_source(root):
+    """A source tree holding exactly ONE skill - the shape that made the defect
+    destructive, since every skill already installed is then an orphan the prune
+    half is entitled to delete."""
+    out = root / "codex" / "skills"
+    (out / "only-skill").mkdir(parents=True)
+    (out / "only-skill" / "SKILL.md").write_text(
+        "---\\nname: only-skill\\n---\\n" + sync.MARKER_PREFIX + " x -->\\n"
+    )
+    return out
+
+
+def test_an_install_at_the_host_destination_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr(sync, "OUTPUT_ROOT", _one_skill_source(tmp_path))
+    # Stated as an identity rather than trusted: the guard has to refuse the
+    # destination `install_dest_root()` ACTUALLY resolves to. A test that only
+    # checked the variable's spelling would pass while the two diverged.
+    assert sync.install_dest_root() == Path(os.environ[sync.REFUSE_INSTALL_DEST_ENV])
+    with pytest.raises(RuntimeError, match="REFUSING to install"):
+        sync.main(["--install"])
+    assert not sync.install_dest_root().exists(), (
+        "a refused install created the directory it refused to write to"
+    )
+
+
+def test_an_install_at_a_redirected_destination_still_works(tmp_path, monkeypatch):
+    monkeypatch.setattr(sync, "OUTPUT_ROOT", _one_skill_source(tmp_path))
+    dest = tmp_path / "elsewhere" / "skills"
+    monkeypatch.setattr(sync, "install_dest_root", lambda: dest)
+    assert sync.main(["--install"]) == 0
+    assert (dest / "only-skill" / "SKILL.md").is_file()
+'''
+
+
+class TestHostInstallDestinationIsUnreachableFromTheSuite:
+    """Both directions, plus the state that hides.
+
+    A guard wedged at "refuse" would pass the refusal half on its own, so the
+    redirected-destination case is what separates a working guard from a stuck
+    one. And a guard that could not ARM is neither: that third state is covered
+    below, because it is the one that renders as a clean run.
+    """
+
+    def test_the_guard_refuses_the_host_destination_and_allows_a_redirected_one(
+        self, pytester: pytest.Pytester, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        home = tmp_path / "sandbox-home"
+        home.mkdir()
+        shutil.copy(ROOT / "tests" / "conftest.py", pytester.path / "conftest.py")
+        pytester.makepyfile(
+            test_host_install_guard=_GUARD_INNER_TEST.format(
+                script=str(ROOT / "scripts" / "codex-skill-sync.py")
+            )
+        )
+        # PYTHONPATH so the copied conftest can import the REAL `tests` package,
+        # which is also how it locates the checkout at all (see its REPO_ROOT).
+        monkeypatch.setenv("PYTHONPATH", str(ROOT))
+        monkeypatch.setenv("HOME", str(home))
+
+        result = pytester.runpytest_subprocess("-p", "no:cacheprovider", "-q")
+
+        result.assert_outcomes(passed=2)
+        # The WRITE, not just the verdict. `assert_outcomes` would still pass if a
+        # future guard reported its refusal only after installing.
+        assert not (home / ".codex").exists(), (
+            "the sub-run wrote under its own $HOME despite the guard refusing"
+        )
+
+    def test_the_guard_reports_itself_unarmed_rather_than_passing_quietly(
+        self, pytester: pytest.Pytester, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A guard that cannot arm - script moved, constant renamed - must not
+        render as a clean run. This drives the conftest into that state by giving
+        it a checkout anchor with no `scripts/` in it, and requires the summary to
+        SAY so on a run whose only test passes.
+        """
+        home = tmp_path / "sandbox-home-2"
+        home.mkdir()
+        shutil.copy(ROOT / "tests" / "conftest.py", pytester.path / "conftest.py")
+        # A `tests` package with no repository around it: importable, so the
+        # conftest loads, but `REPO_ROOT/scripts/codex-skill-sync.py` is absent.
+        fake = tmp_path / "fake-root"
+        (fake / "tests").mkdir(parents=True)
+        (fake / "tests" / "__init__.py").write_text("")
+        shutil.copy(ROOT / "tests" / "supervise_reap.py", fake / "tests")
+        pytester.makepyfile(test_trivial="def test_nothing():\n    pass\n")
+        monkeypatch.setenv("PYTHONPATH", str(fake))
+        monkeypatch.setenv("HOME", str(home))
+
+        result = pytester.runpytest_subprocess("-p", "no:cacheprovider", "-q")
+
+        result.assert_outcomes(passed=1)
+        result.stdout.fnmatch_lines(["*host-install guard: NOT ARMED*"])
 
 
 def test_a_bundled_shell_script_brings_the_library_it_sources(tmp_path: Path) -> None:

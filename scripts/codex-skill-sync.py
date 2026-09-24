@@ -52,6 +52,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import sys
@@ -1194,6 +1195,62 @@ def install_dest_root() -> Path:
     return Path.home() / ".codex" / "skills"
 
 
+#: The environment names a destination this script must never write to. It names
+#: a PATH, never a mode: a boolean "we are testing" would disable the one mode
+#: this script exists to perform for anyone who ever exported it, while a path
+#: can only ever block the single destination it names.
+REFUSE_INSTALL_DEST_ENV = "CPP_REFUSE_INSTALL_DEST"
+
+
+def refuse_forbidden_install_dest(dest_root: Path) -> None:
+    """Refuse an install into a destination the environment declared off limits.
+
+    THE DEFECT THIS EXISTS FOR (issue #1232). `run_install()` writes outside the
+    repository, and its prune half deletes every managed skill the SOURCE no
+    longer carries. Handed a two-entry test fixture as its source it is not
+    misbehaving - it is correctly pruning the 72 skills the fixture does not
+    contain. One test in `tests/test_codex_skill_sync.py` reached this function
+    without the `tmp_home` fixture and did exactly that to the developer's own
+    `~/.codex/skills`, on every `make test` and every `make verify`, in every
+    checkout, while PASSING - nothing it asserted had anything to do with the
+    host.
+
+    REFUSED AT THE WRITE, NOT AT `install_dest_root()`. Three tests resolve that
+    function read-only to assert which tree a success line names; refusing to
+    RESOLVE the path would break them, and a guard that breaks correct callers
+    is one the next person routes around.
+
+    IT RAISES RATHER THAN RETURNING A CODE, and that is the whole of its
+    reliability. `main(["--install"])`'s return value is discarded at several
+    existing call sites, so a guard reporting by exit code would be ignored by
+    exactly the kind of test that needs stopping.
+
+    WHAT IT DOES NOT COVER, stated so its silence is not read as coverage: it
+    protects this one install destination. It says nothing about any other write
+    under the real `$HOME`, by this script or by any other test.
+    """
+    forbidden = os.environ.get(REFUSE_INSTALL_DEST_ENV)
+    if not forbidden:
+        return
+    try:
+        same = dest_root.expanduser().resolve() == Path(forbidden).expanduser().resolve()
+    except OSError:
+        # A path that cannot be resolved is compared as written rather than
+        # silently treated as "not the forbidden one".
+        same = str(dest_root) == forbidden
+    if not same:
+        return
+    raise RuntimeError(
+        f"codex-skill-sync: REFUSING to install into {dest_root} - "
+        f"{REFUSE_INSTALL_DEST_ENV} names it as off limits.\n"
+        "  That is the host's real Codex skill directory. Installing a test "
+        "fixture over it deletes every skill the fixture does not carry, which "
+        "is what issue #1232 measured: 74 skills to 2, from one passing test.\n"
+        "  A test that needs --install must redirect the destination first - "
+        "request the `tmp_home` fixture in tests/test_codex_skill_sync.py."
+    )
+
+
 def find_installed_orphans(dest_root: Path, source_names: set[str]) -> list[Path]:
     """MANAGED skill dirs at the install destination with no source dir left.
 
@@ -1220,6 +1277,8 @@ def run_install() -> int:
         print(f"codex-skill-sync: nothing to install ({OUTPUT_ROOT} missing)", file=sys.stderr)
         return 2
     dest_root = install_dest_root()
+    # BEFORE the mkdir, so a refused install leaves no trace of itself either.
+    refuse_forbidden_install_dest(dest_root)
     dest_root.mkdir(parents=True, exist_ok=True)
     source_names = set()
     count = 0
