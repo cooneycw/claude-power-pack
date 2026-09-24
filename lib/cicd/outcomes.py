@@ -291,6 +291,69 @@ def merge_stream_outcomes(
     )
 
 
+# Signatures of a SUPPORTED runner that are not its summary (issue #977). They
+# answer one narrow question for output that yielded no summary: "did a runner
+# CPP parses produce this?" A yes is the per-run alarm - a supported parser was
+# pointed at its own runner's output and came back empty. A no is NOT "this
+# runner is unsupported": that is a declared decision (`unsupported_runner`),
+# and output matching none of these is only UNCLASSIFIABLE, an unmeasured fact.
+#
+# Kept deliberately narrow, because recognising a runner is itself parsing.
+# Undeclared, both causes are UNKNOWN and both warn, so a misclassification
+# there changes the DETAIL wording and never the verdict.
+#
+# Against a DECLARATION it is not wording: a signature overrides the declaration
+# and turns a quiet run into a warning. So each signature says whether it is
+# CORROBORATED - a line that runner's own framing prints and a foreign harness
+# has no reason to - and only those may override. `PASS src/app.test.ts` is
+# jest's per-file line, but any shell harness can print exactly that, so it
+# names jest in DETAIL and never out-votes a declaration (counter-model review).
+_RUNNER_SIGNATURES: tuple[tuple[str, re.Pattern[str], bool], ...] = (
+    ("pytest", re.compile(r"^=+ test session starts =+\s*$"), True),
+    # The WHOLE line, end-anchored: pytest prints `collected 3 items` or
+    # `collected 5 items / 2 deselected / 3 selected` and nothing after it, so a
+    # prefix match let application output such as `collected 3 items from
+    # queue` out-vote a declaration (counter-model review, pass 2).
+    (
+        "pytest",
+        re.compile(
+            r"^collected \d+ items?(?: / \d+ (?:deselected|selected|errors?|skipped))*\s*$"
+        ),
+        True,
+    ),
+    ("jest", re.compile(r"^\s*Test Suites:\s+\d+"), True),
+    ("jest", re.compile(r"^\s*(?:PASS|FAIL)\s+\S+\.(?:[cm]?[jt]sx?)\b"), False),
+    ("unittest", _UNITTEST_RAN, True),
+)
+
+
+def classify_unparsed(
+    text: str, corroborated_only: bool = False
+) -> Optional[tuple[str, str]]:
+    """Name the supported runner whose output this is, when no summary parsed.
+
+    Returns ``(framework, evidence_line)`` for the first line carrying a
+    supported runner's signature, or ``None`` when the output matches none -
+    which means UNCLASSIFIABLE, never "unsupported" (issue #977's ruling:
+    unsupported is declared, not inferred).
+
+    ``corroborated_only`` restricts the match to signatures strong enough to
+    override a declaration; see ``_RUNNER_SIGNATURES``.
+
+    Only meaningful for text ``parse_suite_outcome`` already returned ``None``
+    for; on parseable text it would name a runner whose summary WAS read.
+    """
+    if not text:
+        return None
+    for line in text.splitlines():
+        for framework, pattern, corroborated in _RUNNER_SIGNATURES:
+            if corroborated_only and not corroborated:
+                continue
+            if pattern.search(line):
+                return framework, line.strip()
+    return None
+
+
 def _parse_pytest_line(line: str) -> Optional[SuiteOutcome]:
     if not _PYTEST_TAIL.search(line):
         return None
