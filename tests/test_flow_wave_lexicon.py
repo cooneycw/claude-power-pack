@@ -1695,6 +1695,9 @@ class TestAnIssuelessRulingCanBeFormed:
             ("GATE: GO approved\n", "must name its subject"),
             ("GATE: GO Journal-False-Red ok\n", "must name its subject"),
             ("GATE: GO -leading-dash ok\n", "must name its subject"),
+            # The existing guards still bind a SLUG subject (counter-model red cases).
+            ("GATE: HOLD journal-false-red migration first\n", "must name what it waits behind"),
+            ("GATE: GO-WITH-CONDITIONS journal-false-red\n", "carries no conditions"),
         ],
     )
     def test_a_subject_that_is_neither_is_refused(
@@ -1755,3 +1758,34 @@ def test_a_recorded_slug_ruling_does_not_disable_a_recorded_hold(tmp_path: Path)
     assert plan.returncode == 4, plan.stdout + plan.stderr
     assert json.loads(plan.stdout)["verdict_conflicts"][0]["issue"] == 52
     assert "subject" in plan.stderr + plan.stdout, "the slug ruling must be COUNTED, not silently dropped"
+
+
+@requires_bash
+def test_the_lexicon_control_does_not_excuse_a_crashing_gate(tmp_path: Path):
+    """A gate that crashes on every input must not score as UNAVAILABLE.
+
+    ``make negative-controls`` runs with ``--allow-unavailable``, so a crash
+    reported as "could not look" would pass the local gate with the lexicon
+    broken. It must exit non-zero carrying NEITHER declared signal, which the
+    harness scores UNSIGNALLED (counter-model review, #1189).
+    """
+    runner = ROOT / "controls" / "flow-wave-lexicon" / "run-case.sh"
+    case = ROOT / "controls" / "flow-wave-lexicon" / "cases" / "bad-reasonless-hold"
+    assert (case / "body.md").is_file(), "precondition: the fixture must be present"
+    crash = tmp_path / "crash.sh"
+    crash.write_text("exit 1\n")
+    proc = subprocess.run(
+        ["sh", str(runner), str(case), str(crash)],
+        capture_output=True, text=True, timeout=60,
+    )
+    out = proc.stdout + proc.stderr
+    assert proc.returncode not in (0, 1, 3), out
+    assert "FLOW_WAVE_LEXICON_CONTROL: unavailable" not in out, out
+    assert "FLOW_WAVE_LEXICON_CONTROL: finding" not in out, out
+
+    missing = subprocess.run(
+        ["sh", str(runner), str(case), str(tmp_path / "absent.sh")],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert missing.returncode == 3, missing.stderr
+    assert "FLOW_WAVE_LEXICON_CONTROL: unavailable" in missing.stderr

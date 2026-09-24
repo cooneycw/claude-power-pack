@@ -22,21 +22,33 @@ if [ ! -s "$case_dir/body.md" ]; then
     exit 3
 fi
 
+# `unavailable` means COULD NOT LOOK, and `make negative-controls` runs with
+# --allow-unavailable, so it is excused locally. Reserve it for what is verified
+# to be absent - the fixture above, the gate file, bash - never for a gate that
+# RAN and misbehaved (counter-model review, #1189).
+if [ ! -r "$gate" ] || ! command -v bash >/dev/null 2>&1; then
+    echo "FLOW_WAVE_LEXICON_CONTROL: unavailable - the gate '$gate' or bash is not present" >&2
+    exit 3
+fi
+
 out=$(bash "$gate" validate --body-file "$case_dir/body.md" 2>&1)
 status=$?
 verdict=$(printf '%s\n' "$out" | sed -n 's/^FLOW_LEXICON: //p' | tail -1)
 
 # Only the gate's own verdict line decides. `ok` with exit 0 is a message it
 # accepted; `invalid` with exit 1 is a refusal. Anything else - no verdict line,
-# `error`, or a verdict that disagrees with its exit - is a gate that could not
-# answer, and must score neither as clean nor as a finding.
+# `error`, or a verdict that disagrees with its exit - is a gate that RAN and did
+# not answer. That scores neither clean nor finding, and NOT unavailable either:
+# it exits non-zero carrying neither declared signal, which the harness scores
+# UNSIGNALLED and fails even under --allow-unavailable. A lexicon that crashes on
+# every input must not be excusable as a missing tool.
 case "$status:$verdict" in
   0:ok) exit 0 ;;
   1:invalid)
      printf '%s\n' "$out"
      echo "FLOW_WAVE_LEXICON_CONTROL: finding - the lexicon refused the message"
      exit 1 ;;
-  *) echo "FLOW_WAVE_LEXICON_CONTROL: unavailable - the lexicon exited $status with verdict '${verdict:-<none>}'" >&2
+  *) echo "flow-wave-lexicon control: the lexicon RAN and gave no answer - exit $status, verdict '${verdict:-<none>}'" >&2
      printf '%s\n' "$out" >&2
-     exit 3 ;;
+     exit 2 ;;
 esac
