@@ -1572,13 +1572,23 @@ PY
    # failed enumeration yields an EMPTY array that is indistinguishable from "no
    # untracked files" - the guard is then skipped and agreement can be reported
    # without ever establishing whether new files existed. Capture and CHECK first.
+   #
+   # Capture into a FILE, never a variable (issue #1220). Command substitution
+   # strips NUL bytes, so `"$(... -z)"` glued N paths into ONE pathspec, `add -N`
+   # rejected it, and every change adding more than one file reported `unknown`.
+   # The file lives in the GIT DIR: a default `mktemp` under a TMPDIR inside the
+   # worktree would enumerate ITSELF, be deleted, and fail `add -N` as a pathspec.
    GIT_ROOT="$(git rev-parse --show-toplevel)"
-   if ! UNTRACKED_RAW="$(git -C "$GIT_ROOT" ls-files --others --exclude-standard -z)"; then
+   if ! GIT_DIR_ABS="$(git -C "$GIT_ROOT" rev-parse --absolute-git-dir)" \
+       || ! UNTRACKED_LIST="$(mktemp "$GIT_DIR_ABS/flow-untracked.XXXXXX")" \
+       || ! git -C "$GIT_ROOT" ls-files --others --exclude-standard -z > "$UNTRACKED_LIST"; then
+       rm -f "${UNTRACKED_LIST:-}"
        echo "PLAN_COMPLIANCE: unknown (could not enumerate untracked files, so new"
        echo "  files may be invisible to the comparison)"
        exit 0
    fi
-   mapfile -d '' -t UNTRACKED < <(printf '%s' "$UNTRACKED_RAW")
+   mapfile -d '' -t UNTRACKED < "$UNTRACKED_LIST"
+   rm -f "$UNTRACKED_LIST"
    if [ "${#UNTRACKED[@]}" -gt 0 ] && ! git -C "$GIT_ROOT" add -N -- "${UNTRACKED[@]}"; then
        echo "PLAN_COMPLIANCE: unknown (could not mark untracked files intent-to-add;"
        echo "  this check would otherwise report agreement over an incomplete diff)"
