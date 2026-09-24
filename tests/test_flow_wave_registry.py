@@ -3855,10 +3855,12 @@ def test_the_drop_warning_claims_only_what_register_inspected(tmp_path: Path) ->
 def test_reusing_a_released_role_is_not_a_drop(tmp_path: Path) -> None:
     """``release`` IS the withdrawal; the next registration must not re-report it.
 
-    A released entry keeps its ``files`` - it is marked, not erased - so reading
-    the field without asking about ``released`` made ordinary role re-use fire
-    the loudest warning in this helper. A warning on the normal path is the #674
-    defect, and here it would land on the very report that has to be believed.
+    A released entry used to keep its ``files`` - it was marked, not erased - so
+    reading the field without asking about ``released`` made ordinary role
+    re-use fire the loudest warning in this helper. A warning on the normal path
+    is the #674 defect, and here it would land on the very report that has to be
+    believed. Since #1222 ``release`` clears the lane outright; the ``released``
+    guard stays, so a row written before #1222 is still read correctly.
     """
     _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp", "--files", "src/a.py")
     _run(tmp_path, "release", "w", "--wave", "zz")
@@ -3870,6 +3872,135 @@ def test_reusing_a_released_role_is_not_a_drop(tmp_path: Path) -> None:
     _run(tmp_path, "register", "v", "--wave", "zz", "--repo", "/tmp", "--files", "src/a.py")
     live = _run(tmp_path, "register", "v", "--wave", "zz", "--repo", "/tmp", "--files", "src/b.py")
     assert _detail(live, "FLOW_WAVE_FILES_DROPPED") == "src/a.py", live.stdout
+
+
+# --------------------------------------------------------------------------- #
+# #1222 - a row describes ONE piece of work, and a released row describes none
+# --------------------------------------------------------------------------- #
+
+_LANE_KEYS = ("issue", "pr", "branch", "base", "diff", "obs_repo", "files")
+
+
+def _entry(tmp: Path, wave: str, role: str) -> dict:
+    return _registry_json(tmp)[wave]["roles"][role]
+
+
+def _register_lane_a(tmp: Path, role: str = "w") -> None:
+    _run(tmp, "register", role, "--wave", "zz", "--repo", "/tmp",
+         "--issue", "1085", "--branch", "issue-1085-a",
+         "--pr", "1202", "--base", "baseA", "--diff", "diffA",
+         "--files", "docs/decisions/0008-a.md,docs/scripts.md")
+
+
+@requires_tools
+def test_release_clears_the_lane_and_keeps_the_record(tmp_path: Path) -> None:
+    """``release`` used to set ``released`` and clear nothing (#1222).
+
+    Measured on a real wave: a released role whose session had ended still
+    advertised a closed issue, a merged PR and an eight-path file lane, so the
+    roster could not tell "held by a live role" from "left behind by one that
+    ended". The lane goes; the release record and the identity stay, and what
+    was held is kept under a key that cannot be read as a current claim.
+    """
+    _register_lane_a(tmp_path)
+    _run(tmp_path, "release", "w", "--wave", "zz", now="1700000500")
+    e = _entry(tmp_path, "zz", "w")
+    for key in _LANE_KEYS:
+        assert e.get(key, "") == "", (key, e)
+    assert e.get("overtaken", 0) == 0, e
+    # Auditable: the release itself and who made it survive.
+    assert e["released"] is True
+    assert e["released_ts"] == 1700000500
+    assert str(e["pid"]) == SELF_PID and e["session"] == SELF_SESSION
+    assert e["repo"] == "/tmp", "repo drives the claim scan's repo discovery"
+    # History, under a key no lane reader consults.
+    hist = e["released_lane"]
+    assert hist["issue"] == "1085" and hist["pr"] == "1202", hist
+    assert hist["files"] == "docs/decisions/0008-a.md,docs/scripts.md", hist
+    # And the roster no longer renders the lane as a claim.
+    row = _row(_run(tmp_path, "list", "--wave", "zz"), "w")
+    assert row, "the released role must still be listed"
+    for token in ("issue=1085", "pr=#1202", "files="):
+        assert token not in row, row
+
+
+@requires_tools
+def test_a_second_release_keeps_the_first_record(tmp_path: Path) -> None:
+    """Releasing twice must not overwrite the record with the blanks left by the first."""
+    _register_lane_a(tmp_path)
+    _run(tmp_path, "release", "w", "--wave", "zz")
+    _run(tmp_path, "release", "w", "--wave", "zz")
+    hist = _entry(tmp_path, "zz", "w")["released_lane"]
+    assert hist["issue"] == "1085" and hist["pr"] == "1202", hist
+
+
+@requires_tools
+def test_reregistering_onto_another_issue_leaves_no_field_naming_the_first(tmp_path: Path) -> None:
+    """The blend worker-AA measured: issue current, pr and base one issue stale.
+
+    A row that tracked some fields forward and pinned others described a
+    pairing of issue and PR that never existed at any moment. Re-registering
+    onto a different issue must clear or refresh EVERY lane fact.
+    """
+    _register_lane_a(tmp_path)
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+         "--issue", "1189", "--branch", "issue-1189-b")
+    e = _entry(tmp_path, "zz", "w")
+    assert e["issue"] == "1189" and e["branch"] == "issue-1189-b", e
+    for key in ("pr", "base", "diff", "obs_repo", "files"):
+        assert e.get(key, "") == "", (key, e)
+    assert e.get("overtaken", 0) == 0, e
+    flat = json.dumps(e)
+    for a_value in ("1085", "1202", "baseA", "diffA", "0008-a.md"):
+        assert a_value not in flat, (a_value, e)
+
+
+@requires_tools
+def test_a_new_issue_with_a_new_observation_takes_the_new_one(tmp_path: Path) -> None:
+    """Clearing on an issue change must not swallow facts given in the SAME call."""
+    _register_lane_a(tmp_path)
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+         "--issue", "1189", "--pr", "1223", "--base", "baseB", "--diff", "diffB",
+         "--files", "scripts/b.sh")
+    e = _entry(tmp_path, "zz", "w")
+    assert (e["pr"], e["base"], e["diff"], e["files"]) == ("1223", "baseB", "diffB", "scripts/b.sh"), e
+
+
+@requires_tools
+def test_a_same_issue_rebrief_keeps_its_lane_and_baseline(tmp_path: Path) -> None:
+    """The control for the two tests above: the fix is NOT "clear always".
+
+    The cheap re-brief re-registers with the same issue and no observation. It
+    must keep the PR baseline, or the starvation counter (#989) resets on every
+    re-read of the protocol and can never reach its threshold.
+    """
+    _register_lane_a(tmp_path)
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
+         "--pr", "1202", "--base", "baseA2", "--diff", "diffA", "--issue", "1085")
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp", "--issue", "1085")
+    e = _entry(tmp_path, "zz", "w")
+    assert (e["pr"], e["base"], e["diff"]) == ("1202", "baseA2", "diffA"), e
+    assert e["files"] == "docs/decisions/0008-a.md,docs/scripts.md", e
+    assert e["overtaken"] == 1, e
+
+
+@requires_tools
+def test_a_released_role_contributes_no_starvation(tmp_path: Path) -> None:
+    """Acceptance 4: starvation is computed only from roles still holding a lane.
+
+    This held before #1222 (``starvation_scan`` reads live roles only); it is
+    pinned here so the clearing above cannot be the only thing keeping it true.
+    The paired unreleased role proves the same history DOES fire.
+    """
+    for role in ("gone", "here"):
+        for base in ("s1", "s2", "s3"):
+            _run(tmp_path, "register", role, "--wave", "zz", "--repo", "/tmp",
+                 "--issue", "7", "--pr", "70", "--base", base, "--diff", "same")
+    before = _run(tmp_path, "list", "--wave", "zz", live=SELF_PID)
+    assert _detail(before, "FLOW_WAVE_STARVATION") == "2", before.stdout
+    _run(tmp_path, "release", "gone", "--wave", "zz")
+    after = _run(tmp_path, "list", "--wave", "zz", live=SELF_PID)
+    assert _detail(after, "FLOW_WAVE_STARVATION") == "1", after.stdout
 
 
 @requires_git_tools
