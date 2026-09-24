@@ -1,0 +1,20 @@
+{
+  "branch": "issue-977-a-test-runner-cpp-cannot-parse-now-warns-unknown-o",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "47db657a09caba31453368df09b3696194265f74",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "977",
+  "passes": 2,
+  "recorded_at": "2026-09-24T11:07:53Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 6
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
