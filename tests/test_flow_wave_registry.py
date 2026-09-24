@@ -3956,6 +3956,27 @@ def test_reregistering_onto_another_issue_leaves_no_field_naming_the_first(tmp_p
 
 
 @requires_tools
+def test_an_issue_change_resets_the_starvation_count(tmp_path: Path) -> None:
+    """Same PR, same diff, new base: counts on the same issue, resets on a new one.
+
+    The count belongs to one piece of work. Carried across an issue change it
+    would make an old warning live again for unrelated work (counter-model red
+    case). The same-issue arm is the control that the count is really moving.
+    """
+    for role in ("moves", "stays"):
+        for base in ("A0", "A1"):
+            _run(tmp_path, "register", role, "--wave", "zz", "--repo", "/tmp",
+                 "--issue", "1085", "--pr", "1202", "--base", base, "--diff", "D")
+        assert _overtaken(tmp_path, "zz", role) == 1
+    _run(tmp_path, "register", "moves", "--wave", "zz", "--repo", "/tmp",
+         "--issue", "1189", "--pr", "1202", "--base", "A2", "--diff", "D")
+    _run(tmp_path, "register", "stays", "--wave", "zz", "--repo", "/tmp",
+         "--issue", "1085", "--pr", "1202", "--base", "A2", "--diff", "D")
+    assert _overtaken(tmp_path, "zz", "moves") == 0
+    assert _overtaken(tmp_path, "zz", "stays") == 2
+
+
+@requires_tools
 def test_a_new_issue_with_a_new_observation_takes_the_new_one(tmp_path: Path) -> None:
     """Clearing on an issue change must not swallow facts given in the SAME call."""
     _register_lane_a(tmp_path)
