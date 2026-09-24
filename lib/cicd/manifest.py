@@ -72,8 +72,25 @@ class StepModel(BaseModel):
     env: dict[str, str] = Field(default_factory=dict)
     artifacts: list[str] = Field(default_factory=list)
     rollback: Optional[str] = None
+    # Declares this step's test runner one CPP does not parse, naming it
+    # (issue #977). The only legitimate way to quiet the per-run "no test
+    # summary could be parsed" UNKNOWN warning: a recorded, reviewable decision
+    # rather than a widened tolerance. See StepDef.unsupported_runner.
+    unsupported_runner: Optional[str] = None
 
     model_config = {"extra": "ignore"}
+
+    @field_validator("unsupported_runner")
+    @classmethod
+    def runner_is_named(cls, v: Optional[str]) -> Optional[str]:
+        # An empty declaration names nothing, so a reader cannot tell WHICH
+        # runner was ruled out - which is the whole value of declaring it.
+        if v is not None and not v.strip():
+            raise ValueError(
+                "unsupported_runner must name the runner (e.g. 'go test'), "
+                "not be empty"
+            )
+        return v.strip() if v is not None else v
 
 
 class PlanModel(BaseModel):
@@ -305,6 +322,7 @@ def step_model_to_step_def(step_id: str, model: StepModel) -> Any:
         skip_if=model.skip_if,
         depends_on=list(model.depends_on),
         env=dict(model.env),
+        unsupported_runner=model.unsupported_runner,
     )
 
 
