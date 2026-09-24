@@ -397,3 +397,42 @@ def test_auto_md_invokes_the_helper_and_carries_no_copy() -> None:
     for pasted in ('git cat-file -e "HEAD:$REC"', "def unknown(why)", "def unresolved(why)",
                    "mapfile -d '' -t UNTRACKED", "raw = body_p.read_bytes()"):
         assert pasted not in text, f"auto.md still carries a pasted copy: {pasted!r}"
+
+
+@requires_git
+def test_a_staged_record_that_differs_on_disk_is_unstaged_AND_removed(tmp_path: Path) -> None:
+    """Counter-model finding (#1211): index A, working tree B, neither in HEAD.
+
+    `git rm --cached` refuses when the staged content matches neither HEAD nor the
+    file on disk. The unchecked call then left A staged while the file was deleted
+    and the run reported `removed` - an unapproved plan staged for this run's commit.
+    """
+    repo = make_repo(tmp_path)
+    rec = repo / RECORD_REL
+    rec.parent.mkdir(parents=True)
+    rec.write_text("UNAPPROVED A\n")
+    git(repo, "add", RECORD_REL)
+    rec.write_text("UNAPPROVED B, edited after staging\n")
+    assert staged_paths(repo) == [RECORD_REL]                  # the precondition
+
+    run_reconcile(repo)
+
+    assert not rec.exists(), "unapproved scratch survived on disk"
+    assert staged_paths(repo) == [], "unapproved scratch A is still staged"
+
+
+@requires_git
+def test_head_check_without_gh_is_UNVERIFIED_not_a_crash(tmp_path: Path) -> None:
+    """Counter-model finding (#1211): `gh` absent must read as could-not-look (4)."""
+    repo = make_repo(tmp_path)
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "git").symlink_to(shutil.which("git"))
+    (bindir / "python3").symlink_to(shutil.which("python3"))
+    env = {"PATH": str(bindir), "HOME": str(tmp_path)}
+    assert shutil.which("gh", path=env["PATH"]) is None           # gh really is absent
+    proc = subprocess.run([str(bindir / "python3"), str(HELPER), "head-check", "42"],
+                          cwd=repo, capture_output=True, text=True, env=env)
+    assert proc.returncode == 4, proc.stdout + proc.stderr
+    assert "FLOW_PLAN_RECORD: unverified" in proc.stdout
+    assert "Traceback" not in proc.stderr

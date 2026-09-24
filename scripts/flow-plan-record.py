@@ -105,8 +105,15 @@ def cmd_reconcile(issue: str) -> int:
                        capture_output=True)
         print(f"FLOW_PLAN_RECORD: restored {rec} (the last COMMITTED, approved record)")
         return OK
-    subprocess.run(["git", "rm", "-q", "--cached", "--ignore-unmatch", rec], cwd=root,
-                   capture_output=True)
+    # --force: a staged version that matches neither HEAD nor the file on disk is
+    # still scratch, and plain `rm --cached` REFUSES it - leaving it staged for
+    # this run's commit while the file below is deleted (counter-model, #1211).
+    unstage = subprocess.run(["git", "rm", "-q", "--cached", "--force", "--ignore-unmatch",
+                              "--", rec], cwd=root, capture_output=True, text=True)
+    if unstage.returncode != 0:
+        print(f"FLOW_PLAN_RECORD: error - could not unstage scratch {rec}: "
+              f"{unstage.stderr.strip()}. Nothing was removed.")
+        return ERROR
     path = root / rec
     if path.exists():
         path.unlink()
@@ -141,9 +148,12 @@ def cmd_read_issue(issue: str, body_file: str | None) -> int:
     else:
         body = gh_body(issue)
         if body is not None:
-            upd = subprocess.run(["gh", "issue", "view", issue, "--json", "updatedAt",
-                                  "--jq", ".updatedAt"], capture_output=True, text=True)
-            if upd.returncode == 0:
+            try:
+                upd = subprocess.run(["gh", "issue", "view", issue, "--json", "updatedAt",
+                                      "--jq", ".updatedAt"], capture_output=True, text=True)
+            except OSError:
+                upd = None
+            if upd is not None and upd.returncode == 0:
                 upd_p.write_text(upd.stdout)
     if body is None or not body:
         print(f"AS_READ: unresolved - could not read issue #{issue}. The snapshot will say so.")
@@ -456,9 +466,12 @@ def cmd_head_check(issue: str, head: str | None) -> int:
     """
     rec = record_rel(issue)
     if head is None:
-        proc = subprocess.run(["gh", "pr", "view", "--json", "headRefOid", "--jq", ".headRefOid"],
-                              capture_output=True, text=True)
-        head = proc.stdout.strip() if proc.returncode == 0 else ""
+        try:
+            proc = subprocess.run(["gh", "pr", "view", "--json", "headRefOid", "--jq",
+                                   ".headRefOid"], capture_output=True, text=True)
+            head = proc.stdout.strip() if proc.returncode == 0 else ""
+        except OSError:                  # `gh` absent: could not look, not absent
+            head = ""
         if not head:
             print("FLOW_PLAN_RECORD: unverified - could not read the PR head. The record is "
                   "UNVERIFIED, not absent.")

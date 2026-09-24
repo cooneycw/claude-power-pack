@@ -305,8 +305,9 @@ Step 2:
 **Helper resolution**, here and at Steps 4 and 6: the stable path first; on exit
 127, `${CLAUDE_PLUGIN_ROOT}/scripts/flow-plan-record.py`, else the CPP-checkout
 copy - either may prompt once, so tell the user to run **`/flow-repair`**. If no
-copy exists, say so and skip these checks: every one of them then reports as
-NOT run, never as clean. Why the helper asks HEAD rather than the index, and
+copy exists, **STOP** and report it: the record, the snapshot and the Step-6
+PR-head check cannot run without it, and a run that skips them would reach the
+merge with its approval record unverified. Resume after `/flow-repair`. Why the helper asks HEAD rather than the index, and
 keeps its state in the git directory, is in [the plan-record reference](docs/agents/flow-plan-record.md) - background,
 not required reading.
 
