@@ -112,6 +112,7 @@ HELPERS=(
     flow-start-resolve.sh
     flow-live-driver-guard.sh
     flow-stale-check.sh
+    flow-plan-record.py
     flow-worktree-guard.sh
     flow-worktree-claim.sh
     flow-wave-registry.sh

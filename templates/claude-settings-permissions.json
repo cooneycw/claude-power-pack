@@ -33,6 +33,7 @@
       "Bash(pwd)",
       "Bash(~/.claude/scripts/flow-start-resolve.sh:*)",
       "Bash(~/.claude/scripts/flow-stale-check.sh:*)",
+      "Bash(~/.claude/scripts/flow-plan-record.py:*)",
       "Bash(~/.claude/scripts/flow-worktree-guard.sh:*)",
       "Bash(~/.claude/scripts/flow-live-driver-guard.sh:*)",
       "Bash(~/.claude/scripts/flow-worktree-claim.sh:*)",

@@ -7,10 +7,12 @@ the thing being measured, and green whether or not the documented commands
 work. That is the shape counter-model-receipt.py was written against, and the
 shape this wave keeps finding.
 
-So these cases EXTRACT the fenced bash block from under the reconcile heading in
-`auto.md` and RUN it. If the documented commands are wrong, the cases fail. If
-the heading or the block disappears, `extract_reconcile_snippet` raises rather
-than silently testing nothing - an absent subject must not read as a pass.
+So these cases RUN the production entry point: `scripts/flow-plan-record.py
+reconcile` and `head-check` (moved out of pasted auto.md blocks by issue #1211),
+and the record-writing block that auto.md still carries, because the agent
+authors the plan text itself. If the shipped commands are wrong, the cases fail.
+`test_auto_md_invokes_the_helper_and_carries_no_copy` pins that auto.md calls
+the tested script rather than a copy of it that no case runs.
 """
 
 from __future__ import annotations
@@ -32,34 +34,13 @@ requires_git = pytest.mark.skipif(
 
 REPO = Path(__file__).resolve().parents[1]
 AUTO_MD = REPO / ".claude" / "commands" / "flow" / "auto.md"
-HEADING = "#### Reconcile the plan record (issue #1080)"
+HELPER = REPO / "scripts" / "flow-plan-record.py"
 RECORD_REL = "docs/flow-runs/issue-42.md"
 
 
-def extract_reconcile_snippet() -> str:
-    """The bash block under HEADING, or raise.
-
-    Raising is the point: a renamed heading must fail loudly here rather than
-    leave every case below passing over an empty string.
-    """
-    text = AUTO_MD.read_text()
-    if text.count(HEADING) != 1:
-        raise AssertionError(
-            f"expected exactly one {HEADING!r} in auto.md, found {text.count(HEADING)}"
-        )
-    after = text.split(HEADING, 1)[1]
-    m = re.search(r"```bash\n(.*?)```", after, re.DOTALL)
-    if not m:
-        raise AssertionError("no fenced bash block follows the reconcile heading")
-    snippet = m.group(1)
-    if 'cat-file -e "HEAD:' not in snippet:
-        raise AssertionError(
-            "the reconcile snippet no longer asks HEAD whether the record was "
-            "COMMITTED. An index-based test (`git ls-files`) answers a different "
-            "question and is wrong in both directions - see the staged-deletion "
-            f"and staged-addition cases below:\n{snippet}"
-        )
-    return snippet
+def helper(repo: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["python3", str(HELPER), *args], cwd=repo,
+                          capture_output=True, text=True)
 
 
 def git(repo: Path, *args: str) -> str:
@@ -124,7 +105,8 @@ def run_snippet(repo: Path, snippet: str) -> None:
 
 
 def run_reconcile(repo: Path) -> None:
-    run_snippet(repo, extract_reconcile_snippet())
+    proc = helper(repo, "reconcile", "42")
+    assert proc.returncode == 0, f"reconcile exited {proc.returncode}\n{proc.stdout}{proc.stderr}"
 
 
 def run_documented_write(repo: Path) -> None:
@@ -330,3 +312,88 @@ def test_the_record_path_is_not_gitignored() -> None:
         "a .json record at this path is NOT ignored any more - the blanket *.json "
         "rule changed, and the doc's warning about needing a negation first is stale"
     )
+
+
+# ------------------------------------------------------------------ head-check (#1080)
+
+def pr_head_with(repo: Path, *, record: bool) -> str:
+    git(repo, "checkout", "-q", "-b", "issue-42")
+    if record:
+        rec = repo / RECORD_REL
+        rec.parent.mkdir(parents=True)
+        rec.write_text("approved\n")
+    (repo / "code.py").write_text("x = 2\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "the PR head")
+    return git(repo, "rev-parse", "HEAD").strip()
+
+
+@requires_git
+def test_head_check_reports_a_record_present_at_the_pr_head(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    head = pr_head_with(repo, record=True)
+    proc = helper(repo, "head-check", "42", "--head", head)
+    assert proc.returncode == 0, proc.stdout
+    assert "FLOW_PLAN_RECORD: present" in proc.stdout
+
+
+@requires_git
+def test_head_check_STOPS_when_the_record_is_absent_at_the_pr_head(tmp_path: Path) -> None:
+    """The known-bad case: a record that exists in the WORKTREE but not at the head.
+
+    Asserting the worktree state first is the precondition - otherwise this would
+    pass for the uninteresting reason that no record existed anywhere.
+    """
+    repo = make_repo(tmp_path)
+    head = pr_head_with(repo, record=False)
+    rec = repo / RECORD_REL
+    rec.parent.mkdir(parents=True)
+    rec.write_text("present locally, never committed\n")
+    assert rec.exists()                                   # the precondition
+    proc = helper(repo, "head-check", "42", "--head", head)
+    assert proc.returncode == 1, proc.stdout
+    assert "FLOW_PLAN_RECORD: absent" in proc.stdout
+    assert "STOP" in proc.stdout
+
+
+@requires_git
+def test_head_check_that_cannot_see_the_head_is_UNVERIFIED_not_absent(tmp_path: Path) -> None:
+    """"I could not look" must not print or exit like "I looked and it is missing"."""
+    repo = make_repo(tmp_path)
+    proc = helper(repo, "head-check", "42", "--head", "0" * 40)
+    assert proc.returncode == 4, proc.stdout
+    assert "FLOW_PLAN_RECORD: unverified" in proc.stdout
+    assert "absent" not in proc.stdout.replace("not absent", "")
+
+
+@requires_git
+def test_head_check_does_not_accept_a_neighbouring_name(tmp_path: Path) -> None:
+    """`grep -qx` with an unescaped `.` accepted `issue-42Xmd`; existence does not."""
+    repo = make_repo(tmp_path)
+    git(repo, "checkout", "-q", "-b", "issue-42")
+    neighbour = repo / "docs" / "flow-runs" / "issue-42Xmd"
+    neighbour.parent.mkdir(parents=True)
+    neighbour.write_text("not the record\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "neighbour only")
+    head = git(repo, "rev-parse", "HEAD").strip()
+    proc = helper(repo, "head-check", "42", "--head", head)
+    assert proc.returncode == 1, proc.stdout
+    assert "FLOW_PLAN_RECORD: absent" in proc.stdout
+
+
+# ------------------------------------------------------------------ the doc calls the tested code
+
+def test_auto_md_invokes_the_helper_and_carries_no_copy() -> None:
+    """Issue #1211: the cases above test the SCRIPT, so auto.md must call it.
+
+    A copy of the logic left in auto.md would be what an agent actually runs and
+    what no case exercises. Both directions: every subcommand is invoked, and the
+    signatures of the old pasted programs are gone.
+    """
+    text = AUTO_MD.read_text()
+    for sub in ("reconcile", "read-issue", "approve", "drift", "compliance", "head-check"):
+        assert f"flow-plan-record.py {sub} " in text, f"auto.md never invokes `{sub}`"
+    for pasted in ('git cat-file -e "HEAD:$REC"', "def unknown(why)", "def unresolved(why)",
+                   "mapfile -d '' -t UNTRACKED", "raw = body_p.read_bytes()"):
+        assert pasted not in text, f"auto.md still carries a pasted copy: {pasted!r}"
