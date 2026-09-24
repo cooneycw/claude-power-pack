@@ -2817,6 +2817,48 @@ class TestWatchColumn:
             watcher.kill()
             watcher.communicate(timeout=10)
 
+    def test_a_watch_no_session_owns_reads_NO_WAKE_not_armed(self, tmp_path: Path) -> None:
+        """#1228 at the roster: a role polled only by a process with no Claude
+        Code session in its ancestry (a `supervise` daemon, or a watch whose
+        session is gone) cannot be woken. Three waves read `watch=armed` over
+        exactly this. The positive control is the armed test above, run with
+        the same session hook so both sides answer the same lineage question.
+        """
+        _run(tmp_path, "register", "worker-H", "--wave", "cpp", "--socket", "uds:/tmp/h.sock")
+        env = os.environ.copy()
+        env.update({"FLOW_WAVE_REGISTRY_DIR": str(tmp_path / "reg")})
+        env.pop("FLOW_WAVE_MAILBOX_DIR", None)
+        env.pop("FLOW_WAVE_NOW", None)
+        # Backgrounded by an intermediate shell that exits at once, so the
+        # kernel reparents it away from pytest - a real orphan, not a stub.
+        out = subprocess.run(
+            ["bash", "-c",
+             'bash "$0" watch --role worker-H --wave cpp --timeout 60 --interval 1 --peek '
+             '</dev/null >/dev/null 2>&1 & echo $!', str(MAILBOX)],
+            capture_output=True, text=True, env=env, check=True, timeout=30,
+        )
+        orphan = int(out.stdout.strip())
+        try:
+            wf = tmp_path / "reg" / "cpp" / ".watch-worker-H"
+            deadline = time.time() + 15
+            while not wf.exists() and time.time() < deadline:
+                time.sleep(0.05)
+            assert wf.exists(), "orphan watch never armed"  # precondition
+            session = {"FLOW_WAVE_SESSION_PIDS": str(os.getpid())}
+            p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID, extra_env=session)
+            row = _row(p, "worker-H")
+            assert "watch=NO-WAKE(1 watchers, 0 session)" in row, row
+            assert "watch=armed" not in row
+            assert _detail(p, "FLOW_WAVE_WATCH_UNARMED") == "1"
+            j = _run(tmp_path, "list", "--wave", "cpp", "--json", live=SELF_PID, extra_env=session)
+            watch = _json_payload(j)["worker-H"]["watch"]
+            assert watch["state"] == "no-wake" and watch["session_watchers"] == 0
+        finally:
+            try:
+                os.kill(orphan, 9)
+            except OSError:
+                pass
+
     def test_an_exited_watch_reads_DEAD_not_armed(self, tmp_path: Path) -> None:
         """The #801 regression at the surface that misled the orchestrator.
 
@@ -2910,7 +2952,13 @@ class TestWatchColumn:
         entry = _json_payload(p)["worker-H"]
         # `watchers` joined the object in #801: the roster renders the fused
         # state, and a JSON consumer must be able to check what it rests on.
-        assert entry["watch"] == {"state": "absent", "age_secs": None, "watchers": 0}
+        # `session_watchers` joined in #1228: how many of those can WAKE anyone.
+        assert entry["watch"] == {
+            "state": "absent",
+            "age_secs": None,
+            "watchers": 0,
+            "session_watchers": 0,
+        }
         assert entry["mailbox"]["rev"] == 1
         # "cursor" retired in favor of "acked" (issue #815) - the read cursor
         # advanced as a side effect of printing output, which is the defect

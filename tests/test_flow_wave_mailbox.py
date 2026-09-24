@@ -3955,3 +3955,358 @@ class TestLeakedSuperviseDaemonsAreReaped:
         finally:
             watcher.kill()
             watcher.wait(timeout=10)
+
+
+# --------------------------------------------------------------------------
+# Wakeability (issue #1228)
+#
+# The harness re-invokes a session only when a process THAT SESSION OWNS exits
+# (#868 measured it: 5/5 delivered from a chain reaching the session, 0/4 from
+# one reparented to init). A `supervise` daemon is reparented by construction,
+# so it polls, surfaces and keeps the heartbeat fresh while the session hears
+# nothing - and the roster read `armed, 0s ago` over three deaf waves.
+#
+# Every test here pins lineage through FLOW_WAVE_SESSION_PIDS, naming THIS
+# pytest process as "the session". Without the hook the answer would depend on
+# whether the suite was launched from inside Claude Code - load-bearing on a
+# developer box, inert in CI.
+# --------------------------------------------------------------------------
+
+
+def _ancestors(pid: int) -> list[int]:
+    """``pid``'s parent chain from /proc - no `ps`, no PATH dependency."""
+    chain: list[int] = []
+    while pid > 1:
+        try:
+            status = Path(f"/proc/{pid}/status").read_text()
+        except OSError:
+            break
+        ppid = next(
+            (int(line.split()[1]) for line in status.splitlines() if line.startswith("PPid:")),
+            0,
+        )
+        chain.append(ppid)
+        pid = ppid
+    return chain
+
+
+def _wake_env(tmp: Path, session_pids: str | None) -> dict[str, str]:
+    env = os.environ.copy()
+    env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp / "mb")
+    env.pop("FLOW_WAVE_NOW", None)
+    if session_pids is None:
+        env.pop("FLOW_WAVE_SESSION_PIDS", None)
+    else:
+        env["FLOW_WAVE_SESSION_PIDS"] = session_pids
+    return env
+
+
+def _spawn_orphan_watch(
+    env: dict[str, str], role: str, wave: str, cwd: Path, mode: str = "--peek"
+) -> int:
+    """A REAL watch whose ancestry no longer contains this pytest process.
+
+    The intermediate `bash -c` backgrounds the watch and exits at once, so the
+    kernel reparents it - exactly the shape of a `supervise` daemon's inner
+    watch, and of a watch started with a trailing `&` in a tool call that has
+    since returned. It is a real process, not a stubbed classification.
+    """
+    out = subprocess.run(
+        [
+            "bash", "-c",
+            'bash "$0" watch --role "$1" --wave "$2" --timeout 60 --interval 1 "$3" '
+            '</dev/null >/dev/null 2>&1 & echo $!',
+            str(MAILBOX), role, wave, mode,
+        ],
+        capture_output=True, text=True, env=env, check=True, timeout=30, cwd=str(cwd),
+    )
+    pid = int(out.stdout.strip())
+    wf = cwd / "mb" / wave / f".watch-{role}"
+    assert _wait_for(wf.exists, timeout=15), "orphan watch never armed"
+    # PRECONDITION (the negative fixture must BE negative): the watch is alive
+    # and this pytest process is nowhere in its ancestry. If this host
+    # reparents orphans to pytest itself, the case below would prove nothing.
+    assert _pid_alive(pid), "orphan watch exited before the test could ask about it"
+    assert os.getpid() not in _ancestors(pid), (
+        f"pid {pid} still descends from pytest - the orphan fixture is not orphaned"
+    )
+    return pid
+
+
+def _kill_quietly(pid: int) -> None:
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except (OSError, ProcessLookupError):
+        pass
+
+
+@requires_bash
+class TestWakeability:
+    def test_negative_control_daemon_poller_is_no_wake_session_watch_is_armed(
+        self, tmp_path: Path
+    ) -> None:
+        """The issue's committed negative control, as one sequence.
+
+        Known-bad: a role polled ONLY by a process with no session in its
+        ancestry must NOT read armed - the 2026-09-23 shape. Known-good: the
+        same role with a session-parented watch added reads armed. A version
+        that renders both as `armed` is the pre-#1228 instrument, and fails the
+        first assertion.
+        """
+        wave = unique_wave()
+        env = _wake_env(tmp_path, str(os.getpid()))
+        orphan = _spawn_orphan_watch(env, "1", wave, tmp_path)
+        session_watch = None
+        try:
+            st = subprocess.run(
+                ["bash", str(MAILBOX), "watch", "--status", "--role", "1", "--wave", wave],
+                capture_output=True, text=True, env=env, check=False, timeout=60,
+            )
+            assert _detail(st, "FLOW_MAILBOX_WATCHER_COUNT") == "1"
+            assert _detail(st, "FLOW_MAILBOX_WATCH_STATE") == "no-wake", st.stdout
+            assert _detail(st, "FLOW_MAILBOX_SESSION_WATCHERS") == "0"
+            assert f"{orphan}:" in _detail(st, "FLOW_MAILBOX_WATCHER_HOLDERS")
+            assert ":orphan" in _detail(st, "FLOW_MAILBOX_WATCHER_HOLDERS")
+
+            listed = subprocess.run(
+                ["bash", str(MAILBOX), "list", "--wave", wave, "--json"],
+                capture_output=True, text=True, env=env, check=False, timeout=60,
+            )
+            row = json.loads(listed.stdout.splitlines()[0])["watches"][0]
+            assert row["state"] == "no-wake" and row["session_watchers"] == 0
+
+            # The session arms its own watch. The orphan must NOT block it -
+            # refusing the one process that can wake anyone is how the field
+            # sessions stayed deaf after trying to re-arm.
+            session_watch = subprocess.Popen(
+                ["bash", str(MAILBOX), "watch", "--role", "1", "--wave", wave,
+                 "--timeout", "6", "--interval", "1", "--peek"],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+                cwd=str(tmp_path),
+            )
+
+            def _armed() -> bool:
+                p = subprocess.run(
+                    ["bash", str(MAILBOX), "watch", "--status", "--role", "1", "--wave", wave],
+                    capture_output=True, text=True, env=env, check=False, timeout=60,
+                )
+                return _detail(p, "FLOW_MAILBOX_WATCH_STATE") == "armed"
+
+            assert _wait_for(_armed, timeout=15), "session watch never made the role armed"
+            assert session_watch.poll() is None, "the session's watch was refused"
+            _, err = session_watch.communicate(timeout=30)
+            assert session_watch.returncode == 5, err  # timed out: it ran, it was not refused
+            assert "arming anyway" in err and f"{orphan}:" in err
+        finally:
+            if session_watch and session_watch.poll() is None:
+                session_watch.kill()
+                session_watch.communicate(timeout=10)
+            _kill_quietly(orphan)
+
+    def test_a_session_parented_holder_still_refuses_and_is_named(
+        self, tmp_path: Path
+    ) -> None:
+        """#792's single-owner rule survives #1228 where it matters: two
+        watchers that can each wake the session compete for its mail."""
+        wave = unique_wave()
+        env = _wake_env(tmp_path, str(os.getpid()))
+        holder = subprocess.Popen(
+            ["bash", str(MAILBOX), "watch", "--role", "1", "--wave", wave,
+             "--timeout", "30", "--interval", "1", "--peek"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, cwd=str(tmp_path),
+        )
+        try:
+            assert _wait_for((tmp_path / "mb" / wave / ".watch-1").exists, timeout=15)
+            second = subprocess.run(
+                ["bash", str(MAILBOX), "watch", "--role", "1", "--wave", wave,
+                 "--timeout", "3", "--interval", "1", "--peek"],
+                capture_output=True, text=True, env=env, check=False, timeout=60,
+            )
+            assert second.returncode == 4, second.stderr
+            assert _verdict(second) == "duplicate"
+            assert f"{holder.pid}:" in second.stderr and ":session" in second.stderr
+        finally:
+            holder.kill()
+            holder.wait(timeout=10)
+
+    def test_a_consuming_orphan_still_refuses_the_session_watch(
+        self, tmp_path: Path
+    ) -> None:
+        """Counter-model review: an orphan that CONSUMES would acknowledge mail
+        before the session's watch saw it - the session sleeps behind an
+        `armed` roster. Only a peeking orphan may coexist; this one refuses,
+        and names itself so it can be killed."""
+        wave = unique_wave()
+        env = _wake_env(tmp_path, str(os.getpid()))
+        orphan = _spawn_orphan_watch(env, "1", wave, tmp_path, mode="--consume")
+        try:
+            second = subprocess.run(
+                ["bash", str(MAILBOX), "watch", "--role", "1", "--wave", wave,
+                 "--timeout", "3", "--interval", "1", "--peek"],
+                capture_output=True, text=True, env=env, check=False, timeout=60,
+            )
+            assert second.returncode == 4, second.stderr
+            assert f"{orphan}:" in second.stderr and ":orphan:consume" in second.stderr
+        finally:
+            _kill_quietly(orphan)
+
+    def test_an_option_value_cannot_disguise_a_consuming_orphan(
+        self, tmp_path: Path
+    ) -> None:
+        """Counter-model review, pass 2: `--consume --role --peek` is a
+        CONSUMING watch whose role is `--peek`. A token scan read it as peeking
+        and let it coexist with - and steal mail from - the session's watch."""
+        wave = unique_wave()
+        env = _wake_env(tmp_path, str(os.getpid()))
+        out = subprocess.run(
+            [
+                "bash", "-c",
+                'bash "$0" watch --consume --role --peek --wave "$1" --timeout 60 '
+                '--interval 1 </dev/null >/dev/null 2>&1 & echo $!',
+                str(MAILBOX), wave,
+            ],
+            capture_output=True, text=True, env=env, check=True, timeout=30, cwd=str(tmp_path),
+        )
+        orphan = int(out.stdout.strip())
+        try:
+            assert _wait_for((tmp_path / "mb" / wave / ".watch---peek").exists, timeout=15)
+            assert os.getpid() not in _ancestors(orphan)  # precondition: orphaned
+            second = subprocess.run(
+                ["bash", str(MAILBOX), "watch", "--role=--peek", "--wave", wave,
+                 "--timeout", "3", "--interval", "1", "--peek"],
+                capture_output=True, text=True, env=env, check=False, timeout=60,
+            )
+            assert second.returncode == 4, second.stderr
+            assert ":orphan:consume" in second.stderr
+        finally:
+            _kill_quietly(orphan)
+
+    def test_numeric_looking_roles_stay_distinct(self, tmp_path: Path) -> None:
+        """Counter-model review: awk compares `1` and `01` numerically, so a
+        bare `$1 == r` filter counted role 01's watcher as role 1's. The
+        `grep -cxF` it replaced compared strings; the filters must too."""
+        wave = unique_wave()
+        env = _wake_env(tmp_path, str(os.getpid()))
+        holder = subprocess.Popen(
+            ["bash", str(MAILBOX), "watch", "--role", "01", "--wave", wave,
+             "--timeout", "30", "--interval", "1", "--peek"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, cwd=str(tmp_path),
+        )
+        try:
+            assert _wait_for((tmp_path / "mb" / wave / ".watch-01").exists, timeout=15)
+            other = subprocess.run(
+                ["bash", str(MAILBOX), "watch", "--status", "--role", "1", "--wave", wave],
+                capture_output=True, text=True, env=env, check=False, timeout=60,
+            )
+            assert _detail(other, "FLOW_MAILBOX_WATCHER_COUNT") == "0", other.stdout
+            own = subprocess.run(
+                ["bash", str(MAILBOX), "watch", "--status", "--role", "01", "--wave", wave],
+                capture_output=True, text=True, env=env, check=False, timeout=60,
+            )
+            assert _detail(own, "FLOW_MAILBOX_WATCHER_COUNT") == "1", own.stdout
+            arm = subprocess.run(
+                ["bash", str(MAILBOX), "watch", "--role", "1", "--wave", wave,
+                 "--timeout", "2", "--interval", "1", "--peek"],
+                capture_output=True, text=True, env=env, check=False, timeout=60,
+            )
+            assert arm.returncode == 5, arm.stderr  # timed out: not refused as a duplicate
+        finally:
+            holder.kill()
+            holder.wait(timeout=10)
+
+    def test_unreadable_lineage_never_reads_no_wake(self, tmp_path: Path) -> None:
+        """No socket directory and no hook: parentage is UNKNOWN. That must keep
+        the pre-#1228 reading (armed) and keep refusing a second arm - never a
+        confident `no-wake` built on an instrument that could not look (#800)."""
+        wave = unique_wave()
+        env = _wake_env(tmp_path, None)
+        env["FLOW_WAVE_SOCK_DIR"] = str(tmp_path / "no-such-socket-dir")
+        assert not (tmp_path / "no-such-socket-dir").exists()  # precondition
+        orphan = _spawn_orphan_watch(env, "1", wave, tmp_path)
+        try:
+            st = subprocess.run(
+                ["bash", str(MAILBOX), "watch", "--status", "--role", "1", "--wave", wave],
+                capture_output=True, text=True, env=env, check=False, timeout=60,
+            )
+            assert _detail(st, "FLOW_MAILBOX_WATCH_STATE") == "armed", st.stdout
+            assert _detail(st, "FLOW_MAILBOX_SESSION_WATCHERS") == "unknown"
+            second = subprocess.run(
+                ["bash", str(MAILBOX), "watch", "--role", "1", "--wave", wave,
+                 "--timeout", "3", "--interval", "1", "--peek"],
+                capture_output=True, text=True, env=env, check=False, timeout=60,
+            )
+            assert second.returncode == 4 and ":unknown" in second.stderr
+        finally:
+            _kill_quietly(orphan)
+
+    def test_supervise_exits_owner_gone_when_its_arming_session_dies(
+        self, tmp_path: Path
+    ) -> None:
+        """The field case: a daemon polling 18h after its session died, role
+        never released. The stand-in session is a real process that launches
+        `supervise` and then execs `sleep`, so its pid and start time survive
+        the launch unchanged - exactly what the daemon records."""
+        wave = unique_wave()
+        env = _wake_env(tmp_path, None)
+        session = subprocess.Popen(
+            [
+                "bash", "-c",
+                'export FLOW_WAVE_SESSION_PIDS=$$; '
+                'bash "$0" supervise --role 1 --wave "$1" --timeout 2 --interval 1 '
+                '>/dev/null 2>&1; exec sleep 120',
+                str(MAILBOX), wave,
+            ],
+            env=env, cwd=str(tmp_path),
+        )
+        daemon = None
+        try:
+            daemon = _daemon_pid(tmp_path, wave, "1")
+            log = _supervise_log(tmp_path, wave, "1")
+            assert _wait_for(lambda: f"owner={session.pid}:" in log.read_text(), timeout=10)
+            # CONTROL: with its owner alive the daemon stays up across several
+            # re-arm cycles, so the exit below is caused by the owner's death
+            # and not by anything else that ends a daemon.
+            time.sleep(5)
+            assert _pid_alive(daemon), log.read_text()
+            # Killed but deliberately NOT reaped until the daemon has exited:
+            # an unreaped owner is a zombie whose /proc entry and start time
+            # both survive, and it must still read as gone (counter-model
+            # review). Reaping first would hide exactly that case.
+            session.kill()
+            assert _wait_for(
+                lambda: "State:\tZ" in Path(f"/proc/{session.pid}/status").read_text(),
+                timeout=10,
+            ), "precondition: the stand-in session is not a zombie"
+            assert _wait_for(lambda: not _pid_not_zombie(daemon), timeout=20), (
+                f"daemon {daemon} outlived its arming session:\n{log.read_text()}"
+            )
+            assert "owner-gone" in log.read_text()
+            session.wait(timeout=10)
+        finally:
+            if session.poll() is None:
+                session.kill()
+                session.wait(timeout=10)
+            if daemon and _pid_not_zombie(daemon):
+                kill_supervise_daemon(daemon)
+
+    def test_supervise_with_no_session_in_its_ancestry_has_no_owner(
+        self, tmp_path: Path
+    ) -> None:
+        """Standalone `supervise` (not launched from Claude Code) is unchanged:
+        no owner is recorded, so nothing can end it on an owner check."""
+        wave = unique_wave()
+        env = _wake_env(tmp_path, "")  # hook set, naming no session at all
+        p = subprocess.run(
+            ["bash", str(MAILBOX), "supervise", "--role", "1", "--wave", wave,
+             "--timeout", "2", "--interval", "1"],
+            capture_output=True, text=True, env=env, check=False, timeout=30,
+            cwd=str(tmp_path),
+        )
+        assert p.returncode == 0, p.stderr
+        daemon = _daemon_pid(tmp_path, wave, "1")
+        try:
+            log = _supervise_log(tmp_path, wave, "1")
+            assert _wait_for(lambda: "owner=none" in log.read_text(), timeout=10)
+            assert "NEVER wake a session" in p.stderr
+        finally:
+            kill_supervise_daemon(daemon)

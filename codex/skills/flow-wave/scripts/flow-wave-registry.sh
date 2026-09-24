@@ -1602,7 +1602,10 @@ load_mailbox() {
   return 0
 }
 
-# mailbox_watch_state ROLE -> armed | stale | dead | absent | unknown
+# mailbox_watch_state ROLE -> armed | no-wake | stale | dead | absent | unknown
+# `no-wake` (#1228): watchers exist, none has a Claude Code session in its
+# ancestry - a `supervise` daemon alone. It polls and keeps the heartbeat fresh,
+# so before #1228 it rendered `armed` over sessions that were deaf.
 # The value is the mailbox's FUSED verdict (#801) - the live watcher count
 # folded into the heartbeat stamp - not the raw stamp. Before #801 this rendered
 # `watch=armed` for a role whose watch had already exited, because the stamp is
@@ -1626,6 +1629,14 @@ mailbox_watch_watchers() {
   [ -n "$MAILBOX_JSON" ] && [ "$MAILBOX_IN_USE" -eq 1 ] || { echo '-'; return; }
   printf '%s' "$MAILBOX_JSON" |
     jq -r --arg r "$1" '(.watches // []) | map(select(.role == $r)) | (.[0].watchers // "-") | tostring'
+}
+
+# mailbox_watch_session_watchers ROLE -> session-parented watcher count, '-'
+# when unknown/absent (#1228) - the fact a `no-wake` verdict rests on.
+mailbox_watch_session_watchers() {
+  [ -n "$MAILBOX_JSON" ] && [ "$MAILBOX_IN_USE" -eq 1 ] || { echo '-'; return; }
+  printf '%s' "$MAILBOX_JSON" |
+    jq -r --arg r "$1" '(.watches // []) | map(select(.role == $r)) | (.[0].session_watchers // "-") | tostring'
 }
 
 # mailbox_watch_age ROLE -> seconds since the last heartbeat, '-' when none.
@@ -3307,9 +3318,10 @@ case "$VERB" in
         # not an armed one, and rendering it as clean is this bug's whole
         # shape (the #800 convention).
         case "$ws" in
-          absent|stale|dead|unknown)
+          absent|stale|dead|unknown|no-wake)
             WATCH_UNARMED=$((WATCH_UNARMED + 1))
             case "$ws" in
+              no-wake) WATCH_DEAF="$WATCH_DEAF $r(no-wake - $(mailbox_watch_watchers "$r") watcher(s) polling, none session-parented)" ;;
               absent)  WATCH_DEAF="$WATCH_DEAF $r(never armed)" ;;
               dead)    WATCH_DEAF="$WATCH_DEAF $r(dead - last wake $(human_age "$(mailbox_watch_age "$r")") ago, 0 watchers)" ;;
               stale)   WATCH_DEAF="$WATCH_DEAF $r(stale $(human_age "$(mailbox_watch_age "$r")"))" ;;
@@ -3364,18 +3376,21 @@ EOF
         [ "$MAILBOX_IN_USE" -eq 1 ] || continue
         w_state="$(mailbox_watch_state "$r")"; w_age="$(mailbox_watch_age "$r")"
         w_watchers="$(mailbox_watch_watchers "$r")"
+        w_sess="$(mailbox_watch_session_watchers "$r")"
         r_state="$(mailbox_route_state "$r")"
         m_rev="$(mailbox_box_field "$r" rev)"; m_acked="$(mailbox_box_field "$r" acked)"
         m_unr="$(mailbox_box_field "$r" unread)"; m_mt="$(mailbox_box_field "$r" mtime)"
         nr=false; mailbox_never_read "$r" && nr=true
         OUT="$(printf '%s' "$OUT" | jq -c \
           --arg r "$r" --arg ws "$w_state" --arg wa "$w_age" --arg wc "$w_watchers" \
+          --arg wsess "$w_sess" \
           --arg rs "$r_state" \
           --arg rev "$m_rev" --arg acked "$m_acked" --arg unr "$m_unr" --arg mt "$m_mt" \
           --argjson nr "$nr" '
             def num($v): if $v == "-" then null else ($v | tonumber? // null) end;
             .[$r] += {
-              watch: {state: $ws, age_secs: num($wa), watchers: num($wc)},
+              watch: {state: $ws, age_secs: num($wa), watchers: num($wc),
+                      session_watchers: num($wsess)},
               route: {state: $rs},
               mailbox: {rev: num($rev), acked: num($acked), unread: num($unr),
                         last_delivery: (if $mt == "-" then null else $mt end),
@@ -3559,6 +3574,9 @@ EOF
         ws="$(mailbox_watch_state "$r")"
         case "$ws" in
           armed)   extra="$extra watch=armed" ;;
+          # #1228: polled, not wakeable. Rendered like DEAD, in caps, with the
+          # two counts it rests on, because it is deaf in exactly the same way.
+          no-wake) extra="$extra watch=NO-WAKE($(mailbox_watch_watchers "$r") watchers, 0 session)" ;;
           stale)   extra="$extra watch=stale($(human_age "$(mailbox_watch_age "$r")"))" ;;
           # DEAD is the #801 case: a fresh-looking heartbeat with nothing behind
           # it. The watcher count rides along so the row states the fact, not

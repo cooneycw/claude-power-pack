@@ -426,103 +426,102 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
      orchestrator side), and this session's REPLY carries the
      transport-stamped `from=` that `verify` needs.
 
-4. **ARM SUPERVISION before standing by (issues #676, #814).** This is not
-   optional and not a nicety: a registered worker with no listener is exactly
-   the 2026-08-11 failure - it stands by correctly, forever, while a written
-   assignment sits undelivered, because an idle session polls nothing. Launch
-   `supervise`, not a bare `watch`, as a Bash call (it returns promptly with
-   its own verdict - it does not need `run_in_background`, the DAEMON it
-   detaches is what keeps listening):
-
-   ```bash
-   ~/.claude/scripts/flow-wave-mailbox.sh supervise --role 1 --wave cpp --timeout 300 --interval 3
-   ```
-
-   **Why `supervise` and not a re-armed `watch` (issue #814).** `watch`
-   delivers one message and exits - by design, so the harness has something
-   to notify on - which means every wake needs a NEW `watch`, armed by
-   whoever is listening. Three sessions building #814 and #815 themselves hit
-   this in one run (see the incident comment on issue #815): a watch
-   backgrounded with `&` into `/dev/null`, a watch that died with no output,
-   and a 25-minute forgotten re-arm that left seven messages - three from a
-   master session - waiting unheard, caught only because a DIFFERENT session
-   noticed the silence from outside. `supervise` makes "a listener for this
-   role exists" independent of any agent remembering anything: it re-arms
-   `watch --peek` in a detached loop, on its own, until this role is
-   released or the wave ends. **It does not, and cannot, guarantee the
-   harness tells YOU** - no script can force that; see `route=` below for how
-   that residual gap is made visible instead of silently assumed away.
-
-   **The supervisor never acknowledges your mail (#867, #873).** It surfaces
-   into its own log and raises a daemon-local watermark; the ack set stays
-   yours alone. That is what keeps `unread`, `route=`, and `** NEVER READ **`
-   measuring what they claim to - until it was fixed, the prescribed listener
-   silenced all three, and a worker that had received nothing rendered as a
-   healthy row. **So mail waiting for you stays visibly waiting.** Reading it
-   is still your job, and `ack` is still the only thing that clears it.
-
-   A live supervisor already holding this role refuses a second one (exit 4,
-   `duplicate`); check
-   `flow-wave-mailbox.sh watch --status --role 1 --wave cpp` (still accurate -
-   `supervise` arms a real `watch` underneath) before assuming none is
-   running. Release is automatic: `supervise` polls the registry and shuts
-   itself down **within one `--timeout` of** this role being released - not
-   the moment it is released, and the same bound applies to killing the
-   daemon directly, since a trapped signal is not processed until the
-   daemon's current blocking watch call returns either (issue #1033). Check
-   `--status`'s `FLOW_MAILBOX_SUPERVISE_TIMEOUT` field to see how long that
-   window can legitimately still be. Unlike bare `watch`, though, there is
-   nothing to remember not to re-arm.
-
-   **Fallback: a bare, manually re-armed `watch` remains documented and
-   supported**, for a host without `supervise`'s process-detachment
-   machinery, or a session that wants direct control over each arm:
+4. **ARM A LISTENER THIS SESSION OWNS before standing by (issues #676, #814,
+   #1228).** This is not optional and not a nicety: a registered worker with no
+   listener is exactly the 2026-08-11 failure - it stands by correctly, forever,
+   while a written assignment sits undelivered, because an idle session polls
+   nothing. Arm `watch` as a **background tool call** - the Bash tool's
+   `run_in_background: true`, NEVER a trailing `&`:
 
    ```bash
    ~/.claude/scripts/flow-wave-mailbox.sh watch --role 1 --wave cpp --timeout 1800 --consume
    ```
 
+   **Why it must be a background TOOL CALL (issue #1228).** The harness
+   re-invokes a session only when a process THAT SESSION OWNS exits. A
+   `run_in_background` call is owned by this session, so when mail lands the
+   watch prints it, exits 0, and you are woken with the message in hand. A
+   trailing `&` is not owned by anything once its Bash call returns - it is
+   reparented, keeps polling, and wakes nobody (#868 measured the rule on the
+   session's messaging socket: delivered 5/5 from a process whose parent chain
+   reaches the session, 0/4 from one reparented to init).
+
+   **Re-arm it after EVERY wake, for as long as this session is in the wave
+   (issues #801, #814).** The watch is one-shot: it delivers one message and
+   exits, so handling a wake without re-arming leaves you deaf with a heartbeat
+   that still looks fresh. Re-arming is part of handling the message, not a
+   separate task. This is the cost of this design, stated plainly: #814 was
+   filed because three sessions forgot exactly this step in one run, one of
+   them for 25 minutes with seven messages unheard. The difference now is that
+   a forgotten re-arm is VISIBLE - the roster reads `watch=DEAD` - where the
+   daemon below reads healthy while nobody hears anything. Two things are not
+   yet measured and should not be assumed either way: whether a background
+   watch survives `/compact` (#871 section 3c), and whether an `asyncRewake`
+   Stop hook - a session-owned waker that re-arms on every `Stop` without
+   anyone remembering (#871, 2026-09-20) - can replace the manual re-arm.
+
    `--consume` is required (issue #792) - `watch` no longer has a default, so
-   say explicitly that this arm marks mail read on wake. On wake it prints the
-   messages and exits 0; **re-arm it after handling them, for as long as this
-   session is in the wave** - this is exactly the step `supervise` exists to
-   stop being conversational. Exit 5 is a plain timeout, NOT evidence the
-   orchestrator is gone - re-arm and check the roster before concluding
-   anything. Release by simply not re-arming (the watch is bounded, so a wave
-   can never leave one spinning after it ends). A live watcher already
-   holding this role refuses a second one (exit 4, `duplicate`) rather than
-   silently competing with it for the same mail - a common way to trigger
-   this by accident is bundling a watch onto the tail of another command
+   say explicitly that this arm marks mail read on wake. Exit 5 is a plain
+   timeout, NOT evidence the orchestrator is gone - re-arm and check the roster
+   before concluding anything. Release by simply not re-arming (the watch is
+   bounded, so a wave can never leave one spinning after it ends).
+
+   **A duplicate refusal names its holder (issue #1228).** A watcher that can
+   wake this session - one with a session in its ancestry, or whose ancestry
+   could not be read - refuses a second one (exit 4, `duplicate`) rather than
+   silently competing with it for the same mail, and the refusal lists every
+   holder as `pid:start:parentage:mode`. A holder with NO session in its ancestry
+   (`orphan`: a `supervise` daemon, or a watch whose session is gone) does NOT
+   block you as long as it only PEEKS: it cannot wake anyone or take your mail,
+   so the arm proceeds with a warning naming it. An orphan that CONSUMES still
+   refuses you, because it would acknowledge your mail before your watch saw
+   it - kill it (its pid is in the refusal) and re-arm. Kill a peeking one too
+   if it is yours. A common way to collide with your own watch by
+   accident is bundling one onto the tail of another command
    (`... register ; ... watch`).
 
-   **Skipping either is now VISIBLE to the orchestrator (issues #778, #814).**
-   It used to be the one part of registration that left no trace: a worker
-   could be `[live, verified] brief=current` in the roster and completely
-   deaf, and on 2026-09-05 one sat that way for over an hour while its
-   six-issue assignment went unread. `watch` stamps a heartbeat, so
-   `flow-wave-registry.sh list` renders `watch=armed`, `watch=DEAD(0
-   watchers)`, `watch=stale(42m)`, `watch=ABSENT` or `watch=UNKNOWN` against
-   every live role - plus `unread=N` and a loud `** NEVER READ **` when the
-   role has never acknowledged anything (issue #815). Alongside it, a
-   SEPARATE `route=` column answers the question `watch=` cannot: `watch=`
-   says a process is polling (and is still exactly as susceptible to #821's
-   orphaned-process-count problem as it always was); `route=UNCONFIRMED`
-   means no acknowledgement has been seen for longer than
-   `FLOW_WAVE_ROUTE_UNCONFIRMED_SECS` (default 900s) even though something
-   may well be polling - the honest report that the notification route to
-   this session cannot be confirmed working, not a claim that it is broken.
-   Neither column being clean reads as a healthy worker by itself; both do.
+   **`supervise` is an opt-in legacy path, and it CANNOT WAKE YOU (issues #814,
+   #1228).** It detaches a daemon that re-arms `watch --peek` on its own, so "a
+   process is polling for this role" stops depending on anyone remembering.
+   But the daemon is detached by design - that is how it outlives the turn -
+   so no harness wake path runs through it: it notices your mail, logs it, and
+   you hear nothing. In the field (2026-09-22/23, three waves, two repos)
+   sessions sat deaf for 20-35 minutes while the roster read `armed, 0s ago`,
+   and one daemon outlived its session by 18 hours. Use it only when something
+   OTHER than this session reads its log:
 
-   **Bare `watch` still needs re-arming after EVERY wake (issue #801) - the
-   exact discipline `supervise` removes.** The watch is one-shot: it delivers
-   one message and exits, so handling a wake without re-arming leaves you deaf
-   with a heartbeat that still looks fresh. That state used to render `armed`
-   in both the roster and `--status`. On the `docker-list` wave a worker went
-   deaf for ~50 minutes holding a gate request, then again immediately after
-   reporting a PR done - it self-reported "standing by idle" while an
-   assignment it could not see was already in its box. Re-arming is part of
-   handling the message, not a separate task, and the honest check is
-   `FLOW_MAILBOX_WATCHER_COUNT`, not the state word.
+   ```bash
+   ~/.claude/scripts/flow-wave-mailbox.sh supervise --role 1 --wave cpp --timeout 300 --interval 3
+   ```
+
+   The roster reads a role held only by `supervise` as `watch=NO-WAKE`, never
+   `armed`. The daemon never acknowledges your mail (#867, #873), so `unread`
+   and `** NEVER READ **` stay honest. It shuts itself down **within one
+   `--timeout` of** this role being released (issue #1033), and - since #1228 -
+   within one `--timeout` of the session that launched it exiting (logged as
+   `owner-gone`; a reused pid does not count as that session). A live
+   supervisor refuses a second `supervise` for the same role (exit 4). A
+   session watch armed alongside it makes the daemon's own inner watch refuse
+   as a duplicate and back off, which is harmless; stop the daemon if you do
+   not need it.
+
+   **Skipping the listener is VISIBLE to the orchestrator (issues #778, #814,
+   #1228).** `flow-wave-registry.sh list` renders `watch=armed`,
+   `watch=NO-WAKE(N watchers, 0 session)`, `watch=DEAD(0 watchers)`,
+   `watch=stale(42m)`, `watch=ABSENT` or `watch=UNKNOWN` against every live
+   role - plus `unread=N` and a loud `** NEVER READ **` when the role has never
+   acknowledged anything (issue #815). `armed` means at least one watcher has
+   a Claude Code session in its ancestry (or its ancestry could not be read);
+   `NO-WAKE` means processes are polling and none of them can wake anyone.
+   What `armed` does NOT check is that the session is the one registered for
+   the role. Alongside it, a SEPARATE `route=` column answers what `watch=`
+   cannot: `route=UNCONFIRMED` means no acknowledgement has been seen for
+   longer than `FLOW_WAVE_ROUTE_UNCONFIRMED_SECS` (default 900s) - the honest
+   report that the notification route to this session cannot be confirmed
+   working, not a claim that it is broken. Neither column being clean reads as
+   a healthy worker by itself; both do. For one role, `watch --status` prints
+   the same verdict plus `FLOW_MAILBOX_SESSION_WATCHERS` and
+   `FLOW_MAILBOX_WATCHER_HOLDERS`, which are the facts it rests on.
 
 5. Confirm back to the user which orchestrator was registered with once the
    ack arrives - or that the hello is waiting in the mailbox because no
@@ -946,9 +945,10 @@ here, **not measurable on this host** - the most plausible mechanism is disabled
 in this configuration. Recording it as "safe on 2.1.266" would be the exact
 defect this section exists to correct, one version later.
 
-Practical consequence meanwhile: prefer `supervise` where it is available;
-after receiving a cross-session message, assume your watch may be gone and
-re-arm rather than checking; and do not increase lane 1 traffic to a session
+Practical consequence meanwhile: keep your watch a session-owned background
+call (step 4 - `supervise` cannot wake you, #1228); after receiving a
+cross-session message, assume your watch may be gone and re-arm rather than
+checking; and do not increase lane 1 traffic to a session
 whose wake mechanism you have not confirmed.
 
 **Two settings decide whether lane 1 works, and neither is set on this host**
