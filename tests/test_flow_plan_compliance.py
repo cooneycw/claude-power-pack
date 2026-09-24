@@ -8,6 +8,7 @@ whole chain of issues is about.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -152,6 +153,64 @@ def test_an_UNTRACKED_new_file_diverges_without_any_manual_intent_to_add(tmp_pat
         "an unplanned untracked file was invisible to the comparison"
     )
     assert "TOUCHED BUT NOT PLANNED: src/surprise.py" in out
+
+
+@requires_git
+def test_TWO_untracked_files_one_with_a_space_are_BOTH_named(tmp_path: Path) -> None:
+    """Issue #1220: the case above uses ONE file, where a separator bug is invisible.
+
+    The block captured `ls-files -z` through command substitution, which strips
+    NUL bytes, so N paths collapsed into one glued pathspec, `add -N` failed and the
+    verdict was `unknown` for every change adding more than one file. At N=1 a
+    separator bug, an iteration bug and correct code are indistinguishable.
+
+    Both names are asserted - a verdict-only check would pass a fix that recovered
+    one path and dropped the other. One name carries a space, because whitespace in
+    filenames is the reason `-z` was chosen; two plain names prove the separator
+    survives, only this one proves it survives for that reason.
+    """
+    repo, base = make_repo(tmp_path)
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("a\n")
+    write_plan(repo, "src/app.py")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "planned")
+    (repo / "src" / "new one.py").write_text("first\n")    # untracked, never staged
+    (repo / "src" / "second.py").write_text("second\n")    # untracked, never staged
+    assert len(git(repo, "ls-files", "--others", "--exclude-standard", "-z")
+               .split("\0")[:-1]) == 2
+
+    out = run(repo, base)
+
+    assert "PLAN_COMPLIANCE: divergence" in out, f"two untracked files were not compared:\n{out}"
+    assert "TOUCHED BUT NOT PLANNED: src/new one.py" in out
+    assert "TOUCHED BUT NOT PLANNED: src/second.py" in out
+
+
+@requires_git
+def test_the_untracked_list_is_not_itself_an_untracked_file(tmp_path: Path) -> None:
+    """The #1220 fix holds the list in a temp FILE; it must not enumerate itself.
+
+    With TMPDIR inside the worktree, a default `mktemp` lands in the population
+    `ls-files --others` is about to list, is deleted before `add -N` runs, and the
+    stale pathspec turns a MATCHING change into `unknown` (counter-model review).
+    """
+    repo, base = make_repo(tmp_path)
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("a\n")
+    write_plan(repo, "src/app.py")
+    stamp_baseline(repo)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "work")
+
+    script = block().replace('$(git merge-base HEAD origin/main)', base)
+    proc = subprocess.run(["bash", "-c", script], cwd=repo, capture_output=True,
+                          text=True, env={**os.environ, "TMPDIR": str(repo)})
+    assert "PLAN_COMPLIANCE: agreement" in proc.stdout, (
+        f"a temp file under TMPDIR=<worktree> leaked into the comparison:\n"
+        f"{proc.stdout}\n{proc.stderr}"
+    )
+    assert not git(repo, "ls-files", "--others", "--exclude-standard").strip()
 
 
 # ------------------------------------------------------------------ mirrors are DERIVED
