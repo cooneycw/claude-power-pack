@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Optional, TextIO
 
 from .coverage import SCOPE_COMPONENT, ZERO
-from .outcomes import parse_failed_node_ids
+from .outcomes import classify_unparsed, parse_failed_node_ids
 from .state import RunState, StepStatus, compute_tree_signature
 from .steps import (
     # GATE_STEP_IDS is deliberately NOT imported here any more (#1155). The
@@ -1058,21 +1058,124 @@ class DeterministicRunner:
                     # there would fire on the normal case, which is how a
                     # warning stops being read.
                     #
-                    # The bound does NOT cover a runner CPP cannot parse (Go,
-                    # Rust, a shell harness): that produces output, so it warns
-                    # on every run. That is a policy question wider than #939
-                    # and is flagged as a residual rather than settled here.
-                    warnings.append(
-                        f"{step.id}: exited 0 but NO test summary could be parsed "
-                        "from stdout or stderr - this gate's result is UNKNOWN, "
-                        "not clean"
+                    # A runner CPP cannot parse (Go, Rust, a shell harness) also
+                    # produces output, so it reaches this branch on every run.
+                    # Issue #977's ruling settles that: UNKNOWN STAYS, and the
+                    # causes are separated in DETAIL rather than by new states,
+                    # because in every cause the verdict a consumer can act on
+                    # is the same - this run's outcome is not established.
+                    #
+                    #   supported-empty  output carries a SUPPORTED runner's
+                    #                    signature but no summary parsed. A
+                    #                    per-run alarm: our own parser was
+                    #                    pointed at its runner and got nothing.
+                    #   unclassifiable   output matches no supported runner.
+                    #                    An UNMEASURED fact - never reported as
+                    #                    "unsupported", which is a decision.
+                    #   declared         the step names its runner in
+                    #                    `unsupported_runner`. A RECORDED
+                    #                    decision, so this branch may be quiet:
+                    #                    the fact it would repeat every run is
+                    #                    stated where a reader can find it.
+                    #
+                    # Nothing reads DETAIL, so the three wordings are pinned
+                    # DIFFERENT by a committed control (tests/test_runner.py,
+                    # TestUnparsedCausesAreDistinct) - otherwise a collapse
+                    # into one sentence would go unnoticed by every consumer.
+                    #
+                    # A CORROBORATED supported signature overrides a
+                    # declaration. The declaration exists for runners CPP does
+                    # not parse; if one it does parse is present and silent,
+                    # that is the alarm this warning protects, and a stale
+                    # declaration must not be able to mute it. Only
+                    # corroborated signatures qualify: a bare `PASS <file>.ts`
+                    # is printable by any harness, and letting it out-vote a
+                    # declaration would turn a recorded decision back into a
+                    # per-run warning on a guess (counter-model review).
+                    #
+                    # Two-sided pre-commitment (ADR 0009 / #936), because the
+                    # pressure on this will arrive dressed as ergonomics:
+                    #   - narrow what counts as unsupported: on evidence that a
+                    #     declared runner is in fact parseable (the note logged
+                    #     below when a declared step's output parses is where
+                    #     that evidence first shows up);
+                    #   - widen it: only on evidence a runner genuinely cannot
+                    #     be parsed, by DECLARING it - never by loosening this
+                    #     branch, a threshold, or the verdict;
+                    #   - NOT a reason to widen: that the warning is annoying.
+                    signature = classify_unparsed(result.output) or classify_unparsed(
+                        result.error
                     )
-                    self._log(
-                        f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
-                        "SUCCESS - NO TEST OUTCOME PARSED (UNKNOWN, not clean)"
-                    )
+                    declared = step_def.unsupported_runner
+                    overriding = classify_unparsed(
+                        result.output, corroborated_only=True
+                    ) or classify_unparsed(result.error, corroborated_only=True)
+                    if declared and overriding is None:
+                        self._log(
+                            f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                            "SUCCESS - TEST OUTCOME NOT MEASURED (runner "
+                            f"declared unsupported: {declared})"
+                        )
+                    else:
+                        # Declared and overridden: report the signature that
+                        # did the overriding, not a weaker one found first.
+                        if declared and overriding is not None:
+                            signature = overriding
+                        if signature is not None:
+                            framework, evidence = signature
+                            cause = (
+                                f"cause: supported runner {framework} was "
+                                f"recognised ({evidence[:120]!r}) but no "
+                                f"{framework} summary was parsed - a supported "
+                                "runner came back empty"
+                            )
+                            if declared:
+                                cause += (
+                                    f"; the declaration unsupported_runner: "
+                                    f"{declared!r} does not silence a runner "
+                                    "CPP supports"
+                                )
+                            log_cause = f"{framework.upper()} CAME BACK EMPTY"
+                        else:
+                            cause = (
+                                "cause: the output matches no supported runner "
+                                "(pytest, jest, unittest) and could not be "
+                                "classified; if this step runs another runner, "
+                                "declare it with `unsupported_runner: <runner>` "
+                                "on the step in .claude/cicd_tasks.yml"
+                            )
+                            log_cause = "OUTPUT UNCLASSIFIABLE"
+                        warnings.append(
+                            f"{step.id}: exited 0 but NO test summary could be "
+                            "parsed from stdout or stderr - this gate's result "
+                            f"is UNKNOWN, not clean ({cause})"
+                        )
+                        self._log(
+                            f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                            "SUCCESS - NO TEST OUTCOME PARSED (UNKNOWN, not "
+                            f"clean; {log_cause})"
+                        )
                 else:
                     self._log(f"  [{idx + 1}/{len(step_defs)}] {step.id}: SUCCESS{qualifier}")
+                if outcome is not None and step_def.unsupported_runner:
+                    # A declared step whose output PARSED (issue #977). The
+                    # counts are used - a measurement beats a declaration - but
+                    # this is a NOTE, not a warning, because a parsed summary is
+                    # not attributable to the declared runner: a step running
+                    # `go test` and then pytest parses pytest's summary on every
+                    # run, and "remove the declaration" would be wrong there and
+                    # permanent noise besides - this issue's own defect
+                    # (counter-model review). A stale declaration is also
+                    # harmless to the alarm: it can quiet only UNPARSED output
+                    # carrying no corroborated supported signature.
+                    self._log(
+                        f"  [{idx + 1}/{len(step_defs)}] {step.id}: NOTE - "
+                        f"counts come from a parsed {outcome.framework} summary; "
+                        "the part run by the declared unsupported runner "
+                        f"({step_def.unsupported_runner}), if any, is NOT "
+                        "measured. If this step no longer runs it, remove "
+                        "unsupported_runner from .claude/cicd_tasks.yml"
+                    )
                 state.mark_step_success(
                     idx, result.output, tests=outcome_dict, coverage=cover_dict
                 )

@@ -187,7 +187,7 @@ shellcheck:
 		sh scripts/shellcheck-gate.sh; \
 	elif command -v docker > /dev/null 2>&1; then \
 		docker run --rm -v "$$(pwd):/repo" -w /repo \
-			-e SHELLCHECK_SEVERITY="$${SHELLCHECK_SEVERITY:-error}" \
+			-e SHELLCHECK_SEVERITY="$${SHELLCHECK_SEVERITY:-style}" \
 			--entrypoint sh $(SHELLCHECK_IMAGE) scripts/shellcheck-gate.sh; \
 	else \
 		sh scripts/shellcheck-gate.sh; \

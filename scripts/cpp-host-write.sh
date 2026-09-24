@@ -122,6 +122,7 @@ normalise() {
     #: WROTE THE SURFACE IT HAD BEEN ASKED TO SKIP while exiting 0. A silent
     #: non-refusal is the worst failure this seam can have, so the comparison
     #: is now written in a form whose behaviour is obvious on sight.
+    # shellcheck disable=SC2088  # a literal ~ for display, deliberately unexpanded (#972)
     case "$s" in
         "$HOME"/*) s="~/${s#"$HOME"/}" ;;
     esac
@@ -293,7 +294,7 @@ cmd_json_merge_sections() {
     is_deferred "$target" && { refuse "$target" cpp; return $?; }
     [ -f "$template" ] || { printf 'cpp-host-write: FAILED template not found: %s\n' "$template" >&2; return 1; }
     mkdir -p "$(dirname "$target")" || return 1
-    PYTHONPATH= python3 - "$template" "$target" "$@" <<'PYMERGE' || return 1
+    PYTHONPATH='' python3 - "$template" "$target" "$@" <<'PYMERGE' || return 1
 import json, sys, pathlib
 tmpl_path, cfg_path, sections = sys.argv[1], pathlib.Path(sys.argv[2]), sys.argv[3:]
 tmpl = json.loads(pathlib.Path(tmpl_path).read_text())

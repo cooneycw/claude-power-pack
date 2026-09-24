@@ -708,6 +708,69 @@ def test_a_configured_filter_driver_is_DISCOVERED_and_neutralised(tmp_path: Path
 
 
 @requires_git
+def test_a_patched_table_does_not_poison_the_cache_for_the_real_one(tmp_path: Path) -> None:
+    """THE RED CASE for issue #1242's cache key, and it is one test on purpose.
+
+    The defect was reachable only as an ORDER between two tests - the canary test
+    below empties `GIT_EXEC_CONFIG_NEUTRALISED`, reaches
+    `git_exec_config_overrides`, and leaves the derived `[]` in `_OVERRIDES_CACHE`
+    for the rest of the process. `monkeypatch` restores the ATTRIBUTE and knows
+    nothing about the cache, so every later `sandbox_env()` in that worker built a
+    sandbox that neutralised NOTHING, and whichever test asserted a neutralisation
+    next failed. Under `pytest -n 4` xdist varies which tests share a process, so
+    it fired on a rotating innocent test on whatever PR was in flight - measured
+    on PR #1238's pipeline 2629, which touched neither file - and passed when the
+    victim ran alone. A control that needs two node ids in an order is a control
+    nobody can run, so both halves happen here.
+
+    ONE FIXTURE-OWNED REPOSITORY FOR BOTH CALLS, not the real checkout (counter-
+    model review pass 1, gpt-6-astra). Emptying the table does NOT disable filter
+    DISCOVERY, so against the real checkout this test read whatever
+    `filter.*.clean|smudge|process` that checkout happens to configure - on a host
+    with git-lfs it would have failed with the correct cache key in place, naming a
+    cache regression that had not happened. What the collision actually needs is
+    only that both calls name the SAME repository, which a controlled repo
+    satisfies. An earlier revision asserted the opposite in its own docstring and
+    was wrong.
+
+    AND THE PRECONDITION IS ABOUT THE KEY, NOT ABOUT EMPTINESS (pass 2, same
+    reviewer). `git init` does not give a repository whose configuration this test
+    controls: `sanitised_git_env()` replaces `HOME` and allowlists the parent's
+    selectors, but it sets neither `GIT_CONFIG_NOSYSTEM` nor `GIT_CONFIG_SYSTEM`,
+    so `git config --list` still reads the SYSTEM file. Measured - a
+    `filter.sysdemo.clean` in a stand-in system config is visible to exactly that
+    query - so `== []` would still fail on a host whose `/etc/gitconfig` configures
+    a filter driver. The state that did the poisoning is the ABSENCE OF THE FIXED
+    NEUTRALISATION under the patched table; discovered filters are beside the
+    point and are tolerated.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git("git", "init", "-q", str(repo))
+
+    with pytest.MonkeyPatch.context() as patched:
+        patched.setattr(hso, "GIT_EXEC_CONFIG_NEUTRALISED", {})
+        # PRECONDITION, asserted rather than assumed: the emptied table must
+        # contribute no fixed neutralisation, which is the state that got cached.
+        # Scoped to that key rather than to an empty list, because the system
+        # gitconfig can add discovered filters that this test does not control and
+        # does not care about.
+        patched_overrides = dict(hso.git_exec_config_overrides(repo))
+        assert "core.fsmonitor" not in patched_overrides, (
+            "the emptied table must contribute no fixed neutralisation - if this "
+            f"fails, the test is not exercising the state that caused #1242: "
+            f"{patched_overrides}"
+        )
+
+    # The table is restored here. The cache must not still be answering for it.
+    overrides = dict(hso.git_exec_config_overrides(repo))
+    assert overrides.get("core.fsmonitor") == "false", (
+        "a call made under a PATCHED table installed its answer as the answer for "
+        f"this repository - the sandbox now neutralises nothing (#1242): {overrides}"
+    )
+
+
+@requires_git
 def test_a_clean_repo_yields_only_the_fixed_neutralisations(tmp_path: Path) -> None:
     """The absence half, meaningful only beside the discovery case above."""
     repo = tmp_path / "repo"

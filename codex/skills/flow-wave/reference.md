@@ -227,71 +227,74 @@ The lesson of 2026-08-11 is not the routing verdict, which expired. It is that
 this document stated a harness behaviour with no version attached, so nothing
 could tell the next reader it had gone stale. Stamp what you write here.
 
-**Arm supervision over the inbox at setup, before the first assignment
-(issues #676, #814).** One call covers every `inbox-*.md` in the wave, so a
-hello, a status report, or a worker's pushback wakes this session instead of
-waiting for the next time somebody looks - and, since `supervise` re-arms
-itself, instead of waiting for THIS session to remember to re-arm it:
-
-```bash
-~/.claude/scripts/flow-wave-mailbox.sh supervise --role orchestrator --wave <WAVE> --timeout 300 --interval 3
-```
-
-**Why not a re-armed `watch` (issue #814).** The orchestrator's own watch died
-repeatedly on the `docker-list` wave, twice leaving a worker blocked on a
-ruling already made - and while designing #814 itself, an orchestrator went
-deaf for 25 minutes after a forgotten re-arm, missing seven messages
-including three from its own master, caught only because that master noticed
-the silence from outside. `supervise` detaches a daemon that keeps re-arming
-`watch --peek` on its own until this role is released or the wave ends -
-it removes the step that kept getting dropped, it does not merely warn about
-it. It never ACKNOWLEDGES (#867, #873): a daemon printing into a log is not a
-recipient, and while it consumed, every deafness tell on this page read clean
-over a worker that had seen nothing. It still cannot force the harness to tell THIS session when mail
-arrives; see `route=` below for how that residual gap stays visible instead
-of assumed away. A live supervisor already holding this role refuses a
-second one (exit 4, `duplicate`); check
-`flow-wave-mailbox.sh watch --status --role orchestrator --wave <WAVE>`
-before assuming none is running.
-
-**Fallback: a bare, manually re-armed `watch` remains documented and
-supported:**
+**Arm a watch THIS SESSION OWNS over the inbox at setup, before the first
+assignment (issues #676, #814, #1228).** One call covers every `inbox-*.md` in
+the wave, so a hello, a status report, or a worker's pushback wakes this session
+instead of waiting for the next time somebody looks. Launch it as a **background
+tool call** - the Bash tool's `run_in_background: true`, never a trailing `&`:
 
 ```bash
 ~/.claude/scripts/flow-wave-mailbox.sh watch --role orchestrator --wave <WAVE> --timeout 1800 --consume
 ```
 
+**Why a session-owned background call, and not `supervise` (issue #1228).** The
+harness re-invokes a session only when a process that session owns exits (#868
+measured it: 5/5 delivered from a process whose parent chain reaches the
+session, 0/4 from one reparented to init). A `run_in_background` call qualifies;
+a trailing `&` stops qualifying the moment its Bash call returns; and
+`supervise`'s daemon never qualifies, because it detaches by design. On
+2026-09-23 an orchestrator sat live and idle while its `supervise` daemon (up
+for over a day, parented to `systemd --user`) kept the roster at `watch=armed`
+and three messages went unread for 35+ minutes. `supervise` remains available
+as an opt-in path for a log something else reads (see `register.md` step 4); it
+is not a listener for this session, and the roster reads a role held only by it
+as `watch=NO-WAKE`.
+
 `--consume` is required (issue #792): a bare `watch` used to consume by
 default, so a backlog already waiting could be marked read while only the
-first message was ever shown. **Re-arm after each wake, for as long as the
-wave runs** - exactly the discipline `supervise` exists to stop needing. Exit
-5 is a plain timeout, never evidence a worker died - re-arm and read the
-roster. If a wake's FIRST line is
+first message was ever shown. Exit 5 is a plain timeout, never evidence a
+worker died - re-arm and read the roster. If a wake's FIRST line is
 `flow-wave-mailbox: NOTE - mail was already unread when this watch armed`,
 that backlog predates this arm - not a fresh wake - so check `list` for how
 much else might be waiting before assuming this is all of it.
 
-**Re-arming a bare `watch` is the step that gets dropped, including by this
-session (#801) - see #814 above for why `supervise` is preferred.** The watch
-is one-shot, so every wake ends with the orchestrator deaf until it re-arms.
-If using the fallback, make the re-arm part of handling the wake, not a
-follow-up task. Verify with the live watcher count, never the state word
-alone:
+**Re-arm after EVERY wake, for as long as the wave runs - this is the step that
+gets dropped, including by this session (#801, #814).** The watch is one-shot,
+so every wake ends with the orchestrator deaf until it re-arms. The
+`docker-list` wave's orchestrator watch died repeatedly, twice leaving a worker
+blocked on a ruling already made, and while designing #814 an orchestrator went
+deaf for 25 minutes after a forgotten re-arm, missing seven messages. That risk
+is the price of a listener that can actually wake you; the difference from a
+daemon is that a forgotten re-arm reads `watch=DEAD` on the roster instead of
+`armed`. Make the re-arm part of handling the wake, not a follow-up task.
+Not yet measured, and not to be assumed either way: whether a background watch
+survives `/compact` (#871 section 3c), and whether an `asyncRewake` Stop hook can
+re-arm on every `Stop` in its place (#871, 2026-09-20). A second arm while a
+session-owned watch holds the role is refused (exit 4, `duplicate`) and names
+every holder as `pid:start:parentage:mode`; a holder with no session in its ancestry
+that only PEEKS does not block you (it can neither wake anyone nor take mail)
+and is named in a warning instead, while a CONSUMING orphan still refuses - kill
+it and re-arm.
+Verify with the counts, never the state word alone:
 
 ```bash
 ~/.claude/scripts/flow-wave-mailbox.sh watch --status --role orchestrator --wave <WAVE>
 ```
 
-`FLOW_MAILBOX_WATCHER_COUNT=0` means nothing is listening, whatever the
+`FLOW_MAILBOX_WATCHER_COUNT=0` means nothing is polling, whatever the
 heartbeat age says; the state reads `dead` in that case and `unknown` when the
-count could not be read. Neither is a reason to stand down. This answers "is a
-process polling", not "is anything getting through" - `flow-wave-registry.sh
-list`'s separate `route=` column (issue #814) answers the second, from
-acknowledgement evidence rather than the process table: `route=UNCONFIRMED`
-means no ack has landed in over `FLOW_WAVE_ROUTE_UNCONFIRMED_SECS` (default
-900s) even though a supervisor may well be polling. A worker can be
-`watch=armed route=UNCONFIRMED` at the same time - that combination IS the
-signal, not a contradiction to explain away.
+count could not be read. `FLOW_MAILBOX_SESSION_WATCHERS=0` with a nonzero count
+means processes are polling and none can wake anyone - the state reads
+`no-wake` (#1228). None of these is a reason to stand down. This answers "can a
+process that wakes this session hear the box", not "is anything getting
+through" - `flow-wave-registry.sh list`'s separate `route=` column (issue #814)
+answers the second, from acknowledgement evidence rather than the process
+table: `route=UNCONFIRMED` means no ack has landed in over
+`FLOW_WAVE_ROUTE_UNCONFIRMED_SECS` (default 900s) even though something may
+well be polling. A worker can be `watch=armed route=UNCONFIRMED` at the same
+time - that combination IS the signal, not a contradiction to explain away.
+`armed` checks that a session owns a watcher, not that it is the session
+REGISTERED for that role.
 
 **Route these four over the lane whenever `SendMessage` cannot reach a worker**
 (all of them failed to reach one in the reference run): the registration ack +
@@ -318,8 +321,14 @@ supervisor no longer acknowledges, so unread mail is the ordinary resting
 state of anything the worker has not yet acked, and a nonzero `UNREAD` is no
 longer evidence about the watch at all. Read the two columns instead:
 
-- `watch=DEAD`/`ABSENT`/`stale` - nothing is listening. Get a supervisor
-  armed; that is the old diagnosis and it still applies when the column says so.
+- `watch=DEAD`/`ABSENT`/`stale` - nothing is listening. The worker must re-arm
+  its own background watch; that is the old diagnosis and it still applies
+  when the column says so.
+- `watch=NO-WAKE` - something is polling, and nothing that polls can wake the
+  worker (#1228): typically a `supervise` daemon, or a watch whose session is
+  gone. Starting another daemon will not help. The worker must arm a
+  session-owned background watch - which the daemon no longer blocks - and
+  anyone who owns the daemon should stop it.
 - `watch=armed` **and** `route=UNCONFIRMED` - something is polling and
   surfacing, and the agent behind it still has not acknowledged anything. That
   is #814's residual gap showing, not a dead watch, and arming another watcher

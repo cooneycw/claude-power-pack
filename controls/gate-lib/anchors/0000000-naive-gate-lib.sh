@@ -188,7 +188,7 @@ if _gate_self_invoked; then
     #: flow-finish-gate.sh, the caller this protects, is a bash script.
     _gate_existing_exit_trap=""
     if [ -n "${BASH_VERSION:-}" ]; then
-        # shellcheck disable=SC3044
+        # shellcheck disable=SC3044,SC3045  # bash-only, guarded by the BASH_VERSION test above (SC3045 added #972)
         _gate_existing_exit_trap="$(trap -p EXIT 2>/dev/null)"
     fi
     if [ -z "$_gate_existing_exit_trap" ]; then

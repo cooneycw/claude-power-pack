@@ -66,6 +66,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# shellcheck disable=SC2015  # intended: refuse unless BOTH tests hold (#972)
 [[ "$LIMIT" =~ ^[0-9]+$ ]] && [ "$LIMIT" -gt 0 ] || {
     echo "ERROR: --limit must be a positive integer (got '$LIMIT')." >&2; exit 2; }
 
@@ -251,7 +252,7 @@ while IFS= read -r line || [ -n "$line" ]; do
             dep_tokens=()
             while IFS= read -r dep_token; do
                 [ -n "$dep_token" ] && dep_tokens+=("$dep_token")
-            done < <(printf '%s\n' "$dep_clause" | tr ', \t' '\n\n\n')
+            done < <(printf '%s\n' "$dep_clause" | tr ', \t' '\n')
             dep_bad=""
             for dep_token in ${dep_tokens+"${dep_tokens[@]}"}; do
                 case "$dep_token" in
@@ -351,6 +352,7 @@ fi
 # legacy-tid     - a bare T-number in the TITLE, the pre-#857 identity
 # blocked-refs   - "#N" refs already present on this body's `Blocked by` lines, so a
 #                  re-run can tell a missing edge from one already written
+# shellcheck disable=SC2016  # a jq program; $ names are jq variables (#972)
 INVENTORY_JQ='
 .[] |
   (.body // "") as $b |

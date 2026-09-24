@@ -9,7 +9,7 @@
 # Verifying arrival needs a key that is not in this bundle.
 179cc0b6126859f876c60c8ba5ee6cb462114960996315d6592a35594b6181c2  flow-live-driver-guard.sh
 57744501570e70878ba9958cbcdd3d5969ffb3c2d76094cd3818aaf1d61bf519  flow-start-resolve.sh
-5b2e977afd7930321abfa746ede9b2137b024022ec79fa1624689741b21ae53a  flow-worktree-claim.sh
+28ee941465b2b389c75889e79561bdfff05e3e6ba12f754e41f4f70464834a64  flow-worktree-claim.sh
 16edebc5ec96685d45b6ad6228fb904f61b12ff6caccf97d667f173ff7370280  flow-worktree-guard.sh
 cc7e9fee8358f959310ee38b221825511065c413386f39e5291a78ca33959745  stash-worktree-guard.sh
-d57ee08d00f108ae708fcd791fcfe66e49f266a44fd90cd99ad38cc649edc318  worktree-remove.sh
+4cdf7979a1b8e9f430e28a7d3c1c6264f2b11287aeec5c4868362ae8bc8a6403  worktree-remove.sh

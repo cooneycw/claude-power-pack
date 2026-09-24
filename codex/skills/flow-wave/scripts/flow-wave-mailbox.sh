@@ -388,7 +388,7 @@
 # `/bin/bash -c "<text>"` wrapper does not exec, so its argv is a SEPARATE
 # live process whose one `-c` argument IS the inner command's text and
 # therefore contains this same pattern too - one logical watcher, two OS
-# processes, both matching. `count_watchers()` below reads each candidate's
+# processes, both matching. The watcher scan below reads each candidate's
 # REAL argv from `/proc/<pid>/cmdline` and requires it to BE the script
 # invocation (`argv[1]` the script path, `argv[2]` "watch") rather than
 # CONTAIN it, which excludes a `-c` wrapper structurally. Self-exclusion
@@ -456,7 +456,7 @@
 # is real (proven deterministically); its occurrence in `supervise`'s kill
 # path specifically is CONSIDERED AND NOT OBSERVED, not a confirmed gap -
 # stated at exactly this precision, neither stronger nor weaker.
-# `count_watchers()` (the arm-guard view) already treats an unenumerable
+# The arm-guard view (`watch`'s duplicate check) already treats an unenumerable
 # process table as 0 and proceeds - a wave that cannot start because its
 # duplicate guard is unavailable is worse than an occasional false
 # duplicate (#792 item 4) - and IF this residual ever fires, it fails the
@@ -519,7 +519,15 @@
 #
 #   watchers  heartbeat        state
 #   --------  ---------------  ------------------------------------------------
-#   >0        within STALE     armed    listening right now
+#   >0        within STALE     armed    listening right now, and at least one
+#                                       watcher is SESSION-PARENTED (or its
+#                                       parentage could not be read - see
+#                                       WAKEABILITY below)
+#   >0, none  any              no-wake  polling, but NO watcher has a Claude
+#   session-                            Code session in its ancestry, so
+#   parented                            nothing it notices can wake anyone
+#                                       (#1228). A `supervise` daemon alone
+#                                       reads this way
 #   >0        older            stale    the process exists but has stopped
 #                                       refreshing - hung, or SIGSTOPped. Deaf
 #                                       in practice, but a different repair
@@ -533,6 +541,24 @@
 #   0         no stamp         absent   NEVER armed. The unambiguous case
 #   unknown   any              unknown  the host gave us no way to enumerate
 #                                       processes at all - see COUNTING
+#
+# WAKEABILITY (issue #1228). The harness re-invokes a session only when a
+# process THAT SESSION OWNS exits. #868 measured the rule on the messaging
+# socket: writes from a process whose parent chain reaches the session were
+# delivered 5/5, from one reparented to init 0/4 - lineage is the
+# discriminator, not setsid and not inherited environment. So "is a process
+# polling" (the count) and "can this role be woken" are different questions,
+# and until #1228 the roster answered only the first: three waves read
+# `armed, 0s ago` over sessions that sat deaf for 20-35 minutes, one daemon
+# outliving its session by 18h. Each watcher is now classified by walking its
+# ancestry for a process that owns `$SOCK_DIR/<pid>.sock` - the same test
+# flow-wave-registry.sh uses to find a session's own address:
+#   session  a session is an ancestor - its exit wakes that session
+#   orphan   the chain reaches init without one - it cannot wake anyone
+#   unknown  no socket directory to test against, or the chain vanished
+#            mid-walk. Rendered as the pre-#1228 reading, never as `orphan`.
+# What this does NOT check: that the ancestor session is the one REGISTERED for
+# the role. A watch armed for role X from session Y reads `armed`.
 #
 # `unknown` is the #800 convention in this helper: an unknowable answer is never
 # rendered as a clean one. Rounding an un-enumerable process table down to 0
@@ -583,16 +609,23 @@
 # delivered; nothing was written).
 #
 # `watch --status` detail lines:
-#   FLOW_MAILBOX_WATCH_STATE    armed | stale | dead | absent | unknown - the
-#                               FUSED verdict (#801), never the raw stamp
+#   FLOW_MAILBOX_WATCH_STATE    armed | no-wake | stale | dead | absent |
+#                               unknown - the FUSED verdict (#801), never the
+#                               raw stamp
 #   FLOW_MAILBOX_WATCH_AGE      seconds since the last heartbeat, or '-'. Still
 #                               reported for every state, so "died just now" and
 #                               "died an hour ago" stay distinguishable
 #   FLOW_MAILBOX_WATCHER_COUNT  live watcher processes, or `unknown`
+#   FLOW_MAILBOX_SESSION_WATCHERS  how many of those are session-parented and
+#                               so able to wake someone (#1228), or `unknown`
+#   FLOW_MAILBOX_WATCHER_HOLDERS   each live watcher as
+#                               `pid:start:parentage:mode`, comma-separated,
+#                               or `-`
 #   FLOW_MAILBOX_REARMED        yes | no | unknown
 #
 # `list --json` gains `watches[].watchers` (integer, or null when the process
-# table could not be read) beside `state` and `age_secs`, so a consumer can
+# table could not be read) and `watches[].session_watchers` (integer, or null
+# when unknown - #1228) beside `state` and `age_secs`, so a consumer can
 # check the fusion rather than take the state word on trust (#801). Each box
 # entry's `cursor` key from before #815 is now `acked` - the count of revs
 # that box's reader has explicitly acknowledged, replacing a read-cursor
@@ -632,6 +665,11 @@ WATCH_INTERVAL_DEFAULT=3
 # flagged, short enough that the roster answers "is it listening RIGHT NOW".
 WATCH_STALE_SECS="${FLOW_WAVE_WATCH_STALE_SECS:-300}"
 NOW="${FLOW_WAVE_NOW:-$(date +%s)}"
+# Where Claude Code sessions expose their per-pid messaging socket - the same
+# directory, and the same override, flow-wave-registry.sh uses for its
+# self-address walk. A process that owns `<dir>/<pid>.sock` IS a session; see
+# WAKEABILITY in the header for why that is the test (issue #1228).
+SOCK_DIR="${FLOW_WAVE_SOCK_DIR:-/run/user/$UID_NUM/cc-socks}"
 
 usage_fail() { echo "flow-wave-mailbox: $1" >&2; exit 2; }
 
@@ -1005,6 +1043,7 @@ watch_stamp() {
   now="${FLOW_WAVE_NOW:-$(date +%s)}"
   wf="$(watch_file "$1")"
   tmp="$(mktemp "$WAVE_DIR/.wstamp.XXXXXX" 2>/dev/null)" || return 0
+  # shellcheck disable=SC2015  # intended: remove the temp file unless BOTH the write and the rename succeed (#972)
   printf '%s\n' "$now" > "$tmp" 2>/dev/null && mv -f "$tmp" "$wf" 2>/dev/null || rm -f "$tmp"
   return 0
 }
@@ -1023,15 +1062,17 @@ watch_age() {
   echo "$age"
 }
 
-# armed | stale | dead | absent | unknown for <role>, given that role's live
-# watcher count (a non-negative integer, or `unknown`). See the STATE table in
+# armed | no-wake | stale | dead | absent | unknown for <role>, given that
+# role's live watcher count (a non-negative integer, or `unknown`) and, as an
+# optional third argument, how many of those are session-parented (integer or
+# `unknown`, the default - which never produces `no-wake`; issue #1228). See the STATE table in
 # the header for why the heartbeat alone cannot answer this (#801).
 #
 # The count is a PARAMETER rather than something looked up here, so `list` can
 # tally every role from ONE pass over the process table instead of re-walking
 # /proc once per role.
 watch_state_of() {
-  local role="$1" count="$2" age
+  local role="$1" count="$2" sess="${3:-unknown}" age
   age="$(watch_age "$role")"
   case "$count" in
     ''|*[!0-9]*)
@@ -1042,8 +1083,16 @@ watch_state_of() {
       ;;
   esac
   if [ "$count" -gt 0 ]; then
-    # Something IS listening. The stamp then distinguishes a healthy watch from
-    # a process that exists but has stopped refreshing it.
+    # Something IS polling. First: can it wake anyone (#1228)? A watcher with
+    # no Claude Code session in its ancestry - a `supervise` daemon's inner
+    # watch - polls, surfaces and refreshes the heartbeat forever while the
+    # session it serves hears nothing. Only a CONFIRMED zero session watchers
+    # says so; `unknown` parentage keeps the older reading, never a guess.
+    case "$sess" in
+      0) echo no-wake; return ;;
+    esac
+    # The stamp then distinguishes a healthy watch from a process that exists
+    # but has stopped refreshing it.
     if [ "$age" != "-" ] && [ "$age" -gt "$WATCH_STALE_SECS" ]; then
       echo stale
     else
@@ -1062,7 +1111,7 @@ reader_of_box() {
   local b
   b="$(basename "$1")"
   case "$b" in
-    outbox-*.md) echo "${b#outbox-}" | sed 's/\.md$//' ;;
+    outbox-*.md) b="${b#outbox-}"; printf '%s\n' "${b%.md}" ;;
     inbox-*.md)  echo orchestrator ;;
     *)           echo '-' ;;
   esac
@@ -1308,21 +1357,147 @@ watcher_roles_live() {
 # watcher_count ROLE WAVE -> a non-negative integer, or `unknown` when the host
 # gives us no way to enumerate processes. The REPORTING view.
 watcher_count() {
-  local role="$1" wave="$2" roles n
+  local role="$1" wave="$2" roles
   roles="$(watcher_roles_live "$wave")" || { echo unknown; return; }
-  n="$(printf '%s\n' "$roles" | grep -cxF -- "$role")"
-  echo "$((n))"
+  records_count "$roles" "$role"
 }
 
-# count_watchers ROLE WAVE -> always an integer. The ARM-GUARD view: `unknown`
-# fails OPEN to 0, because a wave that cannot start because its duplicate guard
+# Each live-scan line is `<role> <pid>` (the pid was added for #1228 so a
+# watcher's LINEAGE can be asked about, not only its existence). Roles are
+# valid_name()-checked and cannot contain whitespace, so field 1 is exact -
+# PROVIDED it is compared as a STRING. awk compares two numeric-looking values
+# numerically, so a bare `$1 == r` makes roles `1` and `01` the same role; every
+# role filter here concatenates `""` to force string identity, which is what
+# the `grep -cxF` it replaced gave for free (counter-model review, #1228).
+records_count() {
+  printf '%s\n' "$1" | awk -v r="$2" '($1 "") == (r "") { n++ } END { print n + 0 }'
+}
+
+# proc_starttime PID -> the process's start time (clock ticks since boot, field
+# 22 of /proc/<pid>/stat), or `-`. Paired with the pid it names ONE process
+# instance: a pid alone is reused (every ~6.5h on this fleet), so "the session
+# that armed me is gone" is only decidable as pid+start (issue #1228).
+proc_starttime() {
+  local pid="$1" stat rest
+  case "$pid" in ''|*[!0-9]*) echo -; return ;; esac
+  stat="$(cat "/proc/$pid/stat" 2>/dev/null)" || { echo -; return; }
+  rest="${stat##*\) }"
+  # shellcheck disable=SC2086
+  set -- $rest
+  if [ "$#" -ge 20 ]; then echo "${20}"; else echo -; fi
+}
+
+# is_session_pid PID -> 0 when PID is a Claude Code session. Test hook:
+# FLOW_WAVE_SESSION_PIDS, a colon-separated pid list, is AUTHORITATIVE when set
+# (even empty) - it replaces the socket probe entirely, so a suite asks the same
+# question on a developer box (which has real sessions) and in CI (which has
+# none). Without it the answer would depend on whether the suite happened to be
+# launched from inside Claude Code: load-bearing locally, inert in CI.
+is_session_pid() {
+  if [ -n "${FLOW_WAVE_SESSION_PIDS+x}" ]; then
+    case ":$FLOW_WAVE_SESSION_PIDS:" in *":$1:"*) return 0 ;; esac
+    return 1
+  fi
+  [ -S "$SOCK_DIR/$1.sock" ]
+}
+
+# session_ancestor_of PID -> the pid of the nearest process in PID's ancestry
+# (PID included) that is a Claude Code session, or `-` when the chain reaches
+# init without one. Exit 1 = CANNOT TELL: no socket directory to test against
+# (a host or harness with no session sockets), or the chain could not be read
+# (a process exited mid-walk). Callers render that as `unknown` parentage,
+# never as `orphan` - a missing instrument is not a finding (#800).
+session_ancestor_of() {
+  local pid="$1" hops=0 ppid
+  if [ -z "${FLOW_WAVE_SESSION_PIDS+x}" ] && [ ! -d "$SOCK_DIR" ]; then
+    return 1
+  fi
+  while [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null && [ "$hops" -lt 64 ]; do
+    if is_session_pid "$pid"; then echo "$pid"; return 0; fi
+    ppid="$(awk '/^PPid:/{print $2}' "/proc/$pid/status" 2>/dev/null)"
+    [ -n "$ppid" ] || return 1
+    pid="$ppid"
+    hops=$((hops + 1))
+  done
+  [ "$hops" -lt 64 ] || return 1
+  echo -
+}
+
+# classify_records RECORDS -> one line per watcher:
+#   <role> <pid> <session|orphan|unknown> <starttime|-> <consume|peek|unknown>
+# The last field is the watcher's consumption mode, read from its real argv. It
+# matters only for an orphan: one that PEEKS cannot take mail from anyone, one
+# that CONSUMES acknowledges mail the session's own watch then never sees.
+# `session` = a Claude Code session is in its ancestry, so its exit is what the
+# harness re-invokes that session on. `orphan` = no session anywhere up the
+# chain (a `supervise` daemon's inner watch, reparented to init or
+# `systemd --user`): it can poll, surface and heartbeat, and it can never wake
+# anyone. See WAKEABILITY in the header.
+classify_records() {
+  local role pid anc par
+  printf '%s\n' "$1" | while read -r role pid _; do
+    # shellcheck disable=SC2015  # intended: skip unless BOTH fields are present (#972)
+    [ -n "$role" ] && [ -n "$pid" ] || continue
+    if anc="$(session_ancestor_of "$pid")"; then
+      if [ "$anc" = "-" ]; then par=orphan; else par=session; fi
+    else
+      par=unknown
+    fi
+    printf '%s %s %s %s %s\n' "$role" "$pid" "$par" "$(proc_starttime "$pid")" "$(watch_mode_of "$pid")"
+  done
+}
+
+# watch_mode_of PID -> consume | peek | unknown, from /proc/<pid>/cmdline.
+# Walks argv with the SAME option boundaries as this script's own parser, so an
+# option VALUE is never read as a flag: `watch --consume --role --peek` is a
+# consuming watch for role `--peek`, and a token scan would call it peeking and
+# let it through the guard (counter-model review, #1228). Keep the value-taking
+# list below in step with the parser's.
+watch_mode_of() {
+  local argv=() tok i=3 peek=0 consume=0
+  [ -r "/proc/$1/cmdline" ] || { echo unknown; return; }
+  while IFS= read -r -d '' tok; do argv+=("$tok"); done < "/proc/$1/cmdline" 2>/dev/null
+  while [ "$i" -lt "${#argv[@]}" ]; do
+    case "${argv[$i]}" in
+      --wave|--role|--to|--from|--body|--body-file|--out|--timeout|--interval|--surfaced-state|--box|--revs)
+        i=$((i + 1)) ;;
+      --peek) peek=1 ;;
+      --consume) consume=1 ;;
+    esac
+    i=$((i + 1))
+  done
+  if [ "$consume" -eq 1 ] && [ "$peek" -eq 0 ]; then echo consume
+  elif [ "$peek" -eq 1 ] && [ "$consume" -eq 0 ]; then echo peek
+  else echo unknown
+  fi
+}
+
+# session_count_from CLASSIFIED ROLE -> how many of ROLE's watchers are
+# session-parented, or `unknown` when ANY of them has unknown parentage. One
+# unclassifiable watcher could be the session's own, so a zero counted around
+# it would be a confident `no-wake` built on a gap.
+session_count_from() {
+  printf '%s\n' "$1" | awk -v r="$2" '
+    ($1 "") == (r "") && $3 == "session" { s++ }
+    ($1 "") == (r "") && $3 == "unknown" { u++ }
+    END { if (u > 0) print "unknown"; else print s + 0 }'
+}
+
+# holders_of CLASSIFIED ROLE -> `pid:start:parentage:mode,...` for ROLE's watchers,
+# or `-`. Every duplicate refusal names these (#1228): an anonymous "a watcher
+# already holds this role" gave a worker told to re-arm no way to find, let
+# alone judge, the process that was keeping it deaf.
+holders_of() {
+  local h
+  h="$(printf '%s\n' "$1" | awk -v r="$2" '($1 "") == (r "") { printf "%s%s:%s:%s:%s", sep, $2, $4, $3, $5; sep = "," }')"
+  echo "${h:--}"
+}
+
+# The ARM-GUARD view (formerly `count_watchers()`, inlined into `watch` by
+# #1228 so it can read each holder's lineage): an unenumerable table fails OPEN
+# to "no holders", because a wave that cannot start because its duplicate guard
 # is unavailable is worse than an occasional false duplicate (#792 item 4).
 # Reporting deliberately fails the other way - see watch_state_of.
-count_watchers() {
-  local n
-  n="$(watcher_count "$1" "$2")"
-  case "$n" in ''|*[!0-9]*) echo 0 ;; *) echo "$n" ;; esac
-}
 
 # The calling process's own ancestor chain: its subshell, up through every
 # parent, back to PID 1. A single PID ($$ or $BASHPID alone) is not enough
@@ -1467,7 +1642,7 @@ watcher_roles_proc() {
     rpid="${rec%% *}"; rrole="${rec##* }"
     rppid="${rec#* }"; rppid="${rppid%% *}"
     case "$matched_pids" in *" $rppid "*) continue ;; esac
-    printf '%s\n' "$rrole"
+    printf '%s %s\n' "$rrole" "$rpid"
   done
   return 0
 }
@@ -2068,8 +2243,17 @@ case "$VERB" in
       # the heartbeat stamp on its own is what let this command answer `armed`
       # about a role with zero live watchers - the two facts printed on one
       # line, contradicting each other, with the reassuring one leading.
-      WCOUNT="$(watcher_count "$ROLE" "$WAVE")"
-      WSTATE="$(watch_state_of "$ROLE" "$WCOUNT")"
+      WSESS=unknown
+      WHOLDERS=-
+      if WRAW="$(watcher_roles_live "$WAVE")"; then
+        WCOUNT="$(records_count "$WRAW" "$ROLE")"
+        WCLASS="$(classify_records "$(printf '%s\n' "$WRAW" | awk -v r="$ROLE" '($1 "") == (r "")')")"
+        WSESS="$(session_count_from "$WCLASS" "$ROLE")"
+        WHOLDERS="$(holders_of "$WCLASS" "$ROLE")"
+      else
+        WCOUNT=unknown
+      fi
+      WSTATE="$(watch_state_of "$ROLE" "$WCOUNT" "$WSESS")"
       WAGE="$(watch_age "$ROLE")"
       if [ "$WAGE" = "-" ]; then WLAST="never armed"; else WLAST="last wake handled ${WAGE}s ago"; fi
       case "$WCOUNT" in
@@ -2077,7 +2261,7 @@ case "$VERB" in
         *)           WLIVE="$WCOUNT live watcher process(es)"
                      if [ "$WCOUNT" -gt 0 ]; then REARMED=yes; else REARMED=no; fi ;;
       esac
-      echo "flow-wave-mailbox: role '$ROLE' wave '$WAVE': watch is $(printf '%s' "$WSTATE" | tr 'a-z' 'A-Z') - $WLIVE, $WLAST; re-armed: $REARMED"
+      echo "flow-wave-mailbox: role '$ROLE' wave '$WAVE': watch is $(printf '%s' "$WSTATE" | tr '[:lower:]' '[:upper:]') - $WLIVE, $WLAST; re-armed: $REARMED"
       case "$WSTATE" in
         dead)
           echo "flow-wave-mailbox: NOTHING is listening for role '$ROLE' - the heartbeat is only as fresh as the last wake, and a watch is one-shot (#801). Mail sent now will not wake anyone. Re-arm as a BACKGROUND call:"
@@ -2085,6 +2269,10 @@ case "$VERB" in
           ;;
         absent)
           echo "flow-wave-mailbox: role '$ROLE' has NEVER armed a watch in wave '$WAVE' - it cannot be woken. Arm it as a BACKGROUND call:"
+          echo "  flow-wave-mailbox.sh watch --role $ROLE --wave $WAVE --timeout 1800 --consume"
+          ;;
+        no-wake)
+          echo "flow-wave-mailbox: role '$ROLE' is being POLLED but cannot be WOKEN - none of its $WCOUNT watcher(s) has a Claude Code session in its ancestry (holders: $WHOLDERS), so mail is noticed by a process no harness listens to (#1228). This is a \`supervise\` daemon, or a watch whose session is gone. From the session that owns this role, arm a watch as a BACKGROUND tool call (run_in_background, never a trailing &):"
           echo "  flow-wave-mailbox.sh watch --role $ROLE --wave $WAVE --timeout 1800 --consume"
           ;;
         stale)
@@ -2107,6 +2295,8 @@ case "$VERB" in
       echo "FLOW_MAILBOX_WATCH_STATE=$WSTATE"
       echo "FLOW_MAILBOX_WATCH_AGE=$WAGE"
       echo "FLOW_MAILBOX_WATCHER_COUNT=$WCOUNT"
+      echo "FLOW_MAILBOX_SESSION_WATCHERS=$WSESS"
+      echo "FLOW_MAILBOX_WATCHER_HOLDERS=$WHOLDERS"
       echo "FLOW_MAILBOX_REARMED=$REARMED"
       echo "FLOW_MAILBOX_SUPERVISE_TIMEOUT=$SUP_TIMEOUT_SEEN"
       emit status
@@ -2141,12 +2331,34 @@ case "$VERB" in
     # watcher on the same role+wave is always a mistake - it competes for the
     # same mail instead of getting a copy of it. Refuse rather than let
     # duplicates accumulate invisibly.
-    EXISTING="$(count_watchers "$ROLE" "$WAVE")"
-    if [ "$EXISTING" -gt 0 ]; then
+    #
+    # #1228: the refusal is decided by holders that can WAKE someone. A holder
+    # with no session in its ancestry (a `supervise` daemon's inner watch, or a
+    # watch whose session died) never wakes anyone, so refusing the session's
+    # own watch because of it is what kept sessions deaf after they tried to
+    # re-arm: the role was "held" by the one process that could not deliver.
+    # Such holders are named and the arm proceeds. A holder of UNKNOWN
+    # parentage still refuses - it could be the session's own watch. So does an
+    # orphan that CONSUMES (or whose mode is unreadable): it would acknowledge
+    # mail before the session's watch saw it, leaving the session asleep behind
+    # an `armed` roster (counter-model review, #1228) - only a PEEKING orphan,
+    # which is what `supervise` runs, can safely coexist. An unenumerable table
+    # still fails OPEN, exactly as before (#792 item 4).
+    if DUP_RAW="$(watcher_roles_live "$WAVE")"; then
+      DUP_CLASS="$(classify_records "$(printf '%s\n' "$DUP_RAW" | awk -v r="$ROLE" '($1 "") == (r "")')")"
+    else
+      DUP_CLASS=""
+    fi
+    EXISTING="$(records_count "$DUP_CLASS" "$ROLE")"
+    WAKING="$(printf '%s\n' "$DUP_CLASS" | awk -v r="$ROLE" '($1 "") == (r "") && ($3 != "orphan" || $5 != "peek") { n++ } END { print n + 0 }')"
+    if [ "$WAKING" -gt 0 ]; then
       E_ROLE="$ROLE"
-      echo "flow-wave-mailbox: refusing to arm - $EXISTING live watcher(s) already hold role '$ROLE' in wave '$WAVE' (issue #792). A role is single-owner: two watchers compete for the same mail rather than each seeing a copy. Check 'watch --status --role $ROLE --wave $WAVE' before starting another." >&2
+      echo "flow-wave-mailbox: refusing to arm - $EXISTING live watcher(s) already hold role '$ROLE' in wave '$WAVE' (issue #792), $WAKING of them session-parented, of unknown parentage, or orphaned but CONSUMING (which would take this role's mail). Holders (pid:start:parentage:mode): $(holders_of "$DUP_CLASS" "$ROLE"). A role is single-owner: two watchers compete for the same mail rather than each seeing a copy. Check 'watch --status --role $ROLE --wave $WAVE' before starting another." >&2
       emit duplicate
       exit 4
+    fi
+    if [ "$EXISTING" -gt 0 ]; then
+      echo "flow-wave-mailbox: arming anyway - $EXISTING watcher(s) already poll role '$ROLE' in wave '$WAVE', but NONE has a Claude Code session in its ancestry, so none can wake anyone (#1228); they only peek, so they cannot take this role's mail. Holders (pid:start:parentage:mode): $(holders_of "$DUP_CLASS" "$ROLE"). Kill them if they are yours and no longer wanted: kill \$pid \$(pgrep -P \$pid)." >&2
     fi
 
     WAITED=0
@@ -2245,14 +2457,20 @@ case "$VERB" in
         ack_all_unacked_in "$b" || exit $?
         TOTAL_ACKED=$((TOTAL_ACKED + N_BEFORE))
       else
-        REVLIST="$(printf '%s' "$A_REVS" | tr ',' ' ')"
-        # shellcheck disable=SC2086
-        ack_add "$b" $REVLIST || exit $?
+        # An ARRAY, split by `read -a`, which does not glob (#972, counter-model
+        # review). The old unquoted $REVLIST also pathname-expanded each token,
+        # so `--revs '[1]'` became `1` whenever a file named `1` sat in the cwd,
+        # and the validators below saw a revision nobody passed.
+        REVS=()
+        # `-d ''` reads to end of input, not to the first newline: a line-bounded
+        # read dropped every rev after one, so `1,<newline>999` acked 1 and never
+        # showed 999 to the all-or-nothing validator (counter-model review, pass 2).
+        read -r -d '' -a REVS <<<"${A_REVS//,/ }" || true
+        ack_add "$b" ${REVS[@]+"${REVS[@]}"} || exit $?
         # An out-of-band ack is still an ack; this only records the CHANNEL, so a
         # later `route=` reading can tell "answered on lane 1" from "never seen".
-        [ "$ANSWERED_ELSEWHERE" -eq 1 ] && ackob_add "$b" $REVLIST
-        # shellcheck disable=SC2086
-        N_GIVEN="$(printf '%s\n' $REVLIST | grep -c '[0-9]')"
+        [ "$ANSWERED_ELSEWHERE" -eq 1 ] && ackob_add "$b" ${REVS[@]+"${REVS[@]}"}
+        N_GIVEN="$(printf '%s\n' ${REVS[@]+"${REVS[@]}"} | grep -c '[0-9]')"
         TOTAL_ACKED=$((TOTAL_ACKED + N_GIVEN))
       fi
     done <<EOF
@@ -2383,6 +2601,7 @@ EOF
     # silently discard the FLOW_MAILBOX_EXIT= line installed at the top of this file,
     # and nothing would report its absence. $? is captured FIRST, before the
     # cleanup runs, or the reported status becomes `rm`'s.
+    # shellcheck disable=SC2154  # _rc is assigned inside the trap string itself (#972)
     trap '_rc=$?; rm -f "$ESC_CLAIM"; printf "FLOW_MAILBOX_EXIT=%d\n" "$_rc" >&2' EXIT
     trap 'rm -f "$ESC_CLAIM"' INT TERM
     (
@@ -2508,6 +2727,19 @@ EOF
     # daemon lives - which is exactly the property #814 needs, since the
     # kernel releasing a flock on process death is what lets the NEXT
     # `supervise` tell "dead" from "alive" without asking anything else.
+    # The ARMING SESSION (issue #1228): the nearest Claude Code session in this
+    # invocation's ancestry, as pid:start. The daemon exits `owner-gone` once
+    # that exact process instance is gone - the case that happened in the
+    # field (a daemon polling 18h after its session died, its role never
+    # released), and one with none of the ambiguity #814 guards against:
+    # "the session that armed me is dead" is never a legitimate reason to keep
+    # polling for it. No session in the ancestry (standalone use, not launched
+    # from Claude Code) means no owner, and behaviour is unchanged.
+    SUP_OWNER=""
+    if SUP_OWNER_PID="$(session_ancestor_of "$$")" && [ "$SUP_OWNER_PID" != "-" ]; then
+      SUP_OWNER="$SUP_OWNER_PID:$(proc_starttime "$SUP_OWNER_PID")"
+    fi
+    export FLOW_WAVE_SUPERVISE_OWNER="$SUP_OWNER"
     if command -v setsid >/dev/null 2>&1; then
       setsid bash "$SUP_SELF" __supervise_daemon --role "$ROLE" --wave "$WAVE" \
         --timeout "$TIMEOUT" --interval "$INTERVAL" >>"$SUP_LOG" 2>&1 &
@@ -2526,7 +2758,8 @@ EOF
     # rather than a reader having to inspect argv by hand.
     echo "$TIMEOUT" > "$SUP_TIMEOUT_FILE" 2>/dev/null || true
     E_ROLE="$ROLE"
-    echo "flow-wave-mailbox: supervising role '$ROLE' in wave '$WAVE' as PID $DAEMON_PID (issue #814) - it re-arms watch continuously until role release or the wave ends; see $SUP_LOG for sanitized evidence (timestamps and exit codes only, never message bodies)." >&2
+    echo "flow-wave-mailbox: supervising role '$ROLE' in wave '$WAVE' as PID $DAEMON_PID (issue #814) - it re-arms watch continuously until role release, the wave ends, or its arming session (${SUP_OWNER:-none found}) exits; see $SUP_LOG for sanitized evidence (timestamps and exit codes only, never message bodies)." >&2
+    echo "flow-wave-mailbox: NOTE - this daemon is DETACHED, so it can NEVER wake a session: the harness re-invokes a session only when a process that session owns exits (#868, #1228). The roster reads this role as no-wake until the session arms its own background watch." >&2
     emit supervising
     exit 0
     ;;
@@ -2576,10 +2809,30 @@ EOF
       printf '%s %s\n' "$(date -Iseconds 2>/dev/null || date +%Y-%m-%dT%H:%M:%S%z)" "$*"
     }
 
-    log_event "daemon started role=$ROLE wave=$WAVE pid=$$ timeout=$TIMEOUT interval=$INTERVAL"
+    SUP_OWNER="${FLOW_WAVE_SUPERVISE_OWNER:-}"
+    log_event "daemon started role=$ROLE wave=$WAVE pid=$$ timeout=$TIMEOUT interval=$INTERVAL owner=${SUP_OWNER:-none}"
     trap 'log_event "daemon exiting on signal"; exit 0' TERM INT
 
     while :; do
+      # Owner check (issue #1228), FIRST: it needs no registry and no wave -
+      # only the process instance recorded at launch. A reused pid is a
+      # different start time, so it reads gone, not alive. An owner whose
+      # start time could not be read at launch (`-`) is judged on the pid
+      # alone, which can only err toward staying up.
+      if [ -n "$SUP_OWNER" ]; then
+        OWN_PID="${SUP_OWNER%%:*}"
+        OWN_START="${SUP_OWNER#*:}"
+        OWN_NOW="$(proc_starttime "$OWN_PID")"
+        # A ZOMBIE has exited and merely awaits reaping: its /proc entry and
+        # start time survive, so the two tests below would call it alive
+        # (counter-model review, #1228). Its state letter says otherwise.
+        OWN_STATE="$(sed -n 's/^State:[[:space:]]*\([A-Z]\).*/\1/p' "/proc/$OWN_PID/status" 2>/dev/null)"
+        if [ ! -d "/proc/$OWN_PID" ] || [ "$OWN_STATE" = "Z" ] || [ "$OWN_STATE" = "X" ] ||
+           { [ "$OWN_START" != "-" ] && [ "$OWN_NOW" != "-" ] && [ "$OWN_NOW" != "$OWN_START" ]; }; then
+          log_event "daemon exiting: owner-gone (arming session $SUP_OWNER is no longer running)"
+          exit 0
+        fi
+      fi
       # Shutdown check (issue #814): fails OPEN if the registry sibling is
       # missing or errors - a supervisor that cannot check for release is
       # not worse than none, it just keeps supervising, matching #701's
@@ -2737,9 +2990,16 @@ EOF
     # than as zero watchers.
     LIVE_OK=1
     LIVE_ROLES="$(watcher_roles_live "$WAVE")" || LIVE_OK=0
+    # Lineage, classified once for the whole table (#1228) - see WAKEABILITY.
+    LIVE_CLASS=""
+    [ "$LIVE_OK" -eq 1 ] && LIVE_CLASS="$(classify_records "$LIVE_ROLES")"
     watchers_for() {
       [ "$LIVE_OK" -eq 1 ] || { echo unknown; return; }
-      printf '%s\n' "$LIVE_ROLES" | grep -cxF -- "$1"
+      records_count "$LIVE_ROLES" "$1"
+    }
+    session_watchers_for() {
+      [ "$LIVE_OK" -eq 1 ] || { echo unknown; return; }
+      session_count_from "$LIVE_CLASS" "$1"
     }
     if [ "$JSON_OUT" -eq 1 ]; then
       # `reader` and `mtime` join a box to the role whose watch decides whether
@@ -2771,8 +3031,10 @@ EOF
         # process table could not be read - never 0.
         wc="$(watchers_for "$wr")"
         case "$wc" in ''|*[!0-9]*) wc_json=null ;; *) wc_json="$wc" ;; esac
-        WATCHES="$WATCHES$(printf '{"role":"%s","state":"%s","age_secs":%s,"watchers":%s}' \
-          "$wr" "$(watch_state_of "$wr" "$wc")" "$wa_json" "$wc_json"),"
+        wsc="$(session_watchers_for "$wr")"
+        case "$wsc" in ''|*[!0-9]*) wsc_json=null ;; *) wsc_json="$wsc" ;; esac
+        WATCHES="$WATCHES$(printf '{"role":"%s","state":"%s","age_secs":%s,"watchers":%s,"session_watchers":%s}' \
+          "$wr" "$(watch_state_of "$wr" "$wc" "$wsc")" "$wa_json" "$wc_json" "$wsc_json"),"
       done <<EOF
 $WROLES
 EOF
@@ -2822,9 +3084,9 @@ EOF
           wa="$(watch_age "$wr")"
           if [ "$wa" = "-" ]; then last="never armed"; else last="${wa}s ago"; fi
           wc="$(watchers_for "$wr")"
-          ws="$(watch_state_of "$wr" "$wc")"
+          ws="$(watch_state_of "$wr" "$wc" "$(session_watchers_for "$wr")")"
           case "$ws" in
-            dead|absent) DEAF_ROLES="$DEAF_ROLES $wr($ws)" ;;
+            dead|absent|no-wake) DEAF_ROLES="$DEAF_ROLES $wr($ws)" ;;
             unknown)     UNKNOWN_ROLES="$UNKNOWN_ROLES $wr" ;;
           esac
           printf '%-24s %8s %8s  %s\n' "$wr" "$ws" "$wc" "$last"
@@ -2832,7 +3094,7 @@ EOF
 $WROLES
 EOF
         if [ -n "$DEAF_ROLES" ]; then
-          echo "DEAF: no live watcher for role(s):$DEAF_ROLES - mail sent to them will not wake anyone (#801)."
+          echo "DEAF: no live watcher that can wake role(s):$DEAF_ROLES - mail sent to them will not wake anyone (#801; no-wake = polled only by processes with no session in their ancestry, #1228)."
         fi
         # Kept separate from DEAF on purpose: `unknown` is not a claim that
         # nobody is listening, it is the refusal to make either claim.

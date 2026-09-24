@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1076-codex-consolidation-cxpp-goes-private-and-dormant",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "47db657a09caba31453368df09b3696194265f74",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1076",
+  "passes": 1,
+  "recorded_at": "2026-09-24T11:00:43Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
