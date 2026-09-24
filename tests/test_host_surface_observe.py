@@ -708,6 +708,46 @@ def test_a_configured_filter_driver_is_DISCOVERED_and_neutralised(tmp_path: Path
 
 
 @requires_git
+def test_a_patched_table_does_not_poison_the_cache_for_the_real_one() -> None:
+    """THE RED CASE for issue #1242's cache key, and it is one test on purpose.
+
+    The defect was reachable only as an ORDER between two tests - the canary test
+    above empties `GIT_EXEC_CONFIG_NEUTRALISED`, reaches
+    `git_exec_config_overrides`, and leaves the derived `[]` in `_OVERRIDES_CACHE`
+    for the rest of the process. `monkeypatch` restores the ATTRIBUTE and knows
+    nothing about the cache, so every later `sandbox_env()` in that worker built a
+    sandbox that neutralised NOTHING, and whichever test asserted a neutralisation
+    next failed. Under `pytest -n 4` xdist varies which tests share a process, so
+    it fired on a rotating innocent test on whatever PR was in flight - measured
+    on PR #1238's pipeline 2629, which touched neither file - and passed when the
+    victim ran alone.
+
+    A control that needs two node ids in an order is a control nobody can run, so
+    this reproduces both halves inside one test. On the pre-fix code the SECOND
+    assertion fails with `{}` where the real overrides belong: verified, and it is
+    the same `{}.get` the CI failure printed.
+
+    It asserts about the REAL repository's own entry deliberately. A tmp_path repo
+    would pass with a repo-only key too, because the poisoning needs the patched
+    call and the later call to name the SAME repo - which is exactly what
+    `sandbox_env(REPO_ROOT)` does in the run that failed.
+    """
+    with pytest.MonkeyPatch.context() as patched:
+        patched.setattr(hso, "GIT_EXEC_CONFIG_NEUTRALISED", {})
+        assert hso.git_exec_config_overrides(ROOT) == [], (
+            "the emptied table must yield no fixed neutralisations - if this "
+            "fails the test is not exercising the state that caused #1242"
+        )
+
+    # The table is restored here. The cache must not still be answering for it.
+    overrides = dict(hso.git_exec_config_overrides(ROOT))
+    assert overrides.get("core.fsmonitor") == "false", (
+        "a call made under a PATCHED table installed its answer as the answer for "
+        f"this checkout - the sandbox now neutralises nothing (#1242): {overrides}"
+    )
+
+
+@requires_git
 def test_a_clean_repo_yields_only_the_fixed_neutralisations(tmp_path: Path) -> None:
     """The absence half, meaningful only beside the discovery case above."""
     repo = tmp_path / "repo"
