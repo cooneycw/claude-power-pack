@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1242-host-surface-observe-s-overrides-cache-is-poisoned",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "26dedc8a77c4fb4b19eca4dd3de4ed4c4ec0a7cf",
+  "implementer": "claude/claude-opus-5",
+  "issue": "1242",
+  "passes": 2,
+  "recorded_at": "2026-09-24T11:01:42Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 4
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
