@@ -1,0 +1,20 @@
+{
+  "branch": "issue-921-caller-freshness-half2",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "c5b1c5edb180db748738878e577809b47d112611",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "921",
+  "passes": 2,
+  "recorded_at": "2026-09-24T09:11:56Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 7
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
