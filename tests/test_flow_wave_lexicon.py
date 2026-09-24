@@ -1651,6 +1651,7 @@ class TestAHoldMustCarryItsReason:
         assert "on the token line" in out, out
         assert "'- <reason>'" in out, out
 
+    @requires_jq
     def test_an_inline_reason_is_recorded(self, tmp_path: Path):
         """THE OTHER ARM: a refusal that fired on every HOLD would pass above."""
         proc = _run(
@@ -1661,6 +1662,7 @@ class TestAHoldMustCarryItsReason:
         entry = json.loads((tmp_path / "wave" / WAVE / "verdicts.json").read_text())[0]
         assert entry["reason"] == "the schema changes under it"
 
+    @requires_jq
     def test_a_listed_reason_beneath_is_recorded(self, tmp_path: Path):
         proc = _run(
             tmp_path, "record", "--wave", WAVE,
@@ -1706,6 +1708,7 @@ class TestAnIssuelessRulingCanBeFormed:
         assert proc.returncode == 1, proc.stdout
         assert because in proc.stdout + proc.stderr, proc.stdout + proc.stderr
 
+    @requires_jq
     def test_record_writes_subject_for_a_slug_and_issue_for_a_number(
         self, tmp_path: Path
     ):
