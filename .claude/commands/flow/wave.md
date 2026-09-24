@@ -336,8 +336,9 @@ vocabulary is deliberately tiny - only the speech acts with a wrong-answer cost:
 | Token | Carries | Enforced |
 |---|---|---|
 | `GATE: GO #N` | approval of a judged gate | names its subject issue |
-| `GATE: HOLD #N behind #M[, #M]` | a hold | names what it waits behind |
+| `GATE: HOLD #N behind #M[, #M] <reason>` | a hold | names what it waits behind AND why - inline, or as `- <reason>` lines beneath; prose beneath is NOT read and a reasonless hold is refused (#1189) |
 | `GATE: GO-WITH-CONDITIONS #N` | conditional approval | `- <condition>` lines beneath it; optional `serializes: <marker>` |
+| `GATE: <verb> <kebab-slug>` | any of the three, on work that deliberately has NO issue (a residual fixed rather than filed) | a lowercase slug of at least two parts (`journal-false-red`); recorded as `subject`, read but never planned against; a bare number is refused as a missing `#` (#1189) |
 | `LANE: GRANT\|SET <role> <paths>` | a file lane, REPLACING whatever it held | names role AND paths |
 | `LANE: REVOKE <role> [paths]` | withdrawing a lane | names the role |
 | `MERGE: AUTHORIZED #N when <check>` | conditional merge authority | a NAMED check - "when CI passes" is refused |

@@ -775,7 +775,7 @@ class TestAnIndentedTokenIsRefusedRatherThanGuessed:
         """THE OTHER ARM. A parser that refused every GATE line would satisfy
         every assertion above and tell us nothing at all.
         """
-        proc = _validate(tmp_path, "GATE: HOLD #999 behind #998\n")
+        proc = _validate(tmp_path, "GATE: HOLD #999 behind #998 schema first\n")
         assert proc.returncode == 0, proc.stdout
         assert _verdict(proc) == "ok", proc.stdout
         assert _transitions(proc) == ["GATE: HOLD #999"], proc.stdout
@@ -864,7 +864,7 @@ class TestCitationIsInertButNeverSilent:
         """THE OTHER ARM for this class, stated once over both contexts."""
         proc = _validate(
             tmp_path,
-            "GATE: HOLD #999 behind #998\n"
+            "GATE: HOLD #999 behind #998 schema first\n"
             "MERGE: AUTHORIZED #243 when ci/woodpecker/pr/woodpecker reports success\n",
         )
         assert _verdict(proc) == "ok", proc.stdout
@@ -1604,3 +1604,151 @@ class TestTheControlsThemselvesCanFail:
             assert "missing section(s): delivered" in proc.stderr, (
                 f"{opener!r} should NOT match: {because}\n{proc.stderr}"
             )
+
+
+# --------------------------------------------------------------------------
+# #1189: the ledger's record of a ruling must not be narrower than the ruling.
+#
+# Defect 1 - a HOLD whose reason sits in prose beneath the token was recorded
+# as `GATE: HOLD (no reason given)` while `record` printed success. The fix is a
+# REFUSAL, not a wider harvest: widening would let a HOLD take any text beneath
+# it as its reason, which is a different defect.
+#
+# Defect 2 (producer half) - a ruling on work that deliberately has no issue
+# could not be formed at all, because the subject had to be `#N`. The consumer
+# half (flow-wave-plan.py reading `subject`) landed in #1223.
+# --------------------------------------------------------------------------
+
+
+@requires_bash
+class TestAHoldMustCarryItsReason:
+    def test_a_reasonless_hold_is_refused(self, tmp_path: Path):
+        proc = _validate(tmp_path, "GATE: HOLD #52 behind #56\n")
+        assert proc.returncode == 1, proc.stdout
+        assert _verdict(proc) == "invalid", proc.stdout
+        assert "must state WHY" in proc.stdout + proc.stderr
+
+    def test_prose_beneath_a_hold_is_refused_not_recorded_as_no_reason(
+        self, tmp_path: Path
+    ):
+        """The field specimen: a five-line argument typed under the token was
+        stored as ``(no reason given)`` and ``record`` said ``recorded``.
+        """
+        body = (
+            "GATE: HOLD #52 behind #56\n"
+            "\n"
+            "The migration must land first because the schema\n"
+            "changes under it.\n"
+        )
+        proc = _run(tmp_path, "record", "--wave", WAVE, stdin=body)
+        assert proc.returncode == 1, proc.stdout
+        assert _verdict(proc) == "invalid", proc.stdout
+        assert not (tmp_path / "wave" / WAVE / "verdicts.json").exists()
+
+    def test_the_refusal_names_both_places_a_reason_may_go(self, tmp_path: Path):
+        proc = _validate(tmp_path, "GATE: HOLD #52 behind #56\n")
+        out = proc.stdout + proc.stderr
+        assert "on the token line" in out, out
+        assert "'- <reason>'" in out, out
+
+    def test_an_inline_reason_is_recorded(self, tmp_path: Path):
+        """THE OTHER ARM: a refusal that fired on every HOLD would pass above."""
+        proc = _run(
+            tmp_path, "record", "--wave", WAVE,
+            stdin="GATE: HOLD #52 behind #56 the schema changes under it\n",
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        entry = json.loads((tmp_path / "wave" / WAVE / "verdicts.json").read_text())[0]
+        assert entry["reason"] == "the schema changes under it"
+
+    def test_a_listed_reason_beneath_is_recorded(self, tmp_path: Path):
+        proc = _run(
+            tmp_path, "record", "--wave", WAVE,
+            stdin="GATE: HOLD #52 behind #56\n- the schema changes under it\n",
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        entry = json.loads((tmp_path / "wave" / WAVE / "verdicts.json").read_text())[0]
+        assert entry["reason"] == "the schema changes under it"
+        assert "no reason given" not in entry["reason"]
+
+    def test_a_reasonless_go_is_still_accepted(self, tmp_path: Path):
+        """Scope pin: the refusal is HOLD's. A terse GO is a deliberate shape
+        and stays valid; widening the refusal is a separate decision.
+        """
+        proc = _validate(tmp_path, "GATE: GO #701\n")
+        assert _verdict(proc) == "ok", proc.stdout
+
+
+@requires_bash
+class TestAnIssuelessRulingCanBeFormed:
+    def test_a_kebab_slug_subject_is_accepted(self, tmp_path: Path):
+        proc = _validate(tmp_path, "GATE: GO journal-false-red fix is in lane\n")
+        assert _verdict(proc) == "ok", proc.stdout + proc.stderr
+        assert _transitions(proc) == ["GATE: GO journal-false-red"], proc.stdout
+
+    @pytest.mark.parametrize(
+        "body,because",
+        [
+            ("GATE: GO 701 looks right\n", "did you mean '#701'"),
+            ("GATE: GO approved\n", "must name its subject"),
+            ("GATE: GO Journal-False-Red ok\n", "must name its subject"),
+            ("GATE: GO -leading-dash ok\n", "must name its subject"),
+        ],
+    )
+    def test_a_subject_that_is_neither_is_refused(
+        self, tmp_path: Path, body: str, because: str
+    ):
+        """A bare number is refused rather than read as a slug or an issue: a
+        missing ``#`` must stay LOUD. A single word is refused so ``GATE: GO
+        approved`` cannot become a ruling about a subject called "approved".
+        """
+        proc = _validate(tmp_path, body)
+        assert proc.returncode == 1, proc.stdout
+        assert because in proc.stdout + proc.stderr, proc.stdout + proc.stderr
+
+    def test_record_writes_subject_for_a_slug_and_issue_for_a_number(
+        self, tmp_path: Path
+    ):
+        body = (
+            "GATE: GO-WITH-CONDITIONS journal-false-red\n"
+            "- keep the fix inside the journal lane\n"
+            "\n"
+            "GATE: GO #701 evidence checks out\n"
+        )
+        proc = _run(tmp_path, "record", "--wave", WAVE, stdin=body)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        slug, num = json.loads((tmp_path / "wave" / WAVE / "verdicts.json").read_text())
+        assert slug["subject"] == "journal-false-red" and "issue" not in slug, slug
+        assert slug["reason"] == "keep the fix inside the journal lane"
+        # Existing numeric entries stay byte-shaped as before: `issue`, a number.
+        assert num["issue"] == 701 and "subject" not in num, num
+
+
+@requires_bash
+@requires_jq
+def test_a_recorded_slug_ruling_does_not_disable_a_recorded_hold(tmp_path: Path):
+    """End to end, producer through consumer: the pair #1223 measured by hand.
+
+    Before #1223 one slug entry made the planner reject the whole ledger; before
+    this change the lexicon could not WRITE one. Both halves together: the hold
+    is still enforced and the slug is counted, not dropped.
+    """
+    issues = tmp_path / "issues.json"
+    issues.write_text(json.dumps([
+        {"number": 52, "title": "compiler fix", "body": "work", "state": "OPEN"},
+    ]))
+    body = (
+        "GATE: GO journal-false-red in-lane residual, fixed not filed\n"
+        "\n"
+        "GATE: HOLD #52 behind #56 migration first\n"
+    )
+    rec = _run(tmp_path, "record", "--wave", WAVE, stdin=body)
+    assert rec.returncode == 0, rec.stdout + rec.stderr
+    ledger = tmp_path / "wave" / WAVE / "verdicts.json"
+    plan = subprocess.run(
+        ["python3", str(PLANNER), str(issues), "--in-flight", "52", "--verdicts", str(ledger)],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert plan.returncode == 4, plan.stdout + plan.stderr
+    assert json.loads(plan.stdout)["verdict_conflicts"][0]["issue"] == 52
+    assert "subject" in plan.stderr + plan.stdout, "the slug ruling must be COUNTED, not silently dropped"
