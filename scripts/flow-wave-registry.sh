@@ -249,7 +249,10 @@
 #             EVERY verify shouted - a flag firing on 100% of the fleet carries
 #             zero signal and buries the one case worth investigating.
 #   release   Mark the role released ("I'm leaving the wave"). Another LIVE
-#             session's role is refused without --force.
+#             session's role is refused without --force. Clears the lane facts
+#             (issue, pr, branch, base, diff, files) and keeps what was held
+#             under `released_lane`, so the row stays auditable without reading
+#             as a current claim (#1222).
 #   policy    Wave-level policy (issue #699), declared ONCE and inherited by
 #             every role in the wave.
 #             `set`  writes the fields given and bumps the rev; fields NOT given
@@ -2377,6 +2380,15 @@ case "$VERB" in
     with_lock '
       .[$w] //= {"roles": {}} |
       (.[$w].roles[$r] // {}) as $prev |
+      #: A ROW DESCRIBES ONE PIECE OF WORK (#1222). `issue` and `branch` are
+      #: rewritten on every register while the lane facts below are preserved,
+      #: so a role re-registering onto a NEW issue kept the previous issue
+      #: pr, base and files - a blend (issue 1189 beside PR 1214) that never
+      #: existed at any single moment. On an issue CHANGE the preserved facts
+      #: reset unless this call supplies them. Both sides must be non-empty:
+      #: a re-brief that omits --issue is not a move to other work, and
+      #: treating it as one would wipe the starvation baseline (#989).
+      (($prev.issue // "") != "" and $issue != "" and ($prev.issue // "") != $issue) as $moved |
       .[$w].roles[$r] = {
         socket: $sock, self_socket: $selfsock, pid: ($pid | tonumber? // $pid),
         pid_started: $pidstarted,
@@ -2386,7 +2398,7 @@ case "$VERB" in
         address_filled: ($filled == "true"), released: false,
         model:           (if $model_set == "1" then $model else ($prev.model // "") end),
         permission_mode: (if $perm_set  == "1" then $perm  else ($prev.permission_mode // "") end),
-        files:           (if $files_set == "1" then $files else ($prev.files // "") end),
+        files:           (if $files_set == "1" then $files elif $moved then "" else ($prev.files // "") end),
         capacity:        (if $cap_set   == "1" then $cap   else ($prev.capacity // "") end),
         driver:          (if $drv_set   == "1" then $drv   else ($prev.driver // "") end),
         #: MEASURED EVERY REGISTRATION, never preserved from $prev (#959). The
@@ -2401,10 +2413,10 @@ case "$VERB" in
         vantage_basis:   $vbasis,
         #: Written only as a COMPLETE observation, and identity is (repo, pr) -
         #: not pr alone, or repository B #5 would increment repository A #5.
-        pr:       (if $obs == "1" then $pr   else ($prev.pr // "") end),
-        base:     (if $obs == "1" then $base else ($prev.base // "") end),
-        diff:     (if $obs == "1" then $diff else ($prev.diff // "") end),
-        obs_repo: (if $obs == "1" then $repo else ($prev.obs_repo // "") end),
+        pr:       (if $obs == "1" then $pr   elif $moved then "" else ($prev.pr // "") end),
+        base:     (if $obs == "1" then $base elif $moved then "" else ($prev.base // "") end),
+        diff:     (if $obs == "1" then $diff elif $moved then "" else ($prev.diff // "") end),
+        obs_repo: (if $obs == "1" then $repo elif $moved then "" else ($prev.obs_repo // "") end),
         #: MERGE STARVATION (#989). Increments ONLY when the same (repo, pr) is
         #: seen again with a CHANGED base and an UNCHANGED diff: the signature of
         #: losing a queue place without doing any work. A changed diff is a worker
@@ -2417,7 +2429,8 @@ case "$VERB" in
         #: work. A re-register carrying NO observation preserves, so the cheap
         #: re-brief never destroys a baseline.
         overtaken: (
-          if $obs != "1" then ($prev.overtaken // 0)
+          if $obs != "1" then (if $moved then 0 else ($prev.overtaken // 0) end)
+          elif $moved then 0
           elif ($prev.pr // "") != $pr or ($prev.obs_repo // "") != $repo then 0
           elif ($prev.base // "") == "" or ($prev.diff // "") == "" then 0
           elif ($prev.base // "") != $base and ($prev.diff // "") == $diff
@@ -2865,10 +2878,34 @@ case "$VERB" in
       emit refused
       exit 1
     fi
+    #: A RELEASED ROW IS HISTORY, NOT A CLAIM (#1222). This used to set
+    #: `released` and clear nothing, so a role whose session had ended still
+    #: advertised a closed issue, a merged PR and an eight-path file lane, and
+    #: the roster could not tell "held by a live role" from "left behind by one
+    #: that ended". The lane facts move under `released_lane`, which no lane
+    #: reader consults, and the live keys are blanked. `repo` stays: `list`
+    #: reads it from every row, released or not, to find which repos to scan
+    #: for unregistered claims (#687).
     # shellcheck disable=SC2016  # a jq program; $ names are jq variables (#972)
     with_lock '
+      .[$w].roles[$r] as $e |
       .[$w].roles[$r].released = true |
-      .[$w].roles[$r].released_ts = ($now | tonumber)' \
+      .[$w].roles[$r].released_ts = ($now | tonumber) |
+      #: A second release must not overwrite the record with the blanks the
+      #: first one left behind. A row released before #1222 has no record yet
+      #: and still carries its lane, so it is snapshotted like a live one.
+      .[$w].roles[$r].released_lane = (
+        if ($e.released // false) and ($e.released_lane != null) then $e.released_lane
+        else {
+          issue: ($e.issue // ""), pr: ($e.pr // ""), branch: ($e.branch // ""),
+          base: ($e.base // ""), diff: ($e.diff // ""), obs_repo: ($e.obs_repo // ""),
+          files: ($e.files // ""), overtaken: ($e.overtaken // 0)
+        } end
+      ) |
+      .[$w].roles[$r] += {
+        issue: "", pr: "", branch: "", base: "", diff: "", obs_repo: "",
+        files: "", overtaken: 0
+      }' \
       --arg w "$WAVE" --arg r "$ROLE" --arg now "$NOW"
     emit released
     exit 0
