@@ -407,41 +407,67 @@ moment it happens.
 
 CxPP may go dormant only when **all** of the following hold:
 
-- [ ] **#1069 has landed.** `scripts/project-next-vendor.py:90-91` hardcodes
+- [x] **#1069 has landed.** `scripts/project-next-vendor.py:90-91` hardcodes
       the CxPP `api_root`/`raw_root`, fetched by `lib/vendor.py`, which carries
       no auth handling at all. `make project-next-drift` and
       `make project-next-revendor` break when the repository goes private, and
       a hardcoded URL does not degrade gracefully. This is the one hard
       ordering constraint the dormancy route creates. (`make verify` is
       unaffected.)
-- [ ] **PR cxpp#239 is merged** (Q3). The research documents sit on a branch;
+      *Evidence (2026-09-24, #1236):* #1069 closed 2026-09-20; `af348f8` (PR #1144)
+      removed `scripts/project-next-vendor.py`, and `project-next-drift` /
+      `project-next-revendor` are retired (`docs/project-next-provenance.md`).
+- [x] **PR cxpp#239 is merged** (Q3). The research documents sit on a branch;
       merging is what makes "keep the Codex review docs in Codex" true of
       `main`.
+      *Evidence (2026-09-24, #1236):* cxpp#239 merged 2026-09-22T11:43:21Z.
 - [x] **Q10 is answered** (2026-09-20). All eleven defect-finding rows are
       `owner-approved-retirement` under the owner's presumption that CPP does
       not carry CxPP's vulnerabilities absent proof. This criterion is
       DISCHARGED, and it replaced the old "both Nit Stores are triaged"
       criterion - note the consequence that carries: cxpp#227's 29 findings
       retire unread, readable in the dormant repository but routed nowhere.
-- [ ] Every CxPP issue closed under a 2026-09-20 ruling **cites that ruling** as
+- [x] Every CxPP issue closed under a 2026-09-20 ruling **cites that ruling** as
       its recorded authority, per `docs/agents/issue-contract.md`. A bulk close
       with no cited authority is the failure this ledger exists to prevent.
-- [ ] **Host-level artifacts CxPP installed are uninstalled.** The owner's own
+      *Evidence (2026-09-24, #1236):* all 41 CxPP issues closed since 2026-09-21 end
+      with a comment citing a recorded owner ruling: 40 cite 2026-09-20, and
+      cxpp#290 - filed 2026-09-21, after that ruling - cites the owner's
+      2026-09-23 ruling instead. CxPP has 0 open issues and 0 open PRs.
+- [x] **Host-level artifacts CxPP installed are uninstalled.** The owner's own
       machine is in scope ("I will uninstall its folders here"). Three of
       CxPP's five hook handlers execute from `~/.codex/scripts/`; an abandoned
       trusted path is also a hijack target, because a later package writing to
       it inherits execution context. (Review finding **R5** survives dormancy
       unchanged - going private does not unwrite a user's disk.)
-- [ ] **No documentation, install snippet or example still routes an active
+      *Evidence (2026-09-24, #1236):* on the owner's host `~/.codex/scripts/` and
+      `~/.config/codex-power-pack/` are absent, no symlink under `~/.codex`,
+      `~/.claude` or `~/.local/bin` resolves into CxPP, and `~/.codex/plugins`
+      holds only the OpenAI-curated cache. Not install paths, and left in place:
+      the source clone `~/Projects/codex-power-pack` (carries untracked user
+      files) and the nit-store line in `~/.codex/AGENTS.md`.
+- [x] **No documentation, install snippet or example still routes an active
       flow through CxPP.** Copy-pasted instructions are a dependency path no
       build-graph check sees. (Review finding **R6**.)
-- [ ] **A dated deprecation notice is published BEFORE the privacy flip**, not
+      *Evidence (2026-09-24, #1236):* the last present-tense descriptions of CxPP
+      as live were rewritten as history by #1236; its PR names the sweep and
+      every remaining hit judged historical (ADRs, provenance, changelog).
+- [x] **A dated deprecation notice is published BEFORE the privacy flip**, not
       after. Q7 is accept-break; a break announced only after the repository
       stops being readable is not announced. (Review finding **R2**, which
       survives the change of route: the original criterion permitted an archive
       that breaks consumers nobody enumerated, and a privacy flip does exactly
       the same thing faster.)
-- [ ] Explicit final owner approval is recorded.
+      *Evidence (2026-09-24, #1236):* cxpp `b67b7a0` (cxpp#291, 2026-09-22T12:21:58Z)
+      "publish the dated deprecation notice before the privacy flip". The
+      ordering is RECORDED TESTIMONY, not an independent measurement: the PR
+      body states the notice "is published while the repository is still
+      publicly readable". GitHub exposes no visibility-change record for this
+      repository; that the notice is CxPP's last push (`pushedAt` 12:22:00Z) is
+      consistent with the order but would look the same had the flip come first.
+- [x] Explicit final owner approval is recorded.
+      *Evidence (2026-09-24, #1236):* #1076 comment 5811719107, 2026-09-24:
+      "i approve 1076."
 
 **Retired criteria, and why.** "Every shipped capability has a demonstrated
 replacement" and "unfinished programs have durable owners and destinations" are

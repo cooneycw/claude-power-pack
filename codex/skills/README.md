@@ -4,8 +4,9 @@ Per-command Codex SKILL.md skills (issue #555, companion to codex-power-pack
 epic cooneycw/codex-power-pack#64) emitted from the single source of truth
 `.claude/commands/<family>/*.md` (ADR 0001 section 5). This surface superseded
 the flat `codex/prompts/` prompts, retired at the #556 cutover. codex-power-pack
-vendors this source (pull model, issue #556 / codex-power-pack#75) rather than
-receiving a push from CPP.
+vendored this source (pull model, issue #556 / codex-power-pack#75) rather than
+receiving a push from CPP, until it went private and dormant on 2026-09-22
+(#1076); nothing outside CPP consumes it now.
 
 Layout per skill:
 
