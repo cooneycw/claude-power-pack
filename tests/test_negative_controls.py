@@ -3232,3 +3232,79 @@ def test_an_explicitly_invalid_detect_signal_is_refused_not_treated_as_omitted()
     # ...and omission itself still passes, or the assertions above are vacuous.
     out = run_harness(toy.parents[2], "--strict")
     assert out.returncode == 0, out.stdout + out.stderr
+
+
+def _load_harness_module():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("check_negative_controls_1239", HARNESS)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    # Registered first: the module's dataclasses resolve their own module by name.
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _tracking_repo(tmp_path: Path) -> tuple[Path, Path]:
+    """A real repository carrying this repo's own ignore shape (issue #1239).
+
+    `__pycache__/` and the blanket `*.json` negated one level deep are the two
+    rules that matter: the first is what hides derived bytecode, the second is
+    the #964/#953 hazard `_tracking()` exists to catch.
+    """
+    root = tmp_path / "repo"
+    case_dir = root / "controls" / "toy" / "cases" / "bad"
+    case_dir.mkdir(parents=True)
+    (root / ".gitignore").write_text(
+        "__pycache__/\n*.py[cod]\n*.json\n!controls/*/control.json\n", encoding="utf-8"
+    )
+    (root / "controls" / "toy" / "control.json").write_text("{}\n", encoding="utf-8")
+    (case_dir / "subject.py").write_text("X = 1\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(root)], check=True, timeout=60)
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True, timeout=60)
+    return root, case_dir
+
+
+@requires_git
+def test_ignored_bytecode_under_a_control_does_not_read_as_UNTRACKED(tmp_path: Path) -> None:
+    """A case that runs Python writes `__pycache__/*.pyc` beside itself (#1239).
+
+    Before the fix, the SECOND `make verify` in any checkout reported the
+    control UNTRACKED on that bytecode alone, although a clean clone has every
+    file the control needs. Red on the pre-fix harness: `UNTRACKED` naming the
+    `.pyc`.
+    """
+    root, case_dir = _tracking_repo(tmp_path)
+    cache = case_dir / "__pycache__"
+    cache.mkdir()
+    (cache / "subject.cpython-311.pyc").write_bytes(b"\x00bytecode")
+    (case_dir / "stray.pyo").write_bytes(b"\x00bytecode")
+    precondition = subprocess.run(
+        ["git", "-C", str(root), "check-ignore", "-q", str(cache / "subject.cpython-311.pyc")],
+        check=False, timeout=60,
+    )
+    assert precondition.returncode == 0, "precondition: the bytecode must be gitignored"
+
+    verdict, details = _load_harness_module()._tracking(root / "controls" / "toy", root)
+    assert (verdict, details) == ("tracked", []), details
+
+
+@requires_git
+def test_an_ignored_LOAD_BEARING_case_file_still_reads_as_UNTRACKED(tmp_path: Path) -> None:
+    """The exclusion for #1239 must stay exactly as wide as derived bytecode.
+
+    `_tracking()` exists for the #964/#953 shape: a nested `case.json` swallowed
+    by the blanket `*.json`. Excluding every IGNORED path would have fixed #1239
+    and blinded this, so this is the case that fails if the fix widens - with a
+    `.pyc` present alongside, so it cannot pass by never meeting bytecode.
+    """
+    root, case_dir = _tracking_repo(tmp_path)
+    (case_dir / "case.json").write_text("{}\n", encoding="utf-8")
+    (case_dir / "__pycache__").mkdir()
+    (case_dir / "__pycache__" / "subject.cpython-311.pyc").write_bytes(b"\x00bytecode")
+
+    verdict, details = _load_harness_module()._tracking(root / "controls" / "toy", root)
+    assert verdict == "UNTRACKED", details
+    assert "case.json" in details[0], details
+    assert ".pyc" not in details[0], "bytecode must not be named as a missing control file"
