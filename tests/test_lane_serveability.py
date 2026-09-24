@@ -525,6 +525,123 @@ def test_preflight_refuses_on_unreachable_as_well_as_dead(lane):
 
 
 # --------------------------------------------------------------------------
+# The fix-loop seam must age the Step-4 verdict before re-delegating (#921)
+# --------------------------------------------------------------------------
+AGE_CALL = "~/.claude/scripts/lane-serveability-check.sh --check-age"
+PROBE_CALL = "~/.claude/scripts/lane-serveability-check.sh --endpoint"
+
+
+def _section(text: str, start: str, end: str) -> str:
+    return text[text.index(start):text.index(end, text.index(start))]
+
+
+def _fix_loop(lane: str) -> str:
+    doc, _, _ = LANES[lane]
+    return _section(doc.read_text(), "### Step 6: Quality Gates", "### Step 7:")
+
+
+@pytest.mark.parametrize("lane", sorted(LANES))
+def test_step4_keeps_the_verdict_and_its_timestamp(lane):
+    """The age check has no input unless Step 4 says to carry both values forward."""
+    doc, _, heading = LANES[lane]
+    step4 = _section(doc.read_text(), heading, "### Step 5:")
+    for field in ("LANE_SERVE_AT", "LANE_SERVE_STATUS"):
+        assert field in step4, f"{doc.relative_to(ROOT)} Step 4 must record {field}"
+
+
+@pytest.mark.parametrize("lane", sorted(LANES))
+def test_fix_loop_ages_the_verdict_before_re_executing(lane):
+    """The fix re-execute runs long after the Step-4 probe; it must not ride that pass.
+
+    Before #921 half 2 the re-execute was handed off on a verdict taken before
+    the whole first run and the quality gates - well past the 120s window.
+    """
+    section = _fix_loop(lane)
+    assert AGE_CALL in section, f"{lane}: the fix loop never ages the recorded verdict"
+    assert section.index(AGE_CALL) < section.index("**Re-execute**"), (
+        f"{lane}: the age check must come BEFORE the re-execute, or it gates nothing"
+    )
+
+
+@pytest.mark.parametrize("lane", sorted(LANES))
+def test_stale_verdict_re_probes_once_immediately_before_the_call(lane):
+    """Unpinned hosts (owner ruling on #921): a probe is allowed only where the
+    call it precedes would load the model anyway - so exactly one probe-mode
+    invocation, between the age check and the re-execute, and no cadence.
+    """
+    section = _fix_loop(lane)
+    assert section.count(PROBE_CALL) == 1, (
+        f"{lane}: expected exactly one probe-mode invocation in the fix loop, "
+        f"found {section.count(PROBE_CALL)} - a second one is a cadence"
+    )
+    assert section.index(AGE_CALL) < section.index(PROBE_CALL) < section.index("**Re-execute**")
+    assert "stale" in section
+
+
+def _probe_branches(lane: str) -> dict[str, str]:
+    """Map each verdict to the ONE bullet that handles the re-probe's result.
+
+    Scoped to the text after the probe-mode call: the age check above it also
+    names `unknown`, and a search spanning both let a mutation that re-executes
+    on an unknown probe pass (counter-model review on #921).
+    """
+    section = _fix_loop(lane)
+    after_probe = section[section.index(PROBE_CALL):section.index("**Re-execute**")]
+    bullets = [b for b in re.split(r"\n\s*- ", after_probe)[1:] if b.startswith("`")]
+    branches = {}
+    for verdict in ("serving", "dead", "unreachable", "unknown"):
+        owners = [b for b in bullets if f"`{verdict}`" in b.split("->", 1)[0]]
+        assert len(owners) == 1, f"{lane}: `{verdict}` must be handled by exactly one bullet, got {len(owners)}"
+        branches[verdict] = owners[0]
+    return branches
+
+
+def _age_branches(lane: str) -> dict[str, str]:
+    """Map each age verdict to the ONE bullet that handles it (counter-model pass 2).
+
+    Order and counts alone passed a document that sent `stale` straight to the
+    re-execute; what matters is which verdict leads where.
+    """
+    section = _fix_loop(lane)
+    between = section[section.index(AGE_CALL):section.index(PROBE_CALL)]
+    bullets = [b for b in re.split(r"\n\s*- ", between)[1:] if b.startswith("`")]
+    branches = {}
+    for verdict in ("fresh", "stale", "unknown"):
+        owners = [b for b in bullets if f"`{verdict}`" in b.split("->", 1)[0]]
+        assert len(owners) == 1, f"{lane}: age verdict `{verdict}` needs exactly one bullet, got {len(owners)}"
+        branches[verdict] = owners[0].split("->", 1)[1]
+    return branches
+
+
+@pytest.mark.parametrize("lane", sorted(LANES))
+def test_only_a_fresh_verdict_skips_the_re_probe(lane):
+    branches = _age_branches(lane)
+    assert branches["fresh"].strip().startswith("re-execute"), f"{lane}: `fresh` should re-execute"
+    for verdict in ("stale", "unknown"):
+        action = branches[verdict].strip()
+        assert action.startswith("probe ONCE"), (
+            f"{lane}: an age verdict of `{verdict}` must re-probe before re-executing, got {action[:40]!r}"
+        )
+
+
+@pytest.mark.parametrize("lane", sorted(LANES))
+def test_fix_loop_stops_on_every_non_serving_re_probe(lane):
+    branches = _probe_branches(lane)
+    for verdict in ("dead", "unreachable", "unknown"):
+        assert "STOP" in branches[verdict], f"{lane}: a `{verdict}` re-probe must STOP the fix loop"
+        assert "re-execute," not in branches[verdict].split("->", 1)[0]
+    assert "STOP" not in branches["serving"], f"{lane}: only `serving` may re-execute"
+
+
+@pytest.mark.parametrize("lane", sorted(LANES))
+def test_unknown_re_probe_is_not_reported_as_an_outage(lane):
+    """`unknown` means the probe could not run - zero observations, not a dead lane."""
+    branch = _probe_branches(lane)["unknown"]
+    assert "unverified" in branch
+    assert "is down" not in branch, f"{lane}: an unperformed probe must not diagnose an outage"
+
+
+# --------------------------------------------------------------------------
 # /qwen:status must be able to say no
 # --------------------------------------------------------------------------
 STATUS_DOC = COMMANDS / "qwen" / "status.md"
