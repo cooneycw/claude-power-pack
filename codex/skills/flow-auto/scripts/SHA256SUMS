@@ -9,7 +9,7 @@
 # Verifying arrival needs a key that is not in this bundle.
 6d84bf201725b5de01f184803ac2048fbc3d6aa4e93eca520fa88fea329f8194  check-ignored-additions.sh
 43f257169f891098fdc205cb3109b1636c055aeedf7f0a6357ff5f81f317df5d  codex-skill-resync.sh
-c364828968f2cee1e442e19fda1da6cdd3d22cd3167bc54f2cf8c951b218b85a  codex-skill-sync.py
+99272e91eff06011c78e1f4360c34f89267f40b5e26102a0d88c9401d3191c53  codex-skill-sync.py
 6ae49b19a3401e870b733439cd762485d96a6cca9fe1ef75e51e87f9f6505a2d  counter-model-receipt.py
 26ffdcbc2a26ac778c1576f868340f70b9f7d9ac4244ba6b60ec38e3edf7eb85  counter-model-reviewer-attribution.py
 6a4ea2ba5ae9a62381bd521fa3ae3639fbcbb26aa3b263aa34ede6a6c52773e5  eli5-vendor.py
