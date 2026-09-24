@@ -30,11 +30,11 @@ measurement. They are the reading this procedure REQUIRES.
 
 | Required reading | Why required | Before | After |
 |---|---|---:|---:|
-| `.claude/commands/flow/auto.md` | the whole file is the command | 20,671 | 17,085 |
+| `.claude/commands/flow/auto.md` | the whole file is the command | 20,671 | 17,102 |
 | `.claude/commands/flow/eli5.md` | Step 3: "Load the FULL gate spec first" | 2,354 | 2,354 |
-| **Common path, total** | | **23,025** | **19,439** (-15.6%) |
-| **Failure path, total** | the same file carries the STOP and its recovery | **23,025** | **19,439** (-15.6%) |
-| Codex: `codex/skills/flow-auto/SKILL.md` + `reference.md` | SKILL.md: "Read `reference.md` ... before acting" | 278 + 20,681 | 278 + 17,095 |
+| **Common path, total** | | **23,025** | **19,456** (-15.5%) |
+| **Failure path, total** | the same file carries the STOP and its recovery | **23,025** | **19,456** (-15.5%) |
+| Codex: `codex/skills/flow-auto/SKILL.md` + `reference.md` | SKILL.md: "Read `reference.md` ... before acting" | 278 + 20,681 | 278 + 17,112 |
 
 **Not required on either path:** `docs/agents/flow-plan-record.md` (3,248 words,
 new). The procedure links it three times, each time as "background, not required
@@ -50,13 +50,13 @@ are unchanged. The Step 3 section is byte-identical, which
 
 | `auto.md` region (plan-record family) | Before (words / bash fences) | After |
 |---|---:|---:|
-| Step 1: reconcile + read the issue | 1,163 / 3 | 248 / 1 |
+| Step 1: reconcile + read the issue | 1,163 / 3 | 265 / 1 |
 | Step 4: write the record, snapshot, baseline | 1,435 / 4 | 424 / 2 |
 | Step 6 items 6-8: drift, compliance, head-check | 2,072 / 4 | 412 / 3 |
-| **Family total** | **4,670 / 11** | **1,084 / 6** (-77% words) |
+| **Family total** | **4,670 / 11** | **1,101 / 6** (-76% words) |
 
 The Step 3 plan estimated "~5,700 words" and "auto.md down ~4,500". The
-measurement is 4,670 words in the family and -3,586 words overall. The estimate
+measurement is 4,670 words in the family and -3,569 words overall. The estimate
 was high: it counted section headings and the record template, which stay.
 
 ### Recovery at the step that needs it
@@ -69,6 +69,9 @@ was high: it counted section headings and the record template, which stay.
     push, re-run).
   - `unverified` is exit 4, and the step names its check (`gh auth status`, the
     network).
+- A missing helper is also a STOP, with `/flow:repair` as the recovery
+  (counter-model finding). The pasted blocks could not be missing, so the
+  extraction added this failure mode, and the procedure now names it.
 - Neither case needs the reference doc.
 - Both are committed cases in `tests/test_flow_plan_record.py`, run against the
   helper.
@@ -126,7 +129,7 @@ not an assumption.
 ## What became simpler, what stayed, what was not measured
 
 **Simpler:**
-- The procedure lost 3,586 words of required reading and five pasted programs.
+- The procedure lost 3,569 words of required reading and five pasted programs.
 - The agent issues three fewer Bash calls, and every one is now allowlistable.
 - Behaviour that lived in a document now lives in one script that the tests run
   directly.

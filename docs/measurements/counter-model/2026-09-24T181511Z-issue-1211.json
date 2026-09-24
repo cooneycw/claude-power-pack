@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1211-simplification-reduce-flow-auto-reading-and-execut",
+  "counts": {
+    "accepted": 4,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "d28470c0b87c4039cb7b901ae3de74cf3cc246b9",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1211",
+  "passes": 2,
+  "recorded_at": "2026-09-24T18:15:11Z",
+  "red_cases": {
+    "already_covered": 8,
+    "proposed": 12
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
