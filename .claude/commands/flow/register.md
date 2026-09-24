@@ -503,7 +503,11 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
    supervisor refuses a second `supervise` for the same role (exit 4). A
    session watch armed alongside it makes the daemon's own inner watch refuse
    as a duplicate and back off, which is harmless; stop the daemon if you do
-   not need it.
+   not need it. Pass `--registry-required` when this wave is supposed to be
+   registered (issue #1107): the launch is then refused when nothing was ever
+   registered in `--wave` (exit 7, `misconfigured` - a typo, or `supervise`
+   run before `register`) or when the registry cannot answer (exit 8,
+   `unverified`).
 
    **Skipping the listener is VISIBLE to the orchestrator (issues #778, #814,
    #1228).** `flow-wave-registry.sh list` renders `watch=armed`,

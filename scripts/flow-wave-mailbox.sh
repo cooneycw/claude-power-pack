@@ -56,7 +56,7 @@
 #   flow-wave-mailbox.sh ack   --role <role> [--wave W] [--from <role> | --box NAME]
 #                              (--revs R[,R...] | --all-unacked) [--answered-elsewhere]
 #   flow-wave-mailbox.sh supervise --role <role> [--wave W] [--timeout SEC]
-#                              [--interval SEC]
+#                              [--interval SEC] [--registry-required]
 #   flow-wave-mailbox.sh list  [--wave W] [--json]
 #
 #   send   Deliver a message. `--to orchestrator` writes inbox-<from>.md and
@@ -132,7 +132,11 @@
 #          role release or the wave ends. It never ACKNOWLEDGES: a detached
 #          daemon is not a recipient, and a receipt it writes is a lie about
 #          an agent (#867, #873). See SUPERVISION below for what this does
-#          and, as importantly, does not promise.
+#          and, as importantly, does not promise. `--registry-required`
+#          (issue #1107) makes the registry a precondition instead of an
+#          optional companion: the launch is REFUSED when nothing was ever
+#          registered in --wave (exit 7, `misconfigured`), or when the
+#          registry cannot answer (exit 8, `unverified`).
 #   list   Box inventory for the wave: box, reader, rev, acked, unread, mtime,
 #          plus the WATCH state, live WATCHERS count, and ROUTE readiness
 #          (#814 - see ROUTE READINESS below) of every role known to read here
@@ -606,7 +610,10 @@
 # received is refused, not silently accepted) - 3 lock/IO failure, 4 duplicate
 # watcher (#792 - a live watcher already holds this role+wave; nothing was
 # started), 5 watch timeout, 6 lexicon refusal (#701 - the message was NOT
-# delivered; nothing was written).
+# delivered; nothing was written), 7 `supervise --registry-required` against a
+# wave with no role ever registered (#1107 - nothing was started), 8 the same
+# flag when the registry could not answer at all (#1107 - nothing was started;
+# this is NOT a finding that the wave is empty).
 #
 # `watch --status` detail lines:
 #   FLOW_MAILBOX_WATCH_STATE    armed | no-wake | stale | dead | absent |
@@ -1991,7 +1998,7 @@ esac
 
 WAVE="default"; ROLE=""; A_TO=""; A_FROM=""; A_BODY=""; A_BODY_FILE=""; A_OUT=""
 REPLACE=0; PEEK=0; CONSUME=0; ALL=0; JSON_OUT=0; NO_LEXICON=0; STATUS=0
-SURFACED_STATE=""
+SURFACED_STATE=""; REGISTRY_REQUIRED=0
 TIMEOUT="$WATCH_TIMEOUT_DEFAULT"; INTERVAL="$WATCH_INTERVAL_DEFAULT"
 A_BOX=""; A_REVS=""; ALL_UNACKED=0; ANSWERED_ELSEWHERE=0
 
@@ -2029,6 +2036,7 @@ while [ "$#" -gt 0 ]; do
     --revs=*) A_REVS="${1#--revs=}" ;;
     --all-unacked) ALL_UNACKED=1 ;;
     --answered-elsewhere) ANSWERED_ELSEWHERE=1 ;;
+    --registry-required) REGISTRY_REQUIRED=1 ;;
     --*) usage_fail "unknown option: $1" ;;
     *)
       # Bare positional: the role, for the verbs that take one.
@@ -2679,6 +2687,47 @@ EOF
     case "$INTERVAL" in ''|*[!0-9]*) usage_fail "--interval must be whole seconds" ;; esac
     [ "$INTERVAL" -ge 1 ] || usage_fail "--interval must be at least 1 second"
 
+    # --registry-required (issue #1107): the caller KNOWS this wave is tracked
+    # by the registry, so a wave with nothing ever registered in it is a
+    # misconfiguration (a --wave typo, or supervise launched before register)
+    # rather than #814's legitimate registry-optional use. Without the flag
+    # that reading is impossible - the two are observationally identical from
+    # here - which is why it is an explicit opt-in and never a default.
+    #
+    # Checked at LAUNCH, not in the daemon. The daemon is detached and cannot
+    # wake anyone (#1228), so an exit it logged would reach nobody; a refusal
+    # here is a non-zero exit the caller sees in the same call. It runs before
+    # the lock is taken, so a refused launch leaves no lock, pidfile or log.
+    #
+    # Only the AFFIRMATIVE `no-roles-registered` is `misconfigured`. A wave
+    # whose roles all ended is the #1095 case and launches normally (the
+    # daemon then exits `no-roles-ended` on its own); `yes` launches. Anything
+    # the registry could not answer - sibling missing, corrupt file, no
+    # verdict line - is `unverified`, a separate word and exit code: the
+    # caller asked for the registry to be a precondition, and a precondition
+    # that could not be checked is not one that held.
+    if [ "$REGISTRY_REQUIRED" -eq 1 ]; then
+      E_ROLE="$ROLE"
+      REQ_REGISTRY="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")/flow-wave-registry.sh"
+      REQ_ANY_LIVE=""
+      if [ -r "$REQ_REGISTRY" ]; then
+        REQ_ANY_LIVE="$(bash "$REQ_REGISTRY" list --wave "$WAVE" --any-live 2>/dev/null | sed -n 's/^FLOW_WAVE_ANY_LIVE=//p')"
+      fi
+      case "$REQ_ANY_LIVE" in
+        yes | no-roles-ended) : ;;
+        no-roles-registered)
+          echo "flow-wave-mailbox: refusing to supervise - --registry-required was given, but no role has ever been registered in wave '$WAVE' (issue #1107). Check the --wave spelling, or register first: flow-wave-registry.sh register $ROLE --wave $WAVE. Nothing was started." >&2
+          emit misconfigured
+          exit 7
+          ;;
+        *)
+          echo "flow-wave-mailbox: refusing to supervise - --registry-required was given, but the registry could not answer for wave '$WAVE' (verdict: '${REQ_ANY_LIVE:-none}', registry: $REQ_REGISTRY) (issue #1107). This is NOT a finding that the wave is empty. Nothing was started." >&2
+          emit unverified
+          exit 8
+          ;;
+      esac
+    fi
+
     SUP_LOCK="$WAVE_DIR/.supervise-$ROLE.lock"
     SUP_PIDFILE="$WAVE_DIR/.supervise-$ROLE.pid"
     SUP_LOG="$WAVE_DIR/.supervise-$ROLE.log"
@@ -2893,8 +2942,10 @@ EOF
         # would fire and be the CORRECT call once this gate is in place; it
         # is not wired to an exit here for that reason, not by oversight.
         # The broader "wrong --wave id, never registered at all" case #1095
-        # also named needs a mechanism this check does not have (e.g. an
-        # explicit opt-in flag), not a default this daemon can infer safely.
+        # also named is `supervise --registry-required` (issue #1107), checked
+        # once at LAUNCH above - an explicit opt-in, not a default this daemon
+        # could infer safely, and a refusal the caller sees rather than a log
+        # line from a detached process.
         if [ "$REL_LIVENESS" != "-" ]; then
           WAVE_ANY_LIVE="$(bash "$SUP_REGISTRY" list --wave "$WAVE" --any-live 2>/dev/null | sed -n 's/^FLOW_WAVE_ANY_LIVE=//p')"
           if [ "$WAVE_ANY_LIVE" = "no-roles-ended" ]; then
