@@ -51,6 +51,7 @@ set -u
 # for. Parameter expansion forks nothing and needs nothing on PATH.
 _gate_lib_dir=${0%/*}
 [ "$_gate_lib_dir" = "$0" ] && _gate_lib_dir=.
+# shellcheck disable=SC1091  # gate-lib.sh is resolved at run time and linted as its own file (#972)
 . "$_gate_lib_dir/gate-lib.sh"
 
 gate_map clean=0 findings=1 usage=2 unavailable=3
@@ -67,7 +68,7 @@ done
 [ -n "$ROOT" ] || die "--root is required"
 [ -d "$ROOT" ] || die "no such case directory: $ROOT"
 
-HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+HERE=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 CONFIG="$HERE/../.gitleaks.toml"
 [ -f "$CONFIG" ] || die "shipped config not found at $CONFIG"
 

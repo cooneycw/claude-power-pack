@@ -1440,6 +1440,53 @@ class TestAckBindsToExactIdentity:
         remaining = _body(_run(tmp_path, "read", "--role", "1", "--wave", WAVE, "--peek"))
         assert "one" in remaining, "rev 1 must not have been acked by a refused batch"
 
+    def test_ack_revs_are_not_pathname_expanded(self, tmp_path: Path) -> None:
+        """`[1]` is not a revision, whatever the cwd holds (#972 counter-model review).
+
+        The rev list used to be split with an unquoted expansion, which also
+        GLOBBED each token: with a file named `1` in the cwd, `--revs '[1]'`
+        reached the validator as `1` and acked a message nobody named.
+        """
+        _send(tmp_path, "1", "only message")
+        cwd = tmp_path / "cwd"
+        cwd.mkdir()
+        (cwd / "1").write_text("")
+        assert (cwd / "1").exists(), "precondition: the glob needs a file to match"
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+        proc = subprocess.run(
+            ["bash", str(MAILBOX), "ack", "--role", "1", "--wave", WAVE, "--revs", "[1]"],
+            capture_output=True, text=True, env=env, cwd=cwd, check=False, timeout=60,
+        )
+        assert proc.returncode == 2, proc.stdout + proc.stderr
+        still_there = _body(_run(tmp_path, "read", "--role", "1", "--wave", WAVE, "--peek"))
+        assert "only message" in still_there, "rev 1 must not have been acked via a glob"
+
+    def test_ack_refuses_a_bad_rev_after_a_newline(self, tmp_path: Path) -> None:
+        """Every rev reaches the all-or-nothing validator, across newlines too.
+
+        A line-bounded split read only `1` from `1,<newline>999`, acked it and
+        reported success - the batch guarantee bypassed (#972 review, pass 2).
+        """
+        _send(tmp_path, "1", "one")
+        proc = _run(tmp_path, "ack", "--role", "1", "--wave", WAVE, "--revs", "1,\n999")
+        assert proc.returncode == 2, proc.stdout + proc.stderr
+        remaining = _body(_run(tmp_path, "read", "--role", "1", "--wave", WAVE, "--peek"))
+        assert "one" in remaining, "rev 1 must not have been acked by a refused batch"
+
+    def test_reader_of_box_keeps_an_option_like_reader_name(self) -> None:
+        """A reader named `-n` is a name, not an `echo` flag (#972 counter-model review)."""
+        script = (
+            'source <(sed -n "/^reader_of_box() {/,/^}/p" "$1"); '
+            'reader_of_box /x/outbox--n.md; reader_of_box /x/outbox--e.md'
+        )
+        proc = subprocess.run(
+            ["bash", "-c", script, "_", str(MAILBOX)],
+            capture_output=True, text=True, check=False, timeout=30,
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout.splitlines() == ["-n", "-e"]
+
     def test_ack_all_unacked_acks_everything_currently_unread(
         self, tmp_path: Path
     ) -> None:

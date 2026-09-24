@@ -331,7 +331,7 @@ if [ -n "$SCRIPTS_DIR" ] && [ -d "$SCRIPTS_DIR" ]; then
         # the LINK'S OWN DIRECTORY when the target is relative, because that is
         # what the kernel does - resolving against the caller's cwd would answer
         # about a different path than the one that will actually be followed.
-        link_root="${target%/scripts/$base}"
+        link_root="${target%/scripts/"$base"}"
         case "$link_root" in
             /*) ;;
             *)  link_root="${installed%/*}/$link_root" ;;
@@ -340,6 +340,7 @@ if [ -n "$SCRIPTS_DIR" ] && [ -d "$SCRIPTS_DIR" ]; then
         # cannot be attributed to us any more, so it is not reported. That is
         # the conservative direction - an unreported orphan is a gap, an
         # unattributed accusation about someone else's file is a defect.
+        # shellcheck disable=SC2015  # intended: continue unless BOTH tests hold (#972)
         [ -f "$link_root/CLAUDE.md" ] && [ -d "$link_root/.claude/commands" ] || continue
         # EXISTENCE, not shape. `-e` follows the link, which is exactly "does
         # the checkout still have something at the end of this link".

@@ -34,6 +34,12 @@
       "why": "Added by the issue #970 re-examination. A deliberately-broken script sitting at controls/*/cases/*, which the gate must SKIP - that population belongs to the control that owns it. Nothing in the original pair depended on the exclusion. The offender is extensionless on purpose: a *.sh name would also be caught by the vendored anchor, which globs *.sh, and an anchor disagreeing on a known-GOOD input cannot isolate the blindness under test."
     },
     {
+      "name": "bad-note-severity",
+      "input": "cases/bad-note-severity",
+      "expect": "BAD",
+      "why": "Added by issue #972, which raised the gate's default severity from error to style after reviewing the sub-error residual to zero. The file's ONLY finding is SC2002, a style-level note. Every earlier BAD case offends at error severity, so none of them could tell the raised default from the old one: revert the default to error and the whole register stayed green. This case is what reddens. MEASURED both ways: the gate at error, and the vendored anchor, report it clean; the gate at style reports the finding."
+    },
+    {
       "name": "unknown-zero-matched",
       "input": "cases/unknown-zero-matched",
       "expect": "UNKNOWN",

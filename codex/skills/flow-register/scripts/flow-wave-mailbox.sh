@@ -1043,6 +1043,7 @@ watch_stamp() {
   now="${FLOW_WAVE_NOW:-$(date +%s)}"
   wf="$(watch_file "$1")"
   tmp="$(mktemp "$WAVE_DIR/.wstamp.XXXXXX" 2>/dev/null)" || return 0
+  # shellcheck disable=SC2015  # intended: remove the temp file unless BOTH the write and the rename succeed (#972)
   printf '%s\n' "$now" > "$tmp" 2>/dev/null && mv -f "$tmp" "$wf" 2>/dev/null || rm -f "$tmp"
   return 0
 }
@@ -1110,7 +1111,7 @@ reader_of_box() {
   local b
   b="$(basename "$1")"
   case "$b" in
-    outbox-*.md) echo "${b#outbox-}" | sed 's/\.md$//' ;;
+    outbox-*.md) b="${b#outbox-}"; printf '%s\n' "${b%.md}" ;;
     inbox-*.md)  echo orchestrator ;;
     *)           echo '-' ;;
   esac
@@ -1435,6 +1436,7 @@ session_ancestor_of() {
 classify_records() {
   local role pid anc par
   printf '%s\n' "$1" | while read -r role pid _; do
+    # shellcheck disable=SC2015  # intended: skip unless BOTH fields are present (#972)
     [ -n "$role" ] && [ -n "$pid" ] || continue
     if anc="$(session_ancestor_of "$pid")"; then
       if [ "$anc" = "-" ]; then par=orphan; else par=session; fi
@@ -2259,7 +2261,7 @@ case "$VERB" in
         *)           WLIVE="$WCOUNT live watcher process(es)"
                      if [ "$WCOUNT" -gt 0 ]; then REARMED=yes; else REARMED=no; fi ;;
       esac
-      echo "flow-wave-mailbox: role '$ROLE' wave '$WAVE': watch is $(printf '%s' "$WSTATE" | tr 'a-z' 'A-Z') - $WLIVE, $WLAST; re-armed: $REARMED"
+      echo "flow-wave-mailbox: role '$ROLE' wave '$WAVE': watch is $(printf '%s' "$WSTATE" | tr '[:lower:]' '[:upper:]') - $WLIVE, $WLAST; re-armed: $REARMED"
       case "$WSTATE" in
         dead)
           echo "flow-wave-mailbox: NOTHING is listening for role '$ROLE' - the heartbeat is only as fresh as the last wake, and a watch is one-shot (#801). Mail sent now will not wake anyone. Re-arm as a BACKGROUND call:"
@@ -2455,14 +2457,20 @@ case "$VERB" in
         ack_all_unacked_in "$b" || exit $?
         TOTAL_ACKED=$((TOTAL_ACKED + N_BEFORE))
       else
-        REVLIST="$(printf '%s' "$A_REVS" | tr ',' ' ')"
-        # shellcheck disable=SC2086
-        ack_add "$b" $REVLIST || exit $?
+        # An ARRAY, split by `read -a`, which does not glob (#972, counter-model
+        # review). The old unquoted $REVLIST also pathname-expanded each token,
+        # so `--revs '[1]'` became `1` whenever a file named `1` sat in the cwd,
+        # and the validators below saw a revision nobody passed.
+        REVS=()
+        # `-d ''` reads to end of input, not to the first newline: a line-bounded
+        # read dropped every rev after one, so `1,<newline>999` acked 1 and never
+        # showed 999 to the all-or-nothing validator (counter-model review, pass 2).
+        read -r -d '' -a REVS <<<"${A_REVS//,/ }" || true
+        ack_add "$b" ${REVS[@]+"${REVS[@]}"} || exit $?
         # An out-of-band ack is still an ack; this only records the CHANNEL, so a
         # later `route=` reading can tell "answered on lane 1" from "never seen".
-        [ "$ANSWERED_ELSEWHERE" -eq 1 ] && ackob_add "$b" $REVLIST
-        # shellcheck disable=SC2086
-        N_GIVEN="$(printf '%s\n' $REVLIST | grep -c '[0-9]')"
+        [ "$ANSWERED_ELSEWHERE" -eq 1 ] && ackob_add "$b" ${REVS[@]+"${REVS[@]}"}
+        N_GIVEN="$(printf '%s\n' ${REVS[@]+"${REVS[@]}"} | grep -c '[0-9]')"
         TOTAL_ACKED=$((TOTAL_ACKED + N_GIVEN))
       fi
     done <<EOF
@@ -2593,6 +2601,7 @@ EOF
     # silently discard the FLOW_MAILBOX_EXIT= line installed at the top of this file,
     # and nothing would report its absence. $? is captured FIRST, before the
     # cleanup runs, or the reported status becomes `rm`'s.
+    # shellcheck disable=SC2154  # _rc is assigned inside the trap string itself (#972)
     trap '_rc=$?; rm -f "$ESC_CLAIM"; printf "FLOW_MAILBOX_EXIT=%d\n" "$_rc" >&2' EXIT
     trap 'rm -f "$ESC_CLAIM"' INT TERM
     (

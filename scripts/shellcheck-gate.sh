@@ -58,11 +58,22 @@ set -u
 # for. Parameter expansion forks nothing and needs nothing on PATH.
 _gate_lib_dir=${0%/*}
 [ "$_gate_lib_dir" = "$0" ] && _gate_lib_dir=.
+# shellcheck disable=SC1091  # gate-lib.sh is resolved at run time and linted as its own file (#972)
 . "$_gate_lib_dir/gate-lib.sh"
 
 gate_map ok=0 findings=1 unknown=2
 
-SEVERITY="${SHELLCHECK_SEVERITY:-error}"
+# STYLE, the lowest severity (issue #972). #960 adopted this gate at `error` and
+# filed everything below it as a counted residual; #972 reviewed that residual to
+# zero - every finding fixed, or suppressed on its own line with its reason - and
+# raising this default is what closed it. Nothing below the gate is unreviewed
+# now. controls/shellcheck-gate/cases/bad-note-severity is the input that tells
+# this default from the old one.
+#
+# What would move this back (ADR 0009): repeated churn from note-level findings
+# that are consistently suppressed rather than fixed. The step back is to
+# `warning`, never to `error` - `error` re-opens an unreviewed residual.
+SEVERITY="${SHELLCHECK_SEVERITY:-style}"
 ROOT="."
 
 while [ $# -gt 0 ]; do

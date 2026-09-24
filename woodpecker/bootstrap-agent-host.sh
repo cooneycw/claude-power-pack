@@ -86,7 +86,7 @@ EOF
 
 log "Reachability: $WOODPECKER_SERVER"
 host=${WOODPECKER_SERVER%%:*}; port=${WOODPECKER_SERVER##*:}
-timeout 5 bash -c "</dev/tcp/$host/$port" && echo "gRPC port open" || { echo "cannot reach $WOODPECKER_SERVER"; exit 1; }
+if timeout 5 bash -c "</dev/tcp/$host/$port"; then echo "gRPC port open"; else echo "cannot reach $WOODPECKER_SERVER"; exit 1; fi
 
 log "Start agent"
 ( cd "$AGENT_DIR" && docker compose -f docker-compose.agent.yml up -d )
