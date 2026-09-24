@@ -7,7 +7,7 @@
 # corruption, a partial edit, and post-build modification. It does NOT
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
-26a97f4798570d79700a3bfa284a888c3a8362ec9c3e2634ebdc56fc05457735  flow-helpers-install.sh
+6a26b0ecf6b8ceeb900a34b639b18f1153b16873fab324355b5f9b8c0bedcc52  flow-helpers-install.sh
 179cc0b6126859f876c60c8ba5ee6cb462114960996315d6592a35594b6181c2  flow-live-driver-guard.sh
 57744501570e70878ba9958cbcdd3d5969ffb3c2d76094cd3818aaf1d61bf519  flow-start-resolve.sh
 cc7e9fee8358f959310ee38b221825511065c413386f39e5291a78ca33959745  stash-worktree-guard.sh

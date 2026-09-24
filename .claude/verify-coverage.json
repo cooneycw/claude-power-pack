@@ -134,6 +134,11 @@
       "consumer": "tests/test_flow_live_driver_guard.py",
       "reason": "reports whether another session is mid-implementation in this checkout"
     },
+    "flow-plan-record.py": {
+      "class": "tested",
+      "consumer": "tests/test_flow_plan_compliance.py",
+      "reason": "the /flow:auto plan record and as-read snapshot (issue #1211): reconcile, read-issue, approve, drift, compliance and head-check. head-check's absent/unverified verdicts STOP Step 6; the other verdicts are read by the run and the PR. tests/test_flow_plan_record.py and tests/test_flow_issue_snapshot.py drive the other subcommands"
+    },
     "flow-pr-watch.sh": {
       "class": "tested",
       "consumer": "tests/test_flow_pr_watch.py",

@@ -1,9 +1,10 @@
 """Control for the /flow:auto plan-versus-diff compliance check (issue #1082).
 
-The documented block is EXTRACTED from auto.md and RUN against fixture
-repositories. It is never re-implemented here: a case that restated the logic
-would pass while the documented commands were wrong, which is the failure this
-whole chain of issues is about.
+The check is `scripts/flow-plan-record.py compliance`, the PRODUCTION entry
+point auto.md invokes (issue #1211 moved it out of a pasted block). These cases
+RUN that script against fixture repositories. They never re-implement it: a
+case that restated the logic would pass while the shipped check was wrong,
+which is the failure this whole chain of issues is about.
 """
 
 from __future__ import annotations
@@ -23,21 +24,20 @@ requires_git = pytest.mark.skipif(
 
 REPO = Path(__file__).resolve().parents[1]
 AUTO_MD = REPO / ".claude" / "commands" / "flow" / "auto.md"
-MARKER = "7. **Compare the diff against the approved plan** (issue #1082)"
+HELPER = REPO / "scripts" / "flow-plan-record.py"
 
 
-def block() -> str:
-    text = AUTO_MD.read_text()
-    if text.count(MARKER) != 1:
-        raise AssertionError(f"expected exactly one {MARKER!r}, found {text.count(MARKER)}")
-    m = re.search(r"```bash\n(.*?)```", text.split(MARKER, 1)[1], re.DOTALL)
-    if not m:
-        raise AssertionError("no fenced bash block follows the compliance heading")
-    snippet = re.sub(r"^   ", "", m.group(1), flags=re.M)
-    for needed in ("add -N", "PLAN_COMPLIANCE", "PLAN_RECORD_STABILITY"):
-        if needed not in snippet:
-            raise AssertionError(f"the documented block no longer contains {needed!r}")
-    return snippet
+def helper_source() -> str:
+    text = HELPER.read_text()
+    for needed in ('"add", "-N"', "PLAN_COMPLIANCE", "PLAN_RECORD_STABILITY"):
+        if needed not in text:
+            raise AssertionError(f"the helper no longer contains {needed!r}")
+    return text
+
+
+def invoke(cwd: Path, base: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run(["python3", str(HELPER), "compliance", "42", "--base", base],
+                          cwd=cwd, capture_output=True, text=True, env=env)
 
 
 def git(repo: Path, *args: str) -> str:
@@ -77,9 +77,9 @@ def stamp_baseline(repo: Path) -> None:
 
 
 def run(repo: Path, base: str) -> str:
-    script = block().replace('$(git merge-base HEAD origin/main)', base)
-    proc = subprocess.run(["bash", "-c", script], cwd=repo, capture_output=True, text=True)
-    assert proc.returncode == 0, f"block exited {proc.returncode}\n{proc.stderr}"
+    proc = invoke(repo, base)
+    # 0 agreement+unchanged, 3 a finding, 4 unknown: each verdict, never a crash.
+    assert proc.returncode in (0, 3, 4), f"helper exited {proc.returncode}\n{proc.stderr}"
     return proc.stdout
 
 
@@ -203,9 +203,7 @@ def test_the_untracked_list_is_not_itself_an_untracked_file(tmp_path: Path) -> N
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "work")
 
-    script = block().replace('$(git merge-base HEAD origin/main)', base)
-    proc = subprocess.run(["bash", "-c", script], cwd=repo, capture_output=True,
-                          text=True, env={**os.environ, "TMPDIR": str(repo)})
+    proc = invoke(repo, base, env={**os.environ, "TMPDIR": str(repo)})
     assert "PLAN_COMPLIANCE: agreement" in proc.stdout, (
         f"a temp file under TMPDIR=<worktree> leaked into the comparison:\n"
         f"{proc.stdout}\n{proc.stderr}"
@@ -386,6 +384,29 @@ def test_an_uncomputable_diff_is_unknown_never_agreement(tmp_path: Path) -> None
 
 
 @requires_git
+def test_no_merge_base_with_origin_main_is_unknown_never_agreement(tmp_path: Path) -> None:
+    """The DEFAULT base, which auto.md relies on: no `--base`, no origin/main.
+
+    Diffing against an empty base would examine nothing and could report
+    agreement. Found by test_every_unknown_branch_has_a_case_that_PINS_IT when
+    the base derivation moved into the helper (issue #1211).
+    """
+    repo, _ = make_repo(tmp_path)
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("a\n")
+    write_plan(repo, "src/app.py")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "work")
+    assert "origin/main" not in git(repo, "branch", "-a")     # the precondition
+    proc = subprocess.run(["python3", str(HELPER), "compliance", "42"],
+                          cwd=repo, capture_output=True, text=True)
+    assert proc.returncode == 4, proc.stderr
+    assert "PLAN_COMPLIANCE: unknown" in proc.stdout
+    assert "no merge-base" in proc.stdout, f"reached a different unknown branch:\n{proc.stdout}"
+    assert "PLAN_COMPLIANCE: agreement" not in proc.stdout
+
+
+@requires_git
 def test_a_plan_record_grown_BEFORE_its_first_commit_is_still_caught(tmp_path: Path) -> None:
     """The HIGH finding: the record is not COMMITTED until Step 6, after the work.
 
@@ -551,9 +572,7 @@ def test_an_unenumerable_worktree_is_unknown_not_agreement(tmp_path: Path) -> No
     """
     outside = tmp_path / "not-a-repo"
     outside.mkdir()
-    script = block().replace('$(git merge-base HEAD origin/main)', "HEAD")
-    proc = subprocess.run(["bash", "-c", script], cwd=outside,
-                          capture_output=True, text=True)
+    proc = invoke(outside, "HEAD")
     assert "PLAN_COMPLIANCE: unknown" in proc.stdout
     assert "enumerate untracked files" in proc.stdout, (
         f"reached a different unknown branch:\n{proc.stdout}\n{proc.stderr}"
@@ -602,14 +621,14 @@ def test_every_unknown_branch_has_a_case_that_PINS_IT() -> None:
 
     A rule that must be remembered at each site will be forgotten at some site.
     """
-    blk = block()
-    messages = re.findall(r'unknown\(f?"([^"]*)"', blk)
-    # The SHELL half emits its own unknowns before python is reached. Enumerating
-    # only the python calls omitted both of them - the gate's own population was
-    # narrower than the thing it was gating (counter-model review, gpt-6-astra).
-    messages += re.findall(r'echo "PLAN_COMPLIANCE: unknown \(([^"]*)', blk)
-    messages += re.findall(r'print\("PLAN_RECORD_STABILITY: unknown \(([^"]*)', blk)
-    assert len(messages) >= 4, f"expected >=4 unknown branches, found {len(messages)}: {messages}"
+    blk = helper_source()
+    # Every unknown branch of the SHIPPED helper: the enumeration and intent-to-add
+    # unknowns (once the shell half) plus the stability unknowns. Enumerating only
+    # some of them would make the gate's population narrower than the thing it gates
+    # (counter-model review, gpt-6-astra).
+    messages = re.findall(r'compliance_unknown\(f?"([^"]*)"', blk)
+    messages += re.findall(r'stability_unknown\(f?"([^"]*)"', blk)
+    assert len(messages) >= 8, f"expected >=4 unknown branches, found {len(messages)}: {messages}"
     # NORMALISE BOTH SIDES. The runs are derived from the message with punctuation
     # stripped, so searching them in raw assert text means "item s" can never match
     # "item(s)" however well the branch is pinned - the gate would demand a phrase

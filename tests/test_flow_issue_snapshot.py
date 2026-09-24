@@ -2,10 +2,11 @@
 
 The FETCH needs `gh` and a live issue and is not controlled - stubbing the tool
 whose output is the subject would test the stub. Everything downstream of the
-fetch is a decision over local files, and those blocks are extracted from
-`auto.md` and RUN.
+fetch is a decision over local files, owned since issue #1211 by
+`scripts/flow-plan-record.py` - the production entry point auto.md invokes. Its
+`--body-file` / `--live-file` options replace ONLY the `gh` call.
 
-EACH DOCUMENTED BLOCK RUNS IN ITS OWN PROCESS. An agent executes Step 1 and Step
+EACH SUBCOMMAND RUNS IN ITS OWN PROCESS. An agent executes Step 1 and Step
 4 in separate shell invocations, so state held in a shell variable is gone by the
 time the writer needs it. An earlier version of this file concatenated the blocks
 into one shell and passed the filename in, which hid exactly that defect.
@@ -28,49 +29,25 @@ requires_git = pytest.mark.skipif(
 )
 
 REPO = Path(__file__).resolve().parents[1]
-AUTO_MD = REPO / ".claude" / "commands" / "flow" / "auto.md"
-RECORD_MARKER = "Record what was read - a decision over local files"
-WRITER_HEADING = "#### Also write the as-read snapshot here (issue #1081)"
-VERDICT_MARKER = "Verdict - `$SNAP` is the as-read snapshot"
+HELPER = REPO / "scripts" / "flow-plan-record.py"
 CAP = 16384
 SNAP_REL = "docs/flow-runs/issue-42.as-read.md"
+PLAN_REL = "docs/flow-runs/issue-42.md"
 
 
-def _block_after(marker: str, *, must_contain: str) -> str:
-    text = AUTO_MD.read_text()
-    if text.count(marker) != 1:
-        raise AssertionError(f"expected exactly one {marker!r}, found {text.count(marker)}")
-    m = re.search(r"```bash\n(.*?)```", text.split(marker, 1)[1], re.DOTALL)
-    if not m:
-        raise AssertionError(f"no fenced bash block follows {marker!r}")
-    snippet = re.sub(r"^   ", "", m.group(1), flags=re.M)
-    if must_contain not in snippet:
-        raise AssertionError(
-            f"the block after {marker!r} no longer contains {must_contain!r}:\n{snippet}"
-        )
-    return snippet
-
-
-def record_snippet() -> str:
-    return _block_after(RECORD_MARKER, must_contain="sha256sum")
-
-
-def writer_snippet() -> str:
-    return _block_after(WRITER_HEADING, must_contain="Body digest")
-
-
-def verdict_snippet() -> str:
-    return _block_after(VERDICT_MARKER, must_contain="ISSUE_DRIFT")
-
-
-def sh(script: str, cwd: Path, env_lines: str = "") -> str:
-    """Run ONE documented block in ITS OWN process."""
-    proc = subprocess.run(
-        ["bash", "-c", env_lines + "\n" + script],
-        cwd=cwd, capture_output=True, text=True,
-    )
-    assert proc.returncode == 0, f"block exited {proc.returncode}\n{proc.stderr}"
+def helper(cwd: Path, *args: str, ok: tuple[int, ...] = (0,)) -> str:
+    """Run ONE helper subcommand in ITS OWN process and require an expected exit."""
+    proc = subprocess.run(["python3", str(HELPER), *args], cwd=cwd,
+                          capture_output=True, text=True)
+    assert proc.returncode in ok, f"{args} exited {proc.returncode}\n{proc.stdout}\n{proc.stderr}"
     return proc.stdout
+
+
+def write_plan(repo: Path) -> None:
+    """`approve` stamps the approved plan, so one must exist - as at Step 4."""
+    plan = repo / PLAN_REL
+    plan.parent.mkdir(parents=True, exist_ok=True)
+    plan.write_text("# Flow run record - issue #42\n## Section C - the approved plan\n")
 
 
 def make_repo(tmp_path: Path) -> Path:
@@ -86,26 +63,25 @@ def make_repo(tmp_path: Path) -> Path:
     return repo
 
 
-def store_body(repo: Path, body: bytes, updated: str = "2026-09-21T11:59:00Z") -> None:
-    """Stand in for the FETCH only - the one part that needs `gh`."""
-    gitdir = subprocess.run(["git", "-C", str(repo), "rev-parse", "--git-dir"],
-                            capture_output=True, text=True, check=True).stdout.strip()
-    base = (repo / gitdir) / "flow-as-read-42"
-    base.with_suffix(".body").write_bytes(body)
-    base.with_suffix(".updated").write_text(updated + "\n")
+def store_body(repo: Path, body: bytes) -> None:
+    """Step 1's read, with the body supplied from a file instead of `gh`."""
+    src = repo.parent / "fetched-body.md"
+    src.write_bytes(body)
+    helper(repo, "read-issue", "42", "--body-file", str(src))
 
 
 def snapshot(repo: Path, body: bytes) -> Path:
-    """Fetch (stood in), then RECORD and WRITE in SEPARATE processes."""
+    """Read (Step 1), then APPROVE (Step 4) in SEPARATE processes."""
     store_body(repo, body)
-    sh(record_snippet(), repo)
-    sh(writer_snippet(), repo)
+    write_plan(repo)
+    helper(repo, "approve", "42")
     return repo / SNAP_REL
 
 
 def verdict(repo: Path, live: Path | None) -> str:
-    return sh(verdict_snippet(), repo,
-              f'LIVE_TMP="{live}"' if live is not None else 'LIVE_TMP=""')
+    """Step 6's drift check; `None` is a fetch that produced nothing."""
+    return helper(repo, "drift", "42", "--live-file", str(live) if live is not None else "",
+                  ok=(0, 3, 4))
 
 
 # --------------------------------------------------------------------- the two required cases
@@ -301,8 +277,8 @@ def test_truncation_never_splits_a_multibyte_character(tmp_path: Path) -> None:
 @requires_git
 def test_an_unreadable_issue_yields_an_unresolved_snapshot(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
-    (repo / "docs" / "flow-runs").mkdir(parents=True)
-    sh(writer_snippet(), repo)           # no .body, no .meta: the fetch failed
+    write_plan(repo)
+    helper(repo, "approve", "42", ok=(4,))   # no .body, no .meta: the fetch failed
     text = (repo / SNAP_REL).read_text()
     assert "AS_READ: unresolved" in text
     assert "NOT a record that the issue was unchanged" in text
@@ -339,9 +315,9 @@ def test_the_state_survives_separate_shell_invocations(tmp_path: Path) -> None:
     that ran both blocks in one shell would never show it.
     """
     repo = make_repo(tmp_path)
-    store_body(repo, b"## Acceptance\n- one\n")
-    sh(record_snippet(), repo)                     # process 1
-    sh(writer_snippet(), repo)                     # process 2, no shared environment
+    store_body(repo, b"## Acceptance\n- one\n")    # process 1
+    write_plan(repo)
+    helper(repo, "approve", "42")                  # process 2, no shared environment
     text = (repo / SNAP_REL).read_text()
     assert "AS_READ: unresolved" not in text, (
         "a successful fetch produced an unresolved snapshot - the state did not "
@@ -376,8 +352,8 @@ def test_every_unresolved_branch_has_a_case_that_PINS_IT() -> None:
     Read a skip in this file as "unreachable here", and read this green as "each
     branch is named by a case", never as "each branch was exercised".
     """
-    block = verdict_snippet()
-    messages = re.findall(r'unresolved\(f?"([^"]*)"', block)
+    block = HELPER.read_text()
+    messages = re.findall(r'drift_unresolved\(f?"([^"]*)"', block)
     assert len(messages) >= 4, (
         f"expected at least 4 unresolved branches in the documented block, found "
         f"{len(messages)}: {messages}"

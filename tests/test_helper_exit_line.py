@@ -66,6 +66,7 @@ NAMESPACES = {
     "flow-start-resolve.sh": "FLOW_START_RESOLVE",
     "flow-live-driver-guard.sh": "FLOW_LIVE_DRIVER",
     "flow-stale-check.sh": "FLOW_STALE",
+    "flow-plan-record.py": "FLOW_PLAN_RECORD",
     "flow-worktree-guard.sh": "FLOW_WORKTREE_GUARD",
     "flow-worktree-claim.sh": "FLOW_CLAIM",
     "flow-wave-registry.sh": "FLOW_WAVE",

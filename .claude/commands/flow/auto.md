@@ -277,140 +277,37 @@ cannot be locked) is normal and never blocks the run.
 
 Report: `Step 1/9: Start complete - worktree at {path}, verified on branch {branch}`
 
-#### Reconcile the plan record (issue #1080)
+#### Reconcile the plan record, and record what this run read (issues #1080, #1081)
 
-A previous run in this worktree may have left a plan record at
-`docs/flow-runs/issue-<N>.md`. Reconcile it to its last COMMITTED state now,
-before Step 2, on EVERY lane including `current-branch` and `resume`:
-
-```bash
-REC="docs/flow-runs/issue-42.md"
-if git cat-file -e "HEAD:$REC" 2>/dev/null; then
-    git checkout HEAD -- "$REC"                      # in HEAD: restore index AND worktree
-else
-    git rm -q --cached --ignore-unmatch "$REC" >/dev/null 2>&1   # drop a staged addition
-    rm -f "$REC"                                     # and the scratch itself
-fi
-```
-
-**The invariant:** after this, the record on disk is exactly the last APPROVED
-record for this issue, or absent because none was ever approved on this branch.
-That is what makes a later absence mean something - "Step 3 was not reached in
-this run" rather than "nobody got around to writing one".
-
-**Why not simply delete it.** Deleting unconditionally was the first design and
-it fails worse than the staleness it prevents. Run A completes, writes its record
-and commits it. Run B reuses the worktree, deletes the record here, then stops
-before Step 3 or is killed. The branch now carries run A's code with NO approval
-record, and if anything stages that deletion the PR shows the record being
-removed. A stale record is a WRONG answer; no record over committed code is NO
-answer, on a branch that previously had one.
-
-**Why not simply leave it.** An UNTRACKED record is a dead run's scratch: some
-earlier run wrote it at Step 3 and died before committing. Left in place, Step
-6's staging sweeps it into THIS run's commit, and a plan nobody approved in this
-run ships as though it were this run's approval.
-
-So tracked is EVIDENCE and is restored; untracked is SCRATCH and is removed. A
-tracked record carrying uncommitted edits is restored to the committed version
-rather than kept, because the committed version is the one a reviewer actually
-signed - which also means this file is not a place to hand-edit between runs.
-
-#### Read the issue body, and record WHEN - fetch here, write later (issue #1081)
-
-A run's stage-1 facts all live in a GitHub issue body: mutable, carrying no SHA,
-with an edit history git cannot see. Capture what this run READ, so a later check
-can report that the source moved instead of nobody noticing.
-
-**Fetch to a TEMPORARY file here. Do NOT write anything into the worktree yet.**
-
-Fetch (needs `gh`; not controlled - stubbing it would test the stub):
+Run both, bare, on EVERY lane including `current-branch` and `resume`, before
+Step 2:
 
 ```bash
-AS_READ_STORE="$(git rev-parse --git-dir)/flow-as-read-42"
-if gh issue view 42 --json body --jq .body > "$AS_READ_STORE.body"; then
-    gh issue view 42 --json updatedAt --jq .updatedAt > "$AS_READ_STORE.updated" || :
-else
-    rm -f "$AS_READ_STORE.body"
-    echo "AS_READ: unresolved - could not read issue #42. The snapshot will say so."
-fi
+~/.claude/scripts/flow-plan-record.py reconcile 42
+~/.claude/scripts/flow-plan-record.py read-issue 42
 ```
 
-Record what was read - a decision over local files, kept separate so it can be
-controlled without stubbing `gh`:
+- `reconcile` leaves the record at `docs/flow-runs/issue-<N>.md` as exactly the
+  last COMMITTED - approved - record for this issue, or absent: committed is
+  evidence and is restored from HEAD, anything else is a dead run's scratch and
+  is removed. It prints `FLOW_PLAN_RECORD: restored|removed|absent`, exit 0.
+  Uncommitted edits to the record are replaced, so do not hand-edit it between
+  runs.
+- `read-issue` stores the issue body exactly as this run read it, with its digest
+  and read time, in the git directory - NOT the worktree, where a new file would
+  make the Step-4 driver guard report a phantom second driver. `AS_READ:
+  recorded` is exit 0. `AS_READ: unresolved` (exit 4) means the issue could not
+  be read: continue, and the Step-4 snapshot will say unresolved rather than
+  claim the issue was unchanged.
 
-```bash
-AS_READ_STORE="$(git rev-parse --git-dir)/flow-as-read-42"
-if [ -s "$AS_READ_STORE.body" ]; then
-    if D="$(sha256sum "$AS_READ_STORE.body" | cut -d' ' -f1)" && [ -n "$D" ]; then
-        printf 'digest=%s\nread_at=%s\n' "$D" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$AS_READ_STORE.meta"
-    else
-        printf 'digest=\nread_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$AS_READ_STORE.meta"
-        echo "AS_READ: unresolved - the body was read but could not be hashed."
-    fi
-fi
-```
-
-**The state lives in the GIT DIRECTORY, not in shell variables and not in the
-worktree.** An agent runs Step 1 and Step 4 in SEPARATE shell invocations, so a
-filename or digest held in a variable is gone by the time the writer needs it -
-a successful fetch would then produce an `unresolved` snapshot, and a test that
-ran both blocks in one shell would never show it (counter-model review,
-gpt-6-astra). `git rev-parse --git-dir` is deterministic, is per-worktree, and
-survives across calls.
-
-It is also invisible to the driver guard: measured, `git status --porcelain
---untracked-files=all` reports 0 lines with a file present inside `.git`. So the
-state can be written at Step 1 without the hazard that forced the file itself to
-Step 4.
-
-**Why the file is not written here.** `flow-live-driver-guard.sh` runs later, in
-Step 4, over `git status --porcelain --untracked-files=all` with a 30-minute
-freshness window, and `docs/flow-runs/` is not excluded from it. A file written
-at Step 1 is a fresh UNTRACKED path when that guard runs, which is the phantom
-second driver - the same defect the plan record hit, arriving earlier and so more
-certainly fresh.
-
-**It would also have been intermittent, which is worse than broken.** Under 30
-minutes from Step 1 to Step 4 the guard fires; over 30 minutes it does not. Fast
-ordinary runs would break while slow deliberate ones - exactly the runs where
-someone is watching, such as one waiting at the Step 3 gate for a reviewer -
-would pass.
-
-A temporary file is invisible to the guard because it is not in the worktree. The
-evidence claim is "this is what the run read, and when", and `read_at` carries the
-"when" as a FIELD at least as well as an early write would - the early write is
-the only part the guard objects to.
-
-**Ask HEAD whether the record EXISTS, not the index.** `git ls-files` answers
-"is this path in the INDEX", which is a different question and wrong in both
-directions (counter-model review, gpt-6-astra). Measured, with the index-based
-test:
-
-| state | result |
-|---|---|
-| committed record with a STAGED DELETION (`git rm --cached`) | file deleted, deletion still staged - an APPROVED record destroyed |
-| record STAGED but never committed | `UNAPPROVED scratch` left in place and still staged |
-
-Both are reachable, and the second is the exact failure the untracked branch
-exists to prevent. `git cat-file -e HEAD:<path>` asks the question the invariant
-is written in - "was this ever committed on this branch" - and
-`git checkout HEAD -- <path>` then restores the index as well as the worktree, so
-a staged deletion is undone rather than preserved. With the HEAD-based test the
-same two states yield `approved by A` with nothing staged, and absent with
-nothing staged.
-
-**`HEAD --`, never a bare `--`.** `git checkout -- <path>` restores from the
-INDEX, not from HEAD, and the state where those differ is reachable by this
-document's own design: Step 6 stages the record, so a run that stages it and then
-dies leaves the record tracked AND staged with that run's content. A bare `--`
-there restores the STAGED version - a plan approved in a DIFFERENT run - and this
-run then commits it at Step 6 as its own approval, which is precisely the failure
-the untracked branch above exists to prevent, arriving by the staged path.
-Measured: with run B's scratch staged over run A's commit, `git checkout --`
-yields run B's text while `git checkout HEAD --` yields run A's and clears the
-staged diff. The invariant says "approved on this branch", which means COMMITTED,
-and the HEAD anchor is what makes the command mean that.
+**Helper resolution**, here and at Steps 4 and 6: the stable path first; on exit
+127, `${CLAUDE_PLUGIN_ROOT}/scripts/flow-plan-record.py`, else the CPP-checkout
+copy - either may prompt once, so tell the user to run **`/flow:repair`**. If no
+copy exists, **STOP** and report it: the record, the snapshot and the Step-6
+PR-head check cannot run without it, and a run that skips them would reach the
+merge with its approval record unverified. Resume after `/flow:repair`. Why the helper asks HEAD rather than the index, and
+keeps its state in the git directory, is in [the plan-record reference](../../../docs/agents/flow-plan-record.md) - background,
+not required reading.
 
 **Compose-project safety - RUN-WIDE (issue #626).** `docker compose` derives its
 project name from the current directory basename when `COMPOSE_PROJECT_NAME` is
@@ -660,22 +557,11 @@ and continue. `/flow:repair` installs the family at the stable path.)
 
 #### First, write the plan record (issue #1080)
 
-**Step 4 is reached only when Step 3's approval was granted**, so this is the
-first point at which a record of an APPROVED plan can honestly be written, and
-writing it here leaves the approval gate itself byte-identical. A
-`No longer needed` verdict stops at Step 3 and never reaches this line, so it
-writes no record - there was no plan to approve, and an empty record would
-assert that there was.
-
-That placement is deliberate and was corrected here: the first draft wrote the
-record inside Step 3, which widened the gate the issue explicitly says not to
-widen ("Do not widen Step 3's contract. Only the destination is new") and was
-caught by `test_counter_model_review.py::test_adding_the_stage_LEFT_THE_ELI5_
-GATE_BYTE_IDENTICAL`, which asserts that section is unchanged from `origin/main`.
-The destination is new; the gate is not.
-
-**Only after approval is granted, and never before**, write the approved plan to
-the branch so the approval leaves a durable record:
+**Step 4 is reached only when Step 3's approval was granted**; a `No longer
+needed` verdict stopped at Step 3 and writes NO record. **Only after approval is
+granted, and never before**, and only after the two checks above - writing the
+record IS the first edit, and the driver guard would read an earlier one as a
+phantom second driver - write the approved plan to the branch:
 
 ```bash
 mkdir -p docs/flow-runs
@@ -703,151 +589,30 @@ statement of the issue contract or of a Tier 3 spec, and it does not graduate.
 RECORD
 ```
 
-**The record does not name the knowledge-lifecycle document, deliberately, and
-this paragraph must not name it either.** That policy has exactly three bounded
-entry points among command bodies (`claude-md/lint.md`, `flow/finish.md`,
-`project/init.md`, plus their generated mirrors), and
-`check-claude-md-behavior.py` reports any fourth as a
-`non-boundary-lifecycle-pointer` by matching the FILENAME anywhere in the file -
-so a paragraph explaining the rule trips it exactly as a real pointer would.
-That is not a flaw in the check; a bounded set of entry points cannot be
-enforced by a matcher that tries to tell a citation from an explanation.
+Keep Section C as one numbered line per file, in the form ``N. `path` - gist``:
+Step 6 compares the diff against exactly those paths, and a line it cannot parse
+makes that comparison `unknown`. Markdown only - `.gitignore` carries a blanket
+`*.json`, and `git add` skips an ignored path without an error. There is no
+`auto-granted` value and no path that writes this file without an approver
+(issue #775): the approver field comes from the actual approval event.
 
-The authority names its subjects rather than the other way round: the
-knowledge-lifecycle document names flow run records and counter-model receipts
-as records of decisions that do not graduate, so the linkage exists where it can
-be maintained. The record states its own status in its header instead, which is
-what a reader of one actually needs.
-
-**Markdown, and that is a measured constraint rather than a preference.**
-`.gitignore` carries a blanket `*.json`, so a JSON record at this path is
-ignored - and `git add` skips an ignored path and reports no error, so the record
-would vanish from every PR silently. Verified by EXIT CODE, not by reading
-`check-ignore`'s output: `docs/flow-runs/issue-N.md` exits 1 (not ignored),
-`docs/flow-runs/issue-N.json` exits 0 (ignored, via `.gitignore:54`). A
-machine-readable form needs its own `!` negation FIRST, exactly as
-`docs/measurements/counter-model/*.json` has at `.gitignore:160` - see the note
-at Step 6 item 1 on why the negation is what makes a plain `git add` safe there.
-
-**There is no `auto-granted` value and no code path that writes this file without
-an approver** (issue #775). The record is written only after approval, and its
-approver field comes from the actual approval event - so there is no value to
-validate against. A field that can still be PRODUCED means something can still
-skip the gate, and a validator rejecting the value is only a second chance to get
-it wrong.
-
-**A verdict of `No longer needed` writes NO record.** The run stops, there is no
-plan to approve, and an empty record would assert that one was.
-
-#### Also write the as-read snapshot here (issue #1081)
-
-The body fetched at Step 1 is written now, in the same safe position and for the
-same reason:
+**Then, before any implementation edit**, write the as-read snapshot and stamp
+the approval baseline (issues #1081, #1082):
 
 ```bash
-mkdir -p docs/flow-runs
-python3 - 42 "$(git rev-parse --git-dir)/flow-as-read-42" docs/flow-runs/issue-42.as-read.md <<'PY'
-import pathlib, sys
-CAP = 16384
-issue, store, out = sys.argv[1], pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3])
-body_p, meta_p = store.with_suffix(".body"), store.with_suffix(".meta")
-meta = {}
-if meta_p.exists():
-    for line in meta_p.read_text().splitlines():
-        k, _, v = line.partition("=")
-        meta[k] = v
-digest, read_at = meta.get("digest", ""), meta.get("read_at", "")
-
-head = f"# Issue #{issue} as read by this run\n"
-if not body_p.exists() or not digest:
-    out.write_text(
-        head + "\nAS_READ: unresolved - the issue could not be read, or its body could not be\n"
-        "hashed, at Step 1. This is NOT a record that the issue was unchanged, and NOT an\n"
-        "absence of constraints. Read the issue.\n"
-    )
-    raise SystemExit(0)
-
-raw = body_p.read_bytes()
-cut = raw[:CAP]
-while cut:                      # never split a multibyte character
-    try:
-        cut.decode("utf-8"); break
-    except UnicodeDecodeError:
-        cut = cut[:-1]
-truncated = len(cut) < len(raw)
-updated = (store.with_suffix(".updated").read_text().strip()
-           if store.with_suffix(".updated").exists() else "unknown")
-
-parts = [
-    head, "\n",
-    "EVIDENCE OF WHAT THIS RUN READ, not a second statement of the contract.\n",
-    "The issue is the authority; read it. This copy exists so a later check can\n",
-    "report that the source moved. It does not graduate.\n\n",
-    f"- Issue:        #{issue}\n",
-    f"- Read at:      {read_at}\n",
-    f"- updatedAt:    {updated}   (context only - moves on comments and labels)\n",
-    f"- Body digest:  {digest}   (sha256 of the FULL body; the verdict keys on this)\n",
-    f"- Stored bytes: {len(cut)} of {len(raw)} (cap {CAP})\n",
-    "\n## Body as read\n",
-    cut.decode("utf-8"),
-]
-if truncated:
-    parts.append(
-        f"\n[TRUNCATED at {len(cut)} bytes of {len(raw)}. This extract is INCOMPLETE CONTEXT\n"
-        " TO RESOLVE by reading the issue - it is not an absence of further constraints.\n"
-        " The digest above covers the FULL body, so drift beyond this point is still\n"
-        " DETECTED; it just cannot be LOCALISED from this copy.]\n"
-    )
-out.write_text("".join(parts))
-PY
+~/.claude/scripts/flow-plan-record.py approve 42
 ```
 
-**Stamp the approval baseline now, before any implementation edit** (issue
-#1082). The plan record is not COMMITTED until Step 6, which is after the work is
-written - so "unchanged since its first commit" cannot detect an implementer who
-grows the record and the diff together before that commit. The baseline is
-therefore taken here, at the moment the approved plan is written, and kept in the
-git directory where the driver guard cannot see it and `git worktree remove`
-reaps it:
+- exit 0 - `docs/flow-runs/issue-42.as-read.md` is written (the body as read,
+  at most 16 KB stored; its digest covers the FULL body) and the record's digest
+  is stamped in the git directory as the Step-6 baseline.
+- exit 4 (`AS_READ: unresolved`) - the baseline is stamped but the snapshot says
+  the issue could not be read. Proceed; Step 6 will report drift as unresolved,
+  never clean.
+- exit 1 - there is no plan record to stamp. Write it first.
 
-```bash
-sha256sum "docs/flow-runs/issue-42.md" | cut -d' ' -f1 \
-  > "$(git rev-parse --git-dir)/flow-plan-baseline-42"
-```
-
-**The digest covers the FULL body; the 16 KB cap bounds only what is STORED.**
-Digesting the truncated copy would mean that for any issue past the cap, a change
-BEYOND it produces an identical digest and the check reports no drift - a
-blindness rendering as clean, in precisely the case the cap exists to handle.
-
-**The cap is measured, not chosen - and the measurement is a SAMPLE.** Across the
-40 most recent issues at the time of writing (2026-09-21) the mean body was 4,271
-bytes, the median 3,833, p90 6,877, and the largest 12,898 (#1132). So 16 KB held
-every body IN THAT SAMPLE with roughly 3 KB of headroom. It does not establish
-that no body in this repository has ever exceeded it, and it is not a prediction
-about future ones - which is why exceeding the cap is a supported, explicitly
-reported state rather than an error. Re-measure with:
-
-```bash
-gh issue list --state all --limit 40 --json number,body \
-  --jq '.[] | "\(.body|length) #\(.number)"' | sort -rn | head -5
-```
-
-**`updatedAt` is recorded as context and is never the verdict.** It moves on
-comments, labels and assignment, not only on body edits, so keying drift on it
-would report a changed contract for every comment - and a check that cries wolf
-gets ignored, which is worse than not having it.
-
-**Why the record is written HERE and not at the top of Step 4.** The two checks
-above are explicitly "run BEFORE the first edit", and writing the record IS the
-first edit. `flow-live-driver-guard.sh` collects tracked-modified AND untracked
-paths touched within 30 minutes; a record written before it is a fresh untracked
-file, so the guard would report `suspected` on every ordinary single-driver run
-and the procedure would stop to ask about a second driver that does not exist.
-Its own text states the premise this breaks: "dirty files here were modified in
-the last 30m and you have not written anything yet, so they are NOT yours."
-Found by counter-model review (gpt-6-astra); the ordering is load-bearing, not
-cosmetic.
+Background on the placement, the cap and the baseline is in
+[the plan-record reference](../../../docs/agents/flow-plan-record.md) - not required reading.
 
 **Worktree path-resolution rule (issue #486) - a native `EnterWorktree` session
 edits the worktree, but the worktree lives *inside* the main repo at
@@ -1463,306 +1228,55 @@ git merge --no-edit origin/main
    - PR body: Summary of changes + test plan + `${ISSUE_REF}`
    - Analyze all commits on the branch to draft the summary.
 
-6. **Check whether the issue moved under this run** (issue #1081). The FETCH and
-   the VERDICT are separate blocks, for the same reason the Step-1 read is
-   separate from its write: the fetch is I/O that needs `gh` and a live issue,
-   the verdict is a decision over two local files. Separated, the decision can be
-   controlled with real inputs instead of a stubbed `gh` - stubbing the tool
-   whose output is the subject would test the stub.
-
-   Fetch:
+6. **Check whether the issue moved under this run** (issue #1081):
    ```bash
-   LIVE_TMP="$(mktemp -t flow-live-body-XXXXXX.md)"
-   if ! gh issue view 42 --json body --jq .body > "$LIVE_TMP"; then
-       rm -f "$LIVE_TMP"; LIVE_TMP=""
-   fi
+   ~/.claude/scripts/flow-plan-record.py drift 42
    ```
-
-   Verdict - `$SNAP` is the as-read snapshot, `$LIVE_TMP` the body just fetched
-   (empty when the fetch failed):
-   ```bash
-   python3 - docs/flow-runs/issue-42.as-read.md "${LIVE_TMP:-}" <<'PY'
-import hashlib, pathlib, re, sys, difflib
-CAP = 16384
-snap_p, live = pathlib.Path(sys.argv[1]), sys.argv[2]
-
-def unresolved(why):
-    print(f"ISSUE_DRIFT: unresolved ({why})"); raise SystemExit(0)
-
-if not snap_p.exists():
-    unresolved("no as-read snapshot on this branch")
-text = snap_p.read_text()
-
-# Parse the METADATA SECTION ONLY. Searching the whole file would read a
-# `- Body digest: ...` line inside the COPIED ISSUE BODY as metadata, and an
-# unchanged issue quoting one would report drift (counter-model review).
-meta_section = text.split("\n## Body as read\n", 1)[0]
-found = re.findall(r"^- Body digest:\s+([0-9a-f]{64})\b", meta_section, re.M)
-if len(found) != 1:
-    unresolved(f"snapshot carries {len(found)} usable digests, expected exactly 1")
-recorded = found[0]
-
-if not live or not pathlib.Path(live).is_file():
-    unresolved("could not read the issue - this is NOT no-drift")
-try:
-    live_bytes = pathlib.Path(live).read_bytes()
-    live_digest = hashlib.sha256(live_bytes).hexdigest()
-except OSError as exc:
-    unresolved(f"could not hash the fetched body ({exc}) - this is NOT no-drift")
-
-if live_digest == recorded:
-    print("ISSUE_DRIFT: clean (body digest unchanged since this run read it)")
-    raise SystemExit(0)
-
-print("ISSUE_DRIFT: drift - the issue body changed since this run read it.")
-stored = text.split("\n## Body as read\n", 1)[1] if "\n## Body as read\n" in text else ""
-stored = re.sub(r"\n\[TRUNCATED at .*?\]\n", "", stored, flags=re.S)
-was_truncated = "[TRUNCATED at " in text
-# Compare LIKE WITH LIKE: the stored copy is a PREFIX, so diffing it against the
-# whole live body renders the unstored tail as additions and can push the real
-# edit past the preview entirely.
-live_text = live_bytes.decode("utf-8", "replace")
-compare_against = live_text[:len(stored)] if was_truncated else live_text
-for line in list(difflib.unified_diff(
-        stored.splitlines(), compare_against.splitlines(),
-        fromfile="as-read", tofile="live", lineterm=""))[:80]:
-    print(line)
-if was_truncated:
-    print("NOTE: the stored copy was truncated, so only the captured prefix is compared.")
-    print("A change BEYOND it is DETECTED by the digest but CANNOT BE LOCALISED here.")
-print("Resolve under the EXISTING authority model: newer bytes do not by themselves")
-print("override a constraint or a plan already accepted on this issue (#1081).")
-PY
-   ```
-
-   **A failed fetch and a missing snapshot are UNRESOLVED, never clean.** The
-   check cannot answer, and an unanswerable question rendered as a clean verdict
-   is the defect this wave has met most often - including one built deliberately
-   in this very step for the plan record, where a failed query and a genuine
-   absence printed the same line and both exited 0. Note the ordering: the
-   unresolved branches are tested BEFORE the comparison, so no path reaches
-   `clean` without a digest on both sides.
-
-   **Drift prints a DIFF, not a boolean**, because "acceptance criterion 3 gained
-   a clause" is actionable where "the issue changed" sends someone to re-read the
-   whole thing. Where the stored copy was truncated the diff covers the stored
-   prefix only; the digest still covers the whole body, so DETECTION is complete
-   even when the naming is partial.
+   - `ISSUE_DRIFT: clean` (exit 0) - the body digest is unchanged since Step 1.
+   - `ISSUE_DRIFT: drift` (exit 3) - the body changed; the helper prints a diff of
+     the change. Resolve it under the EXISTING authority model - newer bytes do not
+     by themselves override a constraint or a plan already accepted on the issue -
+     and say in the PR how it was resolved.
+   - `ISSUE_DRIFT: unresolved` (exit 4) - no snapshot, or the issue could not be
+     read or hashed. This is NOT clean: report the issue as unchecked.
 
 7. **Compare the diff against the approved plan** (issue #1082). It REPORTS; it
-   never blocks. The issue contract already lets an implementer substitute a
-   better approach and owe the reviewer the reason - this surfaces that the
-   substitution happened so the reason gets written down.
-
-   **First, make new files visible.** `git diff <ref>` compares the ref's tree to
-   the INDEX for paths the index already knows, so an untracked path is skipped
-   entirely. Without this the check reports AGREEMENT with an entire unplanned new
-   file in the tree - measured, and the exact case this issue names. `code_review.md`
-   fixed that for the REVIEW diff (#1030); `add -N` appears nowhere in this
-   document and this step computes its own diff, so it inherited nothing.
-
+   never blocks:
    ```bash
-   # ENUMERATED PATHS ONLY, never a bare `git add -N .` - code_review.md:172 records
-   # why: `-N .` stages a tracked DELETION rather than a placeholder. NUL-delimited
-   # to survive a filename containing a space or newline.
-   #
-   # `mapfile` does NOT propagate the exit status of a process substitution, so a
-   # failed enumeration yields an EMPTY array that is indistinguishable from "no
-   # untracked files" - the guard is then skipped and agreement can be reported
-   # without ever establishing whether new files existed. Capture and CHECK first.
-   #
-   # Capture into a FILE, never a variable (issue #1220). Command substitution
-   # strips NUL bytes, so `"$(... -z)"` glued N paths into ONE pathspec, `add -N`
-   # rejected it, and every change adding more than one file reported `unknown`.
-   # The file lives in the GIT DIR: a default `mktemp` under a TMPDIR inside the
-   # worktree would enumerate ITSELF, be deleted, and fail `add -N` as a pathspec.
-   GIT_ROOT="$(git rev-parse --show-toplevel)"
-   if ! GIT_DIR_ABS="$(git -C "$GIT_ROOT" rev-parse --absolute-git-dir)" \
-       || ! UNTRACKED_LIST="$(mktemp "$GIT_DIR_ABS/flow-untracked.XXXXXX")" \
-       || ! git -C "$GIT_ROOT" ls-files --others --exclude-standard -z > "$UNTRACKED_LIST"; then
-       rm -f "${UNTRACKED_LIST:-}"
-       echo "PLAN_COMPLIANCE: unknown (could not enumerate untracked files, so new"
-       echo "  files may be invisible to the comparison)"
-       exit 0
-   fi
-   mapfile -d '' -t UNTRACKED < "$UNTRACKED_LIST"
-   rm -f "$UNTRACKED_LIST"
-   if [ "${#UNTRACKED[@]}" -gt 0 ] && ! git -C "$GIT_ROOT" add -N -- "${UNTRACKED[@]}"; then
-       echo "PLAN_COMPLIANCE: unknown (could not mark untracked files intent-to-add;"
-       echo "  this check would otherwise report agreement over an incomplete diff)"
-       exit 0
-   fi
-
-   python3 - 42 "$(git merge-base HEAD origin/main)" <<'PY'
-import pathlib, re, subprocess, sys
-issue, base = sys.argv[1], sys.argv[2]
-plan = pathlib.Path(f"docs/flow-runs/issue-{issue}.md")
-
-def unknown(why):
-    print(f"PLAN_COMPLIANCE: unknown ({why})")
-    print("An unknowable answer is never rendered as agreement (#1014, #800).")
-    raise SystemExit(0)
-
-if not plan.is_file():
-    unknown(f"no plan record at {plan} - nothing to compare against")
-text = plan.read_text()
-if "## Section C" not in text:
-    unknown("the plan record carries no Section C - it cannot be parsed")
-
-# EVERY numbered line must parse. Skipping an unmatched one silently drops an
-# approved file from the population, and then agreement means "the subset I
-# happened to understand matched" - a filename containing a space is enough.
-section = text.split("## Section C", 1)[1]
-planned, unparsed = [], []
-for line in section.splitlines():
-    if re.match(r"^\s*(Scope|Risks):", line):
-        break
-    if not re.match(r"^\s*\d+\.\s", line):
-        continue
-    m = re.match(r"^\s*\d+\.\s+`([^`]+)`\s*[-\u2013]", line) \
-        or re.match(r"^\s*\d+\.\s+(\S+)\s*[-\u2013]", line)
-    (planned.append(m.group(1)) if m else unparsed.append(line.strip()))
-if unparsed:
-    unknown(f"{len(unparsed)} Section C item(s) could not be parsed, so the approved "
-            f"file list is incomplete: {unparsed[:3]}")
-if not planned:
-    unknown("Section C names no files in the documented numbered form")
-
-# --no-renames: with rename detection ON, `--name-only` reports only a rename's
-# DESTINATION, so renaming an unplanned file to a planned one reports agreement
-# while the removal was never authorised. Both endpoints must appear.
-try:
-    out = subprocess.run(["git", "diff", "--no-renames", "--name-only", base],
-                         capture_output=True, text=True, check=True).stdout
-except (OSError, subprocess.CalledProcessError) as exc:
-    unknown(f"the diff could not be computed ({exc})")
-touched = [f for f in out.splitlines() if f]
-
-# EXACT paths, not prefixes. `docs/flow-runs/issue-42.` would also accept
-# `issue-42.notes.md`, which is neither input; the receipt directory as a prefix
-# would hide edits and deletions of OTHER runs' receipts, which #1171's enrolment
-# check does not cover - it establishes THIS branch's receipt, not that history
-# was left alone.
-EXCLUDED_EXACT = {
-    f"docs/flow-runs/issue-{issue}.md":
-        "this check's own input, the plan record - reported separately below",
-    f"docs/flow-runs/issue-{issue}.as-read.md":
-        "the as-read snapshot - NO other instrument sees it",
-}
-receipt_re = re.compile(rf"^docs/measurements/counter-model/[^/]*-issue-{issue}\.json$")
-
-def mirror_source(path):
-    m = re.match(r"^codex/skills/[^/]+/((?:docs|scripts|lib)/.+)$", path)
-    if m:
-        return m.group(1)
-    try:
-        head = pathlib.Path(path).read_text(errors="replace")[:4000]
-    except OSError:
-        return None                      # deleted in the worktree: unresolvable here
-    m = re.search(r"edit ([^\s]+) instead", head)
-    return m.group(1) if m else None
-
-unplanned, unresolved_mirrors = [], []
-for f in touched:
-    if f in planned:
-        continue                         # an explicitly planned path wins over any rule
-    if f in EXCLUDED_EXACT or receipt_re.match(f):
-        continue
-    if f.startswith("codex/skills/"):
-        src = mirror_source(f)
-        if src is None:
-            unresolved_mirrors.append(f)
-        elif src not in planned:
-            unplanned.append(f"{f}  (mirror of {src}, which the plan does not name)")
-        continue
-    unplanned.append(f)
-untouched = [f for f in planned if f not in touched]
-
-if not unplanned and not untouched and not unresolved_mirrors:
-    print(f"PLAN_COMPLIANCE: agreement - the FILE SET matches the approved plan "
-          f"({len(planned)} planned, {len(touched)} touched).")
-else:
-    print("PLAN_COMPLIANCE: divergence - the change and its approved plan disagree.")
-    for f in unplanned:
-        print(f"  TOUCHED BUT NOT PLANNED: {f}")
-    for f in untouched:
-        print(f"  PLANNED BUT NOT TOUCHED: {f}")
-    for f in unresolved_mirrors:
-        print(f"  MIRROR WHOSE SOURCE COULD NOT BE DERIVED: {f}")
-    print("This is a FINDING, not a block. A substituted approach is supposed to")
-    print("appear here; write the reason in the PR rather than adjusting the plan.")
-
-# The record is this check's own input, so moving it moves the goalposts. The
-# baseline is the digest stamped at STEP 4, before implementation - not the first
-# COMMIT, which happens at Step 6 after the work is written and would miss an
-# implementer who grew the record and the diff together.
-bl = pathlib.Path(subprocess.run(["git", "rev-parse", "--git-dir"], capture_output=True,
-                                 text=True).stdout.strip()) / f"flow-plan-baseline-{issue}"
-if not bl.is_file():
-    print("PLAN_RECORD_STABILITY: unknown (no Step-4 baseline was stamped)")
-else:
-    import hashlib
-    now = hashlib.sha256(plan.read_bytes()).hexdigest()
-    was = bl.read_text().split()[0] if bl.read_text().split() else ""
-    if not was:
-        print("PLAN_RECORD_STABILITY: unknown (the baseline file carries no digest)")
-    elif now == was:
-        print("PLAN_RECORD_STABILITY: unchanged since it was approved at Step 4")
-    else:
-        print("PLAN_RECORD_STABILITY: THE PLAN RECORD CHANGED since Step 4.")
-        print("  The approved plan moved during the run. Read the record's own diff")
-        print("  before reading the verdict above - the goalposts may have moved.")
-
-print("EXAMINED: file names only. This says NOTHING about whether the change does")
-print("what the plan said it would - a file rewritten differently from its plan")
-print("still reports agreement.")
-PY
+   ~/.claude/scripts/flow-plan-record.py compliance 42
    ```
+   The helper marks untracked files intent-to-add itself, so new files are
+   compared; the base defaults to `git merge-base HEAD origin/main` (`--base <ref>`
+   overrides it).
+   - `PLAN_COMPLIANCE: agreement` (exit 0) - the FILE SET matches Section C. File
+     names only: a file rewritten differently from its plan still agrees.
+   - `PLAN_COMPLIANCE: divergence` (exit 3) - it names each `TOUCHED BUT NOT
+     PLANNED`, `PLANNED BUT NOT TOUCHED` and underivable mirror. A finding, not a
+     block: write the reason in the PR, and never edit the plan to make it agree.
+   - `PLAN_COMPLIANCE: unknown` (exit 4) - the comparison could not be made. Never
+     report it as agreement.
+   - `PLAN_RECORD_STABILITY: THE PLAN RECORD CHANGED` (exit 3) - the approved plan
+     moved after Step 4; read the record's own diff before the verdict above.
+     `unknown` means no baseline was stamped.
 
-   **`--name-only` answers "what did this change touch", never "what exists at
-   head".** A deleted path is listed while `git cat-file -e HEAD:<path>` reports it
-   absent - measured. For THIS question the listing is correct: a deletion IS a
-   touch the plan should have named. Item 8 asks the other question and uses
-   existence at head.
-
-   **The verdict says FILE SET deliberately.** A file-level comparison cannot see
-   whether the change did what was agreed, so a run that rewrites a file
-   completely differently from its plan reports agreement.
-
-8. **Confirm the plan record reached the PR** (issue #1080) - ask whether it
-   EXISTS at the PR's head, not whether its name appears in a diff:
+8. **Confirm the plan record reached the PR** (issue #1080). Skip this only when
+   the run wrote no record (a `No longer needed` verdict has none):
    ```bash
-   REC="docs/flow-runs/issue-42.md"
-   if ! PR_HEAD=$(gh pr view --json headRefOid --jq .headRefOid); then
-       echo "STOP: could not read the PR head - the record is UNVERIFIED, not absent."
-       exit 1
-   fi
-   git fetch -q origin "$PR_HEAD" 2>/dev/null || true
-   if ! git cat-file -e "$PR_HEAD:$REC" 2>/dev/null; then
-       echo "STOP: the plan record does not exist at the PR head ($PR_HEAD)."
-       exit 1
-   fi
+   ~/.claude/scripts/flow-plan-record.py head-check 42
    ```
-   A record present in the worktree but absent from the PR is the failure this
-   check exists for, and it is silent at every earlier stage: `git add` skips an
-   ignored path without an error, and the Step 7 squash flattens whatever it was
-   given. Checking `git status` locally would confirm the file exists and prove
-   nothing about what ships. Skip this when the run wrote no record - a
-   `No longer needed` verdict has none to find.
+   - `FLOW_PLAN_RECORD: present` (exit 0) - proceed.
+   - `FLOW_PLAN_RECORD: absent` (exit 1) - **STOP.** The record is not at the PR
+     head, however it looks locally: an ignored path, an unstaged file or a
+     deletion. Recover by `git add docs/flow-runs/issue-<N>.md`, commit, push, and
+     re-run this check.
+   - `FLOW_PLAN_RECORD: unverified` (exit 4) - **STOP.** The PR head could not be
+     read. That is neither absent nor present; check `gh auth status` and the
+     network, then re-run.
 
-   **Three ways the obvious version of this check is wrong**, all found by
-   counter-model review (gpt-6-astra) and all reproduced:
-   - `gh pr diff --name-only` lists DELETED paths too, so a run that removed the
-     record passes a name check while the PR head carries no record at all.
-     Existence at the head SHA is the question; a diff is not.
-   - `grep -qx "docs/flow-runs/issue-42.md"` treats `.` as any character and
-     accepts the neighbouring name `docs/flow-runs/issue-42Xmd` - reproduced
-     exactly. Compare paths literally (`-F`), or better, do not compare strings
-     at all, as above.
-   - `... || echo "STOP: ..."` makes a failed query and a genuine absence print
-     the same line and BOTH exit 0, so the advertised STOP cannot stop anything
-     and "I could not look" is rendered as "I looked and it is missing". The
-     form above separates the two and exits non-zero on either.
+   Why each of these three checks is shaped the way it is - digest over the full
+   body, `--no-renames`, exact exclusions, existence at the head SHA rather than a
+   diff - is in [the plan-record reference](../../../docs/agents/flow-plan-record.md). It is background, not
+   required reading.
 
 Report: `Step 6/9: Finish complete - PR #XX created`
 
