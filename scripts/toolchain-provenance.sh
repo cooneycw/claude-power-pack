@@ -223,6 +223,7 @@ if [ -n "$CHECKOUT" ]; then
             GITDIR="$("$GIT_BIN" -C "$CHECKOUT" rev-parse --git-common-dir 2>/dev/null || true)"
             for var in FETCH_HEAD_FILE GITDIR; do
                 eval "value=\$$var"
+                # shellcheck disable=SC2154  # value is assigned by the eval above (#972)
                 case "$value" in
                     ""|/*) : ;;
                     *)     eval "$var=\"\$CHECKOUT/\$value\"" ;;

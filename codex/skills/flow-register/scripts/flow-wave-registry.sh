@@ -649,6 +649,7 @@ emit() {
 # checked-but-undecidable are different facts.
 pid_state() {
   local pid="$1" err
+  # shellcheck disable=SC2015  # intended: take the fallback unless EVERY test holds (#972)
   [ -n "$pid" ] && [ "$pid" != "-" ] && [ "$pid" != "null" ] || { echo gone; return; }
   case "$pid" in ''|*[!0-9]*) echo gone; return ;; esac
 
@@ -720,6 +721,7 @@ pid_state() {
 # utime stime cutime cstime priority nice num_threads itrealvalue starttime).
 pid_started_of() {
   local pid="$1" entry proc_root stat rest
+  # shellcheck disable=SC2015  # intended: take the fallback unless EVERY test holds (#972)
   [ -n "$pid" ] && [ "$pid" != "-" ] && [ "$pid" != "null" ] || { echo -; return; }
   case "$pid" in ''|*[!0-9]*) echo -; return ;; esac
 
@@ -1132,6 +1134,7 @@ CLAIM_FS="$(printf '\037')"
 # loop in scripts/ uses and the reason they were all immune to #698) and hand
 # the record here.
 parse_claim_record() {
+  # shellcheck disable=SC2034  # C_SESSION holds its positional field; no current reader (#972)
   IFS="$CLAIM_FS" read -r C_ISSUE C_PID C_SESSION C_BRANCH C_WT C_REPO C_ADDR <<EOF
 $1
 EOF
@@ -1617,6 +1620,7 @@ load_mailbox() {
 # table it could not enumerate, which DOES render, because a watch that cannot
 # be assessed is not a watch that is fine.
 mailbox_watch_state() {
+  # shellcheck disable=SC2015  # intended: take the fallback unless EVERY test holds (#972)
   [ -n "$MAILBOX_JSON" ] && [ "$MAILBOX_IN_USE" -eq 1 ] || { echo unknown; return; }
   printf '%s' "$MAILBOX_JSON" |
     jq -r --arg r "$1" '(.watches // []) | map(select(.role == $r)) | (.[0].state // "absent")'
@@ -1626,6 +1630,7 @@ mailbox_watch_state() {
 # Rendered beside the state so the roster shows the fact the verdict rests on
 # rather than asking a reader to trust the word (#801).
 mailbox_watch_watchers() {
+  # shellcheck disable=SC2015  # intended: take the fallback unless EVERY test holds (#972)
   [ -n "$MAILBOX_JSON" ] && [ "$MAILBOX_IN_USE" -eq 1 ] || { echo '-'; return; }
   printf '%s' "$MAILBOX_JSON" |
     jq -r --arg r "$1" '(.watches // []) | map(select(.role == $r)) | (.[0].watchers // "-") | tostring'
@@ -1634,6 +1639,7 @@ mailbox_watch_watchers() {
 # mailbox_watch_session_watchers ROLE -> session-parented watcher count, '-'
 # when unknown/absent (#1228) - the fact a `no-wake` verdict rests on.
 mailbox_watch_session_watchers() {
+  # shellcheck disable=SC2015  # intended: take the fallback unless EVERY test holds (#972)
   [ -n "$MAILBOX_JSON" ] && [ "$MAILBOX_IN_USE" -eq 1 ] || { echo '-'; return; }
   printf '%s' "$MAILBOX_JSON" |
     jq -r --arg r "$1" '(.watches // []) | map(select(.role == $r)) | (.[0].session_watchers // "-") | tostring'
@@ -1656,6 +1662,7 @@ mailbox_watch_age() {
 # them into one word is the #801 mistake this file already tells the story
 # of, one issue later.
 mailbox_route_state() {
+  # shellcheck disable=SC2015  # intended: take the fallback unless EVERY test holds (#972)
   [ -n "$MAILBOX_JSON" ] && [ "$MAILBOX_IN_USE" -eq 1 ] || { echo unknown; return; }
   printf '%s' "$MAILBOX_JSON" |
     jq -r --arg r "$1" '(.routes // []) | map(select(.role == $r)) | (.[0].state // "unknown")'
@@ -1799,7 +1806,7 @@ lane_split() { # lane_split ARRAY_NAME CSV
     _raw="${_out[$_i]}"
     _raw="${_raw#"${_raw%%[![:space:]]*}"}"
     _raw="${_raw%"${_raw##*[![:space:]]}"}"
-    _out[$_i]="$_raw"
+    _out[_i]="$_raw"
   done
 }
 
@@ -1885,7 +1892,7 @@ lane_covers() { # lane_covers PATH LANE_CSV
 LANE_MISSING=""
 LANE_MISSING_N=0
 lane_missing() { # lane_missing FROM_CSV TO_CSV -> sets LANE_MISSING, LANE_MISSING_N
-  local _from="$1" _to="$2" _e _t _out="" _to_norm=""
+  local _from="$1" _to="$2" _e _t _acc="" _to_norm=""
   local -a _fa=() _ta=()
   LANE_MISSING=""
   LANE_MISSING_N=0
@@ -1900,10 +1907,10 @@ lane_missing() { # lane_missing FROM_CSV TO_CSV -> sets LANE_MISSING, LANE_MISSI
     _e="${_e%/}"
     [ -n "$_e" ] || continue
     lane_covers "$_e" "$_to_norm" && continue
-    _out="${_out:+$_out,}$_e"
+    _acc="${_acc:+$_acc,}$_e"
     LANE_MISSING_N=$((LANE_MISSING_N + 1))
   done
-  LANE_MISSING="$_out"
+  LANE_MISSING="$_acc"
 }
 
 starvation_scan() { # starvation_scan REG WAVE ROLES
@@ -2159,6 +2166,7 @@ case "$VERB" in
     # only unsafe here, which is exactly the kind of difference that gets copied
     # across by hand. `declared_pid` is stored as the raw string instead; nothing
     # compares it numerically.
+    # shellcheck disable=SC2016  # a jq program; $ names are jq variables (#972)
     with_lock '
       .[$w] //= {"roles": {}} |
       .[$w].policy //= {} |
@@ -2365,6 +2373,7 @@ case "$VERB" in
     # now, while this process is unambiguously the registering session's own,
     # never re-derived later by a reader on another machine.
     vantage_derive
+    # shellcheck disable=SC2016  # a jq program; $ names are jq variables (#972)
     with_lock '
       .[$w] //= {"roles": {}} |
       (.[$w].roles[$r] // {}) as $prev |
@@ -2516,7 +2525,7 @@ case "$VERB" in
     lane_missing "$PREV_FILES" "$NEW_FILES"
     FILES_DROPPED="$LANE_MISSING"; FILES_DROPPED_N="$LANE_MISSING_N"
     lane_missing "$NEW_FILES" "$PREV_FILES"
-    FILES_ADDED="$LANE_MISSING"; FILES_ADDED_N="$LANE_MISSING_N"
+    FILES_ADDED="$LANE_MISSING"
     if [ "$FILES_DROPPED_N" -gt 0 ]; then
       echo "flow-wave-registry: role '$ROLE' DROPPED $FILES_DROPPED_N path(s) from its declared lane: $FILES_DROPPED" >&2
       # SAYS ONLY WHAT THIS COMMAND CHECKED (counter-model review, #1026). The
@@ -2782,6 +2791,7 @@ case "$VERB" in
     [ "$CUR" != "null" ] || { echo "flow-wave-registry: no entry for role '$ROLE' in wave '$WAVE'." >&2; emit unknown; exit 0; }
     RECORDED="$(printf '%s' "$CUR" | jq -r '.socket // "unknown"')"
     if [ "$RECORDED" = "$A_FROM" ]; then
+      # shellcheck disable=SC2016  # a jq program; $ names are jq variables (#972)
       with_lock '.[$w].roles[$r].verified = true' --arg w "$WAVE" --arg r "$ROLE"
       E_SOCKET="$A_FROM"; E_VERIFIED=true; E_MISMATCH=false
       emit verified
@@ -2796,6 +2806,7 @@ case "$VERB" in
     # `address_mismatch` stays false and the entry is fully verified - the
     # address is transport-observed, exactly as in the match case.
     if [ "$RECORDED" = "unknown" ] || [ -z "$RECORDED" ] || [ "$RECORDED" = "null" ]; then
+      # shellcheck disable=SC2016  # a jq program; $ names are jq variables (#972)
       with_lock '
         .[$w].roles[$r].socket = $obs |
         .[$w].roles[$r].verified = true |
@@ -2814,6 +2825,7 @@ case "$VERB" in
     # Never the reverse - a self-derived address never survives a mismatch.
     # Reached only when the recorded value was a REAL address that DIFFERS from
     # the observed one - a genuine contradiction worth a human look (#674).
+    # shellcheck disable=SC2016  # a jq program; $ names are jq variables (#972)
     with_lock '
       .[$w].roles[$r].socket = $obs |
       .[$w].roles[$r].verified = true |
@@ -2853,6 +2865,7 @@ case "$VERB" in
       emit refused
       exit 1
     fi
+    # shellcheck disable=SC2016  # a jq program; $ names are jq variables (#972)
     with_lock '
       .[$w].roles[$r].released = true |
       .[$w].roles[$r].released_ts = ($now | tonumber)' \
@@ -3026,6 +3039,7 @@ case "$VERB" in
     # silently discard the FLOW_WAVE_EXIT= line installed at the top of this file,
     # and nothing would report its absence. $? is captured FIRST, before the
     # cleanup runs, or the reported status becomes `rm`'s.
+    # shellcheck disable=SC2154  # _rc is assigned inside the trap string itself (#972)
     trap '_rc=$?; rm -f "$TOUCHED_TMP" "$UNTRACKED_TMP"; printf "FLOW_WAVE_EXIT=%d\n" "$_rc" >&2' EXIT
     trap 'rm -f "$TOUCHED_TMP" "$UNTRACKED_TMP"' INT TERM
     if ! git diff -z --no-renames --name-only "$MERGE_BASE" > "$TOUCHED_TMP" 2>/dev/null; then
