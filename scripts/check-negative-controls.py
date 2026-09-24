@@ -970,6 +970,10 @@ def _invoke(spec: list[str], gate: Path, case: Path, root: Path) -> tuple[int | 
     return _run(argv, root)
 
 
+#: Written by the interpreter, never authored - see `_tracking()` (issue #1239).
+_DERIVED_BYTECODE_SUFFIXES = frozenset({".pyc", ".pyo"})
+
+
 def _tracking(control_dir: Path, root: Path) -> tuple[str, list[str]]:
     """Are this control's files IN THE REPOSITORY? (issue #978)
 
@@ -1008,7 +1012,19 @@ def _tracking(control_dir: Path, root: Path) -> tuple[str, list[str]]:
         for p in out.stdout.decode("utf-8", "replace").split("\0")
         if p
     }
-    on_disk = {p.resolve() for p in control_dir.rglob("*") if p.is_file()}
+    # DERIVED BYTECODE IS NOT A CONTROL FILE (issue #1239). A case that runs
+    # Python writes `__pycache__/*.pyc` beside itself, so every run after the
+    # first in a checkout reported UNTRACKED on files no clean clone needs. The
+    # exclusion is by NAME and exactly this wide: excluding every IGNORED path
+    # instead would blind this check to the #964/#953 shape it exists for - a
+    # load-bearing `case.json` swallowed by the blanket `*.json`.
+    on_disk = {
+        p.resolve()
+        for p in control_dir.rglob("*")
+        if p.is_file()
+        and "__pycache__" not in p.relative_to(control_dir).parts
+        and p.suffix not in _DERIVED_BYTECODE_SUFFIXES
+    }
     missing = sorted(str(p.relative_to(root)) for p in (on_disk - tracked))
     if missing:
         shown = missing[:5]
