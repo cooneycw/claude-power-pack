@@ -3225,8 +3225,25 @@ case "$VERB" in
     # misread as "genuinely empty" and drive a live wave's daemon to
     # self-terminate - only a version of "zero roles" that jq itself
     # affirmatively computed counts as `no-roles-registered`.
+    #
+    # "jq exited 0" is not "jq read an object" (counter-model review, #1107).
+    # A whitespace-only file is non-empty, so `read_registry` passes it
+    # through; jq reads zero inputs, prints nothing and exits 0 - and a file
+    # holding `null` falls through `// {}` the same way. Both read as
+    # `no-roles-registered` without any registry having been parsed. So the
+    # affirmative empty answer requires EXACTLY ONE document (`-s`: jq -e
+    # otherwise judges only the LAST of `null` then `{}`), that document an
+    # object, and this wave's roster absent or itself an object - `// {}`
+    # would otherwise turn `"roles": false` into an empty roster, and
+    # `keys[]` on `"roles": []` yields nothing. A missing or 0-byte file is
+    # still `{}` from `read_registry` and still reads `no-roles-registered`,
+    # which is the genuinely-absent case.
     if [ "$ANY_LIVE_ONLY" -eq 1 ]; then
-      if [ "$ROLES_JQ_STATUS" -ne 0 ]; then
+      if [ "$ROLES_JQ_STATUS" -ne 0 ] ||
+         ! printf '%s' "$REG" | jq -e -s --arg w "$WAVE" '
+             length == 1 and (.[0] | type == "object")
+             and (.[0][$w] | . == null or (type == "object"
+                  and (.roles == null or (.roles | type == "object"))))' >/dev/null 2>&1; then
         echo "FLOW_WAVE_ANY_LIVE=undeterminable"
         exit 2
       fi

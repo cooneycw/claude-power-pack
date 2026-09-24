@@ -1845,6 +1845,7 @@ class TestSupervise:
     def _launch(
         self, tmp_path: Path, role: str = "1", wave: str = WAVE,
         timeout: str = "10", interval: str = "1", extra_env: dict | None = None,
+        extra_args: tuple[str, ...] = (),
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
@@ -1853,7 +1854,7 @@ class TestSupervise:
         return subprocess.run(
             [
                 "bash", str(MAILBOX), "supervise", "--role", role, "--wave", wave,
-                "--timeout", timeout, "--interval", interval,
+                "--timeout", timeout, "--interval", interval, *extra_args,
             ],
             capture_output=True, text=True, env=env, check=False, timeout=30,
             # The daemon inherits this cwd and holds it for its whole life
@@ -2357,6 +2358,89 @@ class TestSupervise:
     @pytest.mark.skipif(
         shutil.which("jq") is None, reason="requires jq (flow-wave-registry.sh)"
     )
+    def test_registry_required_refuses_a_wave_nothing_was_ever_registered_in(
+        self, tmp_path: Path
+    ) -> None:
+        """issue #1107: the SAME never-registered wave the test above keeps
+        supervising is refused once the caller opts in with
+        `--registry-required`. Refused at LAUNCH, before the lifetime lock is
+        taken, so nothing is left behind: no daemon, no pidfile, no log. RED
+        before #1107, where the flag was an unknown option (exit 2)."""
+        proc = self._launch(
+            tmp_path, timeout="2",
+            extra_env={"FLOW_WAVE_REGISTRY_DIR": str(tmp_path / "mb")},
+            extra_args=("--registry-required",),
+        )
+        assert proc.returncode == 7, proc.stderr
+        assert _verdict(proc) == "misconfigured"
+        assert "no role has ever been registered" in proc.stderr
+        assert not _supervise_pidfile(tmp_path, WAVE, "1").exists()
+        assert not _supervise_log(tmp_path, WAVE, "1").exists()
+
+    @pytest.mark.skipif(
+        shutil.which("jq") is None, reason="requires jq (flow-wave-registry.sh)"
+    )
+    def test_registry_required_still_reads_an_ended_wave_as_no_roles_ended(
+        self, tmp_path: Path
+    ) -> None:
+        """issue #1107's third negative control: a wave that WAS registered
+        and whose every role has ended is the #1095 case, not the new
+        misconfigured one. The two must not collapse into each other now that
+        both exist: the launch succeeds, and the daemon then exits on its own
+        with #1095's reason."""
+        registry = ROOT / "scripts" / "flow-wave-registry.sh"
+        env = os.environ.copy()
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+        env["FLOW_WAVE_REGISTRY_DIR"] = str(tmp_path / "mb")
+        subprocess.run(
+            ["bash", str(registry), "register", "1", "--wave", WAVE, "--socket", "uds:/tmp/x.sock"],
+            capture_output=True, text=True, env={**env, "FLOW_WAVE_LIVE_PIDS": "none"}, check=False,
+        )
+        proc = self._launch(
+            tmp_path, timeout="2",
+            extra_env={"FLOW_WAVE_REGISTRY_DIR": str(tmp_path / "mb"), "FLOW_WAVE_LIVE_PIDS": "none"},
+            extra_args=("--registry-required",),
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert _verdict(proc) == "supervising"
+        pid = _daemon_pid(tmp_path, WAVE, "1")
+        try:
+            assert _wait_for(lambda: not _pid_alive(pid), timeout=15)
+            log_text = _supervise_log(tmp_path, WAVE, "1").read_text().lower()
+            assert "no live roles" in log_text and "ended" in log_text
+        finally:
+            if _pid_alive(pid):
+                self._kill_daemon(pid)
+
+    @pytest.mark.parametrize(
+        "content", ["not json\n", "  \n"], ids=["corrupt", "whitespace-only"]
+    )
+    def test_registry_required_refuses_as_unverified_when_the_registry_cannot_answer(
+        self, tmp_path: Path, content: str
+    ) -> None:
+        """A corrupt registry reads `undeterminable`, which is NOT evidence
+        that the wave is empty. Under `--registry-required` it is refused
+        with its own word and exit code, never folded into `misconfigured`
+        (which would claim a finding nobody made) nor launched (which would
+        treat an unchecked precondition as one that held). Whitespace-only is
+        the counter-model case: jq exits 0 on it having read nothing, and it
+        read `misconfigured` until the registry required an object."""
+        mb = tmp_path / "mb"
+        mb.mkdir(parents=True)
+        (mb / "registry.json").write_text(content)
+        proc = self._launch(
+            tmp_path, timeout="2",
+            extra_env={"FLOW_WAVE_REGISTRY_DIR": str(mb)},
+            extra_args=("--registry-required",),
+        )
+        assert proc.returncode == 8, proc.stderr
+        assert _verdict(proc) == "unverified"
+        assert "NOT a finding that the wave is empty" in proc.stderr
+        assert not _supervise_pidfile(tmp_path, WAVE, "1").exists()
+
+    @pytest.mark.skipif(
+        shutil.which("jq") is None, reason="requires jq (flow-wave-registry.sh)"
+    )
     def test_a_registry_wiped_out_from_under_a_registered_role_still_keeps_supervising(
         self, tmp_path: Path
     ) -> None:
@@ -2473,7 +2557,12 @@ class TestSupervise:
         start = current.index(marker_start)
         end = current.index(marker_end, start) + len(marker_end)
         patched = current[:start] + current[end:]
-        assert "WAVE_ANY_LIVE" not in patched, (
+        # Scoped to the DAEMON's case body, which is what "old logic" means
+        # here. `supervise --registry-required` (#1107) reads the same
+        # `FLOW_WAVE_ANY_LIVE=` line at launch, in the `supervise)` case above
+        # it, and is not part of the #1095 block this proof removes.
+        daemon_body = patched[patched.index("\n  __supervise_daemon)\n"):]
+        assert "WAVE_ANY_LIVE" not in daemon_body, (
             "the #1095 block was not fully removed - the old-logic proof "
             "would still exercise the new code"
         )
