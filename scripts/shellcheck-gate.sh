@@ -108,10 +108,13 @@ else
     SOURCE="find"
     # The prune list is the OWNERSHIP BOUNDARY: a nested checkout or an installed
     # dependency is not this repository's code to lint, and answers its own
-    # linting question through its own gate.
+    # linting question through its own gate. `.ci-bin` is CI's staged toolchain
+    # (a whole pinned git tree among it) - gitignored, so the git path never saw
+    # it, and CI is exactly where this path runs. Invisible at severity=error;
+    # 13 files of findings at style (#972, PR #1247's pipeline).
     ( cd "$ROOT" && find . \
         \( -name .git -o -name .venv -o -name venv -o -name node_modules \
-           -o -name .mypy_cache -o -name .tox -o -name .worktrees \
+           -o -name .mypy_cache -o -name .tox -o -name .worktrees -o -name .ci-bin \
            -o -name site-packages -o -name vendor \) -prune -o \
         -type f -print0 ) > "$CAND" \
         || unknown "find enumeration failed; the file list is incomplete."
