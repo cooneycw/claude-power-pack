@@ -16,6 +16,7 @@ import contextlib
 import errno
 import fcntl
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -24,7 +25,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -44,6 +45,67 @@ def run_harness(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
         [sys.executable, str(HARNESS), "--root", str(root), *args],
         capture_output=True, text=True, timeout=120, check=False,
     )
+
+
+def _computed_once(
+    cache: Path, compute: Callable[[], subprocess.CompletedProcess[str]]
+) -> subprocess.CompletedProcess[str]:
+    """Return `compute()`'s result, computing it only if `cache` does not hold one.
+
+    Serialised by `flock` on a sibling lock file, so concurrent callers in
+    DIFFERENT processes wait for the first one's result instead of each paying
+    for their own. The cache is published by an atomic rename after `compute`
+    returns, so a caller killed mid-run OR mid-write leaves either no cache or a
+    whole one - never a truncated file the next caller would fail to parse.
+    """
+    with open(cache.with_suffix(".lock"), "w", encoding="utf-8") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        if cache.is_file():
+            data = json.loads(cache.read_text(encoding="utf-8"))
+            return subprocess.CompletedProcess(
+                data["args"], data["returncode"], data["stdout"], data["stderr"]
+            )
+        result = compute()
+        staging = cache.with_suffix(f".{os.getpid()}.tmp")
+        staging.write_text(json.dumps({
+            "args": [str(a) for a in result.args], "returncode": result.returncode,
+            "stdout": result.stdout, "stderr": result.stderr,
+        }), encoding="utf-8")
+        os.replace(staging, cache)
+        return result
+
+
+@pytest.fixture(scope="session")
+def real_battery(
+    tmp_path_factory: pytest.TempPathFactory, worker_id: str
+) -> subprocess.CompletedProcess[str]:
+    """ONE no-argument battery run over the real tree, shared by its readers (#1241).
+
+    A battery run costs ~26s and grows with every registered control. Four tests
+    each ran their own to ask the identical question of a tree at rest, and under
+    CI load they rotated through the 120s per-test timeout - a different innocent
+    test red each time.
+
+    SHARED ACROSS xdist WORKERS, not merely per worker. A session fixture is
+    instantiated once PER WORKER, and the default `load` scheduler scatters the
+    four readers across workers, so a plain session fixture would still run the
+    battery up to four times (counter-model review). The parent of each worker's
+    basetemp is the one per-RUN directory all workers share - the pattern the
+    xdist docs give for exactly this. Without xdist (`worker_id == "master"`) that
+    parent is `pytest-of-<user>`, which OUTLIVES the run, so a cache there would
+    serve a stale battery to the next session; the session fixture alone already
+    runs once in that case.
+
+    THE NO-ARGUMENT SHAPE ONLY. Do not widen this into a memoized `run_harness`:
+    `test_an_untracked_control_file_refuses_the_green` runs `--strict` three times
+    against three DIFFERENT tree states, and a cache keyed on arguments would hand
+    its `after` call the `before` result - a test that passes checking nothing.
+    `test_real_battery_is_the_only_bare_real_root_run` holds the line.
+    """
+    if worker_id == "master":
+        return run_harness(ROOT)
+    shared = tmp_path_factory.getbasetemp().parent / "real-battery.json"
+    return _computed_once(shared, lambda: run_harness(ROOT))
 
 
 def control_block(out: str, gate: str) -> str:
@@ -829,7 +891,9 @@ def test_the_summary_line_states_the_signal_it_checked(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 # The load-bearing test: the real #906 demonstration, executed.
 # --------------------------------------------------------------------------- #
-def test_the_real_control_discriminates_and_its_anchor_is_blind() -> None:
+def test_the_real_control_discriminates_and_its_anchor_is_blind(
+    real_battery: subprocess.CompletedProcess[str],
+) -> None:
     """Issue #924's acceptance, run rather than asserted.
 
     The real gate must report the known-bad fixture BAD and the known-good
@@ -841,7 +905,7 @@ def test_the_real_control_discriminates_and_its_anchor_is_blind() -> None:
     # anchor; asserting battery-wide PASS made an unrelated control's UNSIGNALLED
     # read as a failure of this one. No `--strict`: the exit code is a property of
     # every control, not of this one.
-    result = run_harness(ROOT)
+    result = real_battery
     block = control_block(result.stdout, "scripts/check-test-binary-guards.py")
     assert block, f"this control is not in the register at all\n{result.stdout}"
     assert verdict_of(block) == "PASS", block
@@ -1500,13 +1564,15 @@ def test_a_gate_declaring_several_controls_contributes_every_one(tmp_path: Path)
 # --------------------------------------------------------------------------- #
 
 
-def test_the_summary_states_the_universe_it_is_a_fraction_of() -> None:
+def test_the_summary_states_the_universe_it_is_a_fraction_of(
+    real_battery: subprocess.CompletedProcess[str],
+) -> None:
     """`2 of 61` and `61 of 61` must not print the identical string."""
     # "enumerated instruments" appears only in the all-PASS summary, so asserting
     # it coupled this test to every control's health - and its subject is the
     # DENOMINATOR (#979), not battery health. The universe line is emitted
     # regardless of any control's verdict, which is what this actually needs.
-    out = run_harness(ROOT)
+    out = real_battery
     universe = [
         line for line in out.stdout.splitlines()
         if line.startswith("NEGATIVE_CONTROL_UNIVERSE:")
@@ -2057,7 +2123,9 @@ def test_allow_unavailable_does_not_excuse_an_UNTRACKED_control(tmp_path: Path) 
     )
 
 
-def test_two_registrations_on_one_gate_are_distinguishable_in_the_output() -> None:
+def test_two_registrations_on_one_gate_are_distinguishable_in_the_output(
+    real_battery: subprocess.CompletedProcess[str],
+) -> None:
     """A block's only identifying field was the gate, and a gate may declare several.
 
     `scripts/check-negative-controls.py` carries two registrations as of #1117 -
@@ -2066,7 +2134,7 @@ def test_two_registrations_on_one_gate_are_distinguishable_in_the_output() -> No
     everything a reader or a consumer could key on, so a failure in one would be
     diagnosed against the other's fixtures.
     """
-    out = run_harness(ROOT).stdout
+    out = real_battery.stdout
     controls = [
         line.split(": ", 1)[1]
         for line in out.splitlines()
@@ -2077,7 +2145,9 @@ def test_two_registrations_on_one_gate_are_distinguishable_in_the_output() -> No
     assert len(controls) == len(set(controls)), f"two blocks share an identity: {controls}"
 
 
-def test_the_real_unavailability_control_discriminates_and_its_anchor_is_blind() -> None:
+def test_the_real_unavailability_control_discriminates_and_its_anchor_is_blind(
+    real_battery: subprocess.CompletedProcess[str],
+) -> None:
     """The committed demonstration for #1117, executed rather than asserted.
 
     Scoped to THIS control (see `control_block`), which is why the #1117 contract
@@ -2085,7 +2155,7 @@ def test_the_real_unavailability_control_discriminates_and_its_anchor_is_blind()
     would silently address the neighbour. No `--strict`: the exit code is a
     property of every control, not of this one.
     """
-    out = run_harness(ROOT).stdout
+    out = real_battery.stdout
     block, collecting = [], False
     for line in out.splitlines():
         if line.startswith("NEGATIVE_CONTROL_CONTROL: "):
@@ -3308,3 +3378,120 @@ def test_an_ignored_LOAD_BEARING_case_file_still_reads_as_UNTRACKED(tmp_path: Pa
     assert verdict == "UNTRACKED", details
     assert "case.json" in details[0], details
     assert ".pyc" not in details[0], "bytecode must not be named as a missing control file"
+
+
+# --------------------------------------------------------------------------- #
+# #1241 - the battery is run ONCE per worker for its no-argument readers
+# --------------------------------------------------------------------------- #
+
+
+def _bare_real_root_runs(source: str) -> list[str]:
+    """Name the function enclosing each bare `run_harness(ROOT)` call in `source`.
+
+    Read with `ast`, not text search: this file's own docstrings and comments
+    spell `run_harness(ROOT)` as prose, and a grep would count those.
+    """
+    import ast
+
+    found: list[str] = []
+
+    def visit(node: ast.AST, enclosing: str) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            enclosing = node.name
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name) and node.func.id == "run_harness"
+            and len(node.args) == 1
+            and isinstance(node.args[0], ast.Name) and node.args[0].id == "ROOT"
+            and not node.keywords
+        ):
+            found.append(enclosing)
+        for child in ast.iter_child_nodes(node):
+            visit(child, enclosing)
+
+    visit(ast.parse(source), "<module>")
+    return found
+
+
+def test_the_bare_run_extractor_finds_calls_and_ignores_prose_and_other_shapes() -> None:
+    """The extractor's own control: a scan that finds nothing must be ABLE to find."""
+    source = (
+        'def a():\n    """run_harness(ROOT) in prose"""\n    return run_harness(ROOT)\n'
+        'def b():\n    x = run_harness(ROOT).stdout  # run_harness(ROOT)\n'
+        'def c():\n    return run_harness(ROOT, "--strict"), run_harness(tmp)\n'
+    )
+    assert _bare_real_root_runs(source) == ["a", "b"]
+
+
+def test_real_battery_is_the_only_bare_real_root_run() -> None:
+    """A no-argument battery run over the real tree lives in the fixture alone (#1241).
+
+    Each such run costs ~26s and the cost rises with every registered control;
+    four separate copies rotated through the 120s per-test timeout in CI. A new
+    reader takes the `real_battery` fixture instead. Red on the pre-#1241 file,
+    which carried four.
+    """
+    runs = _bare_real_root_runs(Path(__file__).read_text(encoding="utf-8"))
+    # A SET, not a count: the fixture holds two call sites (the no-xdist branch
+    # and the shared one), and neither is a second battery run. Non-empty is part
+    # of the assertion - an extractor that found nothing must not pass.
+    assert runs and set(runs) == {"real_battery"}, (
+        f"bare run_harness(ROOT) outside the shared fixture: {runs} - "
+        "take the `real_battery` fixture rather than paying for another battery run"
+    )
+
+
+_SHARING_CONFTEST = '''
+import importlib.util, os, subprocess, pytest
+spec = importlib.util.spec_from_file_location("nc", {module!r})
+nc = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(nc)
+
+def _count(*args):
+    with open(os.environ["BATTERY_COUNTER"], "a") as fh:
+        fh.write(os.environ.get("PYTEST_XDIST_WORKER", "master") + "\\n")
+    return subprocess.CompletedProcess(["battery", *map(str, args)], 0, "OUT", "")
+
+# THE REAL FIXTURE, with only the battery itself swapped for a counter - so the
+# wiring inside `real_battery` is what is measured, not a copy of it.
+nc.run_harness = _count
+real_battery = nc.real_battery
+
+@pytest.fixture(scope="session")
+def battery(request):
+    if os.environ["BATTERY_MODE"] == "per-worker":
+        return _count()
+    return request.getfixturevalue("real_battery")
+'''
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("xdist") is None, reason="needs pytest-xdist to spread workers"
+)
+@pytest.mark.parametrize("mode, expect_shared", [("shared", True), ("per-worker", False)])
+def test_the_shared_battery_runs_once_across_xdist_workers(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, mode: str, expect_shared: bool,
+) -> None:
+    """Counter-model finding on #1241: a session fixture is per WORKER, not per run.
+
+    Six readers on three workers. `shared` is the real `real_battery` fixture,
+    with only `run_harness` replaced by a counter, and must run once; `per-worker`
+    is a plain session fixture - the pre-review shape - and is the committed
+    control proving the counter can see more than one.
+    """
+    counter = pytester.path / "count.txt"
+    monkeypatch.setenv("BATTERY_COUNTER", str(counter))
+    monkeypatch.setenv("BATTERY_MODE", mode)
+    pytester.makeconftest(_SHARING_CONFTEST.format(module=str(Path(__file__).resolve())))
+    pytester.makepyfile(**{
+        "test_readers": "\n".join(
+            f"def test_{i}(battery):\n    assert battery.stdout == 'OUT'\n" for i in range(6)
+        )
+    })
+    result = pytester.runpytest_subprocess("-p", "xdist", "-n", "3", "-p", "no:randomly")
+    result.assert_outcomes(passed=6)
+    runs = counter.read_text().split()
+    if expect_shared:
+        assert len(runs) == 1, f"the battery ran once per worker, not once per run: {runs}"
+    else:
+        assert len(runs) > 1, f"control: three workers must be able to show >1 run: {runs}"
