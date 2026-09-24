@@ -65,8 +65,8 @@ control, and should say which.
 *harness* for **which agent CLI produced a friction signal** - the ledger's
 `harness` tag (`claude` | `codex` | `shell`, issues #557 / #562), set by
 `CPP_HARNESS` or `--harness`. That sense is a provenance label, not a system.
-Both senses stay: the ledger tag is a stable write contract for
-codex-power-pack and is not renamed. A sentence that could be read either way
+Both senses stay: the ledger tag is a stable write contract (originally for
+codex-power-pack, dormant since 2026-09-22) and is not renamed. A sentence that could be read either way
 must say which it means - "the friction ledger's harness tag" versus "the
 harness" - rather than overload the word silently.
 
@@ -86,11 +86,12 @@ reviews, and a new lane inherits the term without an edit here.
 
 The test: *did this model write the diff it is reviewing?* If yes, it is the
 implementer reviewing itself, whatever it is called. If no, it is the
-counter-model. A Claude session reviewing a Codex diff is the counter-model in
+counter-model. A Claude session reviewing a Codex diff was the counter-model in
 codex-power-pack; a Codex review of a Claude diff (`/codex:code_review`, run at
 `/flow:auto` Step 6 item 1) is the counter-model here. The reciprocal stage in
-codex-power-pack is native to that repo and no CPP edit reaches it
-(cooneycw/codex-power-pack#228).
+codex-power-pack was native to that repo and no CPP edit reached it
+(cooneycw/codex-power-pack#228); the repository has been private and dormant
+since 2026-09-22 (#1076).
 
 Making the counter-model stage default and giving it its own red case is
 issue #934 (ADR 0007), not this glossary.
