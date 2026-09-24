@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -860,6 +861,180 @@ def test_install_drops_files_removed_from_a_skill_dir(tmp_repo, tmp_home):
     stale.write_text("#!/bin/bash\necho stale\n")
     codex_skill_sync.main(["--install"])
     assert not stale.exists(), "a file removed upstream survived inside the installed skill"
+
+
+# ---------------------------------------------------------------------------
+# The install is safe to OBSERVE while it runs (issue #1235)
+#
+# Codex lists ~/.codex/skills and then reads each SKILL.md. The pre-#1235
+# install rmtree'd every managed skill and copytree'd it back, so a Codex start
+# during an ordinary `make codex-install` printed one "failed to read file"
+# warning per skill with nothing wrong. The observer below snapshots the tree
+# after EVERY mutating call the installer makes; it is the committed negative
+# control: on the rmtree-then-copytree installer it reports holes, on the
+# per-skill exchange it reports none.
+# ---------------------------------------------------------------------------
+
+
+def _holes(dest_root: Path, must_stay: set[str]) -> list[str]:
+    """What a reader listing dest_root right now would fail to read."""
+    found = []
+    listed = {p.name for p in dest_root.iterdir()} if dest_root.is_dir() else set()
+    for name in sorted(must_stay - listed):
+        found.append(f"{name}: missing")
+    for name in sorted(listed):
+        p = dest_root / name
+        if name.startswith(".") or not p.is_dir():
+            continue
+        if not (p / "SKILL.md").is_file():
+            found.append(f"{name}: no SKILL.md")
+    return found
+
+
+@pytest.fixture
+def observe_install(monkeypatch):
+    """Wrap every tree mutation; after each, record any hole a reader would hit."""
+    seen: list[str] = []
+    state = {"dest": None, "must_stay": set()}
+
+    def watch(fn):
+        def wrapped(*a, **kw):
+            try:
+                return fn(*a, **kw)
+            finally:
+                if state["dest"] is not None:
+                    seen.extend(
+                        f"after {fn.__name__}: {h}"
+                        for h in _holes(state["dest"], state["must_stay"])
+                    )
+        return wrapped
+
+    for name in ("rmtree", "copytree"):
+        monkeypatch.setattr(shutil, name, watch(getattr(shutil, name)))
+    monkeypatch.setattr(os, "rename", watch(os.rename))
+    # Tolerant of its absence so the red run on the pre-#1235 installer fails on
+    # the ASSERTION, not on an AttributeError that proves nothing.
+    if hasattr(codex_skill_sync, "_exchange_dirs"):
+        monkeypatch.setattr(
+            codex_skill_sync, "_exchange_dirs", watch(codex_skill_sync._exchange_dirs)
+        )
+
+    def arm(dest_root: Path, must_stay: set[str]):
+        state["dest"], state["must_stay"] = dest_root, must_stay
+        seen.clear()
+        return seen
+
+    return arm
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="renameat2 is Linux-only")
+def test_reinstall_never_shows_a_reader_a_hole(tmp_repo, tmp_home, observe_install):
+    codex_skill_sync.main(["--write"])
+    codex_skill_sync.main(["--install"])
+    installed = {p.name for p in tmp_home.iterdir()}
+    assert len(installed) > 1, "the control needs skills to replace"
+
+    holes = observe_install(tmp_home, installed)
+    assert codex_skill_sync.main(["--install"]) == 0
+    assert holes == [], "a concurrent reader would have hit:\n" + "\n".join(holes[:10])
+
+
+def test_the_observer_sees_the_pre_1235_installer(tmp_repo, tmp_home, observe_install):
+    """Negative control for the test above: the SAME observer, over the
+    rmtree-then-copytree replace #1235 removed, must report holes. Without this
+    an observer that never looks would pass the test above just as well."""
+    codex_skill_sync.main(["--write"])
+    codex_skill_sync.main(["--install"])
+    installed = {p.name for p in tmp_home.iterdir()}
+
+    holes = observe_install(tmp_home, installed)
+    for d in sorted(codex_skill_sync.OUTPUT_ROOT.iterdir()):
+        dest = tmp_home / d.name
+        shutil.rmtree(dest)
+        shutil.copytree(d, dest, dirs_exist_ok=True)
+    assert any(h.endswith(": missing") for h in holes), holes[:5]
+
+
+def test_exchange_dirs_really_swaps(tmp_path):
+    """Guards the ctypes binding itself: a binding that silently returned False
+    everywhere would push every install onto the reported fallback."""
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir(); b.mkdir()
+    (a / "A").write_text("a"); (b / "B").write_text("b")
+    swapped = codex_skill_sync._exchange_dirs(a, b)
+    if not sys.platform.startswith("linux"):
+        assert swapped is False
+        return
+    assert swapped is True
+    assert [p.name for p in a.iterdir()] == ["B"]
+    assert [p.name for p in b.iterdir()] == ["A"]
+
+
+def test_fallback_is_reported_and_still_converges(tmp_repo, tmp_home, monkeypatch, capsys):
+    codex_skill_sync.main(["--write"])
+    codex_skill_sync.main(["--install"])
+    stale = tmp_home / "flow-auto" / "scripts" / "gone.sh"
+    stale.parent.mkdir(parents=True, exist_ok=True)
+    stale.write_text("stale\n")
+    capsys.readouterr()
+
+    monkeypatch.setattr(codex_skill_sync, "_exchange_dirs", lambda a, b: False)
+    assert codex_skill_sync.main(["--install"]) == 0
+    out = capsys.readouterr().out
+    assert "replaced NON-atomically" in out
+    assert "exchange is unavailable" in out
+    assert not stale.exists(), "the fallback must still replace, not merge"
+    assert (tmp_home / "flow-auto" / "SKILL.md").is_file()
+
+
+def test_atomic_install_prints_no_fallback_note(tmp_repo, tmp_home, capsys):
+    """The other half of the report: the note must not appear on the good path,
+    or it is noise nobody reads."""
+    codex_skill_sync.main(["--write"])
+    codex_skill_sync.main(["--install"])
+    capsys.readouterr()
+    codex_skill_sync.main(["--install"])
+    if sys.platform.startswith("linux"):
+        assert "NON-atomically" not in capsys.readouterr().out
+
+
+def test_staging_is_a_sibling_and_is_cleaned_including_a_crash_leftover(tmp_repo, tmp_home):
+    codex_skill_sync.main(["--write"])
+    staging = codex_skill_sync.install_staging_root(tmp_home)
+    assert staging.parent == tmp_home.parent, "staging inside skills/ is listable by Codex"
+    leftover = staging / "new-flow-auto"
+    leftover.mkdir(parents=True)
+    (leftover / "SKILL.md").write_text("half-built by a run that died\n")
+
+    assert codex_skill_sync.main(["--install"]) == 0
+    assert not staging.exists()
+    assert not any(p.name.startswith((".cpp", "new-", "old-")) for p in tmp_home.iterdir())
+
+
+def test_nothing_is_deleted_in_place_inside_the_install_tree(tmp_repo, tmp_home, monkeypatch):
+    """rmtree is not atomic: a dir it is walking is listable with its SKILL.md
+    already gone. So every deletion - the replaced copy AND a pruned orphan -
+    must happen after a rename has taken it out of the listing. (A reader that
+    listed an orphan BEFORE that rename still finds it gone - inherent to
+    removing a skill, #1235.)"""
+    codex_skill_sync.main(["--write"])
+    codex_skill_sync.main(["--install"])
+    (tmp_repo / ".claude" / "commands" / "qa" / "test.md").unlink()
+    codex_skill_sync.main(["--write"])
+
+    deleted: list[Path] = []
+    real_rmtree = shutil.rmtree
+
+    def recording_rmtree(path, *a, **kw):
+        deleted.append(Path(path))
+        return real_rmtree(path, *a, **kw)
+
+    monkeypatch.setattr(shutil, "rmtree", recording_rmtree)
+    codex_skill_sync.main(["--install"])
+    assert not (tmp_home / "qa-test").exists()
+    assert deleted, "the control needs the install to delete something"
+    in_place = [p for p in deleted if p.parent == tmp_home]
+    assert in_place == [], f"deleted in place, visible to a reader: {in_place}"
 
 
 # ---------------------------------------------------------------------------

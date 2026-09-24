@@ -50,8 +50,10 @@ the git-less CI validate container. Reconcile drift by editing the SOURCE
 from __future__ import annotations
 
 import argparse
+import errno
 import hashlib
 import json
+import os
 import re
 import shutil
 import sys
@@ -1221,24 +1223,44 @@ def run_install() -> int:
         return 2
     dest_root = install_dest_root()
     dest_root.mkdir(parents=True, exist_ok=True)
+    staging = install_staging_root(dest_root)
+    # A leftover from a run that died mid-install. It sits OUTSIDE dest_root,
+    # so Codex never saw it; it is only ever CPP's own scratch.
+    if staging.exists():
+        shutil.rmtree(staging)
+    staging.mkdir(parents=True)
+    #: os.rename cannot cross a filesystem, so staging only works beside the
+    #: destination when both share a device (a bind-mounted skills/ does not).
+    same_device = staging.stat().st_dev == dest_root.stat().st_dev
     source_names = set()
     count = 0
-    for d in sorted(OUTPUT_ROOT.iterdir()):
-        if not d.is_dir() or not (d / "SKILL.md").is_file():
-            continue
-        dest = dest_root / d.name
-        # Replace rather than merge: a file dropped from a skill dir upstream
-        # would otherwise survive inside the installed copy.
-        if dest.is_dir() and is_managed(dest):
-            shutil.rmtree(dest)
-        shutil.copytree(d, dest, dirs_exist_ok=True)
-        source_names.add(d.name)
-        count += 1
-    removed = 0
-    for orphan in find_installed_orphans(dest_root, source_names):
-        shutil.rmtree(orphan)
-        print(f"codex-skill-sync: removed orphaned installed skill {orphan.name}")
-        removed += 1
+    non_atomic: list[str] = []
+    try:
+        for d in sorted(OUTPUT_ROOT.iterdir()):
+            if not d.is_dir() or not (d / "SKILL.md").is_file():
+                continue
+            dest = dest_root / d.name
+            if not _install_one(d, dest, staging, same_device):
+                non_atomic.append(d.name)
+            source_names.add(d.name)
+            count += 1
+        removed = 0
+        for orphan in find_installed_orphans(dest_root, source_names):
+            if same_device:
+                # One rename takes it out of the listing; the slow rmtree then
+                # runs where no reader looks. A reader that listed it BEFORE the
+                # rename still finds it gone - inherent to removing a skill, and
+                # not something any swap of this tree can hide from a reader
+                # that re-resolves the path (#1235).
+                gone = staging / f"orphan-{orphan.name}"
+                os.rename(orphan, gone)
+                shutil.rmtree(gone)
+            else:
+                shutil.rmtree(orphan)
+            print(f"codex-skill-sync: removed orphaned installed skill {orphan.name}")
+            removed += 1
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
     # The one mode that DOES touch the host, and it says so by naming both ends
     # (#1029): this is the only line here whose subject is the install tree.
     print(
@@ -1246,7 +1268,92 @@ def run_install() -> int:
         f" from {OUTPUT_ROOT.parent.name}/{OUTPUT_ROOT.name}/ -> {dest_root}"
         f" ({removed} orphan(s) removed)"
     )
+    #: The degraded path is REPORTED, never silent (#1235): a reader can see a
+    #: half-tree during these, which is the exact symptom this replaced.
+    if non_atomic:
+        why = "staging is on another device" if not same_device else (
+            "atomic directory exchange is unavailable here"
+        )
+        print(
+            f"codex-skill-sync: NOTE {len(non_atomic)} skill(s) replaced NON-atomically"
+            f" ({why}); a concurrent Codex start may warn about a missing SKILL.md"
+        )
     return 0
+
+
+def install_staging_root(dest_root: Path) -> Path:
+    """Scratch space for building replacement skill dirs (#1235).
+
+    A SIBLING of the destination, not a child: Codex enumerates dest_root, so
+    anything staged inside it - dotted or not - is something a reader may list.
+    """
+    return dest_root.parent / ".cpp-skill-staging"
+
+
+_AT_FDCWD = -100
+_RENAME_EXCHANGE = 2
+#: errnos meaning "this kernel/filesystem cannot exchange", as opposed to a real
+#: failure (permissions, a vanished path), which must still raise.
+_EXCHANGE_UNSUPPORTED = {errno.EINVAL, errno.ENOSYS, errno.EXDEV, errno.EOPNOTSUPP, errno.ENOTSUP}
+
+
+def _exchange_dirs(a: Path, b: Path) -> bool:
+    """Atomically swap two existing paths with renameat2(RENAME_EXCHANGE).
+
+    Returns False when the platform or filesystem cannot, so the caller falls
+    back - and reports it. There is no portable Python API for this; on Linux
+    glibc >= 2.28 exposes the syscall wrapper.
+    """
+    if not sys.platform.startswith("linux"):
+        return False
+    try:
+        import ctypes
+
+        libc = ctypes.CDLL(None, use_errno=True)
+        fn = libc.renameat2
+    except (OSError, AttributeError):
+        return False
+    fn.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    fn.restype = ctypes.c_int
+    if fn(_AT_FDCWD, os.fsencode(a), _AT_FDCWD, os.fsencode(b), _RENAME_EXCHANGE) == 0:
+        return True
+    err = ctypes.get_errno()
+    if err in _EXCHANGE_UNSUPPORTED:
+        return False
+    raise OSError(err, os.strerror(err), str(a), None, str(b))
+
+
+def _install_one(src: Path, dest: Path, staging: Path, same_device: bool) -> bool:
+    """Install one skill dir so a concurrent reader sees the old copy or the new
+    one, never a hole or a half-copied dir (#1235). Returns False when it had
+    to fall back to a non-atomic replace.
+
+    Replace rather than merge: a file dropped from a skill dir upstream would
+    otherwise survive inside the installed copy.
+    """
+    if dest.exists() and not (dest.is_dir() and is_managed(dest)):
+        # Not ours (no marker): the pre-#1235 merge, deliberately unchanged -
+        # this path never deletes anything, so it has no window to close.
+        shutil.copytree(src, dest, dirs_exist_ok=True)
+        return True
+    if not same_device:
+        if dest.is_dir():
+            shutil.rmtree(dest)
+        shutil.copytree(src, dest)
+        return False
+    new = staging / f"new-{src.name}"
+    shutil.copytree(src, new)
+    if not dest.exists():
+        os.rename(new, dest)
+        return True
+    if _exchange_dirs(new, dest):
+        shutil.rmtree(new)  # now holds the OLD copy
+        return True
+    old = staging / f"old-{src.name}"
+    os.rename(dest, old)
+    os.rename(new, dest)
+    shutil.rmtree(old)
+    return False
 
 
 def main(argv: list[str] | None = None) -> int:
