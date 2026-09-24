@@ -16,6 +16,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SB="$(mktemp -d "${TMPDIR:-/tmp}/cleanhost-tmpfsctl-XXXXXX")"
 trap 'rm -rf "$SB"' EXIT
+# shellcheck disable=SC2016  # MEASURE is a script body expanded inside the sandbox (#972)
 MEASURE='D=/home/clean/.claude/scripts
 if [ -d "$D" ] && [ -n "$(ls -A "$D" 2>/dev/null)" ]; then
   for f in "$D"/*; do k=file; [ -L "$f" ] && k=link

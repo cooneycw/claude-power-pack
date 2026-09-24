@@ -48,7 +48,7 @@
       "sha": "0000000",
       "origin": "the 'substitute a sensible default' module design refuted by #1061 constraint 2",
       "path": "anchors/0000000-naive-gate-lib.sh",
-      "sha256": "07370473d74d52201ca06bc0bc95400afdc1b9a848b5e83fba4325e08ba1554f",
+      "sha256": "d70c03e4ae1eaa93d0e8d65cf00c9a73a0c1dada5a4e17c667ec9cacdf9dbce7",
       "note": "No historical commit exists because this module has no pre-fix version - the control is required to land BEFORE any caller. What is vendored is therefore the DESIGN this module rejects, with the same --check runner so a verdict difference isolates the four library functions and nothing else. Provenance reads 'unverified' for that structural reason rather than a temporary one: there is nothing in git history for --verify-provenance to resolve, and there never will be."
     }
   ]

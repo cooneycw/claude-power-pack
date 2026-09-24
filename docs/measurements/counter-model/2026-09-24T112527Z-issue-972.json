@@ -1,0 +1,20 @@
+{
+  "branch": "issue-972-shellcheck-175-findings-below-error-severity-acros",
+  "counts": {
+    "accepted": 4,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "47db657a09caba31453368df09b3696194265f74",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "972",
+  "passes": 2,
+  "recorded_at": "2026-09-24T11:25:27Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 12
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

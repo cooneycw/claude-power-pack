@@ -370,8 +370,7 @@ if [[ "$MODE" == "check-summary" ]]; then
         verdict skipped
         gate_exit skipped
     fi
-    PYTHONPATH="$CPP_DIR:${PYTHONPATH:-}" uv run --project "$CPP_DIR" python -m lib.cicd check --summary
-    if [[ $? -eq 0 ]]; then
+    if PYTHONPATH="$CPP_DIR:${PYTHONPATH:-}" uv run --project "$CPP_DIR" python -m lib.cicd check --summary; then
         verdict ok
         gate_exit ok
     else
@@ -593,6 +592,7 @@ cm_enrolment_evaluate() {
         return
     fi
     CM_ENROLMENT_STATE=missing
+    # shellcheck disable=SC2016  # the quotes are literal text inside a double-quoted string; $branch expands (#972)
     CM_ENROLMENT_LINE="missing: no receipt${branch:+ for branch '$branch'} at a commit reachable from HEAD"
 }
 

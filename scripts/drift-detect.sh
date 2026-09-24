@@ -8,7 +8,7 @@
 # drift-detect.sh - Detect drift between repo-owned artifacts and host-installed state
 # Part of Claude Power Pack (CPP)
 #
-# Compares installed systemd units, sysctl configs, and Go binaries against
+# Compares sysctl configs and other host-installed artifacts against
 # repo templates/expectations. Exits non-zero if drift is detected.
 #
 # Usage:
@@ -56,7 +56,6 @@ FIX_MODE=false
 MCP_SERVERS=()
 declare -A MCP_DOCKER_CONTAINERS=()
 declare -A MCP_SYSTEMD_UNITS=()
-declare -A MCP_PORTS=()
 declare -A MCP_REGISTRATIONS=()
 declare -A DOCKER_STATUS=()
 
@@ -262,90 +261,6 @@ Exit codes:
   1 - Drift detected
   2 - Usage error
 EOF
-}
-
-# --- Systemd unit drift ---
-# Generates a service file from the template (same logic as install-service.sh)
-# and compares it against the installed version.
-check_systemd_unit() {
-    local service_name="$1"
-    local template_path="$2"
-    local server_dir="$3"
-
-    if [[ ! -f "$template_path" ]]; then
-        skip "$service_name - template not found: $template_path"
-        return
-    fi
-
-    # Detect UV bin (same logic as install-service.sh)
-    local uv_bin=""
-    if command -v uv &>/dev/null; then
-        uv_bin="$(dirname "$(which uv)")"
-    elif [[ -f "$HOME/.local/bin/uv" ]]; then
-        uv_bin="$HOME/.local/bin"
-    elif [[ -f "$HOME/.cargo/bin/uv" ]]; then
-        uv_bin="$HOME/.cargo/bin"
-    elif [[ -f "/usr/local/bin/uv" ]]; then
-        uv_bin="/usr/local/bin"
-    fi
-
-    if [[ -z "$uv_bin" ]]; then
-        skip "$service_name - uv not found, cannot generate expected unit"
-        return
-    fi
-
-    # Generate expected unit from template
-    local expected
-    expected=$(sed \
-        -e "s|\${SERVICE_USER}|$USER|g" \
-        -e "s|\${MCP_SERVER_DIR}|$server_dir|g" \
-        -e "s|\${UV_BIN}|$uv_bin|g" \
-        "$template_path")
-
-    # Check user service location
-    local installed_path="$HOME/.config/systemd/user/${service_name}.service"
-    if [[ ! -f "$installed_path" ]]; then
-        # Check system service location
-        installed_path="/etc/systemd/system/${service_name}.service"
-    fi
-
-    if [[ ! -f "$installed_path" ]]; then
-        skip "$service_name - not installed (no systemd unit found)"
-        return
-    fi
-
-    local state
-    state=$(systemd_unit_state "$service_name")
-    if [[ "$state" == "failed" ]]; then
-        drift "systemd - unit $service_name is failed"
-        fix_remove_systemd_unit "$service_name" "$installed_path"
-    elif [[ "$state" == "activating" ]]; then
-        drift "systemd - unit $service_name is stuck activating"
-        fix_remove_systemd_unit "$service_name" "$installed_path"
-    fi
-
-    local installed
-    installed=$(cat "$installed_path")
-
-    # For user services, the install script removes User= and changes WantedBy
-    # Apply the same transforms to expected for fair comparison
-    if [[ "$installed_path" == *"/systemd/user/"* ]]; then
-        expected=$(echo "$expected" | sed -e '/^User=/d' -e 's/WantedBy=multi-user.target/WantedBy=default.target/')
-    fi
-
-    if [[ "$expected" == "$installed" ]]; then
-        ok "$service_name - installed unit matches repo template"
-    else
-        drift "$service_name - installed unit differs from repo template"
-        info "  installed: $installed_path"
-        info "  template:  $template_path"
-        fix "Re-run: $server_dir/scripts/install-service.sh (or $server_dir/deploy/install-service.sh)"
-
-        # Show diff summary (line count only to avoid noisy output)
-        local diff_lines
-        diff_lines=$(diff <(echo "$expected") <(echo "$installed") | grep -c '^[<>]' || true)
-        info "  $diff_lines lines differ"
-    fi
 }
 
 # --- Sysctl drift ---
@@ -615,7 +530,7 @@ check_shared_scripts() {
 
     local canonical_hash
     canonical_hash=$(sha256sum "$canonical" | cut -d' ' -f1)
-    local canonical_rel="${canonical#$REPO_ROOT/}"
+    local canonical_rel="${canonical#"$REPO_ROOT"/}"
     local has_drift=false
 
     for dir in "$REPO_ROOT"/mcp-*/deploy; do
@@ -625,7 +540,7 @@ check_shared_scripts() {
 
         local script_hash
         script_hash=$(sha256sum "$script" | cut -d' ' -f1)
-        local script_rel="${script#$REPO_ROOT/}"
+        local script_rel="${script#"$REPO_ROOT"/}"
 
         if [[ "$canonical_hash" != "$script_hash" ]]; then
             drift "shared script divergence: $script_rel differs from $canonical_rel"
@@ -665,11 +580,9 @@ check_shared_scripts() {
 
 # --- Main ---
 main() {
-    local mode="check"
-
     case "${1:-}" in
-        --check|"") mode="check" ;;
-        --fix) mode="check"; FIX_MODE=true ;;
+        --check|"") ;;
+        --fix) FIX_MODE=true ;;
         --help|-h) usage; exit 0 ;;
         *) echo "Unknown option: $1"; usage; exit 2 ;;
     esac

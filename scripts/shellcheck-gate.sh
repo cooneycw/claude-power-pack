@@ -58,11 +58,22 @@ set -u
 # for. Parameter expansion forks nothing and needs nothing on PATH.
 _gate_lib_dir=${0%/*}
 [ "$_gate_lib_dir" = "$0" ] && _gate_lib_dir=.
+# shellcheck disable=SC1091  # gate-lib.sh is resolved at run time and linted as its own file (#972)
 . "$_gate_lib_dir/gate-lib.sh"
 
 gate_map ok=0 findings=1 unknown=2
 
-SEVERITY="${SHELLCHECK_SEVERITY:-error}"
+# STYLE, the lowest severity (issue #972). #960 adopted this gate at `error` and
+# filed everything below it as a counted residual; #972 reviewed that residual to
+# zero - every finding fixed, or suppressed on its own line with its reason - and
+# raising this default is what closed it. Nothing below the gate is unreviewed
+# now. controls/shellcheck-gate/cases/bad-note-severity is the input that tells
+# this default from the old one.
+#
+# What would move this back (ADR 0009): repeated churn from note-level findings
+# that are consistently suppressed rather than fixed. The step back is to
+# `warning`, never to `error` - `error` re-opens an unreviewed residual.
+SEVERITY="${SHELLCHECK_SEVERITY:-style}"
 ROOT="."
 
 while [ $# -gt 0 ]; do
@@ -97,10 +108,13 @@ else
     SOURCE="find"
     # The prune list is the OWNERSHIP BOUNDARY: a nested checkout or an installed
     # dependency is not this repository's code to lint, and answers its own
-    # linting question through its own gate.
+    # linting question through its own gate. `.ci-bin` is CI's staged toolchain
+    # (a whole pinned git tree among it) - gitignored, so the git path never saw
+    # it, and CI is exactly where this path runs. Invisible at severity=error;
+    # 13 files of findings at style (#972, PR #1247's pipeline).
     ( cd "$ROOT" && find . \
         \( -name .git -o -name .venv -o -name venv -o -name node_modules \
-           -o -name .mypy_cache -o -name .tox -o -name .worktrees \
+           -o -name .mypy_cache -o -name .tox -o -name .worktrees -o -name .ci-bin \
            -o -name site-packages -o -name vendor \) -prune -o \
         -type f -print0 ) > "$CAND" \
         || unknown "find enumeration failed; the file list is incomplete."
