@@ -1,0 +1,35 @@
+{
+  "gate": "scripts/flow-wave-lexicon.sh",
+  "invocation": [
+    "sh",
+    "controls/flow-wave-lexicon/run-case.sh",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_WAVE_LEXICON_CONTROL: finding\\b",
+  "unavailable_signal": "^FLOW_WAVE_LEXICON_CONTROL: unavailable - ",
+  "limits": "WHAT THIS ESTABLISHES: that a `GATE: HOLD` whose reason is written as prose beneath the token is REFUSED rather than accepted. Both cases hold the same hold on the same issues behind the same blocker, followed by the same prose; the only difference is whether a reason also sits on the token line.\n\nWHY IT EXISTS. ADR 0008 row 17 names the lexicon an X-class instrument - its accept/reject is acted on by the wave protocol in another session - and until #1189 it carried no registered control. The defect this control is anchored on: prose beneath a HOLD was dropped, the ledger stored `GATE: HOLD (no reason given)`, and `validate` reported 0 errors while `record` printed success. The hold stayed enforced by flow-wave-plan.py and its argument did not survive, so a successor inherited an unexplained standing hold.\n\nWHAT IT DOES NOT ESTABLISH. Nothing about the rest of the vocabulary: LANE, MERGE, STATE, RATIFY, OVERRULE, PUSHBACK and LEDGER are asserted in tests/test_flow_wave_lexicon.py, not here. Nothing about the slug subject added in the same change (#1189 defect 2), whose GOOD/BAD line is a grammar decision rather than a detection. Nothing about whether a reason, once present, is a GOOD reason.\n\nTHE CASES NAME NO ANSWER. Each case directory holds a body.md - the message an orchestrator would send - and nothing else. The runner reads the lexicon's own `FLOW_LEXICON:` verdict line, never an error string, so a blind lexicon answers `ok` for both.",
+  "cases": [
+    {
+      "name": "bad-reasonless-hold",
+      "input": "cases/bad-reasonless-hold",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-hold-with-reason",
+      "input": "cases/good-hold-with-reason",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "c5b1c5e",
+      "origin": "scripts/flow-wave-lexicon.sh",
+      "path": "anchors/historical-pre-1189-flow-wave-lexicon.sh",
+      "sha256": "2f7d0bf4be4434fd279238a1fe021693a5382f3aaa0bf3b6741d14feec8cba08",
+      "why": "The lexicon as it stood before #1189, vendored from c5b1c5e - a real ancestor, so nothing had to be constructed. MEASURED against both cases: it exits 0 with `FLOW_LEXICON: ok` on the BAD case and on the GOOD one. It does not merely miss the finding; it answers IDENTICALLY on inputs that differ, which is the defect exactly - the reason was dropped and nothing said so."
+    }
+  ]
+}
