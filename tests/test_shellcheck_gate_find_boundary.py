@@ -16,6 +16,12 @@ any repository takes the `find` path on any host, which is what `tmp_path` is.
 The pair matters. The skipped case alone would also pass on a gate that lints
 nothing; the neighbouring directory proves the same bad file IS caught when it
 sits outside the ownership boundary.
+
+NOT `@requires_git`. `_gate()` probes git only under `shutil.which("git")`, and
+these tests exist for the git-LESS `find` path - CI's shellcheck image, which
+has no git. Skipping them there would skip them where they matter, so each def
+carries `# binary-guard: allow` instead. The checker does not see a conditional
+guard inside a helper, only a decorator on the test.
 """
 
 from __future__ import annotations
@@ -62,7 +68,7 @@ def _gate(root: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_find_fallback_skips_the_staged_ci_toolchain(tmp_path: Path) -> None:
+def test_find_fallback_skips_the_staged_ci_toolchain(tmp_path: Path) -> None:  # binary-guard: allow git-less path
     root = _tree(tmp_path / "repo", ".ci-bin/git-root/usr/lib/git-core")
     result = _gate(root)
     assert "(source=find)" in result.stdout + result.stderr
@@ -70,7 +76,7 @@ def test_find_fallback_skips_the_staged_ci_toolchain(tmp_path: Path) -> None:
     assert "1 file(s) scanned" in result.stdout
 
 
-def test_the_same_offender_outside_the_boundary_is_caught(tmp_path: Path) -> None:
+def test_the_same_offender_outside_the_boundary_is_caught(tmp_path: Path) -> None:  # binary-guard: allow git-less path
     root = _tree(tmp_path / "repo", "tools/git-core")
     result = _gate(root)
     assert "(source=find)" in result.stdout + result.stderr
