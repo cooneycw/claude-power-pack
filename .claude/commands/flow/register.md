@@ -1328,7 +1328,11 @@ scheme.
 ~/.claude/scripts/flow-wave-registry.sh release 1 --wave cpp
 ```
 
-Run on leaving the wave. Sessions that die without releasing are caught by
+Run on leaving the wave. Release clears the role's lane - issue, PR, branch,
+base, diff and files - and keeps what it held under `released_lane`, so the row
+stays auditable without reading as a current claim (#1222). Re-registering onto
+a different issue likewise resets every lane fact the call does not supply.
+Sessions that die without releasing are caught by
 staleness detection; their entries persist as `stale`. Releasing a role owned by
 another LIVE session refuses without `--force`.
 
