@@ -3988,9 +3988,13 @@ def test_a_same_issue_rebrief_keeps_its_lane_and_baseline(tmp_path: Path) -> Non
 def test_a_released_role_contributes_no_starvation(tmp_path: Path) -> None:
     """Acceptance 4: starvation is computed only from roles still holding a lane.
 
-    This held before #1222 (``starvation_scan`` reads live roles only); it is
-    pinned here so the clearing above cannot be the only thing keeping it true.
-    The paired unreleased role proves the same history DOES fire.
+    This held before #1222 (``starvation_scan`` reads live roles only). Going
+    through ``release`` would now clear ``pr`` and ``overtaken`` first, so the
+    released row would drop out for that reason alone and the test could not
+    see the live-only filter (counter-model review). The row is therefore
+    released the pre-#1222 way - marked, lane intact - and that precondition is
+    asserted before the scan is read. The paired live role proves the same
+    history DOES fire.
     """
     for role in ("gone", "here"):
         for base in ("s1", "s2", "s3"):
@@ -3998,7 +4002,14 @@ def test_a_released_role_contributes_no_starvation(tmp_path: Path) -> None:
                  "--issue", "7", "--pr", "70", "--base", base, "--diff", "same")
     before = _run(tmp_path, "list", "--wave", "zz", live=SELF_PID)
     assert _detail(before, "FLOW_WAVE_STARVATION") == "2", before.stdout
-    _run(tmp_path, "release", "gone", "--wave", "zz")
+    reg_path = tmp_path / "reg" / "registry.json"
+    data = json.loads(reg_path.read_text(encoding="utf-8"))
+    gone = data["zz"]["roles"]["gone"]
+    gone.update({"released": True, "released_ts": 1700000100})
+    reg_path.write_text(json.dumps(data), encoding="utf-8")
+    legacy = _entry(tmp_path, "zz", "gone")
+    assert legacy["released"] is True and legacy["pr"] == "70", legacy
+    assert legacy["overtaken"] >= 2, legacy
     after = _run(tmp_path, "list", "--wave", "zz", live=SELF_PID)
     assert _detail(after, "FLOW_WAVE_STARVATION") == "1", after.stdout
 
