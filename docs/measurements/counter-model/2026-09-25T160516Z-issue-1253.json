@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1253-test-mailbox-isolate-session-lineage-in-seven-watc",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "b202e741b3f293cd4471711092528e7f33fb1239",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1253",
+  "passes": 1,
+  "recorded_at": "2026-09-25T16:05:16Z",
+  "red_cases": {
+    "already_covered": 7,
+    "proposed": 7
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
