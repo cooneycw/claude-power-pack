@@ -101,9 +101,16 @@ requires_escalate_tools = pytest.mark.skipif(
 WAVE = unique_wave()
 
 
-def _run(tmp: Path, *args: str, stdin: str | None = None, timeout: int = 60):
+def _run(
+    tmp: Path,
+    *args: str,
+    stdin: str | None = None,
+    timeout: int = 60,
+    env_extra: dict[str, str] | None = None,
+):
     env = os.environ.copy()
     env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp / "mb")
+    env.update(env_extra or {})
     return subprocess.run(
         ["bash", str(MAILBOX), *args],
         capture_output=True,
@@ -681,7 +688,30 @@ def _watch_rows(proc: subprocess.CompletedProcess[str]) -> dict[str, list[str]]:
     return rows
 
 
-def _live_watcher(tmp: Path, role: str, wave: str, timeout: int = 30):
+def _session_lineage() -> dict[str, str]:
+    """Declare THIS pytest process the Claude Code session, for one call (#1253).
+
+    Since #1228 a live watcher reads `armed` only when a session is in its
+    ancestry; with no session it is a confirmed `no-wake`. Tests that expect
+    `armed`/`stale` from a watcher they Popen themselves must therefore SAY who
+    the session is - otherwise the verdict depends on whether pytest happened to
+    be launched from inside a session that owns a socket: green on one box, red
+    on another, on the same commit. ``os.getpid()`` is the xdist worker, which is
+    the direct parent of every watcher these fixtures start.
+
+    Opt-in per call, never a suite default: the orphan and unknown-lineage cases
+    (``TestWakeability``) must keep asking the real question.
+    """
+    return {"FLOW_WAVE_SESSION_PIDS": str(os.getpid())}
+
+
+def _live_watcher(
+    tmp: Path,
+    role: str,
+    wave: str,
+    timeout: int = 30,
+    env_extra: dict[str, str] | None = None,
+):
     """Start a REAL blocking watcher and wait until its heartbeat exists.
 
     The #801 state is fused from the live process table, so a test that wants
@@ -690,6 +720,7 @@ def _live_watcher(tmp: Path, role: str, wave: str, timeout: int = 30):
     """
     env = os.environ.copy()
     env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp / "mb")
+    env.update(env_extra or {})
     proc = subprocess.Popen(
         ["bash", str(MAILBOX), "watch", "--role", role, "--wave", wave,
          "--timeout", str(timeout), "--interval", "1", "--consume"],
@@ -804,9 +835,9 @@ class TestListWatchState:
         case in this file, so the direction that must still read `armed` is
         asserted with a REAL blocking watcher rather than a stamped heartbeat.
         """
-        watcher = _live_watcher(tmp_path, "1", WAVE)
+        watcher = _live_watcher(tmp_path, "1", WAVE, env_extra=_session_lineage())
         try:
-            proc = _run(tmp_path, "list", "--wave", WAVE)
+            proc = _run(tmp_path, "list", "--wave", WAVE, env_extra=_session_lineage())
             assert _watch_rows(proc)["1"] == ["armed", "1"]
             assert "DEAF:" not in proc.stdout
         finally:
@@ -847,12 +878,13 @@ class TestListWatchState:
         means hung or stopped - a different repair from a process that is simply
         gone, which is why the two words stayed distinct.
         """
-        watcher = _live_watcher(tmp_path, "1", WAVE)
+        watcher = _live_watcher(tmp_path, "1", WAVE, env_extra=_session_lineage())
         try:
             # A far-future reader clock ages the live watcher's real stamp past
             # the 300s threshold without stopping the process.
             future = str(int(time.time()) + 9000)
-            proc = _run_at(tmp_path, future, "list", "--wave", WAVE)
+            proc = _run_at(tmp_path, future, "list", "--wave", WAVE,
+                           **_session_lineage())
             assert _watch_rows(proc)["1"] == ["stale", "1"]
         finally:
             watcher.kill()
@@ -862,11 +894,11 @@ class TestListWatchState:
         """The #778 knob still moves the armed/stale line - for a LIVE watcher,
         the only case where that line still decides anything.
         """
-        watcher = _live_watcher(tmp_path, "1", WAVE)
+        watcher = _live_watcher(tmp_path, "1", WAVE, env_extra=_session_lineage())
         try:
             future = str(int(time.time()) + 9000)
             proc = _run_at(tmp_path, future, "list", "--wave", WAVE,
-                           FLOW_WAVE_WATCH_STALE_SECS="99999")
+                           FLOW_WAVE_WATCH_STALE_SECS="99999", **_session_lineage())
             assert _watch_states(proc) == {"1": "armed"}
         finally:
             watcher.kill()
@@ -969,14 +1001,37 @@ class TestListWatchState:
         (worker step 4 runs at registration), so a box-only scan would miss
         exactly the roles doing it right.
         """
-        watcher = _live_watcher(tmp_path, "1", WAVE)
+        watcher = _live_watcher(tmp_path, "1", WAVE, env_extra=_session_lineage())
         try:
-            proc = _run(tmp_path, "list", "--wave", WAVE)
+            proc = _run(tmp_path, "list", "--wave", WAVE, env_extra=_session_lineage())
             assert "No mailboxes" in proc.stdout  # precondition: no box exists yet
             assert _watch_states(proc) == {"1": "armed"}
         finally:
             watcher.kill()
             watcher.communicate(timeout=10)
+
+    def test_declared_lineage_decides_armed_not_the_host(self, tmp_path: Path) -> None:
+        """The control for ``_session_lineage()`` itself (#1253).
+
+        The same live watcher, with the declared session a LIVE process that is
+        not in its ancestry, must read `no-wake`. Without this, the armed cases
+        above could be passing through the unknown-lineage fallback (or a host
+        socket) rather than because the declared session is their ancestor.
+        """
+        sibling = subprocess.Popen(["sleep", "60"])
+        not_an_ancestor = {"FLOW_WAVE_SESSION_PIDS": str(sibling.pid)}
+        watcher = _live_watcher(tmp_path, "1", WAVE, env_extra=not_an_ancestor)
+        try:
+            assert _pid_alive(sibling.pid)  # precondition: a real, live pid
+            proc = _run(tmp_path, "list", "--wave", WAVE, env_extra=not_an_ancestor)
+            assert _watch_rows(proc)["1"] == ["no-wake", "1"], proc.stdout
+            proc = _run(tmp_path, "list", "--wave", WAVE, env_extra=_session_lineage())
+            assert _watch_rows(proc)["1"] == ["armed", "1"], proc.stdout
+        finally:
+            watcher.kill()
+            watcher.communicate(timeout=10)
+            sibling.kill()
+            sibling.wait(timeout=10)
 
 
 # --------------------------------------------------------------------------
@@ -1004,6 +1059,7 @@ class TestWatchStatus:
     ) -> None:
         env = os.environ.copy()
         env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
+        env.update(_session_lineage())
         watcher = subprocess.Popen(
             [
                 "bash", str(MAILBOX), "watch", "--role", "1", "--wave", WAVE,
@@ -1021,7 +1077,8 @@ class TestWatchStatus:
                 time.sleep(0.1)
             assert wf.exists(), "watch never armed"
 
-            proc = _run(tmp_path, "watch", "--status", "--role", "1", "--wave", WAVE)
+            proc = _run(tmp_path, "watch", "--status", "--role", "1", "--wave", WAVE,
+                        env_extra=_session_lineage())
             assert _detail(proc, "FLOW_MAILBOX_REARMED") == "yes"
             assert int(_detail(proc, "FLOW_MAILBOX_WATCHER_COUNT")) >= 1
             assert _detail(proc, "FLOW_MAILBOX_WATCH_STATE") == "armed"
@@ -1104,10 +1161,11 @@ class TestWatchStatus:
         repeatedly because the subshells are transient: a single sample can miss
         the window and pass against a broken count.
         """
-        watcher = _live_watcher(tmp_path, "1", WAVE)
+        watcher = _live_watcher(tmp_path, "1", WAVE, env_extra=_session_lineage())
         try:
             for _ in range(12):
-                proc = _run(tmp_path, "watch", "--status", "--role", "1", "--wave", WAVE)
+                proc = _run(tmp_path, "watch", "--status", "--role", "1", "--wave", WAVE,
+                            env_extra=_session_lineage())
                 assert _detail(proc, "FLOW_MAILBOX_WATCHER_COUNT") == "1"
                 assert _detail(proc, "FLOW_MAILBOX_WATCH_STATE") == "armed"
         finally:
@@ -2678,6 +2736,7 @@ class TestWatcherIdentityAcrossDirectories:
         dir_b = tmp_path / "b"
         env_a = os.environ.copy()
         env_a["FLOW_WAVE_MAILBOX_DIR"] = str(dir_a)
+        env_a.update(_session_lineage())
         watcher = subprocess.Popen(
             [
                 "bash", str(MAILBOX), "watch", "--role", "1", "--wave", WAVE,
@@ -2691,6 +2750,7 @@ class TestWatcherIdentityAcrossDirectories:
 
             env_b = os.environ.copy()
             env_b["FLOW_WAVE_MAILBOX_DIR"] = str(dir_b)
+            env_b.update(_session_lineage())
             from_b = subprocess.run(
                 ["bash", str(MAILBOX), "watch", "--status", "--role", "1", "--wave", WAVE],
                 capture_output=True, text=True, env=env_b, check=False,
