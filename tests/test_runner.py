@@ -391,6 +391,68 @@ class TestRerunFailedTests:
         assert result.reruns == []
         assert "reruns" not in result.to_dict()
 
+    def test_a_failure_is_named_even_with_reruns_off(self, tmp_project: Path) -> None:
+        """Issue #1258: "1 failed" without an id cannot be acted on.
+
+        Ids were read only on the re-run path, so with re-runs off - or a step
+        the re-run does not apply to - the JSON carried a count and no name,
+        and the only way to learn which test failed was another full run.
+        """
+        step = StepDef(
+            id="test",
+            command=(
+                "printf '=== 1 failed, 3 passed in 0.01s ===\\n'; "
+                "printf 'FAILED tests/a.py::t1 - AssertionError\\n'; exit 1"
+            ),
+            timeout_seconds=30,
+        )
+        result = DeterministicRunner(
+            project_root=tmp_project, output=StringIO()
+        ).run("check", step_defs=[step])
+
+        assert not result.success
+        assert result.reruns == []
+        assert result.to_dict()["tests"]["test"]["failed_ids"] == ["tests/a.py::t1"]
+
+    def test_too_many_failures_to_rerun_are_still_named(self, tmp_project: Path) -> None:
+        ids = [f"tests/a.py::t{i}" for i in range(30)]
+        lines = "".join(f"printf 'FAILED {i} - E\\n'; " for i in ids)
+        step = StepDef(
+            id="test",
+            command=f"printf '=== 30 failed in 0.01s ===\\n'; {lines}exit 1",
+            timeout_seconds=30,
+        )
+        result = DeterministicRunner(
+            project_root=tmp_project, output=StringIO(), rerun_failed=True
+        ).run("check", step_defs=[step])
+
+        assert result.reruns == []  # over MAX_RERUN_IDS: no re-run
+        assert result.to_dict()["tests"]["test"]["failed_ids"] == ids
+
+    def test_an_unnameable_failure_says_so_rather_than_omitting_the_field(
+        self, tmp_project: Path
+    ) -> None:
+        step = StepDef(
+            id="test",
+            command="printf '=== 1 failed in 0.01s ===\\n'; exit 1",
+            timeout_seconds=30,
+        )
+        result = DeterministicRunner(
+            project_root=tmp_project, output=StringIO()
+        ).run("check", step_defs=[step])
+
+        assert result.to_dict()["tests"]["test"]["failed_ids"] == []
+
+    def test_a_passing_test_step_carries_no_failed_ids(self, tmp_project: Path) -> None:
+        step = StepDef(
+            id="test", command="printf '=== 3 passed in 0.01s ===\\n'", timeout_seconds=30
+        )
+        result = DeterministicRunner(
+            project_root=tmp_project, output=StringIO()
+        ).run("check", step_defs=[step])
+
+        assert "failed_ids" not in result.to_dict()["tests"]["test"]
+
     def test_rerun_passes_and_preserves_first_attempt_counts(
         self, tmp_project: Path
     ) -> None:
@@ -4501,3 +4563,127 @@ class TestSubsumedGates:
         subsumed, refusals = subsumed_gate_ids("finish", steps, str(tmp_path))
         assert subsumed == {}
         assert any("make could not be asked" in r for r in refusals), refusals
+
+
+# --- issue #1258: typecheck honours the repository's declared mypy scope ------
+
+
+class TestScopedMypy:
+    """`mypy .` checked tests/ in a repo whose contract is `mypy <pkg>`, and the
+    finish gate failed on errors that contract does not cover (skillc#18).
+    A declared `files =` is honoured by passing mypy NO path.
+
+    Every case runs against BOTH implementations of the rule - the inline shell
+    probe generated Makefiles carry, and lib/cicd/mypy_scope.py the plans call -
+    so the two cannot drift."""
+
+    @staticmethod
+    def _args_seen(tmp_path: Path, files: dict[str, str], impl: str) -> str:
+        import shutil
+        import subprocess
+        import sys
+
+        from lib.cicd.models import scoped_mypy
+
+        if shutil.which("bash") is None or shutil.which("awk") is None:
+            pytest.skip("requires bash and awk")
+        for name, text in files.items():
+            (tmp_path / name).write_text(text)
+        bindir = tmp_path / "bin"
+        bindir.mkdir()
+        fake = bindir / "mypy"
+        fake.write_text('#!/usr/bin/env bash\nprintf "[%s]" "$*" > mypy.args\n')
+        fake.chmod(0o755)
+        env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}"}
+        if impl == "shell":
+            argv = ["bash", "-c", scoped_mypy("")]
+        else:
+            module = Path(__file__).resolve().parents[1] / "lib" / "cicd" / "mypy_scope.py"
+            argv = [sys.executable, str(module), "mypy"]
+        subprocess.run(argv, cwd=tmp_path, env=env, check=True)
+        return (tmp_path / "mypy.args").read_text()
+
+    CASES = [
+        ("pyproject_declares", {"pyproject.toml": '[tool.mypy]\nfiles = ["skillc"]\nstrict = true\n'}, "[]"),
+        ("mypy_ini_declares", {"mypy.ini": "[mypy]\nfiles = pkg\n"}, "[]"),
+        ("no_declaration", {"pyproject.toml": "[tool.mypy]\nstrict = true\n"}, "[.]"),
+        ("no_config", {}, "[.]"),
+        (
+            "files_in_another_table",
+            {
+                "pyproject.toml": '[tool.setuptools]\nfiles = ["x"]\n[tool.mypy]\nstrict = true\n'
+                '[[tool.mypy.overrides]]\nmodule = "a"\nfiles = ["y"]\n'
+            },
+            "[.]",
+        ),
+        # counter-model review: mypy.ini wins over pyproject.toml, so a `files`
+        # in pyproject is inactive - bare mypy there would check nothing.
+        (
+            "inactive_config_ignored",
+            {"mypy.ini": "[mypy]\nstrict = True\n", "pyproject.toml": '[tool.mypy]\nfiles = ["x"]\n'},
+            "[.]",
+        ),
+        (
+            "file_without_mypy_section_does_not_win",
+            {"setup.cfg": "[metadata]\nname = x\n", "pyproject.toml": '[tool.mypy]\nfiles = ["x"]\n'},
+            "[]",
+        ),
+        ("commented_header", {"pyproject.toml": '[tool.mypy]  # project scope\nfiles = ["x"]\n'}, "[]"),
+        # counter-model review, pass 2: both spellings mypy accepts.
+        ("ini_colon_delimiter", {"setup.cfg": "[mypy]\nfiles: pkg\n"}, "[]"),
+        ("toml_quoted_key", {"pyproject.toml": '[tool.mypy]\n"files" = ["pkg"]\n'}, "[]"),
+    ]
+
+    @pytest.mark.parametrize("impl", ["shell", "module"])
+    @pytest.mark.parametrize("name,files,expected", CASES, ids=[c[0] for c in CASES])
+    def test_scope(
+        self, tmp_path: Path, impl: str, name: str, files: dict[str, str], expected: str
+    ) -> None:
+        assert self._args_seen(tmp_path, files, impl) == expected, (name, impl)
+
+    def test_the_plan_typecheck_step_stays_subsumable(self) -> None:
+        """The plan fallback must stay a single command: a slot holding `;`/`|`
+        is refused by `command_runs_make_target`, which silently cost the
+        typecheck gate its subsumption under `make verify`."""
+        from lib.cicd.steps import _SCOPED_MYPY_FALLBACK, BUILTIN_PLANS
+
+        assert not any(ch in _SCOPED_MYPY_FALLBACK for ch in ";&|`\n")
+        for plan in ("finish", "check"):
+            step = next(s for s in BUILTIN_PLANS[plan] if s.id == "typecheck")
+            assert _SCOPED_MYPY_FALLBACK in step.command, plan
+
+    def test_a_generated_makefile_recipe_keeps_the_probe_intact(self, tmp_path: Path) -> None:
+        """counter-model review: make expands `$` before the shell sees it."""
+        import shutil
+        import subprocess
+
+        from lib.cicd.makefile import _generate_inline
+        from lib.cicd.models import (
+            FRAMEWORK_RUNNERS,
+            FRAMEWORK_TARGETS,
+            Framework,
+            FrameworkInfo,
+            PackageManager,
+        )
+
+        if shutil.which("make") is None:
+            pytest.skip("requires make")
+        info = FrameworkInfo(
+            framework=Framework.PYTHON,
+            package_manager=PackageManager.UV,
+            recommended_targets=FRAMEWORK_TARGETS[Framework.PYTHON],
+            runner_commands=FRAMEWORK_RUNNERS[(Framework.PYTHON, PackageManager.UV)],
+        )
+        (tmp_path / "Makefile").write_text(_generate_inline(info))
+        (tmp_path / "pyproject.toml").write_text('[tool.mypy]\nfiles = ["pkg"]\n')
+        bindir = tmp_path / "bin"
+        bindir.mkdir()
+        uv = bindir / "uv"
+        uv.write_text('#!/usr/bin/env bash\nprintf "[%s]" "$*" > uv.args\n')
+        uv.chmod(0o755)
+        subprocess.run(
+            ["make", "typecheck"], cwd=tmp_path, check=True, capture_output=True,
+            env={**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}"},
+        )
+        assert (tmp_path / "uv.args").read_text() == "[run mypy]"
+

@@ -54,7 +54,7 @@ def test_fresh_path_creates_visible_sibling_via_helper() -> None:
     # the default is a visible sibling outside the repo - never the hidden
     # in-repo .codex/.claude/worktrees path.
     script = _read("scripts/flow-start-resolve.sh")
-    assert 'wt_path_for()' in script
+    assert 'set_wt_path()' in script  # renamed from wt_path_for() by #1258
     # Default (unset FLOW_WORKTREE_BASE) is the repo's PARENT dir, not in-repo.
     assert 'dirname "$TARGET_REPO"' in script
     assert "worktree add" in script  # git-lane creation lives in the helper

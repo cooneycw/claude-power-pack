@@ -155,9 +155,14 @@ if [ -n "$CPP_DIR" ] && [ -x "$CPP_DIR/scripts/check-ignored-additions.sh" ]; th
     "$CPP_DIR/scripts/check-ignored-additions.sh"
     IGN_EXIT=$?
     CHECKS_RUN=$((CHECKS_RUN + 1))
-    # Advisory only: the script exits 0 even when it warns, so this never fails
-    # the check. Any warning it prints is surfaced to the user for review.
-    CHECKS_PASS=$((CHECKS_PASS + 1))
+    # Exit 3 blocks in a linked worktree (issue #1258): a non-scratch ignored
+    # file there was written by this run, and a clean clone will not have it.
+    # In the primary checkout the script stays advisory and exits 0.
+    if [ "$IGN_EXIT" -eq 0 ]; then
+        CHECKS_PASS=$((CHECKS_PASS + 1))
+    else
+        CHECKS_FAIL=$((CHECKS_FAIL + 1))
+    fi
 fi
 ```
 
