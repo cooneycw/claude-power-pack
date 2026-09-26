@@ -1,10 +1,10 @@
 {
- "version": 2,
+ "version": true,
  "kind": "verified-result",
  "producer": "assembler",
- "attempt_id": "att-fixture-9",
+ "attempt_id": "att-fixture-10",
  "trial_id": "trial-fixture",
- "result_id": "res-fixture-9",
+ "result_id": "res-fixture-10",
  "grader": {
   "id": "fixture-grader",
   "revision": "1"
@@ -12,7 +12,7 @@
  "graded_digests": [
   "sha256:0000000000000000000000000000000000000000000000000000000000000000"
  ],
- "status": [],
+ "status": "PASS",
  "criteria": [
   {
    "id": "c1",

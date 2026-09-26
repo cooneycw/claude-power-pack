@@ -9,7 +9,7 @@
   ],
   "good_exit": 0,
   "detect_signal": "^behavioral-eval: (failure|absent|unreadable|forged|inconclusive) - ",
-  "limits": "WHAT THIS ESTABLISHES: that the CONSUMER renders a recorded failure as a failure, a recorded pass as a pass, an absent artifact as neither, and an envelope it cannot read as a refusal rather than a guess. WHAT IT DOES NOT ESTABLISH, AND THE DISTINCTION IS THE WHOLE POINT OF #1084: anything at all about a behavioural case discriminating. There is no behavioural case - half B needs skillc #5. Every case here is a FIXTURE written by hand to exercise a reading, and the gate says so on every verdict it prints, because its output sits in `make verify` beside gates whose greens carry behavioural meaning and a reader skimming cannot tell them apart. A green here is evidence about a reader, never about a model. THE ABSENT CASE IS THE REPOSITORY'S ACTUAL STATE: nothing produces one of these artifacts today, so the real gate reports `absent` on every run until half B lands. That is why `absent` is a DETECTION rather than a pass - an unknowable answer is never rendered as a clean one (#1014, #800) - and why it is not a build failure either, which is the Makefile's consumption decision rather than this gate's verdict. THE FORGED PAIR IS WHY THIS GATE DERIVES RATHER THAN READS: `bad-forged-pass-violation` and `bad-forged-pass-no-mandatory` both declare status PASS, both are well-formed JSON, and both parse - their own criteria derive FAIL and INCONCLUSIVE respectively. A consumer that trusted the declared status would launder each as a clean pass, and no amount of validating the record's SHAPE would catch either. The second is this repository's #1014 rule ('an unknowable answer is never rendered as a clean one') arriving inside someone else's record format: records.md fixes that no mandatory criteria yields INCONCLUSIVE, never PASS. THREE CASES CAME FROM COUNTER-MODEL REVIEW AND ARE THE ONES A SINGLE AUTHOR WOULD NOT HAVE WRITTEN: `bad-malformed-mandatory-flag` carries `\"mandatory\": \"true\"` as a STRING, which the derivation read as falsy and silently dropped the VIOLATED criterion out of the population - the record then derived PASS honestly, matched its declared PASS, and reported clean, so no assertion about agreement between status and criteria could have caught it. `bad-wrong-kind` is an `artifact-manifest` read as a verified-result. `bad-unhashable-status` carries `\"status\": []`, which JSON permits and `in frozenset(...)` raises TypeError on - the traceback exited 1, this gate's `failure` code, printing no verdict line at all, and the advisory `|| true` wrappers swallowed it. All three are WELL-FORMED JSON and all three previously produced a confident wrong answer rather than noise.",
+  "limits": "WHAT THIS ESTABLISHES: that the CONSUMER renders a recorded failure as a failure, a recorded pass as a pass, an absent artifact as neither, and an envelope it cannot read as a refusal rather than a guess. WHAT IT DOES NOT ESTABLISH, AND THE DISTINCTION IS THE WHOLE POINT OF #1084: anything at all about a behavioural case discriminating. There is no behavioural case - half B lives in skillc and waits on skillc #8, #9 and #10. Every case here is a FIXTURE written by hand to exercise a reading, and the gate says so on every verdict it prints, because its output sits in `make verify` beside gates whose greens carry behavioural meaning and a reader skimming cannot tell them apart. A green here is evidence about a reader, never about a model. THE ABSENT CASE IS THE REPOSITORY'S ACTUAL STATE: nothing produces one of these artifacts today, so the real gate reports `absent` on every run until half B lands. That is why `absent` is a DETECTION rather than a pass - an unknowable answer is never rendered as a clean one (#1014, #800) - and why it is not a build failure either, which is the Makefile's consumption decision rather than this gate's verdict. THE FORGED PAIR IS WHY THIS GATE DERIVES RATHER THAN READS: `bad-forged-pass-violation` and `bad-forged-pass-no-mandatory` both declare status PASS, both are well-formed JSON, and both parse - their own criteria derive FAIL and INCONCLUSIVE respectively. A consumer that trusted the declared status would launder each as a clean pass, and no amount of validating the record's SHAPE would catch either. The second is this repository's #1014 rule ('an unknowable answer is never rendered as a clean one') arriving inside someone else's record format: records.md fixes that no mandatory criteria yields INCONCLUSIVE, never PASS. THREE CASES CAME FROM COUNTER-MODEL REVIEW AND ARE THE ONES A SINGLE AUTHOR WOULD NOT HAVE WRITTEN: `bad-malformed-mandatory-flag` carries `\"mandatory\": \"true\"` as a STRING, which the derivation read as falsy and silently dropped the VIOLATED criterion out of the population - the record then derived PASS honestly, matched its declared PASS, and reported clean, so no assertion about agreement between status and criteria could have caught it. `bad-wrong-kind` is an `artifact-manifest` read as a verified-result. `bad-unhashable-status` carries `\"status\": []`, which JSON permits and `in frozenset(...)` raises TypeError on - the traceback exited 1, this gate's `failure` code, printing no verdict line at all, and the advisory `|| true` wrappers swallowed it. All three are WELL-FORMED JSON and all three previously produced a confident wrong answer rather than noise. VERSION 2 (skillc PR #32): every case is a version-2 record, because skillc now refuses version 1 and this gate reading only v1 would have refused the first real record skillc could emit. `bad-version-one` is the old good case VERBATIM - the regression pin that a v1 record is now refused, not read. Five cases are skillc's own v2 RECORD rules restated here: `bad-version-boolean`, `bad-producer-subject` (the forged subject verdict, reported `forged`), `bad-satisfied-without-evidence` (would otherwise derive PASS), `bad-no-graded-digests`. TWO CASES ARE REAL GRADER OUTPUT, not hand-written: `good-skillc-graded-pass` and `bad-skillc-graded-failure` wrap skillc 3c243a1's `grade_slug.py` report on its reference candidate and on `wrong/example-only`, so the consumer is tested against what the producer's grader actually emits rather than against this author's reading of the spec. Every verdict is 'checked alone - NOT against any ledger': skillc's bundle rules are not applied here.",
   "cases": [
     {
       "name": "bad-records-failure",
@@ -59,6 +59,41 @@
     {
       "name": "good-records-pass",
       "input": "cases/good-records-pass",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-version-one",
+      "input": "cases/bad-version-one",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-version-boolean",
+      "input": "cases/bad-version-boolean",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-producer-subject",
+      "input": "cases/bad-producer-subject",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-satisfied-without-evidence",
+      "input": "cases/bad-satisfied-without-evidence",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-no-graded-digests",
+      "input": "cases/bad-no-graded-digests",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-skillc-graded-failure",
+      "input": "cases/bad-skillc-graded-failure",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-skillc-graded-pass",
+      "input": "cases/good-skillc-graded-pass",
       "expect": "GOOD"
     }
   ],

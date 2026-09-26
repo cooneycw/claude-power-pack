@@ -771,16 +771,20 @@ claude-md-behavior-check:
 	@python3 scripts/check-claude-md-behavior.py
 
 ## ADVISORY, AND THE FLIP IS PRE-COMMITTED (#1084, ADR 0009). It reports and never
-## fails the build: nothing produces its input yet - the behavioural case is #1084
-## half B, which depends on skillc #5 - so a hard prerequisite would red `main`
+## fails the build on a VERDICT: nothing produces its input yet - the behavioural
+## case is #1084 half B, which lives in skillc and waits on skillc #8, #9 and #10 -
+## so a hard prerequisite would red `main`
 ## permanently for an honest reason. ADR 0009 asks for the condition that would
 ## move this back, named NOW while nobody has a stake in the answer: it becomes
 ## blocking when `docs/measurements/behavioral-eval/` holds at least one artifact
 ## recorded by a real behavioural case. Until then there is nothing for blocking to
 ## protect; after it, there is. Whoever lands half B makes that change with it.
+## `--advisory`, not `|| true`: the gate maps a PRINTED verdict to 0, so a crash (a
+## traceback exits 1, which is also the `failure` code) still fails. `|| true`
+## rendered a crashed gate as "looked and found nothing".
 ## verify-coverage: gate behavioral-eval-check - reads a behavioural-eval verified-result artifact and reports; advisory until #1084 half B produces one; ci: runs behavioral-eval-check
 behavioral-eval-check:
-	@python3 scripts/check-behavioral-eval.py || true
+	@python3 scripts/check-behavioral-eval.py --advisory
 
 ## Documentation (used by /flow:auto and /flow:finish)
 

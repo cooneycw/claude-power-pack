@@ -42,6 +42,34 @@ def _load():
 mod = _load()
 
 
+def _crit(cid: str, mandatory: object, outcome: str) -> dict:
+    """A criterion that satisfies records v2's evidence rule for its outcome.
+
+    Evidence is not what these tests examine; without it every inline record would
+    be refused by the evidence rule before reaching the property under test. The
+    evidence rule itself is tested separately, against a committed case.
+    """
+    entry: dict = {"id": cid, "mandatory": mandatory, "outcome": outcome}
+    if outcome == "UNKNOWN":
+        entry["missing"] = f"test: no observation for {cid}"
+    else:
+        entry["evidence"] = [f"test evidence for {cid}"]
+    return entry
+
+
+def _v2(status: object, criteria: list, **extra: object) -> dict:
+    """An otherwise-valid version-2 verified result; `extra` overrides one field."""
+    record: dict = {
+        "version": 2, "kind": "verified-result", "producer": "assembler",
+        "attempt_id": "att-t", "trial_id": "trial-t", "result_id": "res-t",
+        "grader": {"id": "g", "revision": "1"},
+        "graded_digests": ["sha256:" + "0" * 64],
+        "status": status, "criteria": criteria,
+    }
+    record.update(extra)
+    return record
+
+
 # --------------------------------------------------------------- the trigger
 
 def _pipeline() -> dict:
@@ -178,7 +206,12 @@ def test_the_advisory_posture_names_what_would_end_it() -> None:
     recipe = block[1].split("\n\n", 1)[0]
     preamble = block[0].rsplit("\n\n", 1)[-1]
 
-    advisory = "|| true" in recipe
+    assert "|| true" not in recipe, (
+        "`|| true` is back: it passes a CRASHED gate as well as a verdict, and a "
+        "Python traceback exits 1 - the `failure` code - so nothing downstream can "
+        "tell them apart. Use the gate's own `--advisory`"
+    )
+    advisory = "--advisory" in recipe
     if advisory:
         assert "docs/measurements/behavioral-eval/" in preamble, (
             "the gate is advisory and the site no longer names the condition that "
@@ -211,6 +244,15 @@ def test_the_advisory_posture_names_what_would_end_it() -> None:
         ("bad-absent", "absent"),
         ("bad-version-newer", "unreadable"),
         ("good-records-pass", "pass"),
+        # records v2 (skillc PR #32)
+        ("bad-version-one", "unreadable"),
+        ("bad-version-boolean", "unreadable"),
+        ("bad-producer-subject", "forged"),
+        ("bad-satisfied-without-evidence", "unreadable"),
+        ("bad-no-graded-digests", "unreadable"),
+        # REAL grader output from skillc 3c243a1, not hand-written
+        ("good-skillc-graded-pass", "pass"),
+        ("bad-skillc-graded-failure", "failure"),
     ],
 )
 def test_each_committed_case_produces_its_verdict(case: str, verdict: str) -> None:
@@ -226,10 +268,8 @@ def test_a_recorded_failure_is_not_rendered_as_a_pass(tmp_path: Path) -> None:
     this case would have asserted the forgery path while claiming to test the
     failure path - a test whose name and subject had quietly come apart.
     """
-    (tmp_path / "r.json").write_text(json.dumps({
-        "version": 1, "kind": "verified-result", "status": "FAIL",
-        "criteria": [{"id": "c1", "mandatory": True, "outcome": "VIOLATED"}],
-    }))
+    (tmp_path / "r.json").write_text(json.dumps(
+        _v2("FAIL", [_crit("c1", True, "VIOLATED")])))
     verdict, _ = mod.evaluate(tmp_path)
     assert verdict == "failure"
     assert mod.VERDICTS[verdict] != 0
@@ -239,17 +279,18 @@ def test_an_absent_artifact_is_not_rendered_as_a_pass(tmp_path: Path) -> None:
     verdict, detail = mod.evaluate(tmp_path)
     assert verdict == "absent"
     assert mod.VERDICTS[verdict] != 0, "nothing to look at was rendered as clean"
-    assert "half B" in detail and "skillc #5" in detail, (
-        f"the absent line does not name its SPECIFIC blocker, so a reader cannot "
-        f"check whether it still stands: {detail!r}"
-    )
+    for blocker in ("half B", "skillc #8", "#9", "#10"):
+        assert blocker in detail, (
+            f"the absent line does not name its SPECIFIC blocker {blocker!r}, so a "
+            f"reader cannot check whether it still stands: {detail!r}"
+        )
 
 
 def test_a_newer_envelope_is_refused_rather_than_read_on_a_guess(tmp_path: Path) -> None:
     """Honouring skillc's contract rather than reinventing it."""
     (tmp_path / "r.json").write_text(json.dumps(
-        {"version": mod.SUPPORTED_VERSION + 1, "kind": "verified-result", "status": "PASS"}
-    ))
+        _v2("PASS", [_crit("c1", True, "SATISFIED")],
+            version=max(mod.SUPPORTED_VERSIONS) + 1)))
     verdict, detail = mod.evaluate(tmp_path)
     assert verdict == "unreadable"
     assert "guess" in detail
@@ -311,9 +352,7 @@ def test_a_pass_over_no_mandatory_criteria_is_refused(tmp_path: Path) -> None:
     """records.md: "No mandatory criteria yields INCONCLUSIVE, never PASS - an
     empty population must not render as a clean one." This repository's own #1014
     rule, arriving inside someone else's record format."""
-    (tmp_path / "r.json").write_text(json.dumps({
-        "version": 1, "kind": "verified-result", "status": "PASS", "criteria": [],
-    }))
+    (tmp_path / "r.json").write_text(json.dumps(_v2("PASS", [])))
     verdict, _ = mod.evaluate(tmp_path)
     assert verdict == "forged", "an empty criteria set rendered as a clean pass"
 
@@ -332,25 +371,19 @@ def test_optional_criteria_do_not_enter_the_computation_in_either_direction(
     """
     rescue = tmp_path / "rescue"
     rescue.mkdir()
-    (rescue / "r.json").write_text(json.dumps({
-        "version": 1, "kind": "verified-result", "status": "PASS",
-        "criteria": [
-            {"id": "m", "mandatory": True, "outcome": "VIOLATED"},
-            {"id": "o1", "mandatory": False, "outcome": "SATISFIED"},
-            {"id": "o2", "mandatory": False, "outcome": "SATISFIED"},
-        ],
-    }))
+    (rescue / "r.json").write_text(json.dumps(_v2("PASS", [
+        _crit("m", True, "VIOLATED"),
+        _crit("o1", False, "SATISFIED"),
+        _crit("o2", False, "SATISFIED"),
+    ])))
     assert mod.evaluate(rescue)[0] == "forged", "optional satisfaction rescued a failure"
 
     sink = tmp_path / "sink"
     sink.mkdir()
-    (sink / "r.json").write_text(json.dumps({
-        "version": 1, "kind": "verified-result", "status": "PASS",
-        "criteria": [
-            {"id": "m", "mandatory": True, "outcome": "SATISFIED"},
-            {"id": "o1", "mandatory": False, "outcome": "VIOLATED"},
-        ],
-    }))
+    (sink / "r.json").write_text(json.dumps(_v2("PASS", [
+        _crit("m", True, "SATISFIED"),
+        _crit("o1", False, "VIOLATED"),
+    ])))
     assert mod.evaluate(sink)[0] == "pass", (
         "an optional violation sank a genuine pass - optional criteria are "
         "entering the derivation, which the record format forbids"
@@ -360,11 +393,8 @@ def test_optional_criteria_do_not_enter_the_computation_in_either_direction(
 def test_a_forged_verdict_cannot_escape_into_run_state(tmp_path: Path) -> None:
     """records.md permits a producer to declare only UNAVAILABLE or NOT_RUN;
     the other three are derived. Without that, the forgery just moves field."""
-    (tmp_path / "r.json").write_text(json.dumps({
-        "version": 1, "kind": "verified-result", "status": "PASS",
-        "run_state": "PASS",
-        "criteria": [{"id": "m", "mandatory": True, "outcome": "VIOLATED"}],
-    }))
+    (tmp_path / "r.json").write_text(json.dumps(_v2(
+        "PASS", [_crit("m", True, "VIOLATED")], run_state="PASS", reason="forged")))
     verdict, detail = mod.evaluate(tmp_path)
     assert verdict == "forged"
     assert "run_state" in detail
@@ -389,10 +419,9 @@ def test_the_violation_rule_is_tested_before_the_unknown_rule() -> None:
 
 def test_a_criterion_outside_the_vocabulary_is_refused(tmp_path: Path) -> None:
     """Not bucketed into the nearest outcome this gate happens to understand."""
-    (tmp_path / "r.json").write_text(json.dumps({
-        "version": 1, "kind": "verified-result", "status": "PASS",
-        "criteria": [{"id": "m", "mandatory": True, "outcome": "PROBABLY_FINE"}],
-    }))
+    (tmp_path / "r.json").write_text(json.dumps(
+        _v2("PASS", [{"id": "m", "mandatory": True, "outcome": "PROBABLY_FINE",
+                      "evidence": ["e"]}])))
     assert mod.evaluate(tmp_path)[0] == "unreadable"
 
 
@@ -425,13 +454,10 @@ def test_a_malformed_mandatory_flag_cannot_delete_a_violation(tmp_path: Path) ->
     DISAPPEAR rather than by contradicting anything, which is why no assertion
     about agreement between status and criteria could have caught it.
     """
-    (tmp_path / "r.json").write_text(json.dumps({
-        "version": 1, "kind": "verified-result", "status": "PASS",
-        "criteria": [
-            {"id": "ok", "mandatory": True, "outcome": "SATISFIED"},
-            {"id": "bad", "mandatory": "true", "outcome": "VIOLATED"},
-        ],
-    }))
+    (tmp_path / "r.json").write_text(json.dumps(_v2("PASS", [
+        _crit("ok", True, "SATISFIED"),
+        _crit("bad", "true", "VIOLATED"),
+    ])))
     verdict, detail = mod.evaluate(tmp_path)
     assert verdict == "unreadable", (
         f"a non-boolean `mandatory` was accepted, so the VIOLATED criterion it "
@@ -442,10 +468,8 @@ def test_a_malformed_mandatory_flag_cannot_delete_a_violation(tmp_path: Path) ->
 
 def test_a_record_of_another_kind_is_refused(tmp_path: Path) -> None:
     """A verdict about a population the record was never part of."""
-    (tmp_path / "r.json").write_text(json.dumps({
-        "version": 1, "kind": "artifact-manifest", "status": "PASS",
-        "criteria": [{"id": "c", "mandatory": True, "outcome": "SATISFIED"}],
-    }))
+    (tmp_path / "r.json").write_text(json.dumps(
+        _v2("PASS", [_crit("c", True, "SATISFIED")], kind="artifact-manifest")))
     verdict, detail = mod.evaluate(tmp_path)
     assert verdict == "unreadable"
     assert "verified-result" in detail
@@ -461,8 +485,7 @@ def test_an_unhashable_field_is_refused_not_crashed(tmp_path: Path, field: str) 
     that was the only sign anything had gone wrong. A crash rendering as a
     confident wrong answer is worse than one rendering as noise.
     """
-    record = {"version": 1, "kind": "verified-result", "status": "PASS",
-              "criteria": [{"id": "c", "mandatory": True, "outcome": "SATISFIED"}]}
+    record = _v2("PASS", [_crit("c", True, "SATISFIED")])
     record[field] = []
     (tmp_path / "r.json").write_text(json.dumps(record))
 
@@ -483,4 +506,136 @@ def test_the_gate_prints_a_verdict_line_on_every_committed_case() -> None:
                               capture_output=True, text=True)
         assert proc.stdout.startswith("behavioral-eval: "), (
             f"{case.name} produced no verdict line (stderr={proc.stderr[-200:]})"
+        )
+
+
+# ------------------------------------------------ records version 2 (skillc PR #32)
+
+def test_a_version_one_record_is_refused_not_read(tmp_path: Path) -> None:
+    """THE REGRESSION. skillc refuses v1 since PR #32; this consumer read ONLY v1,
+    so the first real record skillc could emit would have been refused here as
+    "newer than supported". `bad-version-one` is the previous GOOD case verbatim."""
+    verdict, detail = mod.evaluate(CONTROLS / "cases" / "bad-version-one")
+    assert verdict == "unreadable"
+    assert "predates producer authority" in detail
+    assert mod.SUPPORTED_VERSIONS == frozenset({2})
+
+
+def test_a_boolean_version_is_not_read_as_one(tmp_path: Path) -> None:
+    """`isinstance(True, int)` is True in Python; the envelope must not care."""
+    (tmp_path / "r.json").write_text(json.dumps(
+        _v2("PASS", [_crit("c", True, "SATISFIED")], version=True)))
+    verdict, detail = mod.evaluate(tmp_path)
+    assert verdict == "unreadable"
+    assert "not an integer" in detail
+
+
+def test_a_subject_authored_verdict_is_forged_however_consistent() -> None:
+    """Its criteria derive PASS and it declares PASS - only the producer is wrong."""
+    verdict, detail = mod.evaluate(CONTROLS / "cases" / "bad-producer-subject")
+    assert verdict == "forged"
+    assert "'subject'" in detail
+
+
+def test_a_satisfied_mandatory_criterion_needs_evidence() -> None:
+    """"missing mandatory evidence prevents PASS" - without the rule it derives PASS."""
+    record = json.loads(
+        (CONTROLS / "cases" / "bad-satisfied-without-evidence" / "result.json").read_text())
+    assert mod.derive_status(record["criteria"], None) == "PASS", (
+        "precondition: this fixture must derive PASS, or the refusal below is not "
+        "the evidence rule's doing"
+    )
+    verdict, detail = mod.evaluate(CONTROLS / "cases" / "bad-satisfied-without-evidence")
+    assert verdict == "unreadable"
+    assert "no evidence" in detail
+
+
+@pytest.mark.parametrize(("field", "value", "needle"), [
+    ("result_id", "res 1/../x", "result_id"),
+    ("attempt_id", None, "attempt_id"),
+    ("trial_id", "", "trial_id"),
+    ("grader", {"id": "g"}, "grader identity"),
+    ("raw", {"ref": "backend.json"}, "raw backend data"),
+    ("graded_digests", [""], "graded_digests"),
+])
+def test_each_v2_record_rule_refuses_its_own_field(
+    tmp_path: Path, field: str, value: object, needle: str,
+) -> None:
+    (tmp_path / "r.json").write_text(json.dumps(
+        _v2("PASS", [_crit("c", True, "SATISFIED")], **{field: value})))
+    verdict, detail = mod.evaluate(tmp_path)
+    assert verdict == "unreadable", detail
+    assert needle in detail
+
+
+def test_an_unknown_criterion_must_name_what_is_missing(tmp_path: Path) -> None:
+    (tmp_path / "r.json").write_text(json.dumps(_v2("INCONCLUSIVE", [
+        {"id": "c", "mandatory": True, "outcome": "UNKNOWN"}])))
+    verdict, detail = mod.evaluate(tmp_path)
+    assert verdict == "unreadable"
+    assert "missing" in detail
+
+
+def test_a_declared_run_state_needs_a_reason_and_no_digests(tmp_path: Path) -> None:
+    """Both halves: a run state excuses `graded_digests`, and cannot excuse `reason`."""
+    ok = tmp_path / "ok"
+    ok.mkdir()
+    (ok / "r.json").write_text(json.dumps(_v2(
+        "NOT_RUN", [], run_state="NOT_RUN", reason="attempt never started",
+        graded_digests=None)))
+    assert mod.evaluate(ok)[0] == "inconclusive"
+
+    bad = tmp_path / "bad"
+    bad.mkdir()
+    (bad / "r.json").write_text(json.dumps(_v2(
+        "NOT_RUN", [], run_state="NOT_RUN", graded_digests=None)))
+    verdict, detail = mod.evaluate(bad)
+    assert verdict == "unreadable"
+    assert "reason" in detail
+
+
+def test_every_verdict_says_it_was_checked_without_a_ledger() -> None:
+    """skillc's bundle rules are not applied here, and the green must not imply them."""
+    assert "NOT against any ledger" in mod.POPULATION_NOTE
+
+
+# ------------------------------------------------ advisory, without `|| true`
+
+def test_advisory_passes_a_printed_verdict() -> None:
+    proc = subprocess.run(
+        ["python3", str(GATE), "--advisory", "--dir",
+         str(CONTROLS / "cases" / "bad-records-failure")],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0
+    assert proc.stdout.startswith("behavioral-eval: failure - "), (
+        "advisory must still PRINT the real verdict; only the exit is relaxed"
+    )
+
+
+def test_advisory_does_not_swallow_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:
+    """THE PROPERTY `|| true` LACKED. A crash propagates past `--advisory`, so the
+    interpreter exits non-zero with a traceback instead of a clean 0."""
+    def boom(_directory: Path) -> tuple[str, str]:
+        raise RuntimeError("gate crashed")
+
+    monkeypatch.setattr(mod, "evaluate", boom)
+    with pytest.raises(RuntimeError, match="gate crashed"):
+        mod.main(["--advisory"])
+
+
+def test_advisory_does_not_swallow_a_usage_error() -> None:
+    proc = subprocess.run(["python3", str(GATE), "--advisory", "--no-such-flag"],
+                          capture_output=True, text=True)
+    assert proc.returncode == mod.USAGE_EXIT
+
+
+def test_the_ci_step_is_advisory_without_swallowing_a_crash() -> None:
+    commands = [str(c) for c in _pipeline()["steps"]["behavioral-eval-check"]["commands"]]
+    gate_lines = [c for c in commands if GATE.name in c]
+    assert gate_lines, "the CI step no longer runs the gate"
+    for line in gate_lines:
+        assert "|| true" not in line, f"CI swallows a crashed gate again: {line!r}"
+        assert "--advisory" in line, (
+            f"CI runs the gate BLOCKING before its pre-committed trigger: {line!r}"
         )
