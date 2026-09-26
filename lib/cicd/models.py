@@ -150,22 +150,37 @@ FRAMEWORK_TARGETS: dict[Framework, list[str]] = {
 # from its own config when given no paths, so a declared scope is honoured by
 # passing NONE; with no declaration, `.` stays the default it always was.
 #
+# THE CONFIG MYPY WOULD USE, not every config present (counter-model review):
+# mypy takes the FIRST of mypy.ini, .mypy.ini, pyproject.toml, setup.cfg that
+# carries a mypy section and ignores the rest, so a `files` in an inactive file
+# is not a scope - bare `mypy` there would have no targets at all. The probe
+# walks the same order and stops at the first file with a `[mypy]` /
+# `[tool.mypy]` section (a trailing `# comment` on the header is allowed);
+# `[[tool.mypy.overrides]]` is a different table and never counts.
+#
 # Detected in SHELL at run time, not in Python at plan time: the plans are
 # module-level constants, and the question is about the tree the step runs in.
-# The section test is exact: `[mypy]` (mypy.ini, .mypy.ini, setup.cfg) or
-# `[tool.mypy]` (pyproject.toml). `[[tool.mypy.overrides]]` is a different
-# table and its `files` would be a per-module setting, so it does not count.
 MYPY_DECLARED_FILES_PROBE = (
-    "cat mypy.ini .mypy.ini setup.cfg pyproject.toml 2>/dev/null | awk "
-    "'/^[[:space:]]*\\[/ { s = ($0 ~ /^[[:space:]]*\\[(tool\\.)?mypy\\][[:space:]]*$/) } "
-    "s && /^[[:space:]]*files[[:space:]]*=/ { f = 1 } END { exit !f }'"
+    "_scope=none; "
+    "for _c in mypy.ini .mypy.ini pyproject.toml setup.cfg; do "
+    "[ -f \"$_c\" ] || continue; "
+    "_r=$(awk '"
+    "/^[[:space:]]*\\[/ { s = ($0 ~ /^[[:space:]]*\\[(tool\\.)?mypy\\][[:space:]]*(#.*)?$/); if (s) m = 1 } "
+    "s && /^[[:space:]]*files[[:space:]]*=/ { f = 1 } "
+    "END { print (m ? (f ? \"files\" : \"nofiles\") : \"none\") }' \"$_c\"); "
+    "[ \"$_r\" = none ] && continue; "
+    "_scope=$_r; break; "
+    "done"
 )
 
 
 def scoped_mypy(invoker: str) -> str:
-    """``<invoker> mypy`` when a mypy config declares ``files``, else ``<invoker> mypy .``."""
+    """``<invoker> mypy`` when the active mypy config declares ``files``, else ``<invoker> mypy .``."""
+    # A flag, not the loop's exit status: a loop that finds no config at all
+    # exits 0, which must mean "no scope", not "scope declared".
     return (
-        f"if {MYPY_DECLARED_FILES_PROBE}; then {invoker} mypy; "
+        f"{MYPY_DECLARED_FILES_PROBE}; "
+        f'if [ "$_scope" = files ]; then {invoker} mypy; '
         f"else {invoker} mypy .; fi"
     )
 

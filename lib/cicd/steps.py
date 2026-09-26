@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import signal
 import subprocess
 import threading
@@ -19,7 +20,6 @@ from typing import Any, Optional, Protocol
 
 from .coverage import StageCoverage, merge_stream_coverage, parse_stage_coverage
 from .manifest_path import MANIFEST_PATH
-from .models import scoped_mypy
 from .outcomes import SuiteOutcome, merge_stream_outcomes, parse_suite_outcome
 from .state import StepStatus
 
@@ -536,6 +536,14 @@ def _generated_fallback(command: str, target: str) -> Optional[str]:
     return command[len(prefix): len(command) - len(suffix)]
 
 
+# One plain command, so the fallback slot stays free of `;`/`|` and the gate
+# stays recognisable to `command_runs_make_target` (issue #1258).
+_SCOPED_MYPY_FALLBACK = (
+    f"python3 {shlex.quote(os.path.join(_CPP_ROOT, 'lib', 'cicd', 'mypy_scope.py'))} "
+    "uv run --extra dev mypy"
+)
+
+
 def _gate_step(
     step_id: str,
     uv_tool: str,
@@ -594,7 +602,7 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
         _gate_step(
             "typecheck", "mypy", "mypy", 300,
             # The repository's declared mypy scope, else `.` (issue #1258).
-            fallback=scoped_mypy("uv run --extra dev"),
+            fallback=_SCOPED_MYPY_FALLBACK,
         ),
         StepDef(
             id="security_scan",
@@ -647,7 +655,7 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
         _gate_step(
             "typecheck", "mypy", "mypy", 300,
             # The repository's declared mypy scope, else `.` (issue #1258).
-            fallback=scoped_mypy("uv run --extra dev"),
+            fallback=_SCOPED_MYPY_FALLBACK,
         ),
     ],
     "deploy": [

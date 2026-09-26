@@ -195,3 +195,52 @@ def test_a_failed_gates_leftover_run_state_never_blocks_a_worktree(tmp_path: Pat
     result = _run(wt)
     assert result.returncode == 0
     assert without_status(result.stderr) == ""
+
+
+def test_a_local_env_file_is_runtime_config_not_a_swallowed_addition(tmp_path: Path) -> None:
+    # counter-model review: `.env` is ignored so that it is NEVER committed.
+    repo = tmp_path / "repo"
+    _init_repo(repo, ".env\n.env.*\n")
+    wt = tmp_path / "repo-issue-1"
+    _git(repo, "worktree", "add", "-q", "-b", "issue-1-x", str(wt))
+    (wt / ".env").write_text("X=1\n", encoding="utf-8")
+    (wt / ".env.local").write_text("X=1\n", encoding="utf-8")
+    assert _run(wt).returncode == 0
+
+
+def test_an_ignored_env_template_still_blocks(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo, ".env*\n")
+    wt = tmp_path / "repo-issue-1"
+    _git(repo, "worktree", "add", "-q", "-b", "issue-1-x", str(wt))
+    (wt / ".env.example").write_text("X=\n", encoding="utf-8")
+    result = _run(wt)
+    assert result.returncode == 3
+    assert ".env.example" in result.stderr
+
+
+def test_an_unreadable_inventory_is_not_a_clean_result(tmp_path: Path) -> None:
+    """counter-model review: `git status` failing inside a process substitution
+    produced no entries and exit 0 - the same bytes as a clean tree."""
+    import os
+
+    _, wt = _worktree(tmp_path)
+    real_git = shutil.which("git")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    shim = bindir / "git"
+    shim.write_text(
+        "#!/usr/bin/env bash\n"
+        'case "$1" in status) exit 128 ;; esac\n'
+        f'exec "{real_git}" "$@"\n'
+    )
+    shim.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}"}
+    result = subprocess.run(["bash", str(GUARD)], cwd=wt, capture_output=True, text=True, env=env)
+    assert result.returncode == 4
+    assert "NOT inspected" in result.stderr
+    advisory = subprocess.run(
+        ["bash", str(GUARD), "--advisory"], cwd=wt, capture_output=True, text=True, env=env
+    )
+    assert advisory.returncode == 0
+    assert "NOT inspected" in advisory.stderr

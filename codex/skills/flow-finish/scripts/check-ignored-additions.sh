@@ -42,6 +42,10 @@
 #               proof - so the message names the cost rather than asserting
 #               intent, and --advisory is the override.
 #
+# Exit codes: 0 clean (or advisory), 2 usage, 3 findings while blocking,
+# 4 the ignored-file inventory could NOT be read while blocking - never 0,
+# because an unread inventory and an empty one are different answers.
+#
 # Output:
 #   Prints a "[flow] WARNING" (advisory) or "[flow] ERROR" (blocking) block
 #   listing suspicious ignored files with a remediation hint, then
@@ -51,6 +55,7 @@
 set -euo pipefail
 
 # Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+# (Re-armed below, once there is a temp file for it to remove as well.)
 trap 'printf "CHECK_IGNORED_ADDITIONS_EXIT=%d\n" "$?" >&2' EXIT
 
 MODE=auto
@@ -118,12 +123,33 @@ _INTENTIONAL_IGNORE_DIRS=".claude/runs/"
 
 is_intentional_ignore() {
   case " $_INTENTIONAL_IGNORES " in *" $1 "*) return 0 ;; esac
+  # Environment files at any depth: local runtime configuration that is
+  # ignored so that it is NEVER committed - a clean clone is supposed to lack
+  # it (counter-model review, #1258). The tracked template forms are not
+  # exempt: an ignored `.env.example` is a real swallowed addition.
+  case "${1##*/}" in
+    .env.example|.env.sample|.env.template) ;;
+    .env|.env.*) return 0 ;;
+  esac
   local d
   for d in $_INTENTIONAL_IGNORE_DIRS; do
     case "$1" in "$d"*) return 0 ;; esac
   done
   return 1
 }
+
+# Read the inventory into a file FIRST and check that git answered (counter-
+# model review): a process substitution discards the exit status, so an
+# unreadable index produced no entries and the same exit 0 as a clean tree.
+_inventory=$(mktemp "${TMPDIR:-/tmp}/check-ignored-additions.XXXXXX")
+trap 'rc=$?; rm -f "$_inventory"; printf "CHECK_IGNORED_ADDITIONS_EXIT=%d\n" "$rc" >&2' EXIT
+if ! git status --ignored=matching --porcelain -z > "$_inventory" 2>/dev/null; then
+  echo "[flow] check-ignored-additions: 'git status' failed, so the ignored files were NOT inspected - this is not a clean result." >&2
+  if [ "$MODE" = blocking ]; then
+    exit 4
+  fi
+  exit 0
+fi
 
 suspicious=()
 while IFS= read -r -d '' entry; do
@@ -135,7 +161,7 @@ while IFS= read -r -d '' entry; do
   is_scratch "$path" && continue
   is_intentional_ignore "$path" && continue
   suspicious+=("$path")
-done < <(git status --ignored=matching --porcelain -z 2>/dev/null)
+done < "$_inventory"
 
 if [ "${#suspicious[@]}" -eq 0 ]; then
   exit 0
@@ -154,8 +180,8 @@ echo "" >&2
 echo "  If these are intentional additions, add a negation to .gitignore" >&2
 echo "  (e.g. '!$( [ "${#suspicious[@]}" -ge 1 ] && echo "${suspicious[0]}" )') or narrow the blanket rule." >&2
 if [ "$MODE" = blocking ]; then
-  echo "  If they are scratch files, delete them, or re-run with --advisory once you are sure" >&2
-  echo "  nothing reads them at run time (issue #1258)." >&2
+  echo "  If they are scratch or deliberately local files that are not meant to ship, delete" >&2
+  echo "  them or re-run with --advisory (issue #1258)." >&2
   echo "CHECK_IGNORED_ADDITIONS_MODE=blocking" >&2
   exit 3
 fi

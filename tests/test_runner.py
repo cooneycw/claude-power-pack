@@ -4571,12 +4571,17 @@ class TestSubsumedGates:
 class TestScopedMypy:
     """`mypy .` checked tests/ in a repo whose contract is `mypy <pkg>`, and the
     finish gate failed on errors that contract does not cover (skillc#18).
-    A declared `files =` is honoured by passing mypy NO path."""
+    A declared `files =` is honoured by passing mypy NO path.
+
+    Every case runs against BOTH implementations of the rule - the inline shell
+    probe generated Makefiles carry, and lib/cicd/mypy_scope.py the plans call -
+    so the two cannot drift."""
 
     @staticmethod
-    def _args_seen(tmp_path: Path, files: dict[str, str]) -> str:
+    def _args_seen(tmp_path: Path, files: dict[str, str], impl: str) -> str:
         import shutil
         import subprocess
+        import sys
 
         from lib.cicd.models import scoped_mypy
 
@@ -4589,40 +4594,93 @@ class TestScopedMypy:
         fake = bindir / "mypy"
         fake.write_text('#!/usr/bin/env bash\nprintf "[%s]" "$*" > mypy.args\n')
         fake.chmod(0o755)
-        subprocess.run(
-            ["bash", "-c", scoped_mypy("")],
-            cwd=tmp_path,
-            env={**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}"},
-            check=True,
-        )
+        env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}"}
+        if impl == "shell":
+            argv = ["bash", "-c", scoped_mypy("")]
+        else:
+            module = Path(__file__).resolve().parents[1] / "lib" / "cicd" / "mypy_scope.py"
+            argv = [sys.executable, str(module), "mypy"]
+        subprocess.run(argv, cwd=tmp_path, env=env, check=True)
         return (tmp_path / "mypy.args").read_text()
 
-    def test_pyproject_declared_files_runs_bare_mypy(self, tmp_path: Path) -> None:
-        assert self._args_seen(
-            tmp_path, {"pyproject.toml": '[tool.mypy]\nfiles = ["skillc"]\nstrict = true\n'}
-        ) == "[]"
+    CASES = [
+        ("pyproject_declares", {"pyproject.toml": '[tool.mypy]\nfiles = ["skillc"]\nstrict = true\n'}, "[]"),
+        ("mypy_ini_declares", {"mypy.ini": "[mypy]\nfiles = pkg\n"}, "[]"),
+        ("no_declaration", {"pyproject.toml": "[tool.mypy]\nstrict = true\n"}, "[.]"),
+        ("no_config", {}, "[.]"),
+        (
+            "files_in_another_table",
+            {
+                "pyproject.toml": '[tool.setuptools]\nfiles = ["x"]\n[tool.mypy]\nstrict = true\n'
+                '[[tool.mypy.overrides]]\nmodule = "a"\nfiles = ["y"]\n'
+            },
+            "[.]",
+        ),
+        # counter-model review: mypy.ini wins over pyproject.toml, so a `files`
+        # in pyproject is inactive - bare mypy there would check nothing.
+        (
+            "inactive_config_ignored",
+            {"mypy.ini": "[mypy]\nstrict = True\n", "pyproject.toml": '[tool.mypy]\nfiles = ["x"]\n'},
+            "[.]",
+        ),
+        (
+            "file_without_mypy_section_does_not_win",
+            {"setup.cfg": "[metadata]\nname = x\n", "pyproject.toml": '[tool.mypy]\nfiles = ["x"]\n'},
+            "[]",
+        ),
+        ("commented_header", {"pyproject.toml": '[tool.mypy]  # project scope\nfiles = ["x"]\n'}, "[]"),
+    ]
 
-    def test_mypy_ini_declared_files_runs_bare_mypy(self, tmp_path: Path) -> None:
-        assert self._args_seen(tmp_path, {"mypy.ini": "[mypy]\nfiles = pkg\n"}) == "[]"
+    @pytest.mark.parametrize("impl", ["shell", "module"])
+    @pytest.mark.parametrize("name,files,expected", CASES, ids=[c[0] for c in CASES])
+    def test_scope(
+        self, tmp_path: Path, impl: str, name: str, files: dict[str, str], expected: str
+    ) -> None:
+        assert self._args_seen(tmp_path, files, impl) == expected, (name, impl)
 
-    def test_no_declaration_keeps_the_dot_default(self, tmp_path: Path) -> None:
-        assert self._args_seen(tmp_path, {"pyproject.toml": "[tool.mypy]\nstrict = true\n"}) == "[.]"
+    def test_the_plan_typecheck_step_stays_subsumable(self) -> None:
+        """The plan fallback must stay a single command: a slot holding `;`/`|`
+        is refused by `command_runs_make_target`, which silently cost the
+        typecheck gate its subsumption under `make verify`."""
+        from lib.cicd.steps import BUILTIN_PLANS, _SCOPED_MYPY_FALLBACK
 
-    def test_no_config_at_all_keeps_the_dot_default(self, tmp_path: Path) -> None:
-        assert self._args_seen(tmp_path, {}) == "[.]"
-
-    def test_files_in_another_table_is_not_a_mypy_scope(self, tmp_path: Path) -> None:
-        text = (
-            '[tool.setuptools]\nfiles = ["x"]\n'
-            '[tool.mypy]\nstrict = true\n'
-            '[[tool.mypy.overrides]]\nmodule = "a"\nfiles = ["y"]\n'
-        )
-        assert self._args_seen(tmp_path, {"pyproject.toml": text}) == "[.]"
-
-    def test_the_finish_plan_typecheck_step_uses_the_scoped_command(self) -> None:
-        from lib.cicd.models import scoped_mypy
-        from lib.cicd.steps import BUILTIN_PLANS
-
+        assert not any(ch in _SCOPED_MYPY_FALLBACK for ch in ";&|`\n")
         for plan in ("finish", "check"):
             step = next(s for s in BUILTIN_PLANS[plan] if s.id == "typecheck")
-            assert scoped_mypy("uv run --extra dev") in step.command, plan
+            assert _SCOPED_MYPY_FALLBACK in step.command, plan
+
+    def test_a_generated_makefile_recipe_keeps_the_probe_intact(self, tmp_path: Path) -> None:
+        """counter-model review: make expands `$` before the shell sees it."""
+        import shutil
+        import subprocess
+
+        from lib.cicd.makefile import _generate_inline
+        from lib.cicd.models import (
+            FRAMEWORK_RUNNERS,
+            FRAMEWORK_TARGETS,
+            Framework,
+            FrameworkInfo,
+            PackageManager,
+        )
+
+        if shutil.which("make") is None:
+            pytest.skip("requires make")
+        info = FrameworkInfo(
+            framework=Framework.PYTHON,
+            package_manager=PackageManager.UV,
+            recommended_targets=FRAMEWORK_TARGETS[Framework.PYTHON],
+            runner_commands=FRAMEWORK_RUNNERS[(Framework.PYTHON, PackageManager.UV)],
+        )
+        (tmp_path / "Makefile").write_text(_generate_inline(info))
+        (tmp_path / "pyproject.toml").write_text('[tool.mypy]\nfiles = ["pkg"]\n')
+        bindir = tmp_path / "bin"
+        bindir.mkdir()
+        uv = bindir / "uv"
+        uv.write_text('#!/usr/bin/env bash\nprintf "[%s]" "$*" > uv.args\n')
+        uv.chmod(0o755)
+        subprocess.run(
+            ["make", "typecheck"], cwd=tmp_path, check=True, capture_output=True,
+            env={**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}"},
+        )
+        assert (tmp_path / "uv.args").read_text() == "[run mypy]"
+

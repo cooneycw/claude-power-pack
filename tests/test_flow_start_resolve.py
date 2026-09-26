@@ -964,6 +964,9 @@ def test_remote_branch_with_open_pr_creates_nothing_until_allow_pickup(tmp_path:
     c2 = _contract(res2)
     assert c2["WT_CREATED"] == "1"
     assert (Path(c2["WT_PATH"]) / "issue-42-remote-work.txt").exists()
+    # --allow-pickup IS the confirmation; a contract still saying STOP over a
+    # worktree it just created would be contradictory (counter-model review).
+    assert c2["CONFIRM_REQUIRED"] == "0"
 
 
 @requires_git

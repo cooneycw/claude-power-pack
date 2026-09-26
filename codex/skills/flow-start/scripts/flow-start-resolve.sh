@@ -202,10 +202,17 @@ create_worktree() {
     "$GIT" -C "$TARGET_REPO" worktree add "$path" "$branch" >&2 || return 1
   else
     WT_BASE_USED="$start_ref"
+    local start_sha
+    start_sha=$("$GIT" -C "$TARGET_REPO" rev-parse --verify --quiet "$start_ref^{commit}" 2>/dev/null) || start_sha=""
     if ! "$GIT" -C "$TARGET_REPO" worktree add --no-track -b "$branch" "$path" "$start_ref" >&2; then
-      # The branch did not exist before this call, so anything under its name
-      # now is this call's own leftover - it holds no commits of anyone's.
-      "$GIT" -C "$TARGET_REPO" branch -D "$branch" >/dev/null 2>&1 || true
+      # Remove the branch a failed `-b` left behind - but only by COMPARE-AND-
+      # DELETE against the commit this call would have created it at
+      # (counter-model review). A branch of the same name created by ANOTHER
+      # session between the show-ref above and this add is not ours: if it has
+      # moved, `update-ref -d <ref> <old>` refuses and it survives. One still at
+      # start_sha carries no commits, so deleting it loses nothing either way.
+      [ -n "$start_sha" ] &&
+        "$GIT" -C "$TARGET_REPO" update-ref -d "refs/heads/$branch" "$start_sha" >/dev/null 2>&1
       return 1
     fi
   fi
@@ -648,8 +655,13 @@ pickup_decide() { # BRANCH -> 0 = take it, 1 = shipped (skip it)
       ;;
     *:*)
       PICKUP_OPEN_PR=1
-      CONFIRM_REQUIRED=1
-      echo "flow-start-resolve: branch '$1' already has PR $PR_HEAD - possible concurrent work. Nothing was created; confirm with the user, then re-run with --allow-pickup (issue #1258)." >&2
+      # --allow-pickup IS that confirmation: reporting CONFIRM_REQUIRED=1 over a
+      # worktree it just created would tell the caller to STOP after the fact
+      # (counter-model review). Other hazards still set it on their own.
+      if [ "$ALLOW_PICKUP" -ne 1 ]; then
+        CONFIRM_REQUIRED=1
+        echo "flow-start-resolve: branch '$1' already has PR $PR_HEAD - possible concurrent work. Nothing was created; confirm with the user, then re-run with --allow-pickup (issue #1258)." >&2
+      fi
       ;;
   esac
   return 0
