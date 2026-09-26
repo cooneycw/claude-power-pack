@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import atexit
 import os
 import re
+import shutil
+import sys
+import tempfile
 import textwrap
 from pathlib import Path
 
@@ -19,6 +23,21 @@ from tests.supervise_reap import drain_unreaped, reap_supervise_daemons
 #: and every repo-relative lookup below silently finds nothing. The package is
 #: imported off `PYTHONPATH`, so it resolves to the real checkout either way.
 REPO_ROOT = Path(_tests_package.__file__).resolve().parents[1]
+
+#: A FRESH BYTECODE CACHE PER SESSION (issue #1259). CPython trusts a
+#: source-adjacent `__pycache__/*.pyc` whose recorded (whole-second mtime,
+#: size) match the source, so a negative-control red run that mutates a script
+#: without changing its length and `cp`s the snapshot back inside one second
+#: leaves the MUTANT's bytecode serving the restored file - in either direction,
+#: a control reporting the opposite of what ran. Relocating the cache means the
+#: source-adjacent one is never read, and exporting it covers `python3
+#: scripts/x.py` children, which import `lib/*` themselves.
+#: `tests/test_pycache_isolation.py` plants the stale artifact and must stay red
+#: without this.
+_PYCACHE_PREFIX = tempfile.mkdtemp(prefix="cpp-pytest-pycache-")
+sys.pycache_prefix = _PYCACHE_PREFIX
+os.environ["PYTHONPYCACHEPREFIX"] = _PYCACHE_PREFIX
+atexit.register(shutil.rmtree, _PYCACHE_PREFIX, True)
 
 
 @pytest.fixture(autouse=True)
