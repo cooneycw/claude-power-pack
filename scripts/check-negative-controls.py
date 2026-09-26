@@ -677,18 +677,31 @@ class Census:
 
 
 def instrument_census(root: Path) -> Census:
-    """ADR 0008's census: how many rows, which subjects, how many external."""
-    adr = root / ADR_0008
+    """ADR 0008's census: how many rows, which subjects, how many external.
+
+    WHICH DOCUMENT is the census is asked of the census rule's `resolve_adr`
+    (issue #1264), so a repository that files the decision elsewhere - kyle's
+    `docs/adr/0005-...` - gets a universe instead of `unknown` by construction.
+    With the rule unloadable only the default path is tried, which is what this
+    function did before, and the membership half reports the rule's absence.
+    """
+    rule = _census_rule()
+    resolver = getattr(rule, "resolve_adr", None)
+    if resolver is not None:
+        adr, adr_name = resolver(root)
+        if adr is None:
+            return Census(whence=adr_name)
+    else:
+        adr, adr_name = root / ADR_0008, str(ADR_0008)
     try:
         text = adr.read_text(encoding="utf-8")
     except OSError:
-        return Census(whence=f"{ADR_0008} is unreadable")
+        return Census(whence=f"{adr_name} is unreadable")
     rows = len(ADR_ROW_RE.findall(_census_text(text)))
     if rows == 0:
-        return Census(whence=f"{ADR_0008} parsed to 0 enumerated rows")
+        return Census(whence=f"{adr_name} parsed to 0 enumerated rows")
 
-    census = Census(rows=rows, whence=str(ADR_0008))
-    rule = _census_rule()
+    census = Census(rows=rows, whence=adr_name)
     if rule is None:
         census.disagreement = f"{CENSUS_GATE_REL} could not be loaded"
         return census
@@ -705,7 +718,7 @@ def instrument_census(root: Path) -> Census:
     # name real rows as non-members, so the honest answer is `unknown`.
     if len(subjects) != rows:
         census.disagreement = (
-            f"{ADR_0008} parses to {rows} row(s) here and {len(subjects)} subject(s) "
+            f"{adr_name} parses to {rows} row(s) here and {len(subjects)} subject(s) "
             f"via {CENSUS_GATE_REL}"
         )
         return census
