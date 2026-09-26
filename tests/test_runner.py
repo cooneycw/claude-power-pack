@@ -4645,7 +4645,7 @@ class TestScopedMypy:
         """The plan fallback must stay a single command: a slot holding `;`/`|`
         is refused by `command_runs_make_target`, which silently cost the
         typecheck gate its subsumption under `make verify`."""
-        from lib.cicd.steps import BUILTIN_PLANS, _SCOPED_MYPY_FALLBACK
+        from lib.cicd.steps import _SCOPED_MYPY_FALLBACK, BUILTIN_PLANS
 
         assert not any(ch in _SCOPED_MYPY_FALLBACK for ch in ";&|`\n")
         for plan in ("finish", "check"):
