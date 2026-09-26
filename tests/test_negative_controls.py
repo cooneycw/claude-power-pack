@@ -3495,3 +3495,36 @@ def test_the_shared_battery_runs_once_across_xdist_workers(
         assert len(runs) == 1, f"the battery ran once per worker, not once per run: {runs}"
     else:
         assert len(runs) > 1, f"control: three workers must be able to show >1 run: {runs}"
+
+
+# --------------------------------------------------------------------------- #
+# #1264 - a repository that files the census ADR elsewhere must still get one
+# --------------------------------------------------------------------------- #
+
+
+def _move_census(root: Path, rel: str) -> None:
+    default = root / "docs" / "decisions" / "0008-instrument-negative-control-bound.md"
+    target = root / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    default.rename(target)
+
+
+def test_the_census_filed_at_another_repositorys_path_yields_a_universe(tmp_path: Path) -> None:
+    """THE RED CASE: kyle's path. Pre-fix this read `unknown ... is unreadable`."""
+    root = build_tree(tmp_path, SEEING_GATE)
+    write_census(root, ["toy-gate.py", "other-gate.py"])
+    _move_census(root, "docs/adr/0005-instrument-negative-control-enumeration.md")
+    out = run_harness(root)
+    assert contract(out.stdout, "NEGATIVE_CONTROL_UNIVERSE") == "2", out.stdout
+
+
+def test_two_candidate_census_documents_are_unknown_not_a_guess(tmp_path: Path) -> None:
+    """The other direction: a resolver that picked the first match would pass above."""
+    root = build_tree(tmp_path, SEEING_GATE)
+    write_census(root, ["toy-gate.py", "other-gate.py"])
+    _move_census(root, "docs/adr/0005-instrument-negative-control-enumeration.md")
+    write_census(root, ["toy-gate.py"])
+    _move_census(root, "docs/decisions/0009-negative-control-addendum.md")
+    out = run_harness(root)
+    assert contract(out.stdout, "NEGATIVE_CONTROL_UNIVERSE") == "unknown", out.stdout
+    assert "refusing to pick one" in out.stdout, out.stdout

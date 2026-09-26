@@ -450,6 +450,35 @@ def test_a_missing_census_refuses(tmp_path):
     assert icc.main(["check", "--root", str(root)]) == 1
 
 
+def test_resolve_adr_prefers_the_default_path(tmp_path):
+    """CPP's own resolution cannot move: the default wins even beside a candidate."""
+    root = _tree(tmp_path, ["alpha.sh"], _adr())
+    (root / "docs" / "adr").mkdir()
+    (root / "docs" / "adr" / "0005-negative-control.md").write_text("x", encoding="utf-8")
+    path, label = icc.resolve_adr(root)
+    assert path == root / icc.ADR_REL and label == icc.ADR_REL
+
+
+def test_the_census_at_another_repositorys_path_is_checked(tmp_path, capsys):
+    """THE RED CASE (issue #1264): kyle files the decision under docs/adr/."""
+    root = _tree(tmp_path, ["alpha.sh"], _adr("| 1 | `alpha.sh` | v | c | G |\n"))
+    moved = root / "docs" / "adr" / "0005-instrument-negative-control-enumeration.md"
+    moved.parent.mkdir()
+    (root / icc.ADR_REL).rename(moved)
+    assert icc.main(["check", "--root", str(root)]) == 0, capsys.readouterr().out
+
+
+def test_two_candidates_refuse_rather_than_pick(tmp_path, capsys):
+    root = tmp_path / "repo"
+    (root / "scripts").mkdir(parents=True)
+    (root / "scripts" / "alpha.sh").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    for rel in ("docs/adr/0005-negative-control.md", "docs/decisions/0009-negative-control.md"):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(_adr("| 1 | `alpha.sh` | v | c | G |\n"), encoding="utf-8")
+    assert icc.main(["check", "--root", str(root)]) == 1
+    assert "refusing to pick one" in capsys.readouterr().out
+
+
 def test_directories_under_scripts_are_not_required_to_be_accounted_for(tmp_path):
     root = _tree(tmp_path, ["alpha.sh"], _adr(rows="| 1 | `alpha.sh` | v | c | G |\n"))
     (root / "scripts" / "__pycache__").mkdir()

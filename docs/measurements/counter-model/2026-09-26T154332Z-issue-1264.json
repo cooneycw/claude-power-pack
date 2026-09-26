@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1264-remaining-dormant-instrument-shapes-npm-audit-and",
+  "counts": {
+    "accepted": 6,
+    "deferred": 1,
+    "rejected": 1
+  },
+  "head": "6afef25",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1264",
+  "passes": 2,
+  "recorded_at": "2026-09-26T15:43:32Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 8
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
