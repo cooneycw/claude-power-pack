@@ -77,8 +77,14 @@ def test_binary_vanishing_mid_run_is_unknown(
         _completed(json.dumps({"vulnerabilities": None}), returncode=0),
         _completed(json.dumps({"vulnerabilities": []}), returncode=0),
         _completed(json.dumps({"vulnerabilities": ["left-pad"]}), returncode=1),
+        _completed(json.dumps({"vulnerabilities": {}}), returncode=2),
+        _completed(json.dumps({"vulnerabilities": {}}), returncode=-9),
+        _completed(json.dumps({"vulnerabilities": {}}), returncode=1),
     ],
-    ids=["empty-stdout", "error-object", "unparseable", "null-map", "empty-list", "list"],
+    ids=[
+        "empty-stdout", "error-object", "unparseable", "null-map", "empty-list", "list",
+        "report-then-exit-2", "report-then-signal", "exit-1-no-findings",
+    ],
 )
 def test_an_audit_that_produced_no_report_is_unknown_not_clean(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, proc: subprocess.CompletedProcess
@@ -105,6 +111,33 @@ def test_clean_report_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
     assert result.errors == []
     assert result.passed
+
+
+@pytest.mark.parametrize(
+    ("metadata", "expected"),
+    [
+        ({"dependencies": {"total": 12}}, "12 dependencies examined"),
+        ({"dependencies": {"total": 0}}, "0 dependencies examined"),
+        (None, "dependency count not reported"),
+    ],
+    ids=["populated", "empty-population", "no-metadata"],
+)
+def test_a_clean_verdict_states_what_it_examined(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, metadata: object, expected: str
+) -> None:
+    """A clean pass over 12 dependencies and one over 0 must not read alike."""
+    report: dict[str, object] = {"vulnerabilities": {}}
+    if metadata is not None:
+        report["metadata"] = metadata
+    monkeypatch.setattr(npm_audit, "is_available", lambda: True)
+    monkeypatch.setattr(
+        npm_audit.subprocess, "run", Mock(return_value=_completed(json.dumps(report)))
+    )
+
+    result = npm_audit.scan(str(_node_project(tmp_path)))
+
+    assert result.errors == []
+    assert len(result.passed) == 1 and expected in result.passed[0], result.passed
 
 
 def test_vulnerable_report_yields_findings(

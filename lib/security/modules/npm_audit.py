@@ -90,6 +90,15 @@ def scan(project_root: str) -> ScanResult:
     # The SHAPE is checked, not just the key (counter-model review): a null or
     # list `vulnerabilities` read as empty passed as clean, and a non-empty list
     # raised AttributeError below.
+    # npm audit exits 0 clean and 1 on findings; any other exit, or a signal,
+    # is a failure even when it printed report-shaped JSON first (counter-model
+    # review, pass 2).
+    if proc.returncode not in (0, 1):
+        result.errors.append(
+            f"UNKNOWN: npm audit exited {proc.returncode}, so its report is not a verdict{detail}"
+        )
+        return result
+
     vulnerabilities = data.get("vulnerabilities") if isinstance(data, dict) else None
     if (
         not isinstance(data, dict)
@@ -103,7 +112,23 @@ def scan(project_root: str) -> ScanResult:
         return result
 
     if not vulnerabilities:
-        result.passed.append("No dependency vulnerabilities found (npm audit)")
+        if proc.returncode == 1:
+            result.errors.append(
+                "UNKNOWN: npm audit exited 1 (findings) but reported no vulnerabilities"
+            )
+            return result
+        # Say HOW MANY were examined: "nothing found" and "nothing to look at"
+        # otherwise print the same line (counter-model review, pass 2).
+        metadata = data.get("metadata")
+        dependencies = metadata.get("dependencies") if isinstance(metadata, dict) else None
+        total = dependencies.get("total") if isinstance(dependencies, dict) else None
+        if not isinstance(total, int) or isinstance(total, bool):
+            examined = "dependency count not reported"
+        elif total == 0:
+            examined = "0 dependencies examined - nothing was audited"
+        else:
+            examined = f"{total} dependencies examined"
+        result.passed.append(f"No dependency vulnerabilities found (npm audit; {examined})")
         return result
 
     for pkg_name, vuln_info in vulnerabilities.items():
