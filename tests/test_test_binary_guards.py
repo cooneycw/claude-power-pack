@@ -2233,3 +2233,57 @@ def test_the_real_repo_is_clean():
     subprocess.run([sys.executable, str(THING)], check=False)
 """
     assert _repo(tmp_path, test, script=script, name="thing.py") == []
+
+
+# -- counter-model review of #1259 ------------------------------------------- #
+
+def test_a_handler_that_re_raises_does_not_make_the_script_fail_soft(tmp_path: Path) -> None:
+    script = (
+        "import subprocess\n"
+        "try:\n"
+        "    subprocess.run(['git', 'status'], check=True)\n"
+        "except FileNotFoundError:\n"
+        "    raise\n"
+    )
+    test = PY_SCRIPT_PREAMBLE + """\
+def test_the_real_repo_is_clean():
+    subprocess.run([sys.executable, str(THING)], check=False)
+"""
+    findings = _repo(tmp_path, test, script=script, name="thing.py")
+    assert [f.binaries for f in findings] == [("git",)], findings
+
+
+def test_a_helper_called_only_under_a_which_guard_does_not_charge_its_caller(tmp_path: Path) -> None:
+    source = PREAMBLE + """\
+def _git(*args):
+    return subprocess.run(["git", *args], check=False)
+
+
+def _gate(root):
+    if shutil.which("git"):
+        return _git("-C", str(root), "rev-parse")
+    return None
+
+
+def test_git_less_path(tmp_path):
+    _gate(tmp_path)
+"""
+    assert _findings(tmp_path, source) == []
+    # ...and the same helper called UNGUARDED from a second site still charges it.
+    unguarded = source.replace(
+        "    return None\n", "    return _git('status')\n", 1
+    )
+    assert [f.binaries for f in _findings(tmp_path, unguarded)] == [("git",)]
+
+
+def test_an_exempted_or_guarded_reach_stays_in_the_population(tmp_path: Path) -> None:
+    """`reaching` must not drop a test whose reach is recognised as handled."""
+    path = tmp_path / "test_sample.py"
+    path.write_text(ALLOWED_HELPER, encoding="utf-8")
+    scan = checker.scan_paths([path])
+    assert scan.findings == []
+    assert scan.reaching == 2 and scan.exempted == 2, scan
+
+    path.write_text(CONDITIONAL_HELPER, encoding="utf-8")
+    scan = checker.scan_paths([path])
+    assert scan.findings == [] and scan.reaching == 1 and scan.exempted == 0, scan

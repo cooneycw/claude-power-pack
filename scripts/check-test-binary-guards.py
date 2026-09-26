@@ -1193,6 +1193,16 @@ class _ShellOutFinder(ast.NodeVisitor):
         self.binaries: set[str] = set()
         self.linenos: set[int] = set()
         self.scripts: dict[Path, set[str]] = {}
+        #: Reached, but only in a branch guarded by `shutil.which()` - RECORDED,
+        #: not dropped, so the success line still counts the test as reaching a
+        #: binary and guarded, not as reaching nothing (counter-model review).
+        self.guarded_hits: set[str] = set()
+        #: Reached, but exempted by a call-line allow or a recovering `except`.
+        self.exempt_hits: set[str] = set()
+        #: Bare-name calls -> the which-guard in force at EVERY call site (the
+        #: intersection), so a helper called only under `if shutil.which("git")`
+        #: does not charge its caller with git (counter-model review).
+        self.calls: dict[str, set[str]] = {}
         #: Binaries whose absence makes the CURRENT branch unreachable.
         self._guarded: set[str] = set()
         self._in_failsoft_try = False
@@ -1215,7 +1225,7 @@ class _ShellOutFinder(ast.NodeVisitor):
         self._visit_guarded(node.test, [node.body], [node.orelse])
 
     def visit_Try(self, node: ast.Try) -> None:
-        if not self.failsoft_try or not any(_catches_absence(h) for h in node.handlers):
+        if not self.failsoft_try or not any(_recovers_from_absence(h) for h in node.handlers):
             self.generic_visit(node)
             return
         saved = self._in_failsoft_try
@@ -1233,9 +1243,15 @@ class _ShellOutFinder(ast.NodeVisitor):
         return any(line in self.allow_lines for line in range(node.lineno, last + 1))
 
     def visit_Call(self, node: ast.Call) -> None:
+        if isinstance(node.func, ast.Name):
+            site = set(self._guarded)
+            prior = self.calls.get(node.func.id)
+            self.calls[node.func.id] = site if prior is None else prior & site
         binaries, script = self._binaries_for(node)
         if self._in_failsoft_try or self._allowed(node):
+            self.exempt_hits |= binaries
             binaries = set()
+        self.guarded_hits |= binaries & self._guarded
         binaries -= self._guarded
         if binaries:
             self.binaries |= binaries
@@ -1371,11 +1387,24 @@ def _positive_which(test: ast.expr) -> set[str]:
 _ABSENCE_EXCEPTIONS = frozenset({"FileNotFoundError", "OSError", "Exception", "BaseException"})
 
 
-def _catches_absence(handler: ast.ExceptHandler) -> bool:
-    if handler.type is None:
-        return True
-    types = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
-    return any(_dotted(t).rsplit(".", 1)[-1] in _ABSENCE_EXCEPTIONS for t in types)
+def _recovers_from_absence(handler: ast.ExceptHandler) -> bool:
+    """A handler that catches the exec failure AND carries on.
+
+    Catching is not recovering (counter-model review): `except
+    FileNotFoundError: raise` or `sys.exit(1)` fails the caller exactly as the
+    uncaught error would, so a handler containing a `raise` or an exit call
+    leaves the requirement standing.
+    """
+    if handler.type is not None:
+        types = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
+        if not any(_dotted(t).rsplit(".", 1)[-1] in _ABSENCE_EXCEPTIONS for t in types):
+            return False
+    for child in ast.walk(handler):
+        if isinstance(child, ast.Raise):
+            return False
+        if isinstance(child, ast.Call) and _dotted(child.func).rsplit(".", 1)[-1] in {"exit", "_exit"}:
+            return False
+    return True
 
 
 def _which_binaries(node: ast.AST) -> set[str]:
@@ -1393,15 +1422,6 @@ def _which_binaries(node: ast.AST) -> set[str]:
             # guard a binary that appears on no list in this file.
             found.add(literal)
     return found
-
-
-def _called_names(node: ast.AST) -> set[str]:
-    """Bare function names called inside a subtree (``_git(...)`` -> ``_git``)."""
-    names: set[str] = set()
-    for child in ast.walk(node):
-        if isinstance(child, ast.Call) and isinstance(child.func, ast.Name):
-            names.add(child.func.id)
-    return names
 
 
 # --------------------------------------------------------------------------- #
@@ -1530,6 +1550,9 @@ class _ModuleAnalysis:
         }
         direct: dict[str, set[str]] = {}
         scripts: dict[str, dict[Path, set[str]]] = {}
+        guarded: dict[str, set[str]] = {}
+        exempt: dict[str, set[str]] = {}
+        calls: dict[str, dict[str, set[str]]] = {}
         for name, node in helpers.items():
             # A `# binary-guard: allow` on the HELPER's own call line is the
             # "call line" the docstring promises for this shape (issue #1259);
@@ -1537,20 +1560,36 @@ class _ModuleAnalysis:
             finder = self._shell_out(node, allow_lines=self.allow_lines)
             direct[name] = set(finder.binaries)
             scripts[name] = {p: set(b) for p, b in finder.scripts.items()}
-        calls = {name: _called_names(node) & helpers.keys() for name, node in helpers.items()}
+            guarded[name] = set(finder.guarded_hits)
+            exempt[name] = set(finder.exempt_hits)
+            calls[name] = {c: g for c, g in finder.calls.items() if c in helpers}
 
-        # Fixpoint: propagate along the call graph until nothing new appears.
+        # Fixpoint: propagate along the call graph until nothing new appears. A
+        # call edge made under `if shutil.which("b")` carries `b` as guarded
+        # rather than required (issue #1259, counter-model review).
         changed = True
         while changed:
             changed = False
             for name, callees in calls.items():
-                for callee in callees:
-                    new = direct[callee] - direct[name]
+                for callee, edge_guard in callees.items():
+                    new = (direct[callee] - edge_guard) - direct[name]
                     if new:
                         direct[name] |= new
                         changed = True
-                    if _merge_scripts(scripts[name], scripts[callee]):
+                    also_guarded = (direct[callee] & edge_guard) | guarded[callee]
+                    if not also_guarded <= guarded[name]:
+                        guarded[name] |= also_guarded
                         changed = True
+                    if not exempt[callee] <= exempt[name]:
+                        exempt[name] |= exempt[callee]
+                        changed = True
+                    reached = {
+                        p: b - edge_guard for p, b in scripts[callee].items() if b - edge_guard
+                    }
+                    if _merge_scripts(scripts[name], reached):
+                        changed = True
+        self.helper_guarded = {n: b for n, b in guarded.items() if b}
+        self.helper_exempt = {n: b for n, b in exempt.items() if b}
         return (
             {name: bins for name, bins in direct.items() if bins},
             {name: seen for name, seen in scripts.items() if seen},
@@ -1643,14 +1682,31 @@ def _check_test(
     seen_scripts: dict[Path, set[str]] = {}
     _merge_scripts(seen_scripts, direct.scripts)
     indirect_via: str | None = None
-    for name in sorted(_called_names(func)):
-        helper = analysis.helper_binaries.get(name)
+    guarded_hits = set(direct.guarded_hits)
+    exempt_hits = set(direct.exempt_hits)
+    for name in sorted(direct.calls):
+        edge_guard = direct.calls[name]
+        full = analysis.helper_binaries.get(name, set())
+        helper = full - edge_guard
+        guarded_hits |= (full & edge_guard) | analysis.helper_guarded.get(name, set())
+        exempt_hits |= analysis.helper_exempt.get(name, set())
         if helper:
             if indirect_via is None:
                 indirect_via = name
             needed |= helper
-            _merge_scripts(seen_scripts, analysis.helper_scripts.get(name, {}))
+            _merge_scripts(seen_scripts, {
+                p: b - edge_guard
+                for p, b in analysis.helper_scripts.get(name, {}).items() if b - edge_guard
+            })
     if not needed:
+        # STILL PART OF THE POPULATION (counter-model review of #1259). A test
+        # whose every reach is exempted, or guarded by a which-branch, reaches a
+        # binary - dropping it made "reaching=0" mean both "never shells out"
+        # and "shells out, recognisably handled".
+        if exempt_hits:
+            return True, True, None
+        if guarded_hits:
+            return True, False, None
         return False, False, None
 
     # A `# binary-guard: allow <reason>` on any shell-out line, or on the def.
