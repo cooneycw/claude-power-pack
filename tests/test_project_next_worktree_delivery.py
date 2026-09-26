@@ -309,6 +309,21 @@ def test_assume_unchanged_edit_is_never_clean(scenario: Scenario) -> None:
     assert item.verdict == "unknown"
 
 
+def test_closed_issue_worktree_is_annotated_like_an_unmapped_one() -> None:
+    # issue-9 is not in the open inventory, so the engine reads it as no-open-issue.
+    state = project_next.RepositoryState.from_dict(
+        {
+            "repository": "example/project",
+            "default_branch": "main",
+            "collected_at": "2026-09-26T00:00:00Z",
+            "worktrees": [{"path": "/nowhere/wt", "branch": "issue-9-closed-work"}],
+        }
+    )
+    (item,) = project_next.worktree_delivery(Path("/nowhere"), project_next.recommend(state), "main", _runner({}))
+    assert item.issue_state == "no-open-issue"
+    assert item.verdict == "delivered"
+
+
 @requires_git
 def test_open_issue_worktrees_are_not_annotated(scenario: Scenario) -> None:
     state = project_next.RepositoryState.from_dict(
