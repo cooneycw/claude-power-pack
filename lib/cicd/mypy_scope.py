@@ -4,7 +4,7 @@ Invoked by the finish/check plans' typecheck fallback as
 
     python3 <cpp>/lib/cicd/mypy_scope.py uv run --extra dev mypy
 
-and execs that command unchanged when the active mypy config declares
+and runs that command unchanged when the active mypy config declares
 ``files``, or with ``.`` appended when it does not. mypy reads ``files`` from
 its own config when given no paths, so a declared scope is honoured by passing
 none.
@@ -29,8 +29,8 @@ Stdlib only and line-based (no tomllib): the host ``python3`` may predate 3.11.
 
 from __future__ import annotations
 
-import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -73,8 +73,8 @@ def main(argv: list[str]) -> int:
         print("usage: mypy_scope.py <command...>", file=sys.stderr)
         return 2
     command = list(argv) if declares_files(Path.cwd()) else [*argv, "."]
-    os.execvp(command[0], command)
-    return 127  # pragma: no cover - execvp does not return
+    # An argv list, never a shell: the command is the plan's own constant.
+    return subprocess.run(command, check=False).returncode
 
 
 if __name__ == "__main__":

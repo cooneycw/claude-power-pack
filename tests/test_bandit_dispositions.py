@@ -477,9 +477,19 @@ class TestCommandTrustBoundary:
             '! grep -q "^test:" Makefile 2>/dev/null '
             '&& ! grep -q "pytest" pyproject.toml 2>/dev/null',
         )
+        # The fallback runs the repository's DECLARED mypy scope through one
+        # CPP-owned file (issue #1258). Its only variable part is the path of
+        # THIS checkout's lib/cicd/mypy_scope.py - a constant per install, not
+        # project input - so the expected string is derived from the tree
+        # under test rather than hardcoded to one host.
+        import shlex
+
+        scoped = shlex.quote(
+            str(Path(__file__).resolve().parents[1] / "lib" / "cicd" / "mypy_scope.py")
+        )
         typecheck = (
             'if grep -q "^typecheck:" Makefile 2>/dev/null; then make typecheck; '
-            "else uv run --extra dev mypy .; fi",
+            f"else python3 {scoped} uv run --extra dev mypy; fi",
             '! grep -q "^typecheck:" Makefile 2>/dev/null '
             '&& ! grep -q "mypy" pyproject.toml 2>/dev/null',
         )
