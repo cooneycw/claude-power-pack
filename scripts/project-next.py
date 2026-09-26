@@ -94,7 +94,8 @@ PREMISE_TERM_MINIMUM = 4
 DELIVERY_VERDICTS = ("delivered", "not-proven", "unknown")
 DELIVERY_ADVISORY = (
     "_`delivered`: every changed path has the identical blob on the default branch and the tree is clean. "
-    "`not-proven` is not \"undelivered\" - inspect before removing. `unknown` means git could not be asked._"
+    "`not-proven` is not \"undelivered\" - inspect before removing. `unknown` means git could not be asked. "
+    "Ignored files are counted, not examined._"
 )
 PREMISE_ADVISORY = (
     "_Premise flags are advisory: ranking is unchanged and no issue is filtered. "
@@ -216,6 +217,7 @@ class WorktreeDelivery:
     remote_branch: str
     changed_paths: int | None = None
     differing_paths: tuple[str, ...] = ()
+    ignored_paths: int | None = None
     reason: str = ""
 
 
@@ -926,7 +928,14 @@ def _base_freshness(
     return ""
 
 
-def _tree_state(path: Path, runner: CommandRunner) -> tuple[str, str]:
+def _tree_state(path: Path, runner: CommandRunner) -> tuple[str, int | None, str]:
+    """(tree state, ignored path count, reason) for one worktree.
+
+    Ignored paths are COUNTED and named in the reason, never examined: nearly
+    every worktree carries a `.venv` or cache, so letting them block `delivered`
+    would make the verdict unreachable. The count keeps that excluded population
+    visible instead of letting a clean status claim it.
+    """
     # Asked again rather than read from the collector: the collector turns a failed
     # `git status` into an empty one, i.e. "clean", which is the one reading this
     # verdict must never inherit from a failure.
@@ -936,14 +945,26 @@ def _tree_state(path: Path, runner: CommandRunner) -> tuple[str, str]:
         status = runner(
             ["git", "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=none"], path
         )
+        # `git status` cannot see an edit to an entry flagged assume-unchanged
+        # (lowercase tag) or skip-worktree (`S`), and no status flag overrides the bit.
+        tags = runner(["git", "ls-files", "-v"], path)
+        ignored = runner(["git", "ls-files", "--others", "--ignored", "--exclude-standard", "--directory"], path)
     except (CollectionError, OSError) as exc:
-        return "unknown", f"git status failed: {exc}"
+        return "unknown", None, f"git status failed: {exc}"
+    ignored_count = sum(1 for line in ignored.splitlines() if line.strip())
+    ignored_note = f"{ignored_count} ignored path(s) not examined would also be removed" if ignored_count else ""
+    hidden = [line[2:] for line in tags.splitlines() if line[:1].islower() or line[:1] == "S"]
     lines = [line for line in status.splitlines() if line.strip()]
     if any(not line.startswith("??") for line in lines):
-        return "dirty", "uncommitted tracked changes"
-    if lines:
-        return "untracked", "untracked files would be lost on removal"
-    return "clean", ""
+        state, reason = "dirty", "uncommitted tracked changes"
+    elif hidden:
+        state = "unknown"
+        reason = f"{len(hidden)} index entr(ies) flagged assume-unchanged/skip-worktree hide their edits from status"
+    elif lines:
+        state, reason = "untracked", "untracked files would be lost on removal"
+    else:
+        state, reason = "clean", ""
+    return state, ignored_count, "; ".join(item for item in (reason, ignored_note) if item)
 
 
 def _committed_state(
@@ -1014,7 +1035,7 @@ def worktree_delivery(
             )
             continue
         path = Path(detail.path)
-        tree, tree_reason = _tree_state(path, runner)
+        tree, ignored_count, tree_reason = _tree_state(path, runner)
         if stale_base:
             committed, changed, differing, committed_reason = "unknown", None, (), stale_base
         else:
@@ -1042,6 +1063,7 @@ def worktree_delivery(
                 remote_branch=remote,
                 changed_paths=changed,
                 differing_paths=differing,
+                ignored_paths=ignored_count,
                 reason="; ".join(item for item in (committed_reason, tree_reason) if item),
             )
         )

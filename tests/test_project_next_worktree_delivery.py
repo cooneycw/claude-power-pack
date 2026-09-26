@@ -276,6 +276,40 @@ def test_remote_moved_past_the_local_base_is_unknown(scenario: Scenario, tmp_pat
 
 
 @requires_git
+def test_ignored_files_are_counted_and_named_not_silently_clean(scenario: Scenario) -> None:
+    work = {"a.txt": "a1\n"}
+    scenario.branch_commit(work)
+    scenario.land_on_main(work)
+    # info/exclude, not a .gitignore: a new .gitignore would itself be untracked.
+    exclude = Path(_git(scenario.worktree, "rev-parse", "--git-path", "info/exclude").strip())
+    exclude = exclude if exclude.is_absolute() else scenario.worktree / exclude
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    exclude.write_text("*.local\n")
+    (scenario.worktree / "notes.local").write_text("only copy\n")
+    # Precondition: status really is silent about it.
+    assert _git(scenario.worktree, "status", "--porcelain", "--untracked-files=all") == ""
+
+    item = scenario.verdict()
+    assert item.ignored_paths == 1
+    assert "1 ignored path(s) not examined" in item.reason
+
+
+@requires_git
+def test_assume_unchanged_edit_is_never_clean(scenario: Scenario) -> None:
+    work = {"a.txt": "a1\n"}
+    scenario.branch_commit(work)
+    scenario.land_on_main(work)
+    _git(scenario.worktree, "update-index", "--assume-unchanged", "a.txt")
+    (scenario.worktree / "a.txt").write_text("edited under the flag\n")
+    # Precondition: status really cannot see the edit.
+    assert _git(scenario.worktree, "status", "--porcelain", "--untracked-files=all") == ""
+
+    item = scenario.verdict()
+    assert item.tree == "unknown"
+    assert item.verdict == "unknown"
+
+
+@requires_git
 def test_open_issue_worktrees_are_not_annotated(scenario: Scenario) -> None:
     state = project_next.RepositoryState.from_dict(
         {
