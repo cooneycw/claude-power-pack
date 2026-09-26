@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
-from .models import Classification, Issue, PullRequest, RepositoryState
+from .models import Classification, Issue, PullRequest, RepositoryState, normalize_label
 
 ISSUE_BRANCH = re.compile(r"(?:^|/)issue-(?P<number>\d+)(?:-|$)", re.IGNORECASE)
 
@@ -28,6 +28,10 @@ ISSUE_REFERENCE = re.compile(r"#(?P<start>\d+)(?:\s*[-–—]\s*#?(?P<end>\d+))?
 TASK_REFERENCE = re.compile(r"(?P<task>[A-Z]{1,4}(?:-[A-Z]{1,4})?\d{2,4})\b")
 REFERENCE_SEPARATOR = re.compile(r"[\s,;&/–—-]*(?:and|plus|then)?[\s]*", re.IGNORECASE)
 DANGLING_REFERENCE = re.compile(r"#(?!\d)")
+# "Depends on: None" declares the ABSENCE of a dependency. Read as a phrase with no
+# reference it made every prerequisite-free issue uncertain (#1035).
+# A dash counts only when nothing follows it: "- see #12" is not a negation.
+NO_DEPENDENCY = re.compile(r"(?:[-—–]\s*)?(?:none|n/a|nothing|nil)\b|[-—–](?=\s*(?:$|[;.,]))", re.IGNORECASE)
 CODE_FENCE = re.compile(r"^\s*(?:```|~~~)")
 INLINE_CODE = re.compile(r"`[^`\n]*`")
 DECLARED_TASK = re.compile(r"^-\s*\[[ xX]\]\s+(?:\*\*)?(?P<id>[A-Za-z]{1,4}(?:-[A-Za-z]{1,4})?\d{1,4})(?:\*\*)?\b")
@@ -105,7 +109,7 @@ def _line_references(line: str) -> tuple[set[int], set[str], list[str]]:
             found_issues, found_tasks, consumed = _reference_list(line, start)
             issues |= found_issues
             tasks |= found_tasks
-            if consumed or not strong:
+            if consumed or not strong or NO_DEPENDENCY.match(line, start):
                 continue
             detail = "an issue reference is present but not attached to the phrase"
             if not ISSUE_REFERENCE.search(line) and not DANGLING_REFERENCE.search(line):
@@ -212,8 +216,14 @@ def _cycle_members(graph: dict[int, set[int]]) -> set[int]:
     return cycles
 
 
-def classify_repository(state: RepositoryState) -> Classification:
+def classify_repository(state: RepositoryState, non_startable_labels: tuple[str, ...] = ()) -> Classification:
     issue_numbers = {issue.number for issue in state.issues}
+    markers = frozenset(normalize_label(label) for label in non_startable_labels)
+    marked = {
+        issue.number: tuple(sorted(issue.normalized_labels & markers))
+        for issue in state.issues
+        if issue.normalized_labels & markers
+    }
     evidence: dict[int, set[str]] = defaultdict(set)
     unmapped_worktrees: list[str] = []
 
@@ -274,11 +284,15 @@ def classify_repository(state: RepositoryState) -> Classification:
                 changed = True
 
     in_flight = set(evidence)
-    uncertain = {number for number, reasons in uncertainty.items() if reasons} - in_flight
-    blocked = {number for number, blockers in blocked_by.items() if blockers} - in_flight - uncertain
-    available = issue_numbers - in_flight - blocked - uncertain
+    # A marker is decisive where dependency prose is not: someone actively working the
+    # issue still outranks it, but an inbox is never "blocked" or "uncertain" pending
+    # some resolution after which it would become startable.
+    non_startable = set(marked) - in_flight
+    uncertain = {number for number, reasons in uncertainty.items() if reasons} - in_flight - non_startable
+    blocked = {number for number, blockers in blocked_by.items() if blockers} - in_flight - non_startable - uncertain
+    available = issue_numbers - in_flight - non_startable - blocked - uncertain
 
-    partitions = (in_flight, blocked, available, uncertain)
+    partitions = (in_flight, non_startable, blocked, available, uncertain)
     if set().union(*partitions) != issue_numbers or sum(len(group) for group in partitions) != len(issue_numbers):
         raise AssertionError("project-next classifications are not disjoint and exhaustive")
 
@@ -287,6 +301,10 @@ def classify_repository(state: RepositoryState) -> Classification:
         blocked=tuple(sorted(blocked)),
         available=tuple(sorted(available)),
         uncertain=tuple(sorted(uncertain)),
+        non_startable=tuple(sorted(non_startable)),
+        non_startable_evidence={
+            number: tuple(f"label:{label}" for label in marked[number]) for number in sorted(non_startable)
+        },
         dependency_map={number: tuple(sorted(values)) for number, values in sorted(dependency_map.items())},
         blocked_by={number: tuple(sorted(values)) for number, values in sorted(blocked_by.items()) if values},
         in_flight_evidence={number: tuple(sorted(values)) for number, values in sorted(evidence.items())},

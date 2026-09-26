@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
+import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "project-next.py"
@@ -216,3 +220,125 @@ def test_graduation_ledger_without_a_version_field_is_rejected_loudly(tmp_path: 
     assert ledger_data == {}
     assert any("version" in warning for warning in warnings)
     assert not any("unversioned-entry" in warning for warning in warnings)
+
+
+# #1035 negative controls: each route or state is paired with the input that must
+# produce the other answer.
+
+
+def test_a_wayfinder_label_never_emits_a_flow_auto_route_and_an_unlabelled_issue_still_does(tmp_path: Path) -> None:
+    state = _state(
+        issues=[
+            {"number": 876, "title": "Chart a wayfinder map: CPP resilience", "labels": ["wayfinder:map"]},
+            {"number": 900, "title": "Ordinary work"},
+        ]
+    )
+    result = project_next.recommend(state)
+    wayfinder_map, payload = project_next.read_wayfinder_map(tmp_path)
+    routes = project_next.planning_routes(tmp_path, state, payload)
+    extensions = project_next.CppExtensions((), (), routes, (), wayfinder_map=wayfinder_map)
+
+    assert [route.issue_number for route in routes] == [876]
+    assert routes[0].artifact == "label:wayfinder:map"
+    for mode in ("compact", "full"):
+        rendered = project_next.render_cpp(result, state, mode, extensions)
+        assert "$flow-auto 876" not in rendered
+        assert "$flow-auto 900" in rendered
+
+
+def test_the_map_reads_absent_only_when_it_is_absent_and_unreadable_when_it_is_malformed(tmp_path: Path) -> None:
+    absent, payload = project_next.read_wayfinder_map(tmp_path)
+    assert (absent.state, payload) == ("absent", None)
+
+    map_path = tmp_path / ".claude" / "wayfinder-map.json"
+    map_path.parent.mkdir(parents=True)
+    map_path.write_text("{not json", encoding="utf-8")
+    unreadable, payload = project_next.read_wayfinder_map(tmp_path)
+    assert (unreadable.state, unreadable.path, payload) == ("unreadable", str(map_path), None)
+
+    map_path.write_text(json.dumps({"state": "cleared", "decisions": []}), encoding="utf-8")
+    read, payload = project_next.read_wayfinder_map(tmp_path)
+    assert (read.state, read.detail) == ("read", "state: cleared")
+    assert payload == {"state": "cleared", "decisions": []}
+
+
+def test_a_worktree_that_cannot_name_its_primary_says_unreadable_not_absent(tmp_path: Path) -> None:
+    worktree = tmp_path / "wt"
+    worktree.mkdir()
+    (worktree / ".git").write_text(f"gitdir: {tmp_path / 'missing' / '.git' / 'worktrees' / 'wt'}\n", encoding="utf-8")
+
+    observed, _ = project_next.read_wayfinder_map(worktree)
+
+    assert observed.state == "unreadable"
+    assert "primary checkout" in observed.detail
+
+
+def _git(cwd: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "init.defaultBranch=main", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+    )
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git to build a linked worktree")
+def test_a_linked_worktree_reads_the_primary_checkouts_untracked_map(tmp_path: Path) -> None:
+    primary = tmp_path / "repo"
+    primary.mkdir()
+    _git(primary, "init")
+    _git(primary, "commit", "--allow-empty", "-m", "base")
+    _git(primary, "worktree", "add", "-b", "issue-1-x", str(tmp_path / "repo-issue-1-x"))
+    worktree = tmp_path / "repo-issue-1-x"
+
+    # Genuinely absent everywhere: the worktree must say absent, having checked both.
+    absent, _ = project_next.read_wayfinder_map(worktree)
+    assert absent.state == "absent"
+    assert str(primary / ".claude" / "wayfinder-map.json") in absent.detail
+
+    # Untracked in the primary only - the shape a gitignored map always has.
+    map_path = primary / ".claude" / "wayfinder-map.json"
+    map_path.parent.mkdir()
+    map_path.write_text(
+        json.dumps({"state": "awaiting-decisions", "decisions": [{"decision_id": "D001", "status": "open"}]}),
+        encoding="utf-8",
+    )
+    assert not (worktree / ".claude" / "wayfinder-map.json").exists()
+
+    read, payload = project_next.read_wayfinder_map(worktree)
+    state = _state(issues=[{"number": 7, "title": "D001 choose the identity provider"}])
+    assert (read.state, read.path) == ("read", str(map_path))
+    assert any(route.issue_number == 7 for route in project_next.planning_routes(worktree, state, payload))
+
+
+def _native_state(*issues: dict[str, object]) -> tuple[object, list[dict[str, object]]]:
+    state = _state(issues=list(issues))
+    # Native rows present but carrying no edges, so every parsed reference is text-only.
+    rows = [{"number": issue["number"], "blockedBy": [], "blocking": [], "subIssues": []} for issue in issues]
+    return state, rows
+
+
+def test_a_text_dependency_on_closed_issues_is_satisfied_not_uncertain() -> None:
+    state, rows = _native_state({"number": 6, "title": "Build on the baseline", "body": "Depends on: #4, #5."})
+
+    normalized, _ = project_next.normalize_relationships(state, rows)
+    result = project_next.recommend(normalized)
+
+    assert result.classification.available == (6,)
+    assert result.classification.uncertainty == {}
+
+
+def test_a_text_dependency_on_an_open_issue_stays_uncertain_and_names_it() -> None:
+    state, rows = _native_state(
+        {"number": 6, "title": "Build on the baseline", "body": "Depends on: #7."},
+        {"number": 7, "title": "Baseline", "body": "Depends on: None"},
+    )
+
+    normalized, _ = project_next.normalize_relationships(state, rows)
+    result = project_next.recommend(normalized)
+
+    assert result.classification.uncertain == (6,)
+    assert result.classification.available == (7,)
+    reasons = " ".join(result.classification.uncertainty[6])
+    assert "#7" in reasons
+    assert "names no issue" not in reasons

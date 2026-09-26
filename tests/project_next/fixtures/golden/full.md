@@ -1,8 +1,8 @@
-## example/operations — Project Next 1.3
+## example/operations — Project Next 1.4
 
 **Top action:** continue_pr: Build active foundation (issue #2, PR #20) — PR #20 is active and should be completed before broad new work. Evidence: head:issue-2-active-foundation, checks:pending, review:unknown.
 **Next safe issue:** #3 Wave 1 feature
-**State:** 6 open | 1 in-flight | 1 blocked | 1 uncertain | inventory complete
+**State:** 6 open | 1 in-flight | 1 blocked | 1 uncertain | 0 non-startable | inventory complete
 
 ### Ready to start (top 3)
 1. #3 Wave 1 feature [priority high (p1); phase wave/phase 1; type feature; quick win no]
@@ -41,6 +41,9 @@
 
 ### Uncertain work (not actionable)
 - #6 Choose storage — uncertain
+
+### Open by design (never startable)
+- none
 
 ### Tier 3 — Ready to start
 - #3 Wave 1 feature — available; high (p1); wave/phase 1; feature; ordered by the deterministic rank tuple → `$flow-auto 3`

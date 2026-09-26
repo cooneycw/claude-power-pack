@@ -61,6 +61,16 @@
         "discussion"
       ]
     },
+    "non_startable_labels": {
+      "$ref": "#/$defs/labels",
+      "description": "Issues open by design with no implementable scope (an inbox, a standing re-check). Never ranked or startable.",
+      "default": [
+        "evergreen",
+        "inbox",
+        "nit-store",
+        "not-startable"
+      ]
+    },
     "stale_after_days": {
       "type": "integer",
       "minimum": 0,

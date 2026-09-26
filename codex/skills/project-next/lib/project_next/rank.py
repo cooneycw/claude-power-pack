@@ -20,7 +20,7 @@ from .models import (
     WorktreeDetail,
 )
 
-CONTRACT_VERSION = "1.3"
+CONTRACT_VERSION = "1.4"
 PHASE = re.compile(r"\b(?:wave|phase)[-\s:]*(?P<number>\d+)\b", re.IGNORECASE)
 
 
@@ -221,6 +221,11 @@ def _top_action(
             continue
         match = re.search(r"(?:^|/)issue-(\d+)(?:-|$)", worktree.branch, re.IGNORECASE)
         issue_number = int(match.group(1)) if match else None
+        # The inventory is complete by this point, so a branch naming an issue that is
+        # not in it names a closed (or nonexistent) issue. Its dirty tree may hold a
+        # design that was refuted; resuming it is never the safe action (#1035).
+        if issue_number is not None and issue_number not in issues:
+            continue
         dirty_worktrees.append((issue_number, worktree))
     if dirty_worktrees:
         issue_number, worktree = min(
@@ -293,7 +298,36 @@ def _top_action(
             reason="The approved specification contains a group with no stable GitHub issue mapping.",
             evidence=(pending[0].source,),
         )
+
+    # Never "nothing to do" while an inbox holds work: it is not startable through an
+    # implementation route, but aggregating it into startable issues is the action (#1035).
+    if classification.non_startable:
+        issue_number = classification.non_startable[0]
+        return Action(
+            kind="triage_inbox",
+            title=f"Triage {issues[issue_number].title}",
+            reason=(
+                "No issue is startable; this open-by-design issue may hold findings to aggregate "
+                "into startable issues. It is not an implementation target."
+            ),
+            issue_number=issue_number,
+            evidence=classification.non_startable_evidence.get(issue_number, ()),
+        )
     return None
+
+
+def _dirty_worktrees_off_open_issues(state: RepositoryState) -> tuple[str, ...]:
+    """Name dirty worktrees whose branch maps to an issue that is not open."""
+    open_numbers = {issue.number for issue in state.issues}
+    warnings = []
+    for worktree in state.worktrees:
+        number = issue_number_from_branch(worktree.branch)
+        if worktree.dirty and number is not None and number not in open_numbers:
+            warnings.append(
+                f"dirty worktree {worktree.path} ({worktree.branch}) names issue #{number}, which is not open; "
+                "it is not recommended as continue_work - inspect it before resuming or removing it"
+            )
+    return tuple(warnings)
 
 
 def _backlog_summary(issues: tuple[Issue, ...], config: ProjectNextConfig) -> BacklogSummary:
@@ -341,6 +375,7 @@ def _backlog_tiers(
     uncertain = tuple(number for number in classification.uncertain if number not in critical_set)
     safe_inventory = state.inventory_complete and not state.collector_errors
     available = [number for number in ranked if number not in critical_set] if safe_inventory else []
+    non_startable = tuple(number for number in classification.non_startable if number not in critical_set)
     planning = tuple(number for number in available if _type_evidence(issues[number], config) == "planning")
     planning_set = set(planning)
     quick_wins = tuple(
@@ -361,6 +396,7 @@ def _backlog_tiers(
         ready=ready,
         quick_wins=quick_wins,
         planning=planning,
+        non_startable=non_startable,
         pending_spec_sync=pending_spec_sync,
     )
 
@@ -376,6 +412,8 @@ def _issue_state(number: int | None, state: RepositoryState, classification: Cla
         return "available"
     if number in classification.uncertain:
         return "uncertain"
+    if number in classification.non_startable:
+        return "non-startable"
     if number in {issue.number for issue in state.issues}:
         return "unknown"
     return "no-open-issue"
@@ -460,7 +498,7 @@ def _vocabulary_warnings(state: RepositoryState, config: ProjectNextConfig) -> t
 
 def recommend(state: RepositoryState, config: ProjectNextConfig | None = None) -> RecommendationResult:
     config = config or ProjectNextConfig()
-    classification = classify_repository(state)
+    classification = classify_repository(state, config.non_startable_labels)
     issues = {issue.number: issue for issue in state.issues}
     ranked = tuple(
         issue.number
@@ -475,6 +513,8 @@ def recommend(state: RepositoryState, config: ProjectNextConfig | None = None) -
     # can run long enough to push it past the rendered cap.
     warnings = _vocabulary_warnings(state, config) + tuple(state.collector_errors)
     warnings += tuple(state.collector_warnings)
+    if state.inventory_complete and not state.collector_errors:
+        warnings += _dirty_worktrees_off_open_issues(state)
     if classification.unmapped_worktrees:
         warnings += tuple(f"unmapped worktree: {item}" for item in classification.unmapped_worktrees)
     candidates = (

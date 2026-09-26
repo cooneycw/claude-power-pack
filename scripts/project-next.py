@@ -8,7 +8,9 @@ adapter keeps its ``RecommendationResult`` byte-for-byte at the model boundary
 while adding CPP-only evidence the v1.3 contract does not represent yet:
 
 - native GitHub issue relationships and explicitly uncertain text fallbacks;
-- Wayfinder planning routes that never send decision work to ``flow:auto``;
+- Wayfinder planning routes that never send decision work to ``flow:auto``,
+  from the map artifact and from any ``wayfinder:*`` label, with the map's read
+  state (read, absent, unreadable) always reported rather than inferred;
 - one shared spec-lifecycle decision consumed by all three render modes;
 - premise-staleness flags for spec-derived issues whose parent spec predates
   a live architecture decision in the same domain.
@@ -64,6 +66,9 @@ LIFECYCLE_STATES = frozenset({"active", "graduated", "stale", "retained"})
 GRADUATION_LEDGER = Path(".specify/graduation-ledger.json")
 GRADUATION_LEDGER_VERSION = 1
 DECISION_ID = re.compile(r"\bD\d{3}\b")
+WAYFINDER_MAP = Path(".claude") / "wayfinder-map.json"
+# Matched against normalize_label() output, so `wayfinder:map` arrives as `wayfinder-map`.
+WAYFINDER_LABEL_PREFIX = "wayfinder-"
 # Premise staleness (issue #770). Architecture decision records are read from
 # the conventional published locations; only a record whose status still reads
 # as a live decision can retire a specification's premise.
@@ -128,6 +133,21 @@ class PlanningRoute:
 
 
 @dataclass(frozen=True)
+class WayfinderMap:
+    """Which of three states the map artifact was observed in, and where (#1035).
+
+    ``absent`` and ``unreadable`` reach the same routing conclusion - no map-linked
+    routes - for different reasons, and only the first one is evidence that no map
+    exists. A linked worktree never checks out the (gitignored) artifact, so reading
+    only the worktree path reported ``absent`` from exactly where flow work happens.
+    """
+
+    state: str
+    path: str = ""
+    detail: str = ""
+
+
+@dataclass(frozen=True)
 class DecisionRecord:
     identifier: str
     title: str
@@ -168,6 +188,7 @@ class CppExtensions:
     planning_routes: tuple[PlanningRoute, ...]
     warnings: tuple[str, ...]
     premise_flags: tuple[PremiseFlag, ...] = field(default_factory=tuple)
+    wayfinder_map: WayfinderMap | None = None
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -286,15 +307,26 @@ def normalize_relationships(
             relationships.add(Relationship(number, child, "sub_issue", "github-native", "confirmed"))
 
     task_issues = _task_issue_index(state)
+    open_numbers = {issue.number for issue in state.issues}
     normalized: list[Issue] = []
     for issue in state.issues:
-        parsed, unresolved, _ = _dependencies(issue, task_issues)
+        parsed, _, _ = _dependencies(issue, task_issues)
         confirmed = native_blocked.get(issue.number, set())
         fallback = parsed - confirmed
+        # With a complete inventory a text reference to an issue that is not open is
+        # already satisfied, exactly as the engine reads it; only open ones are unverified.
+        if state.inventory_complete:
+            fallback &= open_numbers
         body = issue.body
         additions = [f"Blocked by #{number}" for number in sorted(confirmed)]
-        if fallback or unresolved:
-            additions.append("Blocked by: dependency text could not be verified through native GitHub fields")
+        # Only text edges need the synthetic line: unresolved phrasing is still in the
+        # body and the engine reports it in its own words. The line names its references,
+        # so the rendered reason no longer says "the blocker names no issue" (#1035).
+        if fallback:
+            refs = ", ".join(f"#{number}" for number in sorted(fallback))
+            additions.append(
+                f"Blocked by: text-only dependency on {refs} is not a native GitHub edge, so it could not be verified"
+            )
         for dependency in sorted(fallback):
             relationships.add(
                 Relationship(issue.number, dependency, "blocked_by", "documented-text", "uncertain")
@@ -464,45 +496,107 @@ def classify_spec_lifecycle(
     return tuple(decisions), tuple(warnings)
 
 
-def planning_routes(repository: Path, state: RepositoryState) -> tuple[PlanningRoute, ...]:
-    """Recognize the landed Wayfinder map shape and its linked decision tickets."""
-    path = repository / ".claude" / "wayfinder-map.json"
-    if not path.is_file():
-        return ()
+def _git_path(repository: Path, flag: str) -> Path:
+    output = subprocess.run(
+        ["git", "-C", str(repository), "rev-parse", "--path-format=absolute", flag],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
+    ).stdout.strip()
+    return Path(output)
+
+
+def _wayfinder_map_locations(repository: Path) -> tuple[Path, ...]:
+    """The checkout's own map path, then the primary checkout's when this is a linked worktree.
+
+    Raises OSError or subprocess errors when a linked worktree cannot name its primary.
+    """
+    local = repository / WAYFINDER_MAP
+    # A linked worktree's `.git` is a FILE pointing into the common git dir; a primary
+    # checkout's is a directory, and a plain directory has none. Only the first needs git.
+    if not (repository / ".git").is_file():
+        return (local,)
+    common = _git_path(repository, "--git-common-dir")
+    if common.name != ".git":
+        raise OSError(f"common git dir {common} is not inside a primary checkout")
+    return (local, common.parent / WAYFINDER_MAP)
+
+
+def read_wayfinder_map(repository: Path) -> tuple[WayfinderMap, dict[str, object] | None]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return ()
-    if not isinstance(payload, dict) or payload.get("state") != "awaiting-decisions":
-        return ()
-    decisions = payload.get("decisions")
-    if not isinstance(decisions, list):
-        return ()
-    ids = {
-        raw.get("decision_id")
-        for raw in decisions
-        if isinstance(raw, dict)
-        and isinstance(raw.get("decision_id"), str)
-        and raw.get("status") != "resolved"
-    }
-    ids.discard(None)
-    routes = [
-        PlanningRoute(
-            issue_number=None,
-            artifact=".claude/wayfinder-map.json",
-            action="/project:init",
-            reason="resume the awaiting-decisions Wayfinder map",
+        locations = _wayfinder_map_locations(repository)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return WayfinderMap("unreadable", "", f"cannot resolve the primary checkout from this worktree: {exc}"), None
+    for path in locations:
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            return WayfinderMap("unreadable", str(path), str(exc)), None
+        if not isinstance(payload, dict):
+            return WayfinderMap("unreadable", str(path), "the artifact is not a JSON object"), None
+        return WayfinderMap("read", str(path), f"state: {payload.get('state', 'unspecified')}"), payload
+    checked = ", ".join(str(path) for path in locations)
+    return WayfinderMap("absent", "", f"checked {checked}"), None
+
+
+def planning_routes(
+    repository: Path, state: RepositoryState, payload: dict[str, object] | None = None
+) -> tuple[PlanningRoute, ...]:
+    """Route map-linked decision tickets and ``wayfinder:*``-labelled issues to planning.
+
+    ``payload`` is the map already read by ``read_wayfinder_map``; omitted, it is read here.
+    """
+    if payload is None:
+        _, payload = read_wayfinder_map(repository)
+    routes: list[PlanningRoute] = []
+    routed: set[int] = set()
+    decisions = payload.get("decisions") if payload and payload.get("state") == "awaiting-decisions" else None
+    if isinstance(decisions, list):
+        ids = {
+            raw.get("decision_id")
+            for raw in decisions
+            if isinstance(raw, dict)
+            and isinstance(raw.get("decision_id"), str)
+            and raw.get("status") != "resolved"
+        }
+        ids.discard(None)
+        routes.append(
+            PlanningRoute(
+                issue_number=None,
+                artifact=str(WAYFINDER_MAP),
+                action="/project:init",
+                reason="resume the awaiting-decisions Wayfinder map",
+            )
         )
-    ]
+        for issue in state.issues:
+            issue_ids = set(DECISION_ID.findall(f"{issue.title}\n{issue.body}"))
+            if issue_ids & ids:
+                routed.add(issue.number)
+                routes.append(
+                    PlanningRoute(
+                        issue_number=issue.number,
+                        artifact=sorted(issue_ids & ids)[0],
+                        action="/project:init",
+                        reason="resolve the linked Wayfinder decision before implementation planning",
+                    )
+                )
+    # The label is the checkable trigger, not body text: prose DISCUSSING wayfinding
+    # would trip a text match, and a seed that says "do not implement" in a sentence
+    # still reached flow:auto (#1035).
     for issue in state.issues:
-        issue_ids = set(DECISION_ID.findall(f"{issue.title}\n{issue.body}"))
-        if issue_ids & ids:
+        if issue.number in routed:
+            continue
+        labels = sorted(label for label in issue.labels if normalize_label(label).startswith(WAYFINDER_LABEL_PREFIX))
+        if labels:
             routes.append(
                 PlanningRoute(
                     issue_number=issue.number,
-                    artifact=sorted(issue_ids & ids)[0],
+                    artifact=f"label:{labels[0]}",
                     action="/project:init",
-                    reason="resolve the linked Wayfinder decision before implementation planning",
+                    reason="carries a Wayfinder label, so it is planning work, not an implementation ticket",
                 )
             )
     return tuple(routes)
@@ -750,12 +844,19 @@ def render_cpp(
 ) -> str:
     base = _apply_route_rendering(render_result(result, state, mode), extensions.planning_routes)
     lines = [f"_decision policy: contract v{result.contract_version} (project-next engine)_", "", base]
+    wayfinder = extensions.wayfinder_map
+    map_line = (
+        f"Wayfinder map: {wayfinder.state}" + (f" ({wayfinder.path})" if wayfinder.path else "")
+        + (f" - {wayfinder.detail}" if wayfinder.detail else "")
+        if wayfinder
+        else "Wayfinder map: not checked"
+    )
     counts = {name: 0 for name in sorted(LIFECYCLE_STATES)}
     for decision in extensions.spec_lifecycle:
         counts[decision.state] += 1
     if mode == "brief":
         summary = " | ".join(f"{name} {counts[name]}" for name in sorted(counts))
-        lines.extend(("", f"Spec lifecycle: {summary}"))
+        lines.extend(("", f"Spec lifecycle: {summary}", map_line))
     elif mode == "full":
         lines.extend(
             (
@@ -812,11 +913,14 @@ def render_cpp(
             lines.append("- none: no spec predates a live decision in its domain")
         lines.extend(("", PREMISE_ADVISORY))
 
-    if extensions.planning_routes:
-        lines.extend(("", "### Wayfinder planning routes"))
+    if mode != "brief":
+        lines.extend(("", "### Wayfinder planning routes", f"- {map_line}"))
         for route in extensions.planning_routes:
             target = f"issue #{route.issue_number}" if route.issue_number is not None else route.artifact
             lines.append(f"- {target}: `{route.action}` - {route.reason}; never `flow:auto`")
+    elif extensions.planning_routes:
+        numbers = ", ".join(f"#{r.issue_number}" for r in extensions.planning_routes if r.issue_number is not None)
+        lines.append(f"Wayfinder planning routes: {numbers or 'map only'} - `/project:init`, never `flow:auto`")
     if extensions.warnings:
         lines.extend(("", "### CPP extension warnings"))
         lines.extend(f"- {warning}" for warning in extensions.warnings)
@@ -873,10 +977,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     lifecycle, lifecycle_warnings = classify_spec_lifecycle(repository, engine_state, result)
     premise, premise_warnings = premise_flags(repository, engine_state, result)
     warnings = tuple(item for item in (native_warning, *lifecycle_warnings, *premise_warnings) if item)
+    wayfinder_map, wayfinder_payload = read_wayfinder_map(repository)
     extensions = CppExtensions(
         relationships=relationships,
         spec_lifecycle=lifecycle,
-        planning_routes=planning_routes(repository, state),
+        planning_routes=planning_routes(repository, state, wayfinder_payload),
+        wayfinder_map=wayfinder_map,
         warnings=warnings,
         premise_flags=premise,
     )
