@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1259-negative-control-harness-can-score-a-blind-instrum",
+  "counts": {
+    "accepted": 12,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "d204f51bc62d8de3d05f011e0f0c3385c6bfff19",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1259",
+  "passes": 2,
+  "recorded_at": "2026-09-26T16:30:43Z",
+  "red_cases": {
+    "already_covered": 13,
+    "proposed": 13
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
