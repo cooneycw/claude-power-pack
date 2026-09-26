@@ -140,26 +140,71 @@ FRAMEWORK_TARGETS: dict[Framework, list[str]] = {
     Framework.UNKNOWN: ["lint", "test", "build", "deploy", "clean"],
 }
 
+# A mypy invocation that honours the repository's DECLARED scope (issue #1258).
+#
+# `mypy .` checks everything under the root, `tests/` included, whatever the
+# repository says its contract is. cooneycw/skillc documents `mypy skillc` and
+# declares nothing else, so the finish gate failed there on ten pre-existing
+# errors in tests/ that its own contract does not cover - a verdict about a
+# different question than the one the repository asks. mypy reads `files =`
+# from its own config when given no paths, so a declared scope is honoured by
+# passing NONE; with no declaration, `.` stays the default it always was.
+#
+# THE CONFIG MYPY WOULD USE, not every config present (counter-model review):
+# mypy takes the FIRST of mypy.ini, .mypy.ini, pyproject.toml, setup.cfg that
+# carries a mypy section and ignores the rest, so a `files` in an inactive file
+# is not a scope - bare `mypy` there would have no targets at all. The probe
+# walks the same order and stops at the first file with a `[mypy]` /
+# `[tool.mypy]` section (a trailing `# comment` on the header is allowed);
+# `[[tool.mypy.overrides]]` is a different table and never counts.
+#
+# Detected in SHELL at run time, not in Python at plan time: the plans are
+# module-level constants, and the question is about the tree the step runs in.
+MYPY_DECLARED_FILES_PROBE = (
+    "_scope=none; "
+    "for _c in mypy.ini .mypy.ini pyproject.toml setup.cfg; do "
+    "[ -f \"$_c\" ] || continue; "
+    "_r=$(awk '"
+    "/^[[:space:]]*\\[/ { s = ($0 ~ /^[[:space:]]*\\[(tool\\.)?mypy\\][[:space:]]*(#.*)?$/); if (s) m = 1 } "
+    "s && /^[[:space:]]*\\\"?files\\\"?[[:space:]]*[=:]/ { f = 1 } "
+    "END { print (m ? (f ? \"files\" : \"nofiles\") : \"none\") }' \"$_c\"); "
+    "[ \"$_r\" = none ] && continue; "
+    "_scope=$_r; break; "
+    "done"
+)
+
+
+def scoped_mypy(invoker: str) -> str:
+    """``<invoker> mypy`` when the active mypy config declares ``files``, else ``<invoker> mypy .``."""
+    # A flag, not the loop's exit status: a loop that finds no config at all
+    # exits 0, which must mean "no scope", not "scope declared".
+    return (
+        f"{MYPY_DECLARED_FILES_PROBE}; "
+        f'if [ "$_scope" = files ]; then {invoker} mypy; '
+        f"else {invoker} mypy .; fi"
+    )
+
+
 # Framework-specific runner commands
 FRAMEWORK_RUNNERS: dict[tuple[Framework, PackageManager], dict[str, str]] = {
     (Framework.PYTHON, PackageManager.UV): {
         "lint": "uv run ruff check .",
         "test": "uv run pytest",
-        "typecheck": "uv run mypy .",
+        "typecheck": scoped_mypy("uv run"),
         "format": "uv run ruff format .",
         "build": "uv build",
     },
     (Framework.PYTHON, PackageManager.PIP): {
         "lint": "python -m ruff check .",
         "test": "python -m pytest",
-        "typecheck": "python -m mypy .",
+        "typecheck": scoped_mypy("python -m"),
         "format": "python -m ruff format .",
         "build": "python -m build",
     },
     (Framework.DJANGO, PackageManager.UV): {
         "lint": "uv run ruff check .",
         "test": "uv run python manage.py test --verbosity=2",
-        "typecheck": "uv run mypy .",
+        "typecheck": scoped_mypy("uv run"),
         "format": "uv run ruff format .",
         "build": "uv build",
         "migrate": "uv run python manage.py migrate",
@@ -170,7 +215,7 @@ FRAMEWORK_RUNNERS: dict[tuple[Framework, PackageManager], dict[str, str]] = {
     (Framework.DJANGO, PackageManager.PIP): {
         "lint": "python -m ruff check .",
         "test": "python manage.py test --verbosity=2",
-        "typecheck": "python -m mypy .",
+        "typecheck": scoped_mypy("python -m"),
         "format": "python -m ruff format .",
         "build": "python -m build",
         "migrate": "python manage.py migrate",

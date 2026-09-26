@@ -362,16 +362,20 @@ git status --porcelain
 blanket `.gitignore` rule (e.g. `*.json`) can swallow a file you meant to
 commit - `git add` no-ops with no error. Surface it before committing:
 
-Advisory - warns, never blocks; invoke bare at the stable path (#581
-discipline; on exit 127 skip it):
+In a linked worktree it BLOCKS (exit 3, issue #1258): the worktree was created
+clean from a tracked tree, so a non-scratch ignored file in it was written by
+this run, and a clean clone will not have it. In the primary checkout it stays
+advisory (exit 0). Invoke bare at the stable path (#581 discipline; on exit 127
+skip it):
 
 ```bash
 ~/.claude/scripts/check-ignored-additions.sh
 ```
 
-- If it warns, confirm each listed file is genuinely scratch. If any is an
+- If it reports, confirm each listed file is genuinely scratch. If any is an
   intended addition, add a `!negation` to `.gitignore` (or narrow the blanket
-  rule) and re-stage before committing.
+  rule) and re-stage before committing. **Exit 3 is a STOP**: fix it, or - only
+  when nothing reads the file at run time - re-run with `--advisory`.
 
 - If there are uncommitted changes, help the user commit them using standard git commit workflow.
 - Conventional commit format, using the selected reference:

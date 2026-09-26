@@ -288,7 +288,11 @@ def _get_template_path(info: FrameworkInfo, template_dir: Path) -> Optional[Path
 
 def _generate_inline(info: FrameworkInfo) -> str:
     """Generate a Makefile inline without templates."""
-    runners = info.runner_commands
+    # Runner commands are SHELL spellings; make expands `$` before the shell
+    # sees it, so each must be doubled in a recipe. The declared-scope mypy
+    # probe (issue #1258) carries `$0` and a regex `$`, which make otherwise
+    # consumed into invalid awk - a probe that then silently said "no scope".
+    runners = {k: v.replace("$", "$$") for k, v in info.runner_commands.items()}
     targets = info.recommended_targets
 
     lines = [

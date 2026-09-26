@@ -125,6 +125,13 @@ uses the git path. Pick exactly the path the contract names:
 - `ISSUE_STATE` not `OPEN` (`CONFIRM_REQUIRED=1`): warn the user and ask
   whether to proceed (they may want to reopen). On yes, re-run the resolve
   with `--allow-closed` appended and continue with its new contract.
+- `LANE=remote-pickup` / `LANE=local-pickup` with `PR_HEAD=<n>:OPEN`
+  (`CONFIRM_REQUIRED=1`, `WT_CREATED=0`): the issue branch has an open PR, and
+  nothing was created (issue #1258). Ask; on yes re-run with `--allow-pickup`.
+- `SHIPPED_BRANCH=` present: a branch whose PR already MERGED was skipped as
+  shipped history; the run took the fresh lane (issue #1258).
+- `FLOW_START_RESOLVE: error` naming `FLOW_WORKTREE_BASE`: the repo's parent is
+  not writable and no ignored in-repo base exists; no branch was created. STOP.
 - `LANE=current-branch`: already on the issue's branch - use the current
   directory. Do nothing else.
 - `LANE=fresh`: the helper already created the worktree at `WT_PATH`

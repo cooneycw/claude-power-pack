@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import signal
 import subprocess
 import threading
@@ -535,8 +536,20 @@ def _generated_fallback(command: str, target: str) -> Optional[str]:
     return command[len(prefix): len(command) - len(suffix)]
 
 
+# One plain command, so the fallback slot stays free of `;`/`|` and the gate
+# stays recognisable to `command_runs_make_target` (issue #1258).
+_SCOPED_MYPY_FALLBACK = (
+    f"python3 {shlex.quote(os.path.join(_CPP_ROOT, 'lib', 'cicd', 'mypy_scope.py'))} "
+    "uv run --extra dev mypy"
+)
+
+
 def _gate_step(
-    step_id: str, uv_tool: str, pyproject_token: str, timeout_seconds: int
+    step_id: str,
+    uv_tool: str,
+    pyproject_token: str,
+    timeout_seconds: int,
+    fallback: Optional[str] = None,
 ) -> "StepDef":
     """Build a quality-gate step that prefers ``make <id>`` but falls back to the
     pyproject-configured tool via ``uv run --extra dev`` when no Makefile target
@@ -553,7 +566,9 @@ def _gate_step(
     return StepDef(
         id=step_id,
         gate=True,
-        command=gate_conditional_command(step_id, f"uv run --extra dev {uv_tool}"),
+        command=gate_conditional_command(
+            step_id, fallback or f"uv run --extra dev {uv_tool}"
+        ),
         description=f"Run {step_id} (make {step_id}, else uv run {uv_tool.split()[0]})",
         timeout_seconds=timeout_seconds,
         max_attempts=1,
@@ -584,7 +599,11 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
     "finish": [
         _gate_step("lint", "ruff check .", "ruff", 300),
         _gate_step("test", "pytest", "pytest", _test_step_timeout()),
-        _gate_step("typecheck", "mypy .", "mypy", 300),
+        _gate_step(
+            "typecheck", "mypy", "mypy", 300,
+            # The repository's declared mypy scope, else `.` (issue #1258).
+            fallback=_SCOPED_MYPY_FALLBACK,
+        ),
         StepDef(
             id="security_scan",
             gate=True,
@@ -633,7 +652,11 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
     "check": [
         _gate_step("lint", "ruff check .", "ruff", 300),
         _gate_step("test", "pytest", "pytest", _test_step_timeout()),
-        _gate_step("typecheck", "mypy .", "mypy", 300),
+        _gate_step(
+            "typecheck", "mypy", "mypy", 300,
+            # The repository's declared mypy scope, else `.` (issue #1258).
+            fallback=_SCOPED_MYPY_FALLBACK,
+        ),
     ],
     "deploy": [
         # Keep these Python markers aligned with built_in_advisories() in
