@@ -1015,6 +1015,15 @@ git merge --no-edit origin/main
      DIFFERENT inability from `codex-absent` above; never a `ran` receipt with
      zeros, which would enter the measurement as a review that happened and
      found nothing.
+   - `COUNTER_MODEL_REVIEW: format-mismatch` (non-zero, issue #1259) - the
+     Findings section carries severity-labelled findings in a shape the parser
+     does not count (e.g. `- **MEDIUM - file:line**` bullets). **the review HAPPENED,
+     so this is never a skip** - recording `reviewer-unavailable` here writes a
+     receipt asserting the opposite of what occurred (seen on #1056). Ask the
+     reviewer once to restate its findings in the prescribed `### [SEVERITY]
+     title` shape and parse again; if it still does not comply, triage the
+     findings by reading them and record `ran` with the counts from your
+     triage.
 
    **1d. Write the receipt - ALWAYS, including on a skip** (helper resolved in
    1a):

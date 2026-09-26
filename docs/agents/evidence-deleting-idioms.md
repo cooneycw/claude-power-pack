@@ -368,6 +368,32 @@ fires on a plain `--depth=1` clone proves it against the LOUD shape only. The
 dangerous shape is the quiet one, and a control that never constructs it is
 green for a case it has not examined.
 
+## 7. A restored mutation can keep running from `__pycache__`
+
+A negative-control red run mutates a script, runs the suite, and restores the
+file from a `cp` snapshot. When the mutation PRESERVES THE FILE'S LENGTH
+(`count += 1` -> `count += 0`, `_install_lock(dest_root)` ->
+`contextlib.nullcontext()`) and the restore lands in the same second, the
+source-adjacent `__pycache__/*.pyc` is still valid: CPython checks only the
+source's whole-second mtime and its size. The MUTANT's bytecode then keeps
+executing against the restored source. Observed on #1034/PR #1115 (a fixed file
+failing two tests until `rm -rf scripts/__pycache__`) and #1235/PR #1244. The
+restore was done correctly both times and was still not sufficient.
+
+It deletes evidence in either direction - a restored fix reading red, or a
+mutant reading green - and a "blinded" run that prints `20 passed` looks the
+same as a mutation that never took.
+
+What protects you now: `tests/conftest.py` relocates the bytecode cache to a
+fresh per-session directory (`sys.pycache_prefix` plus an exported
+`PYTHONPYCACHEPREFIX`, so child `python3 scripts/x.py` processes inherit it), so
+the source-adjacent cache is never read under pytest. Its control is
+`tests/test_pycache_isolation.py`, which plants exactly this stale `.pyc` (issue
+#1259). Outside pytest - running a mutated script by hand - set
+`PYTHONDONTWRITEBYTECODE=1` and remove the relevant `__pycache__` after every
+restore, and treat a mutation whose precondition assertion failed as a run that
+did not happen, never as a result.
+
 ## Related
 
 - [the detector contracts](detector-contracts.md) - the two questions asked of any

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from lib.cicd.makefile import check_makefile, parse_makefile
 
 # `unsupported_targets` is imported INSIDE the tests that use it, not here.
@@ -214,3 +216,57 @@ class TestOneReaderNotThree:
         adapted = {t.name: t.dependencies for t in parse_makefile(root)}
         for name in declared.order:
             assert adapted[name] == list(declared.prereqs[name]), name
+
+
+class TestSharedRecipeSurvivesARedeclaration:
+    """A later rule naming ONE target of a multi-target rule (issue #1259).
+
+    `build deploy: test` gives both targets one recipe. A later `build: lint`
+    only adds a prerequisite - make keeps the shared recipe - but the reader
+    overwrote the group with `["build"]`, so `deploy` resolved to an EMPTY
+    recipe and `scripts_invoked("deploy")` reported that it runs nothing.
+    """
+
+    TEXT = (
+        "build deploy: test\n"
+        "\t@bash scripts/shared-step.sh\n"
+        "\n"
+        "build: lint\n"
+    )
+
+    def test_the_sibling_keeps_the_shared_recipe(self):
+        from lib.cicd.makefile_declaration import Makefile as Declaration
+
+        mk = Declaration(self.TEXT)
+        assert "scripts/shared-step.sh" in mk.recipe_text("deploy")
+        assert mk.scripts_invoked("deploy") == {"shared-step.sh"}
+        # ...and the redeclared target itself still has it, plus its new prereq.
+        assert "scripts/shared-step.sh" in mk.recipe_text("build")
+        assert mk.prereqs["build"] == ["test", "lint"]
+
+    def test_a_second_group_led_by_the_same_target_is_kept_too(self):
+        from lib.cicd.makefile_declaration import Makefile as Declaration
+
+        mk = Declaration(self.TEXT + "build package:\n\t@bash scripts/pack.sh\n")
+        # EXACT sets: a neighbouring rule's recipe must not leak into deploy,
+        # which is what GNU make's dry run shows (counter-model review).
+        assert mk.scripts_invoked("deploy") == {"shared-step.sh"}
+        assert mk.scripts_invoked("package") == {"pack.sh"}
+
+    @pytest.mark.parametrize("sibling", ["build", "deploy"])
+    def test_a_later_recipe_REPLACES_the_inherited_one(self, sibling):
+        """make runs only the newer recipe (counter-model re-review), for the
+        leading target and a non-leading sibling alike."""
+        from lib.cicd.makefile_declaration import Makefile as Declaration
+
+        mk = Declaration(self.TEXT + f"{sibling}:\n\t@bash scripts/replacement.sh\n")
+        assert mk.scripts_invoked(sibling) == {"replacement.sh"}
+        other = "deploy" if sibling == "build" else "build"
+        assert mk.scripts_invoked(other) == {"shared-step.sh"}
+
+    def test_a_target_outside_every_group_still_has_no_recipe(self):
+        """The negative membership: the fix must not hand recipes to strangers."""
+        from lib.cicd.makefile_declaration import Makefile as Declaration
+
+        mk = Declaration(self.TEXT + "other: build\n")
+        assert mk.recipe_text("other") == ""

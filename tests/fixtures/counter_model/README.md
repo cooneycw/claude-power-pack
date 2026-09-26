@@ -27,6 +27,14 @@ The degenerate three are the cases that must NOT read as clean:
 | `truncated.review.md` | cut off mid-finding | `unparseable` |
 | `prose-only.review.md` | replied, but not in the contract's shape | `unparseable` |
 
+`bullet-shape.review.md` is the fourth outcome (issue #1259): a review that
+HAPPENED, with real severity-bearing findings, written as `- **MEDIUM - file:line**`
+bullets instead of `### [SEVERITY] title` headings. Required verdict:
+`format-mismatch` - never `unparseable`, which step 1c records as a skip.
+**It is RECONSTRUCTED, not recorded:** the #1056 transcripts were not kept, so it
+restates that run's four findings in the bullet shape the Nit Store report
+(#864, comment 5741945325) quoted. It pins the SHAPE, not a reviewer's judgement.
+
 All three contain zero finding headings, which is byte-identical - to anything
 counting headings - to a review that found nothing wrong. They are the reason
 `parse_review` has three outcomes instead of two.

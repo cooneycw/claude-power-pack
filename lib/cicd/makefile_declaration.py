@@ -156,7 +156,6 @@ class Makefile:
         self.directives: dict[str, tuple[str, str, int]] = {}
         self.duplicate_directives: list[tuple[str, int]] = []
         #: first target of a multi-target rule -> every target sharing its recipe
-        self.shared: dict[str, list[str]] = {}
         #: (name, line) for rule names this parser cannot validate - reported
         self.unsupported: list[tuple[str, int]] = []
         #: `.PHONY` and friends: the names a SPECIAL target declares. Kept
@@ -170,7 +169,16 @@ class Makefile:
         self._parse(text)
 
     def _parse(self, text: str) -> None:
-        current: str | None = None
+        #: EVERY target of the rule whose recipe lines follow (issue #1259).
+        #: Recipe lines are attributed to each of them directly, which is what
+        #: GNU make does: `build deploy:` gives both targets that recipe, a later
+        #: prerequisite-only `build: lint` changes neither, and a later
+        #: `build package:` recipe belongs to build and package, never deploy.
+        #: A rule that supplies a recipe REPLACES each target's earlier one, as
+        #: make does (with an "overriding recipe" warning) - so `deploy:` with
+        #: its own recipe drops the one it inherited from `build deploy:`.
+        current: list[str] = []
+        replacing = False
         lines = text.splitlines()
         i = 0
         while i < len(lines):
@@ -185,8 +193,12 @@ class Makefile:
                 i += 1
                 continue
             if line.startswith("\t"):
-                if current is not None:
-                    self.recipes[current].append(line[1:])
+                if replacing:
+                    for name in current:
+                        self.recipes[name] = []
+                    replacing = False
+                for name in current:
+                    self.recipes[name].append(line[1:])
                 i += 1
                 continue
             match = RULE_LINE_RE.match(line)
@@ -213,7 +225,7 @@ class Makefile:
                             self.special.setdefault(special, []).extend(
                                 _prerequisites(rest)
                             )
-                    current = None
+                    current = []
                     i += 1
                     continue
                 for name in declared:
@@ -222,13 +234,12 @@ class Makefile:
                         self.prereqs[name] = []
                         self.recipes[name] = []
                     self.prereqs[name].extend(_prerequisites(rest))
-                # Every target of a multi-target rule shares its recipe.
-                self.shared[declared[0]] = declared
-                current = declared[0]
+                current = declared
+                replacing = True
                 i += 1
                 continue
             if line.strip():
-                current = None
+                current = []
             i += 1
 
     def closure(self, root: str) -> set[str]:
@@ -245,13 +256,7 @@ class Makefile:
 
     def recipe_text(self, target: str) -> str:
         """This target's recipe, including one it shares with siblings."""
-        own = self.recipes.get(target, ())
-        if own:
-            return "\n".join(own)
-        for first, group in self.shared.items():
-            if target in group:
-                return "\n".join(self.recipes.get(first, ()))
-        return ""
+        return "\n".join(self.recipes.get(target, ()))
 
     def scripts_invoked(self, target: str) -> set[str]:
         return set(SCRIPT_REF_RE.findall(_executable_recipe(self.recipe_text(target))))

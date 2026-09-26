@@ -149,9 +149,72 @@ def test_the_transcript_corpus_contains_ALL_THREE_verdicts() -> None:
     """
     verdicts = {CM.parse_review(p.read_text(encoding="utf-8"))[0]
                 for p in FIXTURES.glob("*.review.md")}
-    assert verdicts == {CM.PARSE_FINDINGS, CM.PARSE_CLEAN, CM.PARSE_UNPARSEABLE}, (
+    assert verdicts == {CM.PARSE_FINDINGS, CM.PARSE_CLEAN, CM.PARSE_UNPARSEABLE,
+                        CM.PARSE_FORMAT_MISMATCH}, (
         f"the fixture corpus covers only {verdicts}"
     )
+
+
+def test_a_real_review_in_another_shape_is_a_FORMAT_MISMATCH_not_absent() -> None:
+    """A review that HAPPENED must not be recorded as one that did not (#1259).
+
+    On #1056 both passes returned genuine findings as `- **MEDIUM - file:line**`
+    bullets. `parse` said `unparseable`, and step 1c turns that into `skipped /
+    reviewer-unavailable` - a durable receipt asserting the opposite of what
+    happened. The two are different facts and now have different words.
+    """
+    verdict, findings = CM.parse_review(_fixture("bullet-shape.review.md"))
+    assert verdict == CM.PARSE_FORMAT_MISMATCH, verdict
+    assert findings == []
+
+
+@pytest.mark.parametrize("text", [
+    # One prescribed heading plus an off-shape bullet: the bullet was dropped.
+    "## Findings\n\n### [HIGH] first\n- File: a.py:1\n\n- **MEDIUM - x.py:1**: second\n",
+    # A clean statement contradicted by a finding.
+    "## Findings\n\nNone - no defects found.\n\n- **MEDIUM - x.py:1**: a defect\n",
+])
+def test_a_mixed_or_contradicted_findings_section_is_a_FORMAT_MISMATCH(text: str) -> None:
+    """Neither success verdict may be returned with a finding left uncounted
+    (counter-model review of #1259)."""
+    assert CM.parse_review(text)[0] == CM.PARSE_FORMAT_MISMATCH
+
+
+def test_a_prescribed_review_whose_fields_mention_a_severity_is_still_FINDINGS() -> None:
+    """The negative membership: a well-formed finding's own field text must not
+    read as an off-shape one."""
+    text = ("## Findings\n\n### [HIGH] a real problem\n- File: x.py:1\n"
+            "- Issue: this is a HIGH risk path\n- Suggestion: LOW effort fix\n")
+    verdict, findings = CM.parse_review(text)
+    assert verdict == CM.PARSE_FINDINGS and len(findings) == 1
+    assert CM.parse_review(_fixture("real-multi-finding.review.md"))[0] == CM.PARSE_FINDINGS
+
+
+@pytest.mark.parametrize("text", [
+    # A severity word outside the Findings section proves nothing about it.
+    "## Findings\n\nLooks fine.\n\n## Red cases\n\n- **HIGH - x.py:1**: example\n",
+    # A lowercase English word is not a severity label.
+    "## Findings\n\nThe risk here is low, nothing to report.\n",
+])
+def test_a_severity_word_that_is_not_a_finding_stays_UNPARSEABLE(text: str) -> None:
+    """The negative membership: the new verdict must not swallow the old one."""
+    assert CM.parse_review(text)[0] == CM.PARSE_UNPARSEABLE
+
+
+def test_parse_exits_non_zero_on_a_format_mismatch() -> None:
+    """A caller that forgets to read the verdict must still stop."""
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "parse", str(FIXTURES / "bullet-shape.review.md")],
+        capture_output=True, text=True, check=False,
+    )
+    assert "COUNTER_MODEL_REVIEW: format-mismatch" in proc.stdout, proc.stdout
+    assert proc.returncode != 0
+
+
+def test_auto_md_never_records_a_format_mismatch_as_a_skip() -> None:
+    text = _flat(_auto())
+    assert "format-mismatch" in text
+    assert "the review HAPPENED" in text
 
 
 def test_a_real_multi_severity_review_parses() -> None:

@@ -128,7 +128,47 @@ def _scalar(value: str) -> str:
         if not isinstance(parsed, str):
             raise FrontmatterError(f"frontmatter values must be strings: {value}")
         return parsed
+    _check_plain_scalar(value)
     return value
+
+
+#: Characters that cannot BEGIN a YAML plain scalar - each opens a flow
+#: collection, an anchor/alias/tag, a block scalar, or is reserved.
+#: `#` too: a value that STARTS with it is a comment, so YAML loads null.
+_PLAIN_SCALAR_BAD_START = frozenset("[]{},&*!|>%@`#")
+
+
+def _check_plain_scalar(value: str) -> None:
+    """Refuse an unquoted value real YAML would reject or silently rewrite (#1259).
+
+    `_parse_mapping` takes everything after the FIRST colon as the value, which
+    is strictly more permissive than YAML: `description: Use for CI/CD: a
+    pipeline` loads here and is a `mapping values are not allowed here` error in
+    every real parser, so the skill does not load while this checker says ok.
+    Three of #1034's rewritten descriptions had exactly that shape. ` #` is the
+    quieter twin: YAML reads it as a comment and truncates the value.
+
+    Only the shapes YAML DIVERGES on are refused - `ratio 3:1`, a URL and a
+    `#720` with no space before it all read identically in both - and the fix
+    for every refusal is the same: quote the value.
+    """
+    if value[:1] in _PLAIN_SCALAR_BAD_START or value[:2] in {"- ", "? ", ": "}:
+        raise FrontmatterError(
+            f"plain scalar cannot start with {value[:1]!r} in YAML - quote it: {value}"
+        )
+    # Tabs: PyYAML refuses a tab anywhere in a plain scalar, and `:\t` / `\t#`
+    # are the colon and comment rules with the other separator (counter-model
+    # review) - so a tab is refused outright rather than half-modelled.
+    if "\t" in value:
+        raise FrontmatterError(f"a tab in an unquoted value does not load in YAML - quote it: {value!r}")
+    if ": " in value or value.endswith(":"):
+        raise FrontmatterError(
+            f"unquoted ': ' is 'mapping values are not allowed here' in YAML - quote it: {value}"
+        )
+    if " #" in value:
+        raise FrontmatterError(
+            f"unquoted ' #' starts a YAML comment and truncates the value - quote it: {value}"
+        )
 
 
 def _parse_mapping(lines: list[str]) -> dict[str, object]:
@@ -162,6 +202,13 @@ def _parse_mapping(lines: list[str]) -> dict[str, object]:
             raise FrontmatterError(f"line {line_number}: duplicate key {key!r}")
 
         if raw_value.strip():
+            # Tabs are checked on the RAW value, before `_scalar` strips it: a
+            # leading `:\tdeploy` or trailing `deploy\t` otherwise vanished into
+            # the strip while PyYAML refuses both (counter-model re-review).
+            if "\t" in raw_line.rstrip("\r\n") and raw_value.strip()[:1] not in {'"', "'"}:
+                raise FrontmatterError(
+                    f"line {line_number}: a tab in an unquoted value does not load in YAML - quote it"
+                )
             parent[key] = _scalar(raw_value)
         else:
             child: dict[str, object] = {}
