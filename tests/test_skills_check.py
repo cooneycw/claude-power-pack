@@ -667,3 +667,56 @@ def test_the_canonical_count_moves_with_the_population(tmp_path, capsys):
     assert first != second, f"identical success line over a 1- and a 3-package tree: {first!r}"
     assert "1 canonical package(s)" in first, first
     assert "3 canonical package(s)" in second, second
+
+
+# --------------------------------------------------------------------------- #
+# The parser may not be more permissive than YAML (issue #1259).
+# --------------------------------------------------------------------------- #
+
+import pytest  # noqa: E402
+
+YAML_REFUSES_OR_REWRITES = [
+    # `: ` inside a plain scalar: "mapping values are not allowed here". Three of
+    # #1034's descriptions carried exactly this and `skills-check` said ok.
+    pytest.param("description: Use for CI/CD: a pipeline\n", id="colon-space"),
+    pytest.param("description: ends with a colon:\n", id="trailing-colon"),
+    # ` #` starts a COMMENT in a plain scalar, so YAML silently truncates the
+    # value - a quieter divergence than a load error, and the same defect.
+    pytest.param("description: fixed in issue #720\n", id="space-hash"),
+    pytest.param("description: [a list]\n", id="flow-sequence"),
+    pytest.param("description: {a: map}\n", id="flow-mapping"),
+    pytest.param("description: *alias\n", id="alias"),
+    pytest.param("description: @reserved\n", id="reserved"),
+    pytest.param("description: >folded\n", id="block-indicator"),
+]
+
+
+@pytest.mark.parametrize("line", YAML_REFUSES_OR_REWRITES)
+def test_a_plain_scalar_yaml_would_refuse_or_rewrite_is_rejected(line: str) -> None:
+    with pytest.raises(skills_check.FrontmatterError):
+        skills_check.parse_frontmatter(f"---\nname: demo\n{line}---\nbody\n")
+
+
+@pytest.mark.parametrize("line, expected", [
+    ('description: "Use for CI/CD: a pipeline"\n', "Use for CI/CD: a pipeline"),
+    ("description: CI/CD - a pipeline, ratio 3:1, C# code\n", "CI/CD - a pipeline, ratio 3:1, C# code"),
+    ("description: https://example.com/x\n", "https://example.com/x"),
+])
+def test_the_same_text_is_accepted_where_yaml_reads_it_the_same(line: str, expected: str) -> None:
+    """The negative membership: only the shapes YAML diverges on are refused."""
+    metadata, _ = skills_check.parse_frontmatter(f"---\nname: demo\n{line}---\nbody\n")
+    assert metadata["description"] == expected
+
+
+def test_every_real_skill_loads_identically_in_a_real_yaml_parser() -> None:
+    """The cross-check `skills-check.py` cannot do itself: it is stdlib-only on
+    purpose, so the slim CI image gives the same verdict. PyYAML is in the dev
+    extra, so the comparison lives here."""
+    yaml = pytest.importorskip("yaml")
+    packages = sorted((ROOT / ".claude" / "skills").glob("*/SKILL.md"))
+    assert packages, "no canonical skills found - the cross-check examined nothing"
+    for path in packages:
+        text = path.read_text(encoding="utf-8")
+        ours, _ = skills_check.parse_frontmatter(text)
+        block = text.split("---\n", 2)[1]
+        assert yaml.safe_load(block) == ours, path
