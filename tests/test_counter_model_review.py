@@ -169,6 +169,28 @@ def test_a_real_review_in_another_shape_is_a_FORMAT_MISMATCH_not_absent() -> Non
 
 
 @pytest.mark.parametrize("text", [
+    # One prescribed heading plus an off-shape bullet: the bullet was dropped.
+    "## Findings\n\n### [HIGH] first\n- File: a.py:1\n\n- **MEDIUM - x.py:1**: second\n",
+    # A clean statement contradicted by a finding.
+    "## Findings\n\nNone - no defects found.\n\n- **MEDIUM - x.py:1**: a defect\n",
+])
+def test_a_mixed_or_contradicted_findings_section_is_a_FORMAT_MISMATCH(text: str) -> None:
+    """Neither success verdict may be returned with a finding left uncounted
+    (counter-model review of #1259)."""
+    assert CM.parse_review(text)[0] == CM.PARSE_FORMAT_MISMATCH
+
+
+def test_a_prescribed_review_whose_fields_mention_a_severity_is_still_FINDINGS() -> None:
+    """The negative membership: a well-formed finding's own field text must not
+    read as an off-shape one."""
+    text = ("## Findings\n\n### [HIGH] a real problem\n- File: x.py:1\n"
+            "- Issue: this is a HIGH risk path\n- Suggestion: LOW effort fix\n")
+    verdict, findings = CM.parse_review(text)
+    assert verdict == CM.PARSE_FINDINGS and len(findings) == 1
+    assert CM.parse_review(_fixture("real-multi-finding.review.md"))[0] == CM.PARSE_FINDINGS
+
+
+@pytest.mark.parametrize("text", [
     # A severity word outside the Findings section proves nothing about it.
     "## Findings\n\nLooks fine.\n\n## Red cases\n\n- **HIGH - x.py:1**: example\n",
     # A lowercase English word is not a severity label.

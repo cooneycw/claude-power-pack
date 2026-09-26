@@ -688,6 +688,10 @@ YAML_REFUSES_OR_REWRITES = [
     pytest.param("description: *alias\n", id="alias"),
     pytest.param("description: @reserved\n", id="reserved"),
     pytest.param("description: >folded\n", id="block-indicator"),
+    # Counter-model review: a leading `#` loads as null, and tab separators.
+    pytest.param("description: #deploy\n", id="leading-hash"),
+    pytest.param("description: CI/CD:\ta pipeline\n", id="colon-tab"),
+    pytest.param("description: fixed\t#720\n", id="tab-hash"),
 ]
 
 

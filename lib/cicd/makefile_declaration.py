@@ -156,7 +156,6 @@ class Makefile:
         self.directives: dict[str, tuple[str, str, int]] = {}
         self.duplicate_directives: list[tuple[str, int]] = []
         #: first target of a multi-target rule -> every target sharing its recipe
-        self.shared: dict[str, list[str]] = {}
         #: (name, line) for rule names this parser cannot validate - reported
         self.unsupported: list[tuple[str, int]] = []
         #: `.PHONY` and friends: the names a SPECIAL target declares. Kept
@@ -170,7 +169,12 @@ class Makefile:
         self._parse(text)
 
     def _parse(self, text: str) -> None:
-        current: str | None = None
+        #: EVERY target of the rule whose recipe lines follow (issue #1259).
+        #: Recipe lines are attributed to each of them directly, which is what
+        #: GNU make does: `build deploy:` gives both targets that recipe, a later
+        #: prerequisite-only `build: lint` changes neither, and a later
+        #: `build package:` recipe belongs to build and package, never deploy.
+        current: list[str] = []
         lines = text.splitlines()
         i = 0
         while i < len(lines):
@@ -185,8 +189,8 @@ class Makefile:
                 i += 1
                 continue
             if line.startswith("\t"):
-                if current is not None:
-                    self.recipes[current].append(line[1:])
+                for name in current:
+                    self.recipes[name].append(line[1:])
                 i += 1
                 continue
             match = RULE_LINE_RE.match(line)
@@ -213,7 +217,7 @@ class Makefile:
                             self.special.setdefault(special, []).extend(
                                 _prerequisites(rest)
                             )
-                    current = None
+                    current = []
                     i += 1
                     continue
                 for name in declared:
@@ -222,23 +226,11 @@ class Makefile:
                         self.prereqs[name] = []
                         self.recipes[name] = []
                     self.prereqs[name].extend(_prerequisites(rest))
-                # Every target of a multi-target rule shares its recipe. ONLY a
-                # multi-target rule records a group, and never over an existing
-                # one (issue #1259): a later `build: lint` merely adds a
-                # prerequisite - make keeps the shared recipe - and overwriting
-                # the group with `["build"]` left `deploy` resolving to NOTHING,
-                # so `scripts_invoked("deploy")` read as a target that runs no
-                # scripts at all.
-                # A SECOND multi-target rule led by the same name writes its
-                # recipe into the same bucket, so its members join the group.
-                if len(declared) > 1:
-                    group = self.shared.setdefault(declared[0], [declared[0]])
-                    group.extend(n for n in declared if n not in group)
-                current = declared[0]
+                current = declared
                 i += 1
                 continue
             if line.strip():
-                current = None
+                current = []
             i += 1
 
     def closure(self, root: str) -> set[str]:
@@ -255,13 +247,7 @@ class Makefile:
 
     def recipe_text(self, target: str) -> str:
         """This target's recipe, including one it shares with siblings."""
-        own = self.recipes.get(target, ())
-        if own:
-            return "\n".join(own)
-        for first, group in self.shared.items():
-            if target in group:
-                return "\n".join(self.recipes.get(first, ()))
-        return ""
+        return "\n".join(self.recipes.get(target, ()))
 
     def scripts_invoked(self, target: str) -> set[str]:
         return set(SCRIPT_REF_RE.findall(_executable_recipe(self.recipe_text(target))))

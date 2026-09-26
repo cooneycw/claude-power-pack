@@ -134,7 +134,8 @@ def _scalar(value: str) -> str:
 
 #: Characters that cannot BEGIN a YAML plain scalar - each opens a flow
 #: collection, an anchor/alias/tag, a block scalar, or is reserved.
-_PLAIN_SCALAR_BAD_START = frozenset("[]{},&*!|>%@`")
+#: `#` too: a value that STARTS with it is a comment, so YAML loads null.
+_PLAIN_SCALAR_BAD_START = frozenset("[]{},&*!|>%@`#")
 
 
 def _check_plain_scalar(value: str) -> None:
@@ -155,6 +156,11 @@ def _check_plain_scalar(value: str) -> None:
         raise FrontmatterError(
             f"plain scalar cannot start with {value[:1]!r} in YAML - quote it: {value}"
         )
+    # Tabs: PyYAML refuses a tab anywhere in a plain scalar, and `:\t` / `\t#`
+    # are the colon and comment rules with the other separator (counter-model
+    # review) - so a tab is refused outright rather than half-modelled.
+    if "\t" in value:
+        raise FrontmatterError(f"a tab in an unquoted value does not load in YAML - quote it: {value!r}")
     if ": " in value or value.endswith(":"):
         raise FrontmatterError(
             f"unquoted ': ' is 'mapping values are not allowed here' in YAML - quote it: {value}"

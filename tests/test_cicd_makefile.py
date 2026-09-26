@@ -246,8 +246,10 @@ class TestSharedRecipeSurvivesARedeclaration:
         from lib.cicd.makefile_declaration import Makefile as Declaration
 
         mk = Declaration(self.TEXT + "build package:\n\t@bash scripts/pack.sh\n")
-        assert "scripts/shared-step.sh" in mk.recipe_text("deploy")
-        assert "scripts/pack.sh" in mk.recipe_text("package")
+        # EXACT sets: a neighbouring rule's recipe must not leak into deploy,
+        # which is what GNU make's dry run shows (counter-model review).
+        assert mk.scripts_invoked("deploy") == {"shared-step.sh"}
+        assert mk.scripts_invoked("package") == {"pack.sh"}
 
     def test_a_target_outside_every_group_still_has_no_recipe(self):
         """The negative membership: the fix must not hand recipes to strangers."""
