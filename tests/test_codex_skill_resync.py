@@ -43,6 +43,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -268,11 +269,7 @@ def test_every_known_call_site_uses_the_helper():
     # `>= 2` - the test reported coverage for a site that executed nothing.
     for rel, expected in (("flow/auto.md", 2), ("flow/finish.md", 1)):
         doc = (COMMANDS / rel).read_text()
-        calls = [
-            ln
-            for ln in doc.splitlines()
-            if ln.strip() == "bash scripts/codex-skill-resync.sh"
-        ]
+        calls = _resync_invocations(doc)
         assert len(calls) == expected, (
             f"{rel}: expected {expected} helper invocation(s), found {len(calls)}. "
             "A guard line mentioning the helper is not an invocation."
@@ -524,6 +521,99 @@ BASE_MOVED = re.compile(r"rev-list\s+--count\s+HEAD\.\.origin/")
 RESYNC_CALL = "bash scripts/codex-skill-resync.sh"
 
 
+#: Recognition is by the SCRIPT, not the whole line (#1226). Exact equality
+#: with RESYNC_CALL let `... --quiet` or `... # why` match neither the gated
+#: list nor the unexamined one. Every line naming the script is now CLASSIFIED,
+#: and a line it cannot classify is UNKNOWN - reported unexamined, never clean:
+#:
+#:   call    - a command whose head is the script, after an optional control
+#:             keyword and an optional interpreter; flags, redirections and a
+#:             trailing comment ride along.
+#:   known   - a literal existence test (`[ -x <script> ]`, `test -x <script>`).
+#:             Retained at every call site on purpose: a repository without the
+#:             helper would die at 127 before it could report `unavailable`.
+#:   unknown - anything else naming the script: `echo "... <script>"`,
+#:             `bash -e <script>`, `$(<script>)` inside a test, or a call that
+#:             shares its line with `then`/`fi`, where the walk below would read
+#:             the call before the line's own conditional.
+#:
+#: Tokenising is shell-aware and NON-POSIX, so a quoted token keeps its quotes
+#: and a separator inside one - `"a; b"` or a whole `";"` - cannot manufacture a
+#: command; a backslash anywhere on a line naming the script is unknown, because
+#: this tokeniser does not honour escapes (counter-model review, passes 1-2).
+#: Only a literal existence test may PRECEDE a call on its line: anything else
+#: before it (`<base-moved> && call`) is a condition this walk does not read.
+RESYNC_SCRIPT = "scripts/codex-skill-resync.sh"
+_SEPARATORS = {";", "&&", "||", "|", "&", ";;"}
+_LEADING_KEYWORDS = {"if", "elif", "then", "else", "do", "!"}
+_CONTROL_HEADS = {"then", "else", "elif", "fi", "do", "done"}
+_INTERPRETERS = {"bash", "sh"}
+_SCRIPT_SPELLINGS = {RESYNC_SCRIPT, f"./{RESYNC_SCRIPT}"}
+_EXISTENCE_FLAGS = {"-x", "-e", "-f"}
+
+
+def _command_tokens(line: str) -> list[list[str]] | None:
+    """The line's commands as token lists, comment dropped; None if unreadable."""
+    if "\\" in line:
+        return None
+    lex = shlex.shlex(line, posix=False, punctuation_chars=True)
+    lex.whitespace_split = True
+    try:
+        tokens = list(lex)
+    except ValueError:
+        return None
+    commands: list[list[str]] = [[]]
+    for tok in tokens:
+        if tok in _SEPARATORS:
+            commands.append([])
+        else:
+            commands[-1].append(tok)
+    return [c for c in commands if c]
+
+
+def _command_kind(cmd: list[str]) -> str:
+    i = 0
+    while i < len(cmd) and cmd[i] in _LEADING_KEYWORDS:
+        i += 1
+    body = cmd[i:]
+    head = body[1:] if body and body[0] in _INTERPRETERS else body
+    if head and head[0] in _SCRIPT_SPELLINGS:
+        return "call"
+    if (len(body) == 4 and body[0] == "[" and body[3] == "]") or (len(body) == 3 and body[0] == "test"):
+        if body[1] in _EXISTENCE_FLAGS and body[2] in _SCRIPT_SPELLINGS:
+            return "known"
+    return "unknown"
+
+
+def _classify_resync_line(line: str) -> str | None:
+    """`call`, `known`, `unknown`, or None when the line does not name the script."""
+    commands = _command_tokens(line)
+    if commands is None:
+        return "unknown" if RESYNC_SCRIPT in line else None
+    named = [i for i, c in enumerate(commands) if any(RESYNC_SCRIPT in t for t in c)]
+    if not named:
+        return None
+    kinds = {i: _command_kind(commands[i]) for i in named}
+    if "unknown" in kinds.values():
+        return "unknown"
+    calls = [i for i in named if kinds[i] == "call"]
+    if not calls:
+        return "known"
+    if any(c[0] in _CONTROL_HEADS or c[0] in ("if", "elif") for c in commands):
+        return "unknown"
+    if any(_command_kind(c) != "known" for c in commands[: calls[0]]):
+        return "unknown"
+    return "call"
+
+
+def _is_resync_invocation(line: str) -> bool:
+    return _classify_resync_line(line) == "call"
+
+
+def _resync_invocations(text: str) -> list[str]:
+    return [ln for ln in text.splitlines() if _is_resync_invocation(ln)]
+
+
 IF_THEN = re.compile(r"^(if|elif)\b.*;\s*then\s*(#.*)?$")
 FI = re.compile(r"^fi\b\s*(#.*)?$")
 FENCE = re.compile(r"^(```|~~~)")
@@ -569,6 +659,23 @@ def _resync_call_audit(text: str) -> tuple[list[tuple[int, str]], list[tuple[int
                         stripped = raw.strip()
                         if stripped.startswith(("#", ">")):
                             continue
+                        #: Classify before the control-flow shape (#1226). A
+                        #: call sharing its line with `then`/`fi` classifies
+                        #: UNKNOWN, so reading it before this line's own
+                        #: conditional cannot misplace it.
+                        kind = _classify_resync_line(raw)
+                        if kind == "call":
+                            seen.add(ln)
+                            if not parseable:
+                                unexamined.append((ln, raw))
+                            elif any(stack):
+                                gated.append((ln, raw))
+                        elif kind == "unknown":
+                            #: Names the script, and is neither a call this
+                            #: recogniser knows nor an existence test:
+                            #: recognition failed, which must not read as clean.
+                            seen.add(ln)
+                            unexamined.append((ln, raw))
                         if IF_THEN.match(stripped):
                             base = bool(BASE_MOVED.search(raw))
                             #: `elif` CONTINUES the open conditional; it does not
@@ -588,24 +695,32 @@ def _resync_call_audit(text: str) -> tuple[list[tuple[int, str]], list[tuple[int
                             #: multiline `if`, or a bare `then`. Everything after
                             #: it in this block is unreasoned, so say so.
                             parseable = False
-                        elif stripped == RESYNC_CALL:
-                            seen.add(ln)
-                            if not parseable:
-                                unexamined.append((ln, raw))
-                            elif any(stack):
-                                gated.append((ln, raw))
                 block = []
             in_fence = not in_fence
             continue
         if in_fence:
             block.append((n, line))
+    #: A fence still open at the end of the document was never walked; its
+    #: lines are CODE, so the prose narrowing below must not apply to them.
+    unclosed = {ln for ln, _ in block} if in_fence else set()
 
     #: RECONCILE. An invocation in a fence this walk never entered - an
     #: unrecognised fence marker, or one not mentioning codex-skill - would
     #: otherwise vanish silently. Counting them here is what lets a caller read
     #: an empty `gated` as evidence rather than as absence.
+    #:
+    #: In prose, an UNKNOWN line counts only when it starts like a shell command - an interpreter or the script
+    #: itself. That is a deliberate narrowing: a prose sentence naming the
+    #: script is not reported, and a call spelled after prose on the same line
+    #: would escape. A fenced line - walked or unclosed - has no such limit.
     for n, line in enumerate(text.splitlines(), 1):
-        if line.strip() == RESYNC_CALL and n not in seen:
+        stripped = line.strip()
+        if n in seen or stripped.startswith(("#", ">")):
+            continue
+        kind = _classify_resync_line(line)
+        head = stripped.split()[0] if stripped else ""
+        shell_like = n in unclosed or head in _INTERPRETERS or head in _SCRIPT_SPELLINGS
+        if kind == "call" or (kind == "unknown" and shell_like):
             unexamined.append((n, line))
 
     return gated, unexamined
@@ -798,3 +913,161 @@ def test_the_block_mention_narrowing_cannot_exclude_an_invocation():
     blocks that could not contain one.
     """
     assert "codex-skill" in RESYNC_CALL
+
+
+# ---------------------------------------------------------------------------
+# RECOGNITION blindness (#1226). The third state above fixed PARSE blindness:
+# a region the walk could not read now reports UNEXAMINED. It did not fix
+# RECOGNITION blindness - an invocation was recognised only when the stripped
+# line was exactly RESYNC_CALL, so `... --quiet` or `... # why` matched neither
+# list and collapsed straight back into the two-state silence. An invocation is
+# now recognised by the SCRIPT it runs, and a mention that is neither an
+# invocation nor an existence test is reported UNEXAMINED rather than guessed.
+# ---------------------------------------------------------------------------
+_BASE_IF = 'if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then'
+
+
+def test_a_FLAGGED_invocation_is_recognised_and_classified():
+    """Acceptance 1. Gated on a moved base, it must be caught; placed after
+    the block, it must be examined and clean - never silently absent."""
+    flagged = f"{RESYNC_CALL} --quiet"
+    gated, unexamined = _resync_call_audit(_fence(_BASE_IF, f"    {flagged}", "fi"))
+    assert gated and unexamined == [], (gated, unexamined)
+    assert _resync_call_audit(_fence(_BASE_IF, "    :", "fi", flagged)) == ([], [])
+
+
+def test_a_COMMENTED_invocation_is_recognised_and_classified():
+    """Acceptance 2. A trailing comment is part of the line, not of the call."""
+    commented = f"{RESYNC_CALL}  # re-sync the mirrors"
+    gated, unexamined = _resync_call_audit(_fence(_BASE_IF, f"    {commented}", "fi"))
+    assert gated and unexamined == [], (gated, unexamined)
+
+
+def test_a_flagged_invocation_outside_any_fence_is_reconciled():
+    """The reconcile pass used the same exact-equality test, so a stray
+    flagged call vanished there too."""
+    stray = f"prose\n{RESYNC_CALL} --quiet\nmore prose\n"
+    gated, unexamined = _resync_call_audit(stray)
+    assert unexamined and gated == [], (gated, unexamined)
+
+
+def test_a_MENTION_is_not_misclassified_as_an_invocation():
+    """Acceptance 3. The `[ -x ]` existence guard is retained deliberately at
+    every call site (#1226, "do not lose this"), and it sits INSIDE whatever
+    block holds the call - so a recogniser that counted it would report a
+    correctly placed call site as base-gated, and double the site count.
+    """
+    for line in (
+        "if [ -x scripts/codex-skill-resync.sh ]; then",
+        "[ -x scripts/codex-skill-resync.sh ] || exit 0",
+        "test -x scripts/codex-skill-resync.sh",
+        "# bash scripts/codex-skill-resync.sh --quiet",
+        'echo "run scripts/codex-skill-resync.sh by hand"',
+        "cat scripts/codex-skill-resync.sh",
+    ):
+        assert not _is_resync_invocation(line), f"a mention read as a call: {line}"
+    guard_only = _fence(_BASE_IF, "    [ -x scripts/codex-skill-resync.sh ] || true", "fi")
+    assert _resync_call_audit(guard_only) == ([], [])
+
+
+def test_the_recogniser_accepts_every_spelling_of_the_call():
+    """The positive half of acceptance 3's control: narrow enough to refuse a
+    mention is only worth anything if it is still wide enough to see a call."""
+    for line in (
+        RESYNC_CALL,
+        f"    {RESYNC_CALL} --quiet",
+        f"{RESYNC_CALL} # comment",
+        f"{RESYNC_CALL} || true",
+        f"{RESYNC_CALL} >/dev/null 2>&1",
+        "sh scripts/codex-skill-resync.sh",
+        "./scripts/codex-skill-resync.sh",
+        "scripts/codex-skill-resync.sh",
+        f"[ -x scripts/codex-skill-resync.sh ] && {RESYNC_CALL}",
+    ):
+        assert _is_resync_invocation(line), f"a call went unrecognised: {line}"
+    #: A call used AS a condition shares its line with `then`: classified
+    #: unknown (reported unexamined), never dropped and never guessed at.
+    assert _classify_resync_line(f"if {RESYNC_CALL}; then") == "unknown"
+
+
+def test_an_UNRECOGNISED_mention_is_reported_unexamined_not_dropped():
+    """The third state, applied to recognition. A line naming the script that
+    is neither a call this recogniser knows nor an existence test is something
+    the walk could not reason about - so it says so, rather than letting a
+    future spelling it never learned read as clean."""
+    odd = _fence(_BASE_IF, '    eval "bash scripts/codex-skill-resync.sh"', "fi")
+    gated, unexamined = _resync_call_audit(odd)
+    assert unexamined and gated == [], (gated, unexamined)
+
+
+def test_each_real_call_site_is_counted_exactly_once():
+    """The count test and the audit share one recogniser, so the `[ -x ]`
+    guard beside each call can inflate neither."""
+    for rel, expected in (("flow/auto.md", 2), ("flow/finish.md", 1)):
+        doc = (COMMANDS / rel).read_text()
+        assert len(_resync_invocations(doc)) == expected, rel
+
+
+# Counter-model review of #1226, pass 1. Each is this issue's own class - a
+# recognition that fails silently, or a neighbour read as ours - one layer in.
+def test_a_call_SHARING_A_LINE_with_control_flow_is_never_reported_clean():
+    """`if <base>; then bash ...; fi` on one line was classified before the
+    line's own conditional was pushed, so a base-gated call read as clean."""
+    one_line = _fence(f"{_BASE_IF} {RESYNC_CALL}; fi")
+    assert _resync_call_audit(one_line) != ([], []), "a same-line gated call read as clean"
+
+
+def test_a_QUOTED_separator_does_not_manufacture_a_call():
+    """Splitting on `;` without quoting made a printed hint an invocation."""
+    hint = f'echo "try this; {RESYNC_CALL} --quiet"'
+    assert not _is_resync_invocation(hint)
+    gated, _ = _resync_call_audit(_fence(_BASE_IF, f"    {hint}", "fi"))
+    assert gated == [], "a neighbour's echo was accused of gating the re-sync"
+
+
+def test_a_call_HIDDEN_IN_A_TEST_EXPRESSION_is_not_a_known_mention():
+    """Any `[`/`test` head was allowlisted, so a command substitution that
+    RUNS the helper inside a test was waved through as an existence check."""
+    hidden = f'[ -n "$({RESYNC_CALL})" ]'
+    gated, unexamined = _resync_call_audit(_fence(_BASE_IF, f"    {hidden}", "fi"))
+    assert (gated, unexamined) != ([], []), "a call inside $(...) read as clean"
+
+
+def test_an_UNFAMILIAR_call_outside_a_completed_fence_is_reconciled():
+    """Reconciliation only knew RECOGNISED calls, so a spelling the recogniser
+    does not know escaped whenever the fence walk did not reach it."""
+    flagged_interp = "bash -e scripts/codex-skill-resync.sh --quiet"
+    for text in (
+        f"prose\n{flagged_interp}\nmore prose\n",
+        f"```bash\n# codex-skill\n{flagged_interp}\n",  # fence never closed
+    ):
+        gated, unexamined = _resync_call_audit(text)
+        assert unexamined and gated == [], (text, gated, unexamined)
+
+
+# Counter-model review of #1226, pass 2 (the last pass the flow allows).
+def test_a_call_behind_a_SHORT_CIRCUIT_condition_is_never_reported_clean():
+    """The audit reads `if` blocks only, so `<base-moved> && call` was a
+    recognised call with no conditional on the stack - reported clean. Only the
+    literal existence test may precede a call on its line."""
+    base_test = '[ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]'
+    gated, unexamined = _resync_call_audit(_fence(f"{base_test} && {RESYNC_CALL} --quiet"))
+    assert (gated, unexamined) != ([], []), "a short-circuit gated call read as clean"
+    assert _is_resync_invocation(f"[ -x {RESYNC_SCRIPT} ] && {RESYNC_CALL}")
+
+
+def test_a_WHOLLY_QUOTED_separator_argument_does_not_manufacture_a_call():
+    """POSIX tokenising strips quotes before separators are found, so `";"`
+    as a whole argument split one `echo` into two commands."""
+    for hint in (f'echo ";" {RESYNC_CALL}', f"echo ';' {RESYNC_CALL}", f"echo \\; {RESYNC_CALL}"):
+        assert not _is_resync_invocation(hint), hint
+        gated, _ = _resync_call_audit(_fence(_BASE_IF, f"    {hint}", "fi"))
+        assert gated == [], f"a neighbour's echo was accused: {hint}"
+
+
+def test_an_UNCLOSED_fence_is_reconciled_as_code_not_prose():
+    """The prose narrowing (shell-like head only) was applied inside an
+    unclosed fence too, so a same-line gated call starting with `if` vanished."""
+    text = f"```bash\n# codex-skill\n{_BASE_IF} {RESYNC_CALL}; fi\n"
+    gated, unexamined = _resync_call_audit(text)
+    assert unexamined and gated == [], (gated, unexamined)
