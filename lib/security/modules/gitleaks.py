@@ -1,7 +1,10 @@
 """External tool adapter: gitleaks.
 
 Runs gitleaks for deep secret detection in code and git history.
-Auto-detected: only runs if gitleaks is installed.
+
+A missing binary is reported as UNKNOWN in `result.errors`, never as a skip
+(issue #1264, the shape #1044 fixed in pip_audit): a secret scan that did not
+run must not leave a summary that reads as clean.
 """
 
 from __future__ import annotations
@@ -23,9 +26,9 @@ def scan(project_root: str, include_history: bool = False) -> ScanResult:
     result = ScanResult()
 
     if not is_available():
-        result.skipped.append(
-            "gitleaks not installed (run `brew install gitleaks` or "
-            "see https://github.com/gitleaks/gitleaks)"
+        result.errors.append(
+            "UNKNOWN: gitleaks is not installed, so no secret scan ran "
+            "(run `brew install gitleaks` or see https://github.com/gitleaks/gitleaks)"
         )
         return result
 
@@ -46,10 +49,10 @@ def scan(project_root: str, include_history: bool = False) -> ScanResult:
             timeout=120,
         )
     except subprocess.TimeoutExpired:
-        result.errors.append("gitleaks timed out after 120 seconds")
+        result.errors.append("UNKNOWN: gitleaks timed out after 120 seconds")
         return result
     except FileNotFoundError:
-        result.skipped.append("gitleaks not found")
+        result.errors.append("UNKNOWN: gitleaks binary disappeared before the scan ran")
         return result
 
     # gitleaks returns exit code 1 when findings exist, 0 when clean
@@ -58,21 +61,42 @@ def scan(project_root: str, include_history: bool = False) -> ScanResult:
         result.passed.append(f"No secrets found by gitleaks ({label})")
         return result
 
+    # 1 is "findings exist"; anything else is gitleaks failing, and an empty
+    # stdout from a failure would otherwise parse to zero findings - a result
+    # with no pass and no error, which a summary reads as nothing to report.
+    if proc.returncode != 1:
+        stderr_lines = proc.stderr.rstrip().splitlines()
+        detail = f"; stderr: {stderr_lines[-1]}" if stderr_lines else ""
+        result.errors.append(f"UNKNOWN: gitleaks exited {proc.returncode}{detail}")
+        return result
+
+    # Exit 1 is ALSO what gitleaks returns for some failures - a nonexistent
+    # source, for one - with an empty stdout (counter-model review). Only a
+    # report can say secrets were found, so no report is UNKNOWN, not zero.
+    if not proc.stdout.strip():
+        stderr_lines = proc.stderr.rstrip().splitlines()
+        detail = f"; stderr: {stderr_lines[-1]}" if stderr_lines else ""
+        result.errors.append(f"UNKNOWN: gitleaks exited 1 with no report{detail}")
+        return result
+
     # Parse JSON output
     try:
-        findings = json.loads(proc.stdout) if proc.stdout.strip() else []
+        findings = json.loads(proc.stdout)
     except json.JSONDecodeError:
-        if proc.returncode == 1:
-            # gitleaks found issues but output isn't parseable
-            result.findings.append(
-                Finding(
-                    id="GITLEAKS_FINDING",
-                    severity=Severity.CRITICAL,
-                    title="gitleaks detected secrets (could not parse details)",
-                    why="gitleaks found secrets but the output format was unexpected.",
-                    fix="Run `gitleaks detect` manually for details.",
-                )
+        # gitleaks found issues but output isn't parseable
+        result.findings.append(
+            Finding(
+                id="GITLEAKS_FINDING",
+                severity=Severity.CRITICAL,
+                title="gitleaks detected secrets (could not parse details)",
+                why="gitleaks found secrets but the output format was unexpected.",
+                fix="Run `gitleaks detect` manually for details.",
             )
+        )
+        return result
+
+    if not isinstance(findings, list) or not findings or not all(isinstance(i, dict) for i in findings):
+        result.errors.append("UNKNOWN: gitleaks exited 1 but its report held no readable findings")
         return result
 
     for item in findings:

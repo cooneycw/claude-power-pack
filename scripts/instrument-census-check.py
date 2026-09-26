@@ -149,6 +149,39 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 #: The census, relative to the tree being checked.
 ADR_REL = "docs/decisions/0008-instrument-negative-control-bound.md"
 
+#: Where ANOTHER repository files the same decision (issue #1264). kyle files it
+#: at `docs/adr/0005-instrument-negative-control-enumeration.md`, so a single
+#: hardcoded path made its census `unknown` by construction - forever, and
+#: reported as a word in a line nobody reads. `ADR_REL` is tried first, so this
+#: repository's resolution cannot change; a candidate is accepted only when it is
+#: the ONLY match, because picking one of two documents is inventing a census.
+ADR_CANDIDATE_GLOBS = (
+    "docs/decisions/*negative-control*.md",
+    "docs/adr/*negative-control*.md",
+)
+
+
+def resolve_adr(root: Path) -> tuple[Path | None, str]:
+    """`(path, label)` of the census document under `root`, or `(None, why)`.
+
+    ONE resolver for every reader of the census (`check-negative-controls.py`,
+    `verify-coverage-check.py` and this gate), so they cannot disagree about
+    which document the census is. None is UNREAD, never an empty census.
+    """
+    default = root / ADR_REL
+    if default.is_file():
+        return default, ADR_REL
+    matches = sorted({p for pattern in ADR_CANDIDATE_GLOBS for p in root.glob(pattern) if p.is_file()})
+    if len(matches) == 1:
+        return matches[0], str(matches[0].relative_to(root))
+    if not matches:
+        return None, f"{ADR_REL} does not exist and nothing matches {', '.join(ADR_CANDIDATE_GLOBS)}"
+    names = ", ".join(str(m.relative_to(root)) for m in matches)
+    return None, (
+        f"{ADR_REL} does not exist and {len(matches)} candidates match ({names}); "
+        f"refusing to pick one"
+    )
+
 #: The directory whose population the census must account for.
 SCRIPTS_REL = "scripts"
 
@@ -328,14 +361,14 @@ def script_files(root: Path) -> dict[str, str]:
 
 
 def run_check(root: Path) -> int:
-    adr = root / ADR_REL
+    adr, adr_rel = resolve_adr(root)
     scripts_dir = root / SCRIPTS_REL
 
     if not scripts_dir.is_dir():
         print(f"instrument-census-check: no {SCRIPTS_REL}/ under {root}; nothing compared.")
         return 1
-    if not adr.is_file():
-        print(f"UNACCOUNTED: {ADR_REL} does not exist under {root}")
+    if adr is None:
+        print(f"UNACCOUNTED: {adr_rel} (under {root})")
         print("instrument-census-check: the census itself is absent; nothing compared.")
         return 1
 
@@ -354,12 +387,12 @@ def run_check(root: Path) -> int:
         # Same reasoning in the other direction: no rows parsed means the
         # extractor is broken or the table moved, and EVERY file would then
         # report UNACCOUNTED. That is a broken read presented as 73 findings.
-        print(f"instrument-census-check: {ADR_REL} parsed to 0 census rows; nothing compared.")
+        print(f"instrument-census-check: {adr_rel} parsed to 0 census rows; nothing compared.")
         return 1
 
     exclusions, exclusions_found = exclusion_subjects(text)
     if not exclusions_found:
-        print(f"instrument-census-check: {ADR_REL} has no 'Excluded, with the reason' section; nothing compared.")
+        print(f"instrument-census-check: {adr_rel} has no 'Excluded, with the reason' section; nothing compared.")
         return 1
 
     externals = declared_externals(text)
@@ -372,7 +405,7 @@ def run_check(root: Path) -> int:
             continue
         print(
             f"UNACCOUNTED: {SCRIPTS_REL}/{name} is named by no census row and no "
-            f"exclusion in {ADR_REL}"
+            f"exclusion in {adr_rel}"
         )
         findings += 1
 
@@ -380,7 +413,7 @@ def run_check(root: Path) -> int:
         if subject in files or subject in externals:
             continue
         print(
-            f"STALE: {ADR_REL} subject `{subject}` names no file in {SCRIPTS_REL}/ "
+            f"STALE: {adr_rel} subject `{subject}` names no file in {SCRIPTS_REL}/ "
             f"and is not declared an external subject"
         )
         findings += 1
@@ -403,7 +436,7 @@ def run_check(root: Path) -> int:
 
     print(
         f"instrument-census-check: ok - all {len(files)} file(s) in {SCRIPTS_REL}/ "
-        f"are accounted for by {ADR_REL}, and every subject resolves."
+        f"are accounted for by {adr_rel}, and every subject resolves."
     )
     return 0
 

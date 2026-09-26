@@ -519,6 +519,23 @@ def test_a_census_instrument_cannot_be_filed_as_not_a_checker(tree: Path) -> Non
     assert "enumerates it as an instrument" in result.stdout
 
 
+def test_the_census_at_another_repositorys_path_is_still_cross_checked(tree: Path) -> None:
+    """Issue #1264: the census resolves through the census gate's `resolve_adr`,
+    so a repository filing it under `docs/adr/` is cross-checked, not `unread`."""
+    (tree / "scripts" / "delta-check.sh").write_text("#!/bin/sh\nexit 0\n")
+    census = tree / "docs" / "adr"
+    census.mkdir(parents=True)
+    (census / "0005-instrument-negative-control-enumeration.md").write_text(
+        "| # | instrument | verdict | consumed by | class |\n"
+        "|---|---|---|---|---|\n"
+        "| 1 | `delta-check.sh` | exit code | a reader | G |\n"
+    )
+    declare(tree, **{"delta-check.sh": {"class": "not-a-checker", "reason": "x"}})
+    result = run(tree)
+    assert result.returncode == 1
+    assert "enumerates it as an instrument" in result.stdout
+
+
 def test_an_unreadable_census_reports_unread_and_never_empty(tree: Path) -> None:
     """Unscanned must not read as clean.
 
