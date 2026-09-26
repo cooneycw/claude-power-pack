@@ -231,6 +231,51 @@ def test_branch_with_no_changes_is_delivered_with_reason(scenario: Scenario) -> 
 
 
 @requires_git
+def test_config_hidden_untracked_file_is_still_seen(scenario: Scenario) -> None:
+    work = {"a.txt": "a1\n"}
+    scenario.branch_commit(work)
+    scenario.land_on_main(work)
+    _git(scenario.worktree, "config", "status.showUntrackedFiles", "no")
+    (scenario.worktree / "notes.txt").write_text("only here\n")
+    # Precondition: the configured porcelain really hides it.
+    assert _git(scenario.worktree, "status", "--porcelain") == ""
+
+    item = scenario.verdict()
+    assert item.tree == "untracked"
+    assert item.verdict == "not-proven"
+
+
+@requires_git
+def test_config_hidden_submodule_change_is_still_compared(scenario: Scenario) -> None:
+    gitlink = _git(scenario.main, "rev-parse", "HEAD").strip()
+    _git(scenario.worktree, "update-index", "--add", "--cacheinfo", f"160000,{gitlink},vendored")
+    _git(scenario.worktree, "commit", "-qm", "advance a gitlink main never took")
+    _git(scenario.worktree, "config", "diff.ignoreSubmodules", "all")
+    # Precondition: the configured diff really drops the gitlink.
+    assert _git(scenario.worktree, "diff", "--raw", "origin/main", "HEAD") == ""
+
+    item = scenario.verdict()
+    assert item.committed == "not-proven"
+    assert item.differing_paths == ("vendored",)
+
+
+@requires_git
+def test_remote_moved_past_the_local_base_is_unknown(scenario: Scenario, tmp_path: Path) -> None:
+    work = {"a.txt": "a1\n"}
+    scenario.branch_commit(work)
+    scenario.land_on_main(work)
+    other = tmp_path / "other"
+    _git(tmp_path, "clone", "-q", str(scenario.origin), str(other))
+    _write(other, {"a.txt": "reverted\n"})
+    _commit_all(other, "revert on the remote, not yet fetched here")
+    _git(other, "push", "-q", "origin", "main")
+
+    item = scenario.verdict()
+    assert item.verdict == "unknown"
+    assert "stale" in item.reason
+
+
+@requires_git
 def test_open_issue_worktrees_are_not_annotated(scenario: Scenario) -> None:
     state = project_next.RepositoryState.from_dict(
         {
@@ -262,7 +307,8 @@ def _unmapped_result() -> object:
 def _runner(overrides: dict[str, object]):
     """Answers like a clean, fully delivered worktree unless a command is overridden."""
     defaults = {
-        "ls-remote": "abc\trefs/heads/main\n",
+        "ls-remote": "main-sha\trefs/heads/main\n",
+        "rev-parse": "main-sha\n",
         "status": "",
         "merge-base": "base-sha\n",
         "diff": ":100644 100644 aaa bbb M\0a.txt\0",
@@ -306,11 +352,19 @@ def test_unreadable_diff_stream_is_unknown_not_empty() -> None:
     assert item.verdict == "unknown"
 
 
-def test_unreachable_remote_is_unknown_remote_branch_only() -> None:
+def test_unreachable_remote_cannot_confirm_the_base_so_is_unknown() -> None:
     runner = _runner({"ls-remote": project_next.CollectionError("git ls-remote: offline")})
     (item,) = project_next.worktree_delivery(Path("/nowhere"), _unmapped_result(), "main", runner)
     assert item.remote_branch == "unknown"
-    assert item.verdict == "delivered"
+    assert item.verdict == "unknown"
+    assert "could not be asked" in item.reason
+
+
+def test_stale_local_base_is_unknown_even_when_blobs_match() -> None:
+    runner = _runner({"rev-parse": "old-sha\n"})
+    (item,) = project_next.worktree_delivery(Path("/nowhere"), _unmapped_result(), "main", runner)
+    assert item.verdict == "unknown"
+    assert "stale" in item.reason
 
 
 def test_fixture_input_is_unknown_and_runs_no_git() -> None:

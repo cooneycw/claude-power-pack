@@ -123,8 +123,11 @@ and consumed by brief, compact, and full rendering:
   `origin/<default>` AND the tree is clean with no untracked files;
   `not-proven` otherwise (never "undelivered" - the base may have moved those
   files since); `unknown` whenever git could not be asked, and always for
-  `--input` fixtures. Ancestry and commit counts are never consulted, because a
-  squash merge breaks both. Each entry also carries the tree state and whether
+  `--input` fixtures, or when `origin/<default>` cannot be confirmed to equal
+  the remote's current tip (a stale base can call reverted work delivered).
+  Status and diff pass explicit untracked and submodule flags, so local git
+  config cannot hide a population. Ancestry and commit counts are never
+  consulted, because a squash merge breaks both. Each entry also carries the tree state and whether
   the branch still exists on the remote (asked of the remote, not of possibly
   unpruned local refs).
 

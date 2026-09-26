@@ -884,8 +884,8 @@ def _raw_diff_paths(output: str) -> frozenset[str]:
     return frozenset(paths)
 
 
-def _remote_heads(repository: Path, runner: CommandRunner) -> frozenset[str] | None:
-    """Branch names on the remote itself, or None when it cannot be asked.
+def _remote_heads(repository: Path, runner: CommandRunner) -> dict[str, str] | None:
+    """Branch name -> tip SHA on the remote itself, or None when it cannot be asked.
 
     The collector fetches without ``--prune``, so a local ``refs/remotes/origin/*``
     ref can outlive the branch it names; asking the remote is the only reading
@@ -895,12 +895,35 @@ def _remote_heads(repository: Path, runner: CommandRunner) -> frozenset[str] | N
         output = runner(["git", "ls-remote", "--heads", "origin"], repository)
     except (CollectionError, OSError):
         return None
-    heads = set()
+    heads = {}
     for line in output.splitlines():
-        _, _, ref = line.partition("\t")
+        sha, _, ref = line.partition("\t")
         if ref.startswith("refs/heads/"):
-            heads.add(ref.removeprefix("refs/heads/"))
-    return frozenset(heads)
+            heads[ref.removeprefix("refs/heads/")] = sha.strip()
+    return heads
+
+
+def _base_freshness(
+    repository: Path, base_ref: str, default_branch: str, heads: dict[str, str] | None, runner: CommandRunner
+) -> str:
+    """Empty when the local base ref is the remote's current tip; otherwise why it is not.
+
+    A comparison against a stale base can report ``delivered`` for content the
+    remote has since changed or reverted, and a failed fetch is only a collector
+    warning - so the base is confirmed against the remote rather than assumed.
+    """
+    if heads is None:
+        return f"cannot confirm {base_ref} is current: the remote could not be asked"
+    remote_tip = heads.get(default_branch)
+    if not remote_tip:
+        return f"cannot confirm {base_ref} is current: the remote advertises no {default_branch}"
+    try:
+        local_tip = runner(["git", "rev-parse", "--verify", base_ref], repository).strip()
+    except (CollectionError, OSError) as exc:
+        return f"cannot read {base_ref}: {exc}"
+    if local_tip != remote_tip:
+        return f"{base_ref} is stale ({local_tip[:12]} locally, {remote_tip[:12]} on the remote); fetch and re-run"
+    return ""
 
 
 def _tree_state(path: Path, runner: CommandRunner) -> tuple[str, str]:
@@ -908,7 +931,11 @@ def _tree_state(path: Path, runner: CommandRunner) -> tuple[str, str]:
     # `git status` into an empty one, i.e. "clean", which is the one reading this
     # verdict must never inherit from a failure.
     try:
-        status = runner(["git", "status", "--porcelain"], path)
+        # Explicit flags, not config: `status.showUntrackedFiles=no` or a submodule
+        # ignore setting would otherwise make an excluded population read as clean.
+        status = runner(
+            ["git", "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=none"], path
+        )
     except (CollectionError, OSError) as exc:
         return "unknown", f"git status failed: {exc}"
     lines = [line for line in status.splitlines() if line.strip()]
@@ -928,8 +955,11 @@ def _committed_state(
         merge_base = runner(["git", "merge-base", "HEAD", base_ref], path).strip()
         if not merge_base:
             raise ValueError(f"no merge-base with {base_ref}")
-        changed = _raw_diff_paths(runner(["git", "diff", "--raw", "-z", "--no-renames", merge_base, "HEAD"], path))
-        differing = _raw_diff_paths(runner(["git", "diff", "--raw", "-z", "--no-renames", base_ref, "HEAD"], path))
+        # `--ignore-submodules=none` overrides `diff.ignoreSubmodules`, which would
+        # otherwise drop an unlanded gitlink change from BOTH sides and read as delivered.
+        diff = ["git", "diff", "--raw", "-z", "--no-renames", "--ignore-submodules=none"]
+        changed = _raw_diff_paths(runner([*diff, merge_base, "HEAD"], path))
+        differing = _raw_diff_paths(runner([*diff, base_ref, "HEAD"], path))
     except (CollectionError, OSError, ValueError) as exc:
         return "unknown", None, (), f"blob comparison failed: {exc}"
     # A path the branch changed that still differs from the base is one whose branch
@@ -966,6 +996,7 @@ def worktree_delivery(
         return ()
     base_ref = f"refs/remotes/origin/{default_branch}"
     heads = _remote_heads(repository, runner) if runner is not None else None
+    stale_base = _base_freshness(repository, base_ref, default_branch, heads, runner) if runner is not None else ""
     annotated = []
     for detail in candidates:
         if runner is None:
@@ -984,7 +1015,10 @@ def worktree_delivery(
             continue
         path = Path(detail.path)
         tree, tree_reason = _tree_state(path, runner)
-        committed, changed, differing, committed_reason = _committed_state(path, base_ref, runner)
+        if stale_base:
+            committed, changed, differing, committed_reason = "unknown", None, (), stale_base
+        else:
+            committed, changed, differing, committed_reason = _committed_state(path, base_ref, runner)
         if not detail.branch:
             remote = "n/a"
         elif heads is None:
