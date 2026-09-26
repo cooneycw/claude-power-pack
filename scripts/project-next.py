@@ -13,7 +13,9 @@ while adding CPP-only evidence the v1.3 contract does not represent yet:
   state (read, absent, unreadable) always reported rather than inferred;
 - one shared spec-lifecycle decision consumed by all three render modes;
 - premise-staleness flags for spec-derived issues whose parent spec predates
-  a live architecture decision in the same domain.
+  a live architecture decision in the same domain;
+- a delivery verdict for every worktree the engine proposes for cleanup, from
+  per-file blob identity against the default branch (issue #1257).
 
 Lifecycle is intentionally outside ``lib/project_next``. A graduation ledger
 can describe an absent spec, so frontmatter alone cannot represent the policy.
@@ -47,7 +49,12 @@ MANIFEST_PATH = REPO_ROOT / ".claude" / "project-next-ownership.json"
 sys.path.insert(0, str(REPO_ROOT))
 
 from lib.project_next.classify import _dependencies, _task_issue_index  # noqa: E402
-from lib.project_next.collect import CollectionError, collect_repository  # noqa: E402
+from lib.project_next.collect import (  # noqa: E402
+    CollectionError,
+    CommandRunner,
+    collect_repository,
+    subprocess_runner,
+)
 from lib.project_next.config import ConfigError, load_config  # noqa: E402
 from lib.project_next.models import (  # noqa: E402
     Issue,
@@ -82,6 +89,14 @@ LIVE_DECISION_STATUS = "accepted"
 SPEC_DATE_KEYS = frozenset({"created", "date", "amended", "updated", "revised"})
 PREMISE_HEADER_LINES = 24
 PREMISE_TERM_MINIMUM = 4
+# Worktree delivery (issue #1257). Ordered for rendering; `delivered` is the only
+# verdict that supports removal.
+DELIVERY_VERDICTS = ("delivered", "not-proven", "unknown")
+DELIVERY_ADVISORY = (
+    "_`delivered`: every changed path has the identical blob on the default branch and the tree is clean. "
+    "`not-proven` is not \"undelivered\" - inspect before removing. `unknown` means git could not be asked. "
+    "Ignored files are counted, not examined._"
+)
 PREMISE_ADVISORY = (
     "_Premise flags are advisory: ranking is unchanged and no issue is filtered. "
     "`/flow:eli5` remains the necessity decision point._"
@@ -182,6 +197,31 @@ class PremiseFlag:
 
 
 @dataclass(frozen=True)
+class WorktreeDelivery:
+    """Whether a cleanup-candidate worktree's work already reached the default branch (#1257).
+
+    ``verdict`` is what a reader deciding ``git worktree remove`` acts on:
+    ``delivered`` only when every path the branch changed since its merge-base
+    holds the identical blob (and mode) on ``origin/<default>`` AND the tree has
+    nothing uncommitted or untracked. ``not-proven`` never means "undelivered" -
+    the default branch may have moved those files since. Any failure to ask git
+    is ``unknown``, never ``delivered``.
+    """
+
+    path: str
+    branch: str
+    issue_state: str
+    verdict: str
+    committed: str
+    tree: str
+    remote_branch: str
+    changed_paths: int | None = None
+    differing_paths: tuple[str, ...] = ()
+    ignored_paths: int | None = None
+    reason: str = ""
+
+
+@dataclass(frozen=True)
 class CppExtensions:
     relationships: tuple[Relationship, ...]
     spec_lifecycle: tuple[LifecycleDecision, ...]
@@ -189,6 +229,7 @@ class CppExtensions:
     warnings: tuple[str, ...]
     premise_flags: tuple[PremiseFlag, ...] = field(default_factory=tuple)
     wayfinder_map: WayfinderMap | None = None
+    worktree_delivery: tuple[WorktreeDelivery, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -827,6 +868,208 @@ def premise_flags(
     return ordered, tuple(warnings)
 
 
+def _raw_diff_paths(output: str) -> frozenset[str]:
+    """Paths named by ``git diff --raw -z --no-renames``: ``:<meta>\0<path>\0`` per entry.
+
+    A malformed stream raises ValueError, so a parse failure becomes ``unknown``
+    rather than an empty set - an empty set here reads as "nothing differs".
+    """
+    fields = output.split("\0")
+    paths: set[str] = set()
+    index = 0
+    while index < len(fields) and fields[index]:
+        meta = fields[index]
+        if not meta.startswith(":") or index + 1 >= len(fields) or not fields[index + 1]:
+            raise ValueError(f"unparseable git diff --raw entry: {meta[:60]!r}")
+        paths.add(fields[index + 1])
+        index += 2
+    return frozenset(paths)
+
+
+def _remote_heads(repository: Path, runner: CommandRunner) -> dict[str, str] | None:
+    """Branch name -> tip SHA on the remote itself, or None when it cannot be asked.
+
+    The collector fetches without ``--prune``, so a local ``refs/remotes/origin/*``
+    ref can outlive the branch it names; asking the remote is the only reading
+    that says a deleted branch is gone.
+    """
+    try:
+        output = runner(["git", "ls-remote", "--heads", "origin"], repository)
+    except (CollectionError, OSError):
+        return None
+    heads = {}
+    for line in output.splitlines():
+        sha, _, ref = line.partition("\t")
+        if ref.startswith("refs/heads/"):
+            heads[ref.removeprefix("refs/heads/")] = sha.strip()
+    return heads
+
+
+def _base_freshness(
+    repository: Path, base_ref: str, default_branch: str, heads: dict[str, str] | None, runner: CommandRunner
+) -> str:
+    """Empty when the local base ref is the remote's current tip; otherwise why it is not.
+
+    A comparison against a stale base can report ``delivered`` for content the
+    remote has since changed or reverted, and a failed fetch is only a collector
+    warning - so the base is confirmed against the remote rather than assumed.
+    """
+    if heads is None:
+        return f"cannot confirm {base_ref} is current: the remote could not be asked"
+    remote_tip = heads.get(default_branch)
+    if not remote_tip:
+        return f"cannot confirm {base_ref} is current: the remote advertises no {default_branch}"
+    try:
+        local_tip = runner(["git", "rev-parse", "--verify", base_ref], repository).strip()
+    except (CollectionError, OSError) as exc:
+        return f"cannot read {base_ref}: {exc}"
+    if local_tip != remote_tip:
+        return f"{base_ref} is stale ({local_tip[:12]} locally, {remote_tip[:12]} on the remote); fetch and re-run"
+    return ""
+
+
+def _tree_state(path: Path, runner: CommandRunner) -> tuple[str, int | None, str]:
+    """(tree state, ignored path count, reason) for one worktree.
+
+    Ignored paths are COUNTED and named in the reason, never examined: nearly
+    every worktree carries a `.venv` or cache, so letting them block `delivered`
+    would make the verdict unreachable. The count keeps that excluded population
+    visible instead of letting a clean status claim it.
+    """
+    # Asked again rather than read from the collector: the collector turns a failed
+    # `git status` into an empty one, i.e. "clean", which is the one reading this
+    # verdict must never inherit from a failure.
+    try:
+        # Explicit flags, not config: `status.showUntrackedFiles=no` or a submodule
+        # ignore setting would otherwise make an excluded population read as clean.
+        status = runner(
+            ["git", "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=none"], path
+        )
+        # `git status` cannot see an edit to an entry flagged assume-unchanged
+        # (lowercase tag) or skip-worktree (`S`), and no status flag overrides the bit.
+        tags = runner(["git", "ls-files", "-v"], path)
+        ignored = runner(["git", "ls-files", "--others", "--ignored", "--exclude-standard", "--directory"], path)
+    except (CollectionError, OSError) as exc:
+        return "unknown", None, f"git status failed: {exc}"
+    ignored_count = sum(1 for line in ignored.splitlines() if line.strip())
+    ignored_note = f"{ignored_count} ignored path(s) not examined would also be removed" if ignored_count else ""
+    hidden = [line[2:] for line in tags.splitlines() if line[:1].islower() or line[:1] == "S"]
+    lines = [line for line in status.splitlines() if line.strip()]
+    if any(not line.startswith("??") for line in lines):
+        state, reason = "dirty", "uncommitted tracked changes"
+    elif hidden:
+        state = "unknown"
+        reason = f"{len(hidden)} index entr(ies) flagged assume-unchanged/skip-worktree hide their edits from status"
+    elif lines:
+        state, reason = "untracked", "untracked files would be lost on removal"
+    else:
+        state, reason = "clean", ""
+    return state, ignored_count, "; ".join(item for item in (reason, ignored_note) if item)
+
+
+def _committed_state(
+    path: Path, base_ref: str, runner: CommandRunner
+) -> tuple[str, int | None, tuple[str, ...], str]:
+    # Never `merge-base --is-ancestor` and never a rev-list count: a squash merge
+    # breaks both, so a delivered branch reads as unmerged by either (#1257).
+    try:
+        merge_base = runner(["git", "merge-base", "HEAD", base_ref], path).strip()
+        if not merge_base:
+            raise ValueError(f"no merge-base with {base_ref}")
+        # `--ignore-submodules=none` overrides `diff.ignoreSubmodules`, which would
+        # otherwise drop an unlanded gitlink change from BOTH sides and read as delivered.
+        diff = ["git", "diff", "--raw", "-z", "--no-renames", "--ignore-submodules=none"]
+        changed = _raw_diff_paths(runner([*diff, merge_base, "HEAD"], path))
+        differing = _raw_diff_paths(runner([*diff, base_ref, "HEAD"], path))
+    except (CollectionError, OSError, ValueError) as exc:
+        return "unknown", None, (), f"blob comparison failed: {exc}"
+    # A path the branch changed that still differs from the base is one whose branch
+    # blob (or deletion) is not on the base. Paths that differ only because the base
+    # moved on are not the branch's work and do not count against it.
+    unmatched = tuple(sorted(changed & differing))
+    if unmatched:
+        sample = ", ".join(unmatched[:3]) + (", ..." if len(unmatched) > 3 else "")
+        return (
+            "not-proven",
+            len(changed),
+            unmatched,
+            f"{len(unmatched)} of {len(changed)} changed path(s) differ from {base_ref} ({sample}); "
+            "the base may have moved them since",
+        )
+    if not changed:
+        return "delivered", 0, (), f"branch changes no path relative to its merge-base with {base_ref}"
+    return "delivered", len(changed), (), f"all {len(changed)} changed path(s) have the identical blob on {base_ref}"
+
+
+def worktree_delivery(
+    repository: Path,
+    result: RecommendationResult,
+    default_branch: str,
+    runner: CommandRunner | None = subprocess_runner,
+) -> tuple[WorktreeDelivery, ...]:
+    """Annotate every worktree the engine proposes for cleanup with a delivery verdict.
+
+    ``runner=None`` means there is no live repository to ask (``--input`` fixtures):
+    every candidate is ``unknown``, never silently ``delivered``.
+    """
+    candidates = tuple(detail for detail in result.worktree_details if detail.cleanup_recommended)
+    if not candidates:
+        return ()
+    base_ref = f"refs/remotes/origin/{default_branch}"
+    heads = _remote_heads(repository, runner) if runner is not None else None
+    stale_base = _base_freshness(repository, base_ref, default_branch, heads, runner) if runner is not None else ""
+    annotated = []
+    for detail in candidates:
+        if runner is None:
+            annotated.append(
+                WorktreeDelivery(
+                    path=detail.path,
+                    branch=detail.branch,
+                    issue_state=detail.issue_state,
+                    verdict="unknown",
+                    committed="unknown",
+                    tree="unknown",
+                    remote_branch="unknown",
+                    reason="not collected: fixture input has no repository to compare",
+                )
+            )
+            continue
+        path = Path(detail.path)
+        tree, ignored_count, tree_reason = _tree_state(path, runner)
+        if stale_base:
+            committed, changed, differing, committed_reason = "unknown", None, (), stale_base
+        else:
+            committed, changed, differing, committed_reason = _committed_state(path, base_ref, runner)
+        if not detail.branch:
+            remote = "n/a"
+        elif heads is None:
+            remote = "unknown"
+        else:
+            remote = "present" if detail.branch in heads else "absent"
+        if "unknown" in (tree, committed):
+            verdict = "unknown"
+        elif committed == "delivered" and tree == "clean":
+            verdict = "delivered"
+        else:
+            verdict = "not-proven"
+        annotated.append(
+            WorktreeDelivery(
+                path=detail.path,
+                branch=detail.branch,
+                issue_state=detail.issue_state,
+                verdict=verdict,
+                committed=committed,
+                tree=tree,
+                remote_branch=remote,
+                changed_paths=changed,
+                differing_paths=differing,
+                ignored_paths=ignored_count,
+                reason="; ".join(item for item in (committed_reason, tree_reason) if item),
+            )
+        )
+    return tuple(annotated)
+
+
 def _apply_route_rendering(text: str, routes: tuple[PlanningRoute, ...]) -> str:
     for route in routes:
         if route.issue_number is None:
@@ -926,6 +1169,42 @@ def render_cpp(
             lines.append("- none: no spec predates a live decision in its domain")
         lines.extend(("", PREMISE_ADVISORY))
 
+    delivery = extensions.worktree_delivery
+    if mode == "brief":
+        if delivery:
+            tally = {name: sum(item.verdict == name for item in delivery) for name in DELIVERY_VERDICTS}
+            lines.append(
+                "Worktree delivery: " + " | ".join(f"{name} {tally[name]}" for name in DELIVERY_VERDICTS)
+            )
+    elif mode == "full":
+        lines.extend(
+            (
+                "",
+                "### Worktree delivery",
+                "| Worktree | Branch | Issue state | Verdict | Committed | Tree | Remote branch | Reason |",
+                "|---|---|---|---|---|---|---|---|",
+            )
+        )
+        for item in delivery:
+            lines.append(
+                f"| {item.path} | {item.branch or '(detached)'} | {item.issue_state} | {item.verdict} | "
+                f"{item.committed} | {item.tree} | {item.remote_branch} | {item.reason} |"
+            )
+        if not delivery:
+            lines.append("| - | - | - | - | - | - | - | no worktree is a cleanup candidate |")
+        lines.extend(("", DELIVERY_ADVISORY))
+    else:
+        lines.extend(("", "### Worktree delivery"))
+        lines.extend(
+            f"- {item.path} ({item.branch or 'detached'}): **{item.verdict}** - tree {item.tree}, "
+            f"remote branch {item.remote_branch} - {item.reason}"
+            for item in delivery
+        )
+        if not delivery:
+            lines.append("- none: no worktree is a cleanup candidate")
+        else:
+            lines.extend(("", DELIVERY_ADVISORY))
+
     if mode != "brief":
         lines.extend(("", "### Wayfinder planning routes", f"- {map_line}"))
         for route in extensions.planning_routes:
@@ -991,6 +1270,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     premise, premise_warnings = premise_flags(repository, engine_state, result)
     warnings = tuple(item for item in (native_warning, *lifecycle_warnings, *premise_warnings) if item)
     wayfinder_map, wayfinder_payload = read_wayfinder_map(repository)
+    delivery = worktree_delivery(
+        repository, result, state.default_branch, runner=None if args.input else subprocess_runner
+    )
     extensions = CppExtensions(
         relationships=relationships,
         spec_lifecycle=lifecycle,
@@ -998,6 +1280,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         wayfinder_map=wayfinder_map,
         warnings=warnings,
         premise_flags=premise,
+        worktree_delivery=delivery,
     )
     if args.json:
         payload = _apply_route_payload(result.to_dict(), extensions.planning_routes)

@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1257-project-next-say-whether-an-unmapped-worktree-s-wo",
+  "counts": {
+    "accepted": 5,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "81bb60c17dff3d94e2938ecb87930d0a8ea52388",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1257",
+  "passes": 2,
+  "recorded_at": "2026-09-26T14:45:34Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 8
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
