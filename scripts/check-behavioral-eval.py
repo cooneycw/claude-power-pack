@@ -4,7 +4,8 @@
 THIS IS HALF A. It is the CONSUMER: given a verified-result artifact, does this
 repository render a failure as a failure, a pass as a pass, a forged verdict as a
 refusal, and an absent artifact as none of those? Half B - the behavioural case
-that PRODUCES such an artifact - needs skillc #5 and does not live here.
+that PRODUCES such an artifact - lives in skillc, never here (owner ruling, and
+skillc ADR 0002's boundary).
 
 WHAT A GREEN FROM THIS GATE MEANS, AND IT IS NARROWER THAN ITS NEIGHBOURS. It
 means the CONSUMER read an artifact correctly. It says nothing whatever about any
@@ -18,8 +19,38 @@ discriminate". This gate does not gate on a suite at all. It gates on its own
 reading, and its committed cases are what show that reading discriminates.
 
 THE ARTIFACT'S SHAPE IS OWNED ELSEWHERE, AND `status` IS DERIVED, NOT READ.
-skillc versioned the verified-result contract (skillc PR #17,
-`docs/specs/evaluation-facility/records.md`). That spec makes `status` a DERIVED
+skillc owns the verified-result contract (`docs/specs/evaluation-facility/
+records.md`). This consumer reads VERSION 2, as fixed by skillc PR #32 (commit
+c37c991, closing skillc #4) and checked against skillc 3c243a1. Version 2 refuses
+version 1 outright - "it predates producer authority and ledger binding" - so a
+consumer still reading v1 would have refused the first real record skillc ever
+emitted, as "newer than supported". That is the defect this revision fixes, and
+the rules below are RESTATED from skillc by hand, because CPP's CI has no skillc
+to import. When skillc moves to version 3 this file drifts again, silently, until
+someone compares it; the pin above is what makes that comparison possible.
+
+WHAT IS CHECKED, AND WHAT CANNOT BE FROM HERE. skillc splits its rules into
+RECORD rules and BUNDLE rules. The record rules for a verified result are applied
+here: envelope version, kind, producer authority (only `assembler`), identifier
+shape, grader identity, `graded_digests` unless a run state is declared, evidence
+on every SATISFIED/VIOLATED criterion, `missing` on every UNKNOWN one, a reason on
+a declared run state, a digest on any `raw` reference, and the derived status. The
+BUNDLE rules - ledger-binding, unique-ids, attempt-accounting, lineage - need the
+trial ledger and the artifact manifest beside the result, and this gate reads
+results alone. So every verdict says "checked alone - NOT against any ledger",
+skillc's own words for the same position: a PASS here cannot show that the result
+graded the artifact its attempt captured, or that the attempt was ever planned.
+And `producer: assembler` is a declared field, so it refuses a subject that says
+it wrote its own verdict and cannot refuse one that lies about it - skillc says
+the same, and authentication belongs to its trusted controller.
+
+A SEAM LEFT OPEN ON PURPOSE: a real producer will emit a BUNDLE (ledger, receipt,
+manifest, result) and this gate refuses any record that is not a verified-result.
+How a bundle is laid out under DEFAULT_DIR is not decided yet - the runner is
+skillc #8 - so selecting the result out of a bundle is left to whoever lands the
+first producer, rather than guessed here.
+
+That spec makes `status` a DERIVED
 field and refuses "a record whose `status` does not follow from its own
 `criteria`" - the forged verdict, a status copied from a subject rather than
 computed from evidence. A consumer that trusted the declared `status` would
@@ -68,14 +99,25 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
 #: Where a producer would write its artifacts. Nothing writes here yet; see ABSENT.
 DEFAULT_DIR = Path("docs/measurements/behavioral-eval")
 
-#: The envelope version this consumer understands, matching skillc's records.md.
-SUPPORTED_VERSION = 1
+#: The envelope versions this consumer reads - an EXACT set, not a ceiling, as in
+#: skillc's `SUPPORTED_VERSIONS`. A number outside it is refused, never read on a
+#: guess; version 1 is refused with its own reason, below.
+SUPPORTED_VERSIONS = frozenset({2})
+
+#: records.md: "Exactly one role is authorized per kind", and for a verified result
+#: that role is the controller's result assembler. `producer: subject` is the
+#: FORGED SUBJECT VERDICT - the thing being evaluated declaring its own success.
+PRODUCER = "assembler"
+
+#: records.md's identifier shape: IDs reach file names and log lines.
+ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 #: The vocabularies records.md fixes. A value outside either is refused rather
 #: than bucketed into the nearest one this gate happens to understand.
@@ -112,8 +154,9 @@ VERDICTS: dict[str, int] = {
 #: gates whose greens mean something entirely different.
 POPULATION_NOTE = (
     "examined: a verified-result artifact's own fields. This gate reports what a "
-    "producer recorded; it does not run a behavioural case and establishes nothing "
-    "about one discriminating."
+    "producer recorded, checked alone - NOT against any ledger, so it cannot show "
+    "the result graded what its attempt captured. It does not run a behavioural case "
+    "and establishes nothing about one discriminating."
 )
 
 #: ABSENT names its blocker SPECIFICALLY, so a reader in three months can check
@@ -121,9 +164,10 @@ POPULATION_NOTE = (
 #: person reading it, and that is how a permanently-absent line becomes furniture.
 ABSENT_NOTE = (
     "no verified-result artifact. Nothing produces one yet: the behavioural case is "
-    "CPP #1084 half B, which depends on skillc #5. This gate begins reporting a "
-    "verdict about a real case when that lands - check those two before assuming "
-    "this line is still expected."
+    "CPP #1084 half B, which lives in skillc. skillc #5 (the first goal and a grader "
+    "proven to discriminate) landed 2026-09-26; no model trial has run, because the "
+    "runner and independent grading are skillc #8, #9 and #10. Check those three "
+    "before assuming this line is still expected."
 )
 
 
@@ -194,12 +238,21 @@ def _read_record(path: Path) -> tuple[str, str] | dict:
         return "unreadable", f"{path.name} is not a JSON object"
 
     version = raw.get("version")
-    if not isinstance(version, int):
-        return "unreadable", f"{path.name} declares no integer envelope version"
-    if version > SUPPORTED_VERSION:
+    # bool is a subclass of int: `"version": true` would otherwise read as 1.
+    if isinstance(version, bool) or not isinstance(version, int):
         return "unreadable", (
-            f"{path.name} declares version {version}, newer than the supported "
-            f"{SUPPORTED_VERSION}; refused rather than read on a guess"
+            f"{path.name} declares envelope version {version!r}, not an integer"
+        )
+    if version == 1:
+        return "unreadable", (
+            f"{path.name} declares envelope version 1, which predates producer "
+            f"authority and ledger binding; this build reads only "
+            f"{sorted(SUPPORTED_VERSIONS)} and skillc defines no migration"
+        )
+    if version not in SUPPORTED_VERSIONS:
+        return "unreadable", (
+            f"{path.name} declares version {version}, not one this build reads "
+            f"({sorted(SUPPORTED_VERSIONS)}); refused rather than read on a guess"
         )
 
     kind = raw.get("kind")
@@ -207,6 +260,14 @@ def _read_record(path: Path) -> tuple[str, str] | dict:
         return "unreadable", (
             f"{path.name} declares kind {kind!r}, not {KIND!r}; refused rather than "
             f"read as a verified-result it never claimed to be"
+        )
+
+    producer = raw.get("producer")
+    if producer != PRODUCER:
+        return "forged", (
+            f"{path.name} declares producer {producer!r}; only {PRODUCER!r} may "
+            f"produce a verified-result. A subject-authored verdict is the forged "
+            f"subject verdict, however consistent its criteria are"
         )
 
     status = raw.get("status")
@@ -244,7 +305,57 @@ def _read_record(path: Path) -> tuple[str, str] | dict:
                 f"{path.name} carries a criterion outside the outcome vocabulary "
                 f"{sorted(OUTCOMES)}"
             )
+
+    problem = _contract_problem(raw)
+    if problem:
+        return "unreadable", f"{path.name} breaks the version-2 result contract: {problem}"
     return raw
+
+
+def _nonempty_str(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _str_list(value: object) -> bool:
+    """A NON-EMPTY list of non-blank strings. `[""]` names no reference at all."""
+    return isinstance(value, list) and bool(value) and all(_nonempty_str(v) for v in value)
+
+
+def _contract_problem(raw: dict) -> str | None:
+    """skillc's record rules for a verified result, beyond vocabulary and status.
+
+    Restated from skillc `records.py` (`record_envelope`'s raw rule,
+    `attempt_binding`, `result_evidence`) at 3c243a1. The one that matters most is
+    evidence: a mandatory SATISFIED criterion with no evidence would otherwise
+    derive PASS, which records.md names "missing mandatory evidence".
+    """
+    for key in ("result_id", "attempt_id", "trial_id"):
+        value = raw.get(key)
+        if not isinstance(value, str) or not ID_RE.fullmatch(value):
+            return f"{key} {value!r} is missing or malformed"
+    grader = raw.get("grader")
+    if not isinstance(grader, dict) or not all(
+        _nonempty_str(grader.get(k)) for k in ("id", "revision")
+    ):
+        return "no grader identity (id and revision)"
+    if "raw" in raw:
+        ref = raw["raw"]
+        if not isinstance(ref, dict) or not _nonempty_str(ref.get("ref")) \
+                or not _nonempty_str(ref.get("digest")):
+            return "raw backend data is carried without a ref and digest"
+    run_state = raw.get("run_state")
+    if run_state is not None:
+        if not _nonempty_str(raw.get("reason")):
+            return f"run state {run_state!r} is declared without a reason"
+    elif not _str_list(raw.get("graded_digests")):
+        return "no graded_digests; the result does not say which artifact it graded"
+    for entry in raw["criteria"]:
+        outcome = entry["outcome"]
+        if outcome in ("SATISFIED", "VIOLATED") and not _str_list(entry.get("evidence")):
+            return f"criterion {entry.get('id')!r} reports {outcome} with no evidence"
+        if outcome == "UNKNOWN" and not _nonempty_str(entry.get("missing")):
+            return f"criterion {entry.get('id')!r} is UNKNOWN without naming what is missing"
+    return None
 
 
 def evaluate(directory: Path) -> tuple[str, str]:
@@ -300,9 +411,19 @@ def main(argv: list[str] | None = None) -> int:
     parser = _Parser(description=__doc__)
     parser.add_argument("--dir", default=str(DEFAULT_DIR),
                         help=f"artifact directory (default: {DEFAULT_DIR})")
+    parser.add_argument("--advisory", action="store_true",
+                        help="exit 0 on every verdict this gate PRINTED; a crash "
+                             "or usage error still exits non-zero")
     args = parser.parse_args(argv)
     verdict, detail = evaluate(Path(args.dir))
-    return _say(verdict, detail)
+    code = _say(verdict, detail)
+    # ADVISORY IS APPLIED HERE, AFTER A VERDICT EXISTS, AND NOWHERE ELSE. The
+    # Makefile and CI used `|| true`, which also swallowed a traceback - and an
+    # uncaught Python exception exits 1, this gate's own `failure` code, so no
+    # shell-side filter on the exit code can tell the two apart either. Only the
+    # gate knows it reached a verdict. A crash never gets here and keeps its
+    # non-zero exit; a usage error exits USAGE_EXIT from the parser above.
+    return 0 if args.advisory else code
 
 
 if __name__ == "__main__":
