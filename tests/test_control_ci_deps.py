@@ -34,6 +34,15 @@ def _binary_gate():
 CI_IMAGE = _binary_gate().CI_IMAGE
 
 
+def _load_gate():
+    spec = spec_from_file_location("control_ci_deps_for_test", GATE)
+    assert spec is not None and spec.loader is not None
+    module = module_from_spec(spec)
+    sys.modules["control_ci_deps_for_test"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def run(root: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(GATE), "--root", str(root)],
@@ -209,6 +218,25 @@ def test_env_split_string_is_unknown_not_needs_nothing(tmp_path: Path) -> None:
     out = run(tmp_path)
     assert out.returncode == 1, out.stdout
     assert "dependency UNKNOWN" in out.stdout, out.stdout
+
+
+def test_unwrap_env_reads_options_assignments_and_clusters() -> None:
+    """Counter-model review (#1264): `--` ends options, not assignments, and a
+    clustered `-iu NAME` takes NAME as the variable. `-S` counts only inside
+    env's option region - an `-S` belonging to the gate is not env's."""
+    gate = _load_gate()
+    cases = {
+        ("env", "--", "FOO=1", "tmux", "{gate}"): "tmux",
+        ("env", "-iu", "NAME", "tmux", "{gate}"): "tmux",
+        ("env", "-uNAME", "tmux", "{gate}"): "tmux",
+        ("env", "--unset", "NAME", "tmux", "{gate}"): "tmux",
+        ("env", "--chdir=/x", "-", "tmux"): "tmux",
+        ("env", "-C", "/x", "FOO=1", "tmux"): "tmux",
+    }
+    for invocation, expected in cases.items():
+        assert gate.invocation_command(list(invocation)) == expected, invocation
+    assert gate.unwrap_env(["env", "{gate}", "-S"]) == (1, None)
+    assert gate.unwrap_env(["env", "-iS", "tmux {gate}"])[1] is not None
 
 
 def test_a_ci_stage_script_counts_as_staging(tmp_path: Path) -> None:

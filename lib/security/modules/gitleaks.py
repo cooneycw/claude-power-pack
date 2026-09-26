@@ -70,9 +70,18 @@ def scan(project_root: str, include_history: bool = False) -> ScanResult:
         result.errors.append(f"UNKNOWN: gitleaks exited {proc.returncode}{detail}")
         return result
 
+    # Exit 1 is ALSO what gitleaks returns for some failures - a nonexistent
+    # source, for one - with an empty stdout (counter-model review). Only a
+    # report can say secrets were found, so no report is UNKNOWN, not zero.
+    if not proc.stdout.strip():
+        stderr_lines = proc.stderr.rstrip().splitlines()
+        detail = f"; stderr: {stderr_lines[-1]}" if stderr_lines else ""
+        result.errors.append(f"UNKNOWN: gitleaks exited 1 with no report{detail}")
+        return result
+
     # Parse JSON output
     try:
-        findings = json.loads(proc.stdout) if proc.stdout.strip() else []
+        findings = json.loads(proc.stdout)
     except json.JSONDecodeError:
         # gitleaks found issues but output isn't parseable
         result.findings.append(
@@ -84,6 +93,10 @@ def scan(project_root: str, include_history: bool = False) -> ScanResult:
                 fix="Run `gitleaks detect` manually for details.",
             )
         )
+        return result
+
+    if not isinstance(findings, list) or not findings or not all(isinstance(i, dict) for i in findings):
+        result.errors.append("UNKNOWN: gitleaks exited 1 but its report held no readable findings")
         return result
 
     for item in findings:

@@ -74,8 +74,11 @@ def test_binary_vanishing_mid_run_is_unknown(
         _completed("", returncode=1, stderr="npm ERR! crashed"),
         _completed(json.dumps({"error": {"code": "ENOLOCK"}}), returncode=1),
         _completed("not json", returncode=0),
+        _completed(json.dumps({"vulnerabilities": None}), returncode=0),
+        _completed(json.dumps({"vulnerabilities": []}), returncode=0),
+        _completed(json.dumps({"vulnerabilities": ["left-pad"]}), returncode=1),
     ],
-    ids=["empty-stdout", "error-object", "unparseable"],
+    ids=["empty-stdout", "error-object", "unparseable", "null-map", "empty-list", "list"],
 )
 def test_an_audit_that_produced_no_report_is_unknown_not_clean(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, proc: subprocess.CompletedProcess

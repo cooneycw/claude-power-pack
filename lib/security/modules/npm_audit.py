@@ -87,13 +87,21 @@ def scan(project_root: str) -> ScanResult:
             f"UNKNOWN: npm audit output was not valid JSON (exit {proc.returncode}{detail})"
         )
         return result
-    if not isinstance(data, dict) or "error" in data or "vulnerabilities" not in data:
+    # The SHAPE is checked, not just the key (counter-model review): a null or
+    # list `vulnerabilities` read as empty passed as clean, and a non-empty list
+    # raised AttributeError below.
+    vulnerabilities = data.get("vulnerabilities") if isinstance(data, dict) else None
+    if (
+        not isinstance(data, dict)
+        or "error" in data
+        or not isinstance(vulnerabilities, dict)
+        or not all(isinstance(info, dict) for info in vulnerabilities.values())
+    ):
         result.errors.append(
             f"UNKNOWN: npm audit did not return a vulnerability report (exit {proc.returncode})"
         )
         return result
 
-    vulnerabilities = data.get("vulnerabilities", {})
     if not vulnerabilities:
         result.passed.append("No dependency vulnerabilities found (npm audit)")
         return result

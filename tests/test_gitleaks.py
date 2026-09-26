@@ -80,6 +80,24 @@ def test_a_failing_gitleaks_is_unknown_not_silent(
     assert _is_unknown(result)
 
 
+@pytest.mark.parametrize(
+    "stdout", ["", "[]", '{"not": "a list"}'], ids=["empty", "empty-list", "object"]
+)
+def test_exit_1_without_a_readable_report_is_unknown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stdout: str
+) -> None:
+    """Counter-model review: gitleaks exits 1 for a nonexistent source too, with
+    no report. Only a report can say secrets were found."""
+    monkeypatch.setattr(gitleaks, "is_available", lambda: True)
+    monkeypatch.setattr(
+        gitleaks.subprocess, "run", Mock(return_value=_completed(stdout, 1, "no such source"))
+    )
+
+    result = gitleaks.scan(str(tmp_path))
+
+    assert _is_unknown(result)
+
+
 def test_clean_scan_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The GOOD side: without it, an adapter that always said UNKNOWN would pass."""
     monkeypatch.setattr(gitleaks, "is_available", lambda: True)
