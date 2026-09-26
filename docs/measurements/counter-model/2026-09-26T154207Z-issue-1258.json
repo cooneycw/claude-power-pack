@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1258-flow-start-finish-gates-let-work-through-that-they",
+  "counts": {
+    "accepted": 10,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "66649e871828b2a8d7c6bfce6a2bc9d65171bdf4",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1258",
+  "passes": 2,
+  "recorded_at": "2026-09-26T15:42:07Z",
+  "red_cases": {
+    "already_covered": 11,
+    "proposed": 12
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
