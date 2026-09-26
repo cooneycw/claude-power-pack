@@ -140,14 +140,24 @@ PARSE_UNPARSEABLE = "unparseable"
 PARSE_FORMAT_MISMATCH = "format-mismatch"
 
 #: What makes a line in the Findings section read as a finding written in some
-#: other shape: a LIST ITEM or HEADING carrying an uppercase severity LABEL as a
-#: whole word. Deliberately narrow, in both directions: a truncated `### [HIG`
-#: and a prose "looks good" carry no label and stay `unparseable`, and a
-#: lowercase "the risk is low" is English, not a label.
+#: other shape: a LIST ITEM or HEADING that LEADS with an uppercase severity
+#: label, after at most some emphasis or bracket punctuation - `- **MEDIUM -
+#: x.py:1**`, `### HIGH: title`, `1. [LOW] title`. Deliberately narrow, in both
+#: directions: a truncated `### [HIG` and a prose "looks good" carry no label
+#: and stay `unparseable`; a lowercase "the risk is low" is English; and a
+#: prescribed finding's own `- Issue: ... HIGH ...` field does not lead with one,
+#: so a well-formed review is never mistaken for a mismatched one. A line the
+#: prescribed `FINDING_RE` already reads is excluded by the caller.
 OFFSHAPE_FINDING_RE = re.compile(
-    r"^\s*(?:[-*+]|\d+[.)]|#{1,6})\s.*\b(?:CRITICAL|HIGH|MEDIUM|LOW)\b",
+    r"^[ \t]*(?:[-*+]|\d+[.)]|#{1,6})[ \t]+[*_`\[(]*[ \t]*(?:CRITICAL|HIGH|MEDIUM|LOW)\b",
     re.MULTILINE,
 )
+
+
+def _offshape_findings(section: str) -> bool:
+    """A finding-shaped line the prescribed heading regex does not read."""
+    lines = [ln for ln in section.splitlines() if OFFSHAPE_FINDING_RE.match(ln)]
+    return any(not FINDING_RE.match(ln) for ln in lines)
 
 
 def parse_review(text: str) -> tuple[str, list[dict]]:
@@ -194,12 +204,17 @@ def parse_review(text: str) -> tuple[str, list[dict]]:
         {"severity": m.group("severity"), "title": m.group("title")}
         for m in FINDING_RE.finditer(masked_section)
     ]
+    # CHECKED BEFORE EITHER SUCCESS (counter-model review). A section mixing one
+    # prescribed heading with off-shape bullets returned `findings` counting only
+    # the heading, and a clean statement followed by a bullet returned `clean` -
+    # both reach a receipt with the off-shape findings silently uncounted. The
+    # recognised findings are returned with the verdict, so nothing is lost.
+    if _offshape_findings(masked_section):
+        return PARSE_FORMAT_MISMATCH, findings
     if findings:
         return PARSE_FINDINGS, findings
     if NONE_RE.search(masked_section):
         return PARSE_CLEAN, []
-    if OFFSHAPE_FINDING_RE.search(masked_section):
-        return PARSE_FORMAT_MISMATCH, []
     return PARSE_UNPARSEABLE, []
 
 
