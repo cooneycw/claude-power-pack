@@ -31,6 +31,12 @@ DANGLING_REFERENCE = re.compile(r"#(?!\d)")
 # "Depends on: None" declares the ABSENCE of a dependency. Read as a phrase with no
 # reference it made every prerequisite-free issue uncertain (#1035).
 # A dash counts only when nothing follows it: "- see #12" is not a negation.
+# "nothing but the owner's ruling" names a prerequisite in prose; a qualifier anywhere in
+# the negation's clause keeps the declaration unresolved.
+NEGATION_QUALIFIER = re.compile(
+    r"\b(?:but|except|excepting|other\s+than|apart\s+from|besides|save|beyond|until|unless|pending)\b",
+    re.IGNORECASE,
+)
 NO_DEPENDENCY = re.compile(r"(?:[-—–]\s*)?(?:none|n/a|nothing|nil)\b|[-—–](?=\s*(?:$|[;.,]))", re.IGNORECASE)
 CODE_FENCE = re.compile(r"^\s*(?:```|~~~)")
 INLINE_CODE = re.compile(r"`[^`\n]*`")
@@ -109,7 +115,7 @@ def _declares_none(line: str, position: int) -> bool:
     if not match:
         return False
     clause = re.split(r"[.;]", line[match.end() :], maxsplit=1)[0]
-    return not (ISSUE_REFERENCE.search(clause) or TASK_REFERENCE.search(clause))
+    return not (ISSUE_REFERENCE.search(clause) or TASK_REFERENCE.search(clause) or NEGATION_QUALIFIER.search(clause))
 
 
 def _line_references(line: str) -> tuple[set[int], set[str], list[str]]:

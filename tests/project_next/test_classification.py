@@ -226,7 +226,16 @@ def test_depends_on_none_declares_no_dependency(negation: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "text", ["the owner's ruling", "- see the tracking thread", "-12", "nothing but #12", "none except T004"]
+    "text",
+    [
+        "the owner's ruling",
+        "- see the tracking thread",
+        "-12",
+        "nothing but #12",
+        "none except T004",
+        "nothing but the owner's ruling",
+        "none, pending the security review",
+    ],
 )
 def test_depends_on_something_unresolvable_is_still_uncertain(text: str) -> None:
     state = RepositoryState(
