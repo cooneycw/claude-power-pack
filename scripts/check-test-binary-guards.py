@@ -936,7 +936,11 @@ def binaries_in_script(path: Path) -> frozenset[str]:
     return found
 
 
-def python_binaries_in_script(path: Path) -> frozenset[str]:
+#: `path -> (required, handled)` for the python hop, keyed like the shell cache.
+_PY_SCAN_CACHE: dict[tuple[str, int, int], tuple[frozenset[str], frozenset[str]]] = {}
+
+
+def python_script_reach(path: Path) -> tuple[frozenset[str], frozenset[str]]:
     """The guarded binaries a PYTHON script hard-requires (issue #1259).
 
     The #789 hop followed `bash SCRIPT` only, so a test running
@@ -954,8 +958,8 @@ def python_binaries_in_script(path: Path) -> frozenset[str]:
         stat = path.stat()
     except OSError:  # pragma: no cover - defensive
         return frozenset()
-    key = ("py:" + str(path), stat.st_mtime_ns, stat.st_size)
-    cached = _SCRIPT_SCAN_CACHE.get(key)
+    key = (str(path), stat.st_mtime_ns, stat.st_size)
+    cached = _PY_SCAN_CACHE.get(key)
     if cached is not None:
         return cached
     try:
@@ -963,13 +967,20 @@ def python_binaries_in_script(path: Path) -> frozenset[str]:
     except (OSError, SyntaxError, ValueError):
         # Unreadable is not "needs nothing" - but it is not a test's problem
         # either, and the script's own test run will fail loudly on it.
-        return frozenset()
+        return frozenset(), frozenset()
     subprocess_aliases, os_aliases = _shell_aliases(tree)
     finder = _ShellOutFinder(subprocess_aliases, os_aliases, None, failsoft_try=True)
     finder.visit(tree)
-    found = frozenset(b for b in finder.binaries if _needs_direct_guard(b))
-    _SCRIPT_SCAN_CACHE[key] = found
-    return found
+    required = frozenset(b for b in finder.binaries if _needs_direct_guard(b))
+    # HANDLED reaches - under a which-branch or a recovering `except` - are
+    # returned too, so a test hopping into such a script still counts as
+    # REACHING a binary, recognisably guarded (counter-model re-review).
+    handled = frozenset(
+        b for b in finder.guarded_hits | finder.exempt_hits if _needs_direct_guard(b)
+    ) - required
+    result = (required, handled)
+    _PY_SCAN_CACHE[key] = result
+    return result
 
 
 def _repo_root_for(module_path: Path) -> Path | None:
@@ -1130,10 +1141,17 @@ class _ScriptResolver:
                     return None  # a module or a command string, not a file
                 continue
             path = self._expr(node)
-            if path is None or path.suffix != ".py":
+            if path is None or path.suffix != ".py" or self.repo_root is None:
                 return None
             try:
-                return path if path.is_file() else None
+                resolved = path.resolve()
+                # The same ownership boundary as `direct_script_for` (#906): an
+                # installed script elsewhere is not ours to read, and reading it
+                # would let a NEIGHBOUR's edit change this repository's verdict
+                # (counter-model re-review).
+                if not resolved.is_file() or not resolved.is_relative_to(self.repo_root):
+                    return None
+                return resolved
             except OSError:  # pragma: no cover - defensive
                 return None
         return None
@@ -1225,7 +1243,7 @@ class _ShellOutFinder(ast.NodeVisitor):
         self._visit_guarded(node.test, [node.body], [node.orelse])
 
     def visit_Try(self, node: ast.Try) -> None:
-        if not self.failsoft_try or not any(_recovers_from_absence(h) for h in node.handlers):
+        if not self.failsoft_try or not _first_absence_handler_recovers(node.handlers):
             self.generic_visit(node)
             return
         saved = self._in_failsoft_try
@@ -1285,7 +1303,11 @@ class _ShellOutFinder(ast.NodeVisitor):
                 script = self.resolver.python_script_for_argv(list(first.elts[1:]))
                 if script is None:
                     return set(), None
-                binaries = set(python_binaries_in_script(script))
+                required, handled = python_script_reach(script)
+                # The script's own guard is a guard for this test: counted as
+                # a guarded reach, never as an allow-exemption.
+                self.guarded_hits |= handled
+                binaries = set(required)
                 return (binaries, script) if binaries else (set(), None)
             if head is None:
                 # argv[0] is not a literal - it may still be a repo script run
@@ -1387,6 +1409,23 @@ def _positive_which(test: ast.expr) -> set[str]:
 _ABSENCE_EXCEPTIONS = frozenset({"FileNotFoundError", "OSError", "Exception", "BaseException"})
 
 
+def _catches_absence(handler: ast.ExceptHandler) -> bool:
+    if handler.type is None:
+        return True
+    types = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
+    return any(_dotted(t).rsplit(".", 1)[-1] in _ABSENCE_EXCEPTIONS for t in types)
+
+
+def _first_absence_handler_recovers(handlers: list[ast.ExceptHandler]) -> bool:
+    """Python runs the FIRST matching handler, so only that one decides
+    (counter-model re-review): `except FileNotFoundError: raise` followed by
+    `except OSError: pass` re-raises, whatever the later handler says."""
+    for handler in handlers:
+        if _catches_absence(handler):
+            return _recovers_from_absence(handler)
+    return False
+
+
 def _recovers_from_absence(handler: ast.ExceptHandler) -> bool:
     """A handler that catches the exec failure AND carries on.
 
@@ -1395,10 +1434,8 @@ def _recovers_from_absence(handler: ast.ExceptHandler) -> bool:
     uncaught error would, so a handler containing a `raise` or an exit call
     leaves the requirement standing.
     """
-    if handler.type is not None:
-        types = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
-        if not any(_dotted(t).rsplit(".", 1)[-1] in _ABSENCE_EXCEPTIONS for t in types):
-            return False
+    if not _catches_absence(handler):
+        return False
     for child in ast.walk(handler):
         if isinstance(child, ast.Raise):
             return False

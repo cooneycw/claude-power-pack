@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from lib.cicd.makefile import check_makefile, parse_makefile
 
 # `unsupported_targets` is imported INSIDE the tests that use it, not here.
@@ -250,6 +252,17 @@ class TestSharedRecipeSurvivesARedeclaration:
         # which is what GNU make's dry run shows (counter-model review).
         assert mk.scripts_invoked("deploy") == {"shared-step.sh"}
         assert mk.scripts_invoked("package") == {"pack.sh"}
+
+    @pytest.mark.parametrize("sibling", ["build", "deploy"])
+    def test_a_later_recipe_REPLACES_the_inherited_one(self, sibling):
+        """make runs only the newer recipe (counter-model re-review), for the
+        leading target and a non-leading sibling alike."""
+        from lib.cicd.makefile_declaration import Makefile as Declaration
+
+        mk = Declaration(self.TEXT + f"{sibling}:\n\t@bash scripts/replacement.sh\n")
+        assert mk.scripts_invoked(sibling) == {"replacement.sh"}
+        other = "deploy" if sibling == "build" else "build"
+        assert mk.scripts_invoked(other) == {"shared-step.sh"}
 
     def test_a_target_outside_every_group_still_has_no_recipe(self):
         """The negative membership: the fix must not hand recipes to strangers."""

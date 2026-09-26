@@ -202,6 +202,13 @@ def _parse_mapping(lines: list[str]) -> dict[str, object]:
             raise FrontmatterError(f"line {line_number}: duplicate key {key!r}")
 
         if raw_value.strip():
+            # Tabs are checked on the RAW value, before `_scalar` strips it: a
+            # leading `:\tdeploy` or trailing `deploy\t` otherwise vanished into
+            # the strip while PyYAML refuses both (counter-model re-review).
+            if "\t" in raw_line.rstrip("\r\n") and raw_value.strip()[:1] not in {'"', "'"}:
+                raise FrontmatterError(
+                    f"line {line_number}: a tab in an unquoted value does not load in YAML - quote it"
+                )
             parent[key] = _scalar(raw_value)
         else:
             child: dict[str, object] = {}

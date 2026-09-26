@@ -2287,3 +2287,56 @@ def test_an_exempted_or_guarded_reach_stays_in_the_population(tmp_path: Path) ->
     path.write_text(CONDITIONAL_HELPER, encoding="utf-8")
     scan = checker.scan_paths([path])
     assert scan.findings == [] and scan.reaching == 1 and scan.exempted == 0, scan
+
+
+# -- counter-model re-review of #1259 ---------------------------------------- #
+
+def test_only_the_FIRST_matching_handler_decides_recovery(tmp_path: Path) -> None:
+    script = (
+        "import subprocess\n"
+        "try:\n"
+        "    subprocess.run(['git', 'status'], check=True)\n"
+        "except FileNotFoundError:\n"
+        "    raise\n"
+        "except OSError:\n"
+        "    pass\n"
+    )
+    test = PY_SCRIPT_PREAMBLE + """\
+def test_the_real_repo_is_clean():
+    subprocess.run([sys.executable, str(THING)], check=False)
+"""
+    findings = _repo(tmp_path, test, script=script, name="thing.py")
+    assert [f.binaries for f in findings] == [("git",)], findings
+
+
+def test_a_guarded_python_hop_stays_in_the_population(tmp_path: Path) -> None:
+    guarded = "import shutil, subprocess\nif shutil.which('git'):\n    subprocess.run(['git', 'status'])\n"
+    test = PY_SCRIPT_PREAMBLE + """\
+def test_the_real_repo_is_clean():
+    subprocess.run([sys.executable, str(THING)], check=False)
+"""
+    _repo(tmp_path, test, script=guarded, name="thing.py")
+    path = tmp_path / "tests" / "test_sample.py"
+    scan = checker.scan_paths([path])
+    assert scan.findings == [] and scan.reaching == 1, scan
+
+    (tmp_path / "scripts" / "thing.py").write_text("print('done')\n", encoding="utf-8")
+    scan = checker.scan_paths([path])
+    assert scan.reaching == 0, scan
+
+
+def test_a_python_script_outside_the_checkout_is_not_read(tmp_path: Path) -> None:
+    """A neighbour's installed script must not decide this repository's verdict."""
+    outside = tmp_path / "elsewhere" / "installed.py"
+    outside.parent.mkdir()
+    outside.write_text(PY_RUNS_GIT, encoding="utf-8")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    test = PY_SCRIPT_PREAMBLE + f"""\
+EXTERNAL = Path({str(outside)!r})
+
+
+def test_uses_an_installed_script():
+    subprocess.run([sys.executable, str(EXTERNAL)], check=False)
+"""
+    assert _repo(repo, test) == []

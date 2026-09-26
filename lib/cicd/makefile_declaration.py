@@ -174,7 +174,11 @@ class Makefile:
         #: GNU make does: `build deploy:` gives both targets that recipe, a later
         #: prerequisite-only `build: lint` changes neither, and a later
         #: `build package:` recipe belongs to build and package, never deploy.
+        #: A rule that supplies a recipe REPLACES each target's earlier one, as
+        #: make does (with an "overriding recipe" warning) - so `deploy:` with
+        #: its own recipe drops the one it inherited from `build deploy:`.
         current: list[str] = []
+        replacing = False
         lines = text.splitlines()
         i = 0
         while i < len(lines):
@@ -189,6 +193,10 @@ class Makefile:
                 i += 1
                 continue
             if line.startswith("\t"):
+                if replacing:
+                    for name in current:
+                        self.recipes[name] = []
+                    replacing = False
                 for name in current:
                     self.recipes[name].append(line[1:])
                 i += 1
@@ -227,6 +235,7 @@ class Makefile:
                         self.recipes[name] = []
                     self.prereqs[name].extend(_prerequisites(rest))
                 current = declared
+                replacing = True
                 i += 1
                 continue
             if line.strip():

@@ -692,6 +692,8 @@ YAML_REFUSES_OR_REWRITES = [
     pytest.param("description: #deploy\n", id="leading-hash"),
     pytest.param("description: CI/CD:\ta pipeline\n", id="colon-tab"),
     pytest.param("description: fixed\t#720\n", id="tab-hash"),
+    pytest.param("description:\tdeploy\n", id="leading-tab"),
+    pytest.param("description: deploy\t\n", id="trailing-tab"),
 ]
 
 
