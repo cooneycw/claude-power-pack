@@ -157,7 +157,12 @@ while IFS= read -r -d '' entry; do
   status="${entry:0:2}"
   path="${entry:3}"
   [ "$status" = "!!" ] || continue
-  case "$path" in */) continue ;; esac   # defensive: skip any dir entry
+  # A DIRECTORY entry is NOT skipped (counter-model review, #1258). git lists
+  # a directory ignored by a directory rule (`config/`) as the one entry
+  # `config/`, never its files - so skipping it meant `config/manifest.json`
+  # was never inspected and the verdict read clean. Scratch and by-design
+  # directories are still dropped by the two filters below; anything else is
+  # reported by the directory name, which is all git will say about it.
   is_scratch "$path" && continue
   is_intentional_ignore "$path" && continue
   suspicious+=("$path")

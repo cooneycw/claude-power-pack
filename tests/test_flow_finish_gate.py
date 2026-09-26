@@ -2853,3 +2853,18 @@ def test_an_interrupted_gate_leaves_no_runner_json_behind(tmp_path: Path) -> Non
     assert "FLOW_FINISH_GATE: " not in proc.stdout, proc.stdout
     assert "running deterministic gate" in proc.stdout
     assert sorted(p.name for p in tmpdir.iterdir()) == []
+
+
+
+@requires_bash
+@requires_git
+def test_runner_unavailable_fallback_honours_a_declared_mypy_scope(tmp_path: Path) -> None:
+    """counter-model review, pass 2: the runner-unavailable lane still ran
+    `mypy .`, so the scope a repo declared depended on which lane ran."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.ruff]\n[tool.pytest.ini_options]\n[tool.mypy]  # scope\nfiles = ["pkg"]\n'
+    )
+    proc, bindir = _run(tmp_path, cpp_dir="", uv_exit=0)
+    invocations = (bindir / "uv.log").read_text().splitlines()
+    assert "run --extra dev mypy" in invocations
+    assert "run --extra dev mypy ." not in invocations

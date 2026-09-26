@@ -244,3 +244,22 @@ def test_an_unreadable_inventory_is_not_a_clean_result(tmp_path: Path) -> None:
     )
     assert advisory.returncode == 0
     assert "NOT inspected" in advisory.stderr
+
+
+
+def test_a_wholly_ignored_directory_is_reported_not_skipped(tmp_path: Path) -> None:
+    """counter-model review, pass 2: git lists a directory ignored by a
+    directory rule as ONE entry, `config/`, and the guard used to skip every
+    directory entry - so `config/manifest.json` was never inspected."""
+    repo = tmp_path / "repo"
+    _init_repo(repo, "config/\n.venv/\n")
+    wt = tmp_path / "repo-issue-1"
+    _git(repo, "worktree", "add", "-q", "-b", "issue-1-x", str(wt))
+    (wt / "config").mkdir()
+    (wt / "config" / "manifest.json").write_text("{}", encoding="utf-8")
+    (wt / ".venv").mkdir()
+    (wt / ".venv" / "pyvenv.cfg").write_text("x", encoding="utf-8")
+    result = _run(wt)
+    assert result.returncode == 3
+    assert "config/" in result.stderr
+    assert ".venv" not in result.stderr  # a scratch directory is still dropped

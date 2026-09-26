@@ -211,8 +211,17 @@ create_worktree() {
       # session between the show-ref above and this add is not ours: if it has
       # moved, `update-ref -d <ref> <old>` refuses and it survives. One still at
       # start_sha carries no commits, so deleting it loses nothing either way.
-      [ -n "$start_sha" ] &&
+      #
+      # A matching tip is not ownership (counter-model review, pass 2): another
+      # session may have created the branch at the same commit AND checked it
+      # out. A branch any worktree holds is never deleted here. What remains is
+      # the window between this listing and the delete - narrowed, not closed;
+      # the cost of a leftover branch is one confusing next run, the cost of a
+      # deleted attached branch is someone's worktree losing its ref.
+      if [ -n "$start_sha" ] &&
+        ! "$GIT" -C "$TARGET_REPO" worktree list --porcelain 2>/dev/null | grep -qxF "branch refs/heads/$branch"; then
         "$GIT" -C "$TARGET_REPO" update-ref -d "refs/heads/$branch" "$start_sha" >/dev/null 2>&1
+      fi
       return 1
     fi
   fi

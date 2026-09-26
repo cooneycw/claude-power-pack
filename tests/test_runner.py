@@ -4629,6 +4629,9 @@ class TestScopedMypy:
             "[]",
         ),
         ("commented_header", {"pyproject.toml": '[tool.mypy]  # project scope\nfiles = ["x"]\n'}, "[]"),
+        # counter-model review, pass 2: both spellings mypy accepts.
+        ("ini_colon_delimiter", {"setup.cfg": "[mypy]\nfiles: pkg\n"}, "[]"),
+        ("toml_quoted_key", {"pyproject.toml": '[tool.mypy]\n"files" = ["pkg"]\n'}, "[]"),
     ]
 
     @pytest.mark.parametrize("impl", ["shell", "module"])

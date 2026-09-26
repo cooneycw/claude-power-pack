@@ -1232,6 +1232,29 @@ parse_fallback_failed_ids() {
     ' "$1" 2>/dev/null
 }
 
+# `mypy` when the config mypy would use declares `files`, else `mypy .` (issue
+# #1258). The runner lane calls lib/cicd/mypy_scope.py; this lane runs where the
+# runner is unavailable - and in generated Codex skills that bundle this script
+# without lib/ - so it carries its own copy of the same rule (the first of
+# mypy.ini, .mypy.ini, pyproject.toml, setup.cfg with a [mypy]/[tool.mypy]
+# section decides). tests/test_flow_finish_gate.py pins it against a
+# runner-unavailable invocation.
+mypy_fallback_args() {
+    local c r
+    for c in mypy.ini .mypy.ini pyproject.toml setup.cfg; do
+        [[ -f "$c" ]] || continue
+        r=$(awk '
+            /^[[:space:]]*\[/ { s = ($0 ~ /^[[:space:]]*\[(tool\.)?mypy\][[:space:]]*(#.*)?$/); if (s) m = 1 }
+            s && /^[[:space:]]*"?files"?[[:space:]]*[=:]/ { f = 1 }
+            END { print (m ? (f ? "files" : "nofiles") : "none") }
+        ' "$c")
+        [[ "$r" == none ]] && continue
+        if [[ "$r" == files ]]; then echo "mypy"; return; fi
+        break
+    done
+    echo "mypy ."
+}
+
 run_fallback_gate() {
     # $1=id  $2=uv-tool-args  $3=pyproject-token
     local id="$1" uvargs="$2" token="$3"
@@ -1422,7 +1445,7 @@ if [[ -f Makefile || -f pyproject.toml ]]; then
     # Typecheck is a hard step in every shipped CI template, so the fallback
     # runs it too - otherwise a repo that degrades here gets the same
     # local-green-then-CI-red the runner plan had before #617.
-    run_fallback_gate typecheck "mypy ." "mypy"
+    run_fallback_gate typecheck "$(mypy_fallback_args)" "mypy"
     # `verify` runs HERE TOO (#1147). A gate declared in the finish plan must be
     # either invoked by this lane or named in FALLBACK_UNRUNNABLE_GATES with a
     # reason - tests/test_runner.py asserts it - so leaving it out would have

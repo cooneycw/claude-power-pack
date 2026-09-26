@@ -1092,3 +1092,19 @@ def test_compose_name_with_interpolation_falls_back_to_basename(tmp_path: Path):
     (clone / "compose.yaml").write_text("name: ${PROJECT:-x}\nservices: {}\n")
     res = _run("42", "--session-cwd", str(clone), cwd=clone, gh=_fake_gh(tmp_path))
     assert _contract(res)["COMPOSE_PROJECT_NAME"] == "clone-repo"
+
+
+@requires_git
+def test_fresh_name_skips_every_taken_suffix(tmp_path: Path):
+    origin, clone = _make_origin_and_clone(tmp_path)
+    _push_issue_branch(origin, "issue-42-fix-the-frobnicator")
+    _push_issue_branch(origin, "issue-42-fix-the-frobnicator-2")
+    _git(clone, "fetch", "-q", "origin")
+    res = _run(
+        "42", "--session-cwd", str(clone), cwd=clone, gh=_fake_gh(tmp_path),
+        extra_env={"FAKE_GH_PR": "9:MERGED"},
+    )
+    assert res.returncode == 0, res.stderr
+    c = _contract(res)
+    assert c["LANE"] == "fresh"
+    assert c["BRANCH"] == "issue-42-fix-the-frobnicator-3"

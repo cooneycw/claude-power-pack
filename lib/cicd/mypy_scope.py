@@ -37,7 +37,9 @@ from pathlib import Path
 CONFIG_ORDER = ("mypy.ini", ".mypy.ini", "pyproject.toml", "setup.cfg")
 _HEADER = re.compile(r"^\s*\[")
 _MYPY_HEADER = re.compile(r"^\s*\[(tool\.)?mypy\]\s*(#.*)?$")
-_FILES_KEY = re.compile(r"^\s*files\s*=")
+# `files = x` / `files: x` (INI accepts both delimiters) and TOML's quoted-key
+# spelling `"files" = [...]` (counter-model review, pass 2).
+_FILES_KEY = re.compile(r'^\s*"?files"?\s*[=:]')
 
 
 def _section_state(text: str) -> str:

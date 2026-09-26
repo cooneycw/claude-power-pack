@@ -166,7 +166,7 @@ MYPY_DECLARED_FILES_PROBE = (
     "[ -f \"$_c\" ] || continue; "
     "_r=$(awk '"
     "/^[[:space:]]*\\[/ { s = ($0 ~ /^[[:space:]]*\\[(tool\\.)?mypy\\][[:space:]]*(#.*)?$/); if (s) m = 1 } "
-    "s && /^[[:space:]]*files[[:space:]]*=/ { f = 1 } "
+    "s && /^[[:space:]]*\\\"?files\\\"?[[:space:]]*[=:]/ { f = 1 } "
     "END { print (m ? (f ? \"files\" : \"nofiles\") : \"none\") }' \"$_c\"); "
     "[ \"$_r\" = none ] && continue; "
     "_scope=$_r; break; "
