@@ -88,7 +88,9 @@ def test_vendored_human_and_json_goldens_are_executable() -> None:
     assert json.dumps(recommend(empty).to_dict(), indent=2, sort_keys=True) == expected_json
 
 
-def test_cpp_entry_point_runs_the_owned_fixture_without_optional_checkout(tmp_path: Path) -> None:  # binary-guard: allow --input fixture state, no git/gh probe
+def test_cpp_entry_point_runs_the_owned_fixture_without_optional_checkout(  # binary-guard: allow --input, no probe
+    tmp_path: Path,
+) -> None:
     scenarios = json.loads((FIXTURES / "scenarios.json").read_text(encoding="utf-8"))
     state_path = tmp_path / "state.json"
     state_path.write_text(json.dumps(scenarios["active_pr_and_safe_issue"]["state"]), encoding="utf-8")

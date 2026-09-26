@@ -73,7 +73,9 @@ def _dirty_the_case_text(repo: Path) -> str:
     return original
 
 
-def test_a_dirty_case_file_cannot_reach_a_prompt_built_from_a_commit(clone: Path) -> None:  # binary-guard: allow codex only without --dry-run
+def test_a_dirty_case_file_cannot_reach_a_prompt_built_from_a_commit(  # binary-guard: allow --dry-run, no codex
+    clone: Path,
+) -> None:
     committed_text = _dirty_the_case_text(clone)
     out = clone / "out"
 
@@ -93,7 +95,9 @@ def test_a_dirty_case_file_cannot_reach_a_prompt_built_from_a_commit(clone: Path
     )
 
 
-def test_the_issue_and_its_spec_come_from_the_commit_too(clone: Path) -> None:  # binary-guard: allow codex only without --dry-run
+def test_the_issue_and_its_spec_come_from_the_commit_too(  # binary-guard: allow --dry-run, no codex
+    clone: Path,
+) -> None:
     """The same promise for the other inputs, which were pinned first."""
     spec = clone / "tests/fixtures/delivery_pilots/completion/spec-v1.md"
     spec.write_text(spec.read_text(encoding="utf-8") + f"\n- [ ] {SENTINEL}\n",
