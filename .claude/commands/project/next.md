@@ -117,6 +117,16 @@ and consumed by brief, compact, and full rendering:
   `stale`, or `retained`.
 - `premise_flags`: open spec-derived issues whose parent specification predates
   a live architecture decision covering the same domain.
+- `worktree_delivery`: one verdict per worktree the engine proposes for cleanup
+  (unmapped, or its issue is not open). `delivered` only when every path the
+  branch changed since its merge-base holds the identical blob on
+  `origin/<default>` AND the tree is clean with no untracked files;
+  `not-proven` otherwise (never "undelivered" - the base may have moved those
+  files since); `unknown` whenever git could not be asked, and always for
+  `--input` fixtures. Ancestry and commit counts are never consulted, because a
+  squash merge breaks both. Each entry also carries the tree state and whether
+  the branch still exists on the remote (asked of the remote, not of possibly
+  unpruned local refs).
 
 Lifecycle defaults to `active` when `spec.md` has no `lifecycle` frontmatter,
 preserving compatibility with pre-Wayfinder specs. An active spec becomes
