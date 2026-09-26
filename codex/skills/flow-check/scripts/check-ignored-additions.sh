@@ -142,7 +142,7 @@ is_intentional_ignore() {
 # model review): a process substitution discards the exit status, so an
 # unreadable index produced no entries and the same exit 0 as a clean tree.
 _inventory=$(mktemp "${TMPDIR:-/tmp}/check-ignored-additions.XXXXXX")
-trap 'rc=$?; rm -f "$_inventory"; printf "CHECK_IGNORED_ADDITIONS_EXIT=%d\n" "$rc" >&2' EXIT
+trap 'printf "CHECK_IGNORED_ADDITIONS_EXIT=%d\n" "$?" >&2; rm -f "$_inventory"' EXIT
 if ! git status --ignored=matching --porcelain -z > "$_inventory" 2>/dev/null; then
   echo "[flow] check-ignored-additions: 'git status' failed, so the ignored files were NOT inspected - this is not a clean result." >&2
   if [ "$MODE" = blocking ]; then

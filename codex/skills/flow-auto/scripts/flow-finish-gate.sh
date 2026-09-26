@@ -137,9 +137,10 @@ set -uo pipefail
 # The trap also removes the runner's JSON temp file (issue #1258): it was removed
 # by one straight-line `rm` after parsing, so any exit before that line -
 # an interrupt, a killed runner - leaked one, and twelve accumulated on one host.
-# `$?` is captured FIRST, before the `rm` can overwrite it.
+# `$?` is read FIRST, by the printf, before the `rm` can change it; the `rm`
+# writes nothing, so the exit line is still the last thing on stderr.
 RUNNER_JSON=""
-trap '_rc=$?; [[ -n "$RUNNER_JSON" ]] && rm -f "$RUNNER_JSON"; printf "FLOW_FINISH_GATE_EXIT=%d\n" "$_rc" >&2' EXIT
+trap 'printf "FLOW_FINISH_GATE_EXIT=%d\n" "$?" >&2; [[ -z "$RUNNER_JSON" ]] || rm -f "$RUNNER_JSON"' EXIT
 
 # --- The shared gate conventions (issue #1061) ------------------------------
 # SIBLING FIRST, like every other helper this repository resolves: a generated
