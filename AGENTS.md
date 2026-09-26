@@ -20,7 +20,9 @@ otherwise announce.
 **Skills arrive as named Codex skills, not slash commands.** Command documents
 are written as `/flow:auto`, `/project:next` and so on. On this surface they are
 Codex skills named `flow-auto`, `project-next`. A `/name:thing` in any document means
-the skill `name-thing` here.
+the skill `name-thing` here, where one is generated: a few commands are Claude-only
+(`/cpp:init`, and every `/spec`, `/codex`, `/qwen` and `/gemma` command), and have
+no Codex skill.
 
 **Codex state is separate.** Configuration, credentials and installed skills live
 under `~/.codex/`, never `~/.claude/`. The two namespaces stay isolated, and

@@ -105,3 +105,18 @@ def test_every_declared_installer_write_is_under_the_codex_namespace() -> None:
     outside = [s for s in surfaces if s != "~/.codex" and not s.startswith("~/.codex/")]
     assert outside == [], outside
     assert sync.install_dest_root() == Path.home() / ".codex" / "skills"
+
+
+def test_the_claude_only_commands_agents_md_names_have_no_codex_skill() -> None:
+    """AGENTS.md: `/name:thing` means `name-thing` only where one is generated.
+
+    The unqualified rule was false for every excluded command (issue #1264). The
+    named examples must really be excluded - both directions: excluded by the
+    generator AND absent from `codex/skills/` - or the qualifier is itself false.
+    """
+    assert "Claude-only" in AGENTS
+    assert "init.md" in sync.EXCLUDE.get("cpp", set())
+    assert not (ROOT / "codex" / "skills" / "cpp-init").exists()
+    for family in ("spec", "codex", "qwen", "gemma"):
+        assert f"`/{family}`" in AGENTS, family
+        assert not list((ROOT / "codex" / "skills").glob(f"{family}-*")), family

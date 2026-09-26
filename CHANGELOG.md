@@ -4,6 +4,19 @@
 
 ### Fixed
 
+- **2026-09-26 - `/security:scan` no longer reports a gitleaks or npm audit
+  that never ran as clean** (issue #1264) - a missing `gitleaks` or `npm`, a
+  crashed audit, or an unreadable report used to show as `SKIP`, or for npm as
+  `No dependency vulnerabilities found`, which reads as a clean result. Each now
+  prints a red `UNKNOWN` error line instead - the shape #1044 gave `pip-audit`.
+  The gate's exit code is unchanged, and a project with no `package.json` or
+  `package-lock.json` is still skipped as not applicable. A clean npm pass now
+  says how many dependencies it examined. The same issue taught the negative-
+  control harness to find its census ADR outside `docs/decisions/0008-*` (kyle
+  files it at `docs/adr/`), taught `check-control-ci-deps.py` to read
+  `env -u NAME cmd` as running `cmd`, and pinned AGENTS.md's Codex facts with a
+  test, which found and corrected two false sentences in it.
+
 - **2026-09-24 - `/qwen:auto` and `/gemma:auto` re-delegated on an expired
   serveability pass** (issue #921, half 2 of 2; half 1 was PR #991) - the Step-6
   fix loop re-executed the model on the Step-4 probe's verdict, taken before the
