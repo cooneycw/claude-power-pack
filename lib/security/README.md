@@ -48,8 +48,13 @@ PYTHONPATH="${HOME}/Projects/claude-power-pack/lib" python3 -m lib.security gate
 | `deep` | `scan` + **gitleaks `--include_history`** (secrets committed then removed) | ~30 s |
 
 External tools (`gitleaks`, `pip-audit`, `npm audit`) are auto-detected via
-`shutil.which(...)` and skipped cleanly when absent - the native checks always
-run, so the module has no hard external dependency.
+`shutil.which(...)`. The native checks always run, so the module has no hard
+external dependency - but an external audit that APPLIES and could not run (the
+binary absent, a crash, an unparseable report) is reported as an `UNKNOWN`
+error line, never a skip or a pass (issues #1044, #1264). A skip is reserved for
+an audit that does not apply: no Python manifest for `pip-audit`, no
+`package.json` or `package-lock.json` for `npm audit`. The error line does not
+change the gate's exit code; it makes "not checked" readable as such.
 
 ## Modules (`lib/security/modules/`)
 

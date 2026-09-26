@@ -540,13 +540,24 @@ def interpreter_of(gate: Path) -> str | None:
     return head
 
 
+#: `env` options that consume the NEXT token as their argument (GNU coreutils).
+ENV_OPTIONS_WITH_VALUE = frozenset({"-u", "--unset", "-C", "--chdir"})
+#: `env -S` takes a whole command line as one string; unwrapping it is parsing
+#: shell, so the command is reported unresolved rather than guessed.
+ENV_SPLIT_OPTIONS = frozenset({"-S", "--split-string"})
+
+
 def invocation_command(invocation: list[str]) -> str | None:
     """The binary an `invocation` actually runs.
 
     `env` and its `VAR=VALUE` assignments are unwrapped - `["env", "FOO=1",
     "bash", "{gate}"]` runs `bash`, and reading `env` as the dependency would
     check a binary that is present in every image while missing the one that
-    might not be. `{gate}` and `{case}` are paths the harness substitutes, so a
+    might not be. So are `env`'s own options (issue #1264): `env -u NAME bash`
+    runs `bash`, and the token after `-u` is a VARIABLE, so reading it as the
+    command named a flag, `-u`, as a missing binary. `-S`/`--split-string` is
+    not unwrapped - its argument is a whole command line - and resolves to
+    None rather than to a guess. `{gate}` and `{case}` are paths the harness substitutes, so a
     command position holding one means the gate is run directly and its
     INTERPRETER is the dependency - which `interpreter_of` answers.
     """
@@ -555,8 +566,21 @@ def invocation_command(invocation: list[str]) -> str | None:
         token = invocation[index]
         if index == 0 and Path(token).name == "env":
             index += 1
-            while index < len(invocation) and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", invocation[index]):
-                index += 1
+            while index < len(invocation):
+                arg = invocation[index]
+                if arg in ENV_OPTIONS_WITH_VALUE:
+                    index += 2
+                elif arg in ENV_SPLIT_OPTIONS or arg.startswith(("-S", "--split-string")):
+                    return None
+                elif arg == "--":
+                    index += 1
+                    break
+                elif arg == "-" or arg.startswith("-") or re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", arg):
+                    # `-i`, `-0`, `-u NAME` fused as `-uNAME`, `--unset=NAME`,
+                    # `--chdir=DIR`, and `VAR=VALUE` all precede the command.
+                    index += 1
+                else:
+                    break
             continue
         if "{gate}" in token or "{case}" in token:
             return None
@@ -605,6 +629,12 @@ def requirements(root: Path, control_dir: Path, binary_gate) -> tuple[set[str], 
     command = invocation_command(invocation)
     if command:
         needed.add(command)
+    elif invocation and Path(invocation[0]).name == "env" and any(
+        part in ENV_SPLIT_OPTIONS or part.startswith(("-S", "--split-string"))
+        for part in invocation[1:]
+    ):
+        # Unread is not "needs nothing": say so, and let it count.
+        notes.append("invocation uses `env -S`, whose command line this gate does not parse - dependency UNKNOWN")
 
     declared = str(spec.get("gate", ""))
     if not declared:

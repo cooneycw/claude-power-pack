@@ -307,14 +307,13 @@ def census_instruments(root: Path) -> set[str] | None:
     unanswered question must not read as "nothing is an instrument" - that is
     the blind-scan shape this whole file is about. Callers report it.
     """
-    census = root / CENSUS_REL
     # THE RULE COMES FROM THIS CHECKOUT, THE DATA FROM THE TREE BEING CHECKED.
     # Loading the rule from `root` instead would execute the target tree's own
     # Python on every run - which `--root` points at fixtures and, in principle,
     # at any tree someone hands it. It is also wrong on the merits: "what counts
     # as an instrument" is this gate's rule, not something each tree redefines.
     gate = REPO_ROOT / CENSUS_GATE_REL
-    if not census.is_file() or not gate.is_file():
+    if not gate.is_file():
         return None
     try:
         spec = spec_from_file_location("instrument_census_check", gate)
@@ -322,6 +321,11 @@ def census_instruments(root: Path) -> set[str] | None:
             return None
         module = module_from_spec(spec)
         spec.loader.exec_module(module)
+        # WHICH document is the census is the rule's call too (issue #1264), so
+        # the three readers of the table cannot resolve three different files.
+        census, _label = module.resolve_adr(root)
+        if census is None:
+            return None
         return set(module.census_subjects(census.read_text()))
     except Exception:  # noqa: BLE001 - any failure here is UNREAD, never EMPTY
         return None

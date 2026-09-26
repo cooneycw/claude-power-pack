@@ -182,6 +182,35 @@ def test_env_is_unwrapped_so_the_real_command_is_examined(tmp_path: Path) -> Non
     )
 
 
+def test_env_options_are_unwrapped_not_read_as_the_command(tmp_path: Path) -> None:
+    """`env -u NAME <cmd>` runs `<cmd>` (issue #1264).
+
+    `controls/flow-vantage` needed `env -u` to be immune to an inherited
+    variable, and this gate named `-u` as a missing binary. The `tmux` assertion
+    is the other direction: skipping options must still reach the real command,
+    or an over-eager skip would pass anything wrapped this way.
+    """
+    pipeline(tmp_path)
+    gate_script(tmp_path, "scripts/toy-gate.sh", NEEDS_NOTHING)
+    control(
+        tmp_path, "toy", "scripts/toy-gate.sh",
+        ["env", "-i", "-u", "FLOW_VANTAGE_DECLARE", "--unset=OTHER", "FOO=1", "tmux", "{gate}"],
+    )
+    out = run(tmp_path)
+    assert "needs `-u`" not in out.stdout and "needs `FLOW_VANTAGE_DECLARE`" not in out.stdout, out.stdout
+    assert "CI_DEP: toy needs `tmux`" in out.stdout, out.stdout
+
+
+def test_env_split_string_is_unknown_not_needs_nothing(tmp_path: Path) -> None:
+    """`env -S "tmux {gate}"` hides the command in one string; unread must count."""
+    pipeline(tmp_path)
+    gate_script(tmp_path, "scripts/toy-gate.sh", NEEDS_NOTHING)
+    control(tmp_path, "toy", "scripts/toy-gate.sh", ["env", "-S", "tmux {gate}"])
+    out = run(tmp_path)
+    assert out.returncode == 1, out.stdout
+    assert "dependency UNKNOWN" in out.stdout, out.stdout
+
+
 def test_a_ci_stage_script_counts_as_staging(tmp_path: Path) -> None:
     """The undercount this gate shipped with for one iteration.
 
