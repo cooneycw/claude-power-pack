@@ -117,11 +117,22 @@ Any of these, on the test itself, its class, or the module (``pytestmark``):
 - ``@pytest.mark.skipif(shutil.which("git") is None, ...)``
 - ``@requires_git`` where ``requires_git = pytest.mark.skipif(shutil.which(...))``
   is assigned at module level (CPP's prevailing idiom),
-- an in-body ``if shutil.which("bash") is None: pytest.skip(...)``.
+- an in-body ``if shutil.which("bash") is None: pytest.skip(...)``,
+- the call itself sitting in a branch that runs only when the binary exists -
+  ``X if shutil.which("git") else None`` or ``if shutil.which("git"):`` - in the
+  test or in a helper it calls (issue #1259). ``@requires_git`` would be WRONG
+  there: it skips a git-less test exactly where it matters.
 
 Escape hatch: ``# binary-guard: allow <reason>`` on the call line or the ``def``
 line suppresses a finding, for the rare intentional case - including the script
-hop, where a script's ``jq`` path is genuinely unreachable from the test.
+hop, where a script's ``jq`` path is genuinely unreachable from the test. For
+the via-helper shape "the call line" includes the HELPER's own call line
+(issue #1259), which clears every caller at once.
+
+The script hop follows ``python`` scripts too (issue #1259): a test running
+``[sys.executable, str(SCRIPT)]`` is charged with what SCRIPT's own subprocess
+calls reach, except calls under a ``shutil.which()`` branch or inside ``try:
+... except FileNotFoundError|OSError``. One hop, like the shell lane.
 
 Stdlib-only and binary-free by construction: it parses source text and reads
 shell scripts, but never executes anything, so it runs in the slim CI image -
@@ -288,6 +299,13 @@ OS_SHELL_FUNCS = frozenset({"system", "popen"})
 #: argv[0] values that mean "the next non-flag argument is a script to run".
 SHELL_RUNNERS = frozenset({"bash", "sh"})
 
+#: argv[0] basenames that run a PYTHON script (issue #1259). `sys.executable`
+#: is recognised separately, by its dotted name, since it is not a literal.
+PYTHON_RUNNER_RE = re.compile(r"^python(?:\d+(?:\.\d+)?)?$")
+
+#: Python flags after which the next argument is NOT a script path.
+PYTHON_NON_SCRIPT_FLAGS = frozenset({"-m", "-c"})
+
 #: Shell flags whose argument is a command string, not a script path - the hop
 #: cannot resolve those, so it stops rather than guessing.
 SHELL_STDIN_FLAGS = frozenset({"-c", "-s"})
@@ -368,6 +386,17 @@ CASE_LABEL_RE = re.compile(
 #: (structurally unreachable here, but cheap to rule out) ``[[ rev == x ]]``
 #: shape is never misread as an assignment.
 ASSIGNMENT_RE = re.compile(r"=(?!=)")
+
+#: A guarded name glued by ``-`` to the rest of a FILENAME - ``git-stash-
+#: worktree-guard.sh`` listed as a bare token in a ``HELPERS=( ... )`` array -
+#: is data, not an invocation (issue #1259). ``SHELL_BINARY_RE`` matches it
+#: because the token sits at line start and ``\b`` holds between ``git`` and
+#: ``-``; adding that one array entry produced 16 false findings (#1056).
+#: The discriminator is the FILE EXTENSION, not the dash: ``git-stash list`` is
+#: git's legacy dashed invocation form and must still count, so rejecting every
+#: ``bin-`` match would trade a false positive for a false negative - the
+#: unsafe direction, as the ``ps)`` note above measured.
+FILENAME_TAIL_RE = re.compile(r"-[\w.+-]*\.(?:sh|bash|py)\b")
 
 #: The other two constructs #838 found sitting in "looks like command
 #: position" without being one - and, discovered while verifying them, a
@@ -825,6 +854,8 @@ def _script_uses(source: str, lines: list[str]) -> list[_ScriptUse]:
             continue  # a case ARM, not an invocation (#833)
         if ASSIGNMENT_RE.match(source, match.end("bin")):
             continue  # `rev=0` / `rev="$(...)"` - an assignment target (#838)
+        if FILENAME_TAIL_RE.match(source, match.end("bin")):
+            continue  # `git-stash-worktree-guard.sh` - a filename, not a use (#1259)
         command, indent = _logical_command(lines, index)
         # BOTH DIRECTIONS OF THIS DECISION ARE RECORDED (#926, ratified #936),
         # because believing the fail-soft declaration is a two-sided choice and a
@@ -901,6 +932,42 @@ def binaries_in_script(path: Path) -> frozenset[str]:
         and not (use.binary in scoped and use.indent > 0)
     }
     found = frozenset(required)
+    _SCRIPT_SCAN_CACHE[key] = found
+    return found
+
+
+def python_binaries_in_script(path: Path) -> frozenset[str]:
+    """The guarded binaries a PYTHON script hard-requires (issue #1259).
+
+    The #789 hop followed `bash SCRIPT` only, so a test running
+    `[sys.executable, str(SCRIPT)]` where SCRIPT shells out to git was reported
+    guarded - three such tests reached CI's git-less image before anyone saw
+    them (#1037, pipeline 2128). Read with the SAME finder a test is read with,
+    so "shells out" means one thing everywhere, plus the two ways a script
+    says it survives the binary's absence: the call sits in a branch guarded by
+    `shutil.which()`, or inside `try: ... except FileNotFoundError|OSError`.
+
+    ONE HOP, deliberately: this script's own `bash OTHER.sh` or imported
+    helpers are not followed further. A floor, like the rest of this gate.
+    """
+    try:
+        stat = path.stat()
+    except OSError:  # pragma: no cover - defensive
+        return frozenset()
+    key = ("py:" + str(path), stat.st_mtime_ns, stat.st_size)
+    cached = _SCRIPT_SCAN_CACHE.get(key)
+    if cached is not None:
+        return cached
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"), filename=str(path))
+    except (OSError, SyntaxError, ValueError):
+        # Unreadable is not "needs nothing" - but it is not a test's problem
+        # either, and the script's own test run will fail loudly on it.
+        return frozenset()
+    subprocess_aliases, os_aliases = _shell_aliases(tree)
+    finder = _ShellOutFinder(subprocess_aliases, os_aliases, None, failsoft_try=True)
+    finder.visit(tree)
+    found = frozenset(b for b in finder.binaries if _needs_direct_guard(b))
     _SCRIPT_SCAN_CACHE[key] = found
     return found
 
@@ -1054,6 +1121,23 @@ class _ScriptResolver:
         return self._expr(arg, known)
 
     # -- the hop ------------------------------------------------------------ #
+    def python_script_for_argv(self, rest: list[ast.expr]) -> Path | None:
+        """The `.py` a python argv runs, if it resolves to one (issue #1259)."""
+        for node in rest:
+            literal = _const_str(node)
+            if literal is not None and literal.startswith("-"):
+                if literal in PYTHON_NON_SCRIPT_FLAGS:
+                    return None  # a module or a command string, not a file
+                continue
+            path = self._expr(node)
+            if path is None or path.suffix != ".py":
+                return None
+            try:
+                return path if path.is_file() else None
+            except OSError:  # pragma: no cover - defensive
+                return None
+        return None
+
     def script_for_argv(self, rest: list[ast.expr]) -> Path | None:
         """The script a ``bash``/``sh`` argv runs, if it resolves to a real file."""
         for node in rest:
@@ -1093,16 +1177,66 @@ class _ShellOutFinder(ast.NodeVisitor):
         subprocess_aliases: set[str],
         os_aliases: set[str],
         resolver: _ScriptResolver | None = None,
+        allow_lines: set[int] | None = None,
+        failsoft_try: bool = False,
     ) -> None:
         self.subprocess_aliases = subprocess_aliases
         self.os_aliases = os_aliases
         self.resolver = resolver
+        #: Honoured PER CALL when given - the helper lane (issue #1259). A test's
+        #: own allow still exempts the whole test in `_check_test`, unchanged.
+        self.allow_lines = allow_lines
+        #: A call inside `try: ... except FileNotFoundError|OSError` handles the
+        #: binary's absence. Only for a hopped-to SCRIPT: a TEST that catches the
+        #: error still passes vacuously without the binary, which is the defect.
+        self.failsoft_try = failsoft_try
         self.binaries: set[str] = set()
         self.linenos: set[int] = set()
         self.scripts: dict[Path, set[str]] = {}
+        #: Binaries whose absence makes the CURRENT branch unreachable.
+        self._guarded: set[str] = set()
+        self._in_failsoft_try = False
+
+    # -- branches that run only when the binary exists (issue #1259) -------- #
+    def _visit_guarded(self, test: ast.expr, body: list[ast.AST], orelse: list[ast.AST]) -> None:
+        self.visit(test)
+        saved = self._guarded
+        self._guarded = saved | _positive_which(test)
+        for child in body:
+            self.visit(child)
+        self._guarded = saved
+        for child in orelse:
+            self.visit(child)
+
+    def visit_If(self, node: ast.If) -> None:
+        self._visit_guarded(node.test, list(node.body), list(node.orelse))
+
+    def visit_IfExp(self, node: ast.IfExp) -> None:
+        self._visit_guarded(node.test, [node.body], [node.orelse])
+
+    def visit_Try(self, node: ast.Try) -> None:
+        if not self.failsoft_try or not any(_catches_absence(h) for h in node.handlers):
+            self.generic_visit(node)
+            return
+        saved = self._in_failsoft_try
+        self._in_failsoft_try = True
+        for child in node.body:
+            self.visit(child)
+        self._in_failsoft_try = saved
+        for child in [*node.handlers, *node.orelse, *node.finalbody]:
+            self.visit(child)
+
+    def _allowed(self, node: ast.Call) -> bool:
+        if not self.allow_lines:
+            return False
+        last = getattr(node, "end_lineno", None) or node.lineno
+        return any(line in self.allow_lines for line in range(node.lineno, last + 1))
 
     def visit_Call(self, node: ast.Call) -> None:
         binaries, script = self._binaries_for(node)
+        if self._in_failsoft_try or self._allowed(node):
+            binaries = set()
+        binaries -= self._guarded
         if binaries:
             self.binaries |= binaries
             self.linenos.add(node.lineno)
@@ -1128,6 +1262,15 @@ class _ShellOutFinder(ast.NodeVisitor):
             if not first.elts:
                 return set(), None
             head = _literal_str(first.elts[0])
+            runs_python = _dotted(first.elts[0]) == "sys.executable" or (
+                head is not None and PYTHON_RUNNER_RE.match(head.rsplit("/", 1)[-1]) is not None
+            )
+            if runs_python and self.resolver is not None:
+                script = self.resolver.python_script_for_argv(list(first.elts[1:]))
+                if script is None:
+                    return set(), None
+                binaries = set(python_binaries_in_script(script))
+                return (binaries, script) if binaries else (set(), None)
             if head is None:
                 # argv[0] is not a literal - it may still be a repo script run
                 # directly on its shebang (issue #906). Before this, the branch
@@ -1186,6 +1329,55 @@ class _ShellOutFinder(ast.NodeVisitor):
         return None
 
 
+def _which_name(node: ast.expr) -> str | None:
+    """`b` when `node` is `shutil.which("b")` (any alias ending in `.which`)."""
+    if not isinstance(node, ast.Call) or not node.args:
+        return None
+    if _dotted(node.func).rsplit(".", 1)[-1] != "which":
+        return None
+    return _literal_str(node.args[0])
+
+
+def _positive_which(test: ast.expr) -> set[str]:
+    """Binaries whose absence makes `test` FALSE - so its true branch is guarded.
+
+    Deliberately only the positive spellings: `which("b")`, `which("b") is not
+    None`, and an `and` of those. `which("b") is None` guards the OTHER branch,
+    and anything this does not recognise guards nothing, so an unfamiliar
+    condition can only leave a finding standing, never remove one.
+    """
+    if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.And):
+        found: set[str] = set()
+        for value in test.values:
+            found |= _positive_which(value)
+        return found
+    name = _which_name(test)
+    if name:
+        return {name}
+    if (
+        isinstance(test, ast.Compare)
+        and len(test.ops) == 1
+        and isinstance(test.ops[0], ast.IsNot)
+        and isinstance(test.comparators[0], ast.Constant)
+        and test.comparators[0].value is None
+    ):
+        name = _which_name(test.left)
+        return {name} if name else set()
+    return set()
+
+
+#: Exception names whose handler means "this code expects the binary may be
+#: missing": the exec failure is a FileNotFoundError, an OSError subclass.
+_ABSENCE_EXCEPTIONS = frozenset({"FileNotFoundError", "OSError", "Exception", "BaseException"})
+
+
+def _catches_absence(handler: ast.ExceptHandler) -> bool:
+    if handler.type is None:
+        return True
+    types = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
+    return any(_dotted(t).rsplit(".", 1)[-1] in _ABSENCE_EXCEPTIONS for t in types)
+
+
 def _which_binaries(node: ast.AST) -> set[str]:
     """Guarded binaries named by ``shutil.which("x")`` calls inside a subtree."""
     found: set[str] = set()
@@ -1218,6 +1410,25 @@ def _called_names(node: ast.AST) -> set[str]:
 FunctionDef = ast.FunctionDef | ast.AsyncFunctionDef
 
 
+def _shell_aliases(tree: ast.Module) -> tuple[set[str], set[str]]:
+    """The names `subprocess` and `os` are reachable by in one module."""
+    subprocess_aliases = {"subprocess"}
+    os_aliases = {"os"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "subprocess":
+                    subprocess_aliases.add(alias.asname or "subprocess")
+                elif alias.name == "os":
+                    os_aliases.add(alias.asname or "os")
+        elif isinstance(node, ast.ImportFrom):
+            if node.module == "subprocess":
+                subprocess_aliases.update(a.asname or a.name for a in node.names)
+            elif node.module == "os":
+                os_aliases.update(a.asname or a.name for a in node.names)
+    return subprocess_aliases, os_aliases
+
+
 class _ModuleAnalysis:
     """Everything the check needs to know about one test module."""
 
@@ -1235,21 +1446,7 @@ class _ModuleAnalysis:
 
     # -- imports ----------------------------------------------------------- #
     def _imports(self) -> tuple[set[str], set[str]]:
-        subprocess_aliases = {"subprocess"}
-        os_aliases = {"os"}
-        for node in ast.walk(self.tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    if alias.name == "subprocess":
-                        subprocess_aliases.add(alias.asname or "subprocess")
-                    elif alias.name == "os":
-                        os_aliases.add(alias.asname or "os")
-            elif isinstance(node, ast.ImportFrom):
-                if node.module == "subprocess":
-                    subprocess_aliases.update(a.asname or a.name for a in node.names)
-                elif node.module == "os":
-                    os_aliases.update(a.asname or a.name for a in node.names)
-        return subprocess_aliases, os_aliases
+        return _shell_aliases(self.tree)
 
     # -- guards ------------------------------------------------------------ #
     def _skip_aliases(self) -> dict[str, set[str]]:
@@ -1310,8 +1507,10 @@ class _ModuleAnalysis:
         return _which_binaries(func) if skips else set()
 
     # -- shell-outs -------------------------------------------------------- #
-    def _shell_out(self, node: ast.AST) -> _ShellOutFinder:
-        finder = _ShellOutFinder(self.subprocess_aliases, self.os_aliases, self.resolver)
+    def _shell_out(self, node: ast.AST, allow_lines: set[int] | None = None) -> _ShellOutFinder:
+        finder = _ShellOutFinder(
+            self.subprocess_aliases, self.os_aliases, self.resolver, allow_lines=allow_lines
+        )
         finder.visit(node)
         return finder
 
@@ -1332,7 +1531,10 @@ class _ModuleAnalysis:
         direct: dict[str, set[str]] = {}
         scripts: dict[str, dict[Path, set[str]]] = {}
         for name, node in helpers.items():
-            finder = self._shell_out(node)
+            # A `# binary-guard: allow` on the HELPER's own call line is the
+            # "call line" the docstring promises for this shape (issue #1259);
+            # before, only each caller's def line cleared it.
+            finder = self._shell_out(node, allow_lines=self.allow_lines)
             direct[name] = set(finder.binaries)
             scripts[name] = {p: set(b) for p, b in finder.scripts.items()}
         calls = {name: _called_names(node) & helpers.keys() for name, node in helpers.items()}

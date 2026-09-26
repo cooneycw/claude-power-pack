@@ -2059,3 +2059,177 @@ def test_the_exempted_count_is_in_tokenizer_coordinates(tmp_path: Path) -> None:
         "that belongs to no test was numbered in splitlines() coordinates and "
         "landed on it"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Issue #1259: four shapes the checker got wrong.
+# --------------------------------------------------------------------------- #
+
+# -- a hyphenated FILENAME is not an invocation (#1259, finding 11) ---------- #
+
+LISTS_A_GIT_NAMED_FILE = """\
+#!/usr/bin/env bash
+set -euo pipefail
+HELPERS=(
+  git-stash-worktree-guard.sh
+  jq-helper.py
+)
+printf '%s\\n' "${HELPERS[@]}"
+"""
+
+
+def test_a_bare_filename_starting_with_a_binary_name_is_not_an_invocation(tmp_path: Path) -> None:
+    """`git-stash-worktree-guard.sh` alone on a line read as `git` - 16 false
+    findings the day it was added to flow-helpers-install.sh (#1056)."""
+    findings = _repo(tmp_path, SCRIPT_PREAMBLE + RUNS_THING, script=LISTS_A_GIT_NAMED_FILE)
+    assert findings == [], findings
+
+
+def test_a_dashed_git_subcommand_is_still_an_invocation(tmp_path: Path) -> None:
+    """The negative membership: `git-stash list` is git's legacy dashed form,
+    so only a token carrying a file EXTENSION is discounted."""
+    script = "#!/usr/bin/env bash\nset -euo pipefail\ngit-stash list\n"
+    findings = _repo(tmp_path, SCRIPT_PREAMBLE + RUNS_THING, script=script)
+    assert [f.binaries for f in findings] == [("git",)], findings
+
+
+# -- a which-conditional inside a helper IS a guard (#1259, finding 10) ------ #
+
+CONDITIONAL_HELPER = PREAMBLE + """\
+def _gate(root):
+    probe = subprocess.run(
+        ["git", "-C", str(root), "rev-parse"], check=False,
+    ) if shutil.which("git") else None
+    return probe
+
+
+def test_git_less_path(tmp_path):
+    _gate(tmp_path)
+"""
+
+
+def test_a_which_conditional_inside_a_helper_guards_its_callers(tmp_path: Path) -> None:
+    """The shape in tests/test_shellcheck_gate_find_boundary.py: git runs ONLY
+    when present, and `@requires_git` - the fix the checker suggested - would
+    skip exactly the git-less path those tests exist for."""
+    assert _findings(tmp_path, CONDITIONAL_HELPER) == []
+
+
+@pytest.mark.parametrize("condition", [
+    'shutil.which("git") is None',   # the branch that runs WITHOUT git
+    'shutil.which("jq")',            # guarded on a different binary
+])
+def test_a_conditional_that_does_not_guard_the_call_still_fires(tmp_path: Path, condition: str) -> None:
+    source = CONDITIONAL_HELPER.replace('shutil.which("git")', condition)
+    findings = _findings(tmp_path, source)
+    assert [f.binaries for f in findings] == [("git",)], findings
+
+
+def test_an_if_statement_guard_counts_too(tmp_path: Path) -> None:
+    source = PREAMBLE + """\
+def test_thing(tmp_path):
+    if shutil.which("git") is not None:
+        subprocess.run(["git", "status"], check=False)
+"""
+    assert _findings(tmp_path, source) == []
+
+
+def test_the_else_branch_of_a_which_conditional_is_not_guarded(tmp_path: Path) -> None:
+    source = PREAMBLE + """\
+def test_thing(tmp_path):
+    if shutil.which("git"):
+        pass
+    else:
+        subprocess.run(["git", "status"], check=False)
+"""
+    assert [f.binaries for f in _findings(tmp_path, source)] == [("git",)]
+
+
+# -- an allow annotation on a HELPER's own call line (#1259, finding 10) ---- #
+
+ALLOWED_HELPER = PREAMBLE + """\
+def _probe():
+    return subprocess.run(["git", "status"], check=False)  # binary-guard: allow probe only
+
+
+def test_one():
+    _probe()
+
+
+def test_two():
+    _probe()
+"""
+
+
+def test_an_allow_on_the_helpers_call_line_clears_every_caller(tmp_path: Path) -> None:
+    """The docstring promises the escape works "on the call line". For the
+    via-helper shape that line is the HELPER's, and it was ignored."""
+    assert _findings(tmp_path, ALLOWED_HELPER) == []
+
+
+def test_an_allow_elsewhere_in_the_helper_does_not_clear_it(tmp_path: Path) -> None:
+    source = ALLOWED_HELPER.replace(
+        '  # binary-guard: allow probe only', ''
+    ).replace('def _probe():', 'def _probe():  # binary-guard: allow wrong line')
+    assert len(_findings(tmp_path, source)) == 2
+
+
+# -- the `python SCRIPT.py` hop (#1259, finding 8) --------------------------- #
+
+PY_RUNS_GIT = """\
+import subprocess
+import sys
+
+def main():
+    out = subprocess.run(["git", "ls-files"], capture_output=True, text=True, check=True)
+    return 0 if out.stdout else 1
+
+sys.exit(main())
+"""
+
+PY_SCRIPT_PREAMBLE = SCRIPT_PREAMBLE.replace('"thing.sh"', '"thing.py"') + "import sys\n\n"
+
+
+@pytest.mark.parametrize("argv0", ["sys.executable", '"python3"'])
+def test_a_python_script_that_shells_out_is_followed(tmp_path: Path, argv0: str) -> None:
+    """The #1037 shape: three tests ran `[sys.executable, str(SCRIPT)]` where
+    SCRIPT ran git, the checker said every test was guarded, and CI's git-less
+    image went red (pipeline 2128)."""
+    test = PY_SCRIPT_PREAMBLE + f"""\
+def test_the_real_repo_is_clean():
+    subprocess.run([{argv0}, str(THING)], check=False)
+"""
+    findings = _repo(tmp_path, test, script=PY_RUNS_GIT, name="thing.py")
+    assert [f.binaries for f in findings] == [("git",)], findings
+    assert findings[0].via_scripts and findings[0].via_scripts[0].name == "thing.py"
+
+
+@pytest.mark.parametrize("script", [
+    # fail-soft: the absence is caught and handled
+    PY_RUNS_GIT.replace(
+        '    out = subprocess.run(["git", "ls-files"], capture_output=True, text=True, check=True)\n'
+        '    return 0 if out.stdout else 1\n',
+        '    try:\n'
+        '        subprocess.run(["git", "ls-files"], check=True)\n'
+        '    except FileNotFoundError:\n'
+        '        return 0\n'
+        '    return 0\n',
+    ),
+    # guarded: only runs when git is there
+    PY_RUNS_GIT.replace(
+        'out = subprocess.run(["git", "ls-files"], capture_output=True, text=True, check=True)',
+        'out = subprocess.run(["git", "ls-files"], capture_output=True, text=True, check=True) '
+        'if shutil.which("git") else None',
+    ).replace("import sys", "import shutil\nimport sys").replace(
+        "return 0 if out.stdout else 1", "return 0"),
+    # never shells out at all
+    "import sys\nsys.exit(0)\n",
+])
+def test_a_python_script_that_survives_without_the_binary_is_not_flagged(
+    tmp_path: Path, script: str
+) -> None:
+    test = PY_SCRIPT_PREAMBLE + """\
+def test_the_real_repo_is_clean():
+    subprocess.run([sys.executable, str(THING)], check=False)
+"""
+    assert _repo(tmp_path, test, script=script, name="thing.py") == []

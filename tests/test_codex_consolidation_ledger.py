@@ -156,7 +156,7 @@ def test_an_empty_snapshot_does_not_pass_vacuously(tmp_path):
 # The real ledger, and the artifacts the spec promises.
 # --------------------------------------------------------------------------
 
-def test_the_real_ledger_accounts_for_every_open_entry():
+def test_the_real_ledger_accounts_for_every_open_entry():  # binary-guard: allow gh only under --refresh/--live-from-github, neither passed
     res = subprocess.run(
         [sys.executable, str(GATE), "--root", str(ROOT)],
         capture_output=True, text=True, cwd=ROOT, check=False,
