@@ -957,7 +957,7 @@ def python_script_reach(path: Path) -> tuple[frozenset[str], frozenset[str]]:
     try:
         stat = path.stat()
     except OSError:  # pragma: no cover - defensive
-        return frozenset()
+        return frozenset(), frozenset()
     key = (str(path), stat.st_mtime_ns, stat.st_size)
     cached = _PY_SCAN_CACHE.get(key)
     if cached is not None:
