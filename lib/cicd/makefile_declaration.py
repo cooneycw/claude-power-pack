@@ -222,8 +222,18 @@ class Makefile:
                         self.prereqs[name] = []
                         self.recipes[name] = []
                     self.prereqs[name].extend(_prerequisites(rest))
-                # Every target of a multi-target rule shares its recipe.
-                self.shared[declared[0]] = declared
+                # Every target of a multi-target rule shares its recipe. ONLY a
+                # multi-target rule records a group, and never over an existing
+                # one (issue #1259): a later `build: lint` merely adds a
+                # prerequisite - make keeps the shared recipe - and overwriting
+                # the group with `["build"]` left `deploy` resolving to NOTHING,
+                # so `scripts_invoked("deploy")` read as a target that runs no
+                # scripts at all.
+                # A SECOND multi-target rule led by the same name writes its
+                # recipe into the same bucket, so its members join the group.
+                if len(declared) > 1:
+                    group = self.shared.setdefault(declared[0], [declared[0]])
+                    group.extend(n for n in declared if n not in group)
                 current = declared[0]
                 i += 1
                 continue
