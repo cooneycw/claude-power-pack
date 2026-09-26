@@ -77,6 +77,18 @@ def _make_stub(
     return log
 
 
+def _assert_single_marker(proc: subprocess.CompletedProcess[str]) -> None:
+    """At most ONE verdict marker per run, over every fixture in this file.
+
+    `verdict()` prints; a call site that does not exit falls through to a
+    second verdict, and a consumer reading the FIRST marker then reads the
+    wrong one (Nit Store, found during #1147; issue #1258). The terminality
+    test pins the script's text; this pins every exercised run's OUTPUT.
+    """
+    markers = [ln for ln in (proc.stdout or "").splitlines() if ln.startswith("FLOW_FINISH_GATE: ")]
+    assert len(markers) <= 1, f"more than one verdict marker: {markers}"
+
+
 def _run(
     tmp_path: Path,
     *args: str,
@@ -108,6 +120,7 @@ def _run(
         stderr=subprocess.STDOUT,
         text=True,
     )
+    _assert_single_marker(proc)
     return proc, bindir
 
 
@@ -542,6 +555,7 @@ def _run_with_uv_stub(
     exit_code: int = 0,
     flow_gate_rerun: str | None = None,
     inject_gates: bool = True,
+    tmpdir: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     bindir = tmp_path / "bin"
     bindir.mkdir(exist_ok=True)
@@ -553,7 +567,9 @@ def _run_with_uv_stub(
     env["FLOW_GATE_CPP_DIR"] = str(cpp)
     if flow_gate_rerun is not None:
         env["FLOW_GATE_RERUN"] = flow_gate_rerun
-    return subprocess.run(
+    if tmpdir is not None:
+        env["TMPDIR"] = str(tmpdir)
+    proc = subprocess.run(
         ["bash", str(SCRIPT)],
         cwd=tmp_path,
         env=env,
@@ -561,6 +577,8 @@ def _run_with_uv_stub(
         stderr=subprocess.STDOUT,
         text=True,
     )
+    _assert_single_marker(proc)
+    return proc
 
 
 @requires_bash
@@ -2768,3 +2786,85 @@ def test_the_runner_reports_UNAVAILABLE_rather_than_clean_when_it_cannot_isolate
     assert "FLOW_FINISH_GATE: " not in proc.stdout, (
         "an unavailable run must not also emit a gate verdict"
     )
+
+
+
+# --- issue #1258: name the failing test; leave no temp file ------------------
+
+_FAILED_PAYLOAD = (
+    '{\n  "success": false,\n  "failed_step": "test",\n  "steps_completed": 1,\n'
+    '  "tests": {\n    "test": {\n      "passed": 5847,\n      "failed": 1,\n'
+    '      "executed": 5848,\n      "failed_ids": [\n'
+    '        "tests/test_a.py::test_one"\n      ]\n    }\n  }\n}'
+)
+
+
+@requires_bash
+@requires_git
+def test_a_failed_gate_names_the_failing_test(tmp_path: Path) -> None:
+    cpp = _fake_cpp(tmp_path)
+    proc = _run_with_uv_stub(tmp_path, cpp, _FAILED_PAYLOAD, exit_code=1)
+    assert proc.returncode == 1
+    assert "FAILED_IDS: tests/test_a.py::test_one" in proc.stdout
+    # Relayed ABOVE the verdict, which stays the last marker.
+    lines = proc.stdout.splitlines()
+    ids_at = next(i for i, ln in enumerate(lines) if ln.startswith("FAILED_IDS:"))
+    verdict_at = next(i for i, ln in enumerate(lines) if ln.startswith("FLOW_FINISH_GATE: "))
+    assert ids_at < verdict_at
+
+
+@requires_bash
+@requires_git
+def test_an_unnamed_failure_is_said_out_loud(tmp_path: Path) -> None:
+    cpp = _fake_cpp(tmp_path)
+    payload = _FAILED_PAYLOAD.replace(
+        '"failed_ids": [\n        "tests/test_a.py::test_one"\n      ]', '"failed_ids": []'
+    )
+    assert '"failed_ids": []' in payload  # precondition: the fixture really is empty
+    proc = _run_with_uv_stub(tmp_path, cpp, payload, exit_code=1)
+    assert proc.returncode == 1
+    assert "FAILED_IDS: none readable" in proc.stdout
+
+
+@requires_bash
+@requires_git
+def test_an_interrupted_gate_leaves_no_runner_json_behind(tmp_path: Path) -> None:
+    """The leak the nit measured (twelve zero-byte files on one host): a gate
+    killed between `mktemp` and the parse never reached its straight-line `rm`.
+    The runner stub here SIGTERMs the gate itself mid-run."""
+    cpp = _fake_cpp(tmp_path)
+    tmpdir = tmp_path / "tmp"
+    tmpdir.mkdir()
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    stub = bindir / "uv"
+    # $PPID of a pipeline member is the gate's own shell.
+    stub.write_text("#!/usr/bin/env bash\nkill -TERM \"$PPID\"\nsleep 5\n")
+    stub.chmod(0o755)
+    env = os.environ.copy()
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["FLOW_GATE_CPP_DIR"] = str(cpp)
+    env["TMPDIR"] = str(tmpdir)
+    proc = subprocess.run(
+        ["bash", str(SCRIPT)], cwd=tmp_path, env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=60,
+    )
+    # Precondition: it really was interrupted, before any verdict.
+    assert "FLOW_FINISH_GATE: " not in proc.stdout, proc.stdout
+    assert "running deterministic gate" in proc.stdout
+    assert sorted(p.name for p in tmpdir.iterdir()) == []
+
+
+
+@requires_bash
+@requires_git
+def test_runner_unavailable_fallback_honours_a_declared_mypy_scope(tmp_path: Path) -> None:
+    """counter-model review, pass 2: the runner-unavailable lane still ran
+    `mypy .`, so the scope a repo declared depended on which lane ran."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.ruff]\n[tool.pytest.ini_options]\n[tool.mypy]  # scope\nfiles = ["pkg"]\n'
+    )
+    proc, bindir = _run(tmp_path, cpp_dir="", uv_exit=0)
+    invocations = (bindir / "uv.log").read_text().splitlines()
+    assert "run --extra dev mypy" in invocations
+    assert "run --extra dev mypy ." not in invocations

@@ -1418,6 +1418,25 @@ class DeterministicRunner:
                         state.save(self.project_root)
                         completed = idx + 1
                         continue
+                # NAME the failing tests, whether or not a re-run happened
+                # (issue #1258). Ids were read only on the #769 re-run path,
+                # which requires a step that LOOKS like a test step - so an
+                # aggregate (`make verify`) failing at its `test` prerequisite
+                # recorded "1 failed" and no id, and the only way to learn
+                # which test was another full suite run. `outcome_dict` is the
+                # object already registered in `tests[step.id]`, so this reaches
+                # the JSON the gate reads. An EMPTY list is kept, not dropped:
+                # "could not be named" must stay distinguishable from "not
+                # asked".
+                if (
+                    outcome is not None
+                    and outcome_dict is not None
+                    and not timed_out
+                    and outcome.failed + outcome.errors > 0
+                ):
+                    outcome_dict["failed_ids"] = failed_ids or _failed_ids_from_both_streams(
+                        result.output, result.error
+                    )
                 state.mark_step_failed(
                     idx,
                     result.exit_code,

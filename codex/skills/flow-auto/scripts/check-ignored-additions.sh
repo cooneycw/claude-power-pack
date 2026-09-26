@@ -22,25 +22,47 @@
 # normal venv/cache noise.
 #
 # Usage:
-#   check-ignored-additions.sh [--strict]
+#   check-ignored-additions.sh [--strict | --advisory]
 #
 # Options:
-#   --strict   Exit non-zero (3) when suspicious ignored files are found.
-#              Default is advisory: always exit 0, just print the warning.
+#   --strict    Exit 3 when suspicious ignored files are found, anywhere.
+#   --advisory  Always exit 0, just print the warning.
+#   (neither)   Depends on WHERE it runs (issue #1258):
+#                 - a LINKED WORKTREE blocks (exit 3). A flow worktree is
+#                   created clean from a tracked tree, so a non-scratch ignored
+#                   file in it was written during that worktree's life - the
+#                   run's own addition, which is the class that ships a hole: a
+#                   clean clone will not have the file (#1144 shipped a runtime
+#                   manifest this way, and `/project:next` raised on every clean
+#                   clone while the author's tree passed everything).
+#                 - the PRIMARY checkout stays advisory (exit 0): years of local
+#                   clutter live there legitimately, and a guard that blocked on
+#                   it would be routed around.
+#               "In a linked worktree" is a proxy for "this run wrote it", not
+#               proof - so the message names the cost rather than asserting
+#               intent, and --advisory is the override.
+#
+# Exit codes: 0 clean (or advisory), 2 usage, 3 findings while blocking,
+# 4 the ignored-file inventory could NOT be read while blocking - never 0,
+# because an unread inventory and an empty one are different answers.
 #
 # Output:
-#   Prints a "[flow] WARNING" block listing suspicious ignored files with a
-#   remediation hint. Prints nothing (exit 0) when clean.
+#   Prints a "[flow] WARNING" (advisory) or "[flow] ERROR" (blocking) block
+#   listing suspicious ignored files with a remediation hint, then
+#   CHECK_IGNORED_ADDITIONS_MODE=<blocking|advisory> on stderr. Prints nothing
+#   (exit 0) when clean.
 
 set -euo pipefail
 
 # Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+# (Re-armed below, once there is a temp file for it to remove as well.)
 trap 'printf "CHECK_IGNORED_ADDITIONS_EXIT=%d\n" "$?" >&2' EXIT
 
-STRICT=0
+MODE=auto
 for arg in "$@"; do
   case "$arg" in
-    --strict) STRICT=1 ;;
+    --strict) MODE=blocking ;;
+    --advisory) MODE=advisory ;;
     *) echo "check-ignored-additions.sh: unknown option '$arg'" >&2; exit 2 ;;
   esac
 done
@@ -48,6 +70,19 @@ done
 # Not a git repo -> nothing to check.
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   exit 0
+fi
+
+if [ "$MODE" = auto ]; then
+  # A linked worktree's git dir is .git/worktrees/<name> under the COMMON dir;
+  # the primary checkout's git dir IS the common dir. Compared as absolute
+  # paths, since the two plumbing answers are relative in different ways.
+  _gd=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null || true)
+  _cd=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+  if [ -n "$_gd" ] && [ -n "$_cd" ] && [ "$_gd" != "$_cd" ]; then
+    MODE=blocking
+  else
+    MODE=advisory
+  fi
 fi
 
 # Path components that mark a scratch/build/cache tree (matched at any depth).
@@ -80,10 +115,41 @@ _INTENTIONAL_IGNORES=".claude/settings.local.json .claude/friction.jsonl \
 .claude/learnings.md .claude/learnings.rejected.jsonl .claude/deploy.log \
 .claude/deploy-baseline.json"
 
+# Directories of by-design runtime state, matched as a root-relative PREFIX.
+# `.claude/runs/` holds lib.cicd's per-run state: removed on success but LEFT
+# BEHIND by a failed gate, inside the worktree - so without this entry the first
+# failed gate would make every later run in that worktree block (issue #1258).
+_INTENTIONAL_IGNORE_DIRS=".claude/runs/"
+
 is_intentional_ignore() {
   case " $_INTENTIONAL_IGNORES " in *" $1 "*) return 0 ;; esac
+  # Environment files at any depth: local runtime configuration that is
+  # ignored so that it is NEVER committed - a clean clone is supposed to lack
+  # it (counter-model review, #1258). The tracked template forms are not
+  # exempt: an ignored `.env.example` is a real swallowed addition.
+  case "${1##*/}" in
+    .env.example|.env.sample|.env.template) ;;
+    .env|.env.*) return 0 ;;
+  esac
+  local d
+  for d in $_INTENTIONAL_IGNORE_DIRS; do
+    case "$1" in "$d"*) return 0 ;; esac
+  done
   return 1
 }
+
+# Read the inventory into a file FIRST and check that git answered (counter-
+# model review): a process substitution discards the exit status, so an
+# unreadable index produced no entries and the same exit 0 as a clean tree.
+_inventory=$(mktemp "${TMPDIR:-/tmp}/check-ignored-additions.XXXXXX")
+trap 'printf "CHECK_IGNORED_ADDITIONS_EXIT=%d\n" "$?" >&2; rm -f "$_inventory"' EXIT
+if ! git status --ignored=matching --porcelain -z > "$_inventory" 2>/dev/null; then
+  echo "[flow] check-ignored-additions: 'git status' failed, so the ignored files were NOT inspected - this is not a clean result." >&2
+  if [ "$MODE" = blocking ]; then
+    exit 4
+  fi
+  exit 0
+fi
 
 suspicious=()
 while IFS= read -r -d '' entry; do
@@ -91,17 +157,26 @@ while IFS= read -r -d '' entry; do
   status="${entry:0:2}"
   path="${entry:3}"
   [ "$status" = "!!" ] || continue
-  case "$path" in */) continue ;; esac   # defensive: skip any dir entry
+  # A DIRECTORY entry is NOT skipped (counter-model review, #1258). git lists
+  # a directory ignored by a directory rule (`config/`) as the one entry
+  # `config/`, never its files - so skipping it meant `config/manifest.json`
+  # was never inspected and the verdict read clean. Scratch and by-design
+  # directories are still dropped by the two filters below; anything else is
+  # reported by the directory name, which is all git will say about it.
   is_scratch "$path" && continue
   is_intentional_ignore "$path" && continue
   suspicious+=("$path")
-done < <(git status --ignored=matching --porcelain -z 2>/dev/null)
+done < "$_inventory"
 
 if [ "${#suspicious[@]}" -eq 0 ]; then
   exit 0
 fi
 
-echo "[flow] WARNING: ${#suspicious[@]} file(s) are git-ignored and will NOT be committed:" >&2
+if [ "$MODE" = blocking ]; then
+  echo "[flow] ERROR: ${#suspicious[@]} file(s) are git-ignored and will NOT be committed - a clean clone will not have them:" >&2
+else
+  echo "[flow] WARNING: ${#suspicious[@]} file(s) are git-ignored and will NOT be committed:" >&2
+fi
 for p in "${suspicious[@]}"; do
   reason="$(git check-ignore -v "$p" 2>/dev/null || echo "(ignored)")"
   echo "  - $p    <- $reason" >&2
@@ -109,9 +184,12 @@ done
 echo "" >&2
 echo "  If these are intentional additions, add a negation to .gitignore" >&2
 echo "  (e.g. '!$( [ "${#suspicious[@]}" -ge 1 ] && echo "${suspicious[0]}" )') or narrow the blanket rule." >&2
-echo "  If they are scratch files, ignore this warning." >&2
-
-if [ "$STRICT" -eq 1 ]; then
+if [ "$MODE" = blocking ]; then
+  echo "  If they are scratch or deliberately local files that are not meant to ship, delete" >&2
+  echo "  them or re-run with --advisory (issue #1258)." >&2
+  echo "CHECK_IGNORED_ADDITIONS_MODE=blocking" >&2
   exit 3
 fi
+echo "  If they are scratch files, ignore this warning." >&2
+echo "CHECK_IGNORED_ADDITIONS_MODE=advisory" >&2
 exit 0
