@@ -12,7 +12,7 @@ repository has been private and dormant since 2026-09-22 (#1076), and
 
 ## Version and entry points
 
-Contract version `1.3` accepts a structured `RepositoryState` and emits a
+Contract version `1.4` accepts a structured `RepositoryState` and emits a
 structured `RecommendationResult`. Run it from a CPP checkout with:
 
 ```bash
@@ -41,8 +41,18 @@ Every open issue appears in exactly one disjoint set:
 
 - `in_flight`: mapped from an issue branch, worktree, or open pull request;
 - `blocked`: has an explicit open dependency, transitive dependency, or cycle;
+- `non_startable`: carries a configured `non_startable_labels` marker (default
+  `evergreen`, `inbox`, `nit-store`, `not-startable`) and is not in flight. The
+  issue is open by design - a standing inbox, a recurring re-check - and has no
+  implementable scope, so it is never ranked, never a candidate, and never
+  `next_startable_issue`. The marker is decisive where dependency prose is not,
+  so such an issue is never `blocked` or `uncertain` either;
 - `uncertain`: dependency wording or dependency state cannot be resolved;
 - `available`: belongs to none of the preceding sets.
+
+`non_startable_evidence` names the matched label for each such issue. An issue
+with no labels is indistinguishable from feature work, so the marker is the
+only signal: an inbox that is not labelled is ranked like any other issue.
 
 A dependency is a lead-in phrase followed immediately by one or more references.
 The phrase tolerates the punctuation and Markdown emphasis real issue bodies
@@ -59,6 +69,10 @@ Phrases are graded, because English sequencing is not a declaration:
 - weak (`requires`, `needs`, `after`, `follows`) counts only when a reference
   actually follows, and never raises uncertainty on its own. "Run this after
   the v0.2.0 release" is prose, not a blocker.
+
+A strong phrase followed by an explicit negation - `Depends on: None`, `N/A`,
+`nothing`, `nil`, or a bare dash - declares that there is no dependency. It is
+neither a blocker nor uncertainty.
 
 Fenced code blocks and inline code spans are removed before any of this runs,
 so a comment such as `# starts after the label gutter` declares nothing.
@@ -89,7 +103,7 @@ blocked.
 
 The engine validates that the sets are exhaustive and non-overlapping. Neither
 the top action's `start_issue` variant nor `next_startable_issue` may reference
-an in-flight, blocked, or uncertain issue.
+an in-flight, non-startable, blocked, or uncertain issue.
 
 ## Ranking contract
 
@@ -119,8 +133,17 @@ use rather than presenting issue order as a ranking.
 `top_action` answers what should happen now. In priority order it restores an
 incomplete inventory, fixes failing PR checks, addresses requested changes,
 merges a ready PR, continues active work, repairs a known repository gate,
-starts the highest-ranked available issue, reviews untracked files, or
-synchronizes a specification task.
+starts the highest-ranked available issue, reviews untracked files,
+synchronizes a specification task, or - only when nothing else applies -
+triages a non-startable issue (`triage_inbox`). The last is not an
+implementation route: it names an inbox whose contents should be aggregated
+into startable issues, so a repository whose only open work sits in an inbox
+never reports that there is nothing to do.
+
+A dirty worktree whose branch names an issue that is not open (closed, or never existed) is never
+`continue_work`: its tree may hold a design that was refuted. It is reported
+as a warning instead, and stays a cleanup candidate that must be inspected
+rather than removed.
 
 `continue_work` requires tracked modifications. Untracked files alone are not
 work in progress: a worktree holding only untracked files is reported as
@@ -159,7 +182,7 @@ synchronized or a specification group complete.
 Missing mappings produce `sync_spec`; stale or ambiguous identities produce
 `resolve_spec_mapping`. Neither state is silently treated as completed work.
 
-All modes name the `1.3` contract. Missing prerequisites and incomplete state
+All modes name the `1.4` contract. Missing prerequisites and incomplete state
 are explicit failure states; they never become a confident recommendation.
 
 Renderers cap long collector output: warnings list the first five entries and
@@ -167,6 +190,13 @@ per-issue uncertainty lists the first two reasons, each truncated. `--json`
 always carries the complete lists.
 
 ## Compatibility notes
+
+`1.4` keeps every `1.3` field and adds the `non_startable` partition with its
+`non_startable_evidence`, the `non_startable` backlog tier, the
+`non-startable` worktree issue state, the `triage_inbox` top-action kind, and
+the `non_startable_labels` configuration key. A consumer that sums the four
+`1.3` partitions to count open issues must add the fifth; every other consumer
+reads `1.4` payloads unchanged.
 
 `1.3` keeps every `1.2` field and adds `untracked_only` to worktree state and
 worktree details, plus the `review_untracked` top-action kind. Consumers that

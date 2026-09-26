@@ -84,8 +84,11 @@ entry point once with `--json`; the JSON result is authoritative.
 The collector uses batched GitHub and git reads. It collects issue assignees
 and GitHub's native `blockedBy`, `blocking`, `parent`, and `subIssues` fields.
 Native blocker relationships are confirmed edges. A dependency found only in
-documented text is retained as evidence but explicitly classified `uncertain`;
-it is never presented with native-edge confidence. Parent/sub-issue links are
+documented text is retained as evidence but explicitly classified `uncertain`
+when it names an OPEN issue, and the reason names those references; a text
+reference to an issue that is not open is already satisfied. It is never
+presented with native-edge confidence. `Depends on: None` (or `N/A`, a bare
+dash) declares no dependency at all. Parent/sub-issue links are
 hierarchy evidence and do not silently become blocker edges.
 
 Collection, authentication, rate-limit, parse, and inventory failures remain
@@ -94,14 +97,22 @@ visible. An incomplete inventory produces no globally safe
 
 ## CPP extension contract
 
-The `cpp_extensions` JSON object contains four annotation sets computed once
+The `cpp_extensions` JSON object contains these annotation sets, computed once
 and consumed by brief, compact, and full rendering:
 
 - `relationships`: native relationship edges plus documented-text fallback
   edges with `confirmed` or `uncertain` confidence.
-- `planning_routes`: an awaiting-decisions `.claude/wayfinder-map.json` and
-  issues linked to one of its `DNNN` decision IDs route to `/project:init` for
-  planning/resolution. They never route to `/flow:auto`.
+- `planning_routes`: an awaiting-decisions `.claude/wayfinder-map.json`,
+  issues linked to one of its `DNNN` decision IDs, and any issue carrying a
+  `wayfinder:*` label (a charting seed included) route to `/project:init` for
+  planning/resolution. They never route to `/flow:auto`. The label, not body
+  text, is the trigger: prose that discusses wayfinding is not a seed.
+- `wayfinder_map`: which of three states the map was observed in - `read`
+  (with its path and map state), `absent` (with every path checked), or
+  `unreadable` (with the reason). From a linked worktree the map is read from
+  the primary checkout too, found through `git rev-parse --git-common-dir`,
+  because the gitignored artifact is never checked out into a worktree.
+  `absent` is the only state that is evidence no map exists.
 - `spec_lifecycle`: one decision per known spec slug: `active`, `graduated`,
   `stale`, or `retained`.
 - `premise_flags`: open spec-derived issues whose parent specification predates
@@ -178,8 +189,15 @@ issue on premise grounds stays a reviewer decision.
 
 ## Output invariants
 
-- Every open issue is in exactly one engine partition: `in_flight`, `blocked`,
-  `uncertain`, or `available`.
+- Every open issue is in exactly one engine partition: `in_flight`,
+  `non_startable`, `blocked`, `uncertain`, or `available`.
+- An issue labelled with a `non_startable_labels` marker (default `evergreen`,
+  `inbox`, `nit-store`, `not-startable`) is open by design - the Nit Store, a
+  standing re-check - and is never a candidate or `next_startable_issue`. When
+  nothing else is actionable the top action is `triage_inbox`, never "nothing
+  to do". An unlabelled inbox is indistinguishable from feature work.
+- A dirty worktree whose branch names an issue that is not open is never
+  `continue_work`; it is reported as a warning to inspect.
 - `next_startable_issue` and start candidates never name an issue outside
   `available` when inventory is complete.
 - Critical non-startable work remains visible but is not recommended as safe.

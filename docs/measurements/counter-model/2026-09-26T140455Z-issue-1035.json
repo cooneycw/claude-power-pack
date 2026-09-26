@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1035-project-next-ranks-an-inbox-as-the-top-startable-i",
+  "counts": {
+    "accepted": 5,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "88bd2c5f0d8fe7e8075acd194fb8eb6577044c94",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1035",
+  "passes": 2,
+  "recorded_at": "2026-09-26T14:04:55Z",
+  "red_cases": {
+    "already_covered": 9,
+    "proposed": 10
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

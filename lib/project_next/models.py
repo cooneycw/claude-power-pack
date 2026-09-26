@@ -222,6 +222,9 @@ class Classification:
     blocked: tuple[int, ...]
     available: tuple[int, ...]
     uncertain: tuple[int, ...]
+    # Contract 1.4: open by design (an inbox, a standing re-check), never startable.
+    non_startable: tuple[int, ...] = ()
+    non_startable_evidence: dict[int, tuple[str, ...]] = field(default_factory=dict)
     dependency_map: dict[int, tuple[int, ...]] = field(default_factory=dict)
     blocked_by: dict[int, tuple[int, ...]] = field(default_factory=dict)
     in_flight_evidence: dict[int, tuple[str, ...]] = field(default_factory=dict)
@@ -280,6 +283,7 @@ class BacklogTiers:
     ready: tuple[int, ...] = ()
     quick_wins: tuple[int, ...] = ()
     planning: tuple[int, ...] = ()
+    non_startable: tuple[int, ...] = ()
     pending_spec_sync: tuple[str, ...] = ()
 
 

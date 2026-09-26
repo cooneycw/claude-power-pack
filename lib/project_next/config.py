@@ -34,6 +34,10 @@ class ProjectNextConfig:
         "easy",
     )
     planning_labels: tuple[str, ...] = ("epic", "planning", "discussion", "tracking", "meta")
+    # An issue carrying one of these is open by design and has no implementable scope:
+    # a standing inbox, a recurring re-check. It is never startable, however old it is,
+    # and an issue with no labels at all is indistinguishable from feature work (#1035).
+    non_startable_labels: tuple[str, ...] = ("evergreen", "inbox", "nit-store", "not-startable")
     stale_after_days: int = 30
 
     @property
@@ -44,6 +48,7 @@ class ProjectNextConfig:
             + self.medium_priority_labels
             + self.quick_win_labels
             + self.planning_labels
+            + self.non_startable_labels
         )
 
     @classmethod
@@ -61,6 +66,7 @@ class ProjectNextConfig:
             "medium_priority_labels",
             "quick_win_labels",
             "planning_labels",
+            "non_startable_labels",
         }
         for name in tuple_fields:
             if name in values:

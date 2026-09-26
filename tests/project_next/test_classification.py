@@ -129,3 +129,120 @@ def test_code_blocks_never_declare_dependencies(project_next_scenarios: dict[str
     result = classify_repository(state)
 
     assert result.dependency_map[701] == ()
+
+
+# Negative controls for #1035. Each marker is paired with the input that must still
+# go the other way, because an exclusion that silently matches nothing renders
+# identically to a working one.
+
+
+def _inbox_state(inbox_labels: tuple[str, ...], **extra: Any) -> RepositoryState:
+    return RepositoryState(
+        repository="example/inbox",
+        default_branch="main",
+        collected_at="2026-09-26T00:00:00Z",
+        issues=(
+            # Old and unlabelled-by-priority: exactly the tuple the fallback ranks first.
+            Issue(864, "Nit Store", labels=inbox_labels, updated_at="2026-01-01T00:00:00Z"),
+            Issue(900, "Ordinary work", labels=("enhancement",), updated_at="2026-09-25T00:00:00Z"),
+        ),
+        **extra,
+    )
+
+
+def test_a_marked_inbox_is_never_available_nor_the_next_startable_issue() -> None:
+    from lib.project_next.rank import recommend
+    from lib.project_next.render import render_result
+
+    state = _inbox_state(("evergreen",))
+    result = recommend(state)
+
+    assert result.classification.non_startable == (864,)
+    assert result.classification.non_startable_evidence == {864: ("label:evergreen",)}
+    assert 864 not in result.classification.available
+    assert 864 not in result.ranked_available
+    assert all(candidate.issue_number != 864 for candidate in result.candidates)
+    assert result.next_startable_issue == 900
+    assert "$flow-auto 864" not in render_result(result, state, "compact")
+
+
+def test_the_same_inbox_without_the_marker_is_still_ranked_first() -> None:
+    from lib.project_next.rank import recommend
+
+    result = recommend(_inbox_state(()))
+
+    assert result.classification.non_startable == ()
+    assert result.next_startable_issue == 864
+
+
+def test_the_marker_is_matched_after_label_normalization_and_is_configurable() -> None:
+    from lib.project_next.config import ProjectNextConfig
+    from lib.project_next.rank import recommend
+
+    assert recommend(_inbox_state(("Not Startable",))).classification.non_startable == (864,)
+    custom = ProjectNextConfig.from_dict({"non_startable_labels": ["standing:inbox"]})
+    assert recommend(_inbox_state(("standing-inbox",)), custom).classification.non_startable == (864,)
+    assert recommend(_inbox_state(("evergreen",)), custom).next_startable_issue == 864
+
+
+def test_in_flight_work_outranks_the_marker() -> None:
+    from lib.project_next.models import Worktree
+
+    state = _inbox_state(("evergreen",), worktrees=(Worktree("/wt", "issue-864-triage"),))
+    result = classify_repository(state, ("evergreen",))
+
+    assert result.in_flight == (864,)
+    assert result.non_startable == ()
+
+
+def test_a_marked_issue_with_unresolved_dependency_prose_is_non_startable_not_uncertain() -> None:
+    state = RepositoryState(
+        repository="example/inbox",
+        default_branch="main",
+        collected_at="2026-09-26T00:00:00Z",
+        issues=(Issue(871, "Evergreen re-check", body="Blocked by: an owner decision", labels=("evergreen",)),),
+    )
+    result = classify_repository(state, ("evergreen",))
+
+    assert result.non_startable == (871,)
+    assert result.uncertain == ()
+
+
+@pytest.mark.parametrize(
+    "negation",
+    ["None", "none; can start from the baseline", "N/A", "nothing", "—", "-", "None within the wave. Related: #861"],
+)
+def test_depends_on_none_declares_no_dependency(negation: str) -> None:
+    state = RepositoryState(
+        repository="example/deps",
+        default_branch="main",
+        collected_at="2026-09-26T00:00:00Z",
+        issues=(Issue(2, "Baseline item", body=f"**Depends on:** {negation}"),),
+    )
+    result = classify_repository(state)
+
+    assert result.available == (2,)
+    assert result.uncertainty == {}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "the owner's ruling",
+        "- see the tracking thread",
+        "-12",
+        "nothing but #12",
+        "none except T004",
+        "nothing but the owner's ruling",
+        "none, pending the security review",
+    ],
+)
+def test_depends_on_something_unresolvable_is_still_uncertain(text: str) -> None:
+    state = RepositoryState(
+        repository="example/deps",
+        default_branch="main",
+        collected_at="2026-09-26T00:00:00Z",
+        issues=(Issue(3, "Waits on a person", body=f"**Depends on:** {text}"),),
+    )
+
+    assert classify_repository(state).uncertain == (3,)

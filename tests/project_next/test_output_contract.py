@@ -18,7 +18,7 @@ def test_all_human_modes_are_versioned_and_separate_both_decisions(project_next_
 
     for mode in ("brief", "compact", "full"):
         rendered = render_result(result, state, mode)
-        assert "1.3" in rendered
+        assert "1.4" in rendered
         assert "Top action" in rendered
         assert "Next safe issue" in rendered
         assert "#1" in rendered
@@ -29,7 +29,7 @@ def test_structured_output_is_versioned_and_json_serializable(project_next_scena
     state = RepositoryState.from_dict(project_next_scenarios["active_pr_and_safe_issue"]["state"])
     payload = recommend(state).to_dict()
 
-    assert CONTRACT_VERSION == "1.3"
+    assert CONTRACT_VERSION == "1.4"
     assert payload["contract_version"] == CONTRACT_VERSION
     assert payload["top_action"]["issue_number"] == 1
     assert payload["next_startable_issue"] == 2

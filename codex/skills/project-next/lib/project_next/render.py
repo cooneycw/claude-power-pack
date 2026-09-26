@@ -67,6 +67,8 @@ def _classification_state(number: int, result: RecommendationResult) -> str:
         return "uncertain"
     if number in result.classification.available:
         return "available"
+    if number in result.classification.non_startable:
+        return "non-startable"
     return "unknown"
 
 
@@ -92,6 +94,7 @@ def render_compact(result: RecommendationResult, state: RepositoryState) -> str:
         (
             f"**State:** {len(state.issues)} open | {len(result.classification.in_flight)} in-flight | "
             f"{len(result.classification.blocked)} blocked | {len(result.classification.uncertain)} uncertain | "
+            f"{len(result.classification.non_startable)} non-startable | "
             f"inventory {'complete' if result.inventory_complete else 'incomplete'}"
         ),
     ]
@@ -129,6 +132,13 @@ def render_compact(result: RecommendationResult, state: RepositoryState) -> str:
         lines.extend(
             f"- #{number} {issues[number].title} — {_reasons(result.classification.uncertainty[number])}"
             for number in result.classification.uncertain
+        )
+    if result.classification.non_startable:
+        lines.extend(("", "### Open by design (never startable)"))
+        lines.extend(
+            f"- #{number} {issues[number].title} — "
+            + ", ".join(result.classification.non_startable_evidence.get(number, ()))
+            for number in result.classification.non_startable
         )
     if result.warnings:
         lines.extend(("", "### Warnings"))
@@ -174,6 +184,9 @@ def render_full(result: RecommendationResult, state: RepositoryState) -> str:
         "",
         "### Uncertain work (not actionable)",
         *_tier_issue_lines(result.backlog_tiers.uncertain, result, state),
+        "",
+        "### Open by design (never startable)",
+        *_tier_issue_lines(result.backlog_tiers.non_startable, result, state),
         "",
         "### Tier 3 — Ready to start",
         *_tier_issue_lines(result.backlog_tiers.ready, result, state),

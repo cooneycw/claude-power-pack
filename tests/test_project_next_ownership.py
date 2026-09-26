@@ -256,9 +256,17 @@ def test_repin_still_succeeds_when_the_contract_version_moves_with_the_engine(
     engine = root / "lib" / "project_next" / "rank.py"
     engine.write_text(engine.read_text(encoding="utf-8") + "# behaviour change\n", encoding="utf-8")
 
+    # Derive the bump from the pinned version: a hardcoded pair silently stops bumping
+    # anything once the real contract moves past it (it did, at 1.4 in #1035).
+    current = json.loads((root / ".claude" / "project-next-ownership.json").read_text(encoding="utf-8"))[
+        "contract_version"
+    ]
+    major, minor = current.split(".")
     contract = root / "docs" / "project-next-contract.md"
+    text = contract.read_text(encoding="utf-8")
+    assert f"Contract version `{current}`" in text, "the fixture must carry the version it bumps"
     contract.write_text(
-        contract.read_text(encoding="utf-8").replace("Contract version `1.3`", "Contract version `1.4`"),
+        text.replace(f"Contract version `{current}`", f"Contract version `{major}.{int(minor) + 1}`"),
         encoding="utf-8",
     )
 

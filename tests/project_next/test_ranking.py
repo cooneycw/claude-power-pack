@@ -219,3 +219,62 @@ def test_tracked_modifications_still_outrank_new_work() -> None:
 
     assert result.top_action is not None
     assert result.top_action.kind == "continue_work"
+
+
+def _dirty_branch_state(branch: str) -> RepositoryState:
+    return RepositoryState(
+        repository="example/dirty",
+        default_branch="main",
+        collected_at="2026-09-26T00:00:00Z",
+        issues=(Issue(900, "Open work", labels=("task",)), Issue(901, "Ready work", labels=("task",))),
+        worktrees=(Worktree(f"/wt/{branch}", branch, dirty=True),),
+    )
+
+
+def test_continue_work_is_never_recommended_for_a_branch_naming_a_closed_issue() -> None:
+    # #868 is not in the (complete) open inventory: it was closed, perhaps as refuted.
+    result = recommend(_dirty_branch_state("issue-868-supervise-wake-inbox-socket"))
+
+    assert result.top_action is not None
+    assert result.top_action.kind != "continue_work"
+    assert result.top_action.issue_number != 868
+    assert any("#868, which is not open" in warning for warning in result.warnings)
+    assert any(item.issue_number == 868 for item in result.cleanup_candidates)
+
+
+def test_continue_work_is_still_recommended_for_a_branch_naming_an_open_issue() -> None:
+    result = recommend(_dirty_branch_state("issue-900-open-work"))
+
+    assert result.top_action is not None
+    assert result.top_action.kind == "continue_work"
+    assert result.top_action.issue_number == 900
+    assert not any("which is not open" in warning for warning in result.warnings)
+
+
+def test_an_inbox_alone_is_triaged_rather_than_reported_as_nothing_to_do() -> None:
+    state = RepositoryState(
+        repository="example/inbox",
+        default_branch="main",
+        collected_at="2026-09-26T00:00:00Z",
+        issues=(Issue(864, "Nit Store", labels=("evergreen",)),),
+    )
+    result = recommend(state)
+
+    assert result.next_startable_issue is None
+    assert result.top_action is not None
+    assert result.top_action.kind == "triage_inbox"
+    assert result.top_action.issue_number == 864
+
+
+def test_any_startable_issue_outranks_triaging_the_inbox() -> None:
+    state = RepositoryState(
+        repository="example/inbox",
+        default_branch="main",
+        collected_at="2026-09-26T00:00:00Z",
+        issues=(Issue(864, "Nit Store", labels=("evergreen",)), Issue(900, "Ordinary work")),
+    )
+    result = recommend(state)
+
+    assert result.top_action is not None
+    assert result.top_action.kind == "start_issue"
+    assert result.top_action.issue_number == 900
