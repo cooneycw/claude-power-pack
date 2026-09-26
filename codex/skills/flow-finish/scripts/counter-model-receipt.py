@@ -132,6 +132,22 @@ def _mask_fences(text: str) -> str:
 PARSE_FINDINGS = "findings"
 PARSE_CLEAN = "clean"
 PARSE_UNPARSEABLE = "unparseable"
+#: A review that HAPPENED and answered in another shape (issue #1259). Before
+#: this it was `unparseable`, which step 1c records as `skipped /
+#: reviewer-unavailable` - a receipt asserting that a real review, whose
+#: findings the caller acted on, did not occur. Seen on #1056: both passes
+#: returned `- **MEDIUM - file:line**` bullets.
+PARSE_FORMAT_MISMATCH = "format-mismatch"
+
+#: What makes a line in the Findings section read as a finding written in some
+#: other shape: a LIST ITEM or HEADING carrying an uppercase severity LABEL as a
+#: whole word. Deliberately narrow, in both directions: a truncated `### [HIG`
+#: and a prose "looks good" carry no label and stay `unparseable`, and a
+#: lowercase "the risk is low" is English, not a label.
+OFFSHAPE_FINDING_RE = re.compile(
+    r"^\s*(?:[-*+]|\d+[.)]|#{1,6})\s.*\b(?:CRITICAL|HIGH|MEDIUM|LOW)\b",
+    re.MULTILINE,
+)
 
 
 def parse_review(text: str) -> tuple[str, list[dict]]:
@@ -147,6 +163,14 @@ def parse_review(text: str) -> tuple[str, list[dict]]:
     so in the prescribed words; a transcript with no findings and no such
     statement is `unparseable`, and the caller must not record it as a clean
     run.
+
+    A FOURTH OUTCOME SPLITS THE THIRD (issue #1259). "Answered in some other
+    shape" covered two opposite facts as well: a reply with no findings in it,
+    and a real review whose findings are written as bullets rather than
+    `### [SEVERITY]` headings. The second is `format-mismatch` - a review that
+    happened, never to be recorded as a skip - and needs a severity-labelled
+    list item or heading inside Findings to be claimed. Everything else that is
+    neither findings nor clean stays `unparseable`.
 
     This is the #952 denominator convention applied to a review: an instrument
     prints what it examined, and a zero it cannot account for reads as unknown.
@@ -174,6 +198,8 @@ def parse_review(text: str) -> tuple[str, list[dict]]:
         return PARSE_FINDINGS, findings
     if NONE_RE.search(masked_section):
         return PARSE_CLEAN, []
+    if OFFSHAPE_FINDING_RE.search(masked_section):
+        return PARSE_FORMAT_MISMATCH, []
     return PARSE_UNPARSEABLE, []
 
 
@@ -616,7 +642,14 @@ def cmd_parse(args: argparse.Namespace) -> int:
     print(f"COUNTER_MODEL_REVIEW: {verdict}")
     # An unparseable transcript is NOT a clean review and must not be recorded
     # as one; non-zero so a caller that forgets to read the verdict still stops.
-    return EXIT_INVALID if verdict == PARSE_UNPARSEABLE else EXIT_OK
+    # A format mismatch is non-zero for the same reason: its findings were NOT
+    # counted, so a caller reading only the exit code must not proceed as if
+    # they had been.
+    if verdict == PARSE_FORMAT_MISMATCH:
+        print("counter-model-receipt: the Findings section carries findings in a shape "
+              "this parser does not read - the review HAPPENED. Do not record it as a "
+              "skip; see /flow:auto Step 6 item 1c.", file=sys.stderr)
+    return EXIT_INVALID if verdict in (PARSE_UNPARSEABLE, PARSE_FORMAT_MISMATCH) else EXIT_OK
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
