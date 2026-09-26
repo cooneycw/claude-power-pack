@@ -134,7 +134,12 @@
 set -uo pipefail
 
 # Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
-trap 'printf "FLOW_FINISH_GATE_EXIT=%d\n" "$?" >&2' EXIT
+# The trap also removes the runner's JSON temp file (issue #1258): it was removed
+# by one straight-line `rm` after parsing, so any exit before that line -
+# an interrupt, a killed runner - leaked one, and twelve accumulated on one host.
+# `$?` is captured FIRST, before the `rm` can overwrite it.
+RUNNER_JSON=""
+trap '_rc=$?; [[ -n "$RUNNER_JSON" ]] && rm -f "$RUNNER_JSON"; printf "FLOW_FINISH_GATE_EXIT=%d\n" "$_rc" >&2' EXIT
 
 # --- The shared gate conventions (issue #1061) ------------------------------
 # SIBLING FIRST, like every other helper this repository resolves: a generated
@@ -906,7 +911,26 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         }
         in_cov && /^      "state": "zero"[,]?$/ { if (id != "") print id; next }
     ' "$RUNNER_JSON" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
+    # The failing tests BY NAME (issue #1258). The runner records
+    # tests.<step>.failed_ids for every step whose parsed outcome failed,
+    # re-run or not; an EMPTY list means the ids could not be read, which is
+    # said out loud below rather than left looking like "nothing failed".
+    FAILED_IDS_PRESENT=0
+    grep -q '"failed_ids":' "$RUNNER_JSON" 2>/dev/null && FAILED_IDS_PRESENT=1
+    FAILED_IDS=$(awk '
+        /"failed_ids": \[$/ { in_f = 1; next }
+        in_f && /^[[:space:]]*\][,]?$/ { in_f = 0; next }
+        in_f {
+            l = $0
+            sub(/^[[:space:]]*"/, "", l)
+            sub(/"[,]?$/, "", l)
+            print l
+        }
+    ' "$RUNNER_JSON" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
+    # Removed here AND by the EXIT trap: this keeps the file's life as short as
+    # the parse, the trap covers every exit before this line.
     rm -f "$RUNNER_JSON"
+    RUNNER_JSON=""
     # Print the #769 evidence before verdict precedence is applied: a later
     # failing step or skipped gates are more serious, but must not erase a flake
     # that also occurred earlier in the same run.
@@ -1114,6 +1138,13 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         echo "  If it times out at a budget far above the suite's real cost, suspect a hang rather than growth (issue #812)." >&2
         verdict "fail (timeout: $TIMED_OUT_STEP after ${TIMED_OUT_AFTER:-?}s)"
         gate_exit fail
+    fi
+    if [[ "$FAILED_IDS_PRESENT" -eq 1 ]]; then
+        if [[ -n "$FAILED_IDS" ]]; then
+            echo "FAILED_IDS: $FAILED_IDS"
+        else
+            echo "FAILED_IDS: none readable - a test failed and the runner output did not name it; the failing test is NOT identified (issue #1258)."
+        fi
     fi
     if [[ -n "$FAILED_PREREQ" ]]; then
         # An aggregate has many prerequisites - `verify` has 29 in this repo -

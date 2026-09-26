@@ -49,7 +49,15 @@ FAKE_GH = """#!/usr/bin/env bash
 case "$*" in
   *"issue view"*"--json state"*) printf '%s\\n' "${FAKE_GH_STATE:-OPEN}" ;;
   *"issue view"*"--json title"*) printf '%s\\n' "${FAKE_GH_TITLE:-Fix the frobnicator}" ;;
-  *"pr list"*) printf '%s\\n' "${FAKE_GH_PR:-none}" ;;
+  *"pr list"*)
+    # FAKE_GH_PR_MAP="<branch>=<answer> ..." answers per --head branch, so a
+    # test can hold one shipped branch and one live one (issue #1258).
+    head=""; prev=""
+    for a in "$@"; do [ "$prev" = "--head" ] && head="$a"; prev="$a"; done
+    for kv in ${FAKE_GH_PR_MAP:-}; do
+      [ "${kv%%=*}" = "$head" ] && { printf '%s\\n' "${kv#*=}"; exit 0; }
+    done
+    printf '%s\\n' "${FAKE_GH_PR:-none}" ;;
   *) exit 1 ;;
 esac
 """
@@ -879,10 +887,108 @@ def test_reused_leftover_branch_tracking_the_base_is_repointed_at_itself(tmp_pat
     assert _git(clone, "config", f"branch.{branch}.merge").strip() == f"refs/heads/{branch}"
 
 
+# --- issue #1258: decide BEFORE creating, and never pick up shipped history --
+#
+# The resolver used to run `git worktree add` on a pickup branch and only then
+# report PR_HEAD / CONFIRM_REQUIRED, so the question was asked about a checkout
+# that already existed (/flow:auto 982, kyle: 127 commits behind main, on a
+# branch whose PR had merged). Each case below asserts on the FILESYSTEM and the
+# refs, not only on the contract, because the contract was always "correct" -
+# it was the side effect before it that was not.
+
+
+def _worktree_paths(repo: Path) -> list[str]:
+    return [
+        ln.removeprefix("worktree ")
+        for ln in _git(repo, "worktree", "list", "--porcelain").splitlines()
+        if ln.startswith("worktree ")
+    ]
+
+
+def _push_issue_branch(origin: Path, name: str) -> None:
+    _git(origin, "switch", "-q", "-c", name)
+    (origin / f"{name}.txt").write_text("work\n")
+    _git(origin, "add", "-A")
+    _git(origin, "commit", "-q", "-m", name)
+    _git(origin, "switch", "-q", "main")
+
+
 @requires_git
-def test_local_pickup_of_a_branch_whose_pr_already_merged_requires_confirmation(tmp_path: Path):
+def test_remote_branch_with_merged_pr_is_skipped_and_nothing_is_created_on_it(tmp_path: Path):
+    origin, clone = _make_origin_and_clone(tmp_path)
+    _push_issue_branch(origin, "issue-42-fix-the-frobnicator")
+    res = _run(
+        "42", "--session-cwd", str(clone), cwd=clone, gh=_fake_gh(tmp_path),
+        extra_env={"FAKE_GH_PR": "1056:MERGED"},
+    )
+    assert res.returncode == 0, res.stderr
+    c = _contract(res)
+    # Not a pickup of shipped history: fresh, off the base, on a free name -
+    # the derived slug IS the shipped branch's name, so it takes a suffix.
+    assert c["LANE"] == "fresh"
+    assert c["SHIPPED_BRANCH"] == "issue-42-fix-the-frobnicator:1056:MERGED"
+    assert c["BRANCH"] == "issue-42-fix-the-frobnicator-2"
+    assert c["WT_BASE"] == "origin/main"
+    assert c["PR_HEAD"] == "none"
+    assert c["CONFIRM_REQUIRED"] == "0"
+    wt = Path(c["WT_PATH"])
+    assert not (wt / "issue-42-fix-the-frobnicator.txt").exists(), "worktree stands on the shipped branch"
+    assert "REMOTE_BRANCH" not in c
+
+
+@requires_git
+def test_remote_branch_with_open_pr_creates_nothing_until_allow_pickup(tmp_path: Path):
+    origin, clone = _make_origin_and_clone(tmp_path)
+    _push_issue_branch(origin, "issue-42-remote-work")
+    before = _worktree_paths(clone)
+    res = _run(
+        "42", "--session-cwd", str(clone), cwd=clone, gh=_fake_gh(tmp_path),
+        extra_env={"FAKE_GH_PR": "211:OPEN"},
+    )
+    assert res.returncode == 0, res.stderr
+    c = _contract(res)
+    assert c["LANE"] == "remote-pickup"
+    assert c["PR_HEAD"] == "211:OPEN"
+    assert c["CONFIRM_REQUIRED"] == "1"
+    # The whole point: asked BEFORE, so nothing exists yet.
+    assert c["WT_CREATED"] == "0"
+    assert _worktree_paths(clone) == before
+    assert not Path(c["WT_PATH"]).exists()
+    assert "--allow-pickup" in res.stderr
+
+    res2 = _run(
+        "42", "--allow-pickup", "--session-cwd", str(clone), cwd=clone, gh=_fake_gh(tmp_path),
+        extra_env={"FAKE_GH_PR": "211:OPEN"},
+    )
+    assert res2.returncode == 0, res2.stderr
+    c2 = _contract(res2)
+    assert c2["WT_CREATED"] == "1"
+    assert (Path(c2["WT_PATH"]) / "issue-42-remote-work.txt").exists()
+
+
+@requires_git
+def test_shipped_branch_is_skipped_in_favour_of_a_live_one(tmp_path: Path):
+    origin, clone = _make_origin_and_clone(tmp_path)
+    _push_issue_branch(origin, "issue-42-a-shipped")
+    _push_issue_branch(origin, "issue-42-b-live")
+    _git(clone, "fetch", "-q", "origin")
+    res = _run(
+        "42", "--session-cwd", str(clone), cwd=clone, gh=_fake_gh(tmp_path),
+        extra_env={"FAKE_GH_PR_MAP": "issue-42-a-shipped=7:MERGED issue-42-b-live=none"},
+    )
+    assert res.returncode == 0, res.stderr
+    c = _contract(res)
+    assert c["LANE"] == "remote-pickup"
+    assert c["BRANCH"] == "issue-42-b-live"
+    assert c["SHIPPED_BRANCH"] == "issue-42-a-shipped:7:MERGED"
+    assert c["CONFIRM_REQUIRED"] == "0"
+    assert c["WT_CREATED"] == "1"
+
+
+@requires_git
+def test_local_pickup_of_a_branch_whose_pr_already_merged_starts_fresh(tmp_path: Path):
     # #1221 comment, instance 2: a leftover branch whose PR merged yesterday must
-    # not be entered as if it were fresh work.
+    # not be entered as if it were fresh work. #1258: it is not entered at all.
     _, clone = _make_origin_and_clone(tmp_path)
     _git(clone, "branch", "issue-42-old-slug", "origin/main")
     res = _run(
@@ -891,10 +997,95 @@ def test_local_pickup_of_a_branch_whose_pr_already_merged_requires_confirmation(
         str(clone),
         cwd=clone,
         gh=_fake_gh(tmp_path),
-        extra_env={"FAKE_GH_PR": "1208:MERGED"},
+        extra_env={"FAKE_GH_PR_MAP": "issue-42-old-slug=1208:MERGED"},
     )
     assert res.returncode == 0, res.stderr
     c = _contract(res)
-    assert c["LANE"] == "local-pickup"
-    assert c["PR_HEAD"] == "1208:MERGED"
-    assert c["CONFIRM_REQUIRED"] == "1"
+    assert c["LANE"] == "fresh"
+    assert c["SHIPPED_BRANCH"] == "issue-42-old-slug:1208:MERGED"
+    assert c["BRANCH"] == "issue-42-fix-the-frobnicator"
+    assert _git(Path(c["WT_PATH"]), "branch", "--show-current").strip() == c["BRANCH"]
+
+
+# --- issue #1258: an unwritable sibling base leaves nothing behind -----------
+
+
+def _unwritable_parent_repo(tmp_path: Path) -> tuple[Path, Path]:
+    origin = tmp_path / "origin-repo"
+    origin.mkdir()
+    _git(origin, "init", "-q", "-b", "main")
+    (origin / "a.txt").write_text("a0\n")
+    _git(origin, "add", "-A")
+    _git(origin, "commit", "-q", "-m", "init")
+    parent = tmp_path / "ro"
+    parent.mkdir()
+    clone = parent / "workspace"
+    _git(tmp_path, "clone", "-q", str(origin), str(clone))
+    parent.chmod(0o555)
+    return parent, clone
+
+
+@requires_git
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root writes through 0555")
+def test_unwritable_parent_refuses_before_creating_a_branch(tmp_path: Path):
+    parent, clone = _unwritable_parent_repo(tmp_path)
+    try:
+        # Precondition: the negative condition this fixture constructs.
+        assert not os.access(parent, os.W_OK)
+        res = _run("42", "--session-cwd", str(clone), cwd=clone, gh=_fake_gh(tmp_path))
+        assert res.returncode == 1
+        assert "FLOW_START_RESOLVE: error" in res.stdout
+        assert "FLOW_WORKTREE_BASE" in res.stdout
+        # The stray branch the nit found: none may exist after a refusal.
+        assert _git(clone, "branch", "--list", "issue-42-*").strip() == ""
+    finally:
+        parent.chmod(0o755)
+
+
+@requires_git
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root writes through 0555")
+def test_unwritable_parent_falls_back_to_an_ignored_in_repo_base(tmp_path: Path):
+    parent, clone = _unwritable_parent_repo(tmp_path)
+    try:
+        (clone / ".git" / "info" / "exclude").write_text(".claude/worktrees/\n")
+        assert not os.access(parent, os.W_OK)
+        res = _run("42", "--session-cwd", str(clone), cwd=clone, gh=_fake_gh(tmp_path))
+        assert res.returncode == 0, res.stdout + res.stderr
+        c = _contract(res)
+        assert c["WT_PATH"] == str(clone / ".claude" / "worktrees" / "workspace-issue-42-fix-the-frobnicator")
+        assert c["WT_CREATED"] == "1"
+        assert Path(c["WT_PATH"]).is_dir()
+    finally:
+        parent.chmod(0o755)
+
+
+@requires_git
+def test_failed_worktree_add_removes_the_branch_it_created(tmp_path: Path):
+    _, clone = _make_origin_and_clone(tmp_path)
+    # A FILE where the worktree directory must go makes `git worktree add -b`
+    # fail after git has already created the branch.
+    blocker = tmp_path / "clone-repo-issue-42-fix-the-frobnicator"
+    blocker.write_text("in the way\n")
+    res = _run("42", "--session-cwd", str(clone), cwd=clone, gh=_fake_gh(tmp_path))
+    assert res.returncode == 1
+    assert _git(clone, "branch", "--list", "issue-42-*").strip() == ""
+
+
+# --- issue #1258: compose's own `name:` beats the checkout basename -----------
+
+
+@requires_git
+def test_compose_project_name_prefers_the_compose_files_own_name(tmp_path: Path):
+    _, clone = _make_origin_and_clone(tmp_path)
+    (clone / "docker-compose.yml").write_text('name: "kyle"\nservices: {}\n')
+    res = _run("42", "--session-cwd", str(clone), cwd=clone, gh=_fake_gh(tmp_path))
+    assert res.returncode == 0, res.stderr
+    assert _contract(res)["COMPOSE_PROJECT_NAME"] == "kyle"
+
+
+@requires_git
+def test_compose_name_with_interpolation_falls_back_to_basename(tmp_path: Path):
+    _, clone = _make_origin_and_clone(tmp_path)
+    (clone / "compose.yaml").write_text("name: ${PROJECT:-x}\nservices: {}\n")
+    res = _run("42", "--session-cwd", str(clone), cwd=clone, gh=_fake_gh(tmp_path))
+    assert _contract(res)["COMPOSE_PROJECT_NAME"] == "clone-repo"

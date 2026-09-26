@@ -16,6 +16,7 @@
 #
 # Resolve mode:
 #   flow-start-resolve.sh <ISSUE> [PROJECT] [--session-cwd PATH] [--allow-closed]
+#                         [--allow-pickup]
 #
 #   PROJECT        target repo when the session cwd is not the issue's repo
 #                  (issue #578): tried as a path first, else
@@ -35,6 +36,11 @@
 #                  a directory that may not be a repo at all.
 #   --allow-closed proceed with worktree creation although the issue is not
 #                  OPEN (pass only after the user has confirmed).
+#   --allow-pickup proceed with picking up an issue branch that already has an
+#                  OPEN PR (pass only after the user has confirmed). Without it
+#                  that lane creates NOTHING and reports CONFIRM_REQUIRED=1
+#                  (issue #1258): asking after `git worktree add` asks about a
+#                  state that already exists.
 #
 #   Prints a key=value contract (stdout), one value per line:
 #     LANE=current-branch|fresh|resume|remote-pickup|local-pickup|cross-repo
@@ -57,7 +63,12 @@
 #     WT_PATH=<abs path of the worktree to enter (or create, LANE=fresh)>
 #                           created OUTSIDE the repo (issue #627):
 #                           $FLOW_WORKTREE_BASE/<repo>-<branch> when set (#584),
-#                           else a visible sibling <parent>/<repo>-<branch>
+#                           else a visible sibling <parent>/<repo>-<branch>.
+#                           When <parent> is not writable (a container repo at
+#                           /workspace, issue #1258) it is
+#                           <repo>/.claude/worktrees/<repo>-<branch> if git
+#                           ignores that path, else the run refuses BEFORE any
+#                           branch is created and names FLOW_WORKTREE_BASE
 #     DEFAULT_BRANCH=<default branch name>
 #     REMOTE_BRANCH=origin/<...>       (remote-pickup lane only)
 #     WT_CREATED=0|1        1 = this run already ran `git worktree add`
@@ -81,11 +92,20 @@
 #     CLAIM_PID=<pid|->     owning process id when CLAIM names an owner
 #     CLAIM_SESSION=<id|->  owning Claude session id
 #     PR_HEAD=none|<number>:<state>|unknown        (shipped-PR hazard; probed on
-#                           the resume AND remote-pickup lanes, #742)
+#                           the resume AND pickup lanes, #742) - BEFORE any
+#                           pickup worktree is created (issue #1258)
+#     SHIPPED_BRANCH=<branch>:<number>:MERGED      (only when one was skipped)
+#                           an issue branch whose PR already MERGED is shipped
+#                           history, never a pickup source (issue #1258). It is
+#                           skipped; when no unshipped candidate remains the run
+#                           takes the fresh lane, on a free issue-anchored name
+#                           (a `-2`, `-3`... suffix if the slug name is taken)
 #     CONFIRM_REQUIRED=0|1  1 = STOP: explicit user confirmation needed
 #                           (suspected live driver, a live cross-session claim
-#                           on this issue, existing open/merged PR, or non-OPEN
-#                           issue without --allow-closed)
+#                           on this issue, a resumed worktree with an
+#                           open/merged PR, a pickup branch with an OPEN PR
+#                           without --allow-pickup, or non-OPEN issue without
+#                           --allow-closed)
 #     FLOW_START_RESOLVE: ok
 #   On a hard error: ERROR=<reason> then `FLOW_START_RESOLVE: error`, exit 1.
 #
@@ -167,6 +187,10 @@ resolve_primary() {
 # it a different SHA - and this refuses rather than guessing.
 create_worktree() {
   local path="$1" branch="$2" start_ref="$3"
+  # Refuse BEFORE `-b` (issue #1258): a `git worktree add -b` that fails on the
+  # path has already created the branch, and the stray branch changes the lane
+  # the NEXT run reports.
+  [ -z "$WT_PATH_PROBLEM" ] || fail "$WT_PATH_PROBLEM"
   [ -n "${FLOW_WORKTREE_BASE:-}" ] && mkdir -p "$FLOW_WORKTREE_BASE"
   if "$GIT" -C "$TARGET_REPO" show-ref --verify --quiet "refs/heads/$branch"; then
     if ! "$GIT" -C "$TARGET_REPO" merge-base --is-ancestor "$branch" "$start_ref" 2>/dev/null; then
@@ -178,7 +202,12 @@ create_worktree() {
     "$GIT" -C "$TARGET_REPO" worktree add "$path" "$branch" >&2 || return 1
   else
     WT_BASE_USED="$start_ref"
-    "$GIT" -C "$TARGET_REPO" worktree add --no-track -b "$branch" "$path" "$start_ref" >&2 || return 1
+    if ! "$GIT" -C "$TARGET_REPO" worktree add --no-track -b "$branch" "$path" "$start_ref" >&2; then
+      # The branch did not exist before this call, so anything under its name
+      # now is this call's own leftover - it holds no commits of anyone's.
+      "$GIT" -C "$TARGET_REPO" branch -D "$branch" >/dev/null 2>&1 || true
+      return 1
+    fi
   fi
   set_own_upstream "$branch"
 }
@@ -206,6 +235,7 @@ GIT=git
 # ---- argument parsing -------------------------------------------------------
 MODE=resolve
 ALLOW_CLOSED=0
+ALLOW_PICKUP=0
 ISSUE_NUM=""
 PROJECT=""
 EXPECTED_BRANCH=""
@@ -215,6 +245,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --verify) MODE=verify ;;
     --allow-closed) ALLOW_CLOSED=1 ;;
+    --allow-pickup) ALLOW_PICKUP=1 ;;
     --session-cwd)
       [ "$#" -ge 2 ] || usage_fail "--session-cwd requires a path argument"
       SESSION_CWD_ARG="$2"
@@ -241,7 +272,7 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
-[ -n "$ISSUE_NUM" ] || usage_fail "usage: flow-start-resolve.sh <ISSUE> [PROJECT] [--allow-closed] | --verify <ISSUE> [EXPECTED_BRANCH]"
+[ -n "$ISSUE_NUM" ] || usage_fail "usage: flow-start-resolve.sh <ISSUE> [PROJECT] [--allow-closed] [--allow-pickup] | --verify <ISSUE> [EXPECTED_BRANCH]"
 printf '%s' "$ISSUE_NUM" | grep -qE '^[0-9]+$' || usage_fail "ISSUE must be a number, got: $ISSUE_NUM"
 
 # ---- verify mode: the post-entry gate ---------------------------------------
@@ -382,12 +413,34 @@ GIT_LANE=1
 # under FLOW_WORKTREE_BASE when set (#584), else a visible sibling in the repo's
 # parent dir. Either way the dir is named <repo>-<branch> to disambiguate repos
 # that share one base (e.g. everything under ~/Projects).
-wt_path_for() {
+#
+# An UNWRITABLE parent (issue #1258): a container mounts the repo at /workspace,
+# so the sibling lands under `/`, which is root-owned, and `git worktree add`
+# fails. The fallback is the repo's own `.claude/worktrees/` - but only where
+# git IGNORES it there, because an unignored in-repo worktree shows up as an
+# untracked tree in the primary checkout and is one `git add -A` from being
+# committed. With neither, WT_PATH_PROBLEM is set and create_worktree refuses
+# before any branch exists. Sets WT_PATH in the CALLER's shell - never call it
+# in a `$(...)` subshell, where the problem would be lost.
+WT_PATH_PROBLEM=""
+set_wt_path() {
+  local name
+  name="$(basename "$TARGET_REPO")-$1"
+  WT_PATH_PROBLEM=""
   if [ -n "${FLOW_WORKTREE_BASE:-}" ]; then
-    echo "$FLOW_WORKTREE_BASE/$(basename "$TARGET_REPO")-$1"
-  else
-    echo "$(dirname "$TARGET_REPO")/$(basename "$TARGET_REPO")-$1"
+    WT_PATH="$FLOW_WORKTREE_BASE/$name"
+    return 0
   fi
+  local parent
+  parent=$(dirname "$TARGET_REPO")
+  WT_PATH="$parent/$name"
+  [ -w "$parent" ] && return 0
+  if "$GIT" -C "$TARGET_REPO" check-ignore -q ".claude/worktrees/$name" 2>/dev/null; then
+    WT_PATH="$TARGET_REPO/.claude/worktrees/$name"
+    echo "flow-start-resolve: '$parent' is not writable - using the git-ignored in-repo base '$TARGET_REPO/.claude/worktrees' (issue #1258)." >&2
+    return 0
+  fi
+  WT_PATH_PROBLEM="the sibling worktree base '$parent' is not writable, and '$TARGET_REPO/.claude/worktrees/' is not git-ignored in that repo to fall back to - no branch was created. Set FLOW_WORKTREE_BASE to a writable directory (e.g. FLOW_WORKTREE_BASE=$TARGET_REPO/.claude/worktrees after ignoring it), then retry (issue #1258)."
 }
 
 # ---- issue fetch + state check ----------------------------------------------
@@ -466,7 +519,9 @@ BASE_REF="origin/$DEFAULT_BRANCH"
 # target repo, #578) must never let that resolution drift (#742). When origin's
 # URL is not an owner/repo-shaped GitHub remote (e.g. a local test fixture),
 # fall back to gh's cwd-based resolution from inside TARGET_REPO, which is the
-# pre-#742 shape. Sets PR_HEAD; an OPEN/MERGED hit sets CONFIRM_REQUIRED=1.
+# pre-#742 shape. Sets PR_HEAD ONLY - what a hit means depends on the lane, so
+# the CALLER decides whether it needs confirmation (issue #1258: a MERGED pickup
+# branch is skipped, not confirmed; an OPEN one stops before creation).
 probe_pr_head() {
   local branch="$1" owner_repo
   owner_repo=$("$GIT" -C "$TARGET_REPO" remote get-url origin 2>/dev/null |
@@ -484,12 +539,6 @@ probe_pr_head() {
       --jq '[.[] | select(.state == "OPEN" or .state == "MERGED")][0] | if . == null then "none" else "\(.number):\(.state)" end' 2>/dev/null) || true
   fi
   PR_HEAD=${PR_HEAD:-unknown}
-  case "$PR_HEAD" in
-    *:*)
-      CONFIRM_REQUIRED=1
-      echo "flow-start-resolve: branch '$branch' already has PR $PR_HEAD - possible concurrent or already-shipped work; confirm before entering." >&2
-      ;;
-  esac
 }
 
 # ---- existing-work triage ---------------------------------------------------
@@ -553,8 +602,16 @@ if [ "$LANE" = resume ]; then
   fi
   [ "$LIVE_DRIVER" = suspected ] && CONFIRM_REQUIRED=1
 
-  # The other resume hazard: this branch already has an open/merged PR.
+  # The other resume hazard: this branch already has an open/merged PR. The
+  # worktree already exists here (a prior run made it), so confirming is all
+  # that is left to do.
   probe_pr_head "$BRANCH"
+  case "$PR_HEAD" in
+    *:*)
+      CONFIRM_REQUIRED=1
+      echo "flow-start-resolve: branch '$BRANCH' already has PR $PR_HEAD - possible concurrent or already-shipped work; confirm before entering." >&2
+      ;;
+  esac
 fi
 
 # 3. A remote branch exists but no local worktree (cross-machine pickup); or,
@@ -567,32 +624,76 @@ fi
 #    the fresh lane below, where it would either collide under the exact-slug
 #    case (now refused by create_worktree's own guard) or, worse, be silently
 #    ignored while a second branch is created alongside it for the same issue.
+#
+#    EVERY candidate is probed for a PR BEFORE anything is created (issue
+#    #1258). This used to create the worktree first and report PR_HEAD after,
+#    so the confirmation was asked about a checkout that already existed -
+#    observed on /flow:auto 982 (kyle): a worktree 127 commits behind main, on a
+#    branch whose PR had merged. Now:
+#      - MERGED: shipped history, never a pickup source. Skipped, recorded as
+#        SHIPPED_BRANCH, and the next candidate is tried; with none left the run
+#        falls through to the fresh lane below.
+#      - OPEN: in-flight work. The lane is reported but NOTHING is created until
+#        the user confirms and the run is repeated with --allow-pickup.
+#      - none / unknown: picked up as before.
+SHIPPED_BRANCH=""
+PICKUP_OPEN_PR=0
+pickup_decide() { # BRANCH -> 0 = take it, 1 = shipped (skip it)
+  probe_pr_head "$1"
+  case "$PR_HEAD" in
+    *:MERGED)
+      [ -n "$SHIPPED_BRANCH" ] || SHIPPED_BRANCH="$1:$PR_HEAD"
+      echo "flow-start-resolve: branch '$1' already shipped as PR $PR_HEAD - not picking it up; new work goes on a fresh branch (issue #1258)." >&2
+      return 1
+      ;;
+    *:*)
+      PICKUP_OPEN_PR=1
+      CONFIRM_REQUIRED=1
+      echo "flow-start-resolve: branch '$1' already has PR $PR_HEAD - possible concurrent work. Nothing was created; confirm with the user, then re-run with --allow-pickup (issue #1258)." >&2
+      ;;
+  esac
+  return 0
+}
+pickup_may_create() {
+  [ "$CREATE_OK" -eq 1 ] || return 1
+  [ "$PICKUP_OPEN_PR" -eq 0 ] || [ "$ALLOW_PICKUP" -eq 1 ]
+}
 if [ -z "$LANE" ]; then
-  REMOTE_BRANCH=$("$GIT" -C "$TARGET_REPO" branch -r --list "origin/issue-${ISSUE_NUM}-*" 2>/dev/null | head -1 | sed 's/^[ *+]*//;s/ .*$//')
-  if [ -n "$REMOTE_BRANCH" ]; then
-    LANE=remote-pickup
-    BRANCH="${REMOTE_BRANCH#origin/}"
-    WT_PATH=$(wt_path_for "$BRANCH")
-    # The pushed branch may already have an open/merged PR - the same
-    # shipped-PR hazard as the resume lane. This probe was resume-only until
-    # #742, so a remote pickup of an in-flight PR sailed through unconfirmed.
-    probe_pr_head "$BRANCH"
-    if [ "$CREATE_OK" -eq 1 ]; then
+  while IFS= read -r cand; do
+    [ -n "$cand" ] || continue
+    if pickup_decide "${cand#origin/}"; then
+      LANE=remote-pickup
+      REMOTE_BRANCH="$cand"
+      BRANCH="${cand#origin/}"
+      break
+    fi
+  done < <("$GIT" -C "$TARGET_REPO" branch -r --list "origin/issue-${ISSUE_NUM}-*" 2>/dev/null | sed 's/^[ *+]*//;s/ .*$//')
+  if [ -n "$LANE" ]; then
+    set_wt_path "$BRANCH"
+    # The pushed branch may already have an open PR - the same hazard as the
+    # resume lane. This probe was resume-only until #742, so a remote pickup of
+    # an in-flight PR sailed through unconfirmed; until #1258 it was probed
+    # only after the worktree had been created.
+    if pickup_may_create; then
       create_worktree "$WT_PATH" "$BRANCH" "$REMOTE_BRANCH" ||
         fail "git worktree add for '$BRANCH' from '$REMOTE_BRANCH' failed in $TARGET_REPO"
       WT_CREATED=1
     fi
   else
-    LOCAL_MATCH=$("$GIT" -C "$TARGET_REPO" branch --list "issue-${ISSUE_NUM}-*" 2>/dev/null | sed 's/^[ *+]*//' | head -1)
-    if [ -n "$LOCAL_MATCH" ]; then
-      LANE=local-pickup
-      BRANCH="$LOCAL_MATCH"
-      WT_PATH=$(wt_path_for "$BRANCH")
-      # Same shipped-PR hazard as remote-pickup: the branch could have been
-      # pushed under this name by an earlier run even though it has no
-      # remote-tracking ref locally right now.
-      probe_pr_head "$BRANCH"
-      if [ "$CREATE_OK" -eq 1 ]; then
+    while IFS= read -r cand; do
+      [ -n "$cand" ] || continue
+      # A local branch of a name already found shipped on the remote is the
+      # same shipped history.
+      case "$SHIPPED_BRANCH" in "$cand":*) continue ;; esac
+      if pickup_decide "$cand"; then
+        LANE=local-pickup
+        BRANCH="$cand"
+        break
+      fi
+    done < <("$GIT" -C "$TARGET_REPO" branch --list "issue-${ISSUE_NUM}-*" 2>/dev/null | sed 's/^[ *+]*//')
+    if [ -n "$LANE" ]; then
+      set_wt_path "$BRANCH"
+      if pickup_may_create; then
         # BRANCH already exists locally, so create_worktree's own ancestor
         # guard decides this: reused if BASE_REF contains it, refused (naming
         # the branch and its tip) otherwise - never a silent checkout.
@@ -608,7 +709,22 @@ fi
 #    git lane always applies (GIT_LANE=1) and the helper creates the worktree
 #    here - the native EnterWorktree fresh lane is retired.
 if [ -z "$LANE" ]; then
-  WT_PATH=$(wt_path_for "$BRANCH")
+  # Every pickup candidate was shipped history: the fresh lane is PR-free, so
+  # PR_HEAD describes the branch this run is on, not the one it skipped.
+  if [ -n "$SHIPPED_BRANCH" ]; then
+    PR_HEAD=none
+    # The derived name may BE the shipped branch; never reuse it (it would be
+    # checked out, or collide with the merged PR's head). Take the first free
+    # issue-anchored suffix, free both locally and on origin.
+    base_branch="$BRANCH"
+    n=2
+    while "$GIT" -C "$TARGET_REPO" show-ref --verify --quiet "refs/heads/$BRANCH" ||
+      "$GIT" -C "$TARGET_REPO" show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; do
+      BRANCH="${base_branch}-$n"
+      n=$((n + 1))
+    done
+  fi
+  set_wt_path "$BRANCH"
   if [ "$CROSS_REPO" -eq 1 ]; then
     LANE=cross-repo
   else
@@ -633,6 +749,19 @@ fi
 # Portable extraction (no grep -P: BSD grep on macOS lacks it, and the PCRE
 # shape silently matched nothing there, dropping the override - found via #742's gate).
 COMPOSE_PROJECT_NAME=$(sed -n 's/^[[:space:]]*compose_project_name:[[:space:]]*\([^[:space:]]*\).*/\1/p' "$TARGET_REPO/.claude/deploy.yaml" 2>/dev/null | head -1)
+# Then the compose file's OWN top-level `name:` (issue #1258): compose honours
+# it over the directory basename, so it IS the project name - and the basename
+# is wrong wherever the checkout is not named after the project (a container
+# mounts kyle at /workspace; `name: kyle` is what compose actually uses). A
+# value carrying interpolation (`${...}`) is not a name this can resolve.
+if [ -z "$COMPOSE_PROJECT_NAME" ]; then
+  for cf in compose.yaml compose.yml docker-compose.yaml docker-compose.yml; do
+    [ -f "$TARGET_REPO/$cf" ] || continue
+    COMPOSE_PROJECT_NAME=$(sed -n "s/^name:[[:space:]]*[\"']\{0,1\}\([^\"'[:space:]#]*\).*/\1/p" "$TARGET_REPO/$cf" | head -1)
+    case "$COMPOSE_PROJECT_NAME" in *'$'*) COMPOSE_PROJECT_NAME="" ;; esac
+    break
+  done
+fi
 [ -n "$COMPOSE_PROJECT_NAME" ] || COMPOSE_PROJECT_NAME=$(basename "$TARGET_REPO" | tr '[:upper:]' '[:lower:]')
 
 # ---- contract ---------------------------------------------------------------
@@ -660,6 +789,9 @@ echo "CLAIM=$CLAIM"
 echo "CLAIM_PID=$CLAIM_PID"
 echo "CLAIM_SESSION=$CLAIM_SESSION"
 echo "PR_HEAD=$PR_HEAD"
+if [ -n "$SHIPPED_BRANCH" ]; then
+  echo "SHIPPED_BRANCH=$SHIPPED_BRANCH"
+fi
 echo "CONFIRM_REQUIRED=$CONFIRM_REQUIRED"
 echo "FLOW_START_RESOLVE: ok"
 exit 0

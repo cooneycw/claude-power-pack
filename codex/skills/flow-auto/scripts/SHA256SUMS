@@ -7,7 +7,7 @@
 # corruption, a partial edit, and post-build modification. It does NOT
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
-6d84bf201725b5de01f184803ac2048fbc3d6aa4e93eca520fa88fea329f8194  check-ignored-additions.sh
+0510bfcee2d02287cc8eca9e45a582dbed68f3c97f63ad4eb307460d481bdad6  check-ignored-additions.sh
 43f257169f891098fdc205cb3109b1636c055aeedf7f0a6357ff5f81f317df5d  codex-skill-resync.sh
 228436936e7f913218d1ae0433c44d6c4f218274f235c4f14e30f91a3e426cc1  codex-skill-sync.py
 6ae49b19a3401e870b733439cd762485d96a6cca9fe1ef75e51e87f9f6505a2d  counter-model-receipt.py
@@ -15,11 +15,11 @@
 6a4ea2ba5ae9a62381bd521fa3ae3639fbcbb26aa3b263aa34ede6a6c52773e5  eli5-vendor.py
 1f753a02030058f0e2311f9878dfdd09587fd012b848313eaa679ea996f7ba98  flow-ci-status.sh
 4e8132ddc02ced5c17c2e86cf2031bf2cb9232ee0093dee437af4c430452d82b  flow-driver-capability.sh
-3d604f4e3d0c38dabd957d6b2c2d552fc1ec76550e3b0c5df00b78a051fb1751  flow-finish-gate.sh
+18fb2eae32482d8c69eaaf5c1b3b8f8618c2c93906a8eb7ebfbbc14414ae54ab  flow-finish-gate.sh
 179cc0b6126859f876c60c8ba5ee6cb462114960996315d6592a35594b6181c2  flow-live-driver-guard.sh
 7cfbd4d0eccde0f49d5202d18fc1c4d60064f661935a75960938fb64ba0ca2d5  flow-plan-record.py
 0197b10e564650a895bbfb9809b25e83238ca8d0763d720471f66f4c2296f4c0  flow-stale-check.sh
-57744501570e70878ba9958cbcdd3d5969ffb3c2d76094cd3818aaf1d61bf519  flow-start-resolve.sh
+d61d2ba18a074c8af93d3a55a91da35692d7e4a544605eefd7263e0173da05bf  flow-start-resolve.sh
 28ee941465b2b389c75889e79561bdfff05e3e6ba12f754e41f4f70464834a64  flow-worktree-claim.sh
 16edebc5ec96685d45b6ad6228fb904f61b12ff6caccf97d667f173ff7370280  flow-worktree-guard.sh
 16302cb9f88ce225f2673dc3730667cd9081f8c44f2696b7f5ee732b27555660  friction-log.sh

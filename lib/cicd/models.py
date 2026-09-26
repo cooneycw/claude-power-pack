@@ -140,26 +140,56 @@ FRAMEWORK_TARGETS: dict[Framework, list[str]] = {
     Framework.UNKNOWN: ["lint", "test", "build", "deploy", "clean"],
 }
 
+# A mypy invocation that honours the repository's DECLARED scope (issue #1258).
+#
+# `mypy .` checks everything under the root, `tests/` included, whatever the
+# repository says its contract is. cooneycw/skillc documents `mypy skillc` and
+# declares nothing else, so the finish gate failed there on ten pre-existing
+# errors in tests/ that its own contract does not cover - a verdict about a
+# different question than the one the repository asks. mypy reads `files =`
+# from its own config when given no paths, so a declared scope is honoured by
+# passing NONE; with no declaration, `.` stays the default it always was.
+#
+# Detected in SHELL at run time, not in Python at plan time: the plans are
+# module-level constants, and the question is about the tree the step runs in.
+# The section test is exact: `[mypy]` (mypy.ini, .mypy.ini, setup.cfg) or
+# `[tool.mypy]` (pyproject.toml). `[[tool.mypy.overrides]]` is a different
+# table and its `files` would be a per-module setting, so it does not count.
+MYPY_DECLARED_FILES_PROBE = (
+    "cat mypy.ini .mypy.ini setup.cfg pyproject.toml 2>/dev/null | awk "
+    "'/^[[:space:]]*\\[/ { s = ($0 ~ /^[[:space:]]*\\[(tool\\.)?mypy\\][[:space:]]*$/) } "
+    "s && /^[[:space:]]*files[[:space:]]*=/ { f = 1 } END { exit !f }'"
+)
+
+
+def scoped_mypy(invoker: str) -> str:
+    """``<invoker> mypy`` when a mypy config declares ``files``, else ``<invoker> mypy .``."""
+    return (
+        f"if {MYPY_DECLARED_FILES_PROBE}; then {invoker} mypy; "
+        f"else {invoker} mypy .; fi"
+    )
+
+
 # Framework-specific runner commands
 FRAMEWORK_RUNNERS: dict[tuple[Framework, PackageManager], dict[str, str]] = {
     (Framework.PYTHON, PackageManager.UV): {
         "lint": "uv run ruff check .",
         "test": "uv run pytest",
-        "typecheck": "uv run mypy .",
+        "typecheck": scoped_mypy("uv run"),
         "format": "uv run ruff format .",
         "build": "uv build",
     },
     (Framework.PYTHON, PackageManager.PIP): {
         "lint": "python -m ruff check .",
         "test": "python -m pytest",
-        "typecheck": "python -m mypy .",
+        "typecheck": scoped_mypy("python -m"),
         "format": "python -m ruff format .",
         "build": "python -m build",
     },
     (Framework.DJANGO, PackageManager.UV): {
         "lint": "uv run ruff check .",
         "test": "uv run python manage.py test --verbosity=2",
-        "typecheck": "uv run mypy .",
+        "typecheck": scoped_mypy("uv run"),
         "format": "uv run ruff format .",
         "build": "uv build",
         "migrate": "uv run python manage.py migrate",
@@ -170,7 +200,7 @@ FRAMEWORK_RUNNERS: dict[tuple[Framework, PackageManager], dict[str, str]] = {
     (Framework.DJANGO, PackageManager.PIP): {
         "lint": "python -m ruff check .",
         "test": "python manage.py test --verbosity=2",
-        "typecheck": "python -m mypy .",
+        "typecheck": scoped_mypy("python -m"),
         "format": "python -m ruff format .",
         "build": "python -m build",
         "migrate": "python manage.py migrate",

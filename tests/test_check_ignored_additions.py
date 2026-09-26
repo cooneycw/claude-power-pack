@@ -136,3 +136,62 @@ def test_unlisted_claude_file_still_warns(tmp_path: Path) -> None:
     assert result.returncode == 0  # advisory by default
     assert "WARNING" in result.stderr
     assert ".claude/mystery-config.json" in result.stderr
+
+
+# --- issue #1258: a worktree's own ignored addition blocks -------------------
+#
+# A flow worktree is created clean from a tracked tree, so a non-scratch ignored
+# file in it was written during that run - the class that ships a clean clone
+# without it (#1144). The same file in the primary checkout is ordinary local
+# clutter and stays advisory.
+
+
+def _worktree(tmp_path: Path) -> tuple[Path, Path]:
+    repo = tmp_path / "repo"
+    _init_repo(repo, "*.json\n")
+    wt = tmp_path / "repo-issue-1"
+    _git(repo, "worktree", "add", "-q", "-b", "issue-1-x", str(wt))
+    return repo, wt
+
+
+def test_ignored_addition_in_a_linked_worktree_blocks(tmp_path: Path) -> None:
+    _, wt = _worktree(tmp_path)
+    (wt / "manifest.json").write_text("{}", encoding="utf-8")
+    # Precondition: the file really is ignored in the worktree.
+    assert subprocess.run(["git", "check-ignore", "-q", "manifest.json"], cwd=wt).returncode == 0
+    result = _run(wt)
+    assert result.returncode == 3
+    assert "ERROR" in result.stderr
+    assert "a clean clone will not have them" in result.stderr
+    assert "CHECK_IGNORED_ADDITIONS_MODE=blocking" in result.stderr
+
+
+def test_same_file_in_the_primary_checkout_stays_advisory(tmp_path: Path) -> None:
+    repo, _ = _worktree(tmp_path)
+    (repo / "manifest.json").write_text("{}", encoding="utf-8")
+    result = _run(repo)
+    assert result.returncode == 0
+    assert "manifest.json" in result.stderr
+    assert "CHECK_IGNORED_ADDITIONS_MODE=advisory" in result.stderr
+
+
+def test_advisory_flag_overrides_the_worktree_default(tmp_path: Path) -> None:
+    _, wt = _worktree(tmp_path)
+    (wt / "manifest.json").write_text("{}", encoding="utf-8")
+    result = _run(wt, "--advisory")
+    assert result.returncode == 0
+    assert "WARNING" in result.stderr
+
+
+def test_a_failed_gates_leftover_run_state_never_blocks_a_worktree(tmp_path: Path) -> None:
+    # lib.cicd leaves .claude/runs/<plan>-<id>.json behind when a gate FAILS.
+    # Blocking on it would make every run after the first red gate block too.
+    _, wt = _worktree(tmp_path)
+    (wt / ".claude" / "runs").mkdir(parents=True)
+    (wt / ".claude" / "runs" / "finish-deadbeef.json").write_text("{}", encoding="utf-8")
+    assert subprocess.run(
+        ["git", "check-ignore", "-q", ".claude/runs/finish-deadbeef.json"], cwd=wt
+    ).returncode == 0
+    result = _run(wt)
+    assert result.returncode == 0
+    assert without_status(result.stderr) == ""

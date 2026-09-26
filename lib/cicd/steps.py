@@ -19,6 +19,7 @@ from typing import Any, Optional, Protocol
 
 from .coverage import StageCoverage, merge_stream_coverage, parse_stage_coverage
 from .manifest_path import MANIFEST_PATH
+from .models import scoped_mypy
 from .outcomes import SuiteOutcome, merge_stream_outcomes, parse_suite_outcome
 from .state import StepStatus
 
@@ -536,7 +537,11 @@ def _generated_fallback(command: str, target: str) -> Optional[str]:
 
 
 def _gate_step(
-    step_id: str, uv_tool: str, pyproject_token: str, timeout_seconds: int
+    step_id: str,
+    uv_tool: str,
+    pyproject_token: str,
+    timeout_seconds: int,
+    fallback: Optional[str] = None,
 ) -> "StepDef":
     """Build a quality-gate step that prefers ``make <id>`` but falls back to the
     pyproject-configured tool via ``uv run --extra dev`` when no Makefile target
@@ -553,7 +558,9 @@ def _gate_step(
     return StepDef(
         id=step_id,
         gate=True,
-        command=gate_conditional_command(step_id, f"uv run --extra dev {uv_tool}"),
+        command=gate_conditional_command(
+            step_id, fallback or f"uv run --extra dev {uv_tool}"
+        ),
         description=f"Run {step_id} (make {step_id}, else uv run {uv_tool.split()[0]})",
         timeout_seconds=timeout_seconds,
         max_attempts=1,
@@ -584,7 +591,11 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
     "finish": [
         _gate_step("lint", "ruff check .", "ruff", 300),
         _gate_step("test", "pytest", "pytest", _test_step_timeout()),
-        _gate_step("typecheck", "mypy .", "mypy", 300),
+        _gate_step(
+            "typecheck", "mypy", "mypy", 300,
+            # The repository's declared mypy scope, else `.` (issue #1258).
+            fallback=scoped_mypy("uv run --extra dev"),
+        ),
         StepDef(
             id="security_scan",
             gate=True,
@@ -633,7 +644,11 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
     "check": [
         _gate_step("lint", "ruff check .", "ruff", 300),
         _gate_step("test", "pytest", "pytest", _test_step_timeout()),
-        _gate_step("typecheck", "mypy .", "mypy", 300),
+        _gate_step(
+            "typecheck", "mypy", "mypy", 300,
+            # The repository's declared mypy scope, else `.` (issue #1258).
+            fallback=scoped_mypy("uv run --extra dev"),
+        ),
     ],
     "deploy": [
         # Keep these Python markers aligned with built_in_advisories() in

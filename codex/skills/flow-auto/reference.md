@@ -204,6 +204,18 @@ worktree is created), `CONFIRM_REQUIRED`.
   whether to proceed. On yes, re-run the same resolve command with
   `--allow-closed` appended (the helper is idempotent) and continue with its
   new contract.
+- `LANE=remote-pickup` / `LANE=local-pickup` with `PR_HEAD=<n>:OPEN`
+  (`CONFIRM_REQUIRED=1`, `WT_CREATED=0`): the issue branch has an open PR -
+  possibly another session's in-flight work. Nothing was created (issue #1258).
+  Ask; on yes, re-run with `--allow-pickup` appended.
+- `SHIPPED_BRANCH=<branch>:<n>:MERGED`: an issue branch whose PR already merged
+  was found and deliberately NOT picked up - it is shipped history (issue #1258).
+  The run took the fresh lane on a free issue-anchored name (possibly with a
+  `-2` suffix). Nothing to decide; mention it in the Step 2 report.
+- `FLOW_START_RESOLVE: error` naming `FLOW_WORKTREE_BASE` (issue #1258): the
+  repo's parent directory is not writable (a container repo at `/workspace`) and
+  `.claude/worktrees/` is not git-ignored there to fall back to. No branch was
+  created. **STOP** and report it.
 Worktrees live outside the repo (issue #627), so `GIT_LANE` is always 1 and you
 NEVER call `EnterWorktree` - every lane enters with `cd <WT_PATH>` and Step 7 uses
 the git cleanup fallback.
@@ -1179,14 +1191,20 @@ git merge --no-edit origin/main
      already reported. It does not stop the flow. If you see it in a repo that
      DOES have a verify target, the target was not found - check the Makefile.
 
-   **Ignored-additions guard** (issue #430, Finding 1): before committing, warn
-   if a blanket `.gitignore` rule silently swallowed a new file you meant to
-   track (`git add` no-ops with no error). Advisory - warns, never blocks;
-   invoke bare at the stable path (#581 discipline; on exit 127 skip it):
+   **Ignored-additions guard** (issue #430, Finding 1; blocking in a worktree
+   since #1258): before committing, catch a blanket `.gitignore` rule that
+   silently swallowed a new file you meant to track (`git add -A` skips it with
+   no error, and a clean clone then lacks it). Invoke bare at the stable path
+   (#581 discipline; on exit 127 skip it):
    ```bash
    ~/.claude/scripts/check-ignored-additions.sh
    ```
-   If it warns, add a `!negation` to `.gitignore` for any intended file and re-stage.
+   **Exit 3 is a STOP** - in a linked worktree (every flow run) it blocks: the
+   worktree was created clean from a tracked tree, so a non-scratch ignored file
+   in it was written by this run. Add a `!negation` to `.gitignore` for any
+   intended file and re-stage; delete genuine scratch. Only if you are sure
+   nothing reads the file at run time, re-run with `--advisory`. In the primary
+   checkout it stays advisory (exit 0).
 
    **Worktree-leak guard** (issue #486; blocking since #576): in a
    native-worktree session, confirm no edit leaked into the MAIN repo working
