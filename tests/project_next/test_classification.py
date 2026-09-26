@@ -208,7 +208,10 @@ def test_a_marked_issue_with_unresolved_dependency_prose_is_non_startable_not_un
     assert result.uncertain == ()
 
 
-@pytest.mark.parametrize("negation", ["None", "none; can start from the baseline", "N/A", "nothing", "—", "-"])
+@pytest.mark.parametrize(
+    "negation",
+    ["None", "none; can start from the baseline", "N/A", "nothing", "—", "-", "None within the wave. Related: #861"],
+)
 def test_depends_on_none_declares_no_dependency(negation: str) -> None:
     state = RepositoryState(
         repository="example/deps",
@@ -222,7 +225,9 @@ def test_depends_on_none_declares_no_dependency(negation: str) -> None:
     assert result.uncertainty == {}
 
 
-@pytest.mark.parametrize("text", ["the owner's ruling", "- see the tracking thread", "-12"])
+@pytest.mark.parametrize(
+    "text", ["the owner's ruling", "- see the tracking thread", "-12", "nothing but #12", "none except T004"]
+)
 def test_depends_on_something_unresolvable_is_still_uncertain(text: str) -> None:
     state = RepositoryState(
         repository="example/deps",

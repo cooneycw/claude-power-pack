@@ -342,3 +342,59 @@ def test_a_text_dependency_on_an_open_issue_stays_uncertain_and_names_it() -> No
     reasons = " ".join(result.classification.uncertainty[6])
     assert "#7" in reasons
     assert "names no issue" not in reasons
+
+
+def test_json_gives_a_labelled_seed_the_planning_route_not_flow_auto(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fixture = tmp_path / "state.json"
+    fixture.write_text(
+        json.dumps(
+            {
+                "repository": "example/project",
+                "default_branch": "main",
+                "collected_at": "2026-09-26T00:00:00Z",
+                "issues": [
+                    {"number": 876, "title": "Chart a map", "labels": ["wayfinder:map"]},
+                    {"number": 900, "title": "Ordinary work"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert project_next.main([str(tmp_path), "--input", str(fixture), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    commands = {candidate["issue_number"]: candidate["command"] for candidate in payload["candidates"]}
+
+    assert "$flow-auto" not in commands[876]
+    assert commands[876].startswith("/project:init")
+    assert commands[900] == "$flow-auto 900"
+
+
+def test_routing_one_issue_never_rewrites_a_neighbour_whose_number_it_prefixes() -> None:
+    routes = (project_next.PlanningRoute(87, "label:wayfinder:map", "/project:init", "seed"),)
+    text = "→ `$flow-auto 87`\n→ `$flow-auto 876`\n$flow-auto 87"
+
+    rendered = project_next._apply_route_rendering(text, routes)
+
+    assert "`$flow-auto 876`" in rendered
+    assert "$flow-auto 87`" not in rendered
+    assert rendered.count("/project:init") == 2
+
+
+def test_a_permission_denied_map_path_reads_unreadable_rather_than_crashing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real_exists = Path.exists
+
+    def denied(self: Path, *args: object, **kwargs: object) -> bool:
+        if self.name == "wayfinder-map.json":
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_exists(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "exists", denied)
+    observed, payload = project_next.read_wayfinder_map(tmp_path)
+
+    assert (observed.state, payload) == ("unreadable", None)
+    assert "Permission denied" in observed.detail

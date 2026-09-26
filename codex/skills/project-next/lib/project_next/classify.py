@@ -99,6 +99,19 @@ def _reference_list(line: str, position: int) -> tuple[set[int], set[str], int]:
     return issues, tasks, consumed
 
 
+def _declares_none(line: str, position: int) -> bool:
+    """A negation counts only when its own clause names no reference.
+
+    "Depends on: None within the wave. Related: #861" declares nothing; "Depends on:
+    nothing but #12" is a qualified dependency and must stay unresolved.
+    """
+    match = NO_DEPENDENCY.match(line, position)
+    if not match:
+        return False
+    clause = re.split(r"[.;]", line[match.end() :], maxsplit=1)[0]
+    return not (ISSUE_REFERENCE.search(clause) or TASK_REFERENCE.search(clause))
+
+
 def _line_references(line: str) -> tuple[set[int], set[str], list[str]]:
     issues: set[int] = set()
     tasks: set[str] = set()
@@ -109,7 +122,7 @@ def _line_references(line: str) -> tuple[set[int], set[str], list[str]]:
             found_issues, found_tasks, consumed = _reference_list(line, start)
             issues |= found_issues
             tasks |= found_tasks
-            if consumed or not strong or NO_DEPENDENCY.match(line, start):
+            if consumed or not strong or _declares_none(line, start):
                 continue
             detail = "an issue reference is present but not attached to the phrase"
             if not ISSUE_REFERENCE.search(line) and not DANGLING_REFERENCE.search(line):

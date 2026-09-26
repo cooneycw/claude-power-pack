@@ -529,9 +529,10 @@ def read_wayfinder_map(repository: Path) -> tuple[WayfinderMap, dict[str, object
     except (OSError, subprocess.SubprocessError) as exc:
         return WayfinderMap("unreadable", "", f"cannot resolve the primary checkout from this worktree: {exc}"), None
     for path in locations:
-        if not path.exists():
-            continue
         try:
+            # Inside the handler: a permission-denied stat is an unreadable map, not a crash.
+            if not path.exists():
+                continue
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             return WayfinderMap("unreadable", str(path), str(exc)), None
@@ -830,10 +831,22 @@ def _apply_route_rendering(text: str, routes: tuple[PlanningRoute, ...]) -> str:
     for route in routes:
         if route.issue_number is None:
             continue
-        number = route.issue_number
-        text = text.replace(f"`$flow-auto {number}`", f"`{route.action}` (Wayfinder planning only)")
-        text = text.replace(f"$flow-auto {number}", f"{route.action} (Wayfinder planning only)")
+        # Anchor the number: routing #87 must never rewrite the command for #876 (#1035).
+        pattern = re.compile(rf"(`?)\$flow-auto {route.issue_number}(?!\d)\1")
+        replacement = f"\\g<1>{route.action}\\g<1> (Wayfinder planning only)"
+        text = pattern.sub(replacement, text)
     return text
+
+
+def _apply_route_payload(payload: dict[str, object], routes: tuple[PlanningRoute, ...]) -> dict[str, object]:
+    """Give JSON the same routes as the human modes: `--json` is the authoritative output."""
+    actions = {route.issue_number: route.action for route in routes if route.issue_number is not None}
+    candidates = payload.get("candidates")
+    if isinstance(candidates, list):
+        for candidate in candidates:
+            if isinstance(candidate, dict) and candidate.get("issue_number") in actions:
+                candidate["command"] = f"{actions[candidate['issue_number']]} (Wayfinder planning only)"
+    return payload
 
 
 def render_cpp(
@@ -987,7 +1000,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         premise_flags=premise,
     )
     if args.json:
-        payload = result.to_dict()
+        payload = _apply_route_payload(result.to_dict(), extensions.planning_routes)
         payload["decision_policy"] = f"contract v{pinned_version} (project-next engine)"
         payload["cpp_extensions"] = extensions.to_dict()
         print(json.dumps(payload, indent=2, sort_keys=True))
