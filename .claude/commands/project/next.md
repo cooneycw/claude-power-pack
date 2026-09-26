@@ -126,7 +126,9 @@ and consumed by brief, compact, and full rendering:
   `--input` fixtures, or when `origin/<default>` cannot be confirmed to equal
   the remote's current tip (a stale base can call reverted work delivered).
   Status and diff pass explicit untracked and submodule flags, so local git
-  config cannot hide a population. Ancestry and commit counts are never
+  config cannot hide a population; an assume-unchanged or skip-worktree entry
+  makes the tree `unknown`, and ignored paths are counted and named rather
+  than examined. Ancestry and commit counts are never
   consulted, because a squash merge breaks both. Each entry also carries the tree state and whether
   the branch still exists on the remote (asked of the remote, not of possibly
   unpruned local refs).
