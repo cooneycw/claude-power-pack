@@ -1,0 +1,58 @@
+{
+ "version": 2,
+ "kind": "verified-result",
+ "producer": "assembler",
+ "attempt_id": "att-skillc-20",
+ "trial_id": "trial-skillc-slug",
+ "result_id": "res-skillc-20",
+ "grader": {
+  "id": "slug-small-fix",
+  "revision": "1"
+ },
+ "graded_digests": [
+  "sha256:4b4e373027e3e9efb415ca9bfd36808a0dde0b4df28aaaf2266135d0fe82f997"
+ ],
+ "status": "PASS",
+ "criteria": [
+  {
+   "id": "R4-interface",
+   "mandatory": true,
+   "outcome": "SATISFIED",
+   "evidence": [
+    "imported with site-packages disabled; slugify returned a str for all 15 inputs"
+   ]
+  },
+  {
+   "id": "reported-example",
+   "mandatory": true,
+   "outcome": "SATISFIED",
+   "evidence": [
+    "slugify('Hello, World!') == 'hello-world'"
+   ]
+  },
+  {
+   "id": "R1",
+   "mandatory": true,
+   "outcome": "SATISFIED",
+   "evidence": [
+    "3 held-out R1 cases matched"
+   ]
+  },
+  {
+   "id": "R2",
+   "mandatory": true,
+   "outcome": "SATISFIED",
+   "evidence": [
+    "5 held-out R2 cases matched"
+   ]
+  },
+  {
+   "id": "R3",
+   "mandatory": true,
+   "outcome": "SATISFIED",
+   "evidence": [
+    "6 held-out R3 cases matched"
+   ]
+  }
+ ]
+}

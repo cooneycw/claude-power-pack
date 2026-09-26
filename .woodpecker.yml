@@ -302,9 +302,12 @@ steps:
   # reports `absent` and must not fail the pipeline for that. The condition that
   # makes it blocking is pre-committed in the Makefile beside its directive.
   # The behavioural-eval CONSUMER reports on a verified-result artifact (#1084
-  # half A). ADVISORY on purpose - `|| true` - because nothing produces its input
+  # half A). ADVISORY on purpose - `--advisory` - because nothing produces its input
   # yet, so a blocking step would red every build for the honest reason that the
-  # producer is half B, blocked on skillc #5. The condition that ends the advisory
+  # producer is half B, in skillc, waiting on skillc #8/#9/#10. `--advisory` maps
+  # only a PRINTED verdict to 0; `|| true` also passed a crashed gate, and a Python
+  # traceback exits 1 - the gate's own `failure` code - so no shell-side filter on
+  # the exit status could tell the two apart. The condition that ends the advisory
   # posture is pre-committed at the Makefile target and pinned by
   # tests/test_behavioral_eval.py, not left to a later judgement (ADR 0009).
   # Reads a directory of JSON only - no git, no network - so it runs in this image.
@@ -312,7 +315,7 @@ steps:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
     depends_on: [secret-scan]
     commands:
-      - python3 scripts/check-behavioral-eval.py || true
+      - python3 scripts/check-behavioral-eval.py --advisory
 
   # The Codex agent-context file stays inside its word budget (#1071). Reads
   # AGENTS.md only - no git, no network - so it runs in this image unchanged.

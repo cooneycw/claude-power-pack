@@ -1,3 +1,34 @@
-{"version": 1, "kind": "verified-result", "attempt_id": "att-fixture-7", "status": "PASS",
- "criteria": [{"id": "c1", "mandatory": true, "outcome": "SATISFIED"},
-              {"id": "c2", "mandatory": "true", "outcome": "VIOLATED"}]}
+{
+ "version": 2,
+ "kind": "verified-result",
+ "producer": "assembler",
+ "attempt_id": "att-fixture-7",
+ "trial_id": "trial-fixture",
+ "result_id": "res-fixture-7",
+ "grader": {
+  "id": "fixture-grader",
+  "revision": "1"
+ },
+ "graded_digests": [
+  "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+ ],
+ "status": "PASS",
+ "criteria": [
+  {
+   "id": "c1",
+   "mandatory": true,
+   "outcome": "SATISFIED",
+   "evidence": [
+    "fixture evidence for c1"
+   ]
+  },
+  {
+   "id": "c2",
+   "mandatory": "true",
+   "outcome": "VIOLATED",
+   "evidence": [
+    "fixture evidence for c2"
+   ]
+  }
+ ]
+}

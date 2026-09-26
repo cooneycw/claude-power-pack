@@ -932,7 +932,7 @@ shown behaviour-preserving before the defect was repaired separately.
 
 Reads a behavioural-eval verified-result artifact and reports. This is HALF A of
 #1084 - the CONSUMER. The behavioural case that produces such an artifact is half
-B, which depends on skillc #5 and does not live in this repository.
+B, which lives in skillc (owner ruling) and never in this repository.
 
 **Its green is narrower than its neighbours' and it says so on every verdict.** A
 pass here means a reader read an artifact correctly. It establishes nothing about
@@ -943,9 +943,10 @@ population it examined and states when that population is a fixture.
 
 **`absent` is a verdict, not a pass, and it is the repository's actual state.**
 Nothing produces one of these artifacts today, so the gate reports `absent` on
-every real run. It names its blocker specifically - CPP #1084 half B and skillc
-#5 - so a reader in three months can check whether the blocker still stands
-rather than treating the line as furniture.
+every real run. It names its blocker specifically - CPP #1084 half B, waiting on
+skillc #8, #9 and #10 (skillc #5 landed 2026-09-26 and was named here until then)
+- so a reader in three months can check whether the blocker still stands rather
+than treating the line as furniture.
 
 **Advisory, and the condition that would change that is pre-committed.** It
 reports and never fails the build, because a hard prerequisite would red `main`
@@ -1003,6 +1004,38 @@ answer rather than a safer one - but they must still never be 0. And the usage
 code is 64 rather than argparse's default 2, because 2 is this gate's `absent`: a
 mistyped flag would otherwise have been indistinguishable from "I looked and found
 no artifact".
+
+**Records version 2, and what "checked alone" means.** The consumer was built
+against skillc's records version 1. skillc then fixed version 2 (skillc PR #32,
+closing skillc #4) and refuses version 1 outright, so every record skillc can now
+emit was refused here as "newer than supported" - the gate could not have read
+the first real result. It now reads exactly `{2}` and applies skillc's RECORD rules
+for a verified result, restated by hand at skillc 3c243a1 because CI has no skillc
+to import: producer authority (only `assembler`; `producer: subject` is `forged`),
+identifier shape, grader identity, `graded_digests` unless a run state is
+declared, evidence on every established outcome, `missing` on every `UNKNOWN`, a
+reason on a declared run state, a digest on any `raw` reference, and a boolean
+`version` refused. It does NOT apply skillc's BUNDLE rules (ledger-binding,
+unique-ids, attempt-accounting, lineage), which need the ledger and manifest
+beside the result, and every verdict says so: "checked alone - NOT against any
+ledger".
+
+Two committed cases are REAL grader output rather than hand-written:
+`good-skillc-graded-pass` and `bad-skillc-graded-failure` wrap skillc's own
+`grade_slug.py` report on its reference candidate and on `wrong/example-only`. Each
+committed case was also run through skillc's own `check-records` once, by hand,
+and every bad case is refused there for the reason its name gives - except
+`bad-malformed-mandatory-flag`, which skillc ACCEPTS: its derivation reads
+`mandatory is True`, so the string `"true"` drops a `VIOLATED` criterion out of
+the population exactly as it did here before counter-model review. That is an
+upstream defect, filed as skillc #37, and the reason this gate keeps its own
+boolean check rather than deferring to the producer's.
+
+**Advisory by `--advisory`, not `|| true`.** The wrapper passed a crashed gate as
+well as a verdict, and no shell-side filter on the exit code can separate them: an
+uncaught Python exception exits 1, which is also `failure`. `--advisory` maps a
+verdict to 0 only after the gate has printed one, so a traceback keeps its
+non-zero exit and a usage error keeps 64.
 
 ## `check-cpp-host-writes` (#1132, #1198)
 
