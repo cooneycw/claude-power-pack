@@ -377,3 +377,137 @@ def _residency_block() -> str:
     start = text.index('    GEMMA_ROW=$(echo "$OLLAMA_PS"')
     end = text.index("    fi", start) + len("    fi")
     return text[start:end]
+
+
+# --- A model is judged only against an endpoint that answered (issue #1263) ---
+#
+# `/cpp:update` and `/cpp:init` probed /api/version and then /api/tags
+# UNCONDITIONALLY. When the host was down both failed for the one cause, and the
+# run printed "Ollama NOT reachable" AND "Model '<m>' missing" plus rebuild
+# advice - measured on 2026-09-22 against two powered-off hosts, four findings
+# of which two were not observations. The blocks are EXECUTED here, both ways:
+# unreachable must say "unknown" and never "missing", and a reachable host
+# without the model must still say "missing" - a fix that silenced the model
+# line entirely would pass the first case alone.
+
+REACHABILITY_DOCS = (
+    ".claude/commands/cpp/update.md",
+    ".claude/commands/cpp/init.md",
+)
+
+
+def _probe_blocks(rel: str) -> list[tuple[str, str]]:
+    """(prefix, bash block) for every fenced block that probes /api/version."""
+    text = (REPO / rel).read_text(encoding="utf-8")
+    out = []
+    for block in re.findall(r"```bash\n(.*?)```", text, re.S):
+        m = re.search(r"\$(QWEN|GEMMA)_ENDPOINT/api/version", block)
+        if m and "api/tags" in block:
+            out.append((m.group(1), block))
+    return out
+
+
+def _run_probe(prefix: str, block: str, endpoint: str) -> str:
+    env = {
+        **__import__("os").environ,
+        f"{prefix}_OLLAMA_URL": endpoint,
+        f"{prefix}_MODEL": "probe-model:latest",
+        f"{prefix}_LANE_PRESENT": "true",
+        f"{prefix}_LANE_VERDICT": "checked",
+    }
+    script = "LOCAL_MODEL_LANE_STATUS_PARTS=()\n" + block
+    return subprocess.run(
+        ["bash", "-c", script], env=env, capture_output=True, text=True, timeout=60
+    ).stdout
+
+
+def test_every_reachability_doc_has_both_probe_blocks() -> None:
+    """The population the executed tests run over; empty would test nothing."""
+    for rel in REACHABILITY_DOCS:
+        assert sorted(p for p, _ in _probe_blocks(rel)) == ["GEMMA", "QWEN"], rel
+
+
+@pytest.mark.skipif(
+    shutil.which("bash") is None or shutil.which("curl") is None,
+    reason="bash and curl are required to execute the block",
+)
+@pytest.mark.parametrize("rel", REACHABILITY_DOCS)
+def test_an_unreachable_endpoint_reports_the_model_unknown_not_missing(rel: str) -> None:
+    import socket
+
+    # Precondition: the port really is closed, so this IS the unreachable case.
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    with socket.socket() as probe:
+        assert probe.connect_ex(("127.0.0.1", port)) != 0, "fixture port must be closed"
+
+    for prefix, block in _probe_blocks(rel):
+        out = _run_probe(prefix, block, f"http://127.0.0.1:{port}")
+        assert "NOT reachable" in out, out
+        assert "missing" not in out, f"{rel} {prefix}: a down host reported the model missing:\n{out}"
+        assert "ollama pull" not in out, out
+        assert "unknown (endpoint unreachable" in out, out
+
+
+@pytest.mark.skipif(
+    shutil.which("bash") is None or shutil.which("curl") is None,
+    reason="bash and curl are required to execute the block",
+)
+@pytest.mark.parametrize("rel", REACHABILITY_DOCS)
+@pytest.mark.parametrize(
+    "tags_mode", ["ok", "http-500", "empty-body", "no-models-key"]
+)
+def test_a_reachable_endpoint_without_the_model_still_reports_missing(rel: str, tags_mode: str) -> None:
+    """Missing only after the model list was READ (counter-model review).
+
+    `http-500` is the case the first cut got wrong: /api/version answered,
+    /api/tags returned an error, and the nested grep read that failure as an
+    empty list - "missing", with rebuild advice. It must read `unknown`. The
+    second review pass found the same for a 200 that is not a model list at all
+    (`empty-body`, `no-models-key`): only `ok` is a population to judge.
+    """
+    import http.server
+    import json
+    import threading
+
+    class Ollama(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            if self.path.startswith("/api/tags") and tags_mode != "ok":
+                raw = {"http-500": b"", "empty-body": b"", "no-models-key": b"{}"}[tags_mode]
+                self.send_response(500 if tags_mode == "http-500" else 200)
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+                return
+            body: dict[str, object] = (
+                {"version": "0.0.0"}
+                if self.path.startswith("/api/version")
+                else {"models": [{"name": "some-other:latest"}]}
+            )
+            data = json.dumps(body).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Ollama)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        endpoint = f"http://127.0.0.1:{server.server_address[1]}"
+        for prefix, block in _probe_blocks(rel):
+            out = _run_probe(prefix, block, endpoint)
+            assert "[x] Ollama reachable" in out, out
+            if tags_mode == "ok":
+                assert "Model 'probe-model:latest' missing" in out, out
+                assert "unknown" not in out, out
+            else:
+                assert "missing" not in out, out
+                assert "ollama pull" not in out, out
+                assert "model list could not be read" in out, out
+    finally:
+        server.shutdown()

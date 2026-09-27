@@ -450,6 +450,17 @@ class MarkerSectionLayout:
         api = self._source(manifest, "commits_api")
         if not api:
             return None
+        # A SHA that `remote()` cannot fetch AT is not provenance for what it
+        # does fetch (counter-model review, #1263). Without `source.repo` and
+        # `source.path` the only URL is the moving one, so resolving a SHA here
+        # would pin a commit beside bytes read from a different ref - the
+        # two-read defect again, on the fallback path. Leave it unpinned.
+        if not self._pinnable(manifest):
+            print(
+                "  manifest has no source.repo/source.path to fetch at a commit - leaving it unpinned",
+                file=sys.stderr,
+            )
+            return None
         try:
             payload = fetcher.json_at(api)
         except SourceUnavailable as exc:
@@ -461,8 +472,39 @@ class MarkerSectionLayout:
                 return sha
         return None
 
+    def _raw_url_at(self, manifest: Mapping[str, Any], revision: str | None) -> str:
+        """The raw URL for the bytes `revision` names, when the manifest says where.
+
+        ONE READ, NOT TWO (issue #1263). `revision()` asks the commits API for
+        the latest SHA and this used to fetch `raw_url`, which is pinned to the
+        moving `/main/` branch. An upstream push between the two reads left
+        `upstream_commit` naming a commit whose bytes were not the bytes
+        vendored, and nothing noticed: the offline gate compares content, not
+        provenance. The manifest already carries `source.repo` and
+        `source.path`, so the immutable URL is derivable with no schema change -
+        the same order `FileSetLayout` uses (resolve, then fetch AT it).
+
+        Falls back to `raw_url` only when there is no revision to fetch at
+        (provenance is then recorded as unpinned, so nothing false is written)
+        or the manifest lacks the coordinates.
+        """
+        coordinates = self._pinnable(manifest)
+        if revision and coordinates:
+            repo, path = coordinates
+            return f"https://raw.githubusercontent.com/{repo}/{revision}/{path}"
+        return self._source(manifest, "raw_url")
+
+    def _pinnable(self, manifest: Mapping[str, Any]) -> tuple[str, str] | None:
+        """(repo, path) when the manifest says where to fetch at a commit, else None."""
+        source = manifest.get("source")
+        repo = source.get("repo") if isinstance(source, Mapping) else None
+        path = source.get("path") if isinstance(source, Mapping) else None
+        if isinstance(repo, str) and repo and isinstance(path, str) and path:
+            return repo, path
+        return None
+
     def remote(self, fetcher: Fetcher, manifest: Mapping[str, Any], revision: str | None) -> dict[str, bytes]:
-        text = fetcher.text_at(self._source(manifest, "raw_url"))
+        text = fetcher.text_at(self._raw_url_at(manifest, revision))
         try:
             core = extract_marker_section(text, self.begin_marker, self.end_marker)
         except CoreNotFound as exc:

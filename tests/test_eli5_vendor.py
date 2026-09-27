@@ -68,6 +68,11 @@ def _fixture_tree(root: Path, core: str, *, pin: str | None = None) -> Path:
         json.dumps(
             {
                 "source": {
+                    # repo + path, as the real manifest carries: without them a
+                    # resolved SHA cannot be fetched AT, so it is not pinned
+                    # (issue #1263) and the repin test below would see None.
+                    "repo": "cooneycw/eli5-gate",
+                    "path": "commands/eli5.md",
                     "raw_url": "https://example.invalid/eli5.md",
                     "commits_api": "https://example.invalid/commits",
                     "upstream_commit": "0" * 40,

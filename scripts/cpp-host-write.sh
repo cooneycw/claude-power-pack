@@ -78,6 +78,7 @@ cpp-host-write.sh <command> [--defer SURFACE]... [args]
   ensure-dir <path>              mkdir -p a directory under $HOME
   probe-writable <dir>           print yes|no; deferred prints no and exits 3
   link-into <src> <dir> <name>   symlink a file into a host directory
+  unlink-orphan <dir> <name>     remove a dangling install-shaped helper link
   file-write <target> <content>  replace a host file's contents
   json-merge-sections <tmpl> <target> <section>...
                                  merge template sections into a JSON target
@@ -281,6 +282,77 @@ cmd_link_into() {
     printf 'cpp-host-write: ok %s/%s (linked)\n' "$(normalise "$dir")" "$name"
 }
 
+#: Remove ONE installed helper symlink whose checkout source is gone - the
+#: prune half link-into never had (issue #1263). `/cpp:update` Step 5b linked
+#: every new script and removed nothing, so a helper deleted upstream left a
+#: dangling link at the stable path indefinitely: install-drift named it at
+#: every session start and nothing acted on it.
+#:
+#: IT RE-PROVES OWNERSHIP ITSELF rather than trusting the caller's list. The
+#: caller passes install-drift's orphan names, but a name is a string and the
+#: entry can change between that read and this write. So the same predicate
+#: install-drift uses is applied here, entry by entry, and anything that fails
+#: it is REFUSED rather than removed:
+#:
+#:   -L          it is a symlink (a host-owned plain file is never ours)
+#:   shape       its target is `<root>/scripts/<its own name>`, which is what
+#:               link-into creates and nothing else does
+#:   root        <root> is still a CPP checkout, so a neighbour project's link
+#:               with the same shape is not ours to judge. `CLAUDE.md` plus
+#:               `.claude/commands/` is NOT enough on its own - every Claude
+#:               project has both (counter-model review) - so the root must
+#:               also ship THIS seam, `scripts/cpp-host-write.sh`: the
+#:               installer that creates install-shaped links is the one thing
+#:               only a CPP checkout carries
+#:   ! -e        the link resolves to nothing - a LIVE link is never removed
+#:
+#: The -e/-f/-L predicates differ on purpose: `-L` is shape, `-e` is "does the
+#: checkout still have something at the end". `-f` would also reject a live
+#: link to a directory and is not used for the orphan test.
+cmd_unlink_orphan() {
+    local dir="$1" name="$2"
+    is_deferred "$dir" && { refuse "$dir" cpp; return $?; }
+    local entry="$dir/$name"
+    case "$name" in
+        */*|''|.|..) printf 'cpp-host-write: FAILED not a plain entry name: %s\n' "$name" >&2; return 1 ;;
+    esac
+    if [ ! -L "$entry" ]; then
+        if [ -e "$entry" ]; then
+            printf 'cpp-host-write: REFUSED %s/%s is not a symlink (host-owned, not ours)\n' \
+                "$(normalise "$dir")" "$name" >&2
+            return 1
+        fi
+        printf 'cpp-host-write: ok %s/%s (already absent)\n' "$(normalise "$dir")" "$name"
+        return 0
+    fi
+    local target root
+    target="$(readlink "$entry")" || return 1
+    case "$target" in
+        */scripts/"$name") ;;
+        *) printf 'cpp-host-write: REFUSED %s/%s does not have the install shape (-> %s)\n' \
+               "$(normalise "$dir")" "$name" "$target" >&2
+           return 1 ;;
+    esac
+    root="${target%/scripts/"$name"}"
+    case "$root" in
+        /*) ;;
+        *)  root="$dir/$root" ;;
+    esac
+    if ! { [ -f "$root/CLAUDE.md" ] && [ -d "$root/.claude/commands" ] \
+           && [ -f "$root/scripts/cpp-host-write.sh" ]; }; then
+        printf 'cpp-host-write: REFUSED %s/%s points into %s, which is not a CPP checkout\n' \
+            "$(normalise "$dir")" "$name" "$root" >&2
+        return 1
+    fi
+    if [ -e "$entry" ]; then
+        printf 'cpp-host-write: REFUSED %s/%s is live (its source still exists)\n' \
+            "$(normalise "$dir")" "$name" >&2
+        return 1
+    fi
+    rm -f "$entry" || return 1
+    printf 'cpp-host-write: ok %s/%s (orphan removed; was -> %s)\n' "$(normalise "$dir")" "$name" "$target"
+}
+
 cmd_file_write() {
     local target="$1" content="$2"
     is_deferred "$target" && { refuse "$target" cpp; return $?; }
@@ -389,6 +461,7 @@ main() {
         ensure-dir)     cmd_ensure_dir "${args[0]:?path required}" ;;
         probe-writable) cmd_probe_writable "${args[0]:?directory required}" ;;
         link-into)      cmd_link_into "${args[0]:?source required}" "${args[1]:?dir required}" "${args[2]:?name required}" ;;
+        unlink-orphan)  cmd_unlink_orphan "${args[0]:?dir required}" "${args[1]:?name required}" ;;
         file-write)     cmd_file_write "${args[0]:?target required}" "${args[1]-}" ;;
         json-merge-sections) cmd_json_merge_sections "${args[0]:?template required}" "${args[1]:?target required}" "${args[@]:2}" ;;
         settings-edit)  cmd_settings_edit ;;

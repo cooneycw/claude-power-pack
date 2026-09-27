@@ -299,27 +299,38 @@ changed tree (issue #545: a `/cpp:update` run pulled #522, which deleted
 context still contained that step and would have executed it against a now-deleted
 script).
 
-**First, surface any change to this command.** `git pull` set `ORIG_HEAD` to the
-pre-pull commit, so no variable needs to survive between bash blocks:
+**First, surface any change to this command.** Compare the file ON DISK now
+against the commit this run started on - the `Current: ... (<sha>)` line Step 2
+printed. Pass that SHA as a LITERAL (shell state does not survive between bash
+blocks).
+
+**Not `ORIG_HEAD` (issue #1263).** This used to diff `ORIG_HEAD..HEAD`, trusting
+the pull to have left the pre-pull commit there. `ORIG_HEAD` is per-repository,
+and in a shared checkout another session pulls too: measured on 2026-09-23, two
+foreign `pull --ff-only` entries landed in the reflog while one `/cpp:update`
+was still running, overwriting the ref this check read. Diffing the WORKING TREE
+against the literal start SHA also catches a concurrent pull that changed this
+file after ours - which a commit-range diff could not.
 
 ```bash
 cd "$CPP_DIR"
+PRE_PULL_COMMIT="<the SHA from Step 2's 'Current:' line>"
 SELF=".claude/commands/cpp/update.md"
 SELF_CHANGED=unknown
-if git rev-parse -q --verify ORIG_HEAD >/dev/null 2>&1; then
-  if git diff --quiet ORIG_HEAD..HEAD -- "$SELF"; then
+if git rev-parse -q --verify "${PRE_PULL_COMMIT}^{commit}" >/dev/null 2>&1; then
+  if git diff --quiet "$PRE_PULL_COMMIT" -- "$SELF"; then
     SELF_CHANGED=no
-    echo "No change to /cpp:update in this pull - the steps in context are current."
+    echo "No change to /cpp:update since $PRE_PULL_COMMIT - the steps in context are current."
   else
     SELF_CHANGED=yes
     echo ""
-    echo "NOTE: this pull modified /cpp:update itself. Diff since the pre-pull copy:"
-    git --no-pager diff ORIG_HEAD..HEAD -- "$SELF"
+    echo "NOTE: /cpp:update itself changed since $PRE_PULL_COMMIT. Diff against the copy in context:"
+    git --no-pager diff "$PRE_PULL_COMMIT" -- "$SELF"
     echo ""
     echo "The /cpp:update steps loaded in context are now STALE."
   fi
 else
-  echo "Could not determine ORIG_HEAD - treat the in-context steps as possibly stale."
+  echo "Could not resolve the pre-pull commit '$PRE_PULL_COMMIT' - treat the in-context steps as possibly stale."
 fi
 ```
 
@@ -694,6 +705,74 @@ else
 fi
 ```
 
+**The prune half (issue #1263).** The loop above only ever ADDS. When a helper
+is deleted upstream, its link in `~/.claude/scripts/` survives and dangles -
+measured: `project-next-vendor.py`, dangling from af348f8 (#1144) until it was
+removed by hand - and install-drift names it at every session start while
+nothing acts on it. So list the orphans, driven by install-drift's own orphan
+axis rather than a fresh scan (one definition of "ours", not two):
+
+**An empty list is a verdict only when the scan RAN.** A missing scanner, a
+missing `jq`, malformed JSON, or a skipped report with no `orphaned_helpers`
+array all produce no names - and the first cut printed "No orphaned helper
+links" for every one of them (counter-model review). So the read and the answer
+are separate: `ORPHAN_SCAN=read` only when the report parsed and carried the
+array, and anything else says the scan did not run.
+
+```bash
+if [ -d ~/.claude/scripts ]; then
+  HELPER_ORPHANS=""
+  ORPHAN_SCAN=unavailable
+  if DRIFT_JSON=$(CPP_INSTALL_DRIFT_CHECKOUT="$CPP_DIR" "$CPP_DIR/scripts/install-drift.sh" --json) \
+     && printf '%s' "$DRIFT_JSON" | jq -e '.orphaned_helpers | type == "array"' >/dev/null 2>&1; then
+    ORPHAN_SCAN=read
+    HELPER_ORPHANS=$(printf '%s' "$DRIFT_JSON" | jq -r '.orphaned_helpers[]')
+  fi
+  if [ "$ORPHAN_SCAN" != "read" ]; then
+    echo "→ Orphan scan NOT run (install-drift.sh --json gave no orphaned_helpers array) - unchecked, not clean"
+  elif [ -n "$HELPER_ORPHANS" ]; then
+    echo "Orphaned helper links (installed, their checkout source was deleted upstream):"
+    printf '  %s\n' $HELPER_ORPHANS
+  else
+    echo "→ No orphaned helper links"
+  fi
+fi
+```
+
+If any are listed, **ask the user** (AskUserQuestion) whether to remove them,
+naming each one. Set `PRUNE_CONFIRMED=yes` only on an explicit yes, and pass the
+listed names to the block below as literals. Never prune unasked: the list is a
+read, the removal is a write to the user's host.
+
+```bash
+if [ "${PRUNE_CONFIRMED:-no}" = "yes" ]; then
+  PRUNED=0; PRUNE_GONE=0; PRUNE_REFUSED=0
+  for name in <the listed names>; do
+    # The seam RE-PROVES ownership per entry (dangling, install-shaped, into a
+    # CPP checkout) and refuses anything else - a name is a string, and the
+    # entry can change between the listing and this call.
+    #: Exit 0 covers BOTH "removed" and "already absent" (another session got
+    #: there first), so the tally reads the seam's own words: counting every 0
+    #: as a removal claims work this run did not do (counter-model review).
+    if OUT=$(~/.claude/scripts/cpp-host-write.sh unlink-orphan ~/.claude/scripts "$name"); then
+      case "$OUT" in
+        *"orphan removed"*) PRUNED=$((PRUNED + 1)) ;;
+        *) PRUNE_GONE=$((PRUNE_GONE + 1)) ;;
+      esac
+    else
+      PRUNE_REFUSED=$((PRUNE_REFUSED + 1))
+    fi
+    echo "$OUT"
+  done
+  echo "→ Orphan prune: $PRUNED removed, $PRUNE_GONE already absent, $PRUNE_REFUSED refused or deferred"
+else
+  echo "→ Orphan prune: not run (no orphans, or the user declined)"
+fi
+```
+
+Carry the prune line into the Step 10 summary. A refused entry is reported, not
+retried: the seam refused it because it is not a dangling link of ours.
+
 ---
 
 ## Step 5b.1: Shared-Stash Guard Refresh (ON BY DEFAULT, issue #1056)
@@ -966,20 +1045,34 @@ if $QWEN_LANE_PRESENT; then
 
   if curl -sf --max-time 5 "$QWEN_ENDPOINT/api/version" > /dev/null; then
     echo "[x] Ollama reachable at $QWEN_ENDPOINT"
+    # The model is judged only against an endpoint that answered (issue #1263).
+    # /api/tags fails for the SAME single cause as /api/version, so a "missing"
+    # read off an unreachable host is not an observation - and its rebuild
+    # advice tells the user to recreate a model nothing showed to be absent.
+    # A FAILED tags read is not an empty model list: a version probe that
+    # answered does not prove /api/tags will (HTTP error, timeout, dropped
+    # connection), and a 200 carrying no `models` key (an empty body, `{}`, an HTML
+    # redirect page) is not a model list either - so only a body that IS one
+    # reaches the membership test.
+    if TAGS=$(curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null) \
+     && echo "$TAGS" | grep -q '"models"'; then
+      if echo "$TAGS" | grep -qF "\"$QWEN_MODEL\""; then
+        echo "[x] Model present: $QWEN_MODEL"
+      else
+        echo "[ ] Model '$QWEN_MODEL' missing"
+        echo "    On the serving machine:"
+        echo "      ollama pull qwen3.8:27b"
+        echo "      printf 'FROM qwen3.8:27b\nPARAMETER num_ctx 65536\nPARAMETER temperature 0.7\nPARAMETER top_p 0.8\n' | ollama create qwen3.8-code -f -"
+      fi
+    else
+      echo "[?] Model '$QWEN_MODEL' unknown (the model list could not be read from $QWEN_ENDPOINT)"
+    fi
   else
     echo "[ ] Ollama NOT reachable at $QWEN_ENDPOINT"
     echo "    Serving machine: install and start Ollama (brew install ollama on macOS),"
     echo "    bind to the network with OLLAMA_HOST=0.0.0.0:11434 for LAN/tailnet use."
     echo "    Consumer machine: set QWEN_OLLAMA_URL=http://<serving-ip>:11434"
-  fi
-
-  if curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null | grep -qF "\"$QWEN_MODEL\""; then
-    echo "[x] Model present: $QWEN_MODEL"
-  else
-    echo "[ ] Model '$QWEN_MODEL' missing"
-    echo "    On the serving machine:"
-    echo "      ollama pull qwen3.8:27b"
-    echo "      printf 'FROM qwen3.8:27b\nPARAMETER num_ctx 65536\nPARAMETER temperature 0.7\nPARAMETER top_p 0.8\n' | ollama create qwen3.8-code -f -"
+    echo "[?] Model '$QWEN_MODEL' unknown (endpoint unreachable - not checked)"
   fi
 
   # The lane verdict CARRIES the harness verdict rather than asserting
@@ -1061,23 +1154,37 @@ if $GEMMA_LANE_PRESENT; then
 
   if curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/version" > /dev/null; then
     echo "[x] Ollama reachable at $GEMMA_ENDPOINT"
+    # The model is judged only against an endpoint that answered (issue #1263).
+    # /api/tags fails for the SAME single cause as /api/version, so a "missing"
+    # read off an unreachable host is not an observation - and its rebuild
+    # advice tells the user to recreate a model nothing showed to be absent.
+    # A FAILED tags read is not an empty model list: a version probe that
+    # answered does not prove /api/tags will (HTTP error, timeout, dropped
+    # connection), and a 200 carrying no `models` key (an empty body, `{}`, an HTML
+    # redirect page) is not a model list either - so only a body that IS one
+    # reaches the membership test.
+    if TAGS=$(curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null) \
+     && echo "$TAGS" | grep -q '"models"'; then
+      if echo "$TAGS" | grep -qF "\"$GEMMA_MODEL\""; then
+        echo "[x] Model present: $GEMMA_MODEL"
+      else
+        echo "[ ] Model '$GEMMA_MODEL' missing"
+        echo "    On the serving machine:"
+        echo "      ollama pull gemma4:31b-it-qat"
+        echo "      printf 'FROM gemma4:31b-it-qat\nPARAMETER num_ctx 65536\nPARAMETER temperature 0.2\n' > /tmp/Modelfile.gemma4-code"
+        echo "      ollama create gemma4-code -f /tmp/Modelfile.gemma4-code"
+        echo "    Then confirm 'ollama ps' still reports 100% GPU: the 64K context"
+        echo "    bump costs VRAM, and one layer spilling to CPU collapses throughput."
+      fi
+    else
+      echo "[?] Model '$GEMMA_MODEL' unknown (the model list could not be read from $GEMMA_ENDPOINT)"
+    fi
   else
     echo "[ ] Ollama NOT reachable at $GEMMA_ENDPOINT"
     echo "    Serving machine: start it ('ollama serve') and retry."
     echo "    Consumer machine: set GEMMA_OLLAMA_URL=http://<serving-host>:11434"
     echo "    Shared-GPU host: another VM may currently hold the card."
-  fi
-
-  if curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null | grep -qF "\"$GEMMA_MODEL\""; then
-    echo "[x] Model present: $GEMMA_MODEL"
-  else
-    echo "[ ] Model '$GEMMA_MODEL' missing"
-    echo "    On the serving machine:"
-    echo "      ollama pull gemma4:31b-it-qat"
-    echo "      printf 'FROM gemma4:31b-it-qat\nPARAMETER num_ctx 65536\nPARAMETER temperature 0.2\n' > /tmp/Modelfile.gemma4-code"
-    echo "      ollama create gemma4-code -f /tmp/Modelfile.gemma4-code"
-    echo "    Then confirm 'ollama ps' still reports 100% GPU: the 64K context"
-    echo "    bump costs VRAM, and one layer spilling to CPU collapses throughput."
+    echo "[?] Model '$GEMMA_MODEL' unknown (endpoint unreachable - not checked)"
   fi
 fi
 ```
@@ -1905,15 +2012,34 @@ If upgrading, follow the same installation steps as `/cpp:init` for the new tier
 
 ## Step 10: Update Summary
 
+**Report the commit this run FINISHED on, not only the one it pulled (issue
+#1263).** Every step from 4 onward acts on the working tree, and in a shared
+checkout that tree is not pinned to `NEW_COMMIT`: another session can pull while
+this run is still going (measured: two foreign pulls mid-run, so the summary
+named a commit two behind the one the host's commands, helpers and Codex skills
+were actually served from). Re-read HEAD now, and say so when it moved:
+
+```bash
+FINISH_COMMIT=$(git -C "$CPP_DIR" rev-parse --short HEAD)
+echo "Finished on: $FINISH_COMMIT"
+```
+
+When `FINISH_COMMIT` differs from `NEW_COMMIT`, the `Commit:` line below reads
+`{OLD_COMMIT} -> {NEW_COMMIT} (finished on {FINISH_COMMIT} - the checkout moved
+during this run, likely another session's pull)`. The summary is read later by
+people and sessions that do not re-derive it, so it names the state the host is
+in, not the state this run passed through.
+
 ```
 =================================
 CPP Update Complete
 =================================
 
 Version: v{OLD_VERSION} -> v{NEW_VERSION}
-Commit:  {OLD_COMMIT} -> {NEW_COMMIT}
+Commit:  {OLD_COMMIT} -> {NEW_COMMIT} {(finished on FINISH_COMMIT - moved during this run) if it differs}
 Branch:  {BRANCH}
 Tier:    {TIER} {(upgraded from X if applicable)}
+Helpers: {Step 5b refresh line}; {Step 5b orphan-prune line}
 
 Changes pulled:
   {list of new commits, or "Already up to date"}
