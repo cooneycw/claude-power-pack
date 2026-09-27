@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1288-redact-secret-scan-failure-output-without-hiding-d",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "879df151d3a34b87f5df5c2f0b6606412ddc657b",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1288",
+  "passes": 2,
+  "recorded_at": "2026-09-27T14:22:44Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 7
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

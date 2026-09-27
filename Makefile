@@ -207,12 +207,14 @@ shellcheck:
 ## accidentally correct today is the hardest kind to retire.
 GITLEAKS_IMAGE := zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 
+## Findings print as rule/file/line only, via .gitleaks-findings.tmpl - never
+## `--verbose`, which prints the matched value (#1288; the template says why).
 ## verify-coverage: excluded secret-scan - needs gitleaks on PATH or docker; CI runs it as its own step, over git HISTORY rather than the working tree
 secret-scan:
 	@if command -v gitleaks > /dev/null 2>&1; then \
-		gitleaks detect --source . --config .gitleaks.toml --no-git --verbose; \
+		gitleaks detect --source . --config .gitleaks.toml --no-git --redact --report-format template --report-template .gitleaks-findings.tmpl --report-path -; \
 	elif command -v docker > /dev/null 2>&1; then \
-		docker run --rm -v "$$(pwd):/repo" $(GITLEAKS_IMAGE) detect --source /repo --config /repo/.gitleaks.toml --no-git --verbose; \
+		docker run --rm -v "$$(pwd):/repo" $(GITLEAKS_IMAGE) detect --source /repo --config /repo/.gitleaks.toml --no-git --redact --report-format template --report-template /repo/.gitleaks-findings.tmpl --report-path -; \
 	else \
 		echo "ERROR: gitleaks not found. Install via: brew install gitleaks / go install github.com/gitleaks/gitleaks/v8@latest"; \
 		echo "       Or use Docker: docker run --rm -v \$$(pwd):/repo zricethezav/gitleaks:latest detect --source /repo"; \

@@ -14,8 +14,11 @@ the carve-out is real AND it is narrowly scoped rather than blinding the gate.
 from __future__ import annotations
 
 import re
+import secrets
 import shutil
+import string
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -25,6 +28,7 @@ CONFIG = ROOT / ".gitleaks.toml"
 GATE = ROOT / "scripts" / "secret-scan-check.sh"
 CASES = ROOT / "controls" / "secret-scan" / "cases"
 CARVE_OUT = "controls/secret-scan/cases/"
+TEMPLATE = ROOT / ".gitleaks-findings.tmpl"
 
 #: CLAUDE.md binary-guard directive: these shell out to gitleaks, including via
 #: a repo script. CI stages the PINNED binary into `.ci-bin` from the secret-scan
@@ -35,22 +39,93 @@ requires_gitleaks = pytest.mark.skipif(
 )
 
 
-def _scan(source: Path, config: Path) -> subprocess.CompletedProcess:
+# --------------------------------------------------------------------------- #
+# What a scan is allowed to say about itself (issue #1288)
+# --------------------------------------------------------------------------- #
+# A scan that FINDS something is the moment its output is most dangerous. These
+# helpers used to run gitleaks without `--redact` and hand the raw CompletedProcess
+# to the tests, four of which pasted `stdout[:2000]` into their failure message -
+# so a real credential in an ignored host-local file was printed, value and all,
+# into the transcript of the very check that caught it.
+#
+# Two layers, because either alone has a gap:
+#   - at the scanner boundary, gitleaks renders findings through
+#     `.gitleaks-findings.tmpl` - rule, file, line - instead of `--verbose`.
+#     `--redact` alone was NOT enough on the pinned v8.30.1 (counter-model
+#     review, both reproduced): it masks each finding's OWN secret, so a value
+#     inside ANOTHER rule's match printed in full, and colour mode printed the
+#     surrounding source line besides;
+#   - the tests only ever see a ScanResult parsed down to rule/file/line, so a
+#     failure message - or pytest's own introspection of an assertion, which
+#     prints the repr of every intermediate value - has nothing unsafe to show
+#     even if a future gitleaks, or a future edit, drops the redaction.
+@dataclass(frozen=True)
+class Finding:
+    rule: str
+    file: str
+    line: str
+
+
+@dataclass(frozen=True)
+class ScanResult:
+    returncode: int
+    findings: tuple[Finding, ...]
+    config_load_failed: bool
+
+
+def _parse(proc: subprocess.CompletedProcess) -> ScanResult:
+    """Keep only metadata that cannot carry a secret; drop the raw streams.
+
+    Findings are keyed on `RuleID:` lines, NOT the exit status: gitleaks exits 1
+    for findings AND 1 for a config-load failure, so the exit code alone cannot
+    tell "I caught something" from "I never started". See
+    `test_a_malformed_config_is_not_a_detection`.
+    """
+    findings = []
+    for block in re.split(r"\n\s*\n", proc.stdout):
+        fields = dict(re.findall(r"^(RuleID|File|Line):\s*(.*?)\s*$", block, re.M))
+        if "RuleID" in fields:
+            findings.append(Finding(fields["RuleID"], fields.get("File", "?"),
+                                    fields.get("Line", "?")))
+    return ScanResult(proc.returncode, tuple(findings),
+                      "Failed to load config" in proc.stderr)
+
+
+def _scan_raw(source: Path, config: Path) -> subprocess.CompletedProcess:
+    """The raw streams, for the tests that assert what they do NOT contain."""
     return subprocess.run(
         ["gitleaks", "detect", "--source", str(source), "--config", str(config),
-         "--no-git", "--verbose"],
+         "--no-git", "--redact", "--report-format", "template",
+         "--report-template", str(TEMPLATE), "--report-path", "-"],
         capture_output=True, text=True, timeout=300, cwd=ROOT,
     )
 
 
-def _findings(result: subprocess.CompletedProcess) -> int:
-    """Count RuleID lines, NOT the exit status.
+def _scan(source: Path, config: Path) -> ScanResult:
+    return _parse(_scan_raw(source, config))
 
-    gitleaks exits 1 for findings AND 1 for a config-load failure, so the exit
-    code alone cannot tell "I caught something" from "I never started". See
-    `test_a_malformed_config_is_not_a_detection`.
-    """
-    return len(re.findall(r"^RuleID:", result.stdout, re.M))
+
+def _gate_raw(case_dir: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(["sh", str(GATE), "--root", str(case_dir)],
+                          capture_output=True, text=True, timeout=300, cwd=ROOT)
+
+
+def _findings(result: ScanResult) -> int:
+    return len(result.findings)
+
+
+def _summary(result: ScanResult) -> str:
+    """A failure message built from safe metadata only - never the raw output."""
+    where = "; ".join(f"{f.rule} at {f.file}:{f.line}" for f in result.findings)
+    return (f"exit={result.returncode} findings={len(result.findings)} "
+            f"config_load_failed={result.config_load_failed}: {where or 'none'}")
+
+
+def _synthetic_token() -> str:
+    """A GitHub-PAT-SHAPED value made fresh per run, so no committed file holds
+    it. Random characters fail GitHub's embedded checksum, so it is no credential."""
+    alphabet = string.ascii_letters + string.digits
+    return "ghp_" + "".join(secrets.choice(alphabet) for _ in range(36))
 
 
 # --------------------------------------------------------------------------- #
@@ -93,7 +168,7 @@ def test_the_fixture_filename_is_not_gitignored() -> None:
 def test_the_repo_wide_scan_is_clean_with_the_fixture_committed() -> None:
     """Guard 3: the carve-out does its job."""
     result = _scan(ROOT, CONFIG)
-    assert _findings(result) == 0, result.stdout[:2000]
+    assert _findings(result) == 0, _summary(result)
     assert result.returncode == 0
 
 
@@ -112,7 +187,7 @@ def test_removing_the_carve_out_turns_the_repo_scan_red(tmp_path: Path) -> None:
 
     result = _scan(ROOT, cfg)
     assert _findings(result) >= 1, (
-        f"removing the carve-out must expose the fixture: {result.stdout[:2000]}"
+        f"removing the carve-out must expose the fixture: {_summary(result)}"
     )
 
 
@@ -133,7 +208,7 @@ def test_the_same_bytes_are_detected_off_the_exempt_path(tmp_path: Path) -> None
     relocated = _scan(tmp_path, CONFIG)
     assert _findings(at_home) == 0, "at its exempt path the fixture must be allowed"
     assert _findings(relocated) == 1, (
-        f"the same bytes off the exempt path must be caught: {relocated.stdout[:2000]}"
+        f"the same bytes off the exempt path must be caught: {_summary(relocated)}"
     )
 
 
@@ -178,9 +253,12 @@ def test_the_gate_discriminates_in_both_directions(case: str, expected: int) -> 
     this is what makes shortening the fixture a failing case rather than a silent
     disarm.
     """
-    result = subprocess.run(["sh", str(GATE), "--root", str(CASES / case)],
-                            capture_output=True, text=True, timeout=300, cwd=ROOT)
-    assert len(re.findall(r"^RuleID:", result.stdout, re.M)) == expected, result.stdout[:2000]
+    result = _parse(_gate_raw(CASES / case))
+    assert _findings(result) == expected, _summary(result)
+    # Zero findings alone would also accept a scan that never ran: the gate
+    # refusing (exit 3) or a config that failed to load (exit 1, no RuleID).
+    assert result.returncode == (1 if expected else 0), _summary(result)
+    assert not result.config_load_failed, _summary(result)
 
 
 @requires_gitleaks
@@ -199,9 +277,9 @@ def test_a_malformed_config_is_not_a_detection(tmp_path: Path) -> None:
     assert result.returncode == 1, "the failure mode under test is an exit of 1"
     assert _findings(result) == 0, (
         "a config failure must not look like a detection - if this ever reports a "
-        f"RuleID, the gate can report success while scanning nothing: {result.stdout[:800]}"
+        f"RuleID, the gate can report success while scanning nothing: {_summary(result)}"
     )
-    assert "Failed to load config" in result.stderr
+    assert result.config_load_failed
 
 
 def test_the_gate_refuses_rather_than_passing_when_gitleaks_is_absent(tmp_path: Path) -> None:
@@ -230,3 +308,131 @@ def test_the_gate_refuses_rather_than_passing_when_gitleaks_is_absent(tmp_path: 
     )
     assert result.returncode != 0, "an unperformed scan must not read as clean"
     assert "unchecked, not clean" in result.stderr, result.stderr
+
+
+# --------------------------------------------------------------------------- #
+# A detection never prints the value it detected (issue #1288)
+# --------------------------------------------------------------------------- #
+# Synthetic data only, generated per run. Never demonstrate this over a real host
+# file: a check that leaks is not re-run on real credentials to prove it leaks.
+def _plant(tmp_path: Path) -> tuple[str, Path]:
+    token = _synthetic_token()
+    case = tmp_path / "planted"
+    case.mkdir()
+    (case / "config.txt").write_text(f'token = "{token}"\n')
+    return token, case
+
+
+@requires_gitleaks
+def test_a_detection_withholds_the_value_from_both_streams(tmp_path: Path) -> None:
+    """Still caught, still nonzero - and the value is in neither stream.
+
+    Membership is computed into a bool BEFORE asserting on it: `assert token not
+    in proc.stdout` would make pytest's introspection print the very stdout it
+    is checking, which is the leak this test exists to rule out.
+    """
+    token, case = _plant(tmp_path)
+    proc = _scan_raw(case, CONFIG)
+    result = _parse(proc)
+    assert result.returncode == 1, _summary(result)
+    assert [f.rule for f in result.findings] == ["github-pat"], _summary(result)
+    assert result.findings[0].line == "1", _summary(result)
+    in_stdout, in_stderr = token in proc.stdout, token in proc.stderr
+    assert not in_stdout, "the synthetic value appeared in scanner stdout"
+    assert not in_stderr, "the synthetic value appeared in scanner stderr"
+
+
+def _windows(value: str, width: int = 8) -> list[str]:
+    return [value[i:i + width] for i in range(len(value) - width + 1)]
+
+
+@requires_gitleaks
+def test_a_neighbouring_value_on_the_same_line_is_not_printed_as_context(
+    tmp_path: Path,
+) -> None:
+    """Under `--verbose --redact`, colour mode printed the surrounding source
+    line with only the match masked, so text beside it - here a short key no
+    rule claims - reached the transcript by its tail. Checked by 8-char windows,
+    because what leaked was a fragment, not the whole value."""
+    token = _synthetic_token()
+    neighbour = _synthetic_token()[4:16]
+    case = tmp_path / "same-line"
+    case.mkdir()
+    (case / "config.txt").write_text(f'api_key = "{neighbour}" token = "{token}"\n')
+    for proc in (_scan_raw(case, CONFIG), _gate_raw(case)):
+        result = _parse(proc)
+        assert "github-pat" in [f.rule for f in result.findings], _summary(result)
+        out = proc.stdout + proc.stderr
+        leaked = [w for w in _windows(neighbour) + _windows(token) if w in out]
+        assert not leaked, f"{len(leaked)} fragment(s) of a same-line value were printed"
+
+
+@requires_gitleaks
+def test_a_secret_inside_another_rules_match_is_not_printed(tmp_path: Path) -> None:
+    """The case `--redact` cannot handle: `curl-auth-header` matches a span that
+    CONTAINS the GitHub PAT, and redaction masks only that finding's own secret
+    (the bearer value) - so the PAT printed in full under `--verbose --redact`.
+    Both findings must still be reported."""
+    token = _synthetic_token()
+    bearer = _synthetic_token()[4:]
+    case = tmp_path / "overlap"
+    case.mkdir()
+    (case / "run.sh").write_text(
+        f'curl "https://example.invalid/?token={token}" -H "Authorization: Bearer {bearer}"\n'
+    )
+    for proc in (_scan_raw(case, CONFIG), _gate_raw(case)):
+        result = _parse(proc)
+        rules = sorted(f.rule for f in result.findings)
+        assert rules == ["curl-auth-header", "github-pat"], _summary(result)
+        out = proc.stdout + proc.stderr
+        leaked = [w for w in _windows(token) + _windows(bearer) if w in out]
+        assert not leaked, f"{len(leaked)} fragment(s) of an overlapping value were printed"
+
+
+@requires_gitleaks
+def test_the_gate_script_withholds_the_value_too(tmp_path: Path) -> None:
+    """`secret-scan-check.sh` is the other path to the scanner, and a registered
+    negative control whose output lands in CI logs."""
+    token, case = _plant(tmp_path)
+    proc = _gate_raw(case)
+    result = _parse(proc)
+    assert result.returncode == 1, _summary(result)
+    assert _findings(result) == 1, _summary(result)
+    in_stdout, in_stderr = token in proc.stdout, token in proc.stderr
+    assert not in_stdout, "the synthetic value appeared in the gate's stdout"
+    assert not in_stderr, "the synthetic value appeared in the gate's stderr"
+
+
+@requires_gitleaks
+def test_a_failing_assertion_on_a_detection_reports_where_not_what(
+    pytester: pytest.Pytester, tmp_path: Path,
+) -> None:
+    """The whole failure report of a test that trips on a detection, read as a
+    reader of the transcript would read it: `-vv` for full assertion
+    introspection and `-l` for every local in the traceback.
+
+    It must name the rule, the file, the line and the count, and must not
+    contain the value. Against the pre-fix helper (no `--redact`, raw
+    CompletedProcess, `stdout[:2000]` as the message) this report carried the
+    synthetic value verbatim.
+    """
+    token, case = _plant(tmp_path)
+    pytester.makepyfile(test_inner=f"""
+        import sys
+        sys.path.insert(0, {str(ROOT)!r})
+        from pathlib import Path
+        from tests.test_secret_scan import CONFIG, _findings, _scan, _summary
+
+        def test_trips_on_the_planted_value():
+            result = _scan(Path({str(case)!r}), CONFIG)
+            assert _findings(result) == 0, _summary(result)
+    """)
+    run = pytester.runpytest_subprocess("-vv", "-l", "-p", "no:cacheprovider")
+    report = "\n".join(run.outlines + run.errlines)
+
+    run.assert_outcomes(failed=1)
+    assert "github-pat" in report
+    assert "config.txt:1" in report
+    assert "findings=1" in report
+    leaked = token in report
+    assert not leaked, "the synthetic value appeared in the pytest failure report"

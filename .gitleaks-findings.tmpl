@@ -1,0 +1,20 @@
+{{- /*
+  What a secret scan is allowed to print about a finding (issue #1288).
+
+  Every CPP entry point to gitleaks - `make secret-scan`, the CI secret-scan
+  step, scripts/secret-scan-check.sh and tests/test_secret_scan.py - renders its
+  findings through THIS template instead of `--verbose`. Verbose output prints
+  each finding's Match and Secret, and `--redact` cannot make that safe: it masks
+  each finding's OWN secret only, so a value inside ANOTHER rule's match (a PAT
+  inside a curl-auth-header line) was printed in full, and in colour mode the
+  surrounding source line leaked too. Both were reproduced on the pinned v8.30.1.
+
+  So the scanner is asked for metadata alone: rule, file, line. The `RuleID:`
+  prefix is load-bearing - the negative control and the tests count those lines.
+  Do not add Match, Secret, Line content or Fingerprint-with-content here.
+*/ -}}
+{{- range . }}RuleID: {{ .RuleID }}
+File: {{ .File }}
+Line: {{ .StartLine }}
+
+{{ end -}}
