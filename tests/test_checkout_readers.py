@@ -45,10 +45,17 @@ requires_proc = pytest.mark.skipif(
 
 #: Holds an fd on its own path and waits, so unlinking the file leaves a process
 #: executing an inode with no name - the #1029 specimen, reproduced on demand.
+#:
+#: IT WAITS UNTIL KILLED, not for a fixed time (issue #1271). It used to be
+#: `sleep 30`, and a test here runs TWO full `/proc` scans - about 11s each on a
+#: loaded host. Under the parallel suite the victim exited between them: the JSON
+#: scan saw it `stale`, the report scan found nothing and printed `clear`, and the
+#: failure read as the detector contradicting itself. The fixture kills it, and
+#: its `sleep`, as a process group.
 VICTIM = """#!/usr/bin/env bash
 exec 255< "$1"
 touch "$2"
-sleep 30
+while :; do sleep 60; done
 """
 
 
@@ -88,19 +95,32 @@ def held_tree(tmp_path: Path):
         ["bash", str(victim), str(victim), str(ready)],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        start_new_session=True,  # its own group, so teardown takes the `sleep` too
     )
-    deadline = time.monotonic() + 10
-    while not ready.exists() and time.monotonic() < deadline:
-        if proc.poll() is not None:
-            pytest.fail("the victim process exited before opening its fd")
-        time.sleep(0.02)
-    assert ready.exists(), "the victim process never signalled readiness"
-
+    # The cleanup covers readiness too: the victim now runs until killed, so a
+    # setup failure before the yield would otherwise leak it (counter-model review).
     try:
+        deadline = time.monotonic() + 10
+        while not ready.exists() and time.monotonic() < deadline:
+            if proc.poll() is not None:
+                pytest.fail("the victim process exited before opening its fd")
+            time.sleep(0.02)
+        assert ready.exists(), "the victim process never signalled readiness"
         yield tree, victim, proc
     finally:
-        proc.send_signal(signal.SIGKILL)
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
         proc.wait(timeout=10)
+
+
+def _assert_victim_alive(proc: subprocess.Popen) -> None:
+    """A scan result about a victim that already exited is not evidence either way."""
+    assert proc.poll() is None, (
+        "the victim exited during the test, so the scans measured its absence - "
+        "a fixture fault, not a detector verdict"
+    )
 
 
 @requires_proc
@@ -119,6 +139,7 @@ def test_negative_control_a_reader_on_a_current_inode_is_not_flagged_stale(
     assert payload["verdict"] == "busy"
 
     report = _run(tree).stdout
+    _assert_victim_alive(proc)
     assert f"pid {proc.pid}" in report
     assert "CHECKOUT_READERS: busy" in report
 
@@ -141,6 +162,7 @@ def test_positive_control_a_reader_on_a_deleted_inode_is_found_with_its_pid(
     assert payload["verdict"] == "stale"
 
     report = _run(tree).stdout
+    _assert_victim_alive(proc)
     assert f"pid {proc.pid}" in report, "a hit without its pid cannot be acted on"
     assert "CHECKOUT_READERS: stale" in report
     assert "re-arm" in report.lower()

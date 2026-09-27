@@ -51,6 +51,8 @@ from pathlib import Path
 import pytest
 
 from tests.supervise_reap import (
+    _argv,
+    _descendants,
     kill_supervise_daemon,
     reap_supervise_daemons,
 )
@@ -99,6 +101,22 @@ requires_escalate_tools = pytest.mark.skipif(
 #: `unknown` from the lane, against an assertion expecting `dead`. See
 #: `tests/wave_namespace.py` for why the fix belongs here and not in the lane.
 WAVE = unique_wave()
+
+#: How long a test waits for a supervise daemon to log "surfaced" after mail is
+#: sent. Seven sites wait on exactly this, so it is ONE setting, not seven.
+#:
+#: HISTORY: 60 -> 10 -> 20 across c6c20acf and abcbb61f, with no record of either
+#: swing (flagged by scripts/check-oscillation.py, Nit Store #864; issue #1271).
+#: 10 was too tight under `pytest -n` load; 60 made a genuinely broken
+#: supervisor cost a minute per test before it said so.
+#:
+#: REVERSAL TRIGGER (ADR 0009): raise it only on a timeout failure whose daemon
+#: log shows it DID surface, late - that is a slow host, and this bound is what
+#: is wrong. A failure whose log never says "surfaced" is a supervisor defect,
+#: and a longer wait would only make it slower to report. Lower it only if the
+#: slowest observed surfacing, measured under the parallel suite, is well under
+#: half of it.
+SURFACE_WAIT = 20
 
 
 def _run(
@@ -1869,6 +1887,20 @@ def _daemon_pid(tmp: Path, wave: str, role: str) -> int:
     return int(pf.read_text().strip())
 
 
+def _inner_watch(daemon: int) -> int | None:
+    """The pid of the `watch` a supervise daemon is blocked in, or None.
+
+    Read from the kernel's process tree and the child's POSITIONAL verb
+    (`bash <script> watch ...`), so the registry `get` the daemon also forks is
+    never mistaken for it.
+    """
+    for child in _descendants(daemon):
+        argv = _argv(child)
+        if len(argv) >= 3 and argv[1].endswith("/flow-wave-mailbox.sh") and argv[2] == "watch":
+            return child
+    return None
+
+
 def _pid_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -1975,7 +2007,7 @@ class TestSupervise:
             _send(tmp_path, "1", "assignment issue 814")
             assert _wait_for(
                 lambda: "surfaced" in _supervise_log(tmp_path, WAVE, "1").read_text(),
-                timeout=20,
+                timeout=SURFACE_WAIT,
             ), "supervise never surfaced the message"
             # And it stays the agent's to receive.
             assert _detail(_run(tmp_path, "list", "--wave", WAVE), "FLOW_MAILBOX_UNREAD") == "1"
@@ -2148,7 +2180,7 @@ class TestSupervise:
             # point of this test - would never be reached.
             assert _wait_for(
                 lambda: "surfaced" in _supervise_log(tmp_path, WAVE, "1").read_text(),
-                timeout=20,
+                timeout=SURFACE_WAIT,
             )
             log_text = _supervise_log(tmp_path, WAVE, "1").read_text()
             # Still the binding claim, and it matters MORE now: the surfacing
@@ -2282,9 +2314,17 @@ class TestSupervise:
         )
         pid = _daemon_pid(tmp_path, WAVE, "1")
         try:
-            # Let the daemon settle into its first blocking watch cycle
-            # before releasing, so the release genuinely lands mid-cycle.
-            time.sleep(1)
+            # The release must land MID-CYCLE - after this cycle's registry
+            # check has passed - or the daemon sees `released` on its very
+            # first check and exits at once, and the "still alive" assertion
+            # below fails for a reason that has nothing to do with the latency
+            # it pins. This used to be `time.sleep(1)`, a guess that held
+            # serially and failed about 1 run in 4 under `pytest -n 4` (issue
+            # #1271; Nit Store #864). The inner `watch` child is spawned only
+            # AFTER the registry check, so its existence is the observable.
+            assert _wait_for(lambda: _inner_watch(pid) is not None, timeout=15), (
+                "the daemon never reached its first blocking watch cycle"
+            )
             subprocess.run(
                 ["bash", str(registry), "release", "1", "--wave", WAVE, "--force"],
                 capture_output=True, text=True, env=env, check=False,
@@ -3297,7 +3337,7 @@ class TestSupervisorNeverAcknowledges:
             # Give the daemon several re-arm cycles to do its worst.
             assert _wait_for(
                 lambda: "surfaced" in _supervise_log(tmp_path, WAVE, "1").read_text(),
-                timeout=20,
+                timeout=SURFACE_WAIT,
             ), "the supervisor never surfaced the message"
 
             listed = _run(tmp_path, "list", "--wave", WAVE)
@@ -3324,7 +3364,7 @@ class TestSupervisorNeverAcknowledges:
             _run(tmp_path, "send", "--to", "1", "--wave", WAVE, "--body", "hello")
             assert _wait_for(
                 lambda: "surfaced" in _supervise_log(tmp_path, WAVE, "1").read_text(),
-                timeout=20,
+                timeout=SURFACE_WAIT,
             )
             listed = _run(tmp_path, "list", "--wave", WAVE)
             assert "confirmed" not in listed.stdout
@@ -3348,7 +3388,7 @@ class TestSupervisorNeverAcknowledges:
             _run(tmp_path, "send", "--to", "1", "--wave", WAVE, "--body", "one")
             assert _wait_for(
                 lambda: "surfaced" in _supervise_log(tmp_path, WAVE, "1").read_text(),
-                timeout=20,
+                timeout=SURFACE_WAIT,
             )
             time.sleep(6)  # many re-arm cycles on the same unread message
             surfaced = [
@@ -3366,7 +3406,7 @@ class TestSupervisorNeverAcknowledges:
                     _supervise_log(tmp_path, WAVE, "1").read_text().splitlines()
                     if "surfaced" in ln
                 ]) == 2,
-                timeout=20,
+                timeout=SURFACE_WAIT,
             ), "a second message did not wake the supervisor"
         finally:
             self._teardown(tmp_path)
@@ -3380,7 +3420,7 @@ class TestSupervisorNeverAcknowledges:
         self._launch(tmp_path)
         try:
             _run(tmp_path, "send", "--to", "1", "--wave", WAVE, "--body", "x")
-            assert _wait_for(_surfaced_file(tmp_path, WAVE, "1").exists, timeout=20)
+            assert _wait_for(_surfaced_file(tmp_path, WAVE, "1").exists, timeout=SURFACE_WAIT)
             assert _surfaced_file(tmp_path, WAVE, "1").read_text().strip() == "outbox-1.md 1"
             assert not _ack_file(tmp_path, WAVE, "outbox-1.md").exists()
             assert _detail(_run(tmp_path, "list", "--wave", WAVE), "FLOW_MAILBOX_UNREAD") == "1"

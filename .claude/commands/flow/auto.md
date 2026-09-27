@@ -516,10 +516,14 @@ another session can enter this checkout, and one did: on `flow:auto #13` a
 concurrent session wrote a file into this worktree between the Step-1 clear
 verdict and the Step-4 merge, which then aborted on their dirty tree. A guard
 that runs only at Step 1 cannot see that. Re-run it bare, against the worktree
-(#581 invocation discipline; advisory, fail-open):
+(#581 invocation discipline; advisory, fail-open). Pass the worktree path from
+the Step-1 contract (`WT_PATH`) verbatim as the literal argument - DECLARED,
+never inferred from the Bash cwd, which drifts on any earlier `cd` (issue #1271,
+the #614 rule); the emitted `FLOW_LIVE_DRIVER_PATH:` line must name the run's
+worktree:
 
 ```bash
-~/.claude/scripts/flow-live-driver-guard.sh
+~/.claude/scripts/flow-live-driver-guard.sh /path/to/worktree
 ```
 
 - `FLOW_LIVE_DRIVER: clear` - proceed.

@@ -12,6 +12,7 @@ regressing. The fixture tests above them are about the gate's rules.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -28,6 +29,27 @@ ANCHOR = (
     / "anchors"
     / "constructed-verify-exists-only-verify-coverage-check.py"
 )
+
+
+def names_target(text: str, target: str) -> bool:
+    """Does `text` name `make <target>` as a whole target, not as a prefix?
+
+    A substring test is the wrong instrument for a target name (issue #1271):
+    `"make negative-controls" in report` is also true of a report naming
+    `make negative-controls-audit`, so an ABSENT-assertion goes falsely red on a
+    neighbouring target and a PRESENT-assertion goes falsely green on one. Target
+    names are made of word characters and hyphens, so both are the boundary.
+    """
+    return re.search(rf"(?<![\w-])make {re.escape(target)}(?![\w-])", text) is not None
+
+
+def test_names_target_matches_the_whole_target_only() -> None:
+    """The red cases the substring form got wrong, in both directions."""
+    assert not names_target("run make negative-controls-audit next", "negative-controls")
+    assert not names_target("make skills-check-v2 is unexamined", "skills-check")
+    assert not names_target("make codex-skills-check", "skills-check")
+    assert names_target("  - make negative-controls (needs gitleaks)", "negative-controls")
+    assert names_target("`make skills-check`: host-local", "skills-check")
 
 
 def run(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -620,7 +642,7 @@ def test_the_real_report_no_longer_names_control_health_as_unexamined() -> None:
     result = run(ROOT, "--report")
     assert result.returncode == 0, result.stdout
     assert "what this run did NOT examine" in result.stdout
-    assert "make negative-controls" not in result.stdout, (
+    assert not names_target(result.stdout, "negative-controls"), (
         "the battery is a verify prerequisite since #1117, so naming it "
         "unexamined is the report lying\n" + result.stdout
     )
@@ -649,11 +671,11 @@ def test_the_real_report_names_every_1028_subject_it_does_not_run() -> None:
     second rather than simply vanishing from the test.
     """
     report = run(ROOT, "--report").stdout
-    assert "make skills-check" in report, (
+    assert names_target(report, "skills-check"), (
         f"make skills-check is no longer named as unexamined\n{report}"
     )
-    for wired in ("codex-skills-check", "make negative-controls"):
-        assert wired not in report, (
+    for wired in ("codex-skills-check", "negative-controls"):
+        assert not names_target(report, wired), (
             f"{wired} is a verify prerequisite now, so naming it unexamined "
             f"would be the report lying in the other direction\n{report}"
         )

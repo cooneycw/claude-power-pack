@@ -51,6 +51,7 @@ What a green run does NOT prove, stated so nobody reads it as more:
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -178,7 +179,10 @@ def test_discovery_reaches_the_real_root_a_new_surface_would_appear_in(root: Pat
     where a new review surface would appear, not merely that it can match text.
     """
     assert root.is_dir(), f"{root.relative_to(REPO)} is no longer a real directory"
-    probe = root / "_detector_contract_probe_" / "probe.md"
+    # PER PROCESS (issue #1271): the probe lands in the SHARED live tree, so a
+    # fixed name made two concurrent same-worktree runs collide on
+    # `exist_ok=False` - one run's probe failing the other's test.
+    probe = root / f"_detector_contract_probe_{os.getpid()}_" / "probe.md"
     probe.parent.mkdir(parents=True, exist_ok=False)
     try:
         probe.write_text("# probe\n\n2. **Review for:**\n   - Correctness\n", encoding="utf-8")

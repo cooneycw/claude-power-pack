@@ -403,6 +403,14 @@ def test_no_LIVE_SURFACE_still_routes_a_reader_to_the_dead_command() -> None:
             rel = path.relative_to(ROOT)
             if rel in exempt or rel.parts[:2] == ("docs", "research"):
                 continue
+            # A flow run's AS-READ SNAPSHOT is the issue body copied byte for byte
+            # (`flow-plan-record.py approve`), so it quotes whatever the filer
+            # wrote - including a retired name - and cannot be edited without
+            # destroying what it is evidence of (issue #1271's body quotes
+            # `auto_codex.md`). Only the snapshot is exempt: the run's PLAN RECORD
+            # beside it is written by the run and is still scanned.
+            if rel.parts[:2] == ("docs", "flow-runs") and rel.name.endswith(".as-read.md"):
+                continue
             scanned += 1
             for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 if "auto_codex" in line:
