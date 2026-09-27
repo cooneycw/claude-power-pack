@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1285-codex-auto-let-the-caller-supply-the-sandbox-mode",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 1
+  },
+  "head": "4deccd2e3c906ac45ea5070e5b3509d9d8177305",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1285",
+  "passes": 2,
+  "recorded_at": "2026-09-27T12:01:13Z",
+  "red_cases": {
+    "already_covered": 4,
+    "proposed": 4
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

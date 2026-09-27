@@ -26,7 +26,7 @@ work at all?"*, and for three whole classes of issue the answer here is no:
 | | |
 |---|---|
 | **Scope** | **implementation-only** - the deliverable is a source diff |
-| **Web** | **no** - `codex exec --sandbox workspace-write` blocks network for the shell commands Codex runs (issue #735) |
+| **Web** | **no** - `codex exec --sandbox workspace-write` blocks network for the shell commands Codex runs (issue #735). A caller-supplied `CODEX_AUTO_SANDBOX=danger-full-access` lifts that mechanical block for the run (issue #1285); the textual fence and overrun verification still apply, so this row does not change |
 | **Container** | **no** - the same sandbox denies the `docker` socket connection directly (verified: `docker version` returned "permission denied while trying to connect to the docker API", against an unsandboxed control that succeeded for the same user, issue #835) |
 | **Cannot take** | `research`, `web`, `container` |
 
@@ -381,7 +381,15 @@ alternative, an experiment, or a concern for an ordinary fix.
 
 Execute Codex with JSONL monitoring. **Use `--sandbox workspace-write`** - this
 mechanically prevents network operations (`git push`, `gh pr create`) even if
-the textual fence is ignored, providing defense in depth:
+the textual fence is ignored, providing defense in depth.
+
+**The one exception is supplied by the caller, never chosen here (issue
+#1285).** Where codex's own sandbox cannot start - a Kyle session container,
+where bubblewrap has no user namespace - `workspace-write` makes codex exit 0
+having executed nothing. Kyle sets `CODEX_AUTO_SANDBOX=danger-full-access` for
+the containers it starts, and the block below honours it. That run has no
+mechanical network fence; the textual fence and the post-execution overrun
+verification below are what remain:
 
 **The invocation and its status check MUST stay in ONE fenced block, and the
 run MUST NOT be piped (issue #798).** Both halves of that sentence were broken
@@ -401,11 +409,22 @@ Do not split this block when editing, and do not reintroduce the pipe.
 ```bash
 WORKTREE_PATH=$(pwd)
 CODEX_OUTPUT="/tmp/codex-output-${ISSUE_NUM}.jsonl"
+# Sandbox mode (issue #1285). A caller that knows codex's own sandbox cannot
+# start where it runs supplies CODEX_AUTO_SANDBOX as data - Kyle does, for the
+# session containers it starts, where workspace-write exits 0 having executed
+# nothing. Unset keeps #735's workspace-write. Any other value is refused, never
+# defaulted: a silent fallback would re-create the inert run this exists to end.
+CODEX_SANDBOX="${CODEX_AUTO_SANDBOX:-workspace-write}"
+case "$CODEX_SANDBOX" in
+    workspace-write) ;;
+    danger-full-access) ;;
+    *) echo "ERROR: CODEX_AUTO_SANDBOX='$CODEX_SANDBOX' is not workspace-write or danger-full-access; refusing to run codex (issue #1285)"; exit 1 ;;
+esac
 
 codex exec \
     --json \
     -C "$WORKTREE_PATH" \
-    --sandbox workspace-write \
+    --sandbox "$CODEX_SANDBOX" \
     "$CODEX_PROMPT" < /dev/null > "$CODEX_OUTPUT" 2>&1   # </dev/null: non-TTY EOF so codex never blocks reading stdin
 
 CODEX_EXIT=$?
@@ -654,19 +673,32 @@ If quality gates fail:
    message, and continue only with independent authorized work. Do not implement
    part of the boundary change to make the gate pass.
    ```
-3. **Re-execute Codex** with the fix prompt. **Use `--sandbox workspace-write`**
-   (same as Step 4 - never `danger-full-access` for delegated implementation).
+3. **Re-execute Codex** with the fix prompt, under the same sandbox as Step 4:
+   `workspace-write` unless the caller supplied `CODEX_AUTO_SANDBOX` (issue
+   #1285). Never choose `danger-full-access` yourself - only a caller that
+   states it, as data, may.
    The retry gets the same treatment as the first run (issue #798): redirect
    rather than pipe, exit captured in the SAME block, payload checked. A fix
    attempt that failed silently is exactly how a fix loop burns its two retries
    on nothing and then reports the ORIGINAL gate failure as the diagnosis:
    ```bash
    CODEX_FIX_OUTPUT="/tmp/codex-fix-${ISSUE_NUM}-${RETRY}.jsonl"
+   # Sandbox mode (issue #1285). A caller that knows codex's own sandbox cannot
+   # start where it runs supplies CODEX_AUTO_SANDBOX as data - Kyle does, for the
+   # session containers it starts, where workspace-write exits 0 having executed
+   # nothing. Unset keeps #735's workspace-write. Any other value is refused, never
+   # defaulted: a silent fallback would re-create the inert run this exists to end.
+   CODEX_SANDBOX="${CODEX_AUTO_SANDBOX:-workspace-write}"
+   case "$CODEX_SANDBOX" in
+       workspace-write) ;;
+       danger-full-access) ;;
+       *) echo "ERROR: CODEX_AUTO_SANDBOX='$CODEX_SANDBOX' is not workspace-write or danger-full-access; refusing to run codex (issue #1285)"; exit 1 ;;
+   esac
 
    codex exec \
        --json \
        -C "$WORKTREE_PATH" \
-       --sandbox workspace-write \
+       --sandbox "$CODEX_SANDBOX" \
        "$FIX_PROMPT" < /dev/null > "$CODEX_FIX_OUTPUT" 2>&1   # </dev/null: non-TTY EOF so codex never blocks reading stdin
 
    CODEX_FIX_EXIT=$?
@@ -885,7 +917,7 @@ Key failure scenarios:
 
 ## Notes
 
-- Codex CLI runs with `--sandbox workspace-write` (issue #735: downgraded from `danger-full-access` to mechanically prevent network operations like `git push` and `gh pr create`)
+- Codex CLI runs with `--sandbox workspace-write` (issue #735: downgraded from `danger-full-access` to mechanically prevent network operations like `git push` and `gh pr create`), unless the caller supplies `CODEX_AUTO_SANDBOX` (issue #1285: `workspace-write` or `danger-full-access` only, anything else refused)
 - Every Codex prompt (Step 4 implementation + Step 6 fix loop) carries the mandatory execution fence that explicitly prohibits commit/push/PR/merge and reading `.claude/commands/**` workflow files
 - Post-Step-3 overrun verification detects and remediates any fence/sandbox escape: unexpected commits are rolled back, unauthorized PRs are closed, and pushes are flagged
 - Defense in depth: the textual fence prevents intentional following of workflow files; the `workspace-write` sandbox mechanically blocks network operations; the overrun verification catches anything that slips through both

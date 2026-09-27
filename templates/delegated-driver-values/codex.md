@@ -35,19 +35,32 @@ Step 4/8: Execute Codex (delegate implementation to Codex CLI)
 <!-- slot: STEP5_CRITICAL -->
 If review finds CRITICAL issues that Codex cannot fix via re-prompt (e.g., fundamentally wrong approach), STOP and report. Offer to either re-prompt Codex or hand off to manual implementation.
 <!-- slot: FIX_REEXEC -->
-3. **Re-execute Codex** with the fix prompt. **Use `--sandbox workspace-write`**
-   (same as Step 4 - never `danger-full-access` for delegated implementation).
+3. **Re-execute Codex** with the fix prompt, under the same sandbox as Step 4:
+   `workspace-write` unless the caller supplied `CODEX_AUTO_SANDBOX` (issue
+   #1285). Never choose `danger-full-access` yourself - only a caller that
+   states it, as data, may.
    The retry gets the same treatment as the first run (issue #798): redirect
    rather than pipe, exit captured in the SAME block, payload checked. A fix
    attempt that failed silently is exactly how a fix loop burns its two retries
    on nothing and then reports the ORIGINAL gate failure as the diagnosis:
    ```bash
    CODEX_FIX_OUTPUT="/tmp/codex-fix-${ISSUE_NUM}-${RETRY}.jsonl"
+   # Sandbox mode (issue #1285). A caller that knows codex's own sandbox cannot
+   # start where it runs supplies CODEX_AUTO_SANDBOX as data - Kyle does, for the
+   # session containers it starts, where workspace-write exits 0 having executed
+   # nothing. Unset keeps #735's workspace-write. Any other value is refused, never
+   # defaulted: a silent fallback would re-create the inert run this exists to end.
+   CODEX_SANDBOX="${CODEX_AUTO_SANDBOX:-workspace-write}"
+   case "$CODEX_SANDBOX" in
+       workspace-write) ;;
+       danger-full-access) ;;
+       *) echo "ERROR: CODEX_AUTO_SANDBOX='$CODEX_SANDBOX' is not workspace-write or danger-full-access; refusing to run codex (issue #1285)"; exit 1 ;;
+   esac
 
    codex exec \
        --json \
        -C "$WORKTREE_PATH" \
-       --sandbox workspace-write \
+       --sandbox "$CODEX_SANDBOX" \
        "$FIX_PROMPT" < /dev/null > "$CODEX_FIX_OUTPUT" 2>&1   # </dev/null: non-TTY EOF so codex never blocks reading stdin
 
    CODEX_FIX_EXIT=$?
