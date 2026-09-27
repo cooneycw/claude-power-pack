@@ -2010,8 +2010,11 @@ path_state() {
     echo present
     return 0
   fi
+  # The errno text is the SUFFIX stat prints after the quoted path. Matching
+  # it anywhere would let a path that merely CONTAINS the phrase turn EACCES
+  # into absence (counter-model re-review, #1260).
   case "$err" in
-    *"No such file or directory"*) echo absent ;;
+    *": No such file or directory") echo absent ;;
     *) echo unknown ;;
   esac
 }
@@ -3182,8 +3185,12 @@ EOF
     # not an error, which is the contract `list` already held for an untouched
     # wave.
     LIST_DIR_STATE="$(path_state "$WAVE_DIR")"
-    if [ "$LIST_DIR_STATE" = "present" ] && [ ! -d "$WAVE_DIR" ]; then
-      LIST_DIR_STATE=unknown   # something that is not a directory holds the path
+    # Present is not enough: a directory that is not a directory, or one this
+    # process cannot enumerate (mode 000), would list as an EMPTY wave -
+    # `find` fails into nothing (counter-model re-review, #1260).
+    if [ "$LIST_DIR_STATE" = "present" ] &&
+       { [ ! -d "$WAVE_DIR" ] || [ ! -r "$WAVE_DIR" ] || [ ! -x "$WAVE_DIR" ]; }; then
+      LIST_DIR_STATE=unknown
     fi
     if [ "$LIST_DIR_STATE" = "unknown" ]; then
       # Could not LOOK - never rendered as absent, and never as an empty wave.

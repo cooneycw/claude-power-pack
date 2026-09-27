@@ -889,8 +889,11 @@ path_state() {
     echo present
     return 0
   fi
+  # The errno text is the SUFFIX stat prints after the quoted path. Matching
+  # it anywhere would let a path that merely CONTAINS the phrase turn EACCES
+  # into absence (counter-model re-review, #1260).
   case "$err" in
-    *"No such file or directory"*) echo absent ;;
+    *": No such file or directory") echo absent ;;
     *) echo unknown ;;
   esac
 }
@@ -2608,7 +2611,9 @@ case "$VERB" in
       echo "  Run 'list --wave $WAVE' for who holds them now; re-register naming the COMPLETE lane if that was not the intent." >&2
     fi
     E_LANE_SCOPED="-"
-    if [ "$ROLE" != "orchestrator" ] && { [ -n "$NEW_FILES" ] || [ -n "$NEW_ISSUE" ]; }; then
+    # No orchestrator carve-out (issue #1260): a lane it DECLARES is checked,
+    # so whether that lane can be compared is as real a fact as a worker's.
+    if [ -n "$NEW_FILES" ] || [ -n "$NEW_ISSUE" ]; then
       E_LANE_SCOPED=yes
       if lane_unscoped "$NEW_REPO" "$NEW_FILES" "$NEW_ISSUE"; then
         E_LANE_SCOPED=no
@@ -2822,7 +2827,7 @@ case "$VERB" in
     GET_FILES="$(printf '%s' "$CUR" | jq -r '.files // ""')"
     GET_ISSUE="$(printf '%s' "$CUR" | jq -r '.issue // ""')"
     GET_SCOPED="-"
-    if [ "$ROLE" != "orchestrator" ] && { [ -n "$GET_FILES" ] || [ -n "$GET_ISSUE" ]; }; then
+    if [ -n "$GET_FILES" ] || [ -n "$GET_ISSUE" ]; then   # no orchestrator carve-out (#1260)
       GET_SCOPED=yes
       lane_unscoped "$GET_REPO" "$GET_FILES" "$GET_ISSUE" && GET_SCOPED=no
     fi

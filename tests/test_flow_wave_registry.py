@@ -2535,18 +2535,35 @@ class TestUnscopedLaneIsReportedUnknown:
         assert "UNKNOWN: overlap NOT computed" not in p.stdout
         assert "overlap checks skipped" in p.stdout
 
-    def test_the_orchestrator_is_not_flagged(self, tmp_path: Path) -> None:
-        """It is exempt from the pairwise checks unconditionally, so it has no
-        scoping to lose - saying its lane is unscoped would be a fact about
-        nothing, and a warning nobody can act on is #674's failure."""
+    def test_a_lane_less_orchestrator_is_not_flagged(self, tmp_path: Path) -> None:
+        """A lane-less orchestrator is exempt from the pairwise checks, so it
+        has no scoping to lose - saying its lane is unscoped would be a fact
+        about nothing, and a warning nobody can act on is #674's failure."""
         p = _run(
             tmp_path, "register", "orchestrator", "--wave", "cpp",
-            "--socket", "uds:/tmp/o.sock", "--files", "docs/plan.md",
+            "--socket", "uds:/tmp/o.sock",
         )
         assert _detail(p, "FLOW_WAVE_LANE_SCOPED") == "-"
         assert "UNSCOPED" not in p.stderr
         lst = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
         assert _detail(lst, "FLOW_WAVE_OVERLAP_UNSCOPED") == "0"
+
+    def test_an_orchestrator_that_declares_a_lane_is_flagged_like_anyone(
+        self, tmp_path: Path
+    ) -> None:
+        """Issue #1260 retired the unconditional exemption this suite used to
+        pin: an orchestrator that DECLARES a lane is overlap-checked, so a
+        lane it declared with no repo is unchecked and must say so - on
+        register, on get, and on the roster alike."""
+        p = _run(
+            tmp_path, "register", "orchestrator", "--wave", "cpp",
+            "--socket", "uds:/tmp/o.sock", "--files", "docs/plan.md",
+        )
+        assert _detail(p, "FLOW_WAVE_LANE_SCOPED") == "no"
+        g = _run(tmp_path, "get", "orchestrator", "--wave", "cpp", live=SELF_PID)
+        assert "FLOW_WAVE_LANE_SCOPED=no" in g.stdout, g.stdout
+        lst = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
+        assert _detail(lst, "FLOW_WAVE_OVERLAP_UNSCOPED") == "1"
 
     def test_the_same_issue_arm_is_covered_too(self, tmp_path: Path) -> None:
         """The issue reported the FILE-LANE arm; the same-issue arm has the same
@@ -4518,3 +4535,21 @@ class TestIssue1260RegistryReadsWhatItReports:
         )
         p = _run(tmp_path, "list", "--wave", "cpp", live=OTHER_PID)
         assert "FLOW_WAVE_OVERLAP_UNSCOPED=1" in p.stdout, p.stdout
+
+    @pytest.mark.skipif(os.geteuid() == 0, reason="root traverses a mode-000 directory")
+    def test_a_registry_path_containing_the_enoent_phrase_is_not_absent(
+        self, tmp_path: Path
+    ) -> None:
+        """Counter-model re-review (#1260): EACCES on a path that CONTAINS
+        'No such file or directory' must not classify as absence."""
+        reg = tmp_path / "No such file or directory"
+        env = {"FLOW_WAVE_REGISTRY_DIR": str(reg)}
+        _run(tmp_path, "register", "worker-A", "--wave", "cpp",
+             "--socket", "uds:/tmp/a.sock", extra_env=env)
+        assert (reg / "registry.json").is_file()  # precondition: it EXISTS
+        reg.chmod(0)
+        try:
+            p = _run(tmp_path, "list", "--wave", "cpp", "--any-live", extra_env=env)
+        finally:
+            reg.chmod(0o700)
+        assert "FLOW_WAVE_ANY_LIVE=undeterminable" in p.stdout, p.stdout

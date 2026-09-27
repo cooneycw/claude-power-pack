@@ -4687,3 +4687,36 @@ class TestIssue1260MessagingNeitherLosesNorFabricatesState:
         assert _verdict(p) == "error", p.stdout
         assert p.returncode == 3
         assert "UNKNOWN" in p.stderr
+
+    @pytest.mark.skipif(os.geteuid() == 0, reason="root reads a mode-000 directory")
+    def test_an_unenumerable_wave_dir_is_unknown_not_empty(self, tmp_path: Path) -> None:
+        """Counter-model re-review (#1260): the wave dir ITSELF at mode 000
+        passes stat, and `find` failed into an empty `listed`."""
+        wave = unique_wave()
+        _run(tmp_path, "send", "--wave", wave, "--to", "worker-A", "--body", "hi")
+        wave_dir = tmp_path / "mb" / wave
+        assert (wave_dir / "outbox-worker-A.md").is_file()  # precondition: NOT empty
+        wave_dir.chmod(0)
+        try:
+            p = _run(tmp_path, "list", "--wave", wave)
+        finally:
+            wave_dir.chmod(0o700)
+        assert _verdict(p) == "error", p.stdout
+
+    @pytest.mark.skipif(os.geteuid() == 0, reason="root traverses a mode-000 directory")
+    def test_a_path_containing_the_enoent_phrase_is_not_read_as_absent(
+        self, tmp_path: Path
+    ) -> None:
+        """Counter-model re-review (#1260): the classifier matched the phrase
+        anywhere in stat's diagnostic, including the quoted path."""
+        wave = unique_wave()
+        root = tmp_path / "No such file or directory"
+        env = {"FLOW_WAVE_MAILBOX_DIR": str(root)}
+        _run(tmp_path, "send", "--wave", wave, "--to", "worker-A", "--body", "hi", env_extra=env)
+        assert (root / wave).is_dir()  # precondition: the wave EXISTS
+        root.chmod(0)
+        try:
+            p = _run(tmp_path, "list", "--wave", wave, env_extra=env)
+        finally:
+            root.chmod(0o700)
+        assert _verdict(p) == "error", p.stdout
