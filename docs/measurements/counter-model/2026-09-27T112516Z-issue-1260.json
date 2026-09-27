@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1260-wave-messaging-loses-or-fabricates-state-mailbox-s",
+  "counts": {
+    "accepted": 5,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "bf0b4a3bf16192d89fe0b35f981849766e0af295",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1260",
+  "passes": 2,
+  "recorded_at": "2026-09-27T11:25:16Z",
+  "red_cases": {
+    "already_covered": 12,
+    "proposed": 16
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
