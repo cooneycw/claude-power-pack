@@ -97,14 +97,15 @@ def held_tree(tmp_path: Path):
         stderr=subprocess.DEVNULL,
         start_new_session=True,  # its own group, so teardown takes the `sleep` too
     )
-    deadline = time.monotonic() + 10
-    while not ready.exists() and time.monotonic() < deadline:
-        if proc.poll() is not None:
-            pytest.fail("the victim process exited before opening its fd")
-        time.sleep(0.02)
-    assert ready.exists(), "the victim process never signalled readiness"
-
+    # The cleanup covers readiness too: the victim now runs until killed, so a
+    # setup failure before the yield would otherwise leak it (counter-model review).
     try:
+        deadline = time.monotonic() + 10
+        while not ready.exists() and time.monotonic() < deadline:
+            if proc.poll() is not None:
+                pytest.fail("the victim process exited before opening its fd")
+            time.sleep(0.02)
+        assert ready.exists(), "the victim process never signalled readiness"
         yield tree, victim, proc
     finally:
         try:

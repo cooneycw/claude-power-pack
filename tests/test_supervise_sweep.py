@@ -21,8 +21,10 @@ from pathlib import Path
 
 import pytest
 
+import tests.supervise_reap as reap
 from tests.supervise_reap import (
     OWNER_ENV,
+    SweepUnavailable,
     _environ_value,
     orphaned_supervise_daemons,
     owner_gone,
@@ -41,6 +43,11 @@ requires_proc = pytest.mark.skipif(
 #: Every sweep here is scoped with `only=` to the test's own fixture: the tests
 #: run concurrently, and an unscoped sweep reaps a neighbouring test's orphan.
 #:
+#: And the fixtures carry a PRIVATE marker name, never OWNER_ENV: a pytest
+#: session starting anywhere on the host sweeps OWNER_ENV at startup, and would
+#: otherwise reap this file's dead-owner fixture mid-test (counter-model review).
+TEST_OWNER_ENV = f"CPP_SWEEPTEST_OWNER_{os.getpid()}"
+#:
 #: This process, but with a start time it never had: the #1228 "reused pid"
 #: shape, which must read as GONE. Deterministic, unlike waiting for a real pid
 #: to die and hoping nothing reuses it before the sweep looks.
@@ -58,7 +65,7 @@ def _fake_daemon(tmp_path: Path, verb: str, marker: str | None) -> subprocess.Po
     script.write_text("sleep 300\n", encoding="utf-8")
     env = {k: v for k, v in os.environ.items() if k != OWNER_ENV}
     if marker is not None:
-        env[OWNER_ENV] = marker
+        env[TEST_OWNER_ENV] = marker
     proc = subprocess.Popen(
         ["bash", str(script), verb, "--role", "1", "--wave", "testwave-sweep"],
         env=env, cwd=str(tmp_path), start_new_session=True,
@@ -74,6 +81,16 @@ def _fake_daemon(tmp_path: Path, verb: str, marker: str | None) -> subprocess.Po
             pass
         time.sleep(0.02)
     return proc
+
+
+def _candidates() -> list[int]:
+    return [pid for pid, _start in orphaned_supervise_daemons(owner_env=TEST_OWNER_ENV)]
+
+
+def _sweep(pid: int):
+    return sweep_orphaned_supervise_daemons(
+        term_grace=2, kill_grace=2, only={pid}, owner_env=TEST_OWNER_ENV
+    )
 
 
 def _cleanup(*procs: subprocess.Popen) -> None:
@@ -93,8 +110,8 @@ def test_the_sweep_reaps_a_daemon_whose_run_is_gone(tmp_path: Path) -> None:
     """The positive control: the shape of the 21.8-hour escapee."""
     orphan = _fake_daemon(tmp_path, "__supervise_daemon", DEAD_OWNER)
     try:
-        assert orphan.pid in orphaned_supervise_daemons()
-        result = sweep_orphaned_supervise_daemons(term_grace=2, kill_grace=2, only={orphan.pid})
+        assert orphan.pid in _candidates()
+        result = _sweep(orphan.pid)
         assert orphan.pid in result.reaped, result
         assert orphan.pid not in result.survivors
         orphan.wait(timeout=10)
@@ -119,12 +136,59 @@ def test_the_sweep_spares_everything_else(
     """Each of the three conditions, removed alone, must be enough to spare it."""
     spared = _fake_daemon(tmp_path, verb, owner_marker() if marker == "LIVE" else marker)
     try:
-        assert spared.pid not in orphaned_supervise_daemons(), why
-        result = sweep_orphaned_supervise_daemons(term_grace=2, kill_grace=2, only={spared.pid})
+        assert spared.pid not in _candidates(), why
+        result = _sweep(spared.pid)
         assert spared.pid not in result.reaped, why
         assert spared.poll() is None, f"the sweep killed a process it must spare: {why}"
     finally:
         _cleanup(spared)
+
+
+@requires_proc
+def test_an_owner_that_cannot_be_read_is_spared(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unreadable is not dead (counter-model review, #1271).
+
+    DEAD_OWNER names this live process with a wrong start time, so it reads
+    GONE whenever its stat is readable. Make the stat unreadable while the
+    `/proc` entry stays: the old `pid_alive`-based test read that as dead.
+    """
+    assert owner_gone(DEAD_OWNER), "precondition: readable, this owner is gone"
+    monkeypatch.setattr(reap, "_proc_fields", lambda pid: None)
+    assert not owner_gone(DEAD_OWNER)
+
+
+@requires_proc
+def test_a_pid_recycled_after_discovery_is_not_signalled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Identity is re-read before the kill, not trusted from discovery.
+
+    Discovery is made to report the fixture with a start time it does not have -
+    exactly what a pid recycled into a new process looks like by its turn.
+    """
+    orphan = _fake_daemon(tmp_path, "__supervise_daemon", DEAD_OWNER)
+    try:
+        assert orphan.pid in _candidates(), "precondition: it really is an orphan"
+        monkeypatch.setattr(
+            reap, "orphaned_supervise_daemons",
+            lambda **_kw: [(orphan.pid, "not-its-start-time")],
+        )
+        result = _sweep(orphan.pid)
+        assert orphan.pid not in result.reaped
+        assert orphan.poll() is None, "a process that no longer matches was signalled"
+    finally:
+        _cleanup(orphan)
+
+
+def test_an_unreadable_process_table_is_not_an_empty_sweep(tmp_path: Path) -> None:
+    """Could-not-look must not render as looked-and-found-nothing."""
+    with pytest.raises(SweepUnavailable):
+        orphaned_supervise_daemons(proc_root=tmp_path / "no-proc-here")
+    empty = tmp_path / "empty-proc"
+    empty.mkdir()
+    assert orphaned_supervise_daemons(proc_root=empty) == [], "an empty table is an ordinary zero"
 
 
 def test_owner_gone_reads_a_reused_pid_as_gone_and_never_errs_toward_killing() -> None:
