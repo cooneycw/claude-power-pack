@@ -177,3 +177,60 @@ def test_unknown_missing_path(tmp_path: Path):
     res = _run(str(tmp_path / "does-not-exist"))
     assert "FLOW_LIVE_DRIVER: unknown" in res.stdout
     assert res.returncode == 0
+
+
+# --- the verdict names what it is about (issue #1271) ------------------------
+
+
+def _path_line(out: str) -> str:
+    lines = [ln for ln in out.splitlines() if ln.startswith("FLOW_LIVE_DRIVER_PATH: ")]
+    assert len(lines) == 1, out
+    return lines[0].split(": ", 1)[1]
+
+
+@requires_git
+def test_an_explicit_path_is_named_and_no_note_is_printed(tmp_path: Path) -> None:
+    repo = _make_repo(tmp_path)
+    result = _run(str(repo))
+    assert _path_line(result.stdout) == str(repo.resolve())
+    lines = result.stdout.splitlines()
+    assert lines[-1] == "FLOW_LIVE_DRIVER: clear", "the verdict stays the last stdout line"
+    assert lines[-2].startswith("FLOW_LIVE_DRIVER_PATH: "), "the path immediately precedes it"
+    assert "no WORKTREE_PATH given" not in result.stderr
+
+
+@requires_git
+def test_a_defaulted_path_is_said_and_names_the_ambient_repo(tmp_path: Path) -> None:
+    """The #1271 shape: a bare call answers about wherever the cwd happens to be.
+
+    The default is kept (it is a published interface), so this pins that the
+    substitution is VISIBLE: a note on stderr, and a path line naming the repo
+    the verdict is actually about - here, one that is not the caller's worktree.
+    """
+    elsewhere = _make_repo(tmp_path)
+    env = os.environ.copy()
+    env["FLOW_LIVE_DRIVER_NOW"] = str(NOW)
+    result = subprocess.run(
+        ["bash", str(SCRIPT)], cwd=elsewhere, env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    assert "no WORKTREE_PATH given" in result.stderr
+    assert _path_line(result.stdout) == str(elsewhere.resolve())
+
+
+def test_an_unknown_verdict_still_names_its_path(tmp_path: Path) -> None:
+    """Fail-open lanes too: `unknown` about WHAT must be answerable."""
+    missing = tmp_path / "not-here"
+    result = _run(str(missing))
+    assert "FLOW_LIVE_DRIVER: unknown" in result.stdout
+    assert _path_line(result.stdout) == str(missing)
+
+
+def test_flow_auto_passes_the_worktree_path_to_the_step_4_guard() -> None:
+    """The documented call site must not rely on the ambient cwd (issue #1271)."""
+    auto = (ROOT / ".claude" / "commands" / "flow" / "auto.md").read_text(encoding="utf-8")
+    calls = [ln.strip() for ln in auto.splitlines()
+             if ln.strip().startswith("~/.claude/scripts/flow-live-driver-guard.sh")]
+    assert calls, "flow/auto.md no longer invokes the live-driver guard"
+    for call in calls:
+        assert len(call.split()) >= 2, f"bare call relies on the ambient cwd: {call}"

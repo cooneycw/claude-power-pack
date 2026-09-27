@@ -14,7 +14,13 @@ from pathlib import Path
 import pytest
 
 import tests as _tests_package
-from tests.supervise_reap import drain_unreaped, reap_supervise_daemons
+from tests.supervise_reap import (
+    OWNER_ENV,
+    drain_unreaped,
+    owner_marker,
+    reap_supervise_daemons,
+    sweep_orphaned_supervise_daemons,
+)
 
 #: The checkout, anchored on the IMPORTED `tests` package rather than on this
 #: file's own location. `Path(__file__).parents[1]` is wrong in the one case that
@@ -38,6 +44,39 @@ _PYCACHE_PREFIX = tempfile.mkdtemp(prefix="cpp-pytest-pycache-")
 sys.pycache_prefix = _PYCACHE_PREFIX
 os.environ["PYTHONPYCACHEPREFIX"] = _PYCACHE_PREFIX
 atexit.register(shutil.rmtree, _PYCACHE_PREFIX, True)
+
+
+#: WHICH RUN STARTED THIS DAEMON (issue #1271). Every process that imports this
+#: conftest - the controller and each xdist worker - names itself here, and every
+#: subprocess the suite starts inherits it, detached `supervise` daemons
+#: included. A later run's session-start sweep reaps a daemon only when the
+#: process instance it names is gone. PLAIN ASSIGNMENT, for the same reason as
+#: the host-install guard below: a `pytester` sub-run must name itself, not its
+#: parent. A test that builds its subprocess env from scratch drops the marker,
+#: and its daemons are then never swept - the safe direction.
+os.environ[OWNER_ENV] = owner_marker()
+
+#: What the session-start sweep did, for the terminal summary. Empty lists are
+#: the ordinary case; a run that could not sweep says so rather than nothing.
+_SWEEP_REPORT: dict[str, list[int] | str] = {}
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    """Reap supervise daemons orphaned by an EARLIER, dead run (issue #1271).
+
+    Controller only: xdist workers would each repeat the same scan. The per-test
+    autouse reaper below cannot do this - it only knows the pidfiles under its
+    own `tmp_path`, and an interrupted run never reaches its teardown at all.
+    """
+    if hasattr(session.config, "workerinput"):
+        return
+    try:
+        result = sweep_orphaned_supervise_daemons()
+    except Exception as exc:  # noqa: BLE001 - reported, never silent
+        _SWEEP_REPORT["error"] = f"{type(exc).__name__}: {exc}"
+        return
+    _SWEEP_REPORT["reaped"] = result.reaped
+    _SWEEP_REPORT["survivors"] = result.survivors
 
 
 @pytest.fixture(autouse=True)
@@ -396,6 +435,29 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config) -> None:  # no
             "host-install guard: NOT ARMED - the suite could write to the host's "
             f"~/.codex/skills and nothing would stop it ({why}). This run proved "
             "nothing about that (issue #1232).",
+            red=True,
+        )
+
+    # The cross-run sweep (#1271), also before any early return. Silent when it
+    # found nothing: that is every ordinary run, and the sweep's own tests are
+    # what prove it can find something.
+    if "error" in _SWEEP_REPORT:
+        terminalreporter.write_line(
+            f"supervise sweep: DID NOT RUN ({_SWEEP_REPORT['error']}) - daemons orphaned "
+            "by earlier interrupted runs were not looked for (issue #1271).",
+            yellow=True,
+        )
+    if _SWEEP_REPORT.get("reaped"):
+        terminalreporter.write_line(
+            f"supervise sweep: reaped {len(_SWEEP_REPORT['reaped'])} supervise daemon(s) "
+            f"left by an earlier pytest run that died mid-test: {_SWEEP_REPORT['reaped']} "
+            "(issue #1271).",
+            yellow=True,
+        )
+    if _SWEEP_REPORT.get("survivors"):
+        terminalreporter.write_line(
+            f"supervise sweep: could NOT kill orphaned daemon(s) {_SWEEP_REPORT['survivors']} "
+            "- they are still running (issue #1271).",
             red=True,
         )
 

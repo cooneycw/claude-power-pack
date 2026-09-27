@@ -180,8 +180,18 @@ if ! git_ rev-parse --verify --quiet "${BASE_REF}^{commit}" >/dev/null 2>&1; the
 fi
 
 # --- Is the base ahead of us at all? ---------------------------------------
-behind=$(git_ rev-list --count "HEAD..${BASE_REF}" 2>/dev/null || echo 0)
-if [[ "${behind:-0}" -eq 0 ]]; then
+# A FAILED COUNT IS NOT ZERO (issue #1271). This used to be `|| echo 0`, so a
+# rev-list that failed for any reason reported `current` - the one verdict that
+# tells the caller to proceed. The base-ref existence check above made that
+# unreachable for the common cause, but only by coincidence: nothing tied the
+# two together, and any other rev-list failure fell straight through to it.
+if ! behind=$(git_ rev-list --count "HEAD..${BASE_REF}" 2>/dev/null) \
+        || ! [[ "$behind" =~ ^[0-9]+$ ]]; then
+    echo "flow-stale-check: could not count commits in HEAD..${BASE_REF} - skipping (advisory)." >&2
+    verdict unknown
+    exit 0
+fi
+if [[ "$behind" -eq 0 ]]; then
     echo "flow-stale-check: base '$BASE_REF' is current (HEAD is not behind)."
     verdict current
     exit 0

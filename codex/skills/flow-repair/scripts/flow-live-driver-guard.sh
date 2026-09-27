@@ -25,12 +25,14 @@
 # Usage:
 #   flow-live-driver-guard.sh [WORKTREE_PATH] [--threshold-minutes N] [--exit-code]
 #
-#   WORKTREE_PATH        Worktree to inspect (default: current directory).
+#   WORKTREE_PATH        Worktree to inspect (default: current directory, with a
+#                        stderr NOTE - pass it; the Bash cwd drifts, #1271).
 #   --threshold-minutes N  Freshness window in minutes (default: 30). Alias: --minutes.
 #   --exit-code          Return non-zero (1) when a live driver is SUSPECTED;
 #                        still 0 for "clear" and "unknown". Default is always-0.
 #
-# Output ends with a machine-readable verdict line:
+# Output ends with two machine-readable lines, path first (#1271):
+#   FLOW_LIVE_DRIVER_PATH: <the worktree root the verdict is about>
 #   FLOW_LIVE_DRIVER: clear | suspected | unknown
 #
 # Env (test hooks - unset in normal use):
@@ -78,8 +80,23 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
-TARGET="${TARGET:-.}"
-verdict() { echo "FLOW_LIVE_DRIVER: $1"; }
+# The ambient cwd is still the default - the argument is a published interface -
+# but a defaulted target is SAID, and every verdict is preceded by the path it is
+# about (issue #1271, the #614 shape from flow-stale-check.sh). An agent's Bash cwd
+# persists across calls and moves on any earlier `cd`; the observed failure was a
+# `clear` about claude-power-pack, handed to a session in a codex-power-pack
+# worktree, with nothing but prose to show the substitution.
+if [ -z "$TARGET" ]; then
+  TARGET="."
+  echo "flow-live-driver-guard: NOTE: no WORKTREE_PATH given - inspecting the current directory ($(pwd -P)); pass the worktree path to make the verdict about it." >&2
+fi
+ROOT=""
+verdict() {
+  local shown="$ROOT"
+  [ -n "$shown" ] || shown="$(cd "$TARGET" 2>/dev/null && pwd -P || printf '%s' "$TARGET")"
+  echo "FLOW_LIVE_DRIVER_PATH: $shown"
+  echo "FLOW_LIVE_DRIVER: $1"
+}
 
 # --- Fail-open guards -------------------------------------------------------
 if [ ! -d "$TARGET" ]; then

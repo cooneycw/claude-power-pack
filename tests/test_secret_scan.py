@@ -13,6 +13,7 @@ the carve-out is real AND it is narrowly scoped rather than blinding the gate.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -41,6 +42,41 @@ def _scan(source: Path, config: Path) -> subprocess.CompletedProcess:
          "--no-git", "--verbose"],
         capture_output=True, text=True, timeout=300, cwd=ROOT,
     )
+
+
+def _tracked_tree(dest: Path) -> Path:
+    """A copy of the files git TRACKS, as they are on disk now.
+
+    The repo-wide assertions are claims about the repository, but `--no-git`
+    over ROOT scans every file on disk - a gitignored `.env`, a scratch key, a
+    local tool's cache - so a developer's private files could turn them red
+    (issue #1271), and a planted-but-ignored secret could turn the carve-out
+    test green for a reason that is not the fixture. Working-tree bytes rather
+    than the index, so an edit about to be committed is still scanned. Symlinks
+    are recreated as links, not followed; a tracked path deleted on disk is
+    skipped, exactly as a clean clone of this tree would lack it.
+    """
+    listed = subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files", "-z"],
+        capture_output=True, check=True, timeout=60,
+    ).stdout.decode().split("\0")
+    copied = 0
+    for rel in filter(None, listed):
+        src = ROOT / rel
+        dst = dest / rel
+        if src.is_symlink():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            os.symlink(os.readlink(src), dst)
+        elif src.is_file():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            copied += 1
+    # A copy of nothing scans clean; that must not read as a clean repository.
+    assert copied > 100, f"only {copied} tracked file(s) copied - git ls-files failed?"
+    assert (dest / CARVE_OUT / "bad-private-key" / "leaked.txt").is_file(), (
+        "the fixture is not in the tracked copy, so the carve-out tests would prove nothing"
+    )
+    return dest
 
 
 def _findings(result: subprocess.CompletedProcess) -> int:
@@ -90,14 +126,16 @@ def test_the_fixture_filename_is_not_gitignored() -> None:
 # The carve-out is real, narrowly scoped, and load-bearing
 # --------------------------------------------------------------------------- #
 @requires_gitleaks
-def test_the_repo_wide_scan_is_clean_with_the_fixture_committed() -> None:
-    """Guard 3: the carve-out does its job."""
-    result = _scan(ROOT, CONFIG)
+@pytest.mark.skipif(shutil.which("git") is None, reason="shells out to git")
+def test_the_repo_wide_scan_is_clean_with_the_fixture_committed(tmp_path: Path) -> None:
+    """Guard 3: the carve-out does its job - over the TRACKED tree, not the disk."""
+    result = _scan(_tracked_tree(tmp_path / "repo"), CONFIG)
     assert _findings(result) == 0, result.stdout[:2000]
     assert result.returncode == 0
 
 
 @requires_gitleaks
+@pytest.mark.skipif(shutil.which("git") is None, reason="shells out to git")
 def test_removing_the_carve_out_turns_the_repo_scan_red(tmp_path: Path) -> None:
     """Guard 1, and it is what makes the entry a guard rather than a comment.
 
@@ -110,7 +148,7 @@ def test_removing_the_carve_out_turns_the_repo_scan_red(tmp_path: Path) -> None:
     cfg = tmp_path / "no-carve-out.toml"
     cfg.write_text(stripped)
 
-    result = _scan(ROOT, cfg)
+    result = _scan(_tracked_tree(tmp_path / "repo"), cfg)
     assert _findings(result) >= 1, (
         f"removing the carve-out must expose the fixture: {result.stdout[:2000]}"
     )

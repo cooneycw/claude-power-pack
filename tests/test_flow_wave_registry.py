@@ -2842,6 +2842,12 @@ def _live_mailbox_watcher(tmp: Path, role: str, wave: str, timeout: int = 30):
     return proc
 
 
+#: This process named as the Claude Code session, through the script's
+#: authoritative test seam. A watcher started by `_live_mailbox_watcher` is this
+#: process's child, so under this pin it is session-owned whatever launched pytest.
+_OWN_SESSION = {"FLOW_WAVE_SESSION_PIDS": str(os.getpid())}
+
+
 def _row(proc: subprocess.CompletedProcess[str], role: str) -> str:
     """The roster line for one role, or '' when it is absent."""
     for line in proc.stdout.splitlines():
@@ -2885,7 +2891,12 @@ class TestWatchColumn:
         # case, not the armed one this test exists to prove.
         watcher = _live_mailbox_watcher(tmp_path, "worker-H", "cpp")
         try:
-            p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
+            # LINEAGE IS DECLARED, not inherited (issue #1271, the registry half
+            # of #1253). The watcher is this process's child, so naming this
+            # process as the session makes it session-owned on every host.
+            # Unpinned, the verdict was the host's: `armed` under a Claude Code
+            # session, `NO-WAKE` from a plain terminal with session sockets.
+            p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID, extra_env=_OWN_SESSION)
             assert "watch=armed" in _row(p, "worker-H")
             assert _detail(p, "FLOW_WAVE_WATCH_UNARMED") == "0"
             assert "WATCH: live role(s)" not in p.stdout
@@ -2967,7 +2978,10 @@ class TestWatchColumn:
             # A reader clock 42m ahead of the live watcher's real stamp ages it
             # past the threshold without stopping the process.
             future = str(int(time.time()) + 2520)
-            p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID, now=future)
+            p = _run(
+                tmp_path, "list", "--wave", "cpp", live=SELF_PID, now=future,
+                extra_env=_OWN_SESSION,  # declared lineage - see the armed test
+            )
             assert "watch=stale(42m)" in _row(p, "worker-H")
             assert _detail(p, "FLOW_WAVE_WATCH_UNARMED") == "1"
             assert "worker-H(stale 42m)" in p.stdout

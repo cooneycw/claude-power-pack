@@ -389,3 +389,142 @@ def reap_supervise_daemons(
         if not kill_supervise_daemon(pid, term_grace, kill_grace):
             survivors.append(pid)
     return ReapResult(leaked=leaked, survivors=survivors)
+
+
+# --------------------------------------------------------------------------- #
+# The cross-run sweep (issue #1271)
+# --------------------------------------------------------------------------- #
+# Everything above runs INSIDE the run that started the daemon: the per-test
+# kill, the autouse reaper and `_UNREAPED` all belong to one pytest process and
+# die with it. A run that is killed or interrupted mid-test - a timeout, the
+# memory reaper, Ctrl-C at the wrong moment - never reaches any of them, and
+# because `supervise` re-arms by construction (#814) the daemon it left behind
+# then runs until something else stops it. Measured before this existed: one
+# escapee 21.8 hours old, forking a `watch` about once a second, found only by
+# listing processes for an unrelated reason.
+#
+# The #1260 `wave-gone` exit bounds most of these - the daemon stops once
+# pytest deletes the old basetemp holding its wave - but not all: tests run
+# COPIES of older script logic (the escapee above ran `old-logic/`), and a copy
+# has whatever exits its snapshot had.
+#
+# THE OWNER MARKER IS WHAT MAKES THIS SAFE. Detached daemons are reparented at
+# once even while their run is alive, so ancestry cannot say which run a daemon
+# belongs to, and several suites (other worktrees, other sessions) run on this
+# host concurrently. `tests/conftest.py` exports OWNER_ENV = "<pid>:<start>"
+# naming the process that imported it; every subprocess inherits it through the
+# environment, `setsid` included. A daemon is swept only when the process
+# instance it names is GONE - a reused pid has a different start time, so it
+# reads gone, never alive-by-accident. A daemon without the marker is somebody
+# else's and is never touched, however test-shaped it looks.
+
+#: Exported by tests/conftest.py; inherited by every daemon the suite starts.
+OWNER_ENV = "CPP_PYTEST_OWNER"
+
+
+def proc_starttime(pid: int) -> str | None:
+    """Field 22 of ``/proc/<pid>/stat`` (start time in clock ticks), or None."""
+    try:
+        raw = Path(f"/proc/{pid}/stat").read_text()
+        return raw[raw.rindex(")") + 2 :].split()[19]
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def owner_marker(pid: int | None = None) -> str:
+    """The OWNER_ENV value naming process `pid` (default: this one)."""
+    pid = os.getpid() if pid is None else pid
+    return f"{pid}:{proc_starttime(pid) or '-'}"
+
+
+def owner_gone(marker: str) -> bool:
+    """True when the process instance `marker` names is no longer running.
+
+    Mirrors `owner_gone` in scripts/flow-wave-mailbox.sh (#1228): pid plus start
+    time identifies ONE instance, a zombie has exited, and an unreadable start
+    time is judged on the pid alone - which can only err toward sparing.
+    """
+    pid_text, _, start = marker.partition(":")
+    try:
+        pid = int(pid_text)
+    except ValueError:
+        return False  # unparseable is not evidence of death
+    if pid <= 1:
+        return False
+    if not pid_alive(pid):
+        return True
+    now = proc_starttime(pid)
+    return start not in ("", "-") and now is not None and now != start
+
+
+def _is_daemon_argv(argv: list[str]) -> bool:
+    """The same positional shape `is_supervise_daemon` requires."""
+    return (
+        len(argv) >= 3
+        and argv[1].endswith("/flow-wave-mailbox.sh")
+        and argv[2] == "__supervise_daemon"
+    )
+
+
+class SweepResult(NamedTuple):
+    """What the sweep reaped, and what survived it - both reported, never dropped."""
+
+    reaped: list[int]
+    survivors: list[int]
+
+
+def orphaned_supervise_daemons(proc_root: Path = Path("/proc")) -> list[int]:
+    """Pids of supervise daemons whose owning pytest process is gone.
+
+    All three must hold: the daemon argv shape, the OWNER_ENV marker in the
+    process's OWN environment, and that owner being gone. Only this uid's
+    processes are readable here at all, so another user's daemon is never a
+    candidate.
+    """
+    found: list[int] = []
+    me = os.getpid()
+    try:
+        entries = list(proc_root.iterdir())
+    except OSError:
+        return found
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        pid = int(entry.name)
+        if pid <= 1 or pid == me:
+            continue
+        if not _is_daemon_argv(_argv(pid)):
+            continue
+        marker = _environ_value(pid, OWNER_ENV)
+        if not marker:
+            continue
+        if owner_gone(marker) and pid_alive(pid):
+            found.append(pid)
+    return sorted(found)
+
+
+def sweep_orphaned_supervise_daemons(
+    term_grace: float = TERM_GRACE,
+    kill_grace: float = KILL_GRACE,
+    only: set[int] | None = None,
+) -> SweepResult:
+    """Kill every daemon a DEAD pytest run left behind; report what happened.
+
+    `only` restricts the kill to those pids. It exists for the sweep's own
+    tests, which run concurrently: an unrestricted sweep in one xdist worker
+    reaps another worker's fixture, and each test then reads a result that
+    depends on scheduling rather than on the predicate.
+    """
+    reaped: list[int] = []
+    survivors: list[int] = []
+    for pid in orphaned_supervise_daemons():
+        if only is not None and pid not in only:
+            continue
+        # Straight to the subtree kill, NOT `kill_supervise_daemon`: that one
+        # records failures in `_UNREAPED`, which the autouse fixture drains and
+        # would then blame on whichever test happened to run first.
+        if _kill_subtree(pid, term_grace, kill_grace):
+            reaped.append(pid)
+        else:
+            survivors.append(pid)
+    return SweepResult(reaped=reaped, survivors=survivors)

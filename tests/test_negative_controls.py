@@ -117,16 +117,66 @@ def control_block(out: str, gate: str) -> str:
     named the wrong subject. Scoping the assertion to the control under test is
     what stops any future UNSIGNALLED control breaking tests that do not care
     about it.
+
+    A GATE IS NOT AN IDENTITY (issue #1271). Since #1117 a gate may register
+    several controls, and this used to return the FIRST block naming the gate -
+    so a caller asking about one registration was silently handed its
+    neighbour's verdict. It now refuses to choose: an ambiguous gate raises and
+    names the controls, and the caller keys on `NEGATIVE_CONTROL_CONTROL:`
+    instead, as `test_the_real_unavailability_control_...` does.
     """
-    block, collecting = [], False
+    blocks: list[list[str]] = []
+    collecting = False
     for line in out.splitlines():
         if line.startswith("NEGATIVE_CONTROL_GATE: "):
             collecting = line.split(": ", 1)[1] == gate
+            if collecting:
+                blocks.append([])
         if collecting:
-            block.append(line)
+            blocks[-1].append(line)
             if line.startswith("NEGATIVE_CONTROL_VERDICT: "):
-                break
-    return "\n".join(block)
+                collecting = False
+    if len(blocks) > 1:
+        controls = [
+            line.split(": ", 1)[1]
+            for block in blocks
+            for line in block
+            if line.startswith("NEGATIVE_CONTROL_CONTROL: ")
+        ]
+        raise AssertionError(
+            f"gate {gate!r} has {len(blocks)} registrations ({controls}); "
+            "scope by NEGATIVE_CONTROL_CONTROL, not by gate"
+        )
+    return "\n".join(blocks[0]) if blocks else ""
+
+
+def test_control_block_refuses_a_gate_with_two_registrations() -> None:
+    """The #1271 red case: two blocks, one gate. First-match returned `PASS`."""
+    out = "\n".join([
+        "NEGATIVE_CONTROL_GATE: scripts/g.py",
+        "NEGATIVE_CONTROL_CONTROL: controls/g",
+        "NEGATIVE_CONTROL_VERDICT: PASS",
+        "NEGATIVE_CONTROL_GATE: scripts/g.py",
+        "NEGATIVE_CONTROL_CONTROL: controls/g-unavailable",
+        "NEGATIVE_CONTROL_VERDICT: UNSIGNALLED",
+    ])
+    with pytest.raises(AssertionError, match="controls/g-unavailable"):
+        control_block(out, "scripts/g.py")
+
+
+def test_control_block_still_returns_a_unique_gate_whole() -> None:
+    """The other side: one registration comes back complete, neighbours excluded."""
+    out = "\n".join([
+        "NEGATIVE_CONTROL_GATE: scripts/other.py",
+        "NEGATIVE_CONTROL_VERDICT: UNSIGNALLED",
+        "NEGATIVE_CONTROL_GATE: scripts/g.py",
+        "NEGATIVE_CONTROL_CONTROL: controls/g",
+        "NEGATIVE_CONTROL_VERDICT: PASS",
+    ])
+    block = control_block(out, "scripts/g.py")
+    assert block.splitlines()[0] == "NEGATIVE_CONTROL_GATE: scripts/g.py"
+    assert verdict_of(block) == "PASS"
+    assert control_block(out, "scripts/absent.py") == ""
 
 
 def verdict_of(out: str) -> str:

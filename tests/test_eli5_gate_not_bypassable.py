@@ -40,11 +40,23 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 COMMANDS = ROOT / ".claude" / "commands"
-FLOW = COMMANDS / "flow"
 
-#: The surfaces that describe the ELI5 gate itself. A bypass reintroduced in any
-#: of them is a reachable bypass.
-GATE_SURFACES = ("eli5.md", "auto.md", "help.md")
+#: The surfaces that describe the ELI5 gate itself, relative to COMMANDS. A bypass
+#: reintroduced in any of them is a reachable bypass.
+#:
+#: The delegated drivers are here because each runs the gate itself (issue
+#: #1271): this list named three FLOW files, so `/codex:auto`, `/qwen:auto` and
+#: `/gemma:auto` could have regrown `--yes` with this file still green under a
+#: name claiming the gate has no bypass. `test_every_auto_driver_is_a_gate_surface`
+#: derives the driver population so the next one cannot be missed the same way.
+GATE_SURFACES = (
+    "flow/eli5.md",
+    "flow/auto.md",
+    "flow/help.md",
+    "codex/auto.md",
+    "qwen/auto.md",
+    "gemma/auto.md",
+)
 
 #: Every removed channel, as it would appear if someone reinstated it.
 BYPASS_TOKENS = ("--yes", "--auto-approve", "eli5: auto-approve")
@@ -83,7 +95,7 @@ END_MARKER = "<!-- eli5-core:end"
 
 
 def _read(name: str) -> str:
-    return (FLOW / name).read_text(encoding="utf-8")
+    return (COMMANDS / name).read_text(encoding="utf-8")
 
 
 def _blocks(text: str) -> list[str]:
@@ -133,6 +145,22 @@ def _core(text: str) -> str:
 # --- the removed channels ----------------------------------------------------
 
 
+def test_every_auto_driver_is_a_gate_surface() -> None:
+    """The population is DERIVED, the list is only its membership (issue #1271).
+
+    Every `<family>/auto.md` is an issue-lifecycle driver, and every one of them
+    reaches the ELI5 gate - so every one is a surface a bypass could come back
+    through. A driver added next month joins this test by existing.
+    """
+    drivers = {str(p.relative_to(COMMANDS)) for p in COMMANDS.glob("*/auto.md")}
+    assert "flow/auto.md" in drivers, "the driver glob found nothing - it is looking in the wrong place"
+    missing = sorted(drivers - set(GATE_SURFACES))
+    assert not missing, (
+        f"auto driver(s) not checked for an ELI5 bypass: {missing} - add them to GATE_SURFACES"
+    )
+
+
+
 @pytest.mark.parametrize("surface", GATE_SURFACES)
 @pytest.mark.parametrize("token", BYPASS_TOKENS)
 def test_no_gate_surface_grants_a_bypass(surface: str, token: str) -> None:
@@ -140,11 +168,11 @@ def test_no_gate_surface_grants_a_bypass(surface: str, token: str) -> None:
     for block in _blocks_naming(_read(surface), token):
         grant = GRANT.search(block)
         assert not grant, (
-            f"flow/{surface}: '{token}' is described as working ({grant.group(0)!r}) - that is a "
+            f"{surface}: '{token}' is described as working ({grant.group(0)!r}) - that is a "
             f"live bypass of the ELI5 gate (issue #775):\n\n{block}"
         )
         assert REFUSAL.search(block), (
-            f"flow/{surface}: '{token}' appears in a block that does not refuse it, so it "
+            f"{surface}: '{token}' appears in a block that does not refuse it, so it "
             f"reads as a live bypass of the ELI5 gate (issue #775):\n\n{block}"
         )
 
@@ -165,7 +193,7 @@ def test_the_trailer_channel_is_never_read() -> None:
             match = scan_instruction.search(block)
             if match and (GRANT.search(block) or not REFUSAL.search(block)):
                 pytest.fail(
-                    f"flow/{surface}: instructs reading approval out of an issue body or commit "
+                    f"{surface}: instructs reading approval out of an issue body or commit "
                     f"message ({match.group(0)!r}) - the #775 channel, which is written by the "
                     f"filer or the last merger rather than the invoker:\n\n{block}"
                 )
@@ -179,13 +207,13 @@ def test_auto_granted_left_the_report_vocabulary() -> None:
             if not re.search(r"auto-granted|AUTO-GRANTED", block):
                 continue
             assert REFUSAL.search(block), (
-                f"flow/{surface}: 'auto-granted' is offered as an approval outcome again; if the "
+                f"{surface}: 'auto-granted' is offered as an approval outcome again; if the "
                 f"field can be produced, something can still skip the gate (issue #775):\n\n{block}"
             )
 
     step3_report = [
         line
-        for line in _read("auto.md").splitlines()
+        for line in _read("flow/auto.md").splitlines()
         if line.startswith("Report: `Step 3/9: ELI5 complete")
     ]
     assert len(step3_report) == 1, "flow/auto.md: expected exactly one Step 3/9 report line"
@@ -206,7 +234,7 @@ def test_the_rule_lives_in_the_vendored_core() -> None:
     that still grants the bypass - the failure #775 warned about. A re-vendor
     from an upstream that reinstated a bypass turns this red.
     """
-    core = _core(_read("eli5.md"))
+    core = _core(_read("flow/eli5.md"))
     assert "The gate has no bypass" in core, (
         ".claude/commands/flow/eli5.md: the no-bypass rule is not inside the eli5-core markers - "
         "it would be a CPP-local override that the next `make eli5-revendor` silently discards "
@@ -221,7 +249,7 @@ def test_the_rule_lives_in_the_vendored_core() -> None:
 
 
 def test_flow_auto_still_pauses_unconditionally() -> None:
-    text = _read("auto.md")
+    text = _read("flow/auto.md")
     assert "pause and wait for reviewer approval" in text
     assert "The gate has no bypass" in text, (
         "flow/auto.md: Step 3 no longer states that the gate cannot be skipped (issue #775)"

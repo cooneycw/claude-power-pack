@@ -425,3 +425,31 @@ class TestDeclaredCheckoutPath:
         assert base_line == "FLOW_STALE_BASE: collision", result.stdout
         assert path_line == f"FLOW_STALE_PATH: {repo.resolve()}"
         assert adjacent
+
+
+@requires_git
+def test_a_failed_rev_list_reads_unknown_never_current(tmp_path: Path):
+    """Issue #1271: the count's own failure must not render as `current`.
+
+    `main` has really moved, so the true answer is not `current`; a git whose
+    `rev-list` fails (everything else passes through) is the one input that used
+    to produce it, via `|| echo 0`.
+    """
+    repo = _make_repo(tmp_path)
+    _advance_main(repo, "shared.txt", "s-upstream\n")
+    real_git = shutil.which("git")
+    wrapper = tmp_path / "git-no-rev-list"
+    wrapper.write_text(
+        "#!/usr/bin/env bash\n"
+        'for a in "$@"; do [ "$a" = rev-list ] && { echo "fatal: simulated" >&2; exit 128; }; done\n'
+        f'exec "{real_git}" "$@"\n'
+    )
+    wrapper.chmod(0o755)
+    env = os.environ.copy()
+    env["FLOW_STALE_GIT"] = str(wrapper)
+    result = subprocess.run(
+        ["bash", str(SCRIPT), "main", "--no-fetch"], cwd=repo, env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr  # advisory: never blocks
+    assert _verdict(result.stdout) == "unknown", result.stdout + result.stderr
