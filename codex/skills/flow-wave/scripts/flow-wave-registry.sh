@@ -869,14 +869,40 @@ with_lock() {
 # (`registry_unreadable`, before dispatch) is what turns that into a visible
 # verdict; this is the second line, for any caller the guard does not reach.
 read_registry() {
-  [ -e "$REG_FILE" ] || { echo '{}'; return 0; }
+  case "$(path_state "$REG_FILE")" in
+    absent) echo '{}'; return 0 ;;
+    unknown) echo 'UNREADABLE-REGISTRY'; return 1 ;;
+  esac
   if [ -f "$REG_FILE" ] && [ ! -s "$REG_FILE" ]; then echo '{}'; return 0; fi
   cat "$REG_FILE" 2>/dev/null || { echo 'UNREADABLE-REGISTRY'; return 1; }
 }
 
-# registry_unreadable -> 0 when the registry file exists and cannot be read.
+# path_state PATH -> present | absent | unknown (issue #1260, counter-model
+# review). `[ -e ]` is false both when a path does not exist AND when a parent
+# directory denies traversal, so on its own it turns "I could not look" into
+# "there is nothing there" - the very collapse read_registry exists to refuse.
+# Ask `stat` for the ERRNO instead: only ENOENT is absence; EACCES, ENOTDIR,
+# ELOOP, EIO and anything unrecognised are unknown.
+path_state() {
+  local err
+  if err="$(LC_ALL=C stat -c %F -- "$1" 2>&1 >/dev/null)"; then
+    echo present
+    return 0
+  fi
+  case "$err" in
+    *"No such file or directory"*) echo absent ;;
+    *) echo unknown ;;
+  esac
+}
+
+# registry_unreadable -> 0 when the registry cannot be read: it exists and
+# cannot be opened, or whether it exists at all could not be determined.
 registry_unreadable() {
-  [ -e "$REG_FILE" ] && ! cat "$REG_FILE" >/dev/null 2>&1
+  case "$(path_state "$REG_FILE")" in
+    absent) return 1 ;;
+    unknown) return 0 ;;
+  esac
+  ! cat "$REG_FILE" >/dev/null 2>&1
 }
 
 entry_json() { # entry_json WAVE ROLE -> the entry object or 'null'
@@ -3382,8 +3408,12 @@ case "$VERB" in
         UNDETERMINED_ROLES="$UNDETERMINED_ROLES $r"
       fi
       [ "$LV_R" = "live" ] || continue
-      [ "$r" = "orchestrator" ] && continue
-      if [ -n "$POL_DRIVER" ]; then
+      # The orchestrator is out of the DRIVER population only (it never
+      # implements, so it declares no driver). It is NOT out of the unscoped-lane
+      # count (counter-model review, #1260): now that a declared lane makes it
+      # overlap-checked, a lane it declared with no repo is exactly as
+      # unchecked as a worker's, and must say so rather than read clean.
+      if [ "$r" != "orchestrator" ] && [ -n "$POL_DRIVER" ]; then
         DRIVER_POPULATION=$((DRIVER_POPULATION + 1))
         if [ -z "$(printf '%s' "$e" | jq -r '.driver // ""')" ]; then
           DRIVER_UNDECLARED=$((DRIVER_UNDECLARED + 1))

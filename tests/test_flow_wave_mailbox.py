@@ -4670,3 +4670,20 @@ class TestIssue1260MessagingNeitherLosesNorFabricatesState:
                 session.wait(timeout=10)
             if watch and _pid_not_zombie(watch):
                 _kill_quietly(watch)
+
+    @pytest.mark.skipif(os.geteuid() == 0, reason="root traverses a mode-000 directory")
+    def test_an_uninspectable_wave_is_unknown_not_absent(self, tmp_path: Path) -> None:
+        """Counter-model review (#1260): `[ ! -d ]` is also true behind a parent
+        that denies traversal, so an existing wave listed as `absent`."""
+        wave = unique_wave()
+        _run(tmp_path, "send", "--wave", wave, "--to", "worker-A", "--body", "hi")
+        root = tmp_path / "mb"
+        assert (root / wave).is_dir()  # precondition: the wave EXISTS
+        root.chmod(0)
+        try:
+            p = _run(tmp_path, "list", "--wave", wave)
+        finally:
+            root.chmod(0o700)
+        assert _verdict(p) == "error", p.stdout
+        assert p.returncode == 3
+        assert "UNKNOWN" in p.stderr

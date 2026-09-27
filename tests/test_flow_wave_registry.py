@@ -4487,3 +4487,34 @@ class TestIssue1260RegistryReadsWhatItReports:
         assert not wave_dir.exists()  # precondition
         _run(tmp_path, "list", "--wave", "gone-wave")
         assert not wave_dir.exists(), "registry list recreated the wave it reported on"
+
+    @pytest.mark.skipif(os.geteuid() == 0, reason="root traverses a mode-000 directory")
+    def test_a_registry_behind_an_untraversable_parent_is_undeterminable(
+        self, tmp_path: Path
+    ) -> None:
+        """Counter-model review (#1260): `[ -e ]` reads EACCES on a parent as
+        absence, so a registry that exists read `no-roles-registered`."""
+        self._worker_and_orchestrator(tmp_path, None)
+        reg = tmp_path / "reg"
+        assert (reg / "registry.json").is_file()  # precondition: it EXISTS
+        reg.chmod(0)
+        try:
+            p = _run(tmp_path, "list", "--wave", "cpp", "--any-live")
+        finally:
+            reg.chmod(0o700)
+        assert "FLOW_WAVE_ANY_LIVE=undeterminable" in p.stdout, p.stdout
+
+    def test_an_orchestrator_lane_with_no_repo_is_reported_unscoped(
+        self, tmp_path: Path
+    ) -> None:
+        """Counter-model review (#1260): once a declared lane makes the
+        orchestrator overlap-checked, a lane it cannot compare (no repo) must
+        read UNSCOPED, not clean."""
+        _run(
+            tmp_path, "register", "orchestrator", "--wave", "cpp",
+            "--socket", "uds:/tmp/orchestrator.sock", "--cwd", str(tmp_path),
+            "--files", "docs/scripts.md",
+            pid=OTHER_PID, session=OTHER_SESSION,
+        )
+        p = _run(tmp_path, "list", "--wave", "cpp", live=OTHER_PID)
+        assert "FLOW_WAVE_OVERLAP_UNSCOPED=1" in p.stdout, p.stdout

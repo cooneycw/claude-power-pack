@@ -1999,6 +1999,23 @@ EOF
   return 0
 }
 
+# path_state PATH -> present | absent | unknown (issue #1260, counter-model
+# review). `[ ! -d ]` is also true when a parent directory denies traversal, so
+# a wave behind an unsearchable root read as DELETED - `list` said `absent`
+# and a supervise daemon exited `wave-gone` over a wave that still existed.
+# Only stat's ENOENT is absence; any other failure is unknown.
+path_state() {
+  local err
+  if err="$(LC_ALL=C stat -c %F -- "$1" 2>&1 >/dev/null)"; then
+    echo present
+    return 0
+  fi
+  case "$err" in
+    *"No such file or directory"*) echo absent ;;
+    *) echo unknown ;;
+  esac
+}
+
 # owner_gone OWNER -> 0 when the process instance OWNER (pid:starttime, as
 # recorded at arm/launch time) is no longer running, 1 while it still is.
 # Shared by the supervise daemon (#1228) and an armed watch (#1260), so the two
@@ -2108,7 +2125,7 @@ esac
 [ "${FLOW_WAVE_MAILBOX_NO_CREATE:-0}" = "1" ] && CREATE_WAVE_DIR=0
 if [ "$CREATE_WAVE_DIR" -eq 1 ]; then
   mkdir -p "$WAVE_DIR" 2>/dev/null || usage_fail "cannot create $WAVE_DIR"
-elif [ ! -d "$WAVE_DIR" ]; then
+elif [ "$(path_state "$WAVE_DIR")" = "absent" ]; then
   case "$VERB" in
     watch)
       if [ "$STATUS" -eq 0 ]; then
@@ -2987,7 +3004,9 @@ EOF
       # only recreate it - which is exactly what the old unconditional mkdir
       # did, hiding the evidence. Exit instead; the inner watch below is also
       # forbidden to create it, covering a deletion between here and there.
-      if [ ! -d "$WAVE_DIR" ]; then
+      # CONFIRMED absence only: a directory that merely cannot be inspected
+      # (a permission change on a parent) is not a wave that ended.
+      if [ "$(path_state "$WAVE_DIR")" = "absent" ]; then
         log_event "daemon exiting: wave-gone ($WAVE_DIR no longer exists; not recreating it)"
         exit 0
       fi
@@ -3162,7 +3181,21 @@ EOF
     # wave that does not exist (never created, or ended) is a state to report,
     # not an error, which is the contract `list` already held for an untouched
     # wave.
-    if [ ! -d "$WAVE_DIR" ]; then
+    LIST_DIR_STATE="$(path_state "$WAVE_DIR")"
+    if [ "$LIST_DIR_STATE" = "present" ] && [ ! -d "$WAVE_DIR" ]; then
+      LIST_DIR_STATE=unknown   # something that is not a directory holds the path
+    fi
+    if [ "$LIST_DIR_STATE" = "unknown" ]; then
+      # Could not LOOK - never rendered as absent, and never as an empty wave.
+      if [ "$JSON_OUT" -eq 1 ]; then
+        printf '{"wave":"%s","dir":"%s","dir_state":"unknown","boxes":[],"watches":[],"routes":[]}\n' \
+          "$WAVE" "$WAVE_DIR"
+      fi
+      echo "flow-wave-mailbox: wave '$WAVE' could not be inspected at $WAVE_DIR (not a directory, or a parent denies access) - its state is UNKNOWN, not absent and not empty (issue #1260)." >&2
+      emit error
+      exit 3
+    fi
+    if [ "$LIST_DIR_STATE" = "absent" ]; then
       if [ "$JSON_OUT" -eq 1 ]; then
         printf '{"wave":"%s","dir":"%s","dir_state":"absent","boxes":[],"watches":[],"routes":[]}\n' \
           "$WAVE" "$WAVE_DIR"
