@@ -102,51 +102,53 @@ repository.
 
 **CRITICAL: You MUST create or enter a worktree before proceeding. NEVER implement changes directly on main/master.**
 
-```bash
-ISSUE_NUM="<ISSUE>"
-REPO=$(basename "$(git rev-parse --show-toplevel)")
-
-# Fetch issue details
-gh issue view "$ISSUE_NUM" --json number,title,state,body
-```
-
-- If issue is not OPEN, warn the user and ask whether to proceed.
-- Extract the title for branch naming.
+Step 1's plumbing - issue fetch and state check, branch derivation,
+existing-work triage and worktree creation - is the SAME audited helper
+`/flow:auto` uses (issue #1261). Do NOT hand-build the worktree:
 
 ```bash
-SLUG=$(echo "$TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//' | cut -c1-50)
-BRANCH="issue-${ISSUE_NUM}-${SLUG}"
-WORKTREE_DIR="../${REPO}-issue-${ISSUE_NUM}"
+~/.claude/scripts/flow-start-resolve.sh 42 --session-cwd /home/user/Projects/my-repo
 ```
 
-**Check for existing work:**
+Substitute the literal issue number, and pass the session's working directory
+VERBATIM as `--session-cwd` - never `$(pwd)`, which drifts on any earlier `cd`
+(issue #592).
 
-```bash
-CURRENT_BRANCH=$(git branch --show-current)
-if [[ "$CURRENT_BRANCH" =~ issue-${ISSUE_NUM}- ]]; then
-    # Already in the right worktree
-    true
-fi
+**Why this lane may not create its own worktree (issue #1261).** The obvious
+hand-built form, `git worktree add -b <branch> <path> origin/main`, records
+`origin/main` as the branch's upstream. A bare `git push` then fails and git's
+first suggested fix is `git push origin HEAD:main` - straight onto the default
+branch past every review gate (the #1221 hazard). The resolver creates the
+branch `--no-track` and points its upstream at its OWN name. This lane's Step 4
+overrun check and Step 7 backstop therefore never use `@{u}`: before the first
+push it does not resolve, and a check reading an unresolvable ref as zero is a
+check that went blind without saying so. They use an explicit, recorded base.
 
-git worktree list | grep "issue-${ISSUE_NUM}"
-git fetch origin
-git branch -r | grep "issue-${ISSUE_NUM}-"
-```
+Act on the helper's `key=value` contract exactly as `/flow:auto` Step 1b does:
 
-- **Already on issue branch:** Use current directory.
-- **Worktree exists:** `cd` into the existing worktree directory.
-- **Remote branch exists:** Create worktree tracking the remote branch.
-- **Neither exists:** Create fresh from `origin/main`.
+- `FLOW_START_RESOLVE: error` - **STOP** and report the `ERROR=` line.
+- `CLAIM=held`, or any `CONFIRM_REQUIRED=1` (a closed issue, an open PR on the
+  issue branch, a suspected live driver) - **STOP** and ask; re-run with the
+  flag the helper names (`--allow-closed`, `--allow-pickup`) only on a yes.
+- Every lane, INCLUDING `LANE=current-branch`: `cd <WT_PATH>` before the
+  verification gate. On the current-branch lane `WT_PATH` is the session
+  checkout's own top level; entering it anyway is what keeps the gate below from
+  verifying - and renaming a branch in - whatever repository an earlier `cd`
+  left the shell in (counter-model review, #1261). Never `EnterWorktree`.
 
 #### Verification Gate (MANDATORY)
 
+From INSIDE the worktree, bare, with the literal values from the contract:
+
 ```bash
-CURRENT_BRANCH=$(git branch --show-current)
-if [[ "$CURRENT_BRANCH" == "main" || "$CURRENT_BRANCH" == "master" ]]; then
-    echo "ERROR: Still on main/master. STOP."
-    exit 1
-fi
-echo "Verified: on branch '$CURRENT_BRANCH' in $(pwd)"
+~/.claude/scripts/flow-start-resolve.sh --verify 42 issue-42-fix-login
+```
+
+`FLOW_START_VERIFY: fail` (still on main/master) is a **STOP**. On `ok` it also
+stakes this run's claim on the worktree (`CLAIM=self`).
+
+```bash
+echo "Verified: on branch '$(git branch --show-current)' in $(pwd)"
 ```
 
 Report: `Step 1/8: Start complete - worktree at {path}, on branch {branch}`
@@ -258,6 +260,28 @@ Ask the reviewer for one of:
 - **approve** - proceed to Step 4 and invoke Codex.
 - **revise** - amend the plan or the prompt, re-report, and gate again.
 - **abandon** - stop the run; the worktree is left in place for inspection.
+
+**Under an orchestrator, the approval request is a MESSAGE, not a pane print
+(issue #1261).** The prompt above is addressed to whoever watches this session's
+terminal. In a fleet or `/flow:wave` run nobody does: the deciding party is
+another session, reachable only by mailbox, and a worker waiting at a printed
+prompt looks exactly like one thinking between tool calls - no process, no
+commits, no dirty paths. Measured: two workers on one brief, one mailed its plan
+and was approved in ~90s, the other printed it and sat ~6 minutes undetected.
+
+So if this run was assigned by an orchestrator - the assignment arrived by
+mailbox, this session registered a wave role (`/flow:register`), or its brief
+names an orchestrator - SEND the Step 2 report to that orchestrator before
+waiting, through the mailbox the assignment came from. For a `/flow:wave` role:
+
+```bash
+~/.claude/scripts/flow-wave-mailbox.sh send --to orchestrator --from <your-role> --wave <wave> --body-file <step-2-report-file>
+```
+
+Then wait for the reply exactly as you would for a typed one; its verdict is the
+approve/revise/abandon above. This routes the gate, it does not bypass it: the
+orchestrator approves the plan it was sent, after the plan exists. A standalone
+session with a human at the terminal keeps the printed prompt.
 
 **The gate has no bypass (issue #784).** No flag, trailer, marker, environment
 variable, or governance tier lets this step proceed without a reviewer approving
@@ -407,6 +431,15 @@ here, in ways that cancelled the failure check entirely:
 Do not split this block when editing, and do not reintroduce the pipe.
 
 ```bash
+# Record the base the overrun check compares against (issue #1261), BEFORE the
+# model runs. Never `@{u}`: the Step-1 worktree tracks its own not-yet-pushed
+# name, so `@{u}` does not resolve, and a check reading that as zero is blind.
+# The git dir is per-worktree, so a sibling run cannot overwrite this.
+PRE_EXEC_HEAD_FILE="$(git rev-parse --absolute-git-dir)/delegated-pre-exec-head"
+if ! git rev-parse HEAD > "$PRE_EXEC_HEAD_FILE"; then
+    echo "ERROR: could not record the pre-exec HEAD - the overrun check would have no base. STOP."
+    exit 1
+fi
 WORKTREE_PATH=$(pwd)
 CODEX_OUTPUT="/tmp/codex-output-${ISSUE_NUM}.jsonl"
 # Sandbox mode (issue #1285). A caller that knows codex's own sandbox cannot
@@ -498,14 +531,27 @@ This catches overrun from any source - a sandbox misconfiguration, a future
 sandbox regression, or a Codex version that loosens `workspace-write`:
 
 ```bash
-# 1. Check for unexpected commits (should be zero - Codex should only modify the working tree)
-UNEXPECTED_COMMITS=$(git log @{u}.. --oneline 2>/dev/null | wc -l)
+# 1. Check for unexpected commits since the RECORDED pre-exec HEAD (issue #1261).
+#    A missing or unreadable base is a STOP, never a zero: `@{u}` used to be the
+#    base here, and once the branch tracked its own unpushed name it stopped
+#    resolving and `2>/dev/null | wc -l` reported 0 overrun commits, always.
+PRE_EXEC_HEAD_FILE="$(git rev-parse --absolute-git-dir)/delegated-pre-exec-head"
+PRE_EXEC_HEAD=$(cat "$PRE_EXEC_HEAD_FILE" 2>/dev/null)
+if [ -z "$PRE_EXEC_HEAD" ] || ! git rev-parse --verify -q "${PRE_EXEC_HEAD}^{commit}" >/dev/null; then
+    echo "STOP: OVERRUN CHECK UNAVAILABLE - no pre-exec HEAD recorded at $PRE_EXEC_HEAD_FILE."
+    echo "  Without a base this check cannot see a commit Codex made; it must not pass."
+    exit 1
+fi
+if ! UNEXPECTED_COMMITS=$(git rev-list --count "$PRE_EXEC_HEAD..HEAD"); then
+    echo "STOP: OVERRUN CHECK UNAVAILABLE - could not count commits since $PRE_EXEC_HEAD."
+    exit 1
+fi
 if [ "$UNEXPECTED_COMMITS" -gt 0 ]; then
     echo "OVERRUN DETECTED: Codex made $UNEXPECTED_COMMITS unexpected commit(s):"
-    git log @{u}.. --oneline
+    git log "$PRE_EXEC_HEAD.." --oneline
     echo ""
     echo "Rolling back Codex commits (preserving working-tree changes)..."
-    git reset @{u}
+    git reset "$PRE_EXEC_HEAD"
     echo "Commits rolled back. Working-tree changes preserved for review."
 fi
 
@@ -754,8 +800,35 @@ because the fix loop in Step 6 can also leave the tree unchanged:
 BRANCH=$(git branch --show-current)
 ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K[0-9]+' || echo "")
 
-if [ -z "$(git status --porcelain)" ] && [ "$(git rev-list --count @{u}..HEAD 2>/dev/null || echo 0)" -eq 0 ]; then
-    echo "STOP: nothing to commit and nothing ahead of upstream - refusing to open a PR on an empty diff."
+# EXPLICIT BASE, never `@{u}` (issue #1261). The worktree tracks its own
+# not-yet-pushed name, so `@{u}` does not resolve here, and the old
+# `2>/dev/null || echo 0` turned that into "nothing ahead" - an empty-diff STOP
+# on a branch full of commits, or silence on the check it existed to make.
+#
+# CONTENT, not commit count (counter-model review, #1261): a change followed by
+# its exact revert - committed OR still pending in the working tree - is commits
+# ahead with an EMPTY PR diff. So compare what WILL be committed (the working
+# tree's tracked content, plus any untracked file) against the merge base, and
+# treat a failed comparison as a STOP.
+git fetch origin --quiet || true
+DEFAULT_BRANCH=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')
+if [ -z "$DEFAULT_BRANCH" ]; then
+    for b in main master; do
+        git rev-parse --verify -q "refs/remotes/origin/$b" >/dev/null && { DEFAULT_BRANCH=$b; break; }
+    done
+fi
+if [ -z "$DEFAULT_BRANCH" ] || ! MERGE_BASE=$(git merge-base HEAD "origin/$DEFAULT_BRANCH"); then
+    echo "STOP: could not resolve a merge base with origin/${DEFAULT_BRANCH:-<default branch>} - the empty-diff backstop cannot run, so it cannot pass."
+    exit 1
+fi
+git diff --quiet "$MERGE_BASE"
+CONTENT_RC=$?
+if [ "$CONTENT_RC" -gt 1 ] || ! UNTRACKED=$(git ls-files --others --exclude-standard); then
+    echo "STOP: could not compare the working tree with $MERGE_BASE - the empty-diff backstop cannot run, so it cannot pass."
+    exit 1
+fi
+if [ "$CONTENT_RC" -eq 0 ] && [ -z "$UNTRACKED" ]; then
+    echo "STOP: no content change since origin/$DEFAULT_BRANCH, committed or pending - refusing to open a PR on an empty diff."
     exit 1
 fi
 ```

@@ -317,7 +317,11 @@ def test_the_finish_step_refuses_an_empty_diff(family: str) -> None:
     assert len(finish) == 2, f"{family}/auto.md has no Step 7 Finish heading"
 
     step7 = finish[1].split("### Step 8", 1)[0]
-    assert "git status --porcelain" in step7 and "exit 1" in step7, (
+    # #1261 replaced `git status --porcelain` + `@{u}` with a content comparison
+    # of the working tree against the merge base; its behaviour (pending and
+    # committed reverts, unresolvable base) is EXECUTED in
+    # tests/test_delegated_overrun_base.py. This pins only that it is present.
+    assert 'git diff --quiet "$MERGE_BASE"' in step7 and "exit 1" in step7, (
         f"{family}/auto.md Step 7 opens a PR without re-checking for an empty "
         "diff; #798's failure mode ends in exactly that PR."
     )

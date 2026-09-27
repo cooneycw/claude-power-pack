@@ -7,8 +7,10 @@ allowed-tools: Bash(codex:*), Bash(git:*), Bash(mktemp:*), Bash(cat:*), Bash(rm:
 
 Have OpenAI Codex review the code changes on the current branch as an
 independent second model, and relay its findings in a structured format a caller
-can act on. Codex runs **read-only**: it reads the diff and the surrounding files,
-it cannot modify anything. The review is advisory - Claude (or the user) triages
+can act on. Codex runs **read-only**: it reads the diff and - where its sandbox
+can start - the surrounding files; it cannot modify anything. Where the sandbox
+cannot start (a container), the review is diff-only and says so
+(`CODEX_REVIEW_SCOPE`, issue #1261). The review is advisory - Claude (or the user) triages
 the findings and decides what to fix.
 
 **Which model reviews is host configuration, and this stage reports it rather
@@ -178,8 +180,24 @@ fi
 # this step needs to fix (a tracked deletion is already visible in a plain
 # `git diff <ref>` with no staging at all), so mark exactly those paths -
 # NUL-delimited, to survive a filename containing a space or newline.
+#
+# A FAILED ENUMERATION MUST NOT BECOME ZERO UNTRACKED FILES (issue #1261).
+# `mapfile < <(git ls-files ...)` cannot see the exit status of the process
+# substitution, so a failed `ls-files` came back as an empty array - identical
+# to "no new files" - and the review ran over a diff missing every new file
+# while the count line below read like a real zero. Enumerate into a file in
+# the git dir, CHECK that command, then read the file (the #1220 shape).
 GIT_ROOT="$(git rev-parse --show-toplevel)"
-mapfile -d '' -t UNTRACKED_FILES < <(git -C "$GIT_ROOT" ls-files --others --exclude-standard -z)
+UNTRACKED_LIST="$(git -C "$GIT_ROOT" rev-parse --absolute-git-dir)/codex-review-untracked.$$"
+if ! git -C "$GIT_ROOT" ls-files --others --exclude-standard -z > "$UNTRACKED_LIST"; then
+    rm -f "$UNTRACKED_LIST"
+    echo "CODEX_REVIEW: unavailable (could not enumerate untracked files -" >&2
+    echo "  a failed listing would read as zero new files, and the review would" >&2
+    echo "  report itself complete over a diff missing them.)" >&2
+    exit 3
+fi
+mapfile -d '' -t UNTRACKED_FILES < "$UNTRACKED_LIST"
+rm -f "$UNTRACKED_LIST"
 UNTRACKED_COUNT=${#UNTRACKED_FILES[@]}
 if [ "$UNTRACKED_COUNT" -gt 0 ] && ! git -C "$GIT_ROOT" add -N -- "${UNTRACKED_FILES[@]}"; then
     echo "CODEX_REVIEW: unavailable (could not stage untracked files as intent-to-add -" >&2
@@ -222,7 +240,67 @@ Pipe the diff on stdin and ask for structured findings. Same sandbox posture as
 `/codex:ask`: read-only, no network escalation, `--output-last-message` for the
 clean answer.
 
+**The review's SCOPE is measured, not assumed (issue #1261).** The prompt offers
+the reviewer the repository's files for context, but that offer is only real
+where codex's sandbox can start. In a Kyle session container bubblewrap has no
+user namespace: every tool call the reviewer makes fails, and the review still
+succeeds on the diff alone - a diff-only review indistinguishable from a full
+one. So the block below probes the sandbox first (`codex sandbox`, no model
+call) by reading one tracked file inside it, and emits `CODEX_REVIEW_SCOPE:`:
+
+- `full` - the sandbox started and a repository file was readable inside it.
+- `diff-only` - the probe failed; the reviewer is TOLD it cannot open files and
+  the relay header says so. Report it; never present such a review as a full one.
+- `unverified` - the probe could not be run (no `sandbox` subcommand on this
+  codex, or no tracked file to read); the scope is unknown, which is not the
+  same as full. The probe is a PRE-run measurement: it cannot see a read the
+  reviewer attempts and is denied mid-run.
+
+A caller that knows codex's sandbox cannot start where it runs may supply
+`CODEX_REVIEW_SANDBOX=danger-full-access` as data - the #1285 contract shape
+(Kyle, for the containers it starts). Unset keeps `read-only`. Any other value is
+refused, never defaulted. This command never chooses the escalation itself: it
+would hand a reviewer that is meant to be read-only write access to the tree.
+With `danger-full-access` there is no sandbox to probe and the scope is `full`.
+
 ```bash
+# Sandbox mode, from the caller only (issue #1261, #1285 shape).
+REVIEW_SANDBOX="${CODEX_REVIEW_SANDBOX:-read-only}"
+case "$REVIEW_SANDBOX" in
+    read-only) ;;
+    danger-full-access) ;;
+    *) echo "CODEX_REVIEW: unavailable (CODEX_REVIEW_SANDBOX='$REVIEW_SANDBOX' is not read-only or danger-full-access; refusing to run)" >&2; exit 3 ;;
+esac
+
+# Scope probe (issue #1261). A sandbox that cannot start makes the review
+# file-blind while it still reports findings, so measure it before the run.
+if [ "$REVIEW_SANDBOX" = "danger-full-access" ]; then
+    REVIEW_SCOPE="full"
+elif ! codex sandbox --help >/dev/null 2>&1; then
+    REVIEW_SCOPE="unverified"
+# The probe READS a tracked repository file under the sandbox, not merely
+# starts it: startup alone does not prove the reviewer can read the tree
+# (counter-model review). An empty repository has nothing to read - unverified.
+# Paths are enumerated AND read from the same root (re-review: `git ls-files`
+# is cwd-relative), and the candidate must exist on disk - a tracked file
+# deleted in the working tree is not a failed read.
+elif ! PROBE_ROOT="$(git rev-parse --show-toplevel)" || ! PROBE_FILE="$(
+        git -C "$PROBE_ROOT" ls-files -z | while IFS= read -r -d '' f; do
+            [ -f "$PROBE_ROOT/$f" ] && [ -r "$PROBE_ROOT/$f" ] && { printf '%s' "$f"; break; }
+        done)" || [ -z "$PROBE_FILE" ]; then
+    REVIEW_SCOPE="unverified"
+elif (cd "$PROBE_ROOT" && codex sandbox -c 'sandbox_mode="read-only"' -- head -c 1 -- "$PROBE_FILE") >/dev/null 2>&1; then
+    REVIEW_SCOPE="full"
+else
+    REVIEW_SCOPE="diff-only"
+fi
+echo "CODEX_REVIEW_SCOPE: $REVIEW_SCOPE"
+case "$REVIEW_SCOPE" in
+    full) SCOPE_LINE="You may also open the files in this repository (read-only) for surrounding context." ;;
+    diff-only) SCOPE_LINE="You CANNOT open files in this repository: the sandbox cannot start here, so every tool call will fail. Review the diff alone, and say in your findings where a conclusion would need surrounding code you could not read." ;;
+    *) SCOPE_LINE="Opening files in this repository may or may not work here; if a tool call fails, review the diff alone and say where a conclusion would need surrounding code you could not read." ;;
+esac
+
 FINDINGS=$(mktemp /tmp/codex-review.XXXXXX.md)
 # STREAM carries the thread id that Step 4 needs to identify the reviewing
 # model. Without --json there is no thread id, and the Step-4 lookup silently
@@ -230,12 +308,12 @@ FINDINGS=$(mktemp /tmp/codex-review.XXXXXX.md)
 STREAM=$(mktemp /tmp/codex-review.XXXXXX.jsonl)
 
 cat "$DIFF_FILE" | codex exec \
-    --sandbox read-only \
+    --sandbox "$REVIEW_SANDBOX" \
     --color never \
     --skip-git-repo-check \
     --json \
     --output-last-message "$FINDINGS" \
-    "You are reviewing a code change as an independent reviewer. The unified diff is provided on stdin; you may also open the files in this repository (read-only) for surrounding context. Review intent/context: ${CONTEXT:-none provided}.
+    "You are reviewing a code change as an independent reviewer. The unified diff is provided on stdin. ${SCOPE_LINE} Review intent/context: ${CONTEXT:-none provided}.
 
 Review for: correctness bugs, security issues, missed edge cases, broken or missing tests, and meaningful simplifications. Do NOT restyle working code or comment on formatting.
 
@@ -277,7 +355,8 @@ run the command in the background and poll, exactly as documented in
 # deliberately carries no model. Emit a marker, same convention as
 # FLOW_CI_STATUS / COUNTER_MODEL_REVIEW, and let the caller consume it.
 echo "CODEX_REVIEW_MODEL: ${REVIEW_MODEL:-unknown}"
-echo "===== Codex (${REVIEW_MODEL:-model unread}) code review ====="
+echo "CODEX_REVIEW_SCOPE: ${REVIEW_SCOPE:-unverified}"
+echo "===== Codex (${REVIEW_MODEL:-model unread}) code review - scope: ${REVIEW_SCOPE:-unverified} ====="
 cat "$FINDINGS"
 rm -f "$DIFF_FILE" "$FINDINGS" "$STREAM"
 ```
@@ -287,6 +366,10 @@ own assessment. Then, standalone, add your own labeled triage: for each finding,
 agree (worth fixing), disagree (with the reason), or defer (real but out of
 scope). Do not apply fixes in this command - it is read-only by design; fixing
 is the caller's decision (`/flow:auto` Step 6 item 1c does exactly that).
+
+State the `CODEX_REVIEW_SCOPE` with the findings. A `diff-only` or `unverified`
+review is still a review, but say which it was: good findings are not evidence
+that the reviewer could read the surrounding code (issue #1261).
 
 If `CODEX_EXIT` is non-zero, report the failure honestly and do not fabricate
 findings; a calling workflow treats it like the exit-3 unavailable case.
@@ -358,7 +441,9 @@ gap to fill.
 - Uses the user's **Codex account** (real quota/billing per call). One review
   pass plus at most one re-review is the intended cadence - never loop.
 - Read-only sandbox: safe to run inside a live repo; Codex cannot write or reach
-  the network. Codex always reaches OpenAI to run the model itself.
+  the network. The exception is a caller-supplied
+  `CODEX_REVIEW_SANDBOX=danger-full-access` (issue #1261), for a placement where
+  the sandbox cannot start; that run has no mechanical write or network fence. Codex always reaches OpenAI to run the model itself.
 - The findings format above is the contract `/flow:auto` Step 6 item 1c parses,
   via `scripts/counter-model-receipt.py parse`. It keys on the `## Findings`
   heading and, for a clean review, the `None - no defects found.` sentinel - so
