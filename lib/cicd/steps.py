@@ -35,21 +35,44 @@ _CPP_ROOT = str(Path(__file__).resolve().parents[2])
 # linter that prints "3 files passed" must never be reported as a test suite.
 # Word-boundaried on both sides so "latest" / "contested" do not match.
 #
-# The scan covers the WHOLE command, PATHS INCLUDED: a step whose command names
-# ".../my-test-project/.venv/bin/python3" classifies as a test step no matter
-# what its id says. That is the accepted cost of recognizing a `make test`
-# recipe hiding under an unhelpful step id (#621), and narrowing the pattern to
-# dodge paths would weaken the detection it exists for. The consequence for
-# TESTS is a hard rule: a fixture must never interpolate an absolute path
-# (`sys.executable`, anything under pytest's `tmp_path`) into a step it wants
-# classified as a NON-test step, or the classification follows the checkout
-# location instead of the fixture's intent - which turned every flow worktree
-# whose branch slug contained "test" red (issue #704). Pinned by
+# The scan covers the command's WORDS AND FILE NAMES, NOT ITS DIRECTORIES
+# (issue #1294). Every run of non-space characters ending in "/" is removed
+# first, so "/x/repo-test-foo/lib/cicd/mypy_scope.py" is read as
+# "mypy_scope.py" while ".venv/bin/pytest" and "scripts/run-tests.sh" keep the
+# basename that names the runner - which is all #621 needs to recognize a
+# `make test` recipe hiding under an unhelpful step id.
+#
+# This REVERSES a pinned trade-off. #621/#704 scanned paths too and called the
+# cost accepted; #704 only moved fixtures out of its way. But the finish plan's
+# own typecheck fallback embeds `_CPP_ROOT`, and a flow worktree is named for
+# its issue slug - so any issue with "test" in its title turned typecheck into
+# a test step with no summary and the gate into `warn`, a local verdict CI (at
+# a different path) could never see. A directory name is not evidence that a
+# test runner runs. Residual, stated: a path's FINAL component is still read,
+# since a bare token cannot be told from a program name. Pinned by
 # tests/test_cicd_outcomes.py::TestStepGating.
 _TEST_STEP_HINT = re.compile(
     r"(?:^|[^a-z])(?:tests?|pytest|jest|vitest|unittest|nose)(?:[^a-z]|$)",
     re.IGNORECASE,
 )
+# A directory prefix: a path word up to its last "/". It never crosses a shell
+# operator or a quote - `pytest;./cleanup.sh` must keep `pytest` - and a
+# backslash-escaped character (`test\ dir/`) stays inside the word.
+_DIRECTORY_PREFIX = re.compile(r"""(?:\\.|[^\s;&|<>()'"`\\])*/""")
+# A QUOTED single path, which may hold spaces or literal operators
+# (`"/tmp/test checkout;copy/x.py"`): replaced by its basename. It counts as a
+# path only when it STARTS like one; any other quoted string (`bash -c "pytest
+# /tmp/cases"`) is a script and its words go through the rule above. Residual,
+# stated: a quoted script that itself starts with a path
+# (`"/opt/venv/bin/pytest /tmp/cases"`) reads as one path and keeps only its
+# last component - a shell string cannot be told from a filename by regex.
+_QUOTED_PATH = re.compile(r"""(["'])((?:/|\./|\.\./|~/)[^"']*)\1""")
+
+
+def _strip_directories(command: str) -> str:
+    """Drop directory components from a command, keeping basenames (#1294)."""
+    command = _QUOTED_PATH.sub(lambda m: m.group(2).rsplit("/", 1)[-1], command)
+    return _DIRECTORY_PREFIX.sub("", command)
 
 
 class StepExecutor(Protocol):
@@ -219,10 +242,12 @@ class ShellStep:
         return None
 
     def is_test_step(self) -> bool:
-        """True when this step's id or command names a test runner (issue #621)."""
-        return bool(
-            _TEST_STEP_HINT.search(self.id) or _TEST_STEP_HINT.search(self.command)
-        )
+        """True when this step's id or command names a test runner (issue #621).
+
+        Directory components are dropped from the command first (issue #1294).
+        """
+        command = _strip_directories(self.command)
+        return bool(_TEST_STEP_HINT.search(self.id) or _TEST_STEP_HINT.search(command))
 
     def _parse_tests(self, output: str, error: str) -> Optional[SuiteOutcome]:
         """Parse a test summary from BOTH captured streams, if it is a test step.
