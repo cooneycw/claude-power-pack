@@ -1623,8 +1623,11 @@ if curl -sf --max-time 5 "$QWEN_ENDPOINT/api/version" > /dev/null; then
   # advice tells the user to recreate a model nothing showed to be absent.
   # A FAILED tags read is not an empty model list: a version probe that
   # answered does not prove /api/tags will (HTTP error, timeout, dropped
-  # connection), so the read and the membership test are separate verdicts.
-  if TAGS=$(curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null); then
+  # connection), and a 200 carrying no `models` key (an empty body, `{}`, an HTML
+  # redirect page) is not a model list either - so only a body that IS one
+  # reaches the membership test.
+  if TAGS=$(curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null) \
+     && echo "$TAGS" | grep -q '"models"'; then
     if echo "$TAGS" | grep -qF "\"$QWEN_MODEL\""; then
       echo "[x] Model present: $QWEN_MODEL"
     else
@@ -1786,8 +1789,11 @@ if curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/version" > /dev/null; then
   # advice tells the user to recreate a model nothing showed to be absent.
   # A FAILED tags read is not an empty model list: a version probe that
   # answered does not prove /api/tags will (HTTP error, timeout, dropped
-  # connection), so the read and the membership test are separate verdicts.
-  if TAGS=$(curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null); then
+  # connection), and a 200 carrying no `models` key (an empty body, `{}`, an HTML
+  # redirect page) is not a model list either - so only a body that IS one
+  # reaches the membership test.
+  if TAGS=$(curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null) \
+     && echo "$TAGS" | grep -q '"models"'; then
     if echo "$TAGS" | grep -qF "\"$GEMMA_MODEL\""; then
       echo "[x] Model present: $GEMMA_MODEL"
     else

@@ -455,13 +455,17 @@ def test_an_unreachable_endpoint_reports_the_model_unknown_not_missing(rel: str)
     reason="bash and curl are required to execute the block",
 )
 @pytest.mark.parametrize("rel", REACHABILITY_DOCS)
-@pytest.mark.parametrize("tags_status", [200, 500], ids=["tags-ok", "tags-fails"])
-def test_a_reachable_endpoint_without_the_model_still_reports_missing(rel: str, tags_status: int) -> None:
+@pytest.mark.parametrize(
+    "tags_mode", ["ok", "http-500", "empty-body", "no-models-key"]
+)
+def test_a_reachable_endpoint_without_the_model_still_reports_missing(rel: str, tags_mode: str) -> None:
     """Missing only after the model list was READ (counter-model review).
 
-    `tags-fails` is the case the first cut got wrong: /api/version answered,
+    `http-500` is the case the first cut got wrong: /api/version answered,
     /api/tags returned an error, and the nested grep read that failure as an
-    empty list - "missing", with rebuild advice. It must read `unknown`.
+    empty list - "missing", with rebuild advice. It must read `unknown`. The
+    second review pass found the same for a 200 that is not a model list at all
+    (`empty-body`, `no-models-key`): only `ok` is a population to judge.
     """
     import http.server
     import json
@@ -469,10 +473,12 @@ def test_a_reachable_endpoint_without_the_model_still_reports_missing(rel: str, 
 
     class Ollama(http.server.BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
-            if self.path.startswith("/api/tags") and tags_status != 200:
-                self.send_response(tags_status)
-                self.send_header("Content-Length", "0")
+            if self.path.startswith("/api/tags") and tags_mode != "ok":
+                raw = {"http-500": b"", "empty-body": b"", "no-models-key": b"{}"}[tags_mode]
+                self.send_response(500 if tags_mode == "http-500" else 200)
+                self.send_header("Content-Length", str(len(raw)))
                 self.end_headers()
+                self.wfile.write(raw)
                 return
             body = (
                 {"version": "0.0.0"}
@@ -496,7 +502,7 @@ def test_a_reachable_endpoint_without_the_model_still_reports_missing(rel: str, 
         for prefix, block in _probe_blocks(rel):
             out = _run_probe(prefix, block, endpoint)
             assert "[x] Ollama reachable" in out, out
-            if tags_status == 200:
+            if tags_mode == "ok":
                 assert "Model 'probe-model:latest' missing" in out, out
                 assert "unknown" not in out, out
             else:

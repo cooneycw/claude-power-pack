@@ -222,3 +222,48 @@ def test_a_scan_that_did_not_run_is_not_reported_clean(tmp_path: Path) -> None:
     out = _run_listing(checkout, home)
     assert "No orphaned helper links" not in out, out
     assert "NOT run" in out, out
+
+
+def _prune_block() -> str:
+    text = UPDATE_DOC.read_text(encoding="utf-8")
+    step = text[text.index("## Step 5b: Script Symlink Refresh") : text.index("## Step 5b.1:")]
+    blocks = [b for b in re.findall(r"```bash\n(.*?)```", step, re.S) if "PRUNE_CONFIRMED" in b]
+    assert len(blocks) == 1, "Step 5b must carry exactly one prune block"
+    return blocks[0]
+
+
+def test_the_prune_tally_does_not_count_an_already_absent_entry_as_removed(tmp_path: Path) -> None:
+    """Exit 0 means removed OR already absent; only the first is this run's work."""
+    checkout = _checkout(tmp_path / "cpp")
+    home = tmp_path / "home"
+    scripts = home / ".claude" / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "gone.sh").symlink_to(checkout / "scripts" / "gone.sh")
+    assert not (scripts / "vanished.sh").exists(), "fixture: one listed orphan is already gone"
+    # The block calls the stable path; point it at the seam under test.
+    (scripts / "cpp-host-write.sh").symlink_to(SEAM)
+    block = _prune_block().replace("<the listed names>", "gone.sh vanished.sh")
+
+    out = subprocess.run(
+        ["bash", "-c", block],
+        env={**os.environ, "HOME": str(home), "PRUNE_CONFIRMED": "yes"},
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert "1 removed, 1 already absent, 0 refused" in out, out
+    assert not (scripts / "gone.sh").is_symlink()
+
+
+def test_an_unconfirmed_prune_removes_nothing(tmp_path: Path) -> None:
+    checkout = _checkout(tmp_path / "cpp")
+    home = tmp_path / "home"
+    scripts = home / ".claude" / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "gone.sh").symlink_to(checkout / "scripts" / "gone.sh")
+    (scripts / "cpp-host-write.sh").symlink_to(SEAM)
+    block = _prune_block().replace("<the listed names>", "gone.sh")
+    env = {k: v for k, v in os.environ.items() if k != "PRUNE_CONFIRMED"}
+    env["HOME"] = str(home)
+
+    subprocess.run(["bash", "-c", block], env=env, capture_output=True, text=True)
+    assert (scripts / "gone.sh").is_symlink(), "no confirmation, no delete"

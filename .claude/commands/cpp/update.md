@@ -746,18 +746,25 @@ read, the removal is a write to the user's host.
 
 ```bash
 if [ "${PRUNE_CONFIRMED:-no}" = "yes" ]; then
-  PRUNED=0; PRUNE_REFUSED=0
+  PRUNED=0; PRUNE_GONE=0; PRUNE_REFUSED=0
   for name in <the listed names>; do
     # The seam RE-PROVES ownership per entry (dangling, install-shaped, into a
     # CPP checkout) and refuses anything else - a name is a string, and the
     # entry can change between the listing and this call.
-    if ~/.claude/scripts/cpp-host-write.sh unlink-orphan ~/.claude/scripts "$name"; then
-      PRUNED=$((PRUNED + 1))
+    #: Exit 0 covers BOTH "removed" and "already absent" (another session got
+    #: there first), so the tally reads the seam's own words: counting every 0
+    #: as a removal claims work this run did not do (counter-model review).
+    if OUT=$(~/.claude/scripts/cpp-host-write.sh unlink-orphan ~/.claude/scripts "$name"); then
+      case "$OUT" in
+        *"orphan removed"*) PRUNED=$((PRUNED + 1)) ;;
+        *) PRUNE_GONE=$((PRUNE_GONE + 1)) ;;
+      esac
     else
       PRUNE_REFUSED=$((PRUNE_REFUSED + 1))
     fi
+    echo "$OUT"
   done
-  echo "→ Orphan prune: $PRUNED removed, $PRUNE_REFUSED refused or deferred"
+  echo "→ Orphan prune: $PRUNED removed, $PRUNE_GONE already absent, $PRUNE_REFUSED refused or deferred"
 else
   echo "→ Orphan prune: not run (no orphans, or the user declined)"
 fi
@@ -1044,8 +1051,11 @@ if $QWEN_LANE_PRESENT; then
     # advice tells the user to recreate a model nothing showed to be absent.
     # A FAILED tags read is not an empty model list: a version probe that
     # answered does not prove /api/tags will (HTTP error, timeout, dropped
-    # connection), so the read and the membership test are separate verdicts.
-    if TAGS=$(curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null); then
+    # connection), and a 200 carrying no `models` key (an empty body, `{}`, an HTML
+    # redirect page) is not a model list either - so only a body that IS one
+    # reaches the membership test.
+    if TAGS=$(curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null) \
+     && echo "$TAGS" | grep -q '"models"'; then
       if echo "$TAGS" | grep -qF "\"$QWEN_MODEL\""; then
         echo "[x] Model present: $QWEN_MODEL"
       else
@@ -1150,8 +1160,11 @@ if $GEMMA_LANE_PRESENT; then
     # advice tells the user to recreate a model nothing showed to be absent.
     # A FAILED tags read is not an empty model list: a version probe that
     # answered does not prove /api/tags will (HTTP error, timeout, dropped
-    # connection), so the read and the membership test are separate verdicts.
-    if TAGS=$(curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null); then
+    # connection), and a 200 carrying no `models` key (an empty body, `{}`, an HTML
+    # redirect page) is not a model list either - so only a body that IS one
+    # reaches the membership test.
+    if TAGS=$(curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null) \
+     && echo "$TAGS" | grep -q '"models"'; then
       if echo "$TAGS" | grep -qF "\"$GEMMA_MODEL\""; then
         echo "[x] Model present: $GEMMA_MODEL"
       else
