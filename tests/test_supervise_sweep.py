@@ -131,7 +131,7 @@ def test_the_sweep_reaps_a_daemon_whose_run_is_gone(tmp_path: Path) -> None:
     ("verb", "marker", "why"),
     [
         ("__supervise_daemon", "LIVE", "its run is still alive - another suite, mid-test"),
-        ("__supervise_daemon", None, "no marker - not started by this suite, or by a test that built its env from scratch"),
+        ("__supervise_daemon", None, "no marker - not ours, or a test that built its env from scratch"),
         ("watch", DEAD_OWNER, "not a supervise daemon at all"),
     ],
     ids=["live-owner", "no-marker", "not-a-daemon"],

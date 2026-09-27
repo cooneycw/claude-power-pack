@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1271-test-isolation-leaked-supervise-daemons-tests-coup",
+  "counts": {
+    "accepted": 7,
+    "deferred": 1,
+    "rejected": 0
+  },
+  "head": "9c1a497084d34ff67d53213e4f4c1a739489460d",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1271",
+  "passes": 2,
+  "recorded_at": "2026-09-27T14:28:41Z",
+  "red_cases": {
+    "already_covered": 11,
+    "proposed": 14
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
