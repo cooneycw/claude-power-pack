@@ -71,6 +71,11 @@ done
 HERE=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 CONFIG="$HERE/../.gitleaks.toml"
 [ -f "$CONFIG" ] || die "shipped config not found at $CONFIG"
+# Findings are rendered as rule/file/line ONLY (issue #1288) - never `--verbose`,
+# which prints each match and cannot be made safe by `--redact`; the template
+# says why. A missing template must not degrade into an unrendered scan.
+TEMPLATE="$HERE/../.gitleaks-findings.tmpl"
+[ -f "$TEMPLATE" ] || die "findings template not found at $TEMPLATE"
 
 # A gate that cannot run must not exit 0 - `good_exit` is 0, so a missing
 # scanner would otherwise read as a clean verdict. This is the `unknown` state.
@@ -102,4 +107,5 @@ for f in "$ROOT"/*; do
     [ "$a_sum" = "$b_sum" ] || die "relocated copy differs from the committed fixture: $b"
 done
 
-gitleaks detect --source "$WORK" --config "$CONFIG" --no-git --verbose
+gitleaks detect --source "$WORK" --config "$CONFIG" --no-git --redact \
+    --report-format template --report-template "$TEMPLATE" --report-path -
