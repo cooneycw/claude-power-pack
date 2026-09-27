@@ -255,31 +255,71 @@ class TestStepGating:
     def test_non_test_steps(self, step_id: str, command: str) -> None:
         assert not ShellStep(StepDef(id=step_id, command=command)).is_test_step()
 
-    def test_path_in_command_matches_by_design(self) -> None:
-        """An absolute path is scanned like any other command text (#621, #704).
+    @pytest.mark.parametrize(
+        "step_id,command",
+        [
+            # The #1294 shape: the finish plan's typecheck fallback embeds the
+            # CPP checkout's absolute path, and a flow worktree is named for its
+            # issue slug.
+            ("typecheck", "python3 /x/repo-test-foo/lib/cicd/mypy_scope.py --scope"),
+            # The #704 fixture shapes: a worktree interpreter, pytest's tmp root.
+            ("lint", '"/home/u/cpp-issue-704-test-workers-cap/.venv/bin/python3" capture_env.py'),
+            ("lint", '"/tmp/pytest-of-u/pytest-3/plain0/interp" capture_env.py'),
+            # The other direction: a non-runner that merely lives under tests/.
+            ("lint", "python tests/helpers/lint.py"),
+            ("lint", "./interp capture_env.py"),
+            # A quoted or escaped directory holding a space (counter-model review).
+            ("typecheck", 'python3 "/tmp/test checkout/lib/cicd/mypy_scope.py" --scope'),
+            ("typecheck", "python3 '/tmp/test checkout/lib/cicd/mypy_scope.py'"),
+            ("typecheck", "python3 /tmp/test\\ checkout/lib/cicd/mypy_scope.py"),
+            ("typecheck", 'python3 "/tmp/test checkout;copy/lib/cicd/mypy_scope.py"'),
+        ],
+    )
+    def test_directory_components_never_classify(self, step_id: str, command: str) -> None:
+        """A directory name is not evidence that a test runner runs (issue #1294).
 
-        This is a characterization test, not a wish: #621 wants a `make test`
-        recipe recognized even under an unhelpful step id, which means scanning
-        the whole command, which in turn means a path carrying "test"/"pytest"
-        matches too. Narrowing the pattern to dodge paths would weaken the
-        detection it exists for, so the trade-off is pinned here - a future
-        narrowing has to be a deliberate act that turns this red rather than a
-        silent drift.
-
-        The cost lands on FIXTURES, which is how it was found (#704): a step
-        command built from `sys.executable` inherits the checkout path, so every
-        flow worktree whose branch slug contained "test" reclassified a `lint`
-        step as a test step and went red. Both poisoned shapes below are real -
-        a flow worktree path, and anything under pytest's own `tmp_path` root.
+        Until #1294 the whole command was scanned, PATHS INCLUDED, and this was
+        pinned as a characterization test (#621, #704) so that narrowing it would
+        have to be deliberate. #1294 is that deliberate act: the verdict followed
+        a checkout directory nobody named for this purpose, so any flow worktree
+        whose slug held "test" turned the finish gate's typecheck step into a
+        test step with no summary - a local `warn` that CI, at a different path,
+        could never reproduce.
         """
-        worktree = '"/home/u/cpp-issue-704-test-workers-cap/.venv/bin/python3" capture_env.py'
-        pytest_tmp = '"/tmp/pytest-of-u/pytest-3/plain0/interp" capture_env.py'
+        assert not ShellStep(StepDef(id=step_id, command=command)).is_test_step()
 
-        assert ShellStep(StepDef(id="lint", command=worktree)).is_test_step()
-        assert ShellStep(StepDef(id="lint", command=pytest_tmp)).is_test_step()
-        # The shape a fixture must use instead: a relative name, no path, and no
-        # mention of PYTEST_WORKERS (which matches on "pytest" as well).
-        assert not ShellStep(StepDef(id="lint", command="./interp capture_env.py")).is_test_step()
+    @pytest.mark.parametrize(
+        "command",
+        [
+            ".venv/bin/pytest -q",
+            "/opt/venv/bin/pytest",
+            "bash scripts/run-tests.sh",
+            "uv run pytest tests/",
+            "cd /srv/app && make test",
+            # Stripping must not run across a shell operator (counter-model review).
+            "pytest;./cleanup.sh",
+            "make test>/tmp/results.log",
+            "pytest&&./cleanup.sh",
+            'bash -c "cd /srv && pytest"',
+            'bash -c "pytest /tmp/cases"',
+            "sh -c 'make test -C /srv/app'",
+        ],
+    )
+    def test_program_and_script_names_still_classify(self, command: str) -> None:
+        """Stripping directories keeps the basename, so #621 detection survives."""
+        assert ShellStep(StepDef(id="ci", command=command)).is_test_step()
+
+    def test_builtin_finish_typecheck_is_not_a_test_step(self) -> None:
+        """The real step, whose command carries THIS checkout's absolute path.
+
+        Red on the pre-#1294 code whenever the checkout path contains a test
+        token (as a flow worktree for this issue does); the parametrized case
+        above makes the same claim path-independently.
+        """
+        from lib.cicd.steps import BUILTIN_PLANS
+
+        (typecheck,) = [s for s in BUILTIN_PLANS["finish"] if s.id == "typecheck"]
+        assert not ShellStep(typecheck).is_test_step()
 
     def test_non_test_step_never_parses_counts(self) -> None:
         step = ShellStep(StepDef(id="lint", command="make lint"))
