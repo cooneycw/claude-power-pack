@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1294-lib-cicd-is-test-step-matches-test-in-the-checkout",
+  "counts": {
+    "accepted": 4,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "75494ed900ae904520b7bf9ef285364372b89de5",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1294",
+  "passes": 2,
+  "recorded_at": "2026-09-27T17:27:35Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 4
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

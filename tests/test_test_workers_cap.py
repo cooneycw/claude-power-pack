@@ -26,16 +26,16 @@ def _isolated_context(monkeypatch: pytest.MonkeyPatch, **env: str) -> dict[str, 
 def _relative_interpreter(tmp_path: Path) -> str:
     """A RELATIVE interpreter name for a step command, free of any absolute path.
 
-    ``sys.executable`` is an absolute path this module does not control, and
-    ``is_test_step()`` scans the whole COMMAND (see ``_TEST_STEP_HINT``): under a
-    flow worktree the interpreter lives at
+    ``sys.executable`` is an absolute path this module does not control. Until
+    issue #1294, ``is_test_step()`` scanned the whole COMMAND, directories
+    included: under a flow worktree the interpreter lives at
     ``.../claude-power-pack-issue-N-<slug>/.venv/bin/python3``, so a slug
     containing "test" reclassified a ``lint`` step as a test step and turned the
     gate red for reasons unrelated to the change under review (issue #704).
+    #1294 now drops directory components before matching, but a path's FINAL
+    component is still read, so a relative name stays the safe shape here.
 
-    An absolute path under ``tmp_path`` is no better: pytest's own temp root is
-    ``/tmp/pytest-of-<user>/pytest-<n>/``, which matches on "pytest". Naming
-    ``PYTEST_WORKERS`` in the command matches too - which is why the caller reads
+    Naming ``PYTEST_WORKERS`` in the command still matches - which is why the caller reads
     it via ``os.environ`` inside a script whose CONTENT is never scanned. Steps
     run with ``cwd=project_root`` (``lib/cicd/steps.py``), so a relative name in
     that directory reaches the interpreter while keeping every path out of the
