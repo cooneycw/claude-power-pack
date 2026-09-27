@@ -37,7 +37,10 @@ steps:
   secret-scan:
     image: zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
     commands:
-      - gitleaks detect --source . --config .gitleaks.toml --verbose
+      # Findings print as rule/file/line only (#1288): `--verbose` prints each
+      # matched value, and `--redact` cannot mask a secret inside ANOTHER rule's
+      # match. .gitleaks-findings.tmpl says why.
+      - gitleaks detect --source . --config .gitleaks.toml --redact --report-format template --report-template .gitleaks-findings.tmpl --report-path -
       # Stage the PINNED binary for the negative-controls step, exactly as the
       # shellcheck step does (#935). `scripts/secret-scan-check.sh` is a
       # registered control, and the harness REFUSES to skip a control it cannot
