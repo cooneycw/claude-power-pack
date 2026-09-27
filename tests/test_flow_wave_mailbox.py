@@ -598,9 +598,11 @@ class TestList:
         assert boxes["inbox-2.md"]["rev"] == 1
 
     def test_list_on_an_untouched_wave_is_not_an_error(self, tmp_path: Path):
+        # Still not an error - but no longer `listed` (issue #1260): a wave with
+        # no directory is reported `absent`, and `list` does not create it.
         proc = _run(tmp_path, "list", "--wave", WAVE)
         assert proc.returncode == 0
-        assert _verdict(proc) == "listed"
+        assert _verdict(proc) == "absent"
 
 
 # --------------------------------------------------------------------------
@@ -4506,3 +4508,165 @@ class TestWakeability:
             assert "NEVER wake a session" in p.stderr
         finally:
             kill_supervise_daemon(daemon)
+
+
+@requires_bash
+class TestIssue1260MessagingNeitherLosesNorFabricatesState:
+    """Issue #1260: what is sent arrives; inspecting a wave never changes it.
+
+    Each RED case below was run against the pre-fix script (base bdd2d14) and
+    failed there; the controls pass on both.
+    """
+
+    def test_body_dash_reads_stdin(self, tmp_path: Path) -> None:
+        """RED pre-fix: stored a literal `-` and reported `sent`."""
+        wave = unique_wave()
+        p = _run(tmp_path, "send", "--wave", wave, "--to", "worker-A", "--body", "-",
+                 stdin="the real assignment\n")
+        assert _verdict(p) == "sent", p.stderr
+        r = _run(tmp_path, "read", "--wave", wave, "--role", "worker-A", "--peek")
+        assert "the real assignment" in r.stdout, r.stdout
+
+    def test_body_dash_with_empty_stdin_is_refused(self, tmp_path: Path) -> None:
+        wave = unique_wave()
+        p = _run(tmp_path, "send", "--wave", wave, "--to", "worker-A", "--body=-", stdin="")
+        assert p.returncode == 2, p.stdout
+        assert _verdict(p) != "sent"
+        assert not (tmp_path / "mb" / wave / "outbox-worker-A.md").exists()
+
+    def test_a_literal_body_still_sends(self, tmp_path: Path) -> None:
+        """Control: an ordinary --body is untouched by the stdin marker."""
+        wave = unique_wave()
+        p = _run(tmp_path, "send", "--wave", wave, "--to", "worker-A", "--body", "-x-")
+        assert _verdict(p) == "sent", p.stderr
+        r = _run(tmp_path, "read", "--wave", wave, "--role", "worker-A", "--peek")
+        assert "-x-" in r.stdout
+
+    def test_list_on_a_deleted_wave_reports_absent_and_leaves_it_deleted(
+        self, tmp_path: Path
+    ) -> None:
+        """RED pre-fix: `list` recreated the directory and reported `listed`."""
+        wave = unique_wave()
+        _run(tmp_path, "send", "--wave", wave, "--to", "worker-A", "--body", "hi")
+        wave_dir = tmp_path / "mb" / wave
+        shutil.rmtree(wave_dir)
+        p = _run(tmp_path, "list", "--wave", wave)
+        assert _verdict(p) == "absent", p.stdout
+        assert p.returncode == 0
+        assert not wave_dir.exists(), "list recreated the wave it inspected"
+        j = _run(tmp_path, "list", "--wave", wave, "--json")
+        assert json.loads(j.stdout.splitlines()[0])["dir_state"] == "absent"
+        assert not wave_dir.exists()
+
+    def test_read_ack_and_status_never_create_the_wave(self, tmp_path: Path) -> None:
+        wave = unique_wave()
+        wave_dir = tmp_path / "mb" / wave
+        _run(tmp_path, "read", "--wave", wave, "--role", "worker-A", "--peek")
+        _run(tmp_path, "watch", "--status", "--wave", wave, "--role", "worker-A")
+        a = _run(tmp_path, "ack", "--wave", wave, "--role", "worker-A", "--all-unacked")
+        assert _verdict(a) == "empty", a.stdout
+        assert not wave_dir.exists()
+
+    def test_list_on_a_present_wave_reports_present(self, tmp_path: Path) -> None:
+        """A wave that exists still lists `listed`, now with dir_state=present
+        (the field is new, so this fails pre-fix on the key alone)."""
+        wave = unique_wave()
+        _run(tmp_path, "send", "--wave", wave, "--to", "worker-A", "--body", "hi")
+        j = _run(tmp_path, "list", "--wave", wave, "--json")
+        assert _verdict(j) == "listed"
+        assert json.loads(j.stdout.splitlines()[0])["dir_state"] == "present"
+
+    def test_supervise_exits_wave_gone_and_does_not_recreate_the_wave(
+        self, tmp_path: Path
+    ) -> None:
+        """RED pre-fix: the daemon's re-arm ran mkdir -p and polled on forever."""
+        wave = unique_wave()
+        env = _wake_env(tmp_path, "")
+        p = subprocess.run(
+            ["bash", str(MAILBOX), "supervise", "--role", "r1", "--wave", wave,
+             "--timeout", "1", "--interval", "1"],
+            capture_output=True, text=True, env=env, check=False, timeout=30,
+            cwd=str(tmp_path),
+        )
+        assert p.returncode == 0, p.stderr
+        daemon = _daemon_pid(tmp_path, wave, "r1")
+        try:
+            # Hold the log open: it is unlinked with the directory.
+            with _supervise_log(tmp_path, wave, "r1").open() as log:
+                assert _wait_for(lambda: _pid_not_zombie(daemon), timeout=5)
+                shutil.rmtree(tmp_path / "mb" / wave)
+                assert _wait_for(lambda: not _pid_not_zombie(daemon), timeout=20), (
+                    "daemon kept supervising a deleted wave"
+                )
+                assert "wave-gone" in log.read()
+            assert not (tmp_path / "mb" / wave).exists(), "the daemon recreated the wave"
+        finally:
+            if _pid_not_zombie(daemon):
+                kill_supervise_daemon(daemon)
+
+    def test_supervise_honours_sigterm_without_waiting_out_its_watch(
+        self, tmp_path: Path
+    ) -> None:
+        """RED pre-fix: TERM was deferred until the 30s inner watch returned."""
+        wave = unique_wave()
+        env = _wake_env(tmp_path, "")
+        p = subprocess.run(
+            ["bash", str(MAILBOX), "supervise", "--role", "r1", "--wave", wave,
+             "--timeout", "30", "--interval", "1"],
+            capture_output=True, text=True, env=env, check=False, timeout=30,
+            cwd=str(tmp_path),
+        )
+        assert p.returncode == 0, p.stderr
+        daemon = _daemon_pid(tmp_path, wave, "r1")
+        try:
+            assert _wait_for(
+                lambda: (tmp_path / "mb" / wave / ".watch-r1").exists(), timeout=10
+            ), "the inner watch never armed"
+            inner = _children_of(daemon)
+            os.kill(daemon, signal.SIGTERM)
+            assert _wait_for(lambda: not _pid_not_zombie(daemon), timeout=5), (
+                "daemon did not exit promptly on SIGTERM"
+            )
+            assert all(_wait_for(lambda c=c: not _pid_not_zombie(c), timeout=5) for c in inner), (
+                f"inner watch {inner} outlived the daemon"
+            )
+            assert "exiting on signal" in _supervise_log(tmp_path, wave, "r1").read_text()
+        finally:
+            if _pid_not_zombie(daemon):
+                kill_supervise_daemon(daemon)
+
+    def test_a_watch_exits_owner_gone_when_its_arming_session_dies(
+        self, tmp_path: Path
+    ) -> None:
+        """RED pre-fix: the watch lasted out its whole --timeout, orphaned."""
+        wave = unique_wave()
+        env = _wake_env(tmp_path, None)
+        pidfile = tmp_path / "watch.pid"
+        session = subprocess.Popen(
+            [
+                "bash", "-c",
+                'export FLOW_WAVE_SESSION_PIDS=$$; '
+                'bash "$0" watch --role r1 --wave "$1" --timeout 60 --interval 1 --consume '
+                '</dev/null >/dev/null 2>&1 & echo $! > "$2"; exec sleep 120',
+                str(MAILBOX), wave, str(pidfile),
+            ],
+            env=env, cwd=str(tmp_path),
+        )
+        watch = None
+        try:
+            assert _wait_for(lambda: pidfile.exists() and pidfile.read_text().strip(), timeout=10)
+            watch = int(pidfile.read_text().strip())
+            # CONTROL: with its session alive the watch keeps polling.
+            time.sleep(3)
+            assert _pid_not_zombie(watch), "watch exited while its session was alive"
+            session.kill()
+            session.wait(timeout=10)
+            assert _wait_for(lambda: not _pid_not_zombie(watch), timeout=10), (
+                "watch outlived its arming session"
+            )
+        finally:
+            if session.poll() is None:
+                session.kill()
+                session.wait(timeout=10)
+            if watch and _pid_not_zombie(watch):
+                _kill_quietly(watch)

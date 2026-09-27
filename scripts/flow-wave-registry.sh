@@ -859,8 +859,24 @@ with_lock() {
   fi
 }
 
+# read_registry -> the registry JSON. A MISSING or 0-byte file is the genuinely
+# empty registry, `{}`. A file that EXISTS but cannot be read (EACCES, a
+# directory in its place, an I/O error) is NOT empty (issue #1260): it used to
+# read as `{}` too, so "I could not look" rendered as "nobody is registered" -
+# an empty roster, `no-roles-registered`, a free role. It now prints something
+# that is not JSON and returns 1, so every jq downstream fails rather than
+# computing a confident answer from nothing. The verb-level guard
+# (`registry_unreadable`, before dispatch) is what turns that into a visible
+# verdict; this is the second line, for any caller the guard does not reach.
 read_registry() {
-  if [ -s "$REG_FILE" ]; then cat "$REG_FILE"; else echo '{}'; fi
+  [ -e "$REG_FILE" ] || { echo '{}'; return 0; }
+  if [ -f "$REG_FILE" ] && [ ! -s "$REG_FILE" ]; then echo '{}'; return 0; fi
+  cat "$REG_FILE" 2>/dev/null || { echo 'UNREADABLE-REGISTRY'; return 1; }
+}
+
+# registry_unreadable -> 0 when the registry file exists and cannot be read.
+registry_unreadable() {
+  [ -e "$REG_FILE" ] && ! cat "$REG_FILE" >/dev/null 2>&1
 }
 
 entry_json() { # entry_json WAVE ROLE -> the entry object or 'null'
@@ -2056,6 +2072,21 @@ done
 
 E_WAVE="$WAVE"; E_ROLE="$ROLE"; E_SOCKET=""; E_PID=""; E_SESSION=""
 E_LIVE=""; E_BASIS=""; E_VERIFIED=""; E_MISMATCH=""; E_SOURCE=""; E_REASON=""; E_BOOTSTRAP=""
+
+# An unreadable registry is UNKNOWN, never empty (issue #1260). Every verb but
+# `self-address` (which never reads it) answers from the registry, so refuse
+# them all here rather than let each compute a roster, a liveness or a lane
+# from a file it could not open. `list --any-live` keeps its own vocabulary:
+# `undeterminable`, which the supervise daemon already reads as "keep going".
+if [ "$VERB" != "self-address" ] && registry_unreadable; then
+  if [ "$VERB" = "list" ] && [ "$ANY_LIVE_ONLY" -eq 1 ]; then
+    echo "FLOW_WAVE_ANY_LIVE=undeterminable"
+    exit 2
+  fi
+  echo "flow-wave-registry: the registry at $REG_FILE exists but cannot be read - its contents are UNKNOWN, not empty (issue #1260). Nothing was read or recorded; fix its permissions (or what occupies that path) and re-run." >&2
+  emit error
+  exit 3
+fi
 
 case "$VERB" in
   self-address)
@@ -3704,10 +3735,11 @@ EOF
     # declared none is warning about something the registry does not know.
     #
     # Two exempt shapes, and the second is deliberately NARROW:
-    #   - the `orchestrator`. CLAUDE.md:136 documents it as never implementing,
-    #     so it HOLDS NO LANE AND CANNOT COLLIDE WITH ONE - whatever its cwd
-    #     happens to be. That is the durable reason and the only one this
-    #     exemption rests on. (Do not ground it in "its cwd is structurally the
+    #   - the `orchestrator` WHILE IT DECLARES NO LANE (no issue, no branch, no
+    #     file lane - issue #1260). CLAUDE.md:136 documents it as never
+    #     implementing, so a lane-less orchestrator cannot collide - whatever
+    #     its cwd happens to be. One that declared a lane is checked like any
+    #     other role: the policy does not overrule the record. (Do not ground it in "its cwd is structurally the
     #     projects parent, so it cannot re-register its way out": that was the
     #     original justification and it is empirically FALSE - an orchestrator
     #     re-registered with `--cwd $XDG_RUNTIME_DIR/cc-flow-wave/<wave>` and both
@@ -3740,7 +3772,13 @@ EOF
       r_cwd="$(printf '%s' "$e" | jq -r '.cwd // ""')"
       r_repo="$(printf '%s' "$e" | jq -r '.repo // ""')"
       r_files="$(printf '%s' "$e" | jq -r '.files // ""')"
-      if [ "$r" = "orchestrator" ]; then
+      # The orchestrator is exempt only while it DECLARES no lane (issue #1260).
+      # This used to be keyed on the role NAME alone, so an orchestrator
+      # registered with --files, an issue or a branch - one that really was
+      # holding a claim - was still skipped, under a notice promising the skip
+      # lasted "until they declare one". "Never implements" is a policy, not a
+      # fact about the record; the record is what this check compares.
+      if [ "$r" = "orchestrator" ] && [ -z "$r_iss" ] && [ -z "$r_br" ] && [ -z "$r_files" ]; then
         EXEMPT_ROLES="$EXEMPT_ROLES $r"
         continue
       fi
@@ -3795,7 +3833,7 @@ EOF
     # Announce the exemption (#683) - a skipped check the reader cannot see is a
     # blind spot, so name who was skipped and why rather than just going quiet.
     if [ -n "$EXEMPT_ROLES" ]; then
-      echo "  info: overlap checks skipped for lane-less live role(s):${EXEMPT_ROLES} (orchestrator never holds a lane; others declared no issue, no branch, no file lane, and a shared-parent cwd). Applies until they declare one."
+      echo "  info: overlap checks skipped for lane-less live role(s):${EXEMPT_ROLES} (each declared no issue, no branch and no file lane; a non-orchestrator also sits in a shared-parent cwd). Applies until they declare one."
     fi
     # An overlap check that could not RUN is announced too (#800), on exactly the
     # #683 reasoning that produced the exemption notice above: a skipped check the

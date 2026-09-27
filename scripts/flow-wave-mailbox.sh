@@ -62,8 +62,11 @@
 #   send   Deliver a message. `--to orchestrator` writes inbox-<from>.md and
 #          REQUIRES --from (the writer names its own box); any other --to writes
 #          outbox-<to>.md and --from defaults to 'orchestrator'. Body comes from
-#          --body, --body-file, or stdin. Rev is per-box, monotonic, assigned
-#          under flock.
+#          --body, --body-file, or stdin. `--body -` is the stdin marker, not
+#          a one-character message (issue #1260): it reads stdin, and refuses
+#          on a terminal or an empty stdin rather than storing a dash and
+#          reporting it delivered. Rev is per-box, monotonic, assigned under
+#          flock.
 #   read   Print every message addressed to <role> that is not yet ACKNOWLEDGED
 #          (issue #815 - see ACKNOWLEDGEMENT below), regardless of whether it was
 #          shown before. --all additionally re-prints already-acknowledged
@@ -248,12 +251,14 @@
 # blocks in the inner `watch --timeout`, so a release is honoured within one
 # `--timeout` of when it happened, never instantly - `watch --status` reports
 # this daemon's own `--timeout` (`FLOW_MAILBOX_SUPERVISE_TIMEOUT`) precisely
-# so a reader can compute that bound instead of assuming zero latency. The
-# same bound applies to a TERM/INT signal for the identical reason: bash
-# defers a trapped signal until the current foreground command (the blocking
-# inner watch) returns, so `kill <daemon-pid>` can likewise take up to one
-# full `--timeout` before this daemon actually exits, measured directly at
-# t+4.0s against `--timeout 4` (see the Nit Store, claude-power-pack#864).
+# so a reader can compute that bound instead of assuming zero latency. A
+# TERM/INT signal is NOT bounded that way any more (issue #1260): the inner
+# watch runs in the background and the loop `wait`s on it, so the trap runs
+# at once and takes the inner watch down with it. It used to be the same
+# one-`--timeout` bound, because bash defers a trapped signal until a
+# FOREGROUND command returns (measured at t+4.0s against `--timeout 4`). The
+# daemon also exits `wave-gone` once its wave directory disappears, and never
+# recreates it (#1260).
 # Fails OPEN, TWICE over: if the registry sibling is unavailable
 # at all (a supervisor that cannot check for release is not worse than none,
 # it just keeps supervising), and if the role was simply never registered
@@ -598,7 +603,7 @@
 #
 # Output ends with a machine-readable verdict line:
 #   FLOW_MAILBOX: sent | read | empty | mail | timeout | listed | status |
-#                 acked | duplicate | refused | error
+#                 acked | duplicate | refused | error | absent | owner-gone
 # preceded by FLOW_MAILBOX_*= detail lines ('-' when not applicable). Message
 # BODIES are printed before the detail block, so a caller can split on the first
 # FLOW_MAILBOX_ line. `ack` additionally prints FLOW_MAILBOX_ACKED=<n>, the
@@ -613,7 +618,22 @@
 # delivered; nothing was written), 7 `supervise --registry-required` against a
 # wave with no role ever registered (#1107 - nothing was started), 8 the same
 # flag when the registry could not answer at all (#1107 - nothing was started;
-# this is NOT a finding that the wave is empty).
+# this is NOT a finding that the wave is empty), 9 `absent` - an arming watch
+# run with FLOW_WAVE_MAILBOX_NO_CREATE=1 (the supervise daemon's re-arm) found
+# no wave directory and was not allowed to create it (issue #1260), 10
+# `owner-gone` - an armed
+# watch whose arming Claude Code session exited (issue #1260; the same
+# pid:starttime test the supervise daemon applies, #1228).
+#
+# WAVE DIRECTORY (issue #1260). Only the WRITING verbs - send, escalate,
+# supervise's launch and an arming watch - create it; list, read, ack and
+# `watch --status` never do, so inspecting a deleted wave leaves it deleted.
+# `list` against a missing wave reports `FLOW_MAILBOX: absent` (exit 0; JSON:
+# "dir_state":"absent"); read and ack answer `empty`, as for a box that was
+# never written. The
+# supervise daemon exits `wave-gone` when its wave directory disappears, and
+# its inner watch runs with FLOW_WAVE_MAILBOX_NO_CREATE=1 so a re-arm can never
+# recreate the directory whose absence is the evidence the wave ended.
 #
 # `watch --status` detail lines:
 #   FLOW_MAILBOX_WATCH_STATE    armed | no-wake | stale | dead | absent |
@@ -1979,6 +1999,23 @@ EOF
   return 0
 }
 
+# owner_gone OWNER -> 0 when the process instance OWNER (pid:starttime, as
+# recorded at arm/launch time) is no longer running, 1 while it still is.
+# Shared by the supervise daemon (#1228) and an armed watch (#1260), so the two
+# can never disagree about what "the session that armed me died" means. A
+# reused pid has a different start time, so it reads gone, not alive. A ZOMBIE
+# has exited and merely awaits reaping: its /proc entry and start time survive,
+# so its state letter decides (counter-model review, #1228). An owner whose
+# start time could not be read (`-`) is judged on the pid alone, which can only
+# err toward staying up.
+owner_gone() {
+  local own_pid="${1%%:*}" own_start="${1#*:}" own_now own_state
+  own_now="$(proc_starttime "$own_pid")"
+  own_state="$(sed -n 's/^State:[[:space:]]*\([A-Z]\).*/\1/p' "/proc/$own_pid/status" 2>/dev/null)"
+  [ ! -d "/proc/$own_pid" ] || [ "$own_state" = "Z" ] || [ "$own_state" = "X" ] ||
+    { [ "$own_start" != "-" ] && [ "$own_now" != "-" ] && [ "$own_now" != "$own_start" ]; }
+}
+
 VERB="${1:-}"
 [ -n "$VERB" ] || usage_fail "usage: flow-wave-mailbox.sh send|read|watch|ack|escalate|supervise|list ..."
 shift
@@ -2050,10 +2087,41 @@ valid_name "$WAVE" || usage_fail "invalid wave name: '$WAVE' (letters, digits, '
 
 WAVE_DIR="$WAVE_ROOT/$WAVE"
 LOCK_FILE="$WAVE_DIR/.mailbox.lock"
-mkdir -p "$WAVE_DIR" 2>/dev/null || usage_fail "cannot create $WAVE_DIR"
-
 E_WAVE="$WAVE"; E_DIR="$WAVE_DIR"
 E_ROLE=""; E_BOX=""; E_REV=""; E_UNREAD=""; E_ACKED=""
+
+# Only the WRITING verbs create the wave directory (issue #1260). This used to
+# be an unconditional `mkdir -p` for every verb, so `list` - and through it
+# `flow-wave-registry.sh list` - and every re-arm of a supervise daemon
+# recreated a wave someone had deleted, destroying the one piece of evidence
+# that the wave was gone. Inspecting a thing must not change it.
+#   create:  send, escalate, supervise (launch), watch (arming)
+#   never:   list, read, ack, watch --status, __supervise_daemon
+# FLOW_WAVE_MAILBOX_NO_CREATE=1 withdraws the right from an arming watch too;
+# the supervise daemon sets it on its inner watch, which must find the wave
+# gone rather than bring it back.
+CREATE_WAVE_DIR=0
+case "$VERB" in
+  send | escalate | supervise) CREATE_WAVE_DIR=1 ;;
+  watch) [ "$STATUS" -eq 1 ] || CREATE_WAVE_DIR=1 ;;
+esac
+[ "${FLOW_WAVE_MAILBOX_NO_CREATE:-0}" = "1" ] && CREATE_WAVE_DIR=0
+if [ "$CREATE_WAVE_DIR" -eq 1 ]; then
+  mkdir -p "$WAVE_DIR" 2>/dev/null || usage_fail "cannot create $WAVE_DIR"
+elif [ ! -d "$WAVE_DIR" ]; then
+  case "$VERB" in
+    watch)
+      if [ "$STATUS" -eq 0 ]; then
+        # An arming watch told not to create: the daemon's re-arm against a
+        # deleted wave. Say so and stop; never poll a directory that is gone.
+        E_ROLE="$ROLE"
+        echo "flow-wave-mailbox: wave '$WAVE' has no directory ($WAVE_DIR) and this watch may not create it (FLOW_WAVE_MAILBOX_NO_CREATE=1, issue #1260) - the wave is gone; nothing was armed." >&2
+        emit absent
+        exit 9
+      fi
+      ;;
+  esac
+fi
 
 case "$VERB" in
   send)
@@ -2075,6 +2143,14 @@ case "$VERB" in
     if [ -n "$A_BODY_FILE" ]; then
       [ -r "$A_BODY_FILE" ] || usage_fail "cannot read --body-file: $A_BODY_FILE"
       BODY="$(cat "$A_BODY_FILE")"
+    elif [ "$A_BODY" = "-" ]; then
+      # `--body -` is the conventional stdin marker (issue #1260). Taken
+      # literally it stored a one-character dash and reported `sent` - a
+      # delivered success whose content was lost. Read stdin instead; the
+      # empty-body refusal below then catches an empty stdin. A message that
+      # really is a lone dash can still go through --body-file.
+      [ ! -t 0 ] || usage_fail "--body - reads the message from stdin, but stdin is a terminal - pipe the body in, or use --body TEXT / --body-file FILE"
+      BODY="$(cat)"
     elif [ -n "$A_BODY" ]; then
       BODY="$A_BODY"
     elif [ ! -t 0 ]; then
@@ -2369,6 +2445,18 @@ case "$VERB" in
       echo "flow-wave-mailbox: arming anyway - $EXISTING watcher(s) already poll role '$ROLE' in wave '$WAVE', but NONE has a Claude Code session in its ancestry, so none can wake anyone (#1228); they only peek, so they cannot take this role's mail. Holders (pid:start:parentage:mode): $(holders_of "$DUP_CLASS" "$ROLE"). Kill them if they are yours and no longer wanted: kill \$pid \$(pgrep -P \$pid)." >&2
     fi
 
+    # The ARMING SESSION (issue #1260), recorded exactly as `supervise` records
+    # its owner (#1228). A watch used to last out its whole --timeout after the
+    # session that armed it died: reparented to init, still polling, still
+    # holding the role - and a CONSUMING orphan both takes mail no session will
+    # ever see and refuses the successor session's own arm (#792 item 4). No
+    # session in the ancestry (standalone use, or a supervise daemon's inner
+    # watch) means no owner, and behaviour is unchanged.
+    W_OWNER=""
+    if W_OWNER_PID="$(session_ancestor_of "$$")" && [ "$W_OWNER_PID" != "-" ]; then
+      W_OWNER="$W_OWNER_PID:$(proc_starttime "$W_OWNER_PID")"
+    fi
+
     WAITED=0
     FIRST_POLL=1
     while :; do
@@ -2402,6 +2490,12 @@ case "$VERB" in
       [ "$WAITED" -lt "$TIMEOUT" ] || break
       sleep "$INTERVAL"
       WAITED=$((WAITED + INTERVAL))
+      if [ -n "$W_OWNER" ] && owner_gone "$W_OWNER"; then
+        E_ROLE="$ROLE"; E_UNREAD=0
+        echo "flow-wave-mailbox: watch for '$ROLE' in wave '$WAVE' exiting - its arming session ($W_OWNER) is no longer running, and nothing is left for this watch to wake (issue #1260)." >&2
+        emit owner-gone
+        exit 10
+      fi
     done
     E_ROLE="$ROLE"; E_UNREAD=0
     echo "flow-wave-mailbox: no mail for '$ROLE' in wave '$WAVE' after ${TIMEOUT}s." >&2
@@ -2860,7 +2954,23 @@ EOF
 
     SUP_OWNER="${FLOW_WAVE_SUPERVISE_OWNER:-}"
     log_event "daemon started role=$ROLE wave=$WAVE pid=$$ timeout=$TIMEOUT interval=$INTERVAL owner=${SUP_OWNER:-none}"
-    trap 'log_event "daemon exiting on signal"; exit 0' TERM INT
+    # The trap must be able to RUN while the inner watch blocks (issue #1260).
+    # bash defers a trapped signal until the foreground command returns, and
+    # the foreground command was a watch with a --timeout of up to 30 minutes,
+    # so a TERM sat unhandled for that long. The inner watch now runs in the
+    # background and the loop `wait`s on it - `wait` IS interrupted by a
+    # trapped signal - and the trap takes the child (and its `sleep`) down
+    # with it, so no orphaned watch outlives the daemon that armed it.
+    INNER_PID=""
+    stop_inner() {
+      [ -n "$INNER_PID" ] || return 0
+      # Children read from the kernel, not `pkill -P`: the CI image ships no
+      # procps (#814), and a missing binary must not leave the `sleep` behind.
+      # shellcheck disable=SC2046  # word-splitting the pid list is intended
+      kill $(cat "/proc/$INNER_PID/task/$INNER_PID/children" 2>/dev/null) "$INNER_PID" 2>/dev/null
+      return 0
+    }
+    trap 'log_event "daemon exiting on signal"; stop_inner; exit 0' TERM INT
 
     while :; do
       # Owner check (issue #1228), FIRST: it needs no registry and no wave -
@@ -2868,19 +2978,18 @@ EOF
       # different start time, so it reads gone, not alive. An owner whose
       # start time could not be read at launch (`-`) is judged on the pid
       # alone, which can only err toward staying up.
-      if [ -n "$SUP_OWNER" ]; then
-        OWN_PID="${SUP_OWNER%%:*}"
-        OWN_START="${SUP_OWNER#*:}"
-        OWN_NOW="$(proc_starttime "$OWN_PID")"
-        # A ZOMBIE has exited and merely awaits reaping: its /proc entry and
-        # start time survive, so the two tests below would call it alive
-        # (counter-model review, #1228). Its state letter says otherwise.
-        OWN_STATE="$(sed -n 's/^State:[[:space:]]*\([A-Z]\).*/\1/p' "/proc/$OWN_PID/status" 2>/dev/null)"
-        if [ ! -d "/proc/$OWN_PID" ] || [ "$OWN_STATE" = "Z" ] || [ "$OWN_STATE" = "X" ] ||
-           { [ "$OWN_START" != "-" ] && [ "$OWN_NOW" != "-" ] && [ "$OWN_NOW" != "$OWN_START" ]; }; then
-          log_event "daemon exiting: owner-gone (arming session $SUP_OWNER is no longer running)"
-          exit 0
-        fi
+      if [ -n "$SUP_OWNER" ] && owner_gone "$SUP_OWNER"; then
+        log_event "daemon exiting: owner-gone (arming session $SUP_OWNER is no longer running)"
+        exit 0
+      fi
+      # Wave-gone check (issue #1260): the wave directory is what this daemon
+      # supervises. Once it is gone the wave has ended, and re-arming would
+      # only recreate it - which is exactly what the old unconditional mkdir
+      # did, hiding the evidence. Exit instead; the inner watch below is also
+      # forbidden to create it, covering a deletion between here and there.
+      if [ ! -d "$WAVE_DIR" ]; then
+        log_event "daemon exiting: wave-gone ($WAVE_DIR no longer exists; not recreating it)"
+        exit 0
       fi
       # Shutdown check (issue #814): fails OPEN if the registry sibling is
       # missing or errors - a supervisor that cannot check for release is
@@ -2970,10 +3079,16 @@ EOF
       # immediately - with this line, it succeeds at once, WITH the orphaned
       # child still alive in the process table; the orphan no longer matters
       # because it no longer holds anything.
-      bash "$0" watch --role "$ROLE" --wave "$WAVE" --peek \
+      #
+      # FLOW_WAVE_MAILBOX_NO_CREATE=1 (issue #1260): this re-arm must find a
+      # deleted wave deleted (exit 9, handled below), never recreate it.
+      FLOW_WAVE_MAILBOX_NO_CREATE=1 bash "$0" watch --role "$ROLE" --wave "$WAVE" --peek \
         --surfaced-state "$SUP_SURFACED" \
-        --timeout "$TIMEOUT" --interval "$INTERVAL" >/dev/null 2>&1 8>&-
+        --timeout "$TIMEOUT" --interval "$INTERVAL" >/dev/null 2>&1 8>&- &
+      INNER_PID=$!
+      wait "$INNER_PID"
       INNER_RC=$?
+      INNER_PID=""
 
       case "$INNER_RC" in
         0)
@@ -2993,6 +3108,13 @@ EOF
           BACKOFF=0
           LAST_INNER_RC=""
           CAP_STREAK=0
+          ;;
+        9)
+          # The inner watch found the wave directory gone and, forbidden to
+          # create it, refused (issue #1260) - the deletion raced the check at
+          # the top of this loop. Same verdict, same exit.
+          log_event "daemon exiting: wave-gone ($WAVE_DIR no longer exists; not recreating it)"
+          exit 0
           ;;
         *)
           # Anything else is a crash-class exit (killed, duplicate-refused
@@ -3032,6 +3154,24 @@ EOF
     ;;
 
   list)
+    # A missing wave is reported, never recreated (issue #1260). `list` used
+    # to run after an unconditional mkdir, so asking about a deleted wave
+    # brought it back - and `flow-wave-registry.sh list`, which calls this,
+    # did the same to every wave it rendered. `absent` is its own VERDICT - an
+    # empty listing would read as "a wave with no mail yet" - but exit 0: a
+    # wave that does not exist (never created, or ended) is a state to report,
+    # not an error, which is the contract `list` already held for an untouched
+    # wave.
+    if [ ! -d "$WAVE_DIR" ]; then
+      if [ "$JSON_OUT" -eq 1 ]; then
+        printf '{"wave":"%s","dir":"%s","dir_state":"absent","boxes":[],"watches":[],"routes":[]}\n' \
+          "$WAVE" "$WAVE_DIR"
+      else
+        echo "Wave '$WAVE' is absent: no mailbox directory at $WAVE_DIR (nothing was created)."
+      fi
+      emit absent
+      exit 0
+    fi
     BOXES="$(find "$WAVE_DIR" -maxdepth 1 -type f \( -name 'outbox-*.md' -o -name 'inbox-*.md' \) 2>/dev/null | sort)"
     WROLES="$(watch_roles)"
     TOTAL_UNREAD=0
@@ -3102,7 +3242,7 @@ EOF
       done <<EOF
 $WROLES
 EOF
-      printf '{"wave":"%s","dir":"%s","boxes":[%s],"watches":[%s],"routes":[%s]}\n' \
+      printf '{"wave":"%s","dir":"%s","dir_state":"present","boxes":[%s],"watches":[%s],"routes":[%s]}\n' \
         "$WAVE" "$WAVE_DIR" "${ROWS%,}" "${WATCHES%,}" "${ROUTES%,}"
     else
       if [ -z "$BOXES" ]; then
