@@ -552,27 +552,51 @@ def sweep_orphaned_supervise_daemons(
     run concurrently: an unrestricted sweep in one xdist worker reaps another
     worker's fixture.
 
-    IDENTITY IS RE-CHECKED IMMEDIATELY BEFORE SIGNALLING (counter-model review,
-    #1271). Candidates are killed one after another, each with up to
-    `term_grace + kill_grace` seconds of grace, so a later candidate can exit
-    and its pid be recycled before its turn; the start time captured at
-    discovery must still match and the process must still qualify. This
-    narrows the window to the few syscalls between the check and the signal;
-    closing it entirely needs pidfds, which is not warranted for a test-suite
-    sweep whose candidates are already self-limiting (#1260 `wave-gone`).
+    IDENTITY IS RE-CHECKED BEFORE EVERY SIGNAL, not once (counter-model
+    review, #1271, two passes). Candidates are killed one after another with
+    grace periods in between, so a pid can exit and be recycled before its turn
+    - or during its own TERM grace, before the KILL. `_kill_subtree` re-signals
+    cached pids and cannot be used here for that reason. The sweep therefore
+    signals ONLY a process group whose leader is the candidate itself - the
+    `setsid` lane every real daemon takes - and re-reads that leader's identity
+    before each signal. A candidate that is not its own group leader is left
+    alone and reported as a survivor: the no-`setsid` fallback would need
+    per-pid signalling, which is exactly the recycling hazard. The residual
+    window is the few syscalls between a check and its signal; closing it needs
+    pidfds, not warranted for a test-suite sweep whose candidates already
+    self-limit (#1260 `wave-gone`).
     """
     reaped: list[int] = []
     survivors: list[int] = []
     for pid, start in orphaned_supervise_daemons(owner_env=owner_env):
         if only is not None and pid not in only:
             continue
-        if _orphan_identity(pid, owner_env) != start:
-            continue  # exited, or recycled into something else - not ours to kill
-        # Straight to the subtree kill, NOT `kill_supervise_daemon`: that one
-        # records failures in `_UNREAPED`, which the autouse fixture drains and
-        # would then blame on whichever test happened to run first.
-        if _kill_subtree(pid, term_grace, kill_grace):
-            reaped.append(pid)
-        else:
-            survivors.append(pid)
+        verdict = _sweep_kill(pid, start, owner_env, term_grace, kill_grace)
+        if verdict is None:
+            continue  # exited, or recycled into something else, before its turn
+        (reaped if verdict else survivors).append(pid)
     return SweepResult(reaped=reaped, survivors=survivors)
+
+
+def _sweep_kill(
+    pid: int, start: str, owner_env: str, term_grace: float, kill_grace: float
+) -> bool | None:
+    """Group-kill one orphan, re-validating it before each signal.
+
+    True: gone. False: still running (or not a group leader, so never touched).
+    None: it was no longer this orphan when its turn came - nothing signalled.
+    """
+    for round_, (sig, grace) in enumerate(((signal.SIGTERM, term_grace), (signal.SIGKILL, kill_grace))):
+        if _orphan_identity(pid, owner_env) != start:
+            # Died (possibly from the previous signal), or became a stranger.
+            return None if round_ == 0 else True
+        fields = _proc_fields(pid)
+        if fields is None or fields[1] != pid or pid == os.getpgrp():
+            return False
+        try:
+            os.killpg(pid, sig)
+        except (OSError, ProcessLookupError):
+            pass
+        if _wait_dead([pid], grace):
+            return True
+    return not pid_alive(pid)

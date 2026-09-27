@@ -54,7 +54,10 @@ TEST_OWNER_ENV = f"CPP_SWEEPTEST_OWNER_{os.getpid()}"
 DEAD_OWNER = f"{os.getpid()}:1"
 
 
-def _fake_daemon(tmp_path: Path, verb: str, marker: str | None) -> subprocess.Popen:
+def _fake_daemon(
+    tmp_path: Path, verb: str, marker: str | None,
+    body: str = "sleep 300\n", own_group: bool = True,
+) -> subprocess.Popen:
     """A process with the daemon's exact argv shape that only sleeps.
 
     Launched in its own session, as `supervise` launches the real one, so the
@@ -62,13 +65,13 @@ def _fake_daemon(tmp_path: Path, verb: str, marker: str | None) -> subprocess.Po
     """
     script = tmp_path / f"{verb}-{marker is not None}" / "flow-wave-mailbox.sh"
     script.parent.mkdir(parents=True, exist_ok=True)
-    script.write_text("sleep 300\n", encoding="utf-8")
+    script.write_text(body, encoding="utf-8")
     env = {k: v for k, v in os.environ.items() if k != OWNER_ENV}
     if marker is not None:
         env[TEST_OWNER_ENV] = marker
     proc = subprocess.Popen(
         ["bash", str(script), verb, "--role", "1", "--wave", "testwave-sweep"],
-        env=env, cwd=str(tmp_path), start_new_session=True,
+        env=env, cwd=str(tmp_path), start_new_session=own_group,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     # The environ is readable once exec has happened; wait for the argv to show.
@@ -96,7 +99,10 @@ def _sweep(pid: int):
 def _cleanup(*procs: subprocess.Popen) -> None:
     for proc in procs:
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
+            if os.getpgid(proc.pid) == proc.pid:
+                os.killpg(proc.pid, signal.SIGKILL)
+            else:
+                proc.kill()  # shares OUR group - never killpg it
         except OSError:
             pass
         try:
@@ -182,6 +188,53 @@ def test_a_pid_recycled_after_discovery_is_not_signalled(
         _cleanup(orphan)
 
 
+@requires_proc
+def test_identity_is_rechecked_before_the_kill_escalation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pid recycled DURING the TERM grace must not receive the SIGKILL.
+
+    The fixture ignores SIGTERM, so it is still alive when escalation comes.
+    Identity is made to change after the first check - the recycled-pid shape
+    one step later than the test above. Pass 1 of this sweep re-checked only
+    on entry and then SIGKILLed whatever held the pid (counter-model review).
+    """
+    orphan = _fake_daemon(
+        tmp_path, "__supervise_daemon", DEAD_OWNER,
+        body="trap '' TERM\nwhile :; do sleep 1; done\n",
+    )
+    try:
+        start = dict(orphaned_supervise_daemons(owner_env=TEST_OWNER_ENV))[orphan.pid]
+        real = reap._orphan_identity
+        calls = {"n": 0}
+
+        def identity_turns_after_the_first_check(pid: int, owner_env: str):
+            calls["n"] += 1
+            return real(pid, owner_env) if calls["n"] == 1 else "someone-else"
+
+        monkeypatch.setattr(reap, "_orphan_identity", identity_turns_after_the_first_check)
+        verdict = reap._sweep_kill(orphan.pid, start, TEST_OWNER_ENV, 1.0, 1.0)
+        assert calls["n"] == 2, "identity was not re-read before the escalation"
+        assert verdict is True  # from the sweep's view the orphan is gone
+        assert orphan.poll() is None, "the KILL went to a process that was no longer the orphan"
+    finally:
+        _cleanup(orphan)
+
+
+@requires_proc
+def test_a_candidate_outside_its_own_process_group_is_never_signalled(tmp_path: Path) -> None:
+    """The no-`setsid` shape shares its launcher's group; a group kill would hit
+    the launcher, and per-pid kills reopen the recycling window. Left alone."""
+    orphan = _fake_daemon(tmp_path, "__supervise_daemon", DEAD_OWNER, own_group=False)
+    try:
+        assert orphan.pid in _candidates(), "precondition: it is an orphan by every other test"
+        result = _sweep(orphan.pid)
+        assert orphan.pid in result.survivors and orphan.pid not in result.reaped
+        assert orphan.poll() is None
+    finally:
+        _cleanup(orphan)
+
+
 def test_an_unreadable_process_table_is_not_an_empty_sweep(tmp_path: Path) -> None:
     """Could-not-look must not render as looked-and-found-nothing."""
     with pytest.raises(SweepUnavailable):
@@ -191,6 +244,7 @@ def test_an_unreadable_process_table_is_not_an_empty_sweep(tmp_path: Path) -> No
     assert orphaned_supervise_daemons(proc_root=empty) == [], "an empty table is an ordinary zero"
 
 
+@requires_proc
 def test_owner_gone_reads_a_reused_pid_as_gone_and_never_errs_toward_killing() -> None:
     assert owner_gone(DEAD_OWNER), "a different start time is a different process"
     assert not owner_gone(owner_marker()), "this very process is alive"
@@ -225,5 +279,12 @@ def test_a_real_supervise_daemon_inherits_the_marker_through_setsid(tmp_path: Pa
         time.sleep(0.05)
     assert pidfile.exists(), "supervise never wrote a pidfile"
     pid = int(pidfile.read_text().strip())
+    # The pidfile is written with `$!`, the forked child, which then execs
+    # `setsid` and `bash`. Read its environment only once it IS the daemon -
+    # mid-exec the read came back empty about 1 run in 10 under `-n 4`.
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and not reap._is_daemon_argv(reap._argv(pid)):
+        time.sleep(0.02)
+    assert reap._is_daemon_argv(reap._argv(pid)), "the pidfile's process never became the daemon"
     # The autouse reaper in tests/conftest.py kills it at teardown.
     assert _environ_value(pid, OWNER_ENV) == owner_marker()
