@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1263-cpp-update-and-install-drift-leave-stale-state-unr",
+  "counts": {
+    "accepted": 6,
+    "deferred": 1,
+    "rejected": 0
+  },
+  "head": "ab6ae826d5d763432a4061a64e17fea82180e7e3",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1263",
+  "passes": 2,
+  "recorded_at": "2026-09-27T12:14:21Z",
+  "red_cases": {
+    "already_covered": 7,
+    "proposed": 10
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
