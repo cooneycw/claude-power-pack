@@ -480,7 +480,7 @@ def test_a_reachable_endpoint_without_the_model_still_reports_missing(rel: str, 
                 self.end_headers()
                 self.wfile.write(raw)
                 return
-            body = (
+            body: dict[str, object] = (
                 {"version": "0.0.0"}
                 if self.path.startswith("/api/version")
                 else {"models": [{"name": "some-other:latest"}]}
