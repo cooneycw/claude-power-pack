@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1261-delegated-review-lanes-review-less-than-they-repor",
+  "counts": {
+    "accepted": 6,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "75494ed900ae904520b7bf9ef285364372b89de5",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1261",
+  "passes": 2,
+  "recorded_at": "2026-09-27T18:08:54Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 9
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

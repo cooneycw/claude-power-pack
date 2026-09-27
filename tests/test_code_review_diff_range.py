@@ -551,3 +551,81 @@ def test_the_failure_guard_actually_guards_something(tmp_path: Path) -> None:
         "the swallowed form must NOT exit 3 - if it does, this test's "
         "substitution failed to remove the guard and proves nothing"
     )
+
+
+# ---------------------------------------------------------------------------
+# Issue #1261: a FAILED untracked-file enumeration must not read as zero.
+# ---------------------------------------------------------------------------
+
+# The pre-fix enumeration line, kept as the control. `mapfile < <(...)` cannot
+# see the process substitution's exit status.
+_PREFIX_ENUMERATION = (
+    "mapfile -d '' -t UNTRACKED_FILES < <(git -C \"$GIT_ROOT\" ls-files --others --exclude-standard -z)\n"
+)
+
+
+def _ls_files_failing_shim(tmp_path: Path) -> Path:
+    """A `git` that fails ONLY `ls-files`, so the diff itself still succeeds."""
+    real_git = shutil.which("git", path=ISOLATED_PATH)
+    assert real_git, "git not found on the isolated PATH"
+    shim_dir = tmp_path / "shim"
+    shim_dir.mkdir()
+    shim = shim_dir / "git"
+    shim.write_text(
+        "#!/bin/sh\n"
+        'for a in "$@"; do [ "$a" = ls-files ] && { echo "fatal: simulated ls-files failure" >&2; exit 128; }; done\n'
+        f'exec "{real_git}" "$@"\n',
+        encoding="utf-8",
+    )
+    shim.chmod(0o755)
+    return shim_dir
+
+
+def _new_file_repo(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    home = tmp_path / "home"
+    home.mkdir()
+    work = tmp_path / "work"
+    work.mkdir()
+    env = {"HOME": str(home)}
+    _git("init", "-q", "-b", "main", cwd=work, env_extra=env)
+    (work / "base.txt").write_text("base\n", encoding="utf-8")
+    _git("add", "-A", cwd=work, env_extra=env)
+    _git("commit", "-qm", "base", cwd=work, env_extra=env)
+    (work / "new_module.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+    shim_dir = _ls_files_failing_shim(tmp_path)
+    # negative-fixture: allow PATH is isolation plus the failing shim, not an absence
+    full_env = {**os.environ, "HOME": str(home), "PATH": f"{shim_dir}:{ISOLATED_PATH}",
+                "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
+                "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x",
+                "BASE": "HEAD"}
+    # Precondition: the shim really does fail ls-files and nothing else.
+    probe = subprocess.run(["git", "ls-files"], cwd=work, env=full_env, capture_output=True, text=True)
+    assert probe.returncode == 128, probe.stderr
+    ok = subprocess.run(["git", "status", "--short"], cwd=work, env=full_env, capture_output=True, text=True)
+    assert ok.returncode == 0, ok.stderr
+    return work, full_env
+
+
+@requires_git
+def test_the_prefix_enumeration_reads_a_failed_listing_as_zero(tmp_path: Path) -> None:
+    """RED, the control: pre-fix, a failed ls-files became 'Untracked files: 0'."""
+    work, env = _new_file_repo(tmp_path)
+    block = _step2_block()
+    fixed = re.search(
+        r'UNTRACKED_LIST=.*?\nrm -f "\$UNTRACKED_LIST"\n', block, re.S,
+    )
+    assert fixed, "Step 2 no longer enumerates through a checked temp file"
+    prefix_block = block[: fixed.start()] + _PREFIX_ENUMERATION + block[fixed.end():]
+    proc = subprocess.run(["bash", "-c", prefix_block], cwd=work, env=env, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "Untracked files included in this diff: 0" in proc.stdout, proc.stdout
+
+
+@requires_git
+def test_a_failed_enumeration_is_unavailable_not_zero(tmp_path: Path) -> None:
+    """GREEN: the same fixture takes the exit-3 unavailable path."""
+    work, env = _new_file_repo(tmp_path)
+    proc = subprocess.run(["bash", "-c", _step2_block()], cwd=work, env=env, capture_output=True, text=True)
+    assert proc.returncode == 3, proc.stdout + proc.stderr
+    assert "CODEX_REVIEW: unavailable (could not enumerate untracked files" in proc.stderr
+    assert "Untracked files included in this diff" not in proc.stdout
