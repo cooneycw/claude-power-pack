@@ -733,3 +733,94 @@ def test_the_control_case_json_negation_does_not_leak_past_controls() -> None:
         "scratch.json",
     ):
         assert ignored(still_ignored), f"{still_ignored} must stay ignored - the negation leaked"
+
+
+# --- the marker layout pins the commit it FETCHED (issue #1263) ---------------
+
+
+def test_revendor_vendors_the_bytes_of_the_commit_it_pins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two reads of a moving ref must not disagree in the manifest.
+
+    The stub models an upstream push between the reads: the commits API answers
+    with SHA `a…` (whose core is OLD), while the moving `/main/` URL already
+    serves NEW. Before the fix revendor fetched `/main/` and pinned `a…` beside
+    NEW - provenance naming a commit whose bytes were not vendored. It must
+    vendor OLD, the bytes `a…` actually holds.
+    """
+    sha = "a" * 40
+    old = "pre\nBEGIN\nOLD core\nEND\npost\n"
+    new = "pre\nBEGIN\nNEW core\nEND\npost\n"
+    manifest_path = tmp_path / ".claude" / "probe.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "source": {
+                    "repo": "owner/upstream",
+                    "path": "commands/probe.md",
+                    "raw_url": "https://raw.githubusercontent.com/owner/upstream/main/commands/probe.md",
+                    "commits_api": "https://api.github.com/repos/owner/upstream/commits?path=commands/probe.md",
+                },
+                "vendored": {"file": "probe.md", "core_sha256": ""},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "probe.md").write_text("local\nBEGIN\nstale\nEND\n", encoding="utf-8")
+    seen: list[str] = []
+
+    def bytes_at(self, url: str) -> bytes:
+        seen.append(url)
+        if url.startswith("https://api."):
+            return json.dumps([{"sha": sha}]).encode("utf-8")
+        if f"/{sha}/" in url:
+            return old.encode("utf-8")
+        if "/main/" in url:
+            return new.encode("utf-8")
+        raise vendor.SourceUnavailable(f"no fixture for {url}")
+
+    monkeypatch.setattr(vendor.Fetcher, "bytes_at", bytes_at)
+
+    assert vendor.revendor(_marker_spec(), tmp_path) == 0
+
+    body = (tmp_path / "probe.md").read_text(encoding="utf-8")
+    assert "OLD core" in body and "NEW core" not in body, body
+    pinned = vendor.read_manifest(manifest_path)["source"]["upstream_commit"]
+    assert pinned == sha
+    assert not any("/main/" in url for url in seen), seen
+
+
+def test_revendor_without_a_revision_still_uses_the_raw_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No resolvable SHA: fetch the moving URL and pin nothing, never a guess."""
+    manifest_path = tmp_path / ".claude" / "probe.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "source": {
+                    "repo": "owner/upstream",
+                    "path": "commands/probe.md",
+                    "raw_url": "https://raw.githubusercontent.com/owner/upstream/main/commands/probe.md",
+                    "commits_api": "https://api.github.com/repos/owner/upstream/commits",
+                },
+                "vendored": {"file": "probe.md"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "probe.md").write_text("BEGIN\nx\nEND\n", encoding="utf-8")
+
+    def bytes_at(self, url: str) -> bytes:
+        if url.startswith("https://api."):
+            raise vendor.SourceUnavailable("rate limited")
+        return b"BEGIN\nmain core\nEND\n"
+
+    monkeypatch.setattr(vendor.Fetcher, "bytes_at", bytes_at)
+
+    assert vendor.revendor(_marker_spec(), tmp_path) == 0
+    assert "main core" in (tmp_path / "probe.md").read_text(encoding="utf-8")
+    assert vendor.read_manifest(manifest_path)["source"]["upstream_commit"] is None

@@ -933,6 +933,16 @@ this" from "this went wrong". Skipping quietly is #1138's defect.
 unguarded PS1 append across #1139's relocation, so that the move could be
 shown behaviour-preserving before the defect was repaired separately.
 
+`unlink-orphan <dir> <name>` (#1263) is the prune half `link-into` never had.
+`/cpp:update` Step 5b feeds it install-drift's `orphaned_helpers` list after the
+user confirms, and it re-proves ownership per entry rather than trusting the
+name: it removes only a dangling symlink whose target is
+`<CPP checkout>/scripts/<its own name>`, and refuses (exit 1) a live link, a
+host-owned plain file, a link with any other shape, or one into a root that is
+not a CPP checkout. `tests/test_helper_orphan_prune.py` carries the negative
+control: an upstream-deleted helper is named and pruned, and each refusal case
+survives.
+
 ## `check-behavioral-eval` (#1084)
 
 Reads a behavioural-eval verified-result artifact and reports. This is HALF A of

@@ -4,6 +4,22 @@
 
 ### Fixed
 
+- **2026-09-27 - `/cpp:update` stops leaving stale state unreported** (issue
+  #1263) - Step 5b now has a prune half: it lists the dangling helper links
+  install-drift already names (a script deleted upstream whose
+  `~/.claude/scripts` link survived), asks, and removes each through a new
+  `cpp-host-write.sh unlink-orphan`, which re-proves ownership per entry and
+  refuses a live link, a host-owned file or a neighbour project's link. The
+  Tier 6/7 blocks in `/cpp:update` and `/cpp:init` judge the model only
+  against an endpoint that answered, so a powered-off host reads `unknown`
+  instead of `missing` with rebuild advice. Step 3.5 compares the on-disk
+  command against the literal pre-pull SHA instead of `ORIG_HEAD`, which a
+  concurrent pull in a shared checkout overwrites, and Step 10 reports the
+  commit the run finished on when the checkout moved under it.
+  `eli5-vendor --revendor` fetches the core at the commit it pins rather than
+  from the moving `/main/` URL, so the recorded provenance names the bytes
+  vendored.
+
 - **2026-09-26 - `/security:scan` no longer reports a gitleaks or npm audit
   that never ran as clean** (issue #1264) - a missing `gitleaks` or `npm`, a
   crashed audit, or an unreadable report used to show as `SKIP`, or for npm as

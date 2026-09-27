@@ -461,8 +461,31 @@ class MarkerSectionLayout:
                 return sha
         return None
 
+    def _raw_url_at(self, manifest: Mapping[str, Any], revision: str | None) -> str:
+        """The raw URL for the bytes `revision` names, when the manifest says where.
+
+        ONE READ, NOT TWO (issue #1263). `revision()` asks the commits API for
+        the latest SHA and this used to fetch `raw_url`, which is pinned to the
+        moving `/main/` branch. An upstream push between the two reads left
+        `upstream_commit` naming a commit whose bytes were not the bytes
+        vendored, and nothing noticed: the offline gate compares content, not
+        provenance. The manifest already carries `source.repo` and
+        `source.path`, so the immutable URL is derivable with no schema change -
+        the same order `FileSetLayout` uses (resolve, then fetch AT it).
+
+        Falls back to `raw_url` only when there is no revision to fetch at
+        (provenance is then recorded as unpinned, so nothing false is written)
+        or the manifest lacks the coordinates.
+        """
+        source = manifest.get("source")
+        repo = source.get("repo") if isinstance(source, Mapping) else None
+        path = source.get("path") if isinstance(source, Mapping) else None
+        if revision and isinstance(repo, str) and repo and isinstance(path, str) and path:
+            return f"https://raw.githubusercontent.com/{repo}/{revision}/{path}"
+        return self._source(manifest, "raw_url")
+
     def remote(self, fetcher: Fetcher, manifest: Mapping[str, Any], revision: str | None) -> dict[str, bytes]:
-        text = fetcher.text_at(self._source(manifest, "raw_url"))
+        text = fetcher.text_at(self._raw_url_at(manifest, revision))
         try:
             core = extract_marker_section(text, self.begin_marker, self.end_marker)
         except CoreNotFound as exc:

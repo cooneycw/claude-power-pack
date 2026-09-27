@@ -1617,20 +1617,24 @@ QWEN_MODEL="${QWEN_MODEL:-qwen3.8-code:latest}"
 
 if curl -sf --max-time 5 "$QWEN_ENDPOINT/api/version" > /dev/null; then
   echo "[x] Ollama reachable at $QWEN_ENDPOINT"
+  # The model is judged only against an endpoint that answered (issue #1263).
+  # /api/tags fails for the SAME single cause as /api/version, so a "missing"
+  # read off an unreachable host is not an observation - and its rebuild
+  # advice tells the user to recreate a model nothing showed to be absent.
+  if curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null | grep -qF "\"$QWEN_MODEL\""; then
+    echo "[x] Model present: $QWEN_MODEL"
+  else
+    echo "[ ] Model '$QWEN_MODEL' missing"
+    echo "    On the serving machine:"
+    echo "      ollama pull qwen3.8:27b"
+    echo "      printf 'FROM qwen3.8:27b\nPARAMETER num_ctx 65536\nPARAMETER temperature 0.7\nPARAMETER top_p 0.8\n' | ollama create qwen3.8-code -f -"
+  fi
 else
   echo "[ ] Ollama NOT reachable at $QWEN_ENDPOINT"
   echo "    Serving machine: install and start Ollama (brew install ollama on macOS),"
   echo "    bind to the network with OLLAMA_HOST=0.0.0.0:11434 for LAN/tailnet use."
   echo "    Consumer machine: set QWEN_OLLAMA_URL=http://<serving-ip>:11434"
-fi
-
-if curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null | grep -qF "\"$QWEN_MODEL\""; then
-  echo "[x] Model present: $QWEN_MODEL"
-else
-  echo "[ ] Model '$QWEN_MODEL' missing"
-  echo "    On the serving machine:"
-  echo "      ollama pull qwen3.8:27b"
-  echo "      printf 'FROM qwen3.8:27b\nPARAMETER num_ctx 65536\nPARAMETER temperature 0.7\nPARAMETER top_p 0.8\n' | ollama create qwen3.8-code -f -"
+  echo "[?] Model '$QWEN_MODEL' unknown (endpoint unreachable - not checked)"
 fi
 ```
 
@@ -1769,23 +1773,27 @@ GEMMA_MODEL="${GEMMA_MODEL:-gemma4-code:latest}"
 
 if curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/version" > /dev/null; then
   echo "[x] Ollama reachable at $GEMMA_ENDPOINT"
+  # The model is judged only against an endpoint that answered (issue #1263).
+  # /api/tags fails for the SAME single cause as /api/version, so a "missing"
+  # read off an unreachable host is not an observation - and its rebuild
+  # advice tells the user to recreate a model nothing showed to be absent.
+  if curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null | grep -qF "\"$GEMMA_MODEL\""; then
+    echo "[x] Model present: $GEMMA_MODEL"
+  else
+    echo "[ ] Model '$GEMMA_MODEL' missing"
+    echo "    On the serving machine:"
+    echo "      ollama pull gemma4:31b-it-qat"
+    echo "      printf 'FROM gemma4:31b-it-qat\nPARAMETER num_ctx 65536\nPARAMETER temperature 0.2\n' > /tmp/Modelfile.gemma4-code"
+    echo "      ollama create gemma4-code -f /tmp/Modelfile.gemma4-code"
+    echo "    Then confirm 'ollama ps' still reports 100% GPU: the 64K context"
+    echo "    bump costs VRAM, and one layer spilling to CPU collapses throughput."
+  fi
 else
   echo "[ ] Ollama NOT reachable at $GEMMA_ENDPOINT"
   echo "    Serving machine: start it ('ollama serve') and retry."
   echo "    Consumer machine: set GEMMA_OLLAMA_URL=http://<serving-host>:11434"
   echo "    Shared-GPU host: another VM may currently hold the card."
-fi
-
-if curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null | grep -qF "\"$GEMMA_MODEL\""; then
-  echo "[x] Model present: $GEMMA_MODEL"
-else
-  echo "[ ] Model '$GEMMA_MODEL' missing"
-  echo "    On the serving machine:"
-  echo "      ollama pull gemma4:31b-it-qat"
-  echo "      printf 'FROM gemma4:31b-it-qat\nPARAMETER num_ctx 65536\nPARAMETER temperature 0.2\n' > /tmp/Modelfile.gemma4-code"
-  echo "      ollama create gemma4-code -f /tmp/Modelfile.gemma4-code"
-  echo "    Then confirm 'ollama ps' still reports 100% GPU: the 64K context"
-  echo "    bump costs VRAM, and one layer spilling to CPU collapses throughput."
+  echo "[?] Model '$GEMMA_MODEL' unknown (endpoint unreachable - not checked)"
 fi
 ```
 
