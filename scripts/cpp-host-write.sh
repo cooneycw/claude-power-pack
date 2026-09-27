@@ -298,7 +298,12 @@ cmd_link_into() {
 #:   shape       its target is `<root>/scripts/<its own name>`, which is what
 #:               link-into creates and nothing else does
 #:   root        <root> is still a CPP checkout, so a neighbour project's link
-#:               with the same shape is not ours to judge
+#:               with the same shape is not ours to judge. `CLAUDE.md` plus
+#:               `.claude/commands/` is NOT enough on its own - every Claude
+#:               project has both (counter-model review) - so the root must
+#:               also ship THIS seam, `scripts/cpp-host-write.sh`: the
+#:               installer that creates install-shaped links is the one thing
+#:               only a CPP checkout carries
 #:   ! -e        the link resolves to nothing - a LIVE link is never removed
 #:
 #: The -e/-f/-L predicates differ on purpose: `-L` is shape, `-e` is "does the
@@ -333,7 +338,8 @@ cmd_unlink_orphan() {
         /*) ;;
         *)  root="$dir/$root" ;;
     esac
-    if ! { [ -f "$root/CLAUDE.md" ] && [ -d "$root/.claude/commands" ]; }; then
+    if ! { [ -f "$root/CLAUDE.md" ] && [ -d "$root/.claude/commands" ] \
+           && [ -f "$root/scripts/cpp-host-write.sh" ]; }; then
         printf 'cpp-host-write: REFUSED %s/%s points into %s, which is not a CPP checkout\n' \
             "$(normalise "$dir")" "$name" "$root" >&2
         return 1

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -39,6 +40,8 @@ def _checkout(root: Path) -> Path:
     (root / ".claude" / "commands").mkdir(parents=True)
     (root / "scripts").mkdir()
     (root / "CLAUDE.md").write_text("# fake CPP\n", encoding="utf-8")
+    # The seam itself: what distinguishes a CPP checkout from any Claude project.
+    (root / "scripts" / "cpp-host-write.sh").write_text("#!/bin/sh\n", encoding="utf-8")
     return root
 
 
@@ -99,7 +102,9 @@ def test_an_upstream_deleted_helper_is_named_AND_pruned(tmp_path: Path) -> None:
     assert _orphans(checkout, home) == []
 
 
-@pytest.mark.parametrize("case", ["live", "host-file", "neighbour", "not-install-shape"])
+@pytest.mark.parametrize(
+    "case", ["live", "host-file", "neighbour", "claude-project", "not-install-shape"]
+)
 def test_anything_that_is_not_our_dangling_link_is_refused(tmp_path: Path, case: str) -> None:
     checkout = _checkout(tmp_path / "cpp")
     home = tmp_path / "home"
@@ -115,6 +120,16 @@ def test_anything_that_is_not_our_dangling_link_is_refused(tmp_path: Path, case:
         other = tmp_path / "other-project"
         (other / "scripts").mkdir(parents=True)
         entry.symlink_to(other / "scripts" / "tool.sh")
+    elif case == "claude-project":
+        # A neighbour that IS a Claude project - CLAUDE.md and .claude/commands -
+        # but not CPP. The first cut accepted these two generic markers as
+        # proof of ownership and deleted the link (counter-model review).
+        other = tmp_path / "other-claude-project"
+        (other / ".claude" / "commands").mkdir(parents=True)
+        (other / "scripts").mkdir()
+        (other / "CLAUDE.md").write_text("# someone else\n", encoding="utf-8")
+        entry.symlink_to(other / "scripts" / "tool.sh")
+        assert not entry.exists(), "fixture must dangle"
     else:
         # Dangling, into the CPP checkout, but not `<root>/scripts/<own name>`.
         entry.symlink_to(checkout / "scripts" / "renamed.sh")
@@ -158,3 +173,52 @@ def test_update_step_5b_wires_the_prune_to_install_drifts_orphan_list() -> None:
     step = text[start:end]
     assert "orphaned_helpers" in step
     assert "cpp-host-write.sh unlink-orphan" in step
+
+
+def _listing_block() -> str:
+    text = UPDATE_DOC.read_text(encoding="utf-8")
+    step = text[text.index("## Step 5b: Script Symlink Refresh") : text.index("## Step 5b.1:")]
+    blocks = [b for b in re.findall(r"```bash\n(.*?)```", step, re.S) if "ORPHAN_SCAN" in b]
+    assert len(blocks) == 1, "Step 5b must carry exactly one orphan-listing block"
+    return blocks[0]
+
+
+def _run_listing(checkout: Path, home: Path) -> str:
+    return subprocess.run(
+        ["bash", "-c", _listing_block()],
+        env={**os.environ, "HOME": str(home), "CPP_DIR": str(checkout)},
+        capture_output=True,
+        text=True,
+    ).stdout
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="the listing block uses jq")
+def test_the_step_5b_listing_names_an_orphan_the_scan_found(tmp_path: Path) -> None:
+    checkout = _checkout(tmp_path / "cpp")
+    shutil.copy2(DRIFT, checkout / "scripts" / "install-drift.sh")
+    home = tmp_path / "home"
+    scripts = home / ".claude" / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "gone.sh").symlink_to(checkout / "scripts" / "gone.sh")
+    assert not (scripts / "gone.sh").exists(), "fixture must dangle"
+
+    out = _run_listing(checkout, home)
+    assert "gone.sh" in out, out
+    assert "No orphaned helper links" not in out, out
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="the listing block uses jq")
+def test_a_scan_that_did_not_run_is_not_reported_clean(tmp_path: Path) -> None:
+    """No install-drift.sh in the checkout: the scan cannot run.
+
+    The first cut printed "No orphaned helper links" here - the same words as a
+    scan that looked and found nothing (counter-model review).
+    """
+    checkout = _checkout(tmp_path / "cpp")
+    assert not (checkout / "scripts" / "install-drift.sh").exists(), "fixture must lack the scanner"
+    home = tmp_path / "home"
+    (home / ".claude" / "scripts").mkdir(parents=True)
+
+    out = _run_listing(checkout, home)
+    assert "No orphaned helper links" not in out, out
+    assert "NOT run" in out, out

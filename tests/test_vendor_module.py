@@ -824,3 +824,41 @@ def test_revendor_without_a_revision_still_uses_the_raw_url(
     assert vendor.revendor(_marker_spec(), tmp_path) == 0
     assert "main core" in (tmp_path / "probe.md").read_text(encoding="utf-8")
     assert vendor.read_manifest(manifest_path)["source"]["upstream_commit"] is None
+
+
+def test_revendor_without_fetch_coordinates_pins_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A SHA resolves, but the manifest has no repo/path to fetch AT it.
+
+    The first cut fell back to the moving URL and still recorded the resolved
+    SHA - the original two-read defect on the fallback path (counter-model
+    review). The SHA must not be pinned beside bytes it does not name.
+    """
+    manifest_path = tmp_path / ".claude" / "probe.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "source": {
+                    "raw_url": "https://raw.githubusercontent.com/owner/upstream/main/commands/probe.md",
+                    "commits_api": "https://api.github.com/repos/owner/upstream/commits",
+                },
+                "vendored": {"file": "probe.md"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert "repo" not in vendor.read_manifest(manifest_path)["source"], "fixture must lack coordinates"
+    (tmp_path / "probe.md").write_text("BEGIN\nx\nEND\n", encoding="utf-8")
+
+    def bytes_at(self, url: str) -> bytes:
+        if url.startswith("https://api."):
+            return json.dumps([{"sha": "c" * 40}]).encode("utf-8")
+        return b"BEGIN\nmoving core\nEND\n"
+
+    monkeypatch.setattr(vendor.Fetcher, "bytes_at", bytes_at)
+
+    assert vendor.revendor(_marker_spec(), tmp_path) == 0
+    assert "moving core" in (tmp_path / "probe.md").read_text(encoding="utf-8")
+    assert vendor.read_manifest(manifest_path)["source"]["upstream_commit"] is None

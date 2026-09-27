@@ -409,7 +409,7 @@ def _probe_blocks(rel: str) -> list[tuple[str, str]]:
 
 def _run_probe(prefix: str, block: str, endpoint: str) -> str:
     env = {
-        "PATH": __import__("os").environ.get("PATH", ""),
+        **__import__("os").environ,
         f"{prefix}_OLLAMA_URL": endpoint,
         f"{prefix}_MODEL": "probe-model:latest",
         f"{prefix}_LANE_PRESENT": "true",
@@ -455,13 +455,25 @@ def test_an_unreachable_endpoint_reports_the_model_unknown_not_missing(rel: str)
     reason="bash and curl are required to execute the block",
 )
 @pytest.mark.parametrize("rel", REACHABILITY_DOCS)
-def test_a_reachable_endpoint_without_the_model_still_reports_missing(rel: str) -> None:
+@pytest.mark.parametrize("tags_status", [200, 500], ids=["tags-ok", "tags-fails"])
+def test_a_reachable_endpoint_without_the_model_still_reports_missing(rel: str, tags_status: int) -> None:
+    """Missing only after the model list was READ (counter-model review).
+
+    `tags-fails` is the case the first cut got wrong: /api/version answered,
+    /api/tags returned an error, and the nested grep read that failure as an
+    empty list - "missing", with rebuild advice. It must read `unknown`.
+    """
     import http.server
     import json
     import threading
 
     class Ollama(http.server.BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
+            if self.path.startswith("/api/tags") and tags_status != 200:
+                self.send_response(tags_status)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
             body = (
                 {"version": "0.0.0"}
                 if self.path.startswith("/api/version")
@@ -484,7 +496,12 @@ def test_a_reachable_endpoint_without_the_model_still_reports_missing(rel: str) 
         for prefix, block in _probe_blocks(rel):
             out = _run_probe(prefix, block, endpoint)
             assert "[x] Ollama reachable" in out, out
-            assert "Model 'probe-model:latest' missing" in out, out
-            assert "unknown" not in out, out
+            if tags_status == 200:
+                assert "Model 'probe-model:latest' missing" in out, out
+                assert "unknown" not in out, out
+            else:
+                assert "missing" not in out, out
+                assert "ollama pull" not in out, out
+                assert "model list could not be read" in out, out
     finally:
         server.shutdown()
