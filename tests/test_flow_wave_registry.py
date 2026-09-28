@@ -4712,3 +4712,20 @@ def test_the_toolchain_warning_names_the_checkout_it_measured(tmp_path: Path) ->
     )
     assert str(clone) in out.stderr, out.stderr
     assert _detail(out, "FLOW_WAVE_TOOLCHAIN_CHECKOUT") == str(clone), out.stdout
+
+
+@requires_tools
+def test_a_failed_snapshot_never_misreports_a_committed_write(tmp_path: Path) -> None:
+    """Counter-model review (#1266): if the after-snapshot fails (disk full),
+    the verdict must match what the registry holds. It used to be taken AFTER
+    the registry file was replaced, so a snapshot failure reported "NOT updated"
+    over a write that HAD committed - and the advised retry could overwrite an
+    intervening registration. The seam routes the snapshot to /dev/full."""
+    common = ("--wave", "zz", "--repo", "/tmp", "--issue", "1266", "--branch", "issue-1266-x")
+    _run(tmp_path, "register", "w", *common, "--files", "a.py")
+    assert _entry(tmp_path, "zz", "w")["files"] == "a.py", "precondition"
+    out = _run(tmp_path, "register", "w", *common, "--files", "b.py",
+               extra_env={"FLOW_WAVE_REGISTRY_TEST_SNAPSHOT_FAILS": "1"})
+    assert out.returncode != 0, out.stdout
+    assert "NOT updated" in out.stderr, out.stderr
+    assert _entry(tmp_path, "zz", "w")["files"] == "a.py", "reported NOT updated, so nothing may have changed"

@@ -844,7 +844,12 @@ with_lock() {
     if jq "$@" "$prog" "$REG_FILE" > "$tmp" 2>/dev/null; then
       mv -f "$tmp" "$REG_FILE"
       if [ -n "${LOCK_SNAP_NEW:-}" ]; then
-        jq -c --arg w "$LOCK_SNAP_W" --arg r "$LOCK_SNAP_R" '.[$w].roles[$r] // null' "$REG_FILE" > "$LOCK_SNAP_NEW" 2>/dev/null \
+        #: TEST-ONLY SEAM, NOT A KNOB (issue #1266): route the after-snapshot to
+        #: /dev/full, which fails every write with ENOSPC - a real "disk full" -
+        #: so the failure path can be exercised. Unset in every real use.
+        _snap_new_out="$LOCK_SNAP_NEW"
+        [ -n "${FLOW_WAVE_REGISTRY_TEST_SNAPSHOT_FAILS:-}" ] && _snap_new_out=/dev/full
+        jq -c --arg w "$LOCK_SNAP_W" --arg r "$LOCK_SNAP_R" '.[$w].roles[$r] // null' "$REG_FILE" > "$_snap_new_out" 2>/dev/null \
           || { echo "flow-wave-registry: registry snapshot failed after the write" >&2; exit 3; }
       fi
     else
