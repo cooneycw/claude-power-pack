@@ -15,9 +15,9 @@ the findings and decides what to fix.
 
 **Which model reviews is host configuration, and this stage reports it rather
 than asserting it.** Step 3 passes no `-m`, so the model comes from the layered
-Codex configuration. Measured 2026-09-19 that resolved to `gpt-5.6-sol` / `high`;
-this document named `gpt-5.5` inline until then, which was wrong and could not
-say so.
+Codex configuration, and it changes: this document once named one model inline
+and was wrong within days, and a later measurement named another. So no model
+name is given here to copy - read `CODEX_REVIEW_MODEL` from the run (#1273).
 
 The requirement this stage exists to satisfy is a PROPERTY - **the reviewing
 model must not be the implementing model** ([ADR

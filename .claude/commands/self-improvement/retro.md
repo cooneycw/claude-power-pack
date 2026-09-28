@@ -2,8 +2,8 @@
 
 The "grill-me cycle": grill a just-finished session for friction, then propose and
 (user-confirmed) codify durable fixes so the same friction never recurs. This is
-the assess-and-codify member of the grill family (`/grill:me`, `/grill:yourself`,
-`/second-opinion:grill-plan`) and the general sibling of
+the assess-and-codify member of the grill family (`/grill:me`, `/grill:yourself`)
+and the general sibling of
 `/self-improvement:deployment` - it looks at ALL friction, not just deploys.
 The grill-me concept is adapted from Matt Pocock's MIT-licensed upstream
 `mattpocock/skills` project.
@@ -348,5 +348,5 @@ Apply which? [all / 1,2 / none]
 - `/self-improvement:deployment` - the deploy-only retrospective this generalizes
 - `/self-improvement:memory` (#433) - portable/shared codify to common memory
 - `/fewer-permission-prompts` - native allowlist derivation (the permission slice)
-- `/grill:me`, `/grill:yourself`, `/second-opinion:grill-plan` - the grill family
+- `/grill:me`, `/grill:yourself` - the grill family
 - `/flow:doctor` - reports installed vs missing flow allowlist rules

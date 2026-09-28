@@ -779,6 +779,22 @@ def main() -> int:
         # exact thing #953 is about, so it detects it rather than trusting it -
         # the same move check-negative-controls.py makes when it refuses to go
         # green having scanned nothing.
+        # Can tracking be checked AT ALL? Outside a git work tree (a copied
+        # directory, an exported tarball) `git ls-files --error-unmatch` fails for
+        # every file, and each failure used to be reported as "UNTRACKED" - a
+        # wrong fact, not a missing one (#1273). Not being able to look is UNKNOWN.
+        try:
+            inside = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"],
+                                    capture_output=True, text=True, cwd=str(here))
+            in_tree = inside.returncode == 0 and inside.stdout.strip() == "true"
+        except OSError:
+            in_tree = False
+        if not in_tree:
+            print("FORCED_CLAIM_UNTRACKED: UNKNOWN")
+            print("forced-claim: not inside a git work tree (or no git), so whether the "
+                  "fixture inputs are tracked cannot be checked. This is UNCHECKED, "
+                  "not clean - and not a finding that they are untracked.")
+            return EXIT_NOT_ESTABLISHED
         untracked: list[str] = []
         probe = subprocess.run(["git", "ls-files", "--error-unmatch", str(here / "control.json")],
                                capture_output=True, cwd=str(here))

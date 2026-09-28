@@ -598,7 +598,7 @@ def test_an_executable_shell_helper_still_runs(tmp_path: Path, capsys) -> None:
 # that matters - that the closing can be SEEN to fail.
 # --------------------------------------------------------------------------- #
 requires_git = pytest.mark.skipif(
-    shutil.which("git") is None, reason="git absent (the CI validate image ships none)"
+    shutil.which("git") is None, reason="git absent on this host (CI validate has git: git-stage stages it, #1171)"
 )
 
 

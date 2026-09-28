@@ -899,8 +899,7 @@ Assess the evidence against the CURRENT agreed behaviour. After a #859 revision,
 evidence that satisfied the earlier promise has to be reassessed against the new
 one - sometimes it still suffices, often it does not, and that judgement belongs in
 the report rather than being assumed either way. A revision record on its own is
-never delivery evidence, and
-a revision record on its own is not delivery evidence.
+never delivery evidence.
 
 The report stays ordinary prose - there is no field to fill in, and nothing is
 parsed out of it. Carry the judgement into the one place it has to act: the closing

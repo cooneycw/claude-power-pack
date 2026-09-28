@@ -1443,8 +1443,11 @@ def test_an_unterminated_heredoc_does_not_swallow_the_rest_of_the_file(
     assuming the parser is total.
 
     Not defended against here: a real heredoc parser is the fix, and this file
-    states outright that it is not one. Bash itself rejects an unterminated
-    heredoc, so a script in this shape is already broken and would not run.
+    states outright that it is not one. Bash does NOT reject an unterminated
+    heredoc: it warns ("here-document ... delimited by end-of-file"), reads the
+    rest of the file as the heredoc body, and exits 0 (measured, #1273) - so a
+    script in this shape runs, and every command after the opener is silently
+    data rather than code. That is the same undercount the masking produces.
     """
     script = tmp_path / "unterminated.sh"
     script.write_text(

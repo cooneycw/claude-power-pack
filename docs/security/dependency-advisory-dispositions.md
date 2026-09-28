@@ -234,7 +234,7 @@ Evidence, measured on 2026-09-19 before the removal:
    dev host, no container. CPP stopped building and shipping images at #469.
 6. **No behavioural change since `2b51287`.** Every later commit touching
    `mcp-evaluate/` was a tree-wide sweep that reached it by walking - an 81-error
-   ruff pass, Docker digest pins, a base-image bump, and #918's fastmcp bound.
+   ruff pass, Docker digest pins, a base-image bump, and the fastmcp bound (3d95fcd, PR #944; its issue #918 has since been deleted from GitHub).
 7. **Unused outside this repository.** kyle references it **zero** times across 935
    searched files. *Positive control:* the identical search returns 30 hits for
    `second-opinion` and 1042 for `mcp`, so the zero is a reading. kyle's own

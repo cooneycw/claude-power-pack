@@ -3,14 +3,14 @@
 #  Linux workstation tuning; contains no $HOME reference. Reaches outside $HOME via sudo (8 call sites), so it
 #  is NOT observation-certified.
 
-# bash-prep.sh — Linux workstation tuning for Claude Code
+# bash-prep.sh - Linux workstation tuning for Claude Code
 # Part of Claude Power Pack (CPP)
 #
 # Applies performance tuning: swap, sysctl parameters, inotify limits.
 # Safe to run multiple times (idempotent). Requires sudo for system changes.
 #
 # Usage:
-#   bash-prep.sh              # Interactive — detect, report, prompt to apply
+#   bash-prep.sh              # Interactive - detect, report, prompt to apply
 #   bash-prep.sh --check      # Report current values only (no changes)
 #   bash-prep.sh --apply      # Apply all tuning without prompting
 #   bash-prep.sh --help       # Show help
@@ -41,7 +41,7 @@ err()   { echo -e "${RED}✗${NC} $*"; }
 
 usage() {
     cat <<'EOF'
-bash-prep.sh — Linux workstation tuning for Claude Code
+bash-prep.sh - Linux workstation tuning for Claude Code
 
 Usage:
   bash-prep.sh              Interactive mode (detect, report, prompt)
@@ -105,7 +105,7 @@ check_all() {
     if (( swap_mb >= target_mb )); then
         ok "Swap: ${swap_mb} MB (target: ${target_mb} MB)"
     else
-        warn "Swap: ${swap_mb} MB — recommended ${target_mb} MB"
+        warn "Swap: ${swap_mb} MB - recommended ${target_mb} MB"
         ((issues++))
     fi
 
@@ -115,7 +115,7 @@ check_all() {
     if [[ "$val" == "$TARGET_SWAPPINESS" ]]; then
         ok "vm.swappiness = ${val}"
     else
-        warn "vm.swappiness = ${val} — recommended ${TARGET_SWAPPINESS}"
+        warn "vm.swappiness = ${val} - recommended ${TARGET_SWAPPINESS}"
         ((issues++))
     fi
 
@@ -124,7 +124,7 @@ check_all() {
     if [[ "$val" == "$TARGET_VFS_CACHE_PRESSURE" ]]; then
         ok "vm.vfs_cache_pressure = ${val}"
     else
-        warn "vm.vfs_cache_pressure = ${val} — recommended ${TARGET_VFS_CACHE_PRESSURE}"
+        warn "vm.vfs_cache_pressure = ${val} - recommended ${TARGET_VFS_CACHE_PRESSURE}"
         ((issues++))
     fi
 
@@ -133,7 +133,7 @@ check_all() {
     if (( val >= TARGET_INOTIFY_WATCHES )); then
         ok "fs.inotify.max_user_watches = ${val}"
     else
-        warn "fs.inotify.max_user_watches = ${val} — recommended ${TARGET_INOTIFY_WATCHES}"
+        warn "fs.inotify.max_user_watches = ${val} - recommended ${TARGET_INOTIFY_WATCHES}"
         ((issues++))
     fi
 
@@ -142,7 +142,7 @@ check_all() {
     if (( val >= TARGET_INOTIFY_INSTANCES )); then
         ok "fs.inotify.max_user_instances = ${val}"
     else
-        warn "fs.inotify.max_user_instances = ${val} — recommended ${TARGET_INOTIFY_INSTANCES}"
+        warn "fs.inotify.max_user_instances = ${val} - recommended ${TARGET_INOTIFY_INSTANCES}"
         ((issues++))
     fi
 
@@ -182,7 +182,7 @@ apply_swap() {
     info "Creating ${target_mb} MB swap file at /swapfile..."
 
     if [[ -f /swapfile ]]; then
-        # Existing swapfile — check if it's active
+        # Existing swapfile - check if it's active
         if swapon --show=NAME --noheadings | grep -q '/swapfile'; then
             sudo swapoff /swapfile
         fi
@@ -247,7 +247,7 @@ main() {
     # Platform check
     if [[ "$(uname)" != "Linux" ]]; then
         warn "bash-prep is designed for Linux. Detected: $(uname)"
-        warn "Skipping — no changes made."
+        warn "Skipping - no changes made."
         exit 0
     fi
 

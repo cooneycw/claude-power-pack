@@ -35,10 +35,24 @@ AGENT_DIR=${AGENT_DIR:-$HOME/woodpecker}
 log() { printf '\n=== %s ===\n' "$*"; }
 
 log "Packages (docker, compose v2, guest agent)"
+# Each package is decided on its own (#1273). This used to install all five only
+# when `docker` was absent, so a host that already had docker never got the guest
+# agent, ca-certificates or curl - and the next line enables qemu-guest-agent.
+# The docker family stays gated on the COMMAND, not the package: a host running
+# Docker's own docker-ce has a docker without the docker.io package, and
+# installing docker.io over it would conflict.
+packages=()
 if ! command -v docker >/dev/null; then
+    packages+=(docker.io docker-compose-v2)
+fi
+for pkg in qemu-guest-agent ca-certificates curl; do
+    if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q 'install ok installed'; then
+        packages+=("$pkg")
+    fi
+done
+if [ "${#packages[@]}" -gt 0 ]; then
     sudo apt-get update -qq
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-        docker.io docker-compose-v2 qemu-guest-agent ca-certificates curl
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${packages[@]}"
 fi
 sudo systemctl enable --now docker qemu-guest-agent >/dev/null
 if ! id -nG "$USER" | grep -qw docker; then
