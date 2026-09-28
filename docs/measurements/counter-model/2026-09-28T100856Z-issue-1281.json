@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1281-negative-controls-for-adr-0008-rows-8-and-14-flow",
+  "counts": {
+    "accepted": 4,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "144ac39ed4d271fe9b9777dcb33a0d810478c509",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1281",
+  "passes": 2,
+  "recorded_at": "2026-09-28T10:08:56Z",
+  "red_cases": {
+    "already_covered": 4,
+    "proposed": 7
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

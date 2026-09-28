@@ -110,6 +110,13 @@
 #   FLOW_WORKTREE_SWEEP_PROC_ROOT  test seam for the occupancy scan, not a knob.
 #                                  It exists so the "cannot scan" lane is
 #                                  reachable on a host with a working /proc.
+#
+#: NEGATIVE-CONTROL: controls/flow-worktree-sweep
+#: ADR 0008 row 8, class X: `removable` is consumed by the removal of OTHER
+#: sessions' checkouts and nothing re-derives it (issue #1281). The control's
+#: GOOD cases (dirty, unpushed, occupied, no PR, open PR) are what catch this
+#: script regressing toward deleting work; its anchor proves the BAD case can be
+#: missed. It runs the dry-run only - see its `limits`.
 
 set -euo pipefail
 
