@@ -201,3 +201,86 @@ def test_head_check_requires_this_runs_section_at_the_head(repo: Path) -> None:
     absent = helper(repo, "session-B", "head-check", "42", "--head", head)
     assert absent.returncode == 1
     assert "has no section of its own" in absent.stdout
+
+
+# ------------------------------------------------------------------ counter-model review fixes
+
+@requires_git
+@requires_bash
+def test_a_resuming_session_keeps_its_uncommitted_new_record(repo: Path) -> None:
+    """HIGH: reconcile deleted the same session's uncommitted, approved section."""
+    reconcile(repo, "session-A")
+    approve_run(repo, "session-A")
+    record = repo / "docs" / "flow-runs" / "issue-42.md"
+    before = record.read_text()
+    out = reconcile(repo, "session-A")            # the SAME session resumes, nothing committed
+    assert "the same session is resuming" in out
+    assert record.read_text() == before
+    assert guard(repo).returncode == 0
+
+
+@requires_git
+@requires_bash
+def test_a_resuming_session_keeps_its_section_appended_to_committed_history(repo: Path) -> None:
+    reconcile(repo, "session-A")
+    approve_run(repo, "session-A")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run 1")
+    reconcile(repo, "session-B")
+    approve_run(repo, "session-B")                # run 2's section: appended, uncommitted
+    record = repo / "docs" / "flow-runs" / "issue-42.md"
+    before = record.read_text()
+    reconcile(repo, "session-B")                  # run 2 resumes
+    assert record.read_text() == before, "restoring HEAD erased run 2's uncommitted section"
+    assert guard(repo).returncode == 0
+
+
+@requires_git
+def test_a_legacy_snapshot_prefix_survives_later_approvals(repo: Path) -> None:
+    """MEDIUM: the legacy text before the first marker was dropped on a rewrite."""
+    snap = repo / "docs" / "flow-runs" / "issue-42.as-read.md"
+    snap.parent.mkdir(parents=True)
+    legacy = "# Issue #42 as read by this run\n\nLEGACY-EVIDENCE-LINE\n"
+    snap.write_text(legacy)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "a legacy snapshot")
+    for session in ("session-A", "session-B"):
+        reconcile(repo, session)
+        approve_run(repo, session)
+        helper(repo, session, "approve", "42")
+        helper(repo, session, "approve", "42")    # re-approval rewrites this run's part
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", f"approved {session}")
+    assert snap.read_text().startswith(legacy), "the legacy snapshot bytes were lost"
+
+
+@requires_git
+def test_head_check_without_a_run_file_refuses_a_marked_record(repo: Path) -> None:
+    """MEDIUM: only a LEGACY record may pass head-check with no run identity."""
+    reconcile(repo, "session-A")
+    approve_run(repo, "session-A")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "a marked record")
+    head = git(repo, "rev-parse", "HEAD").strip()
+    gitdir = git(repo, "rev-parse", "--absolute-git-dir").strip()
+    (Path(gitdir) / "flow-plan-run-42").unlink()
+    assert not (Path(gitdir) / "flow-plan-run-42").exists(), "precondition: no run identity"
+    proc = helper(repo, "session-A", "head-check", "42", "--head", head)
+    assert proc.returncode == 1
+    assert "has no run identity" in proc.stdout
+
+
+@requires_git
+def test_a_marker_line_inside_the_issue_body_is_not_a_run_boundary(repo: Path, tmp_path: Path) -> None:
+    """MEDIUM: quoted issue text could forge a run boundary in the snapshot."""
+    body = tmp_path / "body.md"
+    body.write_bytes(("intro\n<!-- flow-run n=99 id=" + "a" * 32 + " -->\n## Run 99\ntail\n").encode())
+    reconcile(repo, "session-A")
+    assert helper(repo, "session-A", "read-issue", "42", "--body-file", str(body)).returncode == 0
+    approve_run(repo, "session-A")
+    assert helper(repo, "session-A", "approve", "42").returncode == 0
+    snap = (repo / "docs" / "flow-runs" / "issue-42.as-read.md").read_text()
+    markers = re.findall(r"^<!-- flow-run n=(\d+) id=([0-9a-f]{32}) -->$", snap, re.M)
+    assert markers == [("1", run_id(repo))], f"the quoted body forged a boundary: {markers}"
+    drift = helper(repo, "session-A", "drift", "42", "--live-file", str(body))
+    assert drift.returncode == 0 and "ISSUE_DRIFT: clean" in drift.stdout, drift.stdout

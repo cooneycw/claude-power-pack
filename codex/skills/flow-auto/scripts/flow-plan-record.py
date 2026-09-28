@@ -112,6 +112,25 @@ section; nothing earlier is edited, and every check reads only its own run.
 """
 
 
+#: A body line shaped like a run marker, already escaped any number of times.
+_ESCAPABLE_RE = re.compile(r"^(\\*)(<!-- flow-run )", re.M)
+
+
+def escape_markers(body: str) -> str:
+    """Make quoted issue text unable to forge a run boundary (counter-model review).
+
+    The as-read snapshot stores the issue body verbatim, and an issue may contain
+    a literal marker line. Any line starting `<!-- flow-run ` - with any number of
+    leading backslashes - gains one more, so no body line can match the marker
+    pattern, and `unescape_markers` restores the exact text.
+    """
+    return _ESCAPABLE_RE.sub(lambda m: "\\" + m.group(1) + m.group(2), body)
+
+
+def unescape_markers(body: str) -> str:
+    return re.sub(r"^\\(\\*<!-- flow-run )", r"\1", body, flags=re.M)
+
+
 def run_state_path(issue: str) -> pathlib.Path:
     return git_dir() / f"flow-plan-run-{issue}"
 
@@ -131,6 +150,12 @@ def read_run_state(issue: str) -> dict[str, str] | None:
 def current_run_id(issue: str) -> str | None:
     state = read_run_state(issue)
     return state["run_id"] if state else None
+
+
+def pre_marker_prefix(text: str) -> str:
+    """Everything before the first run marker: legacy history, kept verbatim."""
+    first = RUN_MARKER_RE.search(text)
+    return text[:first.start()] if first else text
 
 
 def split_runs(text: str) -> list[tuple[int, str | None, str]]:
@@ -173,6 +198,13 @@ def section_digest(section: str) -> str:
     return hashlib.sha256(section.rstrip("\n").encode("utf-8")).hexdigest()
 
 
+def continuing_run(issue: str) -> bool:
+    """True when THIS session already owns this worktree's run (a resume)."""
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    state = read_run_state(issue)
+    return bool(session and state and state.get("session", "") == session)
+
+
 def ensure_run(issue: str) -> tuple[str, bool]:
     """Keep this worktree's run id for the SAME session, or mint a new one.
 
@@ -212,6 +244,15 @@ def cmd_reconcile(issue: str) -> int:
     """
     root = toplevel()
     rec = record_rel(issue)
+    # SAME SESSION FIRST (counter-model review, HIGH). A resume of the run that is
+    # still driving this worktree must not lose its own uncommitted work: restoring
+    # HEAD over it, or deleting it as "scratch", erased this run's appended and
+    # approved section while keeping its run id - and the guard then refused the
+    # run it was meant to let through. Only ANOTHER run's leftovers are scratch.
+    if continuing_run(issue):
+        print(f"FLOW_PLAN_RECORD: kept {rec} as it is (the same session is resuming its "
+              "run; its uncommitted work is not a dead run's scratch)")
+        return announce_run(issue)
     in_head = subprocess.run(["git", "cat-file", "-e", f"HEAD:{rec}"], cwd=root,
                              capture_output=True).returncode == 0
     if in_head:
@@ -389,7 +430,7 @@ def cmd_approve(issue: str) -> int:
             f"- Body digest:  {digest}   (sha256 of the FULL body; the verdict keys on this)\n",
             f"- Stored bytes: {len(cut)} of {len(raw)} (cap {CAP})\n",
             body_heading,
-            cut.decode("utf-8"),
+            escape_markers(cut.decode("utf-8")),
         ]
         if truncated:
             parts.append(
@@ -421,7 +462,11 @@ def write_run_part(out: pathlib.Path, run_id: str | None, part: str) -> None:
     existing = out.read_text() if out.exists() else ""
     runs = split_runs(existing) if existing.strip() else []
     if runs and runs[0][1] is not None:
-        kept = "".join(sec for _n, rid, sec in runs if rid != run_id)
+        # The legacy prefix before the first marker is HISTORY and is kept byte
+        # for byte (counter-model review): joining only the marked sections
+        # dropped it on the second approval, breaking the append-only contract.
+        kept = pre_marker_prefix(existing) + "".join(
+            sec for _n, rid, sec in runs if rid != run_id)
     else:
         kept = existing                  # a legacy snapshot is history: kept whole
     if kept and not kept.endswith("\n"):
@@ -477,7 +522,7 @@ def cmd_drift(issue: str, live_file: str | None) -> int:
 
     print("ISSUE_DRIFT: drift - the issue body changed since this run read it.")
     halves = body_split.split(text, 1)
-    stored = halves[1] if len(halves) == 2 else ""
+    stored = unescape_markers(halves[1]) if len(halves) == 2 else ""
     stored = re.sub(r"\n\[TRUNCATED at .*?\]\n", "", stored, flags=re.S)
     was_truncated = "[TRUNCATED at " in text
     # Compare LIKE WITH LIKE: the stored copy is a PREFIX of a truncated body.
@@ -724,18 +769,17 @@ def cmd_head_check(issue: str, head: str | None) -> int:
         print(f"FLOW_PLAN_RECORD: absent - {rec} does not exist at the PR head ({head}). STOP.")
         return ERROR
     run_id = current_run_id(issue)
-    if run_id is not None:
-        # The FILE existing is not enough once runs share it (#1320): a prior run's
-        # record at the head would otherwise pass for this run's.
-        at_head = subprocess.run(["git", "show", f"{head}:{rec}"], capture_output=True,
-                                 text=True)
-        if at_head.returncode != 0:
-            print(f"FLOW_PLAN_RECORD: unverified - could not read {rec} at {head}.")
-            return UNKNOWN
-        found, why = select_run(at_head.stdout, run_id)
-        if found is None:
-            print(f"FLOW_PLAN_RECORD: absent - {rec} is at the PR head ({head}) but {why}. STOP.")
-            return ERROR
+    # The FILE existing is not enough once runs share it (#1320): a prior run's
+    # record at the head would otherwise pass for this run's. Selected even with NO
+    # run identity (counter-model review): only a LEGACY record may pass without one.
+    at_head = subprocess.run(["git", "show", f"{head}:{rec}"], capture_output=True, text=True)
+    if at_head.returncode != 0:
+        print(f"FLOW_PLAN_RECORD: unverified - could not read {rec} at {head}.")
+        return UNKNOWN
+    found, why = select_run(at_head.stdout, run_id)
+    if found is None:
+        print(f"FLOW_PLAN_RECORD: absent - {rec} is at the PR head ({head}) but {why}. STOP.")
+        return ERROR
     print(f"FLOW_PLAN_RECORD: present - {rec} exists at the PR head ({head})"
           + (f" with this run's section ({run_id})." if run_id else "."))
     return OK
