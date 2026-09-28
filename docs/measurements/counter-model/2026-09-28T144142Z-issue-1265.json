@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1265-delegated-run-check-sh-stops-at-depth-6-counts-unp",
+  "counts": {
+    "accepted": 4,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "85991313b24c2a03d4a961f771a0b35ab6de8e96",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1265",
+  "passes": 2,
+  "recorded_at": "2026-09-28T14:41:42Z",
+  "red_cases": {
+    "already_covered": 11,
+    "proposed": 13
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
