@@ -13,7 +13,7 @@
 # worktree-remove.sh is never reached. What is controlled is the CLASSIFICATION
 # that --apply acts on, not the removal path; control.json's `limits` says so.
 #
-# THE CASES NAME NO ANSWER. A case's fixture.env holds facts about the worktree
+# THE CASES NAME NO ANSWER. A case's facts.txt holds facts about the worktree
 # (PR state, whether its tip is what merged, dirt, where a process sits) and
 # nothing about the expected disposition. The discriminator is the GATE'S OWN
 # `SWEEP_WORKTREE:` line for that worktree.
@@ -39,8 +39,8 @@ case "$case_dir" in /*) ;; *) case_dir="$PWD/$case_dir" ;; esac
 command -v git >/dev/null 2>&1 || { echo "FLOW_WORKTREE_SWEEP_CONTROL: unavailable - git is not installed"; exit 3; }
 command -v bash >/dev/null 2>&1 || { echo "FLOW_WORKTREE_SWEEP_CONTROL: unavailable - bash is not installed"; exit 3; }
 
-fixture="$case_dir/fixture.env"
-[ -f "$fixture" ] || { echo "FLOW_WORKTREE_SWEEP_CONTROL: cannot-run - case has no fixture.env"; exit 3; }
+fixture="$case_dir/facts.txt"
+[ -f "$fixture" ] || { echo "FLOW_WORKTREE_SWEEP_CONTROL: cannot-run - case has no facts.txt"; exit 3; }
 
 # Read facts by key; never source the case (a fixture is data, not code).
 fact() { sed -n "s/^$1=//p" "$fixture" | head -1; }
@@ -157,10 +157,19 @@ if [ -z "$line" ]; then
     echo "FLOW_WORKTREE_SWEEP_CONTROL: cannot-run - the sweep reported nothing for $WT"; exit 3
 fi
 
+# Only two dispositions are verdicts about this worktree: `skip` (examined and
+# kept - GOOD) and `removable` (the finding). `undecidable` means the sweep could
+# NOT classify it, which is neither: scoring it GOOD would let a regression that
+# stopped looking pass every keep-case (counter-model review, #1281). Anything
+# else is a disposition this runner does not know, and is refused the same way.
 printf '%s\n' "$out"
 case "$line" in
     "SWEEP_WORKTREE: $WT removable "*)
         echo "FLOW_WORKTREE_SWEEP_CONTROL: finding - the sweep reports the worktree removable"
         exit 1 ;;
+    "SWEEP_WORKTREE: $WT skip "*)
+        exit 0 ;;
+    *)
+        echo "FLOW_WORKTREE_SWEEP_CONTROL: cannot-run - the sweep did not classify $WT: ${line#SWEEP_WORKTREE: $WT }"
+        exit 3 ;;
 esac
-exit 0
