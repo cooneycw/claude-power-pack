@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1313-flow-finish-gate-sh-leaks-its-runner-json-when-kil",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "fca1ed8722cc7c03270fd4fa469c7a55de1feb91",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1313",
+  "passes": 2,
+  "recorded_at": "2026-09-28T12:32:39Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 6
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

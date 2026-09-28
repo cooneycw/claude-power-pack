@@ -641,9 +641,17 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
     # while the user still sees it live; stderr - the per-step progress log -
     # streams straight through untouched.
     RUNNER_JSON=$(mktemp "${TMPDIR:-/tmp}/flow-finish-gate.XXXXXX")
+    # WRITTEN THROUGH ONE DESCRIPTOR, NEVER RE-OPENED BY NAME (issue #1313).
+    # `tee` is a pipeline member that can outlive this shell: killed mid-run,
+    # the EXIT trap removed the file and a late `tee` then opened the NAME and
+    # re-created it, leaking one per interrupted run under load. Opened here, on
+    # fd 9, the pipeline reaches the same inode through /dev/fd/9 - after the
+    # trap's `rm` that inode is unlinked, and nothing can bring the name back.
+    # A fixed number, not `{fd}>`, because macOS ships bash 3.2.
+    exec 9>"$RUNNER_JSON"
     if [[ "$RERUN_ENABLED" == "1" ]]; then
         CPP_GATE_RERUN_FAILED=1 PYTHONPATH="$CPP_DIR:${PYTHONPATH:-}" uv run --project "$CPP_DIR" python -m lib.cicd run --plan "$PLAN" \
-            | tee "$RUNNER_JSON"
+            | tee /dev/fd/9
         RUNNER_EXIT=${PIPESTATUS[0]}
     else
         # Pass an explicit 0 rather than simply declining to set the variable:
@@ -653,7 +661,7 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         # exported it). FLOW_GATE_RERUN=0 has to override an inherited value,
         # not merely abstain from setting one.
         CPP_GATE_RERUN_FAILED=0 PYTHONPATH="$CPP_DIR:${PYTHONPATH:-}" uv run --project "$CPP_DIR" python -m lib.cicd run --plan "$PLAN" \
-            | tee "$RUNNER_JSON"
+            | tee /dev/fd/9
         RUNNER_EXIT=${PIPESTATUS[0]}
     fi
     QUALIFIED=0
@@ -930,6 +938,7 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
     ' "$RUNNER_JSON" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
     # Removed here AND by the EXIT trap: this keeps the file's life as short as
     # the parse, the trap covers every exit before this line.
+    exec 9>&-
     rm -f "$RUNNER_JSON"
     RUNNER_JSON=""
     # Print the #769 evidence before verdict precedence is applied: a later
