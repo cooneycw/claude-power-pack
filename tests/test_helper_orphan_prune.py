@@ -36,6 +36,21 @@ UPDATE_DOC = ROOT / ".claude" / "commands" / "cpp" / "update.md"
 pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="requires bash on PATH")
 
 
+#: The seam honours this as a caller's request not to write the named surfaces
+#: (a Kyle session container sets it). A test that inherits it measures the
+#: environment it runs in, not the code: every removal reads DEFERRED and the
+#: suite is red on unmodified main in every container (issue #1343). A test
+#: that is ABOUT deferral names the variable explicitly instead.
+DEFER_ENV = "CPP_DEFER_SURFACES"
+
+
+def _host_env(**overrides: str) -> dict[str, str]:
+    """The caller's environment minus DEFER_ENV, plus `overrides`."""
+    env = {k: v for k, v in os.environ.items() if k != DEFER_ENV}
+    env.update(overrides)
+    return env
+
+
 def _checkout(root: Path) -> Path:
     (root / ".claude" / "commands").mkdir(parents=True)
     (root / "scripts").mkdir()
@@ -186,7 +201,7 @@ def _listing_block() -> str:
 def _run_listing(checkout: Path, home: Path) -> str:
     return subprocess.run(
         ["bash", "-c", _listing_block()],
-        env={**os.environ, "HOME": str(home), "CPP_DIR": str(checkout)},
+        env=_host_env(HOME=str(home), CPP_DIR=str(checkout)),
         capture_output=True,
         text=True,
     ).stdout
@@ -232,8 +247,8 @@ def _prune_block() -> str:
     return blocks[0]
 
 
-def test_the_prune_tally_does_not_count_an_already_absent_entry_as_removed(tmp_path: Path) -> None:
-    """Exit 0 means removed OR already absent; only the first is this run's work."""
+def _prune_fixture(tmp_path: Path) -> tuple[Path, str]:
+    """One dangling link of ours and one listed orphan that is already gone."""
     checkout = _checkout(tmp_path / "cpp")
     home = tmp_path / "home"
     scripts = home / ".claude" / "scripts"
@@ -242,16 +257,49 @@ def test_the_prune_tally_does_not_count_an_already_absent_entry_as_removed(tmp_p
     assert not (scripts / "vanished.sh").exists(), "fixture: one listed orphan is already gone"
     # The block calls the stable path; point it at the seam under test.
     (scripts / "cpp-host-write.sh").symlink_to(SEAM)
-    block = _prune_block().replace("<the listed names>", "gone.sh vanished.sh")
+    return home, _prune_block().replace("<the listed names>", "gone.sh vanished.sh")
+
+
+def test_the_prune_tally_does_not_count_an_already_absent_entry_as_removed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exit 0 means removed OR already absent; only the first is this run's work.
+
+    The ambient deferral is set ON PURPOSE (issue #1343): this test must hold in
+    a Kyle container, which sets it, and not only on a host that does not. Red
+    on the pre-fix env, which inherited it and read `0 removed, ... 2 refused
+    or deferred` - on every host, because the variable comes from here.
+    """
+    monkeypatch.setenv(DEFER_ENV, "~/.claude/scripts")
+    home, block = _prune_fixture(tmp_path)
+    scripts = home / ".claude" / "scripts"
 
     out = subprocess.run(
         ["bash", "-c", block],
-        env={**os.environ, "HOME": str(home), "PRUNE_CONFIRMED": "yes"},
+        env=_host_env(HOME=str(home), PRUNE_CONFIRMED="yes"),
         capture_output=True,
         text=True,
     ).stdout
     assert "1 removed, 1 already absent, 0 refused" in out, out
     assert not (scripts / "gone.sh").is_symlink()
+
+
+def test_a_deferral_the_caller_names_is_honoured_and_tallied(tmp_path: Path) -> None:
+    """The other verdict: a deferral that IS the caller's request removes nothing.
+
+    Stripping the ambient variable must not cost the deferral path its coverage.
+    """
+    home, block = _prune_fixture(tmp_path)
+    scripts = home / ".claude" / "scripts"
+
+    out = subprocess.run(
+        ["bash", "-c", block],
+        env=_host_env(HOME=str(home), PRUNE_CONFIRMED="yes", **{DEFER_ENV: "~/.claude/scripts"}),
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert "0 removed, 0 already absent, 2 refused or deferred" in out, out
+    assert (scripts / "gone.sh").is_symlink(), "a deferred surface must not be written"
 
 
 def test_an_unconfirmed_prune_removes_nothing(tmp_path: Path) -> None:
@@ -262,8 +310,9 @@ def test_an_unconfirmed_prune_removes_nothing(tmp_path: Path) -> None:
     (scripts / "gone.sh").symlink_to(checkout / "scripts" / "gone.sh")
     (scripts / "cpp-host-write.sh").symlink_to(SEAM)
     block = _prune_block().replace("<the listed names>", "gone.sh")
-    env = {k: v for k, v in os.environ.items() if k != "PRUNE_CONFIRMED"}
-    env["HOME"] = str(home)
+    # No DEFER_ENV either: a deferral also removes nothing, so under an inherited
+    # one this test passed whatever the confirmation check did (issue #1343).
+    env = {k: v for k, v in _host_env(HOME=str(home)).items() if k != "PRUNE_CONFIRMED"}
 
     subprocess.run(["bash", "-c", block], env=env, capture_output=True, text=True)
     assert (scripts / "gone.sh").is_symlink(), "no confirmation, no delete"
