@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1276-typed-make-target-gates",
+  "counts": {
+    "accepted": 7,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "06f1a94efd4f142981c2c52f9a89f8565d8520ba",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1276",
+  "passes": 2,
+  "recorded_at": "2026-09-28T16:56:15Z",
+  "red_cases": {
+    "already_covered": 11,
+    "proposed": 15
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/09/28/rollout-2026-09-28T16-52-15-01a0e8ee-71b5-76f1-abe6-98b6f5f9cc14.jsonl",
+    "thread_id": "01a0e8ee-71b5-76f1-abe6-98b6f5f9cc14"
+  },
+  "schema": 1,
+  "status": "ran"
+}

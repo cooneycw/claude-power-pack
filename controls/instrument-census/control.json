@@ -72,10 +72,16 @@
       "why": "The population is fully accounted for, but a census row survives for `gamma-tool.sh`, which is not in the tree. The forward check alone reports this tree clean. Without this case the reverse direction ships unexercised, and a census that keeps rows for deleted tooling inflates the denominator every coverage figure is quoted against."
     },
     {
+      "name": "bad-stale-make-target",
+      "input": "cases/bad-stale-make-target",
+      "expect": "BAD",
+      "why": "A census row for `make nosuch` where the tree's Makefile defines only `verify` (#1276). Before #1276 every `make <target>` row read as the one subject `make`, and with `make` declared external this row resolved silently, so the census could keep describing a deleted Makefile gate forever. It is now the typed subject `make:nosuch`, validated against the Makefile, and STALE. The external `make` stays declared in this fixture precisely so the old reading had a way to pass."
+    },
+    {
       "name": "good-accounted",
       "input": "cases/good-accounted",
       "expect": "GOOD",
-      "why": "A tree whose census matches it exactly, exercising all three accounting paths - a census row, an exclusion row, and a declared external subject. THE HALF THAT MATTERS for a gate wedged at 'fail': a check that refuses every tree passes both bad cases on its own, and this gate is in `make verify`, so a false red blocks every merge in the repository. The external path is here deliberately - it is a list that NARROWS, and a good case that never exercised it would leave the direction where it must NOT fire unproven."
+      "why": "A tree whose census matches it exactly, exercising all three accounting paths - a census row, an exclusion row, and a declared external subject. THE HALF THAT MATTERS for a gate wedged at 'fail': a check that refuses every tree passes both bad cases on its own, and this gate is in `make verify`, so a false red blocks every merge in the repository. The external path is here deliberately - it is a list that NARROWS, and a good case that never exercised it would leave the direction where it must NOT fire unproven. Since #1276 it also carries a `make verify` row and a Makefile defining `verify`, so the typed-subject path is exercised in the direction where it must NOT fire."
     }
   ],
   "anchors": [

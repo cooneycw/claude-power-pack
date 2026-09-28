@@ -385,6 +385,38 @@ def _battery_evidence(output: str) -> str:
     return lines[-1] if lines else "(no output)"
 
 
+
+#: The shared rule module that owns control.json's `gate` schema (#1276).
+CENSUS_RULE_REL = "scripts/instrument-census-check.py"
+
+
+def _gate_file(raw: object) -> tuple[str | None, str | None]:
+    """`(file, None)`, `(None, None)` for no gate, or `(None, why)` (#1276).
+
+    One parser for `gate`, loaded from the shared census rule module, so a typed
+    gate names the same file here as in the harness, and an unknown kind or key
+    is refused here too rather than read as some path.
+    """
+    if raw in ("", None):
+        return None, None
+    from importlib.util import module_from_spec, spec_from_file_location
+
+    path = Path(__file__).resolve().parents[1] / CENSUS_RULE_REL
+    try:
+        spec = spec_from_file_location("cpp_instrument_census_check", path)
+        if spec is None or spec.loader is None:
+            raise ImportError("no import spec")
+        module = module_from_spec(spec)
+        sys.modules["cpp_instrument_census_check"] = module
+        spec.loader.exec_module(module)
+    except Exception as exc:  # noqa: BLE001 - any failure is UNREAD
+        return None, f"{CENSUS_RULE_REL} could not be loaded ({type(exc).__name__}), so `gate` is unread"
+    gate_ref, why = module.parse_gate(raw)
+    if gate_ref is None:
+        return None, f"`gate` refused: {why}"
+    return gate_ref.file, None
+
+
 def run_manifest(manifest_rel: str, root: Path, new_sandbox: Callable[[], Path],
                  quiet: bool) -> list[Probe]:
     """Probe every mutation one manifest declares. Returns one Probe per mutation.
@@ -414,7 +446,9 @@ def run_manifest(manifest_rel: str, root: Path, new_sandbox: Callable[[], Path],
     if not mutations:
         return []
 
-    gate_rel = spec.get("gate", "")
+    gate_rel, refused = _gate_file(spec.get("gate", ""))
+    if refused:
+        return unresolved("*", refused)
     if not gate_rel:
         return unresolved("*", "manifest names no gate")
 

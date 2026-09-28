@@ -624,3 +624,26 @@ def test_the_snapshot_preserves_a_tracked_dangling_symlink(
     import os
 
     assert os.readlink(copied) == "pid:[4026531836]"
+
+
+# #1276 - one parser for control.json's `gate`, closed schema in this reader too
+
+
+@pytest.mark.parametrize(
+    ("gate", "why"),
+    [
+        ({"kind": "make-target", "file": "Makefile", "target": "t", "extra": 1}, "unknown key(s) extra"),
+        ({"kind": "lib-module", "file": "Makefile", "target": "t"}, "not a known kind"),
+        ({"kind": [], "file": "Makefile", "target": "t"}, "not a known kind"),
+    ],
+    ids=["unknown-key", "unknown-kind", "kind-list"],
+)
+def test_a_malformed_typed_gate_is_UNRESOLVED_not_a_path(tmp_path: Path, gate: object, why: str) -> None:
+    root = _tree(tmp_path, good_case=True, mutations=[COMMENT_REJECTION])
+    manifest = root / "controls" / "toy" / "control.json"
+    spec = json.loads(manifest.read_text())
+    spec["gate"] = gate
+    manifest.write_text(json.dumps(spec))
+    out = _probe(root)
+    assert "UNRESOLVED" in out.stdout, out.stdout + out.stderr
+    assert why in out.stdout, out.stdout
