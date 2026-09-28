@@ -71,14 +71,21 @@
 #   - Nothing else when main is clean.
 #   - Always, as the last contract line (issue #1014), the verdict:
 #       FLOW_WORKTREE_GUARD: no-leak | leak | unknown | not-applicable - <detail>
-#     no-leak         looked: main is clean, or its dirt is not this run's leak
-#     leak            looked: an edit this run made landed in main
+#     no-leak         looked: no leak SIGNATURE - main is clean, or its dirt
+#                     matches none of this run's edits and none is fresh
+#     leak            looked: a leak SIGNATURE - fresh main dirt overlapping this
+#                     run's edits, or fresh main dirt beside an idle worktree.
+#                     A signature, not proof of authorship: freshness and overlap
+#                     cannot name the writer, so investigate before reverting main
 #     not-applicable  nothing to examine: not in a git work tree, or this IS the
 #                     main checkout (the current-branch lane), with no separate
 #                     tree to leak into
 #     unknown         could not examine: git missing or failing, or main's tree
-#                     unreadable. NEVER rendered as no-leak - these used to share
-#                     the one silent `exit 0` with a clean pass.
+#                     unreadable, or a freshness that could not be established (a
+#                     path deleted in main, a failing `find`). NEVER rendered as
+#                     no-leak - these used to share the silent `exit 0` of a clean
+#                     pass. The verdict is computed the same with or without
+#                     --strict; --strict only decides the exit.
 #
 # Exit under --strict (gate-lib's gate_map, #1014): no-leak 0, leak 3,
 # unknown 4, not-applicable 5 - so a could-not-look answer can never share the
@@ -132,10 +139,27 @@ verdict() {
   exit 0
 }
 
+# freshness PATH -> fresh | stale | unknown (counter-model review of #1014). A
+# failed or absent `find`, and a tracked path DELETED in main (nothing to stat),
+# used to read as "no output" and so as stale, and stale reads as no-leak. A
+# freshness that was never established is unknown, never stale.
+freshness() {
+  [ -e "$MAIN_REPO/$1" ] || { echo unknown; return; }
+  command -v find >/dev/null 2>&1 || { echo unknown; return; }
+  _f=$(find "$MAIN_REPO/$1" -maxdepth 0 -mmin "-${FRESH_MIN}" 2>/dev/null) || { echo unknown; return; }
+  if [ -n "$_f" ]; then echo fresh; else echo stale; fi
+}
+
 # No git at all is could-not-look; not inside a work tree is nothing-to-look-at.
 command -v "$GIT" >/dev/null 2>&1 || verdict unknown "git ('$GIT') is not on PATH"
-if ! "$GIT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  verdict not-applicable "not inside a git work tree"
+# Only git's own "not a git repository" is not-applicable. Any other failure -
+# corrupt metadata, a safe.directory ownership refusal, a broken binary - is git
+# unable to answer, which is could-not-look (counter-model review).
+if ! probe_out=$("$GIT" rev-parse --is-inside-work-tree 2>&1); then
+  case "$probe_out" in
+    *"not a git repository"*) verdict not-applicable "not inside a git work tree" ;;
+    *) verdict unknown "git could not say whether this is a work tree: $(printf '%s' "$probe_out" | head -1)" ;;
+  esac
 fi
 
 # Distinguish a linked worktree from the main checkout: in a linked worktree the
@@ -246,17 +270,25 @@ if [ "${#overlap[@]}" -eq 0 ]; then
       echo "  - $p" >&2
     done
     echo "         main: $MAIN_REPO" >&2
-    verdict no-leak "${#unrelated[@]} pre-existing main modification(s), none this run's"
+    verdict no-leak "no leak signature: ${#unrelated[@]} main modification(s) match none of this run's edits"
   fi
 
   # (b) total-leak suspect: worktree idle, main dirty. Keep only FRESH main edits.
   fresh=()
+  undetermined=()
   for p in "${unrelated[@]}"; do
-    if [ -n "$(find "$MAIN_REPO/$p" -mmin "-${FRESH_MIN}" 2>/dev/null)" ]; then
-      fresh+=("$p")
-    fi
+    case "$(freshness "$p")" in
+      fresh)   fresh+=("$p") ;;
+      unknown) undetermined+=("$p") ;;
+    esac
   done
 
+  if [ "${#fresh[@]}" -eq 0 ] && [ "${#undetermined[@]}" -gt 0 ]; then
+    echo "[flow] note: the worktree is idle and ${#undetermined[@]} main modification(s) have no establishable freshness (deleted in main, or unreadable):" >&2
+    for p in "${undetermined[@]}"; do echo "  - $p" >&2; done
+    echo "         main: $MAIN_REPO" >&2
+    verdict unknown "idle worktree; freshness of ${#undetermined[@]} main modification(s) could not be established"
+  fi
   if [ "${#fresh[@]}" -eq 0 ]; then
     # All main dirt predates this run's window -> genuinely pre-existing, stay quiet.
     echo "[flow] note: main has ${#unrelated[@]} modified tracked file(s), none edited within the last ${FRESH_MIN}m (pre-existing, not a leak; issue #536/#573):" >&2
@@ -264,7 +296,7 @@ if [ "${#overlap[@]}" -eq 0 ]; then
       echo "  - $p" >&2
     done
     echo "         main: $MAIN_REPO" >&2
-    verdict no-leak "${#unrelated[@]} stale main modification(s) with an idle worktree"
+    verdict no-leak "no leak signature: ${#unrelated[@]} stale main modification(s) with an idle worktree"
   fi
 
   # Fresh main edits with a completely idle worktree -> the total-leak signature.
@@ -279,7 +311,7 @@ if [ "${#overlap[@]}" -eq 0 ]; then
   echo "  never a hand-built '.claude/worktrees/<name>/...' absolute path. Move the changes" >&2
   echo "  into the worktree, then revert main:  git -C \"$MAIN_REPO\" checkout -- <path>" >&2
   echo "  (If main was intentionally edited outside this run, ignore this warning.)" >&2
-  verdict leak "total leak: ${#fresh[@]} fresh main edit(s) with an idle worktree"
+  verdict leak "total-leak signature: ${#fresh[@]} fresh main edit(s) with an idle worktree (writer unverified)"
 fi
 
 # Overlap -> a file this run edited is ALSO dirty in main: the leaked-edit
@@ -314,26 +346,32 @@ echo "  (If these are intentional edits to main, ignore this warning.)" >&2
 # both /flow:auto call sites to --strict (#576) safe rather than a false-stop
 # generator - the promotion was blocked on it during the #576 run itself, where
 # main carried uncommitted retro edits to CLAUDE.md, a file that run had to edit.
-if [ "$STRICT" -eq 0 ]; then
-  verdict leak "${#overlap[@]} file(s) this run edited are also modified in main (advisory)"
-fi
-if [ "$STRICT" -eq 1 ]; then
-  fresh_overlap=()
-  for p in "${overlap[@]}"; do
-    if [ -n "$(find "$MAIN_REPO/$p" -mmin "-${FRESH_MIN}" 2>/dev/null)" ]; then
-      fresh_overlap+=("$p")
-    fi
-  done
-  if [ "${#fresh_overlap[@]}" -eq 0 ]; then
-    echo "" >&2
-    echo "  --strict: none of the overlapping file(s) were modified in main within the" >&2
-    echo "  last ${FRESH_MIN}m, so this is pre-existing dirt rather than a leak from THIS" >&2
-    echo "  run - warning only, not blocking (issue #576)." >&2
-    verdict no-leak "${#overlap[@]} stale overlap(s): pre-existing main dirt, not this run's (issue #576)"
-  fi
+# THE VERDICT IS THE SAME WITH OR WITHOUT --strict (counter-model review):
+# --strict decides only the exit. Advisory mode used to call any overlap `leak`
+# while --strict called a stale one `no-leak` - opposite facts, same input.
+fresh_overlap=()
+undetermined_overlap=()
+for p in "${overlap[@]}"; do
+  case "$(freshness "$p")" in
+    fresh)   fresh_overlap+=("$p") ;;
+    unknown) undetermined_overlap+=("$p") ;;
+  esac
+done
+if [ "${#fresh_overlap[@]}" -gt 0 ]; then
   echo "" >&2
-  echo "  --strict: ${#fresh_overlap[@]} of these were modified in main within the last ${FRESH_MIN}m" >&2
-  echo "  (this run's window) - blocking." >&2
-  verdict leak "${#fresh_overlap[@]} fresh overlap(s) with this run's edits"
+  echo "  ${#fresh_overlap[@]} of these were modified in main within the last ${FRESH_MIN}m" >&2
+  echo "  (this run's window)$( [ "$STRICT" -eq 1 ] && echo ' - blocking.')" >&2
+  verdict leak "overlap signature: ${#fresh_overlap[@]} fresh main modification(s) on paths this run edited (writer unverified)"
 fi
-verdict unknown "fell through every branch - no verdict was reached"
+if [ "${#undetermined_overlap[@]}" -gt 0 ]; then
+  echo "" >&2
+  echo "  The freshness of ${#undetermined_overlap[@]} overlapping path(s) could not be established" >&2
+  echo "  (deleted in main, or unreadable) - reported as unknown, not as stale." >&2
+  verdict unknown "overlap on ${#undetermined_overlap[@]} path(s) whose freshness could not be established"
+fi
+echo "" >&2
+echo "  None of the overlapping file(s) were modified in main within the last ${FRESH_MIN}m," >&2
+echo "  so this is pre-existing dirt rather than a leak from THIS run - warning only," >&2
+echo "  not blocking (issue #576)." >&2
+verdict no-leak "no fresh leak signature: ${#overlap[@]} stale overlap(s), pre-existing main dirt (issue #576)"
+

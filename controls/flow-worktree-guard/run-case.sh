@@ -46,5 +46,14 @@ if [ "$rc" -eq 0 ]; then
   echo "FLOW_WORKTREE_GUARD_CONTROL: clean-look (gate exit 0)"
   exit 0
 fi
-echo "FLOW_WORKTREE_GUARD_CONTROL: finding - gate exit $rc: $(grep '^FLOW_WORKTREE_GUARD:' "$T/out" | head -1)"
+# A CRASH IS NOT A DETECTION (counter-model review): a non-zero exit counts as a
+# finding only when the gate also SAID a could-not-look or nothing-to-look-at
+# verdict. A gate that just died prints neither, and is reported as an error, so
+# the harness scores it UNSIGNALLED instead of crediting it.
+marker=$(grep -E '^FLOW_WORKTREE_GUARD: (unknown|not-applicable)\b' "$T/out" | head -1)
+if [ -z "$marker" ]; then
+  echo "FLOW_WORKTREE_GUARD_CONTROL: error - gate exit $rc with no unknown/not-applicable verdict"
+  exit 2
+fi
+echo "FLOW_WORKTREE_GUARD_CONTROL: finding - gate exit $rc: $marker"
 exit 1
