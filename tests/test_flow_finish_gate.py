@@ -2857,6 +2857,68 @@ def test_an_interrupted_gate_leaves_no_runner_json_behind(tmp_path: Path) -> Non
 
 
 @requires_bash
+def test_a_late_tee_cannot_recreate_the_runner_json_after_the_trap(tmp_path: Path) -> None:
+    """THE #1313 REGRESSION: the leak the test above catches only under load.
+
+    `tee` is a pipeline member that outlives the killed gate. If it opens the
+    runner JSON by NAME after the EXIT trap's `rm`, it re-creates the file and
+    nothing removes it again - pipeline 2811's `['flow-finish-gate.9OcbCl']`,
+    first mislabelled a timing flake. A loaded host is what makes `tee` late;
+    here a PATH stub makes it late on purpose (0.5s, then the real `tee`).
+
+    No sleep in the assertion: `subprocess.run` returns at EOF on the gate's
+    stdout, which `tee` holds, so every straggler has exited when TMPDIR is read.
+    """
+    cpp = _fake_cpp(tmp_path)
+    tmpdir = tmp_path / "tmp"
+    tmpdir.mkdir()
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    stub = bindir / "uv"
+    stub.write_text("#!/usr/bin/env bash\nkill -TERM \"$PPID\"\nsleep 5\n")
+    stub.chmod(0o755)
+    real_tee = shutil.which("tee")
+    assert real_tee, "precondition: a real tee to delay"
+    late_tee = bindir / "tee"
+    late_tee.write_text(f'#!/usr/bin/env bash\nsleep 0.5\nexec {real_tee} "$@"\n')
+    late_tee.chmod(0o755)
+    env = os.environ.copy()
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["FLOW_GATE_CPP_DIR"] = str(cpp)
+    env["TMPDIR"] = str(tmpdir)
+    proc = subprocess.run(
+        ["bash", str(SCRIPT)], cwd=tmp_path, env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=60,
+    )
+    assert "FLOW_FINISH_GATE: " not in proc.stdout, "precondition: interrupted before a verdict"
+    assert "running deterministic gate" in proc.stdout
+    assert sorted(p.name for p in tmpdir.iterdir()) == []
+
+
+@requires_bash
+@requires_git
+def test_an_uninterrupted_run_reads_the_complete_runner_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other half of #1313: writing through fd 9 must not change what is read.
+
+    Every verdict below is derived from PATH reads of the runner JSON after the
+    pipeline, so they prove the file held the whole payload; the payload is also
+    tee'd to stdout verbatim, and the file is still removed at the end.
+    """
+    tmpdir = tmp_path / "tmp"
+    tmpdir.mkdir()
+    monkeypatch.setenv("TMPDIR", str(tmpdir))
+    cpp = _fake_cpp(tmp_path)
+    payload = _runner_json(_NO_TESTS_WARNING)
+    proc, _ = _run(tmp_path, cpp_dir=str(cpp), uv_exit=0, uv_stdout=payload)
+    assert proc.returncode == 3
+    assert "FLOW_FINISH_GATE: warn" in proc.stdout
+    assert _qualified_line(proc.stdout)
+    assert '"warnings"' in proc.stdout and "executed NO tests" in proc.stdout
+    assert sorted(p.name for p in tmpdir.iterdir()) == []
+
+@requires_bash
 @requires_git
 def test_runner_unavailable_fallback_honours_a_declared_mypy_scope(tmp_path: Path) -> None:
     """counter-model review, pass 2: the runner-unavailable lane still ran
