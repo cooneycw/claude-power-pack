@@ -1902,11 +1902,34 @@ def _inner_watch(daemon: int) -> int | None:
 
 
 def _pid_alive(pid: int) -> bool:
+    """Alive meaning "a running process holds this pid" - a ZOMBIE IS DEAD.
+
+    This was `os.kill(pid, 0)`, which also succeeds for a zombie: a daemon that
+    had exited but not yet been reaped by whatever it was reparented to read as
+    alive. `kill_supervise_daemon` waits with the zombie-excluding check, so a
+    test that asserted death with this one straight after it was racing the
+    REAPER, not the daemon - pipeline 2815's `assert not True` (issue #1311),
+    reproduced with an unreaped child. One definition, the reaper's own.
+    """
+    return _pid_not_zombie(pid)
+
+
+def test_an_unreaped_zombie_is_not_alive() -> None:
+    """THE #1311 RED CASE for `_pid_alive`: a killed-but-unreaped child.
+
+    The child is ours and deliberately NOT waited on, so it stays a zombie - the
+    state a reparented daemon sits in until its new parent reaps it, which a
+    loaded host delays. The kill(0) definition answered True here (pipeline
+    2815's `assert not True`); the reaper's own verdict says gone.
+    """
+    child = subprocess.Popen(["sleep", "300"], start_new_session=True)
     try:
-        os.kill(pid, 0)
-    except (OSError, ProcessLookupError):
-        return False
-    return True
+        assert kill_supervise_daemon(child.pid) is True
+        state = Path(f"/proc/{child.pid}/stat").read_text().rsplit(") ", 1)[1][0]
+        assert state == "Z", f"precondition: the child is an unreaped zombie (state {state})"
+        assert not _pid_alive(child.pid)
+    finally:
+        child.wait(timeout=10)
 
 
 def _children_of(pid: int) -> list[int]:
@@ -1961,7 +1984,7 @@ class TestSupervise:
             cwd=str(tmp_path),
         )
 
-    def _kill_daemon(self, pid: int) -> None:
+    def _kill_daemon(self, pid: int) -> bool:
         """The fast path: kill this daemon now rather than waiting for the
         `autouse` reaper in tests/conftest.py to do it at teardown.
 
@@ -1973,8 +1996,11 @@ class TestSupervise:
         the two tests that launch with `--timeout 30` therefore outran that
         10s waiter every time. Neither the timeout nor the surviving inner
         `watch` was ever reported.
+
+        Returns the reaper's verdict - True when nothing of the subtree is left -
+        so a caller asserting death asserts THIS, not a separate read (#1311).
         """
-        kill_supervise_daemon(pid)
+        return kill_supervise_daemon(pid)
 
     def test_supervise_returns_promptly_with_its_own_verdict_line(
         self, tmp_path: Path
@@ -2053,7 +2079,7 @@ class TestSupervise:
         stale-PID reclaim logic needed or present."""
         self._launch(tmp_path)
         pid = _daemon_pid(tmp_path, WAVE, "1")
-        self._kill_daemon(pid)
+        assert self._kill_daemon(pid), "the reaper could not confirm the daemon's subtree gone"
         assert not _pid_alive(pid)
         second = self._launch(tmp_path)
         try:
