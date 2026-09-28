@@ -2857,6 +2857,11 @@ def test_an_interrupted_gate_leaves_no_runner_json_behind(tmp_path: Path) -> Non
 
 
 @requires_bash
+@pytest.mark.skipif(
+    not Path("/proc/self/stat").exists(),
+    reason="the late tee is released on the gate's death, read from /proc; without "
+    "procfs that synchronisation cannot be established and the case would prove nothing",
+)
 def test_a_late_tee_cannot_recreate_the_runner_json_after_the_trap(tmp_path: Path) -> None:
     """THE #1313 REGRESSION: the leak the test above catches only under load.
 
@@ -2869,11 +2874,14 @@ def test_a_late_tee_cannot_recreate_the_runner_json_after_the_trap(tmp_path: Pat
     DIED, i.e. until its EXIT trap has already run. A fixed sleep could lose to
     a slow gate and pass on the unfixed code without exercising the race.
 
-    The gate counts as dead once it is a zombie: it stays one until this test
-    reaps it, which `subprocess.run` does only after EOF on stdout - and `tee`
-    holds stdout, so waiting for the pid to vanish would deadlock.
+    The GATE's pid is handed to the stub by this test (written the moment Popen
+    returns), never read from the stub's `$PPID`: a stub that starts after the
+    gate is killed has already been reparented, and would watch the wrong
+    process (counter-model review, pass 2). The gate counts as dead once it is a
+    zombie - it stays one until this test reaps it, after EOF on stdout, which
+    `tee` holds, so waiting for the pid to vanish would deadlock.
 
-    No sleep in the assertion: `subprocess.run` returns at EOF on the gate's
+    No sleep in the assertion: communicate() returns at EOF on the gate's
     stdout, which `tee` holds, so every straggler has exited when TMPDIR is read.
     """
     cpp = _fake_cpp(tmp_path)
@@ -2886,11 +2894,17 @@ def test_a_late_tee_cannot_recreate_the_runner_json_after_the_trap(tmp_path: Pat
     stub.chmod(0o755)
     real_tee = shutil.which("tee")
     assert real_tee, "precondition: a real tee to delay"
+    gate_pid_file = tmp_path / "gate.pid"
     released = tmp_path / "tee-released"
     late_tee = bindir / "tee"
     late_tee.write_text(
         "#!/usr/bin/env bash\n"
-        'gate=$PPID; deadline=$((SECONDS + 30))\n'
+        "deadline=$((SECONDS + 30))\n"
+        f'until [ -s "{gate_pid_file}" ]; do\n'
+        '  [ "$SECONDS" -lt "$deadline" ] || { echo "late-tee: no gate pid" >&2; exit 97; }\n'
+        "  sleep 0.05\n"
+        "done\n"
+        f'gate=$(cat "{gate_pid_file}")\n'
         # Alive = a /proc entry that is not a zombie.
         'while [ -r "/proc/$gate/stat" ] && [ "$(cut -d")" -f2 "/proc/$gate/stat" | cut -d" " -f2)" != Z ]; do\n'
         '  [ "$SECONDS" -lt "$deadline" ] || { echo "late-tee: the gate never exited" >&2; exit 97; }\n'
@@ -2904,13 +2918,20 @@ def test_a_late_tee_cannot_recreate_the_runner_json_after_the_trap(tmp_path: Pat
     env["PATH"] = f"{bindir}:{env['PATH']}"
     env["FLOW_GATE_CPP_DIR"] = str(cpp)
     env["TMPDIR"] = str(tmpdir)
-    proc = subprocess.run(
+    gate = subprocess.Popen(
         ["bash", str(SCRIPT)], cwd=tmp_path, env=env,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=60,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
     )
-    assert "FLOW_FINISH_GATE: " not in proc.stdout, "precondition: interrupted before a verdict"
-    assert "running deterministic gate" in proc.stdout
-    assert released.exists(), f"precondition: tee was released only after the gate died\n{proc.stdout}"
+    gate_pid_file.write_text(str(gate.pid))
+    try:
+        stdout, _ = gate.communicate(timeout=60)
+    finally:
+        if gate.poll() is None:
+            gate.kill()
+            gate.wait(timeout=10)
+    assert "FLOW_FINISH_GATE: " not in stdout, "precondition: interrupted before a verdict"
+    assert "running deterministic gate" in stdout
+    assert released.exists(), f"precondition: tee was released only after the gate died\n{stdout}"
     assert sorted(p.name for p in tmpdir.iterdir()) == []
 
 
