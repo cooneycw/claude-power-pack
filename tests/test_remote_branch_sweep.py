@@ -6,12 +6,19 @@ real remote. `delete` refuses a fixture outright, so no test can delete anything
 
 from __future__ import annotations
 
+import importlib.util
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+#: The sweeper shells out to git (worktree scans, the leased delete), so every
+#: test that runs it needs git on PATH - including the fixture-driven ones.
+requires_git = pytest.mark.skipif(shutil.which("git") is None, reason="the sweeper shells out to git")
+pytestmark = requires_git
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "remote-branch-sweep.py"
@@ -167,10 +174,6 @@ def test_delete_REFUSES_a_fixture_and_requires_confirm_and_a_checkout(tmp_path):
 
 # --- Counter-model review of PR-B (#1262): each case was red before its fix ---
 
-import importlib.util  # noqa: E402
-import shutil  # noqa: E402
-
-requires_git = pytest.mark.skipif(shutil.which("git") is None, reason="builds real checkouts")
 
 
 def _module():
