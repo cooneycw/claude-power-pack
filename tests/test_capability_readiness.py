@@ -618,3 +618,27 @@ def test_package_manager_exec_forms_are_not_started(home, project, tmp_path, com
     row = rows_of(run(home, project, None, "--json"))["browser-qa"]
     assert row["state"] == "unexamined"
     assert not witness.exists()
+
+
+class _RedirectHandler(BaseHTTPRequestHandler):
+    """Redirects every request elsewhere; the probe must not follow."""
+
+    def do_POST(self):  # noqa: N802
+        self.send_response(307)
+        self.send_header("Location", "http://127.0.0.1:1/mcp")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def log_message(self, *a):
+        pass
+
+
+def test_a_redirect_is_not_followed(home, project):
+    srv, url = _serve(_RedirectHandler)
+    try:
+        write_project_mcp(project, {"second-opinion": {"type": "http", "url": url}})
+        row = rows_of(run(home, project, None, "--json"))["second-opinion"]
+    finally:
+        srv.shutdown()
+    assert row["state"] == "unreachable"
+    assert "HTTP 307" in row["observations"][0]["detail"]

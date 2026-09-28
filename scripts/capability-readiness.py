@@ -408,6 +408,15 @@ def _read_http_json(resp, want_id: int, deadline: float):
     return None
 
 
+#: http and https ONLY, and no redirect handler (#1113's shape): this opener
+#: cannot open file: or ftp:, and a redirect is an HTTPError rather than a hop
+#: to a host the configuration never named.
+_OPENER = urllib.request.OpenerDirector()
+for _handler in (urllib.request.HTTPHandler(), urllib.request.HTTPSHandler(),
+                 urllib.request.HTTPDefaultErrorHandler(), urllib.request.HTTPErrorProcessor()):
+    _OPENER.add_handler(_handler)
+
+
 def _http_handshake(url: str, timeout: float, deadline: float) -> tuple[str, str]:
     headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
 
@@ -419,7 +428,7 @@ def _http_handshake(url: str, timeout: float, deadline: float) -> tuple[str, str
             h["MCP-Protocol-Version"] = version
         req = urllib.request.Request(url, data=json.dumps(msg).encode(), headers=h, method="POST")
         left = max(0.1, deadline - time.monotonic())
-        return urllib.request.urlopen(req, timeout=min(timeout, left))  # noqa: S310 - http(s) only, checked by caller
+        return _OPENER.open(req, timeout=min(timeout, left))
 
     try:
         with post(_INIT, None, None) as resp:
