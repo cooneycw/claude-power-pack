@@ -990,3 +990,33 @@ def test_the_test_fixtures_do_not_corrupt_caller_configuration(
     assert dict(hso.git_exec_config_overrides(repo)).get("filter.canary.clean") == "", (
         "the fixture's write did not reach the repo it was aimed at"
     )
+
+
+def test_the_blind_anchor_keeps_its_repo_root_adaptation():
+    """#1268: regenerating the anchor from the gate silently drops this line.
+
+    The gate resolves `parents[1]` (it lives in scripts/); the anchor lives in
+    controls/<name>/anchors/ and must resolve `parents[3]`. A mechanical
+    regeneration reapplies the blinding and copies the gate's `parents[1]`, and the
+    anchor then CRASHES on the known-bad input instead of MISSING it - which
+    happened during the #1182 regeneration. The comment predicting it did not stop
+    it; this test does.
+    """
+    import ast
+
+    root = Path(__file__).resolve().parents[1]
+    anchor = root / "controls" / "host-surface-observe" / "anchors" / "constructed-blind-covered-by.py"
+    tree = ast.parse(anchor.read_text(encoding="utf-8"))
+    depth = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "REPO_ROOT" for t in node.targets
+        ):
+            sub = node.value
+            assert isinstance(sub, ast.Subscript), ast.dump(sub)
+            depth = ast.literal_eval(sub.slice)
+    assert depth is not None, "the anchor no longer assigns REPO_ROOT"
+    assert anchor.resolve().parents[depth] == root, (
+        f"the anchor's REPO_ROOT resolves parents[{depth}], which is not the repository root - "
+        "the adaptation was dropped (regenerated from the gate?)"
+    )

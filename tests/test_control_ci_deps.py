@@ -965,3 +965,108 @@ def test_an_unknown_key_in_a_typed_gate_is_REPORTED_not_read_as_needing_nothing(
                          ["make", "-f", "{gate}", "verify"])
     _needed, notes = gate.requirements(tmp_path, ctl, _binary_gate())
     assert any("unknown key(s) phony" in note for note in notes), notes
+
+
+# #1268 - the mutation-probe step drives a second battery; its environment counts too
+
+
+def _mutating_jq_tree(tmp_path: Path, mutation_command: str) -> Path:
+    pipeline(tmp_path, battery_path=True, stage_commands=["python3 scripts/ci-stage-jq.py"])
+    gate_script(
+        tmp_path,
+        "scripts/ci-stage-jq.py",
+        '#!/usr/bin/env python3\nDEST_DIR = Path(".ci-bin")\n'
+        'DEST = DEST_DIR / "jq"\nDEST.write_bytes(payload)\n',
+    )
+    gate_script(tmp_path, "scripts/toy-gate.sh", NEEDS_NOTHING)
+    control(tmp_path, "toy", "scripts/toy-gate.sh", ["jq", "{gate}"])
+    manifest = tmp_path / "controls" / "toy" / "control.json"
+    spec = json.loads(manifest.read_text(encoding="utf-8"))
+    spec["mutations"] = [{"name": "m", "find": "x", "replace": "y", "count": 1}]
+    manifest.write_text(json.dumps(spec), encoding="utf-8")
+    with (tmp_path / ".woodpecker.yml").open("a", encoding="utf-8") as handle:
+        handle.write(
+            "\n  mutation-probe:\n"
+            f"    image: {CI_IMAGE}\n"
+            "    depends_on: [negative-controls]\n"
+            "    commands:\n"
+            f"      - {mutation_command}\n"
+        )
+    return tmp_path
+
+
+def test_a_mutating_control_needs_its_binary_in_the_mutation_step_too(tmp_path: Path) -> None:
+    """RED before #1268: only the battery step's environment was derived, so the
+    mutation-probe step losing `.ci-bin` from PATH passed this gate."""
+    root = _mutating_jq_tree(tmp_path, "uv run --extra dev python scripts/mutation-probe.py --strict")
+    out = run(root)
+    assert "declares mutations and needs `jq`" in out.stdout, out.stdout
+    assert out.returncode == 1, out.stdout
+
+
+def test_a_mutation_step_after_the_battery_with_ci_bin_inherits_its_staging(tmp_path: Path) -> None:
+    root = _mutating_jq_tree(
+        tmp_path, 'PATH="$PWD/.ci-bin:$PATH" uv run --extra dev python scripts/mutation-probe.py --strict'
+    )
+    out = run(root)
+    assert "declares mutations" not in out.stdout, out.stdout
+    assert out.returncode == 0, out.stdout
+
+
+def test_a_mutation_invocation_with_interpreter_flags_is_still_recognised(tmp_path: Path) -> None:
+    """Review pass 1 (#1268): `python3 -u` read as 'no step runs it', skipping the check."""
+    root = _mutating_jq_tree(tmp_path, "python3 -u scripts/mutation-probe.py --strict")
+    out = run(root)
+    assert "declares mutations and needs `jq`" in out.stdout, out.stdout
+    assert out.returncode == 1, out.stdout
+
+
+def test_every_mutation_invocation_needs_ci_bin_not_just_the_first(tmp_path: Path) -> None:
+    """Review pass 1 (#1268): a command-local PATH on the first run is not inherited by the second."""
+    root = _mutating_jq_tree(
+        tmp_path,
+        'PATH="$PWD/.ci-bin:$PATH" uv run --extra dev python scripts/mutation-probe.py --strict\n'
+        "      - uv run --extra dev python scripts/mutation-probe.py --strict",
+    )
+    out = run(root)
+    assert "declares mutations and needs `jq`" in out.stdout, out.stdout
+    assert out.returncode == 1, out.stdout
+
+
+def test_an_unclassifiable_mention_of_the_probe_is_unknown_not_absent(tmp_path: Path) -> None:
+    root = _mutating_jq_tree(tmp_path, "sh -c 'cd . && python3 scripts/mutation-probe.py --strict'")
+    out = run(root)
+    assert "UNKNOWN - not clean" in out.stdout, out.stdout
+    assert out.returncode == 1, out.stdout
+
+
+def test_a_recognised_invocation_does_not_vouch_for_an_unrecognised_one_beside_it(tmp_path: Path) -> None:
+    """Review pass 2 (#1268): each command is classified on its own."""
+    root = _mutating_jq_tree(
+        tmp_path,
+        'PATH="$PWD/.ci-bin:$PATH" uv run --extra dev python scripts/mutation-probe.py --strict\n'
+        "      - sh -c 'python3 scripts/mutation-probe.py --strict'",
+    )
+    out = run(root)
+    assert "UNKNOWN - not clean" in out.stdout, out.stdout
+    assert out.returncode == 1, out.stdout
+
+
+def test_a_quoted_probe_path_is_still_an_invocation(tmp_path: Path) -> None:
+    """Review pass 2 (#1268): `python3 "scripts/mutation-probe.py"` read as absent."""
+    root = _mutating_jq_tree(tmp_path, 'python3 "scripts/mutation-probe.py" --strict')
+    out = run(root)
+    assert "declares mutations and needs `jq`" in out.stdout, out.stdout
+    assert out.returncode == 1, out.stdout
+
+
+def test_a_compound_command_hiding_a_second_invocation_is_unknown(tmp_path: Path) -> None:
+    """Review pass 3 (#1268): `A && B` - B does not inherit A's command-local PATH."""
+    root = _mutating_jq_tree(
+        tmp_path,
+        'PATH="$PWD/.ci-bin:$PATH" uv run --extra dev python scripts/mutation-probe.py --strict'
+        " && uv run --extra dev python scripts/mutation-probe.py --strict",
+    )
+    out = run(root)
+    assert "UNKNOWN - not clean" in out.stdout, out.stdout
+    assert out.returncode == 1, out.stdout

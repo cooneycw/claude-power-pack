@@ -668,6 +668,10 @@ class Census:
     rows: int | None = None
     subjects: set[str] | None = None
     external: int | None = None
+    #: Subjects the EXCLUSIONS table names (issue #1268, ruling R1). A registered
+    #: gate here is EXCLUDED_CONTROLLED - a real, legitimate state - not "outside
+    #: the census". None when the exclusions could not be read.
+    excluded: set[str] | None = None
     whence: str = ""
     #: Set when the two readers of this one table disagree about how many rows
     #: it has. Membership is then reported `unknown` rather than computed from a
@@ -697,7 +701,11 @@ def instrument_census(root: Path) -> Census:
         text = adr.read_text(encoding="utf-8")
     except OSError:
         return Census(whence=f"{adr_name} is unreadable")
-    rows = len(ADR_ROW_RE.findall(_census_text(text)))
+    # THE CENSUS TABLE'S rows, through the shared rule (issue #1268): counting
+    # every numbered row in the document let any other numbered table join the
+    # denominator. The local pattern is only the fallback when the rule is gone.
+    census_rows = getattr(rule, "census_rows", None)
+    rows = len(census_rows(text)) if census_rows is not None else len(ADR_ROW_RE.findall(_census_text(text)))
     if rows == 0:
         return Census(whence=f"{adr_name} parsed to 0 enumerated rows")
 
@@ -725,7 +733,30 @@ def instrument_census(root: Path) -> Census:
 
     census.subjects = set(subjects)
     census.external = sum(1 for subject in subjects if subject in externals)
+    try:
+        excluded, found = rule.exclusion_subjects(text)
+        census.excluded = set(excluded) if found else None
+    except Exception:  # noqa: BLE001 - unread exclusions are UNKNOWN, never empty
+        census.excluded = None
     return census
+
+
+def split_nonmembers(nonmembers: list[str] | None, census: Census) -> tuple[list[str], list[str]]:
+    """`(excluded_controlled, neither)` (issue #1268, ruling R1).
+
+    `instrument-census-check.py` already forces every `scripts/` file into a
+    census row or an exclusion, so a registered gate that is not a census member
+    is normally EXCLUDED AND CONTROLLED - someone decided it is out of the bound
+    and someone else controlled it anyway. That is legitimate and is NAMED, not
+    failed. A registration in NEITHER table is what fails: unreachable while the
+    census gate is green, and exactly what a bypassed census gate would let in.
+    With the exclusions unread, nothing can be called excluded, so every
+    non-member counts as in neither - the reading that fails, not the one that
+    passes.
+    """
+    excluded = census.excluded or set()
+    names = nonmembers or []
+    return [n for n in names if n in excluded], [n for n in names if n not in excluded]
 
 
 #: WHERE A MARKER CAN BE SEEN AT ALL, stated because "no control found" and "I
@@ -1217,6 +1248,54 @@ def _mismatch(expected: str, observed: str) -> str:
     return _MISMATCH.get((expected, observed), f"expected {expected} and observed {observed}")
 
 
+#: EVERY top-level key a control.json may carry (issue #1268, ruling R4). Taken
+#: from a scan of all 61 controls at 5fd91de, so enabling the refusal reddened
+#: none: `limits` is the canonical prose key and `_comment` an accepted alias;
+#: `mutations`, `battery` and `battery_cwd` are read by mutation-probe.py and
+#: `subject_kind` by the reporter path. Adding a key here is a decision about
+#: what a control can say.
+CONTROL_KEYS = frozenset({
+    "gate", "invocation", "good_exit", "cases", "anchors",
+    "detect_signal", "unavailable_signal", "unknown_signal", "subject_kind",
+    "mutations", "battery", "battery_cwd",
+    "limits", "_comment",
+})
+
+#: The anchor kinds a control may declare (issue #1268). `vendored` is real
+#: pre-fix code carried under a label rather than a sha (controls/cpp-host-write).
+ANCHOR_KINDS = frozenset({"historical", "constructed", "synthetic", "vendored"})
+_HEX_SHA_RE = re.compile(r"[0-9a-f]{4,40}")  # git accepts a 4-character abbreviation
+
+
+def _anchor_kind_problem(anchor: dict[str, str]) -> str | None:
+    """Why an anchor's declared kind cannot be accepted, or None."""
+    kind = anchor.get("kind")
+    label = anchor.get("path", "?")
+    if not isinstance(kind, str) or kind not in ANCHOR_KINDS:
+        return (
+            f"anchor {label} declares kind {kind!r}; a kind is one of "
+            f"{', '.join(sorted(ANCHOR_KINDS))}, and an unread kind is refused"
+        )
+    if kind == "historical":
+        if not _HEX_SHA_RE.fullmatch(str(anchor.get("sha", ""))):
+            return f"anchor {label} is historical but its sha {anchor.get('sha')!r} is not a commit"
+        if not anchor.get("origin"):
+            return f"anchor {label} is historical but names no origin file"
+    return None
+
+
+def _anchor_label(anchor: dict[str, str], case_path: Path) -> str:
+    """Which anchor, of which kind, on which case (issue #1268).
+
+    Diagnostics printed `anchor n/a` for every constructed anchor - the sha
+    field - with no case, so a control with two anchors and three cases produced
+    lines nobody could attribute.
+    """
+    kind = anchor.get("kind", "?")
+    sha = f" {anchor.get('sha')}" if kind == "historical" else ""
+    return f"{anchor.get('path', '?')} ({kind}{sha}) on case {case_path.name}"
+
+
 def _invoke(spec: list[str], gate: Path, case: Path, root: Path) -> tuple[int | None, str, str]:
     argv = [part.replace("{gate}", str(gate)).replace("{case}", str(case)) for part in spec]
     return _run(argv, root)
@@ -1308,6 +1387,20 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
         spec = json.loads(manifest.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         res.details.append(f"control.json unreadable: {exc}")
+        return res
+
+    # A CLOSED SCHEMA (issue #1268, ruling R4). A key this harness does not read
+    # is a claim nothing checks - a misspelt `detect_signl` silently leaves the
+    # control scoring on exit code alone - so it is refused, not ignored.
+    if not isinstance(spec, dict):
+        res.details.append("control.json is not a JSON object")
+        return res
+    unknown_keys = sorted(set(spec) - CONTROL_KEYS)
+    if unknown_keys:
+        res.details.append(
+            f"control.json carries unknown top-level key(s) {', '.join(unknown_keys)}; the schema "
+            f"is closed ({', '.join(sorted(CONTROL_KEYS))}) - prose belongs under `limits`"
+        )
         return res
 
     invocation: list[str] = spec.get("invocation", [])
@@ -2017,6 +2110,18 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
         provenances.append(_provenance(anchor, anchor_path, root, verify_provenance))
         res.provenance = _aggregate_provenance(provenances)
 
+        # `anchors[].kind` IS READ, NOT DECORATION (issue #1268). Only `synthetic`
+        # was ever consulted, so "the real pre-fix code at a commit" versus
+        # "written to be blind" was a label nothing checked. An unknown kind is
+        # refused; a HISTORICAL anchor must carry a commit sha and an origin. It
+        # is checked AFTER provenance is recorded, for the reason given above: an
+        # early return must not discard a MISMATCH already measured.
+        kind_problem = _anchor_kind_problem(anchor)
+        if kind_problem is not None:
+            res.verdict = UNRESOLVED
+            res.details.append(kind_problem)
+            return res
+
         # The SAME misscore lives on this side of the loop (issue #946). An
         # anchor is required to MISS the known-bad input; one that CRASHES on it
         # also exits non-zero, and was therefore reported as having CAUGHT it -
@@ -2028,7 +2133,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
             code, output, diag = _invoke(invocation, anchor_path, case_path, root)
             if code is UNRUNNABLE:
                 res.verdict = UNRESOLVED
-                res.details.append(f"anchor {anchor['sha']} could not be executed - {diag}")
+                res.details.append(f"anchor {_anchor_label(anchor, case_path)} could not be executed - {diag}")
                 return res
             observed = _observe(code, good_exit, output, signal, unavailable, unknown_sig)
             # The anchor is a DIFFERENT PROGRAM, so the gate-side rules about the
@@ -2040,7 +2145,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
             )
             if fault:
                 res.verdict = UNRESOLVED
-                res.details.append(f"anchor {anchor['sha']} {fault}")
+                res.details.append(f"anchor {_anchor_label(anchor, case_path)} {fault}")
                 return res
             # Reached only when every CASE ran, so the tool was present a moment
             # ago; an anchor reporting it absent is therefore about the anchor,
@@ -2049,7 +2154,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
             if observed == UNAVAILABLE:
                 res.verdict = UNRESOLVED
                 res.details.append(
-                    f"anchor {anchor['sha']} reports its tool absent on the known-bad input while "
+                    f"anchor {_anchor_label(anchor, case_path)} reports its tool absent on the known-bad input while "
                     f"the current gate ran, so it cannot be confirmed to have MISSED it"
                 )
                 return res
@@ -2064,7 +2169,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
             if observed == UNKNOWN:
                 res.verdict = UNRESOLVED
                 res.details.append(
-                    f"anchor {anchor['sha']} REFUSED the known-bad input rather than examining "
+                    f"anchor {_anchor_label(anchor, case_path)} REFUSED the known-bad input rather than examining "
                     f"it, so it cannot be confirmed to have MISSED it"
                     + (f" [stderr: {diag}]" if diag else "")
                 )
@@ -2072,7 +2177,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
             if observed is UNSIGNALLED:
                 res.verdict = UNRESOLVED
                 res.details.append(
-                    f"anchor {anchor['sha']} exited {code} on the known-bad input without the "
+                    f"anchor {_anchor_label(anchor, case_path)} exited {code} on the known-bad input without the "
                     f"declared detection signal, so it cannot be confirmed to have MISSED it "
                     f"(it may have crashed)"
                     + (f" [stderr: {diag}]" if diag else "")
@@ -2081,11 +2186,13 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
             if observed != GOOD:
                 res.verdict = INERT
                 res.details.append(
-                    f"anchor {anchor['sha']} CAUGHT the known-bad input, so this control would "
+                    f"anchor {_anchor_label(anchor, case_path)} CAUGHT the known-bad input, so this control would "
                     "not notice the gate regressing to it"
                 )
                 return res
-            res.details.append(f"anchor {anchor['sha']}: missed the known-bad input (blind, as required)")
+            res.details.append(
+                f"anchor {_anchor_label(anchor, case_path)}: missed the known-bad input (blind, as required)"
+            )
 
         for case_path, case_expect, anchor_expect in sanity_cases:
             #: "known-GOOD" for a GOOD case, "known-UNEXAMINABLE" for an UNKNOWN
@@ -2096,7 +2203,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
             code, output, diag = _invoke(invocation, anchor_path, case_path, root)
             if code is UNRUNNABLE:
                 res.verdict = UNRESOLVED
-                res.details.append(f"anchor {anchor['sha']} could not be executed - {diag}")
+                res.details.append(f"anchor {_anchor_label(anchor, case_path)} could not be executed - {diag}")
                 return res
             observed = _observe(code, good_exit, output, signal, unavailable, unknown_sig)
             # As in the known-bad loop above, and needed separately: an anchor can
@@ -2108,19 +2215,19 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
             )
             if fault:
                 res.verdict = UNRESOLVED
-                res.details.append(f"anchor {anchor['sha']} {fault}")
+                res.details.append(f"anchor {_anchor_label(anchor, case_path)} {fault}")
                 return res
             if observed == UNAVAILABLE:
                 res.verdict = UNRESOLVED
                 res.details.append(
-                    f"anchor {anchor['sha']} reports its tool absent on a {kind} input while "
+                    f"anchor {_anchor_label(anchor, case_path)} reports its tool absent on a {kind} input while "
                     f"the current gate ran, so the anchor-sanity check cannot be resolved"
                 )
                 return res
             if observed is UNSIGNALLED:
                 res.verdict = UNRESOLVED
                 res.details.append(
-                    f"anchor {anchor['sha']} exited {code} on a {kind} input without the "
+                    f"anchor {_anchor_label(anchor, case_path)} exited {code} on a {kind} input without the "
                     f"declared detection signal, so the anchor-sanity check cannot be resolved "
                     f"(it may have crashed)"
                     + (f" [stderr: {diag}]" if diag else "")
@@ -2145,7 +2252,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
                     #: incomplete... NOT a failure of the gate").
                     res.verdict = UNRESOLVED
                     res.details.append(
-                        f"anchor {anchor['sha']} is declared blind on a {kind} input "
+                        f"anchor {_anchor_label(anchor, case_path)} is declared blind on a {kind} input "
                         f"(anchor_expect: clean) but observed {observed}, so it CAN derive the "
                         "population the declaration says it cannot. The recorded "
                         "anchor_expect_reason is stale: correct the registration rather than "
@@ -2154,7 +2261,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
                     return res
                 res.verdict = INERT
                 res.details.append(
-                    f"anchor {anchor['sha']} disagrees with the current gate on a {kind} input "
+                    f"anchor {_anchor_label(anchor, case_path)} disagrees with the current gate on a {kind} input "
                     f"(anchor observed {observed}, the gate {case_expect}), "
                     "so it differs for reasons beyond the blindness under test"
                 )
@@ -2213,11 +2320,16 @@ def _headline(
             f"instruments ({whence}) is UNKNOWN - {census.disagreement or 'the census subjects could not be read'}"
         )
 
-    outside = (
-        "none registered outside the census"
-        if not nonmembers
-        else f"{len(nonmembers)} registered OUTSIDE the census ({', '.join(nonmembers)})"
-    )
+    excluded_controlled, neither = split_nonmembers(nonmembers, census)
+    parts = []
+    if excluded_controlled:
+        parts.append(
+            f"{len(excluded_controlled)} excluded from the census but controlled "
+            f"({', '.join(excluded_controlled)})"
+        )
+    if neither:
+        parts.append(f"{len(neither)} registered in NEITHER census table ({', '.join(neither)})")
+    outside = ", ".join(parts) if parts else "none registered outside the census"
     composition = (
         ""
         if census.external is None
@@ -2441,11 +2553,15 @@ def main(argv: list[str] | None = None) -> int:
     # the denominator never enumerated. The `scripts/` kind keeps today's
     # named-not-failed behaviour: changing that is #1268's decision, and this
     # change must not silently make it.
-    typed_prefix = getattr(_census_rule(), "MAKE_SUBJECT_PREFIX", "make:")
-    refused_nonmembers = [name for name in nonmembers or [] if name.startswith(typed_prefix)]
+    # RULING R1 (#1268), which supersedes #1276's make-target-only refusal: a
+    # gate EXCLUDED and controlled is named as its own state; a gate in NEITHER
+    # table fails, whatever its kind.
+    excluded_controlled, refused_nonmembers = split_nonmembers(nonmembers, census)
+    for name in excluded_controlled:
+        print(f"NEGATIVE_CONTROL_CENSUS_EXCLUDED_CONTROLLED: {name}")
     for name in refused_nonmembers:
-        print(f"NEGATIVE_CONTROL_CENSUS_NONMEMBER_REFUSED: {name} - a registered make-target "
-              "gate must have a census row; add one, or remove the registration")
+        print(f"NEGATIVE_CONTROL_CENSUS_NONMEMBER_REFUSED: {name} - registered, but named by "
+              "neither the census nor the exclusions; add a row, or remove the registration")
     if census.disagreement:
         print(f"NEGATIVE_CONTROL_CENSUS_UNREAD: {census.disagreement}")
     print(f"NEGATIVE_CONTROL_UNIVERSE_EXTERNAL: "
@@ -2611,8 +2727,8 @@ def main(argv: list[str] | None = None) -> int:
                 if "not installed" in line:
                     print(f"        {line}")
     if refused_nonmembers and not args.quiet:
-        print(f"negative-controls: {len(refused_nonmembers)} make-target registration(s) "
-              f"OUTSIDE the census: {', '.join(refused_nonmembers)}")
+        print(f"negative-controls: {len(refused_nonmembers)} registration(s) in NEITHER census "
+              f"table: {', '.join(refused_nonmembers)}")
     if unread_sources and not args.quiet:
         print(f"negative-controls: {len(unread_sources)} discovery source(s) could not be read - "
               "their registrations are UNREAD, not absent: " + "; ".join(unread_sources))

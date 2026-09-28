@@ -362,6 +362,27 @@ def parse_gate(value: object) -> tuple[GateRef | None, str | None]:
 #: the document - matching on "starts with a pipe" swept all of them in.
 CENSUS_ROW_RE = re.compile(r"^\|\s*\d+\s*\|")
 
+#: THE census table's header row (issue #1268). A numbered row is a census row
+#: only INSIDE this table: `CENSUS_ROW_RE` alone matched a numbered row in ANY
+#: table of the document, so a second numbered table - a dated measurement, an
+#: example written outside a fence - would silently join the denominator.
+CENSUS_HEADER_RE = re.compile(r"^\|\s*#\s*\|\s*instrument\s*\|\s*verdict\b", re.IGNORECASE)
+
+#: The Retired table's own header. Its third column is `retired by`, so the
+#: census header above can never match it (review pass 3, #1268).
+RETIRED_HEADER_RE = re.compile(r"^\|\s*#\s*\|\s*instrument\s*\|\s*retired\s+by\b", re.IGNORECASE)
+
+#: The retired table's heading (issue #1268). A retired row keeps its number -
+#: numbers are never reused - and names what USED to be enumerated.
+RETIRED_HEADING_RE = re.compile(r"^#{2,}\s+Retired,\s+with\s+the\s+issue\s+that\s+retired\s+it\s*$")
+
+#: A line that is ONLY an HTML comment. Removed as a line, not blanked, so a
+#: comment inside a table does not end the table early.
+#: `(?:(?!-->).)*` and not `.*?`: a lazy DOTALL body could run PAST an earlier
+#: `-->` to find a later one ending a line, swallowing the visible text between
+#: two comments - including the line that ends the census table (review, #1268).
+COMMENT_LINE_RE = re.compile(r"^[ \t]*<!--(?:(?!-->).)*-->[ \t]*$\n?", re.MULTILINE | re.DOTALL)
+
 #: The exclusions table's heading. Its rows are a different shape from the
 #: census's - population in column 1, reason in column 2, no row number - so it
 #: is located by section rather than by row pattern.
@@ -467,6 +488,87 @@ def table_text(text: str) -> str:
     return COMMENT_RE.sub("", unfenced(text))
 
 
+def census_rows(text: str) -> list[str]:
+    """The numbered rows of EVERY census table, and nothing else (issue #1268).
+
+    A census table is one whose header is `| # | instrument | verdict ...`; its
+    rows run to its first non-table line. kyle's ADR 0005 splits its census
+    into FOUR such tables, so reading only the first would drop three quarters
+    of kyle's denominator - measured before this shipped. Any other numbered
+    table (the Retired table, a dated measurement) is not read. Both readers
+    count this, so they cannot disagree about which rows are the census. A
+    document with no census header parses to [] and every caller refuses that
+    as unread rather than as an empty census.
+    """
+    lines = table_text(COMMENT_LINE_RE.sub("", unfenced(text))).splitlines()
+    rows: list[str] = []
+    inside = False
+    for line in lines:
+        if CENSUS_HEADER_RE.match(line):
+            inside = True
+            continue
+        if not inside:
+            continue
+        if not line.startswith("|"):
+            inside = False
+            continue
+        if CENSUS_ROW_RE.match(line):
+            rows.append(line)
+    return rows
+
+
+def row_number(line: str) -> int:
+    """The leading number of a numbered table row."""
+    return int(cells(line)[0])
+
+
+def retired_rows(text: str) -> tuple[list[tuple[int, str]], str]:
+    """`([(number, subject)], state)` for the `Retired` table (issue #1268).
+
+    `state` is `absent` (no Retired section), `examined` (its table was read,
+    possibly empty), or `unread` (the section is there but its table is not -
+    a heading with nothing under it, which is not the same as zero
+    retirements; review pass 3). The table is the one under the section whose
+    header is `| # | instrument | retired by |`, to its first non-table line;
+    the section ends at the next heading.
+
+    A retired row is `| N | <instrument> | <retiring issue> | <why> |`: the
+    number it held, and the subject it named. It is OUTSIDE the denominator by
+    construction - `census_rows` never reads it - and its subject may name a
+    file that no longer exists, which is the point of it. It may NOT name a LIVE
+    file: an instrument still in the tree was not retired.
+    """
+    retired: list[tuple[int, str]] = []
+    state = "absent"
+    in_section = in_table = False
+    for line in table_text(COMMENT_LINE_RE.sub("", unfenced(text))).splitlines():
+        if RETIRED_HEADING_RE.match(line):
+            in_section, in_table = True, False
+            if state == "absent":
+                state = "unread"
+            continue
+        if not in_section:
+            continue
+        if line.startswith("#"):
+            in_section = in_table = False
+            continue
+        if RETIRED_HEADER_RE.match(line):
+            in_table, state = True, "examined"
+            continue
+        if not in_table:
+            continue
+        if not line.startswith("|"):
+            in_section = in_table = False
+            continue
+        if not CENSUS_ROW_RE.match(line):
+            continue
+        row = cells(line)
+        tokens = BACKTICKED_RE.findall(row[1]) if len(row) > 1 else []
+        subject = subject_of(tokens[0]) if tokens else ""
+        retired.append((row_number(line), subject))
+    return retired, state
+
+
 def census_subjects(text: str) -> list[str]:
     """One subject per numbered census row: the FIRST backticked token of column 2.
 
@@ -474,9 +576,7 @@ def census_subjects(text: str) -> list[str]:
     script in passing is a row about the first one.
     """
     subjects: list[str] = []
-    for line in table_text(text).splitlines():
-        if not CENSUS_ROW_RE.match(line):
-            continue
+    for line in census_rows(text):
         row = cells(line)
         if len(row) < 2:
             continue
@@ -620,6 +720,40 @@ def run_check(root: Path) -> int:
         )
         findings += 1
 
+    # A RETIRED ROW MAY NAME WHAT IS GONE, NEVER WHAT IS LIVE (issue #1268). The
+    # table replaces a gap comment, a numbering gap and a prose paragraph with one
+    # row each - and the one thing it must not do is quietly hold an instrument
+    # that is still in the tree outside the denominator.
+    retired, retired_state = retired_rows(text)
+    if retired_state == "unread":
+        print(
+            f"RETIRED_UNREAD: {adr_rel} has a Retired section with no `| # | instrument | "
+            f"retired by |` table under it - that is unread, not zero retirements"
+        )
+        findings += 1
+    for number, subject in retired:
+        live = subject in files or (
+            subject.startswith(MAKE_SUBJECT_PREFIX) and typed_subject_problem(subject, targets) is None
+        )
+        if live:
+            print(
+                f"RETIRED_LIVE: {adr_rel} retired row {number} names `{subject}`, which is still "
+                f"live - an instrument in the tree was not retired"
+            )
+            findings += 1
+
+    # ROW NUMBERS ARE UNIQUE ACROSS THE CENSUS AND THE RETIRED TABLE (issue
+    # #1268). Two PRs appending "the next row" concurrently produce a duplicate
+    # number that no reader noticed, and a retired number that is reused makes
+    # every prose citation of it point at the wrong instrument.
+    numbers = [row_number(line) for line in census_rows(text)] + [number for number, _ in retired]
+    for number in sorted({n for n in numbers if numbers.count(n) > 1}):
+        print(
+            f"DUPLICATE_ROW: {adr_rel} uses row number {number} {numbers.count(number)} times "
+            f"across the census and retired tables"
+        )
+        findings += 1
+
     # PROVENANCE ON EVERY VERDICT: an `ok` over a 73-file tree and an `ok` over a
     # 2-file fixture are otherwise the same line, and a verdict cannot be read
     # against what produced it.
@@ -628,6 +762,13 @@ def run_check(root: Path) -> int:
     print(f"INSTRUMENT_CENSUS_EXCLUSIONS: {len(set(exclusions))}")
     print(f"INSTRUMENT_CENSUS_EXTERNALS: {len(externals)}")
     print(f"INSTRUMENT_CENSUS_TYPED_SUBJECTS: {typed}")
+    # ABSENT is not 0 (review pass 2): a document with no Retired section has
+    # nothing retired to check, which is a different fact from an examined,
+    # empty table. It is allowed - kyle's census has none - and said.
+    print(
+        "INSTRUMENT_CENSUS_RETIRED: "
+        + {"examined": str(len(retired)), "absent": "absent (no Retired section)", "unread": "unread"}[retired_state]
+    )
 
     if findings:
         print(

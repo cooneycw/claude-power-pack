@@ -397,7 +397,7 @@ verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-impor
 	control-ci-deps-check ci-coverage-check \
 	consolidation-ledger-check host-surface-check cpp-host-writes-check \
 	version-consistency-check unicode-dashes-check co-authored-by-trailer-check \
-	behavioral-eval-check
+	behavioral-eval-check eli5-check tool-risk-check
 	@python3 scripts/verify-coverage-check.py --report
 
 ## ACCOUNT FOR EVERY CHECKER, AND SAY WHAT THIS GATE SKIPPED (issue #1028)
@@ -881,7 +881,7 @@ codex-install:
 ## band?); eli5-drift is a NETWORK, fail-open advisory (did upstream move?).
 ## Neither subsumes the other - a manifest cannot notice upstream moving.
 
-## verify-coverage: excluded eli5-check - an offline hard gate consumed by the CI eli5-vendor-check step; nothing about it needs the network or this host
+## verify-coverage: gate eli5-check - the vendored eli5 core matches its manifest; measured offline under #1268, so it gates verify; ci: runs eli5-vendor-check
 eli5-check:
 	@python3 scripts/eli5-vendor.py
 
@@ -916,7 +916,7 @@ project-next-repin:
 ## Woodpecker step runs); tool-risk-drift is the advisory local shape that reports
 ## and exits 0.
 
-## verify-coverage: excluded tool-risk-check - the strict shape, consumed by the CI tool-risk-drift step; nothing about it needs the network or this host
+## verify-coverage: gate tool-risk-check - the destructive and code-exec token taxonomies agree; measured offline under #1268, so it gates verify; ci: runs tool-risk-drift
 tool-risk-check:
 	@python3 scripts/tool-risk-drift.py --strict
 

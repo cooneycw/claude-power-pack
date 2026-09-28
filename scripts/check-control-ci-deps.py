@@ -451,6 +451,116 @@ def _battery_step(
     return (matches[0] if matches else None), [name for name, _ in matches]
 
 
+#: The mutation battery, identified by what a step RUNS (issue #1268).
+MUTATION_SCRIPT = "mutation-probe.py"
+
+#: `[PATH=... ]*[uv run [--flag [value]]* ]?[python3? ]?[path/]mutation-probe.py`.
+#: The `uv run --extra dev python` chain is how this repository's pipeline runs
+#: Python; a mention as an argument to anything else is not an invocation.
+MUTATION_INVOCATION_RE = re.compile(
+    rf"""^\s*(?:env\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*
+         (?:uv\s+run\s+(?:--[\w-]+(?:\s+(?!python)[^\s-]\S*)?\s+)*)?
+         (?:python(?:3(?:\.\d+)?)?\s+(?:-[A-Za-z]+\s+)*)?
+         (?P<q>["']?)\.?/?(?:[^\s"']*/)?{re.escape(MUTATION_SCRIPT)}(?P=q)(?:\s|$)
+    """,
+    re.VERBOSE,
+)
+
+#: A command that chains or substitutes (`&&`, `||`, `;`, `|`, `$(`, a
+#: backtick, a newline) can hide a SECOND invocation that does not inherit the
+#: first's command-local PATH. Such a command mentioning the probe is UNKNOWN,
+#: never read by its first invocation alone (review pass 3, #1268).
+SHELL_COMPOUND_RE = re.compile(r"&&|\|\||;|\||\$\(|`|\n")
+
+#: Any mention at all. A command that MENTIONS the probe but does not match the
+#: invocation shape above is UNDECIDED, never "no step runs it" (review, #1268):
+#: an unrecognised execution must not read as an absent one.
+MUTATION_MENTION_RE = re.compile(rf"{re.escape(MUTATION_SCRIPT)}")
+
+
+def _depends_on(steps: dict[str, dict[str, object]], name: str, target: str) -> bool:
+    """Does step `name` run after `target`, directly or transitively?"""
+    seen: set[str] = set()
+    todo = [str(dep) for dep in steps.get(name, {}).get("depends_on", [])]  # type: ignore[union-attr]
+    while todo:
+        dep = todo.pop()
+        if dep == target:
+            return True
+        if dep in seen:
+            continue
+        seen.add(dep)
+        todo.extend(str(d) for d in steps.get(dep, {}).get("depends_on", []))  # type: ignore[union-attr]
+    return False
+
+
+def mutation_environment(
+    root: Path, battery_provided: set[str]
+) -> tuple[bool, set[str] | None, list[str]]:
+    """`(runs, provided, notes)` for the CI step that runs mutation-probe.py (#1268).
+
+    `runs` is False when no step runs it at all: then no control's mutations run
+    in CI and none can fail there for want of a binary - absent, not unknown.
+
+    This gate used to derive ONE environment - the negative-control battery's -
+    while a second step drives the batteries of every control that declares
+    `mutations`. A binary such a control needs could be missing there and
+    nothing here would say so.
+
+    The step INHERITS the battery step's environment only when that is literally
+    true: it runs after the battery step, on the same image, with `.ci-bin` on
+    PATH for the mutation command (Woodpecker shares the workspace, so what the
+    battery's dependencies staged is still there). Anything short of that is the
+    image's own binaries, or None - UNKNOWN - when the step cannot be read.
+    """
+    notes: list[str] = []
+    binary_gate = _load(REPO_ROOT / BINARY_GATE_REL)
+    pipeline = root / WOODPECKER_REL
+    if binary_gate is None or not pipeline.is_file():
+        return True, None, [f"{WOODPECKER_REL} or {BINARY_GATE_REL} could not be read"]
+    steps = _steps(pipeline.read_text(encoding="utf-8"))
+    def _invokes(command: str) -> bool:
+        return bool(MUTATION_INVOCATION_RE.match(command)) and not SHELL_COMPOUND_RE.search(command)
+
+    matches = [
+        name for name, step in steps.items()
+        if any(_invokes(str(c)) for c in step["commands"])  # type: ignore[union-attr]
+    ]
+    # EACH COMMAND IS CLASSIFIED ON ITS OWN (review pass 2, #1268): a recognised
+    # invocation in a step must not vouch for an unrecognised one beside it.
+    undecided = [
+        name for name, step in steps.items()
+        if any(
+            MUTATION_MENTION_RE.search(str(c)) and not _invokes(str(c))
+            for c in step["commands"]  # type: ignore[union-attr]
+        )
+    ]
+    if undecided:
+        return True, None, [
+            f"step(s) {', '.join(undecided)} mention {MUTATION_SCRIPT} in a form this gate cannot "
+            "classify as running it or not; UNKNOWN, not absent"
+        ]
+    if not matches:
+        return False, set(), ["no step runs mutation-probe.py, so no control's mutations run in CI"]
+    if len(matches) > 1:
+        return True, None, [f"{len(matches)} steps run {MUTATION_SCRIPT} ({', '.join(matches)}); ambiguous"]
+    name = matches[0]
+    step = steps[name]
+    image = _image_name(str(step["image"]))
+    if image != binary_gate.CI_IMAGE:
+        return True, None, [f"step `{name}` runs `{image}`, not the image {BINARY_GATE_REL} records"]
+    battery, _every = _battery_step(steps)
+    commands = [str(c) for c in step["commands"]]  # type: ignore[union-attr]
+    runs = [c for c in commands if _invokes(c)]
+    # EVERY invocation, not the first (review, #1268): a `PATH=` prefix is
+    # command-local, so a second run without it does not inherit the first's.
+    ci_bin = bool(runs) and all(CI_BIN_PREFIX_RE.match(c) for c in runs)
+    if battery is not None and ci_bin and _depends_on(steps, name, battery[0]):
+        notes.append(f"CI_DEPS_MUTATION_STEP: {name} ({image}), after `{battery[0]}` with .ci-bin on PATH")
+        return True, set(battery_provided), notes
+    notes.append(f"CI_DEPS_MUTATION_STEP: {name} ({image}), the image's own binaries only")
+    return True, set(binary_gate.CI_IMAGE_BINARIES), notes
+
+
 def provided_binaries(root: Path) -> tuple[set[str] | None, list[str], list[str]]:
     """`(provided, notes, findings)` - what the battery's CI step can run.
 
@@ -1168,6 +1278,38 @@ def run_check(root: Path) -> int:
                 f"whole register down"
             )
             missing_total += 1
+
+    # THE SECOND BATTERY (issue #1268): controls that declare `mutations` are
+    # also run by the mutation-probe step, which must provide their binaries too.
+    mutating = []
+    for control_dir in registered:
+        try:
+            spec = json.loads((control_dir / "control.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(spec, dict) and spec.get("mutations"):
+            mutating.append(control_dir)
+    if mutating:
+        m_runs, m_provided, m_notes = mutation_environment(root, provided)
+        for note in m_notes:
+            print(note if note.startswith("CI_DEPS_") else f"CI_DEPS_MUTATION_STEP: {note}")
+        for control_dir in mutating:
+            needed, _control_notes = requirements(root, control_dir, binary_gate)
+            if m_provided is None:
+                print(
+                    f"CI_DEP: {control_dir.name} declares mutations, and what the mutation-probe "
+                    f"step provides is UNKNOWN - not clean"
+                )
+                missing_total += 1
+                continue
+            if not m_runs:
+                continue
+            for binary in sorted(needed - m_provided):
+                print(
+                    f"CI_DEP: {control_dir.name} declares mutations and needs `{binary}`, which "
+                    f"the mutation-probe CI step does not provide"
+                )
+                missing_total += 1
 
     py_findings, py_stats = python_import_findings(root, registered)
     for finding in py_findings:

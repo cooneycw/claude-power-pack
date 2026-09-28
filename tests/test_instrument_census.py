@@ -684,3 +684,135 @@ def test_a_rule_inside_a_define_block_is_not_a_target(tmp_path):
     _with_makefile(root, "define UNUSED\nverify:\nendef\nactual:\n\t@true\n")
     assert icc.make_targets(root) == {"actual"}
     assert icc.main(["check", "--root", str(root)]) == 1
+
+
+# ---------------------------------------------------------------------------
+# #1268 - census rows are the census TABLE's; row numbers are unique; Retired
+# ---------------------------------------------------------------------------
+
+RETIRED_HEAD = (
+    "\n### Retired, with the issue that retired it\n\n"
+    "| # | instrument | retired by | why |\n|---|---|---|---|\n"
+)
+
+
+def test_a_numbered_row_in_another_table_is_not_a_census_row(tmp_path):
+    """RED on the pre-#1268 parser: any `| N |` row anywhere joined the census."""
+    other = "\n## A dated measurement\n\n| # | what | when |\n|---|---|---|\n| 1 | `ghost.sh` | then |\n"
+    root = _tree(tmp_path, ["alpha.sh"], _adr(rows="| 1 | `alpha.sh` | v | c | G |\n", tail=other))
+    assert icc.census_subjects((root / icc.ADR_REL).read_text(encoding="utf-8")) == ["alpha.sh"]
+    assert icc.main(["check", "--root", str(root)]) == 0
+
+
+def test_a_comment_line_inside_the_census_table_does_not_end_it(tmp_path):
+    rows = "| 1 | `alpha.sh` | v | c | G |\n<!-- a note -->\n| 2 | `beta.sh` | v | c | G |\n"
+    root = _tree(tmp_path, ["alpha.sh", "beta.sh"], _adr(rows=rows))
+    assert icc.census_subjects((root / icc.ADR_REL).read_text(encoding="utf-8")) == ["alpha.sh", "beta.sh"]
+    assert icc.main(["check", "--root", str(root)]) == 0
+
+
+def test_a_duplicate_row_number_is_a_finding(tmp_path, capsys):
+    """RED on the pre-#1268 gate: two rows numbered 2 passed silently."""
+    rows = (
+        "| 1 | `alpha.sh` | v | c | G |\n| 2 | `beta.sh` | v | c | G |\n"
+        "| 2 | `gamma.sh` | v | c | G |\n"
+    )
+    root = _tree(tmp_path, ["alpha.sh", "beta.sh", "gamma.sh"], _adr(rows=rows))
+    assert icc.main(["check", "--root", str(root)]) == 1
+    assert "DUPLICATE_ROW: " in capsys.readouterr().out
+
+
+def test_a_retired_row_naming_an_ABSENT_file_is_not_stale(tmp_path):
+    """RED on the pre-#1268 gate: the retired row read as a census row, so STALE."""
+    tail = RETIRED_HEAD + "| 2 | `gone.sh` | #1 | removed |\n"
+    root = _tree(tmp_path, ["alpha.sh"], _adr(rows="| 1 | `alpha.sh` | v | c | G |\n", tail=tail))
+    assert icc.main(["check", "--root", str(root)]) == 0
+
+
+def test_a_retired_row_naming_a_LIVE_file_is_a_finding(tmp_path, capsys):
+    tail = RETIRED_HEAD + "| 2 | `beta.sh` | #1 | removed |\n"
+    root = _tree(tmp_path, ["alpha.sh", "beta.sh"],
+                 _adr(rows="| 1 | `alpha.sh` | v | c | G |\n", exclusions="| `beta.sh` | x |\n", tail=tail))
+    assert icc.main(["check", "--root", str(root)]) == 1
+    assert "RETIRED_LIVE: " in capsys.readouterr().out
+
+
+def test_a_retired_number_may_not_be_reused(tmp_path, capsys):
+    tail = RETIRED_HEAD + "| 1 | `gone.sh` | #1 | removed |\n"
+    root = _tree(tmp_path, ["alpha.sh"], _adr(rows="| 1 | `alpha.sh` | v | c | G |\n", tail=tail))
+    assert icc.main(["check", "--root", str(root)]) == 1
+    assert "DUPLICATE_ROW: " in capsys.readouterr().out
+
+
+def test_retired_rows_are_outside_the_denominator():
+    text = (ROOT / icc.ADR_REL).read_text(encoding="utf-8")
+    retired, found = icc.retired_rows(text)
+    assert found and {n for n, _ in retired} >= {32, 45}
+    assert not {n for n, _ in retired} & {icc.row_number(r) for r in icc.census_rows(text)}
+
+
+def test_comment_removal_never_swallows_visible_text_between_comments(tmp_path):
+    """Review pass 1 (#1268): a lazy DOTALL comment pattern ran past an earlier `-->`
+    and removed the visible paragraph that ends the census table."""
+    rows = "| 1 | `alpha.sh` | v | c | G |\n"
+    tail = "<!-- note --> a visible paragraph ends the table\n<!-- later -->\n| 2 | `ghost.sh` | v | c | G |\n"
+    root = _tree(tmp_path, ["alpha.sh"], _adr(rows=rows + tail))
+    assert icc.census_subjects((root / icc.ADR_REL).read_text(encoding="utf-8")) == ["alpha.sh"]
+
+
+def test_a_numbered_table_after_the_retired_table_is_not_retirements(tmp_path, capsys):
+    """Review pass 2 (#1268): the Retired table ends at its first non-table line."""
+    tail = (
+        RETIRED_HEAD + "| 2 | `gone.sh` | #1 | removed |\n"
+        "\nA later table:\n\n| # | x |\n|---|---|\n| 1 | `other` |\n"
+    )
+    root = _tree(tmp_path, ["alpha.sh"], _adr(rows="| 1 | `alpha.sh` | v | c | G |\n", tail=tail))
+    assert icc.retired_rows((root / icc.ADR_REL).read_text(encoding="utf-8"))[0] == [(2, "gone.sh")]
+    assert icc.main(["check", "--root", str(root)]) == 0
+    assert "DUPLICATE_ROW" not in capsys.readouterr().out
+
+
+def test_a_missing_retired_section_is_reported_absent_not_zero(tmp_path, capsys):
+    root = _tree(tmp_path, ["alpha.sh"], _adr(rows="| 1 | `alpha.sh` | v | c | G |\n"))
+    assert icc.main(["check", "--root", str(root)]) == 0
+    assert "INSTRUMENT_CENSUS_RETIRED: absent" in capsys.readouterr().out
+
+
+def test_a_census_split_across_several_tables_is_read_whole(tmp_path):
+    """kyle's ADR 0005 splits its census into FOUR `| # | instrument | verdict |`
+    tables. Reading only the first gave kyle 24 of 78 rows (measured on the
+    previous commit of this branch); every census table is read."""
+    header = "| # | instrument | verdict | consumed by | class |\n|---|---|---|---|---|\n"
+    rows = "| 1 | `alpha.sh` | v | c | G |\n\n## A second group\n\n" + header + "| 2 | `beta.sh` | v | c | G |\n"
+    root = _tree(tmp_path, ["alpha.sh", "beta.sh"], _adr(rows=rows))
+    assert icc.census_subjects((root / icc.ADR_REL).read_text(encoding="utf-8")) == ["alpha.sh", "beta.sh"]
+    assert icc.main(["check", "--root", str(root)]) == 0
+
+
+def test_the_retired_table_is_never_read_as_the_census():
+    """Review pass 3 (#1268): the Retired header shares `| # | instrument |`."""
+    only_retired = (
+        "# x\n" + RETIRED_HEAD + "| 2 | `gone.sh` | #1 | removed |\n"
+    )
+    assert icc.census_rows(only_retired) == []
+    retired_first = only_retired + "\n## The enumeration\n\n" + HEAD.split("## The enumeration\n\n")[1] + (
+        "| 1 | `alpha.sh` | v | c | G |\n"
+    )
+    assert [icc.row_number(r) for r in icc.census_rows(retired_first)] == [1]
+
+
+@pytest.mark.parametrize(
+    "section",
+    [
+        "\n### Retired, with the issue that retired it\n\nThe table was lost.\n",
+        "\n### Retired, with the issue that retired it\n\n| # | x |\n|---|---|\n| 1 | `other` |\n",
+    ],
+    ids=["no-table", "a-neighbouring-table"],
+)
+def test_a_retired_section_without_its_table_is_unread_not_zero(tmp_path, capsys, section):
+    """Review pass 3 (#1268): the heading alone is not an examined table."""
+    root = _tree(tmp_path, ["alpha.sh"], _adr(rows="| 1 | `alpha.sh` | v | c | G |\n", tail=section))
+    assert icc.main(["check", "--root", str(root)]) == 1
+    out = capsys.readouterr().out
+    assert "RETIRED_UNREAD: " in out
+    assert "DUPLICATE_ROW" not in out

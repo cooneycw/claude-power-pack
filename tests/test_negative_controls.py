@@ -3686,14 +3686,53 @@ def test_a_make_target_registration_OUTSIDE_the_census_fails(tmp_path: Path) -> 
     assert out.returncode == 1, out.stdout
 
 
-def test_a_scripts_file_outside_the_census_is_still_only_named(tmp_path: Path) -> None:
-    """The existing kind keeps today's behaviour: named, not failed (#1268 owns that)."""
+def write_census_with_exclusions(root: Path, rows: list[str], excluded: list[str]) -> None:
+    """A miniature ADR with a census table AND an exclusions table (#1268)."""
+    adr = root / "docs" / "decisions"
+    adr.mkdir(parents=True, exist_ok=True)
+    body = "\n".join(f"| {i} | `{s}` | v | c | G |" for i, s in enumerate(rows, start=1))
+    excl = "\n".join(f"| `{s}` | a filter, not a verdict |" for s in excluded)
+    (adr / "0008-instrument-negative-control-bound.md").write_text(
+        "# Census\n\n| # | instrument | verdict | consumed by | class |\n|---|---|---|---|---|\n"
+        f"{body}\n\n### Excluded, with the reason\n\n| population | reason |\n|---|---|\n{excl}\n",
+        encoding="utf-8",
+    )
+
+
+def test_an_EXCLUDED_gate_that_carries_a_control_is_named_not_failed(tmp_path: Path) -> None:
+    """Ruling R1 (#1268): excluded AND controlled is a legitimate state, not 'outside the census'."""
     root = build_tree(tmp_path, SEEING_GATE)
-    write_census(root, ["some-other-gate.py"])
+    write_census_with_exclusions(root, ["some-other-gate.py"], ["toy-gate.py"])
     out = run_harness(root, "--strict")
-    assert "NEGATIVE_CONTROL_CENSUS_NONMEMBER: toy-gate.py" in out.stdout, out.stdout
+    assert "NEGATIVE_CONTROL_CENSUS_EXCLUDED_CONTROLLED: toy-gate.py" in out.stdout, out.stdout
     assert "NONMEMBER_REFUSED" not in out.stdout, out.stdout
+    assert "excluded from the census but controlled (toy-gate.py)" in out.stdout, out.stdout
+    assert "OUTSIDE the census" not in out.stdout, out.stdout
     assert out.returncode == 0, out.stdout
+
+
+def test_a_registration_in_NEITHER_table_fails_when_the_census_gate_is_bypassed(tmp_path: Path) -> None:
+    """Ruling R1's pin: the refusal is not blind just because a green census gate
+    makes it unreachable. Here the census gate is never run - exactly the bypass -
+    and a scripts/ gate named by neither table must fail the run."""
+    root = build_tree(tmp_path, SEEING_GATE)
+    write_census_with_exclusions(root, ["some-other-gate.py"], ["unrelated.sh"])
+    out = run_harness(root, "--strict")
+    assert "NEGATIVE_CONTROL_CENSUS_NONMEMBER_REFUSED: toy-gate.py" in out.stdout, out.stdout
+    assert "NEITHER census table (toy-gate.py)" in out.stdout, out.stdout
+    assert out.returncode == 1, out.stdout
+
+
+def test_the_universe_counts_only_the_census_table(tmp_path: Path) -> None:
+    """#1268: a numbered row in ANOTHER table no longer joins the denominator."""
+    root = build_tree(tmp_path, SEEING_GATE)
+    census = write_census(root, ["toy-gate.py", "other-gate.py"])
+    census.write_text(
+        census.read_text(encoding="utf-8") + "\n## A measurement\n\n| # | when |\n|---|---|\n| 9 | `ghost.sh` |\n",
+        encoding="utf-8",
+    )
+    out = run_harness(root)
+    assert contract(out.stdout, "NEGATIVE_CONTROL_UNIVERSE") == "2", out.stdout
 
 
 @pytest.mark.parametrize(
@@ -3882,3 +3921,70 @@ def test_a_marker_inside_a_define_block_is_not_a_registration_of_a_rule(tmp_path
     out = run_harness(root, "--strict")
     assert verdict_of(out.stdout) == "UNRESOLVED", out.stdout
     assert "define ... endef" in out.stdout, out.stdout
+
+
+# #1268 - anchors[].kind is read; diagnostics name the anchor and case; closed schema
+
+
+def _edit_manifest(root: Path, edit) -> None:
+    manifest = root / "controls" / "toy" / "control.json"
+    spec = json.loads(manifest.read_text(encoding="utf-8"))
+    edit(spec)
+    manifest.write_text(json.dumps(spec), encoding="utf-8")
+
+
+def test_an_unknown_top_level_key_is_refused(tmp_path: Path) -> None:
+    """RED before #1268: a misspelt `detect_signl` was ignored and the control PASSED."""
+    root = build_tree(tmp_path, SEEING_GATE)
+    _edit_manifest(root, lambda spec: spec.update({"detect_signl": "x"}))
+    out = run_harness(root, "--strict")
+    assert verdict_of(out.stdout) == "UNRESOLVED", out.stdout
+    assert "unknown top-level key(s) detect_signl" in out.stdout, out.stdout
+
+
+@pytest.mark.parametrize("prose_key", ["limits", "_comment"])
+def test_both_prose_keys_are_accepted(tmp_path: Path, prose_key: str) -> None:
+    root = build_tree(tmp_path, SEEING_GATE)
+    _edit_manifest(root, lambda spec: spec.update({prose_key: "why this control exists"}))
+    assert verdict_of(run_harness(root, "--strict").stdout) == "PASS"
+
+
+@pytest.mark.parametrize(
+    ("anchor_edit", "why"),
+    [
+        ({"kind": "hand-made"}, "declares kind 'hand-made'"),
+        ({"kind": "historical", "sha": "not-a-commit"}, "is not a commit"),
+        ({"kind": "historical", "origin": ""}, "names no origin file"),
+        ({"kind": []}, "declares kind []"),
+        ({"kind": {}}, "declares kind {}"),
+    ],
+    ids=["unknown-kind", "historical-without-sha", "historical-without-origin", "kind-list", "kind-object"],
+)
+def test_an_anchor_kind_is_validated(tmp_path: Path, anchor_edit: dict, why: str) -> None:
+    """RED before #1268: only `synthetic` was read; any other kind label passed."""
+    root = build_tree(tmp_path, SEEING_GATE)
+    _edit_manifest(root, lambda spec: spec["anchors"][0].update(anchor_edit))
+    out = run_harness(root, "--strict")
+    assert verdict_of(out.stdout) == "UNRESOLVED", out.stdout
+    assert why in out.stdout, out.stdout
+
+
+def test_anchor_diagnostics_name_the_anchor_its_kind_and_the_case(tmp_path: Path) -> None:
+    """RED before #1268: the line read `anchor deadbee: missed ...` - no path, no case,
+    and `anchor n/a` for every constructed anchor."""
+    root = build_tree(tmp_path, SEEING_GATE)
+    out = run_harness(root)
+    assert "anchor anchors/deadbee-toy.py (historical deadbee) on case bad: missed" in out.stdout, out.stdout
+
+
+def test_every_real_control_stays_inside_the_closed_schema() -> None:
+    """R4's condition, kept true: turning the refusal on must not red a real control."""
+    spec = importlib.util.spec_from_file_location("cnc_schema", HARNESS)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["cnc_schema"] = module
+    spec.loader.exec_module(module)
+    for manifest in sorted((ROOT / "controls").glob("*/control.json")):
+        keys = set(json.loads(manifest.read_text(encoding="utf-8")))
+        assert keys <= module.CONTROL_KEYS, f"{manifest}: {sorted(keys - module.CONTROL_KEYS)}"
+        for anchor in json.loads(manifest.read_text(encoding="utf-8")).get("anchors", []):
+            assert module._anchor_kind_problem(anchor) is None, f"{manifest}: {anchor.get('path')}"

@@ -51,5 +51,40 @@
       "sha256": "d70c03e4ae1eaa93d0e8d65cf00c9a73a0c1dada5a4e17c667ec9cacdf9dbce7",
       "note": "No historical commit exists because this module has no pre-fix version - the control is required to land BEFORE any caller. What is vendored is therefore the DESIGN this module rejects, with the same --check runner so a verdict difference isolates the four library functions and nothing else. Provenance reads 'unverified' for that structural reason rather than a temporary one: there is nothing in git history for --verify-provenance to resolve, and there never will be."
     }
-  ]
+  ],
+ "mutations": [
+  {
+   "name": "one-good-exit",
+   "protection": "two verdicts may not both map to the good exit 0 (bad-unknown-maps-to-good)",
+   "find": "if \\[ -n \"\\$_gate_good\" \\]; then",
+   "replace": "if false; then",
+   "count": 1,
+   "expect": "caught"
+  },
+  {
+   "name": "last-argument-flag",
+   "protection": "a flag that is the last argument has no value and is refused (bad-final-flag)",
+   "find": "\\[ \"\\$2\" -ge 2 \\] \\|\\| _gate_refuse \"\\$1 needs a value",
+   "replace": "[ \"$2\" -ge 1 ] || _gate_refuse \"$1 needs a value",
+   "count": 1,
+   "expect": "caught"
+  },
+  {
+   "name": "map-required",
+   "protection": "emitting or exiting before gate_map is refused (bad-no-map)",
+   "find": "\\[ -n \"\\$GATE_MAP\" \\] \\|\\| _gate_refuse",
+   "replace": "true || _gate_refuse",
+   "count": 1,
+   "expect": "uncaught",
+  "why": "MASKED, by design, and honest rather than a false green (the single-mutation limitation re-dispositioned under #1268 R3). With the map requirement disabled, bad-no-map still reaches gate_exit, whose own lookup finds no code for the verdict in an empty map and refuses it - so the case is refused through a second protection and this one reads UNCAUGHT. Each protection covers for the other; a case isolating this one would need a probe that emits and never exits, which is not a state any gate is allowed to reach."
+  },
+  {
+   "name": "unmapped-verdict",
+   "protection": "a verdict the map never declared is refused, never given a code (bad-unmapped-verdict)",
+   "find": "        \\*\\) return 1 ;;\\n    esac\\n    _gate_tail=",
+   "replace": "        *) printf 0; return 0 ;;\n    esac\n    _gate_tail=",
+   "count": 1,
+   "expect": "caught"
+  }
+ ]
 }
