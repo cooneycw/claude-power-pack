@@ -53,7 +53,8 @@
       "Bash(~/.claude/scripts/check-ignored-additions.sh:*)",
       "Bash(~/.claude/scripts/friction-log.sh:*)",
       "Bash(~/.claude/scripts/delegated-run-check.sh:*)",
-      "Bash(~/.claude/scripts/lane-serveability-check.sh:*)"
+      "Bash(~/.claude/scripts/lane-serveability-check.sh:*)",
+      "Bash(~/.claude/scripts/nit-store-resolve.sh:*)"
     ]
   }
 }

@@ -265,6 +265,11 @@
       "class": "not-a-checker",
       "reason": "creates the local memories database; it issues no verdict"
     },
+    "nit-store-resolve.sh": {
+      "class": "tested",
+      "consumer": "tests/test_nit_store_resolve.py",
+      "reason": "the one copy of the repository-to-Nit-Store map (#1272, #1273); answers a number only for an OPEN issue titled 'Nit Store', else none/unknown. Called by /flow:finish, /flow:auto and /codex:code_review before posting a finding"
+    },
     "npm-global-upgrade.sh": {
       "class": "tested",
       "consumer": "tests/test_npm_global_upgrade.py",

@@ -428,38 +428,35 @@ while doing something else: a defect noticed in passing, a rough edge found
 while closing this issue, a contract narrower than its callers assume. Do not
 widen this change to fix it, and do not drop it. Record it.
 
-Resolve the repository's nit store:
+Resolve the repository's nit store with the shared resolver, bare:
 
 ```bash
-# Key on the REMOTE, never the directory name. This step always runs from a
-# per-issue worktree (`.../claude-power-pack-issue-865`), so a basename test
-# falls through every time and the explicit mapping below never fires - leaving
-# a full-text search as the only path, which is the opposite of the intent.
-REPO=$(basename -s .git "$(git remote get-url origin 2>/dev/null)")
-[ -n "$REPO" ] || REPO=$(gh repo view --json name -q .name 2>/dev/null)
-
-case "$REPO" in
-    kyle)              NIT_STORE=1004 ;;
-    claude-power-pack) NIT_STORE=864 ;;
-    codex-power-pack)  NIT_STORE=227 ;;
-    *) NIT_STORE=$(gh issue list --search "Nit Store" --state open \
-                     --json number --jq '.[0].number' 2>/dev/null) ;;
-esac
-
-# Never post into an empty number. A finding silently posted nowhere is the
-# exact failure this step exists to prevent, so fail loudly instead.
-if [ -z "$NIT_STORE" ]; then
-    echo "No nit store for '${REPO:-unknown}' - file the finding as a normal issue." >&2
-    exit 1
-fi
-gh issue comment "$NIT_STORE" --body "<one finding>"
+~/.claude/scripts/nit-store-resolve.sh
 ```
 
-`--search` is full text, not an exact title match, so it can select any open
-issue merely mentioning the phrase. It is the last resort, not the normal path;
-if it is what resolved the number, say so in the closing report.
+It is the ONLY copy of the repository-to-issue map (#1272, #1273). It reads the
+repository from `origin`, never from the directory name, because this step runs
+from a per-issue worktree whose basename is not the repository. It answers a
+number only after GitHub confirms that issue is OPEN and titled exactly "Nit Store".
+Act on `NIT_STORE_STATUS`:
 
-If the repository has no nit store, file the finding as a normal issue instead.
+- `ok` - post to the number it printed as `NIT_STORE=`, IN the repository it
+  printed as `NIT_STORE_REPO=`:
+  `gh issue comment <NIT_STORE> --repo <NIT_STORE_REPO> --body "<one finding>"`.
+  The `--repo` is not optional: without it gh picks its own default (a fork's
+  upstream, or `GH_REPO`), and the verified number would be posted somewhere
+  that was never checked. When
+  `NIT_STORE_SOURCE=search` (an unmapped repository, resolved by exact title),
+  say so in the closing report.
+- `none` (exit 1) - GitHub was asked and there is no open Nit Store, or the
+  mapped one is closed or retitled. If the repository has no nit store, file the finding as a normal issue instead.
+- `unknown` (exit 3) - GitHub could not be asked, or the answer was ambiguous.
+  Post nowhere. Say in the closing report that the finding is unrouted and
+  carry it there verbatim, because `unknown` is not `none`.
+
+On exit 127 the helper is not installed: fall back to `scripts/nit-store-resolve.sh`
+in the CPP checkout (it may prompt once), and tell the user to run
+**`/flow:repair`**.
 
 - **One finding per comment.** State the file and line (or the command), what is
   wrong, why it matters, and which issue or PR you were working when you found

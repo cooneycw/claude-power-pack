@@ -1,6 +1,7 @@
 """Pin: the closing lifecycle surfaces route a supplemental finding to the nit store (issue #865).
 
-The nit stores exist (kyle #1004, claude-power-pack #864, codex-power-pack #227),
+The nit stores exist (kyle #1004, claude-power-pack #864, skillc #20; the map now
+lives once, in scripts/nit-store-resolve.sh - #1272/#1273),
 but before #865 no command document told a worker to use one. A finding noticed
 while closing an issue had nowhere to go: too small to widen the change for, too
 real to drop, and by the time the PR merged it had scrolled out of context. It was
@@ -76,13 +77,15 @@ MIRRORS = {
 #: Each probe is (name, pattern). Every one must match every surface, and every
 #: one must FAIL on a document with the section removed - see the control below.
 PROBES = (
-    ("names the kyle store", re.compile(r"kyle\)\s*NIT_STORE=1004")),
-    ("names the CPP store", re.compile(r"claude-power-pack\)\s*NIT_STORE=864")),
-    ("names the CxPP store", re.compile(r"codex-power-pack\)\s*NIT_STORE=227")),
+    # #1272/#1273: the map is no longer copied into each surface. Each one calls
+    # the one resolver and acts on its three verdicts - ok, none, unknown.
+    ("calls the shared resolver", re.compile(r"~/\.claude/scripts/nit-store-resolve\.sh")),
+    ("posts only on ok", re.compile(r"`ok` - post to the number")),
     (
-        "falls back to a search",
-        re.compile(r'gh issue list --search "Nit Store" --state open'),
+        "posts into the repository it verified",
+        re.compile(r"gh issue comment <NIT_STORE> --repo <NIT_STORE_REPO>"),
     ),
+    ("unknown is not none", re.compile(r"`unknown` is not `none`")),
     (
         "falls back to a normal issue",
         re.compile(r"no nit store, file the finding as a normal issue"),
@@ -208,11 +211,13 @@ def test_probes_are_not_vacuous() -> None:
 # Executing tests: run the published resolver, do not merely read it.
 # --------------------------------------------------------------------------
 
-#: These run the block for real, so they need the binaries it calls (#577).
+#: These run the published call for real, so they need the binaries it calls (#577).
 requires_shell = pytest.mark.skipif(
     shutil.which("bash") is None or shutil.which("git") is None,
     reason="requires bash and git on PATH",
 )
+
+RESOLVER = ROOT / "scripts" / "nit-store-resolve.sh"
 
 GH_STUB = r"""#!/usr/bin/env python3
 # Stub gh: records every call, answers from a JSON fixture.
@@ -225,19 +230,34 @@ argv = sys.argv[1:]
 data.setdefault("calls", []).append(argv)
 state.write_text(json.dumps(data))
 
+# The resolver must always name the repository it is asking about.
+if argv[:2] != ["repo", "view"] and "--repo" not in argv:
+    sys.exit(1)
 if argv[:2] == ["repo", "view"]:
-    print(data.get("repo_view", ""), end="")
+    out = data.get("repo_view", "")
+    if not out:
+        sys.exit(1)
+    print(out)
+elif argv[:2] == ["issue", "view"]:
+    issue = data.get("issues", {}).get(argv[2])
+    if issue is None:
+        sys.exit(1)
+    print(issue["state"] + "\t" + issue["title"])
 elif argv[:2] == ["issue", "list"]:
-    print(data.get("issue_list", ""), end="")
-elif argv[:2] == ["issue", "comment"]:
-    pass
+    jq = argv[argv.index("--jq") + 1] if "--jq" in argv else ""
+    rows = [(n, i) for n, i in sorted(data.get("issues", {}).items()) if i["state"] == "OPEN"]
+    if "TOTAL" in jq:
+        print(f"TOTAL {len(rows)}")
+    for n, issue in rows:
+        if issue["title"] == "Nit Store":
+            print(n)
 else:
     sys.exit(1)
 """
 
 
 def _resolver_block(surface: Path) -> str:
-    """The first bash block of the nit-store section - the published resolver."""
+    """The first bash block of the nit-store section - the published call."""
     section = _section(surface.read_text())
     match = re.search(r"```bash\n(.*?)```", section, re.S)
     assert match, f"no bash block in {surface.name}'s nit-store section"
@@ -249,18 +269,21 @@ def _run_resolver(
     surface: Path,
     *,
     origin: str | None,
+    issues: dict | None = None,
     repo_view: str = "",
-    issue_list: str = "",
     dirname: str = "claude-power-pack-issue-865",
 ) -> tuple[int, str, list[list[str]]]:
-    """Execute the published block from a per-issue worktree-shaped path."""
+    """Execute the published block from a per-issue worktree-shaped path, with
+    HOME's ~/.claude/scripts holding the real resolver - as an install would."""
     workdir = tmp_path / dirname
     workdir.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=workdir, check=True)
     if origin is not None:
-        subprocess.run(
-            ["git", "remote", "add", "origin", origin], cwd=workdir, check=True
-        )
+        subprocess.run(["git", "remote", "add", "origin", origin], cwd=workdir, check=True)
+
+    home = tmp_path / "home"
+    (home / ".claude" / "scripts").mkdir(parents=True)
+    (home / ".claude" / "scripts" / "nit-store-resolve.sh").symlink_to(RESOLVER)
 
     bindir = tmp_path / "bin"
     bindir.mkdir()
@@ -269,22 +292,17 @@ def _run_resolver(
     gh.chmod(0o755)
 
     state = tmp_path / "state.json"
-    state.write_text(json.dumps({"repo_view": repo_view, "issue_list": issue_list}))
+    state.write_text(json.dumps({"repo_view": repo_view, "issues": issues or {}}))
 
-    env = {
-        **os.environ,
-        "PATH": f"{bindir}:{os.environ['PATH']}",
-        "GH_STUB_STATE": str(state),
-    }
-    proc = subprocess.run(
-        ["bash", "-c", _resolver_block(surface) + '\necho "RESOLVED=$NIT_STORE"'],
-        cwd=workdir,
-        env=env,
-        capture_output=True,
-        text=True,
-    )
+    env = {**os.environ, "HOME": str(home), "PATH": f"{bindir}:{os.environ['PATH']}",
+           "GH_STUB_STATE": str(state)}
+    proc = subprocess.run(["bash", "-c", _resolver_block(surface)], cwd=workdir, env=env,
+                          capture_output=True, text=True)
     calls = json.loads(state.read_text()).get("calls", [])
     return proc.returncode, proc.stdout + proc.stderr, calls
+
+
+OPEN_STORE = {"state": "OPEN", "title": "Nit Store"}
 
 
 @requires_shell
@@ -292,16 +310,14 @@ def _run_resolver(
 def test_resolver_matches_from_a_per_issue_worktree(tmp_path: Path, surface: Path) -> None:
     """The real case: the directory is `<repo>-issue-NNN`, never `<repo>`.
 
-    This is the regression. Keying on the directory basename fell through here on
-    every single invocation, making the last-resort search the only live path.
+    The regression #865 found - keying on the directory basename fell through on
+    every invocation - must stay dead now the map lives in the resolver.
     """
     code, output, calls = _run_resolver(
-        tmp_path,
-        surface,
-        origin="https://github.com/cooneycw/claude-power-pack.git",
+        tmp_path, surface, origin="https://github.com/cooneycw/claude-power-pack.git",
+        issues={"864": OPEN_STORE},
     )
-    assert code == 0, output
-    assert "RESOLVED=864" in output, output
+    assert code == 0 and "NIT_STORE=864" in output, output
     assert not [c for c in calls if c[:2] == ["issue", "list"]], (
         f"fell through to the search despite a known remote: {calls}"
     )
@@ -311,40 +327,39 @@ def test_resolver_matches_from_a_per_issue_worktree(tmp_path: Path, surface: Pat
 @pytest.mark.parametrize("surface", SURFACES, ids=lambda p: p.name)
 def test_resolver_handles_an_ssh_remote(tmp_path: Path, surface: Path) -> None:
     code, output, _ = _run_resolver(
-        tmp_path, surface, origin="git@github.com:cooneycw/kyle.git"
+        tmp_path, surface, origin="git@github.com:cooneycw/kyle.git", issues={"1004": OPEN_STORE}
     )
-    assert code == 0, output
-    assert "RESOLVED=1004" in output, output
+    assert code == 0 and "NIT_STORE=1004" in output, output
 
 
 @requires_shell
 @pytest.mark.parametrize("surface", SURFACES, ids=lambda p: p.name)
-def test_resolver_refuses_to_post_into_an_empty_number(tmp_path: Path, surface: Path) -> None:
-    """No remote, no `gh repo view`, no search hit - it must fail, not post nowhere.
-
-    `gh issue comment "" --body ...` is the silent-loss failure the whole feature
-    exists to prevent, so the guard is the load-bearing part of the block.
-    """
+def test_resolver_refuses_to_answer_without_a_repository(tmp_path: Path, surface: Path) -> None:
+    """No remote and no `gh repo view`: it must say unknown, never a number."""
     code, output, calls = _run_resolver(tmp_path, surface, origin=None)
-    assert code != 0, f"expected a loud failure, got 0:\n{output}"
-    assert not [c for c in calls if c[:2] == ["issue", "comment"]], (
-        f"posted a comment with no resolved nit store: {calls}"
-    )
-    assert "normal issue" in output, output
+    assert code == 3 and "NIT_STORE_STATUS: unknown" in output, output
+    assert not [c for c in calls if c[:2] == ["issue", "comment"]], calls
 
 
 @requires_shell
 @pytest.mark.parametrize("surface", SURFACES, ids=lambda p: p.name)
-def test_resolver_falls_back_to_the_search_for_an_unknown_repo(
+def test_a_closed_mapped_store_is_never_answered(tmp_path: Path, surface: Path) -> None:
+    """The #227 shape (#1273): the map pointed at a CLOSED issue and nothing checked."""
+    code, output, _ = _run_resolver(
+        tmp_path, surface, origin="https://github.com/cooneycw/claude-power-pack.git",
+        issues={"864": {"state": "CLOSED", "title": "Nit Store"}},
+    )
+    assert code == 1 and "NIT_STORE=864" not in output and "normal issue" in output, output
+
+
+@requires_shell
+@pytest.mark.parametrize("surface", SURFACES, ids=lambda p: p.name)
+def test_resolver_searches_by_exact_title_for_an_unknown_repo(
     tmp_path: Path, surface: Path
 ) -> None:
     code, output, calls = _run_resolver(
-        tmp_path,
-        surface,
-        origin="https://github.com/cooneycw/some-other-repo.git",
-        issue_list="4242\n",
-        dirname="some-other-repo-issue-7",
+        tmp_path, surface, origin="https://github.com/cooneycw/some-other-repo.git",
+        issues={"4242": OPEN_STORE}, dirname="some-other-repo-issue-7",
     )
-    assert code == 0, output
-    assert "RESOLVED=4242" in output, output
+    assert code == 0 and "NIT_STORE=4242" in output, output
     assert [c for c in calls if c[:2] == ["issue", "list"]], calls

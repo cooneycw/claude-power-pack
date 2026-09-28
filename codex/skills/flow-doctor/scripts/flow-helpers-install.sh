@@ -136,6 +136,7 @@ HELPERS=(
     check-ignored-additions.sh
     delegated-run-check.sh
     lane-serveability-check.sh
+    nit-store-resolve.sh
     cpp-commands-link.sh
     install-drift.sh
     stash-worktree-guard.sh

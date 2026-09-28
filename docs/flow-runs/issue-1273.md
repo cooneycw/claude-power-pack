@@ -29,3 +29,15 @@ statement of the issue contract or of a Tier 3 spec, and it does not graduate.
 11. `.gitignore` - .coverage entry
 12. `docs/scripts.md` - inventory-check EXAMINED includes untracked files
 13. `docs/agents/evidence-deleting-idioms.md` - gh pr diff -- <path> returns empty silently
+
+## Resolver PR (w1; #1272 item 1, #1273 items 10 and 28) - stacked on PR 2
+
+- Approval: run45:orch, mailbox message 2247 (option A), contract restated there.
+
+### Section C - the approved plan
+1. `scripts/nit-store-resolve.sh` - the one map (kyle, claude-power-pack, skillc); OPEN + titled "Nit Store" verified before a number is answered; none (exit 1) / unknown (exit 3)
+2. `tests/test_nit_store_resolve.py` - closed, retitled, unreadable, ambiguous, origin-not-dirname cases
+3. `tests/test_nit_store_routing.py` - surfaces call the resolver; executing tests run the published call
+4. `.claude/commands/flow/finish.md`, `.claude/commands/flow/auto.md`, `.claude/commands/codex/code_review.md` - the copied map replaced by the resolver call
+5. `templates/claude-settings-permissions.json`, `scripts/flow-helpers-install.sh` - allowlisted and installed at the stable path
+6. `docs/scripts.md`, `docs/decisions/0008-instrument-negative-control-bound.md`, `.claude/verify-coverage.json` - inventory, census row 113, coverage
