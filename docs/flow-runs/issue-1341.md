@@ -32,11 +32,13 @@ Duplicate/superseding issues: none (only parent #1268).
 5. `tests/test_pip_audit.py` - red case under `python -O`: (None, None) export raises and pip-audit is never invoked.
 6. `tests/test_test_binary_guards.py` - red case: pytester sub-run with copied conftest attributes a docker skip instead of UNKNOWN.
 7. `docs/decisions/0010-bandit-low-band-disposition.md` - dated amendment on the pip_audit B101 row and bound.
+8. `controls/flow-finish-gate-derivation/cases/good-all-listed/app.py` - AMENDMENT (see below): fixture source so the secrets scan examines something.
+9. `controls/flow-finish-gate-derivation/cases/good-make-absent/app.py` - AMENDMENT: same.
+10. `controls/flow-finish-gate-resume/cases/good-fail-fix-resume/app.py` - AMENDMENT: same.
+11. `tests/test_security_scanners.py` - AMENDMENT: where item 4's tests landed (the secrets module's own unit tests).
 Scope: 7 files, ~120 lines. Risks: a secret inside runner state is no longer flagged (accepted per #1268 ruling); pytester test adds a subprocess; CI runs as root (no mode-bit fixtures).
 
 #### Section C amendment - 2026-09-28, approved by run48:cpp2-orch (mailbox 2504, replying to 2502)
 The finish-gate negative controls' derived-mode GOOD cases held no source file, so their security_scan had examined only the runner's own `.claude/runs` state - the defect this issue fixes. With the fix they report `zero coverage`: two cases red, and the resume case keeps exit 3 while its warn reason changes. A docstring-only fixture source restores each case's main-branch signal without changing any expectation.
-8. `controls/flow-finish-gate-derivation/cases/good-all-listed/app.py` - fixture source so the case's secrets scan examines something (main signal: ok).
-9. `controls/flow-finish-gate-derivation/cases/good-make-absent/app.py` - same (main signal: ok).
-10. `controls/flow-finish-gate-resume/cases/good-fail-fix-resume/app.py` - same (main signal: warn, carried, unverified: security_scan).
+(Items 8-11 are listed in Section C above, before Scope, so the compliance check reads them.)
 Item 4's test landed in `tests/test_security_scanners.py` (TestSecretsScanner, where the secrets module's unit tests live), not `tests/test_secret_scan.py` (the gitleaks control) - a placement choice within the approved outcome; it is left as a stated divergence rather than rewriting item 4.
