@@ -170,6 +170,6 @@ case "$line" in
     "SWEEP_WORKTREE: $WT skip "*)
         exit 0 ;;
     *)
-        echo "FLOW_WORKTREE_SWEEP_CONTROL: cannot-run - the sweep did not classify $WT: ${line#SWEEP_WORKTREE: $WT }"
+        echo "FLOW_WORKTREE_SWEEP_CONTROL: cannot-run - the sweep did not classify $WT: ${line#"SWEEP_WORKTREE: $WT "}"
         exit 3 ;;
 esac
