@@ -58,6 +58,10 @@ Usage:
   mcp-drift.py --list-orphans           # orphan server names, one per line
   mcp-drift.py --plan NAME [NAME..]     # print teardown commands (no execution)
   mcp-drift.py --teardown NAME [NAME..] # execute guarded teardown
+  mcp-drift.py --scope-check            # MCP names defined at 2+ scopes with
+                                        # different endpoints (issue #1256);
+                                        # exit 1 on a conflict, 3 if a config
+                                        # could not be read. Report only.
 
 Teardown options:
   --prune-all-images   Remove every mcp-<name>:* image (default: keep the newest
@@ -85,6 +89,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import os
 import re
 import shutil
 import socket
@@ -1037,6 +1042,207 @@ def render_table(findings: list[dict], verbose: bool, host: HostState | None = N
 # --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Scope conflicts (issue #1256)
+# --------------------------------------------------------------------------- #
+#
+# Claude Code reads one MCP name from up to three scopes: user (~/.claude.json
+# .mcpServers), local (~/.claude.json .projects[<dir>].mcpServers) and project
+# (<dir>/.mcp.json). Two scopes naming DIFFERENT endpoints means the server a
+# session reaches depends on where it started - `claude mcp list` warns about
+# exactly this, while /cpp:update's "is it registered?" check read it as OK.
+# This reads files only, and never removes anything.
+
+SCOPE_ORDER = ("user", "local", "project")
+_ENV_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
+_SECRETISH = re.compile(r"(key|token|secret|passw|auth|credential)", re.IGNORECASE)
+#: What may be shown verbatim. Everything else in an endpoint is printed as
+#: <redacted>. An allowlist of LITERALS, not of shapes: a shape rule cannot tell
+#: a short lowercase password or a key-as-path-segment from a harmless word
+#: (both review passes found one that did). Shown: the scheme, host and port;
+#: a url path segment from this set; a stdio command; and stdio FLAGS - never a
+#: flag's or a positional argument's value. To see the values, the report names
+#: `claude mcp get <name>`, which the user runs themselves.
+_SAFE_FLAG = re.compile(r"--?[a-z][a-z0-9-]*")
+_SAFE_PATH_SEGMENTS = frozenset({"mcp", "sse", "api", "v1", "v2", "v3"})
+
+
+class _Unresolved(Exception):
+    """A ${VAR} with no value and no default: the endpoint is not knowable."""
+
+
+def _expand_env(value: str, env: dict[str, str]) -> str:
+    """`${VAR}` / `${VAR:-default}`, the forms Claude Code expands in .mcp.json.
+    An unset variable with no default raises rather than becoming "" - two
+    different unresolved urls would otherwise both read as "/mcp" and compare
+    equal."""
+    def sub(m: re.Match) -> str:
+        name, default = m.group(1), m.group(2)
+        got = env.get(name, "")
+        if got:
+            return got
+        if default is None:
+            raise _Unresolved(name)
+        return default
+    return _ENV_REF.sub(sub, value)
+
+
+def _endpoint(spec: object, env: dict[str, str]) -> tuple | None:
+    """The comparable endpoint of one definition, STRUCTURED, or None if
+    malformed. A tuple, not a joined string: `"/opt/mcp server"` with no args and
+    `"/opt/mcp"` with `["server"]` run different programs and must not compare
+    equal. Raises _Unresolved for an unset ${VAR} without a default."""
+    if not isinstance(spec, dict):
+        return None
+    kind = str(spec.get("type") or ("stdio" if "command" in spec else "http"))
+    if kind == "stdio":
+        cmd = spec.get("command")
+        args = spec.get("args") or []
+        if not isinstance(cmd, str) or not isinstance(args, list):
+            return None
+        return ("stdio", _expand_env(cmd, env), tuple(_expand_env(str(a), env) for a in args))
+    url = spec.get("url")
+    if not isinstance(url, str):
+        return None
+    return (kind, _expand_env(url, env))
+
+
+def _redact_url(url: str) -> str:
+    from urllib.parse import urlsplit, urlunsplit
+    try:
+        u = urlsplit(url)
+        port = u.port
+    except ValueError:
+        return "<redacted url>"
+    netloc = (u.hostname or "") + (f":{port}" if port else "")
+    if u.username or u.password:
+        netloc = "<redacted>@" + netloc
+    path = "/".join(seg if (not seg or seg in _SAFE_PATH_SEGMENTS) else "<redacted>"
+                    for seg in u.path.split("/"))
+    return urlunsplit((u.scheme, netloc, path, "<redacted>" if u.query else "", ""))
+
+
+def redact_endpoint(endpoint: tuple) -> str:
+    """What may be PRINTED. Real ~/.claude.json files hold key-bearing urls and
+    launchers that take keys as arguments; the comparison uses the full
+    endpoint, the output shows only the literals allowed above."""
+    if endpoint[0] == "stdio":
+        _, cmd, args = endpoint
+        shown = [cmd if "://" not in cmd and "=" not in cmd else "<redacted>"]
+        shown += [a if _SAFE_FLAG.fullmatch(a) else "<redacted>" for a in args]
+        return "stdio " + " ".join(shown)
+    return f"{endpoint[0]} {_redact_url(endpoint[1])}"
+
+
+def _read_json(path: Path) -> tuple[str, object]:
+    """('absent', None) | ('ok', data) | ('unreadable', reason)."""
+    if not path.exists():
+        return "absent", None
+    try:
+        return "ok", json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return "unreadable", f"{path}: {type(exc).__name__}"
+
+
+def collect_scope_definitions(
+    claude_json: Path, project_dir: Path, env: dict[str, str]
+) -> tuple[dict[str, dict[str, tuple]], list[str], set[str], bool]:
+    """{name: {scope: endpoint}} across the three scopes, plus what could not be
+    read. A MISSING file or key contributes no definitions - that is a fact; a
+    container that is PRESENT with the wrong shape, or an endpoint that cannot
+    be resolved, is a reason the answer is unknown."""
+    defs: dict[str, dict[str, tuple]] = {}
+    problems: list[str] = []
+    #: names with a definition that could not be resolved, and whether a whole
+    #: scope could not be read (then NO name's consistency is established).
+    unreadable_names: set[str] = set()
+
+    def add(scope: str, servers: object, where: str) -> None:
+        if servers is None:
+            return
+        if not isinstance(servers, dict):
+            problems.append(f"{where}: mcpServers is not an object")
+            return
+        for name, spec in servers.items():
+            try:
+                ep = _endpoint(spec, env)
+            except _Unresolved as unset:
+                problems.append(f"{where}: {name} uses ${{{unset}}}, which is unset and has no default")
+                unreadable_names.add(name)
+                continue
+            if ep is None:
+                problems.append(f"{where}: {name} has no readable endpoint")
+                unreadable_names.add(name)
+                continue
+            defs.setdefault(name, {})[scope] = ep
+
+    state, data = _read_json(claude_json)
+    if state == "unreadable":
+        problems.append(str(data))
+    elif state == "ok":
+        if not isinstance(data, dict):
+            problems.append(f"{claude_json}: not an object")
+        else:
+            add("user", data.get("mcpServers"), f"{claude_json} (user)")
+            projects = data.get("projects")
+            key = str(project_dir.resolve())
+            if projects is None:
+                pass
+            elif not isinstance(projects, dict):
+                problems.append(f"{claude_json}: projects is not an object (local scope unreadable)")
+            elif key in projects:
+                local = projects[key]
+                if not isinstance(local, dict):
+                    problems.append(f"{claude_json}: projects[{key}] is not an object (local scope unreadable)")
+                else:
+                    add("local", local.get("mcpServers"), f"{claude_json} (local)")
+
+    mcp_json = project_dir / ".mcp.json"
+    state, data = _read_json(mcp_json)
+    if state == "unreadable":
+        problems.append(str(data))
+    elif state == "ok":
+        if not isinstance(data, dict):
+            problems.append(f"{mcp_json}: not an object")
+        else:
+            add("project", data.get("mcpServers"), f"{mcp_json} (project)")
+    scope_problems = len(problems) - sum(1 for p in problems if " uses ${" in p or "no readable endpoint" in p)
+    return defs, problems, unreadable_names, scope_problems > 0
+
+
+def scope_check(claude_json: Path, project_dir: Path, env: dict[str, str]) -> tuple[int, str]:
+    """(exit code, report). 0 no conflict, 1 SCOPE CONFLICT, 3 could not read."""
+    defs, problems, unreadable_names, scope_unreadable = collect_scope_definitions(
+        claude_json, project_dir, env)
+    lines: list[str] = []
+    conflicts = 0
+    for name in sorted(set(defs) | unreadable_names):
+        scopes = defs.get(name, {})
+        if len(set(scopes.values())) > 1:
+            conflicts += 1
+            lines.append(f"SCOPE CONFLICT: {name} is defined at {len(scopes)} scopes with different endpoints")
+            for scope in SCOPE_ORDER:
+                if scope in scopes:
+                    lines.append(f"  {scope:8} {redact_endpoint(scopes[scope])}")
+            lines.append(f"  values hidden; see them with: claude mcp get {name}")
+            lines.append(f"  remedy (only on your say-so): claude mcp remove {name} -s <scope-to-drop>")
+        elif name in unreadable_names or scope_unreadable:
+            # A definition (or a whole scope) could not be read, so one endpoint
+            # among the READABLE ones says nothing about consistency.
+            lines.append(f"UNKNOWN: {name} ({len(scopes)} readable definition(s); "
+                         "another could not be read, so consistency is not established)")
+        else:
+            lines.append(f"OK: {name} ({len(scopes)} definition(s), one endpoint)")
+    if problems:
+        lines.append("UNKNOWN: some MCP configuration could not be read, so this is NOT a clean result:")
+        lines.extend(f"  {p}" for p in problems)
+    lines.append(f"SCOPE_CHECK: {len(defs)} server name(s) examined, {conflicts} conflict(s)"
+                 + (f", {len(problems)} unreadable" if problems else ""))
+    if problems:
+        return 3, "\n".join(lines)
+    return (1 if conflicts else 0), "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         add_help=True,
@@ -1054,6 +1260,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--prune-all-images", action="store_true",
                         help="Remove every mcp-<name>:* image (default: keep newest)")
     parser.add_argument("--verbose", action="store_true", help="List OK/ABSENT too")
+    parser.add_argument("--scope-check", action="store_true",
+                        help="Report MCP names defined at 2+ scopes with different endpoints (#1256)")
+    parser.add_argument("--claude-json", default=None,
+                        help="User/local scope config (default: ~/.claude.json)")
+    parser.add_argument("--project-dir", default=None,
+                        help="Project whose .mcp.json and local scope are read (default: this repo)")
     parser.add_argument("--no-sudo", action="store_true",
                         help="Never retry a permission-refused docker read via 'sudo -n'")
     parser.add_argument("--no-port-probe", action="store_true",
@@ -1061,6 +1273,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--deprecated-file", default=None)
     parser.add_argument("--compose-file", default=None)
     args = parser.parse_args(argv)
+
+    if args.scope_check:
+        # Pure file reads: no docker, no `claude` call, nothing removed.
+        # A crash is UNKNOWN, never a conflict: an uncaught exception exits 1,
+        # which is this mode's conflict code, so a broken reader would otherwise
+        # report a conflict that nobody found.
+        try:
+            code, report = scope_check(
+                Path(args.claude_json) if args.claude_json else Path.home() / ".claude.json",
+                Path(args.project_dir) if args.project_dir else REPO_ROOT,
+                dict(os.environ),
+            )
+        except Exception as exc:  # noqa: BLE001 - any failure is "could not assess"
+            print(f"UNKNOWN: scope check could not run ({type(exc).__name__}); "
+                  "this is NOT a clean result and NOT a conflict.")
+            return 3
+        print(report)
+        return code
 
     deprecated_file = (
         Path(args.deprecated_file) if args.deprecated_file

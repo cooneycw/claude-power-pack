@@ -12,12 +12,15 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
 import textwrap
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "mcp-drift.py"
@@ -993,3 +996,254 @@ def test_cli_answering_port_reports_collision_not_orphan(tmp_path: Path) -> None
 
         orphans = _run_cli(bin_dir, dep, "--list-orphans", port_probe=True)
         assert orphans.stdout.strip() == ""
+
+
+# --------------------------------------------------------------------------- #
+# Scope conflicts (issue #1256)
+# --------------------------------------------------------------------------- #
+
+_HTTP = {"type": "http", "url": "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"}
+_STDIO = {"type": "stdio", "command": "/home/u/Projects/mcp-second-opinion/run-with-aws-secrets.sh",
+          "args": ["--stdio"]}
+
+
+def _scope_fixture(tmp_path: Path, user: dict | None = None, local: dict | None = None,
+                   project: dict | None = None) -> tuple[Path, Path]:
+    proj = tmp_path / "repo"
+    proj.mkdir()
+    claude: dict[str, Any] = {}
+    if user is not None:
+        claude["mcpServers"] = user
+    if local is not None:
+        claude["projects"] = {str(proj.resolve()): {"mcpServers": local}}
+    cj = tmp_path / "claude.json"
+    cj.write_text(json.dumps(claude))
+    if project is not None:
+        (proj / ".mcp.json").write_text(json.dumps({"mcpServers": project}))
+    return cj, proj
+
+
+def _scope_run(capsys, cj: Path, proj: Path, env: dict[str, str] | None = None) -> tuple[int, str]:
+    old = dict(os.environ)
+    try:
+        os.environ.pop("SECOND_OPINION_URL", None)
+        os.environ.update(env or {})
+        rc = md.main(["--scope-check", "--claude-json", str(cj), "--project-dir", str(proj)])
+    finally:
+        os.environ.clear()
+        os.environ.update(old)
+    return rc, capsys.readouterr().out
+
+
+def test_scope_conflict_names_both_scopes_and_endpoints(tmp_path: Path, capsys) -> None:
+    """The #1256 host shape: user-scope stdio launcher vs the shipped http entry."""
+    cj, proj = _scope_fixture(tmp_path, user={"second-opinion": _STDIO},
+                              project={"second-opinion": _HTTP})
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 1, out
+    assert "SCOPE CONFLICT: second-opinion" in out
+    assert "user     stdio /home/u/Projects/mcp-second-opinion/run-with-aws-secrets.sh --stdio" in out
+    assert "project  http http://127.0.0.1:8080/mcp" in out
+    assert "claude mcp remove second-opinion -s" in out
+
+
+def test_local_scope_is_a_scope_too(tmp_path: Path, capsys) -> None:
+    cj, proj = _scope_fixture(tmp_path, local={"second-opinion": _STDIO},
+                              project={"second-opinion": _HTTP})
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 1 and "local    stdio" in out, out
+
+
+def test_one_definition_is_ok(tmp_path: Path, capsys) -> None:
+    cj, proj = _scope_fixture(tmp_path, project={"second-opinion": _HTTP})
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 0, out
+    assert "OK: second-opinion (1 definition(s)" in out and "CONFLICT" not in out
+
+
+def test_two_scopes_with_the_same_endpoint_are_ok(tmp_path: Path, capsys) -> None:
+    """Same endpoint after ${VAR:-default} expansion: the literal differs, the target does not."""
+    cj, proj = _scope_fixture(tmp_path, user={"second-opinion": {"type": "http",
+                                                                  "url": "http://127.0.0.1:8080/mcp"}},
+                              project={"second-opinion": _HTTP})
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 0, out
+    assert "OK: second-opinion (2 definition(s), one endpoint)" in out
+
+
+def test_the_env_override_is_what_the_endpoint_compares(tmp_path: Path, capsys) -> None:
+    cj, proj = _scope_fixture(tmp_path, user={"second-opinion": {"type": "http",
+                                                                  "url": "http://127.0.0.1:8080/mcp"}},
+                              project={"second-opinion": _HTTP})
+    rc, out = _scope_run(capsys, cj, proj, env={"SECOND_OPINION_URL": "http://10.0.0.5:9000"})
+    assert rc == 1 and "project  http http://10.0.0.5:9000/mcp" in out, out
+
+
+def test_an_unreadable_config_is_unknown_not_clean(tmp_path: Path, capsys) -> None:
+    cj, proj = _scope_fixture(tmp_path, project={"second-opinion": _HTTP})
+    cj.write_text("{not json")
+    assert cj.read_text() == "{not json", "precondition: the config is malformed"
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 3, out
+    assert "UNKNOWN" in out and "NOT a clean result" in out
+
+
+def test_a_missing_user_config_is_simply_no_definitions(tmp_path: Path, capsys) -> None:
+    cj, proj = _scope_fixture(tmp_path, project={"second-opinion": _HTTP})
+    cj.unlink()
+    assert not cj.exists(), "precondition: no ~/.claude.json"
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 0 and "OK: second-opinion" in out, out
+
+
+def test_a_crash_is_unknown_never_a_conflict(tmp_path: Path, capsys, monkeypatch) -> None:
+    """An uncaught exception exits 1 - this mode's CONFLICT code."""
+    cj, proj = _scope_fixture(tmp_path, project={"second-opinion": _HTTP})
+
+    def boom(*_a, **_k):
+        raise RuntimeError("reader broke")
+
+    monkeypatch.setattr(md, "scope_check", boom)
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 3 and "NOT a conflict" in out, out
+
+
+def test_a_key_in_an_endpoint_is_never_printed(tmp_path: Path, capsys) -> None:
+    """~/.claude.json on a real host holds key-bearing urls (a hosted MCP url
+    carries its API key in the query string). Compare on the full endpoint;
+    print none of the secret."""
+    # Built at runtime: a committed key-SHAPED literal is what the secret scan
+    # exists to flag, fake or not (CI's gitleaks caught the first version).
+    key = "tvly-" + "Q" * 6 + "z9" + "k" * 14 + "7" * 4
+    cj, proj = _scope_fixture(
+        tmp_path,
+        user={"tavily": {"type": "http", "url": f"https://mcp.example.test/mcp/?apiKey={key}"},
+              "vault": {"type": "http", "url": f"https://user:{key}@vault.example.test/mcp"},
+              "cli": {"type": "stdio", "command": "run.sh", "args": ["--api-key", key, f"--token={key}", key]}},
+        project={"tavily": {"type": "stdio", "command": "npx", "args": ["-y", "tavily-mcp"]},
+                 "vault": {"type": "http", "url": "https://vault.example.test/mcp"},
+                 "cli": {"type": "stdio", "command": "other.sh", "args": []}},
+    )
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 1 and out.count("SCOPE CONFLICT") == 3, out
+    assert key not in out
+    # Values never print: the query and userinfo are hidden, and a stdio
+    # argument that is not a bare flag reads <redacted> whole.
+    assert "https://mcp.example.test/mcp/?<redacted>" in out
+    assert "https://<redacted>@vault.example.test/mcp" in out
+    assert "stdio run.sh --api-key <redacted> <redacted> <redacted>" in out
+
+
+def test_default_runs_keep_their_exit_codes_without_scope_check(tmp_path: Path) -> None:
+    """--scope-check is opt-in: a conflict on the host must not change what the
+    existing callers (status.md --list-orphans, drift-detect.sh, update.md
+    --check) see. Run the default mode against a host config that HAS a
+    conflict and an empty deprecation list."""
+    cj, proj = _scope_fixture(tmp_path, user={"second-opinion": _STDIO},
+                              project={"second-opinion": _HTTP})
+    dep = tmp_path / "dep.yaml"
+    dep.write_text("version: 1\ndeprecated: []\n")
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".claude.json").write_text(cj.read_text())
+    # PATH is replaced so docker is ABSENT, which the script reads as a known-
+    # empty inventory: every default mode then has a deterministic clean answer.
+    assert shutil.which("docker", path="/nonexistent") is None, "fixture must lack docker"
+    env = {**os.environ, "HOME": str(home), "PATH": "/nonexistent"}
+    for mode in ([], ["--check"], ["--list-orphans"], ["--json"]):
+        r = subprocess.run([sys.executable, str(SCRIPT), *mode, "--deprecated-file", str(dep),
+                            "--compose-file", str(tmp_path / "none.yml"), "--no-sudo", "--no-port-probe"],
+                           capture_output=True, text=True, env=env, cwd=str(proj))
+        assert r.returncode == 0, (mode, r.stdout, r.stderr)
+        assert "SCOPE" not in r.stdout, mode
+
+
+def test_redaction_is_an_allowlist_not_a_list_of_secret_shapes(tmp_path: Path, capsys) -> None:
+    """Counter-model finding: a short lowercase password inside a stdio arg url,
+    and a key carried as a URL PATH segment, both matched no secret heuristic."""
+    pw = "-".join(("short", "password"))
+    path_key = "Pk7x" + "Q2" + "-".join(("private", "api", "key"))
+    cj, proj = _scope_fixture(
+        tmp_path,
+        user={"a": {"type": "stdio", "command": "run.sh", "args": ["--url", f"https://user:{pw}@example.test/mcp"]},
+              "b": {"type": "http", "url": f"https://example.test/mcp/{path_key}"}},
+        project={"a": {"type": "stdio", "command": "run.sh", "args": []},
+                 "b": {"type": "http", "url": "https://example.test/mcp"}},
+    )
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 1 and out.count("SCOPE CONFLICT") == 2, out
+    assert pw not in out and path_key not in out, out
+    assert "stdio run.sh --url <redacted>" in out and "https://example.test/mcp/<redacted>" in out
+
+
+def test_argument_boundaries_are_part_of_the_endpoint(tmp_path: Path, capsys) -> None:
+    """Counter-model finding: '/opt/mcp server' with no args and '/opt/mcp' with
+    ['server'] run different programs, and joined with spaces they compared equal."""
+    cj, proj = _scope_fixture(
+        tmp_path,
+        user={"x": {"type": "stdio", "command": "/opt/mcp server", "args": []}},
+        project={"x": {"type": "stdio", "command": "/opt/mcp", "args": ["server"]}},
+    )
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 1 and "SCOPE CONFLICT: x" in out, out
+
+
+def test_an_unset_variable_without_a_default_is_unknown(tmp_path: Path, capsys) -> None:
+    """Counter-model finding: two unresolved urls both became '/mcp' and compared equal."""
+    cj, proj = _scope_fixture(
+        tmp_path,
+        user={"x": {"type": "http", "url": "${USER_MCP_URL}/mcp"}},
+        project={"x": {"type": "http", "url": "${PROJECT_MCP_URL}/mcp"}},
+    )
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 3 and "is unset and has no default" in out, out
+    assert "OK: x" not in out
+
+
+@pytest.mark.parametrize("projects", ["not-an-object", "ENTRY_NOT_AN_OBJECT"])
+def test_a_malformed_local_scope_is_unknown(tmp_path: Path, capsys, projects: str) -> None:
+    """Counter-model finding: a present-but-malformed local scope was read as absent."""
+    cj, proj = _scope_fixture(tmp_path, project={"second-opinion": _HTTP})
+    value: Any = projects if projects == "not-an-object" else {str(proj.resolve()): ["oops"]}
+    cj.write_text(json.dumps({"projects": value}))
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 3 and "local scope unreadable" in out, out
+
+
+def test_short_lowercase_secrets_are_hidden_too(tmp_path: Path, capsys) -> None:
+    """Counter-model pass 2: a SHAPE allowlist still passed a lowercase path key
+    and a positional lowercase password. Only literals are shown now."""
+    lower_key = "private" + "key"
+    pw = "-".join(("short", "password"))
+    cj, proj = _scope_fixture(
+        tmp_path,
+        user={"a": {"type": "http", "url": "https://example.test/mcp/" + lower_key},
+              "b": {"type": "stdio", "command": "run.sh", "args": [pw]}},
+        project={"a": {"type": "http", "url": "https://example.test/mcp"},
+                 "b": {"type": "stdio", "command": "run.sh", "args": []}},
+    )
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 1 and out.count("SCOPE CONFLICT") == 2, out
+    assert lower_key not in out and pw not in out, out
+    assert "claude mcp get a" in out
+
+
+def test_a_name_with_an_unreadable_definition_is_not_ok(tmp_path: Path, capsys) -> None:
+    """Counter-model pass 2: one readable definition beside an unresolved one
+    printed 'OK: x (1 definition(s), one endpoint)' - consistency never established."""
+    cj, proj = _scope_fixture(
+        tmp_path,
+        user={"x": {"type": "http", "url": "${MISSING_URL}/mcp"}},
+        project={"x": {"type": "http", "url": "http://127.0.0.1:8080/mcp"}},
+    )
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 3, out
+    assert "OK: x" not in out and "UNKNOWN: x" in out, out
+
+
+def test_an_unreadable_scope_withholds_every_ok(tmp_path: Path, capsys) -> None:
+    cj, proj = _scope_fixture(tmp_path, project={"second-opinion": _HTTP})
+    cj.write_text("{not json")
+    assert cj.read_text() == "{not json", "precondition: the user config is malformed"
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 3 and "OK: second-opinion" not in out and "UNKNOWN: second-opinion" in out, out
