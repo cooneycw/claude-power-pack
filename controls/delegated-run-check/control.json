@@ -1,0 +1,45 @@
+{
+  "gate": "scripts/delegated-run-check.sh",
+  "invocation": [
+    "sh",
+    "controls/delegated-run-check/run-case.sh",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^DELEGATED_RUN_CONTROL: finding - ",
+  "unavailable_signal": "^DELEGATED_RUN_CONTROL: unavailable - python3 is not installed$",
+  "limits": "WHAT THIS ESTABLISHES: that scripts/delegated-run-check.sh COUNTS a failed tool call (DELEGATED_RUN_TOOL_ERRORS) however deeply the harness nests it, and does not count one that succeeded. The count is the finding rather than STATUS because a failed tool call is deliberately not a failed run - a denied call is the fence working - so a gate that stops seeing failed calls leaves STATUS untouched and prints `TOOL_ERRORS: 0`, which reads exactly like 'checked, none'. BAD cases: a gemma-shaped failed call (`state.status: error`) nested 8 levels and 50 levels deep. Two depths so the control is not tuned to exactly one level past the old cap (orchestrator, #1265). GOOD cases: the same payloads with the call succeeding. WHAT THIS DOES NOT ESTABLISH: the Codex (`item.status`/`exit_code`) and Qwen (`tool_result`) recognizers, which read a fixed depth by design and are pinned in tests/test_delegated_run_check.py; the STATUS verdict and its signals; the unparsed-line count; or any real harness's actual nesting depth - these are constructed payloads. UNAVAILABLE is declared for a missing python3 only (the gate parses JSONL with it). Every other reason a case cannot run prints `cannot-run`, which matches no declared signal. Nothing here depends on uid (CI runs as root).",
+  "cases": [
+    {
+      "name": "bad-tool-call-failed-8-deep",
+      "input": "cases/bad-tool-call-failed-8-deep",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-tool-call-failed-50-deep",
+      "input": "cases/bad-tool-call-failed-50-deep",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-tool-call-succeeded-8-deep",
+      "input": "cases/good-tool-call-succeeded-8-deep",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-tool-call-succeeded-50-deep",
+      "input": "cases/good-tool-call-succeeded-50-deep",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "b935d64",
+      "origin": "scripts/delegated-run-check.sh",
+      "path": "anchors/b935d64-delegated-run-check.sh",
+      "sha256": "111d4ed2c1ad91f726665b5634fce97a361a89f6908bb64aba1b04c167004dc0",
+      "why": "The helper as it stood before #1265, vendored byte-for-byte from b935d64. Its two recursive walks stopped at depth 6 (`if depth > 6: return`), so a failed tool call nested deeper was never visited and TOOL_ERRORS read 0. MEASURED against every case: it reports 0 on both BAD cases (8 and 50 deep) - missing them - and 0 on both GOOD cases, agreeing with the current gate there. Its blindness is the dangerous direction for this instrument: a lane whose every deep tool call failed reads as 'no tool call reported an error'."
+    }
+  ]
+}
