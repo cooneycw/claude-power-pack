@@ -272,27 +272,18 @@ else
   echo "  [ ] Codex CLI: not installed"
 fi
 
-# MCP server wiring. CPP no longer runs any MCP server as a local container.
-# The second-opinion server is external (cooneycw/mcp-second-opinion) and is reached
-# over the root .mcp.json streamable-http pointer (localhost http://127.0.0.1:8080/mcp
-# or a Tailscale URL). Report how it is wired rather than probing a CPP-owned port.
+# Capability readiness (issue #1290). Registered is not usable: a playwright
+# registration can fail to connect, and the reachability curl this replaced read
+# `http://127.0.0.1:8080}/mcp` out of `${SECOND_OPINION_URL:-...}/mcp` - brace
+# included - so it could never report a reachable server.
 echo ""
-echo "MCP Server Wiring (.mcp.json):"
-if [ -f ".mcp.json" ] && grep -q "second-opinion" .mcp.json 2>/dev/null; then
-  SO_URL=$(grep -oE 'https?://[^"[:space:]]+' .mcp.json 2>/dev/null | head -1)
-  echo "  [x] second-opinion: registered in .mcp.json (${SO_URL:-external mcp-second-opinion server})"
-  if [ -n "$SO_URL" ] && curl -sf --max-time 2 -o /dev/null "$SO_URL" 2>/dev/null; then
-    echo "      reachable"
-  else
-    echo "      [~] not verified reachable - run the external mcp-second-opinion server (localhost or Tailscale)"
-  fi
+echo "Capability Readiness:"
+if [ -n "$CPP_DIR" ]; then
+  python3 "$CPP_DIR/scripts/capability-readiness.py" --project-dir "$PWD"
 else
-  echo "  [ ] second-opinion: not registered in .mcp.json"
-  echo "      Run the external cooneycw/mcp-second-opinion server, then point .mcp.json"
-  echo "      at it (http://127.0.0.1:8080/mcp for localhost, or a Tailscale URL)."
+  echo "  [~] not examined - no CPP checkout found"
 fi
-echo "  [-] playwright: upstream @playwright/mcp over npx/stdio (no port to probe)"
-echo "  [-] tavily: upstream tavily-mcp over npx/stdio (no port to probe)"
+echo "  [-] tavily: upstream tavily-mcp over npx/stdio (not probed)"
 
 # Check legacy systemd services
 echo ""
@@ -376,6 +367,24 @@ else
   echo "  skipped (docker or mcp-drift.py unavailable)"
 fi
 ```
+
+**Reading the Capability Readiness table (issue #1290).** One row each for flow,
+second-opinion and browser-qa, and one state per row. Report each state as written:
+
+- `ready` - `[x]`, but only for the operation in the TESTED column; name what the
+  row lists as `unexamined` (for second-opinion, a review request is never made)
+- `disabled` - `[-]`: not installed or not registered; optional, and it does not
+  make any other row less ready
+- `unexamined` - `[~]`: installed, but the layer that would prove it usable was not
+  probed. **Never render it as ready.**
+- `stale-or-unknown` / `conflicting` / `unreachable` - `[!]`, with the row's `next:`
+  line. For `conflicting`, the row shows each scope's handshake; do not guess which
+  one a session reaches, and never run the `claude mcp remove` remedy without the
+  user's say-so
+
+The last line is `CAPABILITY_READINESS: ready|degraded|unknown`; `--json` prints the
+same rows for a machine consumer. The probes call no model and install nothing: a server
+launched through npx or uvx is reported `unexamined` rather than started.
 
 ## Step 5: Check Tier 4 (CI/CD)
 
