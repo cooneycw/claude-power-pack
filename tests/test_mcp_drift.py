@@ -1124,7 +1124,11 @@ def test_a_key_in_an_endpoint_is_never_printed(tmp_path: Path, capsys) -> None:
     rc, out = _scope_run(capsys, cj, proj)
     assert rc == 1 and out.count("SCOPE CONFLICT") == 3, out
     assert key not in out
-    assert "?<redacted>" in out and "<redacted>@vault.example.test" in out and "--token=<redacted>" in out
+    # Values never print: the query and userinfo are hidden, and a stdio
+    # argument that is not a bare flag reads <redacted> whole.
+    assert "https://mcp.example.test/mcp/?<redacted>" in out
+    assert "https://<redacted>@vault.example.test/mcp" in out
+    assert "stdio run.sh --api-key <redacted> <redacted> <redacted>" in out
 
 
 def test_default_runs_keep_their_exit_codes_without_scope_check(tmp_path: Path) -> None:
@@ -1162,7 +1166,7 @@ def test_redaction_is_an_allowlist_not_a_list_of_secret_shapes(tmp_path: Path, c
     rc, out = _scope_run(capsys, cj, proj)
     assert rc == 1 and out.count("SCOPE CONFLICT") == 2, out
     assert pw not in out and path_key not in out, out
-    assert "https://<redacted>@example.test/mcp" in out and "https://example.test/mcp/<redacted>" in out
+    assert "stdio run.sh --url <redacted>" in out and "https://example.test/mcp/<redacted>" in out
 
 
 def test_argument_boundaries_are_part_of_the_endpoint(tmp_path: Path, capsys) -> None:
@@ -1197,3 +1201,40 @@ def test_a_malformed_local_scope_is_unknown(tmp_path: Path, capsys, projects: st
     cj.write_text(json.dumps({"projects": value}))
     rc, out = _scope_run(capsys, cj, proj)
     assert rc == 3 and "local scope unreadable" in out, out
+
+
+def test_short_lowercase_secrets_are_hidden_too(tmp_path: Path, capsys) -> None:
+    """Counter-model pass 2: a SHAPE allowlist still passed a lowercase path key
+    and a positional lowercase password. Only literals are shown now."""
+    cj, proj = _scope_fixture(
+        tmp_path,
+        user={"a": {"type": "http", "url": "https://example.test/mcp/privatekey"},
+              "b": {"type": "stdio", "command": "run.sh", "args": ["short-password"]}},
+        project={"a": {"type": "http", "url": "https://example.test/mcp"},
+                 "b": {"type": "stdio", "command": "run.sh", "args": []}},
+    )
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 1 and out.count("SCOPE CONFLICT") == 2, out
+    assert "privatekey" not in out and "short-password" not in out, out
+    assert "claude mcp get a" in out
+
+
+def test_a_name_with_an_unreadable_definition_is_not_ok(tmp_path: Path, capsys) -> None:
+    """Counter-model pass 2: one readable definition beside an unresolved one
+    printed 'OK: x (1 definition(s), one endpoint)' - consistency never established."""
+    cj, proj = _scope_fixture(
+        tmp_path,
+        user={"x": {"type": "http", "url": "${MISSING_URL}/mcp"}},
+        project={"x": {"type": "http", "url": "http://127.0.0.1:8080/mcp"}},
+    )
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 3, out
+    assert "OK: x" not in out and "UNKNOWN: x" in out, out
+
+
+def test_an_unreadable_scope_withholds_every_ok(tmp_path: Path, capsys) -> None:
+    cj, proj = _scope_fixture(tmp_path, project={"second-opinion": _HTTP})
+    cj.write_text("{not json")
+    assert cj.read_text() == "{not json", "precondition: the user config is malformed"
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 3 and "OK: second-opinion" not in out and "UNKNOWN: second-opinion" in out, out

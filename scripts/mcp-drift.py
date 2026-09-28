@@ -1057,11 +1057,14 @@ SCOPE_ORDER = ("user", "local", "project")
 _ENV_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
 _SECRETISH = re.compile(r"(key|token|secret|passw|auth|credential)", re.IGNORECASE)
 #: What may be shown verbatim. Everything else in an endpoint is printed as
-#: <redacted>: an allowlist, because a denylist of secret shapes is always one
-#: shape short (a short lowercase password, a key as a URL path segment).
+#: <redacted>. An allowlist of LITERALS, not of shapes: a shape rule cannot tell
+#: a short lowercase password or a key-as-path-segment from a harmless word
+#: (both review passes found one that did). Shown: the scheme, host and port;
+#: a url path segment from this set; a stdio command; and stdio FLAGS - never a
+#: flag's or a positional argument's value. To see the values, the report names
+#: `claude mcp get <name>`, which the user runs themselves.
 _SAFE_FLAG = re.compile(r"--?[a-z][a-z0-9-]*")
-_SAFE_WORD = re.compile(r"[a-z][a-z0-9._-]{0,31}")
-_SAFE_PATH_SEGMENT = re.compile(r"[a-z]{1,12}|v[0-9]{1,2}")
+_SAFE_PATH_SEGMENTS = frozenset({"mcp", "sse", "api", "v1", "v2", "v3"})
 
 
 class _Unresolved(Exception):
@@ -1114,44 +1117,20 @@ def _redact_url(url: str) -> str:
     netloc = (u.hostname or "") + (f":{port}" if port else "")
     if u.username or u.password:
         netloc = "<redacted>@" + netloc
-    path = "/".join(seg if (not seg or _SAFE_PATH_SEGMENT.fullmatch(seg)) else "<redacted>"
+    path = "/".join(seg if (not seg or seg in _SAFE_PATH_SEGMENTS) else "<redacted>"
                     for seg in u.path.split("/"))
     return urlunsplit((u.scheme, netloc, path, "<redacted>" if u.query else "", ""))
-
-
-def _redact_arg(arg: str) -> str:
-    if "://" in arg:
-        return _redact_url(arg)
-    if _SAFE_FLAG.fullmatch(arg) or _SAFE_WORD.fullmatch(arg):
-        return arg
-    if "=" in arg:
-        name, _, value = arg.partition("=")
-        if _SAFE_FLAG.fullmatch(name):
-            return f"{name}={_redact_arg(value) if not _SECRETISH.search(name) else '<redacted>'}"
-    if arg.startswith("/") or arg.startswith("~/") or arg.startswith("./"):
-        # A path: keep the directory shape, hide any segment that is not plain.
-        return "/".join(seg if (not seg or seg in ("~", ".") or re.fullmatch(r"[A-Za-z0-9._-]{1,48}", seg)
-                                and not re.fullmatch(r"[A-Za-z0-9_-]{24,}", seg)) else "<redacted>"
-                        for seg in arg.split("/"))
-    return "<redacted>"
 
 
 def redact_endpoint(endpoint: tuple) -> str:
     """What may be PRINTED. Real ~/.claude.json files hold key-bearing urls and
     launchers that take keys as arguments; the comparison uses the full
-    endpoint, the output shows only what matches the safe shapes above."""
+    endpoint, the output shows only the literals allowed above."""
     if endpoint[0] == "stdio":
         _, cmd, args = endpoint
-        out, hide_next = [_redact_arg(cmd)], False
-        for a in args:
-            if hide_next:
-                out.append("<redacted>")
-                hide_next = False
-                continue
-            out.append(_redact_arg(a))
-            if _SAFE_FLAG.fullmatch(a) and _SECRETISH.search(a):
-                hide_next = True
-        return "stdio " + " ".join(out)
+        shown = [cmd if "://" not in cmd and "=" not in cmd else "<redacted>"]
+        shown += [a if _SAFE_FLAG.fullmatch(a) else "<redacted>" for a in args]
+        return "stdio " + " ".join(shown)
     return f"{endpoint[0]} {_redact_url(endpoint[1])}"
 
 
@@ -1167,13 +1146,16 @@ def _read_json(path: Path) -> tuple[str, object]:
 
 def collect_scope_definitions(
     claude_json: Path, project_dir: Path, env: dict[str, str]
-) -> tuple[dict[str, dict[str, tuple]], list[str]]:
+) -> tuple[dict[str, dict[str, tuple]], list[str], set[str], bool]:
     """{name: {scope: endpoint}} across the three scopes, plus what could not be
     read. A MISSING file or key contributes no definitions - that is a fact; a
     container that is PRESENT with the wrong shape, or an endpoint that cannot
     be resolved, is a reason the answer is unknown."""
     defs: dict[str, dict[str, tuple]] = {}
     problems: list[str] = []
+    #: names with a definition that could not be resolved, and whether a whole
+    #: scope could not be read (then NO name's consistency is established).
+    unreadable_names: set[str] = set()
 
     def add(scope: str, servers: object, where: str) -> None:
         if servers is None:
@@ -1186,9 +1168,11 @@ def collect_scope_definitions(
                 ep = _endpoint(spec, env)
             except _Unresolved as unset:
                 problems.append(f"{where}: {name} uses ${{{unset}}}, which is unset and has no default")
+                unreadable_names.add(name)
                 continue
             if ep is None:
                 problems.append(f"{where}: {name} has no readable endpoint")
+                unreadable_names.add(name)
                 continue
             defs.setdefault(name, {})[scope] = ep
 
@@ -1222,23 +1206,31 @@ def collect_scope_definitions(
             problems.append(f"{mcp_json}: not an object")
         else:
             add("project", data.get("mcpServers"), f"{mcp_json} (project)")
-    return defs, problems
+    scope_problems = len(problems) - sum(1 for p in problems if " uses ${" in p or "no readable endpoint" in p)
+    return defs, problems, unreadable_names, scope_problems > 0
 
 
 def scope_check(claude_json: Path, project_dir: Path, env: dict[str, str]) -> tuple[int, str]:
     """(exit code, report). 0 no conflict, 1 SCOPE CONFLICT, 3 could not read."""
-    defs, problems = collect_scope_definitions(claude_json, project_dir, env)
+    defs, problems, unreadable_names, scope_unreadable = collect_scope_definitions(
+        claude_json, project_dir, env)
     lines: list[str] = []
     conflicts = 0
-    for name in sorted(defs):
-        scopes = defs[name]
+    for name in sorted(set(defs) | unreadable_names):
+        scopes = defs.get(name, {})
         if len(set(scopes.values())) > 1:
             conflicts += 1
             lines.append(f"SCOPE CONFLICT: {name} is defined at {len(scopes)} scopes with different endpoints")
             for scope in SCOPE_ORDER:
                 if scope in scopes:
                     lines.append(f"  {scope:8} {redact_endpoint(scopes[scope])}")
+            lines.append(f"  values hidden; see them with: claude mcp get {name}")
             lines.append(f"  remedy (only on your say-so): claude mcp remove {name} -s <scope-to-drop>")
+        elif name in unreadable_names or scope_unreadable:
+            # A definition (or a whole scope) could not be read, so one endpoint
+            # among the READABLE ones says nothing about consistency.
+            lines.append(f"UNKNOWN: {name} ({len(scopes)} readable definition(s); "
+                         "another could not be read, so consistency is not established)")
         else:
             lines.append(f"OK: {name} ({len(scopes)} definition(s), one endpoint)")
     if problems:
