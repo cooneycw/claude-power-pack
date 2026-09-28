@@ -38,3 +38,12 @@ generated output unchanged, pinned by control fixtures.
 Scope: ~6 files, ~400 lines. Risks: always-enumerating adds components for stray
 subdirs (bounded by the exclusion list, reported only); detection runs in the
 runner only when gates were skipped; nothing is executed during detection.
+
+## Part B - the approved plan (appended; base d24a408, after #1310 merged)
+Approver: run45:orch, message 1798 ("B's plan is fine") and 1841/1976 (cut B from main after #1310).
+Prototyped on bdbe0fb before approval: the shipped path already honours a declared
+mypy scope, fails the run on a failing declared check, and skips-and-reports an
+undeclared tool - so B is expected to be tests only; any code change it exposes goes
+back to the orchestrator first.
+
+7. `tests/test_cicd_consumer_runner_path.py` - a Makefile-less Python repo through BUILTIN_PLANS["check"] with a stub uv (argv recorded, nothing fetched): declared mypy scope reaches the argv, a failing declared check fails the run, an undeclared tool is skipped and reported

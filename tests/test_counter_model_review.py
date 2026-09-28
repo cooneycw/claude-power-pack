@@ -1725,9 +1725,20 @@ def test_adding_the_stage_LEFT_THE_ELI5_GATE_BYTE_IDENTICAL() -> None:
         pytest.skip("origin/main is not available in this checkout")
 
     def eli5_section(text: str) -> str:
+        """The APPROVAL GATE of Step 3: from `**This is a gate:**` to Step 4.
+
+        Narrowed by issue #1301. This used to compare all of Step 3, which made
+        a guard written for one change (#934) block every later edit to the
+        step - including #1301's fix to the spec LOOKUP list above the gate,
+        which is not the approval gate at all. What this test exists to hold
+        still is the gate: the approval requirement and its no-bypass rule.
+        """
         after = text.split("### Step 3: ELI5", 1)
         assert len(after) == 2, "the ELI5 step heading is gone"
-        return after[1].split("### Step 4", 1)[0]
+        step3 = after[1].split("### Step 4", 1)[0]
+        gate = step3.split("**This is a gate:**", 1)
+        assert len(gate) == 2, "the `**This is a gate:**` block is gone from Step 3"
+        return gate[1]
 
     base, now = eli5_section(proc.stdout), eli5_section(_auto())
     assert base.strip(), "the base revision yielded an empty ELI5 section"
