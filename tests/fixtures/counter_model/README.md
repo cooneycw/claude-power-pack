@@ -2,7 +2,7 @@
 
 **These are RECORDED transcripts from a real reviewer, not hand-written
 imitations.** `defect-present` and `defect-removed` are the same nine-line file
-reviewed twice by `codex exec` (gpt-5.5) on 2026-09-15 - once with a seeded
+reviewed twice by `codex exec` on 2026-09-15 (first recorded as gpt-5.5; the run is attributed to gpt-6-astra by `docs/measurements/counter-model-reviewer-attribution.md`, #1272) - once with a seeded
 defect and once without. The reviewer named the exact seeded bug in the first
 and returned the prescribed clean statement in the second. That pair is
 acceptance item 1 of #934: a stage wedged at "findings" and a stage wedged at

@@ -451,7 +451,8 @@ def test_the_CONTROL_CASES_are_present_and_tracked() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Four counter-model findings (codex/gpt-5.5, 2026-09-16), all accepted. Each
+# Four counter-model findings (codex, 2026-09-16 - first recorded as gpt-5.5, attributed
+# to gpt-6-astra by docs/measurements/counter-model-reviewer-attribution.md, #1272), all accepted. Each
 # was reproduced on the pre-fix gate before the fix was written.
 # --------------------------------------------------------------------------- #
 

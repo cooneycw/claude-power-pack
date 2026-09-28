@@ -541,7 +541,8 @@ def test_dict_unpacking_does_not_confuse_the_scan(tmp_path: Path, body: str, exp
 
 
 # --------------------------------------------------------------------------- #
-# Found by independent review of the #933 change (Codex gpt-5.5)
+# Found by independent review of the #933 change (Codex; recorded as gpt-5.5, attributed
+# to gpt-6-astra - #1272)
 # --------------------------------------------------------------------------- #
 def test_the_allow_hatch_does_not_suppress_the_NEXT_line(tmp_path: Path) -> None:
     """An exemption must exempt what it names, and nothing else.
