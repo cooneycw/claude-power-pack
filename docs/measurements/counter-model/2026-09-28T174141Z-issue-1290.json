@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1290-report-usable-capability-readiness-and-prove-a-cle",
+  "counts": {
+    "accepted": 8,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "751b7de4b4df339c101af207b61e3f84d47744ea",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1290",
+  "passes": 2,
+  "recorded_at": "2026-09-28T17:41:41Z",
+  "red_cases": {
+    "already_covered": 12,
+    "proposed": 15
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/09/28/rollout-2026-09-28T17-38-50-01a0e919-1118-76a1-9ab4-c71cb31cc4c4.jsonl",
+    "thread_id": "01a0e919-1118-76a1-9ab4-c71cb31cc4c4"
+  },
+  "schema": 1,
+  "status": "ran"
+}
