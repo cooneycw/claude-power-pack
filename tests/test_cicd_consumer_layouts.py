@@ -28,9 +28,8 @@ from pathlib import Path
 
 import pytest
 
-from lib.cicd.detector import detect_framework
+from lib.cicd.detector import _NON_COMPONENT_DIRS, _resolve_runners, detect_framework
 from lib.cicd.manifest import generate_manifest, get_manifest_plan_steps
-from lib.cicd.detector import _NON_COMPONENT_DIRS, _resolve_runners
 from lib.cicd.models import (
     FRAMEWORK_RUNNERS,
     RESOLUTION_PARTIAL,
