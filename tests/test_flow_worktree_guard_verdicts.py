@@ -165,3 +165,86 @@ def test_the_control_runner_does_not_credit_a_CRASHING_gate(tmp_path):
     res = subprocess.run(["sh", str(runner), str(case), str(crash)], capture_output=True, text=True)
     assert "FLOW_WORKTREE_GUARD_CONTROL: finding" not in res.stdout, res.stdout
     assert res.stdout.startswith("FLOW_WORKTREE_GUARD_CONTROL: error"), res.stdout
+
+
+# --- counter-model review pass 2 of #1014 Part 1 ---
+
+def test_a_MISSING_gate_lib_is_UNKNOWN_exit_4_not_a_markerless_0(tmp_path):
+    _main, wt = _main_and_worktree(tmp_path)
+    alone = tmp_path / "alone"
+    alone.mkdir()
+    shutil.copy(GUARD, alone / "flow-worktree-guard.sh")
+    res = subprocess.run(["bash", str(alone / "flow-worktree-guard.sh"), "--strict"],
+                         cwd=wt, capture_output=True, text=True)
+    assert res.returncode == 4, res.stdout + res.stderr
+    assert "FLOW_WORKTREE_GUARD: unknown - gate-lib.sh is missing" in res.stderr
+
+
+def test_a_FAILED_worktree_status_is_UNKNOWN_not_a_short_population(tmp_path):
+    """Branch commits touch b.txt; the worktree and main both freshly change a.txt;
+    only the worktree's own `git status` fails. The run's edited set then held
+    b.txt alone, the a.txt overlap vanished, and the guard said no-leak."""
+    main, wt = _main_and_worktree(tmp_path)
+    (main / "b.txt").write_text("b\n", encoding="utf-8")
+    _git(main, "add", "b.txt")
+    _git(main, "commit", "-q", "-m", "b")
+    _git(wt, "merge", "-q", "main")
+    (wt / "b.txt").write_text("b changed in the worktree\n", encoding="utf-8")
+    _git(wt, "commit", "-q", "-am", "work")
+    (wt / "a.txt").write_text("worktree edit\n", encoding="utf-8")
+    (main / "a.txt").write_text("fresh main edit\n", encoding="utf-8")
+    real = shutil.which("git")
+    stub = tmp_path / "git"
+    stub.write_text(
+        "#!/usr/bin/env bash\n"
+        'if [[ "$*" == "status --porcelain" ]]; then exit 1; fi\n'
+        f'exec "{real}" "$@"\n', encoding="utf-8")
+    stub.chmod(0o755)
+    res = _run(wt, "--strict", env={"FLOW_WORKTREE_GIT": str(stub)})
+    assert res.returncode == 4, res.stdout + res.stderr
+    assert _marker(res).startswith("FLOW_WORKTREE_GUARD: unknown"), res.stderr
+
+
+def test_a_FRESH_change_inside_a_SUBMODULE_is_not_called_stale(tmp_path):
+    """The submodule directory's own mtime can be old while a tracked child in it
+    is fresh; freshness must look inside (the -maxdepth 0 regression)."""
+    sub = tmp_path / "sub"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(sub)], check=True)
+    (sub / "s.txt").write_text("s\n", encoding="utf-8")
+    _git(sub, "add", "s.txt")
+    _git(sub, "commit", "-q", "-m", "s")
+    main = tmp_path / "main"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(main)], check=True)
+    (main / "a.txt").write_text("a\n", encoding="utf-8")
+    _git(main, "add", "a.txt")
+    _git(main, "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(sub), "mod")
+    _git(main, "commit", "-q", "-m", "base")
+    wt = tmp_path / "wt"
+    _git(main, "worktree", "add", "-q", "-b", "issue-1-x", str(wt))
+    old = 1_600_000_000
+    (main / "mod" / "s.txt").write_text("fresh child edit\n", encoding="utf-8")
+    os.utime(main / "mod", (old, old))
+    precondition = subprocess.run(["git", "-C", str(main), "status", "--porcelain",
+                                   "--untracked-files=no"], capture_output=True, text=True)
+    assert "mod" in precondition.stdout, "precondition: main must show the submodule dirty"
+    res = _run(wt, "--strict")
+    assert not _marker(res).startswith("FLOW_WORKTREE_GUARD: no-leak"), _marker(res)
+
+
+def test_the_clean_detail_says_only_what_was_examined(tmp_path):
+    _main, wt = _main_and_worktree(tmp_path)
+    res = _run(wt, "--strict")
+    assert "no tracked modifications in main" in _marker(res)
+    assert "main is clean" not in _marker(res)
+
+
+def test_both_flow_steps_require_ATTRIBUTION_before_reverting_main():
+    """Counter-model review pass 2 (HIGH): exit 3 is a leak SIGNATURE, and a
+    neighbour's fresh edit produces it too. Neither /flow:auto step may tell the
+    agent to revert main before confirming the edit is its own."""
+    raw = (ROOT / ".claude" / "commands" / "flow" / "auto.md").read_text(encoding="utf-8")
+    text = " ".join(raw.split())  # the document wraps prose across lines
+    assert text.count("Never revert main content you did not write") >= 1
+    assert text.count("git -C <main> diff -- <path>") >= 2, (
+        "both the Step-4 and Step-6 exit-3 instructions must say to read main's diff first"
+    )

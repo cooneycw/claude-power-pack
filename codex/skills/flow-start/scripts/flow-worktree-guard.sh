@@ -112,6 +112,14 @@ trap 'printf "FLOW_WORKTREE_GUARD_EXIT=%d\n" "$?" >&2' EXIT
 # leave the guard unable to load, and so unable to say `unknown`.
 _gate_lib_dir=${0%/*}
 [ "$_gate_lib_dir" = "$0" ] && _gate_lib_dir=.
+# A MISSING LIBRARY IS COULD-NOT-LOOK, not a pass (counter-model review): sourced
+# unchecked, the guard ran on with gate_map/gate_emit/gate_exit undefined and its
+# `verdict` fell through to `exit 0`, marker-less, even under --strict.
+if [ ! -r "$_gate_lib_dir/gate-lib.sh" ]; then
+  echo "FLOW_WORKTREE_GUARD: unknown - gate-lib.sh is missing beside the guard ($_gate_lib_dir)" >&2
+  case " $* " in *" --strict "*) exit 4 ;; esac
+  exit 0
+fi
 # shellcheck disable=SC1091  # gate-lib.sh is resolved at run time and linted as its own file (#972)
 . "$_gate_lib_dir/gate-lib.sh"
 gate_map no-leak=0 leak=3 unknown=4 not-applicable=5
@@ -146,7 +154,9 @@ verdict() {
 freshness() {
   [ -e "$MAIN_REPO/$1" ] || { echo unknown; return; }
   command -v find >/dev/null 2>&1 || { echo unknown; return; }
-  _f=$(find "$MAIN_REPO/$1" -maxdepth 0 -mmin "-${FRESH_MIN}" 2>/dev/null) || { echo unknown; return; }
+  # Recursive on purpose: a dirty SUBMODULE is a directory entry whose fresh
+  # change is a CHILD, while the directory's own mtime can be old (review).
+  _f=$(find "$MAIN_REPO/$1" -mmin "-${FRESH_MIN}" 2>/dev/null) || { echo unknown; return; }
   if [ -n "$_f" ]; then echo fresh; else echo stale; fi
 }
 
@@ -212,7 +222,7 @@ done <"$main_status_file"
 rm -f "$main_status_file"
 
 if [ "${#main_dirty[@]}" -eq 0 ]; then
-  verdict no-leak "main is clean"
+  verdict no-leak "no tracked modifications in main (untracked files are outside this guard's scope)"
 fi
 
 # Not every dirty file in main is a leak: the main checkout often carries
@@ -229,12 +239,20 @@ for cand in origin/main main; do
     base_ref="$cand"; break
   fi
 done
+# THE COMPARISON POPULATION MUST BE ESTABLISHED, or an overlap cannot be ruled
+# out (counter-model review): a failed merge-base, diff or worktree status used
+# to leave `run_edited` short, so a real overlap on the missing path read as
+# no-leak. Each probe's failure is now could-not-look.
 if [ -n "$base_ref" ]; then
-  mb="$("$GIT" merge-base HEAD "$base_ref" 2>/dev/null || true)"
-  [ -n "$mb" ] && run_edited="$("$GIT" diff --name-only "$mb"..HEAD 2>/dev/null)"
+  mb="$("$GIT" merge-base HEAD "$base_ref" 2>/dev/null)" \
+    || verdict unknown "git merge-base HEAD $base_ref failed; this run's edited paths are unknown"
+  run_edited="$("$GIT" diff --name-only "$mb"..HEAD 2>/dev/null)" \
+    || verdict unknown "git diff of this run's commits failed; this run's edited paths are unknown"
 fi
 # Worktree dirt (staged/unstaged/new): strip status, keep the rename destination.
-wt_dirty="$("$GIT" status --porcelain 2>/dev/null | sed 's/^...//' | sed 's/.* -> //')"
+wt_status="$("$GIT" status --porcelain 2>/dev/null)" \
+  || verdict unknown "git status of this worktree failed; this run's edited paths are unknown"
+wt_dirty="$(printf '%s\n' "$wt_status" | sed 's/^...//' | sed 's/.* -> //')"
 run_edited="$(printf '%s\n%s\n' "$run_edited" "$wt_dirty" | sed '/^$/d' | sort -u)"
 
 overlap=()

@@ -237,7 +237,7 @@ def test_guard_silent_when_main_clean(tmp_path: Path) -> None:
     assert res.returncode == 0
     # #1014: "clean" is now SAID - a silent run was indistinguishable from one
     # that could not look. Nothing else is printed.
-    assert res.stdout.strip() == "FLOW_WORKTREE_GUARD: no-leak - main is clean"
+    assert res.stdout.strip().startswith("FLOW_WORKTREE_GUARD: no-leak - no tracked modifications in main")
     assert without_status(res.stderr) == ""
 
 
