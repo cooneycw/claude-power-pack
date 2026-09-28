@@ -4143,3 +4143,47 @@ def test_the_real_resume_control_judges_its_good_case_by_the_resume_signal(
 
     result = run_harness(root, "--control", "controls/flow-finish-gate-resume")
     assert verdict_of(result.stdout) == expected, result.stdout
+
+
+def test_a_null_good_signal_is_refused_not_read_as_absent(tmp_path: Path) -> None:
+    """Keyed on PRESENCE: `"good_signal": null` is a declared field with no pattern.
+
+    Reading it as absent would restore exit-only scoring under a manifest that
+    visibly claims a good-side signal. Proposed by the #1350 counter-model review.
+    """
+    root = _warning_tree(tmp_path, None)
+    manifest_path = root / "controls" / "toy" / "control.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["good_signal"] = None
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "good_signal" in result.stdout, result.stdout
+
+
+#: Blind like BLIND_WARNING_ANCHOR, but its warning is the WRONG one.
+WRONG_WARNING_ANCHOR = """#!/usr/bin/env python3
+import sys
+print("toy-gate: warn (other reason)")
+sys.exit(3)
+"""
+
+
+def test_an_anchor_that_warns_for_another_reason_is_unresolved_naming_good_signal(
+    tmp_path: Path,
+) -> None:
+    """The anchor half of #1350 (counter-model review).
+
+    An anchor exiting at `good_exit` without the declared good signal cannot be
+    confirmed to have MISSED the known-bad input - it may be answering for a
+    different reason - so the verdict is UNRESOLVED, and the message must name
+    `good_signal`, not the detection signal, or a reader opens the wrong regex.
+    """
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    root = build_tree(
+        tmp_path, WARNING_GATE, anchor_src=WRONG_WARNING_ANCHOR,
+        good_exit=3, good_signal=TOY_GOOD_SIGNAL,
+    )
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "without the declared good_signal" in result.stdout, result.stdout
