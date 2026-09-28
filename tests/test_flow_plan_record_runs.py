@@ -332,3 +332,62 @@ def test_a_second_run_is_not_blamed_for_the_first_runs_committed_work(repo: Path
     assert "src/a.py" not in own.stdout
     whole = helper(repo, "session-B", "compliance", "42", "--base", branch_base)
     assert "TOUCHED BUT NOT PLANNED: src/a.py" in whole.stdout, whole.stdout
+
+
+def _plan_b(repo: Path, session: str) -> None:
+    assert helper(repo, session, "begin-run", "42").returncode == 0
+    with (repo / "docs" / "flow-runs" / "issue-42.md").open("a") as fh:
+        fh.write("- Approval:          granted\n\n### Section C - the approved plan\n"
+                 "1. `src/b.py` - this run\n")
+
+
+@requires_git
+def test_upstream_merged_after_the_run_started_is_not_this_runs_work(repo: Path) -> None:
+    """Pass-3 MEDIUM: run-start alone blamed the run for upstream files merged in later."""
+    base = git(repo, "rev-parse", "HEAD").strip()
+    git(repo, "update-ref", "refs/remotes/origin/main", base)
+    reconcile(repo, "session-B")
+    _plan_b(repo, "session-B")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run B's record")
+    # upstream moves on with an unrelated file; the run merges it in
+    git(repo, "checkout", "-q", "-b", "upstream", base)
+    (repo / "docs").mkdir(exist_ok=True)
+    (repo / "docs" / "unrelated.md").write_text("upstream\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "upstream work")
+    git(repo, "update-ref", "refs/remotes/origin/main", git(repo, "rev-parse", "HEAD").strip())
+    git(repo, "checkout", "-q", "issue-42-a-fixture")
+    git(repo, "merge", "-q", "--no-edit", "origin/main")
+    assert (repo / "docs" / "unrelated.md").exists(), "precondition: upstream merged in"
+    (repo / "src").mkdir()
+    (repo / "src" / "b.py").write_text("b\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run B's work")
+    out = helper(repo, "session-B", "compliance", "42").stdout
+    assert "excluding files unchanged from the main merge base" in out, out
+    assert "docs/unrelated.md" not in out, f"upstream work was blamed on this run:\n{out}"
+    assert "PLAN_COMPLIANCE: agreement" in out, out
+
+
+@requires_git
+def test_a_rewritten_run_start_is_unknown_never_a_wider_scope(repo: Path) -> None:
+    """Pass-3 MEDIUM: after a rebase the run's start is not an ancestor; do not widen."""
+    reconcile(repo, "session-B")
+    (repo / "x.txt").write_text("1\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "a commit the run starts on")
+    _plan_b(repo, "session-B")                     # records Run-start = that commit
+    start = git(repo, "rev-parse", "HEAD").strip()
+    record = (repo / "docs" / "flow-runs" / "issue-42.md").read_text()
+    git(repo, "reset", "-q", "--hard", "HEAD~1")    # history rewritten under the run
+    (repo / "x.txt").write_text("2\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "a different commit")
+    (repo / "docs" / "flow-runs").mkdir(parents=True, exist_ok=True)
+    (repo / "docs" / "flow-runs" / "issue-42.md").write_text(record)
+    assert subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", start, "HEAD"],
+                          capture_output=True).returncode != 0, "precondition: start rewritten"
+    proc = helper(repo, "session-B", "compliance", "42")
+    assert proc.returncode == 4, proc.stdout
+    assert "is no longer an ancestor of HEAD" in proc.stdout

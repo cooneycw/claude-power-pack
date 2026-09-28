@@ -816,3 +816,29 @@ def test_a_baseline_stamped_by_another_run_is_unknown(tmp_path: Path) -> None:
                  "1. `src/a.py` - run B, not yet approved\n")
     out = compliance_as(repo, "session-B", base)
     assert "PLAN_RECORD_STABILITY: unknown (the stability digest belongs to a different run" in out, out
+
+
+@requires_git
+def test_a_rewritten_run_start_is_pinned_as_unknown(tmp_path: Path) -> None:
+    """Pins the pass-3 branch for the sweep above: a run whose recorded start is no
+    longer an ancestor (history rewritten) is unknown, never a silently wider scope."""
+    repo, _base = make_repo(tmp_path)
+    assert helper(repo, "session-R", "reconcile", "42").returncode == 0
+    (repo / "x.txt").write_text("1\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "the run starts here")
+    assert helper(repo, "session-R", "begin-run", "42").returncode == 0
+    record = repo / "docs" / "flow-runs" / "issue-42.md"
+    with record.open("a") as fh:
+        fh.write("- Approval:          granted\n\n### Section C - the approved plan\n"
+                 "1. `x.txt` - because\n")
+    kept = record.read_text()
+    git(repo, "reset", "-q", "--hard", "HEAD~1")
+    (repo / "x.txt").write_text("2\n")
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(kept)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "rewritten")
+    out = helper(repo, "session-R", "compliance", "42").stdout
+    assert "PLAN_COMPLIANCE: unknown (this run's recorded start" in out, out
+    assert "is no longer an ancestor of HEAD" in out

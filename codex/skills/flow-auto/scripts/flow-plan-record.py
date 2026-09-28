@@ -645,31 +645,51 @@ def cmd_compliance(issue: str, base: str | None) -> int:
     if not planned:
         compliance_unknown("Section C names no files in the documented numbered form")
 
-    if base is None:
-        # THIS RUN'S START, when its section records one (counter-model review): a
-        # second run on a branch already carrying the first run's commits must be
-        # compared against ITS OWN changes, or it is blamed for the first run's
-        # files. `--base` still selects a broader scope explicitly.
-        start = re.search(r"^- Run-start:\s+([0-9a-f]{40})\s*$", text, re.M)
-        if start and subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor",
-                                     start.group(1), "HEAD"], capture_output=True).returncode == 0:
-            base = start.group(1)
-            print(f"PLAN_COMPLIANCE_BASE: this run's start ({base[:12]})")
+    def changed_since(ref: str) -> set[str]:
+        # --no-renames: a rename's SOURCE must appear too, or removing an unplanned
+        # file by renaming it onto a planned one reports agreement.
+        try:
+            out = subprocess.run(["git", "-C", str(root), "diff", "--no-renames", "--name-only",
+                                  ref, "--"], capture_output=True, text=True, check=True).stdout
+        except (OSError, subprocess.CalledProcessError) as exc:
+            compliance_unknown(f"the diff could not be computed ({exc})")
+        return {f for f in out.splitlines() if f}
+
+    mb_proc = subprocess.run(["git", "-C", str(root), "merge-base", "HEAD", "origin/main"],
+                             capture_output=True, text=True)
+    main_base = mb_proc.stdout.strip() if mb_proc.returncode == 0 else ""
+    start = re.search(r"^- Run-start:\s+([0-9a-f]{40})\s*$", text, re.M)
+
+    if base is not None:
+        touched = sorted(changed_since(base))       # an explicitly chosen, broader scope
+    elif start:
+        # THIS RUN'S CHANGES ONLY (counter-model review, three passes): a file this
+        # run is answerable for changed SINCE THE RUN STARTED - so a prior run's
+        # committed work is not blamed on it - AND differs from the main merge base -
+        # so upstream work merged in after the start is not blamed on it either.
+        run_start = start.group(1)
+        if subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", run_start,
+                           "HEAD"], capture_output=True).returncode != 0:
+            # A rebase rewrote history under the run: its own scope can no longer be
+            # established, and silently widening to the branch would blame it for a
+            # neighbour's files. Say so; `--base` chooses a scope explicitly.
+            compliance_unknown(f"this run's recorded start {run_start[:12]} is no longer an "
+                               "ancestor of HEAD (history was rewritten), so this run's own "
+                               "changes cannot be separated - pass --base to choose a scope")
+        touched_set_ = changed_since(run_start)
+        if main_base:
+            touched_set_ &= changed_since(main_base)
+            print(f"PLAN_COMPLIANCE_BASE: this run's start ({run_start[:12]}), excluding "
+                  f"files unchanged from the main merge base ({main_base[:12]})")
         else:
-            mb = subprocess.run(["git", "-C", str(root), "merge-base", "HEAD", "origin/main"],
-                                capture_output=True, text=True)
-            base = mb.stdout.strip() if mb.returncode == 0 else ""
-    # --no-renames: a rename's SOURCE must appear too, or removing an unplanned
-    # file by renaming it onto a planned one reports agreement.
-    if not base:
-        compliance_unknown("no merge-base of HEAD and origin/main, so there is no base to diff against")
-    try:
-        out = subprocess.run(["git", "-C", str(root), "diff", "--no-renames", "--name-only",
-                              base, "--"],
-                             capture_output=True, text=True, check=True).stdout
-    except (OSError, subprocess.CalledProcessError) as exc:
-        compliance_unknown(f"the diff could not be computed ({exc})")
-    touched = [f for f in out.splitlines() if f]
+            print(f"PLAN_COMPLIANCE_BASE: this run's start ({run_start[:12]}); upstream "
+                  "merges NOT excluded (no origin/main to compare with)")
+        touched = sorted(touched_set_)
+    else:
+        if not main_base:
+            compliance_unknown("no merge-base of HEAD and origin/main, so there is no base to "
+                               "diff against")
+        touched = sorted(changed_since(main_base))
 
     # EXACT paths, not prefixes: a neighbour of either input is not excluded.
     excluded_exact = {record_rel(issue), snapshot_rel(issue)}
