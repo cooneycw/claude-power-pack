@@ -27,6 +27,11 @@ LINKER = ROOT / "scripts" / "cpp-commands-link.sh"
 
 DEAD = "~/.claude/skills/flow-eli5/SKILL.md"
 FIRST = "~/.claude/commands/flow/eli5.md"
+CODEX = "~/.codex/skills/flow-eli5/SKILL.md"
+REPO = ".claude/commands/flow/eli5.md"
+#: The WHOLE sequence, so a later entry cannot drift to a path nothing installs
+#: while the first stays right (counter-model review).
+EXPECTED = [FIRST, CODEX, REPO]
 
 
 def lookup_paths(text: str) -> list[str]:
@@ -50,16 +55,29 @@ def test_the_lookup_names_no_path_nothing_installs(doc: Path) -> None:
     paths = lookup_paths(doc.read_text(encoding="utf-8"))
     assert paths, "the Step 3 lookup list was not found"
     assert DEAD not in paths
-    assert paths[0] == FIRST
-    assert ".claude/commands/flow/eli5.md" in paths, "the in-repo fallback stays"
+    assert paths == EXPECTED
+
+
+def test_the_codex_entry_is_the_skill_codex_skill_sync_installs() -> None:
+    """`--install` copies codex/skills/<skill>/ to ~/.codex/skills/<skill>/, so the
+    Codex entry resolves exactly when this source skill exists. The copy itself is
+    tested with codex-skill-sync; this pins that the NAME matches a real skill."""
+    rel = CODEX.removeprefix("~/.codex/skills/")
+    assert (ROOT / "codex" / "skills" / rel).is_file(), f"no codex/skills/{rel} to install"
+    assert (ROOT / REPO).is_file()
 
 
 @pytest.mark.parametrize("doc", [AUTO, MIRROR], ids=["auto.md", "codex-mirror"])
 def test_an_unresolved_lookup_stops_and_names_the_remedy(doc: Path) -> None:
+    """Read from the STOP paragraph itself: the lookup list names `/cpp:init` too,
+    so a whole-document search passes with the remedy deleted (counter-model review)."""
     text = doc.read_text(encoding="utf-8")
-    assert "**If none of them resolves, STOP**" in text
-    assert "ELI5 spec not found" in text
-    assert "/cpp:init" in text
+    marker = "**If none of them resolves, STOP**"
+    assert marker in text
+    paragraph = text.split(marker, 1)[1].split("\n\n", 1)[0]
+    assert "ELI5 spec not found" in paragraph
+    assert "/cpp:init" in paragraph
+    assert "codex-skill-sync.py --install" in paragraph
 
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="requires bash on PATH")
