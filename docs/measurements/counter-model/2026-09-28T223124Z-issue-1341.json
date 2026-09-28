@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1341-1268-rest-1-3-security-scan-counts-runner-state-an",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "d33a2ce3d471b43c8732bf2a821e403e8f6d4dc1",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1341",
+  "passes": 1,
+  "recorded_at": "2026-09-28T22:31:24Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 7
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/09/28/rollout-2026-09-28T22-30-09-01a0ea23-ca2a-7370-9e4e-89446d879eb3.jsonl",
+    "thread_id": "01a0ea23-ca2a-7370-9e4e-89446d879eb3"
+  },
+  "schema": 1,
+  "status": "ran"
+}
