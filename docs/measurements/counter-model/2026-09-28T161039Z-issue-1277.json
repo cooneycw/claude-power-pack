@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1277-sweep-py-self-test-mutates-a-re-implementation-ove",
+  "counts": {
+    "accepted": 1,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "c5dce6d",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1277",
+  "passes": 1,
+  "recorded_at": "2026-09-28T16:10:39Z",
+  "red_cases": {
+    "already_covered": 2,
+    "proposed": 3
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
