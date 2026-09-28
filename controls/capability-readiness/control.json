@@ -1,0 +1,40 @@
+{
+  "gate": "scripts/capability-readiness.py",
+  "invocation": [
+    "sh",
+    "controls/capability-readiness/run-case.sh",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^CAPABILITY_READINESS: (degraded|unknown)$",
+  "unavailable_signal": "^CAPABILITY_READINESS_CONTROL: unavailable - ",
+  "limits": "Covers the overall verdict /cpp:status reads (issue #1290): a home whose only enabled capability completes an MCP initialize + tools/list handshake reads `ready` (exit 0); a second-opinion endpoint with nothing listening, in the shipped `${SECOND_OPINION_URL:-http://127.0.0.1:<port>}/mcp` form, and an installed flow helper deleted from a current checkout's install, each read NOT ready. Cases are SITUATIONS built fresh by run-case.sh from a one-word scenario, because a closed port must be closed at run time and a nested repository cannot be committed. DECLARED GAPS: conflicting scopes, a stdio server that exits before initialize, an old checkout, a failed freshness lookup, credential redaction and the clean-home install/update smoke are pinned by tests/test_capability_readiness.py, not registered here; the healthy case leaves flow DISABLED (an empty home), so a flow row reading ready is proven by the tests and the missing-helper case proves only that a broken flow install is not ready. No case reaches a real second-opinion or playwright server - a live handshake against a host's servers is host evidence, not a committed case.",
+  "cases": [
+    {
+      "name": "good-healthy",
+      "input": "cases/good-healthy",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-closed-port",
+      "input": "cases/bad-closed-port",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-missing-helper",
+      "input": "cases/bad-missing-helper",
+      "expect": "BAD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": ".claude/commands/cpp/status.md",
+      "path": "anchors/pre-fix-status-curl.sh",
+      "sha256": "60ece55b0c67a132fe6aa21090c73d34dc15af9394f6136aad424ffe8440c60d",
+      "why": "The pre-fix check lived in a markdown fence, not a script, so there is no file to vendor byte-for-byte. The anchor is lines 279-293 of status.md at 51dc14d reproduced VERBATIM between markers, plus a constructed preamble that takes the gate's argv and enters the project directory (sha `n/a` because the file as a whole is constructed; tests/test_capability_readiness.py compares the verbatim span against 51dc14d). It greps the first url out of .mcp.json - `http://127.0.0.1:<port>}/mcp`, brace included, from the shipped `${SECOND_OPINION_URL:-...}` form - curls it, prints `[~] not verified reachable` and exits 0 whatever it finds, and it never looks at flow at all. So it misses both bad cases: that is the #1290 defect itself, an installed-or-registered check standing in for a usable one."
+    }
+  ]
+}
