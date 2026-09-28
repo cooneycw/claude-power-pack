@@ -3802,11 +3802,15 @@ def test_the_invocation_must_run_exactly_the_declared_target(
     [
         ["make", "-sf", "{gate}", "{target}", "CASE={case}"],
         ["make", "--no-print-directory", "--file={gate}", "CASE={case}", "{target}"],
-        ["/usr/bin/make", "-s", "{target}", "CASE={case}", "-f", "{gate}"],
+        ["{absolute-make}", "-s", "{target}", "CASE={case}", "-f", "{gate}"],
     ],
     ids=["bundled-sf", "long-file", "path-to-make"],
 )
 def test_ordinary_make_argv_shapes_are_accepted(tmp_path: Path, invocation: list[str]) -> None:
+    # An ABSOLUTE path whose basename is `make`, resolved where make really is:
+    # the CI image does not install it at /usr/bin (pipeline 2909), and a
+    # hardcoded path made a correct UNRESOLVED look like a harness failure.
+    invocation = [str(shutil.which("make")) if part == "{absolute-make}" else part for part in invocation]
     root = build_make_tree(tmp_path, invocation=invocation)
     write_census(root, ["make toy-check", "unregistered.sh"])
     out = run_harness(root, "--strict")
