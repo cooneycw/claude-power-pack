@@ -451,6 +451,86 @@ def _battery_step(
     return (matches[0] if matches else None), [name for name, _ in matches]
 
 
+#: The mutation battery, identified by what a step RUNS (issue #1268).
+MUTATION_SCRIPT = "mutation-probe.py"
+
+#: `[PATH=... ]*[uv run [--flag [value]]* ]?[python3? ]?[path/]mutation-probe.py`.
+#: The `uv run --extra dev python` chain is how this repository's pipeline runs
+#: Python; a mention as an argument to anything else is not an invocation.
+MUTATION_INVOCATION_RE = re.compile(
+    rf"""^\s*(?:PATH=\S+\s+)*
+         (?:uv\s+run\s+(?:--[\w-]+(?:\s+(?!python)[^\s-]\S*)?\s+)*)?
+         (?:python3?\s+)?
+         \.?/?(?:\S*/)?{re.escape(MUTATION_SCRIPT)}(?:\s|$)
+    """,
+    re.VERBOSE,
+)
+
+
+def _depends_on(steps: dict[str, dict[str, object]], name: str, target: str) -> bool:
+    """Does step `name` run after `target`, directly or transitively?"""
+    seen: set[str] = set()
+    todo = [str(dep) for dep in steps.get(name, {}).get("depends_on", [])]  # type: ignore[union-attr]
+    while todo:
+        dep = todo.pop()
+        if dep == target:
+            return True
+        if dep in seen:
+            continue
+        seen.add(dep)
+        todo.extend(str(d) for d in steps.get(dep, {}).get("depends_on", []))  # type: ignore[union-attr]
+    return False
+
+
+def mutation_environment(
+    root: Path, battery_provided: set[str]
+) -> tuple[bool, set[str] | None, list[str]]:
+    """`(runs, provided, notes)` for the CI step that runs mutation-probe.py (#1268).
+
+    `runs` is False when no step runs it at all: then no control's mutations run
+    in CI and none can fail there for want of a binary - absent, not unknown.
+
+    This gate used to derive ONE environment - the negative-control battery's -
+    while a second step drives the batteries of every control that declares
+    `mutations`. A binary such a control needs could be missing there and
+    nothing here would say so.
+
+    The step INHERITS the battery step's environment only when that is literally
+    true: it runs after the battery step, on the same image, with `.ci-bin` on
+    PATH for the mutation command (Woodpecker shares the workspace, so what the
+    battery's dependencies staged is still there). Anything short of that is the
+    image's own binaries, or None - UNKNOWN - when the step cannot be read.
+    """
+    notes: list[str] = []
+    binary_gate = _load(REPO_ROOT / BINARY_GATE_REL)
+    pipeline = root / WOODPECKER_REL
+    if binary_gate is None or not pipeline.is_file():
+        return True, None, [f"{WOODPECKER_REL} or {BINARY_GATE_REL} could not be read"]
+    steps = _steps(pipeline.read_text(encoding="utf-8"))
+    matches = [
+        name for name, step in steps.items()
+        if any(MUTATION_INVOCATION_RE.match(str(c)) for c in step["commands"])  # type: ignore[union-attr]
+    ]
+    if not matches:
+        return False, set(), ["no step runs mutation-probe.py, so no control's mutations run in CI"]
+    if len(matches) > 1:
+        return True, None, [f"{len(matches)} steps run {MUTATION_SCRIPT} ({', '.join(matches)}); ambiguous"]
+    name = matches[0]
+    step = steps[name]
+    image = _image_name(str(step["image"]))
+    if image != binary_gate.CI_IMAGE:
+        return True, None, [f"step `{name}` runs `{image}`, not the image {BINARY_GATE_REL} records"]
+    battery, _every = _battery_step(steps)
+    commands = [str(c) for c in step["commands"]]  # type: ignore[union-attr]
+    runs = [c for c in commands if MUTATION_INVOCATION_RE.match(c)]
+    ci_bin = bool(runs) and bool(CI_BIN_PREFIX_RE.match(runs[0]))
+    if battery is not None and ci_bin and _depends_on(steps, name, battery[0]):
+        notes.append(f"CI_DEPS_MUTATION_STEP: {name} ({image}), after `{battery[0]}` with .ci-bin on PATH")
+        return True, set(battery_provided), notes
+    notes.append(f"CI_DEPS_MUTATION_STEP: {name} ({image}), the image's own binaries only")
+    return True, set(binary_gate.CI_IMAGE_BINARIES), notes
+
+
 def provided_binaries(root: Path) -> tuple[set[str] | None, list[str], list[str]]:
     """`(provided, notes, findings)` - what the battery's CI step can run.
 
@@ -1168,6 +1248,38 @@ def run_check(root: Path) -> int:
                 f"whole register down"
             )
             missing_total += 1
+
+    # THE SECOND BATTERY (issue #1268): controls that declare `mutations` are
+    # also run by the mutation-probe step, which must provide their binaries too.
+    mutating = []
+    for control_dir in registered:
+        try:
+            spec = json.loads((control_dir / "control.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(spec, dict) and spec.get("mutations"):
+            mutating.append(control_dir)
+    if mutating:
+        m_runs, m_provided, m_notes = mutation_environment(root, provided)
+        for note in m_notes:
+            print(note if note.startswith("CI_DEPS_") else f"CI_DEPS_MUTATION_STEP: {note}")
+        for control_dir in mutating:
+            needed, _control_notes = requirements(root, control_dir, binary_gate)
+            if m_provided is None:
+                print(
+                    f"CI_DEP: {control_dir.name} declares mutations, and what the mutation-probe "
+                    f"step provides is UNKNOWN - not clean"
+                )
+                missing_total += 1
+                continue
+            if not m_runs:
+                continue
+            for binary in sorted(needed - m_provided):
+                print(
+                    f"CI_DEP: {control_dir.name} declares mutations and needs `{binary}`, which "
+                    f"the mutation-probe CI step does not provide"
+                )
+                missing_total += 1
 
     py_findings, py_stats = python_import_findings(root, registered)
     for finding in py_findings:
