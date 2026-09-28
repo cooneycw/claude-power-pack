@@ -91,10 +91,13 @@ def derive_evidence(manifest: Path) -> tuple[str | None, str | None]:
     ):
         return None, "evidence needs non-empty exec_log and sessions_dir string paths"
     try:
-        return RECEIPT._derive_reviewer_from_exec_log(
+        # The evidence pointer (issue #1269) is the receipt writer's to record;
+        # this check only needs the derived reviewer or the reason there is none.
+        reviewer, _evidence, error = RECEIPT._derive_reviewer_from_exec_log(
             manifest.parent / payload["exec_log"],
             manifest.parent / payload["sessions_dir"],
         )
+        return reviewer, error
     except (OSError, ValueError) as exc:
         # The shared helper handles missing files; invalid encodings/paths may
         # still raise. They are unusable evidence, not a reviewer disagreement.

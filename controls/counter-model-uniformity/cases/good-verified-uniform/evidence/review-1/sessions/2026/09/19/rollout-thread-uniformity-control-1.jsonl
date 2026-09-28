@@ -1,1 +1,1 @@
-{"model": "gpt-5.5"}
+{"type": "turn_context", "payload": {"model": "gpt-5.5"}}

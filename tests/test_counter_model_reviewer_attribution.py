@@ -310,3 +310,22 @@ def test_an_underivable_repository_REFUSES_rather_than_matching_loosely(
         ]
     )
     assert code == EXIT_UNKNOWN
+
+
+def test_the_session_header_model_cannot_decide_the_attribution(tmp_path: Path) -> None:
+    """Issue #1269. A real codex-cli 0.158.0 rollout's FIRST `"model"` is the
+    session header's base-instructions provenance, ahead of the turn_context
+    that records what ran. First-match read the header; here it names a model
+    that never ran, and the linked receipt must still agree with the turn."""
+    fixture = _case(tmp_path, "good-agreement")
+    rollout = fixture / "rollouts" / "rollout-a.jsonl"
+    lines = rollout.read_text(encoding="utf-8").splitlines()
+    header = json.loads(lines[0])
+    assert header["type"] == "session_meta", "precondition: the header comes first"
+    header["payload"]["base_instructions"] = {"provenance": {"model": "header-only-model"}}
+    rollout.write_text(
+        "\n".join([json.dumps(header), *lines[1:]]) + "\n", encoding="utf-8"
+    )
+    code, output = GATE.scan(fixture / "receipts", fixture / "rollouts", REPO)
+    assert code == EXIT_OK, output
+    assert "header-only-model" not in output

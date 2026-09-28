@@ -250,10 +250,30 @@ def _reviewer_derivation_fixture(
     rollout_dir = sessions_dir / "2026" / "09" / "19"
     rollout_dir.mkdir(parents=True)
     (rollout_dir / f"rollout-{thread_id}.jsonl").write_text(
-        json.dumps({"model": model}) + "\n",
-        encoding="utf-8",
+        _rollout_text(model), encoding="utf-8"
     )
     return exec_log, sessions_dir
+
+
+def _rollout_text(turn_model: str, provenance_model: str | None = None) -> str:
+    """A rollout in the shape codex-cli 0.158.0 writes (measured, issue #1269).
+
+    The session header comes FIRST and carries a `model` of its own - the model
+    the base instructions were written for - before any turn_context records
+    which model actually ran. Both default to the same value, as they do on a
+    real single-model run.
+    """
+    header = {
+        "type": "session_meta",
+        "payload": {
+            "id": "fixture",
+            "base_instructions": {
+                "provenance": {"model": provenance_model or turn_model},
+            },
+        },
+    }
+    turn = {"type": "turn_context", "payload": {"model": turn_model}}
+    return json.dumps(header) + "\n" + json.dumps(turn) + "\n"
 
 
 def _reviewer_evidence_args(exec_log: Path, sessions_dir: Path) -> list[str]:
@@ -965,7 +985,7 @@ def test_a_matching_rollout_without_a_model_is_refused(tmp_path: Path) -> None:
         *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
     )
     assert proc.returncode == CM.EXIT_INVALID
-    assert "contains no model field" in proc.stderr
+    assert "no turn_context record in" in proc.stderr
     assert list(tmp_path.glob("*.json")) == []
 
 
@@ -1353,6 +1373,228 @@ def test_two_runs_in_the_same_second_both_SURVIVE(tmp_path: Path) -> None:
     assert branches == {"branch-a", "branch-b"}
 
 
+# --------------------------------------------------------------------------- #
+# Issue #1269: each test below was run against 164fdd4 (the pre-fix script)
+# and FAILED there; the PR body records each red and green result.
+# --------------------------------------------------------------------------- #
+
+def _ran_receipt(tmp_path: Path, out_dir: Path, *extra: str) -> subprocess.CompletedProcess:
+    """One `ran` write with derivable evidence, into `out_dir`."""
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
+    exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
+    return subprocess.run(
+        [
+            sys.executable, str(SCRIPT), "write", "--dir", str(out_dir),
+            "--issue", "1269", "--status", "ran", "--passes", "1",
+            *_reviewer_evidence_args(exec_log, sessions_dir),
+            *_implementer_evidence_args(session_id, projects_dir), *extra,
+        ],
+        capture_output=True, text=True,
+    )
+
+
+@requires_git
+def test_a_receipt_written_into_a_work_tree_SAYS_it_is_untracked(tmp_path: Path) -> None:
+    """Item 1. The suite requires every receipt TRACKED; the writer never said so.
+
+    Ruling (orchestrator, #1269): the helper WARNS and never stages - it runs
+    mid-flow, sometimes while an index is being built, and an index mutated by a
+    helper is a harder surprise to see than an untracked file.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    out_dir = repo / "docs" / "measurements" / "counter-model"
+    proc = _ran_receipt(tmp_path, out_dir, "--branch", "b", "--head", "abc1234")
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    assert "COUNTER_MODEL_TRACKED: untracked (" in proc.stdout
+    assert "git add" in proc.stderr, "an untracked receipt must be warned about"
+    # WARN ONLY: nothing was staged on the caller's behalf.
+    staged = subprocess.run(
+        ["git", "-C", str(repo), "diff", "--cached", "--name-only"],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    assert staged == ""
+
+
+@requires_git
+def test_an_IGNORED_receipt_says_git_add_will_skip_it(tmp_path: Path) -> None:
+    """`git add` no-ops on an ignored path with no error (#934's original trap)."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    (repo / ".gitignore").write_text("*.json\n", encoding="utf-8")
+    proc = _ran_receipt(tmp_path, repo / "receipts", "--branch", "b", "--head", "abc1234")
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    assert "COUNTER_MODEL_TRACKED: untracked (ignored" in proc.stdout
+
+
+@requires_git
+def test_a_receipt_outside_any_work_tree_is_UNKNOWN_never_tracked(tmp_path: Path) -> None:
+    out_dir = tmp_path / "not-a-repo"
+    probe = subprocess.run(
+        ["git", "-C", str(tmp_path), "rev-parse", "--is-inside-work-tree"],
+        capture_output=True, text=True,
+    )
+    assert probe.returncode != 0, "precondition: tmp_path must not sit inside a work tree"
+    proc = _ran_receipt(tmp_path, out_dir, "--branch", "b", "--head", "abc1234")
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    assert "COUNTER_MODEL_TRACKED: unknown (" in proc.stdout
+    assert "COUNTER_MODEL_TRACKED: tracked" not in proc.stdout
+
+
+def test_a_ran_receipt_carries_its_REVIEWER_EVIDENCE(tmp_path: Path) -> None:
+    """Item 2. The reviewer string had no pointer anyone could re-check."""
+    out_dir = tmp_path / "out"
+    proc = _ran_receipt(tmp_path, out_dir, "--branch", "b", "--head", "abc1234")
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next(out_dir.glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["reviewer_evidence"] == {
+        "thread_id": "thread-for-counter-model-test",
+        "rollout": "2026/09/19/rollout-thread-for-counter-model-test.jsonl",
+    }
+
+
+def test_reviewer_evidence_is_OPTIONAL_but_checked_when_present() -> None:
+    """Ruling (#1269): 120 committed receipts predate the field and must still
+    validate; a present field must be well-formed, and a skip carries none."""
+    ran = {
+        "schema": 1, "recorded_at": "2026-09-28T00:00:00Z", "issue": "1269",
+        "branch": "b", "status": "ran", "reviewer": "codex/x",
+        "implementer": "claude/y", "passes": 1,
+        "counts": {"accepted": 0, "rejected": 0, "deferred": 0},
+        "red_cases": {"proposed": 0, "already_covered": 0},
+    }
+    assert CM.validate(dict(ran)) == []
+    good = dict(ran, reviewer_evidence={"thread_id": "t", "rollout": "r.jsonl"})
+    assert CM.validate(good) == []
+    for bad in ({"thread_id": "", "rollout": "r"}, {"thread_id": "t"}, "t", None):
+        assert CM.validate(dict(ran, reviewer_evidence=bad)), bad
+    skipped = {
+        "schema": 1, "recorded_at": "2026-09-28T00:00:00Z", "issue": "1269",
+        "branch": "b", "status": "skipped", "reviewer": None,
+        "implementer": "claude/y", "skip_reason": "codex-absent",
+        "reviewer_evidence": {"thread_id": "t", "rollout": "r"},
+    }
+    assert any("reviewer_evidence" in p for p in CM.validate(skipped))
+
+
+def test_the_reviewer_is_the_TURN_model_not_the_first_model_key(tmp_path: Path) -> None:
+    """Item 3. A real rollout's first `"model"` is the session header's
+    base-instructions provenance, not the model that ran the turn. Measured
+    equal on three codex-cli 0.158.0 runs; this is the case where they differ."""
+    out_dir = tmp_path / "out"
+    exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "discarded")
+    next(sessions_dir.rglob("*.jsonl")).write_text(
+        _rollout_text("turn-model", provenance_model="instructions-model"),
+        encoding="utf-8",
+    )
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
+    proc = subprocess.run(
+        [
+            sys.executable, str(SCRIPT), "write", "--dir", str(out_dir),
+            "--issue", "1269", "--branch", "b", "--status", "ran", "--passes", "1",
+            *_reviewer_evidence_args(exec_log, sessions_dir),
+            *_implementer_evidence_args(session_id, projects_dir),
+        ],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next(out_dir.glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["reviewer"] == "codex/turn-model"
+
+
+def test_a_rollout_whose_turns_DISAGREE_is_refused(tmp_path: Path) -> None:
+    """Item 3. First-match silently picked one of two models."""
+    exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "discarded")
+    rollout = next(sessions_dir.rglob("*.jsonl"))
+    rollout.write_text(
+        _rollout_text("first-model")
+        + json.dumps({"type": "turn_context", "payload": {"model": "second-model"}}) + "\n",
+        encoding="utf-8",
+    )
+    out_dir = tmp_path / "out"
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
+    proc = subprocess.run(
+        [
+            sys.executable, str(SCRIPT), "write", "--dir", str(out_dir),
+            "--issue", "1269", "--branch", "b", "--status", "ran", "--passes", "1",
+            *_reviewer_evidence_args(exec_log, sessions_dir),
+            *_implementer_evidence_args(session_id, projects_dir),
+        ],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == CM.EXIT_INVALID, proc.stdout
+    assert "disagree" in proc.stderr
+    assert "first-model" in proc.stderr and "second-model" in proc.stderr
+    assert list(out_dir.glob("*.json")) == []
+
+
+def _sidechain_transcript(projects_dir: Path, session_id: str) -> None:
+    main = {"type": "assistant", "isSidechain": False,
+            "message": {"model": "claude-opus-5"}}
+    sub = {"type": "assistant", "isSidechain": True,
+           "message": {"model": "claude-haiku-4-5"}}
+    _overwrite_transcript(projects_dir, main, sub)
+
+
+def test_a_SIDECHAIN_record_cannot_supply_the_implementer(tmp_path: Path) -> None:
+    """Item 4. A sub-agent's message is not the implementing session speaking.
+
+    On the current harness sub-agent records live in `<session>/subagents/`,
+    which the stem lookup never opens; this pins the older INLINE layout, where
+    the last-wins rule would have handed the identity to the sub-agent."""
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "unused")
+    _sidechain_transcript(projects_dir, session_id)
+    model, error = CM._derive_implementer_from_session(session_id, projects_dir)
+    assert error is None, error
+    assert model == "claude/claude-opus-5"
+
+
+def test_a_transcript_of_ONLY_sidechain_records_is_refused(tmp_path: Path) -> None:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "unused")
+    _overwrite_transcript(projects_dir, {
+        "type": "assistant", "isSidechain": True, "message": {"model": "claude-haiku-4-5"},
+    })
+    model, error = CM._derive_implementer_from_session(session_id, projects_dir)
+    assert model is None and error is not None
+
+
+def test_a_second_RAN_receipt_for_the_same_branch_and_head_is_REFUSED(tmp_path: Path) -> None:
+    """Title item (Nit Store 5749736750). One run wrote a receipt after pass 1
+    and another after pass 2; a corpus reader cannot tell that from two runs."""
+    out_dir = tmp_path / "out"
+    first = _ran_receipt(tmp_path / "a", out_dir, "--branch", "b", "--head", "abc1234")
+    assert first.returncode == CM.EXIT_OK, first.stderr
+    second = _ran_receipt(tmp_path / "b", out_dir, "--branch", "b", "--head", "abc1234")
+    assert second.returncode == CM.EXIT_INVALID, second.stdout
+    existing = next(out_dir.glob("*.json")).name
+    assert existing in second.stderr, "the refusal must name the receipt already recorded"
+    assert len(list(out_dir.glob("*.json"))) == 1
+
+
+def test_a_NEW_head_or_an_earlier_SKIP_does_not_block_a_ran_receipt(tmp_path: Path) -> None:
+    """The other verdict: a re-review of new commits, and a run after a skip,
+    are distinct attempts and both must be recordable."""
+    out_dir = tmp_path / "out"
+    session_id, projects_dir = _implementer_session_fixture(tmp_path / "s", "opus-5")
+    skip = subprocess.run(
+        [
+            sys.executable, str(SCRIPT), "write", "--dir", str(out_dir),
+            "--issue", "1269", "--branch", "b", "--status", "skipped",
+            "--reason", "reviewer-unavailable", "--head", "abc1234",
+            *_implementer_evidence_args(session_id, projects_dir),
+        ],
+        capture_output=True, text=True,
+    )
+    assert skip.returncode == CM.EXIT_OK, skip.stderr
+    ran = _ran_receipt(tmp_path / "a", out_dir, "--branch", "b", "--head", "abc1234")
+    assert ran.returncode == CM.EXIT_OK, ran.stderr
+    later = _ran_receipt(tmp_path / "b", out_dir, "--branch", "b", "--head", "def5678")
+    assert later.returncode == CM.EXIT_OK, later.stderr
+    assert len(list(out_dir.glob("*.json"))) == 3
+
+
 def test_the_review_runs_BEFORE_the_quality_gates() -> None:
     """Accepted findings are fixed in the worktree, and those fixes are CODE.
 
@@ -1679,3 +1921,72 @@ def test_the_committed_skip_reasons_are_readable_by_the_shell_lane() -> None:
     mod = _load()
     assert got.stdout.split() == list(mod.SKIP_REASONS)
     assert "explicit-opt-out" not in got.stdout
+
+
+@pytest.mark.parametrize("second_turn", [
+    {"type": "turn_context", "payload": {}},
+    {"type": "turn_context", "payload": {"model": "   "}},
+    '{"type":"turn_context","payload":{"model":"trunc',
+])
+def test_a_turn_whose_model_is_UNKNOWN_leaves_the_reviewer_unresolved(
+    second_turn: object,
+) -> None:
+    """Counter-model review of #1269: one readable turn saying `A` beside a
+    turn whose model cannot be read is not a rollout that says `A`."""
+    extra = second_turn if isinstance(second_turn, str) else json.dumps(second_turn)
+    model, reason = CM.rollout_turn_model(_rollout_text("gpt-a") + extra + "\n")
+    assert model is None
+    assert reason is not None and "not established" in reason
+
+
+def test_REAL_rollout_shapes_still_resolve() -> None:
+    """The other verdict: complete, agreeing turns resolve."""
+    text = _rollout_text("gpt-a") + json.dumps(
+        {"type": "turn_context", "payload": {"model": "gpt-a"}}) + "\n"
+    assert CM.rollout_turn_model(text) == ("gpt-a", None)
+
+
+@pytest.mark.parametrize(("existing", "incoming"), [
+    ("abc1234", "abc1234" + "0" * 33),
+    ("abc1234" + "0" * 33, "abc1234"),
+])
+def test_an_ABBREVIATED_and_a_FULL_head_of_one_commit_are_the_same_run(
+    tmp_path: Path, existing: str, incoming: str
+) -> None:
+    """Counter-model review pass 2 of #1269: exact string comparison let the
+    same commit, spelled two ways, record the same run twice."""
+    out_dir = tmp_path / "out"
+    first = _ran_receipt(tmp_path / "a", out_dir, "--branch", "b", "--head", existing)
+    assert first.returncode == CM.EXIT_OK, first.stderr
+    second = _ran_receipt(tmp_path / "b", out_dir, "--branch", "b", "--head", incoming)
+    assert second.returncode == CM.EXIT_INVALID, second.stdout
+    assert len(list(out_dir.glob("*.json"))) == 1
+
+
+def test_a_head_that_merely_SHARES_a_short_prefix_is_a_different_run(tmp_path: Path) -> None:
+    out_dir = tmp_path / "out"
+    first = _ran_receipt(tmp_path / "a", out_dir, "--branch", "b", "--head", "abc1234")
+    assert first.returncode == CM.EXIT_OK, first.stderr
+    second = _ran_receipt(tmp_path / "b", out_dir, "--branch", "b", "--head", "abc1235")
+    assert second.returncode == CM.EXIT_OK, second.stderr
+
+
+@requires_git
+def test_the_tracking_notice_can_say_TRACKED_and_is_not_moved_by_a_neighbour(
+    tmp_path: Path,
+) -> None:
+    """The other verdict of the #1269 tracking notice. A fresh write is never
+    tracked, so the writer tests alone would pass for a notice that can only
+    ever say `untracked`; this shows it CAN say `tracked`, and that staging a
+    NEIGHBOUR does not make the target read as tracked."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    target = repo / "receipt.json"
+    neighbour = repo / "other.json"
+    target.write_text("{}\n", encoding="utf-8")
+    neighbour.write_text("{}\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "other.json"], check=True)
+    assert CM._tracking_state(target)[0] == "untracked"
+    subprocess.run(["git", "-C", str(repo), "add", "receipt.json"], check=True)
+    assert CM._tracking_state(target) == ("tracked", None)

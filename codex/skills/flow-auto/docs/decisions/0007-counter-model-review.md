@@ -138,6 +138,15 @@ jq -s '{runs: length,
   docs/measurements/counter-model/*.json
 ```
 
+**One run, one receipt; every identity re-derivable (#1269).** A run writes a
+single receipt carrying its final totals - a re-review is `--passes 2`, not a
+second file - and the writer refuses a second `ran` receipt for the same branch
+at the same `head`, so `runs: length` above counts runs rather than passes. A
+re-review of new commits has a new `head` and is a new run. A `ran` receipt also
+records `reviewer_evidence` (`thread_id`, and the `rollout` path relative to the
+Codex sessions directory), so the reviewer it names can be re-derived on the
+host that ran it. Receipts written before #1269 carry neither and stay valid.
+
 That is a documented query rather than a summarising script, deliberately: a
 number that decides whether this stage becomes blocking should be derived in the
 open by whoever is deciding.
