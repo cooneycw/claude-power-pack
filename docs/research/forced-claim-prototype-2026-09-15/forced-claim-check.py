@@ -308,6 +308,10 @@ def _resolve_runner() -> str | None:
     file's own reason-vs-verdict rule exists to preserve. It was caught by the
     committed cases rather than by reading the code.
     """
+    # TEST-ONLY seam (issue #1268): stands in for a host with no pytest, which
+    # this checkout cannot otherwise be made into. Never set it in real use.
+    if os.environ.get("FORCED_CLAIM_TEST_HIDE_RUNNER") == "1":
+        return None
     candidates = [sys.executable]
     venv = os.environ.get("VIRTUAL_ENV")
     if venv:
@@ -799,6 +803,7 @@ def main() -> int:
         print("FORCED_CLAIM_UNTRACKED: 0")
 
         failures = 0
+        no_runner = 0
         for spec in cases:
             cdir = here / spec["input"]
             # THROUGH THE REAL CLI, in a subprocess. The first cut asserted
@@ -856,8 +861,24 @@ def main() -> int:
                   f"observed={got:<26} {'ok' if ok else 'MISMATCH'}{extra}")
             if not ok:
                 failures += 1
-        print(f"FORCED_CLAIM_SELFTEST: {len(cases) - failures}/{len(cases)} cases behaved as registered")
-        return EXIT_CLEAN if failures == 0 else EXIT_HARD_FAIL
+                if got == f"{UNKNOWN}(no-runner)":
+                    no_runner += 1
+        # "This host cannot run pytest" is not "the battery stopped
+        # discriminating" (issue #1268). Scored together they printed one
+        # N/M line and one hard-fail exit for both. A case that could not run
+        # is UNAVAILABLE; only a case that RAN and misbehaved is a failure,
+        # and one of those still fails the selftest whatever else is missing.
+        if failures - no_runner:
+            print(f"FORCED_CLAIM_SELFTEST: {len(cases) - failures}/{len(cases)} cases behaved as registered"
+                  + (f" ({no_runner} more could not run: no pytest)" if no_runner else ""))
+            return EXIT_HARD_FAIL
+        if no_runner:
+            print(f"FORCED_CLAIM_SELFTEST: UNAVAILABLE - no interpreter on this host can run pytest; "
+                  f"{no_runner} of {len(cases)} case(s) need one and could not be checked. "
+                  f"This says nothing about whether they discriminate.")
+            return EXIT_NOT_ESTABLISHED
+        print(f"FORCED_CLAIM_SELFTEST: {len(cases)}/{len(cases)} cases behaved as registered")
+        return EXIT_CLEAN
 
     if not args.case:
         ap.error("one of --case or --selftest is required")

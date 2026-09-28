@@ -321,6 +321,38 @@ def run_controls(verbose=True):
     return failed
 
 
+#: The constructed tree's two specimens. RED_SPECIMEN is referenced nowhere;
+#: GREEN_SPECIMEN is run by a Makefile recipe. Pointing RED_SPECIMEN at the
+#: recipe script is the committed way to see this control fail.
+RED_SPECIMEN = "dormant-guard.sh"
+GREEN_SPECIMEN = "recipe-run.sh"
+
+
+def constructed_bucket_control(red=None):
+    """RED and GREEN on a tree built here, through the real derive_universe()
+    and closure(). Returns (ok, label). Both halves must hold: a classifier
+    that calls everything dormant passes a RED alone."""
+    import tempfile
+    red = red or RED_SPECIMEN
+    with tempfile.TemporaryDirectory(prefix="sweep-bucket-") as d:
+        root = pathlib.Path(d)
+        (root / "scripts").mkdir()
+        for name in (RED_SPECIMEN, GREEN_SPECIMEN):
+            f = root / "scripts" / name
+            f.write_text("#!/usr/bin/env bash\ntrue\n")
+            f.chmod(0o755)
+        (root / "Makefile").write_text(f"check:\n\t@bash scripts/{GREEN_SPECIMEN}\n")
+        for argv in (["git", "init", "-q", str(root)], ["git", "-C", str(root), "add", "-A"]):
+            if subprocess.run(argv, capture_output=True).returncode != 0:
+                return False, "RED/GREEN constructed tree: could not build it (git) - UNKNOWN, not a pass"
+        names = derive_universe(root)
+        auto, _, cov = closure([root / "Makefile"], names, root)
+        present = red in names and GREEN_SPECIMEN in names
+        ok = cov.ok() and present and red not in auto and GREEN_SPECIMEN in auto
+        return ok, (f"RED   {red} NOT AUTOMATED and GREEN {GREEN_SPECIMEN} AUTOMATED "
+                    f"on a constructed tree (universe={len(names)}, {cov})")
+
+
 def main() -> int:
     if "--self-test" in sys.argv:
         # Refused, not ignored: ignoring it would run the ordinary sweep and exit
@@ -378,10 +410,20 @@ def main() -> int:
 
     # Bucket controls. The specimen must EXIST in the universe: otherwise a
     # typo or a deleted file satisfies "not in AUTOMATED" vacuously.
-    red, green = "eli5-core-drift.sh", "tool-risk-drift.py"
+    #
+    # RED is CONSTRUCTED, GREEN is live (issue #1268). The RED used to be a live
+    # specimen, eli5-core-drift.sh, asserting #591's claim that nothing
+    # automated it. Work after #955 automated it - tests/test_codex_skill_sync.py
+    # runs it through subprocess.run - and the sweep, correctly, stopped calling
+    # it dormant, so the control failed on a true reading. #591's claim is
+    # retired. Any live specimen goes stale the same way the day someone wires
+    # it, so the RED is now a tree this function builds, whose dormant script
+    # nobody can wire. The live GREEN stays: it is what proves the REAL root
+    # sets are read.
+    green = "tool-risk-drift.py"
+    red_ok, red_label = constructed_bucket_control()
     checks = [
-        (f"{red} present in universe", red in names),
-        (f"RED   {red} NOT AUTOMATED (#591's claim)", red not in auto),
+        (red_label, red_ok),
         (f"{green} present in universe", green in names),
         (f"GREEN {green} AUTOMATED (#576 item 1, since fixed)", green in auto),
     ]
