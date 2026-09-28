@@ -102,9 +102,7 @@
 #             one on a retry - but a failed derivation never downgrades an
 #             already-recorded address to "unknown" (#672). A role held by a
 #             LIVE other session is refused (exit 1) unless --force. A dead
-#             owner's entry is stale and taken over automatically; an owner
-#             on ANOTHER host is unknown (basis other-host, #1014) and, like
-#             any unknown owner, needs --force.
+#             owner's entry is stale and taken over automatically.
 #             The observation flags (`verified`, `address_filled`,
 #             `address_mismatch`) SURVIVE a re-register by the same owner at a
 #             byte-identical address (#691/#692) - they record one transport
@@ -439,7 +437,6 @@ SELF_HOST="${FLOW_WAVE_HOST:-${HOSTNAME:-$(hostname 2>/dev/null || echo unknown)
 NOW="${FLOW_WAVE_NOW:-$(date +%s)}"
 
 #: NEGATIVE-CONTROL: controls/flow-wave-registry
-#: NEGATIVE-CONTROL: controls/flow-wave-registry-takeover
 usage_fail() { echo "flow-wave-registry: $1" >&2; emit error; exit 2; }
 #: A refusal must announce itself in the DOCUMENTED words (#1190). This is one
 #: function behind ~45 call sites, so the population is fixed here rather than
@@ -977,17 +974,14 @@ _liveness_compute() {
   host="$(printf '%s' "$e" | jq -r '.host // "-"')"
   sock="$(printf '%s' "$e" | jq -r '.socket // "unknown"')"
 
-  # ANOTHER HOST'S PID CANNOT BE OBSERVED FROM HERE (#1014 Part 2, ruling RA).
-  # This used to read `stale other-host`, and `stale` is the one state
-  # `register`/`release` treat as a PROVEN death - so any session on this host
-  # silently took over a role a session on another host might still be driving,
-  # without --force. That is the #869 defect (weaker evidence read as a death)
-  # reached by a different road: we did not look, because we cannot. It is
-  # `unknown`, which holds the role until the operator says --force, and the
-  # BASIS keeps it distinguishable from an undeterminable LOCAL pid. The local
-  # pid table is deliberately never consulted: a local pid with the same number
-  # says nothing about the remote process.
-  if [ "$host" != "$SELF_HOST" ]; then echo "unknown other-host"; return; fi
+  # Unchanged, and deliberately so: the registry is host-local by construction,
+  # so an entry from another host has always read `stale` and every reader is
+  # built on that. It is arguably the same shape of defect as the one above - we
+  # cannot determine a remote pid's liveness either - but promoting it to
+  # `unknown` would change takeover semantics for every cross-host entry, which
+  # is a separate decision and out of scope here. The BASIS says which rule
+  # fired, so the two never look alike to a reader.
+  if [ "$host" != "$SELF_HOST" ]; then echo "stale other-host"; return; fi
 
   st="$(pid_state "$pid")"
   case "$st" in
@@ -2367,9 +2361,6 @@ case "$VERB" in
       if [ "$SAME_OWNER" -eq 0 ] && [ "$HELD" -eq 1 ] && [ "$FORCE" -eq 0 ]; then
         if [ "$CUR_LIVE" = "live" ]; then
           echo "flow-wave-registry: role '$ROLE' (wave '$WAVE') is held by a LIVE session (pid $CUR_PID, session $CUR_SESSION)." >&2
-        elif [ "$CUR_BASIS" = "other-host" ]; then
-          echo "flow-wave-registry: role '$ROLE' (wave '$WAVE') is held by a session on ANOTHER HOST ($(printf '%s' "$CUR" | jq -r '.host // "-"'), pid $CUR_PID, session $CUR_SESSION)." >&2
-          echo "  This host cannot observe a remote process, so the owner is not known to be gone - which is not the same as knowing it is alive (#1014)." >&2
         else
           echo "flow-wave-registry: role '$ROLE' (wave '$WAVE') is held by a session whose liveness is UNDETERMINABLE (pid $CUR_PID, session $CUR_SESSION, basis $CUR_BASIS)." >&2
           echo "  This host cannot enumerate its process table, so the owner is not known to be gone - which is not the same as knowing it is alive." >&2
@@ -3042,8 +3033,6 @@ case "$VERB" in
     if [ "$SAME_OWNER" -eq 0 ] && [ "$HELD" -eq 1 ] && [ "$FORCE" -eq 0 ]; then
       if [ "$CUR_LIVE" = "live" ]; then
         echo "flow-wave-registry: role '$ROLE' belongs to a LIVE session (pid $CUR_PID) - not releasing. Pass --force to override." >&2
-      elif [ "$CUR_BASIS" = "other-host" ]; then
-        echo "flow-wave-registry: role '$ROLE' belongs to a session on ANOTHER HOST ($(printf '%s' "$CUR" | jq -r '.host // "-"'), pid $CUR_PID) that this host cannot observe - not releasing. Pass --force to override (#1014)." >&2
       else
         echo "flow-wave-registry: role '$ROLE' belongs to a session whose liveness is UNDETERMINABLE (pid $CUR_PID, basis $CUR_BASIS) - not releasing. Pass --force to override." >&2
       fi

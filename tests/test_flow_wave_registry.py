@@ -4751,3 +4751,69 @@ def test_an_unusable_tmpdir_refuses_before_writing(tmp_path: Path) -> None:
     assert out.returncode != 0, out.stdout
     assert "NOT updated" in out.stderr, out.stderr
     assert _entry(tmp_path, "zz", "w")["files"] == "a.py", "refused, so nothing may have changed"
+
+
+class TestAnotherHostsOwnerIsUnknownNotStale:
+    """#1014 Part 2 (ruling RA): the registry cannot observe a remote pid.
+
+    An entry recorded on another host used to read `stale other-host`, and
+    `stale` is the one state `register`/`release` treat as a PROVEN death -
+    so any session on this host silently took over a role that a session on
+    another host might still be driving. Not being able to look is `unknown`,
+    and `unknown` holds the role unless the operator says `--force`.
+    """
+
+    REMOTE = {"FLOW_WAVE_HOST": "otherhost"}
+
+    def _held_on_another_host(self, tmp: Path) -> None:
+        p = _run(tmp, "register", "1", "--socket", "uds:/tmp/x.sock",
+                 pid=OTHER_PID, session=OTHER_SESSION, extra_env=self.REMOTE)
+        assert _verdict(p) == "registered", p.stdout + p.stderr
+        assert _entry(tmp, "default", "1")["host"] == "otherhost", "precondition: a remote owner"
+
+    def test_a_remote_owner_is_REFUSED_without_force(self, tmp_path: Path) -> None:
+        # The remote pid is ALSO alive on this host, and it must not matter:
+        # a local pid table says nothing about another host's process.
+        self._held_on_another_host(tmp_path)
+        p = _run(tmp_path, "register", "1", "--socket", "uds:/tmp/y.sock", live=OTHER_PID)
+        assert _verdict(p) == "refused", p.stdout + p.stderr
+        assert p.returncode == 1
+        assert _detail(p, "FLOW_WAVE_LIVENESS") == "unknown"
+        assert _detail(p, "FLOW_WAVE_LIVENESS_BASIS") == "other-host"
+        assert "otherhost" in p.stderr, "the refusal must name the host that holds it"
+        assert "process table" not in p.stderr, "the local-pid explanation is the wrong reason here"
+        assert _entry(tmp_path, "default", "1")["session"] == OTHER_SESSION, "refused, so unchanged"
+
+    def test_force_still_takes_a_remote_owner_and_says_it_was_not_confirmed(
+        self, tmp_path: Path
+    ) -> None:
+        self._held_on_another_host(tmp_path)
+        p = _run(tmp_path, "register", "1", "--socket", "uds:/tmp/y.sock", "--force")
+        assert _verdict(p) == "registered", p.stdout + p.stderr
+        assert "NOT confirmed gone" in p.stderr
+        assert _entry(tmp_path, "default", "1")["session"] == SELF_SESSION
+
+    def test_a_same_host_dead_owner_is_still_stale_and_taken_over(self, tmp_path: Path) -> None:
+        _run(tmp_path, "register", "1", "--socket", "uds:/tmp/x.sock",
+             pid=OTHER_PID, session=OTHER_SESSION)
+        g = _run(tmp_path, "get", "1", live="none")
+        assert _detail(g, "FLOW_WAVE_LIVENESS") == "stale"
+        assert _detail(g, "FLOW_WAVE_LIVENESS_BASIS") == "pid-gone"
+        p = _run(tmp_path, "register", "1", "--socket", "uds:/tmp/y.sock", live="none")
+        assert _verdict(p) == "registered", p.stdout + p.stderr
+        assert "taking over stale role" in p.stderr
+
+    def test_release_of_a_remote_owner_is_refused_without_force(self, tmp_path: Path) -> None:
+        self._held_on_another_host(tmp_path)
+        p = _run(tmp_path, "release", "1")
+        assert _verdict(p) == "refused", p.stdout + p.stderr
+        assert p.returncode == 1
+        assert "otherhost" in p.stderr
+
+    def test_get_and_list_say_unknown_other_host(self, tmp_path: Path) -> None:
+        self._held_on_another_host(tmp_path)
+        g = _run(tmp_path, "get", "1")
+        assert _detail(g, "FLOW_WAVE_LIVENESS") == "unknown"
+        assert _detail(g, "FLOW_WAVE_LIVENESS_BASIS") == "other-host"
+        lst = _run(tmp_path, "list")
+        assert _detail(lst, "FLOW_WAVE_LIVENESS_UNDETERMINED") == "1", lst.stdout

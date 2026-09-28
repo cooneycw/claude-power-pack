@@ -1,0 +1,37 @@
+{
+  "cpp": {
+    "roles": {
+      "w1": {
+        "address_filled": false,
+        "address_mismatch": false,
+        "base": "",
+        "branch": "",
+        "capacity": "",
+        "cwd": "",
+        "diff": "",
+        "driver": "",
+        "files": "",
+        "host": "otherhost",
+        "issue": "",
+        "model": "",
+        "obs_repo": "",
+        "overtaken": 0,
+        "permission_mode": "",
+        "pid": 9999,
+        "pid_started": "w-9999",
+        "policy_rev": 0,
+        "pr": "",
+        "registered_ts": 1700000000,
+        "released": false,
+        "repo": "",
+        "self_socket": "uds:/tmp/holder.sock",
+        "session": "holder",
+        "socket": "uds:/tmp/holder.sock",
+        "vantage": "container",
+        "vantage_basis": "fixture (#1014 takeover control)",
+        "vantage_source": "measured",
+        "verified": false
+      }
+    }
+  }
+}
