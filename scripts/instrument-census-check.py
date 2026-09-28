@@ -366,7 +366,11 @@ CENSUS_ROW_RE = re.compile(r"^\|\s*\d+\s*\|")
 #: only INSIDE this table: `CENSUS_ROW_RE` alone matched a numbered row in ANY
 #: table of the document, so a second numbered table - a dated measurement, an
 #: example written outside a fence - would silently join the denominator.
-CENSUS_HEADER_RE = re.compile(r"^\|\s*#\s*\|\s*instrument\s*\|", re.IGNORECASE)
+CENSUS_HEADER_RE = re.compile(r"^\|\s*#\s*\|\s*instrument\s*\|\s*verdict\b", re.IGNORECASE)
+
+#: The Retired table's own header. Its third column is `retired by`, so the
+#: census header above can never match it (review pass 3, #1268).
+RETIRED_HEADER_RE = re.compile(r"^\|\s*#\s*\|\s*instrument\s*\|\s*retired\s+by\b", re.IGNORECASE)
 
 #: The retired table's heading (issue #1268). A retired row keeps its number -
 #: numbers are never reused - and names what USED to be enumerated.
@@ -485,23 +489,29 @@ def table_text(text: str) -> str:
 
 
 def census_rows(text: str) -> list[str]:
-    """The numbered rows of THE census table, and nothing else (issue #1268).
+    """The numbered rows of EVERY census table, and nothing else (issue #1268).
 
-    From the census header to the first line that is not a table row. Both
-    readers count THIS - `check-negative-controls.py` for its denominator, this
-    gate for its subjects - so they cannot disagree about which rows are the
-    census. A document with no census header parses to [] and every caller
-    refuses that as unread rather than as an empty census.
+    A census table is one whose header is `| # | instrument | verdict ...`; its
+    rows run to its first non-table line. kyle's ADR 0005 splits its census
+    into FOUR such tables, so reading only the first would drop three quarters
+    of kyle's denominator - measured before this shipped. Any other numbered
+    table (the Retired table, a dated measurement) is not read. Both readers
+    count this, so they cannot disagree about which rows are the census. A
+    document with no census header parses to [] and every caller refuses that
+    as unread rather than as an empty census.
     """
     lines = table_text(COMMENT_LINE_RE.sub("", unfenced(text))).splitlines()
     rows: list[str] = []
     inside = False
     for line in lines:
+        if CENSUS_HEADER_RE.match(line):
+            inside = True
+            continue
         if not inside:
-            inside = bool(CENSUS_HEADER_RE.match(line))
             continue
         if not line.startswith("|"):
-            break
+            inside = False
+            continue
         if CENSUS_ROW_RE.match(line):
             rows.append(line)
     return rows
@@ -512,41 +522,51 @@ def row_number(line: str) -> int:
     return int(cells(line)[0])
 
 
-def retired_rows(text: str) -> tuple[list[tuple[int, str]], bool]:
-    """`([(number, subject)], found)` for the `Retired` table (issue #1268).
+def retired_rows(text: str) -> tuple[list[tuple[int, str]], str]:
+    """`([(number, subject)], state)` for the `Retired` table (issue #1268).
+
+    `state` is `absent` (no Retired section), `examined` (its table was read,
+    possibly empty), or `unread` (the section is there but its table is not -
+    a heading with nothing under it, which is not the same as zero
+    retirements; review pass 3). The table is the one under the section whose
+    header is `| # | instrument | retired by |`, to its first non-table line;
+    the section ends at the next heading.
 
     A retired row is `| N | <instrument> | <retiring issue> | <why> |`: the
     number it held, and the subject it named. It is OUTSIDE the denominator by
-    construction - `census_rows` never reads this section - and its subject may
-    name a file that no longer exists, which is the point of it. It may NOT name
-    a LIVE file: an instrument still in the tree was not retired.
+    construction - `census_rows` never reads it - and its subject may name a
+    file that no longer exists, which is the point of it. It may NOT name a LIVE
+    file: an instrument still in the tree was not retired.
     """
     retired: list[tuple[int, str]] = []
-    found = False
-    in_section = False
-    started = False
+    state = "absent"
+    in_section = in_table = False
     for line in table_text(COMMENT_LINE_RE.sub("", unfenced(text))).splitlines():
         if RETIRED_HEADING_RE.match(line):
-            in_section = found = True
-            started = False
+            in_section, in_table = True, False
+            if state == "absent":
+                state = "unread"
             continue
         if not in_section:
             continue
-        # The table ends at its first non-table line after it began - not at the
-        # next heading (review pass 2): a neighbouring numbered table in the same
-        # section must not be read as retirements.
-        if not line.startswith("|"):
-            if started:
-                in_section = False
+        if line.startswith("#"):
+            in_section = in_table = False
             continue
-        started = True
+        if RETIRED_HEADER_RE.match(line):
+            in_table, state = True, "examined"
+            continue
+        if not in_table:
+            continue
+        if not line.startswith("|"):
+            in_section = in_table = False
+            continue
         if not CENSUS_ROW_RE.match(line):
             continue
         row = cells(line)
         tokens = BACKTICKED_RE.findall(row[1]) if len(row) > 1 else []
         subject = subject_of(tokens[0]) if tokens else ""
         retired.append((row_number(line), subject))
-    return retired, found
+    return retired, state
 
 
 def census_subjects(text: str) -> list[str]:
@@ -704,7 +724,13 @@ def run_check(root: Path) -> int:
     # table replaces a gap comment, a numbering gap and a prose paragraph with one
     # row each - and the one thing it must not do is quietly hold an instrument
     # that is still in the tree outside the denominator.
-    retired, retired_found = retired_rows(text)
+    retired, retired_state = retired_rows(text)
+    if retired_state == "unread":
+        print(
+            f"RETIRED_UNREAD: {adr_rel} has a Retired section with no `| # | instrument | "
+            f"retired by |` table under it - that is unread, not zero retirements"
+        )
+        findings += 1
     for number, subject in retired:
         live = subject in files or (
             subject.startswith(MAKE_SUBJECT_PREFIX) and typed_subject_problem(subject, targets) is None
@@ -739,7 +765,10 @@ def run_check(root: Path) -> int:
     # ABSENT is not 0 (review pass 2): a document with no Retired section has
     # nothing retired to check, which is a different fact from an examined,
     # empty table. It is allowed - kyle's census has none - and said.
-    print(f"INSTRUMENT_CENSUS_RETIRED: {len(retired) if retired_found else 'absent (no Retired section)'}")
+    print(
+        "INSTRUMENT_CENSUS_RETIRED: "
+        + {"examined": str(len(retired)), "absent": "absent (no Retired section)", "unread": "unread"}[retired_state]
+    )
 
     if findings:
         print(

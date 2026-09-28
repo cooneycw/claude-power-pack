@@ -776,3 +776,43 @@ def test_a_missing_retired_section_is_reported_absent_not_zero(tmp_path, capsys)
     root = _tree(tmp_path, ["alpha.sh"], _adr(rows="| 1 | `alpha.sh` | v | c | G |\n"))
     assert icc.main(["check", "--root", str(root)]) == 0
     assert "INSTRUMENT_CENSUS_RETIRED: absent" in capsys.readouterr().out
+
+
+def test_a_census_split_across_several_tables_is_read_whole(tmp_path):
+    """kyle's ADR 0005 splits its census into FOUR `| # | instrument | verdict |`
+    tables. Reading only the first gave kyle 24 of 78 rows (measured on the
+    previous commit of this branch); every census table is read."""
+    header = "| # | instrument | verdict | consumed by | class |\n|---|---|---|---|---|\n"
+    rows = "| 1 | `alpha.sh` | v | c | G |\n\n## A second group\n\n" + header + "| 2 | `beta.sh` | v | c | G |\n"
+    root = _tree(tmp_path, ["alpha.sh", "beta.sh"], _adr(rows=rows))
+    assert icc.census_subjects((root / icc.ADR_REL).read_text(encoding="utf-8")) == ["alpha.sh", "beta.sh"]
+    assert icc.main(["check", "--root", str(root)]) == 0
+
+
+def test_the_retired_table_is_never_read_as_the_census():
+    """Review pass 3 (#1268): the Retired header shares `| # | instrument |`."""
+    only_retired = (
+        "# x\n" + RETIRED_HEAD + "| 2 | `gone.sh` | #1 | removed |\n"
+    )
+    assert icc.census_rows(only_retired) == []
+    retired_first = only_retired + "\n## The enumeration\n\n" + HEAD.split("## The enumeration\n\n")[1] + (
+        "| 1 | `alpha.sh` | v | c | G |\n"
+    )
+    assert [icc.row_number(r) for r in icc.census_rows(retired_first)] == [1]
+
+
+@pytest.mark.parametrize(
+    "section",
+    [
+        "\n### Retired, with the issue that retired it\n\nThe table was lost.\n",
+        "\n### Retired, with the issue that retired it\n\n| # | x |\n|---|---|\n| 1 | `other` |\n",
+    ],
+    ids=["no-table", "a-neighbouring-table"],
+)
+def test_a_retired_section_without_its_table_is_unread_not_zero(tmp_path, capsys, section):
+    """Review pass 3 (#1268): the heading alone is not an examined table."""
+    root = _tree(tmp_path, ["alpha.sh"], _adr(rows="| 1 | `alpha.sh` | v | c | G |\n", tail=section))
+    assert icc.main(["check", "--root", str(root)]) == 1
+    out = capsys.readouterr().out
+    assert "RETIRED_UNREAD: " in out
+    assert "DUPLICATE_ROW" not in out

@@ -1058,3 +1058,15 @@ def test_a_quoted_probe_path_is_still_an_invocation(tmp_path: Path) -> None:
     out = run(root)
     assert "declares mutations and needs `jq`" in out.stdout, out.stdout
     assert out.returncode == 1, out.stdout
+
+
+def test_a_compound_command_hiding_a_second_invocation_is_unknown(tmp_path: Path) -> None:
+    """Review pass 3 (#1268): `A && B` - B does not inherit A's command-local PATH."""
+    root = _mutating_jq_tree(
+        tmp_path,
+        'PATH="$PWD/.ci-bin:$PATH" uv run --extra dev python scripts/mutation-probe.py --strict'
+        " && uv run --extra dev python scripts/mutation-probe.py --strict",
+    )
+    out = run(root)
+    assert "UNKNOWN - not clean" in out.stdout, out.stdout
+    assert out.returncode == 1, out.stdout

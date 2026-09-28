@@ -466,6 +466,12 @@ MUTATION_INVOCATION_RE = re.compile(
     re.VERBOSE,
 )
 
+#: A command that chains or substitutes (`&&`, `||`, `;`, `|`, `$(`, a
+#: backtick, a newline) can hide a SECOND invocation that does not inherit the
+#: first's command-local PATH. Such a command mentioning the probe is UNKNOWN,
+#: never read by its first invocation alone (review pass 3, #1268).
+SHELL_COMPOUND_RE = re.compile(r"&&|\|\||;|\||\$\(|`|\n")
+
 #: Any mention at all. A command that MENTIONS the probe but does not match the
 #: invocation shape above is UNDECIDED, never "no step runs it" (review, #1268):
 #: an unrecognised execution must not read as an absent one.
@@ -512,16 +518,19 @@ def mutation_environment(
     if binary_gate is None or not pipeline.is_file():
         return True, None, [f"{WOODPECKER_REL} or {BINARY_GATE_REL} could not be read"]
     steps = _steps(pipeline.read_text(encoding="utf-8"))
+    def _invokes(command: str) -> bool:
+        return bool(MUTATION_INVOCATION_RE.match(command)) and not SHELL_COMPOUND_RE.search(command)
+
     matches = [
         name for name, step in steps.items()
-        if any(MUTATION_INVOCATION_RE.match(str(c)) for c in step["commands"])  # type: ignore[union-attr]
+        if any(_invokes(str(c)) for c in step["commands"])  # type: ignore[union-attr]
     ]
     # EACH COMMAND IS CLASSIFIED ON ITS OWN (review pass 2, #1268): a recognised
     # invocation in a step must not vouch for an unrecognised one beside it.
     undecided = [
         name for name, step in steps.items()
         if any(
-            MUTATION_MENTION_RE.search(str(c)) and not MUTATION_INVOCATION_RE.match(str(c))
+            MUTATION_MENTION_RE.search(str(c)) and not _invokes(str(c))
             for c in step["commands"]  # type: ignore[union-attr]
         )
     ]
@@ -541,7 +550,7 @@ def mutation_environment(
         return True, None, [f"step `{name}` runs `{image}`, not the image {BINARY_GATE_REL} records"]
     battery, _every = _battery_step(steps)
     commands = [str(c) for c in step["commands"]]  # type: ignore[union-attr]
-    runs = [c for c in commands if MUTATION_INVOCATION_RE.match(c)]
+    runs = [c for c in commands if _invokes(c)]
     # EVERY invocation, not the first (review, #1268): a `PATH=` prefix is
     # command-local, so a second run without it does not inherit the first's.
     ci_bin = bool(runs) and all(CI_BIN_PREFIX_RE.match(c) for c in runs)
