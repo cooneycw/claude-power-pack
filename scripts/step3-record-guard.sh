@@ -214,8 +214,72 @@ if [ -f "$RECORD" ]; then
                 "  exists but cannot be read: $RECORD" \
                 "  Refusing rather than allowing: an unreadable record is not an approval."
     fi
-    if grep -qE '^- Approval: +granted' "$RECORD" 2>/dev/null; then
-        exit "$ALLOW"
+
+    # WHOSE APPROVAL IS IT (issue #1320). The record is shared by every run on the
+    # issue, and `reconcile` restores the committed one - so "an approval exists"
+    # let a SECOND run edit on the FIRST run's approval: the gate skipped by being
+    # the second run. `reconcile` now mints a run id into the PER-WORKTREE git dir
+    # (kept for the same session, new for any other), each run appends its own
+    # `<!-- flow-run n=<n> id=<id> -->` section, and this guard accepts only an
+    # approval inside THIS run's section.
+    #
+    # THE TRANSITION BOUND (orchestrator ruling), stated so it is not mistaken for
+    # coverage: a LEGACY record (no run markers) in a worktree with NO run file is
+    # allowed on its approval exactly as before, so runs already in flight when
+    # this shipped keep editing. The moment reconcile mints an id here, the strict
+    # rule applies. A second run that follows Step 1 is therefore gated; one that
+    # skips Step 1 never was, by this or any Step-1 control.
+    GITDIR=$(git -C "$TOPLEVEL" rev-parse --absolute-git-dir 2>/dev/null)
+    RUNFILE="$GITDIR/flow-plan-run-$ISSUE"
+    RUN_ID=""
+    if [ -n "$GITDIR" ] && [ -e "$RUNFILE" ]; then
+        if [ ! -r "$RUNFILE" ]; then
+            _refuse "step3-record-guard: REFUSED - this worktree's run identity exists but" \
+                    "  cannot be read: $RUNFILE" \
+                    "  Refusing rather than allowing: an unreadable identity is not this run's."
+        fi
+        RUN_ID=$(sed -n 's/^run_id=\([0-9a-f]\{32\}\)$/\1/p' "$RUNFILE" | head -1)
+        if [ -z "$RUN_ID" ]; then
+            _refuse "step3-record-guard: REFUSED - this worktree's run identity is malformed:" \
+                    "  $RUNFILE carries no run_id. Re-run flow-plan-record.py reconcile $ISSUE."
+        fi
+    fi
+    HAS_MARKERS=0
+    grep -qE '^<!-- flow-run n=[0-9]+ id=[0-9a-f]{32} -->$' "$RECORD" 2>/dev/null && HAS_MARKERS=1
+
+    if [ -z "$RUN_ID" ] && [ "$HAS_MARKERS" -eq 0 ]; then
+        # LEGACY, and no run started here: today's rule, unchanged.
+        if grep -qE '^- Approval: +granted' "$RECORD" 2>/dev/null; then
+            exit "$ALLOW"
+        fi
+    elif [ -z "$RUN_ID" ]; then
+        _refuse "step3-record-guard: REFUSED - the record for issue #$ISSUE holds per-run sections" \
+                "  (#1320) but this worktree has no run identity, so none of them can be shown" \
+                "  to be this run's." \
+                "" \
+                "  WHAT TO DO: run flow-plan-record.py reconcile $ISSUE (Step 1), then Step 3" \
+                "  approval and Step 4 begin-run for THIS run."
+    else
+        # THIS run's section: from its own marker to the next marker or EOF.
+        SECTION=$(awk -v id="$RUN_ID" '
+            /^<!-- flow-run n=[0-9]+ id=[0-9a-f]+ -->$/ { inrun = index($0, "id=" id " ") > 0; }
+            inrun { print }' "$RECORD")
+        if [ -n "$SECTION" ] && printf '%s\n' "$SECTION" | grep -qE '^- Approval: +granted'; then
+            exit "$ALLOW"
+        fi
+        NEWEST=$(grep -oE '^<!-- flow-run n=[0-9]+ id=[0-9a-f]{32} -->$' "$RECORD" | tail -1 \
+                 | sed 's/.* id=\([0-9a-f]*\) -->$/\1/')
+        [ -n "$NEWEST" ] || NEWEST="a legacy (pre-#1320) record"
+        if [ -z "$SECTION" ]; then
+            _refuse "step3-record-guard: REFUSED - THIS run has not been approved." \
+                    "" \
+                    "  this run:            $RUN_ID" \
+                    "  newest approval in the record belongs to: $NEWEST" \
+                    "" \
+                    "  A prior run's approval does not approve this run's plan (issue #1320)." \
+                    "  WHAT TO DO: take this run's plan through /flow:auto Step 3, then Step 4:" \
+                    "  flow-plan-record.py begin-run $ISSUE and write the approved plan below it."
+        fi
     fi
     _refuse \
 "step3-record-guard: REFUSED - the approved-plan record for issue #$ISSUE exists" \

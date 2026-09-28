@@ -110,7 +110,18 @@ def run_reconcile(repo: Path) -> None:
 
 
 def run_documented_write(repo: Path) -> None:
-    run_snippet(repo, extract_write_snippet())
+    """Step 1's reconcile, then Step 4's documented write, in the documented order.
+
+    Since #1320 the write calls `flow-plan-record.py begin-run`, which needs the run
+    identity reconcile mints. The documented stable path is the INSTALLED helper,
+    which is whatever this host last installed - so it is pointed at THIS tree's
+    helper, or the test would measure the installed copy instead of the change.
+    """
+    run_reconcile(repo)
+    snippet = extract_write_snippet().replace("~/.claude/scripts/flow-plan-record.py",
+                                              f"python3 {HELPER}")
+    assert f"python3 {HELPER}" in snippet, "the documented write no longer calls the helper"
+    run_snippet(repo, snippet)
 
 
 def staged_paths(repo: Path) -> list[str]:

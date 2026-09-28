@@ -48,6 +48,14 @@ fi
 
 # {WORK} in input.json is substituted with the fixture root so a case can name an
 # absolute target without knowing where mktemp put it.
+# A run identity (issue #1320): installed where reconcile writes it - the fixture's
+# PER-WORKTREE git dir - so the guard reads it exactly as it would in a real run.
+if [ -f "$case_dir/run-state" ]; then
+    if ! gitdir=$(cd "$work" && git rev-parse --absolute-git-dir) \
+       || ! cp "$case_dir/run-state" "$gitdir/flow-plan-run-4242"; then
+        echo "STEP3_GUARD_CONTROL: unavailable - could not install the case run identity"; exit 2
+    fi
+fi
 sed "s|{WORK}|$work|g" "$case_dir/input.json" > "$work/.input.json" || {
     echo "STEP3_GUARD_CONTROL: unavailable - could not prepare the hook input"; exit 2; }
 

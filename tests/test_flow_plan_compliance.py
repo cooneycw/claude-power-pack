@@ -724,3 +724,121 @@ def test_every_unknown_branch_has_a_case_that_PINS_IT() -> None:
         "these unknown branches have no case pinning a phrase distinctive to them:\n  "
         + "\n  ".join(unpinned)
     )
+
+
+# ------------------------------------------------------------------ issue #1320: one run, one plan
+
+def helper(repo: Path, session: str, *args: str) -> subprocess.CompletedProcess:
+    """Run a subcommand as the given Claude session (empty string = unset)."""
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CODE_SESSION_ID"}
+    if session:
+        env["CLAUDE_CODE_SESSION_ID"] = session
+    return subprocess.run(["python3", str(HELPER), *args], cwd=repo, capture_output=True,
+                          text=True, env=env)
+
+
+def start_run(repo: Path, session: str, *files: str) -> None:
+    """Steps 1 and 4 for one run: reconcile, begin-run, append the plan, approve."""
+    assert helper(repo, session, "reconcile", "42").returncode == 0
+    assert helper(repo, session, "begin-run", "42").returncode == 0
+    body = ["- Approval:          granted", "", "### Section C - the approved plan"]
+    body += [f"{i}. `{f}` - because" for i, f in enumerate(files, 1)]
+    body.append(f"Scope: {len(files)} files")
+    with (repo / "docs" / "flow-runs" / "issue-42.md").open("a") as fh:
+        fh.write("\n".join(body) + "\n")
+    assert helper(repo, session, "approve", "42").returncode in (0, 4)  # 4: body not read
+
+
+def compliance_as(repo: Path, session: str, base: str) -> str:
+    proc = helper(repo, session, "compliance", "42", "--base", base)
+    assert proc.returncode in (0, 3, 4), proc.stderr
+    return proc.stdout
+
+
+@requires_git
+def test_a_second_run_is_compared_only_against_its_own_plan(tmp_path: Path) -> None:
+    """w1's measurement on #1320: two plans in one record were MERGED into one planned
+    set, so run 2 saw run 1's files as planned-but-untouched. RED before #1320."""
+    repo, base = make_repo(tmp_path)
+    start_run(repo, "session-A", "src/a.py")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run 1's approved record")
+    start_run(repo, "session-B", "src/b.py")
+    (repo / "src").mkdir()
+    (repo / "src" / "b.py").write_text("b\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run 2's work")
+    out = compliance_as(repo, "session-B", base)
+    assert "src/a.py" not in out, f"run 1's plan leaked into run 2's comparison:\n{out}"
+    assert "PLAN_COMPLIANCE: agreement" in out, out
+    assert "PLAN_RECORD_STABILITY: unchanged" in out, out
+
+
+@requires_git
+def test_a_later_run_appending_does_not_trip_an_earlier_runs_stability(tmp_path: Path) -> None:
+    """The other half of w1's finding: the baseline is this run's SECTION, not the file."""
+    repo, base = make_repo(tmp_path)
+    start_run(repo, "session-A", "src/a.py")
+    other = "0" * 32
+    with (repo / "docs" / "flow-runs" / "issue-42.md").open("a") as fh:
+        fh.write(f"\n<!-- flow-run n=2 id={other} -->\n## Run 2\n\n- Run-id:            {other}\n"
+                 "- Approval:          granted\n\n### Section C - the approved plan\n"
+                 "1. `src/other.py` - another run\n")
+    (repo / "src").mkdir()
+    (repo / "src" / "a.py").write_text("a\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run 1's work; run 2 appended meanwhile")
+    out = compliance_as(repo, "session-A", base)
+    assert "PLAN_RECORD_STABILITY: unchanged" in out, out
+    assert "src/other.py" not in out, out
+
+
+@requires_git
+def test_a_run_with_no_section_of_its_own_is_unknown_never_the_prior_plan(tmp_path: Path) -> None:
+    repo, base = make_repo(tmp_path)
+    start_run(repo, "session-A", "src/a.py")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run 1")
+    assert helper(repo, "session-B", "reconcile", "42").returncode == 0  # a new run begins
+    out = compliance_as(repo, "session-B", base)
+    assert "PLAN_COMPLIANCE: unknown (no plan section for this run:" in out, out
+    assert "has no section of its own" in out
+
+
+@requires_git
+def test_a_baseline_stamped_by_another_run_is_unknown(tmp_path: Path) -> None:
+    repo, base = make_repo(tmp_path)
+    start_run(repo, "session-A", "src/a.py")        # stamps run A's baseline
+    assert helper(repo, "session-B", "reconcile", "42").returncode == 0
+    assert helper(repo, "session-B", "begin-run", "42").returncode == 0
+    with (repo / "docs" / "flow-runs" / "issue-42.md").open("a") as fh:
+        fh.write("- Approval:          granted\n\n### Section C - the approved plan\n"
+                 "1. `src/a.py` - run B, not yet approved\n")
+    out = compliance_as(repo, "session-B", base)
+    assert "PLAN_RECORD_STABILITY: unknown (the stability digest belongs to a different run" in out, out
+
+
+@requires_git
+def test_a_rewritten_run_start_is_pinned_as_unknown(tmp_path: Path) -> None:
+    """Pins the pass-3 branch for the sweep above: a run whose recorded start is no
+    longer an ancestor (history rewritten) is unknown, never a silently wider scope."""
+    repo, _base = make_repo(tmp_path)
+    assert helper(repo, "session-R", "reconcile", "42").returncode == 0
+    (repo / "x.txt").write_text("1\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "the run starts here")
+    assert helper(repo, "session-R", "begin-run", "42").returncode == 0
+    record = repo / "docs" / "flow-runs" / "issue-42.md"
+    with record.open("a") as fh:
+        fh.write("- Approval:          granted\n\n### Section C - the approved plan\n"
+                 "1. `x.txt` - because\n")
+    kept = record.read_text()
+    git(repo, "reset", "-q", "--hard", "HEAD~1")
+    (repo / "x.txt").write_text("2\n")
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(kept)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "rewritten")
+    out = helper(repo, "session-R", "compliance", "42").stdout
+    assert "PLAN_COMPLIANCE: unknown (this run's recorded start" in out, out
+    assert "is no longer an ancestor of HEAD" in out
