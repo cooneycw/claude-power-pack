@@ -56,7 +56,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import shutil
 import subprocess
 import sys
@@ -120,12 +119,29 @@ DEFAULT_GRACE = timedelta(minutes=10)
 #: the scan REFUSES rather than falling back to suffix matching, which would
 #: reopen the hole on exactly the path reached when something is already wrong.
 
-#: The model field, read the SAME way `counter-model-receipt.py`'s
-#: `_derive_reviewer_from_exec_log` reads it from a rollout - first match wins.
-#: Kept as its own pattern rather than imported because that function's input is
-#: an exec log and its contract is a thread_id lookup; if either side changes how
-#: a rollout names its model, BOTH must change, and this comment is the link.
-MODEL_RE = re.compile(r'"model"\s*:\s*"([^"]*)"')
+#: The model field, read by the SAME function `counter-model-receipt.py`'s
+#: `_derive_reviewer_from_exec_log` uses (issue #1269). It used to be a copy of
+#: that function's first-match regex, kept apart because the writer's input is an
+#: exec log; the comment here said both must change together. #1269 changed the
+#: writer to a structural read of `turn_context.payload.model` - the first
+#: `"model"` in a real rollout is the session header's instruction provenance,
+#: not the model that ran - and the reader now takes rollout TEXT, so one
+#: implementation serves both and the lockstep is structural rather than a
+#: comment someone has to notice.
+def _load_receipt_module():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "counter_model_receipt", ROOT / "scripts" / "counter-model-receipt.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault(spec.name, module)
+    spec.loader.exec_module(module)
+    return module
+
+
+RECEIPT = _load_receipt_module()
 
 
 def _rollout_meta(path: Path) -> tuple[str, str] | None:
@@ -156,10 +172,11 @@ def _rollout_model(path: Path) -> str | None:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return None
-    match = MODEL_RE.search(text)
-    if match is None or not match.group(1).strip():
-        return None
-    return match.group(1).strip()
+    # A rollout whose turns disagree, or that has no turn_context at all, reads
+    # as declaring no model: the scan already treats an unreadable candidate as
+    # unresolved rather than absent, which is the right outcome for both.
+    model, _reason = RECEIPT.rollout_turn_model(text)
+    return model
 
 
 def _parse_time(value: object) -> datetime | None:
