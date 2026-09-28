@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1014-registry-other-host-unknown",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "7f19d9c5dd510dc3d178d5bfb8c333719860c9e6",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1014",
+  "passes": 2,
+  "recorded_at": "2026-09-28T16:22:09Z",
+  "red_cases": {
+    "already_covered": 7,
+    "proposed": 11
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/09/28/rollout-2026-09-28T16-20-38-01a0e8d1-7c70-7170-aebe-94f3de6f744b.jsonl",
+    "thread_id": "01a0e8d1-7c70-7170-aebe-94f3de6f744b"
+  },
+  "schema": 1,
+  "status": "ran"
+}

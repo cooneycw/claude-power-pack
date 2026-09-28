@@ -102,7 +102,9 @@
 #             one on a retry - but a failed derivation never downgrades an
 #             already-recorded address to "unknown" (#672). A role held by a
 #             LIVE other session is refused (exit 1) unless --force. A dead
-#             owner's entry is stale and taken over automatically.
+#             owner's entry is stale and taken over automatically; an owner
+#             on ANOTHER host is unknown (basis other-host, #1014) and, like
+#             any unknown owner, needs --force.
 #             The observation flags (`verified`, `address_filled`,
 #             `address_mismatch`) SURVIVE a re-register by the same owner at a
 #             byte-identical address (#691/#692) - they record one transport
@@ -437,6 +439,7 @@ SELF_HOST="${FLOW_WAVE_HOST:-${HOSTNAME:-$(hostname 2>/dev/null || echo unknown)
 NOW="${FLOW_WAVE_NOW:-$(date +%s)}"
 
 #: NEGATIVE-CONTROL: controls/flow-wave-registry
+#: NEGATIVE-CONTROL: controls/flow-wave-registry-takeover
 usage_fail() { echo "flow-wave-registry: $1" >&2; emit error; exit 2; }
 #: A refusal must announce itself in the DOCUMENTED words (#1190). This is one
 #: function behind ~45 call sites, so the population is fixed here rather than
@@ -936,7 +939,36 @@ registry_unreadable() {
 }
 
 entry_json() { # entry_json WAVE ROLE -> the entry object or 'null'
-  read_registry | jq -c --arg w "$1" --arg r "$2" '.[$w].roles[$r] // null'
+  # SLURPED, so a parse error anywhere in the file yields NO output (#1014
+  # Part 2, counter-model review). Streamed, `{} garbage` printed `null` for the
+  # first document before jq failed on the second, and that partial read passed
+  # for "role not registered". Exactly one object document, and an entry that is
+  # an object or absent; anything else prints nothing, which the callers'
+  # `entry_read_or_die` turns into `error`.
+  read_registry | jq -cs --arg w "$1" --arg r "$2" '
+    if length == 1 and (.[0] | type) == "object" then
+      # No `// null`: it would turn an entry of `false` into absence (review).
+      .[0][$w].roles[$r] as $e
+      | if $e == null or ($e | type) == "object" then $e else empty end
+    else empty end' 2>/dev/null
+}
+
+# entry_read_or_die ENTRY -> returns when ENTRY is a real read ('null' or an
+# object); otherwise reports the registry as unparseable and exits 3.
+#
+# A registry.json that EXISTS and is READABLE but is not JSON passes the
+# up-front `registry_unreadable` guard, and `entry_json` then prints NOTHING -
+# jq fails. An empty entry used to fall through to the liveness rules, where its
+# blank host "was not this host" and read `stale other-host`; since #1014 Part 2
+# that is `unknown other-host`, which would REFUSE the role as held by a session
+# on a host named "" - a remote holder fabricated out of a corrupt file. Neither
+# is what happened. What happened is that we could not read the entry, and the
+# verdict for that is `error` (exit 3), the same one the unreadable guard gives.
+entry_read_or_die() {
+  [ -n "$1" ] && return 0
+  echo "flow-wave-registry: the registry at $REG_FILE could not be parsed - its contents are UNKNOWN, not empty and not held by anyone. Nothing was recorded; repair or remove it and re-run." >&2
+  emit error
+  exit 3
 }
 
 # _liveness_compute ENTRY_JSON -> "STATE BASIS"
@@ -974,14 +1006,17 @@ _liveness_compute() {
   host="$(printf '%s' "$e" | jq -r '.host // "-"')"
   sock="$(printf '%s' "$e" | jq -r '.socket // "unknown"')"
 
-  # Unchanged, and deliberately so: the registry is host-local by construction,
-  # so an entry from another host has always read `stale` and every reader is
-  # built on that. It is arguably the same shape of defect as the one above - we
-  # cannot determine a remote pid's liveness either - but promoting it to
-  # `unknown` would change takeover semantics for every cross-host entry, which
-  # is a separate decision and out of scope here. The BASIS says which rule
-  # fired, so the two never look alike to a reader.
-  if [ "$host" != "$SELF_HOST" ]; then echo "stale other-host"; return; fi
+  # ANOTHER HOST'S PID CANNOT BE OBSERVED FROM HERE (#1014 Part 2, ruling RA).
+  # This used to read `stale other-host`, and `stale` is the one state
+  # `register`/`release` treat as a PROVEN death - so any session on this host
+  # silently took over a role a session on another host might still be driving,
+  # without --force. That is the #869 defect (weaker evidence read as a death)
+  # reached by a different road: we did not look, because we cannot. It is
+  # `unknown`, which holds the role until the operator says --force, and the
+  # BASIS keeps it distinguishable from an undeterminable LOCAL pid. The local
+  # pid table is deliberately never consulted: a local pid with the same number
+  # says nothing about the remote process.
+  if [ "$host" != "$SELF_HOST" ]; then echo "unknown other-host"; return; fi
 
   st="$(pid_state "$pid")"
   case "$st" in
@@ -2340,6 +2375,7 @@ case "$VERB" in
     # preserved address (below) does not masquerade as a fresh derivation.
     SELF_SOCK="$SOCK"
     CUR="$(entry_json "$WAVE" "$ROLE")"
+    entry_read_or_die "$CUR"
     if [ "$CUR" != "null" ]; then
       CUR_PID="$(printf '%s' "$CUR" | jq -r '.pid // "-"')"
       CUR_SESSION="$(printf '%s' "$CUR" | jq -r '.session // "-"')"
@@ -2347,7 +2383,11 @@ case "$VERB" in
       CUR_BASIS="$(liveness_basis_of "$CUR")"
       SAME_OWNER=0
       [ "$CUR_SESSION" != "-" ] && [ "$CUR_SESSION" = "$SELF_SESSION" ] && SAME_OWNER=1
-      [ "$CUR_PID" = "$SELF_PID" ] && SAME_OWNER=1
+      # A pid is a per-host number (#1014 Part 2, counter-model review): the same
+      # pid on another host is a DIFFERENT process, and matching it alone would
+      # let a caller that happens to share a remote holder's pid skip the
+      # other-host refusal. The session id is global, so it needs no host.
+      [ "$CUR_PID" = "$SELF_PID" ] && [ "$(printf '%s' "$CUR" | jq -r '.host // "-"')" = "$SELF_HOST" ] && SAME_OWNER=1
       # An ALLOW-LIST of states that release the role, never a deny-list of
       # states that hold it (#869). `!= stale` would read a brand-new state as
       # takeable, which is this issue's own defect - weaker evidence beating
@@ -2361,6 +2401,9 @@ case "$VERB" in
       if [ "$SAME_OWNER" -eq 0 ] && [ "$HELD" -eq 1 ] && [ "$FORCE" -eq 0 ]; then
         if [ "$CUR_LIVE" = "live" ]; then
           echo "flow-wave-registry: role '$ROLE' (wave '$WAVE') is held by a LIVE session (pid $CUR_PID, session $CUR_SESSION)." >&2
+        elif [ "$CUR_BASIS" = "other-host" ]; then
+          echo "flow-wave-registry: role '$ROLE' (wave '$WAVE') is held by a session on ANOTHER HOST ($(printf '%s' "$CUR" | jq -r '.host // "-"'), pid $CUR_PID, session $CUR_SESSION)." >&2
+          echo "  This host cannot observe a remote process, so the owner is not known to be gone - which is not the same as knowing it is alive (#1014)." >&2
         else
           echo "flow-wave-registry: role '$ROLE' (wave '$WAVE') is held by a session whose liveness is UNDETERMINABLE (pid $CUR_PID, session $CUR_SESSION, basis $CUR_BASIS)." >&2
           echo "  This host cannot enumerate its process table, so the owner is not known to be gone - which is not the same as knowing it is alive." >&2
@@ -2876,6 +2919,7 @@ case "$VERB" in
     implicit_default &&
       echo "flow-wave-registry: no --wave given - reading wave 'default'; a role registered under a named wave will not be found here." >&2
     CUR="$(entry_json "$WAVE" "$ROLE")"
+    entry_read_or_die "$CUR"
     if [ "$CUR" = "null" ]; then emit free; exit 0; fi
     E_SOCKET="$(printf '%s' "$CUR" | jq -r '.socket // "unknown"')"
     E_PID="$(printf '%s' "$CUR" | jq -r '.pid // "-"')"
@@ -2963,6 +3007,7 @@ case "$VERB" in
     implicit_default &&
       echo "flow-wave-registry: no --wave given - verifying in wave 'default'; a role registered under a named wave will not be found here." >&2
     CUR="$(entry_json "$WAVE" "$ROLE")"
+    entry_read_or_die "$CUR"
     [ "$CUR" != "null" ] || { echo "flow-wave-registry: no entry for role '$ROLE' in wave '$WAVE'." >&2; emit unknown; exit 0; }
     RECORDED="$(printf '%s' "$CUR" | jq -r '.socket // "unknown"')"
     if [ "$RECORDED" = "$A_FROM" ]; then
@@ -3017,12 +3062,14 @@ case "$VERB" in
   release)
     [ -n "$ROLE" ] || usage_fail "release requires a role"
     CUR="$(entry_json "$WAVE" "$ROLE")"
+    entry_read_or_die "$CUR"
     [ "$CUR" != "null" ] || { emit free; exit 0; }
     CUR_PID="$(printf '%s' "$CUR" | jq -r '.pid // "-"')"
     CUR_SESSION="$(printf '%s' "$CUR" | jq -r '.session // "-"')"
     SAME_OWNER=0
     [ "$CUR_SESSION" != "-" ] && [ "$CUR_SESSION" = "$SELF_SESSION" ] && SAME_OWNER=1
-    [ "$CUR_PID" = "$SELF_PID" ] && SAME_OWNER=1
+    # Host-scoped for the reason given in `register` (#1014 Part 2).
+    [ "$CUR_PID" = "$SELF_PID" ] && [ "$(printf '%s' "$CUR" | jq -r '.host // "-"')" = "$SELF_HOST" ] && SAME_OWNER=1
     CUR_LIVE="$(liveness_of "$CUR")"
     CUR_BASIS="$(liveness_basis_of "$CUR")"
     # Allow-list, for the same reason as `register` above (#869).
@@ -3033,6 +3080,8 @@ case "$VERB" in
     if [ "$SAME_OWNER" -eq 0 ] && [ "$HELD" -eq 1 ] && [ "$FORCE" -eq 0 ]; then
       if [ "$CUR_LIVE" = "live" ]; then
         echo "flow-wave-registry: role '$ROLE' belongs to a LIVE session (pid $CUR_PID) - not releasing. Pass --force to override." >&2
+      elif [ "$CUR_BASIS" = "other-host" ]; then
+        echo "flow-wave-registry: role '$ROLE' belongs to a session on ANOTHER HOST ($(printf '%s' "$CUR" | jq -r '.host // "-"'), pid $CUR_PID) that this host cannot observe - not releasing. Pass --force to override (#1014)." >&2
       else
         echo "flow-wave-registry: role '$ROLE' belongs to a session whose liveness is UNDETERMINABLE (pid $CUR_PID, basis $CUR_BASIS) - not releasing. Pass --force to override." >&2
       fi

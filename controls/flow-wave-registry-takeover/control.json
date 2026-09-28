@@ -1,0 +1,40 @@
+{
+ "gate": "scripts/flow-wave-registry.sh",
+ "invocation": [
+  "sh",
+  "controls/flow-wave-registry-takeover/run-case.sh",
+  "{case}",
+  "{gate}"
+ ],
+ "good_exit": 0,
+ "detect_signal": "^FLOW_WAVE_TAKEOVER_CONTROL: finding\\b",
+ "unavailable_signal": "^FLOW_WAVE_TAKEOVER_CONTROL: unavailable - ",
+ "limits": "THE INSTRUMENT IS THE TAKEOVER GUARD IN `register`, NOT LIVENESS AS A WHOLE. The finding is the gate's own `FLOW_WAVE: refused` at exit 1; a crash or any other verdict is `unavailable`, never a detection (#946). The cases are registry.json files recorded by the real helper plus, for the forced case, an `args` file carrying `--force`; nothing in a case names the verdict it expects. THE HOST AND PROCESS TABLE ARE PINNED: this host is `testhost`, and pid 9999 - the pid the two REMOTE fixtures record - is ALIVE here, so a gate that consulted the local process table for a remote entry would read it `live` and refuse for the wrong reason; the runner scores only the verdict, and tests/test_flow_wave_registry.py (TestAnotherHostsOwnerIsUnknownNotStale) pins the `other-host` basis and the refusal text naming the holding host. `release` is covered by those tests, not by this control. WHAT THIS DOES NOT ESTABLISH: that the holder on another host is actually alive - nobody on this host can know that, which is the point; the control only proves the guard no longer treats not knowing as a death.",
+ "cases": [
+  {
+   "name": "bad-remote-owner-without-force",
+   "input": "cases/bad-remote-owner-without-force",
+   "expect": "BAD"
+  },
+  {
+   "name": "good-remote-owner-forced",
+   "input": "cases/good-remote-owner-forced",
+   "expect": "GOOD"
+  },
+  {
+   "name": "good-same-host-dead-owner",
+   "input": "cases/good-same-host-dead-owner",
+   "expect": "GOOD"
+  }
+ ],
+ "anchors": [
+  {
+   "kind": "historical",
+   "sha": "e1dc763",
+   "origin": "scripts/flow-wave-registry.sh",
+   "path": "anchors/historical-pre-1014-flow-wave-registry.sh",
+   "sha256": "30ac16d715341c4c7fec781d33915cb52654fcc11c73b4397f6c5c9f7b5a4ff5",
+   "why": "The gate as it stood before #1014 Part 2, vendored from e1dc763 - a real ancestor, so nothing had to be constructed. It read an entry from another host as `stale other-host`, and `stale` frees a role, so MEASURED against all three cases it answers `registered` (exit 0) on each: it takes the remote holder's role without --force exactly as it takes it with --force and exactly as it takes a proven-dead same-host holder's. It answers identically on inputs that differ, which is what a blind guard looks like."
+  }
+ ]
+}
