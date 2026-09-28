@@ -14,6 +14,7 @@ from .models import (
     FRAMEWORK_TARGETS,
     RESOLUTION_PARTIAL,
     RESOLUTION_RESOLVED,
+    RESOLUTION_UNKNOWN,
     RESOLUTION_UNRESOLVED,
     CloudProvider,
     Component,
@@ -138,34 +139,45 @@ def _components_at(directory: Path, rel: str) -> list[Component]:
     return list(found.values())
 
 
-def _enumerate_components(root: Path) -> list[Component]:
+def _enumerate_components(root: Path) -> tuple[list[Component], str]:
     """The root's stacks, then each immediate non-excluded subdirectory's.
 
     ALWAYS both levels (issue #1289). Before, subdirectories were read only
     when the root had no marker, so a root ``package.json`` made a nested
     ``backend/pyproject.toml`` vanish from the result entirely. One level only:
     this is a report of what is there, not a monorepo scheduler.
+
+    Returns the components and, when the subdirectories could NOT be listed,
+    why - so the caller reports coverage as unknown rather than complete. A
+    swallowed listing error used to leave only the root components, which then
+    resolved as "nothing else is here" (counter-model review, #1289).
     """
     components = _components_at(root, ".")
     try:
         children = sorted(root.iterdir())
-    except OSError:
-        return components
+    except OSError as exc:
+        return components, f"subdirectories could not be listed ({type(exc).__name__})"
     for child in children:
         if _is_component_dir(child):
             components.extend(_components_at(child, child.name))
-    return components
+    return components, ""
 
 
 def _resolve_runners(
-    info_framework: Framework, runners: dict[str, str], components: list[Component]
-) -> tuple[str, str, list[str]]:
+    info_framework: Framework,
+    runners: dict[str, str],
+    components: list[Component],
+    enumeration_gap: str = "",
+) -> tuple[str, str, list[Component]]:
     """How far the root-level ``runner_commands`` reach (REPORTING ONLY, #1289).
 
-    Every runner default is a command run AT THE ROOT, so it covers only
-    root-level components. Anything nested is uncovered and named - a run of the
-    root stack must not read as a run of the repository.
+    Every runner default is a command run AT THE ROOT for ONE framework, so it
+    covers exactly the root-level components of that framework. Anything nested,
+    and any root component of another framework, is uncovered and named - a run
+    of one stack must not read as a run of the repository.
     """
+    if enumeration_gap:
+        return RESOLUTION_UNKNOWN, enumeration_gap, []
     if not components:
         return RESOLUTION_UNRESOLVED, "no supported component was found", []
     if not runners:
@@ -173,13 +185,16 @@ def _resolve_runners(
             reason = "mixed execution cannot be inferred: no single runner covers these components"
         else:
             reason = f"no runner defaults for {info_framework.value}"
-        return RESOLUTION_UNRESOLVED, reason, sorted({c.path for c in components})
-    nested = sorted({c.path for c in components if c.path != "."})
-    if nested:
+        return RESOLUTION_UNRESOLVED, reason, list(components)
+    uncovered = [
+        c for c in components if not (c.path == "." and c.framework == info_framework)
+    ]
+    if uncovered:
         return (
             RESOLUTION_PARTIAL,
-            "runner defaults run at the repository root; nested components are not run by them",
-            nested,
+            "runner defaults run at the repository root for one framework; "
+            "the components listed are not run by them",
+            uncovered,
         )
     return RESOLUTION_RESOLVED, "", []
 
@@ -249,8 +264,8 @@ def detect_framework(project_root: str | Path) -> FrameworkInfo:
         frameworks_found.append((Framework.POWERSHELL, PackageManager.PSRESOURCEGET))
 
     if not frameworks_found:
-        components = _enumerate_components(root)
-        state, reason, uncovered = _resolve_runners(Framework.UNKNOWN, {}, components)
+        components, gap = _enumerate_components(root)
+        state, reason, uncovered = _resolve_runners(Framework.UNKNOWN, {}, components, gap)
         return FrameworkInfo(
             framework=Framework.UNKNOWN,
             package_manager=PackageManager.UNKNOWN,
@@ -294,8 +309,8 @@ def detect_framework(project_root: str | Path) -> FrameworkInfo:
     recommended = FRAMEWORK_TARGETS.get(primary, FRAMEWORK_TARGETS[Framework.UNKNOWN])
     runners = FRAMEWORK_RUNNERS.get((primary, detected_pm), {})
 
-    components = _enumerate_components(root)
-    state, reason, uncovered = _resolve_runners(primary, runners, components)
+    components, gap = _enumerate_components(root)
+    state, reason, uncovered = _resolve_runners(primary, runners, components, gap)
     return FrameworkInfo(
         framework=primary,
         package_manager=detected_pm,

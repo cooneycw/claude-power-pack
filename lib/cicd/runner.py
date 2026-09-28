@@ -565,10 +565,13 @@ class DeterministicRunner:
         cause = "no Makefile target and no configured tool at the repository root"
         try:
             from .detector import detect_framework
+            from .models import RESOLUTION_UNKNOWN
 
             info = detect_framework(self.project_root)
         except Exception as exc:  # noqa: BLE001 - reporting must not end the run
             return f"{cause}; component coverage UNKNOWN (detection failed: {type(exc).__name__})"
+        if info.runner_resolution == RESOLUTION_UNKNOWN:
+            return f"{cause}; component coverage UNKNOWN ({info.resolution_reason})"
         if info.uncovered_components:
             return (
                 f"{cause}; {info.uncovered_summary()} not covered by root runners "

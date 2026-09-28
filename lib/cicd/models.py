@@ -289,6 +289,9 @@ class Component:
 RESOLUTION_RESOLVED = "resolved"      # runner_commands cover every component
 RESOLUTION_PARTIAL = "partial"        # they cover the root; nested stacks are not run
 RESOLUTION_UNRESOLVED = "unresolved"  # there are no runner defaults at all
+# The components could not all be LISTED, so no coverage claim is possible:
+# "nothing else was found" and "could not look" must not print the same word.
+RESOLUTION_UNKNOWN = "unknown"
 
 
 @dataclass
@@ -307,17 +310,19 @@ class FrameworkInfo:
     components: list[Component] = field(default_factory=list)
     runner_resolution: str = RESOLUTION_UNRESOLVED
     resolution_reason: str = ""
-    uncovered_components: list[str] = field(default_factory=list)
+    # The COMPONENTS no runner default covers - components, not paths, because
+    # one directory can hold two stacks and only one of them may be covered.
+    uncovered_components: list[Component] = field(default_factory=list)
 
     def uncovered_summary(self) -> str:
-        """``backend/ (python), docs/ (node)`` - the components no runner covers."""
-        by_path = {c.path: c for c in self.components}
-        parts = []
-        for path in self.uncovered_components:
-            comp = by_path.get(path)
-            label = f"{path}/" if path != "." else "./"
-            parts.append(f"{label} ({comp.framework.value})" if comp else label)
-        return ", ".join(parts)
+        """``backend/ (python, node), docs/ (node)``: every uncovered stack, by path."""
+        grouped: dict[str, list[str]] = {}
+        for comp in self.uncovered_components:
+            grouped.setdefault(comp.path, []).append(comp.framework.value)
+        return ", ".join(
+            f"{'./' if path == '.' else path + '/'} ({', '.join(fws)})"
+            for path, fws in grouped.items()
+        )
 
     def to_dict(self) -> dict:
         """Convert to JSON-serializable dict."""
@@ -332,7 +337,10 @@ class FrameworkInfo:
             "runner_resolution": {
                 "state": self.runner_resolution,
                 "reason": self.resolution_reason,
-                "uncovered": self.uncovered_components,
+                "uncovered": [
+                    {"path": c.path, "framework": c.framework.value}
+                    for c in self.uncovered_components
+                ],
             },
         }
 

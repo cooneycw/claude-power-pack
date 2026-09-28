@@ -30,11 +30,14 @@ import pytest
 
 from lib.cicd.detector import detect_framework
 from lib.cicd.manifest import generate_manifest, get_manifest_plan_steps
+from lib.cicd.detector import _NON_COMPONENT_DIRS, _resolve_runners
 from lib.cicd.models import (
     FRAMEWORK_RUNNERS,
     RESOLUTION_PARTIAL,
     RESOLUTION_RESOLVED,
+    RESOLUTION_UNKNOWN,
     RESOLUTION_UNRESOLVED,
+    Component,
     Framework,
     PackageManager,
 )
@@ -55,13 +58,14 @@ LAYOUTS: dict[str, list[str]] = {
     "python-with-build-dirs": [
         "pyproject.toml",
         "uv.lock",
-        "node_modules/x/package.json",
-        ".venv/lib/pyproject.toml",
-        "venv/lib/pyproject.toml",
-        "dist/pkg/setup.py",
-        "build/lib/setup.py",
-        "vendor/lib/go.mod",
+        "node_modules/package.json",
+        ".venv/pyproject.toml",
+        "venv/pyproject.toml",
+        "dist/setup.py",
+        "build/setup.py",
+        "vendor/go.mod",
         "__pycache__/pyproject.toml",
+        "site-packages/setup.py",
         "pkg.egg-info/setup.py",
     ],
     "root-node-nested-python": [
@@ -126,6 +130,10 @@ def _build(tmp_path: Path, name: str) -> Path:
     return root
 
 
+def _uncovered(info) -> list[tuple[str, str]]:
+    return [(c.path, c.framework.value) for c in info.uncovered_components]
+
+
 def _components(info) -> dict[str, tuple[str, str, list[str]]]:
     return {
         c.path: (c.framework.value, c.package_manager.value, c.evidence) for c in info.components
@@ -172,7 +180,7 @@ def test_a_root_manifest_no_longer_hides_a_nested_stack(tmp_path: Path) -> None:
     assert info.framework == Framework.NODE
     # ...and the run it implies is stated as covering the root only.
     assert info.runner_resolution == RESOLUTION_PARTIAL
-    assert info.uncovered_components == ["backend"]
+    assert _uncovered(info) == [("backend", "python")]
     assert info.uncovered_summary() == "backend/ (python)"
 
 
@@ -187,7 +195,7 @@ def test_sibling_stacks_are_enumerated_and_stated_unresolved(tmp_path: Path) -> 
     }
     assert info.runner_resolution == RESOLUTION_UNRESOLVED
     assert "mixed execution cannot be inferred" in info.resolution_reason
-    assert info.uncovered_components == ["backend", "frontend"]
+    assert _uncovered(info) == [("backend", "python"), ("frontend", "node")]
 
 
 def test_lockless_django_gets_the_pip_fallback_and_django_runners(tmp_path: Path) -> None:
@@ -200,18 +208,89 @@ def test_lockless_django_gets_the_pip_fallback_and_django_runners(tmp_path: Path
     assert _components(info) == {".": ("django", "pip", ["pyproject.toml", "manage.py"])}
 
 
-def test_dependency_build_and_cache_trees_are_not_components(tmp_path: Path) -> None:
-    """Condition 2 of the #1289 review: the exclusion list, exercised.
+#: The exclusions the review asked for, written out HERE rather than read from
+#: `_NON_COMPONENT_DIRS`: parametrizing over the set under test would delete a
+#: case together with the exclusion it checks (measured - removing "vendor"
+#: removed its case too).
+EXPECTED_EXCLUSIONS = [
+    "node_modules", "venv", "vendor", "dist", "build", "__pycache__",
+    "site-packages", ".venv", ".tox", "pkg.egg-info",
+]
 
-    Each excluded directory holds a real marker, so a missing exclusion would
-    surface as an extra component rather than pass silently.
+
+def test_the_exclusion_list_is_the_one_reviewed() -> None:
+    assert _NON_COMPONENT_DIRS == frozenset(
+        {"node_modules", "venv", "vendor", "dist", "build", "__pycache__", "site-packages"}
+    )
+
+
+@pytest.mark.parametrize("excluded", EXPECTED_EXCLUSIONS)
+def test_an_excluded_directory_is_not_a_component(tmp_path: Path, excluded: str) -> None:
+    """Condition 2 of the #1289 review: the exclusion list, exercised one by one.
+
+    The marker sits DIRECTLY inside the excluded directory - the only depth
+    enumeration reads - and the same layout with an ordinary directory name is
+    the control that shows the exclusion is what changes the result. (The first
+    cut nested these markers two levels down, where they were never reached, so
+    deleting an exclusion could not fail it: counter-model review.)
     """
-    root = _build(tmp_path, "python-with-build-dirs")
-    for excluded in ("node_modules", ".venv", "venv", "dist", "build", "vendor",
-                     "__pycache__", "pkg.egg-info"):
-        assert any((root / excluded).rglob("*")), f"precondition: {excluded}/ holds a marker"
+    def layout(dirname: str) -> Path:
+        root = tmp_path / dirname.replace(".", "_dot_")
+        (root / dirname).mkdir(parents=True)
+        (root / "pyproject.toml").write_text("")
+        (root / "uv.lock").write_text("")
+        (root / dirname / "package.json").write_text("{}\n")
+        assert (root / dirname / "package.json").is_file(), "fixture precondition"
+        return root
+
+    assert list(_components(detect_framework(layout(excluded)))) == ["."]
+    control = detect_framework(layout("frontend"))
+    assert list(_components(control)) == [".", "frontend"], "control must see the stack"
+
+
+def test_two_stacks_in_one_uncovered_directory_are_both_named(tmp_path: Path) -> None:
+    """One directory can hold two stacks; the summary must name both (review)."""
+    root = _build(tmp_path, "root-node-nested-python")
+    (root / "backend" / "package.json").write_text("{}\n")
     info = detect_framework(root)
-    assert list(_components(info)) == ["."]
+    assert _uncovered(info) == [("backend", "python"), ("backend", "node")]
+    assert info.uncovered_summary() == "backend/ (python, node)"
+
+
+def test_a_root_component_of_another_framework_is_not_covered() -> None:
+    """Runner defaults cover ONE framework at the root, not every root stack (review).
+
+    Unreachable through detect_framework today - two root stacks make the
+    primary MULTI, with no runners - so the rule is pinned at the function.
+    """
+    runners = FRAMEWORK_RUNNERS[(Framework.PYTHON, PackageManager.UV)]
+    components = [
+        Component(".", Framework.PYTHON, PackageManager.UV, ["pyproject.toml"]),
+        Component(".", Framework.NODE, PackageManager.NPM, ["package.json"]),
+    ]
+    state, _reason, uncovered = _resolve_runners(Framework.PYTHON, runners, components)
+    assert state == RESOLUTION_PARTIAL
+    assert [(c.path, c.framework) for c in uncovered] == [(".", Framework.NODE)]
+
+
+def test_an_unlistable_root_reports_coverage_unknown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """"Could not look" must not resolve as "nothing else is here" (review)."""
+    root = _build(tmp_path, "python-uv")
+    real_iterdir = Path.iterdir
+
+    def iterdir(self):
+        if self == root:
+            raise PermissionError("denied")
+        return real_iterdir(self)
+
+    monkeypatch.setattr(Path, "iterdir", iterdir)
+    info = detect_framework(root)
+    assert info.runner_resolution == RESOLUTION_UNKNOWN
+    assert "could not be listed (PermissionError)" in info.resolution_reason
+    # The root itself was readable, so the legacy fields are unaffected.
+    assert info.framework == Framework.PYTHON
 
 
 def _run_check(root: Path) -> str:
