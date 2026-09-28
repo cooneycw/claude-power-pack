@@ -30,8 +30,17 @@
 # than a green one that cannot fail. Anyone adding a Dockerfile to CPP must
 # restore this step with it; nothing here will notice its absence for them.
 
+# TRIGGER (issue #1308). Pull requests always; pushes ONLY to main. The entries
+# are OR'ed. It was `event: [push, pull_request]` with no branch filter, so every
+# push to a PR branch ran the whole pipeline TWICE on one commit - measured as
+# pairs 2800+2801 .. 2806+2807, 25 CPP pipelines in 3h on a Woodpecker shared by
+# two groups. Only `ci/woodpecker/pr/woodpecker` is a required status context, so
+# the branch-push twin gated nothing. The main push stays: it is the post-merge
+# verification. tests/test_ci_trigger.py fails if either half drifts.
 when:
-  - event: [push, pull_request]
+  - event: pull_request
+  - event: push
+    branch: main
 
 steps:
   secret-scan:
@@ -297,9 +306,9 @@ steps:
   # records: a checker that "ran ONLY inside `make verify` and appeared nowhere"
   # here, so main was red while CI was green.
   #
-  # The pipeline declares `when: event: [push, pull_request]` and carries no path
-  # filters at all, so this fires on every change including one to CLAUDE.md or a
-  # skill. That is the whole of link four and it needed no arranging.
+  # The pipeline runs on every pull request and on every push to main (#1308), and
+  # carries no path filters at all, so this fires on every change including one to
+  # CLAUDE.md or a skill. That is the whole of link four and it needed no arranging.
   #
   # ADVISORY here as in `make verify`: nothing produces its input yet, so it
   # reports `absent` and must not fail the pipeline for that. The condition that

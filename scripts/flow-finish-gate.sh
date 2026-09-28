@@ -1072,7 +1072,7 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
             echo "flow-finish-gate: SUBSUMED: $SUBSUMED_GATES ran as direct prerequisite(s) of 'make ${SUBSUMED_BY:-the aggregate}', which passed - not re-run (issue #1152)."
         fi
         if [[ -n "$SKIPPED_GATES" ]]; then
-            echo "WARNING: quality gates did NOT run: $SKIPPED_GATES (no Makefile target and no configured tool). This gate proved nothing about those checks - do not read as 'safe to merge' (issue #628)." >&2
+            echo "WARNING: quality gates did NOT run: $SKIPPED_GATES (no Makefile target and no configured tool at the repository root). This gate proved nothing about those checks - do not read as 'safe to merge' (issue #628)." >&2
             verdict "warn (skipped gates: $SKIPPED_GATES)"
             gate_exit warn
         fi

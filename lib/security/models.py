@@ -53,6 +53,11 @@ class Finding:
     time_estimate: Optional[str] = None
     scanner: str = "native"
     raw_match: Optional[str] = None
+    #: The FULL matched value, used only to evaluate a suppression's `secret:`
+    #: pattern (issue #1299). `raw_match` is masked and cannot be matched
+    #: against. This must never be printed: `repr=False` keeps it out of the
+    #: dataclass repr, and no output formatter reads it.
+    secret_value: Optional[str] = field(default=None, repr=False, compare=False)
 
     @property
     def location(self) -> str:
@@ -76,14 +81,24 @@ class Suppression:
     id: str
     path: Optional[str] = None
     reason: str = ""
+    #: Exact-value pattern (issue #1299), matched with `re.fullmatch` against the
+    #: finding's FULL value. With it, a suppression covers one known test value
+    #: rather than every finding of this id in the path - a real key committed
+    #: beside a planted canary still blocks.
+    secret: Optional[str] = None
 
     def matches(self, finding: Finding) -> bool:
         if finding.id != self.id:
             return False
-        if self.path and finding.file_path:
-            return bool(re.match(self.path, finding.file_path))
         if self.path:
-            return False
+            if not finding.file_path or not re.match(self.path, finding.file_path):
+                return False
+        if self.secret is not None:
+            # FAIL CLOSED: a finding that carries no value cannot be shown to be
+            # the declared one, so it is not suppressed.
+            if finding.secret_value is None:
+                return False
+            return re.fullmatch(self.secret, finding.secret_value) is not None
         return True
 
 
