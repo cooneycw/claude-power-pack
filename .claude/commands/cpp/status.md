@@ -383,7 +383,8 @@ second-opinion and browser-qa, and one state per row. Report each state as writt
   user's say-so
 
 The last line is `CAPABILITY_READINESS: ready|degraded|unknown`; `--json` prints the
-same rows for a machine consumer. The probes call no model and install nothing.
+same rows for a machine consumer. The probes call no model and install nothing: a server
+launched through npx or uvx is reported `unexamined` rather than started.
 
 ## Step 5: Check Tier 4 (CI/CD)
 

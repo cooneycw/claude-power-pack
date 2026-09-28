@@ -62,6 +62,8 @@ PY
             port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()') || return 1
             # Precondition: nothing listens there.
             python3 -c "import socket,sys; s=socket.socket(); sys.exit(0 if s.connect_ex(('127.0.0.1',$port)) else 1)" || return 1
+            # The literal ${SECOND_OPINION_URL:-...} is the shipped .mcp.json form, not a shell expansion.
+            # shellcheck disable=SC2016
             printf '{"mcpServers": {"second-opinion": {"type": "http", "url": "${SECOND_OPINION_URL:-http://127.0.0.1:%s}/mcp"}}}\n' \
                 "$port" > "$project/.mcp.json" ;;
         missing-helper)
@@ -94,8 +96,8 @@ if ! build >/dev/null 2>&1; then
 fi
 
 case "$gate" in
-    *.py) interp=python3 ;;
-    *) interp=sh ;;
+    *.py) interp="python3" ;;
+    *) interp="sh" ;;
 esac
 if [ -n "$checkout_arg" ]; then
     env -u SECOND_OPINION_URL HOME="$home" "$interp" "$gate" --home "$home" \

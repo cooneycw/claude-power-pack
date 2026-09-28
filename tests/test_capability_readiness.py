@@ -412,3 +412,129 @@ def test_the_anchor_block_is_verbatim_from_51dc14d():
     end = next(i for i, ln in enumerate(lines) if "END verbatim" in ln)
     assert lines[begin + 1:end] == original
     assert any("8080}" in ln or "grep -oE 'https?://" in ln for ln in original)
+
+
+# --------------------------------------------------------------------------- #
+# counter-model review findings (pass 1)
+# --------------------------------------------------------------------------- #
+
+class _StrictSseHandler(BaseHTTPRequestHandler):
+    """Answers over SSE and KEEPS THE STREAM OPEN after the answer; refuses any
+    post-initialize request that omits the negotiated MCP-Protocol-Version."""
+
+    protocol_version = "HTTP/1.1"
+
+    def do_POST(self):  # noqa: N802
+        msg = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+        if msg.get("method") != "initialize" and self.headers.get("MCP-Protocol-Version") != "2025-06-18":
+            self.send_response(400)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if msg.get("method") == "initialize":
+            body = {"jsonrpc": "2.0", "id": msg["id"], "result": {"protocolVersion": "2025-06-18"}}
+        elif msg.get("method") == "tools/list":
+            body = {"jsonrpc": "2.0", "id": msg["id"], "result": {"tools": []}}
+        else:
+            self.send_response(202)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Mcp-Session-Id", "s1")
+        self.end_headers()
+        self.wfile.write(f"event: message\ndata: {json.dumps(body)}\n\n".encode())
+        self.wfile.flush()
+        self.server.hold.wait(20)  # the stream stays open after the answer
+
+    def log_message(self, *a):
+        pass
+
+
+class _TrickleHandler(BaseHTTPRequestHandler):
+    """Sends one byte every 0.5s forever: each read beats a socket timeout."""
+
+    def do_POST(self):  # noqa: N802
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        while not self.server.hold.is_set():
+            try:
+                self.wfile.write(b":")
+                self.wfile.flush()
+            except OSError:
+                return
+            self.server.hold.wait(0.5)
+
+    def log_message(self, *a):
+        pass
+
+
+def _serve(handler):
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    srv.daemon_threads = True
+    srv.hold = threading.Event()
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, f"http://127.0.0.1:{srv.server_address[1]}/mcp"
+
+
+def test_open_sse_stream_with_negotiated_version_is_ready(home, project):
+    srv, url = _serve(_StrictSseHandler)
+    try:
+        write_project_mcp(project, {"second-opinion": {"type": "http", "url": url}})
+        row = rows_of(run(home, project, None, "--json"))["second-opinion"]
+    finally:
+        srv.hold.set()
+        srv.shutdown()
+    assert row["state"] == "ready", row
+
+
+def test_a_trickling_server_is_cut_off_by_the_overall_deadline(home, project):
+    import time
+    srv, url = _serve(_TrickleHandler)
+    try:
+        write_project_mcp(project, {"second-opinion": {"type": "http", "url": url}})
+        t0 = time.monotonic()
+        row = rows_of(run(home, project, None, "--json"))["second-opinion"]
+        elapsed = time.monotonic() - t0
+    finally:
+        srv.hold.set()
+        srv.shutdown()
+    assert row["state"] == "unreachable"
+    assert elapsed < 30, elapsed
+
+
+def test_same_endpoint_with_one_failing_scope_is_not_ready(home, project, fake_server):
+    # One endpoint (same command and args) at two scopes; the project scope's env
+    # references an unset variable, so that probe cannot run.
+    spec = stdio(fake_server)
+    write_user_mcp(home, {"second-opinion": spec})
+    write_project_mcp(project, {"second-opinion": {**spec, "env": {"K": "${CPP_TEST_UNSET_VAR_1290}"}}})
+    assert "CPP_TEST_UNSET_VAR_1290" not in os.environ
+    row = rows_of(run(home, project, None, "--json"))["second-opinion"]
+    assert {o["verdict"] for o in row["observations"]} == {"ok", "unexamined"}
+    assert row["state"] != "ready"
+
+
+def test_dangling_install_links_are_a_broken_install_not_disabled(home, project, cpp):
+    cpp.install(home)
+    moved = cpp.base / "moved-away"
+    cpp.checkout.rename(moved)
+    marker = home / ".claude" / "scripts" / "flow-start-resolve.sh"
+    assert marker.is_symlink() and not marker.exists()
+    row = rows_of(run(home, project, moved, "--json"))["flow"]
+    assert row["state"] == "stale-or-unknown", row
+
+
+def test_a_package_launcher_is_not_started(home, project, tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    witness = tmp_path / "npx-was-run"
+    npx = bin_dir / "npx"
+    npx.write_text(f"#!/bin/sh\ntouch {witness}\nexit 1\n")
+    npx.chmod(0o755)
+    write_user_mcp(home, {"playwright": {"type": "stdio", "command": str(npx), "args": ["-y", "pkg"]}})
+    row = rows_of(run(home, project, None, "--json"))["browser-qa"]
+    assert row["state"] == "unexamined"
+    assert not witness.exists(), "status must not start a package launcher"

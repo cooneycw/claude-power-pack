@@ -29,10 +29,13 @@ This reports ONE state per capability, from the observations that produced it:
 The probes are bounded and harmless: the flow row runs one installed helper
 read-only; the MCP rows do an MCP `initialize` + `tools/list` handshake and
 call NO tool, so no model request is made and nothing is paid for. A stdio
-server is started with `UV_OFFLINE`, `UV_NO_SYNC` and `npm_config_offline` set
-so status never installs a dependency; a cold npx/uv cache therefore reads as
-unreachable, and says so. Every child runs in its own process group under a
-hard timeout and is killed and reaped.
+server launched through a package launcher (npx, uvx, bunx, pnpx) is NOT
+started - an offline flag does not stop npx installing from a warm cache - so
+that row reads `unexamined` and says why. Any other stdio server starts with
+`UV_OFFLINE`, `UV_NO_SYNC` and `npm_config_offline` set, which reduce but do
+not sandbox what an arbitrary command may do. Every stdio child runs in its own
+process group under a hard timeout and is killed and reaped; the HTTP handshake
+has one overall deadline, and an SSE stream is read only until the answer.
 
 Nothing here is re-implemented: the flow row consumes
 `flow-helpers-install.sh --check`, `cpp-commands-link.sh --check` and
@@ -69,10 +72,12 @@ import select
 import signal
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
@@ -98,6 +103,10 @@ MCP_ROWS = (
      "a browser launch and page load (the handshake does not start a browser)"),
 )
 HANDSHAKE = "MCP initialize + tools/list (no tool called)"
+#: Launchers that fetch or materialise a package on start. An offline flag does
+#: not stop npx installing from a warm cache into its exec directory, so status
+#: does not start them at all (#1290 boundary: no dependency installation).
+INSTALLING_LAUNCHERS = frozenset({"npx", "uvx", "bunx", "pnpx"})
 _READ_CAP = 1 << 20
 
 
@@ -176,9 +185,10 @@ def _revision(checkout: Path) -> str | None:
 
 def flow_row(home: Path, checkout_arg: str | None, timeout: float) -> dict:
     scripts = home / ".claude" / "scripts"
-    installed = (scripts / FLOW_MARKER).exists() or (home / ".claude" / "commands" / "flow").exists()
+    # lexists, not exists: a DANGLING link is a broken install, never an absent one
+    installed = os.path.lexists(scripts / FLOW_MARKER) or os.path.lexists(home / ".claude" / "commands" / "flow")
     checkout, how = resolve_checkout(checkout_arg, home)
-    row = {"capability": "flow", "state": None, "tested": None, "source": None,
+    row: dict[str, Any] = {"capability": "flow", "state": None, "tested": None, "source": None,
            "artifacts": [str(scripts) + "/<flow helpers>", str(home / ".claude" / "commands") + "/<cpp families>"],
            "config": [], "observations": [], "unexamined": [], "next": None}
     obs = row["observations"]
@@ -220,7 +230,8 @@ def flow_row(home: Path, checkout_arg: str | None, timeout: float) -> dict:
 
     rc, out = _run(["bash", str(SCRIPTS_DIR / "cpp-checkout-freshness.sh"), "--path", str(checkout)],
                    env, timeout * 2 + 10)
-    verdict = _last_marker(out, "CPP_CHECKOUT_FRESHNESS") or ("unknown: timeout" if rc is None else "unknown: no verdict")
+    verdict = (_last_marker(out, "CPP_CHECKOUT_FRESHNESS")
+               or ("unknown: timeout" if rc is None else "unknown: no verdict"))
     obs.append(_obs("checkout-freshness", verdict, f"{checkout} HEAD against origin/main (fetched)"))
     if verdict != "current":
         stale.append(f"checkout {verdict}")
@@ -326,7 +337,9 @@ def probe_stdio(cmd: str, args: tuple, spec_env: dict[str, str], cwd: Path, time
                 except subprocess.TimeoutExpired:
                     pass
                 return "unreachable", f"exited (code {proc.returncode}) before answering initialize"
-            return "unreachable", f"initialize: {init} after {timeout:g}s" if init == "timeout" else f"initialize: {init}"
+            if init == "timeout":
+                return "unreachable", f"initialize: timeout after {timeout:g}s"
+            return "unreachable", f"initialize: {init}"
         send(_INITIALIZED)
         send(_LIST)
         tools = recv(2)
@@ -337,53 +350,88 @@ def probe_stdio(cmd: str, args: tuple, spec_env: dict[str, str], cwd: Path, time
         _kill_group(proc)
 
 
-def _read_http_json(resp, want_id: int):
-    body = resp.read(_READ_CAP)
+def _read_http_json(resp, want_id: int, deadline: float):
+    """The JSON-RPC message with id `want_id`, read INCREMENTALLY: an SSE stream
+    may stay open after delivering it, so reading to EOF would time out a
+    healthy server. Returns None when it never arrives within the cap."""
     ctype = resp.headers.get("Content-Type", "")
-    if "text/event-stream" in ctype:
-        for line in body.decode("utf-8", "replace").splitlines():
-            if line.startswith("data:"):
-                try:
-                    msg = json.loads(line[5:].strip())
-                except ValueError:
-                    continue
-                if isinstance(msg, dict) and msg.get("id") == want_id:
-                    return msg
-        return None
-    try:
-        return json.loads(body)
-    except ValueError:
-        return None
+    if "text/event-stream" not in ctype:
+        try:
+            return json.loads(resp.read(_READ_CAP))
+        except ValueError:
+            return None
+    total = 0
+    data: list[str] = []
+    while time.monotonic() < deadline and total < _READ_CAP:
+        raw = resp.readline(65536)
+        if not raw:
+            break
+        total += len(raw)
+        line = raw.decode("utf-8", "replace").rstrip("\r\n")
+        if line.startswith("data:"):
+            data.append(line[5:].strip())
+            continue
+        if line == "" and data:
+            try:
+                msg = json.loads("\n".join(data))
+            except ValueError:
+                msg = None
+            data = []
+            if isinstance(msg, dict) and msg.get("id") == want_id:
+                return msg
+    return None
 
 
-def probe_http(url: str, timeout: float) -> tuple[str, str]:
+def _http_handshake(url: str, timeout: float, deadline: float) -> tuple[str, str]:
     headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
 
-    def post(msg: dict, sid: str | None):
+    def post(msg: dict, sid: str | None, version: str | None):
         h = dict(headers)
         if sid:
             h["Mcp-Session-Id"] = sid
+        if version:
+            h["MCP-Protocol-Version"] = version
         req = urllib.request.Request(url, data=json.dumps(msg).encode(), headers=h, method="POST")
-        return urllib.request.urlopen(req, timeout=timeout)  # noqa: S310 - http(s) only, checked by caller
+        left = max(0.1, deadline - time.monotonic())
+        return urllib.request.urlopen(req, timeout=min(timeout, left))  # noqa: S310 - http(s) only, checked by caller
 
     try:
-        with post(_INIT, None) as resp:
+        with post(_INIT, None, None) as resp:
             sid = resp.headers.get("Mcp-Session-Id")
-            init = _read_http_json(resp, 1)
-        with post(_INITIALIZED, sid):
+            init = _read_http_json(resp, 1, deadline)
+        result = init.get("result") if isinstance(init, dict) else None
+        version = result.get("protocolVersion") if isinstance(result, dict) else None
+        version = version if isinstance(version, str) else None
+        with post(_INITIALIZED, sid, version):
             pass
-        with post(_LIST, sid) as resp:
-            tools = _read_http_json(resp, 2)
+        with post(_LIST, sid, version) as resp:
+            tools = _read_http_json(resp, 2, deadline)
     except urllib.error.HTTPError as exc:
         if exc.code in (401, 403):
             return "auth-required", f"HTTP {exc.code}: the handshake needs authentication, which status does not send"
         return "unreachable", f"HTTP {exc.code}"
     except urllib.error.URLError as exc:
         reason = exc.reason
-        return "unreachable", f"{type(reason).__name__}" + (f" (errno {reason.errno})" if isinstance(reason, OSError) and reason.errno else "")
+        errno = f" (errno {reason.errno})" if isinstance(reason, OSError) and reason.errno else ""
+        return "unreachable", f"{type(reason).__name__}{errno}"
     except (OSError, ValueError) as exc:
         return "unreachable", type(exc).__name__
     return _handshake_result(init, tools)
+
+
+def probe_http(url: str, timeout: float) -> tuple[str, str]:
+    """One overall deadline for the whole handshake. A socket timeout bounds
+    each read, not the sum: a server trickling a byte at a time would hold
+    status indefinitely. The handshake runs in a daemon thread and is abandoned
+    - not waited for - when the deadline passes."""
+    deadline = time.monotonic() + timeout
+    box: list[tuple[str, str]] = []
+    worker = threading.Thread(target=lambda: box.append(_http_handshake(url, timeout, deadline)), daemon=True)
+    worker.start()
+    worker.join(timeout + 0.5)
+    if not box:
+        return "unreachable", f"handshake did not complete within {timeout:g}s"
+    return box[0]
 
 
 def _carries_credentials(spec: dict, endpoint: tuple) -> bool:
@@ -399,11 +447,16 @@ def probe_endpoint(mcp, spec: object, endpoint: tuple, cwd: Path, timeout: float
     """(verdict, detail): ok | unreachable | auth-required | unexamined."""
     spec = spec if isinstance(spec, dict) else {}
     if _carries_credentials(spec, endpoint):
-        return "unexamined", "endpoint carries credentials (userinfo, query or headers); an authenticated probe is not authorised for status"
+        return "unexamined", ("endpoint carries credentials (userinfo, query or headers); "
+                              "an authenticated probe is not authorised for status")
+    if endpoint[0] == "stdio" and Path(endpoint[1]).name in INSTALLING_LAUNCHERS:
+        return "unexamined", (f"launched through {Path(endpoint[1]).name}, which can install the package on start; "
+                              "status installs nothing, so the handshake is not attempted")
     if endpoint[0] == "stdio":
         raw_env = spec.get("env") or {}
         try:
-            env = {str(k): mcp._expand_env(str(v), dict(os.environ)) for k, v in raw_env.items()} if isinstance(raw_env, dict) else {}
+            env = ({str(k): mcp._expand_env(str(v), dict(os.environ)) for k, v in raw_env.items()}
+                   if isinstance(raw_env, dict) else {})
         except mcp._Unresolved:
             return "unexamined", "the server's env uses an unset ${VAR} with no default"
         return probe_stdio(endpoint[1], endpoint[2], env, cwd, timeout)
@@ -440,7 +493,7 @@ def mcp_row(mcp, capability: str, server: str, beyond: str, home: Path, project_
             timeout: float, scan) -> dict:
     defs, problems, unreadable_names, scope_unreadable = scan
     scopes = defs.get(server, {})
-    row = {"capability": capability, "state": None, "tested": None,
+    row: dict[str, Any] = {"capability": capability, "state": None, "tested": None,
            "source": {"mcp_server": server, "scopes_read": [str(home / ".claude.json") + " (user, local)",
                                                              str(project_dir / ".mcp.json") + " (project)"]},
            "artifacts": [], "config": [], "observations": [], "unexamined": [beyond], "next": None}
@@ -450,7 +503,8 @@ def mcp_row(mcp, capability: str, server: str, beyond: str, home: Path, project_
             row["config"].append(f"{scope}: {mcp.redact_endpoint(scopes[scope])}")
     if server in unreadable_names or scope_unreadable:
         row["state"] = UNEXAMINED
-        row["next"] = f"MCP configuration could not be read ({len(problems)} problem(s)); run mcp-drift.py --scope-check for detail"
+        row["next"] = (f"MCP configuration could not be read ({len(problems)} problem(s)); "
+                       "run mcp-drift.py --scope-check for detail")
         obs.append(_obs("config", "unreadable", "user/local/project scopes"))
         return row
     if not scopes:
@@ -473,14 +527,22 @@ def mcp_row(mcp, capability: str, server: str, beyond: str, home: Path, project_
                        f"session reaches depends on where it starts. Values: claude mcp get {server}. "
                        f"Remedy only on your say-so: claude mcp remove {server} -s <scope-to-drop>")
         return row
-    verdict = next(iter(results.values()))
+    # One endpoint, possibly probed from several scopes (each with its own env):
+    # ready only when EVERY probe succeeded; any failure outranks a success.
+    verdicts = set(results.values())
+    if "unreachable" in verdicts:
+        verdict = "unreachable"
+    elif verdicts == {"ok"}:
+        verdict = "ok"
+    else:
+        verdict = "unexamined"
     if verdict == "ok":
         row["state"] = READY
         row["tested"] = HANDSHAKE
     elif verdict in ("unexamined", "auth-required"):
         row["state"] = UNEXAMINED
         row["unexamined"].insert(0, "the MCP handshake")
-        row["next"] = "the handshake was not attempted without credentials; check it with an authorised client"
+        row["next"] = "the handshake was not attempted (see the observation); check it by hand or with an authorised client"
     else:
         row["state"] = UNREACHABLE
         row["next"] = f"the '{server}' server did not complete the handshake - check it with: claude mcp get {server}"
@@ -512,9 +574,11 @@ def render(rows: list[dict]) -> str:
         src = r["source"] or {}
         if "checkout" in src:
             rev = (src.get("revision") or "unknown")[:12]
-            lines.append(f"  source:     {src.get('checkout') or 'none'} @ {rev} (resolved by {src.get('resolved_by')})")
+            where = src.get('checkout') or 'none'
+            lines.append(f"  source:     {where} @ {rev} (resolved by {src.get('resolved_by')})")
         else:
-            lines.append(f"  source:     MCP server '{src.get('mcp_server')}' read from {'; '.join(src.get('scopes_read', []))}")
+            read = "; ".join(src.get("scopes_read", []))
+            lines.append(f"  source:     MCP server '{src.get('mcp_server')}' read from {read}")
         for a in r["artifacts"]:
             lines.append(f"  artifact:   {a}")
         for c in r["config"]:
