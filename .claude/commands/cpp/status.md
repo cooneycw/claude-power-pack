@@ -1,6 +1,6 @@
 ---
 description: Check Claude Power Pack installation state
-allowed-tools: Bash(bash:*), Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(uv:*), Bash(python3:*), Bash(PYTHONPATH=*), Bash(claude mcp list:*), Bash(systemctl:*), Bash(grep:*), Bash(docker ps:*), Bash(docker inspect:*)
+allowed-tools: Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(uv:*), Bash(python3:*), Bash(PYTHONPATH=*), Bash(claude mcp list:*), Bash(systemctl:*), Bash(grep:*), Bash(docker ps:*), Bash(docker inspect:*)
 ---
 
 # CPP Installation Status
@@ -40,7 +40,7 @@ working tree, so no helper changes under a running session.
 
 ```bash
 if [ -n "$CPP_DIR" ]; then
-  bash "$CPP_DIR/scripts/cpp-checkout-freshness.sh" --path "$CPP_DIR"
+  "$CPP_DIR/scripts/cpp-checkout-freshness.sh" --path "$CPP_DIR"
 fi
 ```
 

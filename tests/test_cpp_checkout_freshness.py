@@ -254,3 +254,31 @@ def test_status_md_runs_the_helper_and_says_it_fetches() -> None:
     text = (ROOT / ".claude" / "commands" / "cpp" / "status.md").read_text(encoding="utf-8")
     assert "cpp-checkout-freshness.sh" in text
     assert "fetches" in text
+
+
+def test_a_local_tag_named_like_the_remote_ref_is_not_what_is_counted(
+    repos: tuple[Path, Path, Path],
+) -> None:
+    """Counter-model finding: shorthand `origin/main` resolves `refs/tags/origin/main` first."""
+    _, seed, checkout = repos
+    _git(checkout, "tag", "origin/main", "HEAD")
+    _advance(seed)
+    # Precondition: the shorthand really is shadowed by the tag.
+    assert _git(checkout, "rev-parse", "origin/main^{commit}") == _git(checkout, "rev-parse", "HEAD")
+    assert _verdict(_run(checkout)) == "behind 1"
+
+
+def test_an_inherited_git_dir_does_not_redirect_the_measurement(
+    repos: tuple[Path, Path, Path], tmp_path: Path
+) -> None:
+    """Counter-model finding: `git -C` does not override GIT_DIR, so a neighbour would be measured."""
+    origin, seed, checkout = repos
+    neighbour = _clone(origin, tmp_path / "neighbour")
+    _advance(seed)
+    _git(neighbour, "pull", "--quiet", "--ff-only")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env["GIT_DIR"] = str(neighbour / ".git")
+    result = subprocess.run(
+        ["bash", str(SCRIPT), "--path", str(checkout)], capture_output=True, text=True, env=env
+    )
+    assert _verdict(result) == "behind 1", "the declared checkout is behind; the neighbour is current"

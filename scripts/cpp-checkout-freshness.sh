@@ -50,6 +50,12 @@
 
 set -uo pipefail
 
+# The DECLARED checkout is the only repository measured. An inherited GIT_DIR
+# (a hook, a wrapper, a parent `git` process) overrides `git -C` and would make
+# every line below describe a neighbouring repository under this one's name.
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CEILING_DIRECTORIES
+
 SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
 SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
 
@@ -115,6 +121,9 @@ if [ -z "$BRANCH" ]; then
     unknown "no branch to compare against (detached HEAD)"
 fi
 UPSTREAM="origin/$BRANCH"
+# Counted by FULL ref name: the shorthand `origin/main` resolves a local tag or
+# branch of that name before the remote-tracking ref this run fetched.
+UPSTREAM_REF="refs/remotes/origin/$BRANCH"
 
 if ! git -C "$CHECKOUT" remote get-url origin >/dev/null 2>&1; then
     unknown "no 'origin' remote"
@@ -122,12 +131,16 @@ fi
 
 # THE FETCH IS CHECKED, and a failure is terminal. Non-interactive: a remote
 # that wants credentials must fail, not wait on a prompt nobody will answer.
+# Bounded twice: `timeout` where it exists, and git's own low-speed abort for
+# HTTP(S) remotes, which holds where `timeout` does not (macOS without
+# coreutils). An SSH remote on a host with no `timeout` is NOT bounded.
 TIMEOUT_CMD=()
 if command -v timeout >/dev/null 2>&1; then
     TIMEOUT_CMD=(timeout "$FETCH_TIMEOUT")
 fi
 FETCH_ERR="$(GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true "${TIMEOUT_CMD[@]}" \
-    git -C "$CHECKOUT" fetch --quiet origin \
+    git -C "$CHECKOUT" -c http.lowSpeedLimit=1 -c "http.lowSpeedTime=$FETCH_TIMEOUT" \
+    fetch --quiet origin \
     "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" 2>&1)"
 FETCH_STATUS=$?
 if [ "$FETCH_STATUS" -ne 0 ]; then
@@ -145,13 +158,13 @@ if [ "$FETCH_STATUS" -ne 0 ]; then
     unknown "fetch failed (${WHY:-git fetch exited $FETCH_STATUS})"
 fi
 
-if ! git -C "$CHECKOUT" rev-parse --verify --quiet "$UPSTREAM" >/dev/null 2>&1; then
+if ! git -C "$CHECKOUT" rev-parse --verify --quiet "$UPSTREAM_REF" >/dev/null 2>&1; then
     unknown "$UPSTREAM does not exist after the fetch"
 fi
-UP_SHA="$(git -C "$CHECKOUT" rev-parse --short "$UPSTREAM" 2>/dev/null || echo '?')"
+UP_SHA="$(git -C "$CHECKOUT" rev-parse --short "$UPSTREAM_REF" 2>/dev/null || echo '?')"
 echo "HEAD: ${HEAD_SHA:-?}   $UPSTREAM: $UP_SHA"
 
-COUNTS="$(git -C "$CHECKOUT" rev-list --left-right --count "HEAD...$UPSTREAM" 2>/dev/null || true)"
+COUNTS="$(git -C "$CHECKOUT" rev-list --left-right --count "HEAD...$UPSTREAM_REF" 2>/dev/null || true)"
 AHEAD="${COUNTS%%[[:space:]]*}"
 BEHIND="${COUNTS##*[[:space:]]}"
 if [[ ! "$AHEAD" =~ ^[0-9]+$ || ! "$BEHIND" =~ ^[0-9]+$ ]]; then
@@ -161,7 +174,7 @@ fi
 if [ "$BEHIND" -gt 0 ]; then
     echo ""
     echo "Missing from this checkout ($UPSTREAM has $BEHIND commit(s) HEAD does not):"
-    git -C "$CHECKOUT" log --oneline -n "$LOG_CAP" "HEAD..$UPSTREAM" 2>/dev/null | sed 's/^/  /'
+    git -C "$CHECKOUT" log --oneline -n "$LOG_CAP" "HEAD..$UPSTREAM_REF" 2>/dev/null | sed 's/^/  /'
     if [ "$BEHIND" -gt "$LOG_CAP" ]; then
         echo "  ... and $((BEHIND - LOG_CAP)) more"
     fi
