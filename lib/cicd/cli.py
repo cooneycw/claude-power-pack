@@ -76,6 +76,21 @@ def cmd_detect(args: argparse.Namespace) -> int:
             print("\nRunner Commands:")
             for target, cmd in info.runner_commands.items():
                 print(f"  {target}: {cmd}")
+        # Every component and how far the runner defaults reach (issue #1289),
+        # so an unsupported layout is STATED rather than implied by silence.
+        if info.components:
+            print("\nComponents:")
+            for comp in info.components:
+                print(
+                    f"  {comp.path}: {comp.framework.label} / {comp.package_manager.label} "
+                    f"(evidence: {', '.join(comp.evidence)})"
+                )
+        resolution = f"\nRunner Coverage: {info.runner_resolution}"
+        if info.resolution_reason:
+            resolution += f" - {info.resolution_reason}"
+        print(resolution)
+        if info.uncovered_components:
+            print(f"  Not covered:   {info.uncovered_summary()}")
 
     return 0
 

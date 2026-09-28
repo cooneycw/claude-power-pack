@@ -258,6 +258,40 @@ FRAMEWORK_RUNNERS: dict[tuple[Framework, PackageManager], dict[str, str]] = {
 
 
 @dataclass
+class Component:
+    """One stack found in a repository, WHERE it was found and WHY (issue #1289).
+
+    ``path`` is relative to the project root, ``"."`` for the root itself.
+    ``evidence`` names the marker and lock files that decided ``framework`` and
+    ``package_manager``, so a reader can re-derive the classification rather than
+    trust it. Each component carries its OWN package manager: a root Node app and
+    a nested ``uv`` backend are two facts, not one global choice.
+    """
+
+    path: str
+    framework: Framework
+    package_manager: PackageManager
+    evidence: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "path": self.path,
+            "framework": self.framework.value,
+            "package_manager": self.package_manager.value,
+            "evidence": self.evidence,
+        }
+
+
+#: How far ``runner_commands`` reaches over the components found (issue #1289).
+#: REPORTING ONLY: nothing that consumes FrameworkInfo changes its generated
+#: output on this value - it exists so a run that covered part of a repository
+#: cannot be read as having covered all of it.
+RESOLUTION_RESOLVED = "resolved"      # runner_commands cover every component
+RESOLUTION_PARTIAL = "partial"        # they cover the root; nested stacks are not run
+RESOLUTION_UNRESOLVED = "unresolved"  # there are no runner defaults at all
+
+
+@dataclass
 class FrameworkInfo:
     """Results from framework detection."""
 
@@ -267,6 +301,23 @@ class FrameworkInfo:
     recommended_targets: list[str] = field(default_factory=list)
     runner_commands: dict[str, str] = field(default_factory=dict)
     secondary_frameworks: list[Framework] = field(default_factory=list)
+    # Issue #1289. ADDITIVE: the six fields above keep their pre-#1289 meaning
+    # (``detected_files`` stays root-level plus the no-root subdirectory
+    # fallback), because makefile.py and manifest.py generate from them.
+    components: list[Component] = field(default_factory=list)
+    runner_resolution: str = RESOLUTION_UNRESOLVED
+    resolution_reason: str = ""
+    uncovered_components: list[str] = field(default_factory=list)
+
+    def uncovered_summary(self) -> str:
+        """``backend/ (python), docs/ (node)`` - the components no runner covers."""
+        by_path = {c.path: c for c in self.components}
+        parts = []
+        for path in self.uncovered_components:
+            comp = by_path.get(path)
+            label = f"{path}/" if path != "." else "./"
+            parts.append(f"{label} ({comp.framework.value})" if comp else label)
+        return ", ".join(parts)
 
     def to_dict(self) -> dict:
         """Convert to JSON-serializable dict."""
@@ -277,6 +328,12 @@ class FrameworkInfo:
             "recommended_targets": self.recommended_targets,
             "runner_commands": self.runner_commands,
             "secondary_frameworks": [f.value for f in self.secondary_frameworks],
+            "components": [c.to_dict() for c in self.components],
+            "runner_resolution": {
+                "state": self.runner_resolution,
+                "reason": self.resolution_reason,
+                "uncovered": self.uncovered_components,
+            },
         }
 
 
