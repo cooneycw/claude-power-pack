@@ -309,6 +309,86 @@ class TestStepGating:
         """Stripping directories keeps the basename, so #621 detection survives."""
         assert ShellStep(StepDef(id="ci", command=command)).is_test_step()
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            # THE #1298 RED CASE. The quoted script starts with a path, so the
+            # #1294 regex read the whole string as ONE filename and kept "cases":
+            # a real pytest run was not a test step, and its all-skipped summary
+            # went unqualified. Red on 84f414e.
+            'bash -c "/opt/venv/bin/pytest /tmp/cases"',
+            "sh -c '/opt/venv/bin/pytest -q'",
+            # A flag cluster ending in c is still `-c`.
+            "bash -lc '/opt/venv/bin/pytest -q'",
+            # Counter-model review (#1298): options with operands before `-c`,
+            # and a script that itself STARTS with an assignment.
+            'bash -o pipefail -c "/opt/venv/bin/pytest /tmp/cases"',
+            'bash -e -c "/opt/venv/bin/pytest /tmp/cases"',
+            'bash -c "PYTEST_WORKERS=4 /opt/venv/bin/pytest /tmp/cases"',
+            # Counter-model review pass 2 (#1298): a `#` inside a word is not a
+            # comment, and a backslash-newline is a continuation, outside and
+            # inside the `-c` script.
+            "echo build#123; /opt/venv/bin/pytest /tmp/cases",
+            'bash \\\n  -c "/opt/venv/bin/pytest /tmp/cases"',
+            'bash -c "cd /srv && \\\n  /opt/venv/bin/pytest /tmp/cases"',
+            # Comments are read as words, deliberately: this over-reports (as
+            # the pre-#1298 regex did) and can never hide a runner.
+            "make lint # pytest",
+            # Depth 2 is past the bound: the inner script is scanned raw, which
+            # fails TOWARD a test step - never away from one.
+            "bash -c \"bash -c '/opt/venv/bin/pytest -q'\"",
+            # A non-shell `-c` is one word, read by the word-level rule.
+            'python -c "import pytest; pytest.main([\'/tmp/cases\'])"',
+            # Unparseable (unbalanced quote): falls back to the RAW command and
+            # fails toward a test step, so a runner is never hidden by a parse
+            # error. Bash would reject this line anyway.
+            'bash -c "pytest /tmp/cases',
+            # The precision pins (orchestrator, #1298): only a word matching
+            # ^NAME= is an assignment. These classify on their other words.
+            "pytest --junitxml=report-test.xml",
+            "make check -k=test_foo",
+            "make test-file FILE=tests/test_x.py",
+        ],
+    )
+    def test_a_runner_inside_a_quoted_script_classifies(self, command: str) -> None:
+        """A shell `-c` script is read as COMMANDS, once (issue #1298)."""
+        assert ShellStep(StepDef(id="check", command=command)).is_test_step()
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            # THE #1298 RED CASE, the other direction. `_` was a word boundary,
+            # so the env-var NAME read as "pytest": lint became a test step,
+            # which switches off its #1027 examined-nothing check and injects
+            # PYTEST_WORKERS into its environment. Red on 84f414e.
+            "PYTEST_WORKERS=4 make lint",
+            "env PYTEST_WORKERS=4 make lint",
+            'bash -c "PYTEST_WORKERS=4 make lint"',
+            # The same shape in argument position: dropping the assignment
+            # leaves `make lint`. Red on 84f414e.
+            "make PYTEST_ARGS=-x lint",
+            # The assignment's VALUE is not evidence either.
+            "RUNNER=pytest make lint",
+            # The -c script is read as commands, and its directories still do
+            # not classify (#1294 inside #1298's parse).
+            'bash -c "/opt/venv/bin/ruff /tmp/cases"',
+            'bash -o pipefail -c "/x/repo-test-foo/lint.py /tmp/cases"',
+        ],
+    )
+    def test_an_environment_assignment_never_classifies(self, command: str) -> None:
+        """A `NAME=value` word says what a variable holds, not what runs (#1298)."""
+        assert not ShellStep(StepDef(id="lint", command=command)).is_test_step()
+
+    def test_a_continuation_inside_single_quotes_is_literal(self) -> None:
+        """Only an UNQUOTED or double-quoted backslash-newline is joined (#1298)."""
+        from lib.cicd.steps import _join_continuations
+
+        assert _join_continuations("a \\\nb") == "a b"
+        assert _join_continuations('"a \\\nb"') == '"a b"'
+        assert _join_continuations("'a \\\nb'") == "'a \\\nb'"
+        # An escaped quote does not open a quote.
+        assert _join_continuations("\\' \\\nb") == "\\' b"
+
     def test_builtin_finish_typecheck_is_not_a_test_step(self) -> None:
         """The real step, whose command carries THIS checkout's absolute path.
 

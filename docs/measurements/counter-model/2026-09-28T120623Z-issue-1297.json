@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1297-synchronize-supervise-fixture-readiness-before-tes",
+  "counts": {
+    "accepted": 1,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "24a06cdc2ec53b448cc28dc1ec048d10ee157b47",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1297",
+  "passes": 2,
+  "recorded_at": "2026-09-28T12:06:23Z",
+  "red_cases": {
+    "already_covered": 12,
+    "proposed": 15
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
