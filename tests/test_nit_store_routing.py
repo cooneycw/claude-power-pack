@@ -81,6 +81,10 @@ PROBES = (
     # the one resolver and acts on its three verdicts - ok, none, unknown.
     ("calls the shared resolver", re.compile(r"~/\.claude/scripts/nit-store-resolve\.sh")),
     ("posts only on ok", re.compile(r"`ok` - post to the number")),
+    (
+        "posts into the repository it verified",
+        re.compile(r"gh issue comment <NIT_STORE> --repo <NIT_STORE_REPO>"),
+    ),
     ("unknown is not none", re.compile(r"`unknown` is not `none`")),
     (
         "falls back to a normal issue",
@@ -226,6 +230,9 @@ argv = sys.argv[1:]
 data.setdefault("calls", []).append(argv)
 state.write_text(json.dumps(data))
 
+# The resolver must always name the repository it is asking about.
+if argv[:2] != ["repo", "view"] and "--repo" not in argv:
+    sys.exit(1)
 if argv[:2] == ["repo", "view"]:
     out = data.get("repo_view", "")
     if not out:
@@ -237,8 +244,12 @@ elif argv[:2] == ["issue", "view"]:
         sys.exit(1)
     print(issue["state"] + "\t" + issue["title"])
 elif argv[:2] == ["issue", "list"]:
-    for n, issue in sorted(data.get("issues", {}).items()):
-        if issue["state"] == "OPEN" and issue["title"] == "Nit Store":
+    jq = argv[argv.index("--jq") + 1] if "--jq" in argv else ""
+    rows = [(n, i) for n, i in sorted(data.get("issues", {}).items()) if i["state"] == "OPEN"]
+    if "TOTAL" in jq:
+        print(f"TOTAL {len(rows)}")
+    for n, issue in rows:
+        if issue["title"] == "Nit Store":
             print(n)
 else:
     sys.exit(1)

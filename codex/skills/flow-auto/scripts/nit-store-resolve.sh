@@ -58,11 +58,13 @@ esac
 echo "NIT_STORE_REPO=$REPO"
 
 # THE MAP - the only copy. Add a repository here, not in a command document.
-case "${REPO#*/}" in
-    kyle)              MAPPED=1004 ;;
-    claude-power-pack) MAPPED=864 ;;
-    skillc)            MAPPED=20 ;;
-    *)                 MAPPED="" ;;
+# Keyed on OWNER/NAME: a fork or a same-named repository under another owner is
+# a different repository, and must be searched, not handed its namesake's number.
+case "$REPO" in
+    cooneycw/kyle)              MAPPED=1004 ;;
+    cooneycw/claude-power-pack) MAPPED=864 ;;
+    cooneycw/skillc)            MAPPED=20 ;;
+    *)                          MAPPED="" ;;
 esac
 
 if [ -n "$MAPPED" ]; then
@@ -82,11 +84,22 @@ fi
 
 # Unmapped: an EXACT title match among open issues, and exactly one of them.
 # (`--search` alone is full text and selects any issue that mentions the phrase.)
+# The listing is BOUNDED, and the exact-title filter runs after the bound, so a
+# listing that fills the bound may have cut off a match: absence and uniqueness
+# are then not established, and the answer is unknown rather than a guess.
+LIMIT=200
 echo "NIT_STORE_SOURCE=search"
-if ! found=$(gh issue list --repo "$REPO" --state open --search 'in:title "Nit Store"' \
-               --json number,title --jq '.[] | select(.title == "Nit Store") | .number' 2>/dev/null); then
+if ! listing=$(gh issue list --repo "$REPO" --state open --search 'in:title "Nit Store"' \
+                 --limit "$LIMIT" --json number,title \
+                 --jq '"TOTAL \(length)", (.[] | select(.title == "Nit Store") | .number)' 2>/dev/null); then
     unknown "gh could not list open issues in $REPO"
 fi
+total=$(printf '%s\n' "$listing" | sed -n 's/^TOTAL //p')
+case "$total" in
+    ''|*[!0-9]*) unknown "gh returned no readable listing for $REPO" ;;
+esac
+[ "$total" -lt "$LIMIT" ] || unknown "$REPO has $total or more open issues mentioning 'Nit Store' in the title; the listing may be cut off"
+found=$(printf '%s\n' "$listing" | grep -v '^TOTAL ' || true)
 count=$(printf '%s\n' "$found" | grep -c '^[0-9][0-9]*$' || true)
 case "$count" in
     0) none "$REPO has no open issue titled 'Nit Store'" ;;

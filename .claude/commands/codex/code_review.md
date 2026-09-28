@@ -393,8 +393,12 @@ from a per-issue worktree whose basename is not the repository. It answers a
 number only after GitHub confirms that issue is OPEN and titled exactly "Nit Store".
 Act on `NIT_STORE_STATUS`:
 
-- `ok` - post to the number it printed as `NIT_STORE=`:
-  `gh issue comment <NIT_STORE> --body "<one finding>"`. When
+- `ok` - post to the number it printed as `NIT_STORE=`, IN the repository it
+  printed as `NIT_STORE_REPO=`:
+  `gh issue comment <NIT_STORE> --repo <NIT_STORE_REPO> --body "<one finding>"`.
+  The `--repo` is not optional: without it gh picks its own default (a fork's
+  upstream, or `GH_REPO`), and the verified number would be posted somewhere
+  that was never checked. When
   `NIT_STORE_SOURCE=search` (an unmapped repository, resolved by exact title),
   say so in the closing report.
 - `none` (exit 1) - GitHub was asked and there is no open Nit Store, or the
