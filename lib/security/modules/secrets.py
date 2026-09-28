@@ -108,6 +108,16 @@ SKIP_DIRS = {
 
 SKIP_FILES = {"package-lock.json", "yarn.lock", "uv.lock", "poetry.lock"}
 
+# The deterministic runner's OWN state directory, relative to the scan root
+# (issue #1341). `lib/cicd/state.py` writes `.claude/runs/<run_id>.json` there
+# while its `security_scan` step is executing, so without this skip the scan
+# counted that bookkeeping as project source: a tree with no source reported
+# `scanned=1`, and #1027's zero-coverage warning fired only in projects that
+# happened to gitignore the file. Deliberately a root-anchored PREFIX, not a
+# `SKIP_DIRS` entry: every other `.claude/*.json`, and a nested project's
+# `sub/.claude/runs/`, are still scanned.
+RUNNER_STATE_DIR = (".claude", "runs")
+
 # Files that contain patterns/regex for masking/detection (not actual secrets)
 SKIP_PATTERN_FILES = {
     "secrets-mask.sh", "hook-mask-output.sh", "masking.py",
@@ -209,6 +219,8 @@ def _find_source_files(root: Path) -> list[Path]:
     for path in root.rglob("*"):
         if path.is_file():
             if any(skip in path.parts for skip in SKIP_DIRS):
+                continue
+            if path.relative_to(root).parts[: len(RUNNER_STATE_DIR)] == RUNNER_STATE_DIR:
                 continue
             if path.name in SKIP_FILES:
                 continue

@@ -163,6 +163,41 @@ class TestSecretsScanner:
         aws_findings = [f for f in result.findings if f.id == "AWS_ACCESS_KEY"]
         assert len(aws_findings) == 1
 
+    def test_the_runners_own_state_file_is_not_counted_as_a_source_file(
+        self, tmp_path: Path
+    ) -> None:
+        # Issue #1341. The deterministic runner persists `.claude/runs/<id>.json`
+        # while its `security_scan` step is executing, so this scan counted the
+        # runner's own bookkeeping as project source: a tree with no source at
+        # all reported units_scanned=1, and #1027's zero-coverage warning fired
+        # only in projects that happened to gitignore the file. No git repo
+        # here, so `_filter_gitignored` fails open and cannot hide the defect.
+        # The file is written by the REAL writer rather than by hand, so the
+        # scanner and the runner cannot quietly disagree about where it lives.
+        from lib.cicd.state import RunState
+
+        written = RunState.create("finish", ["security_scan"]).save(tmp_path)
+        assert written.parent == tmp_path / ".claude" / "runs"
+
+        result = secrets.scan(str(tmp_path))
+        assert result.units_scanned == 0, secrets._find_source_files(tmp_path)
+
+    def test_the_runner_state_skip_is_exactly_that_directory(self, tmp_path: Path) -> None:
+        # The other half of the #1341 control: a skip widened to all of
+        # `.claude`, or to any directory named `runs`, would pass the test above
+        # and blind the scanner. Both of these must still be read and flagged.
+        key = '{"key": "AKIAIOSFODNN7EXAMPLE"}\n'
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "other.json").write_text(key)
+        nested = tmp_path / "sub" / ".claude" / "runs"
+        nested.mkdir(parents=True)
+        (nested / "x.json").write_text(key)
+
+        result = secrets.scan(str(tmp_path))
+        flagged = sorted(str(f.file_path) for f in result.findings if f.id == "AWS_ACCESS_KEY")
+        assert flagged == [".claude/other.json", "sub/.claude/runs/x.json"]
+        assert result.units_scanned == 2
+
 
 class TestDebugFlagsScanner:
     """Test debug flag detection scanner."""

@@ -167,6 +167,15 @@ mypy, not by the assert. A future `(None, None)` return path would make that
 site a real `-O` defect. It is a code-review question about that function, not
 a bandit question.
 
+**Amended 2026-09-28 (issue #1341): the `pip_audit.py` row is no longer a B101
+site.** The bound above was measured, not left as a caveat: with the export forced
+to `(None, None)` under `python -O`, the adapter ran `pip-audit --requirement None`
+and reported a green "No dependency vulnerabilities found". The assert is now an
+explicit `RuntimeError`, pinned by
+`tests/test_pip_audit.py::TestPopulationResolution::test_a_none_export_with_no_error_is_refused_under_python_O`,
+which runs a real `-O` child. Three B101 sites remain; the table is kept as the
+2026-09 reading rather than rewritten.
+
 ### B405 - `import xml.etree` (1 finding)
 
 **Accepted.** `scripts/pytest-parallel-differential.py:56` - the same file whose

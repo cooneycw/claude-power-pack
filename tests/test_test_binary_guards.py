@@ -29,6 +29,7 @@ from __future__ import annotations
 import ast
 import importlib.util
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -1682,6 +1683,32 @@ def test_a_binary_name_inside_a_longer_word_is_not_a_match() -> None:
 def test_an_unreadable_binary_set_attributes_nothing_rather_than_guessing() -> None:
     """An empty set must produce no attribution, not a confident zero-labelled count."""
     assert _attribute(["needs ps", "requires git"], binaries=set()) == {}
+
+
+def test_the_binary_set_is_found_from_a_copied_conftest(tmp_path: Path) -> None:
+    """Issue #1341: `_guarded_binaries` must anchor on REPO_ROOT, not on `__file__`.
+
+    A `pytester` sub-run is handed a COPY of `tests/conftest.py` in a temporary
+    directory. Anchored on its own `__file__`, the copy looked for the gate under
+    that directory's parent, found nothing, and every sub-run's summary said
+    "missing-binary skips: UNKNOWN" instead of attributing a single skip. The
+    module-level REPO_ROOT (#1232) resolves through the imported `tests` package
+    and so names the real checkout from either location. Loading the copy by
+    path reproduces the sub-run's condition in-process, which keeps this module
+    free of subprocesses.
+    """
+    copy = tmp_path / "subrun" / "conftest.py"
+    copy.parent.mkdir()
+    shutil.copy(ROOT / "tests" / "conftest.py", copy)
+    spec = importlib.util.spec_from_file_location("cpp_tests_conftest_copy", copy)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    binaries = module._guarded_binaries()
+    assert binaries == checker.GUARDED_BINARIES, sorted(binaries)
+    assert module.attribute_missing_binary_skips(["docker not installed"], binaries) == {"docker": 1}
 
 
 # --------------------------------------------------------------------------- #

@@ -337,7 +337,9 @@ def _guarded_binaries() -> frozenset[str]:
     import importlib.util
     import sys
 
-    gate = Path(__file__).resolve().parents[1] / "scripts" / "check-test-binary-guards.py"
+    # REPO_ROOT, not `Path(__file__)` (issue #1341): in a `pytester` sub-run this
+    # file is a copy in a temporary directory, and the gate is not beside it.
+    gate = REPO_ROOT / "scripts" / "check-test-binary-guards.py"
     try:
         spec = importlib.util.spec_from_file_location("_cpp_binary_guards", gate)
         if spec is None or spec.loader is None:
