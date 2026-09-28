@@ -144,22 +144,60 @@ def test_an_unreachable_origin_reads_unknown_not_current(
     assert result.returncode == 4
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file modes, so read-only cannot be made")
+def _lock_origin_main(checkout: Path) -> None:
+    """Make the ref update fail for EVERY uid, root included (pipeline 2800).
+
+    Root ignores mode bits, so `chmod` alone does not make a checkout unwritable
+    in CI. A pre-existing lock file does: git refuses to update the ref whatever
+    the caller's privileges, and the stale `origin/main` stays readable.
+    """
+    lock_dir = checkout / ".git" / "refs" / "remotes" / "origin"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    (lock_dir / "main.lock").write_text("", encoding="utf-8")
+
+
 def test_a_read_only_checkout_reads_unknown_not_a_stale_count(
     repos: tuple[Path, Path, Path],
 ) -> None:
-    """A kyle container sees the checkout read-only: the fetch cannot write, so nothing may be counted."""
+    """A kyle container sees the checkout read-only: the fetch cannot write, so nothing may be counted.
+
+    Runs for every uid. As a normal user the chmod layer trips first and the
+    reason is the one a real read-only mount gives; as root (CI) the chmod is
+    ignored and the lock trips. Either way the verdict is `unknown`.
+    """
     _, seed, checkout = repos
     _advance(seed)
+    # Precondition: the stale ref equals HEAD - believed, it would read `current`.
+    assert _git(checkout, "rev-parse", "origin/main") == _git(checkout, "rev-parse", "HEAD")
+    _lock_origin_main(checkout)
     git_dir = checkout / ".git"
     subprocess.run(["chmod", "-R", "a-w", str(git_dir)], check=True)
     try:
-        assert not os.access(git_dir / "refs", os.W_OK), "precondition: the fetch cannot write"
         result = _run(checkout)
     finally:
         subprocess.run(["chmod", "-R", "u+w", str(git_dir)], check=True)
-    assert _verdict(result) == "unknown: fetch failed (checkout not writable)"
+    verdict = _verdict(result)
+    assert verdict.startswith("unknown: fetch failed"), verdict
+    if os.geteuid() != 0:
+        assert verdict == "unknown: fetch failed (checkout not writable)"
     assert result.returncode == 4
+
+
+def test_a_ref_the_fetch_cannot_update_reads_unknown_for_any_uid(
+    repos: tuple[Path, Path, Path],
+) -> None:
+    """The root path of the read-only case, runnable here as any user."""
+    _, seed, checkout = repos
+    _advance(seed)
+    assert _git(checkout, "rev-parse", "origin/main") == _git(checkout, "rev-parse", "HEAD")
+    _lock_origin_main(checkout)
+    result = _run(checkout)
+    verdict = _verdict(result)
+    assert verdict.startswith("unknown: fetch failed (error: cannot lock ref"), verdict
+    assert result.returncode == 4
+    assert _git(checkout, "rev-parse", "origin/main") == _git(checkout, "rev-parse", "HEAD"), (
+        "the stale ref is untouched - the case still tests the stale-count hazard"
+    )
 
 
 def test_local_commits_read_ahead(repos: tuple[Path, Path, Path]) -> None:

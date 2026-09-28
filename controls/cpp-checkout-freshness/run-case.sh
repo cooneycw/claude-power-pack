@@ -10,8 +10,21 @@
 #   behind-1     origin advanced one commit after the clone
 #   fetch-fails  origin advanced, then the clone's origin URL points nowhere -
 #                the stale remote-tracking ref still matches HEAD
-#   read-only    origin advanced, then the clone's .git made read-only (a kyle
-#                container's view of the host checkout)
+#   read-only    origin advanced, then the clone's .git made unwritable in TWO
+#                layers, so the case is BAD for every uid (CI runs as ROOT):
+#                  - chmod -R a-w .git: what an unprivileged reader of a
+#                    read-only checkout meets. ROOT IGNORES MODE BITS, so under
+#                    root this layer alone lets the fetch succeed - pipeline
+#                    2800 was red on exactly that, and until then the wrapper
+#                    reported this case UNAVAILABLE under root, which the
+#                    harness rightly refuses beside real verdicts.
+#                  - a pre-existing refs/remotes/origin/main.lock: git refuses
+#                    to update a ref whose lock exists, for ANY uid, and the
+#                    stale origin/main stays readable - the ref a blind count
+#                    would read as "current".
+#                A real read-only MOUNT refuses root too (EROFS), so the helper's
+#                own `-w` test reports "checkout not writable" there; under this
+#                fixture root sees "cannot lock ref" instead. Both are `unknown`.
 #
 # The gate's output is passed through unchanged and its exit status is this
 # wrapper's, so the runner reads the gate's own words and code.
@@ -26,10 +39,6 @@ for tool in bash git; do
     fi
 done
 scenario=$(cat "$case_dir/scenario" 2>/dev/null) || scenario=""
-if [ "$scenario" = "read-only" ] && [ "$(id -u)" = "0" ]; then
-    echo "CPP_CHECKOUT_FRESHNESS_CONTROL: unavailable - running as root, which ignores file modes"
-    exit 2
-fi
 
 work=$(mktemp -d) || exit 2
 trap 'chmod -R u+w "$work" 2>/dev/null; rm -rf "$work"' EXIT
@@ -49,7 +58,14 @@ build() {
     case "$scenario" in
         behind-1)    return 0 ;;
         fetch-fails) git -C "$work/checkout" remote set-url origin "$work/gone.git" ;;
-        read-only)   chmod -R a-w "$work/checkout/.git" ;;
+        read-only)
+            # Precondition: the stale ref must still resolve and still equal
+            # HEAD, or this case would not test the stale-count hazard at all.
+            [ "$(git -C "$work/checkout" rev-parse refs/remotes/origin/main)" = \
+              "$(git -C "$work/checkout" rev-parse HEAD)" ] || return 1
+            mkdir -p "$work/checkout/.git/refs/remotes/origin" &&
+            : > "$work/checkout/.git/refs/remotes/origin/main.lock" &&
+            chmod -R a-w "$work/checkout/.git" ;;
         *)           return 1 ;;
     esac
 }
