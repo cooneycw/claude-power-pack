@@ -801,10 +801,16 @@ def adjacent_targets(makefile: Path, control_rel: str) -> tuple[list[str], str |
         lines = makefile.read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeDecodeError) as exc:
         return [], f"{makefile.name} unreadable: {exc}"
+    inside = rule.make_define_mask(lines)
     for index, line in enumerate(lines):
         match = REGISTRATION_RE.match(line)
         if not match or match.group("path") != control_rel:
             continue
+        if inside[index]:
+            return [], (
+                f"the registration for {control_rel} in {makefile.name} sits inside a "
+                "`define ... endef` block, which is variable text, not a rule"
+            )
         for following in lines[index + 1:]:
             if following.startswith("#"):
                 continue
@@ -891,9 +897,9 @@ def discover(root: Path) -> list[tuple[Path, str]]:
     found: list[tuple[Path, str]] = []
     DISCOVERY_UNREAD.clear()
     scripts_dir = root / "scripts"
-    if not scripts_dir.is_dir():
-        return found
-    for path in sorted(scripts_dir.iterdir()):
+    # No early return: a tree with a Makefile and no scripts/ still has a source
+    # to read (counter-model review, #1276).
+    for path in sorted(scripts_dir.iterdir()) if scripts_dir.is_dir() else []:
         if not path.is_file():
             continue
         try:
@@ -1255,6 +1261,28 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
                 f"but declares target `{gate_ref.target}`"
             )
             return res
+        # THE INVOCATION MUST RUN THE DECLARED TARGET (counter-model review,
+        # #1276). Adjacency binds the MARKER to the rule; nothing bound the
+        # COMMAND to it, so a manifest declaring `verify` could run a
+        # discriminating neighbour and credit its verdict to `make:verify`. The
+        # target reaches the command only through the `{target}` placeholder,
+        # which the harness fills from the declared gate, and no token may name
+        # another target of the same Makefile literally.
+        if not any("{target}" in str(part) for part in invocation):
+            res.details.append(
+                "a make-target control's invocation must run its target through the "
+                "`{target}` placeholder, so the command cannot name a different rule"
+            )
+            return res
+        others = (rule.make_targets(root) or set()) - {gate_ref.target}
+        named = sorted({str(part) for part in invocation} & others)
+        if named:
+            res.details.append(
+                f"the invocation names other Makefile target(s) {', '.join(named)} literally; "
+                f"a make-target control runs `{gate_ref.target}` via `{{target}}` and nothing else"
+            )
+            return res
+        invocation = [str(part).replace("{target}", gate_ref.target) for part in invocation]
     # THREE STATES, THREE SENTENCES (issue #1085). This was one message for
     # "no invocation", "no `cases` key at all" and "an empty `cases` list",
     # which are three different repairs. ABSENT is not EMPTY: `spec.get("cases",

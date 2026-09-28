@@ -240,6 +240,32 @@ def make_rule_targets(line: str) -> list[str]:
     return [name for name in match.group(1).split() if MAKE_TARGET_RE.fullmatch(name)]
 
 
+def make_define_mask(lines: list[str]) -> list[bool]:
+    """For each line, True when it sits inside a `define ... endef` block.
+
+    A variable definition's body is TEXT, not rules: `verify:` inside an unused
+    `define` defines no target, and reading it as one would let a census row
+    name a rule that does not exist (counter-model review, #1276). Nested
+    defines are counted, so an inner `endef` does not end the outer block.
+    """
+    mask: list[bool] = []
+    depth = 0
+    for line in lines:
+        words = line.split()
+        opens = bool(words) and (words[0] == "define" or (
+            len(words) > 1 and words[0] in ("override", "export", "private") and words[1] == "define"))
+        closes = bool(words) and words[0] == "endef"
+        if opens:
+            mask.append(True)
+            depth += 1
+        elif closes and depth:
+            mask.append(True)
+            depth -= 1
+        else:
+            mask.append(depth > 0)
+    return mask
+
+
 def make_targets(root: Path) -> set[str] | None:
     """Every target the root's Makefile defines, or None when it cannot be read.
 
@@ -252,8 +278,10 @@ def make_targets(root: Path) -> set[str] | None:
     except (OSError, UnicodeDecodeError):
         return None
     targets: set[str] = set()
-    for line in text.splitlines():
-        targets.update(make_rule_targets(line))
+    lines = text.splitlines()
+    for line, inside in zip(lines, make_define_mask(lines)):
+        if not inside:
+            targets.update(make_rule_targets(line))
     return targets
 
 

@@ -3618,11 +3618,14 @@ def build_make_tree(
     tmp_path: Path,
     makefile: str = MK_SEEING,
     gate: object | None = None,
+    invocation: list[str] | None = None,
+    with_scripts: bool = True,
 ) -> Path:
     """A tree whose only registration is a MAKE TARGET, not a scripts/ file."""
     import hashlib
-    (tmp_path / "scripts").mkdir()
-    (tmp_path / "scripts" / "unregistered.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    if with_scripts:
+        (tmp_path / "scripts").mkdir()
+        (tmp_path / "scripts" / "unregistered.sh").write_text("#!/bin/sh\n", encoding="utf-8")
     (tmp_path / "Makefile").write_text(makefile, encoding="utf-8")
     ctl = tmp_path / "controls" / "mk"
     (ctl / "cases" / "bad" / "tests").mkdir(parents=True)
@@ -3633,7 +3636,7 @@ def build_make_tree(
     anchor.write_text(MK_BLIND, encoding="utf-8")
     manifest = {
         "gate": gate if gate is not None else {"kind": "make-target", "file": "Makefile", "target": "toy-check"},
-        "invocation": ["make", "-s", "--no-print-directory", "-f", "{gate}", "toy-check", "CASE={case}"],
+        "invocation": invocation or ["make", "-s", "--no-print-directory", "-f", "{gate}", "{target}", "CASE={case}"],
         "good_exit": 0,
         "detect_signal": TOY_SIGNAL,
         "cases": [
@@ -3764,3 +3767,39 @@ def test_a_multi_target_rule_counts_the_target_the_manifest_names(tmp_path: Path
     assert contract(out.stdout, "NEGATIVE_CONTROL_CENSUS_MEMBERS") == "1", out.stdout
     assert "NONMEMBER_REFUSED" not in out.stdout, out.stdout
     assert out.returncode == 0, out.stdout
+
+
+@pytest.mark.parametrize(
+    ("invocation", "why"),
+    [
+        (["make", "-s", "-f", "{gate}", "other", "CASE={case}"], "`{target}` placeholder"),
+        (["make", "-s", "-f", "{gate}", "{target}", "other", "CASE={case}"], "other Makefile target(s) other"),
+    ],
+    ids=["no-placeholder", "names-a-neighbour"],
+)
+def test_the_invocation_must_run_the_declared_target(tmp_path: Path, invocation: list[str], why: str) -> None:
+    """Counter-model review pass 2 (#1276), HIGH: adjacency bound the marker to the
+    rule, but nothing bound the COMMAND to it, so a discriminating neighbour could
+    be credited to the declared target."""
+    root = build_make_tree(tmp_path, invocation=invocation)
+    write_census(root, ["make toy-check", "unregistered.sh"])
+    out = run_harness(root, "--strict")
+    assert verdict_of(out.stdout) == "UNRESOLVED", out.stdout
+    assert why in out.stdout, out.stdout
+
+
+@requires_make
+def test_a_Makefile_registration_is_discovered_with_no_scripts_directory(tmp_path: Path) -> None:
+    root = build_make_tree(tmp_path, with_scripts=False)
+    write_census(root, ["make toy-check"])
+    out = run_harness(root, "--strict")
+    assert contract(out.stdout, "NEGATIVE_CONTROL_REGISTERED") == "1", out.stdout
+    assert verdict_of(out.stdout) == "PASS", out.stdout
+
+
+def test_a_marker_inside_a_define_block_is_not_a_registration_of_a_rule(tmp_path: Path) -> None:
+    makefile = "define UNUSED\n#: NEGATIVE-CONTROL: controls/mk\ntoy-check:\nendef\ntoy-check:\n\t@true\n"
+    root = build_make_tree(tmp_path, makefile=makefile)
+    out = run_harness(root, "--strict")
+    assert verdict_of(out.stdout) == "UNRESOLVED", out.stdout
+    assert "define ... endef" in out.stdout, out.stdout

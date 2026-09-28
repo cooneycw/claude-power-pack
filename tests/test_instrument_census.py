@@ -675,3 +675,12 @@ def test_parse_gate_has_a_closed_schema(value, ok):
 def test_an_assignment_is_never_read_as_a_rule(line, targets):
     """Counter-model review (#1276): `x ::= v` backtracked into a rule match."""
     assert icc.make_rule_targets(line) == targets
+
+
+def test_a_rule_inside_a_define_block_is_not_a_target(tmp_path):
+    """Counter-model review pass 2 (#1276): variable text is not a rule."""
+    rows = "| 1 | `alpha.sh` | v | c | G |\n| 2 | `make verify` | v | c | G |\n"
+    root = _tree(tmp_path, ["alpha.sh"], _adr(rows=rows))
+    _with_makefile(root, "define UNUSED\nverify:\nendef\nactual:\n\t@true\n")
+    assert icc.make_targets(root) == {"actual"}
+    assert icc.main(["check", "--root", str(root)]) == 1
