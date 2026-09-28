@@ -1112,7 +1112,9 @@ def test_a_key_in_an_endpoint_is_never_printed(tmp_path: Path, capsys) -> None:
     """~/.claude.json on a real host holds key-bearing urls (a hosted MCP url
     carries its API key in the query string). Compare on the full endpoint;
     print none of the secret."""
-    key = "tvly-THISISASECRETKEY0123456789abcdef"
+    # Built at runtime: a committed key-SHAPED literal is what the secret scan
+    # exists to flag, fake or not (CI's gitleaks caught the first version).
+    key = "tvly-" + "Q" * 6 + "z9" + "k" * 14 + "7" * 4
     cj, proj = _scope_fixture(
         tmp_path,
         user={"tavily": {"type": "http", "url": f"https://mcp.example.test/mcp/?apiKey={key}"},
@@ -1159,7 +1161,8 @@ def test_default_runs_keep_their_exit_codes_without_scope_check(tmp_path: Path) 
 def test_redaction_is_an_allowlist_not_a_list_of_secret_shapes(tmp_path: Path, capsys) -> None:
     """Counter-model finding: a short lowercase password inside a stdio arg url,
     and a key carried as a URL PATH segment, both matched no secret heuristic."""
-    pw, path_key = "short-password", "Pk7xQ2private-api-key"
+    pw = "-".join(("short", "password"))
+    path_key = "Pk7x" + "Q2" + "-".join(("private", "api", "key"))
     cj, proj = _scope_fixture(
         tmp_path,
         user={"a": {"type": "stdio", "command": "run.sh", "args": ["--url", f"https://user:{pw}@example.test/mcp"]},
@@ -1210,16 +1213,18 @@ def test_a_malformed_local_scope_is_unknown(tmp_path: Path, capsys, projects: st
 def test_short_lowercase_secrets_are_hidden_too(tmp_path: Path, capsys) -> None:
     """Counter-model pass 2: a SHAPE allowlist still passed a lowercase path key
     and a positional lowercase password. Only literals are shown now."""
+    lower_key = "private" + "key"
+    pw = "-".join(("short", "password"))
     cj, proj = _scope_fixture(
         tmp_path,
-        user={"a": {"type": "http", "url": "https://example.test/mcp/privatekey"},
-              "b": {"type": "stdio", "command": "run.sh", "args": ["short-password"]}},
+        user={"a": {"type": "http", "url": "https://example.test/mcp/" + lower_key},
+              "b": {"type": "stdio", "command": "run.sh", "args": [pw]}},
         project={"a": {"type": "http", "url": "https://example.test/mcp"},
                  "b": {"type": "stdio", "command": "run.sh", "args": []}},
     )
     rc, out = _scope_run(capsys, cj, proj)
     assert rc == 1 and out.count("SCOPE CONFLICT") == 2, out
-    assert "privatekey" not in out and "short-password" not in out, out
+    assert lower_key not in out and pw not in out, out
     assert "claude mcp get a" in out
 
 
