@@ -131,6 +131,20 @@
       "why": "Codex, MEDIUM. Only json.JSONDecodeError was caught, so valid JSON of the wrong shape raised out of the checker and produced NO BLOCK - indistinguishable from a step that never ran, which is the exact ambiguity this design exists to remove."
     },
     {
+      "name": "claim-not-an-object",
+      "input": "cases/claim-not-an-object",
+      "expect": "UNKNOWN(claim-unreadable)",
+      "expect_exit": 3,
+      "why": "Issue #1268: VALID JSON that is not an object ([]). malformed-claim supplies UNREADABLE json, a different branch, so the review-driven shape check (_claim_shape_error) was itself uncontrolled. Without the object check, claim.get raises AttributeError and the checker prints no block at all."
+    },
+    {
+      "name": "tests-added-bool",
+      "input": "cases/tests-added-bool",
+      "expect": "UNKNOWN(claim-unreadable)",
+      "expect_exit": 3,
+      "why": "Issue #1268: tests_added=true. A bool IS an int in Python, so without the explicit bool refusal it counts as 1 and the claim is scored DISAGREE(under) against a diff it was never a count of."
+    },
+    {
       "name": "head-skips",
       "input": "cases/head-skips",
       "expect": "UNKNOWN(head-unsignalled)",
@@ -183,7 +197,8 @@
       "find": "if proc\\.returncode == 5:",
       "replace": "if False:",
       "count": 1,
-      "expect": "caught"
+      "expect": "uncaught",
+      "why": "EQUIVALENT MUTANT at the verdict level (issue #1268, measured on 46b0e06). A case that really reaches pytest exit 5 (base and head carry a conftest.py whose pytest_collection_modifyitems empties the items) reports, on the real checker: detail 'pytest collected no tests for this node id', verdict UNKNOWN(unsignalled), tier2_executed=1, exit 3. With this mutation applied: detail 'no FAILED line for test_calc.py::test_add (exit 5)', verdict UNKNOWN(unsignalled), tier2_executed=1, exit 3. Only the human-readable detail differs, and the selftest compares none of it, so no case can catch this. Deliberately NOT made catchable by pinning the detail text - that would make wording a behaviour. If a consumer ever acts on the detail, promote it to a FORCED_CLAIM_ key and add a case."
     },
     {
       "name": "claim-must-be-an-object",
