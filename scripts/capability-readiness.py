@@ -542,7 +542,8 @@ def mcp_row(mcp, capability: str, server: str, beyond: str, home: Path, project_
     elif verdict in ("unexamined", "auth-required"):
         row["state"] = UNEXAMINED
         row["unexamined"].insert(0, "the MCP handshake")
-        row["next"] = "the handshake was not attempted (see the observation); check it by hand or with an authorised client"
+        row["next"] = ("the handshake was not attempted (see the observation); "
+                       "check it by hand or with an authorised client")
     else:
         row["state"] = UNREACHABLE
         row["next"] = f"the '{server}' server did not complete the handshake - check it with: claude mcp get {server}"
