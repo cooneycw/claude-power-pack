@@ -1027,3 +1027,190 @@ def test_the_GITHUB_ACTIONS_lane_finds_the_required_event_when_present(tmp_path)
                   env={"FLOW_CI_GH": str(gh), "WOODPECKER_API_TOKEN": ""})
     m = _markers(result.stdout)
     assert m["FLOW_CI_PIPELINE"] == ["8"] and m["FLOW_CI_STATUS"] == ["failure"], result.stdout
+
+
+# ── Pre-code failure marker (issue #1342) ──────────────────────────────────
+#
+# A red `clone` step - the checkout that runs before any of the change's code -
+# used to read exactly like a red test suite. The shape of these fixtures is the
+# REAL Woodpecker API response for CPP pipeline 2935
+# (`/api/repos/1/pipelines/2935`): every child carries `type`, and the checkout
+# is `{"name": "clone", "type": "clone"}`. No live clone failure exists to copy
+# - the 56 most recent failed CPP pipelines all failed in `commands` steps - so
+# the failing state is set by hand on that real shape.
+
+
+def _api_failure(tmp_path: Path, children: list[dict]) -> subprocess.CompletedProcess:
+    curl = _write_fake_curl(
+        tmp_path,
+        {
+            "/api/repos/lookup/": {"id": 17},
+            "pipelines?per_page": [_pipeline(1275, SHA, "failure")],
+            "pipelines/1275": {"workflows": [{"name": "woodpecker", "children": children}]},
+        },
+        tmp_path / "argv.log",
+    )
+    return _run(tmp_path, SHA, "--repo", "o/r", env={"FLOW_CI_CURL": str(curl)})
+
+
+@requires_bash
+def test_red_case_a_CLONE_failure_is_marked_pre_code(tmp_path):
+    result = _api_failure(tmp_path, [
+        {"name": "clone", "type": "clone", "state": "failure", "exit_code": 128},
+        {"name": "validate", "type": "commands", "state": "skipped"},
+    ])
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_STATUS"] == ["failure"]
+    assert m["FLOW_CI_FAILED_STEP"] == ["clone"], "the existing line is unchanged"
+    assert m["FLOW_CI_PRECODE_FAILURE"] == ["clone"]
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["precode"]
+    assert result.stdout.splitlines()[-1] == "FLOW_CI_STATUS: failure"
+    assert result.returncode == 0, "no exit-code change"
+
+
+@requires_bash
+def test_the_other_verdict_a_COMMANDS_failure_is_code_and_carries_no_marker(tmp_path):
+    result = _api_failure(tmp_path, [
+        {"name": "clone", "type": "clone", "state": "success", "exit_code": 0},
+        {"name": "validate", "type": "commands", "state": "failure", "exit_code": 2},
+    ])
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_FAILED_STEP"] == ["validate"]
+    assert "FLOW_CI_PRECODE_FAILURE" not in m
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["code"]
+
+
+@requires_bash
+def test_a_clone_and_a_code_failure_together_are_MIXED(tmp_path):
+    result = _api_failure(tmp_path, [
+        {"name": "clone", "type": "clone", "state": "failure"},
+        {"name": "validate", "type": "commands", "state": "failure"},
+    ])
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_PRECODE_FAILURE"] == ["clone"]
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["mixed"]
+
+
+@requires_bash
+def test_a_step_with_NO_TYPE_is_unknown_never_code(tmp_path):
+    """An older server, or a trimmed response: absence of a type is not `commands`."""
+    result = _api_failure(tmp_path, [{"name": "validate", "state": "failure"}])
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_FAILED_STEP"] == ["validate"]
+    assert "FLOW_CI_PRECODE_FAILURE" not in m
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["unknown"]
+
+
+@requires_bash
+def test_a_failure_with_NO_FAILED_STEP_is_unknown(tmp_path):
+    result = _api_failure(tmp_path, [{"name": "clone", "type": "clone", "state": "success"}])
+    m = _markers(result.stdout)
+    assert "FLOW_CI_FAILED_STEP" not in m
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["unknown"]
+
+
+@requires_bash
+def test_a_SUCCESS_carries_neither_new_line(tmp_path):
+    curl = _write_fake_curl(
+        tmp_path,
+        {"/api/repos/lookup/": {"id": 17}, "pipelines?per_page": [_pipeline(1275, SHA, "success")]},
+        tmp_path / "argv.log",
+    )
+    m = _markers(_run(tmp_path, SHA, "--repo", "o/r", env={"FLOW_CI_CURL": str(curl)}).stdout)
+    assert m["FLOW_CI_STATUS"] == ["success"]
+    assert "FLOW_CI_FAILURE_ORIGIN" not in m and "FLOW_CI_PRECODE_FAILURE" not in m
+
+
+def _typed_wpcli(tmp_path: Path, name_state: list[str], name_type: list[str] | None) -> Path:
+    """A woodpecker-cli whose `ps` answers per FORMAT: the name|state call, and
+    the separate name|type call. `name_type=None` makes the type call FAIL, the
+    way a CLI whose template cannot render `.step.Type` would."""
+    type_branch = (
+        ["cat <<'ROWS'", *name_type, "ROWS", "exit 0"] if name_type is not None else ["exit 1"]
+    )
+    body = [
+        "#!/usr/bin/env bash",
+        'case "$2" in',
+        "ls)",
+        "cat <<'ROWS'",
+        f"1275|failure|{SHA}|push",
+        "ROWS",
+        ";;",
+        "ps)",
+        'if [[ "$*" == *".step.Type"* ]]; then',
+        *type_branch,
+        "fi",
+        "cat <<'ROWS'",
+        *name_state,
+        "ROWS",
+        ";;",
+        "*) exit 1 ;;",
+        "esac",
+        "",
+    ]
+    path = tmp_path / "woodpecker-cli"
+    path.write_text("\n".join(body), encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+def _cli_run(tmp_path: Path, wpcli: Path) -> dict[str, list[str]]:
+    result = _run(tmp_path, SHA, "--repo", "o/r",
+                  env={"FLOW_CI_CURL": "/nonexistent/curl", "FLOW_CI_WPCLI": str(wpcli)})
+    return _markers(result.stdout)
+
+
+@requires_bash
+def test_the_CLI_lane_marks_a_clone_failure_from_the_TYPE_call(tmp_path):
+    wpcli = _typed_wpcli(tmp_path, ["clone|failure", "validate|skipped"],
+                         ["clone|clone", "validate|commands"])
+    m = _cli_run(tmp_path, wpcli)
+    assert m["FLOW_CI_FAILED_STEP"] == ["clone"]
+    assert m["FLOW_CI_PRECODE_FAILURE"] == ["clone"]
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["precode"]
+
+
+@requires_bash
+def test_the_CLI_lane_marks_a_commands_failure_as_code(tmp_path):
+    wpcli = _typed_wpcli(tmp_path, ["clone|success", "validate|failure"],
+                         ["clone|clone", "validate|commands"])
+    m = _cli_run(tmp_path, wpcli)
+    assert "FLOW_CI_PRECODE_FAILURE" not in m
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["code"]
+
+
+@requires_bash
+def test_a_FAILED_type_call_keeps_the_step_names_and_says_unknown(tmp_path):
+    """`.step.Type` is untested against a real CLI; if it cannot render, the
+    failed-step NAMES must survive and the origin must be unknown, not code."""
+    wpcli = _typed_wpcli(tmp_path, ["clone|failure", "validate|failure"], None)
+    m = _cli_run(tmp_path, wpcli)
+    assert m["FLOW_CI_FAILED_STEP"] == ["clone", "validate"]
+    assert "FLOW_CI_PRECODE_FAILURE" not in m
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["unknown"]
+
+
+@requires_bash
+def test_the_GITHUB_ACTIONS_lane_cannot_classify_and_says_unknown(tmp_path):
+    """A checkout on Actions is a step INSIDE a job; the job list carries no
+    pre-code type. Its failure must never read as a code failure."""
+    path = tmp_path / "bin" / "gh"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    runs = [{"status": "completed", "conclusion": "failure", "databaseId": 8,
+             "url": "v", "event": "push"}]
+    path.write_text(
+        "#!/usr/bin/env bash\n"
+        'if [[ "$1 $2" == "run list" ]]; then\n'
+        "cat <<'JSON'\n" + json.dumps(runs) + "\nJSON\nexit 0\nfi\n"
+        'if [[ "$1 $2" == "run view" ]]; then echo checkout; exit 0; fi\n'
+        "exit 1\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+    result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "push",
+                  env={"FLOW_CI_GH": str(path), "WOODPECKER_API_TOKEN": ""})
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_PROVIDER"] == ["github-actions"], result.stdout + result.stderr
+    assert m["FLOW_CI_FAILED_STEP"] == ["checkout"]
+    assert "FLOW_CI_PRECODE_FAILURE" not in m
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["unknown"]

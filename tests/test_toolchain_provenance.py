@@ -391,6 +391,7 @@ def test_the_report_emits_the_key_value_contract(
     for key in (
         "TOOLCHAIN_CHECKOUT=",
         "TOOLCHAIN_HEAD=",
+        "TOOLCHAIN_HEAD_AGE=",
         "TOOLCHAIN_UPSTREAM=",
         "TOOLCHAIN_BEHIND=",
         "TOOLCHAIN_AHEAD=",
@@ -399,3 +400,86 @@ def test_the_report_emits_the_key_value_contract(
     ):
         assert any(line.startswith(key) for line in report.splitlines()), key
     assert "TOOLCHAIN_PROVENANCE: current" in report
+
+
+FIVE_DAYS = 5 * 86400
+
+
+def test_red_case_a_behind_verdict_dates_HEAD_not_only_the_fetch(
+    upstream_and_clone: tuple[Path, Path],
+) -> None:
+    """Issue #1342: `behind` used to say only how old the FETCH was.
+
+    The clone's HEAD is backdated five days and then fetched just now, so the
+    two ages differ by construction: the fetch is fresh, and the executing code is
+    not. Before #1342 the quiet line read `last fetched 0h ago` and nothing
+    else, which described the evidence and said nothing about the code actually
+    being run.
+    """
+    origin, clone = upstream_and_clone
+    stamp = f"@{int(time.time()) - FIVE_DAYS} +0000"
+    (origin / "marker.txt").write_text("backdated", encoding="utf-8")
+    _git(origin, "add", "-A")
+    subprocess.run(
+        ["git", "commit", "--quiet", "-m", "backdated"],
+        cwd=origin,
+        check=True,
+        capture_output=True,
+        env={**os.environ, "GIT_COMMITTER_DATE": stamp, "GIT_AUTHOR_DATE": stamp},
+    )
+    _git(clone, "pull", "--quiet", "--ff-only")
+    _commit(origin, "after the backdated one")
+    _git(clone, "fetch", "--quiet", "origin")
+
+    spoken = _run(clone, "--quiet").stdout
+    assert "BEHIND" in spoken, spoken
+    assert "last fetched 0h ago" in spoken, spoken
+    assert "HEAD committed 120h ago" in spoken, spoken
+
+    payload = _json(clone)
+    assert payload["verdict"] == "behind"
+    assert payload["behind"] == 1
+    assert abs(payload["head_age_seconds"] - FIVE_DAYS) < 600
+    report = _run(clone).stdout
+    assert "committer date" in report, "the source of the age must be named"
+    head_age = [ln for ln in report.splitlines() if ln.startswith("TOOLCHAIN_HEAD_AGE=")]
+    assert head_age and abs(int(head_age[0].split("=", 1)[1]) - FIVE_DAYS) < 600
+
+
+def test_blind_case_an_unreadable_HEAD_date_is_unknown_never_zero(
+    upstream_and_clone: tuple[Path, Path],
+    tmp_path: Path,
+) -> None:
+    """The other verdict: a date that cannot be read must not print as "fresh".
+
+    A git wrapper that fails only `log` leaves every other measurement intact,
+    so the verdict is still a real `behind` and only the HEAD age is lost.
+    """
+    origin, clone = upstream_and_clone
+    _commit(origin, "commit 3")
+    _git(clone, "fetch", "--quiet", "origin")
+    real_git = shutil.which("git")
+    wrapper = tmp_path / "git-no-log"
+    wrapper.write_text(
+        "#!/usr/bin/env bash\n"
+        'for a in "$@"; do [ "$a" = log ] && exit 1; done\n'
+        f'exec "{real_git}" "$@"\n',
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    env = {**os.environ, "CPP_TOOLCHAIN_GIT": str(wrapper)}
+
+    def run(*args: str) -> str:
+        return subprocess.run(
+            ["bash", str(SCRIPT), "--path", str(clone), *args],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=True,
+        ).stdout
+
+    payload = json.loads(run("--json"))
+    assert payload["verdict"] == "behind"
+    assert payload["head_age_seconds"] is None
+    assert "HEAD age unknown" in run("--quiet")
+    assert "TOOLCHAIN_HEAD_AGE=-" in run().splitlines()

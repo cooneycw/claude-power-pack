@@ -142,6 +142,37 @@ PIPELINE="-"
 URL="-"
 STATUS="unknown"
 FAILED_STEPS=()
+# The provider's TYPE for each failed step, index-aligned with FAILED_STEPS
+# (issue #1342). Empty means the lane could not say - never "a code step".
+FAILED_STEP_TYPES=()
+
+# WHERE a failure happened, not only which step (issue #1342). A red `clone`
+# step - the checkout that runs before any of the change's code - read exactly
+# like a red test suite, so a worker debugged its own diff for a network blip.
+# Pre-code is decided by the provider's step TYPE (`clone` on Woodpecker), never
+# by a list of step names: a name list is a hardcoded universe, and a step
+# renamed or added later would silently fall outside it.
+#
+# The ORIGIN line is what keeps the marker's ABSENCE from being read as
+# evidence. Without it, "no FLOW_CI_PRECODE_FAILURE line" would mean "a code
+# failure" on every lane that cannot classify at all - GitHub Actions, whose
+# checkout is a step inside a job, or a CLI whose template gave no type. Those
+# report `unknown`, which is a different answer from `code`.
+failure_origin() {
+    local i n="${#FAILED_STEPS[@]}" precode=0 code=0
+    if [[ "$n" -eq 0 ]]; then echo "unknown"; return; fi
+    for (( i = 0; i < n; i++ )); do
+        case "${FAILED_STEP_TYPES[$i]:-}" in
+            "")    echo "unknown"; return ;;
+            clone) precode=$(( precode + 1 )) ;;
+            *)     code=$(( code + 1 )) ;;
+        esac
+    done
+    if [[ "$code" -eq 0 ]]; then echo "precode"
+    elif [[ "$precode" -eq 0 ]]; then echo "code"
+    else echo "mixed"
+    fi
+}
 
 emit() {
     echo "FLOW_CI_PROVIDER: $PROVIDER"
@@ -154,6 +185,14 @@ emit() {
     for step in ${FAILED_STEPS+"${FAILED_STEPS[@]}"}; do
         echo "FLOW_CI_FAILED_STEP: $step"
     done
+    if [[ "$STATUS" == "failure" ]]; then
+        local i
+        for (( i = 0; i < ${#FAILED_STEPS[@]}; i++ )); do
+            [[ "${FAILED_STEP_TYPES[$i]:-}" == "clone" ]] \
+                && echo "FLOW_CI_PRECODE_FAILURE: ${FAILED_STEPS[$i]}"
+        done
+        echo "FLOW_CI_FAILURE_ORIGIN: $(failure_origin)"
+    fi
     echo "FLOW_CI_STATUS: $STATUS"
     if [[ "$WANT_EXIT_CODE" -eq 1 && "$STATUS" == "failure" ]]; then
         exit 1
@@ -351,10 +390,15 @@ if [[ "$HAVE_JQ" -eq 1 && -n "$WP_TOKEN" && -n "$WP_SERVER" ]]; then
         # Name the failed steps: pipeline colour cannot tell a red test suite
         # from a red deploy step, and Step 8 needs that distinction.
         if [[ "$STATUS" == "failure" && "$PIPELINE" != "-" ]]; then
-            while IFS= read -r step; do
-                [[ -n "$step" ]] && FAILED_STEPS+=("$step")
+            # Name and TYPE from the one response (issue #1342). A step with no
+            # `type` field records an empty type, which classifies as unknown.
+            while IFS=$'\t' read -r step step_type; do
+                if [[ -n "$step" ]]; then
+                    FAILED_STEPS+=("$step")
+                    FAILED_STEP_TYPES+=("$step_type")
+                fi
             done < <(wp_api "/api/repos/$REPO_ID/pipelines/$PIPELINE" \
-                | jq -r '[.workflows[]?.children[]? | select(.state=="failure" or .state=="error" or .state=="killed") | .name] | .[]' 2>/dev/null)
+                | jq -r '[.workflows[]?.children[]? | select(.state=="failure" or .state=="error" or .state=="killed") | [.name, (.type // "")] | @tsv] | .[]' 2>/dev/null)
         fi
         emit
     fi
@@ -429,6 +473,21 @@ if command -v "$WPCLI_BIN" >/dev/null 2>&1; then
                 esac
             done < <("$WPCLI_BIN" pipeline ps --format '{{ .step.Name }}|{{ .step.State }}
 ' "$REPO" "$PIPELINE" 2>/dev/null)
+            # The step TYPE comes from a SEPARATE call (issue #1342). `.step.Type`
+            # is untested against a real woodpecker-cli; folded into the call
+            # above, a template that cannot render it would erase the failed-step
+            # NAMES too. Here a failed or partial answer only leaves a type empty,
+            # which reports `unknown`.
+            # Plain rows, not an associative array: `declare -A` is bash 4+.
+            WPCLI_TYPE_ROWS="$("$WPCLI_BIN" pipeline ps --format '{{ .step.Name }}|{{ .step.Type }}
+' "$REPO" "$PIPELINE" 2>/dev/null)"
+            for step in ${FAILED_STEPS+"${FAILED_STEPS[@]}"}; do
+                found_type=""
+                while IFS='|' read -r row_step row_type; do
+                    if [[ "$row_step" == "$step" ]]; then found_type="$row_type"; break; fi
+                done <<<"$WPCLI_TYPE_ROWS"
+                FAILED_STEP_TYPES+=("$found_type")
+            done
         fi
         emit
     fi
