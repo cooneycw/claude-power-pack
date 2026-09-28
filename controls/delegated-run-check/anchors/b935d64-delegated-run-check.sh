@@ -59,17 +59,13 @@
 #   DELEGATED_RUN_EXIT:   <the exit code as passed>
 #   DELEGATED_RUN_SIGNAL: <one line per signal found; omitted when none>
 #   DELEGATED_RUN_DETAIL: <the first error text found, truncated; omitted when none>
-#   DELEGATED_RUN_EVENTS: <non-blank lines that parsed as JSON>
-#   DELEGATED_RUN_RECOGNIZED: <of those, the ones with a recognizable event shape>
-#   DELEGATED_RUN_UNPARSED: <non-blank lines that did NOT parse (issue #1265)>
 #   DELEGATED_RUN_TOOL_ERRORS: <count of tool calls that reported an error, in
 #                         any harness's shape; ALWAYS emitted, 0 too - see below>
 #   DELEGATED_RUN_STATUS: success | failure
 #
 # Two conventions live in that block, and the difference is deliberate rather
 # than stylistic. SIGNAL and DETAIL are omitted when there is nothing to say.
-# LANE, FILE, EXIT, EVENTS, RECOGNIZED, UNPARSED, TOOL_ERRORS and STATUS are
-# always emitted.
+# LANE, FILE, EXIT, TOOL_ERRORS and STATUS are always emitted.
 #
 # TOOL_ERRORS is in the second family because it is a COUNT, and a count that
 # appears only when non-zero cannot distinguish "I looked and found none" from
@@ -156,12 +152,6 @@
 
 set -uo pipefail
 
-#: NEGATIVE-CONTROL: controls/delegated-run-check
-#: ADR 0008 row 13, class G: whether a /codex, /qwen or /gemma run is treated as
-#: success rests on this helper, and nothing re-derives it (issue #1265). The
-#: control's BAD cases are failed tool calls nested 8 and 50 levels deep - the
-#: walk stopped at 6 and reported 0 - and its anchor is this script at b935d64.
-
 # Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
 # NAMED FOR THE SCRIPT, NOT ITS MARKER NAMESPACE, and deliberately: this helper
 # already prints `DELEGATED_RUN_EXIT: <exit code as passed>` on stdout - the
@@ -177,10 +167,7 @@ EXPECT_TOOLS=0
 QUIET=0
 
 usage() {
-    # The WHOLE header, to the first non-comment line - never a fixed line range,
-    # which silently truncated Signals and Exit codes once the header outgrew it
-    # (issue #1265).
-    awk 'NR >= 2 { if ($0 !~ /^#/) exit; print }' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,90p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 EXPECT_LANE=0
@@ -234,23 +221,17 @@ esac
 SIGNALS=()
 #: The denominator. A helper whose whole defect was "reports success when
 #: nothing ran" must be able to say how much it actually looked at: EVENTS is
-#: the non-blank lines that PARSED as JSON, RECOGNIZED the subset carrying a
-#: recognizable event shape, and UNPARSED the non-blank lines that did not parse
-#: at all (issue #1265). Before UNPARSED existed those lines vanished from every
-#: count, so `RECOGNIZED == EVENTS` read as "saw all of it" over a payload with
-#: twenty unreadable lines. 0 EVENTS means the verdict was computed over nothing,
-#: which is UNKNOWN rather than clean - and `output-unrecognized` says so.
+#: the JSON lines parsed, RECOGNIZED the subset carrying a recognizable event
+#: shape. 0 here means the verdict was computed over nothing, which is UNKNOWN
+#: rather than clean - and `output-unrecognized` is the signal that says so.
 EVENTS=0
 RECOGNIZED=0
-UNPARSED=0
 #: Initialized HERE, not inside the parse branch. It used to be set only on the
 #: path that runs the JSONL parser, so an empty output file skipped it and the
 #: script died on `TOOL_ERRORS: unbound variable` PART WAY THROUGH the contract
-#: - after SIGNAL and DETAIL, before STATUS - so a caller reading the contract
-#: got no verdict line at all. (This comment used to add "and on main that exits
-#: 0 ... reported success"; measured, the pre-fix path exits 1 on an empty file -
-#: `git show c7297c2~1:scripts/delegated-run-check.sh` - Nit Store #864 comment
-#: 5679524656, corrected in #1265.) Found while adding the denominator.
+#: - after SIGNAL and DETAIL, before STATUS - and on main that exits 0. A run
+#: that produced no stream at all reported success, which is this issue's own
+#: failure class in a second code path. Found while adding the denominator.
 TOOL_ERRORS=0
 DETAIL=""
 
@@ -314,12 +295,6 @@ TOOL_TYPES = {
     "tool_use", "tool_call", "tool_result", "function_call", "tool",
     "command_execution", "file_change", "mcp_tool_call",
     "patch_apply", "apply_patch", "local_shell_call", "exec_command",
-    # Codex multi-agent collaboration (issue #1265). The spelling is taken from
-    # a REAL capture, not guessed: codex-cli 0.158.0 with `multi_agent` enabled
-    # emits `item.type: "collab_tool_call"` - tests/fixtures/delegated_runs/
-    # codex-collab-capture.jsonl. `collab_agent_tool_call`, the other candidate
-    # the nit named, was NOT observed and is deliberately absent.
-    "collab_tool_call",
 }
 
 # A stream that stops before its terminal event is a run that did not finish.
@@ -341,7 +316,6 @@ saw_tool = False
 saw_terminal = False
 recognized = 0
 parsed = 0
-unparsed = 0
 
 
 def note(text):
@@ -355,35 +329,19 @@ def type_of(node):
     return str(node.get("type", "")).lower() if isinstance(node, dict) else ""
 
 
-def _walk(node):
-    """Every dict and list in ``node``, depth-first, with NO depth limit.
-
-    Iterative on purpose (issue #1265). The recursive walks this replaces
-    stopped at depth 6 and reported what they had found so far - a failed
-    tool call nested deeper counted as 0, the confident answer over part of
-    the payload this helper exists to refuse. An explicit stack has no depth
-    at which it gives up and cannot hit RecursionError; JSON from json.loads
-    cannot be cyclic, so it always terminates. Children are pushed in reverse
-    so the visit order matches the old recursion's.
-    """
-    stack = [node]
-    while stack:
-        current = stack.pop()
-        if isinstance(current, dict):
-            yield current
-            stack.extend(reversed([v for v in current.values() if isinstance(v, (dict, list))]))
-        elif isinstance(current, list):
-            yield current
-            stack.extend(reversed([v for v in current if isinstance(v, (dict, list))]))
-
-
-def tool_types_in(node):
+def tool_types_in(node, depth=0):
     """Every type/tool/name value in the object, so `item.type` is seen too."""
-    for current in _walk(node):
-        if isinstance(current, dict):
-            for key, value in current.items():
-                if key.lower() in ("type", "tool", "name") and isinstance(value, str):
-                    yield value.lower()
+    if depth > 6:
+        return
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key.lower() in ("type", "tool", "name") and isinstance(value, str):
+                yield value.lower()
+            else:
+                yield from tool_types_in(value, depth + 1)
+    elif isinstance(node, list):
+        for item in node:
+            yield from tool_types_in(item, depth + 1)
 
 
 def texts_of(node, depth=0):
@@ -411,7 +369,7 @@ def texts_of(node, depth=0):
                     yield from texts_of(item, depth + 1)
 
 
-def errored_tool_calls(node):
+def errored_tool_calls(node, depth=0):
     """Count tool calls whose own `state.status` is "error" (issue #836).
 
     ONE of three recognizers, and the qualifier is load-bearing (issue
@@ -440,13 +398,17 @@ def errored_tool_calls(node):
     this counter's own ownership boundary; `test_a_non_tool_error_state_is_not_
     counted_as_a_tool_error` pins it.
     """
+    if depth > 6 or not isinstance(node, (dict, list)):
+        return 0
+    if isinstance(node, list):
+        return sum(errored_tool_calls(item, depth + 1) for item in node)
     found = 0
-    for current in _walk(node):
-        if not isinstance(current, dict):
-            continue
-        state = current.get("state")
-        if isinstance(state, dict) and str(state.get("status", "")).lower() == "error":
-            found += 1
+    state = node.get("state")
+    if isinstance(state, dict) and str(state.get("status", "")).lower() == "error":
+        found += 1
+    for value in node.values():
+        if isinstance(value, (dict, list)):
+            found += errored_tool_calls(value, depth + 1)
     return found
 
 
@@ -671,9 +633,6 @@ with open(path, "r", encoding="utf-8", errors="replace") as handle:
         except (ValueError, TypeError):
             # Not JSON: a harness banner or a stderr line that landed in the
             # stream. That banner is sometimes exactly where the error surfaces.
-            # Counted (issue #1265): a line this helper could not read is part
-            # of the payload, and must not vanish from the denominator.
-            unparsed += 1
             if line.lstrip().startswith("[API Error"):
                 signals.add("api-error")
                 note(line)
@@ -750,7 +709,6 @@ print("DETAIL=" + detail)
 print("TOOL_ERRORS=%d" % tool_errors)
 print("EVENTS=%d" % parsed)
 print("RECOGNIZED=%d" % recognized)
-print("UNPARSED=%d" % unparsed)
 PYEOF
 )
     PY_STATUS=$?
@@ -777,8 +735,6 @@ PYEOF
         [[ "$PY_TOOL_ERRORS" =~ ^[0-9]+$ ]] && TOOL_ERRORS="$PY_TOOL_ERRORS"
         [[ "$PY_EVENTS" =~ ^[0-9]+$ ]] && EVENTS="$PY_EVENTS"
         [[ "$PY_RECOGNIZED" =~ ^[0-9]+$ ]] && RECOGNIZED="$PY_RECOGNIZED"
-        PY_UNPARSED="$(py_field UNPARSED)"
-        [[ "$PY_UNPARSED" =~ ^[0-9]+$ ]] && UNPARSED="$PY_UNPARSED"
         if [[ -n "$PY_SIGNALS" ]]; then
             IFS=',' read -r -a found <<< "$PY_SIGNALS"
             for signal in "${found[@]}"; do
@@ -847,7 +803,6 @@ done
 [[ -n "$DETAIL" ]] && echo "DELEGATED_RUN_DETAIL: $DETAIL"
 echo "DELEGATED_RUN_EVENTS: $EVENTS"
 echo "DELEGATED_RUN_RECOGNIZED: $RECOGNIZED"
-echo "DELEGATED_RUN_UNPARSED: $UNPARSED"
 echo "DELEGATED_RUN_TOOL_ERRORS: $TOOL_ERRORS"
 echo "DELEGATED_RUN_STATUS: $STATUS"
 
