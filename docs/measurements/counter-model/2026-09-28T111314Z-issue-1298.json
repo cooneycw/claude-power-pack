@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1298-preserve-test-runner-classification-in-quoted-shel",
+  "counts": {
+    "accepted": 4,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "9f3a3b2a79682c63a0012bbfb84341ff123d0142",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1298",
+  "passes": 2,
+  "recorded_at": "2026-09-28T11:13:14Z",
+  "red_cases": {
+    "already_covered": 12,
+    "proposed": 13
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
