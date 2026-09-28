@@ -587,13 +587,19 @@ fails the pipeline, so registering one would trade a working control for a red
 build. `tests/test_stash_worktree_guard.py` carries both halves issue #1056
 names, plus a blind-hook variant asserting the known-bad outcome flips.
 
-<!-- instrument-census: external-subjects: ruff, mypy, pytest, gitleaks, make, lib.cicd, lib.security, lib.creds, pipeline, infra-init, infra-discover, infra-pipeline, init-manifest -->
+<!-- instrument-census: external-subjects: ruff, mypy, pytest, gitleaks, lib.cicd, lib.security, lib.creds, pipeline, infra-init, infra-discover, infra-pipeline, init-manifest -->
 
-`ruff`, `mypy`, `pytest`, `gitleaks`, `make` (the `verify`
-aggregate, row 40), `lib.cicd`, `lib.security`, `lib.creds`, and the `lib.cicd`
-subcommands `pipeline`, `infra-init`, `infra-discover`, `infra-pipeline` and
-`init-manifest`. `hadolint` was on this list until issue #943; see the note under
-**Universe and derivation** for why it left. Being on this list is a statement about where the instrument
+`ruff`, `mypy`, `pytest`, `gitleaks`, `lib.cicd`, `lib.security`, `lib.creds`,
+and the `lib.cicd` subcommands `pipeline`, `infra-init`, `infra-discover`,
+`infra-pipeline` and `init-manifest`. `hadolint` was on this list until issue #943;
+see the note under **Universe and derivation** for why it left. `make` was on it
+until issue #1276: a `make <target>` row is now the TYPED subject `make:<target>`
+(row 40 is `make:verify`), validated as a target the Makefile defines, and
+REGISTRABLE - a `#: NEGATIVE-CONTROL:` marker directly above the rule, with a
+`gate: {kind: make-target, file: Makefile, target: <t>}` manifest, is discovered
+and scored like a `scripts/` gate. The population does not widen to every make
+target; only the targets a row names are checked, and a registered make-target
+gate with no row FAILS the negative-control run rather than being named. Being on this list is a statement about where the instrument
 LIVES, never that it is out of the bound - `gitleaks` is row 44 and carries a
 control today, reached by wrapping it in `secret-scan-check.sh` (row 72). The
 wrapper is the route for the others.

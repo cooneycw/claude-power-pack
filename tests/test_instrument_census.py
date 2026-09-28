@@ -150,7 +150,7 @@ def test_every_declared_external_is_actually_absent_from_scripts():
 
 @pytest.mark.parametrize(
     ("case", "expected"),
-    [("bad-unaccounted", 1), ("bad-stale-subject", 1), ("good-accounted", 0)],
+    [("bad-unaccounted", 1), ("bad-stale-subject", 1), ("bad-stale-make-target", 1), ("good-accounted", 0)],
 )
 def test_the_committed_cases_discriminate(case, expected):
     assert icc.main(["check", "--root", str(CASES / case)]) == expected
@@ -158,7 +158,7 @@ def test_the_committed_cases_discriminate(case, expected):
 
 @pytest.mark.parametrize(
     ("case", "signal"),
-    [("bad-unaccounted", "UNACCOUNTED: "), ("bad-stale-subject", "STALE: ")],
+    [("bad-unaccounted", "UNACCOUNTED: "), ("bad-stale-subject", "STALE: "), ("bad-stale-make-target", "STALE: ")],
 )
 def test_each_bad_case_fires_exactly_the_finding_it_names(case, signal, capsys):
     """A case that fails for a second, incidental reason is not evidence.
@@ -177,7 +177,7 @@ def test_each_bad_case_fires_exactly_the_finding_it_names(case, signal, capsys):
     assert findings[0].startswith(signal)
 
 
-@pytest.mark.parametrize("case", ["bad-unaccounted", "bad-stale-subject"])
+@pytest.mark.parametrize("case", ["bad-unaccounted", "bad-stale-subject", "bad-stale-make-target"])
 def test_the_anchor_is_blind_to_the_known_bad_input(case):
     """The registered anchor must MISS every bad case.
 
@@ -574,3 +574,82 @@ def test_the_gate_is_itself_a_census_row():
     """It must account for ITSELF, or its first run reports itself UNACCOUNTED."""
     text = (ROOT / icc.ADR_REL).read_text(encoding="utf-8")
     assert "instrument-census-check.py" in set(icc.census_subjects(text))
+
+
+# ---------------------------------------------------------------------------
+# #1276 - `make <target>` is a typed subject, validated against the Makefile
+# ---------------------------------------------------------------------------
+
+
+def _with_makefile(root: Path, text: str) -> Path:
+    (root / "Makefile").write_text(text, encoding="utf-8")
+    return root
+
+
+def test_a_make_row_is_about_its_target_not_about_make():
+    assert icc.subject_of("make verify") == "make:verify"
+    assert icc.subject_of("make verify as an aggregate") == "make:verify"
+    assert icc.subject_of("make") == "make"
+    assert icc.subject_of("make $(TARGET)") == "make"
+
+
+def test_a_row_for_an_existing_make_target_resolves(tmp_path):
+    root = _with_makefile(
+        _tree(tmp_path, ["alpha.sh"], _adr(rows="| 1 | `alpha.sh` | v | c | G |\n| 2 | `make verify` | v | c | G |\n")),
+        "verify: lint\n\t@true\nlint:\n\t@true\n",
+    )
+    assert icc.main(["check", "--root", str(root)]) == 0
+
+
+def test_a_row_for_a_MISSING_make_target_is_stale(tmp_path, capsys):
+    """THE #1276 RED for the census half.
+
+    Before #1276 every `make <target>` row was the subject `make`, so with `make`
+    declared external a row naming a target that does not exist resolved
+    silently - the census could describe a deleted gate forever.
+    """
+    root = _with_makefile(
+        _tree(
+            tmp_path,
+            ["alpha.sh"],
+            _adr(rows="| 1 | `alpha.sh` | v | c | G |\n| 2 | `make nosuch` | v | c | G |\n", externals="make"),
+        ),
+        "verify:\n\t@true\n",
+    )
+    assert icc.main(["check", "--root", str(root)]) == 1
+    assert "STALE" in capsys.readouterr().out
+
+
+def test_typed_subjects_do_not_make_every_target_part_of_the_population(tmp_path):
+    """Population = scripts/* files + the typed subjects the census NAMES."""
+    root = _with_makefile(
+        _tree(tmp_path, ["alpha.sh"], _adr(rows="| 1 | `alpha.sh` | v | c | G |\n| 2 | `make verify` | v | c | G |\n")),
+        "verify:\n\t@true\nlint:\n\t@true\nclean:\n\t@true\n",
+    )
+    assert icc.main(["check", "--root", str(root)]) == 0
+
+
+def test_a_make_row_with_no_makefile_is_not_confirmed(tmp_path, capsys):
+    """Unread is not absent - and it is not present either."""
+    root = _tree(tmp_path, ["alpha.sh"], _adr(rows="| 1 | `alpha.sh` | v | c | G |\n| 2 | `make verify` | v | c | G |\n"))
+    assert icc.main(["check", "--root", str(root)]) == 1
+    assert "could not be read" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("value", "ok"),
+    [
+        ("scripts/x.py", True),
+        ({"kind": "make-target", "file": "Makefile", "target": "verify"}, True),
+        ({"kind": "make-target", "file": "Makefile", "target": "verify", "x": 1}, False),
+        ({"kind": "lib-module", "file": "Makefile", "target": "verify"}, False),
+        ({"kind": "make-target", "file": "Makefile"}, False),
+        (["scripts/x.py"], False),
+        ("", False),
+    ],
+    ids=["path", "typed", "unknown-key", "unknown-kind", "no-target", "list", "empty"],
+)
+def test_parse_gate_has_a_closed_schema(value, ok):
+    gate, why = icc.parse_gate(value)
+    assert (gate is not None) == ok, why
+    assert (why is None) == ok

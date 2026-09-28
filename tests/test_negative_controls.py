@@ -1969,10 +1969,10 @@ def test_a_marker_in_a_scripts_subdirectory_is_not_discovered(tmp_path: Path) ->
     `rglob()` and this case goes red, so the sentence cannot go on describing a
     search that changed underneath it.
 
-    Whether to widen is a real question and deliberately not answered here - the
-    census population is derived with the same `scripts/`-only rule, so widening
-    one reader without the other splits the numerator's population from the
-    denominator's, which is the defect this whole line of work is about.
+    #1276 answered "whether to widen" for ONE kind - Makefile targets - in both
+    readers at once. Subdirectories are still not read, and this case still pins
+    that: widening one reader without the other splits the numerator's population
+    from the denominator's, which is the defect this whole line of work is about.
     """
     root = build_tree(tmp_path, SEEING_GATE)
     nested = root / "scripts" / "nested"
@@ -3590,3 +3590,154 @@ def test_two_candidate_census_documents_are_unknown_not_a_guess(tmp_path: Path) 
     out = run_harness(root)
     assert contract(out.stdout, "NEGATIVE_CONTROL_UNIVERSE") == "unknown", out.stdout
     assert "refusing to pick one" in out.stdout, out.stdout
+
+
+# --------------------------------------------------------------------------- #
+# #1276 - a Makefile target is a registrable gate (ruling: option B, one kind)
+# --------------------------------------------------------------------------- #
+
+requires_make = pytest.mark.skipif(shutil.which("make") is None, reason="make is not installed")
+
+#: A make gate that SEES the known-bad input. The directive sits directly above
+#: the rule it covers - adjacency is what the registration asserts.
+MK_SEEING = (
+    "# A toy make gate.\n"
+    "#: NEGATIVE-CONTROL: controls/mk\n"
+    "toy-check:\n"
+    '\t@if [ -e "$(CASE)/tests/BAD" ]; then echo "toy-gate: 1 finding(s)"; exit 1; fi; echo "toy-gate: ok"\n'
+    "\n"
+    "other:\n"
+    "\t@echo other\n"
+)
+
+#: The same rule, blind: it never looks at the case.
+MK_BLIND = "toy-check:\n\t@echo \"toy-gate: ok\"\n"
+
+
+def build_make_tree(
+    tmp_path: Path,
+    makefile: str = MK_SEEING,
+    gate: object | None = None,
+) -> Path:
+    """A tree whose only registration is a MAKE TARGET, not a scripts/ file."""
+    import hashlib
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "unregistered.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    (tmp_path / "Makefile").write_text(makefile, encoding="utf-8")
+    ctl = tmp_path / "controls" / "mk"
+    (ctl / "cases" / "bad" / "tests").mkdir(parents=True)
+    (ctl / "cases" / "good" / "tests").mkdir(parents=True)
+    (ctl / "cases" / "bad" / "tests" / "BAD").write_text("x", encoding="utf-8")
+    (ctl / "anchors").mkdir()
+    anchor = ctl / "anchors" / "deadbee-Makefile"
+    anchor.write_text(MK_BLIND, encoding="utf-8")
+    manifest = {
+        "gate": gate if gate is not None else {"kind": "make-target", "file": "Makefile", "target": "toy-check"},
+        "invocation": ["make", "-s", "--no-print-directory", "-f", "{gate}", "toy-check", "CASE={case}"],
+        "good_exit": 0,
+        "detect_signal": TOY_SIGNAL,
+        "cases": [
+            {"name": "bad", "input": "cases/bad", "expect": "BAD"},
+            {"name": "good", "input": "cases/good", "expect": "GOOD"},
+        ],
+        "anchors": [{
+            "kind": "historical", "sha": "deadbee", "origin": "Makefile",
+            "path": "anchors/deadbee-Makefile",
+            "sha256": hashlib.sha256(anchor.read_bytes()).hexdigest(),
+        }],
+    }
+    (ctl / "control.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return tmp_path
+
+
+@requires_make
+def test_a_make_target_registration_is_discovered_and_scored(tmp_path: Path) -> None:
+    """THE #1276 RED: a gate that is not a top-level scripts/ file is countable.
+
+    Before #1276 the harness read only `scripts/*`, so this registration was
+    invisible: `NEGATIVE_CONTROL_REGISTERED: 0` and an UNCHECKED run, whatever
+    the control proved.
+    """
+    root = build_make_tree(tmp_path)
+    write_census(root, ["make toy-check", "unregistered.sh"])
+    out = run_harness(root, "--strict")
+    assert contract(out.stdout, "NEGATIVE_CONTROL_REGISTERED") == "1", out.stdout
+    assert verdict_of(out.stdout) == "PASS", out.stdout
+    assert "NEGATIVE_CONTROL_GATE: Makefile:toy-check" in out.stdout, out.stdout
+    assert contract(out.stdout, "NEGATIVE_CONTROL_CENSUS_MEMBERS") == "1", out.stdout
+    assert out.returncode == 0, out.stdout + out.stderr
+
+
+@requires_make
+def test_a_make_target_registration_OUTSIDE_the_census_fails(tmp_path: Path) -> None:
+    """Ruling item 4: a non-member of the NEW kind fails the check.
+
+    Widening discovery without this would count a control in the numerator whose
+    gate the denominator never enumerated - the #979/#1036 split.
+    """
+    root = build_make_tree(tmp_path)
+    write_census(root, ["unregistered.sh"])
+    out = run_harness(root, "--strict")
+    assert "NEGATIVE_CONTROL_CENSUS_NONMEMBER: make:toy-check" in out.stdout, out.stdout
+    assert "NEGATIVE_CONTROL_CENSUS_NONMEMBER_REFUSED: make:toy-check" in out.stdout, out.stdout
+    assert out.returncode == 1, out.stdout
+
+
+def test_a_scripts_file_outside_the_census_is_still_only_named(tmp_path: Path) -> None:
+    """The existing kind keeps today's behaviour: named, not failed (#1268 owns that)."""
+    root = build_tree(tmp_path, SEEING_GATE)
+    write_census(root, ["some-other-gate.py"])
+    out = run_harness(root, "--strict")
+    assert "NEGATIVE_CONTROL_CENSUS_NONMEMBER: toy-gate.py" in out.stdout, out.stdout
+    assert "NONMEMBER_REFUSED" not in out.stdout, out.stdout
+    assert out.returncode == 0, out.stdout
+
+
+@pytest.mark.parametrize(
+    ("gate", "why"),
+    [
+        ({"kind": "lib-module", "file": "Makefile", "target": "toy-check"}, "not a known kind"),
+        ({"kind": "make-target", "file": "Makefile", "target": "toy-check", "phony": True}, "unknown key(s) phony"),
+        ({"kind": "make-target", "file": "GNUmakefile", "target": "toy-check"}, "lives in Makefile"),
+        ({"kind": "make-target", "file": "Makefile", "target": "$(X)"}, "plain target name"),
+        ("Makefile", "must declare a typed make-target gate"),
+        ({"kind": "make-target", "file": "Makefile", "target": "other"}, "sits above target(s) toy-check"),
+    ],
+    ids=["unknown-kind", "unknown-key", "wrong-file", "non-target", "untyped-Makefile", "not-adjacent"],
+)
+def test_a_malformed_or_misplaced_typed_gate_is_refused(
+    tmp_path: Path, gate: object, why: str
+) -> None:
+    """Closed schema: an unknown kind or key is REFUSED, never ignored (ruling 1, 6)."""
+    root = build_make_tree(tmp_path, gate=gate)
+    write_census(root, ["make toy-check", "unregistered.sh"])
+    out = run_harness(root, "--strict")
+    assert verdict_of(out.stdout) == "UNRESOLVED", out.stdout + out.stderr
+    assert why in out.stdout, out.stdout
+    assert out.returncode == 1
+
+
+def test_a_typed_gate_declared_from_a_scripts_file_is_refused(tmp_path: Path) -> None:
+    """Adjacency cuts both ways: a scripts/ file cannot register a Makefile target."""
+    root = build_make_tree(tmp_path, makefile="toy-check:\n\t@true\n")
+    (root / "scripts" / "unregistered.sh").write_text(
+        "#!/bin/sh\n#: NEGATIVE-CONTROL: controls/mk\n", encoding="utf-8"
+    )
+    out = run_harness(root, "--strict")
+    assert verdict_of(out.stdout) == "UNRESOLVED", out.stdout
+    assert "registration lives in unregistered.sh" in out.stdout, out.stdout
+
+
+def test_a_blank_line_breaks_adjacency(tmp_path: Path) -> None:
+    root = build_make_tree(tmp_path, makefile="#: NEGATIVE-CONTROL: controls/mk\n\ntoy-check:\n\t@true\n")
+    out = run_harness(root, "--strict")
+    assert verdict_of(out.stdout) == "UNRESOLVED", out.stdout
+    assert "not directly above a rule" in out.stdout, out.stdout
+
+
+def test_the_scope_line_names_every_kind_it_read(tmp_path: Path) -> None:
+    """C's floor: `N of N` cannot be read as covering kinds nobody enumerated."""
+    root = build_tree(tmp_path, SEEING_GATE)
+    scope = contract(run_harness(root).stdout, "NEGATIVE_CONTROL_DISCOVERY_SCOPE") or ""
+    assert "scripts/*" in scope and "Makefile targets" in scope, scope
+    assert "lib/" not in scope, scope

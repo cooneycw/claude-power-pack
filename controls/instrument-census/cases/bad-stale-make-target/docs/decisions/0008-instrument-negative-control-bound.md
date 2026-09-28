@@ -10,7 +10,7 @@ names a population, and an external-subjects declaration.
 |---|---|---|---|---|
 | 1 | `alpha-tool.sh` | `ALPHA: ok` | the fixture gate | G |
 | 9 | `ruff` | findings | the fixture gate; no file under scripts/ | G |
-| 10 | `make verify` as an aggregate | the AND of its prerequisites | the fixture gate | G |
+| 10 | `make nosuch` as an aggregate | the AND of its prerequisites | the fixture gate; the Makefile defines no such target | G |
 
 ### Excluded, with the reason
 
@@ -18,4 +18,4 @@ names a population, and an external-subjects declaration.
 |---|---|
 | `delta-tool.sh` | a renderer; it emits no verdict |
 
-<!-- instrument-census: external-subjects: ruff -->
+<!-- instrument-census: external-subjects: ruff, make -->
