@@ -301,7 +301,8 @@ def test_the_index_heading_matches_its_population() -> None:
         "eighteen": 18, "nineteen": 19, "twenty": 20, "twenty-one": 21,
         "twenty-two": 22, "twenty-three": 23, "twenty-four": 24, "twenty-five": 25,
         "twenty-six": 26, "twenty-seven": 27, "twenty-eight": 28,
-        "twenty-nine": 29, "thirty": 30,
+        "twenty-nine": 29, "thirty": 30, "thirty-one": 31, "thirty-two": 32,
+        "thirty-three": 33, "thirty-four": 34, "thirty-five": 35,
     }
     text = (REPO / CANONICAL).read_text(encoding="utf-8")
     heading = re.search(r"^The ([a-z-]+) instances this contract was derived from\.", text, re.M)

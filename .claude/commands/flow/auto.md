@@ -664,11 +664,28 @@ but is written to the wrong tree. So, for every edit in this step:
   ```
   **Exit 3 is a STOP.** A leak means your edits are landing in the wrong tree, so
   every further edit compounds the damage and the worktree the rest of the flow
-  commits from does not contain the work. Move the change into the worktree, then
-  `git -C <main> checkout -- <path>` to revert main, then re-run the guard before
-  continuing. Only a leak signature exits 3: pre-existing, non-overlapping dirt in
+  commits from does not contain the work. **But exit 3 reports a SIGNATURE, not an
+  author** (issue #1014): fresh main dirt on a path you touched, or beside an idle
+  worktree, is also what a NEIGHBOURING session's edit looks like. Before moving or
+  reverting anything in main, attribute it - read the diff (`git -C <main> diff --
+  <path>`) and confirm it is YOUR edit. Only then move the change into the
+  worktree and `git -C <main> checkout -- <path>`. Never revert main content you
+  did not write; if it is someone else's, stop and report it instead. Then re-run
+  the guard before continuing. Only a leak signature exits 3: pre-existing, non-overlapping dirt in
   main stays a quiet note and never blocks (#536), and a total leak (idle worktree
   + fresh main edits) is caught the same way (#573).
+  **Read the `FLOW_WORKTREE_GUARD:` line (issue #1014)**, which is always
+  printed:
+  - `no-leak` (exit 0): proceed.
+  - `leak` (exit 3): STOP, as above.
+  - `not-applicable` (exit 5): **proceed and report** "leak guard not applicable:
+    <detail>". On the current-branch lane there is no separate main tree to leak
+    into.
+  - `unknown` (exit 4): **proceed and report** "leak guard could not run:
+    <detail> - UNCHECKED". It must never be read or summarised as "no leak".
+
+  Never treat 4 or 5 as a failure and never run this under `set -e` or behind
+  `|| stop`: only 3 stops.
 
 Execute the approved plan from the Step 3 ELI5 gate:
 
@@ -1248,10 +1265,16 @@ git merge --no-edit origin/main
    ```bash
    ~/.claude/scripts/flow-worktree-guard.sh --strict
    ```
-   **Exit 3 is a STOP** - do not commit. An edit landed in main instead of the
-   worktree: move it into the worktree and revert main (`git -C <main> checkout
-   -- <path>`), then re-run the guard and re-gate. Non-overlapping pre-existing
-   main dirt is a quiet note and never blocks (#536). On exit 127 fall back to
+   **Exit 3 is a STOP** - do not commit. It reports a leak SIGNATURE, not proof of
+   who wrote main's dirt (issue #1014): first read `git -C <main> diff -- <path>`
+   and confirm the edit is YOURS. Only then move it into the worktree and revert
+   main (`git -C <main> checkout -- <path>`), re-run the guard and re-gate. Never
+   revert main content you did not write - if it is another session's, stop and
+   report it. Non-overlapping pre-existing
+   main dirt is a quiet note and never blocks (#536). Exits 4 (`unknown`, could
+   not examine) and 5 (`not-applicable`, e.g. the current-branch lane) PROCEED
+   and are REPORTED with the `FLOW_WORKTREE_GUARD:` detail - never as "no leak"
+   and never as a stop (issue #1014). On exit 127 fall back to
    `${CLAUDE_PLUGIN_ROOT}/scripts/flow-worktree-guard.sh --strict` (#590), else
    the CPP-checkout copy; if no copy exists, note it and continue (the guard
    cannot block what it cannot run).

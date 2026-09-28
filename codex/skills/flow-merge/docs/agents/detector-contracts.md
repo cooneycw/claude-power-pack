@@ -442,15 +442,73 @@ verification rather than in the code. It was caught because the uniformity looke
 wrong, not because the check said so. This instance occurred inside a review
 conducted *for* this pattern.
 
+## The third state: unknown
+
+Every instrument here eventually meets a question it cannot answer: the probe
+failed, the input was unreadable, the thing lives on another host. **That answer
+has one name, `unknown`, and it is never rendered as the clean one.** Five scripts
+reached this rule independently and each wrote it down in its own words
+(`flow-wave-registry.sh`, `flow-wave-mailbox.sh` - "the #800 convention" -,
+`gate-lib.sh`, `check-consolidation-ledger.py`, `flow-plan-record.py`). This section is
+the one home they point to (#1014).
+
+**Two tiers, one rule.**
+
+- **Exit codes.** `scripts/gate-lib.sh`'s `gate_map` enforces that exactly ONE
+  verdict maps to exit 0 (#1126). An unknown answer therefore cannot share the good
+  exit, whatever a gate calls it. Declare the map per gate: the numbers are the
+  gate's own, and only the invariant is shared.
+- **Values and markers.** A field or contract line says `unknown` WITH its reason,
+  either as `STATE BASIS` (`unknown other-host`) or `KEY: unknown - <reason>`. A bare
+  `unknown` tells the reader nothing about what to do next. A blank is worse: blank
+  means "never checked", which is a different fact from "checked and undecidable".
+
+**`not-applicable` is not `unknown`.** "There was nothing here to examine" (the
+main checkout has no separate tree to leak into) and "I could not examine it"
+(git failed) are different facts, and a reader acts on them differently. Both
+must stay off the good exit. Neither may be summarised as clean.
+
+**The CONSUMER decides what unknown means for it - never the vocabulary.** The
+mailbox is the worked example: its duplicate-arm guard reads `unknown` as 0 so a
+wave is never blocked by an unavailable guard, while its reporting reads the same
+`unknown` as unknown (`flow-wave-mailbox.sh`, #792). Those two opposite readings
+are deliberate, and two incidents paid for them (#814, #821). A shared vocabulary
+that forced one policy would erase that. So:
+
+- **The probes stay separate.** The mailbox moved off pid liveness because pid
+  liveness was the defect. Collapsing its probe into the registry's would
+  reintroduce #821 one layer up.
+- **A permissive reading is a DECISION, not an accident.** Record it, beside the
+  code and in the index below, so the next reader sees it was chosen.
+
+**The required test shape** is the ADR 0008 one, pointed at the third state:
+commit an input that forces `unknown`, and show each consumer still acts in its
+documented direction (the permissive one proceeds, the honest one reports).
+Reading the code does not satisfy this; only the forced input shows what the
+instrument CAN say.
+
+| instance | unknown means | consumer policy | where |
+|---|---|---|---|
+| `flow-wave-registry.sh` `pid_state` | no /proc, or the pid is unreadable | reported as `unknown`, never rounded to `gone` | registry |
+| `flow-wave-registry.sh` `liveness_of` on another host | a pid on another host cannot be checked | `stale other-host` today, which frees takeover; becoming `unknown other-host` under #1014 Part 2 (ruled: no free takeover, `--force` stays the override) | registry |
+| `flow-wave-mailbox.sh` watch state | the host gave no way to enumerate watchers | duplicate-arm guard: PERMISSIVE (treats as 0); reporting: `unknown` | mailbox |
+| `gate-lib.sh` `gate_map` | any non-good verdict | never exit 0, by construction | gate-lib |
+| `check-consolidation-ledger.py` | absent ledger or snapshot | exit 2, "UNKNOWN, never clean"; `unresolved` is the ledger's DATA-vocabulary form and requires a stated blocking effect | ledger |
+| `flow-worktree-guard.sh` | git missing or failing, main tree unreadable | `unknown` exit 4, PROCEED and REPORT; `not-applicable` exit 5 likewise; only `leak` (3) stops (#1014) | flow Steps 4, 6 |
+| `gh-pr-merge.sh` `base_contained_now` | the base could not be fetched or read | a DOCUMENTED FAIL-OPEN: `GH_PR_MERGE_BASE_AT_SQUASH: skipped` and the merge PROCEEDS, matching the older `BASE_MOVED: skipped`; labelled `skipped`, never `0` (#1300) | merge helper |
+| `gh-pr-merge.sh` observed checks (#610) | required contexts not enumerable | a DOCUMENTED FAIL-OPEN: `GH_PR_MERGE_CI_WAIT: observed-fail-open` or `none-observed`, never `green`; GitHub enforces the posture at squash time | merge helper |
+| `flow-ci-status.sh` | no provider answered | `FLOW_CI_STATUS: unknown`, exit 0 by design (advisory); `FLOW_CI_WAIT: expired` separates a timed-out wait from one look | CI status |
+
 ## The instance index
 
-The thirty instances this contract was derived from. Kept here, in the guidance,
+The thirty-one instances this contract was derived from. Kept here, in the guidance,
 rather than in the issue that indexed them - a finding that lives only in a closed
 issue is the condition #834 was filed to end. Link new instances here.
 
 | instance | the check answers | the reader takes it for | state |
 |---|---|---|---|
 | #804 | did this step pass, in some run | did this tree pass | fixed |
+| #1014 | did the guard find a leak | did the guard LOOK (a could-not-look answer shared the clean exit) | fixed (worktree guard); registry in #1014 Part 2 |
 | #808 | did the gates I know about run | did the gates run | fixed |
 | #810 | did the base move in this window | did the base move | open |
 | #816 / #819 | is this literal pattern present | is the invocation correct | fixed |
