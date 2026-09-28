@@ -939,7 +939,17 @@ registry_unreadable() {
 }
 
 entry_json() { # entry_json WAVE ROLE -> the entry object or 'null'
-  read_registry | jq -c --arg w "$1" --arg r "$2" '.[$w].roles[$r] // null'
+  # SLURPED, so a parse error anywhere in the file yields NO output (#1014
+  # Part 2, counter-model review). Streamed, `{} garbage` printed `null` for the
+  # first document before jq failed on the second, and that partial read passed
+  # for "role not registered". Exactly one object document, and an entry that is
+  # an object or absent; anything else prints nothing, which the callers'
+  # `entry_read_or_die` turns into `error`.
+  read_registry | jq -cs --arg w "$1" --arg r "$2" '
+    if length == 1 and (.[0] | type) == "object" then
+      (.[0][$w].roles[$r] // null) as $e
+      | if $e == null or ($e | type) == "object" then $e else empty end
+    else empty end' 2>/dev/null
 }
 
 # entry_read_or_die ENTRY -> returns when ENTRY is a real read ('null' or an
@@ -2372,7 +2382,11 @@ case "$VERB" in
       CUR_BASIS="$(liveness_basis_of "$CUR")"
       SAME_OWNER=0
       [ "$CUR_SESSION" != "-" ] && [ "$CUR_SESSION" = "$SELF_SESSION" ] && SAME_OWNER=1
-      [ "$CUR_PID" = "$SELF_PID" ] && SAME_OWNER=1
+      # A pid is a per-host number (#1014 Part 2, counter-model review): the same
+      # pid on another host is a DIFFERENT process, and matching it alone would
+      # let a caller that happens to share a remote holder's pid skip the
+      # other-host refusal. The session id is global, so it needs no host.
+      [ "$CUR_PID" = "$SELF_PID" ] && [ "$(printf '%s' "$CUR" | jq -r '.host // "-"')" = "$SELF_HOST" ] && SAME_OWNER=1
       # An ALLOW-LIST of states that release the role, never a deny-list of
       # states that hold it (#869). `!= stale` would read a brand-new state as
       # takeable, which is this issue's own defect - weaker evidence beating
@@ -3053,7 +3067,8 @@ case "$VERB" in
     CUR_SESSION="$(printf '%s' "$CUR" | jq -r '.session // "-"')"
     SAME_OWNER=0
     [ "$CUR_SESSION" != "-" ] && [ "$CUR_SESSION" = "$SELF_SESSION" ] && SAME_OWNER=1
-    [ "$CUR_PID" = "$SELF_PID" ] && SAME_OWNER=1
+    # Host-scoped for the reason given in `register` (#1014 Part 2).
+    [ "$CUR_PID" = "$SELF_PID" ] && [ "$(printf '%s' "$CUR" | jq -r '.host // "-"')" = "$SELF_HOST" ] && SAME_OWNER=1
     CUR_LIVE="$(liveness_of "$CUR")"
     CUR_BASIS="$(liveness_basis_of "$CUR")"
     # Allow-list, for the same reason as `register` above (#869).

@@ -4828,8 +4828,13 @@ class TestAnotherHostsOwnerIsUnknownNotStale:
         ],
         ids=["register", "release", "get", "verify"],
     )
+    @pytest.mark.parametrize(
+        "contents",
+        ["{ this is not json", "{} trailing-garbage", "{}\n{}\n", "[]", '{"default": {"roles": {"1": "x"}}}'],
+        ids=["unparseable", "trailing-garbage", "two-documents", "not-an-object", "entry-not-an-object"],
+    )
     def test_a_corrupt_registry_is_an_error_not_a_remote_holder(
-        self, tmp_path: Path, verb: tuple[str, ...]
+        self, tmp_path: Path, verb: tuple[str, ...], contents: str
     ) -> None:
         # An unparseable registry.json passes the up-front unreadable guard and
         # makes entry_json print NOTHING. That empty entry's blank host "is not
@@ -4838,10 +4843,42 @@ class TestAnotherHostsOwnerIsUnknownNotStale:
         # file. What actually happened is that nothing could be read.
         reg = tmp_path / "reg"
         reg.mkdir(parents=True, exist_ok=True)
-        (reg / "registry.json").write_text("{ this is not json")
+        (reg / "registry.json").write_text(contents)
         p = _run(tmp_path, *verb)
         assert p.returncode == 3, p.stdout + p.stderr
         assert _verdict(p) == "error"
         assert "could not be parsed" in p.stderr
         assert "ANOTHER HOST" not in p.stderr
         assert _detail(p, "FLOW_WAVE_LIVENESS_BASIS") in ("", "-"), "no liveness may be invented"
+
+    def test_an_empty_object_registry_is_still_an_ordinary_empty_registry(self, tmp_path: Path) -> None:
+        # The other side of the slurp: `{}` is one valid document, so the parse
+        # guard must not turn a legitimately empty registry into an error.
+        reg = tmp_path / "reg"
+        reg.mkdir(parents=True, exist_ok=True)
+        (reg / "registry.json").write_text("{}\n")
+        assert _verdict(_run(tmp_path, "get", "1")) == "free"
+        assert _verdict(_run(tmp_path, "register", "1", "--socket", "uds:/tmp/y.sock")) == "registered"
+
+    @pytest.mark.parametrize("verb", ["register", "release"])
+    def test_a_matching_pid_on_ANOTHER_host_is_not_the_same_owner(
+        self, tmp_path: Path, verb: str
+    ) -> None:
+        # A pid is a per-host number: the remote holder's pid equalling ours
+        # names a different process, and must not bypass the refusal.
+        p = _run(tmp_path, "register", "1", "--socket", "uds:/tmp/x.sock",
+                 pid=SELF_PID, session=OTHER_SESSION, extra_env=self.REMOTE)
+        assert _entry(tmp_path, "default", "1")["pid"] == int(SELF_PID), "precondition: equal pids"
+        assert _entry(tmp_path, "default", "1")["host"] == "otherhost", "precondition: remote"
+        args = ["register", "1", "--socket", "uds:/tmp/y.sock"] if verb == "register" else ["release", "1"]
+        p = _run(tmp_path, *args)
+        assert _verdict(p) == "refused", p.stdout + p.stderr
+        assert p.returncode == 1
+        assert _entry(tmp_path, "default", "1")["session"] == OTHER_SESSION
+
+    def test_a_matching_pid_on_THIS_host_is_still_the_same_owner(self, tmp_path: Path) -> None:
+        # The idempotent re-register by pid (no session id) must keep working.
+        _run(tmp_path, "register", "1", "--socket", "uds:/tmp/x.sock", session="-")
+        p = _run(tmp_path, "register", "1", "--socket", "uds:/tmp/x.sock", session="-")
+        assert _verdict(p) == "updated", p.stdout + p.stderr
+
