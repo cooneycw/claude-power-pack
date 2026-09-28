@@ -2858,6 +2858,109 @@ def test_an_interrupted_gate_leaves_no_runner_json_behind(tmp_path: Path) -> Non
 
 @requires_bash
 @requires_git
+@pytest.mark.skipif(
+    not Path("/proc/self/stat").exists(),
+    reason="the late tee is released on the gate's death, read from /proc; without "
+    "procfs that synchronisation cannot be established and the case would prove nothing",
+)
+def test_a_late_tee_cannot_recreate_the_runner_json_after_the_trap(tmp_path: Path) -> None:
+    """THE #1313 REGRESSION: the leak the test above catches only under load.
+
+    `tee` is a pipeline member that outlives the killed gate. If it opens the
+    runner JSON by NAME after the EXIT trap's `rm`, it re-creates the file and
+    nothing removes it again - pipeline 2811's `['flow-finish-gate.9OcbCl']`,
+    first mislabelled a timing flake. A loaded host is what makes `tee` late;
+    here a PATH stub makes it late on purpose - by an EVENT, not a delay
+    (counter-model review): it holds the real `tee` until the gate shell has
+    DIED, i.e. until its EXIT trap has already run. A fixed sleep could lose to
+    a slow gate and pass on the unfixed code without exercising the race.
+
+    The GATE's pid is handed to the stub by this test (written the moment Popen
+    returns), never read from the stub's `$PPID`: a stub that starts after the
+    gate is killed has already been reparented, and would watch the wrong
+    process (counter-model review, pass 2). The gate counts as dead once it is a
+    zombie - it stays one until this test reaps it, after EOF on stdout, which
+    `tee` holds, so waiting for the pid to vanish would deadlock.
+
+    No sleep in the assertion: communicate() returns at EOF on the gate's
+    stdout, which `tee` holds, so every straggler has exited when TMPDIR is read.
+    """
+    cpp = _fake_cpp(tmp_path)
+    tmpdir = tmp_path / "tmp"
+    tmpdir.mkdir()
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    stub = bindir / "uv"
+    stub.write_text("#!/usr/bin/env bash\nkill -TERM \"$PPID\"\nsleep 5\n")
+    stub.chmod(0o755)
+    real_tee = shutil.which("tee")
+    assert real_tee, "precondition: a real tee to delay"
+    gate_pid_file = tmp_path / "gate.pid"
+    released = tmp_path / "tee-released"
+    late_tee = bindir / "tee"
+    late_tee.write_text(
+        "#!/usr/bin/env bash\n"
+        "deadline=$((SECONDS + 30))\n"
+        f'until [ -s "{gate_pid_file}" ]; do\n'
+        '  [ "$SECONDS" -lt "$deadline" ] || { echo "late-tee: no gate pid" >&2; exit 97; }\n'
+        "  sleep 0.05\n"
+        "done\n"
+        f'gate=$(cat "{gate_pid_file}")\n'
+        # Alive = a /proc entry that is not a zombie.
+        'while [ -r "/proc/$gate/stat" ] && [ "$(cut -d")" -f2 "/proc/$gate/stat" | cut -d" " -f2)" != Z ]; do\n'
+        '  [ "$SECONDS" -lt "$deadline" ] || { echo "late-tee: the gate never exited" >&2; exit 97; }\n'
+        "  sleep 0.05\n"
+        "done\n"
+        f': > "{released}"\n'
+        f'exec {real_tee} "$@"\n'
+    )
+    late_tee.chmod(0o755)
+    env = os.environ.copy()
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["FLOW_GATE_CPP_DIR"] = str(cpp)
+    env["TMPDIR"] = str(tmpdir)
+    gate = subprocess.Popen(
+        ["bash", str(SCRIPT)], cwd=tmp_path, env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+    gate_pid_file.write_text(str(gate.pid))
+    try:
+        stdout, _ = gate.communicate(timeout=60)
+    finally:
+        if gate.poll() is None:
+            gate.kill()
+            gate.wait(timeout=10)
+    assert "FLOW_FINISH_GATE: " not in stdout, "precondition: interrupted before a verdict"
+    assert "running deterministic gate" in stdout
+    assert released.exists(), f"precondition: tee was released only after the gate died\n{stdout}"
+    assert sorted(p.name for p in tmpdir.iterdir()) == []
+
+
+@requires_bash
+@requires_git
+def test_an_uninterrupted_run_reads_the_complete_runner_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other half of #1313: writing through fd 9 must not change what is read.
+
+    Every verdict below is derived from PATH reads of the runner JSON after the
+    pipeline, so they prove the file held the whole payload; the payload is also
+    tee'd to stdout verbatim, and the file is still removed at the end.
+    """
+    tmpdir = tmp_path / "tmp"
+    tmpdir.mkdir()
+    monkeypatch.setenv("TMPDIR", str(tmpdir))
+    cpp = _fake_cpp(tmp_path)
+    payload = _runner_json(_NO_TESTS_WARNING)
+    proc, _ = _run(tmp_path, cpp_dir=str(cpp), uv_exit=0, uv_stdout=payload)
+    assert proc.returncode == 3
+    assert "FLOW_FINISH_GATE: warn" in proc.stdout
+    assert _qualified_line(proc.stdout)
+    assert '"warnings"' in proc.stdout and "executed NO tests" in proc.stdout
+    assert sorted(p.name for p in tmpdir.iterdir()) == []
+
+@requires_bash
+@requires_git
 def test_runner_unavailable_fallback_honours_a_declared_mypy_scope(tmp_path: Path) -> None:
     """counter-model review, pass 2: the runner-unavailable lane still ran
     `mypy .`, so the scope a repo declared depended on which lane ran."""
