@@ -18,6 +18,7 @@ import signal
 import subprocess
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -378,12 +379,83 @@ def test_a_candidate_outside_its_own_process_group_is_never_signalled(tmp_path: 
         _cleanup(orphan)
 
 
-def _kin(tag: str) -> list[int]:
+#: A PRIVATE variable the regression fixture exports before forking, so every
+#: descendant inherits it: the population the cleanup check examines.
+KIN_ENV = "CPP_SWEEPTEST_KIN"
+
+#: Everything the fixture's process tree runs: `bash` and the `sleep` it forks.
+KIN_COMMS = frozenset({"bash", "sleep"})
+
+
+@dataclass(frozen=True)
+class _Fixture:
+    """What a process must share with the fixture to possibly be one of its own."""
+
+    pid: int
+    pgid: int
+    start: int  # /proc/<pid>/stat field 22, clock ticks since boot
+
+
+def _stat(pid: int) -> tuple[str, int, int] | None:
+    """``(comm, pgid, start)`` from /proc/<pid>/stat, or None if it is GONE.
+
+    Readable for any process of ours even when its environ is refused, which is
+    what lets an unreadable pid be judged at all. Anchored on the LAST ``)``:
+    comm may contain spaces and parentheses. Only disappearance returns None;
+    any other failure RAISES, because "could not identify it" is not "not
+    ours" (counter-model review).
+    """
+    try:
+        raw = Path(f"/proc/{pid}/stat").read_text()
+    except (FileNotFoundError, ProcessLookupError):
+        return None
+    comm = raw[raw.index("(") + 1 : raw.rindex(")")]
+    rest = raw[raw.rindex(")") + 2 :].split()
+    return comm, int(rest[2]), int(rest[19])
+
+
+def _fixture_of(proc: subprocess.Popen) -> _Fixture:
+    fields = _stat(proc.pid)
+    assert fields is not None, "precondition: the fixture is alive when first observed"
+    return _Fixture(proc.pid, fields[1], fields[2])
+
+
+def _could_be_kin(pid: int, fixture: _Fixture) -> bool:
+    """Whether an UNREADABLE pid could be one of the fixture's (issue #1347).
+
+    Every xdist worker shares one process group (measured: gw0-gw2 all in one
+    pgid), so the group alone cannot tell a neighbour from the fixture. A
+    candidate must ALSO have started no earlier than the fixture and run what the
+    fixture runs. Stated residual, deliberately not closed: an unreadable
+    `bash` or `sleep` of a NEIGHBOUR, in this group and started during this
+    test, is still judged a candidate. bash and sleep are not non-dumpable, so
+    their environ is not expected to be refused.
+    """
+    try:
+        fields = _stat(pid)
+    except (OSError, ValueError, IndexError):
+        return True  # unidentifiable: judged conservatively as possibly ours
+    if fields is None:
+        return False
+    comm, pgid, start = fields
+    return comm in KIN_COMMS and pgid == fixture.pgid and start >= fixture.start
+
+
+def _kin(tag: str, fixture: _Fixture) -> list[int]:
     """Live processes carrying this fixture's inherited KIN_ENV=tag, by any pid.
 
     Found by marker rather than by a pid list captured beforehand, so a child
     forked DURING cleanup - one no snapshot could name - is still found; and the
     tag is unique per test, so a neighbour's process can never be counted.
+
+    An environ that cannot be read FAILS the check only for a pid that could be
+    the fixture's own: that one is unobserved, not absent (counter-model review).
+    An unreadable process that cannot be ours - another xdist worker's python,
+    anything older than the fixture or running something else - is skipped;
+    failing on it failed this test for someone else's process (issue #1347).
+    What the verdict still cannot separate is `_could_be_kin`'s stated residual:
+    an unreadable same-group `bash`/`sleep` started during this test fails the
+    check conservatively, whoever owns it.
     """
     needle = f"{KIN_ENV}={tag}".encode()
     uid = os.getuid()
@@ -398,18 +470,85 @@ def _kin(tag: str) -> list[int]:
         except (FileNotFoundError, ProcessLookupError):
             continue  # exited between listing and reading: not a survivor
         except OSError as exc:
-            # One of OURS that cannot be read is unobserved, not absent: an
-            # empty result must not certify a population it could not see
-            # (counter-model review).
-            pytest.fail(f"could not read pid {entry.name}'s environment: {exc}", pytrace=False)
+            if _could_be_kin(int(entry.name), fixture):
+                pytest.fail(f"could not read pid {entry.name}'s environment: {exc}", pytrace=False)
+            continue  # a neighbour's process: not ours to judge
         if needle in environ.split(b"\0") and pid_alive(int(entry.name)):
             found.append(int(entry.name))
     return found
 
 
-#: A PRIVATE variable the regression fixture exports before forking, so every
-#: descendant inherits it: the population the cleanup check examines.
-KIN_ENV = "CPP_SWEEPTEST_KIN"
+def _reap_marked(tag: str) -> list[int]:
+    """Best-effort SIGKILL of every live process carrying KIN_ENV=tag.
+
+    The last line of every cleanup check, so a failure can never leak the
+    fixture (issue #1347). It NEVER raises, and it NEVER signals a pid whose
+    environ it could not read and match to this test's unique tag: an
+    unreadable or unmarked process is skipped, not guessed at.
+    """
+    needle = f"{KIN_ENV}={tag}".encode()
+    killed = []
+    try:
+        entries = list(Path("/proc").iterdir())
+    except OSError:
+        return killed
+    for entry in entries:
+        try:
+            if not entry.name.isdigit():
+                continue
+            if needle not in (entry / "environ").read_bytes().split(b"\0"):
+                continue
+            os.kill(int(entry.name), signal.SIGKILL)
+            killed.append(int(entry.name))
+        except Exception:  # noqa: BLE001 - never raise from the last line of cleanup
+            continue
+    return killed
+
+
+def _check_cleanup(tmp_path: Path, body: str) -> None:
+    """Launch a shared-group fixture, clean it up, and assert nothing survived.
+
+    Everything after the launch is inside try/finally (issue #1347): before,
+    the precondition loop and the assertion called `_kin` outside it, so a
+    raise there skipped `_cleanup` and leaked the `sleep 300` this check exists
+    to prevent. The finally cleans up only a fixture that is still unreaped -
+    a reaped pid may already belong to someone else - then reaps anything still
+    carrying this test's marker.
+    """
+    tag = uuid.uuid4().hex
+    proc = _fake_daemon(
+        tmp_path, "__supervise_daemon", DEAD_OWNER,
+        body=f"export {KIN_ENV}={tag}\n{body}", own_group=False,
+    )
+    try:
+        fixture = _fixture_of(proc)
+        deadline = time.monotonic() + FIXTURE_DEADLINE
+        while not [pid for pid in _kin(tag, fixture) if pid != proc.pid]:
+            if time.monotonic() >= deadline:
+                pytest.fail("precondition: the fixture never forked its child", pytrace=False)
+            time.sleep(0.02)
+
+        _cleanup(proc)
+
+        survivors = _kin(tag, fixture)
+        assert not survivors, f"_cleanup left descendants running: {survivors}"
+    finally:
+        try:
+            if proc.poll() is None:
+                _cleanup(proc)
+        finally:
+            # Even when `_cleanup` itself raised (counter-model review). The
+            # parent goes FIRST: its own environ does not carry the marker
+            # (`export` reaches children only), and a live parent could fork a
+            # replacement after the reaper's snapshot. SIGKILL through the
+            # unreaped Popen handle cannot hit a recycled pid.
+            try:
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait(timeout=10)
+            except Exception:  # noqa: BLE001 - the reaper below must still run
+                pass
+            _reap_marked(tag)
 
 
 @requires_proc
@@ -431,41 +570,229 @@ def test_cleanup_of_a_shared_group_fixture_leaves_no_descendant(tmp_path: Path, 
     is killed, so that race cannot be forced from here. The SIGSTOP closes it by
     construction; this test pins the leak the issue measured.
     """
-    tag = uuid.uuid4().hex
-    proc = _fake_daemon(
-        tmp_path, "__supervise_daemon", DEAD_OWNER,
-        body=f"export {KIN_ENV}={tag}\n{body}", own_group=False,
-    )
-    deadline = time.monotonic() + FIXTURE_DEADLINE
-    while not [pid for pid in _kin(tag) if pid != proc.pid]:
-        if time.monotonic() >= deadline:
-            _cleanup(proc)
-            pytest.fail("precondition: the fixture never forked its child", pytrace=False)
-        time.sleep(0.02)
+    _check_cleanup(tmp_path, body)
 
-    _cleanup(proc)
 
-    survivors = _kin(tag)
-    try:
-        assert not survivors, f"_cleanup left descendants running: {survivors}"
-    finally:
-        for pid in survivors:
-            os.kill(pid, signal.SIGKILL)
+def _refuse_environ_of(monkeypatch: pytest.MonkeyPatch, pid: int) -> list[int]:
+    """Make exactly one pid's environ unreadable; returns a list of refusals made."""
+    refused: list[int] = []
+    real = Path.read_bytes
+    target = Path(f"/proc/{pid}/environ")
+
+    def read_bytes(self: Path) -> bytes:
+        if self == target:
+            refused.append(pid)
+            raise PermissionError(13, "Permission denied", str(self))
+        return real(self)
+
+    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+    return refused
 
 
 @requires_proc
-def test_an_unreadable_process_of_ours_fails_the_cleanup_check(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The other verdict for `_kin`: our own process unreadable is not "no survivor".
+def test_an_unreadable_neighbour_does_not_fail_the_cleanup_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Issue #1347: another process of our uid that cannot be read is not ours.
 
-    This test's own process is always one of ours in /proc, so with every
-    environ read refused the scan must fail rather than return an empty list.
+    The deterministic form of the full-suite failure: under `-n 4`, an xdist
+    neighbour's environ was refused and `_kin` failed on it. Red on main, whose
+    `_kin` failed on ANY unreadable process of the uid.
     """
-    def refuse(self: Path) -> bytes:
-        raise PermissionError(13, "Permission denied", str(self))
+    neighbour = os.getppid()
+    assert os.stat(f"/proc/{neighbour}").st_uid == os.getuid(), "precondition: same uid"
+    here = _stat(os.getpid())
+    assert here is not None
+    fixture = _Fixture(os.getpid(), here[1], here[2] + 1)  # started after the neighbour
+    assert not _could_be_kin(neighbour, fixture), "precondition: the neighbour is not a candidate"
+    refused = _refuse_environ_of(monkeypatch, neighbour)
 
-    monkeypatch.setattr(Path, "read_bytes", refuse)
+    assert _kin(uuid.uuid4().hex, fixture) == []
+    assert refused == [neighbour], "precondition: the refusal branch was actually exercised"
+
+
+@requires_proc
+def test_an_unidentifiable_unreadable_process_fails_the_cleanup_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Environ refused AND stat unreadable (not gone): unobserved, so the check fails.
+
+    Before, any stat failure read as "not a candidate", and the scan skipped a
+    process it could neither read nor identify (counter-model review).
+    """
+    neighbour = os.getppid()
+    here = _stat(os.getpid())
+    assert here is not None
+    fixture = _Fixture(os.getpid(), here[1], here[2] + 1)
+    refused = _refuse_environ_of(monkeypatch, neighbour)
+    real_text = Path.read_text
+    stat_path = Path(f"/proc/{neighbour}/stat")
+
+    def read_text(self: Path, *args: object, **kwargs: object) -> str:
+        if self == stat_path:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_text(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "read_text", read_text)
     with pytest.raises(pytest.fail.Exception, match="could not read pid"):
-        _kin(uuid.uuid4().hex)
+        _kin(uuid.uuid4().hex, fixture)
+    assert refused == [neighbour], "precondition: the refusal branch was actually exercised"
+
+
+@requires_proc
+def test_an_unreadable_process_of_ours_fails_the_cleanup_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other verdict: the FIXTURE's own child, unreadable, is not "no survivor".
+
+    Its environ is refused while it is alive, so an empty result would certify a
+    population the scan could not see.
+    """
+    tag = uuid.uuid4().hex
+    proc = _fake_daemon(
+        tmp_path, "__supervise_daemon", DEAD_OWNER,
+        body=f"export {KIN_ENV}={tag}\nsleep 300\n", own_group=False,
+    )
+    try:
+        fixture = _fixture_of(proc)
+        deadline = time.monotonic() + FIXTURE_DEADLINE
+        while not (children := _descendants(proc.pid)):
+            assert time.monotonic() < deadline, "precondition: the fixture forked its child"
+            time.sleep(0.02)
+        # Asserted from the raw stat fields, NOT through `_could_be_kin`: a
+        # precondition that called the rule under test could not show the rule
+        # being wrong, only itself failing.
+        comm, pgid, start = _stat(children[0]) or ("", -1, -1)
+        assert (comm, pgid) == ("sleep", fixture.pgid) and start >= fixture.start, (
+            "precondition: the child shares the fixture's group, started after it, and runs sleep"
+        )
+        refused = _refuse_environ_of(monkeypatch, children[0])
+
+        with pytest.raises(pytest.fail.Exception, match="could not read pid"):
+            _kin(tag, fixture)
+        assert refused, "precondition: the refusal branch was actually exercised"
+    finally:
+        monkeypatch.undo()
+        try:
+            if proc.poll() is None:
+                _cleanup(proc)
+        finally:
+            _reap_marked(tag)
+
+
+def _still_alive(pids: list[int]) -> list[int]:
+    """The pids still alive after a bounded wait: SIGKILL is delivered
+    asynchronously, so a just-killed pid can read as alive for an instant."""
+    deadline = time.monotonic() + FIXTURE_DEADLINE
+    while (alive := [pid for pid in pids if pid_alive(pid)]) and time.monotonic() < deadline:
+        time.sleep(0.02)
+    return alive
+
+
+def _first_child(pid: int) -> list[int]:
+    """Wait (bounded) for `pid` to fork, observed from the kernel, not by marker."""
+    deadline = time.monotonic() + FIXTURE_DEADLINE
+    while not (children := _descendants(pid)):
+        assert time.monotonic() < deadline, "precondition: the fixture forked its child"
+        time.sleep(0.02)
+    return children
+
+
+@requires_proc
+def test_a_scan_that_raises_mid_check_still_reaps_the_fixture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Issue #1347: no failure path of the cleanup check may leak the fixture.
+
+    `_kin` raises in the precondition loop, BEFORE `_cleanup` - the path that
+    leaked the daemon and its `sleep 300` on main, where the loop sat outside
+    any try/finally. It raises only once a real child exists, recorded from the
+    kernel's child list, so "nothing leaked" is a statement about a process
+    that was there (counter-model review).
+    """
+    import tests.test_supervise_sweep as module
+
+    children: list[int] = []
+
+    def boom(tag: str, fixture: _Fixture) -> list[int]:
+        children.extend(_first_child(fixture.pid))
+        raise RuntimeError("scan failed mid-check")
+
+    monkeypatch.setattr(module, "_kin", boom)
+    try:
+        with pytest.raises(RuntimeError, match="scan failed mid-check"):
+            module._check_cleanup(tmp_path, "sleep 300\n")
+        assert children, "precondition: a real child existed when the check failed"
+        survivors = _still_alive(children)
+        assert not survivors, f"the failing check leaked the fixture's child: {survivors}"
+    finally:
+        for pid in children:
+            try:
+                if pid_alive(pid):
+                    os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+
+
+@requires_proc
+@pytest.mark.parametrize(
+    "body",
+    ["sleep 300\n", "while :; do sleep 300; done\n"],
+    ids=["one-child", "respawning-child"],
+)
+def test_a_cleanup_that_raises_still_reaps_the_marked_children(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str
+) -> None:
+    """The fallback runs even when `_cleanup` itself raises (counter-model review).
+
+    The respawning body is the case a reaper that left the parent alive loses:
+    it kills the `sleep`, and the loop forks another after the snapshot.
+    """
+    import tests.test_supervise_sweep as module
+
+    children: list[int] = []
+    tags: list[str] = []
+    parents: list[int] = []
+    real_kin = module._kin
+
+    def watching_kin(tag: str, fixture: _Fixture) -> list[int]:
+        if not children:
+            tags.append(tag)
+            parents.append(fixture.pid)
+            children.extend(_first_child(fixture.pid))
+        return real_kin(tag, fixture)
+
+    def broken_cleanup(*procs: subprocess.Popen) -> None:
+        raise RuntimeError("cleanup failed")
+
+    monkeypatch.setattr(module, "_kin", watching_kin)
+    monkeypatch.setattr(module, "_cleanup", broken_cleanup)
+    try:
+        with pytest.raises(RuntimeError, match="cleanup failed"):
+            module._check_cleanup(tmp_path, body)
+        assert children, "precondition: a real child existed when cleanup failed"
+        survivors = _still_alive(children)
+        assert not survivors, f"the fallback reaper did not run: {survivors}"
+        time.sleep(0.3)  # time for a surviving parent to fork a replacement
+        respawned = _reap_marked(tags[0])
+        assert not respawned, f"a replacement child outlived the fallback: {respawned}"
+    finally:
+        # This test's own backstop, independent of the code under test: when
+        # that code is broken, a surviving parent and its marked children must
+        # still not outlive the test. The parent is signalled only while its cwd
+        # is still this test's tmp_path, so a recycled pid is never touched.
+        for pid in parents:
+            try:
+                if os.readlink(f"/proc/{pid}/cwd") == str(tmp_path):
+                    os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+        for tag in tags:
+            _reap_marked(tag)
+        for pid in children:
+            try:
+                if pid_alive(pid):
+                    os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
 
 
 def test_an_unreadable_process_table_is_not_an_empty_sweep(tmp_path: Path) -> None:
