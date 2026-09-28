@@ -2,197 +2,6 @@
 
 ## [Unreleased]
 
-### Fixed
-
-- **2026-09-27 - `/cpp:update` stops leaving stale state unreported** (issue
-  #1263) - Step 5b now has a prune half: it lists the dangling helper links
-  install-drift already names (a script deleted upstream whose
-  `~/.claude/scripts` link survived), asks, and removes each through a new
-  `cpp-host-write.sh unlink-orphan`, which re-proves ownership per entry and
-  refuses a live link, a host-owned file or a neighbour project's link. The
-  Tier 6/7 blocks in `/cpp:update` and `/cpp:init` judge the model only
-  against an endpoint that answered, so a powered-off host reads `unknown`
-  instead of `missing` with rebuild advice. Step 3.5 compares the on-disk
-  command against the literal pre-pull SHA instead of `ORIG_HEAD`, which a
-  concurrent pull in a shared checkout overwrites, and Step 10 reports the
-  commit the run finished on when the checkout moved under it.
-  `eli5-vendor --revendor` fetches the core at the commit it pins rather than
-  from the moving `/main/` URL, so the recorded provenance names the bytes
-  vendored.
-
-- **2026-09-26 - `/security:scan` no longer reports a gitleaks or npm audit
-  that never ran as clean** (issue #1264) - a missing `gitleaks` or `npm`, a
-  crashed audit, or an unreadable report used to show as `SKIP`, or for npm as
-  `No dependency vulnerabilities found`, which reads as a clean result. Each now
-  prints a red `UNKNOWN` error line instead - the shape #1044 gave `pip-audit`.
-  The gate's exit code is unchanged, and a project with no `package.json` or
-  `package-lock.json` is still skipped as not applicable. A clean npm pass now
-  says how many dependencies it examined. The same issue taught the negative-
-  control harness to find its census ADR outside `docs/decisions/0008-*` (kyle
-  files it at `docs/adr/`), taught `check-control-ci-deps.py` to read
-  `env -u NAME cmd` as running `cmd`, and pinned AGENTS.md's Codex facts with a
-  test, which found and corrected two false sentences in it.
-
-- **2026-09-24 - `/qwen:auto` and `/gemma:auto` re-delegated on an expired
-  serveability pass** (issue #921, half 2 of 2; half 1 was PR #991) - the Step-6
-  fix loop re-executed the model on the Step-4 probe's verdict, taken before the
-  whole first run and the quality gates and so far past its 120s window. Both
-  fix loops now age that verdict with `--check-age` before each re-execute; a
-  `stale` or `unknown` answer probes ONCE, immediately before the call, and
-  `dead`/`unreachable`/`unknown` stops the loop instead of spending a retry.
-  There is deliberately no timer or free-standing re-probe: the owner ruled that
-  the serving hosts are to be treated as not pinning their models, so every cold
-  probe is a full weight load - the operation observed being killed - and a probe is only
-  load-neutral when the call it precedes would load the model anyway.
-
-- **2026-09-22 - `/cpp:init` and `/cpp:update` reported success for host writes
-  that never happened** (issue #1198) - #1132 routed every host write in the two
-  cpp command documents through `scripts/cpp-host-write.sh`, the declaring seam
-  that says what it touches and can be told to defer a surface. That made the
-  seam **total**. Nothing checked that it was **reachable**, or that its answer
-  was read. The seam returns `0` wrote / `3` deferred-by-request / `1` failed,
-  and `127` when it is not installed, and **all twenty call sites discarded it**
-  - six in `update.md`, fourteen in `init.md`, every one followed by an
-  unconditional success line.
-
-  Measured on a real host, not reasoned about: `/cpp:update` printed
-  `✓ Flow allowlist merged (52 total allow rules)` with the seam **absent** and
-  zero of 52 rules merged, and printed the same claim over the seam's own
-  `DEFERRED ~/.claude/settings.json - not written, by request`. The count made
-  it worse rather than better - read after a merge that did not happen it is the
-  **pre-merge** total, so the false claim carried a plausible number and read as
-  a smaller install rather than as an error.
-
-  The deferred case is **#1139's defect inverted**. There, a caller was told a
-  surface was protected and it was written anyway. Here, a caller is told it was
-  written and it was protected - and in both halves the seam did its job
-  correctly and the document overrode it.
-
-  `init.md` was the worse of the two: its Tier 2 block asked the **not yet
-  installed** helper to create `~/.claude/scripts`, the directory that helper is
-  linked into two statements later. On the fresh host `/cpp:init` exists for,
-  the whole tier silently installed nothing. The bootstrap now runs through the
-  seam at its **checkout** path - which always exists when a checkout does - so
-  it stays declared and deferrable instead of becoming a carve-out the gate has
-  to be taught to ignore.
-
-  Every site now reports which of the four things happened. `scripts/
-  check-cpp-host-writes.py` grew a second finding type, `UNREAD-SEAM-VERDICT:`,
-  reported and counted separately from `INLINE-HOST-WRITE:` so one red does not
-  mean two things. The rule is **always read the status**, not "read it when a
-  success message follows": keying on a nearby checkmark excuses the shape that
-  actually bit, a `link-into` loop calling the seam ninety times, claiming
-  nothing, and leaving 25 scripts unlinked in silence.
-
-  **The remedy was itself an overclaim, twice, and counter-model review caught
-  both.** The first draft replaced "claim a write happened" with "the file is
-  unchanged" on fourteen failure branches - an unverified rollback claim,
-  measured false: given a malformed template and no existing file,
-  `settings-merge` exits 1 AND leaves a newly created `settings.json`
-  containing `{}`. Three more followed the same shape: a bootstrap that said a
-  deferred seam install meant every later write would defer (it says nothing
-  about `~/.bashrc`), a Gemma handler asserting "the mechanical fence is NOT
-  installed" when a failed re-run leaves an existing fence untouched, and an
-  `update.md` bootstrap that created `~/.claude/scripts` and so silently
-  upgraded a Tier 0/1 install past the invariant the next step promises.
-
-  **And the gate could not see its own fix.** The bootstrap is a QUOTED
-  invocation; the first detector required whitespace immediately after the
-  `.sh`, where a closing quote sits - so deleting the bootstrap's handlers
-  still produced a clean verdict. Fixing that by requiring the seam at the head
-  of the logical line then hid `true && echo ready; <seam call>` entirely: a
-  fix for a false positive that created a false negative. The third framing
-  decides PER COMMAND, splitting on `;`/`&&`/`||`, because the command is the
-  thing that actually has an exit status. All three implementations are
-  committed - the two superseded ones under
-  `controls/cpp-host-writes/alternatives/`, recovered from the index rather
-  than reconstructed - and each committed case names which one it separates the
-  gate from.
-
-  Negative control (ADR 0008 - this gate lets work through): 21 cases in
-  `controls/cpp-host-writes`, each shown to discriminate. The
-  gate reds with 20 findings on the pre-fix documents at `5a4d7fc` and passes on
-  the fixed ones - same gate, same run, only the input differs - and
-  `tests/test_cpp_host_writes.py` pins that SHA so the regression keeps its
-  subject after this lands. Three wrong implementations are committed under
-  `controls/cpp-host-writes/alternatives/`, with a test naming which case each
-  one excuses; none is registered as an *anchor*, because the battery requires
-  an anchor to be blind to the whole register and was measured reporting
-  `anchor constructed CAUGHT the known-bad input` when one was.
-
-## [8.0.0] - 2026-09-15
-
-> **Scope note.** This section is everything accumulated **since the previous
-> version heading**, `[7.3.0]` (2026-07-04) - so it spans 7.4.0 through 8.0.0 and
-> includes work released as 7.4.0 (2026-07-18) and 7.5.0 (2026-09-07). Entry
-> dates inside it start at 2026-07-04, not at 7.4.0's release date: some entries
-> describe work committed before 7.3.0 shipped. The per-release split for those
-> two versions lives in the README's version notes. The boundaries are **not**
-> reconstructed here:
-> assigning entries to releases after the fact would be inference presented as
-> record, and a wrong split is worse than an unsplit one that says so.
-
-
-### Removed
-
-- **2026-09-19 - the `mcp-evaluate/` subproject, and with it 34 CVEs** (issue
-  #943) - #943 asked which of three paths to take on 11 locked packages carrying
-  34 advisories: migrate across major versions, add per-package ceilings, or
-  accept a residue after assessing exposure. The exposure assessment answered a
-  different question. `mcp-evaluate` was **deprecated in CPP's own documentation**
-  ("absorbed into /evaluate:issue skill", drift status `LEGACY DEPRECATED`, a
-  class defined as *teardown only*), registered in no scope, listening on no
-  port, carrying no systemd unit, with `/cpp:init` already scanning for and
-  flagging its unit as legacy - and its replacement `/evaluate:issue` declares
-  "No separate MCP server required". kyle referenced it zero times across 935
-  files (positive control: the same search returns 30 hits for `second-opinion`),
-  and codex-power-pack had already listed it under "Removed entirely" and
-  executed the deletion. So the advisories were cleared by removing what carried
-  them rather than by bumping a server nothing runs.
-
-  **The issue's premise was also measurably wrong, and is recorded as such rather
-  than quietly dropped.** #943 argued the remedy "is not free" - that clearing
-  `mcp`'s CVEs might need mcp 2.x, which fastmcp 3.x rejects, and that reaching
-  zero meant crossing three major boundaries. Measured on 2026-09-19:
-  `uv lock --upgrade-package` over the eleven, with `pyproject.toml` untouched
-  and fastmcp pinned at 3.2.4, resolves `mcp 1.30.0` and `starlette 1.6.0` and
-  reaches **0 of 77 vulnerable**. The subproject was retired because it was
-  unused, not because it was hard to patch.
-
-- **2026-09-19 - the CI `dockerfile-lint` step** (issue #943) - retired in the
-  same change and for a reason worth separating from the deletion.
-  `mcp-evaluate/deploy/Dockerfile` was the **last Dockerfile in the tree**
-  (#469 stopped CPP building images but left this one behind), and the step ran
-  `find . -name Dockerfile -print0 | xargs -0 -r hadolint`. `xargs -r` does not
-  run on empty input, so from the moment the file left, the step would have
-  exited 0 having linted nothing - printing a green indistinguishable from a tree
-  whose Dockerfiles all passed. A zero-file population is UNKNOWN, not clean
-  (ADR 0008), so the step was deleted rather than left standing: an absent
-  instrument is visible in the census, a blind one is not. ADR 0008 row 45
-  (`hadolint`) is removed, its CI-step population annotated rather than
-  backdated, and `hadolint` dropped from the `external-subjects` declaration.
-  **Anyone adding a Dockerfile to CPP must restore this step with it; nothing
-  will notice its absence for them.**
-
-- **2026-09-19 - `test_convention_parity_with_mcp_evaluate`** (issue #943) - the
-  test asserted that `mcp-evaluate/src/config.py` and `.mcp.json` declared the
-  same `SECOND_OPINION_URL` default. Its premise was "one variable, two
-  consumers"; the second consumer is gone, so there is nothing left to diverge
-  from. Removed rather than made tolerant of a missing file - a version that
-  skipped when the path was absent would pass unconditionally while still
-  reading as a parity check.
-
-- **2026-09-19 - the dependency audit's only allowlist line** (issues #943, #961)
-  - `.dependency-audit-allow` carried exactly one entry,
-    `deferred mcp-evaluate/uv.lock #943`, and it came out because the gate made
-    it: a line accounting for nothing reports `DEP-AUDIT-STALE` and exits 1.
-    Demonstrated on this branch rather than asserted - the old allowlist against
-    the post-deletion tree exits **1** naming line 55, the new one exits **0**,
-    same tree and same command. That is the second time the stale-suppression
-    rule has fired on a change its author did not make (the first was #922). The
-    ledger is now empty, and its count is still printed on every run so that
-    empty never reads as unexamined.
-
 ### Added
 
 - **2026-09-19 - the Codex-consolidation contract: spec, inventory, disposition
@@ -367,6 +176,7 @@
   Dispositions are recorded per advisory, not per package - `urllib3 2.6.3`
   carried two bugs of different classes at once. Scope, blind spots and the
   absence of automation (issue #961) are stated in the file rather than implied.
+
 - **2026-09-16 - one vendor module for the two external-repo cores** (issue
   #1012) - `scripts/eli5-vendor.py` (282 lines) and
   `scripts/project-next-vendor.py` (298 lines) were separately-written solutions
@@ -382,6 +192,7 @@
   carries a LAYOUT (`MarkerSectionLayout` / `FileSetLayout`) alongside its
   constants. Every CLI, exit code and Makefile/CI invocation is unchanged;
   `Makefile` and `.woodpecker.yml` are untouched.
+
 - **2026-09-16 - both vendor gates are now provable, and carry committed
   negative controls** (issue #1012, ADR 0008) - each script hardcoded its
   manifest path and repository root at module level, so neither could be aimed
@@ -401,6 +212,252 @@
   rule would otherwise leave the case manifests untracked - discriminating on
   every dev box and absent from a clean clone, the #964/#953 trap in a third
   location.
+
+### Fixed
+
+- **2026-09-27 - `/cpp:update` stops leaving stale state unreported** (issue
+  #1263) - Step 5b now has a prune half: it lists the dangling helper links
+  install-drift already names (a script deleted upstream whose
+  `~/.claude/scripts` link survived), asks, and removes each through a new
+  `cpp-host-write.sh unlink-orphan`, which re-proves ownership per entry and
+  refuses a live link, a host-owned file or a neighbour project's link. The
+  Tier 6/7 blocks in `/cpp:update` and `/cpp:init` judge the model only
+  against an endpoint that answered, so a powered-off host reads `unknown`
+  instead of `missing` with rebuild advice. Step 3.5 compares the on-disk
+  command against the literal pre-pull SHA instead of `ORIG_HEAD`, which a
+  concurrent pull in a shared checkout overwrites, and Step 10 reports the
+  commit the run finished on when the checkout moved under it.
+  `eli5-vendor --revendor` fetches the core at the commit it pins rather than
+  from the moving `/main/` URL, so the recorded provenance names the bytes
+  vendored.
+
+- **2026-09-26 - `/security:scan` no longer reports a gitleaks or npm audit
+  that never ran as clean** (issue #1264) - a missing `gitleaks` or `npm`, a
+  crashed audit, or an unreadable report used to show as `SKIP`, or for npm as
+  `No dependency vulnerabilities found`, which reads as a clean result. Each now
+  prints a red `UNKNOWN` error line instead - the shape #1044 gave `pip-audit`.
+  The gate's exit code is unchanged, and a project with no `package.json` or
+  `package-lock.json` is still skipped as not applicable. A clean npm pass now
+  says how many dependencies it examined. The same issue taught the negative-
+  control harness to find its census ADR outside `docs/decisions/0008-*` (kyle
+  files it at `docs/adr/`), taught `check-control-ci-deps.py` to read
+  `env -u NAME cmd` as running `cmd`, and pinned AGENTS.md's Codex facts with a
+  test, which found and corrected two false sentences in it.
+
+- **2026-09-24 - `/qwen:auto` and `/gemma:auto` re-delegated on an expired
+  serveability pass** (issue #921, half 2 of 2; half 1 was PR #991) - the Step-6
+  fix loop re-executed the model on the Step-4 probe's verdict, taken before the
+  whole first run and the quality gates and so far past its 120s window. Both
+  fix loops now age that verdict with `--check-age` before each re-execute; a
+  `stale` or `unknown` answer probes ONCE, immediately before the call, and
+  `dead`/`unreachable`/`unknown` stops the loop instead of spending a retry.
+  There is deliberately no timer or free-standing re-probe: the owner ruled that
+  the serving hosts are to be treated as not pinning their models, so every cold
+  probe is a full weight load - the operation observed being killed - and a probe is only
+  load-neutral when the call it precedes would load the model anyway.
+
+- **2026-09-22 - `/cpp:init` and `/cpp:update` reported success for host writes
+  that never happened** (issue #1198) - #1132 routed every host write in the two
+  cpp command documents through `scripts/cpp-host-write.sh`, the declaring seam
+  that says what it touches and can be told to defer a surface. That made the
+  seam **total**. Nothing checked that it was **reachable**, or that its answer
+  was read. The seam returns `0` wrote / `3` deferred-by-request / `1` failed,
+  and `127` when it is not installed, and **all twenty call sites discarded it**
+  - six in `update.md`, fourteen in `init.md`, every one followed by an
+  unconditional success line.
+
+  Measured on a real host, not reasoned about: `/cpp:update` printed
+  `✓ Flow allowlist merged (52 total allow rules)` with the seam **absent** and
+  zero of 52 rules merged, and printed the same claim over the seam's own
+  `DEFERRED ~/.claude/settings.json - not written, by request`. The count made
+  it worse rather than better - read after a merge that did not happen it is the
+  **pre-merge** total, so the false claim carried a plausible number and read as
+  a smaller install rather than as an error.
+
+  The deferred case is **#1139's defect inverted**. There, a caller was told a
+  surface was protected and it was written anyway. Here, a caller is told it was
+  written and it was protected - and in both halves the seam did its job
+  correctly and the document overrode it.
+
+  `init.md` was the worse of the two: its Tier 2 block asked the **not yet
+  installed** helper to create `~/.claude/scripts`, the directory that helper is
+  linked into two statements later. On the fresh host `/cpp:init` exists for,
+  the whole tier silently installed nothing. The bootstrap now runs through the
+  seam at its **checkout** path - which always exists when a checkout does - so
+  it stays declared and deferrable instead of becoming a carve-out the gate has
+  to be taught to ignore.
+
+  Every site now reports which of the four things happened. `scripts/
+  check-cpp-host-writes.py` grew a second finding type, `UNREAD-SEAM-VERDICT:`,
+  reported and counted separately from `INLINE-HOST-WRITE:` so one red does not
+  mean two things. The rule is **always read the status**, not "read it when a
+  success message follows": keying on a nearby checkmark excuses the shape that
+  actually bit, a `link-into` loop calling the seam ninety times, claiming
+  nothing, and leaving 25 scripts unlinked in silence.
+
+  **The remedy was itself an overclaim, twice, and counter-model review caught
+  both.** The first draft replaced "claim a write happened" with "the file is
+  unchanged" on fourteen failure branches - an unverified rollback claim,
+  measured false: given a malformed template and no existing file,
+  `settings-merge` exits 1 AND leaves a newly created `settings.json`
+  containing `{}`. Three more followed the same shape: a bootstrap that said a
+  deferred seam install meant every later write would defer (it says nothing
+  about `~/.bashrc`), a Gemma handler asserting "the mechanical fence is NOT
+  installed" when a failed re-run leaves an existing fence untouched, and an
+  `update.md` bootstrap that created `~/.claude/scripts` and so silently
+  upgraded a Tier 0/1 install past the invariant the next step promises.
+
+  **And the gate could not see its own fix.** The bootstrap is a QUOTED
+  invocation; the first detector required whitespace immediately after the
+  `.sh`, where a closing quote sits - so deleting the bootstrap's handlers
+  still produced a clean verdict. Fixing that by requiring the seam at the head
+  of the logical line then hid `true && echo ready; <seam call>` entirely: a
+  fix for a false positive that created a false negative. The third framing
+  decides PER COMMAND, splitting on `;`/`&&`/`||`, because the command is the
+  thing that actually has an exit status. All three implementations are
+  committed - the two superseded ones under
+  `controls/cpp-host-writes/alternatives/`, recovered from the index rather
+  than reconstructed - and each committed case names which one it separates the
+  gate from.
+
+  Negative control (ADR 0008 - this gate lets work through): 21 cases in
+  `controls/cpp-host-writes`, each shown to discriminate. The
+  gate reds with 20 findings on the pre-fix documents at `5a4d7fc` and passes on
+  the fixed ones - same gate, same run, only the input differs - and
+  `tests/test_cpp_host_writes.py` pins that SHA so the regression keeps its
+  subject after this lands. Three wrong implementations are committed under
+  `controls/cpp-host-writes/alternatives/`, with a test naming which case each
+  one excuses; none is registered as an *anchor*, because the battery requires
+  an anchor to be blind to the whole register and was measured reporting
+  `anchor constructed CAUGHT the known-bad input` when one was.
+
+- **2026-09-20 - the skill surface gets validation that can fail** (issue
+  #1034) - three defects in one header, consolidated from the Nit Store (#864).
+  (1) The Agent Skills spec requires `name` to be 1-64 lowercase alphanumerics
+  and single internal hyphens, and to match the parent directory. **18 of 18
+  canonical packages violated it**, carrying human titles (`Code Quality`,
+  `CI/CD & Verification`, `Python Packaging (PEP 621 & PEP 723)`) where an
+  identifier belongs - and `skills-check.py`, the surface built to catch exactly
+  this class, had no rule for it. Each `name` is now its directory slug; the
+  human title was never lost, because every package already carried it as the
+  body's H1. (2) All 18 packages stored good cue vocabulary in a `trigger:`
+  frontmatter key that **is not a spec field, so nothing loads it**, while
+  `description` - the only always-loaded pointer, and what decides whether a
+  model-invoked skill fires - stated capability alone. The descriptions were
+  rewritten to state a triggering condition, and `UNREACHABLE_TRIGGER` guards
+  the regression. **That check is a floor, not a quality measure**: one shared
+  term satisfies it and 17 of 18 already cleared it before the rewrite, so its
+  green says the vocabulary is reachable and nothing about whether the wording
+  is good. A share-of-terms rule was considered and rejected - keyword-stuffing
+  the field it protects satisfies it. (3) The managed-mirror comparison is
+  opt-in through `metadata.source`, a value stored inside the file being
+  verified, and `Report.ok` is `not findings` - so a copy that drops that line
+  is skipped with no finding, no note, and an unchanged `ok`. The summary now
+  names the skipped population; the boundary is unmoved, since unmarked content
+  is still never judged, only no longer silent. `install-drift` reports it too,
+  and initialises the counter to `?`/null rather than 0, so a parse that never
+  ran cannot render as a measured zero.
+  **Negative controls, all committed, both halves each.** The unfixed tree was
+  the red case for the name rule: 18 `INVALID_NAME` before the rename, 0 after.
+  Verified by mutation on the restored tree - blinding the name rule reddens 5
+  tests, the trigger rule 1, the skipped counter 2 (and 2 more in
+  `test_install_drift.py`), with all 62 green again on restore.
+  **A blind spot found by nearly shipping it, and NOT fixed here**: CPP's
+  stdlib frontmatter parser splits on the first colon, so a plain scalar
+  containing `: ` parses cleanly while any real YAML loader rejects it. Three
+  rewritten descriptions hit this and `skills-check` reported `ok` on all three;
+  they were reworded, and the gap is filed for its own ticket rather than
+  widened into this change.
+
+- **2026-09-16 - root lockfile clears its last two advisories** (issue #922) -
+  `uv lock --upgrade-package pygments --upgrade-package pytest` moves
+  `pygments 2.19.2 -> 2.21.0` (CVE-2026-4539) and `pytest 9.0.2 -> 9.1.1`
+  (CVE-2025-71176). No `pyproject.toml` change: pygments is transitive through
+  pytest and pinning it would create a direct dependency this project does not
+  carry - the reasoning PR #925 recorded when it declined the analogous urllib3
+  pin. OSV now reads **0 of 22** packages with advisories, with `urllib3 2.6.3`
+  appended to the same batch as a positive control so the zero is checked
+  rather than blind. The bump was made despite both verdicts being "not
+  exposed", because a low-exposure assessment is not a reason to leave a line
+  every future scanner re-reports. Note the resolved versions are not the
+  advisories' minimum fixing versions (2.20.0 / 9.0.3): an unbounded
+  requirement resolves to latest, so this crosses a pytest MINOR - verified by
+  the full suite and the negative-control register running under the new pytest.
+
+### Removed
+
+- **2026-09-19 - the `mcp-evaluate/` subproject, and with it 34 CVEs** (issue
+  #943) - #943 asked which of three paths to take on 11 locked packages carrying
+  34 advisories: migrate across major versions, add per-package ceilings, or
+  accept a residue after assessing exposure. The exposure assessment answered a
+  different question. `mcp-evaluate` was **deprecated in CPP's own documentation**
+  ("absorbed into /evaluate:issue skill", drift status `LEGACY DEPRECATED`, a
+  class defined as *teardown only*), registered in no scope, listening on no
+  port, carrying no systemd unit, with `/cpp:init` already scanning for and
+  flagging its unit as legacy - and its replacement `/evaluate:issue` declares
+  "No separate MCP server required". kyle referenced it zero times across 935
+  files (positive control: the same search returns 30 hits for `second-opinion`),
+  and codex-power-pack had already listed it under "Removed entirely" and
+  executed the deletion. So the advisories were cleared by removing what carried
+  them rather than by bumping a server nothing runs.
+
+  **The issue's premise was also measurably wrong, and is recorded as such rather
+  than quietly dropped.** #943 argued the remedy "is not free" - that clearing
+  `mcp`'s CVEs might need mcp 2.x, which fastmcp 3.x rejects, and that reaching
+  zero meant crossing three major boundaries. Measured on 2026-09-19:
+  `uv lock --upgrade-package` over the eleven, with `pyproject.toml` untouched
+  and fastmcp pinned at 3.2.4, resolves `mcp 1.30.0` and `starlette 1.6.0` and
+  reaches **0 of 77 vulnerable**. The subproject was retired because it was
+  unused, not because it was hard to patch.
+
+- **2026-09-19 - the CI `dockerfile-lint` step** (issue #943) - retired in the
+  same change and for a reason worth separating from the deletion.
+  `mcp-evaluate/deploy/Dockerfile` was the **last Dockerfile in the tree**
+  (#469 stopped CPP building images but left this one behind), and the step ran
+  `find . -name Dockerfile -print0 | xargs -0 -r hadolint`. `xargs -r` does not
+  run on empty input, so from the moment the file left, the step would have
+  exited 0 having linted nothing - printing a green indistinguishable from a tree
+  whose Dockerfiles all passed. A zero-file population is UNKNOWN, not clean
+  (ADR 0008), so the step was deleted rather than left standing: an absent
+  instrument is visible in the census, a blind one is not. ADR 0008 row 45
+  (`hadolint`) is removed, its CI-step population annotated rather than
+  backdated, and `hadolint` dropped from the `external-subjects` declaration.
+  **Anyone adding a Dockerfile to CPP must restore this step with it; nothing
+  will notice its absence for them.**
+
+- **2026-09-19 - `test_convention_parity_with_mcp_evaluate`** (issue #943) - the
+  test asserted that `mcp-evaluate/src/config.py` and `.mcp.json` declared the
+  same `SECOND_OPINION_URL` default. Its premise was "one variable, two
+  consumers"; the second consumer is gone, so there is nothing left to diverge
+  from. Removed rather than made tolerant of a missing file - a version that
+  skipped when the path was absent would pass unconditionally while still
+  reading as a parity check.
+
+- **2026-09-19 - the dependency audit's only allowlist line** (issues #943, #961)
+  - `.dependency-audit-allow` carried exactly one entry,
+    `deferred mcp-evaluate/uv.lock #943`, and it came out because the gate made
+    it: a line accounting for nothing reports `DEP-AUDIT-STALE` and exits 1.
+    Demonstrated on this branch rather than asserted - the old allowlist against
+    the post-deletion tree exits **1** naming line 55, the new one exits **0**,
+    same tree and same command. That is the second time the stale-suppression
+    rule has fired on a change its author did not make (the first was #922). The
+    ledger is now empty, and its count is still printed on every run so that
+    empty never reads as unexamined.
+
+## [8.0.0] - 2026-09-15
+
+> **Scope note.** This section is everything accumulated **since the previous
+> version heading**, `[7.3.0]` (2026-07-04) - so it spans 7.4.0 through 8.0.0 and
+> includes work released as 7.4.0 (2026-07-18) and 7.5.0 (2026-09-07). Entry
+> dates inside it start at 2026-07-04, not at 7.4.0's release date: some entries
+> describe work committed before 7.3.0 shipped. The per-release split for those
+> two versions lives in the README's version notes. The boundaries are **not**
+> reconstructed here:
+> assigning entries to releases after the fact would be inference presented as
+> record, and a wrong split is worse than an unsplit one that says so.
+
+
+### Added
 
 - **2026-09-14 - `instrument` is a defined term, and the Negative Control rule
   is bounded so it can be kept** (issue #932, ADR 0008) - the global directive
@@ -670,58 +727,6 @@
 
 ### Fixed
 
-- **2026-09-20 - the skill surface gets validation that can fail** (issue
-  #1034) - three defects in one header, consolidated from the Nit Store (#864).
-  (1) The Agent Skills spec requires `name` to be 1-64 lowercase alphanumerics
-  and single internal hyphens, and to match the parent directory. **18 of 18
-  canonical packages violated it**, carrying human titles (`Code Quality`,
-  `CI/CD & Verification`, `Python Packaging (PEP 621 & PEP 723)`) where an
-  identifier belongs - and `skills-check.py`, the surface built to catch exactly
-  this class, had no rule for it. Each `name` is now its directory slug; the
-  human title was never lost, because every package already carried it as the
-  body's H1. (2) All 18 packages stored good cue vocabulary in a `trigger:`
-  frontmatter key that **is not a spec field, so nothing loads it**, while
-  `description` - the only always-loaded pointer, and what decides whether a
-  model-invoked skill fires - stated capability alone. The descriptions were
-  rewritten to state a triggering condition, and `UNREACHABLE_TRIGGER` guards
-  the regression. **That check is a floor, not a quality measure**: one shared
-  term satisfies it and 17 of 18 already cleared it before the rewrite, so its
-  green says the vocabulary is reachable and nothing about whether the wording
-  is good. A share-of-terms rule was considered and rejected - keyword-stuffing
-  the field it protects satisfies it. (3) The managed-mirror comparison is
-  opt-in through `metadata.source`, a value stored inside the file being
-  verified, and `Report.ok` is `not findings` - so a copy that drops that line
-  is skipped with no finding, no note, and an unchanged `ok`. The summary now
-  names the skipped population; the boundary is unmoved, since unmarked content
-  is still never judged, only no longer silent. `install-drift` reports it too,
-  and initialises the counter to `?`/null rather than 0, so a parse that never
-  ran cannot render as a measured zero.
-  **Negative controls, all committed, both halves each.** The unfixed tree was
-  the red case for the name rule: 18 `INVALID_NAME` before the rename, 0 after.
-  Verified by mutation on the restored tree - blinding the name rule reddens 5
-  tests, the trigger rule 1, the skipped counter 2 (and 2 more in
-  `test_install_drift.py`), with all 62 green again on restore.
-  **A blind spot found by nearly shipping it, and NOT fixed here**: CPP's
-  stdlib frontmatter parser splits on the first colon, so a plain scalar
-  containing `: ` parses cleanly while any real YAML loader rejects it. Three
-  rewritten descriptions hit this and `skills-check` reported `ok` on all three;
-  they were reworded, and the gap is filed for its own ticket rather than
-  widened into this change.
-
-- **2026-09-16 - root lockfile clears its last two advisories** (issue #922) -
-  `uv lock --upgrade-package pygments --upgrade-package pytest` moves
-  `pygments 2.19.2 -> 2.21.0` (CVE-2026-4539) and `pytest 9.0.2 -> 9.1.1`
-  (CVE-2025-71176). No `pyproject.toml` change: pygments is transitive through
-  pytest and pinning it would create a direct dependency this project does not
-  carry - the reasoning PR #925 recorded when it declined the analogous urllib3
-  pin. OSV now reads **0 of 22** packages with advisories, with `urllib3 2.6.3`
-  appended to the same batch as a positive control so the zero is checked
-  rather than blind. The bump was made despite both verdicts being "not
-  exposed", because a low-exposure assessment is not a reason to leave a line
-  every future scanner re-reports. Note the resolved versions are not the
-  advisories' minimum fixing versions (2.20.0 / 9.0.3): an unbounded
-  requirement resolves to latest, so this crosses a pytest MINOR - verified by
-  the full suite and the negative-control register running under the new pytest.
 - **2026-09-13 - `worktree-remove.sh` read every squash-merged branch as
   unpushed once the merge helper deleted its remote ref** (issue #916) - #905's
   unpushed check asks `git log HEAD --not --remotes`: "reachable from a remote
