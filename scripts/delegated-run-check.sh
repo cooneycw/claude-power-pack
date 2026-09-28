@@ -120,6 +120,11 @@
 #   output-missing   no output file exists (the run never produced a stream)
 #   output-empty     the file exists but holds nothing parseable
 #   output-unrecognized  parsed, but no recognizable event in the whole stream
+#   line-too-deep    a line nested past the interpreter's JSON recursion limit.
+#                    It is UNREADABLE here, and an unread event could have been a
+#                    failure, so it fails the run rather than being skipped as
+#                    harmless (issue #1265). Ordinary non-JSON lines - banners,
+#                    stderr - are only counted in UNPARSED
 #   api-error        a TERMINAL payload whose text begins `[API Error` - the
 #                    Qwen false-success signature, checked for all lanes. Scoped
 #                    to terminal and error events on purpose: matching the
@@ -684,15 +689,20 @@ with open(path, "r", encoding="utf-8", errors="replace") as handle:
             continue
         try:
             obj = json.loads(line)
-        except (ValueError, TypeError, RecursionError):
+        except RecursionError:
+            # A line nested past json.loads' own recursion limit. It may well BE
+            # JSON - an event this helper cannot read, which could have been a
+            # failure - so unlike a banner it is not harmless: `line-too-deep`
+            # fails the run, while the rest of the stream is still read and the
+            # line is counted (counter-model review, #1265).
+            unparsed += 1
+            signals.add("line-too-deep")
+            continue
+        except (ValueError, TypeError):
             # Not JSON: a harness banner or a stderr line that landed in the
             # stream. That banner is sometimes exactly where the error surfaces.
             # Counted (issue #1265): a line this helper could not read is part
             # of the payload, and must not vanish from the denominator.
-            # RecursionError too: json.loads itself is bounded by the
-            # interpreter's recursion limit, so a pathologically deep line is
-            # UNREADABLE here - reported as such, never a crash of the whole
-            # parse (counter-model review).
             unparsed += 1
             if line.lstrip().startswith("[API Error"):
                 signals.add("api-error")
@@ -854,6 +864,11 @@ if [[ "$QUIET" -eq 0 ]]; then
             echo "  That is not a failed run, and this check cannot tell you whether the requested work happened."
         else
             echo "  This does not establish that the requested work happened - no tool call reported an error, which is a different claim."
+        fi
+        if [[ "$UNPARSED" -gt 0 ]]; then
+            # Qualified, never silent (counter-model review, #1265): the verdict
+            # above was computed over the lines that parsed, not all of them.
+            echo "  NOTE: $UNPARSED line(s) were not JSON and were not examined - this verdict covers the $EVENTS that were."
         fi
     fi
 fi

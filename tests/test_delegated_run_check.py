@@ -1416,6 +1416,40 @@ def test_a_line_too_deep_to_parse_is_unparsed_not_a_crash(tmp_path: Path) -> Non
     assert found["DELEGATED_RUN_UNPARSED"] == ["1"], found
     assert found["DELEGATED_RUN_EVENTS"] == ["2"], found
     assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["1"], found
+    # Unread is not harmless (counter-model review, pass 2): the skipped line
+    # could have been a failure event, so the run FAILS, and says why.
+    assert "line-too-deep" in found["DELEGATED_RUN_SIGNAL"], found
+    assert found["DELEGATED_RUN_STATUS"] == ["failure"], found
+
+
+def test_a_fatal_event_too_deep_to_read_cannot_become_a_success(tmp_path: Path) -> None:
+    """The reviewer's exact case: a top-level error event carrying a field nested
+    past the parse limit, then a clean tool call and a terminal event. Before,
+    the error event was skipped and the run read as success under --expect-tools."""
+    deep = '{"a": ' * 100_000 + "1" + "}" * 100_000
+    path = tmp_path / "fatal-too-deep.jsonl"
+    path.write_text(
+        '{"type": "error", "error": "fatal", "payload": ' + deep + "}\n"
+        + '{"type": "tool_use", "part": {"tool": "bash", "state": {"status": "completed"}}}\n'
+        + '{"type": "step_finish", "part": {"reason": "stop"}}\n',
+        encoding="utf-8",
+    )
+    found = contract(run(str(path), "0", "--lane", "gemma", "--expect-tools").stdout)
+    assert found["DELEGATED_RUN_STATUS"] == ["failure"], found
+
+
+def test_a_clean_verdict_over_unparsed_lines_says_so(tmp_path: Path) -> None:
+    """A success computed over part of the payload is qualified in the prose."""
+    path = tmp_path / "banner.jsonl"
+    path.write_text(
+        "a harness banner\n"
+        '{"type": "tool_use", "part": {"tool": "bash", "state": {"status": "completed"}}}\n'
+        '{"type": "step_finish", "part": {"reason": "stop"}}\n',
+        encoding="utf-8",
+    )
+    proc = run(str(path), "0", "--lane", "gemma")
+    assert contract(proc.stdout)["DELEGATED_RUN_STATUS"] == ["success"]
+    assert "1 line(s) were not JSON and were not examined" in proc.stdout, proc.stdout
 
 
 @pytest.mark.parametrize("depth", [2, 8, 50])
@@ -1505,3 +1539,35 @@ def test_a_real_codex_collab_capture_counts_as_tool_activity() -> None:
     found = contract(proc.stdout)
     assert found["DELEGATED_RUN_STATUS"] == ["success"], proc.stdout
     assert "no-tool-use" not in found.get("DELEGATED_RUN_SIGNAL", []), found
+
+
+def test_tool_activity_nested_deep_in_a_wrapper_is_seen(tmp_path: Path) -> None:
+    """tool_types_in's half of the depth fix (counter-model red case, #1265):
+    a tool type 8 levels inside a non-tool wrapper event is still tool activity,
+    so --expect-tools does not fail the run as tool-less."""
+    output = write_jsonl(
+        tmp_path / "wrapped.jsonl",
+        [
+            {"type": "wrapper", "payload": _nested(8, {"type": "tool_use", "tool": "bash"})},
+            {"type": "turn.completed"},
+        ],
+    )
+    found = contract(run(str(output), "0", "--lane", "codex", "--expect-tools").stdout)
+    assert "no-tool-use" not in found.get("DELEGATED_RUN_SIGNAL", []), found
+
+
+def test_a_tool_shaped_error_inside_a_successful_call_s_output_is_not_counted(tmp_path: Path) -> None:
+    """Ownership, the sharper form (counter-model red case, #1265): the returned
+    data is itself tool-SHAPED - it carries a `tool` and an error state - but it
+    is data a successful call returned, so the walk never descends to it."""
+    output = write_jsonl(
+        tmp_path / "tool-shaped-output.jsonl",
+        [
+            {"type": "tool_use", "part": {"tool": "bash", "state": {
+                "status": "completed",
+                "output": {"tool": "bash", "state": {"status": "error"}},
+            }}},
+            {"type": "step_finish", "part": {"reason": "stop"}},
+        ],
+    )
+    assert contract(run(str(output), "0", "--lane", "gemma").stdout)["DELEGATED_RUN_TOOL_ERRORS"] == ["0"]

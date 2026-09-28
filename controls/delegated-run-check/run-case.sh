@@ -30,7 +30,18 @@ case "$status" in
     0|1) : ;;
     *) printf '%s\n' "$out"; echo "DELEGATED_RUN_CONTROL: cannot-run - the gate exited $status"; exit 3 ;;
 esac
-count=$(printf '%s\n' "$out" | sed -n 's/^DELEGATED_RUN_TOOL_ERRORS: //p' | head -1)
+# The payload must actually have been ASSESSED before its count means anything
+# (counter-model review, #1265): a gate that parsed nothing prints
+# `TOOL_ERRORS: 0` too, and would pass a GOOD case without looking at it. Every
+# case here is exactly two JSON events. UNPARSED must be 0 - or absent, which is
+# the pre-#1265 contract the historical anchor speaks.
+field() { printf '%s\n' "$out" | sed -n "s/^DELEGATED_RUN_$1: //p" | head -1; }
+if [ "$(field EVENTS)" != 2 ] || [ "$(field RECOGNIZED)" != 2 ] || { [ -n "$(field UNPARSED)" ] && [ "$(field UNPARSED)" != 0 ]; }; then
+    printf '%s\n' "$out"
+    echo "DELEGATED_RUN_CONTROL: cannot-run - the payload was not assessed (EVENTS=$(field EVENTS) RECOGNIZED=$(field RECOGNIZED) UNPARSED=$(field UNPARSED))"
+    exit 3
+fi
+count=$(field TOOL_ERRORS)
 case "$count" in
     ''|*[!0-9]*) printf '%s\n' "$out"; echo "DELEGATED_RUN_CONTROL: cannot-run - no TOOL_ERRORS count in the contract"; exit 3 ;;
 esac
