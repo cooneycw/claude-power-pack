@@ -1230,7 +1230,8 @@ def test_help_reaches_the_end_of_the_header_block():
 # --------------------------------------------------------------------------
 # Argument handling: what a bad call may do, and what it may never do
 # --------------------------------------------------------------------------
-# All four of these were found by an independent review (Codex, gpt-5.5) of the
+# All four of these were found by an independent review (Codex; recorded as gpt-5.5,
+# attributed to gpt-6-astra - #1272) of the
 # #921 change and confirmed by running them. Three were live defects in the
 # shipped argument parser rather than in the freshness logic, and the first two
 # predate this change - they are fixed here because the fix is one shared

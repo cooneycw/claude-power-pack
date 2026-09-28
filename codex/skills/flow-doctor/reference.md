@@ -434,5 +434,5 @@ Output a single diagnostic report in this format:
 - This is a read-only diagnostic - it never modifies anything
 - `uv` is recommended but not required (⚠️ if missing, not ❌)
 - Makefile is recommended but not required (⚠️ if missing)
-- Scripts and hooks are ❌ if missing since they provide security protection
+- Scripts are ❌ if missing since the flow commands call them. Hooks are not graded ❌ (Step 4): they are not security protection - CPP's optional hooks are the observe-only permission census and the advisory pending-retro notice, and neither blocks or filters anything (#1206)
 - Keep the report concise - one table per section, actions at the end

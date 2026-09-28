@@ -817,7 +817,7 @@ bootstrap-check:
 
 ## Drift detection (compare host-installed artifacts against repo templates)
 
-## verify-coverage: excluded drift-check - compares host-installed artifacts against repo templates and REPAIRS them; it inspects and writes to HOME
+## verify-coverage: excluded drift-check - compares host-installed artifacts against repo templates and PRINTS remedies (--fix only echoes them; it writes no host artifact, only its own temp dir); its verdict is a fact about HOME, not the repo
 drift-check:
 	@scripts/drift-detect.sh --fix
 

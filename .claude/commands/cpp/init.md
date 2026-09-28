@@ -206,7 +206,7 @@ Ask the user which permission profile they want using AskUserQuestion:
 |---------|-------------|----------|
 | **Cautious** | Minimal auto-approvals (Read only) | New users, shared machines |
 | **Standard** | Common dev tools auto-approved (Recommended) | Most developers |
-| **Trusted** | Broad auto-approvals, rely on hooks for safety | Solo developers, power users |
+| **Trusted** | Broad auto-approvals, with no hook behind them: CPP's optional hooks (the permission census and the pending-retro notice) observe and advise, and neither blocks or filters anything | Solo developers, power users |
 | **Custom** | Choose individual permission categories | Fine-grained control |
 
 ### Profile Definitions

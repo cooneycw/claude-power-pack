@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1272-docs-and-contracts-that-state-what-main-no-longer",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "4333e5c",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1272",
+  "passes": 2,
+  "recorded_at": "2026-09-28T17:10:53Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 1
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
