@@ -128,7 +128,7 @@
 #     This marker NEVER changes the exit code - the merge landed either way, and
 #     `/flow:auto` Step 7's "0 means proceed" contract is deliberately intact.
 #
-# Usage:  gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] <pr-number> <branch-name>
+# Usage:  gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] <pr-number> <branch-name>
 #           --admin  force `gh pr merge --admin` from the first attempt - the
 #                    conscious, HUMAN-TYPED branch-protection override (issues
 #                    #517/#579). It skips the required-check wait AND the review
@@ -297,6 +297,15 @@
 #            self-check - this is a BROKEN CHECK, not a clean scan, and is
 #            never conflated with "no hazard found". Investigate the guard
 #            itself before re-running; there is no override for this one.
+#         9  CLEAN STOP, not a failure (issue #1262): a worktree of this
+#            repository has the PR's head branch checked out at a commit that is
+#            NOT the PR's head on GitHub - a session may be mid-finish there.
+#            The PR is left open and untouched - push or discard that work, then
+#            re-run (or consciously re-run with --allow-local-divergence).
+#
+# Already merged (issue #1262): a PR that is MERGED when the helper is invoked
+# prints GH_PR_MERGE_ALREADY_MERGED: <n>, skips every base guard and the squash,
+# runs the post-merge cleanup and completeness checks, and exits 0.
 #
 # Env (test hooks - unset in normal use):
 #   GH_PR_MERGE_GH             override the `gh` binary (default: gh)
@@ -333,6 +342,7 @@ ADMIN_OPT_IN=0
 ALLOW_NEGATED_CLOSE=0
 ALLOW_INCIDENTAL_CLOSE=0
 ALLOW_BASE_MOVE=0
+ALLOW_LOCAL_DIVERGENCE=0
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -352,13 +362,17 @@ while [[ $# -gt 0 ]]; do
             ALLOW_BASE_MOVE=1
             shift
             ;;
+        --allow-local-divergence)
+            ALLOW_LOCAL_DIVERGENCE=1
+            shift
+            ;;
         --)
             shift
             while [[ $# -gt 0 ]]; do POSITIONAL+=("$1"); shift; done
             ;;
         -*)
             echo "gh-pr-merge.sh: unknown option '$1'" >&2
-            echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] <pr-number> <branch-name>" >&2
+            echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] <pr-number> <branch-name>" >&2
             exit 2
             ;;
         *)
@@ -372,7 +386,7 @@ PR_NUMBER="${POSITIONAL[0]:-}"
 BRANCH="${POSITIONAL[1]:-}"
 
 if [[ -z "$PR_NUMBER" || -z "$BRANCH" ]]; then
-    echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] <pr-number> <branch-name>" >&2
+    echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] <pr-number> <branch-name>" >&2
     exit 2
 fi
 
@@ -841,6 +855,257 @@ wait_out_woodpecker_queue() {
     return 0
 }
 
+# Post-merge completeness verification (issue #657): the landed squash commit
+# must touch ONLY paths in the PR's own file list. A violation is LOUD but never
+# flips the exit code - the merge already landed, so this is a signal to
+# investigate, not a failure to report (the #610 loud-never-obstructive posture).
+# Honestly scoped: it catches base-race/squash contamination, NOT a collapse
+# whose damage is inside the file list - that guard lives at collapse time.
+# Fail-open per component: any unreadable input prints `skipped`, never silence.
+# Issue #852: say whether the post-merge CLEANUP completed, as a marker a
+# caller can read, because `MERGE_EXIT=0` answers "did the merge happen" and
+# not "did the merge complete". #851 closed the one known cause of an
+# incomplete cleanup (a sibling worktree holding the branch); it did not give
+# anyone a way to notice a DIFFERENT cause, and until now the delete's result
+# was discarded by `|| true` and printed nothing at all - so a second cause
+# would have been found the way the first was, by accident.
+#
+# That is also the answer to "measure before designing": you cannot wait for a
+# second observation using an instrument that cannot observe. This adds the
+# instrument, not a fix for a cause nobody has seen.
+#
+# NEVER flips the exit code. The merge has already landed and is not undone by
+# a leftover branch, so turning this into a failure would make callers treat a
+# successful merge as a failed one - the same judgement `GH_PR_MERGE_COMPLETENESS`
+# already makes one function below, and `/flow:auto` Step 7's "0 means proceed"
+# contract stays intact.
+#
+# Deliberately NOT named GH_PR_MERGE_COMPLETENESS: that marker exists and means
+# something else (did the landed squash touch only paths in the PR's file list).
+# Two different questions under one marker name would make both unreadable.
+report_branch_cleanup() {
+    echo "GH_PR_MERGE_CLEANUP: $1"
+    case "$1" in
+        incomplete)
+            echo "warning: PR #$PR_NUMBER MERGED but its remote branch '$BRANCH' is STILL" >&2
+            echo "         PRESENT after the delete attempt (issue #852) - the merge landed," >&2
+            echo "         the cleanup did not. Nothing is broken; a stale branch is left:" >&2
+            echo "         git push origin --delete $BRANCH" >&2
+            ;;
+        preserved)
+            echo "warning: PR #$PR_NUMBER was already MERGED, but its remote branch '$BRANCH' now" >&2
+            echo "         points at a commit that is NOT the merged head (issue #1262) - it was" >&2
+            echo "         pushed to or recreated after the merge. It was left in place:" >&2
+            echo "         git ls-remote --heads origin $BRANCH" >&2
+            ;;
+        unknown)
+            echo "warning: PR #$PR_NUMBER MERGED but whether its remote branch '$BRANCH' was" >&2
+            echo "         deleted could NOT be established (issue #852) - the delete failed" >&2
+            echo "         and the remote was unreadable on re-check. Do not assume either:" >&2
+            echo "         git ls-remote --heads origin $BRANCH" >&2
+            ;;
+    esac
+    return 0
+}
+
+verify_completeness() {
+    local root merge_sha files landed extras path
+    local expected listed
+    root=$("$GIT_BIN" rev-parse --show-toplevel 2>/dev/null)
+    merge_sha=$("$GH_BIN" pr view "$PR_NUMBER" --json mergeCommit --jq '.mergeCommit.oid' 2>/dev/null)
+    # THE WHOLE FILE LIST, AND PROOF THAT IT IS WHOLE (issue #1262). `gh pr view
+    # --json files` stops at 100 entries with no error and no marker, so on a
+    # 150-file PR every landed path past the 100th read as OUTSIDE the PR's own
+    # file list: a false `violation` against the PR's own work. The REST listing
+    # paginates, and its length is checked against the PR's `changedFiles` - a
+    # listing shorter than the PR is an incomplete population, and an incomplete
+    # population cannot convict a landed path of being foreign.
+    files=$("$GH_BIN" api "repos/{owner}/{repo}/pulls/$PR_NUMBER/files" --paginate \
+        --jq '.[].filename' 2>/dev/null)
+    if [[ -z "$root" || -z "$merge_sha" || "$merge_sha" == "null" || -z "$files" ]]; then
+        echo "GH_PR_MERGE_COMPLETENESS: skipped"
+        return 0
+    fi
+    expected=$("$GH_BIN" pr view "$PR_NUMBER" --json changedFiles --jq '.changedFiles' 2>/dev/null)
+    listed=$(grep -c . <<<"$files")
+    if ! [[ "$expected" =~ ^[0-9]+$ ]]; then
+        echo "GH_PR_MERGE_COMPLETENESS: skipped (changedFiles unreadable; ${listed} path(s) listed)"
+        return 0
+    fi
+    if (( listed < expected )); then
+        echo "GH_PR_MERGE_COMPLETENESS: skipped (file list incomplete: ${listed} of ${expected})"
+        return 0
+    fi
+    "$GIT_BIN" -C "$root" fetch origin --quiet 2>/dev/null || true
+    if ! landed=$("$GIT_BIN" -C "$root" diff --name-only "${merge_sha}^" "$merge_sha" 2>/dev/null); then
+        echo "GH_PR_MERGE_COMPLETENESS: skipped"
+        return 0
+    fi
+    extras=""
+    while IFS= read -r path; do
+        [[ -z "$path" ]] && continue
+        if ! grep -qxF "$path" <<<"$files"; then
+            extras+="$path"$'\n'
+        fi
+    done <<<"$landed"
+    if [[ -n "$extras" ]]; then
+        echo "GH_PR_MERGE_COMPLETENESS: violation"
+        echo "warning: the landed squash ${merge_sha:0:7} touched path(s) OUTSIDE PR #$PR_NUMBER's" >&2
+        echo "         file list (issue #657) - the merge landed, but investigate before building on it:" >&2
+        printf '%s' "$extras" | sed 's/^/         unexpected: /' >&2
+    else
+        echo "GH_PR_MERGE_COMPLETENESS: ok"
+    fi
+    return 0
+}
+
+# The post-merge tail, as a function so a PR that is ALREADY merged when this
+# helper is invoked can run it without a squash (issue #1262). It records the
+# landed head, deletes and verifies the remote branch, and checks completeness;
+# `merge_exit` must be set by the caller. It always ends the process with 0.
+finish_merged() {
+    if [[ $merge_exit -ne 0 ]]; then
+        echo "note: gh exited $merge_exit but PR #$PR_NUMBER is MERGED - a local" \
+             "post-merge step failed, not the merge itself. Continuing." >&2
+    fi
+
+    # Verify the remote branch is actually gone rather than predicting it from
+    # which worktree invoked us (issue #848) - --delete-branch silently can't
+    # reach it from a sibling worktree holding the same branch, and a local
+    # post-merge failure above can mask our own manual delete too. One check
+    # replaces both the old in_linked_worktree-gated sites; it runs whenever
+    # the PR actually merged, regardless of exit code or invoking worktree.
+    #
+    # `ls-remote --exit-code` has THREE outcomes, not two, and they must NOT
+    # collapse into one branch: exit 0 means the ref is still there (delete
+    # it); exit 2 is git's own signal for "no such ref" (already gone,
+    # nothing to do); anything else (128 for an unreachable remote, a
+    # transient auth failure, ...) means we don't actually know - and reading
+    # "unknown" as "already gone" would silently reintroduce the very orphan
+    # this fix exists to close. So only a DEFINITIVE absence (rc == 2) skips
+    # the delete; every other outcome attempts it, and the attempt is
+    # harmless (`|| true`) if the branch really was already gone. Do not
+    # simplify this to `-eq 0` or `! ... ; then` - that puts 2 and 128 back
+    # on the same branch, which is the bug.
+    # Record that the PR's head commit LANDED, before the delete below destroys
+    # the only other evidence (issue #916).
+    #
+    # THE DEFECT THIS CLOSES. `worktree-remove.sh`'s #905 unpushed check asks
+    # `git log HEAD --not --remotes`. After a SQUASH merge the branch's commits
+    # are rewritten onto main under a different sha, so they are ancestors of
+    # nothing; the verdict then rests entirely on `refs/remotes/origin/<branch>`
+    # surviving, and the `push --delete` three lines below removes it. This
+    # repository squash-merges exclusively, so every merged worktree read as
+    # holding unreachable commits and #887's sweep removed NOTHING.
+    #
+    # WHY HERE. Offline git holds no evidence after the delete and no wider ref
+    # pattern recovers it, so the answer has to come from the one caller that
+    # both KNOWS the branch landed and destroys the proof. That is this block.
+    #
+    # WHAT MAKES IT SAFE IS THE OID, NOT THE CLEANUP. `git branch -D` does clear
+    # `branch.<name>.*`, but `git update-ref -d refs/heads/<name>` does NOT -
+    # measured - so a record CAN outlive the ref it describes. It is harmless
+    # anyway because the reader accepts it only when it equals HEAD exactly: a
+    # surviving record names an OID that genuinely landed, so if HEAD matches
+    # the claim is true, and if HEAD differs it is refused. Do not "simplify"
+    # this to a boolean or key it on the branch name - the OID is the whole
+    # guarantee, and the cleanup is a convenience that does not always happen.
+    #
+    # RECORD THE PR'S HEAD, NOT THE LOCAL TIP (cross-model review on #916).
+    # `MERGED` establishes that the PR's REMOTE head landed. The local branch
+    # can be ahead of it - a commit made after the push, or one that landed
+    # while the merge waited on checks - and recording the local tip would
+    # mark that unmerged commit as landed. The reader then finds an exact HEAD
+    # match, says `landed`, and deletes the worktree holding the only copy:
+    # the #899 data-loss path, reopened by the fix for its false refusal.
+    #
+    # So the OID comes from GitHub, and it is accepted only if the PR's head
+    # branch IS this branch - a wrong PR number must record nothing rather
+    # than a foreign OID under this branch's name. A local branch that has
+    # moved past the recorded head will not equal it, and the reader refuses:
+    # that is the protection working, not a gap.
+    #
+    # Fails open in both directions: unreadable or mismatched metadata writes
+    # nothing, and a failed write never fails the merge. A missing record means
+    # the reader falls through to today's refusal, which is the safe direction.
+    pr_head=$("$GH_BIN" pr view "$PR_NUMBER" --json headRefName,headRefOid \
+        --jq '.headRefName + " " + .headRefOid' 2>/dev/null) || pr_head=""
+    pr_head_name="${pr_head%% *}"
+    pr_head_oid="${pr_head#* }"
+    if [[ -n "$pr_head" && "$pr_head_name" == "$BRANCH" \
+          && "$pr_head_oid" =~ ^[0-9a-f]{40}$ ]]; then
+        "$GIT_BIN" config "branch.${BRANCH}.cpp-merged-head" "$pr_head_oid" 2>/dev/null || true
+    fi
+
+    rc=0
+    remote_line=$("$GIT_BIN" ls-remote --exit-code --heads origin "$BRANCH" 2>/dev/null) || rc=$?
+    remote_tip="${remote_line%%[[:space:]]*}"
+    cleanup="ok"
+    lease=()
+    # ON THE ALREADY-MERGED PATH, DELETE ONLY THE COMMIT THAT MERGED (issue #1262,
+    # counter-model review). Straight after our own squash the remote branch IS
+    # the PR head. Invoked on a PR that merged earlier, it may not be: the branch
+    # can have been pushed to again, or recreated for new work, since. So there
+    # the delete requires the remote tip to equal the merged head, and carries a
+    # lease on it so a push racing the delete is not destroyed either. A tip that
+    # moved is `preserved`; one that cannot be read is `unknown` - never deleted.
+    if [[ "${1:-fresh}" == "already" && $rc -ne 2 ]]; then
+        # A shared commit is not a shared identity (counter-model review, pass
+        # 2): an unrelated branch can point at the merged commit too, so the
+        # branch being deleted must also BE the PR's head branch.
+        if [[ $rc -ne 0 || ! "$remote_tip" =~ ^[0-9a-f]{40}$ || ! "$pr_head_oid" =~ ^[0-9a-f]{40}$ \
+              || "$pr_head_name" != "$BRANCH" ]]; then
+            cleanup="unknown"
+        elif [[ "$remote_tip" != "$pr_head_oid" ]]; then
+            cleanup="preserved"
+        else
+            lease=("--force-with-lease=refs/heads/${BRANCH}:${remote_tip}")
+        fi
+    fi
+    if [[ $rc -ne 2 && "$cleanup" == "ok" ]]; then
+        if ! "$GIT_BIN" push origin --delete "$BRANCH" ${lease+"${lease[@]}"} >/dev/null 2>&1; then
+            # The delete did not succeed. Do NOT infer from that what is on the
+            # remote - ask it, for the same reason the check above does: a
+            # failed push and an absent branch are different facts, and one of
+            # the ways a push "fails" is racing someone who deleted it first.
+            # Re-checked ONLY here, never on the success path: `push --delete`
+            # returning 0 is the remote's own answer, while an ls-remote taken
+            # immediately after a successful delete can still observe the ref
+            # and would report a false `incomplete`.
+            vrc=0
+            "$GIT_BIN" ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1 || vrc=$?
+            case $vrc in
+                2) cleanup="ok" ;;
+                0) cleanup="incomplete" ;;
+                *) cleanup="unknown" ;;
+            esac
+        fi
+    fi
+    report_branch_cleanup "$cleanup"
+
+    verify_completeness
+    echo "merged"
+    exit 0
+}
+
+# ALREADY MERGED BEFORE WE STARTED (issue #1262). A squash puts the branch's work
+# on the base under a NEW sha, so the branch will never contain the commit that
+# carries its own work: every base guard below reads a merged PR as "behind" and
+# printed "merge origin/main and re-gate" - a full gate cycle spent on a closed PR,
+# repeated for as long as the base kept moving (seen: four in thirty minutes).
+# The PR's state is the fact that decides it, so read it first. A separate
+# `--json state,number` query from the post-merge one on purpose: the two ask
+# about different moments. Unreadable state falls through to the normal path.
+PR_STATE_BEFORE=$("$GH_BIN" pr view "$PR_NUMBER" --json state,number --jq '.state' 2>/dev/null)
+if [[ "$PR_STATE_BEFORE" == "MERGED" ]]; then
+    echo "GH_PR_MERGE_ALREADY_MERGED: $PR_NUMBER"
+    echo "note: PR #$PR_NUMBER is ALREADY MERGED - nothing to squash, and no base guard" >&2
+    echo "      applies (a squash-merged branch never contains its own landed commit)." >&2
+    echo "      Running the post-merge cleanup and completeness checks only (issue #1262)." >&2
+    merge_exit=0
+    finish_merged already
+fi
+
 if ! poll_mergeable; then
     exit 1
 fi
@@ -848,6 +1113,86 @@ fi
 # Resolve the PR base once for every feature that needs it. A failed or empty
 # metadata read remains fail-open at each caller; GitHub is the final arbiter.
 PR_BASE_BRANCH=$("$GH_BIN" pr view "$PR_NUMBER" --json baseRefName --jq '.baseRefName' 2>/dev/null)
+
+# A LOCAL CHECKOUT OF THIS BRANCH THAT IS NOT AT THE PR HEAD (issue #1262).
+# GitHub's view of a PR - BEHIND, green, mergeable - cannot tell an abandoned PR
+# from one a session is mid-finish on: measured, a PR read as stale while a
+# worktree held its branch one merge ahead of the pushed head, running the gate
+# before pushing. Merging then lands the stale head and the author finds out as
+# a conflict on their own branch. The cheap, decisive comparison is local:
+# every worktree of THIS repository that has the PR's head branch checked out
+# must be at the PR's head commit. It sees this host only - a checkout on
+# another machine is out of reach, and that limit is stated rather than implied.
+# Fail-open: an unreadable PR head or worktree list checks nothing and says so.
+check_local_divergence() {
+    local pr_head head_name head_oid line wt="" wt_head="" wt_branch="" diverged="" listing
+    local matched=0 cross
+    pr_head=$("$GH_BIN" pr view "$PR_NUMBER" --json headRefName,headRefOid \
+        --jq '.headRefName + " " + .headRefOid' 2>/dev/null) || pr_head=""
+    head_name="${pr_head%% *}"
+    head_oid="${pr_head#* }"
+    if [[ -z "$pr_head" || ! "$head_oid" =~ ^[0-9a-f]{40}$ ]]; then
+        echo "GH_PR_MERGE_LOCAL_DIVERGENCE: skipped (PR head unreadable)"
+        return 0
+    fi
+    # A FORK PR'S BRANCH IS NOT OURS (counter-model review). Its head branch lives
+    # in another repository, so a local branch of the same name here is a
+    # neighbour's, and a sha difference proves nothing about the PR.
+    # Compared only when GitHub says EXPLICITLY that the PR is not a fork
+    # (counter-model review, pass 2): an unreadable answer is not "same repo".
+    cross=$("$GH_BIN" pr view "$PR_NUMBER" --json isCrossRepository --jq '.isCrossRepository' 2>/dev/null)
+    if [[ "$cross" == "true" ]]; then
+        echo "GH_PR_MERGE_LOCAL_DIVERGENCE: skipped (fork PR - its head branch is not this repository's)"
+        return 0
+    elif [[ "$cross" != "false" ]]; then
+        echo "GH_PR_MERGE_LOCAL_DIVERGENCE: skipped (isCrossRepository unreadable)"
+        return 0
+    fi
+    # A FAILED LISTING IS NOT AN EMPTY ONE (counter-model review). Read into a
+    # variable so the status is seen; a process substitution would discard it,
+    # and a failed `git worktree list` would then print the same `0` as a
+    # checked, clean population.
+    if ! listing=$("$GIT_BIN" worktree list --porcelain 2>/dev/null); then
+        echo "GH_PR_MERGE_LOCAL_DIVERGENCE: skipped (worktree list unreadable)"
+        return 0
+    fi
+    while IFS= read -r line; do
+        case "$line" in
+            "worktree "*) wt="${line#worktree }"; wt_head=""; wt_branch="" ;;
+            "HEAD "*)     wt_head="${line#HEAD }" ;;
+            "branch refs/heads/"*)
+                wt_branch="${line#branch refs/heads/}"
+                if [[ "$wt_branch" == "$head_name" && -n "$wt_head" ]]; then
+                    matched=$(( matched + 1 ))
+                    # \037 (unit separator), never a space: a worktree path can
+                    # contain spaces, and #698/#700 forbid whitespace-IFS reads.
+                    [[ "$wt_head" != "$head_oid" ]] && diverged+="$wt"$'\037'"$wt_head"$'\n'
+                fi
+                ;;
+        esac
+    done <<<"$listing"
+    if [[ -z "$diverged" ]]; then
+        # Say what was examined: "no checkout holds the branch" and "every
+        # checkout that holds it is at the head" are both clean, and different.
+        echo "GH_PR_MERGE_LOCAL_DIVERGENCE: 0 (${matched} local checkout(s) of '$head_name', all at the PR head)"
+        return 0
+    fi
+    echo "GH_PR_MERGE_LOCAL_DIVERGENCE: $(grep -c . <<<"$diverged")"
+    if (( ALLOW_LOCAL_DIVERGENCE )); then
+        echo "warning: override consumed: --allow-local-divergence bypassed the issue #1262 local-checkout check for PR #$PR_NUMBER." >&2
+        return 0
+    fi
+    echo "CLEAN STOP: a local checkout holds '$head_name' at a commit that is NOT the PR's head (issue #1262)." >&2
+    echo "  PR #$PR_NUMBER head on GitHub: $head_oid" >&2
+    while IFS=$'\037' read -r wt wt_head; do
+        [[ -n "$wt" ]] && echo "  $wt is at $wt_head" >&2
+    done <<<"$diverged"
+    echo "  A session may be mid-finish there (committed or merged, not yet pushed). Merging now" >&2
+    echo "  lands the PR head, not that work. Push it, or discard it, then re-run the merge." >&2
+    echo "  This sees this host only. Conscious override: re-run with --allow-local-divergence." >&2
+    exit 9
+}
+check_local_divergence
 
 # Pre-squash deletion surfacing (issue #657): print every path this PR deletes
 # vs its base BEFORE the squash - and before the (possibly long) required-check
@@ -1254,6 +1599,14 @@ if (( ADMIN_OPT_IN == 0 )); then
             echo "warning: override consumed: --allow-base-move bypassed the already-stale base check for PR #$PR_NUMBER." >&2
         else
             echo "CLEAN STOP: this branch does not contain '$PR_BASE_BRANCH' - it was ALREADY behind when the merge was invoked, before any check ran (issue #810)." >&2
+            # NAME WHAT WAS COMPARED (issue #1262). The comparison is against the
+            # HEAD of whatever checkout this helper was invoked from; invoked from
+            # the wrong one, this sentence described a different tree and named
+            # neither, so "wrong directory" and "genuinely behind" read the same.
+            compared_head=$("$GIT_BIN" -C "$BASE_WAIT_ROOT" rev-parse HEAD 2>/dev/null)
+            echo "  Compared: HEAD ${compared_head:-unreadable} of $BASE_WAIT_ROOT" >&2
+            echo "  against:  origin/$PR_BASE_BRANCH at $BASE_TIP_BEFORE" >&2
+            echo "  If that directory is not PR #$PR_NUMBER's worktree, re-run from the worktree instead." >&2
             echo "  Nothing has to move for this to be wrong: the tree that would land is not the tree the base is at." >&2
             echo "  The PR is left open and untouched. Bring the branch current, re-run the quality gate, push, and re-run the merge:" >&2
             echo "        git fetch origin $PR_BASE_BRANCH" >&2
@@ -1436,190 +1789,12 @@ elif [[ $merge_exit -ne 0 && $ADMIN_OPT_IN -eq 0 ]] && is_protection_block && is
     run_squash --admin ${BASE_FLAGS+"${BASE_FLAGS[@]}"}
 fi
 
-# Post-merge completeness verification (issue #657): the landed squash commit
-# must touch ONLY paths in the PR's own file list. A violation is LOUD but never
-# flips the exit code - the merge already landed, so this is a signal to
-# investigate, not a failure to report (the #610 loud-never-obstructive posture).
-# Honestly scoped: it catches base-race/squash contamination, NOT a collapse
-# whose damage is inside the file list - that guard lives at collapse time.
-# Fail-open per component: any unreadable input prints `skipped`, never silence.
-# Issue #852: say whether the post-merge CLEANUP completed, as a marker a
-# caller can read, because `MERGE_EXIT=0` answers "did the merge happen" and
-# not "did the merge complete". #851 closed the one known cause of an
-# incomplete cleanup (a sibling worktree holding the branch); it did not give
-# anyone a way to notice a DIFFERENT cause, and until now the delete's result
-# was discarded by `|| true` and printed nothing at all - so a second cause
-# would have been found the way the first was, by accident.
-#
-# That is also the answer to "measure before designing": you cannot wait for a
-# second observation using an instrument that cannot observe. This adds the
-# instrument, not a fix for a cause nobody has seen.
-#
-# NEVER flips the exit code. The merge has already landed and is not undone by
-# a leftover branch, so turning this into a failure would make callers treat a
-# successful merge as a failed one - the same judgement `GH_PR_MERGE_COMPLETENESS`
-# already makes one function below, and `/flow:auto` Step 7's "0 means proceed"
-# contract stays intact.
-#
-# Deliberately NOT named GH_PR_MERGE_COMPLETENESS: that marker exists and means
-# something else (did the landed squash touch only paths in the PR's file list).
-# Two different questions under one marker name would make both unreadable.
-report_branch_cleanup() {
-    echo "GH_PR_MERGE_CLEANUP: $1"
-    case "$1" in
-        incomplete)
-            echo "warning: PR #$PR_NUMBER MERGED but its remote branch '$BRANCH' is STILL" >&2
-            echo "         PRESENT after the delete attempt (issue #852) - the merge landed," >&2
-            echo "         the cleanup did not. Nothing is broken; a stale branch is left:" >&2
-            echo "         git push origin --delete $BRANCH" >&2
-            ;;
-        unknown)
-            echo "warning: PR #$PR_NUMBER MERGED but whether its remote branch '$BRANCH' was" >&2
-            echo "         deleted could NOT be established (issue #852) - the delete failed" >&2
-            echo "         and the remote was unreadable on re-check. Do not assume either:" >&2
-            echo "         git ls-remote --heads origin $BRANCH" >&2
-            ;;
-    esac
-    return 0
-}
-
-verify_completeness() {
-    local root merge_sha files landed extras path
-    root=$("$GIT_BIN" rev-parse --show-toplevel 2>/dev/null)
-    merge_sha=$("$GH_BIN" pr view "$PR_NUMBER" --json mergeCommit --jq '.mergeCommit.oid' 2>/dev/null)
-    files=$("$GH_BIN" pr view "$PR_NUMBER" --json files --jq '.files[].path' 2>/dev/null)
-    if [[ -z "$root" || -z "$merge_sha" || "$merge_sha" == "null" || -z "$files" ]]; then
-        echo "GH_PR_MERGE_COMPLETENESS: skipped"
-        return 0
-    fi
-    "$GIT_BIN" -C "$root" fetch origin --quiet 2>/dev/null || true
-    if ! landed=$("$GIT_BIN" -C "$root" diff --name-only "${merge_sha}^" "$merge_sha" 2>/dev/null); then
-        echo "GH_PR_MERGE_COMPLETENESS: skipped"
-        return 0
-    fi
-    extras=""
-    while IFS= read -r path; do
-        [[ -z "$path" ]] && continue
-        if ! grep -qxF "$path" <<<"$files"; then
-            extras+="$path"$'\n'
-        fi
-    done <<<"$landed"
-    if [[ -n "$extras" ]]; then
-        echo "GH_PR_MERGE_COMPLETENESS: violation"
-        echo "warning: the landed squash ${merge_sha:0:7} touched path(s) OUTSIDE PR #$PR_NUMBER's" >&2
-        echo "         file list (issue #657) - the merge landed, but investigate before building on it:" >&2
-        printf '%s' "$extras" | sed 's/^/         unexpected: /' >&2
-    else
-        echo "GH_PR_MERGE_COMPLETENESS: ok"
-    fi
-    return 0
-}
-
 # Trust the PR state over the exit code: a non-zero from a local post-merge step
 # must never mask a remote merge that actually succeeded.
 state=$("$GH_BIN" pr view "$PR_NUMBER" --json state --jq '.state' 2>/dev/null)
 
 if [[ "$state" == "MERGED" ]]; then
-    if [[ $merge_exit -ne 0 ]]; then
-        echo "note: gh exited $merge_exit but PR #$PR_NUMBER is MERGED - a local" \
-             "post-merge step failed, not the merge itself. Continuing." >&2
-    fi
-
-    # Verify the remote branch is actually gone rather than predicting it from
-    # which worktree invoked us (issue #848) - --delete-branch silently can't
-    # reach it from a sibling worktree holding the same branch, and a local
-    # post-merge failure above can mask our own manual delete too. One check
-    # replaces both the old in_linked_worktree-gated sites; it runs whenever
-    # the PR actually merged, regardless of exit code or invoking worktree.
-    #
-    # `ls-remote --exit-code` has THREE outcomes, not two, and they must NOT
-    # collapse into one branch: exit 0 means the ref is still there (delete
-    # it); exit 2 is git's own signal for "no such ref" (already gone,
-    # nothing to do); anything else (128 for an unreachable remote, a
-    # transient auth failure, ...) means we don't actually know - and reading
-    # "unknown" as "already gone" would silently reintroduce the very orphan
-    # this fix exists to close. So only a DEFINITIVE absence (rc == 2) skips
-    # the delete; every other outcome attempts it, and the attempt is
-    # harmless (`|| true`) if the branch really was already gone. Do not
-    # simplify this to `-eq 0` or `! ... ; then` - that puts 2 and 128 back
-    # on the same branch, which is the bug.
-    # Record that the PR's head commit LANDED, before the delete below destroys
-    # the only other evidence (issue #916).
-    #
-    # THE DEFECT THIS CLOSES. `worktree-remove.sh`'s #905 unpushed check asks
-    # `git log HEAD --not --remotes`. After a SQUASH merge the branch's commits
-    # are rewritten onto main under a different sha, so they are ancestors of
-    # nothing; the verdict then rests entirely on `refs/remotes/origin/<branch>`
-    # surviving, and the `push --delete` three lines below removes it. This
-    # repository squash-merges exclusively, so every merged worktree read as
-    # holding unreachable commits and #887's sweep removed NOTHING.
-    #
-    # WHY HERE. Offline git holds no evidence after the delete and no wider ref
-    # pattern recovers it, so the answer has to come from the one caller that
-    # both KNOWS the branch landed and destroys the proof. That is this block.
-    #
-    # WHAT MAKES IT SAFE IS THE OID, NOT THE CLEANUP. `git branch -D` does clear
-    # `branch.<name>.*`, but `git update-ref -d refs/heads/<name>` does NOT -
-    # measured - so a record CAN outlive the ref it describes. It is harmless
-    # anyway because the reader accepts it only when it equals HEAD exactly: a
-    # surviving record names an OID that genuinely landed, so if HEAD matches
-    # the claim is true, and if HEAD differs it is refused. Do not "simplify"
-    # this to a boolean or key it on the branch name - the OID is the whole
-    # guarantee, and the cleanup is a convenience that does not always happen.
-    #
-    # RECORD THE PR'S HEAD, NOT THE LOCAL TIP (cross-model review on #916).
-    # `MERGED` establishes that the PR's REMOTE head landed. The local branch
-    # can be ahead of it - a commit made after the push, or one that landed
-    # while the merge waited on checks - and recording the local tip would
-    # mark that unmerged commit as landed. The reader then finds an exact HEAD
-    # match, says `landed`, and deletes the worktree holding the only copy:
-    # the #899 data-loss path, reopened by the fix for its false refusal.
-    #
-    # So the OID comes from GitHub, and it is accepted only if the PR's head
-    # branch IS this branch - a wrong PR number must record nothing rather
-    # than a foreign OID under this branch's name. A local branch that has
-    # moved past the recorded head will not equal it, and the reader refuses:
-    # that is the protection working, not a gap.
-    #
-    # Fails open in both directions: unreadable or mismatched metadata writes
-    # nothing, and a failed write never fails the merge. A missing record means
-    # the reader falls through to today's refusal, which is the safe direction.
-    pr_head=$("$GH_BIN" pr view "$PR_NUMBER" --json headRefName,headRefOid \
-        --jq '.headRefName + " " + .headRefOid' 2>/dev/null) || pr_head=""
-    pr_head_name="${pr_head%% *}"
-    pr_head_oid="${pr_head#* }"
-    if [[ -n "$pr_head" && "$pr_head_name" == "$BRANCH" \
-          && "$pr_head_oid" =~ ^[0-9a-f]{40}$ ]]; then
-        "$GIT_BIN" config "branch.${BRANCH}.cpp-merged-head" "$pr_head_oid" 2>/dev/null || true
-    fi
-
-    rc=0
-    "$GIT_BIN" ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1 || rc=$?
-    cleanup="ok"
-    if [[ $rc -ne 2 ]]; then
-        if ! "$GIT_BIN" push origin --delete "$BRANCH" >/dev/null 2>&1; then
-            # The delete did not succeed. Do NOT infer from that what is on the
-            # remote - ask it, for the same reason the check above does: a
-            # failed push and an absent branch are different facts, and one of
-            # the ways a push "fails" is racing someone who deleted it first.
-            # Re-checked ONLY here, never on the success path: `push --delete`
-            # returning 0 is the remote's own answer, while an ls-remote taken
-            # immediately after a successful delete can still observe the ref
-            # and would report a false `incomplete`.
-            vrc=0
-            "$GIT_BIN" ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1 || vrc=$?
-            case $vrc in
-                2) cleanup="ok" ;;
-                0) cleanup="incomplete" ;;
-                *) cleanup="unknown" ;;
-            esac
-        fi
-    fi
-    report_branch_cleanup "$cleanup"
-
-    verify_completeness
-    echo "merged"
-    exit 0
+    finish_merged
 fi
 
 echo "error: PR #$PR_NUMBER did not merge (state: ${state:-unknown})." >&2

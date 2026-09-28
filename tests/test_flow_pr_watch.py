@@ -1165,3 +1165,62 @@ def test_quiet_mode_totals_close_the_region(tmp_path):
         "quiet-mode totals were not read as a concluded run"
     )
     assert fields["VERDICT"] == ["flake"]
+
+
+# ── Issue #1262: a control's COMPLETE echoed summary is not provenance ────────
+#
+# Run against 47ddc6c (pre-fix) and FAILED there; the PR body records it.
+# A control that echoes its BAD case WITH pytest's own summary header and totals
+# is syntactically indistinguishable from a real run, and a header cannot
+# establish which region is the pipeline's own. So the helper does not pretend:
+# more than one summary region is reported as UNRESOLVED attribution. Choosing
+# "first" or "last" is not the remedy - TWO_RUN_LOG above is why.
+
+CONTROL_SUMMARY_LOG = (
+    "-- BAD case: worker scoping collapsed, same invocation --\n"
+    "=========================== short test summary info ============================\n"
+    "FAILED tests/test_xdist_isolation.py::test_worker_scoped_paths_carry_this_worker_id\n"
+    "FAILED tests/test_xdist_isolation.py::test_the_collapse_override_is_not_set_in_this_run\n"
+    "FAILED tests/test_xdist_isolation.py::test_no_two_workers_named_the_same_database_or_tmux_socket\n"
+    "======================== 3 failed in 0.10s =========================\n"
+    "XDIST_ISOLATION: ok\n"
+    "=========================== short test summary info ============================\n"
+    "FAILED journal/tests/test_views.py::TestNoSecretsInSession::test_unlock - AssertionError\n"
+    "======================== 1 failed, 6432 passed =========================\n"
+)
+
+
+@requires_bash
+def test_a_controls_COMPLETE_echoed_summary_makes_attribution_UNRESOLVED(tmp_path):
+    env = _failing_pipeline(tmp_path, CONTROL_SUMMARY_LOG)
+    result = _run(tmp_path, "42", "--repo", "o/r", env=env)
+    fields = _fields(result.stdout)
+    assert fields["FLOW_PR_WATCH_ATTRIBUTION"] == ["unresolved (2 summary regions)"], (
+        result.stdout + result.stderr)
+    assert "do not add" in result.stderr and "baseline" in result.stderr
+
+
+@requires_bash
+def test_two_REAL_runs_are_also_unresolved_and_still_red(tmp_path):
+    """The case that forbids a first/last heuristic keeps its verdict."""
+    baseline = tmp_path / "baseline.txt"
+    baseline.write_text(f"{REAL_FAILURE}\n", encoding="utf-8")
+    env = _failing_pipeline(tmp_path, TWO_RUN_LOG)
+    result = _run(tmp_path, "42", "--repo", "o/r", "--baseline", str(baseline), env=env)
+    fields = _fields(result.stdout)
+    assert fields["VERDICT"] == ["red"]
+    assert fields["FLOW_PR_WATCH_ATTRIBUTION"] == ["unresolved (2 summary regions)"]
+
+
+@requires_bash
+def test_ONE_summary_region_is_a_single_run(tmp_path):
+    env = _failing_pipeline(tmp_path, CONTROL_ECHO_LOG)
+    result = _run(tmp_path, "42", "--repo", "o/r", env=env)
+    assert _fields(result.stdout)["FLOW_PR_WATCH_ATTRIBUTION"] == ["single-summary-region"]
+
+
+@requires_bash
+def test_NO_summary_region_is_unbounded_not_single_run(tmp_path):
+    env = _failing_pipeline(tmp_path, TRUNCATED_LOG)
+    result = _run(tmp_path, "42", "--repo", "o/r", env=env)
+    assert _fields(result.stdout)["FLOW_PR_WATCH_ATTRIBUTION"] == ["unbounded (no summary region)"]

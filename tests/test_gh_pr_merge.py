@@ -128,6 +128,25 @@ def _make_stubs(
     #: helper recording the local tip is caught recording the WRONG commit,
     #: rather than recording nothing (which the fail-open path also does).
     local_tip: str = "10ca1710ca1710ca1710ca1710ca1710ca1710ca",
+    #: Issue #1262. What the PRE-merge `gh pr view --json state,number` answers.
+    #: Separate from ``pr_state`` (the POST-merge read) because every existing
+    #: test scripts ``pr_state="MERGED"`` to mean "the merge we are about to do
+    #: lands" - one knob for both reads would make every test an already-merged
+    #: PR. Default OPEN keeps every pre-#1262 test on its original path.
+    pr_state_before: str = "OPEN",
+    #: Issue #1262. The REST `pulls/N/files --paginate` listing, and the PR's
+    #: `changedFiles` count. None means "the same as ``pr_files``" and its length.
+    api_files: list[str] | None = None,
+    changed_files: int | None = None,
+    #: Issue #1262. The HEAD a sibling worktree reports in `git worktree list
+    #: --porcelain`. None prints no HEAD line, which is the pre-#1262 shape.
+    sibling_worktree_head: str | None = None,
+    #: Issue #1262 counter-model review. The sha the post-merge `ls-remote` prints
+    #: when the remote branch is present (None prints nothing - the pre-#1262
+    #: shape); whether the PR is from a fork; whether `git worktree list` works.
+    remote_branch_tip: str | None = None,
+    is_cross_repository: bool = False,
+    worktree_list_ok: bool = True,
 ) -> dict:
     """Create fake gh/git that log their args and honour a scripted outcome.
 
@@ -305,7 +324,15 @@ def _make_stubs(
     deletions_file = tmp_path / "pr_deletions"
     deletions_file.write_text("".join(f"{p}\n" for p in (pr_deletions or [])))
     files_file = tmp_path / "pr_files"
-    files_file.write_text("".join(f"{p}\n" for p in (pr_files or [])))
+    # `gh pr view --json files` is capped at 100 entries by GitHub's GraphQL
+    # connection, silently - which is issue #1262's whole defect, so the stub
+    # reproduces the cap rather than hiding it.
+    files_file.write_text("".join(f"{p}\n" for p in (pr_files or [])[:100]))
+    api_files_file = tmp_path / "api_files"
+    api_listing = pr_files if api_files is None else api_files
+    api_files_file.write_text("".join(f"{p}\n" for p in (api_listing or [])))
+    n_changed = len(pr_files or []) if changed_files is None else changed_files
+    cross_repo_answer = "true" if is_cross_repository else "false"
     landed_file = tmp_path / "landed_paths"
     landed_file.write_text("".join(f"{p}\n" for p in (landed_paths or [])))
 
@@ -363,6 +390,8 @@ def _make_stubs(
         # string `required_status_checks`, so a naive match routes it wrongly.
         '  if [[ "$2" == *"/protection/required_status_checks" ]]; then\n'
         + ("    " + f'cat "{req_file}"\n' if protection_ok else f"    echo '{not_protected}'\n    exit 1\n")
+        + '  elif [[ "$2" == *"/pulls/"*"/files"* ]]; then\n'
+        f'    cat "{api_files_file}"\n'
         + '  elif [[ "$2" == *"/rules/branches/"* ]]; then\n'
         + (
             "    " + f'cat "{rules_file}"\n'
@@ -380,7 +409,13 @@ def _make_stubs(
         "  done\n"
         "  exit 0\n"
         'elif [[ "$1 $2" == "pr view" ]]; then\n'
-        '  if [[ "$*" == *baseRefName* ]]; then\n'
+        '  if [[ "$*" == *"--json state,number"* ]]; then\n'
+        f'    echo "{pr_state_before}"\n'
+        '  elif [[ "$*" == *isCrossRepository* ]]; then\n'
+        f'    echo "{cross_repo_answer}"\n'
+        '  elif [[ "$*" == *changedFiles* ]]; then\n'
+        f'    echo "{n_changed}"\n'
+        '  elif [[ "$*" == *baseRefName* ]]; then\n'
         '    echo "main"\n'
         '  elif [[ "$*" == *statusCheckRollup* ]]; then\n'
         f'    ctr=$(cat "{rollup_ctr_file}" 2>/dev/null || echo 0)\n'
@@ -474,7 +509,9 @@ def _make_stubs(
             if ancestors_in_head
             else ("  exit 0\n" if pr_up_to_date else "  exit 1\n")
         )
-        + 'elif [[ "$*" == "rev-parse HEAD" ]]; then\n'
+        # `*rev-parse HEAD` (suffix), so the #1262 BASE_STALE message's
+        # `git -C <root> rev-parse HEAD` is answered like the bare form.
+        + 'elif [[ "$*" == *"rev-parse HEAD" ]]; then\n'
         f'  echo "{head_sha}"\n'
         'elif [[ "$*" == *"--diff-filter=D"* ]]; then\n'
         + (f'  cat "{deletions_file}"\n' if deletions_ok else "  exit 1\n")
@@ -485,15 +522,26 @@ def _make_stubs(
         # `pwd` here is the actual cwd at run time, matching the "self" the
         # script's own rev-parse --show-toplevel answers with above.
         'elif [[ "$*" == *"worktree list --porcelain"* ]]; then\n'
-        '  printf \'worktree %s\\nbranch refs/heads/__self__\\n\\n\' "$(pwd)"\n'
+        + ("" if worktree_list_ok else "  exit 128\n")
+        + '  printf \'worktree %s\\nbranch refs/heads/__self__\\n\\n\' "$(pwd)"\n'
         f'  sib=$(cat "{sibling_file}" 2>/dev/null || true)\n'
         '  if [[ -n "$sib" ]]; then\n'
-        f'    printf \'worktree %s\\nbranch refs/heads/%s\\n\\n\' "{tmp_path}/sibling-wt" "$sib"\n'
-        "  fi\n"
+        + (
+            f'    printf \'worktree %s\\nHEAD %s\\nbranch refs/heads/%s\\n\\n\' '
+            f'"{tmp_path}/sibling-wt" "{sibling_worktree_head}" "$sib"\n'
+            if sibling_worktree_head
+            else f'    printf \'worktree %s\\nbranch refs/heads/%s\\n\\n\' "{tmp_path}/sibling-wt" "$sib"\n'
+        )
+        + "  fi\n"
         'elif [[ "$*" == *"ls-remote --exit-code --heads origin"* ]]; then\n'
         f'  n=$(cat "{ls_ctr_file}" 2>/dev/null || echo 0)\n'
         f'  echo $(( n + 1 )) > "{ls_ctr_file}"\n'
-        f'  if [[ $n -eq 0 ]]; then exit {ls_remote_exit}; else exit {ls_recheck_exit}; fi\n'
+        + (
+            f'  [[ $n -eq 0 && {ls_remote_exit} -eq 0 ]] && printf \'%s\\trefs/heads/x\\n\' "{remote_branch_tip}"\n'
+            if remote_branch_tip
+            else ""
+        )
+        + f'  if [[ $n -eq 0 ]]; then exit {ls_remote_exit}; else exit {ls_recheck_exit}; fi\n'
         'elif [[ "$*" == *"push origin --delete"* ]]; then\n'
         + ("  exit 0\n" if push_delete_ok else "  exit 1\n")
         + "fi\n"
@@ -3084,3 +3132,228 @@ def test_a_keyword_separated_from_the_reference_by_WORDS_still_merges(tmp_path: 
     result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1191-bound")
     assert result.returncode == 0, result.stderr
     assert any(c.startswith("gh pr merge") for c in _calls(stubs))
+
+
+# --- Issue #1262 --------------------------------------------------------------
+# Each test below was run against 47ddc6c (pre-fix) and FAILED there; the PR
+# body records every red and green result.
+
+_MANY = [f"src/f{i:03d}.py" for i in range(150)]
+
+
+def test_completeness_reads_EVERY_file_of_a_PR_over_100_files(tmp_path: Path):
+    """Item 4: `gh pr view --json files` stops at 100, so a 150-file PR's
+    landed paths 101-150 read as OUTSIDE its own file list - a false violation."""
+    stubs = _make_stubs(
+        tmp_path, merge_exit=0, pr_state="MERGED", merge_commit="abc1234def",
+        pr_files=_MANY, landed_paths=_MANY,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1262-fix")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_COMPLETENESS: ok" in result.stdout, result.stdout + result.stderr
+
+
+def test_a_SHORT_file_listing_is_skipped_never_a_violation(tmp_path: Path):
+    """The other verdict: a listing shorter than changedFiles is an incomplete
+    population, and an incomplete population cannot convict a landed path."""
+    stubs = _make_stubs(
+        tmp_path, merge_exit=0, pr_state="MERGED", merge_commit="abc1234def",
+        pr_files=_MANY, api_files=_MANY[:90], changed_files=150, landed_paths=_MANY,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1262-fix")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_COMPLETENESS: skipped (file list incomplete: 90 of 150)" in result.stdout
+
+
+def test_a_real_violation_on_a_large_PR_is_still_reported(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path, merge_exit=0, pr_state="MERGED", merge_commit="abc1234def",
+        pr_files=_MANY, landed_paths=[*_MANY, "ui/rogue.js"],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1262-fix")
+    assert "GH_PR_MERGE_COMPLETENESS: violation" in result.stdout
+    assert "ui/rogue.js" in result.stderr
+    assert "src/f149.py" not in result.stderr
+
+
+def test_an_ALREADY_MERGED_PR_is_reported_not_sent_round_the_stale_loop(tmp_path: Path):
+    """Item 5: a squash guarantees the branch never contains the commit that
+    carries its own work, so BASE_STALE fired forever on a merged PR and told
+    the caller to merge main and re-gate."""
+    stubs = _make_stubs(
+        tmp_path, pr_state="MERGED", pr_state_before="MERGED",
+        required_contexts=[WOODPECKER], check_rollup=[[(WOODPECKER, "SUCCESS")]],
+        base_tips=[BASE_TIP_OLD, BASE_TIP_OLD], ancestors_in_head=[],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1262-fix")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "GH_PR_MERGE_ALREADY_MERGED: 42" in result.stdout
+    assert "GH_PR_MERGE_BASE_STALE" not in result.stdout
+    assert "git merge origin/main" not in result.stderr
+    calls = _calls(stubs)
+    assert not any(c.startswith("gh pr merge") for c in calls)
+    assert "merged" in result.stdout
+
+
+def test_an_OPEN_stale_PR_still_clean_stops(tmp_path: Path):
+    """The other verdict of item 5: only a MERGED state short-circuits."""
+    stubs = _make_stubs(
+        tmp_path, pr_state="OPEN", pr_state_before="OPEN",
+        required_contexts=[WOODPECKER], check_rollup=[[(WOODPECKER, "SUCCESS")]],
+        base_tips=[BASE_TIP_OLD, BASE_TIP_OLD], ancestors_in_head=[],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1262-fix")
+    assert result.returncode == 6
+    assert "GH_PR_MERGE_ALREADY_MERGED" not in result.stdout
+
+
+def test_BASE_STALE_names_the_directory_and_both_shas_it_compared(tmp_path: Path):
+    """Item 9: invoked from the wrong checkout, the refusal described that
+    checkout's HEAD as if it were the PR branch's, and named neither."""
+    stubs = _make_stubs(
+        tmp_path, pr_state="OPEN",
+        required_contexts=[WOODPECKER], check_rollup=[[(WOODPECKER, "SUCCESS")]],
+        base_tips=[BASE_TIP_OLD, BASE_TIP_OLD], ancestors_in_head=[],
+        head_sha="c0ffee0000000000000000000000000000c0ffee",
+    )
+    wt = _linked_worktree(tmp_path)
+    result = _run(wt, stubs, "42", "issue-1262-fix")
+    assert result.returncode == 6
+    assert str(wt) in result.stderr
+    assert "c0ffee0000000000000000000000000000c0ffee" in result.stderr
+    assert BASE_TIP_OLD in result.stderr
+
+
+def test_a_worktree_holding_the_PR_branch_at_ANOTHER_sha_stops_the_merge(tmp_path: Path):
+    """Item 6: BEHIND + green read as abandoned while a session held the branch
+    one merge ahead, mid-finish. Merging lands the stale head."""
+    stubs = _make_stubs(
+        tmp_path, pr_state="MERGED",
+        pr_head_ref_name="issue-1262-fix",
+        pr_head_oid="a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+        sibling_worktree_branch="issue-1262-fix",
+        sibling_worktree_head="45d2c88000000000000000000000000000000000",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1262-fix")
+    assert result.returncode == 9, result.stdout + result.stderr
+    assert "GH_PR_MERGE_LOCAL_DIVERGENCE:" in result.stdout
+    assert "45d2c88000000000000000000000000000000000" in result.stderr
+    assert f"{tmp_path}/sibling-wt" in result.stderr
+    assert "--allow-local-divergence" in result.stderr
+    assert not any(c.startswith("gh pr merge") for c in _calls(stubs))
+
+
+def test_a_worktree_AT_the_PR_head_does_not_stop_it(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path, pr_state="MERGED",
+        pr_head_ref_name="issue-1262-fix",
+        pr_head_oid="a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+        sibling_worktree_branch="issue-1262-fix",
+        sibling_worktree_head="a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1262-fix")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_LOCAL_DIVERGENCE: 0" in result.stdout
+
+
+def test_local_divergence_is_overridable(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path, pr_state="MERGED",
+        pr_head_ref_name="issue-1262-fix",
+        pr_head_oid="a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+        sibling_worktree_branch="issue-1262-fix",
+        sibling_worktree_head="45d2c88000000000000000000000000000000000",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1262-fix",
+                  "--allow-local-divergence")
+    assert result.returncode == 0, result.stderr
+    assert "override consumed: --allow-local-divergence" in result.stderr
+
+
+# --- Issue #1262, counter-model review findings -------------------------------
+
+_MERGED_HEAD = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+
+
+def test_an_already_merged_PR_never_deletes_a_branch_that_MOVED_since(tmp_path: Path):
+    """HIGH: the already-merged path can run long after the merge; a branch
+    pushed to or recreated since then is someone's newer work."""
+    stubs = _make_stubs(
+        tmp_path, pr_state="MERGED", pr_state_before="MERGED",
+        pr_head_ref_name="issue-1262-fix", pr_head_oid=_MERGED_HEAD,
+        remote_branch_after_merge="present",
+        remote_branch_tip="f00df00df00df00df00df00df00df00df00df00d",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1262-fix")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_CLEANUP: preserved" in result.stdout
+    assert not any("push origin --delete" in c for c in _calls(stubs))
+
+
+def test_an_already_merged_PR_deletes_its_branch_AT_the_merged_head_under_a_lease(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path, pr_state="MERGED", pr_state_before="MERGED",
+        pr_head_ref_name="issue-1262-fix", pr_head_oid=_MERGED_HEAD,
+        remote_branch_after_merge="present", remote_branch_tip=_MERGED_HEAD,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1262-fix")
+    assert "GH_PR_MERGE_CLEANUP: ok" in result.stdout, result.stdout + result.stderr
+    deletes = [c for c in _calls(stubs) if "push origin --delete" in c]
+    assert deletes and f"--force-with-lease=refs/heads/issue-1262-fix:{_MERGED_HEAD}" in deletes[0]
+
+
+def test_an_already_merged_PR_with_an_UNREADABLE_tip_deletes_nothing(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path, pr_state="MERGED", pr_state_before="MERGED",
+        pr_head_ref_name="issue-1262-fix", pr_head_oid=_MERGED_HEAD,
+        remote_branch_after_merge="unreachable",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1262-fix")
+    assert "GH_PR_MERGE_CLEANUP: unknown" in result.stdout
+    assert not any("push origin --delete" in c for c in _calls(stubs))
+
+
+def test_an_UNREADABLE_worktree_list_is_skipped_never_a_clean_zero(tmp_path: Path):
+    stubs = _make_stubs(tmp_path, pr_state="MERGED", worktree_list_ok=False)
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1262-fix")
+    assert "GH_PR_MERGE_LOCAL_DIVERGENCE: skipped (worktree list unreadable)" in result.stdout
+    assert "GH_PR_MERGE_LOCAL_DIVERGENCE: 0" not in result.stdout
+
+
+def test_a_FORK_PRs_same_named_local_branch_is_not_divergence(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path, pr_state="MERGED", is_cross_repository=True,
+        pr_head_ref_name="feature", pr_head_oid=_MERGED_HEAD,
+        sibling_worktree_branch="feature",
+        sibling_worktree_head="45d2c88000000000000000000000000000000000",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "feature")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_LOCAL_DIVERGENCE: skipped (fork PR" in result.stdout
+
+
+def test_an_already_merged_PR_never_deletes_a_DIFFERENT_branch_at_the_same_commit(tmp_path: Path):
+    """Counter-model review pass 2: a matching tip is not a matching identity."""
+    stubs = _make_stubs(
+        tmp_path, pr_state="MERGED", pr_state_before="MERGED",
+        pr_head_ref_name="issue-1262-fix", pr_head_oid=_MERGED_HEAD,
+        remote_branch_after_merge="present", remote_branch_tip=_MERGED_HEAD,
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "someone-elses-branch")
+    assert "GH_PR_MERGE_CLEANUP: unknown" in result.stdout, result.stdout + result.stderr
+    assert not any("push origin --delete" in c for c in _calls(stubs))
+
+
+def test_UNREADABLE_fork_metadata_skips_the_divergence_check(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path, pr_state="MERGED",
+        pr_head_ref_name="feature", pr_head_oid=_MERGED_HEAD,
+        sibling_worktree_branch="feature",
+        sibling_worktree_head="45d2c88000000000000000000000000000000000",
+    )
+    # Break only the isCrossRepository answer: rewrite the stub's line for it.
+    gh = Path(stubs["GH_PR_MERGE_GH"])
+    gh.write_text(gh.read_text().replace('echo "false"', 'exit 1'))
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "feature")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_LOCAL_DIVERGENCE: skipped (isCrossRepository unreadable)" in result.stdout

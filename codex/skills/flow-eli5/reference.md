@@ -263,6 +263,38 @@ choices - those never return here - but it does NOT remove the existing route fo
 consequential change: altering promised behaviour or crossing a deliberate boundary
 still needs agreement from the authority that already holds it.
 
+## CPP integration: Section B also asks this host, not only GitHub (issue #1262)
+
+This section is CPP-owned and sits OUTSIDE the vendored core above. It adds one
+question to Section B's evidence, because every query the core prescribes -
+`git log --since`, `gh pr list`, `gh issue list` - is answered by the remote,
+and none of them can see work that exists only on this host: a sibling worktree
+whose commits are made but not yet pushed. That is the #597 duplicated-work
+hazard arriving before anything reaches GitHub.
+
+```bash
+# Every worktree of this repository, and any commits in it that are on no remote.
+# Read line by line, never `for wt in $(...)`: a path with a space would split.
+# A FAILED listing is not an empty one: check it before iterating.
+if ! listing=$(git worktree list --porcelain); then
+    echo "worktree list UNREADABLE - sibling evidence unexamined"
+fi
+printf '%s\n' "$listing" | sed -n 's/^worktree //p' | while IFS= read -r wt; do
+    if ! out=$(git -C "$wt" log --oneline HEAD --not --remotes -- <relevant/paths>); then
+        echo "$wt: UNREADABLE - not the same as no commits"; continue
+    fi
+    [ -n "$out" ] && printf '%s\n' "$out" | sed "s|^|$wt: |"
+done
+```
+
+Report any sibling whose branch or unpushed commits touch the issue's paths in
+Section B's evidence, beside the commit and PR lists - or say "none" - and read
+it the way a merged PR is read: work that may already cover the issue. A
+worktree that is merely present is not evidence; unpushed commits touching the
+same paths are. An UNREADABLE worktree is unexamined, not clean - report it as
+such rather than folding it into "none". This sees this host only, and says
+nothing about another machine's checkouts.
+
 ## Notes
 
 - This command is the communication and approval checkpoint: intent in the reviewer's language, an honest necessity verdict, and the plan that is about to be executed.

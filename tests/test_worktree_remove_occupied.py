@@ -1062,3 +1062,25 @@ def test_a_repo_name_carrying_an_issue_number_does_not_hide_a_mismatch(
     assert "issue=971" in attribution, attribution
     assert "dirname-issue=980" in attribution, attribution
     assert "issue-971-old" in _git(main, "branch", "--list", "issue-971-*")
+
+
+@requires_git
+def test_the_unpushed_refusal_NAMES_the_landed_record_and_its_only_writer(tmp_path: Path) -> None:
+    """Issue #1262. After a squash, a branch's commits are on no remote ref, and
+    the ONLY thing that lets this helper say `landed` is the
+    branch.<name>.cpp-merged-head record that gh-pr-merge.sh writes. A PR merged
+    any other way (web UI, a plain `gh pr merge`) never gets one, so it lands
+    here as "commits that exist nowhere else" - and the refusal did not say that
+    the coupling exists at all. Run against 47ddc6c and FAILED there."""
+    main = _repo_with_remote(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "feature")
+    (wt / "work.txt").write_text("committed, never pushed\n")
+    _git(wt, "add", "-A")
+    _git(wt, "commit", "-qm", "the only copy")
+
+    res = _run_remove(main, str(wt), "--force", "--delete-branch")
+
+    assert res.returncode == 7
+    assert "branch.feature.cpp-merged-head" in res.stderr, res.stderr
+    assert "gh-pr-merge.sh" in res.stderr
+    assert "web UI" in res.stderr
