@@ -146,6 +146,7 @@ else
 fi
 
 HEAD_SHA="-"
+HEAD_AGE="-"
 UPSTREAM="-"
 BEHIND="-"
 AHEAD="-"
@@ -158,6 +159,21 @@ if [ -n "$CHECKOUT" ]; then
         REASON="checkout is not a git repository: $CHECKOUT"
     else
         HEAD_SHA="$("$GIT_BIN" -C "$CHECKOUT" rev-parse --short HEAD 2>/dev/null || echo '-')"
+        # HEAD'S OWN AGE (issue #1342), beside the fetch age and never instead
+        # of it. The fetch age dates the EVIDENCE about the remote; this dates
+        # the CODE being executed, and a `behind` verdict needs both: two commits
+        # behind a ten-minute-old HEAD and two commits behind a nine-day-old one
+        # are the same count and different situations. It is HEAD's COMMITTER
+        # date - a claim written into the commit, not the time this checkout
+        # moved to it - so it is labelled that way wherever it is printed. An
+        # unreadable date stays `-`: a fabricated 0 would read as "fresh".
+        HEAD_CT="$("$GIT_BIN" -C "$CHECKOUT" log -1 --format=%ct HEAD 2>/dev/null || true)"
+        case "$HEAD_CT" in
+            ""|*[!0-9]*) : ;;
+            *)
+                HEAD_AGE=$(( $(date +%s) - HEAD_CT ))
+                [ "$HEAD_AGE" -lt 0 ] && HEAD_AGE=0 ;;
+        esac
         # The upstream of the CURRENT BRANCH, never a hardcoded `origin/main`.
         # A checkout parked on a release branch has a different upstream, and
         # measuring it against main would report a fabricated gap - a wrong
@@ -299,6 +315,13 @@ age_clause() {
     else
         printf 'last fetched %sh ago' "$(( FETCH_AGE / 3600 ))"
     fi
+    # The fetch age alone describes the evidence, not the executing code
+    # (issue #1342) - so every verdict that reports a gap also dates HEAD.
+    if [ "$HEAD_AGE" = "-" ]; then
+        printf '; HEAD age unknown'
+    else
+        printf '; HEAD committed %sh ago' "$(( HEAD_AGE / 3600 ))"
+    fi
 }
 
 case "$MODE" in
@@ -336,7 +359,7 @@ case "$MODE" in
                 sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/[[:cntrl:]]/ /g'
         }
         str_or_null() { [ "$1" = "-" ] && printf 'null' || printf '"%s"' "$(json_escape "$1")"; }
-        printf '{"verdict":"%s","checkout":%s,"head":%s,"upstream":%s,"behind":%s,"ahead":%s,"fetch_age_seconds":%s,"fetch_age_source":%s,"reason":%s}\n' \
+        printf '{"verdict":"%s","checkout":%s,"head":%s,"upstream":%s,"behind":%s,"ahead":%s,"fetch_age_seconds":%s,"fetch_age_source":%s,"reason":%s,"head_age_seconds":%s}\n' \
             "$VERDICT" \
             "$(str_or_null "${CHECKOUT:--}")" \
             "$(str_or_null "$HEAD_SHA")" \
@@ -345,12 +368,18 @@ case "$MODE" in
             "$(num_or_null "$AHEAD")" \
             "$(num_or_null "$FETCH_AGE")" \
             "$(str_or_null "$FETCH_AGE_SOURCE")" \
-            "$(str_or_null "$REASON")"
+            "$(str_or_null "$REASON")" \
+            "$(num_or_null "$HEAD_AGE")"
         exit 0 ;;
 esac
 
 echo "toolchain-provenance: checkout ${CHECKOUT:-<none>}"
 echo "  head               $HEAD_SHA"
+if [ "$HEAD_AGE" = "-" ]; then
+    echo "  head age           unknown"
+else
+    echo "  head age           ${HEAD_AGE}s (source: committer date - what the commit claims, not when this checkout moved to it)"
+fi
 echo "  upstream           $UPSTREAM"
 echo "  behind / ahead     $BEHIND / $AHEAD"
 if [ "$FETCH_AGE" = "-" ]; then
@@ -390,6 +419,7 @@ esac
 # value into the caller's own JSON.
 echo "TOOLCHAIN_CHECKOUT=${CHECKOUT:--}"
 echo "TOOLCHAIN_HEAD=$HEAD_SHA"
+echo "TOOLCHAIN_HEAD_AGE=$HEAD_AGE"
 echo "TOOLCHAIN_UPSTREAM=$UPSTREAM"
 echo "TOOLCHAIN_BEHIND=$BEHIND"
 echo "TOOLCHAIN_AHEAD=$AHEAD"

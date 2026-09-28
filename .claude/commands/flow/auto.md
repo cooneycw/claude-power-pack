@@ -1923,6 +1923,8 @@ FLOW_CI_PIPELINE: <number|->
 FLOW_CI_URL: <url|->
 FLOW_CI_WAIT: none | settled | expired (<N>s)
 FLOW_CI_FAILED_STEP: <name>        (repeated, only on failure)
+FLOW_CI_PRECODE_FAILURE: <name>    (repeated, only on failure; a failed `clone`-type step)
+FLOW_CI_FAILURE_ORIGIN: precode | code | mixed | unknown   (only on failure)
 FLOW_CI_STATUS: success | failure | running | pending | not-found | unknown
 ```
 
@@ -1934,6 +1936,10 @@ Act on `FLOW_CI_STATUS`:
   pipeline colour does not carry it. A red `deploy` step (a transient SSH
   connect timeout on kyle's push pipelines, say) is a different problem from a
   red `test-unit`, and only the step name distinguishes them.
+  Read `FLOW_CI_FAILURE_ORIGIN` before touching the diff (issue #1342):
+  `precode` means the checkout failed before any of the change's code ran -
+  retry or look at the infrastructure, do not bisect your own change. `unknown`
+  is NOT `code`: the lane could not classify the step, so read the step log.
 - `running` / `pending` -> the wait window expired with the pipeline still
   going. Non-blocking: report that CI was still running and let the user decide
   whether to wait, rather than deploying on an unknown result.
