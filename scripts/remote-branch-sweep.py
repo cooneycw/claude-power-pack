@@ -266,8 +266,11 @@ def classify(
         return branch
     head = quote(f"{owner}:{branch.name}", safe=":")
     prs = api(f"repos/{repo}/pulls?state=all&head={head}&per_page=100")
+    # An ANSWERED empty list is "no PR"; no answer is not (counter-model review,
+    # pass 2) - it would otherwise report "no PR has ever used this branch" for a
+    # listing nobody read.
     if prs is None:
-        prs = []
+        raise ApiUnreadable(f"pulls for {branch.name}: no answer")
     if not isinstance(prs, list):
         raise ApiUnreadable(f"pulls for {branch.name}: unexpected shape")
     open_prs = [p for p in prs if p.get("state") == "open"]
@@ -399,18 +402,47 @@ def push_destination(checkout: Path, repo: str) -> tuple[str | None, str]:
     if len(urls) > 1:
         return None, f"origin has {len(urls)} push URLs; refusing an ambiguous destination"
     url = urls[0]
-    tail = url.rstrip("/")
-    tail = tail[:-4] if tail.endswith(".git") else tail
-    named = "/".join(tail.replace(":", "/").split("/")[-2:])
-    if named.lower() != repo.lower():
-        return None, f"origin pushes to {named!r}, not {repo!r}"
+    # HOST AND PATH, NOT JUST THE LAST TWO COMPONENTS (counter-model review, pass
+    # 2): `https://other.example/o/r.git` and a local `/backups/o/r.git` both end
+    # in `o/r`, and neither is the repository the API checks. Only the forms that
+    # name the API's host are accepted; a local path or file:// is refused.
+    host = os.environ.get("GH_HOST", "github.com").lower()
+    parsed = _remote_host_and_path(url)
+    if parsed is None:
+        return None, f"origin push URL {url!r} is not a recognised remote on {host} (local paths are refused)"
+    url_host, path = parsed
+    if url_host.lower() != host:
+        return None, f"origin pushes to host {url_host!r}, not the API host {host!r}"
+    if path.lower() != repo.lower():
+        return None, f"origin pushes to {path!r}, not {repo!r}"
     return url, ""
 
 
-def delete_branch(checkout: Path, name: str, tip: str) -> tuple[bool, str]:
-    """Delete under a lease: the remote ref must still be exactly `tip`."""
+def _remote_host_and_path(url: str) -> tuple[str, str] | None:
+    """(host, owner/name) for https://, ssh:// and scp-style URLs; None otherwise."""
+    u = url.strip().rstrip("/")
+    u = u[:-4] if u.endswith(".git") else u
+    for scheme in ("https://", "http://", "ssh://", "git://"):
+        if u.startswith(scheme):
+            rest = u[len(scheme):]
+            hostpart, _, path = rest.partition("/")
+            host = hostpart.rsplit("@", 1)[-1].split(":", 1)[0]
+            return (host, path) if host and path.count("/") == 1 else None
+    if "@" in u and ":" in u and "://" not in u and not u.startswith("/"):
+        userhost, _, path = u.partition(":")
+        host = userhost.rsplit("@", 1)[-1]
+        return (host, path) if host and path.count("/") == 1 else None
+    return None
+
+
+def delete_branch(checkout: Path, url: str, name: str, tip: str) -> tuple[bool, str]:
+    """Delete under a lease: the remote ref must still be exactly `tip`.
+
+    Pushes to the VERIFIED URL, never to the name `origin` (counter-model review,
+    pass 2): a remote's URL can change between the check and the push.
+    """
     out = subprocess.run(
-        ["git", "-C", str(checkout), "push", "origin", "--delete", name,
+        ["git", "-C", str(checkout), "push", url, "--delete", name,
          f"--force-with-lease=refs/heads/{name}:{tip}"],
         capture_output=True, text=True, timeout=120,
     )
@@ -423,7 +455,7 @@ def run_delete(
     candidates: list[Branch],
     checkouts: list[Path],
     now: Callable[[], datetime],
-    pusher: Callable[[Path, str, str], tuple[bool, str]] = delete_branch,
+    pusher: Callable[[Path, str, str, str], tuple[bool, str]] = delete_branch,
     destination: Callable[[Path, str], tuple[str | None, str]] = push_destination,
 ) -> int:
     """Delete the (a) candidates, re-deriving EVERY input of each decision.
@@ -473,7 +505,7 @@ def run_delete(
             print(f"SWEEP_REFUSED: {b.name} - re-verification now says [{live.category}] {live.reason}")
             refused += 1
             continue
-        ok, detail = pusher(checkout, live.name, live.tip)
+        ok, detail = pusher(checkout, url, live.name, live.tip)
         if ok:
             deleted += 1
             print(f"SWEEP_DELETED: {live.name} {live.tip} (restore: git push origin {live.tip}:refs/heads/{live.name})")

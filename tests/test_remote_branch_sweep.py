@@ -223,6 +223,12 @@ def test_a_FAILED_worktree_scan_makes_plan_unknown_not_deletable(tmp_path):
     ("https://github.com/someone/r.git", [], False),
     ("https://github.com/o/r.git", ["https://github.com/fork/r.git"], False),
     ("https://github.com/o/r.git", ["https://github.com/o/r.git", "https://github.com/o/r2.git"], False),
+    # Counter-model review pass 2: the same owner/name on another host or on disk.
+    ("https://other.example/o/r.git", [], False),
+    ("/backups/o/r.git", [], False),
+    ("file:///backups/o/r.git", [], False),
+    ("ssh://git@github.com/o/r.git", [], True),
+    ("git@other.example:o/r.git", [], False),
 ])
 def test_the_delete_destination_must_BE_the_checked_repository(tmp_path, origin, pushurls, ok):
     """HIGH: every check read --repo, but the push went to origin, which could be
@@ -238,8 +244,8 @@ def _run_delete(tmp_path, table, checkouts):
     api = SWEEP.fixture_api(api_file)
     pushed: list[tuple[str, str]] = []
 
-    def pusher(_co, name, tip):
-        pushed.append((name, tip))
+    def pusher(_co, url, name, tip):
+        pushed.append((url, name, tip))
         return True, ""
 
     now = SWEEP._parse_time(NOW)
@@ -253,7 +259,8 @@ def test_run_delete_deletes_a_still_landed_branch_through_a_verified_origin(tmp_
     co = _checkout(tmp_path / "co", "https://github.com/o/r.git")
     code, pushed = _run_delete(tmp_path, fixture(landed()), [co])
     assert code == 0, capsys.readouterr().out
-    assert pushed == [("issue-1-done", sha("a"))]
+    assert pushed == [("https://github.com/o/r.git", "issue-1-done", sha("a"))], (
+        "the push must go to the VERIFIED url, not the remote name")
     assert "restore: git push origin" in capsys.readouterr().out
 
 
@@ -288,3 +295,15 @@ def test_run_delete_REFUSES_when_a_scan_fails_mid_run(tmp_path):
     co = _checkout(tmp_path / "co", "https://github.com/o/r.git")
     code, pushed = _run_delete(tmp_path, fixture(landed()), [co, tmp_path / "gone"])
     assert code == 1 and pushed == []
+
+
+
+def test_an_UNREADABLE_pr_listing_is_unknown_not_no_pr(tmp_path):
+    """Counter-model review pass 2: a missing PR listing reported the branch as
+    "no PR has ever used this branch" - evidence nobody read, rendered as read."""
+    table = fixture({"name": "orphan", "tip": sha("d")})
+    del table[f"repos/{REPO}/pulls?state=all&head=o:orphan&per_page=100"]
+    result = run(tmp_path, table, "report")
+    assert result.returncode == 3, result.stdout
+    assert "SWEEP: unknown" in result.stdout
+    assert "no PR has ever used" not in result.stdout
