@@ -1114,13 +1114,25 @@ def test_discover_is_not_recursive_so_nested_case_trees_are_not_double_discovere
             f"{gate} must carry a directive, or it cannot demonstrate the hazard"
         )
 
-    result = run_harness(ROOT, "--quiet")
-    discovered = [
-        line.split(": ", 1)[1]
-        for line in result.stdout.splitlines()
-        if line.startswith("NEGATIVE_CONTROL_GATE: ")
-    ]
-    assert discovered, result.stdout
+    # DISCOVERY ONLY, asked of the harness's own `discover()` (issue #1311). This
+    # used to run the WHOLE battery - every control's cases and anchors - to read
+    # back the gate names it printed, which is all this test needs; under CI load
+    # that full run crossed the 120s budget three times (pipelines 2805, 2817,
+    # 2825) while the question it answers takes no execution at all. The printed
+    # gate is each control's DECLARED gate (control.json), not the directive
+    # file, so both are checked: nothing discovered lives under cases/, and no
+    # discovered control declares a gate that does.
+    harness = _load_harness_module()
+    registrations = harness.discover(ROOT)
+    directive_files = [str(path.relative_to(ROOT)) for path, _control in registrations]
+    discovered = sorted({
+        json.loads((ROOT / control / "control.json").read_text(encoding="utf-8"))["gate"]
+        for _path, control in registrations
+        if (ROOT / control / "control.json").is_file()
+    })
+    assert discovered, registrations
+    for path in directive_files:
+        assert "/cases/" not in path, f"discover() read a nested directive: {path}"
     assert "scripts/check-negative-controls.py" in discovered, (
         "the harness is not in its own register - deleting the directive must "
         f"fail this test, not pass it quietly. discovered={discovered}"
