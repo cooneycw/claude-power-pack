@@ -12,7 +12,12 @@ from typing import Optional
 from .models import (
     FRAMEWORK_RUNNERS,
     FRAMEWORK_TARGETS,
+    RESOLUTION_PARTIAL,
+    RESOLUTION_RESOLVED,
+    RESOLUTION_UNKNOWN,
+    RESOLUTION_UNRESOLVED,
     CloudProvider,
+    Component,
     Framework,
     FrameworkInfo,
     IaCProvider,
@@ -55,6 +60,160 @@ _LOCK_FILES: list[tuple[str, PackageManager]] = [
     ("Cargo.lock", PackageManager.CARGO),
     ("go.sum", PackageManager.GO),
 ]
+
+
+# Directories that are never a COMPONENT, whatever markers they hold (issue
+# #1289). Enumeration always looks one level down now, so without this a root
+# project's dependency, build and cache trees - which routinely contain their
+# own package.json / setup.py / go.mod - would be reported as stacks of their
+# own. Hidden directories (`.venv`, `.git`, `.tox`, ...) are excluded by the
+# leading-dot rule in `_is_component_dir`, and `*.egg-info` by suffix.
+_NON_COMPONENT_DIRS = frozenset(
+    {"node_modules", "venv", "vendor", "dist", "build", "__pycache__", "site-packages"}
+)
+
+
+#: What enumeration examined, stated with every coverage verdict so `resolved`
+#: cannot be read wider than this (counter-model review, #1289): components
+#: deeper than one level, or behind a symlink, are not discovered at all.
+DISCOVERY_SCOPE = (
+    "the repository root and its immediate subdirectories (not deeper; "
+    "symlinked, hidden, dependency, build and cache directories excluded)"
+)
+
+
+def _is_component_dir(child: Path) -> bool:
+    """Is ``child`` a directory whose markers belong to THIS repository?
+
+    A symlinked directory is never one (counter-model review, #1289): following
+    it let a NEIGHBOURING checkout's markers change this repository's result and
+    appear as local evidence. An internal link would only duplicate a component
+    already found at its real path.
+    """
+    name = child.name
+    return (
+        not child.is_symlink()
+        and child.is_dir()
+        and not name.startswith(".")
+        and name not in _NON_COMPONENT_DIRS
+        and not name.endswith(".egg-info")
+    )
+
+
+def _default_package_manager(framework: Framework) -> PackageManager:
+    """The package manager assumed when no lock file says otherwise.
+
+    Python and Django share one fallback (issue #1289): Django used to be
+    promoted BEFORE a fallback that only matched ``Framework.PYTHON``, so a
+    lock-less Django project got ``unknown`` and an empty runner map although
+    ``(DJANGO, PIP)`` runners exist.
+    """
+    if framework in (Framework.PYTHON, Framework.DJANGO):
+        return PackageManager.PIP
+    if framework == Framework.NODE:
+        return PackageManager.NPM
+    return PackageManager.UNKNOWN
+
+
+def _components_at(directory: Path, rel: str) -> list[Component]:
+    """Every stack whose markers sit directly in ``directory``, with evidence."""
+    lock_pm: dict[Framework, tuple[str, PackageManager]] = {}
+    for filename, pm in _LOCK_FILES:
+        if (directory / filename).exists():
+            fw = {
+                PackageManager.UV: Framework.PYTHON,
+                PackageManager.POETRY: Framework.PYTHON,
+                PackageManager.PIP: Framework.PYTHON,
+                PackageManager.NPM: Framework.NODE,
+                PackageManager.YARN: Framework.NODE,
+                PackageManager.PNPM: Framework.NODE,
+                PackageManager.CARGO: Framework.RUST,
+                PackageManager.GO: Framework.GO,
+            }[pm]
+            lock_pm.setdefault(fw, (filename, pm))
+    found: dict[Framework, Component] = {}
+    for filename, framework, marker_pm in _FRAMEWORK_MARKERS:
+        if not (directory / filename).exists():
+            continue
+        prefix = "" if rel == "." else f"{rel}/"
+        comp = found.get(framework)
+        if comp is None:
+            if framework in lock_pm:
+                lock_name, pm = lock_pm[framework]
+                evidence = [f"{prefix}{filename}", f"{prefix}{lock_name}"]
+            else:
+                pm = marker_pm or _default_package_manager(framework)
+                evidence = [f"{prefix}{filename}"]
+            comp = Component(rel, framework, pm, evidence)
+            found[framework] = comp
+        elif f"{prefix}{filename}" not in comp.evidence:
+            comp.evidence.insert(len(comp.evidence) - (1 if framework in lock_pm else 0),
+                                 f"{prefix}{filename}")
+    python = found.get(Framework.PYTHON)
+    if python is not None and (directory / _DJANGO_MARKER).exists():
+        python.framework = Framework.DJANGO
+        python.evidence.append(("" if rel == "." else f"{rel}/") + _DJANGO_MARKER)
+    return list(found.values())
+
+
+def _enumerate_components(root: Path) -> tuple[list[Component], str]:
+    """The root's stacks, then each immediate non-excluded subdirectory's.
+
+    ALWAYS both levels (issue #1289). Before, subdirectories were read only
+    when the root had no marker, so a root ``package.json`` made a nested
+    ``backend/pyproject.toml`` vanish from the result entirely. One level only:
+    this is a report of what is there, not a monorepo scheduler.
+
+    Returns the components and, when the subdirectories could NOT be listed,
+    why - so the caller reports coverage as unknown rather than complete. A
+    swallowed listing error used to leave only the root components, which then
+    resolved as "nothing else is here" (counter-model review, #1289).
+    """
+    components = _components_at(root, ".")
+    try:
+        children = sorted(root.iterdir())
+    except OSError as exc:
+        return components, f"subdirectories could not be listed ({type(exc).__name__})"
+    for child in children:
+        if _is_component_dir(child):
+            components.extend(_components_at(child, child.name))
+    return components, ""
+
+
+def _resolve_runners(
+    info_framework: Framework,
+    runners: dict[str, str],
+    components: list[Component],
+    enumeration_gap: str = "",
+) -> tuple[str, str, list[Component]]:
+    """How far the root-level ``runner_commands`` reach (REPORTING ONLY, #1289).
+
+    Every runner default is a command run AT THE ROOT for ONE framework, so it
+    covers exactly the root-level components of that framework. Anything nested,
+    and any root component of another framework, is uncovered and named - a run
+    of one stack must not read as a run of the repository.
+    """
+    if enumeration_gap:
+        return RESOLUTION_UNKNOWN, enumeration_gap, []
+    if not components:
+        return RESOLUTION_UNRESOLVED, "no supported component was found", []
+    if not runners:
+        if info_framework == Framework.MULTI:
+            reason = "mixed execution cannot be inferred: no single runner covers these components"
+        else:
+            reason = f"no runner defaults for {info_framework.value}"
+        return RESOLUTION_UNRESOLVED, reason, list(components)
+    uncovered = [
+        c for c in components if not (c.path == "." and c.framework == info_framework)
+    ]
+    if uncovered:
+        return (
+            RESOLUTION_PARTIAL,
+            "runner defaults run at the repository root for one framework; "
+            "the components listed are not run by them",
+            uncovered,
+        )
+    return RESOLUTION_RESOLVED, f"every component found in {DISCOVERY_SCOPE} is covered", []
 
 
 def detect_framework(project_root: str | Path) -> FrameworkInfo:
@@ -122,11 +281,18 @@ def detect_framework(project_root: str | Path) -> FrameworkInfo:
         frameworks_found.append((Framework.POWERSHELL, PackageManager.PSRESOURCEGET))
 
     if not frameworks_found:
+        components, gap = _enumerate_components(root)
+        state, reason, uncovered = _resolve_runners(Framework.UNKNOWN, {}, components, gap)
         return FrameworkInfo(
             framework=Framework.UNKNOWN,
             package_manager=PackageManager.UNKNOWN,
             detected_files=detected_files,
             recommended_targets=FRAMEWORK_TARGETS[Framework.UNKNOWN],
+            runner_resolution=state,
+            resolution_reason=reason,
+            uncovered_components=uncovered,
+            components=components,
+            discovery_scope=DISCOVERY_SCOPE,
         )
 
     # Deduplicate frameworks
@@ -153,23 +319,16 @@ def detect_framework(project_root: str | Path) -> FrameworkInfo:
                 detected_pm = pm
                 break
 
-    # Fall back to defaults
+    # Fall back to defaults. Python and Django share the fallback (#1289).
     if detected_pm is None:
-        if primary == Framework.PYTHON:
-            # Check for pyproject.toml with uv-compatible content
-            if (root / "uv.lock").exists():
-                detected_pm = PackageManager.UV
-            else:
-                detected_pm = PackageManager.PIP
-        elif primary == Framework.NODE:
-            detected_pm = PackageManager.NPM
-        else:
-            detected_pm = PackageManager.UNKNOWN
+        detected_pm = _default_package_manager(primary)
 
     # Get recommended targets and runner commands
     recommended = FRAMEWORK_TARGETS.get(primary, FRAMEWORK_TARGETS[Framework.UNKNOWN])
     runners = FRAMEWORK_RUNNERS.get((primary, detected_pm), {})
 
+    components, gap = _enumerate_components(root)
+    state, reason, uncovered = _resolve_runners(primary, runners, components, gap)
     return FrameworkInfo(
         framework=primary,
         package_manager=detected_pm,
@@ -177,6 +336,11 @@ def detect_framework(project_root: str | Path) -> FrameworkInfo:
         recommended_targets=recommended,
         runner_commands=runners,
         secondary_frameworks=secondary,
+        components=components,
+        runner_resolution=state,
+        resolution_reason=reason,
+        uncovered_components=uncovered,
+        discovery_scope=DISCOVERY_SCOPE,
     )
 
 

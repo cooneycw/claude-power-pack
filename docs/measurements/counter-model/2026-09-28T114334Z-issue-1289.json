@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1289-exercise-consumer-repository-layouts-and-fix-mixed",
+  "counts": {
+    "accepted": 6,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "f0c856ef10b385f8f8809be896df949b03727bf6",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1289",
+  "passes": 2,
+  "recorded_at": "2026-09-28T11:43:34Z",
+  "red_cases": {
+    "already_covered": 15,
+    "proposed": 16
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
