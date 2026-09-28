@@ -320,6 +320,11 @@ class TestStepGating:
             "sh -c '/opt/venv/bin/pytest -q'",
             # A flag cluster ending in c is still `-c`.
             "bash -lc '/opt/venv/bin/pytest -q'",
+            # Counter-model review (#1298): options with operands before `-c`,
+            # and a script that itself STARTS with an assignment.
+            'bash -o pipefail -c "/opt/venv/bin/pytest /tmp/cases"',
+            'bash -e -c "/opt/venv/bin/pytest /tmp/cases"',
+            'bash -c "PYTEST_WORKERS=4 /opt/venv/bin/pytest /tmp/cases"',
             # Depth 2 is past the bound: the inner script is scanned raw, which
             # fails TOWARD a test step - never away from one.
             "bash -c \"bash -c '/opt/venv/bin/pytest -q'\"",
@@ -355,6 +360,10 @@ class TestStepGating:
             "make PYTEST_ARGS=-x lint",
             # The assignment's VALUE is not evidence either.
             "RUNNER=pytest make lint",
+            # The -c script is read as commands, and its directories still do
+            # not classify (#1294 inside #1298's parse).
+            'bash -c "/opt/venv/bin/ruff /tmp/cases"',
+            'bash -o pipefail -c "/x/repo-test-foo/lint.py /tmp/cases"',
         ],
     )
     def test_an_environment_assignment_never_classifies(self, command: str) -> None:

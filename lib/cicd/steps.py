@@ -95,7 +95,8 @@ def _strip_directories(command: str) -> str:
 #                  holds, not what runs, so neither half is evidence.
 #                  `--junitxml=report-test.xml` and `-k=test_foo` are not
 #                  assignments and are read normally.
-#   <shell> -c S   S is a SCRIPT, split into words once more. The bound is ONE
+#   <shell> -c S   S is a SCRIPT (found past the shell's options, including
+#                  `-o pipefail`), split into words once more. The bound is ONE
 #                  level: a `-c` script inside that one is not split again but
 #                  scanned raw, which can only err toward "test".
 #   a word that starts like a path    its basename (the #1294 rule).
@@ -129,15 +130,46 @@ def _shell_words(command: str) -> list[str]:
     return list(lexer)
 
 
-def _is_shell_script_flag(words: list[str], index: int) -> bool:
-    """Is ``words[index]`` a `-c` (or a cluster like `-lc`) given to a shell?"""
-    flag = words[index]
-    if not flag.startswith("-") or flag.startswith("--") or "c" not in flag[1:]:
-        return False
-    k = index - 1
-    while k >= 0 and words[k].startswith("-"):
-        k -= 1
-    return k >= 0 and words[k].rsplit("/", 1)[-1] in _SHELLS
+#: Shell options that consume the NEXT word as their operand, so the scan for
+#: the `-c` script skips it (`bash -o pipefail -c "..."`, counter-model review).
+_SHELL_OPTION_OPERANDS = frozenset({"-o", "+o", "-O", "+O", "--rcfile", "--init-file"})
+
+
+def _shell_script_positions(words: list[str]) -> set[int]:
+    """Indices of the words that are a shell's `-c` SCRIPT.
+
+    For each word naming a shell, its options are walked FORWARD - flag
+    clusters (`-lc`, `-e`), `+`-options, long options, and the operand of
+    `-o`/`-O`/`--rcfile`/`--init-file` - until the first non-option word or
+    `--`. If any cluster carried `c`, that first non-option word is the script,
+    which is how bash itself reads `-c`. Located BEFORE the assignment filter
+    runs, because a whole script can itself start with `NAME=`
+    (`bash -c "PYTEST_WORKERS=4 pytest"`) and must not be discarded as one.
+    """
+    positions: set[int] = set()
+    for i, word in enumerate(words):
+        if word.rsplit("/", 1)[-1] not in _SHELLS:
+            continue
+        j, script_flag = i + 1, False
+        while j < len(words):
+            option = words[j]
+            if option == "--":
+                j += 1
+                break
+            if option in _SHELL_OPTION_OPERANDS:
+                j += 2
+                continue
+            if option.startswith("--"):
+                j += 1
+                continue
+            if len(option) > 1 and option[0] in "-+":
+                script_flag = script_flag or (option[0] == "-" and "c" in option[1:])
+                j += 1
+                continue
+            break
+        if script_flag and j < len(words):
+            positions.add(j)
+    return positions
 
 
 def _command_names_runner(command: str, depth: int = 0) -> bool:
@@ -146,15 +178,16 @@ def _command_names_runner(command: str, depth: int = 0) -> bool:
         words = _shell_words(command)
     except ValueError:
         return bool(_TEST_STEP_HINT.search(command))
+    scripts = _shell_script_positions(words)
     for i, word in enumerate(words):
-        if _ENV_ASSIGNMENT_WORD.match(word):
-            continue
-        if i > 0 and _is_shell_script_flag(words, i - 1):
+        if i in scripts:
             if depth < _SCRIPT_DEPTH:
                 if _command_names_runner(word, depth + 1):
                     return True
             elif _TEST_STEP_HINT.search(word):
                 return True
+            continue
+        if _ENV_ASSIGNMENT_WORD.match(word):
             continue
         if word.startswith(_PATH_START) or not any(c.isspace() for c in word):
             word = word.rsplit("/", 1)[-1]

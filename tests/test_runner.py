@@ -3249,8 +3249,18 @@ class TestClassificationReachesTheGate:
     against 84f414e (pre-fix) and produced a bare success with no warning.
     """
 
+    @pytest.mark.parametrize(
+        "template",
+        [
+            'bash -c "{fake} /tmp/cases"',
+            # Counter-model review (#1298): an assignment leading the script, and
+            # an option operand before `-c`. Both hid the runner in the first cut.
+            'bash -c "PYTEST_WORKERS=4 {fake} /tmp/cases"',
+            'bash -o pipefail -c "{fake} /tmp/cases"',
+        ],
+    )
     def test_a_quoted_runner_with_an_all_skipped_summary_is_qualified(
-        self, tmp_project: Path
+        self, tmp_project: Path, template: str
     ):
         # A real executable named pytest at an absolute path, inside a quoted
         # `bash -c` script - the shape #1294's regex read as one filename.
@@ -3260,7 +3270,7 @@ class TestClassificationReachesTheGate:
         fake.write_text("#!/bin/sh\necho '== 66 skipped in 0.42s =='\n")
         fake.chmod(0o755)
         steps = [
-            StepDef(id="check", command=f'bash -c "{fake} /tmp/cases"', timeout_seconds=30)
+            StepDef(id="check", command=template.format(fake=fake), timeout_seconds=30)
         ]
         runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
         result = runner.run("check", step_defs=steps)
