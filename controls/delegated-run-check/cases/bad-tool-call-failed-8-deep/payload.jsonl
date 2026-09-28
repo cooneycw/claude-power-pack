@@ -1,0 +1,2 @@
+{"type": "tool_use", "part": {"wrap7": {"wrap6": {"wrap5": {"wrap4": {"wrap3": {"wrap2": {"wrap1": {"wrap0": {"tool": "bash", "state": {"status": "error"}}}}}}}}}}}
+{"type": "step_finish", "part": {"reason": "stop"}}
