@@ -642,3 +642,79 @@ def test_a_redirect_is_not_followed(home, project):
         srv.shutdown()
     assert row["state"] == "unreachable"
     assert "HTTP 307" in row["observations"][0]["detail"]
+
+
+# --------------------------------------------------------------------------- #
+# orchestrator review of PR #1337: surviving mutants
+# --------------------------------------------------------------------------- #
+
+def _module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("capability_readiness", SCRIPT)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@pytest.mark.parametrize("states,expected", [
+    (["ready", "ready", "unexamined"], "unknown"),   # an unexamined row is NOT ready
+    (["ready", "disabled", "disabled"], "ready"),    # optional absence does not count against
+    (["ready", "unreachable", "disabled"], "degraded"),
+    (["disabled", "disabled", "disabled"], "unknown"),
+])
+def test_overall_verdict(states, expected):
+    mod = _module()
+    assert mod.overall([{"state": s} for s in states]) == expected
+    assert mod.EXIT[expected] == {"ready": 0, "degraded": 3, "unknown": 4}[expected]
+
+
+def test_ready_rows_plus_an_unstarted_launcher_is_unknown_exit_4(home, project, cpp, fake_server, tmp_path):
+    """The typical host: flow ready, second-opinion ready, playwright via npx (not started)."""
+    cpp.install(home)
+    npx = tmp_path / "bin" / "npx"
+    npx.parent.mkdir()
+    npx.write_text("#!/bin/sh\nexit 1\n")
+    npx.chmod(0o755)
+    write_user_mcp(home, {"second-opinion": stdio(fake_server),
+                          "playwright": {"type": "stdio", "command": str(npx), "args": ["-y", "pkg"]}})
+    proc = run(home, project, cpp.checkout, "--json")
+    rows = rows_of(proc)
+    assert [rows[c]["state"] for c in ("flow", "second-opinion", "browser-qa")] == ["ready", "ready", "unexamined"]
+    assert verdict_of(proc) == "unknown" and proc.returncode == 4
+
+
+class _NoProtocolVersionHandler(BaseHTTPRequestHandler):
+    """A valid JSON-RPC envelope whose initialize result carries no protocolVersion."""
+
+    def do_POST(self):  # noqa: N802
+        msg = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+        if msg.get("method") == "initialize":
+            body = {"jsonrpc": "2.0", "id": msg["id"], "result": {"serverInfo": {"name": "x"}}}
+        elif msg.get("method") == "tools/list":
+            body = {"jsonrpc": "2.0", "id": msg["id"], "result": {"tools": []}}
+        else:
+            self.send_response(202)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        data = json.dumps(body).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *a):
+        pass
+
+
+def test_an_initialize_result_without_protocol_version_is_not_ready(home, project):
+    srv, url = _serve(_NoProtocolVersionHandler)
+    try:
+        write_project_mcp(project, {"second-opinion": {"type": "http", "url": url}})
+        row = rows_of(run(home, project, None, "--json"))["second-opinion"]
+    finally:
+        srv.shutdown()
+    assert row["state"] == "unreachable", row
+    assert "initialize" in row["observations"][0]["detail"]
