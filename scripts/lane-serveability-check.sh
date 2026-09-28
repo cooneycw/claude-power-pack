@@ -253,6 +253,12 @@
 # which lands in DETAIL, so `dead` never silently absorbs "you asked for the
 # wrong name".
 
+#: NEGATIVE-CONTROL: controls/lane-serveability-check
+#: ADR 0008 row 14, class G: LANE_SERVE_STATUS decides whether /qwen:auto and
+#: /gemma:auto delegate at all, and nothing re-derives it (issue #1281). The
+#: control answers this script's curl from files through a stub on PATH, so it
+#: proves how a RESPONSE is classified - not transport. See its `limits`.
+
 set -uo pipefail
 
 # Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
