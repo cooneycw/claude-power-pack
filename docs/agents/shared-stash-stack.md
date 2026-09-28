@@ -166,6 +166,27 @@ be widening it - they would be adding a refusal that fires after the damage.
 `tests/test_stash_worktree_guard.py` pins the limitation so that edit fails
 loudly rather than reading as an improvement.
 
+## The corollary: other discarding commands have no safety net here
+
+In most repositories the reflex before a risky local command - `git checkout --
+<file>`, `git restore <file>`, `git reset --hard` - is "I can always stash first".
+Here that reflex is unavailable (the stash is shared, above), so those commands
+discard uncommitted work with nothing underneath them. The habit that replaces
+it costs nothing and touches no shared state: write the diff to a file of your
+own first.
+
+```bash
+git diff > /tmp/<issue>-backup.patch        # add --cached for staged work
+git checkout -- path/to/file                # the discarding command
+# ... to undo: git apply /tmp/<issue>-backup.patch
+```
+
+This is the lived failure, not a hypothetical: during #1092 (PR #1105) a
+`git checkout -- tests/test_flow_wave_mailbox.py` run mid-review discarded an
+entire uncommitted implementation, recovered only because the diff was still in
+the session transcript (#1272). A temporary WIP commit, as above, is the other
+safe option.
+
 ## Related
 
 - `.claude/commands/flow/auto.md`, `.claude/commands/flow/finish.md` - the

@@ -37,7 +37,7 @@ def _import_deps():
     except ImportError:
         print(
             "Error: FastAPI and uvicorn are required for the secrets UI.\n"
-            "Install with: uv pip install 'creds[ui]'\n"
+            "Install with: uv sync --extra ui\n"
             "  or: pip install fastapi uvicorn",
             file=sys.stderr,
         )

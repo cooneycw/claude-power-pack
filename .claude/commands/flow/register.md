@@ -687,7 +687,7 @@ running **on the host**:
 | A cross-session message ENQUEUES and drains at the receiver's next tool round | installed tool contract, read 2026-09-12 |
 | The address is any peer name from `ListAgents` - "subagent, another local Claude session" - with no spawn relationship required | installed tool contract, read 2026-09-12 |
 | `ListAgents` resolves independent sessions on this machine, by name, including their tmux pane | run 2026-09-12 |
-| worker->orchestrator `SendMessage` between two independent sessions RESOLVED and DELIVERED | **measured** 2026-09-12, `success=true`, target reported as "another Claude session on this machine" |
+| worker->orchestrator `SendMessage` between two independent sessions RESOLVED and DELIVERED | **measured** 2026-09-12: the RECEIVING session reported the message arrived, and the target was named "another Claude session on this machine". `success=true` alone is NOT the basis - it is consistent with delivered, held, and held-then-released (see the notice channel under `crossSessionInbound`, #1272) |
 
 The first two are CONTRACT facts - what the installed harness documents about
 itself - and they are labelled that way because they are not measurements. They
@@ -989,13 +989,26 @@ no `isolatePeerMachines`, no `dialogExpiry`).
   What is NOT in doubt is that the lane works: a bypass-to-bypass message
   between two fleet sessions was received under default settings on 2.1.266
   (2026-09-12). What is in doubt is why, and the reason it stays in doubt is
-  worth more than the datum - **neither end can measure it alone.** The sender
-  sees `success=true` immediately, which a message queued for approval would
-  also produce. The receiver sees a message appear, which an approved message
-  would also produce. The discriminator is the approval dialog, which is shown
-  to the OPERATOR and to neither session, so a plan of the form "send one and
-  see" returns a confident answer from one end and settles nothing. Do not
-  attempt it in that shape.
+  worth more than the datum. `success=true` is the START of a send's lifecycle,
+  not a verdict: a message queued for approval returns it too. **The sender CAN
+  see the rest of it** (2.1.266 / 2026-09-22 / host, #1272): the harness delivers
+  an unprompted `[Cross-session delivery notice]` into the SENDING conversation
+  when a message is **held** for the recipient user's approval, and another when
+  it is **approved and released**, both naming the recipient by the address the
+  registry holds. So:
+
+  | state | what the sender sees |
+  |---|---|
+  | held | a notice: held for approval, not delivered yet |
+  | released | a second notice: approved and released |
+  | never held | **unobserved** - no one has recorded whether an auto-delivered send emits a notice |
+
+  The third row is the bound: until a never-held send is watched, silence after
+  a send is ambiguous between auto-delivered and a notice that has not arrived
+  yet, so do NOT read "no notice" as delivered. And a THIRD candidate trigger
+  sits beside the two above: on one host the sessions that gate were exactly the
+  ones carrying a Remote Control bridge (`bridgeSessionId` present, 8 of 8). That
+  is a correlation on one host, not a mechanism.
 
   Until it is settled, treat the held case as possible in BOTH directions and
   do not rely on a permission class to guarantee delivery - which is the same
@@ -1311,7 +1324,9 @@ re-brief for a worker whose compaction dropped more detail than expected.
   invisible. The branch and same/nested-worktree arms are repo-independent and
   are unaffected.
 - **File-lane overlap is EXACT-MATCH on declared paths** (#699), not glob
-  expansion, prefix containment, or realpath resolution. Two lanes that mean the
+  expansion, prefix guessing, or realpath resolution - with ONE exception since
+  #985: a declared DIRECTORY contains the paths under it, anchored on a
+  separator (see "A declared directory contains the paths under it" above). Two lanes that mean the
   same directory but spell it differently do not collide here - declare the same
   string on both sides. The narrow rule is deliberate: a comparison that guesses
   invents collisions nobody declared, and this warning has to be believed to be

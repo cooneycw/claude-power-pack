@@ -3831,7 +3831,8 @@ def test_an_empty_grant_is_a_missing_measurement_not_a_grant_of_nothing(tmp_path
 
 
 # --------------------------------------------------------------------------- #
-# #1026, counter-model review (Codex gpt-5.5) - defects found in the fix itself
+# #1026, counter-model review (Codex; recorded as gpt-5.5, attributed to gpt-6-astra - #1272)
+# - defects found in the fix itself
 #
 # Every one of these is the same class the issue is about, committed by the fix:
 # an instrument that stops discriminating without saying so.

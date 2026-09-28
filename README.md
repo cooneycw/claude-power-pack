@@ -14,7 +14,7 @@
 - **Security scanning** (`/security:scan`) - Native vulnerability detection with git history analysis
 - **Secrets management** (`/secrets:*`) - Tiered credential storage (dotenv, env-file, AWS Secrets Manager) with audit logging and a web UI
 - **CI/CD integration** (`/cicd:*`) - Framework detection, Makefile generation, health checks, and IaC scaffolding
-- **Woodpecker CI** - Self-hosted pipeline (secret-scan, lint, test, typecheck, Dockerfile lint) with programmatic status polling
+- **Woodpecker CI** - Self-hosted pipeline (secret-scan, lint, test, typecheck) with programmatic status polling
 - **Project scaffolding** (`/project:init`) - Zero-to-GitHub-repo setup with Makefile, CI pipeline, and Docker config
 - **Skills ecosystem** - Discover, install, and manage agent skills from [skills.sh](https://skills.sh/) via native `npx skills` and the `/plugin` marketplace (the CPP `/skills:*` wrapper was retired in issue #437)
 - **CPP does not mask tool output.** `scripts/hook-mask-output.sh` still ships and still works - it is a filter you can run over a file at rest, and `/security:*` uses it that way - but nothing routes live Bash or Read output through it, and CPP no longer declares anything that claims otherwise (issue #1206). **Do not read unmasked output as evidence that nothing needed masking**: assume everything a command prints reaches the transcript verbatim. Destructive commands are handled by Claude Code's native git auto-blocking + OS sandbox.
@@ -29,13 +29,13 @@
 
 ## Install
 
-CPP's own plugin marketplace was retired by issue #662 and ADR [0005](docs/decisions/0005-retire-plugin-marketplace-distribution.md). Clone the repository; issue #663 restores the tiered `/cpp:init` + `/cpp:update` symlink surface as the canonical command installation path:
+CPP's own plugin marketplace was retired by issue #662 and ADR [0005](docs/decisions/0005-retire-plugin-marketplace-distribution.md). Clone the repository; the tiered `/cpp:init` + `/cpp:update` symlink surface is the canonical command installation path (restored by issue #663):
 
 ```bash
 git clone https://github.com/cooneycw/claude-power-pack.git
 cd claude-power-pack
 
-# The restored canonical installer lands in issue #663:
+# The canonical installer (restored by issue #663):
 /cpp:init
 ```
 
@@ -96,7 +96,7 @@ claude-power-pack/
   scripts/              Shell utilities
   controls/             Registered negative controls: per-gate fixtures + blind anchors (#924)
   tests/                Unit tests
-  .woodpecker.yml       CI pipeline (secret-scan, lint, test, typecheck, drift gates, negative controls, Dockerfile lint)
+  .woodpecker.yml       CI pipeline (secret-scan, lint, test, typecheck, drift gates, negative controls)
   Makefile              Build interface for all operations
 ```
 
@@ -140,7 +140,6 @@ Woodpecker CI runs on every push and PR via a self-hosted agent:
 - **Validate:** lint (ruff) + test (pytest, parallel with an explicit worker cap - never `-n auto`) + typecheck (mypy) in a single consolidated step
 - **Negative controls:** every registered gate must still report BAD on its known-bad fixture and GOOD on its known-good one, and each control must be demonstrated against a vendored anchor that MISSES the known-bad input - a control with no anchor is `UNPROVEN` and fails the step (#924). A case may also register that the gate must REFUSE a verdict - the "I could not look, or could not look completely" branch every gate here has - which is told apart from both a finding and a crash by a declared marker (#1129)
 - **Python SAST:** `bandit` over `lib/` and `scripts/`, gated at severity >= MEDIUM (#962). The skip list is EMPTY: codex-power-pack's inherited `--skip B104,B108,B310,B602` was measured against this tree and found to remove 10 of its 11 MEDIUM+ findings, because `shell=True` and hard-coded `/tmp` paths are what a repository of shell-out helpers does. The accepted residual lives one line per (file, rule, count) in `.bandit-audit-allow`, so a new site is a finding and a fixed one turns the gate red until its line comes out - though a same-count replacement is a named, tested blind spot rather than a claim. The step runs the live positive control BEFORE the audit, because a scan that cannot see prints the same clean line as a clean tree. The band BELOW that threshold is enumerated by RULE CLASS rather than counted in aggregate (#1114): all seven classes in this tree were read and accepted, each carries a `reviewed-low` record pointing at [ADR 0010](docs/decisions/0010-bandit-low-band-disposition.md), and a LOW finding whose class has no record reddens the gate - which is the opposite of the `--skip` #962 rejected, since it suppresses nothing and adds a distinction the count could not draw
-- **Dockerfile lint:** hadolint over any remaining Dockerfile
 - **CI verification:** `flow:auto` polls the Woodpecker API after merge to confirm the pipeline passes
 
 The image-build, CVE-scan, SBOM, compose-policy, and runtime-smoke stages were retired with CPP's Docker MCP runtime in #469.
@@ -199,6 +198,15 @@ the point: a control battery nothing checks is the defect it exists to find.
 >   files only ...)`. A registered control whose gate is absent from the census
 >   is NAMED, derived on every run. Reporting it is not yet FAILING on it; that
 >   is a separate decision and printing the fact does not pre-empt it.
+> - **Every count below is a 2026-09-15 figure, not a current one** (#1272).
+>   The registered-control count and the census size have both grown since and
+>   keep growing, so no replacement number is written here - it would be the
+>   next stale one. Derive them instead: `make negative-controls` prints
+>   `NEGATIVE_CONTROL_REGISTERED:` and the enumerated relation, and
+>   `make instrument-census-check` reads the census rows of
+>   [ADR 0008](docs/decisions/0008-instrument-negative-control-bound.md). The
+>   CI step list likewise changed: the `hadolint` Dockerfile lint named in the
+>   external-binary list below was retired by #943.
 
 **Deliberately not stated as a coverage fraction over the 63-row census, because
 the two numbers are counted independently.** Five of the six register against a
@@ -309,7 +317,7 @@ it:
 
 ### v7.3.0 (2026-07-04)
 
-- **Plugin-marketplace distribution + install-path cutover** (epic #417 Phase B, ADR 0001) - CPP adopted 15 per-family plugins and retired its earlier symlink surface (#477/#478/#479/#480). **Reversed 2026-08-11:** issue #662 / ADR 0005 retires CPP's marketplace lane after version-stamp drift proved unreconcilable; uninstall existing families with `/plugin uninstall <family>@cpp`. The tiered `/cpp:init` + `/cpp:update` symlink surface returns as canonical in #663.
+- **Plugin-marketplace distribution + install-path cutover** (epic #417 Phase B, ADR 0001) - CPP adopted 15 per-family plugins and retired its earlier symlink surface (#477/#478/#479/#480). **Reversed 2026-08-11:** issue #662 / ADR 0005 retires CPP's marketplace lane after version-stamp drift proved unreconcilable; uninstall existing families with `/plugin uninstall <family>@cpp`. The tiered `/cpp:init` + `/cpp:update` symlink surface returned as canonical in #663.
 - **Docker MCP runtime retired** (#469, #423) - Second Opinion moved to its own external repo ([cooneycw/mcp-second-opinion](https://github.com/cooneycw/mcp-second-opinion)) consumed via a `.mcp.json` client pointer; browser automation moved to the upstream `@playwright/mcp` npx server. CPP ships no containers and `make deploy` is an informative no-op.
 - **`/flow:eli5` necessity gate extracted** to the standalone [eli5-gate](https://github.com/cooneycw/eli5-gate) plugin (#443); CPP vendors its canonical core with a drift check.
 
