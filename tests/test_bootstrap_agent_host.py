@@ -43,6 +43,22 @@ def _stub(bindir: Path, name: str, body: str) -> None:
     f.chmod(0o755)
 
 
+def _path_without_docker(tmp_path: Path) -> str:
+    """This host's PATH, rebuilt as symlinks with every `docker` left out - so a
+    docker-less host is CONSTRUCTED rather than required (counter-model review)."""
+    shadow = tmp_path / "nodocker"
+    shadow.mkdir()
+    for d in os.environ.get("PATH", "").split(os.pathsep):
+        if not d or not os.path.isdir(d):
+            continue
+        for entry in os.scandir(d):
+            if entry.name == "docker" or (shadow / entry.name).exists():
+                continue
+            if entry.is_file() and os.access(entry.path, os.X_OK):
+                (shadow / entry.name).symlink_to(entry.path)
+    return str(shadow)
+
+
 def _run(tmp_path: Path, *, docker_present: bool, installed: set[str]) -> list[str]:
     bindir = tmp_path / "bin"
     bindir.mkdir()
@@ -55,9 +71,12 @@ def _run(tmp_path: Path, *, docker_present: bool, installed: set[str]) -> list[s
     _stub(bindir, "dpkg-query", status + "\nexit 1\n")
     if docker_present:
         _stub(bindir, "docker", "exit 0\n")
+    base_path = os.environ["PATH"] if docker_present else _path_without_docker(tmp_path)
+    if not docker_present:
+        assert shutil.which("docker", path=f"{bindir}:{base_path}") is None, "fixture must lack docker"
     env = {
         **os.environ,
-        "PATH": f"{bindir}:{os.environ['PATH']}",
+        "PATH": f"{bindir}:{base_path}",
         "WOODPECKER_SERVER": f"127.0.0.1:{_closed_port()}",
         "WOODPECKER_AGENT_SECRET": "unused-in-this-test",
         "AGENT_DIR": str(tmp_path / "agent"),
@@ -97,9 +116,6 @@ def test_nothing_missing_installs_nothing(tmp_path: Path) -> None:
 
 
 def test_a_host_without_docker_gets_the_docker_family(tmp_path: Path) -> None:
-    if shutil.which("docker") is not None:
-        pytest.skip("a real docker is on PATH, so its absence cannot be constructed here")
-    assert shutil.which("docker") is None, "precondition: no docker on PATH"
     lines = _run(tmp_path, docker_present=False,
                  installed={"qemu-guest-agent", "ca-certificates", "curl"})
     assert _installed_by(lines) == ["docker.io", "docker-compose-v2"], lines

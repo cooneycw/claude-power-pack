@@ -1445,9 +1445,11 @@ def test_an_unterminated_heredoc_does_not_swallow_the_rest_of_the_file(
     Not defended against here: a real heredoc parser is the fix, and this file
     states outright that it is not one. Bash does NOT reject an unterminated
     heredoc: it warns ("here-document ... delimited by end-of-file"), reads the
-    rest of the file as the heredoc body, and exits 0 (measured, #1273) - so a
-    script in this shape runs, and every command after the opener is silently
-    data rather than code. That is the same undercount the masking produces.
+    rest of the file as the heredoc body, and runs it - the measured fixture
+    (`cat <<EOF` then two lines) exited 0; in general the status is whatever the
+    command consuming the heredoc returns (#1273). So a script in this shape
+    runs, and every command after the opener is silently data rather than code.
+    That is the same undercount the masking produces.
     """
     script = tmp_path / "unterminated.sh"
     script.write_text(
