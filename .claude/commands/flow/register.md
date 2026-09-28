@@ -254,6 +254,20 @@ does not contain `scripts/foobar` - it is what declaring a directory means. A
 role declaring a bare `codex/skills` claimed three other roles' live mirror trees
 while the roster reported no overlap at all.
 
+**A granted path carries its generated mirrors (issue #1266).** Editing a bundled
+source (`scripts/<name>`, a bundled doc, a command document) regenerates its copies
+under `codex/skills/` - that is the Step-6 mirror resync running,
+not a choice. So the lane for a bundled source must include those mirror paths, or
+the roster cannot see two roles regenerating the same mirror. Enumerate them rather
+than guessing, and declare them with the source: in the CPP checkout,
+`codex-skill-sync.py --list-mirrors scripts/flow-wave-registry.sh` prints every
+mirror of that one source.
+
+**Re-register when your scope grows (issue #1266).** A lane declared before Step 2
+is a guess; when `/flow:auto` Step 4 reaches a file outside it, re-register with
+the full list before committing that file (see `/flow:auto` Step 4). `--files`
+replaces the lane, so pass every path still held.
+
 **Escalating an unanswered message (#971).**
 
 ```bash

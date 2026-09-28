@@ -513,3 +513,128 @@ class TestWiring:
         assert "## `flow-wave-residuals`" in history
         assert "$XDG_RUNTIME_DIR/cc-flow-wave/<wave>/residuals.json" in history
         assert "docs/scripts.md" in memory
+
+
+# ---------------------------------------------------------------------------
+# Issue #1266 item 5: correcting a recorded fact had no verb, so the only way
+# to fix one was to record a new candidate and mark the old one a DUPLICATE -
+# which is a false statement about the ledger, made to work around it.
+# ---------------------------------------------------------------------------
+
+
+def _amend(monkeypatch, tmp_path: Path, *extra: str) -> tuple[int, str, str]:
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    import contextlib
+    import io
+
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        rc = MOD.main(["flow-wave-residuals.py", "amend", "--wave", WAVE, *extra])
+    return rc, out.getvalue(), err.getvalue()
+
+
+class TestAmend:
+    def test_a_fact_is_corrected_in_place_with_its_history_kept(self, monkeypatch, tmp_path: Path) -> None:
+        path = _ledger_path(tmp_path)
+        cid = _record(path, "pre-existing-oos", source_issue=11, evidence="first reading")["candidate_id"]
+        rc, out, err = _amend(monkeypatch, tmp_path, "--candidate-id", cid, "--field", "evidence",
+                              "--value", "corrected reading", "--reason", "the first measurement ran on a stale tree")
+        assert rc == 0, err
+        ledger = MOD.read_ledger(path, WAVE)
+        c = _candidate(ledger, cid)
+        assert c["evidence"] == "corrected reading"
+        assert c["amendments"] == [{
+            "field": "evidence", "previous": "first reading", "value": "corrected reading",
+            "reason": "the first measurement ran on a stale tree", "amended_at": c["amendments"][0]["amended_at"],
+        }]
+        # No duplicate was fabricated to make the correction.
+        assert ledger["duplicate_links"] == [] and len(ledger["candidates"]) == 1
+        assert json.loads(out)["field"] == "evidence"
+
+    def test_amending_the_classification_recomputes_the_disposition(self, monkeypatch, tmp_path: Path) -> None:
+        path = _ledger_path(tmp_path)
+        cid = _record(path, "speculative", source_issue=12)["candidate_id"]
+        assert _candidate(MOD.read_ledger(path, WAVE), cid)["disposition"] == "ledger-only", "precondition"
+        rc, _out, err = _amend(monkeypatch, tmp_path, "--candidate-id", cid, "--field", "classification",
+                               "--value", "pre-existing-oos", "--reason", "reproduced on main")
+        assert rc == 0, err
+        assert _candidate(MOD.read_ledger(path, WAVE), cid)["disposition"] == "eligible"
+
+    @pytest.mark.parametrize("value", ["duplicate", "not-a-class"])
+    def test_a_classification_amend_cannot_make_a_duplicate_or_an_unknown_class(
+        self, monkeypatch, tmp_path: Path, value: str
+    ) -> None:
+        path = _ledger_path(tmp_path)
+        cid = _record(path, "speculative", source_issue=13)["candidate_id"]
+        rc, _out, err = _amend(monkeypatch, tmp_path, "--candidate-id", cid, "--field", "classification",
+                               "--value", value, "--reason", "x")
+        assert rc == 2
+        # The specific refusal, so an unknown-verb exit 2 cannot satisfy this.
+        assert ("record --dedupe-of" if value == "duplicate" else "unknown classification") in err, err
+        assert _candidate(MOD.read_ledger(path, WAVE), cid)["classification"] == "speculative"
+
+    def test_a_closed_wave_is_not_amended(self, monkeypatch, tmp_path: Path) -> None:
+        """close revalidates every candidate against the final tree; an amendment
+        after it would change what promotion reads without that revalidation."""
+        path = _ledger_path(tmp_path)
+        cid = _record(path, "pre-existing-oos", source_issue=14)["candidate_id"]
+        MOD.close_wave(path, wave=WAVE, at_commit="abc1234")
+        rc, _out, err = _amend(monkeypatch, tmp_path, "--candidate-id", cid, "--field", "evidence",
+                               "--value", "later", "--reason", "x")
+        assert rc == 1 and "closed" in err, err
+
+    @pytest.mark.parametrize("missing", ["--reason", "--value", "--field"])
+    def test_amend_requires_its_arguments(self, monkeypatch, tmp_path: Path, missing: str) -> None:
+        path = _ledger_path(tmp_path)
+        cid = _record(path, "pre-existing-oos", source_issue=15)["candidate_id"]
+        args = {"--field": "evidence", "--value": "v", "--reason": "r"}
+        del args[missing]
+        flat = [x for kv in args.items() for x in kv]
+        rc, _out, err = _amend(monkeypatch, tmp_path, "--candidate-id", cid, *flat)
+        assert rc == 2
+        assert "unknown verb" not in err and missing.lstrip("-") in err, err
+
+    def test_an_unchanged_value_is_refused(self, monkeypatch, tmp_path: Path) -> None:
+        path = _ledger_path(tmp_path)
+        cid = _record(path, "pre-existing-oos", source_issue=16, evidence="same")["candidate_id"]
+        rc, _out, err = _amend(monkeypatch, tmp_path, "--candidate-id", cid, "--field", "evidence",
+                               "--value", "same", "--reason", "x")
+        assert rc == 2 and "nothing to amend" in err, err
+        assert "amendments" not in _candidate(MOD.read_ledger(path, WAVE), cid)
+
+    def test_a_duplicate_link_is_refused_and_names_its_canonical(self, monkeypatch, tmp_path: Path) -> None:
+        path = _ledger_path(tmp_path)
+        canonical = _record(path, "pre-existing-oos", source_issue=17)
+        dup = _record(path, "duplicate", source_issue=18, dedupe_of=canonical["candidate_id"])
+        assert dup["disposition"] == "duplicate", "precondition"
+        rc, _out, err = _amend(monkeypatch, tmp_path, "--candidate-id", dup["candidate_id"], "--field", "evidence",
+                               "--value", "new", "--reason", "x")
+        assert rc == 1 and "duplicate link" in err and canonical["candidate_id"] in err, err
+
+    def test_a_second_amendment_appends_to_the_history(self, monkeypatch, tmp_path: Path) -> None:
+        path = _ledger_path(tmp_path)
+        cid = _record(path, "pre-existing-oos", source_issue=19, evidence="one")["candidate_id"]
+        for value in ("two", "three"):
+            rc, _out, err = _amend(monkeypatch, tmp_path, "--candidate-id", cid, "--field", "evidence",
+                                   "--value", value, "--reason", f"to {value}")
+            assert rc == 0, err
+        history = _candidate(MOD.read_ledger(path, WAVE), cid)["amendments"]
+        assert [(a["previous"], a["value"]) for a in history] == [("one", "two"), ("two", "three")]
+
+    @pytest.mark.parametrize(
+        ("field", "value", "reason", "expected"),
+        [
+            ("evidence", "   ", "r", "value"),
+            ("evidence", "v", "   ", "reason"),
+            ("source_issue", "99", "r", "field"),
+        ],
+    )
+    def test_blank_values_and_unamendable_fields_are_refused(
+        self, monkeypatch, tmp_path: Path, field: str, value: str, reason: str, expected: str
+    ) -> None:
+        path = _ledger_path(tmp_path)
+        cid = _record(path, "pre-existing-oos", source_issue=20, evidence="e")["candidate_id"]
+        rc, _out, err = _amend(monkeypatch, tmp_path, "--candidate-id", cid, "--field", field,
+                               "--value", value, "--reason", reason)
+        assert rc == 2 and expected in err and "unknown verb" not in err, err
+        assert "amendments" not in _candidate(MOD.read_ledger(path, WAVE), cid)

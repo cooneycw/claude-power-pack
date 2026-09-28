@@ -61,6 +61,8 @@ USAGE = """usage: flow-wave-residuals.py <verb> --wave <name> [options]
   close --wave W --at-commit SHA
   promote --wave W --candidate-id ID --approved-by IDENTITY
           [--emergency-override --override-reason TEXT]
+  amend --wave W --candidate-id ID --field consequence|evidence|classification
+        --value TEXT --reason TEXT    (active waves only; keeps the previous value)
   metrics --wave W --seed-count N
 
   stdout: one JSON object for every successful command
@@ -518,6 +520,80 @@ def promote_candidate(
     return _mutate(path, wave, timestamp, operation)
 
 
+#: What `amend` may correct. Identity (ids, issue numbers, generation) and the
+#: duplicate linkage are not facts about the observation and are not amendable.
+AMENDABLE_FIELDS = ("consequence", "evidence", "classification")
+
+
+def amend_candidate(
+    path: Path,
+    *,
+    wave: str,
+    candidate_id: str,
+    field: str,
+    value: str,
+    reason: str,
+    now: str | None = None,
+) -> dict[str, Any]:
+    """Correct one fact on a canonical candidate, keeping what it replaced (#1266).
+
+    Before this verb the only way to correct a recorded fact was to record a new
+    candidate and mark the old one a DUPLICATE - a false statement about the
+    ledger, made to work around it. An amendment is append-only: the field takes
+    the new value and `amendments` keeps the previous one, the reason and when.
+
+    Refused on a CLOSED wave: `close` revalidates every candidate against the
+    final tree, and promotion reads that revalidation, so a later amendment
+    would change what promotion sees without it. Refused on a duplicate link
+    (amend its canonical candidate), for a value equal to the current one, and
+    for a classification of `duplicate` (use `record --dedupe-of`).
+    """
+    if field not in AMENDABLE_FIELDS:
+        raise ValidationError(f"--field must be one of {', '.join(AMENDABLE_FIELDS)}, got {field!r}")
+    if not value.strip():
+        raise ValidationError("--value must not be empty")
+    if not reason.strip():
+        raise ValidationError("--reason must say why the recorded fact was wrong")
+    if field == "classification":
+        if value == "duplicate":
+            raise ValidationError("classification cannot be amended to 'duplicate'; use record --dedupe-of")
+        if value not in CLASSIFICATION_DISPOSITIONS:
+            raise ValidationError(f"unknown classification: {value!r}")
+    timestamp = _timestamp(now)
+
+    def operation(ledger: dict[str, Any]) -> dict[str, Any]:
+        if ledger["state"] != "active":
+            raise PolicyError("amend refused: the wave is closed and its candidates were revalidated at close")
+        duplicate = _duplicate_by_id(ledger, candidate_id)
+        if duplicate is not None:
+            raise PolicyError(
+                f"amend refused: {candidate_id} is a duplicate link; amend {duplicate['canonical_candidate_id']}"
+            )
+        candidate = _candidate_by_id(ledger, candidate_id)
+        if candidate is None:
+            raise ValidationError(f"unknown candidate_id: {candidate_id}")
+        previous = candidate[field]
+        if previous == value:
+            raise ValidationError(f"{field} is already {value!r}; nothing to amend")
+        candidate[field] = value
+        if field == "classification":
+            candidate["disposition"] = CLASSIFICATION_DISPOSITIONS[value]
+        candidate.setdefault("amendments", []).append(
+            {"field": field, "previous": previous, "value": value, "reason": reason, "amended_at": timestamp}
+        )
+        candidate["updated_at"] = timestamp
+        return {
+            "candidate_id": candidate_id,
+            "field": field,
+            "previous": previous,
+            "value": value,
+            "disposition": candidate["disposition"],
+            "amendments": len(candidate["amendments"]),
+        }
+
+    return _mutate(path, wave, timestamp, operation)
+
+
 def metrics(path: Path, *, wave: str, seed_count: int) -> dict[str, int | float | str]:
     """Return issue-economy counts and ratios for one wave."""
     seed_count = _nonnegative_int(seed_count, "seed_count")
@@ -673,6 +749,19 @@ def main(argv: list[str]) -> int:
                 approved_by=str(options["approved-by"]),
                 emergency_override=bool(options.get("emergency-override", False)),
                 override_reason=options.get("override-reason"),
+            )
+        elif verb == "amend":
+            _reject_unknown(options, {"wave", "candidate-id", "field", "value", "reason", "source-link"})
+            if options["source-link"]:
+                raise ValidationError("--source-link is valid only with record")
+            _required(options, "candidate-id", "field", "value", "reason")
+            result = amend_candidate(
+                path,
+                wave=wave,
+                candidate_id=str(options["candidate-id"]),
+                field=str(options["field"]),
+                value=str(options["value"]),
+                reason=str(options["reason"]),
             )
         elif verb == "metrics":
             _reject_unknown(options, {"wave", "seed-count", "source-link"})
