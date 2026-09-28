@@ -297,15 +297,15 @@
 #            self-check - this is a BROKEN CHECK, not a clean scan, and is
 #            never conflated with "no hazard found". Investigate the guard
 #            itself before re-running; there is no override for this one.
-#        10  CLEAN STOP, not a failure (issue #1300): the required-check wait ran
-#            out (60 x 10s, or the --wait-ci deadline). Never a merge, never a
-#            "failed" check: the message names contexts still RUNNING apart from
-#            any that never posted a status. Re-run when CI is green.
 #         9  CLEAN STOP, not a failure (issue #1262): a worktree of this
 #            repository has the PR's head branch checked out at a commit that is
 #            NOT the PR's head on GitHub - a session may be mid-finish there.
 #            The PR is left open and untouched - push or discard that work, then
 #            re-run (or consciously re-run with --allow-local-divergence).
+#        10  CLEAN STOP, not a failure (issue #1300): the required-check wait ran
+#            out (60 x 10s, or the --wait-ci deadline). Never a merge, never a
+#            "failed" check: the message names contexts still RUNNING apart from
+#            any that never posted a status. Re-run when CI is green.
 #
 # Already merged (issue #1262): a PR that is MERGED when the helper is invoked
 # prints GH_PR_MERGE_ALREADY_MERGED: <n>, skips every base guard and the squash,
@@ -1793,6 +1793,10 @@ run_squash() {
             # branch contains the new tip IMMEDIATELY before squashing again,
             # after the sleep and the re-poll (counter-model review: checked
             # before them, a sibling merge in that interval went unseen).
+            # KEEP THIS ORDER: the check must read the base AFTER the sleep, or
+            # it validates a tip that is already stale by the time the squash
+            # runs. No stubbed test can tell the orders apart (one base read
+            # either way), so this comment is the only thing holding it.
             if (( ADMIN_OPT_IN == 0 )) && ! base_contained_now "at the #502 squash retry"; then
                 rm -f "$errfile"
                 exit 6
