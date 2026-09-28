@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1333-detector-contracts-heading-tests-need-a-hand-added",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "3c00344f5fd4f1ceb8124b234c457a48d7af1b3c",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1333",
+  "passes": 2,
+  "recorded_at": "2026-09-28T18:16:47Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 8
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/09/28/rollout-2026-09-28T18-16-14-01a0e93b-5485-7f71-8260-8bcf1960cc60.jsonl",
+    "thread_id": "01a0e93b-5485-7f71-8260-8bcf1960cc60"
+  },
+  "schema": 1,
+  "status": "ran"
+}
