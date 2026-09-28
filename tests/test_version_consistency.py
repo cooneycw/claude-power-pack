@@ -347,3 +347,18 @@ def test_the_uv_lock_site_cannot_satisfy_the_derived_floor(tmp_path: Path) -> No
     proc = _run(repo)
     assert proc.returncode == 2, proc.stdout + proc.stderr
     assert "1 version location(s) found" in proc.stderr
+
+
+@requires_git
+def test_a_same_named_DEPENDENCY_beside_our_own_entry_is_ignored(tmp_path: Path) -> None:
+    """Counter-model red case: our local entry agrees, and a same-named registry
+    entry at 7.9.9 sits beside it. The neighbour's version is not ours, so this
+    passes; dependency freshness is a different check's question."""
+    neighbour = (
+        '\n[[package]]\nname = "demo-pkg"\nversion = "7.9.9"\n'
+        'source = { registry = "https://pypi.org/simple" }\n'
+    )
+    repo = _committed(_build_repo(tmp_path, claude_version="8.0.0", lock_text=_lock("8.0.0") + neighbour))
+    assert (repo / "uv.lock").read_text(encoding="utf-8").count('name = "demo-pkg"') == 2
+    proc = _run(repo)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
