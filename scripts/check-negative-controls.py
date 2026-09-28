@@ -745,7 +745,223 @@ def instrument_census(root: Path) -> Census:
 #: This constant is a CLAIM, and `tests/test_negative_controls.py` holds it: a
 #: marker planted in a `scripts/` subdirectory must not be discovered. Widen
 #: `discover` and that case fails, which is what brings someone back to this text.
-DISCOVERY_SCOPE = "scripts/* (top-level files only; subdirectories are not read)"
+#:
+#: #1276 MADE THAT DECISION FOR ONE KIND, AND FOR BOTH READERS AT ONCE. A marker
+#: directly above a Makefile rule is now discovered too, with a typed
+#: `{kind: make-target, file, target}` gate, and the census resolves it as the
+#: subject `make:<target>`. The list of kinds lives in the shared census rule
+#: module (`DISCOVERY_SOURCES`) and `discovery_scope()` prints it, so this file
+#: cannot claim a scope the census does not count. Subdirectories of `scripts/`
+#: and `lib/` modules are still NOT read.
+DISCOVERY_SCOPE_FALLBACK = "scripts/* (top-level files only; subdirectories are not read)"
+
+
+def discovery_scope() -> str:
+    """Where registrations are looked for, DERIVED from the shared rule (#1276).
+
+    The census rule module's `DISCOVERY_SOURCES` is the one list both readers
+    move with. When that module cannot be loaded, only the `scripts/` kind is
+    read - and the line SAYS the Makefile kind was not, rather than printing the
+    old sentence as though nothing else existed to read.
+    """
+    rule = _census_rule()
+    sources = getattr(rule, "DISCOVERY_SOURCES", None) if rule is not None else None
+    if not sources:
+        return (
+            f"{DISCOVERY_SCOPE_FALLBACK}; Makefile targets NOT read - "
+            f"{CENSUS_GATE_REL} could not be loaded"
+        )
+    return "; ".join(description for _kind, description in sources)
+
+
+#: Kept as a name for readers of this module; the live value is `discovery_scope()`.
+DISCOVERY_SCOPE = DISCOVERY_SCOPE_FALLBACK
+
+
+#: GNU make options, as make's own getopt reads them (#1276). Short options
+#: taking a REQUIRED argument (attached or the next token), short options taking
+#: an OPTIONAL attached argument, and short options taking none.
+_MAKE_SHORT_REQUIRED = frozenset("CfIoWE")
+_MAKE_SHORT_OPTIONAL = frozenset("jlO")
+_MAKE_SHORT_FLAGS = frozenset("bmBdeihkLnpqrRsStvw")
+_MAKE_LONG_REQUIRED = frozenset({
+    "directory", "file", "makefile", "include-dir", "old-file", "assume-old",
+    "what-if", "new-file", "assume-new", "eval",
+})
+_MAKE_LONG_OPTIONAL = frozenset({"debug", "jobs", "load-average", "output-sync", "shuffle"})
+_MAKE_LONG_FLAGS = frozenset({
+    "always-make", "environment-overrides", "ignore-errors", "keep-going", "check-symlink-times",
+    "just-print", "dry-run", "recon", "print-data-base", "question", "no-builtin-rules",
+    "no-builtin-variables", "silent", "quiet", "no-silent", "no-keep-going", "stop", "touch",
+    "trace", "version", "print-directory", "no-print-directory", "warn-undefined-variables",
+})
+#: Options a make-target control may not use at all: each changes WHICH makefile
+#: is read (`-C`) or adds rules to it (`--eval`), so the declared target could
+#: mean something other than the rule the marker sits above.
+_MAKE_REFUSED = frozenset({"C", "directory", "E", "eval"})
+_MAKE_ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*\s*(?::{1,3}|[+?!])?=")
+
+
+def make_invocation_problem(invocation: list[str]) -> str | None:
+    """Why a make-target control's invocation does not run exactly its target.
+
+    Returns None when `invocation` is a plain `make` argv - argv[0]'s basename is
+    `make`, with no `sh -c`, `env` or other wrapper - whose GOALS are exactly
+    `["{target}"]` and whose makefile is `{gate}` (named at most once) or the
+    default. Goals are the tokens that are not options, not an option's
+    argument and not `VAR=value` assignments. Anything this cannot parse is a
+    refusal, never a guess (#1276, orchestrator review of #1334).
+
+    WHAT THIS DOES NOT BIND: the declared target's own recipe. A rule whose
+    recipe runs `$(MAKE) other` is the target's own behaviour, and scoring it is
+    scoring that target; what is enforced is that the COMMAND asks for no other
+    goal and loads no other makefile.
+    """
+    argv = [str(part) for part in invocation]
+    if not argv or Path(argv[0]).name != "make":
+        return (
+            "a make-target control's invocation must be a plain `make` argv (no sh -c, env or "
+            f"other wrapper); it starts with {argv[0] if argv else 'nothing'!r}"
+        )
+    goals: list[str] = []
+    makefiles: list[str] = []
+    index = 1
+    only_goals = False
+
+    def refuse(name: str) -> str:
+        return f"a make-target control may not pass make `{name}`: it changes which makefile or rules are read"
+
+    while index < len(argv):
+        token = argv[index]
+        index += 1
+        if only_goals or not token.startswith("-") or token == "-":
+            if _MAKE_ASSIGNMENT_RE.match(token):
+                continue
+            goals.append(token)
+            continue
+        if token == "--":
+            only_goals = True
+            continue
+        if token.startswith("--"):
+            name, eq, value = token[2:].partition("=")
+            if name in _MAKE_REFUSED:
+                return refuse(f"--{name}")
+            if name in _MAKE_LONG_REQUIRED:
+                if not eq:
+                    if index >= len(argv):
+                        return f"make option --{name} needs a value and has none"
+                    value = argv[index]
+                    index += 1
+                if name in ("file", "makefile"):
+                    makefiles.append(value)
+                continue
+            if name in _MAKE_LONG_OPTIONAL or (name in _MAKE_LONG_FLAGS and not eq):
+                continue
+            return f"make option {token!r} is not one this check can parse; refused rather than guessed at"
+        cluster = token[1:]
+        position = 0
+        while position < len(cluster):
+            flag = cluster[position]
+            position += 1
+            if flag in _MAKE_REFUSED:
+                return refuse(f"-{flag}")
+            if flag in _MAKE_SHORT_REQUIRED:
+                value = cluster[position:]
+                if not value:
+                    if index >= len(argv):
+                        return f"make option -{flag} needs a value and has none"
+                    value = argv[index]
+                    index += 1
+                if flag == "f":
+                    makefiles.append(value)
+                break
+            if flag in _MAKE_SHORT_OPTIONAL:
+                break
+            if flag not in _MAKE_SHORT_FLAGS:
+                return f"make option -{flag} in {token!r} is not one this check can parse; refused"
+    if goals != ["{target}"]:
+        return (
+            "a make-target control's invocation must ask make for exactly one goal, `{target}`; "
+            f"it asks for {goals or 'none'}"
+        )
+    if len(makefiles) > 1 or any(name != "{gate}" for name in makefiles):
+        return (
+            "a make-target control may name its makefile only as `-f {gate}`, once; it names "
+            f"{makefiles} - another makefile could give the same target name a different rule"
+        )
+    return None
+
+
+def _makefile_registration(path: Path) -> bool:
+    """True when this registration was discovered in the root Makefile."""
+    rule = _census_rule()
+    return rule is not None and path.name == getattr(rule, "MAKEFILE_REL", "Makefile")
+
+
+def adjacent_targets(makefile: Path, control_rel: str) -> tuple[list[str], str | None]:
+    """The target(s) of the rule a Makefile registration sits directly above.
+
+    ADJACENCY IS WHAT A REGISTRATION ASSERTS (#1276 keeps the rule `evaluate`
+    enforces for files). In a Makefile the gate is one rule among many, so "next
+    to" is literal: the directive line, then only comment lines, then the rule.
+    A blank line ends the block - a directive separated from its rule by a gap is
+    a comment about something else, and reading through it would let a marker
+    float to whatever rule happens to come next.
+    """
+    rule = _census_rule()
+    if rule is None:
+        return [], f"{CENSUS_GATE_REL} could not be loaded, so Makefile targets cannot be read"
+    try:
+        lines = makefile.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError) as exc:
+        return [], f"{makefile.name} unreadable: {exc}"
+    inside = rule.make_define_mask(lines)
+    for index, line in enumerate(lines):
+        match = REGISTRATION_RE.match(line)
+        if not match or match.group("path") != control_rel:
+            continue
+        if inside[index]:
+            return [], (
+                f"the registration for {control_rel} in {makefile.name} sits inside a "
+                "`define ... endef` block, which is variable text, not a rule"
+            )
+        for following in lines[index + 1:]:
+            if following.startswith("#"):
+                continue
+            targets = rule.make_rule_targets(following)
+            if targets:
+                return targets, None
+            break
+        return [], (
+            f"the registration for {control_rel} in {makefile.name} is not directly above "
+            "a rule (only comment lines may sit between them)"
+        )
+    return [], f"no registration for {control_rel} in {makefile.name}"
+
+
+def registration_subject(path: Path, control_rel: str) -> str:
+    """The census subject a registration is about: a file name, or `make:<target>`.
+
+    For a Makefile registration the target comes from the MANIFEST, checked
+    against the rule the marker sits above - not from the rule alone, because a
+    rule may define several targets (`alpha beta:`) and adding a neighbour to it
+    must not change which gate is registered (counter-model review, #1276). A
+    manifest that cannot be read, or names a target the rule does not define,
+    reads `make:?`: never a member, so it FAILS rather than guessing.
+    """
+    if not _makefile_registration(path):
+        return path.name
+    rule = _census_rule()
+    prefix = getattr(rule, "MAKE_SUBJECT_PREFIX", "make:")
+    targets, _why = adjacent_targets(path, control_rel)
+    try:
+        spec = json.loads((path.parent / control_rel / "control.json").read_text(encoding="utf-8"))
+        gate_ref, _gate_why = rule.parse_gate(spec.get("gate", "")) if rule is not None else (None, None)
+    except (OSError, ValueError, AttributeError):
+        gate_ref = None
+    if gate_ref is not None and gate_ref.kind == "make-target" and gate_ref.target in targets:
+        return f"{prefix}{gate_ref.target}"
+    return f"{prefix}?"
 
 
 def census_membership(
@@ -765,7 +981,7 @@ def census_membership(
     """
     if census.subjects is None:
         return None, None
-    names = sorted({path.name for path, _ in registrations})
+    names = sorted({registration_subject(path, control) for path, control in registrations})
     nonmembers = [name for name in names if name not in census.subjects]
     return len(names) - len(nonmembers), nonmembers
 
@@ -793,10 +1009,11 @@ def discover(root: Path) -> list[tuple[Path, str]]:
     authoritative number.
     """
     found: list[tuple[Path, str]] = []
+    DISCOVERY_UNREAD.clear()
     scripts_dir = root / "scripts"
-    if not scripts_dir.is_dir():
-        return found
-    for path in sorted(scripts_dir.iterdir()):
+    # No early return: a tree with a Makefile and no scripts/ still has a source
+    # to read (counter-model review, #1276).
+    for path in sorted(scripts_dir.iterdir()) if scripts_dir.is_dir() else []:
         if not path.is_file():
             continue
         try:
@@ -805,7 +1022,29 @@ def discover(root: Path) -> list[tuple[Path, str]]:
             continue
         for match in REGISTRATION_RE.finditer(text):
             found.append((path, match.group("path")))
+    # THE SECOND KIND (#1276): registrations beside Makefile targets. Read only
+    # when the shared rule module loads, because that module is what makes a
+    # `make:` subject countable - discovering a kind the census cannot resolve
+    # would put it in the numerator with no denominator to belong to.
+    rule = _census_rule()
+    makefile = root / getattr(rule, "MAKEFILE_REL", "Makefile") if rule is not None else None
+    if makefile is not None and makefile.is_file():
+        try:
+            text = makefile.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            # UNREAD, NOT EMPTY (counter-model review): an unreadable Makefile
+            # would otherwise drop every make-target registration while the
+            # scope line still claimed Makefile targets were searched. `main`
+            # reports it and fails a --strict run.
+            DISCOVERY_UNREAD.append(f"{makefile.name}: {type(exc).__name__}: {exc}")
+            text = ""
+        for match in REGISTRATION_RE.finditer(text):
+            found.append((makefile, match.group("path")))
     return found
+
+
+#: Sources `discover` could not read on its last run (#1276). Reset by it.
+DISCOVERY_UNREAD: list[str] = []
 
 
 #: Stands in for an exit code when the invocation could not be executed AT ALL -
@@ -1091,23 +1330,64 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
     # BLIND. That is the exact collapse this verdict vocabulary exists to prevent -
     # "the control points at code that is not here" reported as "the gate stopped
     # discriminating". They present identically and need opposite responses.
-    declared = spec.get("gate", "")
-    if not declared:
-        res.details.append("control.json names no gate")
+    # ONE PARSER FOR `gate` (#1276): a string is a file; an object is a typed
+    # gate with a CLOSED schema. The shared census rule module owns it so every
+    # reader of control.json agrees on what a manifest's gate is.
+    rule = _census_rule()
+    if rule is None or not hasattr(rule, "parse_gate"):
+        res.details.append(f"{CENSUS_GATE_REL} could not be loaded, so `gate` cannot be read")
         return res
+    gate_ref, why = rule.parse_gate(spec.get("gate", ""))
+    if gate_ref is None:
+        res.details.append(why or "control.json `gate` could not be read")
+        return res
+    declared = gate_ref.file
     gate = (root / declared).resolve()
     if not gate.is_file():
         res.details.append(f"declared gate is absent from this checkout: {declared}")
         return res
-    res.gate = declared
+    res.gate = declared if gate_ref.kind == "file" else f"{declared}:{gate_ref.target}"
     # A registration must live NEXT TO the gate it covers. A directive in one file
     # declaring a control for another is the separate-document rot this design is
     # meant to avoid, so it is refused rather than followed.
     if gate != directive_file.resolve():
         res.details.append(
-            f"registration lives in {directive_file.name} but declares gate {declared}"
+            f"registration lives in {directive_file.name} but declares gate {res.gate}"
         )
         return res
+    if gate_ref.kind == "file" and _makefile_registration(directive_file):
+        # The file itself is not the gate when it is the Makefile: its RULES are.
+        # A string gate here would score whichever target the invocation names,
+        # with nothing tying it to the rule the marker sits above.
+        res.details.append(
+            f"a registration in {directive_file.name} must declare a typed make-target "
+            "gate ({kind: make-target, file, target}), not the file"
+        )
+        return res
+    if gate_ref.kind == "make-target":
+        targets, why = adjacent_targets(directive_file, control_rel)
+        if why is not None:
+            res.details.append(why)
+            return res
+        if gate_ref.target not in targets:
+            res.details.append(
+                f"the registration for {control_rel} sits above target(s) {', '.join(targets)} "
+                f"but declares target `{gate_ref.target}`"
+            )
+            return res
+        # THE INVOCATION MUST RUN THE DECLARED TARGET, STRUCTURALLY (counter-model
+        # review, #1276; orchestrator review of #1334). Adjacency binds the MARKER
+        # to the rule; this binds the COMMAND. A substring-and-whole-token test
+        # was not enough: `sh -c "make -f {gate} {target} seer"` hid a
+        # discriminating neighbour inside one token and was credited to the
+        # declared target. So the invocation must be a plain `make` argv, parsed
+        # as make parses it, whose goals are exactly `{target}` and whose
+        # makefile is `{gate}` or the default.
+        why = make_invocation_problem(invocation)
+        if why is not None:
+            res.details.append(why)
+            return res
+        invocation = [str(part).replace("{target}", gate_ref.target) for part in invocation]
     # THREE STATES, THREE SENTENCES (issue #1085). This was one message for
     # "no invocation", "no `cases` key at all" and "an empty `cases` list",
     # which are three different repairs. ABSENT is not EMPTY: `spec.get("cases",
@@ -1950,7 +2230,7 @@ def _headline(
     return (
         f"{total} registered, {members} of {census.rows} enumerated instruments "
         f"({whence}) carry a control that discriminates, {outside}{composition}; "
-        f"discovery reads {DISCOVERY_SCOPE}"
+        f"discovery reads {discovery_scope()}"
     )
 
 
@@ -2109,7 +2389,12 @@ def main(argv: list[str] | None = None) -> int:
     # that reports its count without its search scope invites the reader to take
     # the count as a statement about the repository; it is a statement about
     # `scripts/`.
-    scope_line = f"NEGATIVE_CONTROL_DISCOVERY_SCOPE: {DISCOVERY_SCOPE}"
+    scope_line = f"NEGATIVE_CONTROL_DISCOVERY_SCOPE: {discovery_scope()}"
+    # A source that could not be read is stated beside the scope it belongs to,
+    # and fails a --strict run: its registrations are UNREAD, not absent (#1276).
+    unread_sources = list(DISCOVERY_UNREAD)
+    for why in unread_sources:
+        scope_line += f"\nNEGATIVE_CONTROL_DISCOVERY_UNREAD: {why}"
 
     if not registrations:
         print("NEGATIVE_CONTROL_SOURCE: " + stamp)
@@ -2151,6 +2436,16 @@ def main(argv: list[str] | None = None) -> int:
           f"{'unknown' if nonmembers is None else len(nonmembers)}")
     for name in nonmembers or []:
         print(f"NEGATIVE_CONTROL_CENSUS_NONMEMBER: {name}")
+    # A NON-MEMBER OF THE NEW KIND FAILS (#1276 ruling, item 4). Widening
+    # discovery to Makefile targets without this would count a control whose gate
+    # the denominator never enumerated. The `scripts/` kind keeps today's
+    # named-not-failed behaviour: changing that is #1268's decision, and this
+    # change must not silently make it.
+    typed_prefix = getattr(_census_rule(), "MAKE_SUBJECT_PREFIX", "make:")
+    refused_nonmembers = [name for name in nonmembers or [] if name.startswith(typed_prefix)]
+    for name in refused_nonmembers:
+        print(f"NEGATIVE_CONTROL_CENSUS_NONMEMBER_REFUSED: {name} - a registered make-target "
+              "gate must have a census row; add one, or remove the registration")
     if census.disagreement:
         print(f"NEGATIVE_CONTROL_CENSUS_UNREAD: {census.disagreement}")
     print(f"NEGATIVE_CONTROL_UNIVERSE_EXTERNAL: "
@@ -2315,7 +2610,13 @@ def main(argv: list[str] | None = None) -> int:
             for line in res.details:
                 if "not installed" in line:
                     print(f"        {line}")
-    return 1 if (failing and args.strict) else 0
+    if refused_nonmembers and not args.quiet:
+        print(f"negative-controls: {len(refused_nonmembers)} make-target registration(s) "
+              f"OUTSIDE the census: {', '.join(refused_nonmembers)}")
+    if unread_sources and not args.quiet:
+        print(f"negative-controls: {len(unread_sources)} discovery source(s) could not be read - "
+              "their registrations are UNREAD, not absent: " + "; ".join(unread_sources))
+    return 1 if ((failing or refused_nonmembers or unread_sources) and args.strict) else 0
 
 
 if __name__ == "__main__":

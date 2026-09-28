@@ -11,6 +11,7 @@ distinction it draws.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from importlib.util import module_from_spec, spec_from_file_location
@@ -928,3 +929,39 @@ class TestPythonImportWalk:
         assert "imports `pydantic` at MODULE level" not in out.stdout
         assert contract(out.stdout, "CI_DEPS_PY_GATES_WALKED") == "0"
         assert contract(out.stdout, "CI_DEPS_INVOCATIONS_NOT_PYTHON") == "1"
+
+
+# #1276 - control.json's `gate` may be a typed make-target object; one parser.
+
+
+def _write_control(root: Path, gate: object, invocation: list[str]) -> Path:
+    ctl = root / "controls" / "mk"
+    ctl.mkdir(parents=True)
+    (ctl / "control.json").write_text(json.dumps({"gate": gate, "invocation": invocation}), encoding="utf-8")
+    return ctl
+
+
+def test_a_typed_make_target_gate_resolves_to_its_makefile(tmp_path: Path) -> None:
+    gate = _load_gate()
+    declared, refused = gate._gate_file({"gate": {"kind": "make-target", "file": "Makefile", "target": "verify"}})
+    assert (declared, refused) == ("Makefile", None)
+    (tmp_path / "Makefile").write_text("verify:\n\t@true\n", encoding="utf-8")
+    ctl = _write_control(tmp_path, {"kind": "make-target", "file": "Makefile", "target": "verify"},
+                         ["make", "-f", "{gate}", "verify"])
+    needed, notes = gate.requirements(tmp_path, ctl, _binary_gate())
+    assert "make" in needed, (needed, notes)
+    assert not notes, notes
+
+
+def test_an_unknown_key_in_a_typed_gate_is_REPORTED_not_read_as_needing_nothing(tmp_path: Path) -> None:
+    """Closed schema, this reader's half (#1276 ruling item 6).
+
+    Before #1276 this reader did `str(spec.get("gate"))`, turning an object into
+    the path "{'kind': ...}", which is absent, so the control silently needed
+    nothing beyond its invocation.
+    """
+    gate = _load_gate()
+    ctl = _write_control(tmp_path, {"kind": "make-target", "file": "Makefile", "target": "verify", "phony": 1},
+                         ["make", "-f", "{gate}", "verify"])
+    _needed, notes = gate.requirements(tmp_path, ctl, _binary_gate())
+    assert any("unknown key(s) phony" in note for note in notes), notes

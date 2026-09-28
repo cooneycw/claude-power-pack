@@ -105,12 +105,13 @@ BOTH DIRECTIONS, because a membership list lies in two ways
                denominator silently inflates - which moves the coverage
                fraction in the flattering direction.
 
-NON-FILE SUBJECTS ARE DECLARED IN THE DOCUMENT, not listed in here. Fourteen
-census rows name things with no file under `scripts/` for a marker to live in -
-`ruff`, `mypy`, `pytest`, `gitleaks`, `hadolint`, `make`, and the `lib.*` module
-entry points. They are declared on an `instrument-census: external-subjects:`
-marker inside the ADR, so the declaration sits beside what it governs and
-travels with any tree this gate is pointed at.
+NON-FILE SUBJECTS ARE DECLARED IN THE DOCUMENT, not listed in here. Census rows
+name things with no file under `scripts/` for a marker to live in - `ruff`,
+`mypy`, `pytest`, `gitleaks`, `hadolint`, and the `lib.*` module entry points.
+(`make` was one until #1276 made `make <target>` a typed subject.) They are
+declared on an `instrument-census: external-subjects:` marker inside the ADR, so
+the declaration sits beside what it governs and travels with any tree this gate
+is pointed at.
 
 That list NARROWS what is checked, so it is built to fail LOUDLY: a new external
 subject is STALE until someone declares it. A list that narrows and fails quietly
@@ -184,6 +185,177 @@ def resolve_adr(root: Path) -> tuple[Path | None, str]:
 
 #: The directory whose population the census must account for.
 SCRIPTS_REL = "scripts"
+
+#: THE SOURCES A NEGATIVE-CONTROL REGISTRATION CAN LIVE IN (issue #1276), as a
+#: CLOSED list shared by both readers: `check-negative-controls.py` discovers
+#: registrations here and derives its `DISCOVERY_SCOPE` line from this tuple, and
+#: this gate's population rule below is what makes each kind countable. Adding a
+#: kind means changing this module once, so the numerator's population and the
+#: denominator's cannot move apart (#979/#1036). A `lib/` module is NOT a kind
+#: yet: admitting "a file anywhere" would make this gate demand that every lib/
+#: file be accounted for, which is a separate decision.
+DISCOVERY_SOURCES: tuple[tuple[str, str], ...] = (
+    ("file", "scripts/* (top-level files only; subdirectories are not read)"),
+    ("make-target", "Makefile targets (a marker directly above the rule it covers)"),
+)
+
+#: The Makefile a `make-target` gate lives in, relative to the root.
+MAKEFILE_REL = "Makefile"
+
+#: A census subject about a make target is `make:<target>` (see `subject_of`).
+MAKE_SUBJECT_PREFIX = "make:"
+
+#: What this module will read as a make target name. Deliberately narrower than
+#: GNU make: no variables, no patterns, no special targets - a subject has to name
+#: ONE rule a marker can sit beside.
+MAKE_TARGET_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+
+#: The target-name head of a rule line, up to its first colon. Whether that
+#: colon opens a RULE or an ASSIGNMENT (`:=`, `::=`, `:::=`) is decided in
+#: `make_rule_targets`, not by a lookahead here: `::?(?!=)` backtracks on
+#: `x ::= v` to a single colon followed by a colon, and read an immediate
+#: assignment as a rule (counter-model review, #1276). Recipe lines start with a
+#: tab and never match, because the class excludes whitespace at column 0.
+_MAKE_RULE_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9_. -]*?)\s*(?=:)")
+_MAKE_ASSIGN_OPS = (":=", "::=", ":::=")
+
+#: The keys a typed gate object may carry. CLOSED: an unknown key is REFUSED,
+#: never ignored, because a reader that ignored it would score a control against
+#: a gate the author did not describe.
+GATE_OBJECT_KEYS = frozenset({"kind", "file", "target"})
+
+#: The typed gate kinds, and the file each must name.
+GATE_KINDS = {"make-target": MAKEFILE_REL}
+
+
+def make_rule_targets(line: str) -> list[str]:
+    """The target names a Makefile line DEFINES, or [] when it defines none."""
+    if not line or line[0] in "\t#" or line.startswith(("export ", "define ", "include ")):
+        return []
+    match = _MAKE_RULE_RE.match(line)
+    if not match:
+        return []
+    if line[match.end():].startswith(_MAKE_ASSIGN_OPS):
+        return []
+    return [name for name in match.group(1).split() if MAKE_TARGET_RE.fullmatch(name)]
+
+
+def make_define_mask(lines: list[str]) -> list[bool]:
+    """For each line, True when it sits inside a `define ... endef` block.
+
+    A variable definition's body is TEXT, not rules: `verify:` inside an unused
+    `define` defines no target, and reading it as one would let a census row
+    name a rule that does not exist (counter-model review, #1276). Nested
+    defines are counted, so an inner `endef` does not end the outer block.
+    """
+    mask: list[bool] = []
+    depth = 0
+    for line in lines:
+        words = line.split()
+        opens = bool(words) and (words[0] == "define" or (
+            len(words) > 1 and words[0] in ("override", "export", "private") and words[1] == "define"))
+        closes = bool(words) and words[0] == "endef"
+        if opens:
+            mask.append(True)
+            depth += 1
+        elif closes and depth:
+            mask.append(True)
+            depth -= 1
+        else:
+            mask.append(depth > 0)
+    return mask
+
+
+def make_targets(root: Path) -> set[str] | None:
+    """Every target the root's Makefile defines, or None when it cannot be read.
+
+    None is UNREAD, never "no targets": a missing Makefile and an unreadable one
+    both mean a `make:` subject cannot be checked, which is not the same as the
+    target being absent.
+    """
+    try:
+        text = (root / MAKEFILE_REL).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    targets: set[str] = set()
+    lines = text.splitlines()
+    for line, inside in zip(lines, make_define_mask(lines)):
+        if not inside:
+            targets.update(make_rule_targets(line))
+    return targets
+
+
+def typed_subject_problem(subject: str, targets: set[str] | None) -> str | None:
+    """Why a typed census subject does not resolve, or None when it does.
+
+    Only `make:` subjects are typed. Anything else returns None here - it is the
+    file/external rule's to judge.
+    """
+    if not subject.startswith(MAKE_SUBJECT_PREFIX):
+        return None
+    target = subject[len(MAKE_SUBJECT_PREFIX):]
+    if targets is None:
+        return f"{MAKEFILE_REL} could not be read, so target `{target}` cannot be confirmed"
+    if target not in targets:
+        return f"{MAKEFILE_REL} defines no target `{target}`"
+    return None
+
+
+class GateRef:
+    """What a control.json `gate` names: a file, or a typed gate inside one."""
+
+    def __init__(self, kind: str, file: str, target: str | None = None) -> None:
+        self.kind = kind
+        self.file = file
+        self.target = target
+
+    @property
+    def subject(self) -> str:
+        """The census subject this gate is: the file's name, or `make:<target>`."""
+        if self.kind == "make-target":
+            return f"{MAKE_SUBJECT_PREFIX}{self.target}"
+        return Path(self.file).name
+
+    def describe(self) -> str:
+        return self.file if self.kind == "file" else f"{self.file} target `{self.target}`"
+
+
+def parse_gate(value: object) -> tuple[GateRef | None, str | None]:
+    """`(gate, None)` or `(None, why)` for a control.json `gate` value (#1276).
+
+    A STRING is today's form: a file path. An OBJECT is a typed gate, and its
+    schema is CLOSED - exactly `kind`, `file` and `target`, a known `kind`, and
+    the file that kind lives in. Every reader of `gate` goes through here, so a
+    manifest cannot be one gate to the harness and another to its neighbours.
+    """
+    if isinstance(value, str):
+        if not value:
+            return None, "control.json names no gate"
+        return GateRef("file", value), None
+    if not isinstance(value, dict):
+        return None, f"control.json `gate` is neither a path nor a typed gate object: {value!r}"
+    unknown = sorted(set(value) - GATE_OBJECT_KEYS)
+    if unknown:
+        return None, (
+            f"control.json `gate` carries unknown key(s) {', '.join(unknown)} - "
+            f"a typed gate takes exactly {', '.join(sorted(GATE_OBJECT_KEYS))}, "
+            "and an unread key is refused rather than ignored"
+        )
+    kind = value.get("kind")
+    # A string first: `kind in GATE_KINDS` on a JSON list raises TypeError, and a
+    # closed-schema guard that crashes gives no diagnostic at all (review).
+    if not isinstance(kind, str) or kind not in GATE_KINDS:
+        return None, (
+            f"control.json `gate` kind {kind!r} is not a known kind "
+            f"({', '.join(sorted(GATE_KINDS))}); refused rather than guessed at"
+        )
+    file = value.get("file")
+    if file != GATE_KINDS[kind]:
+        return None, f"a `{kind}` gate lives in {GATE_KINDS[kind]}, not {file!r}"
+    target = value.get("target")
+    if not isinstance(target, str) or not MAKE_TARGET_RE.fullmatch(target):
+        return None, f"a `{kind}` gate needs a plain target name, not {target!r}"
+    return GateRef(kind, file, target), None
 
 #: A numbered census row. The leading integer is what distinguishes an
 #: enumeration row from the header, the separator, and the three other tables in
@@ -266,9 +438,23 @@ def subject_of(token: str) -> str:
     The HEAD WORD, so `branch-protection.sh check` is about
     `branch-protection.sh`: a subcommand narrows which verdict the row covers, it
     does not make the row about some other file.
+
+    ONE EXCEPTION, TYPED (issue #1276): `make <target>` is about the TARGET, and
+    reads as the subject `make:<target>`. Under the head-word rule every make
+    target collapsed onto the one subject `make`, which could only ever be a
+    declared external - so a Makefile gate with a real discriminating case pair
+    (kyle's `make verify`) was uncountable by any arrangement. The target is a
+    thing a marker can sit beside, so it is a registrable subject, validated as
+    an existing target by `typed_subject_problem`. A bare `make`, or a `make`
+    followed by something that is not a target name, keeps the old reading.
     """
     stripped = token.strip()
-    return stripped.split()[0] if stripped else ""
+    if not stripped:
+        return ""
+    words = stripped.split()
+    if words[0] == "make" and len(words) > 1 and MAKE_TARGET_RE.fullmatch(words[1]):
+        return f"{MAKE_SUBJECT_PREFIX}{words[1]}"
+    return words[0]
 
 
 def table_text(text: str) -> str:
@@ -409,7 +595,23 @@ def run_check(root: Path) -> int:
         )
         findings += 1
 
+    # TYPED SUBJECTS ARE VALIDATED, NOT ENUMERATED (issue #1276). A `make:`
+    # subject must name a target the Makefile defines - a row for a deleted
+    # target is STALE exactly like a row for a deleted script. The population
+    # does NOT widen to every make target: this gate asks "is every file under
+    # scripts/ accounted for", and "every target" would fail each untouched one
+    # the day it landed.
+    targets = make_targets(root)
+    typed = 0
     for subject in dict.fromkeys(census + exclusions):
+        if subject.startswith(MAKE_SUBJECT_PREFIX):
+            typed += 1
+            problem = typed_subject_problem(subject, targets)
+            if problem is None:
+                continue
+            print(f"STALE: {adr_rel} subject `{subject}` does not resolve: {problem}")
+            findings += 1
+            continue
         if subject in files or subject in externals:
             continue
         print(
@@ -425,6 +627,7 @@ def run_check(root: Path) -> int:
     print(f"INSTRUMENT_CENSUS_ROWS: {len(census)}")
     print(f"INSTRUMENT_CENSUS_EXCLUSIONS: {len(set(exclusions))}")
     print(f"INSTRUMENT_CENSUS_EXTERNALS: {len(externals)}")
+    print(f"INSTRUMENT_CENSUS_TYPED_SUBJECTS: {typed}")
 
     if findings:
         print(

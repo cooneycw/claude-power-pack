@@ -244,6 +244,31 @@ SHEBANG_RE = re.compile(r"^#!\s*(\S+)(?:\s+(\S+))?")
 _LOAD_ERROR: dict[str, str] = {}
 
 
+def _gate_file(spec: dict) -> tuple[str | None, str | None]:
+    """`(file, None)`, `(None, None)` for no gate, or `(None, why)` (#1276).
+
+    control.json's `gate` is a path OR a typed gate object, parsed by the ONE
+    parser in the shared census rule module, so this reader cannot disagree with
+    the harness about which file a manifest names. A refused gate is reported,
+    not skipped: reading a malformed gate as "needs nothing" is the same
+    unread-as-empty collapse `unwrap_env` refuses.
+    """
+    raw = spec.get("gate", "")
+    if raw in ("", None):
+        return None, None
+    rule = _load(REPO_ROOT / CENSUS_RULE_REL)
+    if rule is None or not hasattr(rule, "parse_gate"):
+        return None, f"{CENSUS_RULE_REL} could not be loaded, so `gate` is unread"
+    gate_ref, why = rule.parse_gate(raw)
+    if gate_ref is None:
+        return None, f"`gate` refused: {why}"
+    return gate_ref.file, None
+
+
+#: The shared rule module that owns control.json's `gate` schema (#1276).
+CENSUS_RULE_REL = "scripts/instrument-census-check.py"
+
+
 def _load(path: Path):
     """Import a sibling gate by path, or None. None means UNREAD, never EMPTY."""
     if not path.is_file():
@@ -665,7 +690,10 @@ def requirements(root: Path, control_dir: Path, binary_gate) -> tuple[set[str], 
         if unread:
             notes.append(unread)
 
-    declared = str(spec.get("gate", ""))
+    declared, refused = _gate_file(spec)
+    if refused:
+        notes.append(refused)
+        return needed, notes
     if not declared:
         return needed, notes
     gate = root / declared
@@ -721,8 +749,9 @@ def _python_entry(root: Path, control_dir: Path, spec: dict) -> Optional[Path]:
     how a static reader starts reporting a neighbour's problem.
     """
     invocation = spec.get("invocation") or []
-    gate_rel = spec.get("gate", "")
+    gate_rel, _refused = _gate_file(spec)
     if not gate_rel:
+        # A refused gate is reported once, by the binary side above.
         return None
     gate = root / gate_rel
     if not gate.is_file():
