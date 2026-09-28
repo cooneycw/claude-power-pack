@@ -17,6 +17,7 @@ import os
 import signal
 import subprocess
 import time
+import uuid
 from pathlib import Path
 
 import pytest
@@ -84,8 +85,11 @@ def _fake_daemon(
     """
     script = tmp_path / f"{verb}-{marker is not None}" / "flow-wave-mailbox.sh"
     script.parent.mkdir(parents=True, exist_ok=True)
-    ready = script.parent / "ready"
-    script.write_text(f'{setup}printf ready > "${READY_ENV}"\n{body}', encoding="utf-8")
+    # ONE ready signal per CHILD (counter-model review): a unique path, and the
+    # child writes its own pid, which must match - so neither a reused path nor a
+    # leftover file from an earlier child can stand in for this child's setup.
+    ready = script.parent / f"ready-{uuid.uuid4().hex}"
+    script.write_text(f'{setup}printf %s "$$" > "${READY_ENV}"\n{body}', encoding="utf-8")
     env = {k: v for k, v in os.environ.items() if k != OWNER_ENV}
     env[READY_ENV] = str(ready)
     if marker is not None:
@@ -116,7 +120,7 @@ def _fake_daemon(
         time.sleep(0.02)
     # Then the explicit signal that `setup` has run.
     deadline = time.monotonic() + ready_timeout
-    while not (ready.exists() and ready.read_text() == "ready"):
+    while not (ready.exists() and ready.read_text() == str(proc.pid)):
         if proc.poll() is not None:
             give_up(f"it exited with {proc.returncode} before signalling ready")
         if time.monotonic() >= deadline:
@@ -282,6 +286,28 @@ def test_the_fixture_returns_only_after_setup_has_run(tmp_path: Path) -> None:
         assert child.poll() is None, f"the TERM was fatal: {child.returncode}"
     finally:
         _cleanup(child)
+
+
+@requires_proc
+def test_a_second_child_waits_for_its_own_ready_signal(tmp_path: Path) -> None:
+    """The ready signal belongs to ONE child (counter-model review, #1297).
+
+    Same tmp_path, verb and marker twice: in the first cut both children shared
+    a ready path, so the second inherited the first's signal and was returned
+    before its own trap existed.
+    """
+    first = _fake_daemon(tmp_path, "__supervise_daemon", DEAD_OWNER)
+    second = None
+    try:
+        second = _fake_daemon(
+            tmp_path, "__supervise_daemon", DEAD_OWNER,
+            setup="sleep 0.3\ntrap '' TERM\n", body="while :; do sleep 1; done\n",
+        )
+        os.killpg(second.pid, signal.SIGTERM)
+        with pytest.raises(subprocess.TimeoutExpired):
+            second.wait(timeout=1.0)
+    finally:
+        _cleanup(first, *([second] if second else []))
 
 
 @requires_proc
