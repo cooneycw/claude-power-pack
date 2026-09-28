@@ -10,7 +10,12 @@ integration sections. Run against 47ddc6c and FAILED there.
 
 from __future__ import annotations
 
+import re
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 ELI5 = ROOT / ".claude" / "commands" / "flow" / "eli5.md"
@@ -39,12 +44,6 @@ def test_the_check_is_outside_the_vendored_core() -> None:
         "behaviour in a CPP-owned section, not inside the markers"
     )
 
-
-import re
-import shutil
-import subprocess
-
-import pytest
 
 
 @pytest.mark.skipif(shutil.which("git") is None or shutil.which("bash") is None,

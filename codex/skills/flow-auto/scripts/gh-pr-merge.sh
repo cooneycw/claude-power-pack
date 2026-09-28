@@ -1164,7 +1164,9 @@ check_local_divergence() {
                 wt_branch="${line#branch refs/heads/}"
                 if [[ "$wt_branch" == "$head_name" && -n "$wt_head" ]]; then
                     matched=$(( matched + 1 ))
-                    [[ "$wt_head" != "$head_oid" ]] && found+="$wt $wt_head"$'\n'
+                    # \037 (unit separator), never a space: a worktree path can
+                    # contain spaces, and #698/#700 forbid whitespace-IFS reads.
+                    [[ "$wt_head" != "$head_oid" ]] && found+="$wt"$'\037'"$wt_head"$'\n'
                 fi
                 ;;
         esac
@@ -1182,7 +1184,7 @@ check_local_divergence() {
     fi
     echo "CLEAN STOP: a local checkout holds '$head_name' at a commit that is NOT the PR's head (issue #1262)." >&2
     echo "  PR #$PR_NUMBER head on GitHub: $head_oid" >&2
-    while IFS=' ' read -r wt wt_head; do
+    while IFS=$'\037' read -r wt wt_head; do
         [[ -n "$wt" ]] && echo "  $wt is at $wt_head" >&2
     done <<<"$found"
     echo "  A session may be mid-finish there (committed or merged, not yet pushed). Merging now" >&2

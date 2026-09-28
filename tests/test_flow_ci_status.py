@@ -925,3 +925,34 @@ def test_a_NEIGHBOURING_providers_push_context_does_not_move_the_lane(tmp_path):
     markers = _markers(result.stdout)
     assert markers["FLOW_CI_PIPELINE"] == ["90"], result.stdout + result.stderr
     assert markers["FLOW_CI_EVENT"][0].startswith("pull_request (branch-protection on main")
+
+
+@requires_bash
+def test_the_event_is_a_PREFERENCE_so_a_pr_only_sha_is_found_even_on_the_push_fallback(tmp_path):
+    """#1262 x the queued CI change that stops `push` pipelines on non-main
+    branches: a branch SHA will then carry ONLY a pull_request pipeline. Even
+    when the lane cannot be derived and the fallback is `push`, the verdict must
+    still find it - the event orders candidates, it never filters them out."""
+    curl = _write_fake_curl(
+        tmp_path,
+        {"/api/repos/lookup/": {"id": 17},
+         "pipelines?per_page": [_pipeline(90, SHA, "failure", "pull_request")]},
+        tmp_path / "argv.log",
+    )
+    gh = _write_fake_gh(tmp_path / "bin", contexts=None)  # unreadable -> push fallback
+    result = _run(tmp_path, SHA, "--repo", "o/r",
+                  env={"FLOW_CI_CURL": str(curl), "FLOW_CI_GH": str(gh)})
+    markers = _markers(result.stdout)
+    assert markers["FLOW_CI_EVENT"][0].startswith("push (default:")
+    assert markers["FLOW_CI_PIPELINE"] == ["90"], result.stdout + result.stderr
+    assert markers["FLOW_CI_STATUS"] == ["failure"]
+
+
+@requires_bash
+def test_the_CLI_lane_also_treats_the_event_as_a_preference(tmp_path):
+    argv_log = tmp_path / "argv.log"
+    wpcli = _write_fake_wpcli(tmp_path, [f"90|failure|{SHA}|pull_request"], [], argv_log)
+    result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "push",
+                  env={"FLOW_CI_WPCLI": str(wpcli), "WOODPECKER_API_TOKEN": ""})
+    markers = _markers(result.stdout)
+    assert markers["FLOW_CI_PIPELINE"] == ["90"], result.stdout + result.stderr

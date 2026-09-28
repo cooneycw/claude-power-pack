@@ -332,6 +332,7 @@ def _make_stubs(
     api_listing = pr_files if api_files is None else api_files
     api_files_file.write_text("".join(f"{p}\n" for p in (api_listing or [])))
     n_changed = len(pr_files or []) if changed_files is None else changed_files
+    cross_repo_answer = "true" if is_cross_repository else "false"
     landed_file = tmp_path / "landed_paths"
     landed_file.write_text("".join(f"{p}\n" for p in (landed_paths or [])))
 
@@ -411,7 +412,7 @@ def _make_stubs(
         '  if [[ "$*" == *"--json state,number"* ]]; then\n'
         f'    echo "{pr_state_before}"\n'
         '  elif [[ "$*" == *isCrossRepository* ]]; then\n'
-        f'    echo "{'true' if is_cross_repository else 'false'}"\n'
+        f'    echo "{cross_repo_answer}"\n'
         '  elif [[ "$*" == *changedFiles* ]]; then\n'
         f'    echo "{n_changed}"\n'
         '  elif [[ "$*" == *baseRefName* ]]; then\n'
