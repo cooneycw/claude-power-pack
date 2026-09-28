@@ -124,6 +124,11 @@ def test_an_undeclared_tool_is_skipped_and_named(
     root, stub = _repo(tmp_path, '[tool.pytest.ini_options]\n[tool.mypy]\nfiles = ["src"]\n')
     result, text = _run(root, stub, monkeypatch)
     assert result.success
-    assert not any("ruff" in c for c in _calls(tmp_path)), "an undeclared tool was run"
+    calls = _calls(tmp_path)
+    assert not any("ruff" in c for c in calls), "an undeclared tool was run"
+    # ...and ONLY it was skipped: the configured gates still ran (counter-model
+    # review) - a regression skipping every gate would otherwise satisfy all of
+    # the above with `SKIPPED GATES: lint, test, typecheck`.
+    assert "run --extra dev pytest" in calls and "run --extra dev mypy" in calls, calls
     assert "completed WITH WARNINGS" in text
-    assert "SKIPPED GATES: lint" in text
+    assert "SKIPPED GATES: lint (" in text, text
