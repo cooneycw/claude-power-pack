@@ -15,7 +15,7 @@ statement of the issue contract or of a Tier 3 spec, and it does not graduate.
 - Re-checked on ae6faa8: items 1 (CUR read before with_lock, NEW_ENTRY after), 2 (line
   protocol), 3 (--pr empty refused :2408), 4 ($moved issue-only :2451), 5 (no amend verb),
   8/9 (docs silent), 10 (toolchain warning names no checkout :2726) are LIVE.
-- 6/7 SUPERSEDED: /flow:auto_codex retired in #1017 (PR #1038, 8324b0b).
+- 6/7 SUPERSEDED: the Codex-backed flow driver was retired in #1017 (PR #1038, 8324b0b).
 - 11/12 DESIGN LIMITS (slate-lanes snapshot window; vantage --pid=host stated bound).
 
 ## Section C - the approved plan (PR A)
