@@ -31,6 +31,9 @@
 # A mapped number that is closed or retitled is `none`, never the number: a
 # finding posted into a closed issue is read by nobody.
 set -u
+# The exit status, on stderr, as the last thing written (issue #1031): a caller
+# that pipes this through `tail` would otherwise read tail's status, not ours.
+trap 'printf "NIT_STORE_EXIT=%d\n" "$?" >&2' EXIT
 
 REPO=""
 while [ "$#" -gt 0 ]; do

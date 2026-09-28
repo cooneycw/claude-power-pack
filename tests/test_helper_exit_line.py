@@ -90,6 +90,7 @@ NAMESPACES = {
     "check-ignored-additions.sh": "CHECK_IGNORED_ADDITIONS",
     "delegated-run-check.sh": "DELEGATED_RUN_CHECK",
     "lane-serveability-check.sh": "LANE_SERVE",
+    "nit-store-resolve.sh": "NIT_STORE",
     "cpp-commands-link.sh": "CPP_COMMANDS_LINK",
     "install-drift.sh": "INSTALL_DRIFT",
     "stash-worktree-guard.sh": "STASH_GUARD",
