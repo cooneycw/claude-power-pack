@@ -861,7 +861,10 @@ def main() -> int:
                   f"observed={got:<26} {'ok' if ok else 'MISMATCH'}{extra}")
             if not ok:
                 failures += 1
-                if got == f"{UNKNOWN}(no-runner)":
+                # Only a WELL-FORMED no-runner answer is excused: the verdict AND
+                # the not-established exit. A case printing that verdict beside
+                # a hard-fail exit is a broken checker, not a missing pytest.
+                if got == f"{UNKNOWN}(no-runner)" and code == EXIT_NOT_ESTABLISHED:
                     no_runner += 1
         # "This host cannot run pytest" is not "the battery stopped
         # discriminating" (issue #1268). Scored together they printed one
