@@ -282,3 +282,35 @@ def test_an_inherited_git_dir_does_not_redirect_the_measurement(
         ["bash", str(SCRIPT), "--path", str(checkout)], capture_output=True, text=True, env=env
     )
     assert _verdict(result) == "behind 1", "the declared checkout is behind; the neighbour is current"
+
+
+def test_a_directory_inside_another_repository_is_not_measured_as_it(
+    repos: tuple[Path, Path, Path],
+) -> None:
+    """Counter-model re-review: `git -C sub` discovers the ENCLOSING repository."""
+    _, seed, checkout = repos
+    _advance(seed)
+    nested = checkout / "not-a-checkout"
+    nested.mkdir()
+    assert _git(nested, "rev-parse", "--show-toplevel") == str(checkout.resolve())
+    result = _run(nested)
+    assert _verdict(result).startswith("unknown: not a checkout root"), result.stdout
+    assert result.returncode == 4
+
+
+def test_a_shallow_clone_is_unknown_not_a_false_divergence(
+    repos: tuple[Path, Path, Path], tmp_path: Path
+) -> None:
+    """Counter-model re-review: origin rewound past a depth-1 boundary reads as diverged."""
+    origin, seed, _ = repos
+    _advance(seed, "B")
+    shallow = tmp_path / "shallow"
+    subprocess.run(
+        ["git", "clone", "--quiet", "--depth", "1", f"file://{origin}", str(shallow)],
+        check=True, capture_output=True,
+    )
+    _git(seed, "reset", "--quiet", "--hard", "HEAD~1")
+    _git(seed, "push", "--quiet", "--force", "origin", "main")
+    assert _git(shallow, "rev-parse", "--is-shallow-repository") == "true"
+    result = _run(shallow)
+    assert _verdict(result).startswith("unknown: shallow clone"), result.stdout

@@ -103,6 +103,13 @@ echo "CPP checkout: $CHECKOUT"
 if ! git -C "$CHECKOUT" rev-parse --git-dir >/dev/null 2>&1; then
     unknown "not a git repository"
 fi
+# `git -C` also accepts a directory INSIDE some repository, and would then
+# measure the enclosing one under this path's name. The declared path must BE
+# the worktree root.
+TOPLEVEL="$(git -C "$CHECKOUT" rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -z "$TOPLEVEL" ] || [ "$(cd "$TOPLEVEL" && pwd -P)" != "$CHECKOUT" ]; then
+    unknown "not a checkout root (inside ${TOPLEVEL:-an unresolvable repository})"
+fi
 
 # The checkout's own branch is reported whatever is being compared: a primary
 # checkout left on a feature branch serves THAT branch's helpers to every
@@ -158,6 +165,11 @@ if [ "$FETCH_STATUS" -ne 0 ]; then
     unknown "fetch failed (${WHY:-git fetch exited $FETCH_STATUS})"
 fi
 
+# A shallow clone's history stops at its boundary, so `rev-list` can report two
+# connected commits as diverged. Its counts are not a measurement.
+if [ "$(git -C "$CHECKOUT" rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then
+    unknown "shallow clone - ancestry is incomplete, so no count is trustworthy"
+fi
 if ! git -C "$CHECKOUT" rev-parse --verify --quiet "$UPSTREAM_REF" >/dev/null 2>&1; then
     unknown "$UPSTREAM does not exist after the fetch"
 fi
