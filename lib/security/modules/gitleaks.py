@@ -117,6 +117,7 @@ def scan(project_root: str, include_history: bool = False) -> ScanResult:
                 time_estimate="~5 minutes",
                 scanner="gitleaks",
                 raw_match=masked,
+                secret_value=secret_val or None,
             )
         )
 

@@ -1,0 +1,230 @@
+"""The finish gate's suppressions, end to end through the CLI (issue #1299).
+
+A repository that plants fake keys as negative controls was blocked on every
+finish run: CPP's native scan does not read `.gitleaks.toml`, and the mechanism
+it does honour - `.claude/security.yml` `suppressions:` - was invisible and could
+silently vanish. Measured: the same planted key and the same suppression gave
+FAIL under a system `python3` without PyYAML (the config fell back to defaults
+with no message) and PASS under the venv's python.
+
+Every case runs `python -m lib.security gate flow_finish` on a real temporary
+repository, because the defect lived in which config the command actually
+applied, and a unit test of `Suppression.matches` cannot see that.
+
+  NEGATIVE CONTROL  a planted key OUTSIDE the suppression still blocks, and one
+                    INSIDE passes. With `secret:`, a DIFFERENT value of the same
+                    rule in the SAME file still blocks.
+  REFUSAL           an unreadable `.claude/security.yml` is UNKNOWN, exit 2 -
+                    never a verdict computed from defaults.
+
+Fake keys are assembled at run time so that no literal key sits in this file for
+the repository's own scanners to find.
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from lib.security.models import Finding, ScanResult, Severity, Suppression
+from lib.security.output.json_output import format_results
+
+ROOT = Path(__file__).resolve().parents[1]
+
+#: Two distinct values of the same AWS rule, built so no literal key is committed.
+CANARY = "AKIA" + "ABCDEFGHIJKLMNOP"
+OTHER = "AKIA" + "ZYXWVUTSRQPONMLK"
+
+#: Blocks `import yaml`, exactly as a system python3 without PyYAML does.
+NO_YAML = (
+    "import sys\n"
+    "class _Block:\n"
+    "    def find_spec(self, name, path=None, target=None):\n"
+    "        if name == 'yaml' or name.startswith('yaml.'):\n"
+    "            raise ImportError('No module named yaml (blocked by test)')\n"
+    "sys.meta_path.insert(0, _Block())\n"
+    "import runpy\n"
+    "sys.argv = ['lib.security', *sys.argv[1:]]\n"
+    "runpy.run_module('lib.security', run_name='__main__')\n"
+)
+
+
+def _repo(tmp_path: Path, files: dict[str, str], config: str | None = None) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir(parents=True)
+    (repo / ".gitignore").write_text(".env\n", encoding="utf-8")
+    for rel, text in files.items():
+        target = repo / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    if config is not None:
+        (repo / ".claude").mkdir(exist_ok=True)
+        (repo / ".claude" / "security.yml").write_text(config, encoding="utf-8")
+    return repo
+
+
+def _gate(repo: Path, *, without_yaml: bool = False) -> subprocess.CompletedProcess[str]:
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(ROOT)
+    argv = ["gate", "flow_finish", "--path", str(repo)]
+    cmd = [sys.executable, "-c", NO_YAML, *argv] if without_yaml else [sys.executable, "-m", "lib.security", *argv]
+    return subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=ROOT)
+
+
+def _line(result: subprocess.CompletedProcess[str]) -> str:
+    lines = [ln for ln in result.stdout.splitlines() if ln.startswith("SECURITY_GATE: ")]
+    assert len(lines) == 1, result.stdout + result.stderr
+    return lines[0]
+
+
+PATH_ONLY = """suppressions:
+  - id: AWS_ACCESS_KEY
+    path: '^tests/fixture\\.py$'
+    reason: planted negative-control fixture
+"""
+
+
+def test_a_key_outside_the_suppression_still_blocks(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, {"src/app.py": f'KEY = "{CANARY}"\n'}, PATH_ONLY)
+    result = _gate(repo)
+    assert " FAIL " in _line(result)
+    assert result.returncode == 1
+
+
+def test_a_key_inside_the_suppression_passes(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, {"tests/fixture.py": f'KEY = "{CANARY}"\n'}, PATH_ONLY)
+    unsuppressed = _repo(tmp_path / "control", {"tests/fixture.py": f'KEY = "{CANARY}"\n'})
+    # Precondition: without the suppression this exact file blocks.
+    assert _gate(unsuppressed).returncode == 1
+    result = _gate(repo)
+    assert " PASS " in _line(result), result.stdout
+    assert result.returncode == 0
+
+
+EXACT = f"""suppressions:
+  - id: AWS_ACCESS_KEY
+    path: '^tests/fixture\\.py$'
+    secret: '{CANARY}'
+    reason: planted negative-control fixture
+"""
+
+
+def test_secret_pins_the_suppression_to_one_value(tmp_path: Path) -> None:
+    """A real key committed beside the canary must still block (orchestrator ruling)."""
+    canary_only = _repo(tmp_path / "a", {"tests/fixture.py": f'KEY = "{CANARY}"\n'}, EXACT)
+    assert _gate(canary_only).returncode == 0
+
+    both = _repo(tmp_path / "b", {"tests/fixture.py": f'KEY = "{CANARY}"\nREAL = "{OTHER}"\n'}, EXACT)
+    result = _gate(both)
+    assert " FAIL " in _line(result)
+    assert "tests/fixture.py:2" in result.stdout, "the OTHER value, on line 2, is what blocks"
+    assert "tests/fixture.py:1" not in result.stdout
+
+
+def test_an_unreadable_config_is_unknown_never_defaults(tmp_path: Path) -> None:
+    """RED pre-fix: without PyYAML the file was dropped and defaults gave a FAIL."""
+    repo = _repo(tmp_path, {"tests/fixture.py": f'KEY = "{CANARY}"\n'}, PATH_ONLY)
+    result = _gate(repo, without_yaml=True)
+    line = _line(result)
+    assert " UNKNOWN (config unreadable:" in line
+    assert "PyYAML is not importable by" in line and sys.executable in line
+    assert "NOT applied" in line
+    assert result.returncode == 2
+
+
+@pytest.mark.parametrize(
+    "config, cause",
+    [
+        ("suppressions: [\n", "ParserError"),
+        ("- just\n- a list\n", "top level is not a mapping"),
+        ("suppressions:\n  - id: AWS_ACCESS_KEY\n    secrets: 'x'\n", "unknown key(s) ['secrets']"),
+        ("suppressions:\n  - path: 'x'\n", "needs a non-empty string `id`"),
+        ("suppressions:\n  - id: AWS_ACCESS_KEY\n    secret: '(unclosed'\n", "not a valid regex"),
+        ("gates:\n  flow_finish:\n    block_on: [NOPE]\n", "gates: KeyError"),
+    ],
+)
+def test_a_malformed_config_is_unknown(tmp_path: Path, config: str, cause: str) -> None:
+    repo = _repo(tmp_path, {"README.md": "clean\n"}, config)
+    result = _gate(repo)
+    line = _line(result)
+    assert " UNKNOWN (config unreadable:" in line and cause in line, line
+    assert line == result.stdout.strip(), "the refusal is exactly one line"
+    assert result.returncode == 2
+    assert "Traceback" not in result.stderr
+
+
+def test_no_config_file_still_means_defaults(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, {"README.md": "clean\n"})
+    result = _gate(repo)
+    assert " PASS " in _line(result)
+    assert result.returncode == 0
+
+
+def test_the_gitleaks_hint_names_the_way_out_without_the_secret(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, {"tests/fixture.py": f'KEY = "{CANARY}"\n', ".gitleaks.toml": "# allowlist\n"})
+    result = _gate(repo)
+    assert result.returncode == 1
+    assert "HINT: this repository has a .gitleaks.toml, which this gate does NOT read." in result.stdout
+    assert "- id: AWS_ACCESS_KEY" in result.stdout
+    assert "path: '^tests/fixture\\.py$'" in result.stdout
+    assert "secret: '<the exact planted value, regex-escaped>'" in result.stdout
+    assert CANARY not in result.stdout + result.stderr, "the hint must never print the value"
+
+
+@pytest.mark.parametrize("variant", ["no-gitleaks-toml", "has-suppressions", "passes"])
+def test_the_hint_appears_only_in_its_case(tmp_path: Path, variant: str) -> None:
+    files = {"tests/fixture.py": f'KEY = "{CANARY}"\n', ".gitleaks.toml": "# allowlist\n"}
+    config = None
+    if variant == "no-gitleaks-toml":
+        del files[".gitleaks.toml"]
+    elif variant == "has-suppressions":
+        files["src/app.py"] = f'KEY = "{OTHER}"\n'  # still blocks, but the repo HAS suppressions
+        config = PATH_ONLY
+    else:
+        config = PATH_ONLY
+    result = _gate(_repo(tmp_path, files, config))
+    assert "HINT:" not in result.stdout
+
+
+def _finding(value: str | None) -> Finding:
+    return Finding(
+        id="AWS_ACCESS_KEY",
+        severity=Severity.CRITICAL,
+        title="t",
+        file_path="tests/fixture.py",
+        raw_match="AKIA****",
+        secret_value=value,
+    )
+
+
+def test_a_secret_suppression_fails_closed_on_a_finding_without_a_value() -> None:
+    supp = Suppression(id="AWS_ACCESS_KEY", path=r"^tests/", secret=CANARY)
+    assert supp.matches(_finding(CANARY))
+    assert not supp.matches(_finding(OTHER))
+    assert not supp.matches(_finding(None)), "no value to compare is not a match"
+    assert not supp.matches(_finding(CANARY + "X")), "fullmatch, not a prefix search"
+
+
+def test_the_full_value_never_reaches_output() -> None:
+    finding = _finding(CANARY)
+    assert CANARY not in repr(finding)
+    result = ScanResult()
+    result.findings.append(finding)
+    assert CANARY not in format_results(result)
+
+
+def test_the_declared_value_in_the_config_file_is_not_itself_a_block(tmp_path: Path) -> None:
+    """Writing `secret:` puts the value in security.yml, which is scanned too."""
+    repo = _repo(tmp_path, {"tests/fixture.py": f'KEY = "{CANARY}"\n'}, EXACT)
+    assert CANARY in (repo / ".claude" / "security.yml").read_text(encoding="utf-8")
+    assert _gate(repo).returncode == 0
+
+    pasted = EXACT.replace("reason: planted negative-control fixture", f"reason: see {OTHER}")
+    repo2 = _repo(tmp_path / "pasted", {"tests/fixture.py": f'KEY = "{CANARY}"\n'}, pasted)
+    result = _gate(repo2)
+    assert result.returncode == 1, "a DIFFERENT key pasted into the config file still blocks"
+    assert ".claude/security.yml:" in result.stdout

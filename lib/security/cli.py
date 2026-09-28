@@ -18,20 +18,46 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
-from typing import NoReturn
+from pathlib import Path
+from typing import NoReturn, Optional
 
-from .config import SecurityConfig
+from .config import ConfigUnreadable, SecurityConfig
 from .explain import get_explanation, list_finding_ids
-from .models import ScanResult
+from .models import Finding, ScanResult
 from .orchestrator import check_gate, scan_deep, scan_full, scan_quick
 from .output.json_output import format_results as format_json
 from .output.novice import format_results as format_novice
 
+#: Exit status when the repository's own configuration could not be applied
+#: (issue #1299). Distinct from 1 (findings block) - "I could not honour your
+#: config" is not "I found something" - and non-zero, so a flow step that treats
+#: any non-zero as a failure still stops.
+EXIT_UNKNOWN = 2
+
+
+def _unreadable_reason(exc: ConfigUnreadable) -> str:
+    return (
+        f"config unreadable: {exc.path}: {exc.cause}; its suppressions and gate "
+        f"policy were NOT applied, so no verdict is given"
+    )
+
+
+def _load_config(args: argparse.Namespace) -> Optional[SecurityConfig]:
+    """Load config, or report why it could not be applied and return None."""
+    try:
+        return SecurityConfig.load(args.path)
+    except ConfigUnreadable as exc:
+        print(f"security: UNKNOWN - {_unreadable_reason(exc)}", file=sys.stderr)
+        return None
+
 
 def cmd_scan(args: argparse.Namespace) -> int:
     """Run full security scan."""
-    config = SecurityConfig.load(args.path)
+    config = _load_config(args)
+    if config is None:
+        return EXIT_UNKNOWN
     result = scan_full(args.path, config)
     _print_results(result, args)
     return 1 if result.has_blockers else 0
@@ -39,7 +65,9 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
 def cmd_quick(args: argparse.Namespace) -> int:
     """Run quick (native-only) security scan."""
-    config = SecurityConfig.load(args.path)
+    config = _load_config(args)
+    if config is None:
+        return EXIT_UNKNOWN
     result = scan_quick(args.path, config)
     _print_results(result, args)
     return 1 if result.has_blockers else 0
@@ -47,7 +75,9 @@ def cmd_quick(args: argparse.Namespace) -> int:
 
 def cmd_deep(args: argparse.Namespace) -> int:
     """Run deep security scan including git history."""
-    config = SecurityConfig.load(args.path)
+    config = _load_config(args)
+    if config is None:
+        return EXIT_UNKNOWN
     result = scan_deep(args.path, config)
     _print_results(result, args)
     return 1 if result.has_blockers else 0
@@ -79,7 +109,14 @@ def cmd_gate(args: argparse.Namespace) -> int:
     and always the same shape, so pass and fail differ by a line that SAYS
     which happened rather than one that has to be counted.
     """
-    config = SecurityConfig.load(args.path)
+    try:
+        config = SecurityConfig.load(args.path)
+    except ConfigUnreadable as exc:
+        # REFUSE, never fall back to defaults (issue #1299): defaults would drop
+        # this repository's suppressions (a false block) and its stricter policy
+        # (a false pass), and either reads exactly like a real verdict.
+        print(f"SECURITY_GATE: {args.gate_name} UNKNOWN ({_unreadable_reason(exc)})")
+        return EXIT_UNKNOWN
     result = scan_quick(args.path, config)
     passed, messages = check_gate(result, args.gate_name, config)
 
@@ -139,7 +176,61 @@ def cmd_gate(args: argparse.Namespace) -> int:
         return 0
     else:
         print(f"\nSecurity gate '{args.gate_name}' FAILED. Fix critical issues before proceeding.")
+        hint = _gitleaks_hint(args.path, config, result, args.gate_name)
+        if hint:
+            print(hint)
         return 1
+
+
+def _gitleaks_hint(
+    project_root: str, config: SecurityConfig, result: ScanResult, gate_name: str
+) -> str:
+    """Name the way out when a planted test key blocks (issue #1299).
+
+    Printed only when the gate BLOCKS, the repository has a `.gitleaks.toml`, and
+    `.claude/security.yml` declares no suppressions - the shape of a repository
+    that allowlisted its fixtures for gitleaks and cannot see why this gate still
+    blocks. It changes no verdict.
+
+    `.gitleaks.toml` is deliberately NOT read: its allowlists carry regexes,
+    paths, commits, stopwords and per-rule scoping, and a translator honouring
+    some of those keys and dropping the rest would suppress less than the file
+    claims while appearing to honour it.
+
+    The secret itself is never printed (it may be real); the example asks the
+    reader to fill the value in.
+    """
+    if config.suppressions:
+        return ""
+    if not (Path(project_root) / ".gitleaks.toml").is_file():
+        return ""
+    gate = config.gates.get(gate_name)
+    blocking: list[Finding] = [
+        f for f in result.findings if gate is not None and f.severity in gate.block_on
+    ]
+    if not blocking:
+        return ""
+    first = blocking[0]
+    lines = [
+        "",
+        "HINT: this repository has a .gitleaks.toml, which this gate does NOT read.",
+        "  The native scanner honours `.claude/security.yml` suppressions instead.",
+        "  If the blocked value is a deliberately planted TEST key, suppress exactly",
+        "  that value (never commit a real one):",
+        "",
+        "  suppressions:",
+        f"    - id: {first.id}",
+    ]
+    # Single-quoted YAML: a backslash is literal there, so a regex-escaped path
+    # survives; in double quotes `\.` is an invalid YAML escape.
+    if first.file_path:
+        lines.append(f"      path: '^{re.escape(first.file_path)}$'")
+    if first.secret_value is not None:
+        lines.append("      secret: '<the exact planted value, regex-escaped>'")
+    else:
+        lines.append("      # this finding carries no value to pin; id + path decides")
+    lines.append('      reason: "planted negative-control fixture"')
+    return "\n".join(lines)
 
 
 def _print_results(result: ScanResult, args: argparse.Namespace) -> None:
