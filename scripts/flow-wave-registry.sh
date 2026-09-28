@@ -2436,6 +2436,19 @@ case "$VERB" in
     # now, while this process is unambiguously the registering session's own,
     # never re-derived later by a reader on another machine.
     vantage_derive
+    #: TEST-ONLY SEAM, NOT A KNOB (issue #1266). Everything above ran WITHOUT the
+    #: lock - including the read of the current entry - and this is the window a
+    #: concurrent registration can commit inside. A test sets the variable to a
+    #: directory; this touches `paused` there and waits (bounded) for `release`,
+    #: so the interleaving is FORCED rather than hoped for by timing. Unset in
+    #: every real use; nothing reads it but this block.
+    if [ -n "${FLOW_WAVE_REGISTRY_TEST_PAUSE_REGISTER:-}" ]; then
+      : > "$FLOW_WAVE_REGISTRY_TEST_PAUSE_REGISTER/paused"
+      _pause_deadline=$(( $(date +%s) + 30 ))
+      while [ ! -e "$FLOW_WAVE_REGISTRY_TEST_PAUSE_REGISTER/release" ] && [ "$(date +%s)" -lt "$_pause_deadline" ]; do
+        sleep 0.05
+      done
+    fi
     # shellcheck disable=SC2016  # a jq program; $ names are jq variables (#972)
     with_lock '
       .[$w] //= {"roles": {}} |

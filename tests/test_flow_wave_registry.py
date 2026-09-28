@@ -70,6 +70,7 @@ import json
 import os
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -4567,3 +4568,49 @@ class TestIssue1260RegistryReadsWhatItReports:
         finally:
             reg.chmod(0o700)
         assert "FLOW_WAVE_ANY_LIVE=undeterminable" in p.stdout, p.stdout
+
+
+# ---------------------------------------------------------------------------
+# Issue #1266 item 1: the lane delta was computed from a read taken OUTSIDE the
+# write lock. Forced, never timed: FLOW_WAVE_REGISTRY_TEST_PAUSE_REGISTER holds
+# the first registration between its pre-lock read and its locked write while a
+# second one commits, then releases it.
+# ---------------------------------------------------------------------------
+
+
+@requires_tools
+def test_the_lane_delta_is_against_the_entry_actually_replaced(tmp_path: Path) -> None:
+    common = ("--wave", "zz", "--repo", "/tmp", "--issue", "1266", "--branch", "issue-1266-x")
+    first = _run(tmp_path, "register", "w", *common, "--files", "a.py,b.py")
+    assert _verdict(first) == "registered", first.stdout + first.stderr
+
+    pause = tmp_path / "pause"
+    pause.mkdir()
+    result: dict[str, subprocess.CompletedProcess[str]] = {}
+    paused = threading.Thread(
+        target=lambda: result.setdefault(
+            "a",
+            _run(tmp_path, "register", "w", *common, "--files", "a.py",
+                 extra_env={"FLOW_WAVE_REGISTRY_TEST_PAUSE_REGISTER": str(pause)}),
+        )
+    )
+    paused.start()
+    try:
+        deadline = time.monotonic() + 20
+        while not (pause / "paused").exists():
+            assert paused.is_alive(), "precondition: the paused registration exited before pausing"
+            assert time.monotonic() < deadline, "precondition: the registration never reached the seam"
+            time.sleep(0.02)
+        # Inside A's window: B commits a DIFFERENT lane for the same role.
+        second = _run(tmp_path, "register", "w", *common, "--files", "a.py,c.py")
+        assert _verdict(second) in ("registered", "updated"), second.stdout + second.stderr
+        assert _entry(tmp_path, "zz", "w")["files"] == "a.py,c.py", "precondition: B committed"
+    finally:
+        (pause / "release").touch()
+        paused.join(timeout=60)
+    a = result["a"]
+    assert _verdict(a) in ("registered", "updated"), a.stdout + a.stderr
+    assert _entry(tmp_path, "zz", "w")["files"] == "a.py"
+    # A replaced B's lane (a.py,c.py), so it DROPPED c.py - not b.py, which B
+    # had already dropped. The pre-fix delta was taken against A's stale read.
+    assert _detail(a, "FLOW_WAVE_FILES_DROPPED") == "c.py", a.stdout
