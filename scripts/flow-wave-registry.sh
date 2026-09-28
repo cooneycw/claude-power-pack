@@ -942,6 +942,24 @@ entry_json() { # entry_json WAVE ROLE -> the entry object or 'null'
   read_registry | jq -c --arg w "$1" --arg r "$2" '.[$w].roles[$r] // null'
 }
 
+# entry_read_or_die ENTRY -> returns when ENTRY is a real read ('null' or an
+# object); otherwise reports the registry as unparseable and exits 3.
+#
+# A registry.json that EXISTS and is READABLE but is not JSON passes the
+# up-front `registry_unreadable` guard, and `entry_json` then prints NOTHING -
+# jq fails. An empty entry used to fall through to the liveness rules, where its
+# blank host "was not this host" and read `stale other-host`; since #1014 Part 2
+# that is `unknown other-host`, which would REFUSE the role as held by a session
+# on a host named "" - a remote holder fabricated out of a corrupt file. Neither
+# is what happened. What happened is that we could not read the entry, and the
+# verdict for that is `error` (exit 3), the same one the unreadable guard gives.
+entry_read_or_die() {
+  [ -n "$1" ] && return 0
+  echo "flow-wave-registry: the registry at $REG_FILE could not be parsed - its contents are UNKNOWN, not empty and not held by anyone. Nothing was recorded; repair or remove it and re-run." >&2
+  emit error
+  exit 3
+}
+
 # _liveness_compute ENTRY_JSON -> "STATE BASIS"
 #
 # STATE is live | stale | unknown | released. BASIS names WHICH RULE decided it,
@@ -2346,6 +2364,7 @@ case "$VERB" in
     # preserved address (below) does not masquerade as a fresh derivation.
     SELF_SOCK="$SOCK"
     CUR="$(entry_json "$WAVE" "$ROLE")"
+    entry_read_or_die "$CUR"
     if [ "$CUR" != "null" ]; then
       CUR_PID="$(printf '%s' "$CUR" | jq -r '.pid // "-"')"
       CUR_SESSION="$(printf '%s' "$CUR" | jq -r '.session // "-"')"
@@ -2885,6 +2904,7 @@ case "$VERB" in
     implicit_default &&
       echo "flow-wave-registry: no --wave given - reading wave 'default'; a role registered under a named wave will not be found here." >&2
     CUR="$(entry_json "$WAVE" "$ROLE")"
+    entry_read_or_die "$CUR"
     if [ "$CUR" = "null" ]; then emit free; exit 0; fi
     E_SOCKET="$(printf '%s' "$CUR" | jq -r '.socket // "unknown"')"
     E_PID="$(printf '%s' "$CUR" | jq -r '.pid // "-"')"
@@ -2972,6 +2992,7 @@ case "$VERB" in
     implicit_default &&
       echo "flow-wave-registry: no --wave given - verifying in wave 'default'; a role registered under a named wave will not be found here." >&2
     CUR="$(entry_json "$WAVE" "$ROLE")"
+    entry_read_or_die "$CUR"
     [ "$CUR" != "null" ] || { echo "flow-wave-registry: no entry for role '$ROLE' in wave '$WAVE'." >&2; emit unknown; exit 0; }
     RECORDED="$(printf '%s' "$CUR" | jq -r '.socket // "unknown"')"
     if [ "$RECORDED" = "$A_FROM" ]; then
@@ -3026,6 +3047,7 @@ case "$VERB" in
   release)
     [ -n "$ROLE" ] || usage_fail "release requires a role"
     CUR="$(entry_json "$WAVE" "$ROLE")"
+    entry_read_or_die "$CUR"
     [ "$CUR" != "null" ] || { emit free; exit 0; }
     CUR_PID="$(printf '%s' "$CUR" | jq -r '.pid // "-"')"
     CUR_SESSION="$(printf '%s' "$CUR" | jq -r '.session // "-"')"

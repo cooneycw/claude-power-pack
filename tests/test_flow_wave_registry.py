@@ -4817,3 +4817,31 @@ class TestAnotherHostsOwnerIsUnknownNotStale:
         assert _detail(g, "FLOW_WAVE_LIVENESS_BASIS") == "other-host"
         lst = _run(tmp_path, "list")
         assert _detail(lst, "FLOW_WAVE_LIVENESS_UNDETERMINED") == "1", lst.stdout
+
+    @pytest.mark.parametrize(
+        "verb",
+        [
+            ("register", "1"),
+            ("release", "1"),
+            ("get", "1"),
+            ("verify", "1", "--from", "uds:/tmp/z.sock"),
+        ],
+        ids=["register", "release", "get", "verify"],
+    )
+    def test_a_corrupt_registry_is_an_error_not_a_remote_holder(
+        self, tmp_path: Path, verb: tuple[str, ...]
+    ) -> None:
+        # An unparseable registry.json passes the up-front unreadable guard and
+        # makes entry_json print NOTHING. That empty entry's blank host "is not
+        # this host", so it would read `unknown other-host` and a verb would
+        # blame a session on a host named "" - a holder fabricated from a corrupt
+        # file. What actually happened is that nothing could be read.
+        reg = tmp_path / "reg"
+        reg.mkdir(parents=True, exist_ok=True)
+        (reg / "registry.json").write_text("{ this is not json")
+        p = _run(tmp_path, *verb)
+        assert p.returncode == 3, p.stdout + p.stderr
+        assert _verdict(p) == "error"
+        assert "could not be parsed" in p.stderr
+        assert "ANOTHER HOST" not in p.stderr
+        assert _detail(p, "FLOW_WAVE_LIVENESS_BASIS") in ("", "-"), "no liveness may be invented"
