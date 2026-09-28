@@ -2044,6 +2044,7 @@ A_MODEL=""; A_PERMMODE=""; A_FILES=""; A_CAPACITY=""
 A_MODEL_SET=0; A_PERMMODE_SET=0; A_FILES_SET=0; A_CAPACITY_SET=0
 A_PR=""; A_BASE=""; A_DIFF=""
 A_PR_SET=0; A_BASE_SET=0; A_DIFF_SET=0
+A_CLEAR_PR=0
 # `lane-check --granted` (#1026): the grant that AUTHORISED the lane, so the
 # declaration can be compared against it and not only against other lanes.
 A_GRANTED=""; A_GRANTED_SET=0
@@ -2084,6 +2085,7 @@ while [ "$#" -gt 0 ]; do
     --granted=*) A_GRANTED="${1#--granted=}"; A_GRANTED_SET=1 ;;
     --pr) [ "$#" -ge 2 ] || usage_fail "--pr requires a value"; A_PR="$2"; A_PR_SET=1; shift ;;
     --pr=*) A_PR="${1#--pr=}"; A_PR_SET=1 ;;
+    --clear-pr) A_CLEAR_PR=1 ;;
     --base) [ "$#" -ge 2 ] || usage_fail "--base requires a value"; A_BASE="$2"; A_BASE_SET=1; shift ;;
     --base=*) A_BASE="${1#--base=}"; A_BASE_SET=1 ;;
     --diff) [ "$#" -ge 2 ] || usage_fail "--diff requires a value"; A_DIFF="$2"; A_DIFF_SET=1; shift ;;
@@ -2418,7 +2420,27 @@ case "$VERB" in
     #: baseline - a base-only write made the NEXT complete observation miss its
     #: overtake, and a diff-only write made it fire although the diff had moved.
     #: An observation is a baseline only if all of it was measured at once.
+    #: A LANE PATH MAY NOT CONTAIN A NEWLINE (issue #1266). Every FLOW_WAVE_FILES*
+    #: line is one path SET per line; a path holding a newline would come out as
+    #: two phantom paths to every line-oriented reader. Refused at input - before
+    #: anything is recorded - naming the path with the newline made visible.
+    if [ "$A_FILES_SET" -eq 1 ] && [[ "$A_FILES" == *$'\n'* ]]; then
+      _bad=""
+      IFS=',' read -r -d '' -a _paths < <(printf '%s\0' "$A_FILES")
+      for _p in "${_paths[@]}"; do
+        [[ "$_p" == *$'\n'* ]] && _bad="${_bad}${_bad:+, }${_p//$'\n'/\\n}"
+      done
+      usage_fail "--files: a lane path contains a newline, which the line-oriented FLOW_WAVE_FILES output cannot carry: ${_bad}"
+    fi
     A_OBS=0
+    #: WITHDRAWING an observation (issue #1266). An empty --pr stays an error -
+    #: an observation with no identity cannot be compared to anything - so
+    #: clearing a merged PR is its own explicit flag, and it withdraws the WHOLE
+    #: observation (pr, base, diff, obs_repo and the overtake count) for the same
+    #: atomicity reason a partial observation is refused (#989).
+    if [ "$A_CLEAR_PR" -eq 1 ] && { [ "$A_PR_SET" -eq 1 ] || [ "$A_BASE_SET" -eq 1 ] || [ "$A_DIFF_SET" -eq 1 ]; }; then
+      usage_fail "--clear-pr withdraws the observation; it cannot be combined with --pr/--base/--diff"
+    fi
     if [ "$A_PR_SET" -eq 1 ] || [ "$A_BASE_SET" -eq 1 ] || [ "$A_DIFF_SET" -eq 1 ]; then
       case "$A_PR" in
         "" ) usage_fail "--pr needs a value: an observation with no PR identity cannot be compared to anything" ;;
@@ -2479,7 +2501,15 @@ case "$VERB" in
       #: reset unless this call supplies them. Both sides must be non-empty:
       #: a re-brief that omits --issue is not a move to other work, and
       #: treating it as one would wipe the starvation baseline (#989).
-      (($prev.issue // "") != "" and $issue != "" and ($prev.issue // "") != $issue) as $moved |
+      #: ...and the SAME issue number in a DIFFERENT repo is different work too
+      #: (issue #1266): comparing the number alone kept the lane and PR of repo A on a
+      #: role now working #N in repo B. Both repos must be non-empty, for the
+      #: same reason as the issues - an omitted --repo is not a move. The repo is
+      #: the repository identity the overlap arms already compare (separate
+      #: worktrees of one repository share it), so this cannot fire on a worker
+      #: merely changing worktree.
+      ((($prev.issue // "") != "" and $issue != "" and ($prev.issue // "") != $issue)
+       or (($prev.repo // "") != "" and $repo != "" and ($prev.repo // "") != $repo)) as $moved |
       .[$w].roles[$r] = {
         socket: $sock, self_socket: $selfsock, pid: ($pid | tonumber? // $pid),
         pid_started: $pidstarted,
@@ -2504,10 +2534,10 @@ case "$VERB" in
         vantage_basis:   $vbasis,
         #: Written only as a COMPLETE observation, and identity is (repo, pr) -
         #: not pr alone, or repository B #5 would increment repository A #5.
-        pr:       (if $obs == "1" then $pr   elif $moved then "" else ($prev.pr // "") end),
-        base:     (if $obs == "1" then $base elif $moved then "" else ($prev.base // "") end),
-        diff:     (if $obs == "1" then $diff elif $moved then "" else ($prev.diff // "") end),
-        obs_repo: (if $obs == "1" then $repo elif $moved then "" else ($prev.obs_repo // "") end),
+        pr:       (if $obs == "1" then $pr   elif $moved or $clearpr == "1" then "" else ($prev.pr // "") end),
+        base:     (if $obs == "1" then $base elif $moved or $clearpr == "1" then "" else ($prev.base // "") end),
+        diff:     (if $obs == "1" then $diff elif $moved or $clearpr == "1" then "" else ($prev.diff // "") end),
+        obs_repo: (if $obs == "1" then $repo elif $moved or $clearpr == "1" then "" else ($prev.obs_repo // "") end),
         #: MERGE STARVATION (#989). Increments ONLY when the same (repo, pr) is
         #: seen again with a CHANGED base and an UNCHANGED diff: the signature of
         #: losing a queue place without doing any work. A changed diff is a worker
@@ -2520,7 +2550,7 @@ case "$VERB" in
         #: work. A re-register carrying NO observation preserves, so the cheap
         #: re-brief never destroys a baseline.
         overtaken: (
-          if $obs != "1" then (if $moved then 0 else ($prev.overtaken // 0) end)
+          if $obs != "1" then (if $moved or $clearpr == "1" then 0 else ($prev.overtaken // 0) end)
           elif $moved then 0
           elif ($prev.pr // "") != $pr or ($prev.obs_repo // "") != $repo then 0
           elif ($prev.base // "") == "" or ($prev.diff // "") == "" then 0
@@ -2531,7 +2561,7 @@ case "$VERB" in
         policy_rev:      ($polrev | tonumber)
       }' \
       --arg w "$WAVE" --arg r "$ROLE" --arg sock "$SOCK" --arg pid "$SELF_PID" \
-      --arg pidstarted "$SELF_PID_STARTED" \
+      --arg pidstarted "$SELF_PID_STARTED" --arg clearpr "$A_CLEAR_PR" \
       --arg selfsock "$SELF_SOCK" --arg verified "$KEEP_VERIFIED" \
       --arg filled "$KEEP_FILLED" --arg mismatch "$KEEP_MISMATCH" \
       --arg session "$SELF_SESSION" --arg host "$SELF_HOST" --arg cwd "$A_CWD" \
@@ -2737,6 +2767,7 @@ case "$VERB" in
     TOOLCHAIN_N="-"
     TOOLCHAIN_UP="-"
     TOOLCHAIN_AGE="-"
+    TOOLCHAIN_CHECKOUT="-"
     TC_HELPER=""
     for candidate in "$SELF_DIR/toolchain-provenance.sh" "$HOME/.claude/scripts/toolchain-provenance.sh"; do
         [ -x "$candidate" ] && { TC_HELPER="$candidate"; break; }
@@ -2752,8 +2783,12 @@ case "$VERB" in
         TOOLCHAIN_N="$(printf '%s' "$TC_JSON" | jq -r 'if .behind == null then "-" else .behind end' 2>/dev/null || echo -)"
         TOOLCHAIN_UP="$(printf '%s' "$TC_JSON" | jq -r '.upstream // "-"' 2>/dev/null || echo -)"
         TOOLCHAIN_AGE="$(printf '%s' "$TC_JSON" | jq -r 'if .fetch_age_seconds == null then "-" else .fetch_age_seconds end' 2>/dev/null || echo -)"
+        # WHICH checkout was measured (issue #1266): the warning used to say
+        # "this session's CPP toolchain" and name nothing, so it was read as a
+        # fact about whichever checkout the reader had in mind.
+        TOOLCHAIN_CHECKOUT="$(printf '%s' "$TC_JSON" | jq -r '.checkout // "-"' 2>/dev/null || echo -)"
         [ -n "$TOOLCHAIN_STATE" ] || TOOLCHAIN_STATE=unavailable
-        for tc_var in TOOLCHAIN_N TOOLCHAIN_UP TOOLCHAIN_AGE; do
+        for tc_var in TOOLCHAIN_N TOOLCHAIN_UP TOOLCHAIN_AGE TOOLCHAIN_CHECKOUT; do
           eval "tc_value=\$$tc_var"
           [ -n "$tc_value" ] || eval "$tc_var='-'"
         done
@@ -2763,14 +2798,15 @@ case "$VERB" in
     echo "FLOW_WAVE_TOOLCHAIN_BEHIND=$TOOLCHAIN_N"
     echo "FLOW_WAVE_TOOLCHAIN_UPSTREAM=$TOOLCHAIN_UP"
     echo "FLOW_WAVE_TOOLCHAIN_AGE=$TOOLCHAIN_AGE"
+    echo "FLOW_WAVE_TOOLCHAIN_CHECKOUT=$TOOLCHAIN_CHECKOUT"
     case "$TOOLCHAIN_STATE" in
       behind|diverged)
-        echo "flow-wave-registry: this session's CPP toolchain is ${TOOLCHAIN_N} commit(s) BEHIND its upstream." >&2
+        echo "flow-wave-registry: the CPP toolchain checkout at ${TOOLCHAIN_CHECKOUT} is ${TOOLCHAIN_N} commit(s) BEHIND its upstream." >&2
         echo "  Helpers here predate what main ships: a flag that merged may simply not exist in the copy you run (#1029)." >&2
         echo "  Pull at a declared safe moment - scripts/checkout-readers.sh says when no gate is running out of the tree." >&2
         ;;
       unknown|unavailable)
-        echo "flow-wave-registry: this session's CPP toolchain provenance is ${TOOLCHAIN_STATE} - NOT a measured zero (#1029)." >&2
+        echo "flow-wave-registry: the CPP toolchain provenance (checkout: ${TOOLCHAIN_CHECKOUT}) is ${TOOLCHAIN_STATE} - NOT a measured zero (#1029)." >&2
         ;;
       current)
         # A zero gap against week-old evidence is still a zero gap against
