@@ -842,11 +842,22 @@ with_lock() {
         || { rm -f "$tmp"; echo "flow-wave-registry: registry snapshot failed (corrupt JSON?)" >&2; exit 3; }
     fi
     if jq "$@" "$prog" "$REG_FILE" > "$tmp" 2>/dev/null; then
-      mv -f "$tmp" "$REG_FILE"
+      # The after-snapshot is taken from the CANDIDATE, before it replaces the
+      # registry (counter-model review, #1266). Taken after the mv, a snapshot
+      # failure reported "NOT updated" over a write that had committed - and the
+      # advised retry could overwrite an intervening registration. Now every
+      # failure below happens before anything is committed, so the refusal is true.
       if [ -n "${LOCK_SNAP_NEW:-}" ]; then
-        jq -c --arg w "$LOCK_SNAP_W" --arg r "$LOCK_SNAP_R" '.[$w].roles[$r] // null' "$REG_FILE" > "$LOCK_SNAP_NEW" 2>/dev/null \
-          || { echo "flow-wave-registry: registry snapshot failed after the write" >&2; exit 3; }
+        #: TEST-ONLY SEAM, NOT A KNOB (issue #1266): route the after-snapshot to
+        #: /dev/full, which fails every write with ENOSPC - a real "disk full" -
+        #: so the failure path can be exercised. Unset in every real use.
+        _snap_new_out="$LOCK_SNAP_NEW"
+        [ -n "${FLOW_WAVE_REGISTRY_TEST_SNAPSHOT_FAILS:-}" ] && _snap_new_out=/dev/full
+        jq -c --arg w "$LOCK_SNAP_W" --arg r "$LOCK_SNAP_R" '.[$w].roles[$r] // null' "$tmp" > "$_snap_new_out" 2>/dev/null \
+          || { rm -f "$tmp"; echo "flow-wave-registry: registry snapshot failed; nothing was written" >&2; exit 3; }
       fi
+      mv -f "$tmp" "$REG_FILE" \
+        || { rm -f "$tmp"; echo "flow-wave-registry: could not replace the registry file" >&2; exit 3; }
     else
       rm -f "$tmp"
       echo "flow-wave-registry: registry update failed (corrupt JSON?)" >&2
