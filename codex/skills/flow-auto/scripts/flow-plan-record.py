@@ -147,9 +147,19 @@ def read_run_state(issue: str) -> dict[str, str] | None:
     return state if re.fullmatch(r"[0-9a-f]{32}", state.get("run_id", "")) else None
 
 
+#: A run file that EXISTS but carries no valid run_id. It is not "no run": the
+#: legacy fallback is for a worktree with NO run file (the transition ruling), and
+#: a truncated or emptied one must not reopen it (counter-model review). Never
+#: matches a section, so every consumer refuses or reports unknown; `reconcile`
+#: repairs it by minting a new identity.
+MALFORMED_RUN = "<malformed run identity>"
+
+
 def current_run_id(issue: str) -> str | None:
     state = read_run_state(issue)
-    return state["run_id"] if state else None
+    if state:
+        return state["run_id"]
+    return MALFORMED_RUN if run_state_path(issue).exists() else None
 
 
 def pre_marker_prefix(text: str) -> str:
@@ -174,6 +184,9 @@ def select_run(text: str, run_id: str | None) -> tuple[str | None, str]:
     """This run's part of `text`, or `(None, why)`. Never another run's part."""
     runs = split_runs(text)
     legacy = len(runs) == 1 and runs[0][1] is None
+    if run_id == MALFORMED_RUN:
+        return None, ("this worktree's run identity file is malformed - run "
+                      "`flow-plan-record.py reconcile` to mint a new one")
     if run_id is None:
         if legacy:
             return runs[0][2], "legacy record (no run identity in this worktree)"
@@ -289,8 +302,8 @@ def announce_run(issue: str) -> int:
 def cmd_begin_run(issue: str) -> int:
     """Append this run's header to the record. Idempotent for the same run."""
     run_id = current_run_id(issue)
-    if run_id is None:
-        print("FLOW_PLAN_RECORD: error - this worktree has no run identity. Run "
+    if run_id is None or run_id == MALFORMED_RUN:
+        print("FLOW_PLAN_RECORD: error - this worktree has no usable run identity. Run "
               f"`flow-plan-record.py reconcile {issue}` (Step 1) first.")
         return ERROR
     rec = toplevel() / record_rel(issue)
@@ -304,7 +317,10 @@ def cmd_begin_run(issue: str) -> int:
         text = RECORD_PREAMBLE.format(issue=issue)
     elif not text.endswith("\n"):
         text += "\n"
-    text += f"\n<!-- flow-run n={n} id={run_id} -->\n## Run {n}\n\n- Run-id:            {run_id}\n"
+    start = git("rev-parse", "HEAD", check=False).strip()
+    text += (f"\n<!-- flow-run n={n} id={run_id} -->\n## Run {n}\n\n"
+             f"- Run-id:            {run_id}\n"
+             f"- Run-start:         {start or 'unknown'}\n")
     rec.parent.mkdir(parents=True, exist_ok=True)
     rec.write_text(text)
     print(f"FLOW_PLAN_RECORD: began run {n} ({run_id}) in {record_rel(issue)} - append its "
@@ -630,9 +646,19 @@ def cmd_compliance(issue: str, base: str | None) -> int:
         compliance_unknown("Section C names no files in the documented numbered form")
 
     if base is None:
-        mb = subprocess.run(["git", "-C", str(root), "merge-base", "HEAD", "origin/main"],
-                            capture_output=True, text=True)
-        base = mb.stdout.strip() if mb.returncode == 0 else ""
+        # THIS RUN'S START, when its section records one (counter-model review): a
+        # second run on a branch already carrying the first run's commits must be
+        # compared against ITS OWN changes, or it is blamed for the first run's
+        # files. `--base` still selects a broader scope explicitly.
+        start = re.search(r"^- Run-start:\s+([0-9a-f]{40})\s*$", text, re.M)
+        if start and subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor",
+                                     start.group(1), "HEAD"], capture_output=True).returncode == 0:
+            base = start.group(1)
+            print(f"PLAN_COMPLIANCE_BASE: this run's start ({base[:12]})")
+        else:
+            mb = subprocess.run(["git", "-C", str(root), "merge-base", "HEAD", "origin/main"],
+                                capture_output=True, text=True)
+            base = mb.stdout.strip() if mb.returncode == 0 else ""
     # --no-renames: a rename's SOURCE must appear too, or removing an unplanned
     # file by renaming it onto a planned one reports agreement.
     if not base:

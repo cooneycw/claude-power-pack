@@ -116,7 +116,7 @@ def test_an_unknown_session_always_mints(repo: Path, session: str | None) -> Non
 def test_begin_run_needs_a_run_identity(repo: Path) -> None:
     proc = helper(repo, "session-A", "begin-run", "42")
     assert proc.returncode == 1
-    assert "has no run identity" in proc.stdout
+    assert "has no usable run identity" in proc.stdout
 
 
 @requires_git
@@ -284,3 +284,51 @@ def test_a_marker_line_inside_the_issue_body_is_not_a_run_boundary(repo: Path, t
     assert markers == [("1", run_id(repo))], f"the quoted body forged a boundary: {markers}"
     drift = helper(repo, "session-A", "drift", "42", "--live-file", str(body))
     assert drift.returncode == 0 and "ISSUE_DRIFT: clean" in drift.stdout, drift.stdout
+
+
+@requires_git
+def test_a_malformed_run_file_does_not_reopen_the_legacy_fallback(repo: Path) -> None:
+    """Re-review MEDIUM: an EXISTING but empty run file is not "no run file"."""
+    legacy = git(ROOT, "show", "HEAD:docs/flow-runs/issue-1289.md")
+    (repo / "docs" / "flow-runs").mkdir(parents=True)
+    (repo / "docs" / "flow-runs" / "issue-42.md").write_text(legacy)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "a committed pre-#1320 record")
+    head = git(repo, "rev-parse", "HEAD").strip()
+    gitdir = Path(git(repo, "rev-parse", "--absolute-git-dir").strip())
+    (gitdir / "flow-plan-run-42").write_text("")          # emptied / truncated
+    assert (gitdir / "flow-plan-run-42").exists(), "precondition: the file EXISTS"
+    approve = helper(repo, "session-A", "approve", "42")
+    assert approve.returncode == 1 and "malformed" in approve.stdout, approve.stdout
+    headcheck = helper(repo, "session-A", "head-check", "42", "--head", head)
+    assert headcheck.returncode == 1 and "malformed" in headcheck.stdout, headcheck.stdout
+    assert "FLOW_PLAN_RUN: minted" in reconcile(repo, "session-A"), "reconcile repairs it"
+
+
+@requires_git
+def test_a_second_run_is_not_blamed_for_the_first_runs_committed_work(repo: Path) -> None:
+    """Re-review MEDIUM: run A's committed src/a.py must not read as run B's unplanned
+    change. Compliance defaults to THIS run's recorded start; an explicit --base is the
+    broader, whole-branch scope."""
+    branch_base = git(repo, "rev-parse", "HEAD").strip()
+    reconcile(repo, "session-A")
+    approve_run(repo, "session-A")                 # plans src/a.py
+    (repo / "src").mkdir()
+    (repo / "src" / "a.py").write_text("a\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run A's work")
+    reconcile(repo, "session-B")
+    assert helper(repo, "session-B", "begin-run", "42").returncode == 0
+    with (repo / "docs" / "flow-runs" / "issue-42.md").open("a") as fh:
+        fh.write("- Approval:          granted\n\n### Section C - the approved plan\n"
+                 "1. `src/b.py` - run B\n")
+    assert helper(repo, "session-B", "approve", "42").returncode in (0, 4)
+    (repo / "src" / "b.py").write_text("b\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run B's work")
+    own = helper(repo, "session-B", "compliance", "42")
+    assert "PLAN_COMPLIANCE_BASE: this run's start" in own.stdout, own.stdout
+    assert "PLAN_COMPLIANCE: agreement" in own.stdout, own.stdout
+    assert "src/a.py" not in own.stdout
+    whole = helper(repo, "session-B", "compliance", "42", "--base", branch_base)
+    assert "TOUCHED BUT NOT PLANNED: src/a.py" in whole.stdout, whole.stdout
