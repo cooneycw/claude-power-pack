@@ -513,8 +513,8 @@ every command was refused reports `success`. One did, and returned a fabricated
 empty inventory that nothing downstream could have questioned.
 
 A non-zero count is **not** a failed run - a denied call is the fence working as
-designed, and treating it as a failure is a defect that was already shipped and
-reverted. It is the one fact that tells you to go and look: read the payload, or
+designed, and making it fatal is a defect that was already shipped and reverted.
+It is the one fact that tells you to go and look: read the payload, or
 check the postcondition the work was supposed to establish, before reporting the
 result as done. The line is always emitted, `0` included, so `0` means "checked,
 none" rather than "not checked".

@@ -1065,6 +1065,9 @@ def test_the_contract_carries_every_always_emitted_line(clean_run: Path) -> None
         # told from "did not look".
         "DELEGATED_RUN_EVENTS",
         "DELEGATED_RUN_RECOGNIZED",
+        # Lines that did not parse (#1265): without it the denominator dropped
+        # exactly what the helper could not read.
+        "DELEGATED_RUN_UNPARSED",
         "DELEGATED_RUN_TOOL_ERRORS",
         "DELEGATED_RUN_STATUS",
     }
@@ -1348,3 +1351,223 @@ def test_the_failure_is_the_conjunction_not_either_half(tmp_path: Path) -> None:
     both_fields = contract(run(str(both), "0", "--lane", "codex").stdout)
     assert both_fields["DELEGATED_RUN_STATUS"] == ["failure"], both_fields
     assert "error-payload" in both_fields["DELEGATED_RUN_SIGNAL"], both_fields
+
+
+# ---------------------------------------------------------------------------
+# Issue #1265: blind spots that each reported a confident answer about less
+# than the whole payload.
+# ---------------------------------------------------------------------------
+
+
+def _nested(depth: int, leaf: dict) -> dict:
+    """`leaf` wrapped in `depth` levels of plain dicts."""
+    node = leaf
+    for level in range(depth):
+        node = {f"wrap{level}": node}
+    return node
+
+
+@pytest.mark.parametrize("depth", [8, 50])
+def test_a_failed_tool_call_is_counted_at_any_depth(tmp_path: Path, depth: int) -> None:
+    """THE #1265 DEPTH REGRESSION: the walk stopped at depth 6 and said 0.
+
+    Red on b935d64 at both depths. 50 is well past where the old recursion gave
+    up, so the fix is not tuned to one depth just beyond the cap.
+    """
+    output = write_jsonl(
+        tmp_path / f"deep-{depth}.jsonl",
+        [
+            {"type": "tool_use", "part": _nested(depth, {"tool": "bash", "state": {"status": "error"}})},
+            {"type": "step_finish", "part": {"reason": "stop"}},
+        ],
+    )
+    assert contract(run(str(output), "0", "--lane", "gemma").stdout)["DELEGATED_RUN_TOOL_ERRORS"] == ["1"]
+
+
+def test_a_deep_payload_is_walked_iteratively(tmp_path: Path) -> None:
+    """800 levels: past anything a recursive walk with a small cap would reach,
+    and parseable by json.loads on every supported interpreter (its own limit
+    is the next test's subject). Written as a raw string, because json.dumps is
+    itself recursive and would fail building the input on some versions."""
+    depth = 800
+    call = '{"tool": "bash", "state": {"status": "error"}}'
+    line = '{"type": "tool_use", "part": ' + '{"w": ' * depth + call + "}" * depth + "}"
+    path = tmp_path / "deep-800.jsonl"
+    path.write_text(line + '\n{"type": "step_finish", "part": {"reason": "stop"}}\n', encoding="utf-8")
+    proc = run(str(path), "0", "--lane", "gemma")
+    assert contract(proc.stdout)["DELEGATED_RUN_TOOL_ERRORS"] == ["1"], proc.stdout + proc.stderr
+
+
+def test_a_line_too_deep_to_parse_is_unparsed_not_a_crash(tmp_path: Path) -> None:
+    """json.loads is bounded by the interpreter's recursion limit (counter-model
+    review, #1265). A line past it is UNREADABLE: counted in UNPARSED, and the
+    rest of the stream is still read - never an uncaught RecursionError that
+    turns the whole payload into `output-unreadable`."""
+    depth = 100_000
+    line = '{"a": ' * depth + "1" + "}" * depth
+    path = tmp_path / "too-deep.jsonl"
+    path.write_text(
+        line + "\n"
+        + '{"type": "tool_use", "part": {"tool": "bash", "state": {"status": "error"}}}\n'
+        + '{"type": "step_finish", "part": {"reason": "stop"}}\n',
+        encoding="utf-8",
+    )
+    found = contract(run(str(path), "0", "--lane", "gemma").stdout)
+    assert found["DELEGATED_RUN_UNPARSED"] == ["1"], found
+    assert found["DELEGATED_RUN_EVENTS"] == ["2"], found
+    assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["1"], found
+    # Unread is not harmless (counter-model review, pass 2): the skipped line
+    # could have been a failure event, so the run FAILS, and says why.
+    assert "line-too-deep" in found["DELEGATED_RUN_SIGNAL"], found
+    assert found["DELEGATED_RUN_STATUS"] == ["failure"], found
+
+
+def test_a_fatal_event_too_deep_to_read_cannot_become_a_success(tmp_path: Path) -> None:
+    """The reviewer's exact case: a top-level error event carrying a field nested
+    past the parse limit, then a clean tool call and a terminal event. Before,
+    the error event was skipped and the run read as success under --expect-tools."""
+    deep = '{"a": ' * 100_000 + "1" + "}" * 100_000
+    path = tmp_path / "fatal-too-deep.jsonl"
+    path.write_text(
+        '{"type": "error", "error": "fatal", "payload": ' + deep + "}\n"
+        + '{"type": "tool_use", "part": {"tool": "bash", "state": {"status": "completed"}}}\n'
+        + '{"type": "step_finish", "part": {"reason": "stop"}}\n',
+        encoding="utf-8",
+    )
+    found = contract(run(str(path), "0", "--lane", "gemma", "--expect-tools").stdout)
+    assert found["DELEGATED_RUN_STATUS"] == ["failure"], found
+
+
+def test_a_clean_verdict_over_unparsed_lines_says_so(tmp_path: Path) -> None:
+    """A success computed over part of the payload is qualified in the prose."""
+    path = tmp_path / "banner.jsonl"
+    path.write_text(
+        "a harness banner\n"
+        '{"type": "tool_use", "part": {"tool": "bash", "state": {"status": "completed"}}}\n'
+        '{"type": "step_finish", "part": {"reason": "stop"}}\n',
+        encoding="utf-8",
+    )
+    proc = run(str(path), "0", "--lane", "gemma")
+    assert contract(proc.stdout)["DELEGATED_RUN_STATUS"] == ["success"]
+    assert "1 line(s) were not JSON and were not examined" in proc.stdout, proc.stdout
+
+
+@pytest.mark.parametrize("depth", [2, 8, 50])
+def test_an_error_state_inside_a_successful_call_s_data_is_not_counted(
+    tmp_path: Path, depth: int
+) -> None:
+    """Ownership (counter-model review, #1265): the other half of the depth fix.
+
+    A successful call whose returned data contains an error-shaped object at
+    any depth is ONE successful call. Only a node that is itself a tool call
+    (carries its own `tool`) owns the state that is counted.
+    """
+    output = write_jsonl(
+        tmp_path / f"owned-{depth}.jsonl",
+        [
+            {"type": "tool_use", "part": {"tool": "bash", "state": {
+                "status": "completed",
+                "output": _nested(depth, {"state": {"status": "error"}}),
+            }}},
+            {"type": "step_finish", "part": {"reason": "stop"}},
+        ],
+    )
+    assert contract(run(str(output), "0", "--lane", "gemma").stdout)["DELEGATED_RUN_TOOL_ERRORS"] == ["0"]
+
+
+def test_unparsed_lines_are_counted_not_dropped(tmp_path: Path) -> None:
+    """THE #1265 DENOMINATOR REGRESSION: non-JSON lines vanished from the counts.
+
+    `EVENTS` keeps its meaning (JSON lines parsed); the lines it could not read
+    are a separate, additive count, so `RECOGNIZED == EVENTS` can no longer hide
+    them. Red on b935d64 (no UNPARSED line).
+    """
+    path = tmp_path / "mixed.jsonl"
+    path.write_text(
+        '{"type": "tool_use", "part": {"tool": "bash", "state": {"status": "completed"}}}\n'
+        "some stderr banner\n"
+        "\n"
+        "another unparseable line\n"
+        '{"type": "step_finish", "part": {"reason": "stop"}}\n',
+        encoding="utf-8",
+    )
+    found = contract(run(str(path), "0", "--lane", "gemma").stdout)
+    assert found["DELEGATED_RUN_EVENTS"] == ["2"]
+    assert found["DELEGATED_RUN_UNPARSED"] == ["2"], "blank lines are not counted; two non-JSON lines are"
+
+
+def test_help_shows_the_whole_header() -> None:
+    """THE #1265 HELP REGRESSION: `sed -n '2,90p'` cut off Signals and Exit codes."""
+    proc = run("--help")
+    assert proc.returncode == 0
+    assert "Signals:" in proc.stdout and "Exit codes:" in proc.stdout, proc.stdout
+
+
+def test_the_reported_error_text_is_the_first_line_s(tmp_path: Path) -> None:
+    """Order check (orchestrator, #1265): DETAIL is the FIRST error's text, and
+    every failed call is counted, with a failed call nested between the two
+    error items. The depth (4) is inside the old cap on purpose, so the pre-fix
+    recursive walk and the iterative one must give the SAME answer here."""
+    output = write_jsonl(
+        tmp_path / "order.jsonl",
+        [
+            {"type": "item.completed", "item": {"id": "e1", "type": "error", "message": "first failure"}},
+            {"type": "item.completed", "item": {"id": "c1", "type": "command_execution",
+                                                "command": "false", "exit_code": 1, "status": "failed"}},
+            {"type": "tool_use", "part": _nested(4, {"tool": "bash", "state": {"status": "error"}})},
+            {"type": "item.completed", "item": {"id": "e2", "type": "error", "message": "second failure"}},
+            {"type": "turn.completed"},
+        ],
+    )
+    found = contract(run(str(output), "0", "--lane", "codex").stdout)
+    assert found.get("DELEGATED_RUN_DETAIL") == ["first failure"], found
+    assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["2"], found
+
+
+def test_a_real_codex_collab_capture_counts_as_tool_activity() -> None:
+    """Item 4 of #1265, settled by a REAL capture rather than a guessed spelling.
+
+    codex-cli 0.158.0 with `multi_agent` enabled emits `item.type:
+    "collab_tool_call"` (tool `wait`) - captured 2026-09-28 into
+    fixtures/delegated_runs/codex-collab-capture.jsonl. A run whose only tool
+    activity is collaboration is not a run that "used no tools", so under
+    --expect-tools it must not fail as tool-less. Red on b935d64.
+    """
+    path = FIXTURES / "codex-collab-capture.jsonl"
+    assert '"collab_tool_call"' in path.read_text(encoding="utf-8"), "precondition: the capture"
+    proc = run(str(path), "0", "--lane", "codex", "--expect-tools")
+    found = contract(proc.stdout)
+    assert found["DELEGATED_RUN_STATUS"] == ["success"], proc.stdout
+    assert "no-tool-use" not in found.get("DELEGATED_RUN_SIGNAL", []), found
+
+
+def test_tool_activity_nested_deep_in_a_wrapper_is_seen(tmp_path: Path) -> None:
+    """tool_types_in's half of the depth fix (counter-model red case, #1265):
+    a tool type 8 levels inside a non-tool wrapper event is still tool activity,
+    so --expect-tools does not fail the run as tool-less."""
+    output = write_jsonl(
+        tmp_path / "wrapped.jsonl",
+        [
+            {"type": "wrapper", "payload": _nested(8, {"type": "tool_use", "tool": "bash"})},
+            {"type": "turn.completed"},
+        ],
+    )
+    found = contract(run(str(output), "0", "--lane", "codex", "--expect-tools").stdout)
+    assert "no-tool-use" not in found.get("DELEGATED_RUN_SIGNAL", []), found
+
+
+def test_a_tool_shaped_error_inside_a_successful_call_s_output_is_not_counted(tmp_path: Path) -> None:
+    """Ownership, the sharper form (counter-model red case, #1265): the returned
+    data is itself tool-SHAPED - it carries a `tool` and an error state - but it
+    is data a successful call returned, so the walk never descends to it."""
+    output = write_jsonl(
+        tmp_path / "tool-shaped-output.jsonl",
+        [
+            {"type": "tool_use", "part": {"tool": "bash", "state": {
+                "status": "completed",
+                "output": {"tool": "bash", "state": {"status": "error"}},
+            }}},
+            {"type": "step_finish", "part": {"reason": "stop"}},
+        ],
+    )
+    assert contract(run(str(output), "0", "--lane", "gemma").stdout)["DELEGATED_RUN_TOOL_ERRORS"] == ["0"]
