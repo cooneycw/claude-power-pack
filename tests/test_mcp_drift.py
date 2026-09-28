@@ -19,6 +19,8 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "mcp-drift.py"
 
@@ -1144,3 +1146,54 @@ def test_default_runs_keep_their_exit_codes_without_scope_check(tmp_path: Path) 
                            capture_output=True, text=True, env=env, cwd=str(proj))
         assert r.returncode == 0, (mode, r.stdout, r.stderr)
         assert "SCOPE" not in r.stdout, mode
+
+
+def test_redaction_is_an_allowlist_not_a_list_of_secret_shapes(tmp_path: Path, capsys) -> None:
+    """Counter-model finding: a short lowercase password inside a stdio arg url,
+    and a key carried as a URL PATH segment, both matched no secret heuristic."""
+    pw, path_key = "short-password", "Pk7xQ2private-api-key"
+    cj, proj = _scope_fixture(
+        tmp_path,
+        user={"a": {"type": "stdio", "command": "run.sh", "args": ["--url", f"https://user:{pw}@example.test/mcp"]},
+              "b": {"type": "http", "url": f"https://example.test/mcp/{path_key}"}},
+        project={"a": {"type": "stdio", "command": "run.sh", "args": []},
+                 "b": {"type": "http", "url": "https://example.test/mcp"}},
+    )
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 1 and out.count("SCOPE CONFLICT") == 2, out
+    assert pw not in out and path_key not in out, out
+    assert "https://<redacted>@example.test/mcp" in out and "https://example.test/mcp/<redacted>" in out
+
+
+def test_argument_boundaries_are_part_of_the_endpoint(tmp_path: Path, capsys) -> None:
+    """Counter-model finding: '/opt/mcp server' with no args and '/opt/mcp' with
+    ['server'] run different programs, and joined with spaces they compared equal."""
+    cj, proj = _scope_fixture(
+        tmp_path,
+        user={"x": {"type": "stdio", "command": "/opt/mcp server", "args": []}},
+        project={"x": {"type": "stdio", "command": "/opt/mcp", "args": ["server"]}},
+    )
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 1 and "SCOPE CONFLICT: x" in out, out
+
+
+def test_an_unset_variable_without_a_default_is_unknown(tmp_path: Path, capsys) -> None:
+    """Counter-model finding: two unresolved urls both became '/mcp' and compared equal."""
+    cj, proj = _scope_fixture(
+        tmp_path,
+        user={"x": {"type": "http", "url": "${USER_MCP_URL}/mcp"}},
+        project={"x": {"type": "http", "url": "${PROJECT_MCP_URL}/mcp"}},
+    )
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 3 and "is unset and has no default" in out, out
+    assert "OK: x" not in out
+
+
+@pytest.mark.parametrize("projects", ["not-an-object", "ENTRY_NOT_AN_OBJECT"])
+def test_a_malformed_local_scope_is_unknown(tmp_path: Path, capsys, projects: str) -> None:
+    """Counter-model finding: a present-but-malformed local scope was read as absent."""
+    cj, proj = _scope_fixture(tmp_path, project={"second-opinion": _HTTP})
+    value: Any = projects if projects == "not-an-object" else {str(proj.resolve()): ["oops"]}
+    cj.write_text(json.dumps({"projects": value}))
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 3 and "local scope unreadable" in out, out

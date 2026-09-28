@@ -1056,19 +1056,39 @@ def render_table(findings: list[dict], verbose: bool, host: HostState | None = N
 SCOPE_ORDER = ("user", "local", "project")
 _ENV_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
 _SECRETISH = re.compile(r"(key|token|secret|passw|auth|credential)", re.IGNORECASE)
+#: What may be shown verbatim. Everything else in an endpoint is printed as
+#: <redacted>: an allowlist, because a denylist of secret shapes is always one
+#: shape short (a short lowercase password, a key as a URL path segment).
+_SAFE_FLAG = re.compile(r"--?[a-z][a-z0-9-]*")
+_SAFE_WORD = re.compile(r"[a-z][a-z0-9._-]{0,31}")
+_SAFE_PATH_SEGMENT = re.compile(r"[a-z]{1,12}|v[0-9]{1,2}")
+
+
+class _Unresolved(Exception):
+    """A ${VAR} with no value and no default: the endpoint is not knowable."""
 
 
 def _expand_env(value: str, env: dict[str, str]) -> str:
-    """`${VAR}` / `${VAR:-default}`, the forms Claude Code expands in .mcp.json."""
+    """`${VAR}` / `${VAR:-default}`, the forms Claude Code expands in .mcp.json.
+    An unset variable with no default raises rather than becoming "" - two
+    different unresolved urls would otherwise both read as "/mcp" and compare
+    equal."""
     def sub(m: re.Match) -> str:
         name, default = m.group(1), m.group(2)
         got = env.get(name, "")
-        return got if got else (default or "")
+        if got:
+            return got
+        if default is None:
+            raise _Unresolved(name)
+        return default
     return _ENV_REF.sub(sub, value)
 
 
-def _endpoint(spec: object, env: dict[str, str]) -> str | None:
-    """The comparable endpoint of one server definition, or None if malformed."""
+def _endpoint(spec: object, env: dict[str, str]) -> tuple | None:
+    """The comparable endpoint of one definition, STRUCTURED, or None if
+    malformed. A tuple, not a joined string: `"/opt/mcp server"` with no args and
+    `"/opt/mcp"` with `["server"]` run different programs and must not compare
+    equal. Raises _Unresolved for an unset ${VAR} without a default."""
     if not isinstance(spec, dict):
         return None
     kind = str(spec.get("type") or ("stdio" if "command" in spec else "http"))
@@ -1077,46 +1097,62 @@ def _endpoint(spec: object, env: dict[str, str]) -> str | None:
         args = spec.get("args") or []
         if not isinstance(cmd, str) or not isinstance(args, list):
             return None
-        parts = [_expand_env(cmd, env)] + [_expand_env(str(a), env) for a in args]
-        return "stdio " + " ".join(parts)
+        return ("stdio", _expand_env(cmd, env), tuple(_expand_env(str(a), env) for a in args))
     url = spec.get("url")
     if not isinstance(url, str):
         return None
-    return f"{kind} {_expand_env(url, env)}"
+    return (kind, _expand_env(url, env))
 
 
-def redact_endpoint(endpoint: str) -> str:
-    """What may be PRINTED. A remote MCP url can carry an API key in its query
-    string or userinfo, and a stdio launcher can take one as an argument; the
-    comparison uses the full endpoint, the output never does."""
-    kind, _, rest = endpoint.partition(" ")
-    if kind == "stdio":
-        out, hide_next = [], False
-        for tok in rest.split(" "):
+def _redact_url(url: str) -> str:
+    from urllib.parse import urlsplit, urlunsplit
+    try:
+        u = urlsplit(url)
+        port = u.port
+    except ValueError:
+        return "<redacted url>"
+    netloc = (u.hostname or "") + (f":{port}" if port else "")
+    if u.username or u.password:
+        netloc = "<redacted>@" + netloc
+    path = "/".join(seg if (not seg or _SAFE_PATH_SEGMENT.fullmatch(seg)) else "<redacted>"
+                    for seg in u.path.split("/"))
+    return urlunsplit((u.scheme, netloc, path, "<redacted>" if u.query else "", ""))
+
+
+def _redact_arg(arg: str) -> str:
+    if "://" in arg:
+        return _redact_url(arg)
+    if _SAFE_FLAG.fullmatch(arg) or _SAFE_WORD.fullmatch(arg):
+        return arg
+    if "=" in arg:
+        name, _, value = arg.partition("=")
+        if _SAFE_FLAG.fullmatch(name):
+            return f"{name}={_redact_arg(value) if not _SECRETISH.search(name) else '<redacted>'}"
+    if arg.startswith("/") or arg.startswith("~/") or arg.startswith("./"):
+        # A path: keep the directory shape, hide any segment that is not plain.
+        return "/".join(seg if (not seg or seg in ("~", ".") or re.fullmatch(r"[A-Za-z0-9._-]{1,48}", seg)
+                                and not re.fullmatch(r"[A-Za-z0-9_-]{24,}", seg)) else "<redacted>"
+                        for seg in arg.split("/"))
+    return "<redacted>"
+
+
+def redact_endpoint(endpoint: tuple) -> str:
+    """What may be PRINTED. Real ~/.claude.json files hold key-bearing urls and
+    launchers that take keys as arguments; the comparison uses the full
+    endpoint, the output shows only what matches the safe shapes above."""
+    if endpoint[0] == "stdio":
+        _, cmd, args = endpoint
+        out, hide_next = [_redact_arg(cmd)], False
+        for a in args:
             if hide_next:
                 out.append("<redacted>")
                 hide_next = False
-            elif "=" in tok and _SECRETISH.search(tok.split("=", 1)[0]):
-                out.append(tok.split("=", 1)[0] + "=<redacted>")
-            elif tok.startswith("-") and _SECRETISH.search(tok):
-                out.append(tok)
+                continue
+            out.append(_redact_arg(a))
+            if _SAFE_FLAG.fullmatch(a) and _SECRETISH.search(a):
                 hide_next = True
-            elif re.fullmatch(r"[A-Za-z0-9_\-]{24,}", tok):
-                out.append("<redacted>")
-            else:
-                out.append(tok)
         return "stdio " + " ".join(out)
-    from urllib.parse import urlsplit, urlunsplit
-    try:
-        u = urlsplit(rest)
-    except ValueError:
-        return f"{kind} <unparseable url>"
-    netloc = u.hostname or ""
-    if u.port:
-        netloc += f":{u.port}"
-    if u.username or u.password:
-        netloc = "<redacted>@" + netloc
-    return f"{kind} " + urlunsplit((u.scheme, netloc, u.path, "<redacted>" if u.query else "", ""))
+    return f"{endpoint[0]} {_redact_url(endpoint[1])}"
 
 
 def _read_json(path: Path) -> tuple[str, object]:
@@ -1131,11 +1167,12 @@ def _read_json(path: Path) -> tuple[str, object]:
 
 def collect_scope_definitions(
     claude_json: Path, project_dir: Path, env: dict[str, str]
-) -> tuple[dict[str, dict[str, str]], list[str]]:
+) -> tuple[dict[str, dict[str, tuple]], list[str]]:
     """{name: {scope: endpoint}} across the three scopes, plus what could not be
-    read. A MISSING file contributes no definitions - that is a fact; a file that
-    exists and cannot be parsed is a reason the answer is unknown."""
-    defs: dict[str, dict[str, str]] = {}
+    read. A MISSING file or key contributes no definitions - that is a fact; a
+    container that is PRESENT with the wrong shape, or an endpoint that cannot
+    be resolved, is a reason the answer is unknown."""
+    defs: dict[str, dict[str, tuple]] = {}
     problems: list[str] = []
 
     def add(scope: str, servers: object, where: str) -> None:
@@ -1145,7 +1182,11 @@ def collect_scope_definitions(
             problems.append(f"{where}: mcpServers is not an object")
             return
         for name, spec in servers.items():
-            ep = _endpoint(spec, env)
+            try:
+                ep = _endpoint(spec, env)
+            except _Unresolved as unset:
+                problems.append(f"{where}: {name} uses ${{{unset}}}, which is unset and has no default")
+                continue
             if ep is None:
                 problems.append(f"{where}: {name} has no readable endpoint")
                 continue
@@ -1159,10 +1200,18 @@ def collect_scope_definitions(
             problems.append(f"{claude_json}: not an object")
         else:
             add("user", data.get("mcpServers"), f"{claude_json} (user)")
-            projects = data.get("projects") or {}
-            local = projects.get(str(project_dir.resolve())) if isinstance(projects, dict) else None
-            if isinstance(local, dict):
-                add("local", local.get("mcpServers"), f"{claude_json} (local)")
+            projects = data.get("projects")
+            key = str(project_dir.resolve())
+            if projects is None:
+                pass
+            elif not isinstance(projects, dict):
+                problems.append(f"{claude_json}: projects is not an object (local scope unreadable)")
+            elif key in projects:
+                local = projects[key]
+                if not isinstance(local, dict):
+                    problems.append(f"{claude_json}: projects[{key}] is not an object (local scope unreadable)")
+                else:
+                    add("local", local.get("mcpServers"), f"{claude_json} (local)")
 
     mcp_json = project_dir / ".mcp.json"
     state, data = _read_json(mcp_json)
