@@ -18,7 +18,8 @@
        install-drift-check install-drift-list \
        tools-version-check toolchain-provenance checkout-readers \
        delegated-core-check delegated-core-write \
-       version-consistency-check unicode-dashes-check co-authored-by-trailer-check
+       version-consistency-check unicode-dashes-check co-authored-by-trailer-check \
+       qa-regression-demo
 
 ## `make` with no target ran `lint` because lint was the first target. Adding
 ## tools-check above it silently made THAT the default - bare `make` would print
@@ -787,6 +788,19 @@ claude-md-behavior-check:
 ## verify-coverage: gate behavioral-eval-check - reads a behavioural-eval verified-result artifact and reports; advisory until #1084 half B produces one; ci: runs behavioral-eval-check
 behavioral-eval-check:
 	@python3 scripts/check-behavioral-eval.py --advisory
+
+## QA regression export, three-arm demonstration (issue #1291). Exports the
+## fixture's committed repro spec into a scratch copy of the fixture consumer, then
+## requires buggy=reproduced, fixed=passed, no app=unavailable, and then runs the
+## negative control (the buggy arm served the fixed app) which must report red.
+## NOT in verify: it needs node, npm, network for `npm ci`, and Playwright's
+## Chromium, and verify is the gate that runs in the Python-only image and on a
+## host without them - there it could only ever say `unavailable`. CI runs it as
+## its own step in the pinned Playwright image, which is the load-bearing run.
+## verify-coverage: excluded qa-regression-demo - needs node, npm, the network and Playwright's browsers; CI runs it as its own step in the pinned Playwright image
+qa-regression-demo:
+	@bash scripts/qa-regression-demo.sh
+	@bash scripts/qa-regression-demo.sh --negative-control
 
 ## Documentation (used by /flow:auto and /flow:finish)
 

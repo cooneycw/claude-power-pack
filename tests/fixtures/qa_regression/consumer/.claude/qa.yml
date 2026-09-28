@@ -1,0 +1,7 @@
+# Fixture consumer's QA config (CPP issue #1291). The export is opt-in.
+project:
+  url: http://127.0.0.1:4391
+
+regression_export:
+  enabled: true
+  test_dir: tests/e2e/regressions

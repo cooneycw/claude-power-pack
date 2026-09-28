@@ -123,6 +123,15 @@ desktop.ini
 # passing on every dev box. The `**` is load-bearing - a case tree nests as deep
 # as the repository it models. Same trap as #964/#953, third location.
 !controls/*/cases/**/*.json
+# QA regression-export fixture (issue #1291) - tracked despite *.json above. The
+# lockfile pins the runner version the CI image's browsers match, and the repro
+# spec IS the confirmed bug the demonstration exports; without either the demo
+# cannot run from a clean clone. Its run outputs stay untracked.
+!tests/fixtures/qa_regression/consumer/package-lock.json
+!tests/fixtures/qa_regression/consumer/repro/*.json
+tests/fixtures/qa_regression/consumer/node_modules/
+tests/fixtures/qa_regression/consumer/test-results/
+tests/fixtures/qa_regression/consumer/playwright-report/
 # Negative-control ANCHOR data that is itself JSON (issue #1017) - tracked
 # despite *.json above, and it is the FOURTH location of this same trap after
 # #964, #953 and #1012. An anchor is a program that must MISS the known-bad

@@ -1,0 +1,12 @@
+{
+  "schema": "cpp.qa-regression/1",
+  "title": "one click on Add to cart adds exactly one item",
+  "issue": "fixture: tests/fixtures/qa_regression (CPP #1291)",
+  "start": "/shop",
+  "steps": [
+    {"action": "click", "target": {"role": "button", "name": "Add to cart"}}
+  ],
+  "expect": [
+    {"target": {"testid": "cart-count"}, "toHaveText": "1"}
+  ]
+}
