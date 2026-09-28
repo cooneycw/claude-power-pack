@@ -588,17 +588,19 @@ and continue. `/flow-repair` installs the family at the stable path.)
 needed` verdict stopped at Step 3 and writes NO record. **Only after approval is
 granted, and never before**, and only after the two checks above - writing the
 record IS the first edit, and the driver guard would read an earlier one as a
-phantom second driver - write the approved plan to the branch:
+phantom second driver - write THIS RUN's approved plan to the branch.
+
+**The record is APPEND-ONLY and each run owns one section (issue #1320).**
+Step 1's `reconcile` gave this run an id; `begin-run` appends this run's
+`## Run <n>` header carrying it (creating the file on a first run). Then APPEND
+this run's fields - never rewrite the file, and never edit an earlier run's
+section. The Step-3 guard, compliance, the stability baseline, drift and
+head-check all read only this run's section, so a prior run's approval does not
+approve this run's plan:
 
 ```bash
-mkdir -p docs/flow-runs
-cat > "docs/flow-runs/issue-42.md" <<'RECORD'
-# Flow run record - issue #42
-
-HISTORICAL RECORD of what was agreed BEFORE the code was written, at the base SHA
-below. It is not a description of the shipped system, it is not a second
-statement of the issue contract or of a Tier 3 spec, and it does not graduate.
-
+~/.claude/scripts/flow-plan-record.py begin-run 42
+cat >> "docs/flow-runs/issue-42.md" <<'RECORD'
 - Issue:             #42
 - Base SHA:          <SHA this plan was formed against>
 - Necessity verdict: Still needed | Partially addressed | Needs reframing
@@ -606,15 +608,19 @@ statement of the issue contract or of a Tier 3 spec, and it does not graduate.
 - Approver:          <who this run understood the approver to be>
 - Recorded at:       <ISO 8601 UTC>
 
-## Section B evidence
+### Section B evidence
 <the commit SHAs, merged PR numbers and duplicate/superseding issue numbers
  Section B enumerated, or an explicit "none">
 
-## Section C - the approved plan
+### Section C - the approved plan
 <the numbered per-file change list, the scope estimate and the named risk(s),
  exactly as approved>
 RECORD
 ```
+
+`begin-run` exits 1 when this worktree has no run identity - run Step 1's
+`reconcile` first. A record written before #1320 (no run markers) stays valid
+history, and reads as Run 1.
 
 Keep Section C as one numbered line per file, in the form ``N. `path` - gist``:
 Step 6 compares the diff against exactly those paths, and a line it cannot parse
@@ -642,7 +648,8 @@ the approval baseline (issues #1081, #1082):
 - exit 4 (`AS_READ: unresolved`) - the baseline is stamped but the snapshot says
   the issue could not be read. Proceed; Step 6 will report drift as unresolved,
   never clean.
-- exit 1 - there is no plan record to stamp. Write it first.
+- exit 1 - there is no plan record to stamp, or it has no section for THIS run
+  (a prior run's section does not count, #1320). Run `begin-run` and append it first.
 
 Background on the placement, the cap and the baseline is in
 [the plan-record reference](docs/agents/flow-plan-record.md) - not required reading.

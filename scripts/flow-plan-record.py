@@ -5,7 +5,9 @@ One helper owns what used to be six programs pasted into `flow/auto.md`
 (issues #1080, #1081, #1082). The agent calls a subcommand and reads its verdict;
 the reasoning behind each rule lives in `docs/agents/flow-plan-record.md`.
 
-    reconcile  ISSUE                    Step 1: restore the committed record, or remove scratch
+    reconcile  ISSUE                    Step 1: restore the committed record, or remove scratch;
+                                        mint or keep this run's identity (#1320)
+    begin-run  ISSUE                    Step 4: append this run's `## Run <n>` header (#1320)
     read-issue ISSUE [--body-file F]    Step 1: store the issue body as read, in the git dir
     approve    ISSUE                    Step 4: write the as-read snapshot, stamp the baseline
     drift      ISSUE [--live-file F]    Step 6: has the issue body moved since it was read?
@@ -41,6 +43,7 @@ import re
 import subprocess
 import sys
 import traceback
+import uuid
 from typing import NoReturn
 
 CAP = 16384
@@ -78,6 +81,117 @@ def snapshot_rel(issue: str) -> str:
     return f"docs/flow-runs/issue-{issue}.as-read.md"
 
 
+# ---------------------------------------------------------------- run identity (#1320)
+#
+# THE RECORD WAS KEYED ON THE ISSUE, SO A SECOND RUN WAS SATISFIED BY THE FIRST.
+# `reconcile` restores the committed record for any run, and step3-record-guard
+# allowed an edit on any `Approval: granted` - so a second /flow:auto run on an
+# issue could edit before anyone approved ITS plan. Measured by w1 on #1320 too:
+# with two plans in one file, compliance compared the diff against the UNION of
+# both Section C lists, and appending the second plan tripped the first run's
+# stability check.
+#
+# A RUN is one driving session in one worktree. `reconcile` (Step 1, every lane)
+# mints its id into the PER-WORKTREE git dir and KEEPS it when the same session
+# reconciles again (a resume). The record and the as-read snapshot become
+# append-only: each run's part begins with a marker line naming its id, and every
+# check reads ONLY the current run's part. A file with no markers is a legacy
+# (pre-#1320) record and is exactly one run.
+#
+# THE MARKER IS AN HTML COMMENT, not a heading: the snapshot embeds the issue
+# BODY, and an issue can contain any heading, including `## Run 2`.
+
+RUN_MARKER_RE = re.compile(r"^<!-- flow-run n=(\d+) id=([0-9a-f]{32}) -->$", re.M)
+RECORD_PREAMBLE = """# Flow run record - issue #{issue}
+
+HISTORICAL RECORD of what was agreed BEFORE the code was written, at the base SHA
+each run below names. It is not a description of the shipped system, it is not a
+second statement of the issue contract or of a Tier 3 spec, and it does not
+graduate. APPEND-ONLY (#1320): each /flow:auto run adds its own `## Run <n>`
+section; nothing earlier is edited, and every check reads only its own run.
+"""
+
+
+def run_state_path(issue: str) -> pathlib.Path:
+    return git_dir() / f"flow-plan-run-{issue}"
+
+
+def read_run_state(issue: str) -> dict[str, str] | None:
+    """This worktree's run identity, or None when no run has been started here."""
+    path = run_state_path(issue)
+    if not path.is_file():
+        return None
+    state: dict[str, str] = {}
+    for line in path.read_text().splitlines():
+        key, _, value = line.partition("=")
+        state[key] = value
+    return state if re.fullmatch(r"[0-9a-f]{32}", state.get("run_id", "")) else None
+
+
+def current_run_id(issue: str) -> str | None:
+    state = read_run_state(issue)
+    return state["run_id"] if state else None
+
+
+def split_runs(text: str) -> list[tuple[int, str | None, str]]:
+    """`(n, run_id, section_text)` per run; a file with no markers is ONE legacy run."""
+    marks = list(RUN_MARKER_RE.finditer(text))
+    if not marks:
+        return [(1, None, text)]
+    out: list[tuple[int, str | None, str]] = []
+    for i, m in enumerate(marks):
+        end = marks[i + 1].start() if i + 1 < len(marks) else len(text)
+        out.append((int(m.group(1)), m.group(2), text[m.start():end]))
+    return out
+
+
+def select_run(text: str, run_id: str | None) -> tuple[str | None, str]:
+    """This run's part of `text`, or `(None, why)`. Never another run's part."""
+    runs = split_runs(text)
+    legacy = len(runs) == 1 and runs[0][1] is None
+    if run_id is None:
+        if legacy:
+            return runs[0][2], "legacy record (no run identity in this worktree)"
+        return None, ("this worktree has no run identity, so it cannot tell which run's "
+                      "section is its own - run `flow-plan-record.py reconcile`")
+    for _n, rid, section in runs:
+        if rid == run_id:
+            return section, f"run {run_id}"
+    newest = runs[-1][1] or "a legacy (pre-#1320) record"
+    return None, (f"this run ({run_id}) has no section of its own; the newest belongs to "
+                  f"{newest}")
+
+
+def section_digest(section: str) -> str:
+    """sha256 of a run's section, blind to trailing blank lines ONLY.
+
+    A section ends where the next run's marker begins, and appending that run adds
+    a separating blank line to the END of this one. Without this, run 2 appending
+    tripped run 1's stability check - the exact defect #1320 fixes, reintroduced by
+    whitespace. Any other edit inside the section still changes the digest.
+    """
+    return hashlib.sha256(section.rstrip("\n").encode("utf-8")).hexdigest()
+
+
+def ensure_run(issue: str) -> tuple[str, bool]:
+    """Keep this worktree's run id for the SAME session, or mint a new one.
+
+    Keyed on CLAUDE_CODE_SESSION_ID (orchestrator ruling, #1320): a resume or a
+    compaction - including a kyle respawn via `claude --resume`, which preserves
+    the session id - keeps the run and is not re-gated. A different session is a
+    different run and needs its own approval. An UNSET or EMPTY session always
+    mints: an unknown identity must never inherit an approval.
+    """
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    state = read_run_state(issue)
+    if session and state and state.get("session", "") == session:
+        return state["run_id"], False
+    run_id = uuid.uuid4().hex
+    run_state_path(issue).write_text(
+        f"run_id={run_id}\nsession={session}\nminted_at={now()}\n")
+    return run_id, True
+
+
 def gh_body(issue: str) -> bytes | None:
     """The live issue body, or None when it could not be read."""
     try:
@@ -103,8 +217,9 @@ def cmd_reconcile(issue: str) -> int:
     if in_head:
         subprocess.run(["git", "checkout", "HEAD", "--", rec], cwd=root, check=True,
                        capture_output=True)
-        print(f"FLOW_PLAN_RECORD: restored {rec} (the last COMMITTED, approved record)")
-        return OK
+        print(f"FLOW_PLAN_RECORD: restored {rec} (the last COMMITTED record - HISTORY, "
+              "not this run's approval)")
+        return announce_run(issue)
     # --force: a staged version that matches neither HEAD nor the file on disk is
     # still scratch, and plain `rm --cached` REFUSES it - leaving it staged for
     # this run's commit while the file below is deleted (counter-model, #1211).
@@ -120,6 +235,39 @@ def cmd_reconcile(issue: str) -> int:
         print(f"FLOW_PLAN_RECORD: removed {rec} (scratch never committed on this branch)")
     else:
         print(f"FLOW_PLAN_RECORD: absent {rec} (no approved record on this branch)")
+    return announce_run(issue)
+
+
+def announce_run(issue: str) -> int:
+    run_id, minted = ensure_run(issue)
+    verb = "minted" if minted else "kept (same session)"
+    print(f"FLOW_PLAN_RUN: {verb} {run_id}")
+    return OK
+
+
+def cmd_begin_run(issue: str) -> int:
+    """Append this run's header to the record. Idempotent for the same run."""
+    run_id = current_run_id(issue)
+    if run_id is None:
+        print("FLOW_PLAN_RECORD: error - this worktree has no run identity. Run "
+              f"`flow-plan-record.py reconcile {issue}` (Step 1) first.")
+        return ERROR
+    rec = toplevel() / record_rel(issue)
+    text = rec.read_text() if rec.exists() else ""
+    runs = split_runs(text) if text.strip() else []
+    if any(rid == run_id for _n, rid, _s in runs):
+        print(f"FLOW_PLAN_RECORD: run {run_id} already has its section in {record_rel(issue)}")
+        return OK
+    n = (max(num for num, _r, _s in runs) + 1) if runs else 1
+    if not text.strip():
+        text = RECORD_PREAMBLE.format(issue=issue)
+    elif not text.endswith("\n"):
+        text += "\n"
+    text += f"\n<!-- flow-run n={n} id={run_id} -->\n## Run {n}\n\n- Run-id:            {run_id}\n"
+    rec.parent.mkdir(parents=True, exist_ok=True)
+    rec.write_text(text)
+    print(f"FLOW_PLAN_RECORD: began run {n} ({run_id}) in {record_rel(issue)} - append its "
+          "fields, Section B and Section C below the header")
     return OK
 
 
@@ -186,6 +334,14 @@ def cmd_approve(issue: str) -> int:
         print(f"FLOW_PLAN_RECORD: error - no plan record at {record_rel(issue)}. Write the "
               "approved plan first; there is nothing to stamp.")
         return ERROR
+    run_id = current_run_id(issue)
+    section, why = select_run(plan.read_text(), run_id)
+    if section is None:
+        # A prior run's approval is not this run's (#1320): stamping it would make
+        # every later check describe someone else's plan.
+        print(f"FLOW_PLAN_RECORD: error - {why}. Run `flow-plan-record.py begin-run "
+              f"{issue}` and write this run's approved plan below its header first.")
+        return ERROR
 
     base = store_base(issue)
     body_p, meta_p, upd_p = (base.with_suffix(s) for s in (".body", ".meta", ".updated"))
@@ -199,9 +355,16 @@ def cmd_approve(issue: str) -> int:
     out = root / snapshot_rel(issue)
     out.parent.mkdir(parents=True, exist_ok=True)
     head = f"# Issue #{issue} as read by this run\n"
+    body_heading = "\n## Body as read\n"
+    if run_id is not None:
+        # APPEND-ONLY, like the record: this run's read is its own section, and a
+        # later run's read never overwrites or merges with it (#1320).
+        n = next(num for num, rid, _s in split_runs(plan.read_text()) if rid == run_id)
+        head = f"<!-- flow-run n={n} id={run_id} -->\n## Run {n} - issue #{issue} as read\n"
+        body_heading = "\n### Body as read\n"
     code = OK
     if not body_p.exists() or not digest:
-        out.write_text(head + UNRESOLVED_SNAPSHOT)
+        write_run_part(out, run_id, head + UNRESOLVED_SNAPSHOT)
         print(f"AS_READ: unresolved - wrote an UNRESOLVED snapshot to {snapshot_rel(issue)}")
         code = UNKNOWN
     else:
@@ -225,7 +388,7 @@ def cmd_approve(issue: str) -> int:
             f"- updatedAt:    {updated}   (context only - moves on comments and labels)\n",
             f"- Body digest:  {digest}   (sha256 of the FULL body; the verdict keys on this)\n",
             f"- Stored bytes: {len(cut)} of {len(raw)} (cap {CAP})\n",
-            "\n## Body as read\n",
+            body_heading,
             cut.decode("utf-8"),
         ]
         if truncated:
@@ -235,13 +398,35 @@ def cmd_approve(issue: str) -> int:
                 " The digest above covers the FULL body, so drift beyond this point is still\n"
                 " DETECTED; it just cannot be LOCALISED from this copy.]\n"
             )
-        out.write_text("".join(parts))
+        write_run_part(out, run_id, "".join(parts))
         print(f"AS_READ: snapshot written to {snapshot_rel(issue)}")
 
-    stamp = hashlib.sha256(plan.read_bytes()).hexdigest()
-    (git_dir() / f"flow-plan-baseline-{issue}").write_text(stamp + "\n")
+    # The baseline is THIS RUN'S SECTION, not the whole file: a later run appending
+    # its own section must not trip this run's stability check (w1, #1320). A legacy
+    # record keeps the whole-file digest it always had.
+    if run_id is None:
+        stamp = hashlib.sha256(plan.read_bytes()).hexdigest()
+    else:
+        stamp = section_digest(section)
+    (git_dir() / f"flow-plan-baseline-{issue}").write_text(f"{stamp} {run_id or '-'}\n")
     print(f"FLOW_PLAN_RECORD: baseline stamped {stamp}")
     return code
+
+
+def write_run_part(out: pathlib.Path, run_id: str | None, part: str) -> None:
+    """Legacy: the file IS the part. A run: keep every OTHER run's part, replace ours."""
+    if run_id is None:
+        out.write_text(part)
+        return
+    existing = out.read_text() if out.exists() else ""
+    runs = split_runs(existing) if existing.strip() else []
+    if runs and runs[0][1] is not None:
+        kept = "".join(sec for _n, rid, sec in runs if rid != run_id)
+    else:
+        kept = existing                  # a legacy snapshot is history: kept whole
+    if kept and not kept.endswith("\n"):
+        kept += "\n"
+    out.write_text(kept + ("\n" if kept else "") + part)
 
 
 # ---------------------------------------------------------------- drift (#1081)
@@ -256,10 +441,14 @@ def cmd_drift(issue: str, live_file: str | None) -> int:
     snap_p = toplevel() / snapshot_rel(issue)
     if not snap_p.exists():
         drift_unresolved("no as-read snapshot on this branch")
-    text = snap_p.read_text()
+    selected, why = select_run(snap_p.read_text(), current_run_id(issue))
+    if selected is None:
+        drift_unresolved(f"the snapshot has no part for this run: {why}")
+    text = selected
+    body_split = re.compile(r"\n#{2,3} Body as read\n")
 
     # Parse the METADATA SECTION ONLY: issue prose quoting a digest line is not metadata.
-    meta_section = text.split("\n## Body as read\n", 1)[0]
+    meta_section = body_split.split(text, 1)[0]
     found = re.findall(r"^- Body digest:\s+([0-9a-f]{64})\b", meta_section, re.M)
     if len(found) != 1:
         drift_unresolved(f"snapshot carries {len(found)} usable digests, expected exactly 1")
@@ -287,7 +476,8 @@ def cmd_drift(issue: str, live_file: str | None) -> int:
         return OK
 
     print("ISSUE_DRIFT: drift - the issue body changed since this run read it.")
-    stored = text.split("\n## Body as read\n", 1)[1] if "\n## Body as read\n" in text else ""
+    halves = body_split.split(text, 1)
+    stored = halves[1] if len(halves) == 2 else ""
     stored = re.sub(r"\n\[TRUNCATED at .*?\]\n", "", stored, flags=re.S)
     was_truncated = "[TRUNCATED at " in text
     # Compare LIKE WITH LIKE: the stored copy is a PREFIX of a truncated body.
@@ -367,9 +557,14 @@ def cmd_compliance(issue: str, base: str | None) -> int:
     plan = root / record_rel(issue)
     if not plan.is_file():
         compliance_unknown(f"no plan record at {record_rel(issue)} - nothing to compare against")
-    text = plan.read_text()
+    selected, why = select_run(plan.read_text(), current_run_id(issue))
+    if selected is None:
+        # NEVER the union of runs' plans (w1's measurement, #1320): each run is
+        # compared against its own Section C, or the comparison cannot be made.
+        compliance_unknown(f"no plan section for this run: {why}")
+    text = selected
     if "## Section C" not in text:
-        compliance_unknown("the plan record carries no Section C - it cannot be parsed")
+        compliance_unknown("this run's plan section carries no Section C - it cannot be parsed")
 
     # EVERY numbered line must parse, or agreement means "the subset I understood".
     section = text.split("## Section C", 1)[1]
@@ -478,7 +673,19 @@ def stability_check(issue: str, plan: pathlib.Path) -> int:
     was = words[0] if words else ""
     if not was:
         return stability_unknown("the baseline file carries no digest")
-    if hashlib.sha256(plan.read_bytes()).hexdigest() == was:
+    stamped_run = words[1] if len(words) > 1 and words[1] != "-" else None
+    run_id = current_run_id(issue)
+    if stamped_run != run_id:
+        return stability_unknown(f"the stability digest belongs to a different run "
+                                 f"({stamped_run or 'legacy'}), not this one ({run_id or 'legacy'})")
+    if run_id is None:
+        current = hashlib.sha256(plan.read_bytes()).hexdigest()
+    else:
+        section, why = select_run(plan.read_text(), run_id)
+        if section is None:
+            return stability_unknown(why)
+        current = section_digest(section)
+    if current == was:
         print("PLAN_RECORD_STABILITY: unchanged since it was approved at Step 4")
         return OK
     print("PLAN_RECORD_STABILITY: THE PLAN RECORD CHANGED since Step 4.")
@@ -516,7 +723,21 @@ def cmd_head_check(issue: str, head: str | None) -> int:
                       capture_output=True).returncode != 0:
         print(f"FLOW_PLAN_RECORD: absent - {rec} does not exist at the PR head ({head}). STOP.")
         return ERROR
-    print(f"FLOW_PLAN_RECORD: present - {rec} exists at the PR head ({head}).")
+    run_id = current_run_id(issue)
+    if run_id is not None:
+        # The FILE existing is not enough once runs share it (#1320): a prior run's
+        # record at the head would otherwise pass for this run's.
+        at_head = subprocess.run(["git", "show", f"{head}:{rec}"], capture_output=True,
+                                 text=True)
+        if at_head.returncode != 0:
+            print(f"FLOW_PLAN_RECORD: unverified - could not read {rec} at {head}.")
+            return UNKNOWN
+        found, why = select_run(at_head.stdout, run_id)
+        if found is None:
+            print(f"FLOW_PLAN_RECORD: absent - {rec} is at the PR head ({head}) but {why}. STOP.")
+            return ERROR
+    print(f"FLOW_PLAN_RECORD: present - {rec} exists at the PR head ({head})"
+          + (f" with this run's section ({run_id})." if run_id else "."))
     return OK
 
 
@@ -525,7 +746,7 @@ def cmd_head_check(issue: str, head: str | None) -> int:
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="flow-plan-record.py", description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("reconcile", "approve"):
+    for name in ("reconcile", "approve", "begin-run"):
         sub.add_parser(name).add_argument("issue")
     p = sub.add_parser("read-issue")
     p.add_argument("issue")
@@ -557,6 +778,8 @@ def main(argv: list[str]) -> int:
             return cmd_read_issue(args.issue, args.body_file)
         if args.cmd == "approve":
             return cmd_approve(args.issue)
+        if args.cmd == "begin-run":
+            return cmd_begin_run(args.issue)
         if args.cmd == "drift":
             return cmd_drift(args.issue, args.live_file)
         if args.cmd == "compliance":

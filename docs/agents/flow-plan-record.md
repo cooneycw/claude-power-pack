@@ -54,6 +54,51 @@ tracked record carrying uncommitted edits is restored to the committed version
 rather than kept, because the committed version is the one a reviewer actually
 signed - which also means this file is not a place to hand-edit between runs.
 
+## Run identity: whose approval is it (issue #1320)
+
+**The record used to be keyed on the issue, so a second run was satisfied by the
+first.** `reconcile` restores the last committed record for ANY run, and
+`step3-record-guard.sh` allowed an edit on any `- Approval: granted` line. A
+second `/flow:auto` run on an issue (a different session, or a re-run) could
+therefore edit before anyone approved ITS plan: the approval gate was skipped
+by being the second run. Separately, w1 measured (#1320) that two plans in one
+record were MERGED by `compliance` into one planned set, and that appending the
+second plan tripped the first run's stability check.
+
+**A run is one driving session in one worktree.** `reconcile` writes
+`flow-plan-run-<N>` into the PER-WORKTREE git dir (`run_id`, `session`,
+`minted_at`) and prints `FLOW_PLAN_RUN: minted <id>` or `kept (same session)`:
+
+- the same `CLAUDE_CODE_SESSION_ID` keeps the id: a resume, a compaction, a
+  kyle respawn via `claude --resume` (which preserves the session id). An
+  approved run is not re-gated;
+- a different session mints a new id, and that run needs its own approval;
+- an UNSET or EMPTY session ALWAYS mints: an unknown identity never inherits
+  an approval.
+
+**The record and the snapshot are append-only.** Each run's part begins with a
+marker line, `<!-- flow-run n=<n> id=<id> -->`, followed by `## Run <n>`.
+`begin-run` writes that header (creating the file with its preamble on a first
+run); Step 4 then appends the run's fields, `### Section B evidence` and
+`### Section C - the approved plan`. The marker is an HTML COMMENT, not a
+heading, because the as-read snapshot embeds the issue BODY, and an issue can
+contain any heading, including `## Run 2`.
+
+**Every check reads only this run's section:** the Step-3 guard, `approve`,
+`compliance`, the stability baseline, `drift` and `head-check`. None of them
+ever reads the union of runs. A run with no section of its own is refused
+(guard, `approve`, `head-check`) or reported `unknown` (`compliance`,
+stability, `drift`), never compared against a prior run's plan. The stability
+digest covers the run's SECTION with trailing blank lines ignored, so a later
+run appending (which adds a separating blank line) does not move it.
+
+**The transition bound** (orchestrator ruling). A record with no markers is a
+legacy, pre-#1320 record and reads as Run 1. In a worktree with NO run file it is
+allowed on its approval exactly as before, so runs already in flight when this
+shipped keep editing. The moment `reconcile` mints an id there, the strict rule
+applies. A second run that follows Step 1 is therefore gated. One that skips
+Step 1 never was, by this guard or any Step-1 control: the guard is a floor.
+
 ## Read the issue body, and record WHEN (`read-issue`, Step 1, issue #1081)
 
 A run's stage-1 facts all live in a GitHub issue body: mutable, carrying no SHA,
