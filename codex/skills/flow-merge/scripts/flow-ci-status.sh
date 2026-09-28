@@ -435,28 +435,46 @@ if command -v "$WPCLI_BIN" >/dev/null 2>&1; then
 fi
 
 # ── GitHub Actions fallback ────────────────────────────────────────────────
+# The run LIST is fetched and filtered here rather than asking gh for `.[0]`,
+# so --strict-event can hold on this lane too (counter-model review, #1300): a
+# successful push workflow must not end a wait for the pull_request lane. A
+# provider that answers with no run on the required event is `not-found`, and a
+# --wait keeps waiting for it; the event is a preference without --strict-event.
+gha_runs() {
+    "$GH_BIN" run list --repo "$REPO" --commit "$SHA" \
+        --json status,conclusion,databaseId,url,event 2>/dev/null
+}
+gha_pick() {
+    jq -c --arg ev "$PREFER_EVENT" --argjson strict "$STRICT_EVENT" \
+        'if $strict == 1 then [.[] | select(.event == $ev)] else (sort_by(.event != $ev)) end | .[0]' \
+        <<<"$1" 2>/dev/null
+}
 if [[ "$HAVE_JQ" -eq 1 ]] && command -v "$GH_BIN" >/dev/null 2>&1; then
-    RUN_JSON="$("$GH_BIN" run list --repo "$REPO" --commit "$SHA" \
-        --json status,conclusion,databaseId,url --jq '.[0]' 2>/dev/null)"
-    if [[ -n "$RUN_JSON" && "$RUN_JSON" != "null" ]]; then
+    ALL_RUNS="$(gha_runs)"
+    if [[ -n "$ALL_RUNS" && "$(jq -r 'if type == "array" then length else 0 end' <<<"$ALL_RUNS" 2>/dev/null)" -gt 0 ]]; then
         PROVIDER="github-actions"
         DEADLINE=$(( $(date +%s) + WAIT_SECS ))
         while :; do
-            GH_STATUS="$(jq -r '.status // empty' <<<"$RUN_JSON")"
-            GH_CONCL="$(jq -r '.conclusion // empty' <<<"$RUN_JSON")"
-            PIPELINE="$(jq -r '.databaseId // "-"' <<<"$RUN_JSON")"
-            URL="$(jq -r '.url // "-"' <<<"$RUN_JSON")"
-            if [[ "$GH_STATUS" == "completed" ]]; then
-                [[ "$GH_CONCL" == "success" ]] && STATUS="success" || STATUS="failure"
-                [[ "$WAIT_SECS" -gt 0 ]] && WAIT_STATE="settled"
-                break
+            RUN_JSON="$(gha_pick "$ALL_RUNS")"
+            if [[ -z "$RUN_JSON" || "$RUN_JSON" == "null" ]]; then
+                PIPELINE="-"; URL="-"; STATUS="not-found"
+            else
+                GH_STATUS="$(jq -r '.status // empty' <<<"$RUN_JSON")"
+                GH_CONCL="$(jq -r '.conclusion // empty' <<<"$RUN_JSON")"
+                PIPELINE="$(jq -r '.databaseId // "-"' <<<"$RUN_JSON")"
+                URL="$(jq -r '.url // "-"' <<<"$RUN_JSON")"
+                if [[ "$GH_STATUS" == "completed" ]]; then
+                    [[ "$GH_CONCL" == "success" ]] && STATUS="success" || STATUS="failure"
+                    [[ "$WAIT_SECS" -gt 0 ]] && WAIT_STATE="settled"
+                    break
+                fi
+                STATUS="running"
             fi
-            STATUS="running"
             if [[ "$WAIT_SECS" -eq 0 ]]; then break; fi
             if [[ "$(date +%s)" -ge "$DEADLINE" ]]; then WAIT_STATE="expired (${WAIT_SECS}s)"; break; fi
             "$SLEEP_BIN" 15
-            RUN_JSON="$("$GH_BIN" run list --repo "$REPO" --commit "$SHA" \
-                --json status,conclusion,databaseId,url --jq '.[0]' 2>/dev/null)"
+            ALL_RUNS="$(gha_runs)"
+            [[ -n "$ALL_RUNS" ]] || ALL_RUNS="[]"
         done
         if [[ "$STATUS" == "failure" && "$PIPELINE" != "-" ]]; then
             while IFS= read -r step; do

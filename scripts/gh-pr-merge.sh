@@ -799,14 +799,16 @@ wait_for_required_checks() {
 #     that blocks a PR whose posture it cannot even see.
 wait_for_observed_checks() {
     local delay="${GH_PR_MERGE_CHECK_DELAY:-10}"
-    local i line name state pending failed announced=0
+    local i line name state pending failed observed announced=0
     [[ -n "$WAIT_CI_SECS" ]] && WAIT_DEADLINE=$(( $(now_epoch) + WAIT_CI_SECS ))
 
     for ((i = 1; ; i++)); do
         pending=""
         failed=""
+        observed=0
         while IFS= read -r line; do
             [[ -z "$line" ]] && continue
+            observed=$(( observed + 1 ))
             name="${line%%|*}"
             state="${line##*|}"
             case "${state^^}" in
@@ -833,12 +835,16 @@ wait_for_observed_checks() {
             # enumerable posture and an empty rollup, the #610 fail-open still
             # proceeds - GitHub enforces the posture at squash time - but the
             # marker must not claim a check passed when none was seen.
-            if [[ -n "$(check_states)" ]]; then
+            # Decided from THE SNAPSHOT JUST CLASSIFIED (counter-model review,
+            # pass 2) - a second read could differ from the one judged green.
+            if (( observed > 0 )); then
                 echo "GH_PR_MERGE_CI_WAIT: green"
             else
                 echo "GH_PR_MERGE_CI_WAIT: none-observed"
             fi
-            (( announced )) && echo "note: reported check(s) are green; merging." >&2
+            if (( announced && observed > 0 )); then
+                echo "note: reported check(s) are green; merging." >&2
+            fi
             return 0
         fi
         wait_budget_left "$i" || break

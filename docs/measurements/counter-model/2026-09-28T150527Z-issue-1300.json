@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1300-gh-pr-merge-sh-clean-stops-repeatedly-when-pr-ci-o",
+  "counts": {
+    "accepted": 6,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "017527b3ab4e16444a099f2d0112e847dbbf5f9a",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1300",
+  "passes": 2,
+  "recorded_at": "2026-09-28T15:05:27Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 9
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/09/28/rollout-2026-09-28T15-01-56-01a0e889-6f4b-7832-8104-ea06988d0017.jsonl",
+    "thread_id": "01a0e889-6f4b-7832-8104-ea06988d0017"
+  },
+  "schema": 1,
+  "status": "ran"
+}

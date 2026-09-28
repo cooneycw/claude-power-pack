@@ -3535,3 +3535,15 @@ def test_an_EMPTY_observed_rollup_is_none_observed_never_green(tmp_path: Path):
     assert result.returncode == 0, result.stderr  # the #610 fail-open is unchanged
     assert "GH_PR_MERGE_CI_WAIT: none-observed" in result.stdout
     assert "GH_PR_MERGE_CI_WAIT: green" not in result.stdout
+
+
+def test_the_observed_verdict_comes_from_the_snapshot_it_classified(tmp_path: Path):
+    """Counter-model review pass 2 of #1300: an empty snapshot was followed by a
+    SECOND read, and a pending check appearing in it printed `green`."""
+    stubs = _make_stubs(
+        tmp_path, protection_ok=False, ruleset_ok=False,
+        check_rollup=[[], [("ci/late", "PENDING")]],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1300-fix")
+    assert "GH_PR_MERGE_CI_WAIT: none-observed" in result.stdout, result.stdout
+    assert "GH_PR_MERGE_CI_WAIT: green" not in result.stdout
