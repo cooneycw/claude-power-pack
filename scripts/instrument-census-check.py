@@ -210,10 +210,14 @@ MAKE_SUBJECT_PREFIX = "make:"
 #: ONE rule a marker can sit beside.
 MAKE_TARGET_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 
-#: A rule line: one or more target names, a colon that is not an assignment
-#: (`:=`, `::=`), then prerequisites. Recipe lines start with a tab and never
-#: match, because the class excludes whitespace at column 0.
-_MAKE_RULE_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9_. -]*?)\s*::?(?!=)")
+#: The target-name head of a rule line, up to its first colon. Whether that
+#: colon opens a RULE or an ASSIGNMENT (`:=`, `::=`, `:::=`) is decided in
+#: `make_rule_targets`, not by a lookahead here: `::?(?!=)` backtracks on
+#: `x ::= v` to a single colon followed by a colon, and read an immediate
+#: assignment as a rule (counter-model review, #1276). Recipe lines start with a
+#: tab and never match, because the class excludes whitespace at column 0.
+_MAKE_RULE_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9_. -]*?)\s*(?=:)")
+_MAKE_ASSIGN_OPS = (":=", "::=", ":::=")
 
 #: The keys a typed gate object may carry. CLOSED: an unknown key is REFUSED,
 #: never ignored, because a reader that ignored it would score a control against
@@ -230,6 +234,8 @@ def make_rule_targets(line: str) -> list[str]:
         return []
     match = _MAKE_RULE_RE.match(line)
     if not match:
+        return []
+    if line[match.end():].startswith(_MAKE_ASSIGN_OPS):
         return []
     return [name for name in match.group(1).split() if MAKE_TARGET_RE.fullmatch(name)]
 
@@ -308,7 +314,9 @@ def parse_gate(value: object) -> tuple[GateRef | None, str | None]:
             "and an unread key is refused rather than ignored"
         )
     kind = value.get("kind")
-    if kind not in GATE_KINDS:
+    # A string first: `kind in GATE_KINDS` on a JSON list raises TypeError, and a
+    # closed-schema guard that crashes gives no diagnostic at all (review).
+    if not isinstance(kind, str) or kind not in GATE_KINDS:
         return None, (
             f"control.json `gate` kind {kind!r} is not a known kind "
             f"({', '.join(sorted(GATE_KINDS))}); refused rather than guessed at"

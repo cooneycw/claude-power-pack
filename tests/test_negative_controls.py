@@ -3741,3 +3741,26 @@ def test_the_scope_line_names_every_kind_it_read(tmp_path: Path) -> None:
     scope = contract(run_harness(root).stdout, "NEGATIVE_CONTROL_DISCOVERY_SCOPE") or ""
     assert "scripts/*" in scope and "Makefile targets" in scope, scope
     assert "lib/" not in scope, scope
+
+
+def test_an_unreadable_Makefile_is_UNREAD_not_empty(tmp_path: Path) -> None:
+    """Counter-model review (#1276): unread registrations are not absent ones."""
+    root = build_tree(tmp_path, SEEING_GATE)
+    write_census(root, ["toy-gate.py"])
+    (root / "Makefile").write_bytes(b"\xff\xfe not utf-8\n")
+    out = run_harness(root, "--strict")
+    assert verdict_of(out.stdout) == "PASS", out.stdout
+    assert "NEGATIVE_CONTROL_DISCOVERY_UNREAD: Makefile" in out.stdout, out.stdout
+    assert out.returncode == 1, out.stdout
+
+
+@requires_make
+def test_a_multi_target_rule_counts_the_target_the_manifest_names(tmp_path: Path) -> None:
+    """Adding a neighbour to the rule must not change which gate is registered."""
+    root = build_make_tree(tmp_path, makefile=MK_SEEING.replace("toy-check:\n", "toy-check sibling:\n", 1))
+    write_census(root, ["make toy-check", "unregistered.sh"])
+    out = run_harness(root, "--strict")
+    assert verdict_of(out.stdout) == "PASS", out.stdout
+    assert contract(out.stdout, "NEGATIVE_CONTROL_CENSUS_MEMBERS") == "1", out.stdout
+    assert "NONMEMBER_REFUSED" not in out.stdout, out.stdout
+    assert out.returncode == 0, out.stdout

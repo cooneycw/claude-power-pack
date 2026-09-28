@@ -820,14 +820,28 @@ def adjacent_targets(makefile: Path, control_rel: str) -> tuple[list[str], str |
 
 
 def registration_subject(path: Path, control_rel: str) -> str:
-    """The census subject a registration is about: a file name, or `make:<target>`."""
-    if _makefile_registration(path):
-        targets, _why = adjacent_targets(path, control_rel)
-        prefix = getattr(_census_rule(), "MAKE_SUBJECT_PREFIX", "make:")
-        if len(targets) == 1:
-            return f"{prefix}{targets[0]}"
-        return f"{prefix}?"
-    return path.name
+    """The census subject a registration is about: a file name, or `make:<target>`.
+
+    For a Makefile registration the target comes from the MANIFEST, checked
+    against the rule the marker sits above - not from the rule alone, because a
+    rule may define several targets (`alpha beta:`) and adding a neighbour to it
+    must not change which gate is registered (counter-model review, #1276). A
+    manifest that cannot be read, or names a target the rule does not define,
+    reads `make:?`: never a member, so it FAILS rather than guessing.
+    """
+    if not _makefile_registration(path):
+        return path.name
+    rule = _census_rule()
+    prefix = getattr(rule, "MAKE_SUBJECT_PREFIX", "make:")
+    targets, _why = adjacent_targets(path, control_rel)
+    try:
+        spec = json.loads((path.parent / control_rel / "control.json").read_text(encoding="utf-8"))
+        gate_ref, _gate_why = rule.parse_gate(spec.get("gate", "")) if rule is not None else (None, None)
+    except (OSError, ValueError, AttributeError):
+        gate_ref = None
+    if gate_ref is not None and gate_ref.kind == "make-target" and gate_ref.target in targets:
+        return f"{prefix}{gate_ref.target}"
+    return f"{prefix}?"
 
 
 def census_membership(
@@ -875,6 +889,7 @@ def discover(root: Path) -> list[tuple[Path, str]]:
     authoritative number.
     """
     found: list[tuple[Path, str]] = []
+    DISCOVERY_UNREAD.clear()
     scripts_dir = root / "scripts"
     if not scripts_dir.is_dir():
         return found
@@ -896,11 +911,20 @@ def discover(root: Path) -> list[tuple[Path, str]]:
     if makefile is not None and makefile.is_file():
         try:
             text = makefile.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError) as exc:
+            # UNREAD, NOT EMPTY (counter-model review): an unreadable Makefile
+            # would otherwise drop every make-target registration while the
+            # scope line still claimed Makefile targets were searched. `main`
+            # reports it and fails a --strict run.
+            DISCOVERY_UNREAD.append(f"{makefile.name}: {type(exc).__name__}: {exc}")
             text = ""
         for match in REGISTRATION_RE.finditer(text):
             found.append((makefile, match.group("path")))
     return found
+
+
+#: Sources `discover` could not read on its last run (#1276). Reset by it.
+DISCOVERY_UNREAD: list[str] = []
 
 
 #: Stands in for an exit code when the invocation could not be executed AT ALL -
@@ -2233,6 +2257,11 @@ def main(argv: list[str] | None = None) -> int:
     # the count as a statement about the repository; it is a statement about
     # `scripts/`.
     scope_line = f"NEGATIVE_CONTROL_DISCOVERY_SCOPE: {discovery_scope()}"
+    # A source that could not be read is stated beside the scope it belongs to,
+    # and fails a --strict run: its registrations are UNREAD, not absent (#1276).
+    unread_sources = list(DISCOVERY_UNREAD)
+    for why in unread_sources:
+        scope_line += f"\nNEGATIVE_CONTROL_DISCOVERY_UNREAD: {why}"
 
     if not registrations:
         print("NEGATIVE_CONTROL_SOURCE: " + stamp)
@@ -2451,7 +2480,10 @@ def main(argv: list[str] | None = None) -> int:
     if refused_nonmembers and not args.quiet:
         print(f"negative-controls: {len(refused_nonmembers)} make-target registration(s) "
               f"OUTSIDE the census: {', '.join(refused_nonmembers)}")
-    return 1 if ((failing or refused_nonmembers) and args.strict) else 0
+    if unread_sources and not args.quiet:
+        print(f"negative-controls: {len(unread_sources)} discovery source(s) could not be read - "
+              "their registrations are UNREAD, not absent: " + "; ".join(unread_sources))
+    return 1 if ((failing or refused_nonmembers or unread_sources) and args.strict) else 0
 
 
 if __name__ == "__main__":

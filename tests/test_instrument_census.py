@@ -647,10 +647,31 @@ def test_a_make_row_with_no_makefile_is_not_confirmed(tmp_path, capsys):
         ({"kind": "make-target", "file": "Makefile"}, False),
         (["scripts/x.py"], False),
         ("", False),
+        ({"kind": [], "file": "Makefile", "target": "verify"}, False),
+        ({"kind": {}, "file": "Makefile", "target": "verify"}, False),
     ],
-    ids=["path", "typed", "unknown-key", "unknown-kind", "no-target", "list", "empty"],
+    ids=["path", "typed", "unknown-key", "unknown-kind", "no-target", "list", "empty", "kind-list", "kind-object"],
 )
 def test_parse_gate_has_a_closed_schema(value, ok):
     gate, why = icc.parse_gate(value)
     assert (gate is not None) == ok, why
     assert (why is None) == ok
+
+
+@pytest.mark.parametrize(
+    ("line", "targets"),
+    [
+        ("verify: lint", ["verify"]),
+        ("verify:: lint", ["verify"]),
+        ("alpha beta: x", ["alpha", "beta"]),
+        ("verify := value", []),
+        ("verify ::= value", []),
+        ("verify :::= value", []),
+        ("verify:=value", []),
+        ("\tverify:", []),
+        ("%.o: %.c", []),
+    ],
+)
+def test_an_assignment_is_never_read_as_a_rule(line, targets):
+    """Counter-model review (#1276): `x ::= v` backtracked into a rule match."""
+    assert icc.make_rule_targets(line) == targets

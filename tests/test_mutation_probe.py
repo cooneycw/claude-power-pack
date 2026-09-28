@@ -634,8 +634,9 @@ def test_the_snapshot_preserves_a_tracked_dangling_symlink(
     [
         ({"kind": "make-target", "file": "Makefile", "target": "t", "extra": 1}, "unknown key(s) extra"),
         ({"kind": "lib-module", "file": "Makefile", "target": "t"}, "not a known kind"),
+        ({"kind": [], "file": "Makefile", "target": "t"}, "not a known kind"),
     ],
-    ids=["unknown-key", "unknown-kind"],
+    ids=["unknown-key", "unknown-kind", "kind-list"],
 )
 def test_a_malformed_typed_gate_is_UNRESOLVED_not_a_path(tmp_path: Path, gate: object, why: str) -> None:
     root = _tree(tmp_path, good_case=True, mutations=[COMMENT_REJECTION])
