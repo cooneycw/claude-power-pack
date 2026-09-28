@@ -60,6 +60,14 @@ def trigger_violations(when: Any) -> list[str]:
             continue
         branches = entry.get("branch")
         branch_list = None if branches is None else _as_list(branches)
+        # An EMPTY or non-string filter is a shape whose Woodpecker meaning this
+        # check cannot vouch for - an empty filter may match everything - so it
+        # is refused, never read as "matches nothing" (counter-model re-review).
+        if branch_list is not None and (
+            not branch_list or not all(isinstance(b, str) and b for b in branch_list)
+        ):
+            violations.append(f"cannot classify entry {n}: `branch` is empty or not a string")
+            continue
         if "push" in events:
             # An unfiltered push, or one listing main among others, DOES run on
             # main - so main is covered - and ALSO runs elsewhere, which is the
@@ -119,6 +127,11 @@ PRE_1308 = [{"event": ["push", "pull_request"]}]
             "cannot classify entry 2",
         ),
         ([{"event": "pull_request"}, "push"], "cannot classify entry 2"),
+        (
+            [{"event": "pull_request"}, {"event": "push", "branch": "main"}, {"event": "push", "branch": []}],
+            "cannot classify entry 3",
+        ),
+        ([{"event": "pull_request"}, {"event": "push", "branch": ["main", ""]}], "cannot classify entry 2"),
     ],
 )
 def test_each_way_the_trigger_can_be_wrong_is_reported(when: Any, expected: str) -> None:
