@@ -458,13 +458,18 @@ MUTATION_SCRIPT = "mutation-probe.py"
 #: The `uv run --extra dev python` chain is how this repository's pipeline runs
 #: Python; a mention as an argument to anything else is not an invocation.
 MUTATION_INVOCATION_RE = re.compile(
-    rf"""^\s*(?:PATH=\S+\s+)*
+    rf"""^\s*(?:env\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*
          (?:uv\s+run\s+(?:--[\w-]+(?:\s+(?!python)[^\s-]\S*)?\s+)*)?
-         (?:python3?\s+)?
+         (?:python(?:3(?:\.\d+)?)?\s+(?:-[A-Za-z]+\s+)*)?
          \.?/?(?:\S*/)?{re.escape(MUTATION_SCRIPT)}(?:\s|$)
     """,
     re.VERBOSE,
 )
+
+#: Any mention at all. A command that MENTIONS the probe but does not match the
+#: invocation shape above is UNDECIDED, never "no step runs it" (review, #1268):
+#: an unrecognised execution must not read as an absent one.
+MUTATION_MENTION_RE = re.compile(rf"(?:^|[\s/]){re.escape(MUTATION_SCRIPT)}(?:\s|$)")
 
 
 def _depends_on(steps: dict[str, dict[str, object]], name: str, target: str) -> bool:
@@ -511,6 +516,15 @@ def mutation_environment(
         name for name, step in steps.items()
         if any(MUTATION_INVOCATION_RE.match(str(c)) for c in step["commands"])  # type: ignore[union-attr]
     ]
+    undecided = [
+        name for name, step in steps.items() if name not in matches
+        and any(MUTATION_MENTION_RE.search(str(c)) for c in step["commands"])  # type: ignore[union-attr]
+    ]
+    if undecided:
+        return True, None, [
+            f"step(s) {', '.join(undecided)} mention {MUTATION_SCRIPT} in a form this gate cannot "
+            "classify as running it or not; UNKNOWN, not absent"
+        ]
     if not matches:
         return False, set(), ["no step runs mutation-probe.py, so no control's mutations run in CI"]
     if len(matches) > 1:
@@ -523,7 +537,9 @@ def mutation_environment(
     battery, _every = _battery_step(steps)
     commands = [str(c) for c in step["commands"]]  # type: ignore[union-attr]
     runs = [c for c in commands if MUTATION_INVOCATION_RE.match(c)]
-    ci_bin = bool(runs) and bool(CI_BIN_PREFIX_RE.match(runs[0]))
+    # EVERY invocation, not the first (review, #1268): a `PATH=` prefix is
+    # command-local, so a second run without it does not inherit the first's.
+    ci_bin = bool(runs) and all(CI_BIN_PREFIX_RE.match(c) for c in runs)
     if battery is not None and ci_bin and _depends_on(steps, name, battery[0]):
         notes.append(f"CI_DEPS_MUTATION_STEP: {name} ({image}), after `{battery[0]}` with .ci-bin on PATH")
         return True, set(battery_provided), notes

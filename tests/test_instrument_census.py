@@ -749,3 +749,12 @@ def test_retired_rows_are_outside_the_denominator():
     retired, found = icc.retired_rows(text)
     assert found and {n for n, _ in retired} >= {32, 45}
     assert not {n for n, _ in retired} & {icc.row_number(r) for r in icc.census_rows(text)}
+
+
+def test_comment_removal_never_swallows_visible_text_between_comments(tmp_path):
+    """Review pass 1 (#1268): a lazy DOTALL comment pattern ran past an earlier `-->`
+    and removed the visible paragraph that ends the census table."""
+    rows = "| 1 | `alpha.sh` | v | c | G |\n"
+    tail = "<!-- note --> a visible paragraph ends the table\n<!-- later -->\n| 2 | `ghost.sh` | v | c | G |\n"
+    root = _tree(tmp_path, ["alpha.sh"], _adr(rows=rows + tail))
+    assert icc.census_subjects((root / icc.ADR_REL).read_text(encoding="utf-8")) == ["alpha.sh"]

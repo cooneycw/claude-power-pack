@@ -374,7 +374,10 @@ RETIRED_HEADING_RE = re.compile(r"^#{2,}\s+Retired,\s+with\s+the\s+issue\s+that\
 
 #: A line that is ONLY an HTML comment. Removed as a line, not blanked, so a
 #: comment inside a table does not end the table early.
-COMMENT_LINE_RE = re.compile(r"^[ \t]*<!--.*?-->[ \t]*$\n?", re.MULTILINE | re.DOTALL)
+#: `(?:(?!-->).)*` and not `.*?`: a lazy DOTALL body could run PAST an earlier
+#: `-->` to find a later one ending a line, swallowing the visible text between
+#: two comments - including the line that ends the census table (review, #1268).
+COMMENT_LINE_RE = re.compile(r"^[ \t]*<!--(?:(?!-->).)*-->[ \t]*$\n?", re.MULTILINE | re.DOTALL)
 
 #: The exclusions table's heading. Its rows are a different shape from the
 #: census's - population in column 1, reason in column 2, no row number - so it
