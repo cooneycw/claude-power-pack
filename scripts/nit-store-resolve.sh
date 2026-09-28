@@ -48,8 +48,17 @@ none() { echo "NIT_STORE_STATUS: none - $*; file the finding as a normal issue";
 
 if [ -z "$REPO" ]; then
     url=$(git remote get-url origin 2>/dev/null || true)
-    REPO=$(printf '%s\n' "$url" | sed -nE 's#^.*github\.com[:/]+([^/]+/[^/]+)$#\1#p' | sed 's/\.git$//')
-    [ -n "$REPO" ] || REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)
+    if [ -n "$url" ]; then
+        # EXACT host: github.com and nothing that merely ends in it. An origin that
+        # exists but is not a github.com remote is unknown - never a guessed repo,
+        # because the number would be verified and posted somewhere unrelated.
+        REPO=$(printf '%s\n' "$url" | sed -nE \
+            -e 's#^https?://([^/@]+@)?github\.com/([^/]+/[^/]+)$#\2#p' \
+            -e 's#^(ssh://)?git@github\.com[:/]([^/]+/[^/]+)$#\2#p' | sed -e 's#/$##' -e 's/\.git$//')
+        [ -n "$REPO" ] || unknown "origin ($url) is not a github.com remote"
+    else
+        REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)
+    fi
 fi
 case "$REPO" in
     */*) ;;

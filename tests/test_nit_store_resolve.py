@@ -135,6 +135,8 @@ def test_an_unreadable_search_is_unknown(tmp_path: Path) -> None:
     "git@github.com:cooneycw/claude-power-pack.git",
     "https://github.com/cooneycw/claude-power-pack.git",
     "https://github.com/cooneycw/claude-power-pack",
+    "ssh://git@github.com/cooneycw/claude-power-pack.git",
+    "https://token@github.com/cooneycw/claude-power-pack.git",
 ])
 def test_the_repo_comes_from_origin_not_the_directory_name(tmp_path: Path, url: str) -> None:
     """Flow runs from a per-issue worktree whose basename is not the repo."""
@@ -174,3 +176,21 @@ def test_a_listing_that_fills_its_bound_is_unknown(tmp_path: Path) -> None:
     near["500"] = OPEN_STORE
     rc, out = _run(tmp_path, {OTHER: near}, "--repo", OTHER)
     assert rc == 3 and "may be cut off" in out and "NIT_STORE=500" not in out, out
+
+
+@pytest.mark.parametrize("url", [
+    "https://notgithub.com/cooneycw/claude-power-pack.git",
+    "git@github.company.example:cooneycw/claude-power-pack.git",
+    "https://gitlab.com/cooneycw/claude-power-pack.git",
+])
+def test_an_origin_that_is_not_github_is_unknown(tmp_path: Path, url: str) -> None:
+    """Counter-model pass 2: '^.*github\\.com' accepted notgithub.com, so an
+    unrelated repo's origin resolved to cooneycw/claude-power-pack and #864."""
+    if shutil.which("git") is None:
+        pytest.skip("git is required to build the origin fixture")
+    wt = tmp_path / "claude-power-pack-issue-865"
+    wt.mkdir()
+    subprocess.run(["git", "init", "-q", str(wt)], check=True)
+    subprocess.run(["git", "-C", str(wt), "remote", "add", "origin", url], check=True)
+    rc, out = _run(tmp_path, {CPP: {"864": OPEN_STORE}}, cwd=wt)
+    assert rc == 3 and "not a github.com remote" in out and "NIT_STORE=864" not in out, out
