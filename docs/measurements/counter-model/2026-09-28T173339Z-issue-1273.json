@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1273-nit-store-resolver",
+  "counts": {
+    "accepted": 5,
+    "deferred": 0,
+    "rejected": 1
+  },
+  "head": "4284113",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1273",
+  "passes": 2,
+  "recorded_at": "2026-09-28T17:33:39Z",
+  "red_cases": {
+    "already_covered": 17,
+    "proposed": 18
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
