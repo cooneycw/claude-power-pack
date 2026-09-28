@@ -1126,6 +1126,7 @@ def _typed_wpcli(
     name_state: list[str],
     name_type: list[str] | None,
     type_exit: int = 0,
+    state_exit: int = 0,
 ) -> Path:
     """A woodpecker-cli whose `ps` answers per FORMAT: the name|state call, and
     the separate name|type call. `name_type=None` makes the type call FAIL, the
@@ -1151,6 +1152,7 @@ def _typed_wpcli(
         "cat <<'ROWS'",
         *name_state,
         "ROWS",
+        f"exit {state_exit}",
         ";;",
         "*) exit 1 ;;",
         "esac",
@@ -1247,4 +1249,17 @@ def test_a_step_NAME_carrying_two_TYPES_does_not_borrow_a_neighbours(tmp_path):
     m = _cli_run(tmp_path, wpcli)
     assert m["FLOW_CI_FAILED_STEP"] == ["checkout"]
     assert "FLOW_CI_PRECODE_FAILURE" not in m
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["unknown"]
+
+
+@requires_bash
+def test_a_name_state_call_that_PRINTS_then_FAILS_keeps_names_and_says_unknown(tmp_path):
+    """Counter-model review pass 2: the enumeration stopped after `clone`, so a
+    later `validate` failure may be missing and `precode` would be a claim about
+    a list nobody saw whole."""
+    wpcli = _typed_wpcli(tmp_path, ["clone|failure"], ["clone|clone", "validate|commands"],
+                         state_exit=1)
+    m = _cli_run(tmp_path, wpcli)
+    assert m["FLOW_CI_FAILED_STEP"] == ["clone"], "the names that arrived are kept"
+    assert m["FLOW_CI_PRECODE_FAILURE"] == ["clone"]
     assert m["FLOW_CI_FAILURE_ORIGIN"] == ["unknown"]

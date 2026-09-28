@@ -145,6 +145,9 @@ FAILED_STEPS=()
 # The provider's TYPE for each failed step, index-aligned with FAILED_STEPS
 # (issue #1342). Empty means the lane could not say - never "a code step".
 FAILED_STEP_TYPES=()
+# Set when the failed-step enumeration itself failed part-way: the names that
+# arrived are still reported, but an origin over a partial list is not one.
+FAILED_STEPS_INCOMPLETE=0
 
 # WHERE a failure happened, not only which step (issue #1342). A red `clone`
 # step - the checkout that runs before any of the change's code - read exactly
@@ -160,7 +163,7 @@ FAILED_STEP_TYPES=()
 # report `unknown`, which is a different answer from `code`.
 failure_origin() {
     local i n="${#FAILED_STEPS[@]}" precode=0 code=0
-    if [[ "$n" -eq 0 ]]; then echo "unknown"; return; fi
+    if [[ "$n" -eq 0 || "$FAILED_STEPS_INCOMPLETE" -eq 1 ]]; then echo "unknown"; return; fi
     for (( i = 0; i < n; i++ )); do
         case "${FAILED_STEP_TYPES[$i]:-}" in
             "")    echo "unknown"; return ;;
@@ -467,12 +470,19 @@ if command -v "$WPCLI_BIN" >/dev/null 2>&1; then
         done
 
         if [[ "$STATUS" == "failure" && "$PIPELINE" != "-" ]]; then
+            # Captured, not process-substituted, so the exit status is seen. A
+            # call that printed some rows and then failed keeps the names it
+            # gave (the pre-#1342 behaviour) but cannot vouch that the list is
+            # complete, so the origin is unknown (counter-model review pass 2).
+            if ! WPCLI_STEP_ROWS="$("$WPCLI_BIN" pipeline ps --format '{{ .step.Name }}|{{ .step.State }}
+' "$REPO" "$PIPELINE" 2>/dev/null)"; then
+                FAILED_STEPS_INCOMPLETE=1
+            fi
             while IFS='|' read -r step state; do
                 case "$state" in
                     failure|error|killed) [[ -n "$step" ]] && FAILED_STEPS+=("$step") ;;
                 esac
-            done < <("$WPCLI_BIN" pipeline ps --format '{{ .step.Name }}|{{ .step.State }}
-' "$REPO" "$PIPELINE" 2>/dev/null)
+            done <<<"$WPCLI_STEP_ROWS"
             # The step TYPE comes from a SEPARATE call (issue #1342). `.step.Type`
             # is untested against a real woodpecker-cli; folded into the call
             # above, a template that cannot render it would erase the failed-step
