@@ -539,6 +539,7 @@ def test_a_package_launcher_is_not_started(home, project, tmp_path):
     row = rows_of(run(home, project, None, "--json"))["browser-qa"]
     assert row["state"] == "unexamined"
     assert not witness.exists(), "status must not start a package launcher"
+    assert "installs packages" in row["next"] and "by hand" in row["next"]
 
 
 # --------------------------------------------------------------------------- #

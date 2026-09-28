@@ -569,8 +569,15 @@ def mcp_row(mcp, capability: str, server: str, beyond: str, home: Path, project_
     elif verdict in ("unexamined", "auth-required"):
         row["state"] = UNEXAMINED
         row["unexamined"].insert(0, "the MCP handshake")
-        row["next"] = ("the handshake was not attempted (see the observation); "
-                       "check it by hand or with an authorised client")
+        details = " ".join(o["detail"] for o in obs)
+        if "launched through" in details:
+            row["next"] = (f"its launcher installs packages, so status did not start it - start '{server}' once "
+                           f"by hand (see: claude mcp get {server}) and confirm it connects")
+        elif "credentials" in details or "authentication" in details:
+            row["next"] = (f"the handshake needs credentials status does not send - "
+                           f"check '{server}' with an authorised client")
+        else:
+            row["next"] = "the handshake was not attempted (see the observation); check it by hand"
     else:
         row["state"] = UNREACHABLE
         row["next"] = f"the '{server}' server did not complete the handshake - check it with: claude mcp get {server}"
