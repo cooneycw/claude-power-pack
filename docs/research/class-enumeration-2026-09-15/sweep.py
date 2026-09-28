@@ -322,6 +322,15 @@ def run_controls(verbose=True):
 
 
 def main() -> int:
+    if "--self-test" in sys.argv:
+        # Refused, not ignored: ignoring it would run the ordinary sweep and exit
+        # 0 with no mutation check done, for a caller who asked for one.
+        print("sweep.py: --self-test was retired (issue #1277) - it mutated a model of "
+              "each protection, not the protection. Run the real-source probe:\n"
+              "  uv run --extra dev python scripts/mutation-probe.py \\\n"
+              "      --manifest docs/research/class-enumeration-2026-09-15/mutations.json",
+              file=sys.stderr)
+        return 2
 
     print("=== control battery ===")
     if run_controls():
