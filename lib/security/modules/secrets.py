@@ -159,6 +159,7 @@ def scan(project_root: str) -> ScanResult:
                         command="# Remove from source, add to .env, load via os.environ",
                         time_estimate="~5 minutes",
                         raw_match=masked,
+                        secret_value=matched,
                     )
                 )
 

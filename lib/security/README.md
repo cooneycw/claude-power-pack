@@ -108,5 +108,60 @@ suppressions:
     reason: "Test fixtures with fake credentials"
 ```
 
+### A planted test key blocks the finish gate (issue #1299)
+
+A repository that keeps fake keys as negative controls for its own leak
+detector will be blocked by this gate on every finish run. **Suppress exactly
+the planted value**, not the file:
+
+```yaml
+suppressions:
+  - id: AWS_ACCESS_KEY
+    path: '^tests/test_leak\.py$'
+    secret: '<the exact planted value>'   # re.fullmatch against the FULL value
+    reason: "planted negative-control fixture"
+```
+
+- `path` is a regex (`re.match`, anchored at the start) against the path
+  relative to the repository root. `secret` is a regex matched with
+  `re.fullmatch` against the finding's full, unmasked value. Use single-quoted
+  YAML so backslashes stay literal.
+- **Prefer `secret`.** An `id` + `path` suppression covers EVERY finding of that
+  id in the file, so a real key committed beside the canary passes silently.
+  With `secret`, a different value in the same file still blocks. A finding that
+  carries no value (the assignment-pattern findings) is never suppressed by a
+  `secret` rule.
+- The value you declare in `secret:` is not itself reported when it appears in
+  `.claude/security.yml`. Any OTHER value in that file still is.
+- Allowed keys are exactly `id`, `path`, `secret` and `reason`. Anything else is
+  refused, not ignored: a misspelt `secrets:` would otherwise leave a wider
+  suppression than the one written.
+
+**`.gitleaks.toml` is not read by this gate.** The quick scan is CPP's native
+pattern matcher, not gitleaks. Gitleaks allowlists carry regexes, paths, commits,
+stopwords and per-rule scoping; a translator honouring some of those keys and
+dropping the rest would suppress less than the file claims while appearing to
+honour it. When the gate blocks in a repository that has a `.gitleaks.toml` and
+no suppressions, it prints a hint with the example above. It never prints the
+value.
+
+### An unreadable `.claude/security.yml` is UNKNOWN, never defaults
+
+If the file exists but cannot be applied - PyYAML is not importable by the
+interpreter running the gate, the YAML does not parse, or an entry has the wrong
+shape - every command refuses:
+
+```
+SECURITY_GATE: flow_finish UNKNOWN (config unreadable: <file>: PyYAML is not importable by /usr/bin/python3; its suppressions and gate policy were NOT applied, so no verdict is given)
+```
+
+It exits `2`, distinct from a blocking FAIL's `1`. Until issue #1299 the file was
+dropped silently and defaults applied. That removed the repository's
+suppressions, a false block, and its stricter policy, a false pass, and both
+read exactly like a real verdict. The finish step runs `python3 -m lib.security`
+under whatever `python3` is first on PATH, so this is decided by that
+interpreter: inside the runner's `uv run` environment it is the venv's, which
+has PyYAML.
+
 See `/security:explain <ID>` for details on any finding type, and
 `.claude/commands/security/help.md` for the command-surface overview.
