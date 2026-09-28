@@ -24,14 +24,21 @@ reported a clean, plausible result while blind:
       invocation made through a path variable or importlib
 
 v6 was additionally shown, by adversarial mutation, to pass its whole control
-battery with its protections disabled. That is the failure this file now
-guards against directly: `--self-test` breaks each protection in turn and
-requires a control to fail. A battery that survives its own protections being
-removed is decoration.
+battery with its protections disabled. A battery that survives its own
+protections being removed is decoration. The mutation check is the generic
+probe, which breaks each protection in THIS FILE'S REAL SOURCE and requires a
+control to fail:
+
+  uv run --extra dev python scripts/mutation-probe.py \
+      --manifest docs/research/class-enumeration-2026-09-15/mutations.json
+
+This file used to carry its own `--self-test`. It was retired (issue #1277)
+because it disabled a MODEL of each protection rather than the protection: it
+reported 5 of 5 caught while real source mutation caught 3, for `interp` and
+`ast`.
 
 Usage:
   python3 docs/research/class-enumeration-2026-09-15/sweep.py
-  python3 docs/research/class-enumeration-2026-09-15/sweep.py --self-test
 """
 import ast
 import os
@@ -245,8 +252,9 @@ def closure(roots, names, root, hook_form=False):
 
 # ------------------------------------------------------------------- controls
 # Each case is a REAL line from this tree. The `breaks` column names the
-# protection the case exists to hold; --self-test disables that protection and
-# requires this case to fail. A case no mutation can break is decoration.
+# protection the case exists to hold; the matching mutation in mutations.json
+# disables that protection in this file's source and requires this case to
+# fail. A case no mutation can break is decoration.
 CONTROL_CASES = [
     # (source, script, expected, why, protection-it-holds, lang)
     ('Same discipline as scripts/eli5-core-drift.sh (the eli5-gate vendor guard).',
@@ -255,6 +263,13 @@ CONTROL_CASES = [
      'tool-risk-drift.py', True, 'real CI step', None, 'sh'),
     ('        ("install-memory-harness.sh", "cpp-memory would be missing from PATH"),',
      'cpp-memory', False, 'test data tuple (defeated v5)', 'interp', 'sh'),
+    # The case above is ALSO held by the quote protection, so disabling the
+    # token-start rule alone leaves it passing (issue #1277). This one is
+    # unquoted: only token-start stops the "sh" ending prompt-context.sh from
+    # acting as an interpreter for the names after it.
+    ('for script in prompt-context.sh worktree-remove.sh secrets-mask.sh hook-mask-output.sh; do',
+     'secrets-mask.sh', False, '".sh" ending a FILENAME is not an interpreter (.claude/commands/cpp/status.md)',
+     'interp', 'md'),
     ('\t@bash scripts/install-memory-harness.sh',
      'install-memory-harness.sh', True, 'Makefile recipe', None, 'sh'),
     ('    fix "Guided teardown: run /cpp:update, or: python3 scripts/mcp-drift.py --teardown"',
@@ -276,79 +291,52 @@ CONTROL_CASES = [
 ]
 
 
-def _probe(source, name, lang, mutate):
-    """Evaluate a control case the way the real sweep would read that file type."""
+def _probe(source, name, lang):
+    """Evaluate a control case the way the real sweep would read that file type.
+
+    A PYTHON case goes through closure(), so it takes the sweep's own `.py`
+    dispatch to ast. Calling python_exec_names directly - as this did until
+    issue #1277 - bypassed that dispatch, and no case could notice it removed.
+    """
     if lang == 'py':
-        if mutate == 'ast':
-            # the pre-ast behaviour: plain text scan of the whole source
-            return any(text_exec(ln, name, True) for ln in source.splitlines())
         import tempfile
-        with tempfile.NamedTemporaryFile('w', suffix='.py', delete=False) as fh:
-            fh.write(source)
-            tmp = pathlib.Path(fh.name)
-        try:
-            return name in python_exec_names(tmp, {name: tmp})
-        finally:
-            tmp.unlink(missing_ok=True)
-    bare_ok = lang != 'yml'
-    line = source
-    if mutate == 'comment' and line.strip().startswith('#'):
-        line = line.lstrip('#').lstrip()
-    if mutate == 'quote':
-        return bool(re.search(_INTERP + re.escape(name), line)) or text_exec(line, name, bare_ok)
-    if mutate == 'interp':
-        return bool(re.search(r'(?:bash|sh|zsh|python3?)\s*[^\n]{0,80}?' + re.escape(name), line))
-    return text_exec(line, name, bare_ok)
+        with tempfile.TemporaryDirectory() as d:
+            tmp = pathlib.Path(d) / 'case.py'
+            tmp.write_text(source)
+            got, _evidence, _cov = closure([tmp], {name: tmp}, pathlib.Path(d))
+            return name in got
+    return text_exec(source, name, lang not in ('yml', 'md'))
 
 
-def run_controls(mutate=None, verbose=True):
-    """Run the battery. `mutate` disables one protection, for --self-test."""
-    global _CMDPOS
-    saved = _CMDPOS
-    if mutate == 'cmdpos':
-        _CMDPOS = r'(?:^)\s*\.?/?[\w./$@{}~-]*'          # v6's permissive rule
+def run_controls(verbose=True):
+    """Run the battery; return the cases that did not behave as registered."""
     failed = []
     for source, name, expected, why, _breaks, lang in CONTROL_CASES:
-        got = _probe(source, name, lang, mutate)
+        got = _probe(source, name, lang)
         if got != expected:
             failed.append((name, why, expected, got))
         if verbose:
             print(f"  {'PASS' if got == expected else 'FAIL'}  expect={str(expected):5} "
                   f"got={str(got):5}  {name:30} {why}")
-    _CMDPOS = saved
     return failed
-
-
-def self_test():
-    """Break each protection; a control MUST fail. Otherwise it is decoration."""
-    print("=== self-test: each protection disabled in turn ===")
-    bad = 0
-    for mutation in ('cmdpos', 'quote', 'interp', 'comment', 'ast'):
-        failures = run_controls(mutate=mutation, verbose=False)
-        caught = [f for f in failures if True]
-        status = "caught" if caught else "NOT CAUGHT"
-        print(f"  disable {mutation:8} -> {len(caught)} control(s) fail  [{status}]")
-        if not caught:
-            bad += 1
-    if bad:
-        print(f"\n{bad} mutation(s) produced NO control failure. The battery does not "
-              f"guard what it claims.", file=sys.stderr)
-        return 1
-    print("  every disabled protection is caught by at least one control.")
-    return 0
 
 
 def main() -> int:
     if "--self-test" in sys.argv:
-        return self_test()
+        # Refused, not ignored: ignoring it would run the ordinary sweep and exit
+        # 0 with no mutation check done, for a caller who asked for one.
+        print("sweep.py: --self-test was retired (issue #1277) - it mutated a model of "
+              "each protection, not the protection. Run the real-source probe:\n"
+              "  uv run --extra dev python scripts/mutation-probe.py \\\n"
+              "      --manifest docs/research/class-enumeration-2026-09-15/mutations.json",
+              file=sys.stderr)
+        return 2
 
     print("=== control battery ===")
     if run_controls():
         print("\nCONTROL FAILED. Output is not evidence. Refusing to report.", file=sys.stderr)
         return 1
     print(f"  {len(CONTROL_CASES)}/{len(CONTROL_CASES)} cases pass")
-    if self_test():
-        return 1
 
     root = pathlib.Path(subprocess.run(
         ["git", "rev-parse", "--show-toplevel"],

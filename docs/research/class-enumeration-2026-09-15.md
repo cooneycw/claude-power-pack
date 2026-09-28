@@ -212,8 +212,11 @@ Measured in this worktree on `1ba44cb`: `git branch -r` = **72**, `git ls-remote
 
 ```bash
 python3 docs/research/class-enumeration-2026-09-15/sweep.py            # screening result
-python3 docs/research/class-enumeration-2026-09-15/sweep.py --self-test  # break each protection
+uv run --extra dev python scripts/mutation-probe.py \
+    --manifest docs/research/class-enumeration-2026-09-15/mutations.json   # break each protection
 ```
+
+**Note, 2026-09-28 (issue #1277):** the sweep's own `--self-test`, quoted above, has been retired. It disabled a model of each protection rather than the protection itself, and reported 5 of 5 caught where real source mutation caught 3 and missed `interp` and `ast`. The command above mutates the sweep's real source instead; after #1277 it catches all 5. The findings text above is left as recorded.
 
 It derives its own universe, resolves the repo root itself, prints coverage denominators, refuses to report when a root set could not be examined, and exits non-zero if any control or mutation check fails. Verified from a clean clone, not only in the session that wrote it.
 
