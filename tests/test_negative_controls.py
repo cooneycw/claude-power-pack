@@ -3955,8 +3955,10 @@ def test_both_prose_keys_are_accepted(tmp_path: Path, prose_key: str) -> None:
         ({"kind": "hand-made"}, "declares kind 'hand-made'"),
         ({"kind": "historical", "sha": "not-a-commit"}, "is not a commit"),
         ({"kind": "historical", "origin": ""}, "names no origin file"),
+        ({"kind": []}, "declares kind []"),
+        ({"kind": {}}, "declares kind {}"),
     ],
-    ids=["unknown-kind", "historical-without-sha", "historical-without-origin"],
+    ids=["unknown-kind", "historical-without-sha", "historical-without-origin", "kind-list", "kind-object"],
 )
 def test_an_anchor_kind_is_validated(tmp_path: Path, anchor_edit: dict, why: str) -> None:
     """RED before #1268: only `synthetic` was read; any other kind label passed."""

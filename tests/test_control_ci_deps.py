@@ -1038,3 +1038,23 @@ def test_an_unclassifiable_mention_of_the_probe_is_unknown_not_absent(tmp_path: 
     out = run(root)
     assert "UNKNOWN - not clean" in out.stdout, out.stdout
     assert out.returncode == 1, out.stdout
+
+
+def test_a_recognised_invocation_does_not_vouch_for_an_unrecognised_one_beside_it(tmp_path: Path) -> None:
+    """Review pass 2 (#1268): each command is classified on its own."""
+    root = _mutating_jq_tree(
+        tmp_path,
+        'PATH="$PWD/.ci-bin:$PATH" uv run --extra dev python scripts/mutation-probe.py --strict\n'
+        "      - sh -c 'python3 scripts/mutation-probe.py --strict'",
+    )
+    out = run(root)
+    assert "UNKNOWN - not clean" in out.stdout, out.stdout
+    assert out.returncode == 1, out.stdout
+
+
+def test_a_quoted_probe_path_is_still_an_invocation(tmp_path: Path) -> None:
+    """Review pass 2 (#1268): `python3 "scripts/mutation-probe.py"` read as absent."""
+    root = _mutating_jq_tree(tmp_path, 'python3 "scripts/mutation-probe.py" --strict')
+    out = run(root)
+    assert "declares mutations and needs `jq`" in out.stdout, out.stdout
+    assert out.returncode == 1, out.stdout

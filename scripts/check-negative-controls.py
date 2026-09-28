@@ -1271,7 +1271,7 @@ def _anchor_kind_problem(anchor: dict[str, str]) -> str | None:
     """Why an anchor's declared kind cannot be accepted, or None."""
     kind = anchor.get("kind")
     label = anchor.get("path", "?")
-    if kind not in ANCHOR_KINDS:
+    if not isinstance(kind, str) or kind not in ANCHOR_KINDS:
         return (
             f"anchor {label} declares kind {kind!r}; a kind is one of "
             f"{', '.join(sorted(ANCHOR_KINDS))}, and an unread kind is refused"

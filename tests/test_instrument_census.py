@@ -758,3 +758,21 @@ def test_comment_removal_never_swallows_visible_text_between_comments(tmp_path):
     tail = "<!-- note --> a visible paragraph ends the table\n<!-- later -->\n| 2 | `ghost.sh` | v | c | G |\n"
     root = _tree(tmp_path, ["alpha.sh"], _adr(rows=rows + tail))
     assert icc.census_subjects((root / icc.ADR_REL).read_text(encoding="utf-8")) == ["alpha.sh"]
+
+
+def test_a_numbered_table_after_the_retired_table_is_not_retirements(tmp_path, capsys):
+    """Review pass 2 (#1268): the Retired table ends at its first non-table line."""
+    tail = (
+        RETIRED_HEAD + "| 2 | `gone.sh` | #1 | removed |\n"
+        "\nA later table:\n\n| # | x |\n|---|---|\n| 1 | `other` |\n"
+    )
+    root = _tree(tmp_path, ["alpha.sh"], _adr(rows="| 1 | `alpha.sh` | v | c | G |\n", tail=tail))
+    assert icc.retired_rows((root / icc.ADR_REL).read_text(encoding="utf-8"))[0] == [(2, "gone.sh")]
+    assert icc.main(["check", "--root", str(root)]) == 0
+    assert "DUPLICATE_ROW" not in capsys.readouterr().out
+
+
+def test_a_missing_retired_section_is_reported_absent_not_zero(tmp_path, capsys):
+    root = _tree(tmp_path, ["alpha.sh"], _adr(rows="| 1 | `alpha.sh` | v | c | G |\n"))
+    assert icc.main(["check", "--root", str(root)]) == 0
+    assert "INSTRUMENT_CENSUS_RETIRED: absent" in capsys.readouterr().out

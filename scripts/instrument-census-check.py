@@ -524,14 +524,23 @@ def retired_rows(text: str) -> tuple[list[tuple[int, str]], bool]:
     retired: list[tuple[int, str]] = []
     found = False
     in_section = False
+    started = False
     for line in table_text(COMMENT_LINE_RE.sub("", unfenced(text))).splitlines():
         if RETIRED_HEADING_RE.match(line):
             in_section = found = True
+            started = False
             continue
-        if in_section and line.startswith("#"):
-            in_section = False
+        if not in_section:
             continue
-        if not in_section or not CENSUS_ROW_RE.match(line):
+        # The table ends at its first non-table line after it began - not at the
+        # next heading (review pass 2): a neighbouring numbered table in the same
+        # section must not be read as retirements.
+        if not line.startswith("|"):
+            if started:
+                in_section = False
+            continue
+        started = True
+        if not CENSUS_ROW_RE.match(line):
             continue
         row = cells(line)
         tokens = BACKTICKED_RE.findall(row[1]) if len(row) > 1 else []
@@ -695,7 +704,7 @@ def run_check(root: Path) -> int:
     # table replaces a gap comment, a numbering gap and a prose paragraph with one
     # row each - and the one thing it must not do is quietly hold an instrument
     # that is still in the tree outside the denominator.
-    retired, _retired_found = retired_rows(text)
+    retired, retired_found = retired_rows(text)
     for number, subject in retired:
         live = subject in files or (
             subject.startswith(MAKE_SUBJECT_PREFIX) and typed_subject_problem(subject, targets) is None
@@ -727,7 +736,10 @@ def run_check(root: Path) -> int:
     print(f"INSTRUMENT_CENSUS_EXCLUSIONS: {len(set(exclusions))}")
     print(f"INSTRUMENT_CENSUS_EXTERNALS: {len(externals)}")
     print(f"INSTRUMENT_CENSUS_TYPED_SUBJECTS: {typed}")
-    print(f"INSTRUMENT_CENSUS_RETIRED: {len(retired)}")
+    # ABSENT is not 0 (review pass 2): a document with no Retired section has
+    # nothing retired to check, which is a different fact from an examined,
+    # empty table. It is allowed - kyle's census has none - and said.
+    print(f"INSTRUMENT_CENSUS_RETIRED: {len(retired) if retired_found else 'absent (no Retired section)'}")
 
     if findings:
         print(

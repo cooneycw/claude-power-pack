@@ -461,7 +461,7 @@ MUTATION_INVOCATION_RE = re.compile(
     rf"""^\s*(?:env\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*
          (?:uv\s+run\s+(?:--[\w-]+(?:\s+(?!python)[^\s-]\S*)?\s+)*)?
          (?:python(?:3(?:\.\d+)?)?\s+(?:-[A-Za-z]+\s+)*)?
-         \.?/?(?:\S*/)?{re.escape(MUTATION_SCRIPT)}(?:\s|$)
+         (?P<q>["']?)\.?/?(?:[^\s"']*/)?{re.escape(MUTATION_SCRIPT)}(?P=q)(?:\s|$)
     """,
     re.VERBOSE,
 )
@@ -469,7 +469,7 @@ MUTATION_INVOCATION_RE = re.compile(
 #: Any mention at all. A command that MENTIONS the probe but does not match the
 #: invocation shape above is UNDECIDED, never "no step runs it" (review, #1268):
 #: an unrecognised execution must not read as an absent one.
-MUTATION_MENTION_RE = re.compile(rf"(?:^|[\s/]){re.escape(MUTATION_SCRIPT)}(?:\s|$)")
+MUTATION_MENTION_RE = re.compile(rf"{re.escape(MUTATION_SCRIPT)}")
 
 
 def _depends_on(steps: dict[str, dict[str, object]], name: str, target: str) -> bool:
@@ -516,9 +516,14 @@ def mutation_environment(
         name for name, step in steps.items()
         if any(MUTATION_INVOCATION_RE.match(str(c)) for c in step["commands"])  # type: ignore[union-attr]
     ]
+    # EACH COMMAND IS CLASSIFIED ON ITS OWN (review pass 2, #1268): a recognised
+    # invocation in a step must not vouch for an unrecognised one beside it.
     undecided = [
-        name for name, step in steps.items() if name not in matches
-        and any(MUTATION_MENTION_RE.search(str(c)) for c in step["commands"])  # type: ignore[union-attr]
+        name for name, step in steps.items()
+        if any(
+            MUTATION_MENTION_RE.search(str(c)) and not MUTATION_INVOCATION_RE.match(str(c))
+            for c in step["commands"]  # type: ignore[union-attr]
+        )
     ]
     if undecided:
         return True, None, [
