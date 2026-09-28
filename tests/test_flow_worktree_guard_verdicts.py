@@ -248,3 +248,16 @@ def test_both_flow_steps_require_ATTRIBUTION_before_reverting_main():
     assert text.count("git -C <main> diff -- <path>") >= 2, (
         "both the Step-4 and Step-6 exit-3 instructions must say to read main's diff first"
     )
+
+
+
+def test_the_GUARD_ITSELF_says_confirm_before_reverting(tmp_path):
+    """The guard's own printed remedy said "revert main" unconditionally - an
+    agent reading the guard's output, not auto.md, got the unsafe instruction."""
+    main, wt = _main_and_worktree(tmp_path)
+    (wt / "a.txt").write_text("worktree edit\n", encoding="utf-8")
+    (main / "a.txt").write_text("fresh main edit\n", encoding="utf-8")
+    res = _run(wt, "--strict")
+    assert res.returncode == 3
+    assert "FIRST confirm each edit is" in res.stderr
+    assert "Never revert main content you did not write" in res.stderr

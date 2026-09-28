@@ -326,9 +326,11 @@ if [ "${#overlap[@]}" -eq 0 ]; then
   echo "" >&2
   echo "  A TOTAL leak likely wrote EVERY edit into main instead of the worktree (issue #573/#486)." >&2
   echo "  Fix: resolve edit paths from 'git rev-parse --show-toplevel' (the worktree root)," >&2
-  echo "  never a hand-built '.claude/worktrees/<name>/...' absolute path. Move the changes" >&2
-  echo "  into the worktree, then revert main:  git -C \"$MAIN_REPO\" checkout -- <path>" >&2
-  echo "  (If main was intentionally edited outside this run, ignore this warning.)" >&2
+  echo "  never a hand-built '.claude/worktrees/<name>/...' absolute path." >&2
+  echo "  This is a SIGNATURE, not proof of who wrote it (#1014): FIRST confirm each edit is" >&2
+  echo "  yours -  git -C \"$MAIN_REPO\" diff -- <path>  - and only then move it into the" >&2
+  echo "  worktree and revert main:  git -C \"$MAIN_REPO\" checkout -- <path>" >&2
+  echo "  Never revert main content you did not write; if it is another session's, stop and report it." >&2
   verdict leak "total-leak signature: ${#fresh[@]} fresh main edit(s) with an idle worktree (writer unverified)"
 fi
 
@@ -345,9 +347,11 @@ fi
 echo "" >&2
 echo "  An edit likely LEAKED into main instead of the worktree (issue #486)." >&2
 echo "  Fix: resolve edit paths from 'git rev-parse --show-toplevel' (the worktree root)," >&2
-echo "  never a hand-built '.claude/worktrees/<name>/...' absolute path. Move the change" >&2
-echo "  into the worktree, then revert main:  git -C \"$MAIN_REPO\" checkout -- <path>" >&2
-echo "  (If these are intentional edits to main, ignore this warning.)" >&2
+echo "  never a hand-built '.claude/worktrees/<name>/...' absolute path." >&2
+echo "  This is a SIGNATURE, not proof of who wrote it (#1014): FIRST confirm each edit is" >&2
+echo "  yours -  git -C \"$MAIN_REPO\" diff -- <path>  - and only then move it into the" >&2
+echo "  worktree and revert main:  git -C \"$MAIN_REPO\" checkout -- <path>" >&2
+echo "  Never revert main content you did not write; if it is another session's, stop and report it." >&2
 
 # Overlap alone is not enough to BLOCK (issue #576). Overlap answers "did this run
 # touch a path that is also dirty in main?", and that question has a second, common
