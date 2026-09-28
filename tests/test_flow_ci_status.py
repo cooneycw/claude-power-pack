@@ -708,3 +708,251 @@ def test_every_value_flag_refuses_a_missing_value_the_same_way(flag: str) -> Non
         ["bash", str(SCRIPT), flag], capture_output=True, text=True, timeout=15,
     )
     assert result.returncode == 2, f"{flag} -> {result.returncode}"
+
+
+# --------------------------------------------------------------------------- #
+# Issue #1262. Each test below was run against 47ddc6c (pre-fix) and FAILED
+# there; the PR body records every red and green result.
+# --------------------------------------------------------------------------- #
+
+def _write_fake_gh(
+    tmp_path: Path,
+    *,
+    repo_view: str = "",
+    default_branch: str | None = "main",
+    contexts: list[str] | None = None,
+    argv_log: Path | None = None,
+) -> Path:
+    """A stand-in gh: `repo view`, `api repos/o/r`, and the required-contexts
+    endpoint. `contexts=None` makes the protection read FAIL (unreadable)."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    body = ["#!/usr/bin/env bash"]
+    if argv_log is not None:
+        body.append(f'echo "PWD=$PWD ARGV: $*" >> "{argv_log}"')
+    body += [
+        'if [[ "$1" == "repo" && "$2" == "view" ]]; then',
+        f'  [[ -n "{repo_view}" ]] && {{ echo "{repo_view}"; exit 0; }}',
+        "  exit 1",
+        "fi",
+        'if [[ "$1" == "api" ]]; then',
+        '  case "$2" in',
+        "    */protection/required_status_checks)",
+    ]
+    if contexts is None:
+        body.append("      exit 1 ;;")
+    else:
+        body += ["      cat <<'CTX'", *contexts, "CTX", "      exit 0 ;;"]
+    body += ["    repos/*/*/*) exit 1 ;;", "    repos/*)"]
+    if default_branch is None:
+        body.append("      exit 1 ;;")
+    else:
+        body.append(f'      echo "{default_branch}"; exit 0 ;;')
+    body += ["  esac", "fi", "exit 1", ""]
+    path = tmp_path / "gh"
+    path.write_text("\n".join(body), encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+def _both_lanes_curl(tmp_path: Path) -> Path:
+    return _write_fake_curl(
+        tmp_path,
+        {
+            "/api/repos/lookup/": {"id": 17},
+            "pipelines?per_page": [
+                _pipeline(90, SHA, "failure", "pull_request"),
+                _pipeline(91, SHA, "success", "push"),
+            ],
+        },
+        tmp_path / "argv.log",
+    )
+
+
+@requires_bash
+def test_the_REQUIRED_lane_decides_the_default_event(tmp_path):
+    """#1262 item 1: only ci/woodpecker/pr/* is required here, yet the helper
+    reported the push pipeline's green when both shared the SHA."""
+    curl = _both_lanes_curl(tmp_path)
+    gh = _write_fake_gh(tmp_path / "bin", contexts=["ci/woodpecker/pr/woodpecker"])
+    result = _run(tmp_path, SHA, "--repo", "o/r",
+                  env={"FLOW_CI_CURL": str(curl), "FLOW_CI_GH": str(gh)})
+    markers = _markers(result.stdout)
+    assert markers["FLOW_CI_PIPELINE"] == ["90"], result.stdout + result.stderr
+    assert markers["FLOW_CI_STATUS"] == ["failure"]
+    assert markers["FLOW_CI_EVENT"][0].startswith("pull_request (branch-protection on main")
+
+
+@requires_bash
+def test_a_repo_requiring_the_PUSH_lane_keeps_push(tmp_path):
+    curl = _both_lanes_curl(tmp_path)
+    gh = _write_fake_gh(tmp_path / "bin", contexts=["ci/woodpecker/push/woodpecker"])
+    result = _run(tmp_path, SHA, "--repo", "o/r",
+                  env={"FLOW_CI_CURL": str(curl), "FLOW_CI_GH": str(gh)})
+    markers = _markers(result.stdout)
+    assert markers["FLOW_CI_PIPELINE"] == ["91"], result.stdout + result.stderr
+    assert markers["FLOW_CI_EVENT"][0].startswith("push (branch-protection")
+
+
+@requires_bash
+@pytest.mark.parametrize(("contexts", "why"), [
+    (None, "unreadable"),
+    ([], "no woodpecker lane"),
+    (["ci/woodpecker/pr/woodpecker", "ci/woodpecker/push/woodpecker"], "both"),
+])
+def test_an_UNDECIDABLE_protection_falls_back_to_push_and_says_why(tmp_path, contexts, why):
+    curl = _both_lanes_curl(tmp_path)
+    gh = _write_fake_gh(tmp_path / "bin", contexts=contexts)
+    result = _run(tmp_path, SHA, "--repo", "o/r",
+                  env={"FLOW_CI_CURL": str(curl), "FLOW_CI_GH": str(gh)})
+    markers = _markers(result.stdout)
+    assert markers["FLOW_CI_PIPELINE"] == ["91"], result.stdout + result.stderr
+    event = markers["FLOW_CI_EVENT"][0]
+    assert event.startswith("push (default:") and why in event, event
+
+
+@requires_bash
+def test_an_explicit_EVENT_flag_still_wins(tmp_path):
+    curl = _both_lanes_curl(tmp_path)
+    gh = _write_fake_gh(tmp_path / "bin", contexts=["ci/woodpecker/pr/woodpecker"])
+    result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "push",
+                  env={"FLOW_CI_CURL": str(curl), "FLOW_CI_GH": str(gh)})
+    markers = _markers(result.stdout)
+    assert markers["FLOW_CI_PIPELINE"] == ["91"]
+    assert markers["FLOW_CI_EVENT"] == ["push (flag)"]
+
+
+def _git_checkout(path: Path, origin: str) -> Path:
+    path.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(path)], check=True)
+    subprocess.run(["git", "-C", str(path), "remote", "add", "origin", origin], check=True)
+    subprocess.run(
+        ["git", "-C", str(path), "-c", "user.email=t@t", "-c", "user.name=t",
+         "commit", "-q", "--allow-empty", "-m", "c"], check=True,
+    )
+    return path
+
+
+@requires_bash
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git to build the checkout")
+def test_the_repo_is_resolved_INSIDE_the_declared_path_not_the_caller_cwd(tmp_path):
+    """#1262 item 2: `gh repo view` ran in the caller's cwd. From inside a
+    DIFFERENT repository it answered with that repository's name."""
+    checkout = _git_checkout(tmp_path / "declared", "https://github.com/owner/declared.git")
+    log = tmp_path / "gh.log"
+    # The fake answers with whatever repo its cwd belongs to, as gh does.
+    gh = tmp_path / "bin" / "gh"
+    gh.parent.mkdir()
+    gh.write_text(
+        "#!/usr/bin/env bash\n"
+        f'echo "PWD=$PWD ARGV: $*" >> "{log}"\n'
+        'if [[ "$1 $2" == "repo view" ]]; then\n'
+        '  u=$(git remote get-url origin 2>/dev/null) || exit 1\n'
+        '  u=${u%.git}; echo "${u#https://github.com/}"; exit 0\n'
+        "fi\nexit 1\n",
+        encoding="utf-8",
+    )
+    gh.chmod(0o755)
+    caller = _git_checkout(tmp_path / "caller", "https://github.com/owner/neighbour.git")
+    result = subprocess.run(
+        ["bash", str(SCRIPT), "--path", str(checkout)],
+        capture_output=True, text=True, cwd=str(caller),
+        env={**os.environ, "FLOW_CI_GH": str(gh), "FLOW_CI_CURL": "/nonexistent/curl",
+             "FLOW_CI_WPCLI": "/nonexistent/wp", "FLOW_CI_AWS": "/nonexistent/aws"},
+    )
+    assert _markers(result.stdout)["FLOW_CI_REPO"] == ["owner/declared"], (
+        result.stdout + result.stderr)
+
+
+@requires_bash
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git to build the checkout")
+@pytest.mark.parametrize("origin", [
+    "https://github.com/owner/name.git",
+    "git@github.com:owner/name.git",
+    "https://github.com/owner/name",
+])
+def test_the_origin_fallback_strips_DOT_GIT(tmp_path, origin):
+    """#1262 item 2: with gh unable to answer, the sed fallback kept `.git`,
+    so the Woodpecker lookup asked for `owner/name.git` and found nothing."""
+    checkout = _git_checkout(tmp_path / "co", origin)
+    result = _run(tmp_path, "--path", str(checkout),
+                  env={"FLOW_CI_GH": "/nonexistent/gh", "FLOW_CI_CURL": "/nonexistent/curl"})
+    assert _markers(result.stdout)["FLOW_CI_REPO"] == ["owner/name"], (
+        result.stdout + result.stderr)
+
+
+@requires_bash
+def test_an_EXPIRED_wait_is_distinguishable_from_a_single_shot_not_found(tmp_path):
+    """#1262 item 3: `--wait` that ran out printed exactly what a one-shot
+    lookup of an unregistered SHA prints."""
+    curl = _write_fake_curl(
+        tmp_path,
+        {"/api/repos/lookup/": {"id": 17}, "pipelines?per_page": [_pipeline(1, OTHER_SHA, "success")]},
+        tmp_path / "argv.log",
+    )
+    once = _run(tmp_path, SHA, "--repo", "o/r", "--event", "push",
+                env={"FLOW_CI_CURL": str(curl)})
+    waited = _run(tmp_path, SHA, "--repo", "o/r", "--event", "push", "--wait", "0",
+                  env={"FLOW_CI_CURL": str(curl)})
+    expired = _run(tmp_path, SHA, "--repo", "o/r", "--event", "push", "--wait", "1",
+                   env={"FLOW_CI_CURL": str(curl), "FLOW_CI_SLEEP": "/usr/bin/sleep"})
+    assert _markers(once.stdout)["FLOW_CI_WAIT"] == ["none"]
+    assert _markers(waited.stdout)["FLOW_CI_WAIT"] == ["none"]
+    exp = _markers(expired.stdout)
+    assert exp["FLOW_CI_STATUS"] == ["not-found"]
+    assert exp["FLOW_CI_WAIT"] == ["expired (1s)"], expired.stdout + expired.stderr
+
+
+@requires_bash
+def test_a_wait_that_SETTLES_says_so(tmp_path):
+    curl = _write_fake_curl(
+        tmp_path,
+        {"/api/repos/lookup/": {"id": 17}, "pipelines?per_page": [_pipeline(5, SHA, "success")]},
+        tmp_path / "argv.log",
+    )
+    result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "push", "--wait", "30",
+                  env={"FLOW_CI_CURL": str(curl)})
+    assert _markers(result.stdout)["FLOW_CI_WAIT"] == ["settled"]
+
+
+@requires_bash
+def test_a_NEIGHBOURING_providers_push_context_does_not_move_the_lane(tmp_path):
+    """Counter-model review of #1262: only ci/woodpecker/* classifies the lane."""
+    curl = _both_lanes_curl(tmp_path)
+    gh = _write_fake_gh(
+        tmp_path / "bin", contexts=["ci/woodpecker/pr/woodpecker", "other-ci/push/tests"])
+    result = _run(tmp_path, SHA, "--repo", "o/r",
+                  env={"FLOW_CI_CURL": str(curl), "FLOW_CI_GH": str(gh)})
+    markers = _markers(result.stdout)
+    assert markers["FLOW_CI_PIPELINE"] == ["90"], result.stdout + result.stderr
+    assert markers["FLOW_CI_EVENT"][0].startswith("pull_request (branch-protection on main")
+
+
+@requires_bash
+def test_the_event_is_a_PREFERENCE_so_a_pr_only_sha_is_found_even_on_the_push_fallback(tmp_path):
+    """#1262 x the queued CI change that stops `push` pipelines on non-main
+    branches: a branch SHA will then carry ONLY a pull_request pipeline. Even
+    when the lane cannot be derived and the fallback is `push`, the verdict must
+    still find it - the event orders candidates, it never filters them out."""
+    curl = _write_fake_curl(
+        tmp_path,
+        {"/api/repos/lookup/": {"id": 17},
+         "pipelines?per_page": [_pipeline(90, SHA, "failure", "pull_request")]},
+        tmp_path / "argv.log",
+    )
+    gh = _write_fake_gh(tmp_path / "bin", contexts=None)  # unreadable -> push fallback
+    result = _run(tmp_path, SHA, "--repo", "o/r",
+                  env={"FLOW_CI_CURL": str(curl), "FLOW_CI_GH": str(gh)})
+    markers = _markers(result.stdout)
+    assert markers["FLOW_CI_EVENT"][0].startswith("push (default:")
+    assert markers["FLOW_CI_PIPELINE"] == ["90"], result.stdout + result.stderr
+    assert markers["FLOW_CI_STATUS"] == ["failure"]
+
+
+@requires_bash
+def test_the_CLI_lane_also_treats_the_event_as_a_preference(tmp_path):
+    argv_log = tmp_path / "argv.log"
+    wpcli = _write_fake_wpcli(tmp_path, [f"90|failure|{SHA}|pull_request"], [], argv_log)
+    result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "push",
+                  env={"FLOW_CI_WPCLI": str(wpcli), "WOODPECKER_API_TOKEN": ""})
+    markers = _markers(result.stdout)
+    assert markers["FLOW_CI_PIPELINE"] == ["90"], result.stdout + result.stderr

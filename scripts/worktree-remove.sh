@@ -673,6 +673,17 @@ if [[ "$ALLOW_UNPUSHED" != true ]]; then
             echo "  branch ref goes too, leaving them reachable only by 'git fsck --lost-found'" >&2
             echo "  until gc runs. Push the branch, or pass --allow-unpushed if you are" >&2
             echo "  certain the commits are unwanted." >&2
+            # NAME THE COUPLING (issue #1262). After a SQUASH merge these commits
+            # are on no remote ref by construction, and the only evidence this
+            # helper accepts that they LANDED is a record written by exactly one
+            # caller. A PR merged any other way never gets it, and used to arrive
+            # here described as unpushed work with no hint of why.
+            echo "" >&2
+            echo "  If this branch's PR has already MERGED: the only evidence this helper accepts" >&2
+            echo "  that squashed commits landed is 'branch.${BRANCH_NAME}.cpp-merged-head', and" >&2
+            echo "  its only writer is gh-pr-merge.sh. A PR merged any other way (the web UI, a" >&2
+            echo "  plain 'gh pr merge') has no record and reads as unpushed here. Check the PR" >&2
+            echo "  state, and if it merged at this exact HEAD, --allow-unpushed is safe." >&2
             exit 7
         else
             echo "WORKTREE_REMOVE_UNPUSHED: pushed" >&2

@@ -8,7 +8,7 @@
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
 4e8132ddc02ced5c17c2e86cf2031bf2cb9232ee0093dee437af4c430452d82b  flow-driver-capability.sh
-b7eba96d9bfe514839970fa3c2708c34913eb217ae0865c3bf2dfb517d438de5  flow-pr-watch.sh
+0df497631d63145844d6cbd88beec84d484d1abb48a09d90f3d1f0de18a1b9cf  flow-pr-watch.sh
 abf0ef9f5421bb958f4ccdd973c65c33bc2533c4ce2ab91b5447346add197248  flow-vantage.sh
 f54492dba94f31cf4cbb919b258f564f61b18f313efb57ab06603d44a87233a5  flow-wave-lexicon.sh
 ac9f81454ffc866a14695ad8bb415d4cf47d3462c0181e60ce5d78fc3c629b3e  flow-wave-mailbox.sh
@@ -20,4 +20,4 @@ aba5a616aca96a290a1db5046c9667484747afa0211ddb733d695128cfb05f9c  flow-wave-resi
 0909790cc9e29f072c73acc324d85664fd5aee329ec5bd5cfe326d372cb3efe4  speckit-context.py
 4119ea73b9de94ba65070d229bf9fcae75b7cb48107f27309ceebff2d8f084ec  speckit-tasks-to-issues.sh
 b4e5586104bb0995b4921bae517271a07261ffef64c2ef8c60914241b61796ef  toolchain-provenance.sh
-4cdf7979a1b8e9f430e28a7d3c1c6264f2b11287aeec5c4868362ae8bc8a6403  worktree-remove.sh
+3212ba06699c2d1d0300e23519425100e2d21a227cd5296ddea0e4ce9f2e4252  worktree-remove.sh

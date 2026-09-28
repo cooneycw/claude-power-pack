@@ -39,7 +39,11 @@
 #   --repo         owner/name override; default is resolved from the checkout.
 #   --event        Prefer this pipeline event when several share the SHA (a
 #                  merge commit typically has both `push` and `pull_request`).
-#                  Default: push.
+#                  Default: DERIVED from the DEFAULT branch's required status
+#                  contexts (issue #1262; a PR into another base passes --event) - `ci/woodpecker/pr/*` required alone
+#                  means pull_request, `ci/woodpecker/push/*` alone means push.
+#                  Both, neither, or unreadable falls back to `push`, and the
+#                  FLOW_CI_EVENT line says which source decided.
 #   --wait [SECS]  Poll until the status is terminal or SECS elapse
 #                  (default 600, 15s interval). Without it, report once.
 #   --exit-code    Exit 1 when the verdict is `failure`. Every other verdict,
@@ -49,8 +53,13 @@
 # present, immediately precede the verdict:
 #   FLOW_CI_PROVIDER: woodpecker | github-actions | none
 #   FLOW_CI_REF: <sha>
+#   FLOW_CI_REPO: <owner/name|->           (issue #1262)
+#   FLOW_CI_EVENT: <event> (<source>)      (issue #1262; source is `flag`,
+#                                           `branch-protection: <contexts>` or
+#                                           `default: <why>`)
 #   FLOW_CI_PIPELINE: <number|->
 #   FLOW_CI_URL: <url|->
+#   FLOW_CI_WAIT: none | settled | expired (<N>s)   (issue #1262)
 #   FLOW_CI_FAILED_STEP: <name>        (repeated, only on failure)
 #   FLOW_CI_STATUS: success | failure | running | pending | not-found | unknown
 #
@@ -69,8 +78,19 @@ trap 'printf "FLOW_CI_EXIT=%d\n" "$?" >&2' EXIT
 SHA=""
 CHECK_PATH=""
 REPO=""
-PREFER_EVENT="push"
+PREFER_EVENT=""
+EVENT_SOURCE="flag"
+#: The fallback when the required lane cannot be derived. It was the ONLY
+#: behaviour until #1262, which is why it stays the fallback: a repo whose
+#: protection cannot be read gets exactly what it always got.
+DEFAULT_EVENT="push"
 WAIT_SECS=0
+#: `none` without --wait; `settled` when a terminal verdict ended the wait;
+#: `expired (<N>s)` when the deadline did (issue #1262). The STATUS values are
+#: deliberately unchanged, so no consumer's parse breaks; this line is what
+#: separates "the pipeline never registered in N seconds" from "one look found
+#: nothing", which printed identical output before.
+WAIT_STATE="none"
 SECRET_NAME="${CPP_WOODPECKER_SECRET:-essent-ai}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
 WANT_EXIT_CODE=0
@@ -93,8 +113,8 @@ while [[ $# -gt 0 ]]; do
         --path=*)      CHECK_PATH="${1#*=}"; shift ;;
         --repo)        REPO="${2:-}"; [[ -n "$REPO" ]] || die_usage "--repo needs owner/name"; shift 2 ;;
         --repo=*)      REPO="${1#*=}"; shift ;;
-        --event)       PREFER_EVENT="${2:-}"; [[ -n "$PREFER_EVENT" ]] || die_usage "--event needs a value"; shift 2 ;;
-        --event=*)     PREFER_EVENT="${1#*=}"; shift ;;
+        --event)       PREFER_EVENT="${2:-}"; [[ -n "$PREFER_EVENT" ]] || die_usage "--event needs a value"; EVENT_SOURCE="flag"; shift 2 ;;
+        --event=*)     PREFER_EVENT="${1#*=}"; EVENT_SOURCE="flag"; shift ;;
         --secret-name) SECRET_NAME="${2:-}"; [[ -n "$SECRET_NAME" ]] || die_usage "--secret-name needs a value"; shift 2 ;;
         --secret-name=*) SECRET_NAME="${1#*=}"; shift ;;
         --region)      AWS_REGION="${2:-}"; [[ -n "$AWS_REGION" ]] || die_usage "--region needs a value"; shift 2 ;;
@@ -105,7 +125,7 @@ while [[ $# -gt 0 ]]; do
             if [[ "${2:-}" =~ ^[0-9]+$ ]]; then WAIT_SECS="$2"; shift 2; else WAIT_SECS=600; shift; fi
             ;;
         --wait=*)      WAIT_SECS="${1#*=}"; [[ "$WAIT_SECS" =~ ^[0-9]+$ ]] || die_usage "--wait needs seconds"; shift ;;
-        -h|--help)     sed -n '2,62p' "$0"; exit 0 ;;
+        -h|--help)     sed -n '2,71p' "$0"; exit 0 ;;
         -*)            die_usage "unknown argument: $1" ;;
         *)             [[ -z "$SHA" ]] || die_usage "unexpected argument: $1"; SHA="$1"; shift ;;
     esac
@@ -120,8 +140,11 @@ FAILED_STEPS=()
 emit() {
     echo "FLOW_CI_PROVIDER: $PROVIDER"
     echo "FLOW_CI_REF: ${SHA:--}"
+    echo "FLOW_CI_REPO: ${REPO:--}"
+    echo "FLOW_CI_EVENT: ${PREFER_EVENT:-$DEFAULT_EVENT} (${EVENT_SOURCE})"
     echo "FLOW_CI_PIPELINE: $PIPELINE"
     echo "FLOW_CI_URL: $URL"
+    echo "FLOW_CI_WAIT: $WAIT_STATE"
     for step in ${FAILED_STEPS+"${FAILED_STEPS[@]}"}; do
         echo "FLOW_CI_FAILED_STEP: $step"
     done
@@ -151,19 +174,79 @@ else
     [[ -n "$FULL" ]] && SHA="$FULL"
 fi
 
+# IN THE DECLARED CHECKOUT, never the caller's cwd (issue #1262). `gh repo
+# view` has no -C, so it answered for whatever repository the Bash process
+# happened to be standing in - measured: invoked from a kyle clone with
+# `--path` naming a CPP checkout, it resolved `cooneycw/kyle`. The SHA was
+# anchored to the declared checkout and the repository was not, which is two
+# answers about two different trees presented as one.
 if [[ -z "$REPO" ]]; then
-    REPO="$("$GH_BIN" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)"
+    REPO="$(cd "$CHECK_PATH" 2>/dev/null && "$GH_BIN" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)"
 fi
 if [[ -z "$REPO" ]]; then
     ORIGIN="$(git -C "$CHECK_PATH" remote get-url origin 2>/dev/null)"
-    # git@host:owner/name.git  or  https://host/owner/name(.git)
-    REPO="$(sed -E 's#^.*[:/]([^/:]+/[^/]+?)(\.git)?$#\1#' <<<"${ORIGIN:-}")"
-    [[ "$REPO" == "$ORIGIN" ]] && REPO=""
+    # git@host:owner/name.git  or  https://host/owner/name(.git). The suffix is
+    # stripped FIRST: `[^/]+?` is not a lazy quantifier in ERE, so the old
+    # single expression swallowed `.git` into the name (issue #1262) and every
+    # lookup then asked for `owner/name.git`.
+    REPO="$(sed -E -e 's#\.git/?$##' -e 's#^.*[:/]([^/:]+/[^/:]+)$#\1#' <<<"${ORIGIN:-}")"
+    [[ "$REPO" == "${ORIGIN%.git}" || "$REPO" == "$ORIGIN" ]] && REPO=""
 fi
 if [[ -z "$REPO" ]]; then
     echo "flow-ci-status: could not resolve owner/name for $CHECK_PATH (fail-open)" >&2
     emit
 fi
+
+# ── Which lane the verdict describes (issue #1262) ─────────────────────────
+# A SHA pushed to a PR branch carries BOTH a push and a pull_request pipeline,
+# and only one of them is what branch protection requires. The default was a
+# hard-coded `push` while this repository (and kyle) require only the pr lane,
+# so the helper could report the push pipeline's green over a red required
+# check. So the default is now the lane the base branch REQUIRES, read from
+# GitHub; when that cannot be decided the old default stands and says so.
+derive_event() {
+    local default_branch contexts ctx pr=0 push=0
+    if ! command -v "$GH_BIN" >/dev/null 2>&1; then
+        EVENT_SOURCE="default: gh unavailable, required contexts unreadable"; return
+    fi
+    default_branch="$("$GH_BIN" api "repos/$REPO" --jq .default_branch 2>/dev/null)"
+    if [[ -z "$default_branch" ]]; then
+        EVENT_SOURCE="default: default branch unreadable, required contexts unreadable"; return
+    fi
+    if ! contexts="$("$GH_BIN" api "repos/$REPO/branches/$default_branch/protection/required_status_checks" \
+            --jq '.contexts[]' 2>/dev/null)"; then
+        EVENT_SOURCE="default: required contexts unreadable on $default_branch"; return
+    fi
+    # ONLY WOODPECKER'S OWN CONTEXTS DECIDE (counter-model review). Matching any
+    # `/pr/` or `/push/` let a neighbouring provider's `other-ci/push/tests`
+    # turn a pr-only repository into "both lanes required" and hand the verdict
+    # back to the push pipeline.
+    while IFS= read -r ctx; do
+        case "$ctx" in
+            ci/woodpecker/pr/*|ci/woodpecker/pull_request/*) pr=1 ;;
+            ci/woodpecker/push/*) push=1 ;;
+        esac
+    done <<<"$contexts"
+    local listed
+    listed="$(paste -sd, <<<"$contexts")"
+    # The branch NAMED, because it is the DEFAULT branch's protection that was
+    # read (counter-model review): this helper resolves a commit, not a PR, so it
+    # does not know which base a PR targets. A PR into a differently-protected
+    # branch should pass --event; the marker says which branch decided.
+    if (( pr && !push )); then
+        PREFER_EVENT="pull_request"; EVENT_SOURCE="branch-protection on $default_branch: ${listed}"
+    elif (( push && !pr )); then
+        PREFER_EVENT="push"; EVENT_SOURCE="branch-protection on $default_branch: ${listed}"
+    elif (( pr && push )); then
+        EVENT_SOURCE="default: both lanes required on $default_branch (${listed})"
+    else
+        EVENT_SOURCE="default: no woodpecker lane among required contexts on $default_branch${listed:+ (${listed})}"
+    fi
+}
+if [[ -z "$PREFER_EVENT" ]]; then
+    derive_event
+fi
+[[ -n "$PREFER_EVENT" ]] || PREFER_EVENT="$DEFAULT_EVENT"
 
 # ── jq preflight (issue #789) ──────────────────────────────────────────────
 # The Woodpecker API lane and the GitHub Actions lane both parse JSON with jq;
@@ -249,9 +332,13 @@ if [[ "$HAVE_JQ" -eq 1 && -n "$WP_TOKEN" && -n "$WP_SERVER" ]]; then
                 PIPELINE="-"; STATUS="not-found"
             fi
 
-            # Terminal, or out of patience.
-            if [[ "$STATUS" == "success" || "$STATUS" == "failure" || "$STATUS" == "unknown" ]]; then break; fi
-            if [[ "$WAIT_SECS" -eq 0 || "$(date +%s)" -ge "$DEADLINE" ]]; then break; fi
+            # Terminal, or out of patience - and SAY which (issue #1262).
+            if [[ "$STATUS" == "success" || "$STATUS" == "failure" || "$STATUS" == "unknown" ]]; then
+                [[ "$WAIT_SECS" -gt 0 ]] && WAIT_STATE="settled"
+                break
+            fi
+            if [[ "$WAIT_SECS" -eq 0 ]]; then break; fi
+            if [[ "$(date +%s)" -ge "$DEADLINE" ]]; then WAIT_STATE="expired (${WAIT_SECS}s)"; break; fi
             "$SLEEP_BIN" 15
         done
 
@@ -310,9 +397,13 @@ if command -v "$WPCLI_BIN" >/dev/null 2>&1; then
                 PIPELINE="-"; STATUS="not-found"
             fi
 
-            # Terminal, or out of patience.
-            if [[ "$STATUS" == "success" || "$STATUS" == "failure" || "$STATUS" == "unknown" ]]; then break; fi
-            if [[ "$WAIT_SECS" -eq 0 || "$(date +%s)" -ge "$DEADLINE" ]]; then break; fi
+            # Terminal, or out of patience - and SAY which (issue #1262).
+            if [[ "$STATUS" == "success" || "$STATUS" == "failure" || "$STATUS" == "unknown" ]]; then
+                [[ "$WAIT_SECS" -gt 0 ]] && WAIT_STATE="settled"
+                break
+            fi
+            if [[ "$WAIT_SECS" -eq 0 ]]; then break; fi
+            if [[ "$(date +%s)" -ge "$DEADLINE" ]]; then WAIT_STATE="expired (${WAIT_SECS}s)"; break; fi
             "$SLEEP_BIN" 15
             WPCLI_ROWS="$("$WPCLI_BIN" pipeline ls --output-no-headers \
                 --output 'go-template={{range .}}{{.Number}}|{{.Status}}|{{.Commit}}|{{.Event}}{{"\n"}}{{end}}' \
@@ -350,10 +441,12 @@ if [[ "$HAVE_JQ" -eq 1 ]] && command -v "$GH_BIN" >/dev/null 2>&1; then
             URL="$(jq -r '.url // "-"' <<<"$RUN_JSON")"
             if [[ "$GH_STATUS" == "completed" ]]; then
                 [[ "$GH_CONCL" == "success" ]] && STATUS="success" || STATUS="failure"
+                [[ "$WAIT_SECS" -gt 0 ]] && WAIT_STATE="settled"
                 break
             fi
             STATUS="running"
-            if [[ "$WAIT_SECS" -eq 0 || "$(date +%s)" -ge "$DEADLINE" ]]; then break; fi
+            if [[ "$WAIT_SECS" -eq 0 ]]; then break; fi
+            if [[ "$(date +%s)" -ge "$DEADLINE" ]]; then WAIT_STATE="expired (${WAIT_SECS}s)"; break; fi
             "$SLEEP_BIN" 15
             RUN_JSON="$("$GH_BIN" run list --repo "$REPO" --commit "$SHA" \
                 --json status,conclusion,databaseId,url --jq '.[0]' 2>/dev/null)"

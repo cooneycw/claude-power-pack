@@ -81,6 +81,14 @@
 #                   from. `whole-log` means pytest printed no summary to bound
 #                   to, so the set may include lines a negative control echoed
 #                   on purpose - unbounded, and said so rather than silently.
+#   FLOW_PR_WATCH_ATTRIBUTION=single-summary-region | unresolved (<N> summary regions)
+#                   | unbounded (no summary region)   (issue #1262) whether the
+#                   ids can be attributed to ONE run. A control that echoes its
+#                   BAD case with pytest's own summary header and totals is
+#                   byte-for-byte a second run, so more than one region is
+#                   UNRESOLVED - not "the first" or "the last", both of which
+#                   lose a real failure somewhere. The verdict is unchanged; the
+#                   warning is that these ids must not be baselined blind.
 #   FLOW_PR_WATCH_SUMMARY_FAILED=<count|->  pytest's OWN failure count, read
 #                   from its summary line independently of the scrape, so the
 #                   two can be seen to disagree. `-` when there is no summary.
@@ -191,6 +199,7 @@ emit() {
         echo "FLOW_PR_WATCH_FAILED=-"
     fi
     echo "FLOW_PR_WATCH_SCRAPE_SCOPE=${SCRAPE_SCOPE:--}"
+    echo "FLOW_PR_WATCH_ATTRIBUTION=${ATTRIBUTION:--}"
     echo "FLOW_PR_WATCH_SUMMARY_FAILED=${SUMMARY_FAILED:--}"
     echo "FLOW_PR_WATCH_BASELINE=${BASELINE:--}"
     for line in ${ASSERT_LINES+"${ASSERT_LINES[@]}"}; do
@@ -543,6 +552,30 @@ if [[ "$HAS_SUMMARY_REGION" -eq 1 ]]; then
 else
     SCRAPE_SCOPE="whole-log"
     SCRAPE_INPUT="$LOG"
+fi
+
+# HOW MANY RUNS THE IDS COULD HAVE COME FROM (issue #1262). The region parser
+# above excludes a control's BARE `FAILED` echoes, but a control that echoes a
+# COMPLETE summary - header, ids and a totals line - is syntactically a second
+# run, and was admitted as one: measured, a pipeline with one real failure was
+# reported red with four ids and `SUMMARY_FAILED=4`. A header cannot establish
+# provenance, and "take the first/last region" is already known to excuse a
+# real regression (the two-run case #1190 fixed). So the helper reports what it
+# CAN establish - whether exactly one run is in play - and says, when it is not,
+# that the ids must not be baselined without reading the log. That is the
+# consequence that matters: a mis-attributed id added to a baseline excuses the
+# control's real failures forever.
+SUMMARY_REGIONS="$(grep -cE '^=+ short test summary info =+$' <<<"$LOG" || true)"
+if [[ "$HAS_SUMMARY_REGION" -eq 0 ]]; then
+    ATTRIBUTION="unbounded (no summary region)"
+elif [[ "${SUMMARY_REGIONS:-0}" -le 1 ]]; then
+    ATTRIBUTION="single-summary-region"
+else
+    ATTRIBUTION="unresolved (${SUMMARY_REGIONS} summary regions)"
+    echo "flow-pr-watch: ${SUMMARY_REGIONS} pytest summary regions in one step log - a negative control" >&2
+    echo "  that echoes its BAD case with a full summary looks exactly like a second run. These ids" >&2
+    echo "  cannot all be attributed to the pipeline: do not add any of them to a baseline without" >&2
+    echo "  reading the log (issue #1262)." >&2
 fi
 
 # pytest's OWN count, read from its summary line and never from the scrape, so
