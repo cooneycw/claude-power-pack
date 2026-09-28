@@ -142,7 +142,8 @@ class _McpHandler(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802
         msg = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
         if msg.get("method") == "initialize":
-            body = {"jsonrpc": "2.0", "id": msg["id"], "result": {"serverInfo": {"name": "h"}}}
+            body = {"jsonrpc": "2.0", "id": msg["id"],
+                    "result": {"protocolVersion": "2025-06-18", "serverInfo": {"name": "h"}}}
         elif msg.get("method") == "tools/list":
             body = {"jsonrpc": "2.0", "id": msg["id"], "result": {"tools": [{"name": "x"}]}}
         else:
@@ -432,7 +433,7 @@ class _StrictSseHandler(BaseHTTPRequestHandler):
             self.end_headers()
             return
         if msg.get("method") == "initialize":
-            body = {"jsonrpc": "2.0", "id": msg["id"], "result": {"protocolVersion": "2025-06-18"}}
+            body = {"jsonrpc": "2.0", "id": msg["id"], "result": {"protocolVersion": "2025-06-18", "capabilities": {}}}
         elif msg.get("method") == "tools/list":
             body = {"jsonrpc": "2.0", "id": msg["id"], "result": {"tools": []}}
         else:
@@ -538,3 +539,81 @@ def test_a_package_launcher_is_not_started(home, project, tmp_path):
     row = rows_of(run(home, project, None, "--json"))["browser-qa"]
     assert row["state"] == "unexamined"
     assert not witness.exists(), "status must not start a package launcher"
+
+
+# --------------------------------------------------------------------------- #
+# counter-model review findings (pass 2)
+# --------------------------------------------------------------------------- #
+
+class _MalformedHandler(BaseHTTPRequestHandler):
+    """Answers every request with a bare dict: no jsonrpc, no id, no protocolVersion."""
+
+    def do_POST(self):  # noqa: N802
+        self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        data = json.dumps({"result": {"tools": []}}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *a):
+        pass
+
+
+def test_a_malformed_mcp_answer_is_not_ready(home, project):
+    srv, url = _serve(_MalformedHandler)
+    try:
+        write_project_mcp(project, {"second-opinion": {"type": "http", "url": url}})
+        row = rows_of(run(home, project, None, "--json"))["second-opinion"]
+    finally:
+        srv.shutdown()
+    assert row["state"] == "unreachable", row
+
+
+def test_a_raw_http_protocol_error_never_reaches_the_output(home, project):
+    sentinel = "s" + secrets.token_hex(12)
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(4)
+    port = listener.getsockname()[1]
+    stop = threading.Event()
+
+    def serve():
+        listener.settimeout(0.5)
+        while not stop.is_set():
+            try:
+                conn, _ = listener.accept()
+            except OSError:
+                continue
+            with conn:
+                conn.recv(65536)
+                conn.sendall(f"GARBAGE {sentinel}\r\n\r\n".encode())
+
+    threading.Thread(target=serve, daemon=True).start()
+    try:
+        write_project_mcp(project, {"second-opinion": {"type": "http", "url": f"http://127.0.0.1:{port}/mcp"}})
+        proc = run(home, project, None, "--json")
+    finally:
+        stop.set()
+        listener.close()
+    assert sentinel not in proc.stdout + proc.stderr
+    assert rows_of(proc)["second-opinion"]["state"] == "unreachable"
+
+
+@pytest.mark.parametrize("command,args", [
+    ("npm", ["exec", "--yes", "--", "pkg"]),
+    ("pnpm", ["dlx", "pkg"]),
+    ("uv", ["tool", "run", "pkg"]),
+])
+def test_package_manager_exec_forms_are_not_started(home, project, tmp_path, command, args):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    witness = tmp_path / "was-run"
+    exe = bin_dir / command
+    exe.write_text(f"#!/bin/sh\ntouch {witness}\nexit 1\n")
+    exe.chmod(0o755)
+    write_user_mcp(home, {"playwright": {"type": "stdio", "command": str(exe), "args": args}})
+    row = rows_of(run(home, project, None, "--json"))["browser-qa"]
+    assert row["state"] == "unexamined"
+    assert not witness.exists()

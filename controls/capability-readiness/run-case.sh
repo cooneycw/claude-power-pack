@@ -48,7 +48,7 @@ import json, sys
 for line in sys.stdin:
     msg = json.loads(line)
     if msg.get("method") == "initialize":
-        out = {"jsonrpc": "2.0", "id": msg["id"], "result": {"serverInfo": {"name": "fake"}}}
+        out = {"jsonrpc": "2.0", "id": msg["id"], "result": {"protocolVersion": "2025-06-18", "serverInfo": {"name": "fake"}}}
     elif msg.get("method") == "tools/list":
         out = {"jsonrpc": "2.0", "id": msg["id"], "result": {"tools": [{"name": "t"}]}}
     else:

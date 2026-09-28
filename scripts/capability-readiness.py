@@ -29,7 +29,8 @@ This reports ONE state per capability, from the observations that produced it:
 The probes are bounded and harmless: the flow row runs one installed helper
 read-only; the MCP rows do an MCP `initialize` + `tools/list` handshake and
 call NO tool, so no model request is made and nothing is paid for. A stdio
-server launched through a package launcher (npx, uvx, bunx, pnpx) is NOT
+server launched through a package launcher (npx, uvx, bunx, pnpx, npm exec,
+pnpm dlx, yarn dlx, bun x, uv tool run) is NOT
 started - an offline flag does not stop npx installing from a warm cache - so
 that row reads `unexamined` and says why. Any other stdio server starts with
 `UV_OFFLINE`, `UV_NO_SYNC` and `npm_config_offline` set, which reduce but do
@@ -107,6 +108,22 @@ HANDSHAKE = "MCP initialize + tools/list (no tool called)"
 #: not stop npx installing from a warm cache into its exec directory, so status
 #: does not start them at all (#1290 boundary: no dependency installation).
 INSTALLING_LAUNCHERS = frozenset({"npx", "uvx", "bunx", "pnpx"})
+#: Package managers whose SUBCOMMAND fetches and runs a package (`npm exec`,
+#: `pnpm dlx`, `yarn dlx`, `bun x`, `uv tool run`).
+INSTALLING_SUBCOMMANDS = {"npm": {"exec", "x"}, "pnpm": {"dlx", "exec"}, "yarn": {"dlx"},
+                          "bun": {"x"}, "uv": {"tool"}}
+
+
+def installing_launcher(cmd: str, args: tuple) -> str | None:
+    """The launcher's name when this stdio command can install a package on start."""
+    name = Path(cmd).name
+    if name in INSTALLING_LAUNCHERS:
+        return name
+    subs = INSTALLING_SUBCOMMANDS.get(name)
+    first = next((a for a in args if not a.startswith("-")), None)
+    if subs and first in subs:
+        return f"{name} {first}"
+    return None
 _READ_CAP = 1 << 20
 
 
@@ -266,12 +283,21 @@ _LIST = {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
 
 
 def _handshake_result(init: object, tools: object) -> tuple[str, str]:
-    if not (isinstance(init, dict) and isinstance(init.get("result"), dict)):
-        return "unreachable", "initialize was not answered with a result"
-    if not (isinstance(tools, dict) and isinstance(tools.get("result"), dict)
-            and isinstance(tools["result"].get("tools"), list)):
-        return "unreachable", "tools/list was not answered with a tool list"
-    return "ok", f"{len(tools['result']['tools'])} tool(s) listed"
+    """A valid MCP answer, not merely a dict: a JSON-RPC 2.0 envelope with the
+    request's id, an initialize result naming a protocolVersion, and a tools/list
+    result carrying a list. An empty tool list is a valid answer to the listing."""
+    def envelope(msg: object, want_id: int) -> dict | None:
+        if (isinstance(msg, dict) and msg.get("jsonrpc") == "2.0" and msg.get("id") == want_id
+                and isinstance(msg.get("result"), dict)):
+            return msg["result"]
+        return None
+    init_result = envelope(init, 1)
+    if init_result is None or not isinstance(init_result.get("protocolVersion"), str):
+        return "unreachable", "initialize was not answered with a valid MCP result"
+    tools_result = envelope(tools, 2)
+    if tools_result is None or not isinstance(tools_result.get("tools"), list):
+        return "unreachable", "tools/list was not answered with a valid tool list"
+    return "ok", f"{len(tools_result['tools'])} tool(s) listed"
 
 
 def probe_stdio(cmd: str, args: tuple, spec_env: dict[str, str], cwd: Path, timeout: float
@@ -414,7 +440,7 @@ def _http_handshake(url: str, timeout: float, deadline: float) -> tuple[str, str
         reason = exc.reason
         errno = f" (errno {reason.errno})" if isinstance(reason, OSError) and reason.errno else ""
         return "unreachable", f"{type(reason).__name__}{errno}"
-    except (OSError, ValueError) as exc:
+    except Exception as exc:  # noqa: BLE001 - e.g. http.client.BadStatusLine; its message can carry response bytes
         return "unreachable", type(exc).__name__
     return _handshake_result(init, tools)
 
@@ -449,8 +475,9 @@ def probe_endpoint(mcp, spec: object, endpoint: tuple, cwd: Path, timeout: float
     if _carries_credentials(spec, endpoint):
         return "unexamined", ("endpoint carries credentials (userinfo, query or headers); "
                               "an authenticated probe is not authorised for status")
-    if endpoint[0] == "stdio" and Path(endpoint[1]).name in INSTALLING_LAUNCHERS:
-        return "unexamined", (f"launched through {Path(endpoint[1]).name}, which can install the package on start; "
+    launcher = installing_launcher(endpoint[1], endpoint[2]) if endpoint[0] == "stdio" else None
+    if launcher:
+        return "unexamined", (f"launched through {launcher}, which can install the package on start; "
                               "status installs nothing, so the handshake is not attempted")
     if endpoint[0] == "stdio":
         raw_env = spec.get("env") or {}
