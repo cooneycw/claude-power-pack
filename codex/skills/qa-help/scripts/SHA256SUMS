@@ -7,4 +7,4 @@
 # corruption, a partial edit, and post-build modification. It does NOT
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
-625ba7845235a7f92541359efdfac5ada74eaeb613b04bd6a8ff6af1b75b6918  qa-regression-export.py
+78ae9d3d36a0b9741130495e4fb93d74a0ae0680afb64b8c3ce350d84f75365d  qa-regression-export.py

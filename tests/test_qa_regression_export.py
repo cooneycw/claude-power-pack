@@ -85,11 +85,16 @@ def test_the_committed_fixture_spec_is_valid():
     [
         (lambda s: s.update(cookies=[{"name": "sid", "value": "x"}]), "unknown key"),
         (lambda s: s.update(storageState="state.json"), "unknown key"),
-        (lambda s: s.update(start="https://prod.example.com/shop"), "relative"),
-        (lambda s: s.update(start="//prod.example.com/shop"), "relative"),
+        (lambda s: s.update(start="https://prod.example.com/shop"), "single '/'"),
+        (lambda s: s.update(start="//prod.example.com/shop"), "single '/'"),
+        (lambda s: s.update(start="/\\example.org/shop"), "no backslash"),
+        (lambda s: s.update(start="/\texample.org"), "no backslash"),
+        (lambda s: s.update(start="/shop\n//example.org"), "no backslash"),
         (lambda s: s.update(expect=[]), "at least one product assertion"),
         (lambda s: s.update(schema="cpp.qa-regression/0"), "schema"),
-        (lambda s: s["steps"].append({"action": "goto", "path": "https://evil.example"}), "relative"),
+        (lambda s: s["steps"].append({"action": "goto", "path": "https://evil.example"}), "single '/'"),
+        (lambda s: s["steps"].append({"action": "goto", "path": "/\\evil.example"}), "no backslash"),
+        (lambda s: s["steps"].append({"action": "fill", "target": {"testid": "q"}, "value_env": "QA-X"}), "value_env"),
         (lambda s: s["steps"].append({"action": "hover", "target": {"testid": "x"}}), "action must be"),
         (lambda s: s["expect"][0].update(toBeVisible=True), "exactly one of"),
         (lambda s: s["expect"][0].update(target={"testid": "a", "text": "b"}), "exactly one of testid"),
@@ -125,6 +130,42 @@ def test_the_rendered_test_resets_state_marks_unavailable_and_asserts_the_produc
     assert 'await page.getByRole("button", { name: "Add to cart" }).click();' in text
     assert 'await expect(page.getByTestId("cart-count")).toHaveText("1");' in text
     assert "waitForTimeout" not in text, "no arbitrary sleeps"
+
+
+def test_a_multiline_issue_cannot_escape_its_comment():
+    """Counter-model finding: a raw newline ended the comment and injected code."""
+    text = qa.render_test(_spec(issue='fixture\nthrow new Error("injected");'), "@playwright/test")
+    assert not any(line.startswith("throw new Error") for line in text.splitlines())
+    assert '// Issue: "fixture\\nthrow new Error(\\"injected\\");"' in text
+
+
+def test_env_fills_get_unique_safe_identifiers():
+    """Counter-model finding: a repeated variable redeclared a const; CLASS became `class`."""
+    steps = [
+        {"action": "fill", "target": {"label": "Password"}, "value_env": "QA_PASSWORD"},
+        {"action": "fill", "target": {"label": "Confirm password"}, "value_env": "QA_PASSWORD"},
+        {"action": "fill", "target": {"label": "Class"}, "value_env": "CLASS"},
+    ]
+    text = qa.render_test(_spec(steps=steps), "@playwright/test")
+    declared = re.findall(r"const (\w+) = process\.env", text)
+    assert declared == ["fillValue0", "fillValue1", "fillValue2"]
+    assert "const class" not in text and "const qa_password" not in text
+
+
+@pytest.mark.skipif(qa.shutil.which("node") is None, reason="node not on PATH")
+def test_rendered_tests_are_syntactically_valid_javascript(tmp_path):
+    steps = [
+        {"action": "fill", "target": {"label": "Password"}, "value_env": "QA_PASSWORD"},
+        {"action": "fill", "target": {"label": "Confirm"}, "value_env": "QA_PASSWORD"},
+        {"action": "fill", "target": {"label": "Class"}, "value_env": "CLASS"},
+        {"action": "press", "target": {"testid": "q"}, "key": "Enter"},
+        {"action": "goto", "path": "/next?x=1#y"},
+    ]
+    spec = _spec(steps=steps, issue='line one\nthrow new Error("x"); \u2028 end', title="it's `ok` ${x}")
+    out = tmp_path / "t.spec.mjs"
+    out.write_text(qa.render_test(qa.validate_spec(spec), "@playwright/test"))
+    proc = qa.subprocess.run(["node", "--check", str(out)], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
 
 
 def test_literals_are_escaped_as_js_strings():
@@ -218,26 +259,39 @@ def test_a_typescript_config_gets_a_typescript_test(tmp_path, node_on_path):
 
 # --------------------------------------------------------------- classification
 
+#: The report's rootDir and the file being asked about. Fixture-owned relative
+#: values under a fixed fake root, never a real absolute path.
+ROOT_DIR = Path("/consumer/tests/e2e")
+TARGET = ROOT_DIR / "regressions" / "regression-x.spec.mjs"
+NEIGHBOUR = "auth.setup.mjs"
 
-def _report(*results, errors=None):
-    return {
-        "errors": errors or [],
-        "suites": [{"specs": [{"tests": [{"results": list(results)}]}], "suites": []}],
-    }
+
+def _spec_entry(file: str, *results) -> dict:
+    return {"file": file, "tests": [{"results": list(results)}]}
+
+
+def _report(*results, errors=None, neighbour=None, file="regressions/regression-x.spec.mjs"):
+    specs = [_spec_entry(file, *results)] if results else []
+    suites = [{"file": file, "specs": specs, "suites": []}]
+    if neighbour is not None:
+        suites.insert(0, {"file": NEIGHBOUR, "specs": [_spec_entry(NEIGHBOUR, neighbour)], "suites": []})
+    return {"config": {"rootDir": str(ROOT_DIR)}, "errors": errors or [], "suites": suites}
 
 
 TRACE = {"name": "trace", "path": "test-results/x/trace.zip"}
+PASSED = {"status": "passed", "attachments": [TRACE]}
+ASSERTION = {"status": "failed", "error": {"message": "Error: expect(locator).toHaveText(expected) failed"}}
+SKIPPED = {"status": "skipped"}
 
 
 def test_a_passing_run_is_passed_and_names_its_trace():
-    verdict, _, traces = qa.classify_report(_report({"status": "passed", "attachments": [TRACE]}))
+    verdict, _, traces = qa.classify_report(_report(PASSED), TARGET)
     assert verdict == "passed"
     assert traces == ["test-results/x/trace.zip"]
 
 
 def test_a_failed_product_assertion_is_reproduced():
-    failed = {"status": "failed", "error": {"message": "Error: expect(locator).toHaveText(expected) failed"}}
-    assert qa.classify_report(_report(failed))[0] == "reproduced"
+    assert qa.classify_report(_report(ASSERTION), TARGET)[0] == "reproduced"
 
 
 def test_an_unreachable_app_is_unavailable_not_reproduced():
@@ -246,26 +300,92 @@ def test_an_unreachable_app_is_unavailable_not_reproduced():
         "error": {"message": f"Error: {qa.UNAVAILABLE_MARKER}: page.goto: net::ERR_CONNECTION_REFUSED"},
         "errors": [{"message": "expect(x) would be irrelevant here"}],
     }
-    assert qa.classify_report(_report(down))[0] == "unavailable"
+    assert qa.classify_report(_report(down), TARGET)[0] == "unavailable"
+
+
+def test_a_neighbours_failed_assertion_with_the_target_skipped_is_error_not_reproduced():
+    """Counter-model finding: a failed setup dependency SKIPS the target."""
+    report = _report(SKIPPED, neighbour=ASSERTION)
+    assert qa.classify_report(report, TARGET)[0] == "error"
+
+
+def test_a_neighbours_failure_does_not_decide_a_passing_target():
+    report = _report(PASSED, neighbour=ASSERTION)
+    assert qa.classify_report(report, TARGET)[0] == "passed"
+
+
+def test_a_report_that_holds_only_neighbours_is_error():
+    report = _report(ASSERTION, file="regressions/regression-other.spec.mjs")
+    verdict, reason, _ = qa.classify_report(report, TARGET)
+    assert verdict == "error"
+    assert "did not execute" in reason
 
 
 @pytest.mark.parametrize(
     "report, why",
     [
         (None, "no JSON report"),
-        ({"errors": [], "suites": []}, "zero tests executed"),
-        ({"errors": [{"message": "Error: No tests found."}], "suites": []}, "before any test ran"),
+        ({"config": {"rootDir": str(ROOT_DIR)}, "errors": [], "suites": []}, "did not execute"),
+        ({"errors": [{"message": "Error: No tests found."}], "suites": []}, "before the test ran"),
         (
             {"errors": [{"message": "Error: Process from config.webServer was not able to start."}], "suites": []},
-            "before any test ran",
+            "before the test ran",
         ),
         (_report({"status": "failed", "error": {"message": "TypeError: x is undefined"}}), "TypeError"),
+        ({"errors": [], "suites": _report(PASSED)["suites"]}, "names no rootDir"),
     ],
 )
 def test_anything_else_is_error_never_passed(report, why):
-    verdict, reason, _ = qa.classify_report(report)
+    verdict, reason, _ = qa.classify_report(report, TARGET)
     assert verdict == "error"
     assert why in reason
+
+
+# ---------------------------------------------------------------------- run
+
+
+def test_the_file_filter_is_an_escaped_anchored_regex():
+    assert qa._file_filter(Path("/c/tests/e2e[local]/a.spec.mjs")) == r"^/c/tests/e2e\[local\]/a\.spec\.mjs$"
+
+
+def _runnable(tmp_path: Path) -> tuple[Path, str]:
+    root = _consumer(tmp_path)
+    test = root / "tests/e2e/regressions/regression-x.spec.mjs"
+    test.parent.mkdir(parents=True)
+    test.write_text("// placeholder\n")
+    return root, test.relative_to(root).as_posix()
+
+
+def test_a_runner_timeout_is_error_not_reproduced(tmp_path, node_on_path, monkeypatch, capsys):
+    root, rel = _runnable(tmp_path)
+
+    def hang(*args, **kwargs):
+        raise qa.subprocess.TimeoutExpired(cmd=args[0], timeout=1)
+
+    monkeypatch.setattr(qa.subprocess, "run", hang)
+    assert qa.main(["run", "--root", str(root), "--test", rel, "--timeout", "1"]) == qa.RUN_ERROR
+    assert "QA_REGRESSION_RESULT: error - the runner did not finish within 1s" in capsys.readouterr().out
+
+
+def test_a_crash_inside_run_is_error_never_exit_one(tmp_path, node_on_path, monkeypatch, capsys):
+    root, rel = _runnable(tmp_path)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("unexpected")
+
+    monkeypatch.setattr(qa, "classify_report", boom)
+    monkeypatch.setattr(qa.subprocess, "run", lambda *a, **k: qa.subprocess.CompletedProcess(a, 1, "", ""))
+    rc = qa.main(["run", "--root", str(root), "--test", rel])
+    assert rc == qa.RUN_ERROR and rc != qa.RUN_REPRODUCED
+    assert "QA_REGRESSION_RESULT: error - the helper crashed: RuntimeError" in capsys.readouterr().out
+
+
+def test_run_refuses_a_test_outside_the_project(tmp_path, node_on_path, capsys):
+    root, _ = _runnable(tmp_path)
+    outside = tmp_path / "elsewhere.spec.mjs"
+    outside.write_text("// not in the project\n")
+    assert qa.main(["run", "--root", str(root), "--test", "../elsewhere.spec.mjs"]) == qa.RUN_ERROR
+    assert "is not a file inside" in capsys.readouterr().out
 
 
 # ----------------------------------------------------------------------- wiring

@@ -51,6 +51,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -106,9 +107,20 @@ def _check_keys(obj: Any, allowed: set[str], where: str) -> dict[str, Any]:
     return obj
 
 
+#: A path on the configured origin: RFC 3986 path/query/fragment characters
+#: only. A backslash is excluded because the WHATWG URL parser treats it as a
+#: slash, so `/\\example.org/x` resolves to ANOTHER HOST (counter-model review);
+#: whitespace and control characters are excluded because the parser strips some
+#: of them before resolving, which can turn a harmless-looking path into `//host`.
+RELATIVE_PATH = re.compile(r"/(?![/\\])[A-Za-z0-9._~!$&'()*+,;=:@%/?#-]*")
+
+
 def _relative_path(value: Any, where: str) -> str:
-    if not isinstance(value, str) or not value.startswith("/") or value.startswith("//"):
-        raise SpecError(f"{where}: must be a path relative to the configured base URL, starting with '/'")
+    if not isinstance(value, str) or not RELATIVE_PATH.fullmatch(value):
+        raise SpecError(
+            f"{where}: must be a path on the configured base URL - starting with a single '/', "
+            "with no backslash, whitespace or control character"
+        )
     return value
 
 
@@ -269,7 +281,9 @@ def render_test(spec: dict[str, Any], module: str) -> str:
         "// only replaces it with --force.",
     ]
     if spec.get("issue"):
-        lines.append(f"// Issue: {spec['issue']}")
+        # JSON-escaped, never raw: a newline in the value would otherwise end the
+        # comment and put the rest of the string into the file as code.
+        lines.append(f"// Issue: {_js(spec['issue'])}")
     lines += [
         f"import {{ test, expect }} from {_js(module)};",
         "",
@@ -299,7 +313,7 @@ def render_test(spec: dict[str, Any], module: str) -> str:
     steps = spec.get("steps", [])
     if steps:
         lines.append("  await test.step('reproduce', async () => {")
-        for step in steps:
+        for index, step in enumerate(steps):
             action = step["action"]
             if action == "goto":
                 lines.append(f"    await page.goto({_js(step['path'])});")
@@ -313,11 +327,14 @@ def render_test(spec: dict[str, Any], module: str) -> str:
                 lines.append(f"    await {loc}.press({_js(step['key'])});")
             elif action == "fill":
                 if "value_env" in step:
-                    env = step["value_env"]
-                    lines.append(f"    const {env.lower()} = process.env[{_js(env)}];")
+                    # One generated name per STEP, never derived from the variable:
+                    # two fills from one variable would redeclare it, and a name
+                    # like CLASS lowercases to a reserved word (counter-model review).
+                    env, var = step["value_env"], f"fillValue{index}"
+                    lines.append(f"    const {var} = process.env[{_js(env)}];")
                     unset = _js(f"set {env} before running this test")
-                    lines.append(f"    if (!{env.lower()}) throw new Error({unset});")
-                    lines.append(f"    await {loc}.fill({env.lower()});")
+                    lines.append(f"    if (!{var}) throw new Error({unset});")
+                    lines.append(f"    await {loc}.fill({var});")
                 else:
                     lines.append(f"    await {loc}.fill({_js(step['value'])});")
         lines.append("  });")
@@ -381,7 +398,7 @@ def cmd_export(args: argparse.Namespace) -> int:
 
     rel = target.relative_to(root).as_posix()
     print(f"QA_REGRESSION_TEST: {rel}")
-    print(f"QA_REGRESSION_RUN: npx playwright test {rel} --trace on")
+    print(f"QA_REGRESSION_RUN: npx playwright test {shlex.quote(rel)} --trace on")
     print(
         "QA_REGRESSION_TRACE: written under the config's outputDir per run; "
         "open with `npx playwright show-trace <trace.zip>`"
@@ -395,21 +412,41 @@ def cmd_export(args: argparse.Namespace) -> int:
 # --------------------------------------------------------------------------- run
 
 
-def _walk_results(suites: list[dict[str, Any]]):
+def _target_results(suites: list[dict[str, Any]], root_dir: Path | None, target: Path | None):
+    """Yield (belongs_to_target, result) for every result in the report.
+
+    Identity is by FILE: a spec's `file` is relative to the report's
+    `config.rootDir`. A report also carries NEIGHBOURS - a project dependency
+    (`auth.setup.ts`) runs and is reported even when one file is selected, and a
+    failed dependency SKIPS the file asked about. Reading every result as the
+    target's let a neighbour's failed assertion read as the bug reproduced
+    (counter-model review), so only the target's own results decide.
+    """
     for suite in suites or []:
         for spec in suite.get("specs", []) or []:
+            mine = False
+            if root_dir is not None and target is not None and spec.get("file"):
+                mine = (root_dir / spec["file"]).resolve() == target
             for test in spec.get("tests", []) or []:
                 for result in test.get("results", []) or []:
-                    yield result
-        yield from _walk_results(suite.get("suites", []) or [])
+                    yield mine, result
+        yield from _target_results(suite.get("suites", []) or [], root_dir, target)
 
 
-def classify_report(report: dict[str, Any] | None) -> tuple[str, str, list[str]]:
-    """Map a Playwright JSON report to (verdict, reason, trace paths)."""
+def _messages(result: dict[str, Any]) -> list[str]:
+    errors = [result.get("error")] + list(result.get("errors", []) or [])
+    return [(e or {}).get("message", "") or "" for e in errors if e]
+
+
+def classify_report(report: dict[str, Any] | None, target: Path | None) -> tuple[str, str, list[str]]:
+    """Map a Playwright JSON report to (verdict, reason, trace paths) for ONE test file."""
     if not isinstance(report, dict):
         return "error", "no JSON report was produced", []
     top_errors = [e.get("message", "") for e in report.get("errors", []) or [] if isinstance(e, dict)]
-    results = list(_walk_results(report.get("suites", []) or []))
+    root = (report.get("config") or {}).get("rootDir")
+    root_dir = Path(root).resolve() if isinstance(root, str) and root else None
+    everything = list(_target_results(report.get("suites", []) or [], root_dir, target))
+    results = [r for mine, r in everything if mine]
     traces = [
         a["path"]
         for r in results
@@ -418,44 +455,61 @@ def classify_report(report: dict[str, Any] | None) -> tuple[str, str, list[str]]
     ]
     if top_errors and not results:
         first = top_errors[0].strip().splitlines()[0] if top_errors[0].strip() else "runner error"
-        return "error", f"the runner failed before any test ran: {first}", traces
+        return "error", f"the runner failed before the test ran: {first}", traces
+    if root_dir is None and everything:
+        return "error", "the report names no rootDir, so the test it describes cannot be identified", traces
     if not results:
-        return "error", "zero tests executed - a green over nothing is not a pass", traces
+        neighbours = len(everything)
+        return "error", f"the requested test did not execute ({neighbours} other result(s) in the report)", traces
 
-    messages = [
-        (err or {}).get("message", "") or ""
-        for r in results
-        for err in ([r.get("error")] + list(r.get("errors", []) or []))
-        if err
-    ]
     statuses = [r.get("status") for r in results]
+    messages = [m for r in results for m in _messages(r)]
+    if any(s in (None, "skipped", "interrupted") for s in statuses):
+        return "error", "the requested test was skipped or interrupted - a blocked test proves nothing", traces
     if any(UNAVAILABLE_MARKER in m for m in messages):
         return "unavailable", "the app could not be reached - this is NOT a bug reproduction", traces
     if all(s == "passed" for s in statuses) and not top_errors:
-        return "passed", f"{len(results)} test result(s) passed", traces
+        return "passed", f"{len(results)} result(s) of the requested test passed", traces
     if any(s in ("failed", "timedOut") for s in statuses) and any("expect(" in m for m in messages):
         return "reproduced", "a product assertion failed - the bug is present", traces
     first = next((m.strip().splitlines()[0] for m in messages + top_errors if m.strip()), "unclassified failure")
     return "error", first, traces
 
 
+def _file_filter(path: Path) -> str:
+    """Playwright reads a positional filter as a REGEX: escape and anchor it."""
+    return "^" + re.sub(r"[.*+?^${}()|[\]\\]", lambda m: "\\" + m.group(0), path.as_posix()) + "$"
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     root = Path(args.root).resolve()
+    target = (root / args.test).resolve()
+    if root not in target.parents or not target.is_file():
+        print(f"QA_REGRESSION_RESULT: error - {args.test} is not a file inside {root}")
+        return RUN_ERROR
     missing, _module = runner_prerequisites(root)
     if missing:
         for item in missing:
             print(f"QA_REGRESSION_MISSING: {item}")
         print("QA_REGRESSION_RESULT: error - missing prerequisite, nothing was run")
         return RUN_ERROR
+    rel = target.relative_to(root).as_posix()
+    print(f"QA_REGRESSION_COMMAND: npx playwright test {shlex.quote(_file_filter(target))} --trace on")
     with tempfile.TemporaryDirectory(prefix="qa-regression-") as tmp:
         report_path = Path(tmp) / "report.json"
         env = dict(os.environ)
         env["PLAYWRIGHT_JSON_OUTPUT_FILE"] = str(report_path)
         env["PLAYWRIGHT_JSON_OUTPUT_NAME"] = str(report_path)
         runner = str(root / "node_modules" / ".bin" / "playwright")
-        cmd = [runner, "test", args.test, "--trace", "on", "--reporter=line,json"]
-        print(f"QA_REGRESSION_COMMAND: npx playwright test {args.test} --trace on")
-        proc = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True, timeout=args.timeout)
+        cmd = [runner, "test", _file_filter(target), "--trace", "on", "--reporter=line,json"]
+        try:
+            proc = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True, timeout=args.timeout)
+        except subprocess.TimeoutExpired:
+            print(f"QA_REGRESSION_RESULT: error - the runner did not finish within {args.timeout}s ({rel})")
+            return RUN_ERROR
+        except OSError as exc:
+            print(f"QA_REGRESSION_RESULT: error - the runner could not be started: {exc}")
+            return RUN_ERROR
         if args.verbose:
             sys.stdout.write(proc.stdout)
             sys.stderr.write(proc.stderr)
@@ -463,7 +517,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             report = json.loads(report_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             report = None
-    verdict, reason, traces = classify_report(report)
+    verdict, reason, traces = classify_report(report, target)
     for trace in traces:
         print(f"QA_REGRESSION_TRACE: {trace}")
     print(f"QA_REGRESSION_RUNNER_EXIT: {proc.returncode}")
@@ -486,7 +540,15 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--verbose", action="store_true", help="echo the runner's own output")
     run.set_defaults(func=cmd_run)
     args = parser.parse_args(argv)
-    return int(args.func(args))
+    if args.command != "run":
+        return int(args.func(args))
+    # An uncaught exception exits 1, which is `reproduced`: a crashed run must
+    # never read as the bug coming back (counter-model review).
+    try:
+        return int(args.func(args))
+    except Exception as exc:  # noqa: BLE001 - every crash maps to one verdict
+        print(f"QA_REGRESSION_RESULT: error - the helper crashed: {type(exc).__name__}: {exc}")
+        return RUN_ERROR
 
 
 if __name__ == "__main__":
