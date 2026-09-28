@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1269-counter-model-receipts-reviews-that-ran-with-no-re",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 1
+  },
+  "head": "164fdd4d23f2eaf66ef4ba30408824f7c589c417",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1269",
+  "passes": 2,
+  "recorded_at": "2026-09-28T10:12:28Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 7
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/09/28/rollout-2026-09-28T10-10-56-01a0e77f-0553-7993-a807-5b93176477a9.jsonl",
+    "thread_id": "01a0e77f-0553-7993-a807-5b93176477a9"
+  },
+  "schema": 1,
+  "status": "ran"
+}

@@ -226,18 +226,96 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]+", "-", text).strip("-")[:60] or "unknown"
 
 
+def rollout_turn_model(rollout_text: str) -> tuple[str | None, str | None]:
+    """The model a Codex rollout's TURNS ran on, read structurally (issue #1269).
+
+    WHY NOT THE FIRST `"model"` IN THE FILE. This used to be a whole-file regex,
+    first match wins. A codex-cli 0.158.0 rollout carries five structural
+    `model` keys, and the FIRST is `session_meta.payload.base_instructions
+    .provenance.model` - the model the base instructions were written for, not
+    the model that answered. `turn_context.payload.model` is the per-turn
+    record of what ran. Measured on three real runs (the default, `-m gpt-5.5`,
+    `-m gpt-5`): all five agreed, so no landed receipt is wrong - but they are
+    different facts, and they part on a model switch or a resumed thread.
+
+    Refuses rather than choosing when the turns disagree: picking one of two
+    would manufacture a specific answer out of an ambiguous one - the same rule
+    `counter-model-reviewer-attribution.py` applies to two linked rollouts. A
+    rollout with no turn_context record at all (an older Codex that wrote a
+    different shape) is refused too: a receipt naming a reviewer nobody can
+    re-derive is worse than no receipt.
+
+    AGREEMENT OF WHAT WAS READ IS NOT COMPLETE EVIDENCE (counter-model review).
+    A turn_context that declares no model, or a line that does not parse and
+    could have been a turn record, leaves that turn's model UNKNOWN - and one
+    readable turn saying `A` beside an unknown one is not a rollout that says
+    `A`. Both refuse, naming the count, rather than letting the readable part
+    stand in for the whole.
+
+    Returns `(model, None)` or `(None, reason)`; the reason names what is
+    missing so the caller can print it against the rollout's path.
+    """
+    turn_contexts = 0
+    undeclared = 0
+    unparseable = 0
+    models: set[str] = set()
+    # `split("\n")`, never `splitlines()`: see _derive_implementer_from_session.
+    for line in rollout_text.split("\n"):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            unparseable += 1
+            continue
+        if not isinstance(record, dict) or record.get("type") != "turn_context":
+            continue
+        turn_contexts += 1
+        payload = record.get("payload")
+        model = payload.get("model") if isinstance(payload, dict) else None
+        if isinstance(model, str) and model.strip():
+            models.add(model.strip())
+        else:
+            undeclared += 1
+    if turn_contexts == 0 and not unparseable:
+        return None, "no turn_context record"
+    if unparseable:
+        return None, (
+            f"{unparseable} unparseable line(s) beside {turn_contexts} turn_context "
+            "record(s); a turn's model may be among them, so the reviewing model "
+            "is not established"
+        )
+    if undeclared:
+        return None, (
+            f"{undeclared} of {turn_contexts} turn_context record(s) declare no "
+            "payload.model; the reviewing model is not established"
+        )
+    if len(models) > 1:
+        return None, (
+            f"turn_context records disagree ({', '.join(sorted(models))}); "
+            "the reviewing model is ambiguous"
+        )
+    return next(iter(models)), None
+
+
 def _derive_reviewer_from_exec_log(
     exec_log: Path, sessions_dir: Path
-) -> tuple[str | None, str | None]:
-    """Derive the reviewing model from one exec stream and its own rollout."""
+) -> tuple[str | None, dict | None, str | None]:
+    """Derive the reviewing model from one exec stream and its own rollout.
+
+    Returns `(reviewer, evidence, error)`. `evidence` is the pointer a later
+    reader needs to re-derive the reviewer (issue #1269): the thread id this
+    derivation was anchored on, and the rollout it read, relative to the
+    sessions directory so the receipt does not carry a host's home path.
+    """
     try:
         exec_text = exec_log.read_text(encoding="utf-8")
     except OSError as exc:
-        return None, f"cannot read reviewer exec log {exec_log}: {exc}"
+        return None, None, f"cannot read reviewer exec log {exec_log}: {exc}"
 
     thread_match = re.search(r'"thread_id"\s*:\s*"([^"]*)"', exec_text)
     if thread_match is None or not thread_match.group(1):
-        return None, f"reviewer exec log {exec_log} contains no thread_id"
+        return None, None, f"reviewer exec log {exec_log} contains no thread_id"
     thread_id = thread_match.group(1)
 
     try:
@@ -247,9 +325,9 @@ def _derive_reviewer_from_exec_log(
             if path.is_file() and path.name.endswith(f"{thread_id}.jsonl")
         )
     except OSError as exc:
-        return None, f"cannot search Codex sessions directory {sessions_dir}: {exc}"
+        return None, None, f"cannot search Codex sessions directory {sessions_dir}: {exc}"
     if not matches:
-        return None, (
+        return None, None, (
             f"no rollout matching thread_id {thread_id!r} under Codex sessions "
             f"directory {sessions_dir}"
         )
@@ -258,11 +336,15 @@ def _derive_reviewer_from_exec_log(
     try:
         rollout_text = rollout.read_text(encoding="utf-8")
     except OSError as exc:
-        return None, f"cannot read matching rollout {rollout}: {exc}"
-    model_match = re.search(r'"model"\s*:\s*"([^"]*)"', rollout_text)
-    if model_match is None or not model_match.group(1):
-        return None, f"matching rollout {rollout} contains no model field"
-    return f"codex/{model_match.group(1)}", None
+        return None, None, f"cannot read matching rollout {rollout}: {exc}"
+    model, reason = rollout_turn_model(rollout_text)
+    if model is None:
+        return None, None, f"{reason} in matching rollout {rollout}"
+    evidence = {
+        "thread_id": thread_id,
+        "rollout": rollout.relative_to(sessions_dir).as_posix(),
+    }
+    return f"codex/{model}", evidence, None
 
 
 def _default_codex_sessions_dir() -> Path:
@@ -289,6 +371,13 @@ def _eligible_assistant_model(record: object) -> str | None:
     a sentinel-only transcript behind a no-assistant-records diagnostic.
     """
     if not isinstance(record, dict) or record.get("type") != "assistant":
+        return None
+    # A SIDECHAIN record is a sub-agent speaking, not the implementing session
+    # (issue #1269). The current harness writes those to
+    # `<session>/subagents/agent-*.jsonl`, which the stem lookup never opens;
+    # an older layout wrote them INLINE, where the last-wins rule below would
+    # hand the implementer identity to whichever sub-agent answered last.
+    if record.get("isSidechain") is True:
         return None
     message = record.get("message")
     if not isinstance(message, dict):
@@ -421,6 +510,11 @@ def build(args: argparse.Namespace) -> dict:
     # head rather than as a failure of the receipt.
     if getattr(args, "head", None):
         receipt["head"] = args.head
+    # Where `reviewer` came from (issue #1269). OPTIONAL for the same reason
+    # `head` is: every receipt committed before this field has none, and they
+    # must keep validating. `cmd_write` always sets it on a `ran` receipt.
+    if getattr(args, "reviewer_evidence", None):
+        receipt["reviewer_evidence"] = args.reviewer_evidence
     if args.status == "skipped":
         receipt["skip_reason"] = args.reason
     else:
@@ -491,6 +585,22 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
     if head is not None:
         if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{7,40}", head):
             bad.append(f"{source}: head {head!r} is not a git object name")
+
+    if "reviewer_evidence" in receipt:
+        evidence = receipt["reviewer_evidence"]
+        if status == "skipped":
+            bad.append(
+                f"{source}: a skipped run must not carry 'reviewer_evidence'; "
+                "no review happened"
+            )
+        elif not isinstance(evidence, dict) or not all(
+            isinstance(evidence.get(k), str) and evidence[k].strip()
+            for k in ("thread_id", "rollout")
+        ):
+            bad.append(
+                f"{source}: reviewer_evidence {evidence!r} must name a non-empty "
+                "'thread_id' and 'rollout'"
+            )
 
     if status == "skipped":
         if receipt.get("skip_reason") not in SKIP_REASONS:
@@ -571,18 +681,110 @@ def _derive_head(explicit: str | None, cwd: Path | None = None) -> tuple[str | N
     return head, None
 
 
+def _tracking_state(path: Path) -> tuple[str, str | None]:
+    """Whether git tracks the receipt just written: (state, reason).
+
+    `tests/test_counter_model_review.py` requires every committed receipt to be
+    TRACKED, and nothing here used to say that a fresh one is not (issue
+    #1269). The helper WARNS and never stages (orchestrator ruling on #1269):
+    it runs mid-flow, sometimes while an index is being built, and an index
+    mutated behind the caller's back is a harder surprise to see than an
+    untracked file.
+
+    Three states, not two. Not being in a work tree, or git failing, is
+    `unknown` - never `tracked`, which would be a green for a check that did
+    not run.
+    """
+    where = str(path.parent)
+    try:
+        inside = subprocess.run(
+            ["git", "-C", where, "rev-parse", "--is-inside-work-tree"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if inside.returncode != 0 or inside.stdout.strip() != "true":
+            return "unknown", "not inside a git work tree"
+        listed = subprocess.run(
+            ["git", "-C", where, "ls-files", "--error-unmatch", "--", path.name],
+            capture_output=True, text=True, timeout=10,
+        )
+        if listed.returncode == 0:
+            return "tracked", None
+        ignored = subprocess.run(
+            ["git", "-C", where, "check-ignore", "-q", "--", path.name],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return "unknown", f"could not run git: {exc}"
+    if ignored.returncode == 0:
+        return "untracked", (
+            "ignored by a .gitignore rule, so a plain `git add` will skip it "
+            "silently; add a !negation for this directory"
+        )
+    if ignored.returncode == 1:
+        return "untracked", f"stage it: git add {path}"
+    return "unknown", f"git check-ignore exited {ignored.returncode}"
+
+
+def _same_run_receipt(out_dir: Path, branch: str, head: str) -> Path | None:
+    """An existing `ran` receipt for this (branch, head), if one is on disk.
+
+    ONE RUN, ONE RECEIPT (issue #1269; Nit Store 5749736750). A run writes a
+    single receipt carrying its final totals - `--passes 2` is how a re-review
+    is recorded. A second `ran` receipt for the same branch at the same commit
+    is a pass-1 receipt followed by a pass-2 one, and a corpus reader cannot
+    tell that from two independent runs. A NEW head is a re-review of new
+    commits and is a distinct run; a skip is an attempt that did not review, so
+    a run after one is not a duplicate of it. Neither is refused.
+
+    NOT A CONCURRENCY LOCK, deliberately (counter-model review, rejected with
+    this reason). The scan and the exclusive create are two steps, so two
+    writers for one (branch, head) in the same instant could both pass. The
+    duplicate this exists for is SEQUENTIAL - one run writing after pass 1 and
+    again after pass 2. Two simultaneous writers on one branch at one commit
+    would be two sessions driving one checkout, which the #597 worktree claim
+    already refuses upstream of this helper.
+    """
+    for existing in sorted(out_dir.glob("*.json")):
+        try:
+            data = json.loads(existing.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if (isinstance(data, dict) and data.get("status") == "ran"
+                and data.get("branch") == branch
+                and _same_commit(data.get("head"), head)):
+            return existing
+    return None
+
+
+def _same_commit(a: object, b: object) -> bool:
+    """Two object names for one commit, abbreviated or full (counter-model review).
+
+    `validate` accepts 7 to 40 hex characters and the corpus holds both shapes
+    (65 full, 1 abbreviated at #1269), so `abc1234` and its full SHA must match.
+    An abbreviation IS a prefix of the name it abbreviates - git's own rule -
+    so a prefix test decides it without needing a repository to resolve in.
+    """
+    if not (isinstance(a, str) and isinstance(b, str)):
+        return False
+    a, b = a.lower(), b.lower()
+    short, full = sorted((a, b), key=len)
+    return len(short) >= 7 and full.startswith(short)
+
+
 def cmd_write(args: argparse.Namespace) -> int:
     if args.status == "ran":
         sessions_dir = args.codex_sessions_dir or _default_codex_sessions_dir()
-        reviewer, error = _derive_reviewer_from_exec_log(
+        reviewer, evidence, error = _derive_reviewer_from_exec_log(
             args.reviewer_exec_log, sessions_dir
         )
         if error is not None:
             print(f"counter-model-receipt: {error}", file=sys.stderr)
             return EXIT_INVALID
         args.reviewer = reviewer
+        args.reviewer_evidence = evidence
     else:
         args.reviewer = None
+        args.reviewer_evidence = None
 
     session_id = args.implementer_session_id or os.environ.get("CLAUDE_CODE_SESSION_ID")
     if not session_id:
@@ -615,6 +817,19 @@ def cmd_write(args: argparse.Namespace) -> int:
         return EXIT_INVALID
 
     out_dir = Path(args.dir)
+    # A head that could not be derived cannot be matched, so no duplicate can
+    # be established; the warning above already says this receipt is weaker.
+    if receipt["status"] == "ran" and receipt.get("head") and out_dir.is_dir():
+        existing = _same_run_receipt(out_dir, receipt["branch"], receipt["head"])
+        if existing is not None:
+            print(
+                f"counter-model-receipt: {existing} already records a `ran` review "
+                f"of branch {receipt['branch']!r} at {receipt['head']}; one run "
+                "writes ONE receipt with its final totals (use --passes 2 for a "
+                "re-review). Refusing to record the same run twice.",
+                file=sys.stderr,
+            )
+            return EXIT_INVALID
     out_dir.mkdir(parents=True, exist_ok=True)
     # EXCLUSIVE CREATE, and a run id in the name. The first cut keyed the file on
     # a second-resolution timestamp plus the issue, and wrote with write_text:
@@ -639,6 +854,15 @@ def cmd_write(args: argparse.Namespace) -> int:
         return EXIT_INVALID
     print(f"COUNTER_MODEL_RECEIPT: {path}")
     print(f"COUNTER_MODEL_STATUS: {receipt['status']}")
+    tracked, reason = _tracking_state(path)
+    print(f"COUNTER_MODEL_TRACKED: {tracked}" + (f" ({reason})" if reason else ""))
+    if tracked != "tracked":
+        print(
+            f"counter-model-receipt: WARNING - receipt is {tracked}: {reason}. "
+            "The suite requires every committed receipt to be tracked; this "
+            "helper does not stage it.",
+            file=sys.stderr,
+        )
     return EXIT_OK
 
 
