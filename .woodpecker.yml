@@ -320,6 +320,23 @@ steps:
     commands:
       - python3 scripts/check-behavioral-eval.py --advisory
 
+  # The QA regression export, demonstrated end to end (issue #1291). This is the
+  # load-bearing run: `validate` has no node and no browsers, so there the Python
+  # tests can check what the export WRITES but never whether the written test
+  # fails on the bug. The image is Playwright's own, pinned by digest to the SAME
+  # version as the fixture's lockfile (1.63.0 / Chromium 1243) - a mismatch would
+  # make every arm fail for an environmental reason, which the demo reports as
+  # `error`, never as a pass. `npm ci` and apt need the network, like
+  # dependency-audit. The second command is the negative control: with the bug
+  # removed the demo must report the buggy arm red, or this step fails BLIND.
+  qa-regression-demo:
+    image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+    depends_on: [secret-scan]
+    commands:
+      - apt-get update -qq && apt-get install -y -qq --no-install-recommends python3-yaml
+      - bash scripts/qa-regression-demo.sh
+      - bash scripts/qa-regression-demo.sh --negative-control
+
   # The Codex agent-context file stays inside its word budget (#1071). Reads
   # AGENTS.md only - no git, no network - so it runs in this image unchanged.
   agents-md-budget-check:

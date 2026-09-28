@@ -580,6 +580,14 @@ below, and an undeclared one turns the gate red rather than passing quietly.
 
 - playwright-desk - lease-desk ledger
 
+## `qa-regression-export`
+
+- qa-regression-export - `/qa:test` Step 7b's handoff (#1291): `export` turns a confirmed bug's repro spec (`cpp.qa-regression/1`, a CLOSED schema with no field for cookies, storage state or headers; relative paths only; a literal into a password-like field refused in favour of `value_env`) into a test in the CONSUMER's own Playwright setup - opt-in via `.claude/qa.yml` `regression_export.enabled`, written to `regression_export.test_dir` or the config's `testDir`. With no runner it names the missing prerequisite and installs nothing. `run` executes one exported test with the consumer's runner and classifies `passed`/`reproduced`/`unavailable`/`error`: the generated test loads its start page inside a step that re-throws with a fixed marker, so an unreachable app is never read as the bug coming back, and zero executed tests is `error`, never a pass
+
+## `qa-regression-demo`
+
+- qa-regression-demo - three-arm demonstration of `qa-regression-export` against `tests/fixtures/qa_regression/consumer` (#1291): buggy=`reproduced`, fixed=`passed`, no app=`unavailable`, plus `--negative-control`, which must report the buggy arm red when it is served the fixed app. `make qa-regression-demo` locally; the `qa-regression-demo` CI step in `mcr.microsoft.com/playwright` pinned to the lockfile's version is the load-bearing run. Deliberately outside `make verify`
+
 ## `check-ignored-additions`
 
 - check-ignored-additions - advisory guard warning when a blanket-ignore rule silently swallowed a file the repo should track; skips a short allow-list of files git-ignored by design (env-only `.claude/` runtime state such as `settings.local.json`/`friction.jsonl`) so it never cries wolf on them (#504)

@@ -42,6 +42,14 @@ test_areas:
       - "Interactive elements respond"
       - "Navigation within dashboard works"
 
+# Regression export (opt-in, issue #1291). When enabled, /qa:test Step 7b turns a
+# confirmed bug into a Playwright test in THIS project's existing Playwright setup
+# (a playwright.config.* plus @playwright/test in node_modules). Nothing is
+# installed for you: without a runner the export names what is missing and stops.
+# regression_export:
+#   enabled: true
+#   test_dir: tests/e2e/regressions   # defaults to the Playwright config's testDir
+
 # --- Example: chess-agent project ---
 # project:
 #   url: https://agentic-chess.ca
