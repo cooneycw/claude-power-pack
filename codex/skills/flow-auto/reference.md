@@ -1548,6 +1548,19 @@ fill this step.
    - **Helper exit 8 means the incidental-close guard's own self-check failed
      (issue #794):** a BROKEN CHECK, not a clean scan - never read it as "no
      hazard found". Report it and investigate the guard; there is no override.
+   - **Helper exit 9 is also a CLEAN STOP (issue #1262):** a worktree on this
+     host has the PR's head branch checked out at a commit that is NOT the PR's
+     head on GitHub - a session may be mid-finish there (committed or merged
+     locally, not yet pushed). The PR is left open and untouched. Report the
+     printed path and sha; push or discard that work, then re-run. The override,
+     `--allow-local-divergence`, is the user's conscious call, never the run's.
+   - **`GH_PR_MERGE_ALREADY_MERGED: <n>` with exit 0 is SUCCESS (issue
+     #1262):** the PR was already merged when the helper was invoked, so it
+     skipped every base guard and the squash and ran only the post-merge cleanup
+     and completeness checks. Proceed to cleanup. Never re-gate on a
+     `GH_PR_MERGE_BASE_STALE` without first checking this: a squash-merged
+     branch never contains its own landed commit, so the stale-base refusal
+     cannot clear by merging and re-gating.
    - The helper also prints greppable markers per run (issues #657/#767, every
      one fail-open where it reports `skipped`):
      `GH_PR_MERGE_BASE_MOVED: <old-sha> -> <new-sha>|0|skipped` around the
@@ -1826,8 +1839,11 @@ immediately before the verdict:
 ```
 FLOW_CI_PROVIDER: woodpecker | github-actions | none
 FLOW_CI_REF: <sha>
+FLOW_CI_REPO: <owner/name|->
+FLOW_CI_EVENT: <event> (flag | branch-protection on <branch>: <contexts> | default: <why>)
 FLOW_CI_PIPELINE: <number|->
 FLOW_CI_URL: <url|->
+FLOW_CI_WAIT: none | settled | expired (<N>s)
 FLOW_CI_FAILED_STEP: <name>        (repeated, only on failure)
 FLOW_CI_STATUS: success | failure | running | pending | not-found | unknown
 ```
@@ -1844,13 +1860,22 @@ Act on `FLOW_CI_STATUS`:
   going. Non-blocking: report that CI was still running and let the user decide
   whether to wait, rather than deploying on an unknown result.
 - `not-found` -> no pipeline carries this SHA (CI may not be wired for the repo,
-  or the push has not registered yet). Warn and proceed.
+  or the push has not registered yet). Warn and proceed. **Read `FLOW_CI_WAIT`
+  first (issue #1262):** `not-found` with `FLOW_CI_WAIT: expired (<N>s)` is a
+  different fact from a single-shot `not-found` - after polling for the whole
+  window, no matching pipeline was found AT EXPIRY. Say that, with the window,
+  rather than "CI may not be wired". It does not prove one never registered (a
+  pipeline can appear and then leave the listing), so do not claim that either.
 - `unknown` -> the helper could not reach a provider (no credentials, no
   network). It is fail-open by design: warn and proceed.
 
 `--wait` defaults to 600s and polls every 15s; pass `--wait <seconds>` to change
-it, or omit `--wait` for a single-shot read. Add `--event pull_request` when
-resolving a PR pipeline rather than the post-merge push pipeline, and
+it, or omit `--wait` for a single-shot read. Without `--event`, the preferred
+event is DERIVED from the DEFAULT branch's required status contexts (issue #1262;
+a PR into a differently-protected base should pass `--event`):
+`ci/woodpecker/pr/*` required alone means `pull_request`, `ci/woodpecker/push/*`
+alone means `push`, and both, neither or unreadable falls back to `push` -
+`FLOW_CI_EVENT` names which source decided. Pass `--event` to override it, and
 `--exit-code` if you want a `failure` verdict to exit 1.
 
 On exit 127 the helper family is not installed: fall back to
