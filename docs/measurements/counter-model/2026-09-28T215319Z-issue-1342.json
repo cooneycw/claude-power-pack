@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1342-provenance-precode",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "26d6b53498c379d08c5b029d9ce17903f991d90b",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1342",
+  "passes": 2,
+  "recorded_at": "2026-09-28T21:53:19Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 6
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/09/28/rollout-2026-09-28T21-51-18-01a0ea00-38f6-7782-854f-09a0f96afab5.jsonl",
+    "thread_id": "01a0ea00-38f6-7782-854f-09a0f96afab5"
+  },
+  "schema": 1,
+  "status": "ran"
+}
