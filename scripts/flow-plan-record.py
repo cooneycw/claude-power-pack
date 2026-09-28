@@ -307,10 +307,27 @@ def cmd_drift(issue: str, live_file: str | None) -> int:
 
 # ---------------------------------------------------------------- compliance (#1082)
 
-def mirror_source(root: pathlib.Path, path: str) -> str | None:
-    m = re.match(r"^codex/skills/[^/]+/((?:docs|scripts|lib)/.+)$", path)
+#: A generated manifest of one skill's bundled scripts (`codex-skill-sync.py`).
+#: It has no single source file - it is a function of the scripts beside it.
+MANIFEST_RE = re.compile(r"^codex/skills/([^/]+)/scripts/SHA256SUMS$")
+#: A file bundled verbatim into a skill; group 1 is its repository source path.
+BUNDLED_RE = re.compile(r"^codex/skills/[^/]+/((?:docs|scripts|lib|\.claude)/.+)$")
+
+
+def mirror_source(root: pathlib.Path, path: str, touched: frozenset[str] = frozenset()) -> str | None:
+    """The source a generated codex/skills mirror was derived from, or None.
+
+    NEVER AN INVENTED PATH (issue #1267). The bundled-path rule once mapped a
+    generated `scripts/SHA256SUMS` manifest to a `scripts/SHA256SUMS` that does
+    not exist, and the report blamed the plan for a file nobody could write. A
+    derived source is returned only when it exists in the tree or is itself in
+    this diff (a deleted source); otherwise the mirror is UNRESOLVED, which the
+    caller reports - never agreement.
+    """
+    m = BUNDLED_RE.match(path)
     if m:
-        return m.group(1)
+        src = m.group(1)
+        return src if (root / src).exists() or src in touched else None
     try:
         head = (root / path).read_text(errors="replace")[:4000]
     except OSError:
@@ -394,15 +411,28 @@ def cmd_compliance(issue: str, base: str | None) -> int:
 
     unplanned: list[str] = []
     unresolved_mirrors: list[str] = []
+    touched_set = frozenset(touched)
     for f in touched:
         if f in planned:
             continue                     # an explicitly planned path wins over any rule
         if f in excluded_exact or receipt_re.match(f):
             continue
+        manifest = MANIFEST_RE.match(f)
+        if manifest:
+            # EXPLAINED by a bundled script of the SAME skill changing in this diff;
+            # that script's own attribution then decides divergence. Alone, it is
+            # an unexplained regeneration - reported, never agreement (#1267).
+            sibling = f"codex/skills/{manifest.group(1)}/scripts/"
+            if not any(t.startswith(sibling) and t != f for t in touched):
+                unresolved_mirrors.append(f"{f}  (generated manifest changed with no "
+                                          f"bundled-script change in this diff)")
+            continue
         if f.startswith("codex/skills/"):
-            src = mirror_source(root, f)
+            src = mirror_source(root, f, touched_set)
             if src is None:
-                unresolved_mirrors.append(f)
+                derived = BUNDLED_RE.match(f)
+                unresolved_mirrors.append(
+                    f"{f}  (derived source {derived.group(1)} does not exist)" if derived else f)
             elif src not in planned:
                 unplanned.append(f"{f}  (mirror of {src}, which the plan does not name)")
             continue

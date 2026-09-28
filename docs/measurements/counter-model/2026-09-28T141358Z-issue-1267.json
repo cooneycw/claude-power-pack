@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1267-plan-compliance-mirror-source-misattributes-genera",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "f48a454",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1267",
+  "passes": 1,
+  "recorded_at": "2026-09-28T14:13:58Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

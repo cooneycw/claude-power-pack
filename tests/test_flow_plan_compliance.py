@@ -246,6 +246,76 @@ def test_a_mirror_whose_source_is_NOT_planned_IS_divergence(tmp_path: Path) -> N
     )
 
 
+# ------------------------------------------------------------------ issue #1267: no invented sources
+
+def _bundle(repo: Path, skill: str, rel: str, text: str = "x\n", *, source: bool = True) -> None:
+    """Write a bundled copy of `rel` into codex/skills/<skill>/ (and its source)."""
+    dest = repo / "codex" / "skills" / skill / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(text)
+    if source:
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_text(text)
+
+
+@requires_git
+def test_a_manifest_regenerated_beside_a_planned_script_is_agreement(tmp_path: Path) -> None:
+    """RED on dad589b: the manifest was attributed to a nonexistent scripts/SHA256SUMS."""
+    repo, base = make_repo(tmp_path)
+    _bundle(repo, "s", "scripts/tool.sh")
+    _bundle(repo, "s", "scripts/SHA256SUMS", "abc  tool.sh\n", source=False)
+    assert not (repo / "scripts" / "SHA256SUMS").exists(), "precondition: no such source"
+    write_plan(repo, "scripts/tool.sh")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "script + manifest")
+    out = run(repo, base)
+    assert "PLAN_COMPLIANCE: agreement" in out, out
+    assert "scripts/SHA256SUMS, which the plan does not name" not in out
+
+
+@requires_git
+def test_a_manifest_changed_alone_is_unresolved_never_agreement(tmp_path: Path) -> None:
+    repo, base = make_repo(tmp_path)
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("a\n")
+    _bundle(repo, "s", "scripts/SHA256SUMS", "abc  tool.sh\n", source=False)
+    write_plan(repo, "src/app.py")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "manifest alone")
+    out = run(repo, base)
+    assert "PLAN_COMPLIANCE: divergence" in out
+    assert "MIRROR WHOSE SOURCE COULD NOT BE DERIVED: codex/skills/s/scripts/SHA256SUMS" in out
+    assert "no bundled-script change" in out
+
+
+@requires_git
+def test_a_dot_claude_mirror_is_attributed_to_its_source(tmp_path: Path) -> None:
+    """RED on dad589b: `.claude/` was not a bundled prefix, so this was unresolved."""
+    repo, base = make_repo(tmp_path)
+    _bundle(repo, "s", ".claude/owner.json", "{}\n")
+    write_plan(repo, ".claude/owner.json")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", ".claude mirror")
+    out = run(repo, base)
+    assert "PLAN_COMPLIANCE: agreement" in out, out
+
+
+@requires_git
+def test_a_derived_source_that_does_not_exist_is_unresolved(tmp_path: Path) -> None:
+    """The general guard: an absent derived source is never named as the explanation."""
+    repo, base = make_repo(tmp_path)
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("a\n")
+    _bundle(repo, "s", "lib/ghost.py", source=False)
+    assert not (repo / "lib" / "ghost.py").exists(), "precondition: the source is absent"
+    write_plan(repo, "src/app.py")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "ghost mirror")
+    out = run(repo, base)
+    assert "MIRROR WHOSE SOURCE COULD NOT BE DERIVED: codex/skills/s/lib/ghost.py" in out
+    assert "(derived source lib/ghost.py does not exist)" in out
+
+
 # ------------------------------------------------------------------ the exclusion set is CLOSED
 
 @requires_git

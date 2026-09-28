@@ -623,6 +623,12 @@ makes that comparison `unknown`. Markdown only - `.gitignore` carries a blanket
 `auto-granted` value and no path that writes this file without an approver
 (issue #775): the approver field comes from the actual approval event.
 
+Do NOT list this record, its `.as-read.md` snapshot or the counter-model receipt
+in Section C: the comparison excludes them itself, and they are not changes to
+plan (issue #1267). For a generated `codex/skills/**` mirror, name its SOURCE
+(the command document or the bundled script) - the mirror and a regenerated
+`scripts/SHA256SUMS` manifest are attributed to that source automatically.
+
 **Then, before any implementation edit**, write the as-read snapshot and stamp
 the approval baseline (issues #1081, #1082):
 
