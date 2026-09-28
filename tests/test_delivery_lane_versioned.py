@@ -222,13 +222,15 @@ def test_a_contested_mechanism_is_marked_completely_or_not_at_all() -> None:
     reader left to guess what against, or without the reason the contradiction
     stands.
 
-    That reason is the load-bearing part and the easiest to drop when trimming:
-    neither end can measure this alone. The sender sees `success=true`, which a
-    message queued for approval also produces; the receiver sees a message appear,
-    which an approved message also produces; the discriminator is shown to the
-    operator and to neither session. A reader who takes "contested" as merely
-    "unverified" will go and verify it by sending one, and get a confident answer
-    from one end - which is worse than the ambiguity, because it looks settled.
+    That reason is the load-bearing part and the easiest to drop when trimming.
+    It used to read "neither end can measure it alone"; on 2.1.266 (2026-09-22)
+    that was measured false (#1272): the SENDER receives a `[Cross-session
+    delivery notice]` when a message is held and another when it is released.
+    What still stands is narrower and must still be said: a send that is NEVER
+    held has not been observed to emit anything, so silence after a send is not
+    delivery. A reader who drops that bound reads "no notice" as delivered and
+    gets a confident one-ended answer - worse than the ambiguity, because it
+    looks settled.
     """
     section = _delivery_section(REGISTER.read_text())
     if not re.search(r"CONTESTED|contested", section):
@@ -236,11 +238,14 @@ def test_a_contested_mechanism_is_marked_completely_or_not_at_all() -> None:
     assert re.search(r"2\.1\.224", section), (
         "a contested mechanism must name the source it is contested against"
     )
-    assert re.search(r"neither end can measure it alone", section, re.I), (
-        "the contested block does not say WHY it stays unresolved - a reader will "
-        "try to settle it with a single send and report a one-ended answer"
+    assert re.search(r"never held.{0,40}unobserved", section, re.I | re.S), (
+        "the contested block does not say WHAT stays unresolved - the never-held "
+        "path is unobserved, and dropping that invites a one-ended answer"
     )
-    assert re.search(r"operator", section, re.I), (
+    assert re.search(r"do NOT read \"no notice\" as delivered", section), (
+        "the contested block does not warn that silence after a send is not delivery"
+    )
+    assert re.search(r"Cross-session delivery notice", section), (
         "the contested block does not say where the discriminator actually lives"
     )
 
