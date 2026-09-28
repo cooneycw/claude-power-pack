@@ -12,6 +12,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -1143,6 +1144,9 @@ def test_default_runs_keep_their_exit_codes_without_scope_check(tmp_path: Path) 
     home = tmp_path / "home"
     home.mkdir()
     (home / ".claude.json").write_text(cj.read_text())
+    # PATH is replaced so docker is ABSENT, which the script reads as a known-
+    # empty inventory: every default mode then has a deterministic clean answer.
+    assert shutil.which("docker", path="/nonexistent") is None, "fixture must lack docker"
     env = {**os.environ, "HOME": str(home), "PATH": "/nonexistent"}
     for mode in ([], ["--check"], ["--list-orphans"], ["--json"]):
         r = subprocess.run([sys.executable, str(SCRIPT), *mode, "--deprecated-file", str(dep),
