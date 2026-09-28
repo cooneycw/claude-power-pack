@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1343-1268-rest-3-3-suite-hygiene-orphaned-sleep-300-cpp-2",
+  "counts": {
+    "accepted": 1,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "846431d2145c229e2bac44747aa0780937283a36",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1343",
+  "passes": 2,
+  "recorded_at": "2026-09-28T22:08:10Z",
+  "red_cases": {
+    "already_covered": 4,
+    "proposed": 5
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/09/28/rollout-2026-09-28T22-07-40-01a0ea0f-34ea-7393-a8e1-63a1abb0995d.jsonl",
+    "thread_id": "01a0ea0f-34ea-7393-a8e1-63a1abb0995d"
+  },
+  "schema": 1,
+  "status": "ran"
+}
