@@ -87,7 +87,6 @@ python_version = "3.11"
 # rather than materialized into a temp tree and run - the exclusion has
 # widened past its reason and must be narrowed or dropped, not inherited.
 exclude = [
-    "mcp-second-opinion",
     "codex/skills",
     "controls",
     "docs/research/forced-claim-prototype-2026-09-15/cases",

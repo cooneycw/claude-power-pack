@@ -582,11 +582,13 @@ battery-in-ci-image:
 	for t in gitleaks shellcheck; do \
 		src=$$(command -v $$t 2>/dev/null) && cp "$$src" "$$stage/.ci-bin/$$t" 2>/dev/null || true; \
 	done; \
-	unusable=""; \
+	unusable=""; versions=""; \
 	for t in jq make shellcheck gitleaks; do \
 		if [ ! -x "$$stage/.ci-bin/$$t" ]; then unusable="$$unusable $$t(absent)"; continue; fi; \
-		docker run --rm --network none -v "$$stage/.ci-bin:/b:ro" "$$digest" \
-			/b/$$t --version >/dev/null 2>&1 || unusable="$$unusable $$t(does-not-run)"; \
+		if v=$$(docker run --rm --network none -v "$$stage/.ci-bin:/b:ro" "$$digest" \
+			/b/$$t --version 2>&1); then \
+			versions="$$versions  $$t: $$(printf '%s\n' "$$v" | head -n 1)\n"; \
+		else unusable="$$unusable $$t(does-not-run)"; fi; \
 	done; \
 	if [ -n "$$unusable" ]; then \
 		echo "battery-in-ci-image: STAGED BUT UNUSABLE IN THE IMAGE:$$unusable"; \
@@ -606,6 +608,8 @@ battery-in-ci-image:
 		rm -rf "$$stage"; exit 2; \
 	fi; \
 	echo "battery-in-ci-image: $$digest (--network none, workspace read-only)"; \
+	echo "  tool versions as they ran IN the image (#1273; recorded, not compared):"; \
+	printf '%b' "$$versions"; \
 	echo "  Host gitleaks/shellcheck are STAGED BY COPY and proven to RUN here, which is"; \
 	echo "  not version parity with the pipeline's pinned stagers - a scanner of a"; \
 	echo "  different version can change what a control detects (#1168, stated bound)."; \
@@ -674,15 +678,15 @@ scripts-inventory-check:
 instrument-census-check:
 	@python3 scripts/instrument-census-check.py
 
-## Host-surface declaration (issue #1139). Derives which install-path helpers
-## must declare a host surface, so a managed environment can compose a defer-set
-## from CPP's own code rather than from a hand-maintained list that goes stale.
 ## Inline host writes in the cpp command documents (issue #1132). The seam is
 ## total today; without this it is partial the first time someone adds a printf.
 ## verify-coverage: gate cpp-host-writes-check - no inline host write in /cpp:init or /cpp:update; ci: runs cpp-host-writes-check
 cpp-host-writes-check:
 	@python3 scripts/check-cpp-host-writes.py
 
+## Host-surface declaration (issue #1139). Derives which install-path helpers
+## must declare a host surface, so a managed environment can compose a defer-set
+## from CPP's own code rather than from a hand-maintained list that goes stale.
 ## verify-coverage: gate host-surface-check - every helper reachable from /cpp:init and /cpp:update declares its host surfaces; ci: runs host-surface-check
 host-surface-check:
 	@python3 scripts/host-surface-check.py

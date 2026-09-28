@@ -80,6 +80,24 @@ class TestDeployConfig:
         assert config.compose_file == "docker-compose.prod.yml"
         assert config.profiles == ["core", "browser"]
 
+    def test_from_dict_leaves_the_callers_dict_intact(self):
+        """#1273: from_dict popped readiness/profiles/services and every unknown
+        key out of the caller's own dict, so re-reading a manifest section
+        after building a config found it emptied."""
+        import copy
+
+        data = {
+            "strategy": "docker_compose",
+            "readiness": {"url": "http://localhost:8080/health"},
+            "profiles": ["core"],
+            "services": ["web"],
+            "custom_flag": True,
+        }
+        before = copy.deepcopy(data)
+        config = DeployConfig.from_dict(data)
+        assert data == before
+        assert config.profiles == ["core"] and config.extra == {"custom_flag": True}
+
     def test_from_dict_with_readiness(self):
         data = {
             "strategy": "docker_compose",

@@ -120,7 +120,13 @@ class DeployConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> DeployConfig:
-        """Create from a dictionary (e.g., manifest config section)."""
+        """Create from a dictionary (e.g., manifest config section).
+
+        The caller's dict is NOT modified (#1273): this used to pop the keys it
+        consumed straight out of it, so a caller that built a config and then
+        read its own manifest section again found it emptied.
+        """
+        data = dict(data)
         readiness_data = data.pop("readiness", None)
         readiness = ReadinessPolicy(**readiness_data) if readiness_data else None
         profiles = data.pop("profiles", [])

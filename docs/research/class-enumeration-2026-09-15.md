@@ -186,6 +186,7 @@ It is a much harder question, because it requires enumerating invariants rather 
 A list that only ever adds is this map's failure wearing the map's own clothes. **Every rejection names the clause**, which is the discipline that keeps a taxonomy from recruiting on resemblance.
 
 - **#960 shellcheck, #961 pip-audit, #962 bandit** fail **clause 1 (exists)**. They look exactly like the class and a collector takes all three. An unadopted tool is *absent*, not dormant: a shopping decision, not a wiring defect.
+  > **Note, 2026-09-28 (#1273):** #961 was later shown to be *dormant*, not absent: #1044 found that `lib/security` already had a pip-audit adapter, which passed when it skipped. It belongs with the class, not the shopping list. The sentence above is left as recorded.
 - **`scripts/cpp-memory`** fails **"is a guard"**. A user CLI installed onto PATH by `ln -sfn`. Not every unrun script is a dormant instrument.
 - **Orphaned remote branches** fail **"is a guard"**. `--delete-branch` produces no verdict anyone reads. A silent-failure defect, blindness axis at most.
 - **`eli5-core-drift.sh` as a live instance** fails the **supersession exclusion**. This was the hardest rejection: unreferenced, with its own issue, and that issue is one of the two the map rests on. Resemblance was maximal and it is still not an instance.

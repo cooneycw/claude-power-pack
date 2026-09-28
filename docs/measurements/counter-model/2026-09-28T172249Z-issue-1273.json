@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1273-hygiene-sweep-s4-nit-store-findings-plus-unverifie",
+  "counts": {
+    "accepted": 4,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "cdafe1e",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1273",
+  "passes": 2,
+  "recorded_at": "2026-09-28T17:22:49Z",
+  "red_cases": {
+    "already_covered": 9,
+    "proposed": 16
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

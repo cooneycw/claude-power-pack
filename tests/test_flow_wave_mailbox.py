@@ -2369,12 +2369,17 @@ class TestSupervise:
             if _pid_alive(pid):
                 self._kill_daemon(pid)
 
-    def test_registry_sibling_unavailable_fails_open_and_keeps_supervising(
+    def test_registry_data_unreadable_fails_open_and_keeps_supervising(
         self, tmp_path: Path
     ) -> None:
         """A supervisor that cannot check for release is not worse than
         none - it just keeps supervising (matches the #701 lexicon-gate
-        precedent for a helper this script depends on but does not own)."""
+        precedent for a helper this script depends on but does not own).
+
+        What this breaks is the registry's DATA (FLOW_WAVE_REGISTRY_DIR at a
+        missing dir), not the registry SCRIPT: SUP_REGISTRY is resolved from
+        $0's directory and is still present. The name used to say "sibling
+        unavailable", which this fixture never constructs (#1273)."""
         self._launch(
             tmp_path, timeout="2",
             extra_env={"FLOW_WAVE_REGISTRY_DIR": str(tmp_path / "definitely-missing-xyz")},

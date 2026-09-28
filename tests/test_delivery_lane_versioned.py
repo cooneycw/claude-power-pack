@@ -760,7 +760,7 @@ def test_the_mailbox_copies_are_all_discovered() -> None:
 
 
 @pytest.mark.parametrize(
-    "surface", MAILBOX_COPIES, ids=lambda p: p.parent.parent.name + "/" + p.name
+    "surface", MAILBOX_COPIES, ids=lambda p: str(p.relative_to(ROOT))
 )
 def test_the_wake_comment_carries_a_harness_version(surface: Path) -> None:
     """A claim about what the harness can or cannot do needs the version it holds on.
@@ -787,7 +787,7 @@ REPORTED_SPEECH = re.compile(
 
 
 @pytest.mark.parametrize(
-    "surface", MAILBOX_COPIES, ids=lambda p: p.parent.parent.name + "/" + p.name
+    "surface", MAILBOX_COPIES, ids=lambda p: str(p.relative_to(ROOT))
 )
 def test_the_retracted_absolute_is_absent_from_the_script(surface: Path) -> None:
     """In the script the absolute must be GONE, not merely surrounded by caveats.

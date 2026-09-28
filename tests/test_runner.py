@@ -3001,7 +3001,7 @@ class TestATimeoutIsNotAFailure:
     """A step killed by its budget must not report as a step that failed (#812).
 
     Measured cause: the `test` step's budget was 600s while kyle's `make test`
-    needed ~620s — the first pytest invocation alone took 457s and the
+    needed ~620s - the first pytest invocation alone took 457s and the
     Playwright half another ~160s. The step was killed at 91% of the second and
     reported FAILED, so the gate said a suite was broken when it had simply not
     finished. Someone triaging that debugs tests that were still running.
