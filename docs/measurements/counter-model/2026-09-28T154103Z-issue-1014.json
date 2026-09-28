@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1014-one-home-for-the-unknowable-is-never-rendered-as-c",
+  "counts": {
+    "accepted": 10,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "7963cd8a01c9da23fb71b46616cb70dc7021d1a9",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1014",
+  "passes": 2,
+  "recorded_at": "2026-09-28T15:41:03Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 12
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/09/28/rollout-2026-09-28T15-36-37-01a0e8a9-318a-7b83-91e2-4e6243071e99.jsonl",
+    "thread_id": "01a0e8a9-318a-7b83-91e2-4e6243071e99"
+  },
+  "schema": 1,
+  "status": "ran"
+}

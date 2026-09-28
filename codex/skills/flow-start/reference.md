@@ -182,7 +182,10 @@ use plain relative paths from the session cwd; never hand-build an absolute path
 into another checkout, which has been observed to land the edit in the MAIN repo
 working tree instead. `/flow-auto` verifies this with
 `scripts/flow-worktree-guard.sh --strict` before commit, where a fresh leak
-signature (exit 3) stops the run (issue #576).
+signature (exit 3) stops the run (issue #576). Its `FLOW_WORKTREE_GUARD:` line
+also distinguishes `not-applicable` (exit 5, e.g. this main-checkout lane) and
+`unknown` (exit 4, could not examine) from `no-leak`; both proceed and are
+reported, never read as clean (issue #1014).
 
 Report to the user:
 
