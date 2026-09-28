@@ -1,0 +1,57 @@
+{
+ "repos/o/r": {
+  "default_branch": "main"
+ },
+ "repos/o/r/activity?ref=refs%2Fheads%2Fissue-1-done&per_page=1": [
+  {
+   "timestamp": "2026-09-01T00:00:00Z"
+  }
+ ],
+ "repos/o/r/branches/issue-1-done": {
+  "commit": {
+   "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "name": "issue-1-done",
+  "protected": false
+ },
+ "repos/o/r/branches?per_page=100": [
+  {
+   "commit": {
+    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   },
+   "name": "issue-1-done",
+   "protected": false
+  }
+ ],
+ "repos/o/r/commits/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {
+  "commit": {
+   "committer": {
+    "date": "2026-09-01T00:00:00Z"
+   }
+  }
+ },
+ "repos/o/r/compare/1111111111111111111111111111111111111111...main": {
+  "behind_by": 0,
+  "status": "ahead"
+ },
+ "repos/o/r/pulls?state=all&head=o:issue-1-done&per_page=100": [
+  {
+   "head": {
+    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   },
+   "merge_commit_sha": "1111111111111111111111111111111111111111",
+   "merged_at": "2026-09-01T00:00:00Z",
+   "number": 1,
+   "state": "closed"
+  },
+  {
+   "head": {
+    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   },
+   "merge_commit_sha": null,
+   "merged_at": null,
+   "number": 2,
+   "state": "open"
+  }
+ ]
+}

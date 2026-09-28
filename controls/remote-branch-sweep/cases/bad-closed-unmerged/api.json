@@ -1,0 +1,44 @@
+{
+ "repos/o/r": {
+  "default_branch": "main"
+ },
+ "repos/o/r/activity?ref=refs%2Fheads%2Fwip&per_page=1": [
+  {
+   "timestamp": "2026-09-01T00:00:00Z"
+  }
+ ],
+ "repos/o/r/branches/wip": {
+  "commit": {
+   "sha": "cccccccccccccccccccccccccccccccccccccccc"
+  },
+  "name": "wip",
+  "protected": false
+ },
+ "repos/o/r/branches?per_page=100": [
+  {
+   "commit": {
+    "sha": "cccccccccccccccccccccccccccccccccccccccc"
+   },
+   "name": "wip",
+   "protected": false
+  }
+ ],
+ "repos/o/r/commits/cccccccccccccccccccccccccccccccccccccccc": {
+  "commit": {
+   "committer": {
+    "date": "2026-09-01T00:00:00Z"
+   }
+  }
+ },
+ "repos/o/r/pulls?state=all&head=o:wip&per_page=100": [
+  {
+   "head": {
+    "sha": "cccccccccccccccccccccccccccccccccccccccc"
+   },
+   "merge_commit_sha": null,
+   "merged_at": null,
+   "number": 3,
+   "state": "closed"
+  }
+ ]
+}
