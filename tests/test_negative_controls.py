@@ -3772,20 +3772,95 @@ def test_a_multi_target_rule_counts_the_target_the_manifest_names(tmp_path: Path
 @pytest.mark.parametrize(
     ("invocation", "why"),
     [
-        (["make", "-s", "-f", "{gate}", "other", "CASE={case}"], "`{target}` placeholder"),
-        (["make", "-s", "-f", "{gate}", "{target}", "other", "CASE={case}"], "other Makefile target(s) other"),
+        (["make", "-s", "-f", "{gate}", "other", "CASE={case}"], "exactly one goal"),
+        (["make", "-s", "-f", "{gate}", "{target}", "other", "CASE={case}"], "exactly one goal"),
+        (["sh", "-c", "make -s -f {gate} {target} other CASE={case}"], "plain `make` argv"),
+        (["env", "make", "-f", "{gate}", "{target}"], "plain `make` argv"),
+        (["make", "-f", "{gate}", "-f", "{case}/Makefile", "{target}"], "only as `-f {gate}`, once"),
+        (["make", "--file={gate}", "--makefile=other.mk", "{target}"], "only as `-f {gate}`, once"),
+        (["make", "-C", "elsewhere", "{target}"], "may not pass make `-C`"),
+        (["make", "-f", "{gate}", "--eval=other: ; @echo x", "{target}"], "may not pass make `--eval`"),
+        (["make", "-f", "{gate}", "--frobnicate", "{target}"], "not one this check can parse"),
     ],
-    ids=["no-placeholder", "names-a-neighbour"],
+    ids=["other-goal", "extra-goal", "shell-token", "env-wrapper", "second-f", "second-makefile",
+         "directory", "eval", "unknown-option"],
 )
-def test_the_invocation_must_run_the_declared_target(tmp_path: Path, invocation: list[str], why: str) -> None:
-    """Counter-model review pass 2 (#1276), HIGH: adjacency bound the marker to the
-    rule, but nothing bound the COMMAND to it, so a discriminating neighbour could
-    be credited to the declared target."""
+def test_the_invocation_must_run_exactly_the_declared_target(
+    tmp_path: Path, invocation: list[str], why: str
+) -> None:
+    """The command is bound to the target STRUCTURALLY (#1276; review of #1334)."""
     root = build_make_tree(tmp_path, invocation=invocation)
     write_census(root, ["make toy-check", "unregistered.sh"])
     out = run_harness(root, "--strict")
     assert verdict_of(out.stdout) == "UNRESOLVED", out.stdout
     assert why in out.stdout, out.stdout
+
+
+@requires_make
+@pytest.mark.parametrize(
+    "invocation",
+    [
+        ["make", "-sf", "{gate}", "{target}", "CASE={case}"],
+        ["make", "--no-print-directory", "--file={gate}", "CASE={case}", "{target}"],
+        ["/usr/bin/make", "-s", "{target}", "CASE={case}", "-f", "{gate}"],
+    ],
+    ids=["bundled-sf", "long-file", "path-to-make"],
+)
+def test_ordinary_make_argv_shapes_are_accepted(tmp_path: Path, invocation: list[str]) -> None:
+    root = build_make_tree(tmp_path, invocation=invocation)
+    write_census(root, ["make toy-check", "unregistered.sh"])
+    out = run_harness(root, "--strict")
+    assert verdict_of(out.stdout) == "PASS", out.stdout
+
+
+#: The orchestrator's reproduction (review of #1334): the DECLARED target is
+#: blind, and a discriminating neighbour `seer` sits in the same Makefile.
+MK_BLIND_WITH_SEER = (
+    "#: NEGATIVE-CONTROL: controls/mk\n"
+    "toy-check:\n"
+    '\t@echo "toy-gate: ok"\n'
+    "\n"
+    "seer:\n"
+    '\t@if [ -e "$(CASE)/tests/BAD" ]; then echo "toy-gate: 1 finding(s)"; exit 1; fi; echo "toy-gate: ok"\n'
+)
+MK_ANCHOR_BOTH_BLIND = 'toy-check:\n\t@echo "toy-gate: ok"\n\nseer:\n\t@echo "toy-gate: ok"\n'
+
+
+@requires_make
+@pytest.mark.parametrize(
+    "invocation",
+    [
+        ["sh", "-c", "make -s -f {gate} {target} seer CASE={case}"],
+        ["make", "-s", "-f", "{gate}", "-f", "{case}/../../seer.mk", "{target}", "CASE={case}"],
+    ],
+    ids=["neighbour-inside-a-shell-token", "second-makefile-redefines-the-target"],
+)
+def test_a_neighbours_verdict_is_never_credited_to_the_declared_target(
+    tmp_path: Path, invocation: list[str]
+) -> None:
+    """RED on 0b1ce1b for the shell-token shape: the substring test passed it and the
+    control scored PASS, credited to `Makefile:toy-check`, whose rule never looks."""
+    root = build_make_tree(tmp_path, makefile=MK_BLIND_WITH_SEER, invocation=invocation)
+    anchor = root / "controls" / "mk" / "anchors" / "deadbee-Makefile"
+    anchor.write_text(MK_ANCHOR_BOTH_BLIND, encoding="utf-8")
+    manifest = root / "controls" / "mk" / "control.json"
+    spec = json.loads(manifest.read_text(encoding="utf-8"))
+    import hashlib
+    spec["anchors"][0]["sha256"] = hashlib.sha256(anchor.read_bytes()).hexdigest()
+    manifest.write_text(json.dumps(spec), encoding="utf-8")
+    # Redefines `toy-check` only beside the REAL Makefile, never beside the
+    # anchor, so on the pre-fix harness the anchor stays blind and the control
+    # PASSES on a rule the marker does not sit above.
+    (root / "controls" / "mk" / "seer.mk").write_text(
+        "ifeq ($(notdir $(firstword $(MAKEFILE_LIST))),Makefile)\n"
+        'toy-check:\n\t@if [ -e "$(CASE)/tests/BAD" ]; then echo "toy-gate: 1 finding(s)"; exit 1; fi\n'
+        "endif\n",
+        encoding="utf-8",
+    )
+    write_census(root, ["make toy-check", "unregistered.sh"])
+    out = run_harness(root, "--strict")
+    assert verdict_of(out.stdout) == "UNRESOLVED", out.stdout
+    assert out.returncode == 1, out.stdout
 
 
 @requires_make

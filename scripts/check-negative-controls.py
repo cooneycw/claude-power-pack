@@ -778,6 +778,120 @@ def discovery_scope() -> str:
 DISCOVERY_SCOPE = DISCOVERY_SCOPE_FALLBACK
 
 
+#: GNU make options, as make's own getopt reads them (#1276). Short options
+#: taking a REQUIRED argument (attached or the next token), short options taking
+#: an OPTIONAL attached argument, and short options taking none.
+_MAKE_SHORT_REQUIRED = frozenset("CfIoWE")
+_MAKE_SHORT_OPTIONAL = frozenset("jlO")
+_MAKE_SHORT_FLAGS = frozenset("bmBdeihkLnpqrRsStvw")
+_MAKE_LONG_REQUIRED = frozenset({
+    "directory", "file", "makefile", "include-dir", "old-file", "assume-old",
+    "what-if", "new-file", "assume-new", "eval",
+})
+_MAKE_LONG_OPTIONAL = frozenset({"debug", "jobs", "load-average", "output-sync", "shuffle"})
+_MAKE_LONG_FLAGS = frozenset({
+    "always-make", "environment-overrides", "ignore-errors", "keep-going", "check-symlink-times",
+    "just-print", "dry-run", "recon", "print-data-base", "question", "no-builtin-rules",
+    "no-builtin-variables", "silent", "quiet", "no-silent", "no-keep-going", "stop", "touch",
+    "trace", "version", "print-directory", "no-print-directory", "warn-undefined-variables",
+})
+#: Options a make-target control may not use at all: each changes WHICH makefile
+#: is read (`-C`) or adds rules to it (`--eval`), so the declared target could
+#: mean something other than the rule the marker sits above.
+_MAKE_REFUSED = frozenset({"C", "directory", "E", "eval"})
+_MAKE_ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*\s*(?::{1,3}|[+?!])?=")
+
+
+def make_invocation_problem(invocation: list[str]) -> str | None:
+    """Why a make-target control's invocation does not run exactly its target.
+
+    Returns None when `invocation` is a plain `make` argv - argv[0]'s basename is
+    `make`, with no `sh -c`, `env` or other wrapper - whose GOALS are exactly
+    `["{target}"]` and whose makefile is `{gate}` (named at most once) or the
+    default. Goals are the tokens that are not options, not an option's
+    argument and not `VAR=value` assignments. Anything this cannot parse is a
+    refusal, never a guess (#1276, orchestrator review of #1334).
+
+    WHAT THIS DOES NOT BIND: the declared target's own recipe. A rule whose
+    recipe runs `$(MAKE) other` is the target's own behaviour, and scoring it is
+    scoring that target; what is enforced is that the COMMAND asks for no other
+    goal and loads no other makefile.
+    """
+    argv = [str(part) for part in invocation]
+    if not argv or Path(argv[0]).name != "make":
+        return (
+            "a make-target control's invocation must be a plain `make` argv (no sh -c, env or "
+            f"other wrapper); it starts with {argv[0] if argv else 'nothing'!r}"
+        )
+    goals: list[str] = []
+    makefiles: list[str] = []
+    index = 1
+    only_goals = False
+
+    def refuse(name: str) -> str:
+        return f"a make-target control may not pass make `{name}`: it changes which makefile or rules are read"
+
+    while index < len(argv):
+        token = argv[index]
+        index += 1
+        if only_goals or not token.startswith("-") or token == "-":
+            if _MAKE_ASSIGNMENT_RE.match(token):
+                continue
+            goals.append(token)
+            continue
+        if token == "--":
+            only_goals = True
+            continue
+        if token.startswith("--"):
+            name, eq, value = token[2:].partition("=")
+            if name in _MAKE_REFUSED:
+                return refuse(f"--{name}")
+            if name in _MAKE_LONG_REQUIRED:
+                if not eq:
+                    if index >= len(argv):
+                        return f"make option --{name} needs a value and has none"
+                    value = argv[index]
+                    index += 1
+                if name in ("file", "makefile"):
+                    makefiles.append(value)
+                continue
+            if name in _MAKE_LONG_OPTIONAL or (name in _MAKE_LONG_FLAGS and not eq):
+                continue
+            return f"make option {token!r} is not one this check can parse; refused rather than guessed at"
+        cluster = token[1:]
+        position = 0
+        while position < len(cluster):
+            flag = cluster[position]
+            position += 1
+            if flag in _MAKE_REFUSED:
+                return refuse(f"-{flag}")
+            if flag in _MAKE_SHORT_REQUIRED:
+                value = cluster[position:]
+                if not value:
+                    if index >= len(argv):
+                        return f"make option -{flag} needs a value and has none"
+                    value = argv[index]
+                    index += 1
+                if flag == "f":
+                    makefiles.append(value)
+                break
+            if flag in _MAKE_SHORT_OPTIONAL:
+                break
+            if flag not in _MAKE_SHORT_FLAGS:
+                return f"make option -{flag} in {token!r} is not one this check can parse; refused"
+    if goals != ["{target}"]:
+        return (
+            "a make-target control's invocation must ask make for exactly one goal, `{target}`; "
+            f"it asks for {goals or 'none'}"
+        )
+    if len(makefiles) > 1 or any(name != "{gate}" for name in makefiles):
+        return (
+            "a make-target control may name its makefile only as `-f {gate}`, once; it names "
+            f"{makefiles} - another makefile could give the same target name a different rule"
+        )
+    return None
+
+
 def _makefile_registration(path: Path) -> bool:
     """True when this registration was discovered in the root Makefile."""
     rule = _census_rule()
@@ -1261,26 +1375,17 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
                 f"but declares target `{gate_ref.target}`"
             )
             return res
-        # THE INVOCATION MUST RUN THE DECLARED TARGET (counter-model review,
-        # #1276). Adjacency binds the MARKER to the rule; nothing bound the
-        # COMMAND to it, so a manifest declaring `verify` could run a
-        # discriminating neighbour and credit its verdict to `make:verify`. The
-        # target reaches the command only through the `{target}` placeholder,
-        # which the harness fills from the declared gate, and no token may name
-        # another target of the same Makefile literally.
-        if not any("{target}" in str(part) for part in invocation):
-            res.details.append(
-                "a make-target control's invocation must run its target through the "
-                "`{target}` placeholder, so the command cannot name a different rule"
-            )
-            return res
-        others = (rule.make_targets(root) or set()) - {gate_ref.target}
-        named = sorted({str(part) for part in invocation} & others)
-        if named:
-            res.details.append(
-                f"the invocation names other Makefile target(s) {', '.join(named)} literally; "
-                f"a make-target control runs `{gate_ref.target}` via `{{target}}` and nothing else"
-            )
+        # THE INVOCATION MUST RUN THE DECLARED TARGET, STRUCTURALLY (counter-model
+        # review, #1276; orchestrator review of #1334). Adjacency binds the MARKER
+        # to the rule; this binds the COMMAND. A substring-and-whole-token test
+        # was not enough: `sh -c "make -f {gate} {target} seer"` hid a
+        # discriminating neighbour inside one token and was credited to the
+        # declared target. So the invocation must be a plain `make` argv, parsed
+        # as make parses it, whose goals are exactly `{target}` and whose
+        # makefile is `{gate}` or the default.
+        why = make_invocation_problem(invocation)
+        if why is not None:
+            res.details.append(why)
             return res
         invocation = [str(part).replace("{target}", gate_ref.target) for part in invocation]
     # THREE STATES, THREE SENTENCES (issue #1085). This was one message for
