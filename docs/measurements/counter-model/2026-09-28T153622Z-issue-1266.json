@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1266-flow-wave-registry-and-lanes-lane-math-runs-outsid",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "5b2b02d62fdc3401b8cc9487f6d9526c0d80b5e8",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1266",
+  "passes": 2,
+  "recorded_at": "2026-09-28T15:36:22Z",
+  "red_cases": {
+    "already_covered": 17,
+    "proposed": 19
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
