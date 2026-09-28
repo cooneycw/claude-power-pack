@@ -469,7 +469,11 @@ case "$VERB" in
     ;;
 
   claim)
-    [ -n "$ISSUE_NUM" ] || usage_fail "claim requires --issue <N>"
+    # POLICY: every flow run has an issue (#1267 item 6, orchestrator ruling). The
+    # claim, the plan record and the counter-model receipt all key on it, so an
+    # issueless claim would be a checkout nothing else can attribute. Say how to
+    # get one rather than only that it is missing.
+    [ -n "$ISSUE_NUM" ] || usage_fail "claim requires --issue <N>. Every flow run has an issue: the claim, the plan record (docs/flow-runs/issue-<N>.md) and the counter-model receipt all key on it. For residual or issueless work, file one first (gh issue create), then claim with --issue <that number>."
     case "$STATE" in
       held)
         if [ "$STEAL" -eq 0 ]; then

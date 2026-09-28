@@ -139,6 +139,21 @@ def test_claim_script_is_registered_with_the_helper_family() -> None:
 
 
 @requires_git
+def test_an_issueless_claim_is_refused_and_names_the_remedy(repo: tuple[Path, Path]) -> None:
+    """Issue #1267 item 6: the policy stays "every flow run has an issue", so a
+    claim without --issue is refused - and the refusal says how to get one and why,
+    instead of only that the flag is missing. Nothing is claimed."""
+    _main, wt = repo
+    refused = _run(CLAIM, "claim", str(wt))
+    assert refused.returncode == 2
+    assert "claim requires --issue <N>" in refused.stderr
+    assert "gh issue create" in refused.stderr, "the refusal must name the remedy"
+    assert "plan record" in refused.stderr and "receipt" in refused.stderr, "and why"
+    assert _verdict(_run(CLAIM, "check", str(wt))) == "free", "nothing was claimed"
+
+
+
+@requires_git
 def test_free_then_claim_then_self(repo: tuple[Path, Path]) -> None:
     _main, wt = repo
     assert _verdict(_run(CLAIM, "check", str(wt))) == "free"
