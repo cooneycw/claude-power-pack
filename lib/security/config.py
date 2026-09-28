@@ -11,7 +11,7 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from .models import Severity, Suppression
 
@@ -98,31 +98,76 @@ class SecurityConfig:
                 path, f"PyYAML is not importable by {sys.executable}"
             ) from None
 
+        # NO SOURCE TEXT IN ANY MESSAGE (counter-model review, HIGH). PyYAML's
+        # `str(exc)` quotes the offending line, and the offending line of a
+        # malformed `secret:` entry IS the secret - printed to a CI log by the
+        # very gate meant to keep it out. Only the error class, the problem
+        # (a grammar statement, never a token's text) and the position leave.
         try:
-            with open(path) as f:
-                data = yaml.safe_load(f) or {}
-        except (OSError, yaml.YAMLError) as exc:
-            raise ConfigUnreadable(path, f"{type(exc).__name__}: {exc}") from None
+            with open(path, encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+        except UnicodeDecodeError as exc:
+            raise ConfigUnreadable(path, f"not valid UTF-8 at byte {exc.start}") from None
+        except OSError as exc:
+            raise ConfigUnreadable(path, f"{type(exc).__name__}: {exc.strerror}") from None
+        except yaml.YAMLError as exc:
+            raise ConfigUnreadable(path, _yaml_error(exc)) from None
+
+        # EMPTY IS THE ONLY SHAPE THAT DEFAULTS. `safe_load(f) or {}` also turned
+        # a top-level `false`, `0` or `[]` into defaults - a file that says
+        # something malformed read as a file that says nothing.
+        if data is None:
+            data = {}
         if not isinstance(data, dict):
-            raise ConfigUnreadable(path, "top level is not a mapping")
+            raise ConfigUnreadable(path, f"top level is a {type(data).__name__}, not a mapping")
 
         config = cls._defaults()
 
         # Parse gates
-        gates_data = data.get("gates") or {}
-        try:
-            for gate_name, gate_cfg in gates_data.items():
-                block = [_parse_severity(s) for s in gate_cfg.get("block_on", [])]
-                warn = [_parse_severity(s) for s in gate_cfg.get("warn_on", [])]
-                config.gates[gate_name] = GatePolicy(block_on=block, warn_on=warn)
-        except (AttributeError, KeyError, TypeError) as exc:
-            raise ConfigUnreadable(path, f"gates: {type(exc).__name__}: {exc}") from None
+        gates_data = _section(path, data, "gates", dict)
+        for gate_name, gate_cfg in gates_data.items():
+            if not isinstance(gate_cfg, dict):
+                raise ConfigUnreadable(path, f"gates.{gate_name} is not a mapping")
+            policy = {}
+            for key in ("block_on", "warn_on"):
+                names = gate_cfg.get(key, [])
+                if not isinstance(names, list):
+                    raise ConfigUnreadable(path, f"gates.{gate_name}.{key} is not a list")
+                try:
+                    policy[key] = [_parse_severity(n) for n in names]
+                except (KeyError, AttributeError):
+                    raise ConfigUnreadable(
+                        path,
+                        f"gates.{gate_name}.{key} names an unknown severity "
+                        f"(allowed: {[s.name.lower() for s in Severity]})",
+                    ) from None
+            config.gates[gate_name] = GatePolicy(**policy)
 
         # Parse suppressions
-        for n, supp in enumerate(data.get("suppressions") or [], start=1):
+        for n, supp in enumerate(_section(path, data, "suppressions", list), start=1):
             config.suppressions.append(_parse_suppression(path, n, supp))
 
         return config
+
+
+def _yaml_error(exc: Exception) -> str:
+    """Class, problem and position of a YAML error - never its source excerpt."""
+    problem = getattr(exc, "problem", None)
+    mark = getattr(exc, "problem_mark", None)
+    where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark is not None else ""
+    return f"{type(exc).__name__}: {problem or 'unparseable'}{where}"
+
+
+def _section(path: Path, data: dict, key: str, kind: type) -> Any:
+    """A top-level section: absent or empty defaults; any other wrong type refuses."""
+    value = data.get(key)
+    if value is None:
+        return kind()
+    if not isinstance(value, kind):
+        raise ConfigUnreadable(
+            path, f"`{key}` is a {type(value).__name__}, not a {kind.__name__}"
+        )
+    return value
 
 
 def _parse_suppression(path: Path, n: int, supp: object) -> Suppression:

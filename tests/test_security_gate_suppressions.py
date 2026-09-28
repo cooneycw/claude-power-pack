@@ -140,11 +140,20 @@ def test_an_unreadable_config_is_unknown_never_defaults(tmp_path: Path) -> None:
     "config, cause",
     [
         ("suppressions: [\n", "ParserError"),
-        ("- just\n- a list\n", "top level is not a mapping"),
+        ("- just\n- a list\n", "top level is a list, not a mapping"),
         ("suppressions:\n  - id: AWS_ACCESS_KEY\n    secrets: 'x'\n", "unknown key(s) ['secrets']"),
         ("suppressions:\n  - path: 'x'\n", "needs a non-empty string `id`"),
         ("suppressions:\n  - id: AWS_ACCESS_KEY\n    secret: '(unclosed'\n", "not a valid regex"),
-        ("gates:\n  flow_finish:\n    block_on: [NOPE]\n", "gates: KeyError"),
+        ("gates:\n  flow_finish:\n    block_on: [NOPE]\n", "names an unknown severity"),
+        # Counter-model review: falsey and wrong-type shapes used to default or crash.
+        ("false\n", "top level is a bool, not a mapping"),
+        ("0\n", "top level is a int, not a mapping"),
+        ("[]\n", "top level is a list, not a mapping"),
+        ("suppressions: false\n", "`suppressions` is a bool, not a list"),
+        ("suppressions: 1\n", "`suppressions` is a int, not a list"),
+        ("gates: false\n", "`gates` is a bool, not a dict"),
+        ("gates:\n  flow_finish: 3\n", "gates.flow_finish is not a mapping"),
+        ("gates:\n  flow_finish:\n    block_on: critical\n", "gates.flow_finish.block_on is not a list"),
     ],
 )
 def test_a_malformed_config_is_unknown(tmp_path: Path, config: str, cause: str) -> None:
@@ -228,3 +237,30 @@ def test_the_declared_value_in_the_config_file_is_not_itself_a_block(tmp_path: P
     result = _gate(repo2)
     assert result.returncode == 1, "a DIFFERENT key pasted into the config file still blocks"
     assert ".claude/security.yml:" in result.stdout
+
+
+def test_a_malformed_config_never_prints_its_source(tmp_path: Path) -> None:
+    """Counter-model review (HIGH): PyYAML's message quotes the offending line."""
+    config = f"suppressions:\n  - id: AWS_ACCESS_KEY\n    secret: '{CANARY}\n"  # unterminated
+    repo = _repo(tmp_path, {"README.md": "clean\n"}, config)
+    result = _gate(repo)
+    assert result.returncode == 2
+    assert " UNKNOWN (config unreadable:" in _line(result)
+    assert "at line" in _line(result), "the position is reported instead of the text"
+    assert CANARY not in result.stdout + result.stderr
+    assert CANARY[4:] not in result.stdout + result.stderr
+
+
+def test_a_config_that_is_not_utf8_is_unknown(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, {"README.md": "clean\n"})
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "security.yml").write_bytes(b"suppressions:\n  - id: \xff\xfe\n")
+    result = _gate(repo)
+    assert " UNKNOWN (config unreadable:" in _line(result) and "not valid UTF-8" in _line(result)
+    assert result.returncode == 2
+    assert "Traceback" not in result.stderr
+
+
+def test_an_empty_config_file_still_means_defaults(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, {"README.md": "clean\n"}, "")
+    assert _gate(repo).returncode == 0
