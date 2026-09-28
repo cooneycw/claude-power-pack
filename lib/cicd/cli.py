@@ -91,6 +91,8 @@ def cmd_detect(args: argparse.Namespace) -> int:
         print(resolution)
         if info.uncovered_components:
             print(f"  Not covered:   {info.uncovered_summary()}")
+        if info.discovery_scope:
+            print(f"  Examined:      {info.discovery_scope}")
 
     return 0
 

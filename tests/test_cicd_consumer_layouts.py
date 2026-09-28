@@ -337,3 +337,37 @@ def test_a_failed_detection_reports_coverage_unknown(
     result = DeterministicRunner(project_root=root, output=log).run("check", step_defs=steps)
     assert result.success
     assert "component coverage UNKNOWN (detection failed: OSError)" in log.getvalue()
+
+
+def test_resolved_states_the_depth_it_examined(tmp_path: Path) -> None:
+    """A two-level stack is NOT discovered, and the verdict says what was examined.
+
+    Counter-model review (#1289): `resolved` with an empty reason could not tell
+    "no other component" from "one outside the inspected depth". Discovery stays
+    bounded on purpose; the bound is now part of the answer.
+    """
+    root = tmp_path / "deep"
+    (root / "services" / "backend").mkdir(parents=True)
+    (root / "package.json").write_text("{}\n")
+    (root / "package-lock.json").write_text("{}\n")
+    (root / "services" / "backend" / "pyproject.toml").write_text("")
+    assert (root / "services" / "backend" / "pyproject.toml").is_file(), "precondition"
+    info = detect_framework(root)
+    assert list(_components(info)) == ["."]          # the limitation, pinned
+    assert info.runner_resolution == RESOLUTION_RESOLVED
+    assert "immediate subdirectories (not deeper" in info.resolution_reason
+    assert info.to_dict()["runner_resolution"]["discovery_scope"] == info.discovery_scope
+
+
+def test_a_symlinked_directory_is_not_a_component(tmp_path: Path) -> None:
+    """A neighbour reached through a symlink must not change this repo's result."""
+    neighbour = tmp_path / "another-repository"
+    neighbour.mkdir()
+    (neighbour / "pyproject.toml").write_text("")
+    root = _build(tmp_path, "node-npm")
+    (root / "backend").symlink_to(neighbour, target_is_directory=True)
+    assert (root / "backend" / "pyproject.toml").is_file(), "precondition: the link resolves"
+    info = detect_framework(root)
+    assert list(_components(info)) == ["."]
+    assert info.runner_resolution == RESOLUTION_RESOLVED
+

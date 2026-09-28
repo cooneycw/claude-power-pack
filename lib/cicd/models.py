@@ -313,6 +313,9 @@ class FrameworkInfo:
     # The COMPONENTS no runner default covers - components, not paths, because
     # one directory can hold two stacks and only one of them may be covered.
     uncovered_components: list[Component] = field(default_factory=list)
+    # What enumeration looked at. A coverage verdict is a claim over THIS
+    # population and no wider (counter-model review, #1289).
+    discovery_scope: str = ""
 
     def uncovered_summary(self) -> str:
         """``backend/ (python, node), docs/ (node)``: every uncovered stack, by path."""
@@ -341,6 +344,7 @@ class FrameworkInfo:
                     {"path": c.path, "framework": c.framework.value}
                     for c in self.uncovered_components
                 ],
+                "discovery_scope": self.discovery_scope,
             },
         }
 

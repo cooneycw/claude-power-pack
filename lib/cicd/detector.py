@@ -73,10 +73,27 @@ _NON_COMPONENT_DIRS = frozenset(
 )
 
 
+#: What enumeration examined, stated with every coverage verdict so `resolved`
+#: cannot be read wider than this (counter-model review, #1289): components
+#: deeper than one level, or behind a symlink, are not discovered at all.
+DISCOVERY_SCOPE = (
+    "the repository root and its immediate subdirectories (not deeper; "
+    "symlinked, hidden, dependency, build and cache directories excluded)"
+)
+
+
 def _is_component_dir(child: Path) -> bool:
+    """Is ``child`` a directory whose markers belong to THIS repository?
+
+    A symlinked directory is never one (counter-model review, #1289): following
+    it let a NEIGHBOURING checkout's markers change this repository's result and
+    appear as local evidence. An internal link would only duplicate a component
+    already found at its real path.
+    """
     name = child.name
     return (
-        child.is_dir()
+        not child.is_symlink()
+        and child.is_dir()
         and not name.startswith(".")
         and name not in _NON_COMPONENT_DIRS
         and not name.endswith(".egg-info")
@@ -196,7 +213,7 @@ def _resolve_runners(
             "the components listed are not run by them",
             uncovered,
         )
-    return RESOLUTION_RESOLVED, "", []
+    return RESOLUTION_RESOLVED, f"every component found in {DISCOVERY_SCOPE} is covered", []
 
 
 def detect_framework(project_root: str | Path) -> FrameworkInfo:
@@ -275,6 +292,7 @@ def detect_framework(project_root: str | Path) -> FrameworkInfo:
             resolution_reason=reason,
             uncovered_components=uncovered,
             components=components,
+            discovery_scope=DISCOVERY_SCOPE,
         )
 
     # Deduplicate frameworks
@@ -322,6 +340,7 @@ def detect_framework(project_root: str | Path) -> FrameworkInfo:
         runner_resolution=state,
         resolution_reason=reason,
         uncovered_components=uncovered,
+        discovery_scope=DISCOVERY_SCOPE,
     )
 
 
