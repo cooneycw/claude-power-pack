@@ -2857,6 +2857,7 @@ def test_an_interrupted_gate_leaves_no_runner_json_behind(tmp_path: Path) -> Non
 
 
 @requires_bash
+@requires_git
 @pytest.mark.skipif(
     not Path("/proc/self/stat").exists(),
     reason="the late tee is released on the gate's death, read from /proc; without "
