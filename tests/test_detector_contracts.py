@@ -315,7 +315,7 @@ def count_word(word: str) -> int:
     return below_hundred(w)
 
 
-PROPERTIES_HEADING = re.compile(r"^## (\S+) properties that let it survive review$", re.M)
+PROPERTIES_HEADING = re.compile(r"^## (.+?) properties that let it survive review$", re.M)
 INDEX_LEAD = re.compile(r"^The (.+?) instances this contract was derived from\.", re.M)
 
 
@@ -372,12 +372,20 @@ def test_the_index_heading_matches_its_population() -> None:
 
 
 # --- #1333: the heading checks can still fail, and growth no longer does ---
+#
+# Every case below runs on a SYNTHETIC population of a fixed size spliced into the
+# real document's structure, never on the real population's size: a case keyed on
+# the real count (grow it to fifty, bump it by one) would itself fail once the
+# document legitimately reached that size - the cliff this change removes,
+# rebuilt one level up. Counter-model review found three such cliffs.
 
 _NUMBER_WORDS = {n: w for w, n in {**_UNITS, **_TENS}.items()}
 
 
 def _word_for(n: int) -> str:
-    """Test-side spelling, independent of count_word's parsing path."""
+    """Test-side spelling for 1-199, independent of count_word's parsing path."""
+    if n >= 100:
+        return "one hundred" + (f" {_word_for(n - 100)}" if n > 100 else "")
     if n in _NUMBER_WORDS:
         return _NUMBER_WORDS[n]
     return f"{_NUMBER_WORDS[n - n % 10]}-{_NUMBER_WORDS[n % 10]}"
@@ -387,52 +395,57 @@ def _real_text() -> str:
     return (REPO / CANONICAL).read_text(encoding="utf-8")
 
 
-def _with_index_word(text: str, word: str) -> str:
-    old = INDEX_LEAD.search(text)
-    assert old
-    return text.replace(old.group(0), f"The {word} instances this contract was derived from.", 1)
-
-
-def test_an_off_by_one_index_heading_fails() -> None:
-    """The red case: the real document with its index word bumped by one."""
-    text = _real_text()
-    claimed, actual = index_count(text)
-    assert claimed == actual, "precondition: the real document agrees"
-    claimed, actual = index_count(_with_index_word(text, _word_for(actual + 1)))
-    assert claimed == actual + 1 and claimed != actual
-
-
-def test_an_off_by_one_properties_heading_fails() -> None:
-    text = _real_text()
-    claimed, actual = properties_count(text)
-    assert claimed == actual, "precondition: the real document agrees"
-    heading = PROPERTIES_HEADING.search(text)
-    assert heading
-    bumped = text.replace(heading.group(0),
-                          f"## {_word_for(actual + 1).capitalize()} properties that let it survive review", 1)
-    claimed, actual = properties_count(bumped)
-    assert claimed == actual + 1 and claimed != actual
-
-
-def test_growing_the_index_past_the_old_cliff_passes() -> None:
-    """The index grown to fifty rows with a heading that says so agrees.
-
-    Red on the pre-fix dict, which ended at thirty-five:
-    `unrecognised count word: fifty`.
-    """
+def _synthetic_index(rows: int, word: str) -> str:
+    """The real document with its index replaced by `rows` rows under `word`."""
     text = _real_text()
     section = text.split("## The instance index", 1)[1].split("\n## ", 1)[0]
-    rows = _index_rows(section)
-    assert 0 < len(rows) < 50, "precondition: the index is below the target size"
-    extra = "\n".join(f"| synthetic-{i} | x | x |" for i in range(50 - len(rows)))
-    grown_section = section.replace(rows[-1], rows[-1] + "\n" + extra, 1)
-    grown = _with_index_word(text.replace(section, grown_section, 1), "fifty")
-    assert index_count(grown) == (50, 50)
+    real_rows = _index_rows(section)
+    assert real_rows, "precondition: the real index has rows to replace"
+    new_rows = "\n".join(f"| synthetic-{i} | x | x |" for i in range(rows))
+    first, last = section.index(real_rows[0]), section.index(real_rows[-1]) + len(real_rows[-1])
+    text = text.replace(section, section[:first] + new_rows + section[last:], 1)
+    lead = INDEX_LEAD.search(text)
+    assert lead
+    return text.replace(lead.group(0), f"The {word} instances this contract was derived from.", 1)
+
+
+def _synthetic_properties(count: int, word: str) -> str:
+    """The real document with its properties list replaced by `count` items under `word`."""
+    text = _real_text()
+    heading = PROPERTIES_HEADING.search(text)
+    assert heading
+    section = text.split(heading.group(0), 1)[1].split("\n## ", 1)[0]
+    items = "\n\n".join(f"**Synthetic property {i}.** x" for i in range(count))
+    new_heading = f"## {word} properties that let it survive review"
+    return text.replace(heading.group(0) + section, new_heading + "\n\n" + items + "\n", 1)
+
+
+@pytest.mark.parametrize("rows", [31, 99, 199])
+def test_an_off_by_one_index_heading_fails(rows: int) -> None:
+    """The red case: an index word one more than its rows."""
+    assert index_count(_synthetic_index(rows, _word_for(rows))) == (rows, rows), "precondition: agreement"
+    claimed, actual = index_count(_synthetic_index(rows, _word_for(rows - 1)))
+    assert claimed == rows - 1 and actual == rows
+
+
+@pytest.mark.parametrize("count", [7, 99, 150])
+def test_an_off_by_one_properties_heading_fails(count: int) -> None:
+    agree = _synthetic_properties(count, _word_for(count).capitalize())
+    assert properties_count(agree) == (count, count), "precondition: agreement"
+    claimed, actual = properties_count(_synthetic_properties(count, _word_for(count + 1).capitalize()))
+    assert claimed == count + 1 and actual == count
+
+
+@pytest.mark.parametrize("rows", [36, 50, 100, 121, 199])
+def test_growing_the_index_past_the_old_cliff_passes(rows: int) -> None:
+    """Growth agrees at any size in range. Red on the pre-fix dict, which ended at
+    thirty-five: `unrecognised count word: <word>`."""
+    assert index_count(_synthetic_index(rows, _word_for(rows))) == (rows, rows)
 
 
 def test_an_unreadable_count_word_raises_and_is_never_zero() -> None:
     with pytest.raises(ValueError, match="umpteen"):
-        index_count(_with_index_word(_real_text(), "umpteen"))
+        index_count(_synthetic_index(0, "umpteen"))
 
 
 @pytest.mark.parametrize("word,expected", [
