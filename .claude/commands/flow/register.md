@@ -1498,7 +1498,7 @@ from "this call does not report policy":
 | `FLOW_WAVE_DRIVER` / `_SCOPE` / `_WEB` / `_CONTAINER` / `_META` / `_CANNOT` | the role's own driver and its #783 capability fence. Emitted by `get` **and by `register`** (#1026), so a declaration can be read back by whoever made it |
 | `FLOW_WAVE_BRIEFED_REV` | the rev THIS role was briefed on (`register` / `get`) |
 | `FLOW_WAVE_BRIEF` | `current` / `stale` / `none`. `stale` = the policy was amended after this role registered; re-register to take the re-brief |
-| `FLOW_WAVE_LIVENESS` | `live` / `stale` / `unknown` / `released` |
+| `FLOW_WAVE_LIVENESS` | `live` / `stale` / `unknown` / `released`. An entry recorded on ANOTHER host is `unknown` with basis `other-host` (#1014): this host cannot observe a remote pid, so `register` and `release` refuse it without `--force`. It read `stale` until #1014, which let any session on this host take it over silently |
 | `FLOW_WAVE_LIVENESS_BASIS` (#869, #1094) | WHICH RULE decided the liveness, so a proven death is never read as an undecidable one: `pid-present`, `pid-gone`, `pid-recycled`, `pid-present-witness-absent`, `pid-present-witness-undeterminable`, `other-host`, `released`, `self`, or `pid-undeterminable-{socket-present,socket-absent,no-socket-proof,no-address}`. The socket-file terms record CORROBORATION of an already-undeterminable pid - they never promote it to `live`. `pid-present` now additionally requires a matching start-time witness - see below |
 
 Two lane-scoping lines (#800), so an unknowable overlap answer is never read as

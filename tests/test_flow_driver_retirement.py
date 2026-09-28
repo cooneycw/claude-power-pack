@@ -52,10 +52,10 @@ CLEAR, BLOCKED, UNKNOWN = 0, 1, 3
 #: The pinned process table. `999002` is the only pid that exists, `999001` is
 #: the only one whose existence is undecidable, and every other pid is dead.
 #: `FLOW_WAVE_HOST` is pinned for a reason that is easy to miss: an entry whose
-#: host is not this host reads `stale other-host` regardless of its pid, so an
-#: unpinned hostname would make every fixture read stale on every machine and
-#: the live case would silently stop being a live case - a fixture that cannot
-#: fail, wearing the name of the one that must.
+#: host is not this host reads `unknown other-host` regardless of its pid (it read
+#: `stale` until #1014), so an unpinned hostname would make every fixture read
+#: unknown on every machine and the live case would silently stop being a live
+#: case - a fixture that cannot fail, wearing the name of the one that must.
 PINNED_ENV = {
     "FLOW_WAVE_HOST": "control-host",
     "FLOW_WAVE_UNKNOWN_PIDS": "999001",
