@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1299-flow-finish-gate-security-scan-ignores-the-target",
+  "counts": {
+    "accepted": 6,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "e5a03f9",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1299",
+  "passes": 2,
+  "recorded_at": "2026-09-28T11:11:50Z",
+  "red_cases": {
+    "already_covered": 8,
+    "proposed": 13
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

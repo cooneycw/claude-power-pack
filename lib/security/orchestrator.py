@@ -6,6 +6,8 @@ Provides quick, standard, and deep scan modes.
 
 from __future__ import annotations
 
+import re
+
 from .config import SecurityConfig
 from .models import Finding, ScanResult
 from .modules import debug_flags, env_files, gitignore, gitleaks, npm_audit, permissions, pip_audit, secrets
@@ -147,8 +149,35 @@ def _apply_suppressions(result: ScanResult, config: SecurityConfig) -> None:
         f
         for f in original
         if not any(s.matches(f) for s in config.suppressions)
+        and not _is_declared_in_config(f, config)
     ]
 
     suppressed_count = len(original) - len(result.findings)
     if suppressed_count:
         result.passed.append(f"{suppressed_count} finding(s) suppressed by configuration")
+
+
+#: Where suppressions are declared, relative to the scanned root.
+CONFIG_REL = ".claude/security.yml"
+
+
+def _is_declared_in_config(finding: Finding, config: SecurityConfig) -> bool:
+    """A `secret:` value written in the config file is not a leak of that value.
+
+    Pinning a suppression to one exact value (issue #1299) means writing that
+    value into `.claude/security.yml`, which the secrets scanner then reports -
+    so every `secret:` suppression would create the block it exists to remove.
+
+    NARROW ON PURPOSE: only a finding located IN the config file, of the same id,
+    whose full value fullmatches a declared `secret:`. Any other value in that
+    file - a real key pasted into a `reason:` - still blocks.
+    """
+    if finding.file_path != CONFIG_REL or finding.secret_value is None:
+        return False
+    return any(
+        s.id == finding.id
+        and s.secret is not None
+        and re.fullmatch(s.secret, finding.secret_value) is not None
+        for s in config.suppressions
+    )
+
