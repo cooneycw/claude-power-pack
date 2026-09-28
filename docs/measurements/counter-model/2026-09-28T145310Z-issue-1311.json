@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1311-load-sensitive-tests-turn-ci-red-on-unrelated-prs",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "730b906bd5dff2b122105150dc4261b5213daa03",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1311",
+  "passes": 1,
+  "recorded_at": "2026-09-28T14:53:10Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 6
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
