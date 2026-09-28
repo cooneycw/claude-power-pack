@@ -1,6 +1,6 @@
 ---
 description: Check Claude Power Pack installation state
-allowed-tools: Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(uv:*), Bash(python3:*), Bash(PYTHONPATH=*), Bash(claude mcp list:*), Bash(systemctl:*), Bash(grep:*), Bash(docker ps:*), Bash(docker inspect:*)
+allowed-tools: Bash(bash:*), Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(uv:*), Bash(python3:*), Bash(PYTHONPATH=*), Bash(claude mcp list:*), Bash(systemctl:*), Bash(grep:*), Bash(docker ps:*), Bash(docker inspect:*)
 ---
 
 # CPP Installation Status
@@ -26,6 +26,37 @@ if [ -z "$CPP_DIR" ]; then
   echo "Expected locations: ~/Projects/claude-power-pack, /opt/claude-power-pack, ~/.claude-power-pack"
 fi
 ```
+
+## Step 1b: Check Checkout Freshness
+
+The checkout found above is the single source for every CPP helper on this host:
+`~/.claude/scripts` links into its `scripts/`, and kyle session containers mount
+it live. A checkout behind `origin/main` means every session runs superseded
+helpers, and it advances only when something pulls (issue #1282).
+
+**`/cpp:status` now fetches.** The helper runs `git fetch origin main` against
+the checkout, which updates its `origin/main` remote-tracking ref - never the
+working tree, so no helper changes under a running session.
+
+```bash
+if [ -n "$CPP_DIR" ]; then
+  bash "$CPP_DIR/scripts/cpp-checkout-freshness.sh" --path "$CPP_DIR"
+fi
+```
+
+The last line is the verdict. Report it as written:
+
+- `current` - `[x]`
+- `behind N` - `[~]`, with the listed commits; suggest `/cpp:update`
+- `ahead N` / `diverged (...)` - `[~]`: local commits on the checkout that
+  `origin/main` does not have, a different warning from being behind
+- `unknown: <reason>` - `[~]` with the reason. **Never render it as current.**
+  A read-only checkout (a kyle container's view) reads
+  `unknown: fetch failed (checkout not writable)`, because counting against
+  whatever `origin/main` the host last fetched would be a stale number
+
+A `Branch:` line naming anything other than `main` is its own warning: a primary
+checkout left on a feature branch serves that branch's helpers to every session.
 
 ## Step 2: Check Tier 1 (Minimal)
 
@@ -587,6 +618,9 @@ Example output format:
 =================================
 CPP Installation Status
 =================================
+
+Checkout: ~/Projects/claude-power-pack (branch main)
+  [~] Freshness: behind 3 (run /cpp:update)
 
 Tier 1 (Minimal):
   [x] Commands symlinked
