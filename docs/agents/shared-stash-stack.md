@@ -186,8 +186,13 @@ git apply         /tmp/<issue>-unstaged.patch
 
 Both patches, because a file can carry staged AND unstaged edits and one diff
 holds only one of them; `--binary`, because a plain diff records a changed
-binary as "differs" with no content. Untracked files are not touched by these
-commands, so they need no patch.
+binary as "differs" with no content. The patches cover TRACKED changes only.
+Untracked files are usually left alone, with one exception that loses data: an
+untracked file or directory standing where a tracked path belongs is deleted by
+`git reset --hard` to restore that path (measured: a directory replacing a
+tracked file was removed, contents and all, while a loose untracked file
+survived). If `git status` shows untracked work in such a spot, copy it
+somewhere outside the repository first; no patch will hold it.
 
 This is the lived failure, not a hypothetical: during #1092 (PR #1105) a
 `git checkout -- tests/test_flow_wave_mailbox.py` run mid-review discarded an
