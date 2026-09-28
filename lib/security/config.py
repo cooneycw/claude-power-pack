@@ -101,8 +101,9 @@ class SecurityConfig:
         # NO SOURCE TEXT IN ANY MESSAGE (counter-model review, HIGH). PyYAML's
         # `str(exc)` quotes the offending line, and the offending line of a
         # malformed `secret:` entry IS the secret - printed to a CI log by the
-        # very gate meant to keep it out. Only the error class, the problem
-        # (a grammar statement, never a token's text) and the position leave.
+        # very gate meant to keep it out. Only the error class and the position
+        # leave: PyYAML's `problem` can quote a value too (an undefined alias
+        # names it in full - counter-model re-review, HIGH).
         try:
             with open(path, encoding="utf-8") as f:
                 data = yaml.safe_load(f)
@@ -127,18 +128,18 @@ class SecurityConfig:
         gates_data = _section(path, data, "gates", dict)
         for gate_name, gate_cfg in gates_data.items():
             if not isinstance(gate_cfg, dict):
-                raise ConfigUnreadable(path, f"gates.{gate_name} is not a mapping")
+                raise ConfigUnreadable(path, f"gates.{_name(gate_name)} is not a mapping")
             policy = {}
             for key in ("block_on", "warn_on"):
                 names = gate_cfg.get(key, [])
                 if not isinstance(names, list):
-                    raise ConfigUnreadable(path, f"gates.{gate_name}.{key} is not a list")
+                    raise ConfigUnreadable(path, f"gates.{_name(gate_name)}.{key} is not a list")
                 try:
                     policy[key] = [_parse_severity(n) for n in names]
                 except (KeyError, AttributeError):
                     raise ConfigUnreadable(
                         path,
-                        f"gates.{gate_name}.{key} names an unknown severity "
+                        f"gates.{_name(gate_name)}.{key} names an unknown severity "
                         f"(allowed: {[s.name.lower() for s in Severity]})",
                     ) from None
             config.gates[gate_name] = GatePolicy(**policy)
@@ -151,11 +152,22 @@ class SecurityConfig:
 
 
 def _yaml_error(exc: Exception) -> str:
-    """Class, problem and position of a YAML error - never its source excerpt."""
-    problem = getattr(exc, "problem", None)
+    """Class and position of a YAML error - never its text, which can quote a value."""
     mark = getattr(exc, "problem_mark", None)
     where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark is not None else ""
-    return f"{type(exc).__name__}: {problem or 'unparseable'}{where}"
+    return f"{type(exc).__name__}{where}"
+
+
+#: A name the author typed is echoed only when it looks like a config key.
+#: Anything else - an uppercase token, a number, a 40-character value - is
+#: described, not printed, because a key position can hold a pasted secret too.
+_ECHOABLE = re.compile(r"[a-z_][a-z0-9_]{0,23}")
+
+
+def _name(value: object) -> str:
+    if isinstance(value, str) and _ECHOABLE.fullmatch(value):
+        return value
+    return f"<{type(value).__name__} not shown>"
 
 
 def _section(path: Path, data: dict, key: str, kind: type) -> Any:
@@ -175,11 +187,14 @@ def _parse_suppression(path: Path, n: int, supp: object) -> Suppression:
     where = f"suppressions[{n}]"
     if not isinstance(supp, dict):
         raise ConfigUnreadable(path, f"{where} is not a mapping")
-    unknown = sorted(set(supp) - _SUPPRESSION_KEYS)
+    # `str(k)` for the sort: a YAML key can be an int, and sorting mixed types
+    # raised an uncaught TypeError (counter-model re-review).
+    unknown = sorted((k for k in supp if k not in _SUPPRESSION_KEYS), key=str)
     if unknown:
         raise ConfigUnreadable(
             path,
-            f"{where} has unknown key(s) {unknown}; allowed: {sorted(_SUPPRESSION_KEYS)}",
+            f"{where} has unknown key(s) {[_name(k) for k in unknown]}; "
+            f"allowed: {sorted(_SUPPRESSION_KEYS)}",
         )
     if not isinstance(supp.get("id"), str) or not supp["id"]:
         raise ConfigUnreadable(path, f"{where} needs a non-empty string `id`")
@@ -192,7 +207,10 @@ def _parse_suppression(path: Path, n: int, supp: object) -> Suppression:
         try:
             re.compile(value)
         except re.error as exc:
-            raise ConfigUnreadable(path, f"{where}.{key} is not a valid regex: {exc}") from None
+            # The position only: `re.error` text can quote the pattern's own
+            # content (an unknown group name, in full).
+            at = f" at position {exc.pos}" if exc.pos is not None else ""
+            raise ConfigUnreadable(path, f"{where}.{key} is not a valid regex{at}") from None
     return Suppression(
         id=supp["id"],
         path=supp.get("path"),

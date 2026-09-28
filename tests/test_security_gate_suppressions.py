@@ -143,7 +143,8 @@ def test_an_unreadable_config_is_unknown_never_defaults(tmp_path: Path) -> None:
         ("- just\n- a list\n", "top level is a list, not a mapping"),
         ("suppressions:\n  - id: AWS_ACCESS_KEY\n    secrets: 'x'\n", "unknown key(s) ['secrets']"),
         ("suppressions:\n  - path: 'x'\n", "needs a non-empty string `id`"),
-        ("suppressions:\n  - id: AWS_ACCESS_KEY\n    secret: '(unclosed'\n", "not a valid regex"),
+        ("suppressions:\n  - id: AWS_ACCESS_KEY\n    secret: '(unclosed'\n", "not a valid regex at position 0"),
+        ("suppressions:\n  - id: AWS_ACCESS_KEY\n    1: x\n    unexpected: y\n", "unknown key(s) ['<int not shown>', 'unexpected']"),
         ("gates:\n  flow_finish:\n    block_on: [NOPE]\n", "names an unknown severity"),
         # Counter-model review: falsey and wrong-type shapes used to default or crash.
         ("false\n", "top level is a bool, not a mapping"),
@@ -264,3 +265,31 @@ def test_a_config_that_is_not_utf8_is_unknown(tmp_path: Path) -> None:
 def test_an_empty_config_file_still_means_defaults(tmp_path: Path) -> None:
     repo = _repo(tmp_path, {"README.md": "clean\n"}, "")
     assert _gate(repo).returncode == 0
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        f"secret: *{CANARY}",  # undefined alias: PyYAML's problem text names it
+        f"secret: '(?P={CANARY})'",  # re.error names the unknown group
+        f"{CANARY}: x",  # the value pasted where a key goes
+    ],
+)
+def test_no_malformed_config_echoes_a_value(tmp_path: Path, line: str) -> None:
+    """Counter-model re-review (HIGH): each of these printed the full value."""
+    config = f"suppressions:\n  - id: AWS_ACCESS_KEY\n    {line}\n"
+    result = _gate(_repo(tmp_path, {"README.md": "clean\n"}, config))
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert CANARY[4:] not in result.stdout + result.stderr
+
+
+def test_the_hint_yaml_survives_an_apostrophe_in_the_path(tmp_path: Path) -> None:
+    import yaml
+
+    repo = _repo(tmp_path, {"tests/o'brien.py": f'KEY = "{CANARY}"\n', ".gitleaks.toml": "#\n"})
+    result = _gate(repo)
+    example = result.stdout.split("  suppressions:\n", 1)[1]
+    parsed = yaml.safe_load("suppressions:\n" + example)
+    import re as _re
+
+    assert _re.match(parsed["suppressions"][0]["path"], "tests/o'brien.py")

@@ -224,7 +224,10 @@ def _gitleaks_hint(
     # Single-quoted YAML: a backslash is literal there, so a regex-escaped path
     # survives; in double quotes `\.` is an invalid YAML escape.
     if first.file_path:
-        lines.append(f"      path: '^{re.escape(first.file_path)}$'")
+        # regex-escape, THEN YAML-escape: inside single quotes an apostrophe is
+        # written twice (counter-model re-review).
+        escaped = re.escape(first.file_path).replace("'", "''")
+        lines.append(f"      path: '^{escaped}$'")
     if first.secret_value is not None:
         lines.append("      secret: '<the exact planted value, regex-escaped>'")
     else:
