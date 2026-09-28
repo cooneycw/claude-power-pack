@@ -395,13 +395,15 @@ if [[ "$HAVE_JQ" -eq 1 && -n "$WP_TOKEN" && -n "$WP_SERVER" ]]; then
         if [[ "$STATUS" == "failure" && "$PIPELINE" != "-" ]]; then
             # Name and TYPE from the one response (issue #1342). A step with no
             # `type` field records an empty type, which classifies as unknown.
-            while IFS=$'\t' read -r step step_type; do
+            # `|`, not a tab: a tab is IFS WHITESPACE, which collapses an empty
+            # field and shifts the rest silently (#698/#700).
+            while IFS='|' read -r step step_type; do
                 if [[ -n "$step" ]]; then
                     FAILED_STEPS+=("$step")
                     FAILED_STEP_TYPES+=("$step_type")
                 fi
             done < <(wp_api "/api/repos/$REPO_ID/pipelines/$PIPELINE" \
-                | jq -r '[.workflows[]?.children[]? | select(.state=="failure" or .state=="error" or .state=="killed") | [.name, (.type // "")] | @tsv] | .[]' 2>/dev/null)
+                | jq -r '[.workflows[]?.children[]? | select(.state=="failure" or .state=="error" or .state=="killed") | "\(.name)|\(.type // "")"] | .[]' 2>/dev/null)
         fi
         emit
     fi
