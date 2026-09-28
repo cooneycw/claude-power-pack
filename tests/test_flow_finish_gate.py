@@ -2864,7 +2864,14 @@ def test_a_late_tee_cannot_recreate_the_runner_json_after_the_trap(tmp_path: Pat
     runner JSON by NAME after the EXIT trap's `rm`, it re-creates the file and
     nothing removes it again - pipeline 2811's `['flow-finish-gate.9OcbCl']`,
     first mislabelled a timing flake. A loaded host is what makes `tee` late;
-    here a PATH stub makes it late on purpose (0.5s, then the real `tee`).
+    here a PATH stub makes it late on purpose - by an EVENT, not a delay
+    (counter-model review): it holds the real `tee` until the gate shell has
+    DIED, i.e. until its EXIT trap has already run. A fixed sleep could lose to
+    a slow gate and pass on the unfixed code without exercising the race.
+
+    The gate counts as dead once it is a zombie: it stays one until this test
+    reaps it, which `subprocess.run` does only after EOF on stdout - and `tee`
+    holds stdout, so waiting for the pid to vanish would deadlock.
 
     No sleep in the assertion: `subprocess.run` returns at EOF on the gate's
     stdout, which `tee` holds, so every straggler has exited when TMPDIR is read.
@@ -2879,8 +2886,19 @@ def test_a_late_tee_cannot_recreate_the_runner_json_after_the_trap(tmp_path: Pat
     stub.chmod(0o755)
     real_tee = shutil.which("tee")
     assert real_tee, "precondition: a real tee to delay"
+    released = tmp_path / "tee-released"
     late_tee = bindir / "tee"
-    late_tee.write_text(f'#!/usr/bin/env bash\nsleep 0.5\nexec {real_tee} "$@"\n')
+    late_tee.write_text(
+        "#!/usr/bin/env bash\n"
+        'gate=$PPID; deadline=$((SECONDS + 30))\n'
+        # Alive = a /proc entry that is not a zombie.
+        'while [ -r "/proc/$gate/stat" ] && [ "$(cut -d")" -f2 "/proc/$gate/stat" | cut -d" " -f2)" != Z ]; do\n'
+        '  [ "$SECONDS" -lt "$deadline" ] || { echo "late-tee: the gate never exited" >&2; exit 97; }\n'
+        "  sleep 0.05\n"
+        "done\n"
+        f': > "{released}"\n'
+        f'exec {real_tee} "$@"\n'
+    )
     late_tee.chmod(0o755)
     env = os.environ.copy()
     env["PATH"] = f"{bindir}:{env['PATH']}"
@@ -2892,6 +2910,7 @@ def test_a_late_tee_cannot_recreate_the_runner_json_after_the_trap(tmp_path: Pat
     )
     assert "FLOW_FINISH_GATE: " not in proc.stdout, "precondition: interrupted before a verdict"
     assert "running deterministic gate" in proc.stdout
+    assert released.exists(), f"precondition: tee was released only after the gate died\n{proc.stdout}"
     assert sorted(p.name for p in tmpdir.iterdir()) == []
 
 
