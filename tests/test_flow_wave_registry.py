@@ -4643,12 +4643,17 @@ def test_clear_pr_withdraws_the_whole_observation(tmp_path: Path) -> None:
     the observation atomically - pr, base, diff, obs_repo and the counter."""
     _run(tmp_path, "register", "w", *_COMMON_1266, "--repo", "/tmp",
          "--pr", "1202", "--base", "b1", "--diff", "d1")
-    assert _entry(tmp_path, "zz", "w")["pr"] == "1202", "precondition: an observation recorded"
+    # Same PR, changed base, unchanged diff: an overtake, so the counter is live
+    # BEFORE the withdrawal (counter-model review - a zero here proved nothing).
+    _run(tmp_path, "register", "w", *_COMMON_1266, "--repo", "/tmp",
+         "--pr", "1202", "--base", "b2", "--diff", "d1")
+    before = _entry(tmp_path, "zz", "w")
+    assert before["pr"] == "1202" and before["overtaken"] > 0, f"precondition: {before}"
     out = _run(tmp_path, "register", "w", *_COMMON_1266, "--repo", "/tmp", "--clear-pr")
     assert _verdict(out) in ("registered", "updated"), out.stdout + out.stderr
     e = _entry(tmp_path, "zz", "w")
-    assert (e["pr"], e["base"], e["diff"], e.get("obs_repo", "")) == ("", "", "", ""), e
-    assert e.get("overtaken", 0) == 0, e
+    assert (e["pr"], e["base"], e["diff"], e["obs_repo"]) == ("", "", "", ""), e
+    assert e["overtaken"] == 0, e
 
 
 @requires_tools
@@ -4729,3 +4734,20 @@ def test_a_failed_snapshot_never_misreports_a_committed_write(tmp_path: Path) ->
     assert out.returncode != 0, out.stdout
     assert "NOT updated" in out.stderr, out.stderr
     assert _entry(tmp_path, "zz", "w")["files"] == "a.py", "reported NOT updated, so nothing may have changed"
+
+
+@requires_tools
+def test_an_unusable_tmpdir_refuses_before_writing(tmp_path: Path) -> None:
+    """Counter-model review (#1266): the snapshot files are required. With no
+    usable TMPDIR the registration must refuse before the lock - not commit and
+    report a delta against an absent entry. The registry dir stays writable."""
+    common = ("--wave", "zz", "--repo", "/tmp", "--issue", "1266", "--branch", "issue-1266-x")
+    _run(tmp_path, "register", "w", *common, "--files", "a.py")
+    assert _entry(tmp_path, "zz", "w")["files"] == "a.py", "precondition"
+    missing = tmp_path / "no-such-tmpdir"
+    assert not missing.exists(), "precondition: the TMPDIR does not exist"
+    out = _run(tmp_path, "register", "w", *common, "--files", "b.py",
+               extra_env={"TMPDIR": str(missing)})
+    assert out.returncode != 0, out.stdout
+    assert "NOT updated" in out.stderr, out.stderr
+    assert _entry(tmp_path, "zz", "w")["files"] == "a.py", "refused, so nothing may have changed"

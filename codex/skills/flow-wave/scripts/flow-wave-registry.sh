@@ -2499,7 +2499,18 @@ case "$VERB" in
       done
     fi
     LOCK_SNAP_W="$WAVE"; LOCK_SNAP_R="$ROLE"
-    LOCK_SNAP_PREV="$(mktemp)"; LOCK_SNAP_NEW="$(mktemp)"
+    # Both snapshot files must EXIST before the write (counter-model review,
+    # #1266): an empty path would make with_lock skip that snapshot, and the
+    # delta would then be reported against an absent entry over a committed
+    # write. Refused before the lock, so nothing is recorded.
+    LOCK_SNAP_PREV="$(mktemp 2>/dev/null)" || LOCK_SNAP_PREV=""
+    LOCK_SNAP_NEW="$(mktemp 2>/dev/null)" || LOCK_SNAP_NEW=""
+    if [ -z "$LOCK_SNAP_PREV" ] || [ -z "$LOCK_SNAP_NEW" ]; then
+      rm -f "${LOCK_SNAP_PREV:-}" "${LOCK_SNAP_NEW:-}" 2>/dev/null
+      echo "flow-wave-registry: could not create temporary files (TMPDIR=${TMPDIR:-/tmp}) - the registry was NOT updated." >&2
+      emit error
+      exit 3
+    fi
     # shellcheck disable=SC2016  # a jq program; $ names are jq variables (#972)
     with_lock '
       .[$w] //= {"roles": {}} |
