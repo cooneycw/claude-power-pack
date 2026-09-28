@@ -440,13 +440,29 @@ def errored_tool_calls(node):
     this counter's own ownership boundary; `test_a_non_tool_error_state_is_not_
     counted_as_a_tool_error` pins it.
     """
+    # OWNED states only (counter-model review, #1265). A `state` counts when it
+    # sits on a node that IS a tool call - one carrying its own string `tool`,
+    # which is where every OpenCode/gemma capture on disk puts it
+    # (`part: {"tool": ..., "type": "tool", "state": {...}}`). And the walk does
+    # not descend INTO a tool call: its arguments and returned data are not
+    # calls, so an error state inside a successful call's output is a neighbour
+    # and must not be counted. Removing the depth cap made that distinction
+    # matter; the cap had only been hiding it.
     found = 0
-    for current in _walk(node):
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, list):
+            stack.extend(v for v in current if isinstance(v, (dict, list)))
+            continue
         if not isinstance(current, dict):
             continue
-        state = current.get("state")
-        if isinstance(state, dict) and str(state.get("status", "")).lower() == "error":
-            found += 1
+        if isinstance(current.get("tool"), str):
+            state = current.get("state")
+            if isinstance(state, dict) and str(state.get("status", "")).lower() == "error":
+                found += 1
+            continue
+        stack.extend(v for v in current.values() if isinstance(v, (dict, list)))
     return found
 
 
@@ -668,11 +684,15 @@ with open(path, "r", encoding="utf-8", errors="replace") as handle:
             continue
         try:
             obj = json.loads(line)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, RecursionError):
             # Not JSON: a harness banner or a stderr line that landed in the
             # stream. That banner is sometimes exactly where the error surfaces.
             # Counted (issue #1265): a line this helper could not read is part
             # of the payload, and must not vanish from the denominator.
+            # RecursionError too: json.loads itself is bounded by the
+            # interpreter's recursion limit, so a pathologically deep line is
+            # UNREADABLE here - reported as such, never a crash of the whole
+            # parse (counter-model review).
             unparsed += 1
             if line.lstrip().startswith("[API Error"):
                 signals.add("api-error")

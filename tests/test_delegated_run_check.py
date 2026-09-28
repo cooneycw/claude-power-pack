@@ -1384,17 +1384,61 @@ def test_a_failed_tool_call_is_counted_at_any_depth(tmp_path: Path, depth: int) 
     assert contract(run(str(output), "0", "--lane", "gemma").stdout)["DELEGATED_RUN_TOOL_ERRORS"] == ["1"]
 
 
-def test_a_very_deep_payload_is_walked_without_recursion_errors(tmp_path: Path) -> None:
-    """Deeper than Python's default recursion limit: the walk is iterative."""
+def test_a_deep_payload_is_walked_iteratively(tmp_path: Path) -> None:
+    """800 levels: past anything a recursive walk with a small cap would reach,
+    and parseable by json.loads on every supported interpreter (its own limit
+    is the next test's subject). Written as a raw string, because json.dumps is
+    itself recursive and would fail building the input on some versions."""
+    depth = 800
+    call = '{"tool": "bash", "state": {"status": "error"}}'
+    line = '{"type": "tool_use", "part": ' + '{"w": ' * depth + call + "}" * depth + "}"
+    path = tmp_path / "deep-800.jsonl"
+    path.write_text(line + '\n{"type": "step_finish", "part": {"reason": "stop"}}\n', encoding="utf-8")
+    proc = run(str(path), "0", "--lane", "gemma")
+    assert contract(proc.stdout)["DELEGATED_RUN_TOOL_ERRORS"] == ["1"], proc.stdout + proc.stderr
+
+
+def test_a_line_too_deep_to_parse_is_unparsed_not_a_crash(tmp_path: Path) -> None:
+    """json.loads is bounded by the interpreter's recursion limit (counter-model
+    review, #1265). A line past it is UNREADABLE: counted in UNPARSED, and the
+    rest of the stream is still read - never an uncaught RecursionError that
+    turns the whole payload into `output-unreadable`."""
+    depth = 100_000
+    line = '{"a": ' * depth + "1" + "}" * depth
+    path = tmp_path / "too-deep.jsonl"
+    path.write_text(
+        line + "\n"
+        + '{"type": "tool_use", "part": {"tool": "bash", "state": {"status": "error"}}}\n'
+        + '{"type": "step_finish", "part": {"reason": "stop"}}\n',
+        encoding="utf-8",
+    )
+    found = contract(run(str(path), "0", "--lane", "gemma").stdout)
+    assert found["DELEGATED_RUN_UNPARSED"] == ["1"], found
+    assert found["DELEGATED_RUN_EVENTS"] == ["2"], found
+    assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["1"], found
+
+
+@pytest.mark.parametrize("depth", [2, 8, 50])
+def test_an_error_state_inside_a_successful_call_s_data_is_not_counted(
+    tmp_path: Path, depth: int
+) -> None:
+    """Ownership (counter-model review, #1265): the other half of the depth fix.
+
+    A successful call whose returned data contains an error-shaped object at
+    any depth is ONE successful call. Only a node that is itself a tool call
+    (carries its own `tool`) owns the state that is counted.
+    """
     output = write_jsonl(
-        tmp_path / "very-deep.jsonl",
+        tmp_path / f"owned-{depth}.jsonl",
         [
-            {"type": "tool_use", "part": _nested(3000, {"tool": "bash", "state": {"status": "error"}})},
+            {"type": "tool_use", "part": {"tool": "bash", "state": {
+                "status": "completed",
+                "output": _nested(depth, {"state": {"status": "error"}}),
+            }}},
             {"type": "step_finish", "part": {"reason": "stop"}},
         ],
     )
-    proc = run(str(output), "0", "--lane", "gemma")
-    assert contract(proc.stdout)["DELEGATED_RUN_TOOL_ERRORS"] == ["1"], proc.stdout + proc.stderr
+    assert contract(run(str(output), "0", "--lane", "gemma").stdout)["DELEGATED_RUN_TOOL_ERRORS"] == ["0"]
 
 
 def test_unparsed_lines_are_counted_not_dropped(tmp_path: Path) -> None:
