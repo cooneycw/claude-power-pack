@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1320-approval-gate-bypass-a-second-flow-auto-run-on-an",
+  "counts": {
+    "accepted": 6,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "ceac361",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1320",
+  "passes": 2,
+  "recorded_at": "2026-09-28T16:53:21Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 12
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
