@@ -18,13 +18,8 @@ every change states its contract, and a full specification is how that contract 
 expressed when uncertainty or coordination warrants it.
 
 ```
-Constitution (principles) → Spec (what) → Plan (how) → Tasks (work) → Issues → Code → Retire
+Constitution (principles) → Spec (what) → Plan (how) → Tasks (work) → Issues → Code
 ```
-
-The pipeline does not stop at the code. A shipped spec is a temporary coordination
-artifact: before it is removed, its durable facts graduate to code, tests, ADRs,
-glossaries or maintained docs. That rule and its verified mapping process live in
-[the knowledge-lifecycle reference](../../../docs/agents/knowledge-lifecycle.md) (#1272).
 
 For work that does not warrant a spec, the same contract lives in the issue body.
 The canonical definition of what it must make legible - outcome, constraints with
