@@ -21,7 +21,7 @@ PYTHONPATH="${HOME}/Projects/claude-power-pack:${PYTHONPATH}" uv run --project "
 ```
 
 **Requirements:**
-- FastAPI and uvicorn must be installed: `uv sync --extra ui`
+- FastAPI and uvicorn must be installed: `uv sync --project "${HOME}/Projects/claude-power-pack" --extra ui` (the same project the launch command above runs)
 - The server binds to `127.0.0.1` only (no network exposure)
 - A bearer token is generated on startup and printed to the terminal
 - Copy the token to authenticate in the browser

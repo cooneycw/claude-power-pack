@@ -37,7 +37,7 @@ def _import_deps():
     except ImportError:
         print(
             "Error: FastAPI and uvicorn are required for the secrets UI.\n"
-            "Install with: uv sync --extra ui\n"
+            "Install with: uv sync --project <your claude-power-pack checkout> --extra ui\n"
             "  or: pip install fastapi uvicorn",
             file=sys.stderr,
         )

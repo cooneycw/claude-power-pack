@@ -176,10 +176,18 @@ it costs nothing and touches no shared state: write the diff to a file of your
 own first.
 
 ```bash
-git diff > /tmp/<issue>-backup.patch        # add --cached for staged work
-git checkout -- path/to/file                # the discarding command
-# ... to undo: git apply /tmp/<issue>-backup.patch
+git diff --cached --binary > /tmp/<issue>-staged.patch     # staged changes
+git diff --binary          > /tmp/<issue>-unstaged.patch   # unstaged changes
+git reset --hard                                         # (or checkout --, restore)
+# ... to undo, staged first so the second applies on top of it:
+git apply --index /tmp/<issue>-staged.patch
+git apply         /tmp/<issue>-unstaged.patch
 ```
+
+Both patches, because a file can carry staged AND unstaged edits and one diff
+holds only one of them; `--binary`, because a plain diff records a changed
+binary as "differs" with no content. Untracked files are not touched by these
+commands, so they need no patch.
 
 This is the lived failure, not a hypothetical: during #1092 (PR #1105) a
 `git checkout -- tests/test_flow_wave_mailbox.py` run mid-review discarded an
