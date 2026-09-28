@@ -54,19 +54,40 @@ TEST_OWNER_ENV = f"CPP_SWEEPTEST_OWNER_{os.getpid()}"
 DEAD_OWNER = f"{os.getpid()}:1"
 
 
+#: A PRIVATE variable naming the file a fake daemon writes once it is READY.
+#: Not OWNER_ENV-shaped: the sweep reads markers from the environment, and this
+#: must never be mistaken for one.
+READY_ENV = "CPP_SWEEPTEST_FAKE_READY"
+#: One bound for every wait in this fixture - the bound the argv wait already had.
+FIXTURE_DEADLINE = 10.0
+
+
 def _fake_daemon(
     tmp_path: Path, verb: str, marker: str | None,
-    body: str = "sleep 300\n", own_group: bool = True,
+    body: str = "sleep 300\n", own_group: bool = True, setup: str = "",
+    ready_timeout: float = FIXTURE_DEADLINE,
 ) -> subprocess.Popen:
     """A process with the daemon's exact argv shape that only sleeps.
 
     Launched in its own session, as `supervise` launches the real one, so the
     sweep's group kill takes the `sleep` with it.
+
+    READY MEANS `setup` HAS RUN, not that the process exists (issue #1297). The
+    argv shows in /proc the moment exec happens - before bash has read a single
+    line - so a test whose child installs `trap '' TERM` could send TERM into
+    that gap: the child died at once, the sweep never escalated, and the
+    identity test failed with `assert 1 == 2` for a startup race rather than a
+    broken check (reproduced by delaying the trap 0.3s). So the child writes a
+    ready file AFTER `setup`, and this returns only once it exists. A child that
+    exits first, or never signals within the bound, FAILS the test - after its
+    group is killed - rather than handing the test a process in an unknown state.
     """
     script = tmp_path / f"{verb}-{marker is not None}" / "flow-wave-mailbox.sh"
     script.parent.mkdir(parents=True, exist_ok=True)
-    script.write_text(body, encoding="utf-8")
+    ready = script.parent / "ready"
+    script.write_text(f'{setup}printf ready > "${READY_ENV}"\n{body}', encoding="utf-8")
     env = {k: v for k, v in os.environ.items() if k != OWNER_ENV}
+    env[READY_ENV] = str(ready)
     if marker is not None:
         env[TEST_OWNER_ENV] = marker
     proc = subprocess.Popen(
@@ -74,14 +95,32 @@ def _fake_daemon(
         env=env, cwd=str(tmp_path), start_new_session=own_group,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
-    # The environ is readable once exec has happened; wait for the argv to show.
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
+
+    def give_up(why: str) -> None:
+        _cleanup(proc)
+        pytest.fail(f"fake daemon did not become ready: {why}", pytrace=False)
+
+    # The argv is visible once exec has happened: the sweep matches on it, so it
+    # is a precondition - and a timeout here is a failure, not a fall-through.
+    deadline = time.monotonic() + FIXTURE_DEADLINE
+    while True:
         try:
             if verb.encode() in Path(f"/proc/{proc.pid}/cmdline").read_bytes():
                 break
         except OSError:
             pass
+        if proc.poll() is not None:
+            give_up(f"it exited with {proc.returncode} before its argv appeared")
+        if time.monotonic() >= deadline:
+            give_up(f"its argv did not appear within {FIXTURE_DEADLINE:g}s")
+        time.sleep(0.02)
+    # Then the explicit signal that `setup` has run.
+    deadline = time.monotonic() + ready_timeout
+    while not (ready.exists() and ready.read_text() == "ready"):
+        if proc.poll() is not None:
+            give_up(f"it exited with {proc.returncode} before signalling ready")
+        if time.monotonic() >= deadline:
+            give_up(f"no ready signal within {ready_timeout:g}s")
         time.sleep(0.02)
     return proc
 
@@ -201,7 +240,7 @@ def test_identity_is_rechecked_before_the_kill_escalation(
     """
     orphan = _fake_daemon(
         tmp_path, "__supervise_daemon", DEAD_OWNER,
-        body="trap '' TERM\nwhile :; do sleep 1; done\n",
+        setup="trap '' TERM\n", body="while :; do sleep 1; done\n",
     )
     try:
         start = dict(orphaned_supervise_daemons(owner_env=TEST_OWNER_ENV))[orphan.pid]
@@ -219,6 +258,54 @@ def test_identity_is_rechecked_before_the_kill_escalation(
         assert orphan.poll() is None, "the KILL went to a process that was no longer the orphan"
     finally:
         _cleanup(orphan)
+
+
+@requires_proc
+def test_the_fixture_returns_only_after_setup_has_run(tmp_path: Path) -> None:
+    """THE #1297 REGRESSION: a TERM sent the moment the fixture returns must
+    find the trap already installed.
+
+    The setup is deliberately SLOW (0.3s before the trap), which is the startup
+    a loaded CI host produces. On the pre-#1297 fixture - which returned once
+    the argv appeared - this child died of that TERM (returncode -15), 3 of 3.
+    """
+    child = _fake_daemon(
+        tmp_path, "__supervise_daemon", DEAD_OWNER,
+        setup="sleep 0.3\ntrap '' TERM\n", body="while :; do sleep 1; done\n",
+    )
+    try:
+        os.killpg(child.pid, signal.SIGTERM)
+        # Bounded by the child's own exit, not by a guess at scheduling: if the
+        # TERM was fatal, wait() returns; if it was ignored, it times out.
+        with pytest.raises(subprocess.TimeoutExpired):
+            child.wait(timeout=1.0)
+        assert child.poll() is None, f"the TERM was fatal: {child.returncode}"
+    finally:
+        _cleanup(child)
+
+
+@requires_proc
+def test_a_child_that_exits_before_ready_fails_clearly(tmp_path: Path) -> None:
+    """Early exit is a clear fixture failure, never a half-started test.
+
+    Matched on the exit, not the phase: `exit 3` can finish before the argv is
+    even observed (a zombie's cmdline is empty), and both phases report it.
+    """
+    with pytest.raises(pytest.fail.Exception, match="exited with 3 before"):
+        _fake_daemon(tmp_path, "__supervise_daemon", DEAD_OWNER, setup="exit 3\n")
+
+
+@requires_proc
+def test_a_child_that_never_becomes_ready_fails_clearly_and_is_reaped(tmp_path: Path) -> None:
+    """A child stuck in setup fails within the bound, and is not left running."""
+    pidfile = tmp_path / "stuck.pid"
+    with pytest.raises(pytest.fail.Exception, match=r"no ready signal within 0\.5s"):
+        _fake_daemon(
+            tmp_path, "__supervise_daemon", DEAD_OWNER,
+            setup=f"echo $$ > {pidfile}\nsleep 300\n", ready_timeout=0.5,
+        )
+    pid = int(pidfile.read_text())
+    assert not pid_alive(pid), "the fixture failed but left its child running"
 
 
 @requires_proc
