@@ -82,6 +82,8 @@ test_areas:
 | `test_areas.<name>.path` | Yes | URL path relative to project URL |
 | `test_areas.<name>.description` | No | Human-readable area description |
 | `test_areas.<name>.tests` | No | List of specific checks to perform |
+| `regression_export.enabled` | No | `true` opts in to exporting a confirmed bug as a Playwright regression test (Step 7b) |
+| `regression_export.test_dir` | No | Where exported tests are written, relative to the project; defaults to the Playwright config's `testDir` |
 
 ## How It Works
 
@@ -91,7 +93,8 @@ test_areas:
 4. Runs test checklist from config (or generic element testing)
 5. Checks console for errors
 6. Logs bugs as GitHub issues
-7. Reports summary with test coverage
+7. Optionally exports each confirmed bug as a Playwright regression test in your project's own runner, and proves it fails against the buggy app (`scripts/qa-regression-export.py`; demonstrated by `make qa-regression-demo`)
+8. Reports summary with test coverage
 
 ## Requirements
 

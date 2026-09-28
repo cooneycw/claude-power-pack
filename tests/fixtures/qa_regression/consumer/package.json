@@ -1,0 +1,9 @@
+{
+  "name": "cpp-qa-regression-fixture",
+  "private": true,
+  "type": "module",
+  "description": "Consumer-project fixture for CPP issue #1291: a local app with one known bug and a stock Playwright test setup.",
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}
