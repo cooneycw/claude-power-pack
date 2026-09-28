@@ -80,5 +80,22 @@ if [ ! -s "$T/calls" ]; then
     exit 3
 fi
 
+# The exit code and the printed verdict must be ONE answer (counter-model
+# review, #1281). The gate's contract pairs them: 0 serving, 1 dead,
+# 3 unreachable, 4 unknown. A run printing no verdict, several, or one that
+# disagrees with its exit code has not classified anything, and scoring its exit
+# code alone would let "exited 0" stand in for "reported serving".
+verdicts=$(printf '%s\n' "$out" | grep -c '^LANE_SERVE_STATUS: ' || true)
+verdict=$(printf '%s\n' "$out" | sed -n 's/^LANE_SERVE_STATUS: //p' | head -1)
+case "$status:$verdict" in
+    0:serving|1:dead|3:unreachable|4:unknown) consistent=1 ;;
+    *) consistent=0 ;;
+esac
+if [ "$verdicts" -ne 1 ] || [ "$consistent" -ne 1 ]; then
+    echo "LANE_SERVE_CONTROL: cannot-run - the gate's verdict is not one answer:"
+    echo "  exit $status, $verdicts LANE_SERVE_STATUS line(s), first '${verdict:-none}'"
+    exit 3
+fi
+
 printf '%s\n' "$out"
 exit "$status"

@@ -95,4 +95,14 @@ def main(argv: list) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    # ANY failure inside the stub is a refusal, never a response (counter-model
+    # review, #1281): an exception after the call was logged - a malformed
+    # fixture, an unwritable -o path - would otherwise leave the gate holding no
+    # response, which it classifies `unreachable`, i.e. as a DETECTION.
+    # SystemExit (from refuse() or a normal return) is not an Exception and
+    # passes through untouched.
+    try:
+        rc = main(sys.argv[1:])
+    except Exception as exc:  # noqa: BLE001 - every failure must be recorded
+        refuse(f"stub failed: {type(exc).__name__}: {exc}")
+    sys.exit(rc)
