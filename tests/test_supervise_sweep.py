@@ -26,7 +26,9 @@ import tests.supervise_reap as reap
 from tests.supervise_reap import (
     OWNER_ENV,
     SweepUnavailable,
+    _descendants,
     _environ_value,
+    _proc_fields,
     orphaned_supervise_daemons,
     owner_gone,
     owner_marker,
@@ -145,13 +147,41 @@ def _cleanup(*procs: subprocess.Popen) -> None:
             if os.getpgid(proc.pid) == proc.pid:
                 os.killpg(proc.pid, signal.SIGKILL)
             else:
-                proc.kill()  # shares OUR group - never killpg it
+                _kill_subtree(proc)  # shares OUR group - never killpg it
         except OSError:
             pass
         try:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             pass
+
+
+def _kill_subtree(proc: subprocess.Popen) -> None:
+    """Kill a shared-group fixture AND everything under it (issue #1343).
+
+    `proc.kill()` alone reaches only the bash parent: bash does not exec its
+    last command, so the `sleep 300` child survived, was reparented to the
+    subreaper, and stayed in the runner's process group - one orphan per full
+    suite run. The parent is STOPPED first so it can neither fork a
+    replacement child nor reap one (which would free its pid for reuse) while
+    the subtree is enumerated and killed, deepest first.
+    """
+    os.kill(proc.pid, signal.SIGSTOP)
+    # SIGSTOP is asynchronous: enumerating before it lands leaves the fork
+    # window open (counter-model review). Wait for the stopped state - or for
+    # the parent to be gone, which leaves nothing to fork. A bound that expires
+    # still kills; it only means the window was not provably shut.
+    deadline = time.monotonic() + FIXTURE_DEADLINE
+    while (fields := _proc_fields(proc.pid)) is not None and fields[0] not in ("T", "t", "Z"):
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.001)
+    for pid in reversed(_descendants(proc.pid)):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    proc.kill()
 
 
 @requires_proc
@@ -346,6 +376,96 @@ def test_a_candidate_outside_its_own_process_group_is_never_signalled(tmp_path: 
         assert orphan.poll() is None
     finally:
         _cleanup(orphan)
+
+
+def _kin(tag: str) -> list[int]:
+    """Live processes carrying this fixture's inherited KIN_ENV=tag, by any pid.
+
+    Found by marker rather than by a pid list captured beforehand, so a child
+    forked DURING cleanup - one no snapshot could name - is still found; and the
+    tag is unique per test, so a neighbour's process can never be counted.
+    """
+    needle = f"{KIN_ENV}={tag}".encode()
+    uid = os.getuid()
+    found = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            if entry.stat().st_uid != uid:
+                continue  # a fixture child runs as us; another uid is not kin
+            environ = (entry / "environ").read_bytes()
+        except (FileNotFoundError, ProcessLookupError):
+            continue  # exited between listing and reading: not a survivor
+        except OSError as exc:
+            # One of OURS that cannot be read is unobserved, not absent: an
+            # empty result must not certify a population it could not see
+            # (counter-model review).
+            pytest.fail(f"could not read pid {entry.name}'s environment: {exc}", pytrace=False)
+        if needle in environ.split(b"\0") and pid_alive(int(entry.name)):
+            found.append(int(entry.name))
+    return found
+
+
+#: A PRIVATE variable the regression fixture exports before forking, so every
+#: descendant inherits it: the population the cleanup check examines.
+KIN_ENV = "CPP_SWEEPTEST_KIN"
+
+
+@requires_proc
+@pytest.mark.parametrize(
+    "body",
+    ["sleep 300\n", "while :; do sleep 300; done\n"],
+    ids=["one-child", "respawning-child"],
+)
+def test_cleanup_of_a_shared_group_fixture_leaves_no_descendant(tmp_path: Path, body: str) -> None:
+    """The shared-group cleanup must not orphan the fixture's children (issue #1343).
+
+    Red on the pre-fix `_cleanup`, which killed only the bash parent: its
+    `sleep 300` outlived every full suite run, reparented to the subreaper.
+    Survivors are found by inherited marker, not by pids captured beforehand,
+    so a replacement forked during cleanup would be counted too (counter-model
+    review). What this does NOT prove: that the SIGSTOP in `_kill_subtree` is
+    needed. Measured with it removed, the respawning case still passed 5 of 5 -
+    bash does not fork its replacement inside the microseconds before the parent
+    is killed, so that race cannot be forced from here. The SIGSTOP closes it by
+    construction; this test pins the leak the issue measured.
+    """
+    tag = uuid.uuid4().hex
+    proc = _fake_daemon(
+        tmp_path, "__supervise_daemon", DEAD_OWNER,
+        body=f"export {KIN_ENV}={tag}\n{body}", own_group=False,
+    )
+    deadline = time.monotonic() + FIXTURE_DEADLINE
+    while not [pid for pid in _kin(tag) if pid != proc.pid]:
+        if time.monotonic() >= deadline:
+            _cleanup(proc)
+            pytest.fail("precondition: the fixture never forked its child", pytrace=False)
+        time.sleep(0.02)
+
+    _cleanup(proc)
+
+    survivors = _kin(tag)
+    try:
+        assert not survivors, f"_cleanup left descendants running: {survivors}"
+    finally:
+        for pid in survivors:
+            os.kill(pid, signal.SIGKILL)
+
+
+@requires_proc
+def test_an_unreadable_process_of_ours_fails_the_cleanup_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The other verdict for `_kin`: our own process unreadable is not "no survivor".
+
+    This test's own process is always one of ours in /proc, so with every
+    environ read refused the scan must fail rather than return an empty list.
+    """
+    def refuse(self: Path) -> bytes:
+        raise PermissionError(13, "Permission denied", str(self))
+
+    monkeypatch.setattr(Path, "read_bytes", refuse)
+    with pytest.raises(pytest.fail.Exception, match="could not read pid"):
+        _kin(uuid.uuid4().hex)
 
 
 def test_an_unreadable_process_table_is_not_an_empty_sweep(tmp_path: Path) -> None:
