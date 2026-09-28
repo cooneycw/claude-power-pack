@@ -66,6 +66,14 @@
       "expected_output": "SWEEP_REFUSED: issue-1-done [excluded] - pushed within 24h (activity)\nSWEEP: plan examined=1 delete=0 refused=1"
     },
     {
+      "name": "bad-no-activity-record",
+      "input": "cases/bad-no-activity-record",
+      "expect": "BAD",
+      "why": "Every other (a) condition holds, but GitHub's activity record for the branch does not answer and only the tip's committer date is left. A committer date cannot see a push - a branch recreated today at an old merged commit keeps that commit's date - so recency cannot be established and the branch must not be deleted.",
+      "expected_exit": 1,
+      "expected_output": "SWEEP_REFUSED: issue-1-done [excluded] - push recency unestablished (activity API did not answer; a committer date cannot see a push)\nSWEEP: plan examined=1 delete=0 refused=1"
+    },
+    {
       "name": "bad-closed-unmerged",
       "input": "cases/bad-closed-unmerged",
       "expect": "BAD",
@@ -89,7 +97,7 @@
       "origin": "scripts/remote-branch-sweep.py",
       "path": "anchors/constructed-delete-every-listed-branch.py",
       "sha256": "d650b8b8e4929a45d2dd77bcdd30e1f269fd87b2dff19498812a7ffd51ef62e8",
-      "why": "CONSTRUCTED, not historical, and PERMANENTLY so: a gate introduced by its own pull request has no blind ancestor on main, so --verify-provenance reads unverified forever and integrity rests on the sha256 above. WHAT IT IS: a sweeper that plans to delete every listed branch. It MISSES all six BAD cases and AGREES with the real gate on the GOOD case, demonstrating that each refusal - moved tip, merge commit off the default branch, open PR, recent push, closed unmerged, no PR - is load-bearing."
+      "why": "CONSTRUCTED, not historical, and PERMANENTLY so: a gate introduced by its own pull request has no blind ancestor on main, so --verify-provenance reads unverified forever and integrity rests on the sha256 above. WHAT IT IS: a sweeper that plans to delete every listed branch. It MISSES all seven BAD cases and AGREES with the real gate on the GOOD case, demonstrating that each refusal - moved tip, merge commit off the default branch, open PR, recent push, no push record, closed unmerged, no PR - is load-bearing."
     }
   ]
 }

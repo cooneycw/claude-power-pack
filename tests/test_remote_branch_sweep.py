@@ -163,3 +163,128 @@ def test_delete_REFUSES_a_fixture_and_requires_confirm_and_a_checkout(tmp_path):
         result = subprocess.run([sys.executable, str(SCRIPT), "delete", "--repo", REPO, *args],
                                 capture_output=True, text=True)
         assert result.returncode == 2, (args, result.stdout, result.stderr)
+
+
+# --- Counter-model review of PR-B (#1262): each case was red before its fix ---
+
+import importlib.util  # noqa: E402
+import shutil  # noqa: E402
+
+requires_git = pytest.mark.skipif(shutil.which("git") is None, reason="builds real checkouts")
+
+
+def _module():
+    spec = importlib.util.spec_from_file_location("remote_branch_sweep", SCRIPT)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+SWEEP = _module()
+
+
+def _checkout(path: Path, origin: str, branch: str = "main", pushurls: list[str] | None = None) -> Path:
+    subprocess.run(["git", "init", "-q", "-b", branch, str(path)], check=True)
+    subprocess.run(["git", "-C", str(path), "-c", "user.email=t@t", "-c", "user.name=t",
+                    "commit", "-q", "--allow-empty", "-m", "c"], check=True)
+    subprocess.run(["git", "-C", str(path), "remote", "add", "origin", origin], check=True)
+    for url in pushurls or []:
+        subprocess.run(["git", "-C", str(path), "config", "--add", "remote.origin.pushurl", url], check=True)
+    return path
+
+
+def test_a_committer_date_alone_never_licenses_a_deletion(tmp_path):
+    """MEDIUM: activity unreadable + an old commit date read as 'not recent', so
+    a branch recreated an hour ago at its old merged head was deletable."""
+    table = fixture(landed())
+    del table[f"repos/{REPO}/activity?ref=refs%2Fheads%2Fissue-1-done&per_page=1"]
+    result = run(tmp_path, table)
+    assert decisions(result.stdout)["issue-1-done"] == "SWEEP_REFUSED", result.stdout
+    assert "push recency unestablished" in result.stdout
+
+
+@requires_git
+def test_a_FAILED_worktree_scan_makes_plan_unknown_not_deletable(tmp_path):
+    """HIGH: a checkout that could not be scanned was treated as holding nothing."""
+    good = _checkout(tmp_path / "good", "https://github.com/o/r.git")
+    result = run(tmp_path, fixture(landed()), "plan",
+                 "--checkout", str(good), "--checkout", str(tmp_path / "missing"))
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert "SWEEP: unknown" in result.stdout
+    assert "SWEEP_DELETE" not in result.stdout
+
+
+@requires_git
+@pytest.mark.parametrize(("origin", "pushurls", "ok"), [
+    ("https://github.com/o/r.git", [], True),
+    ("git@github.com:o/r.git", [], True),
+    ("https://github.com/someone/r.git", [], False),
+    ("https://github.com/o/r.git", ["https://github.com/fork/r.git"], False),
+    ("https://github.com/o/r.git", ["https://github.com/o/r.git", "https://github.com/o/r2.git"], False),
+])
+def test_the_delete_destination_must_BE_the_checked_repository(tmp_path, origin, pushurls, ok):
+    """HIGH: every check read --repo, but the push went to origin, which could be
+    a fork holding the same branch and sha."""
+    co = _checkout(tmp_path / "co", origin, pushurls=pushurls)
+    url, why = SWEEP.push_destination(co, REPO)
+    assert (url is not None) is ok, why
+
+
+def _run_delete(tmp_path, table, checkouts):
+    api_file = tmp_path / "api.json"
+    api_file.write_text(json.dumps(table), encoding="utf-8")
+    api = SWEEP.fixture_api(api_file)
+    pushed: list[tuple[str, str]] = []
+
+    def pusher(_co, name, tip):
+        pushed.append((name, tip))
+        return True, ""
+
+    now = SWEEP._parse_time(NOW)
+    cand = SWEEP.Branch(name="issue-1-done", tip=sha("a"), protected=False, category=SWEEP.CATEGORY_A)
+    code = SWEEP.run_delete(api, REPO, [cand], checkouts, lambda: now, pusher=pusher)
+    return code, pushed
+
+
+@requires_git
+def test_run_delete_deletes_a_still_landed_branch_through_a_verified_origin(tmp_path, capsys):
+    co = _checkout(tmp_path / "co", "https://github.com/o/r.git")
+    code, pushed = _run_delete(tmp_path, fixture(landed()), [co])
+    assert code == 0, capsys.readouterr().out
+    assert pushed == [("issue-1-done", sha("a"))]
+    assert "restore: git push origin" in capsys.readouterr().out
+
+
+@requires_git
+def test_run_delete_REFUSES_a_fork_origin_before_touching_anything(tmp_path):
+    co = _checkout(tmp_path / "co", "https://github.com/fork/r.git")
+    code, pushed = _run_delete(tmp_path, fixture(landed()), [co])
+    assert code == 1 and pushed == []
+
+
+@requires_git
+def test_run_delete_RESCANS_worktrees_per_branch(tmp_path):
+    """HIGH: the worktree set was read once before the loop."""
+    co = _checkout(tmp_path / "co", "https://github.com/o/r.git", branch="issue-1-done")
+    code, pushed = _run_delete(tmp_path, fixture(landed()), [co])
+    assert code == 1 and pushed == []
+
+
+@requires_git
+def test_run_delete_REFRESHES_the_default_branch_per_branch(tmp_path):
+    """HIGH: the default branch was read once; if it changed, reachability was
+    still checked against the old one."""
+    co = _checkout(tmp_path / "co", "https://github.com/o/r.git")
+    table = fixture(landed())
+    table[f"repos/{REPO}"] = {"default_branch": "trunk"}  # no compare against trunk exists
+    code, pushed = _run_delete(tmp_path, table, [co])
+    assert code == 1 and pushed == []
+
+
+@requires_git
+def test_run_delete_REFUSES_when_a_scan_fails_mid_run(tmp_path):
+    co = _checkout(tmp_path / "co", "https://github.com/o/r.git")
+    code, pushed = _run_delete(tmp_path, fixture(landed()), [co, tmp_path / "gone"])
+    assert code == 1 and pushed == []

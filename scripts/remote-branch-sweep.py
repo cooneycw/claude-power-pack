@@ -11,8 +11,10 @@ branch can hold the only copy of someone's work.
 
 So this is REPORT-FIRST. `report` classifies every branch and deletes nothing.
 `plan` prints the per-branch decision the deleter would take. `delete` re-derives
-every decision from the live API at the moment of deletion - never from an
-earlier report - and deletes only category (a), under a git lease.
+every input of every decision per branch, immediately before that branch's
+push - never from an earlier report - deletes only category (a), under a git
+lease, and only through a checkout whose origin pushes to `--repo` itself. The
+lease covers the tip alone; see `run_delete` for the window it does not cover.
 
 THE AUTHORITY, STATED ONCE
 --------------------------
@@ -38,9 +40,10 @@ They are not the operator's wording and are not quoted as such.
 "Pushed in the last 24 hours" is read from GitHub's repository activity API when
 it answers (the push timestamps GitHub itself recorded) and from the tip
 commit's committer date otherwise; when both answer, the NEWER one decides. The
-source is printed per branch. A stale-dated force-push cannot put unmerged work
-at risk through the fallback, because (a) also requires the tip to BE the
-merged head.
+source is printed per branch. The committer date alone never licenses a
+deletion: it cannot see a push (a branch recreated today at an old commit keeps
+that commit's date), so a branch whose activity record does not answer is
+excluded, not deleted.
 
 WHAT THIS CANNOT SEE
 --------------------
@@ -284,6 +287,16 @@ def classify(
     if now - pushed < RECENT:
         branch.category, branch.reason = EXCLUDED, f"pushed within 24h ({source})"
         return branch
+    # A COMMITTER DATE CANNOT SEE A PUSH (counter-model review). A branch
+    # recreated or force-pushed an hour ago to an OLD commit - its previously
+    # merged head, say - carries that commit's old date and still satisfies
+    # every other (a) condition. So deletion eligibility requires GitHub's own
+    # push record; without it the recency rule cannot be enforced, and a rule
+    # that cannot be enforced does not license a deletion.
+    if "activity API did not answer" in source:
+        branch.category = EXCLUDED
+        branch.reason = "push recency unestablished (activity API did not answer; a committer date cannot see a push)"
+        return branch
     merged = [p for p in prs if p.get("merged_at")]
     if merged:
         at_tip = [p for p in merged if (p.get("head") or {}).get("sha") == branch.tip]
@@ -362,6 +375,38 @@ def render_markdown(branches: list[Branch], repo: str, default: str, checkouts: 
     return "\n".join(lines) + "\n"
 
 
+def push_destination(checkout: Path, repo: str) -> tuple[str | None, str]:
+    """The checkout's `origin` push URL, IF it is exactly `repo` (counter-model review).
+
+    Every safety check reads `--repo` through the API, but the deletion is a
+    `git push` to the checkout's `origin`. A checkout whose origin is a fork -
+    same branch names, same shas - would pass the lease and delete a branch none
+    of those checks ever looked at. So the push destination is read (all push
+    URLs, since `pushurl` can override `url` and there can be several), must be
+    exactly one, and must name the same owner/name. Returns (url, "") or
+    (None, reason).
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(checkout), "remote", "get-url", "--push", "--all", "origin"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, f"cannot read origin's push URL: {exc}"
+    urls = [u.strip() for u in out.stdout.splitlines() if u.strip()]
+    if out.returncode != 0 or not urls:
+        return None, "origin has no readable push URL"
+    if len(urls) > 1:
+        return None, f"origin has {len(urls)} push URLs; refusing an ambiguous destination"
+    url = urls[0]
+    tail = url.rstrip("/")
+    tail = tail[:-4] if tail.endswith(".git") else tail
+    named = "/".join(tail.replace(":", "/").split("/")[-2:])
+    if named.lower() != repo.lower():
+        return None, f"origin pushes to {named!r}, not {repo!r}"
+    return url, ""
+
+
 def delete_branch(checkout: Path, name: str, tip: str) -> tuple[bool, str]:
     """Delete under a lease: the remote ref must still be exactly `tip`."""
     out = subprocess.run(
@@ -370,6 +415,73 @@ def delete_branch(checkout: Path, name: str, tip: str) -> tuple[bool, str]:
         capture_output=True, text=True, timeout=120,
     )
     return out.returncode == 0, (out.stderr or out.stdout).strip()[:300]
+
+
+def run_delete(
+    api: Api,
+    repo: str,
+    candidates: list[Branch],
+    checkouts: list[Path],
+    now: Callable[[], datetime],
+    pusher: Callable[[Path, str, str], tuple[bool, str]] = delete_branch,
+    destination: Callable[[Path, str], tuple[str | None, str]] = push_destination,
+) -> int:
+    """Delete the (a) candidates, re-deriving EVERY input of each decision.
+
+    Per branch, immediately before its push: the branch itself, the repository's
+    default branch, its PRs, its push record, the merge commit's reachability,
+    and a fresh scan of every supplied checkout's worktrees (counter-model
+    review - the first cut reused the default and the worktree set from before
+    the loop). A scan that fails refuses; it is not an empty scan.
+
+    WHAT IS NOT ATOMIC, stated rather than implied: the lease protects only the
+    branch's tip. A default-branch change or a new local checkout of the branch
+    in the moment between the final re-check and the push is not seen.
+    """
+    checkout = checkouts[0]
+    url, why = destination(checkout, repo)
+    if url is None:
+        print(f"SWEEP_REFUSED: * - {why}; nothing deleted")
+        print("SWEEP: delete deleted=0 refused=all")
+        return EXIT_REFUSED
+    owner = repo.split("/", 1)[0]
+    refused = deleted = 0
+    for b in candidates:
+        try:
+            info = api(f"repos/{repo}")
+            default = info.get("default_branch") if isinstance(info, dict) else None
+            if not default:
+                raise ApiUnreadable("repository metadata did not answer")
+            held, failures = local_worktree_branches(checkouts)
+            if failures:
+                print(f"SWEEP_REFUSED: {b.name} - worktree scan failed: {'; '.join(failures)}")
+                refused += 1
+                continue
+            live_raw = api(f"repos/{repo}/branches/{quote(b.name, safe='')}")
+            if not isinstance(live_raw, dict):
+                print(f"SWEEP_REFUSED: {b.name} - no longer readable at deletion time")
+                refused += 1
+                continue
+            live = Branch(name=b.name, tip=(live_raw.get("commit") or {}).get("sha", ""),
+                          protected=bool(live_raw.get("protected")))
+            classify(api, repo, owner, live, default, held, now())
+        except ApiUnreadable as exc:
+            print(f"SWEEP_REFUSED: {b.name} - re-verification unreadable: {exc}")
+            refused += 1
+            continue
+        if live.category != CATEGORY_A or live.tip != b.tip:
+            print(f"SWEEP_REFUSED: {b.name} - re-verification now says [{live.category}] {live.reason}")
+            refused += 1
+            continue
+        ok, detail = pusher(checkout, live.name, live.tip)
+        if ok:
+            deleted += 1
+            print(f"SWEEP_DELETED: {live.name} {live.tip} (restore: git push origin {live.tip}:refs/heads/{live.name})")
+        else:
+            refused += 1
+            print(f"SWEEP_REFUSED: {live.name} - delete failed: {detail}")
+    print(f"SWEEP: delete deleted={deleted} refused={refused}")
+    return EXIT_REFUSED if refused else EXIT_OK
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -408,6 +520,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"SWEEP: report examined={len(branches)} {counts}")
         return EXIT_OK
 
+    if args.mode in ("plan", "delete") and failures:
+        # A FAILED SCAN IS NOT AN EMPTY ONE (counter-model review): a branch held
+        # by a checkout that could not be read would otherwise plan as deletable.
+        print(f"remote-branch-sweep: UNKNOWN - worktree scan failed: {'; '.join(failures)}. "
+              "Nothing is planned or deleted.", file=sys.stderr)
+        print("SWEEP: unknown")
+        return EXIT_UNKNOWN
+
     if args.mode == "plan":
         for b in sorted(branches, key=lambda r: r.name):
             if b.category == CATEGORY_A:
@@ -425,38 +545,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # delete: every (a) decision is RE-DERIVED here, per branch, from the live
     # API - the report is what a human checked, this is what is true now.
-    refused = 0
-    deleted = 0
-    checkout = args.checkout[0]
-    owner = args.repo.split("/", 1)[0]
-    held, _ = local_worktree_branches(args.checkout)
-    for b in [b for b in branches if b.category == CATEGORY_A]:
-        try:
-            live_raw = api(f"repos/{args.repo}/branches/{quote(b.name, safe='')}")
-            if not isinstance(live_raw, dict):
-                print(f"SWEEP_REFUSED: {b.name} - no longer readable at deletion time")
-                refused += 1
-                continue
-            live = Branch(name=b.name, tip=(live_raw.get("commit") or {}).get("sha", ""),
-                          protected=bool(live_raw.get("protected")))
-            classify(api, args.repo, owner, live, default, held, datetime.now(timezone.utc))
-        except ApiUnreadable as exc:
-            print(f"SWEEP_REFUSED: {b.name} - re-verification unreadable: {exc}")
-            refused += 1
-            continue
-        if live.category != CATEGORY_A or live.tip != b.tip:
-            print(f"SWEEP_REFUSED: {b.name} - re-verification now says [{live.category}] {live.reason}")
-            refused += 1
-            continue
-        ok, detail = delete_branch(checkout, live.name, live.tip)
-        if ok:
-            deleted += 1
-            print(f"SWEEP_DELETED: {live.name} {live.tip} (restore: git push origin {live.tip}:refs/heads/{live.name})")
-        else:
-            refused += 1
-            print(f"SWEEP_REFUSED: {live.name} - delete failed: {detail}")
-    print(f"SWEEP: delete deleted={deleted} refused={refused}")
-    return EXIT_REFUSED if refused else EXIT_OK
+    return run_delete(
+        api, args.repo, [b for b in branches if b.category == CATEGORY_A],
+        args.checkout, lambda: datetime.now(timezone.utc),
+    )
 
 
 if __name__ == "__main__":
