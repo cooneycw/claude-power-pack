@@ -75,6 +75,11 @@
       "consumer": "tests/test_counter_model_uniformity_check.py",
       "reason": "tells a copied reviewer literal from verified uniformity"
     },
+    "cpp-checkout-freshness.sh": {
+      "class": "tested",
+      "consumer": "tests/test_cpp_checkout_freshness.py",
+      "reason": "reports whether the CPP checkout is behind origin/<branch> for /cpp:status and /cpp:update; controls/cpp-checkout-freshness is its registered negative control"
+    },
     "cpp-commands-link.sh": {
       "class": "tested",
       "consumer": "tests/test_cpp_commands_link.py",

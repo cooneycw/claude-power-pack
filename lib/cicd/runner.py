@@ -550,6 +550,35 @@ class DeterministicRunner:
                 f"so these were never reached"
             )
 
+    def _skipped_gate_cause(self) -> str:
+        """Why the gates were skipped, stated no wider than what was checked (#1289).
+
+        The skip conditions read the ROOT Makefile and the ROOT pyproject.toml,
+        so "no configured tool" was false for a repository whose nested
+        ``backend/pyproject.toml`` configures ruff and pytest: the verdict (a
+        warning) was right and its reason sent the reader the wrong way. The
+        cause now says "at the repository root", and names every component the
+        root-level runners do not cover. Detection reads marker files and runs
+        nothing; if it fails, coverage is reported as unknown - never omitted,
+        which would read as "nothing else was there".
+        """
+        cause = "no Makefile target and no configured tool at the repository root"
+        try:
+            from .detector import detect_framework
+            from .models import RESOLUTION_UNKNOWN
+
+            info = detect_framework(self.project_root)
+        except Exception as exc:  # noqa: BLE001 - reporting must not end the run
+            return f"{cause}; component coverage UNKNOWN (detection failed: {type(exc).__name__})"
+        if info.runner_resolution == RESOLUTION_UNKNOWN:
+            return f"{cause}; component coverage UNKNOWN ({info.resolution_reason})"
+        if info.uncovered_components:
+            return (
+                f"{cause}; {info.uncovered_summary()} not covered by root runners "
+                f"({info.runner_resolution})"
+            )
+        return cause
+
     def run(self, plan_name: str, step_defs: Optional[list[StepDef]] = None) -> RunResult:
         """Execute a named plan from scratch or resume a failed run.
 
@@ -1533,7 +1562,7 @@ class DeterministicRunner:
         if skipped_gates:
             qualifiers.append(
                 f"SKIPPED GATES: {', '.join(skipped_gates)} "
-                "(no Makefile target and no configured tool)"
+                f"({self._skipped_gate_cause()})"
             )
         if warnings:
             # Do NOT name a cause here (issue #939). `warnings` carries three

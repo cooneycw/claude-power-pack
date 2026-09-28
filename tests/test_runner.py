@@ -3239,6 +3239,93 @@ class TestResumeDiscardsWhenTreeChanged:
         assert "Discarding resumable run" not in log.getvalue()
 
 
+class TestClassificationReachesTheGate:
+    """Issue #1298, demonstrated through the runner rather than the classifier.
+
+    `is_test_step()` decides which qualification a green step gets: a test step
+    is checked for an empty or skipped-only summary (#621), a non-test stage for
+    having examined nothing (#1027) - and never both. So a misclassification in
+    EITHER direction silences one of those warnings. Both cases below were run
+    against 84f414e (pre-fix) and produced a bare success with no warning.
+    """
+
+    @pytest.mark.parametrize(
+        "template",
+        [
+            'bash -c "{fake} /tmp/cases"',
+            # Counter-model review (#1298): an assignment leading the script, and
+            # an option operand before `-c`. Both hid the runner in the first cut.
+            'bash -c "PYTEST_WORKERS=4 {fake} /tmp/cases"',
+            'bash -o pipefail -c "{fake} /tmp/cases"',
+        ],
+    )
+    def test_a_quoted_runner_with_an_all_skipped_summary_is_qualified(
+        self, tmp_project: Path, template: str
+    ):
+        # A real executable named pytest at an absolute path, inside a quoted
+        # `bash -c` script - the shape #1294's regex read as one filename.
+        bindir = tmp_project / "bin"
+        bindir.mkdir()
+        fake = bindir / "pytest"
+        fake.write_text("#!/bin/sh\necho '== 66 skipped in 0.42s =='\n")
+        fake.chmod(0o755)
+        steps = [
+            StepDef(id="check", command=template.format(fake=fake), timeout_seconds=30)
+        ]
+        runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
+        result = runner.run("check", step_defs=steps)
+
+        assert result.success
+        assert result.tests["check"]["executed"] == 0, result.tests
+        assert any("executed NO tests" in w for w in result.warnings), result.warnings
+
+    def test_a_quoted_runner_that_ran_tests_is_not_warned_about(self, tmp_project: Path):
+        """The other half: a classifier that made EVERY step a test step, or a
+        runner that warned on every quoted runner, would pass the test above.
+        Proposed as a red case by the counter-model review (#1298)."""
+        bindir = tmp_project / "bin"
+        bindir.mkdir()
+        fake = bindir / "pytest"
+        fake.write_text("#!/bin/sh\necho '== 66 passed in 0.42s =='\n")
+        fake.chmod(0o755)
+        steps = [
+            StepDef(id="check", command=f'bash -c "{fake} /tmp/cases"', timeout_seconds=30)
+        ]
+        runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
+        result = runner.run("check", step_defs=steps)
+
+        assert result.success
+        assert result.tests["check"]["executed"] == 66, result.tests
+        assert result.warnings == [], result.warnings
+
+    def test_an_env_prefixed_lint_that_examined_nothing_is_qualified(
+        self, tmp_project: Path
+    ):
+        # ruff's own no-files line (see TestNonTestStageCoverage), behind an
+        # inline assignment whose NAME contains "pytest".
+        steps = [
+            StepDef(
+                id="lint",
+                command=(
+                    "PYTEST_WORKERS=4 echo "
+                    "'warning: No Python files found under the given path'"
+                ),
+                timeout_seconds=30,
+            )
+        ]
+        runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
+        result = runner.run("check", step_defs=steps)
+
+        assert result.success
+        # Not a test step: no test summary is expected of it...
+        assert "lint" not in result.tests, result.tests
+        # ...and so its coverage IS read, and the empty stage is reported.
+        assert result.coverage["lint"]["state"] == "zero", result.coverage
+        assert any("lint" in w and "examined NO" in w for w in result.warnings), (
+            result.warnings
+        )
+
+
 class TestNonTestStageCoverage:
     """A non-test gate must carry what it examined, not just {id, status} (#1027).
 

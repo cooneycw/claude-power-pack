@@ -1,0 +1,4 @@
+pr_state=NONE
+pr_head=tip
+dirty=0
+occupant=none

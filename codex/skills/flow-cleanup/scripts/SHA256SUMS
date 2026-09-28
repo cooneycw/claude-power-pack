@@ -8,5 +8,5 @@
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
 28ee941465b2b389c75889e79561bdfff05e3e6ba12f754e41f4f70464834a64  flow-worktree-claim.sh
-cf34a5aa54ee236438ff1575f048d9c938d59879b448b33f838beeda46d5dcc5  flow-worktree-sweep.sh
+9b963b0186ff8d92f4eb65b3414b1347cd7f4f230f5b02923c363a4ae7192c32  flow-worktree-sweep.sh
 3212ba06699c2d1d0300e23519425100e2d21a227cd5296ddea0e4ce9f2e4252  worktree-remove.sh

@@ -75,6 +75,168 @@ def _strip_directories(command: str) -> str:
     return _DIRECTORY_PREFIX.sub("", command)
 
 
+# ---------------------------------------------------------------------------
+# Reading the command as WORDS, not as a string (issue #1298)
+# ---------------------------------------------------------------------------
+# The #1294 regexes above work on the raw string, and two misreads survived
+# them. A quoted `-c` script that starts with a path
+# (`bash -c "/opt/venv/bin/pytest /tmp/cases"`) looked like ONE filename, so
+# only "cases" was read and a real pytest run was not a test step - its
+# all-skipped summary went unqualified. And `_` is a word boundary to the hint,
+# so the NAME in `PYTEST_WORKERS=4 make lint` read as "pytest": lint became a
+# test step, which switches OFF its #1027 examined-nothing check (coverage is
+# parsed only for non-test steps).
+#
+# So the command is split with shlex - quoting only, the way a POSIX shell
+# splits words - and each word is judged on its own:
+#
+#   NAME=value     an assignment, and ONLY a word matching
+#                  ^[A-Za-z_][A-Za-z0-9_]*= is one. It says what a variable
+#                  holds, not what runs, so neither half is evidence.
+#                  `--junitxml=report-test.xml` and `-k=test_foo` are not
+#                  assignments and are read normally.
+#   <shell> -c S   S is a SCRIPT (found past the shell's options, including
+#                  `-o pipefail`), split into words once more. The bound is ONE
+#                  level: a `-c` script inside that one is not split again but
+#                  scanned raw, which can only err toward "test".
+#   a word that starts like a path    its basename (the #1294 rule).
+#   any other word holding spaces     the #1294 word-level strip - it is a
+#                  non-shell script (`python -c "import pytest; ..."`).
+#
+# NOTHING IS EXECUTED and there is no shell interpreter here: no expansion, no
+# aliases or functions, no eval, no heredocs. Unsupported and stated: a
+# `$VAR` expansion is read as its literal text; a `-c` script nested past depth
+# one is scanned raw; a non-shell quoted argument that starts with a path keeps
+# only its last component.
+#
+# UNPARSEABLE FAILS TOWARD "TEST". shlex raises on an unbalanced quote and on
+# some quoting bash accepts (`$'...'`). The fallback is the hint regex over the
+# RAW command, directories included. The worst it can do is make a step expect
+# a summary it does not print - a visible warning, the pre-#1294 shape - and it
+# can never hide a runner. The opposite fallback would turn a parse error into
+# exactly the silent green #621 exists to prevent.
+_ENV_ASSIGNMENT_WORD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_SHELLS = frozenset({"sh", "bash", "dash", "zsh", "ksh"})
+_PATH_START = ("/", "./", "../", "~/")
+#: How many `-c` levels are split into words. Stated as a constant so the bound
+#: is a decision in one place rather than a property of the recursion.
+_SCRIPT_DEPTH = 1
+
+
+def _join_continuations(command: str) -> str:
+    """Remove backslash-newline pairs the way a shell does - except inside
+    single quotes, where the pair is literal (counter-model review, #1298).
+
+    shlex keeps an escaped newline as a word of its own, so `bash \\` on one
+    line and `-c "..."` on the next put a newline word between the shell and its
+    `-c`, and the script was no longer found.
+    """
+    out: list[str] = []
+    quote = ""
+    i = 0
+    while i < len(command):
+        ch = command[i]
+        if quote == "'":
+            if ch == "'":
+                quote = ""
+        elif ch == "\\" and i + 1 < len(command):
+            if command[i + 1] == "\n":
+                i += 2
+                continue
+            out.append(ch + command[i + 1])
+            i += 2
+            continue
+        elif ch in "'\"" and (not quote or quote == ch):
+            quote = "" if quote else ch
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _shell_words(command: str) -> list[str]:
+    """Split like a POSIX shell's quoting; raises ValueError if unbalanced.
+
+    COMMENTS ARE NOT RECOGNISED, deliberately (counter-model review, #1298).
+    shlex treats `#` as a comment start even in the middle of a word, where a
+    shell does not, so `echo build#123; pytest` lost its runner. Telling a
+    word-initial unquoted `#` from a quoted one needs the quote state shlex
+    discards, so comments are read as words instead - which errs toward "test"
+    (`make lint # pytest` classifies, as it did before #1298) and never away.
+    """
+    lexer = shlex.shlex(_join_continuations(command), posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    return list(lexer)
+
+
+#: Shell options that consume the NEXT word as their operand, so the scan for
+#: the `-c` script skips it (`bash -o pipefail -c "..."`, counter-model review).
+_SHELL_OPTION_OPERANDS = frozenset({"-o", "+o", "-O", "+O", "--rcfile", "--init-file"})
+
+
+def _shell_script_positions(words: list[str]) -> set[int]:
+    """Indices of the words that are a shell's `-c` SCRIPT.
+
+    For each word naming a shell, its options are walked FORWARD - flag
+    clusters (`-lc`, `-e`), `+`-options, long options, and the operand of
+    `-o`/`-O`/`--rcfile`/`--init-file` - until the first non-option word or
+    `--`. If any cluster carried `c`, that first non-option word is the script,
+    which is how bash itself reads `-c`. Located BEFORE the assignment filter
+    runs, because a whole script can itself start with `NAME=`
+    (`bash -c "PYTEST_WORKERS=4 pytest"`) and must not be discarded as one.
+    """
+    positions: set[int] = set()
+    for i, word in enumerate(words):
+        if word.rsplit("/", 1)[-1] not in _SHELLS:
+            continue
+        j, script_flag = i + 1, False
+        while j < len(words):
+            option = words[j]
+            if option == "--":
+                j += 1
+                break
+            if option in _SHELL_OPTION_OPERANDS:
+                j += 2
+                continue
+            if option.startswith("--"):
+                j += 1
+                continue
+            if len(option) > 1 and option[0] in "-+":
+                script_flag = script_flag or (option[0] == "-" and "c" in option[1:])
+                j += 1
+                continue
+            break
+        if script_flag and j < len(words):
+            positions.add(j)
+    return positions
+
+
+def _command_names_runner(command: str, depth: int = 0) -> bool:
+    """Does any WORD of ``command`` name a test runner? (issues #1294, #1298)"""
+    try:
+        words = _shell_words(command)
+    except ValueError:
+        return bool(_TEST_STEP_HINT.search(command))
+    scripts = _shell_script_positions(words)
+    for i, word in enumerate(words):
+        if i in scripts:
+            if depth < _SCRIPT_DEPTH:
+                if _command_names_runner(word, depth + 1):
+                    return True
+            elif _TEST_STEP_HINT.search(word):
+                return True
+            continue
+        if _ENV_ASSIGNMENT_WORD.match(word):
+            continue
+        if word.startswith(_PATH_START) or not any(c.isspace() for c in word):
+            word = word.rsplit("/", 1)[-1]
+        else:
+            word = _strip_directories(word)
+        if _TEST_STEP_HINT.search(word):
+            return True
+    return False
+
+
 class StepExecutor(Protocol):
     """Protocol for step execution implementations."""
 
@@ -244,10 +406,12 @@ class ShellStep:
     def is_test_step(self) -> bool:
         """True when this step's id or command names a test runner (issue #621).
 
-        Directory components are dropped from the command first (issue #1294).
+        The command is read word by word (issue #1298): directories never
+        classify (#1294), an environment assignment is never evidence, a shell
+        `-c` script is read as commands one level deep, and an unparseable
+        command fails toward a test step. See ``_command_names_runner``.
         """
-        command = _strip_directories(self.command)
-        return bool(_TEST_STEP_HINT.search(self.id) or _TEST_STEP_HINT.search(command))
+        return bool(_TEST_STEP_HINT.search(self.id) or _command_names_runner(self.command))
 
     def _parse_tests(self, output: str, error: str) -> Optional[SuiteOutcome]:
         """Parse a test summary from BOTH captured streams, if it is a test step.

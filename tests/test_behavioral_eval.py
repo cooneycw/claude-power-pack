@@ -138,14 +138,26 @@ def test_the_gate_is_reachable_from_a_change_to_CLAUDE_md() -> None:
         f"link 3b: the CI step does not invoke {GATE.name}; it runs {commands}"
     )
 
-    # link 4: the pipeline fires on ordinary pushes and PRs, and nothing on THIS
-    # gate's own dependency chain narrows that. A neighbour's filter is none of
-    # this test's business - it cannot make this gate unreachable.
+    # link 4: the pipeline fires on EVERY pull request, unfiltered by path or
+    # target branch, and nothing on THIS gate's own dependency chain narrows that.
+    # A neighbour's filter is none of this test's business - it cannot make this
+    # gate unreachable. Since #1308 a push runs the pipeline only on main (branch
+    # pushes already get the pull_request pipeline), so the PR entry is what
+    # carries a CLAUDE.md change to this gate; tests/test_ci_trigger.py owns the
+    # trigger's own shape.
     top = pipeline.get("when")
-    assert top == [{"event": ["push", "pull_request"]}], (
-        f"link 4: the pipeline-level trigger is no longer the unrestricted "
-        f"push/pull_request pair; it is {top!r}. A change to CLAUDE.md or a skill "
-        f"may no longer reach this gate"
+    entries = top if isinstance(top, list) else [top]
+    def _events(entry: dict) -> list:
+        value = entry.get("event")
+        return value if isinstance(value, list) else [value]
+
+    unfiltered_pr = [
+        e for e in entries if isinstance(e, dict) and "pull_request" in _events(e) and set(e) == {"event"}
+    ]
+    assert unfiltered_pr, (
+        f"link 4: no pipeline-level trigger runs on every pull request without a "
+        f"filter; it is {top!r}. A change to CLAUDE.md or a skill may no longer "
+        f"reach this gate"
     )
 
     chain, frontier = set(), ["behavioral-eval-check"]
