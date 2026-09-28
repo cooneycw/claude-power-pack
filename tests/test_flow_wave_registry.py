@@ -70,6 +70,7 @@ import json
 import os
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -4567,3 +4568,186 @@ class TestIssue1260RegistryReadsWhatItReports:
         finally:
             reg.chmod(0o700)
         assert "FLOW_WAVE_ANY_LIVE=undeterminable" in p.stdout, p.stdout
+
+
+# ---------------------------------------------------------------------------
+# Issue #1266 item 1: the lane delta was computed from a read taken OUTSIDE the
+# write lock. Forced, never timed: FLOW_WAVE_REGISTRY_TEST_PAUSE_REGISTER holds
+# the first registration between its pre-lock read and its locked write while a
+# second one commits, then releases it.
+# ---------------------------------------------------------------------------
+
+
+@requires_tools
+def test_the_lane_delta_is_against_the_entry_actually_replaced(tmp_path: Path) -> None:
+    common = ("--wave", "zz", "--repo", "/tmp", "--issue", "1266", "--branch", "issue-1266-x")
+    first = _run(tmp_path, "register", "w", *common, "--files", "a.py,b.py")
+    assert _verdict(first) == "registered", first.stdout + first.stderr
+
+    pause = tmp_path / "pause"
+    pause.mkdir()
+    result: dict[str, subprocess.CompletedProcess[str]] = {}
+    paused = threading.Thread(
+        target=lambda: result.setdefault(
+            "a",
+            _run(tmp_path, "register", "w", *common, "--files", "a.py",
+                 extra_env={"FLOW_WAVE_REGISTRY_TEST_PAUSE_REGISTER": str(pause)}),
+        )
+    )
+    paused.start()
+    try:
+        deadline = time.monotonic() + 20
+        while not (pause / "paused").exists():
+            assert paused.is_alive(), "precondition: the paused registration exited before pausing"
+            assert time.monotonic() < deadline, "precondition: the registration never reached the seam"
+            time.sleep(0.02)
+        # Inside A's window: B commits a DIFFERENT lane for the same role.
+        second = _run(tmp_path, "register", "w", *common, "--files", "a.py,c.py")
+        assert _verdict(second) in ("registered", "updated"), second.stdout + second.stderr
+        assert _entry(tmp_path, "zz", "w")["files"] == "a.py,c.py", "precondition: B committed"
+    finally:
+        (pause / "release").touch()
+        paused.join(timeout=60)
+    a = result["a"]
+    assert _verdict(a) in ("registered", "updated"), a.stdout + a.stderr
+    assert _entry(tmp_path, "zz", "w")["files"] == "a.py"
+    # A replaced B's lane (a.py,c.py), so it DROPPED c.py - not b.py, which B
+    # had already dropped. The pre-fix delta was taken against A's stale read.
+    assert _detail(a, "FLOW_WAVE_FILES_DROPPED") == "c.py", a.stdout
+
+
+# ---------------------------------------------------------------------------
+# Issue #1266 items 2, 3, 4, 10.
+# ---------------------------------------------------------------------------
+
+_COMMON_1266 = ("--wave", "zz", "--issue", "1266", "--branch", "issue-1266-x")
+
+
+@requires_tools
+def test_a_lane_path_with_a_newline_is_refused_and_named(tmp_path: Path) -> None:
+    """Item 2: the FLOW_WAVE_FILES* protocol is one path set per line, so a path
+    holding a newline would split into two phantom paths downstream. Refused at
+    input, naming the path with the newline shown escaped."""
+    out = _run(tmp_path, "register", "w", *_COMMON_1266, "--repo", "/tmp",
+               "--files", "a.py,bad\nname.py")
+    assert out.returncode != 0, out.stdout
+    assert "bad\\nname.py" in out.stderr, out.stderr
+    assert not (tmp_path / "reg" / "registry.json").exists() or \
+        _entry(tmp_path, "zz", "w") in (None, {}), "nothing may be recorded"
+
+
+@requires_tools
+def test_clear_pr_withdraws_the_whole_observation(tmp_path: Path) -> None:
+    """Item 3: once a PR merges there was no way to clear it (an empty --pr is
+    refused on purpose: an observation with no identity). --clear-pr withdraws
+    the observation atomically - pr, base, diff, obs_repo and the counter."""
+    _run(tmp_path, "register", "w", *_COMMON_1266, "--repo", "/tmp",
+         "--pr", "1202", "--base", "b1", "--diff", "d1")
+    # Same PR, changed base, unchanged diff: an overtake, so the counter is live
+    # BEFORE the withdrawal (counter-model review - a zero here proved nothing).
+    _run(tmp_path, "register", "w", *_COMMON_1266, "--repo", "/tmp",
+         "--pr", "1202", "--base", "b2", "--diff", "d1")
+    before = _entry(tmp_path, "zz", "w")
+    assert before["pr"] == "1202" and before["overtaken"] > 0, f"precondition: {before}"
+    out = _run(tmp_path, "register", "w", *_COMMON_1266, "--repo", "/tmp", "--clear-pr")
+    assert _verdict(out) in ("registered", "updated"), out.stdout + out.stderr
+    e = _entry(tmp_path, "zz", "w")
+    assert (e["pr"], e["base"], e["diff"], e["obs_repo"]) == ("", "", "", ""), e
+    assert e["overtaken"] == 0, e
+
+
+@requires_tools
+def test_clear_pr_with_an_observation_is_a_usage_error(tmp_path: Path) -> None:
+    out = _run(tmp_path, "register", "w", *_COMMON_1266, "--repo", "/tmp",
+               "--clear-pr", "--pr", "5", "--base", "b", "--diff", "d")
+    assert out.returncode != 0 and "--clear-pr" in out.stderr, out.stderr
+
+
+@requires_tools
+def test_the_same_issue_number_in_another_repo_resets_the_lane(tmp_path: Path) -> None:
+    """Item 4: `$moved` compared the issue number only, so #1266 in repo B kept
+    repo A's file lane and PR - a blend that never existed at one moment."""
+    repo_a, repo_b = tmp_path / "repo-a", tmp_path / "repo-b"
+    repo_a.mkdir()
+    repo_b.mkdir()
+    _run(tmp_path, "register", "w", *_COMMON_1266, "--repo", str(repo_a),
+         "--files", "src/a.py", "--pr", "7", "--base", "b", "--diff", "d")
+    assert _entry(tmp_path, "zz", "w")["files"] == "src/a.py", "precondition"
+    _run(tmp_path, "register", "w", *_COMMON_1266, "--repo", str(repo_b))
+    e = _entry(tmp_path, "zz", "w")
+    assert e["repo"] == str(repo_b.resolve()), e
+    assert (e["files"], e["pr"]) == ("", ""), e
+
+
+@requires_tools
+def test_a_re_register_in_the_same_repo_keeps_the_lane(tmp_path: Path) -> None:
+    """The other half of item 4: the cheap re-brief (same issue, same repo, no
+    --files) must still PRESERVE the lane."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _run(tmp_path, "register", "w", *_COMMON_1266, "--repo", str(repo), "--files", "src/a.py")
+    _run(tmp_path, "register", "w", *_COMMON_1266, "--repo", str(repo))
+    assert _entry(tmp_path, "zz", "w")["files"] == "src/a.py"
+
+
+@requires_git_tools
+def test_the_toolchain_warning_names_the_checkout_it_measured(tmp_path: Path) -> None:
+    """Item 10: the behind-warning said "this session's CPP toolchain" and named
+    no checkout, so it was attributed to the wrong one. A checkout one commit
+    behind its upstream, selected via CPP_TOOLCHAIN_CHECKOUT."""
+    origin, clone = tmp_path / "origin.git", tmp_path / "toolchain-checkout"
+    git = ["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t"]
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True)
+    seed = tmp_path / "seed"
+    subprocess.run(["git", "clone", "-q", str(origin), str(seed)], check=True, capture_output=True)
+    # toolchain-provenance.sh only measures a CPP-shaped checkout.
+    (seed / "CLAUDE.md").write_text("fixture\n")
+    (seed / ".claude" / "commands").mkdir(parents=True)
+    (seed / ".claude" / "commands" / "keep.md").write_text("fixture\n")
+    subprocess.run(["git", "-C", str(seed), "add", "-A"], check=True)
+    for n in ("one", "two"):
+        subprocess.run([*git, "-C", str(seed), "commit", "-q", "--allow-empty", "-m", n], check=True)
+    subprocess.run(["git", "-C", str(seed), "push", "-q", "origin", "HEAD:main"], check=True, capture_output=True)
+    subprocess.run(["git", "clone", "-q", str(origin), str(clone)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(clone), "reset", "-q", "--hard", "HEAD~1"], check=True)
+    out = _run(tmp_path, "register", "w", *_COMMON_1266, "--repo", "/tmp",
+               extra_env={"CPP_TOOLCHAIN_CHECKOUT": str(clone)})
+    assert _detail(out, "FLOW_WAVE_TOOLCHAIN") == "behind", (
+        "precondition: the checkout is behind\n" + out.stdout + out.stderr
+    )
+    assert str(clone) in out.stderr, out.stderr
+    assert _detail(out, "FLOW_WAVE_TOOLCHAIN_CHECKOUT") == str(clone), out.stdout
+
+
+@requires_tools
+def test_a_failed_snapshot_never_misreports_a_committed_write(tmp_path: Path) -> None:
+    """Counter-model review (#1266): if the after-snapshot fails (disk full),
+    the verdict must match what the registry holds. It used to be taken AFTER
+    the registry file was replaced, so a snapshot failure reported "NOT updated"
+    over a write that HAD committed - and the advised retry could overwrite an
+    intervening registration. The seam routes the snapshot to /dev/full."""
+    common = ("--wave", "zz", "--repo", "/tmp", "--issue", "1266", "--branch", "issue-1266-x")
+    _run(tmp_path, "register", "w", *common, "--files", "a.py")
+    assert _entry(tmp_path, "zz", "w")["files"] == "a.py", "precondition"
+    out = _run(tmp_path, "register", "w", *common, "--files", "b.py",
+               extra_env={"FLOW_WAVE_REGISTRY_TEST_SNAPSHOT_FAILS": "1"})
+    assert out.returncode != 0, out.stdout
+    assert "NOT updated" in out.stderr, out.stderr
+    assert _entry(tmp_path, "zz", "w")["files"] == "a.py", "reported NOT updated, so nothing may have changed"
+
+
+@requires_tools
+def test_an_unusable_tmpdir_refuses_before_writing(tmp_path: Path) -> None:
+    """Counter-model review (#1266): the snapshot files are required. With no
+    usable TMPDIR the registration must refuse before the lock - not commit and
+    report a delta against an absent entry. The registry dir stays writable."""
+    common = ("--wave", "zz", "--repo", "/tmp", "--issue", "1266", "--branch", "issue-1266-x")
+    _run(tmp_path, "register", "w", *common, "--files", "a.py")
+    assert _entry(tmp_path, "zz", "w")["files"] == "a.py", "precondition"
+    missing = tmp_path / "no-such-tmpdir"
+    assert not missing.exists(), "precondition: the TMPDIR does not exist"
+    out = _run(tmp_path, "register", "w", *common, "--files", "b.py",
+               extra_env={"TMPDIR": str(missing)})
+    assert out.returncode != 0, out.stdout
+    assert "NOT updated" in out.stderr, out.stderr
+    assert _entry(tmp_path, "zz", "w")["files"] == "a.py", "refused, so nothing may have changed"

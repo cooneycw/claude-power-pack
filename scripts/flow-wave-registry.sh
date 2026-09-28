@@ -830,8 +830,34 @@ with_lock() {
     [ -s "$REG_FILE" ] || echo '{}' > "$REG_FILE"
     local tmp
     tmp="$(mktemp "$REG_DIR/.registry.XXXXXX")" || exit 3
+    # THE BEFORE/AFTER OF ONE ENTRY, TAKEN UNDER THE SAME LOCK AS THE WRITE
+    # (issue #1266). A caller that sets LOCK_SNAP_W/LOCK_SNAP_R and the two
+    # output paths gets the entry exactly as it was replaced and exactly as it
+    # was written - no other registration can commit between those reads and
+    # this write, which is the whole point. Reading either outside the lock is
+    # how `register` used to report a lane delta against an entry that had
+    # already been replaced by someone else.
+    if [ -n "${LOCK_SNAP_PREV:-}" ]; then
+      jq -c --arg w "$LOCK_SNAP_W" --arg r "$LOCK_SNAP_R" '.[$w].roles[$r] // null' "$REG_FILE" > "$LOCK_SNAP_PREV" 2>/dev/null \
+        || { rm -f "$tmp"; echo "flow-wave-registry: registry snapshot failed (corrupt JSON?)" >&2; exit 3; }
+    fi
     if jq "$@" "$prog" "$REG_FILE" > "$tmp" 2>/dev/null; then
-      mv -f "$tmp" "$REG_FILE"
+      # The after-snapshot is taken from the CANDIDATE, before it replaces the
+      # registry (counter-model review, #1266). Taken after the mv, a snapshot
+      # failure reported "NOT updated" over a write that had committed - and the
+      # advised retry could overwrite an intervening registration. Now every
+      # failure below happens before anything is committed, so the refusal is true.
+      if [ -n "${LOCK_SNAP_NEW:-}" ]; then
+        #: TEST-ONLY SEAM, NOT A KNOB (issue #1266): route the after-snapshot to
+        #: /dev/full, which fails every write with ENOSPC - a real "disk full" -
+        #: so the failure path can be exercised. Unset in every real use.
+        _snap_new_out="$LOCK_SNAP_NEW"
+        [ -n "${FLOW_WAVE_REGISTRY_TEST_SNAPSHOT_FAILS:-}" ] && _snap_new_out=/dev/full
+        jq -c --arg w "$LOCK_SNAP_W" --arg r "$LOCK_SNAP_R" '.[$w].roles[$r] // null' "$tmp" > "$_snap_new_out" 2>/dev/null \
+          || { rm -f "$tmp"; echo "flow-wave-registry: registry snapshot failed; nothing was written" >&2; exit 3; }
+      fi
+      mv -f "$tmp" "$REG_FILE" \
+        || { rm -f "$tmp"; echo "flow-wave-registry: could not replace the registry file" >&2; exit 3; }
     else
       rm -f "$tmp"
       echo "flow-wave-registry: registry update failed (corrupt JSON?)" >&2
@@ -852,6 +878,7 @@ with_lock() {
   #: from 0 to 3 on a path that was already broken.
   lock_status=$?
   if [ "$lock_status" -ne 0 ]; then
+    rm -f "${LOCK_SNAP_PREV:-}" "${LOCK_SNAP_NEW:-}" 2>/dev/null
     echo "flow-wave-registry: the registry was NOT updated - nothing was recorded." >&2
     echo "  Treat this as a refusal, not a slow write: re-run once the cause is fixed." >&2
     emit error
@@ -2028,6 +2055,7 @@ A_MODEL=""; A_PERMMODE=""; A_FILES=""; A_CAPACITY=""
 A_MODEL_SET=0; A_PERMMODE_SET=0; A_FILES_SET=0; A_CAPACITY_SET=0
 A_PR=""; A_BASE=""; A_DIFF=""
 A_PR_SET=0; A_BASE_SET=0; A_DIFF_SET=0
+A_CLEAR_PR=0
 # `lane-check --granted` (#1026): the grant that AUTHORISED the lane, so the
 # declaration can be compared against it and not only against other lanes.
 A_GRANTED=""; A_GRANTED_SET=0
@@ -2068,6 +2096,7 @@ while [ "$#" -gt 0 ]; do
     --granted=*) A_GRANTED="${1#--granted=}"; A_GRANTED_SET=1 ;;
     --pr) [ "$#" -ge 2 ] || usage_fail "--pr requires a value"; A_PR="$2"; A_PR_SET=1; shift ;;
     --pr=*) A_PR="${1#--pr=}"; A_PR_SET=1 ;;
+    --clear-pr) A_CLEAR_PR=1 ;;
     --base) [ "$#" -ge 2 ] || usage_fail "--base requires a value"; A_BASE="$2"; A_BASE_SET=1; shift ;;
     --base=*) A_BASE="${1#--base=}"; A_BASE_SET=1 ;;
     --diff) [ "$#" -ge 2 ] || usage_fail "--diff requires a value"; A_DIFF="$2"; A_DIFF_SET=1; shift ;;
@@ -2402,7 +2431,27 @@ case "$VERB" in
     #: baseline - a base-only write made the NEXT complete observation miss its
     #: overtake, and a diff-only write made it fire although the diff had moved.
     #: An observation is a baseline only if all of it was measured at once.
+    #: A LANE PATH MAY NOT CONTAIN A NEWLINE (issue #1266). Every FLOW_WAVE_FILES*
+    #: line is one path SET per line; a path holding a newline would come out as
+    #: two phantom paths to every line-oriented reader. Refused at input - before
+    #: anything is recorded - naming the path with the newline made visible.
+    if [ "$A_FILES_SET" -eq 1 ] && [[ "$A_FILES" == *$'\n'* ]]; then
+      _bad=""
+      IFS=',' read -r -d '' -a _paths < <(printf '%s\0' "$A_FILES")
+      for _p in "${_paths[@]}"; do
+        [[ "$_p" == *$'\n'* ]] && _bad="${_bad}${_bad:+, }${_p//$'\n'/\\n}"
+      done
+      usage_fail "--files: a lane path contains a newline, which the line-oriented FLOW_WAVE_FILES output cannot carry: ${_bad}"
+    fi
     A_OBS=0
+    #: WITHDRAWING an observation (issue #1266). An empty --pr stays an error -
+    #: an observation with no identity cannot be compared to anything - so
+    #: clearing a merged PR is its own explicit flag, and it withdraws the WHOLE
+    #: observation (pr, base, diff, obs_repo and the overtake count) for the same
+    #: atomicity reason a partial observation is refused (#989).
+    if [ "$A_CLEAR_PR" -eq 1 ] && { [ "$A_PR_SET" -eq 1 ] || [ "$A_BASE_SET" -eq 1 ] || [ "$A_DIFF_SET" -eq 1 ]; }; then
+      usage_fail "--clear-pr withdraws the observation; it cannot be combined with --pr/--base/--diff"
+    fi
     if [ "$A_PR_SET" -eq 1 ] || [ "$A_BASE_SET" -eq 1 ] || [ "$A_DIFF_SET" -eq 1 ]; then
       case "$A_PR" in
         "" ) usage_fail "--pr needs a value: an observation with no PR identity cannot be compared to anything" ;;
@@ -2436,6 +2485,32 @@ case "$VERB" in
     # now, while this process is unambiguously the registering session's own,
     # never re-derived later by a reader on another machine.
     vantage_derive
+    #: TEST-ONLY SEAM, NOT A KNOB (issue #1266). Everything above ran WITHOUT the
+    #: lock - including the read of the current entry - and this is the window a
+    #: concurrent registration can commit inside. A test sets the variable to a
+    #: directory; this touches `paused` there and waits (bounded) for `release`,
+    #: so the interleaving is FORCED rather than hoped for by timing. Unset in
+    #: every real use; nothing reads it but this block.
+    if [ -n "${FLOW_WAVE_REGISTRY_TEST_PAUSE_REGISTER:-}" ]; then
+      : > "$FLOW_WAVE_REGISTRY_TEST_PAUSE_REGISTER/paused"
+      _pause_deadline=$(( $(date +%s) + 30 ))
+      while [ ! -e "$FLOW_WAVE_REGISTRY_TEST_PAUSE_REGISTER/release" ] && [ "$(date +%s)" -lt "$_pause_deadline" ]; do
+        sleep 0.05
+      done
+    fi
+    LOCK_SNAP_W="$WAVE"; LOCK_SNAP_R="$ROLE"
+    # Both snapshot files must EXIST before the write (counter-model review,
+    # #1266): an empty path would make with_lock skip that snapshot, and the
+    # delta would then be reported against an absent entry over a committed
+    # write. Refused before the lock, so nothing is recorded.
+    LOCK_SNAP_PREV="$(mktemp 2>/dev/null)" || LOCK_SNAP_PREV=""
+    LOCK_SNAP_NEW="$(mktemp 2>/dev/null)" || LOCK_SNAP_NEW=""
+    if [ -z "$LOCK_SNAP_PREV" ] || [ -z "$LOCK_SNAP_NEW" ]; then
+      rm -f "${LOCK_SNAP_PREV:-}" "${LOCK_SNAP_NEW:-}" 2>/dev/null
+      echo "flow-wave-registry: could not create temporary files (TMPDIR=${TMPDIR:-/tmp}) - the registry was NOT updated." >&2
+      emit error
+      exit 3
+    fi
     # shellcheck disable=SC2016  # a jq program; $ names are jq variables (#972)
     with_lock '
       .[$w] //= {"roles": {}} |
@@ -2448,7 +2523,15 @@ case "$VERB" in
       #: reset unless this call supplies them. Both sides must be non-empty:
       #: a re-brief that omits --issue is not a move to other work, and
       #: treating it as one would wipe the starvation baseline (#989).
-      (($prev.issue // "") != "" and $issue != "" and ($prev.issue // "") != $issue) as $moved |
+      #: ...and the SAME issue number in a DIFFERENT repo is different work too
+      #: (issue #1266): comparing the number alone kept the lane and PR of repo A on a
+      #: role now working #N in repo B. Both repos must be non-empty, for the
+      #: same reason as the issues - an omitted --repo is not a move. The repo is
+      #: the repository identity the overlap arms already compare (separate
+      #: worktrees of one repository share it), so this cannot fire on a worker
+      #: merely changing worktree.
+      ((($prev.issue // "") != "" and $issue != "" and ($prev.issue // "") != $issue)
+       or (($prev.repo // "") != "" and $repo != "" and ($prev.repo // "") != $repo)) as $moved |
       .[$w].roles[$r] = {
         socket: $sock, self_socket: $selfsock, pid: ($pid | tonumber? // $pid),
         pid_started: $pidstarted,
@@ -2473,10 +2556,10 @@ case "$VERB" in
         vantage_basis:   $vbasis,
         #: Written only as a COMPLETE observation, and identity is (repo, pr) -
         #: not pr alone, or repository B #5 would increment repository A #5.
-        pr:       (if $obs == "1" then $pr   elif $moved then "" else ($prev.pr // "") end),
-        base:     (if $obs == "1" then $base elif $moved then "" else ($prev.base // "") end),
-        diff:     (if $obs == "1" then $diff elif $moved then "" else ($prev.diff // "") end),
-        obs_repo: (if $obs == "1" then $repo elif $moved then "" else ($prev.obs_repo // "") end),
+        pr:       (if $obs == "1" then $pr   elif $moved or $clearpr == "1" then "" else ($prev.pr // "") end),
+        base:     (if $obs == "1" then $base elif $moved or $clearpr == "1" then "" else ($prev.base // "") end),
+        diff:     (if $obs == "1" then $diff elif $moved or $clearpr == "1" then "" else ($prev.diff // "") end),
+        obs_repo: (if $obs == "1" then $repo elif $moved or $clearpr == "1" then "" else ($prev.obs_repo // "") end),
         #: MERGE STARVATION (#989). Increments ONLY when the same (repo, pr) is
         #: seen again with a CHANGED base and an UNCHANGED diff: the signature of
         #: losing a queue place without doing any work. A changed diff is a worker
@@ -2489,7 +2572,7 @@ case "$VERB" in
         #: work. A re-register carrying NO observation preserves, so the cheap
         #: re-brief never destroys a baseline.
         overtaken: (
-          if $obs != "1" then (if $moved then 0 else ($prev.overtaken // 0) end)
+          if $obs != "1" then (if $moved or $clearpr == "1" then 0 else ($prev.overtaken // 0) end)
           elif $moved then 0
           elif ($prev.pr // "") != $pr or ($prev.obs_repo // "") != $repo then 0
           elif ($prev.base // "") == "" or ($prev.diff // "") == "" then 0
@@ -2500,7 +2583,7 @@ case "$VERB" in
         policy_rev:      ($polrev | tonumber)
       }' \
       --arg w "$WAVE" --arg r "$ROLE" --arg sock "$SOCK" --arg pid "$SELF_PID" \
-      --arg pidstarted "$SELF_PID_STARTED" \
+      --arg pidstarted "$SELF_PID_STARTED" --arg clearpr "$A_CLEAR_PR" \
       --arg selfsock "$SELF_SOCK" --arg verified "$KEEP_VERIFIED" \
       --arg filled "$KEEP_FILLED" --arg mismatch "$KEEP_MISMATCH" \
       --arg session "$SELF_SESSION" --arg host "$SELF_HOST" --arg cwd "$A_CWD" \
@@ -2563,7 +2646,18 @@ case "$VERB" in
     # The `orchestrator` is skipped because `list` exempts it from the pairwise
     # checks unconditionally: it holds no lane, so "its lane is unscoped" is not
     # a fact about anything.
-    NEW_ENTRY="$(entry_json "$WAVE" "$ROLE")"
+    # Both sides of the delta come from the LOCKED transaction (issue #1266):
+    # the entry this write replaced, and the entry it wrote. `$CUR`, read before
+    # the lock for the ownership checks above, is NOT the entry replaced when a
+    # concurrent registration committed in between - measured with the test
+    # seam: the delta reported DROPPED=b.py against the stale read when the
+    # lane actually lost c.py.
+    REPLACED_ENTRY="$(cat "$LOCK_SNAP_PREV" 2>/dev/null)"
+    NEW_ENTRY="$(cat "$LOCK_SNAP_NEW" 2>/dev/null)"
+    rm -f "$LOCK_SNAP_PREV" "$LOCK_SNAP_NEW"
+    LOCK_SNAP_PREV=""; LOCK_SNAP_NEW=""
+    [ -n "$REPLACED_ENTRY" ] || REPLACED_ENTRY=null
+    [ -n "$NEW_ENTRY" ] || NEW_ENTRY=null
     NEW_REPO="$(printf '%s' "$NEW_ENTRY" | jq -r '.repo // ""')"
     NEW_FILES="$(printf '%s' "$NEW_ENTRY" | jq -r '.files // ""')"
     NEW_ISSUE="$(printf '%s' "$NEW_ENTRY" | jq -r '.issue // ""')"
@@ -2592,8 +2686,8 @@ case "$VERB" in
     # (the entry is marked, not erased), which is exactly why this has to be
     # asked rather than inferred from the field being present.
     PREV_FILES=""
-    if [ "$CUR" != "null" ] && [ "$(printf '%s' "$CUR" | jq -r '.released // false')" != "true" ]; then
-      PREV_FILES="$(printf '%s' "$CUR" | jq -r '.files // ""')"
+    if [ "$REPLACED_ENTRY" != "null" ] && [ "$(printf '%s' "$REPLACED_ENTRY" | jq -r '.released // false')" != "true" ]; then
+      PREV_FILES="$(printf '%s' "$REPLACED_ENTRY" | jq -r '.files // ""')"
     fi
     lane_missing "$PREV_FILES" "$NEW_FILES"
     FILES_DROPPED="$LANE_MISSING"; FILES_DROPPED_N="$LANE_MISSING_N"
@@ -2695,6 +2789,7 @@ case "$VERB" in
     TOOLCHAIN_N="-"
     TOOLCHAIN_UP="-"
     TOOLCHAIN_AGE="-"
+    TOOLCHAIN_CHECKOUT="-"
     TC_HELPER=""
     for candidate in "$SELF_DIR/toolchain-provenance.sh" "$HOME/.claude/scripts/toolchain-provenance.sh"; do
         [ -x "$candidate" ] && { TC_HELPER="$candidate"; break; }
@@ -2710,8 +2805,12 @@ case "$VERB" in
         TOOLCHAIN_N="$(printf '%s' "$TC_JSON" | jq -r 'if .behind == null then "-" else .behind end' 2>/dev/null || echo -)"
         TOOLCHAIN_UP="$(printf '%s' "$TC_JSON" | jq -r '.upstream // "-"' 2>/dev/null || echo -)"
         TOOLCHAIN_AGE="$(printf '%s' "$TC_JSON" | jq -r 'if .fetch_age_seconds == null then "-" else .fetch_age_seconds end' 2>/dev/null || echo -)"
+        # WHICH checkout was measured (issue #1266): the warning used to say
+        # "this session's CPP toolchain" and name nothing, so it was read as a
+        # fact about whichever checkout the reader had in mind.
+        TOOLCHAIN_CHECKOUT="$(printf '%s' "$TC_JSON" | jq -r '.checkout // "-"' 2>/dev/null || echo -)"
         [ -n "$TOOLCHAIN_STATE" ] || TOOLCHAIN_STATE=unavailable
-        for tc_var in TOOLCHAIN_N TOOLCHAIN_UP TOOLCHAIN_AGE; do
+        for tc_var in TOOLCHAIN_N TOOLCHAIN_UP TOOLCHAIN_AGE TOOLCHAIN_CHECKOUT; do
           eval "tc_value=\$$tc_var"
           [ -n "$tc_value" ] || eval "$tc_var='-'"
         done
@@ -2721,14 +2820,15 @@ case "$VERB" in
     echo "FLOW_WAVE_TOOLCHAIN_BEHIND=$TOOLCHAIN_N"
     echo "FLOW_WAVE_TOOLCHAIN_UPSTREAM=$TOOLCHAIN_UP"
     echo "FLOW_WAVE_TOOLCHAIN_AGE=$TOOLCHAIN_AGE"
+    echo "FLOW_WAVE_TOOLCHAIN_CHECKOUT=$TOOLCHAIN_CHECKOUT"
     case "$TOOLCHAIN_STATE" in
       behind|diverged)
-        echo "flow-wave-registry: this session's CPP toolchain is ${TOOLCHAIN_N} commit(s) BEHIND its upstream." >&2
+        echo "flow-wave-registry: the CPP toolchain checkout at ${TOOLCHAIN_CHECKOUT} is ${TOOLCHAIN_N} commit(s) BEHIND its upstream." >&2
         echo "  Helpers here predate what main ships: a flag that merged may simply not exist in the copy you run (#1029)." >&2
         echo "  Pull at a declared safe moment - scripts/checkout-readers.sh says when no gate is running out of the tree." >&2
         ;;
       unknown|unavailable)
-        echo "flow-wave-registry: this session's CPP toolchain provenance is ${TOOLCHAIN_STATE} - NOT a measured zero (#1029)." >&2
+        echo "flow-wave-registry: the CPP toolchain provenance (checkout: ${TOOLCHAIN_CHECKOUT}) is ${TOOLCHAIN_STATE} - NOT a measured zero (#1029)." >&2
         ;;
       current)
         # A zero gap against week-old evidence is still a zero gap against
