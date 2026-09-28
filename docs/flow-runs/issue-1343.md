@@ -30,3 +30,26 @@ This run is PR A (items 1 and 2). Item 3 (ROUTED_SURFACES floor, EXEMPT x4 rulin
 
 Scope: 2 test files, ~60-80 lines, no production code.
 Risks: a fork between descendant enumeration and the kill (the fake daemon forks once, at start, so this is not an issue here). The monkeypatch must not leak (it is restored per test).
+
+<!-- flow-run n=2 id=52b8ed5783cc4188bd51d860fa67e477 -->
+## Run 2
+
+- Run-id:            52b8ed5783cc4188bd51d860fa67e477
+- Run-start:         846431d2145c229e2bac44747aa0780937283a36
+- Issue:             #1343
+- Base SHA:          846431d2145c229e2bac44747aa0780937283a36
+- Necessity verdict: Still needed
+- Approval:          granted
+- Approver:          run48:cpp2-orch (orchestrator), mailbox message 2470 replying to plan delta 2469; EXEMPT x4 ruling in message 2438
+- Recorded at:       2026-09-28T22:05:48Z
+
+### Section B evidence
+Re-measured on 846431d. `gh issue create` appears in 5 command docs (flow/wave, github/issue-create, qa/test, self-improvement/memory, self-improvement/retro), 0 skill docs, and 14 generated codex/skills mirrors (excluded). No commits in 75fb449..846431d touch tests/test_issue_contract_routing.py, .claude/commands or .claude/skills. PR A of this issue merged as PR #1344 (846431d).
+
+### Section C - the approved plan
+This run is PR B (item 3). Items 1 and 2 shipped in PR #1344.
+
+1. `tests/test_issue_contract_routing.py` - ISSUE_CREATE_EXEMPT {path: reason}, one entry each for flow/wave, self-improvement/retro, self-improvement/memory and qa/test. A derived scan of .claude/commands and .claude/skills for `gh issue create`. A floor test: every hit is routed or exempt. A stale-exempt tripwire. A committed red-case fixture: a doc in neither list is reported. A positive control: the real scan finds github/issue-create.md. The docstring names the codex/skills exclusion and the prose-mention friction. The new instrument is proven able to fail by mutations (a) empty scan, (b) EXEMPT treated as routed-for-all, (c) stale tripwire accepting a non-mentioning path.
+
+Scope: 1 test file, ~80-100 lines.
+Risks: the literal match is narrow by design; a doc that files issues through gh api or a helper script is not seen, and the docstring says so.

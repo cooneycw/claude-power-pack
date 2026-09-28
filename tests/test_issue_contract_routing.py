@@ -17,10 +17,22 @@ of a word is not evidence that the policy it names is coherent.
 
 What this test CANNOT do, stated so nobody reads a green run as more than it is:
 
-  * It does NOT discover new surfaces. ``ROUTED_SURFACES`` is a fixed list. A new
-    authoring surface added tomorrow is invisible here until someone adds it, and
-    the test passing says nothing about it. The list is a tripwire that fails
-    loudly when a listed surface drifts, not a coverage map.
+  * It discovers new surfaces only through ONE door (issue #1343). ``ROUTED_SURFACES``
+    is still a fixed list, and it is still the drift tripwire: it fails loudly when
+    a listed surface drifts. What is derived is a FLOOR beside it. Every command or
+    skill document under ``.claude/commands`` or ``.claude/skills`` that mentions the
+    literal ``gh issue create`` must be in ``ROUTED_SURFACES`` or in
+    ``ISSUE_CREATE_EXEMPT`` with a reason, so a new issue-filing command cannot
+    arrive unrouted without a decision. The door is narrow, and that is a stated
+    limit, not a claim:
+      - A surface that files issues any other way (``gh api``, a helper script, a
+        form) is NOT seen, and a green floor says nothing about it.
+      - A document that only QUOTES the command in prose is seen. It must be exempted
+        with that reason, or reworded. That friction is intended.
+      - ``codex/skills/`` is excluded on purpose. It holds generated mirrors of the
+        command documents, whose drift from their sources is caught by
+        ``codex-skill-sync.py --check`` (``make codex-skills-check``), not here.
+        Scanning them would count every source twice and add no decision.
   * It does NOT verify any semantic acceptance criterion of #856 - not that the
     parts stay optional, not that tiers route proportionally, and above all not
     criterion 6, that a constrained implementation choice stays binding and cannot
@@ -54,6 +66,39 @@ ROUTED_SURFACES = (
     Path(".specify/templates/spec-template.md"),
     Path("CLAUDE.md"),
 )
+
+# Documents that mention `gh issue create` but are deliberately NOT routed to the
+# canonical contract (issue #1343). Each reason names the FACT that makes the
+# document exempt, not a category, so a reader can check whether it still holds.
+# The stale-exempt tripwire below is STRUCTURAL only: it catches an entry whose
+# path is gone, no longer mentions the command, has a blank reason, or is also
+# routed. It cannot tell whether the stated fact is still TRUE - if wave.md began
+# instructing authors to file issues, it would stay green. Checking the reason
+# is the job of whoever reviews a change to an exempt document (counter-model
+# review).
+ISSUE_CREATE_EXEMPT: dict[Path, str] = {
+    Path(".claude/commands/flow/wave.md"): (
+        "it only prohibits `gh issue create` during an active wave and files nothing"
+    ),
+    Path(".claude/commands/self-improvement/retro.md"): (
+        "the body is the stored issue_candidate the retro tool emits, not something "
+        "an author composes"
+    ),
+    Path(".claude/commands/self-improvement/memory.md"): (
+        "the body is the fingerprint-marker template the memory tool emits, not "
+        "something an author composes"
+    ),
+    Path(".claude/commands/qa/test.md"): (
+        "the body is a reproduction of an observed failure (steps, expected, actual), "
+        "not an outcome/constraint contract"
+    ),
+}
+
+ISSUE_CREATE = "gh issue create"
+
+# Where issue-filing surfaces are derived from. `codex/skills/` is excluded on
+# purpose: see the module docstring.
+ISSUE_CREATE_ROOTS = (Path(".claude/commands"), Path(".claude/skills"))
 
 # Commands retired in epic #417 Phase A. `lib/spec_bridge` went with them.
 RETIRED_COMMANDS = ("/spec:create", "/spec:sync", "/spec:status", "/spec:init")
@@ -137,6 +182,90 @@ def test_routed_surface_points_at_the_canonical_contract(surface: Path) -> None:
         f"resolving relative link - either the route was dropped or the canonical "
         f"document moved and this list was not updated"
     )
+
+
+def _issue_creating_surfaces(root: Path) -> list[Path]:
+    """Every command or skill document under ``root`` that mentions ``gh issue create``."""
+    found = []
+    for base in ISSUE_CREATE_ROOTS:
+        for path in sorted((root / base).rglob("*.md")):
+            if ISSUE_CREATE in path.read_text(encoding="utf-8"):
+                found.append(path.relative_to(root))
+    return found
+
+
+def _unaccounted(found: list[Path], routed: tuple[Path, ...], exempt: dict[Path, str]) -> list[Path]:
+    return [path for path in found if path not in routed and path not in exempt]
+
+
+def _stale_exemptions(root: Path, routed: tuple[Path, ...], exempt: dict[Path, str]) -> list[str]:
+    problems = []
+    for path, reason in exempt.items():
+        if not reason.strip():
+            problems.append(f"{path}: exempt with no reason")
+        if path in routed:
+            problems.append(f"{path}: both routed and exempt - pick one")
+        if not (root / path).is_file():
+            problems.append(f"{path}: exempt but missing")
+        elif ISSUE_CREATE not in (root / path).read_text(encoding="utf-8"):
+            problems.append(f"{path}: exempt but no longer mentions `{ISSUE_CREATE}`")
+    return problems
+
+
+def _fixture_tree(tmp_path: Path, name: str) -> Path:
+    doc = tmp_path / ".claude" / "commands" / "fake" / name
+    doc.parent.mkdir(parents=True)
+    doc.write_text("Then run:\n\n    gh issue create --title t --body b\n", encoding="utf-8")
+    return doc.relative_to(tmp_path)
+
+
+def test_the_issue_create_scan_finds_the_known_filing_surface() -> None:
+    """Positive control and membership floor: a scan that finds nothing is broken,
+    not clean. `github/issue-create.md` is the surface #856 routed on purpose."""
+    found = _issue_creating_surfaces(REPO)
+    assert Path(".claude/commands/github/issue-create.md") in found, found
+
+
+def test_every_issue_filing_surface_is_routed_or_exempt() -> None:
+    """The derived floor (issue #1343): a new issue-filing command is a decision."""
+    missing = _unaccounted(_issue_creating_surfaces(REPO), ROUTED_SURFACES, ISSUE_CREATE_EXEMPT)
+    assert not missing, (
+        f"these documents run `{ISSUE_CREATE}` but are neither in ROUTED_SURFACES nor in "
+        f"ISSUE_CREATE_EXEMPT with a reason: {[str(p) for p in missing]}"
+    )
+
+
+def test_no_issue_create_exemption_is_stale() -> None:
+    """An exemption that is structurally stale must not keep excusing its path.
+
+    Structural only: see ISSUE_CREATE_EXEMPT for what this cannot judge.
+    """
+    problems = _stale_exemptions(REPO, ROUTED_SURFACES, ISSUE_CREATE_EXEMPT)
+    assert not problems, problems
+
+
+def test_an_unrouted_issue_filing_doc_is_reported(tmp_path: Path) -> None:
+    """The committed red case: a doc in neither list is named, and only it."""
+    doc = _fixture_tree(tmp_path, "filer.md")
+    found = _issue_creating_surfaces(tmp_path)
+    assert found == [doc], "precondition: the fixture is seen by the scan"
+
+    assert _unaccounted(found, (), {}) == [doc]
+    assert _unaccounted(found, (doc,), {}) == [], "routed is accounted for"
+    assert _unaccounted(found, (), {doc: "a reason"}) == [], "exempt is accounted for"
+
+
+def test_a_stale_exemption_is_reported(tmp_path: Path) -> None:
+    """The tripwire's other verdict: each stale shape is named."""
+    doc = _fixture_tree(tmp_path, "filer.md")
+    assert _stale_exemptions(tmp_path, (), {doc: "a reason"}) == [], "precondition: fresh is clean"
+
+    (tmp_path / doc).write_text("This command files nothing.\n", encoding="utf-8")
+    assert any("no longer mentions" in p for p in _stale_exemptions(tmp_path, (), {doc: "a reason"}))
+    gone = Path(".claude/commands/fake/gone.md")
+    assert any("missing" in p for p in _stale_exemptions(tmp_path, (), {gone: "a reason"}))
+    assert any("no reason" in p for p in _stale_exemptions(tmp_path, (), {doc: " "}))
+    assert any("both routed" in p for p in _stale_exemptions(tmp_path, (doc,), {doc: "a reason"}))
 
 
 @pytest.mark.parametrize("surface", ROUTED_SURFACES, ids=lambda p: str(p))
