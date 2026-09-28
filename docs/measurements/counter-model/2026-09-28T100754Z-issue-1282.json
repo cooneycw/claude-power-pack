@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1282-cpp-status-report-when-the-claude-power-pack-check",
+  "counts": {
+    "accepted": 5,
+    "deferred": 1,
+    "rejected": 1
+  },
+  "head": "827f715",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1282",
+  "passes": 2,
+  "recorded_at": "2026-09-28T10:07:54Z",
+  "red_cases": {
+    "already_covered": 7,
+    "proposed": 16
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}

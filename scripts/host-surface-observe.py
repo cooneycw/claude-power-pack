@@ -173,6 +173,11 @@ INVOCATIONS: dict[str, list[list[str]]] = {
         ["file-write", "{HOME}/.config/claude-power-pack/secrets/cpp-memories.backend", "local"],
     ],
     "cpp-commands-link.sh": [["--check"], []],
+    #: `--path {HOME}` on purpose: with no --path it measures the checkout that
+    #: holds it and FETCHES its real origin - a network call inside a test run.
+    #: The sandbox is not a git repository, so the run ends at `unknown` having
+    #: written nothing, which is exactly its declaration (`none`).
+    "cpp-checkout-freshness.sh": [["--path", "{HOME}"]],
     "codex-skill-sync.py": [["--install"]],
     "install-memory-harness.sh": [[]],
     "commands-mirror-sync.sh": [[]],
