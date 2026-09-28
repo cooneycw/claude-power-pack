@@ -1125,7 +1125,7 @@ PR_BASE_BRANCH=$("$GH_BIN" pr view "$PR_NUMBER" --json baseRefName --jq '.baseRe
 # another machine is out of reach, and that limit is stated rather than implied.
 # Fail-open: an unreadable PR head or worktree list checks nothing and says so.
 check_local_divergence() {
-    local pr_head head_name head_oid line wt="" wt_head="" wt_branch="" found="" listing
+    local pr_head head_name head_oid line wt="" wt_head="" wt_branch="" diverged="" listing
     local matched=0 cross
     pr_head=$("$GH_BIN" pr view "$PR_NUMBER" --json headRefName,headRefOid \
         --jq '.headRefName + " " + .headRefOid' 2>/dev/null) || pr_head=""
@@ -1166,18 +1166,18 @@ check_local_divergence() {
                     matched=$(( matched + 1 ))
                     # \037 (unit separator), never a space: a worktree path can
                     # contain spaces, and #698/#700 forbid whitespace-IFS reads.
-                    [[ "$wt_head" != "$head_oid" ]] && found+="$wt"$'\037'"$wt_head"$'\n'
+                    [[ "$wt_head" != "$head_oid" ]] && diverged+="$wt"$'\037'"$wt_head"$'\n'
                 fi
                 ;;
         esac
     done <<<"$listing"
-    if [[ -z "$found" ]]; then
+    if [[ -z "$diverged" ]]; then
         # Say what was examined: "no checkout holds the branch" and "every
         # checkout that holds it is at the head" are both clean, and different.
         echo "GH_PR_MERGE_LOCAL_DIVERGENCE: 0 (${matched} local checkout(s) of '$head_name', all at the PR head)"
         return 0
     fi
-    echo "GH_PR_MERGE_LOCAL_DIVERGENCE: $(grep -c . <<<"$found")"
+    echo "GH_PR_MERGE_LOCAL_DIVERGENCE: $(grep -c . <<<"$diverged")"
     if (( ALLOW_LOCAL_DIVERGENCE )); then
         echo "warning: override consumed: --allow-local-divergence bypassed the issue #1262 local-checkout check for PR #$PR_NUMBER." >&2
         return 0
@@ -1186,7 +1186,7 @@ check_local_divergence() {
     echo "  PR #$PR_NUMBER head on GitHub: $head_oid" >&2
     while IFS=$'\037' read -r wt wt_head; do
         [[ -n "$wt" ]] && echo "  $wt is at $wt_head" >&2
-    done <<<"$found"
+    done <<<"$diverged"
     echo "  A session may be mid-finish there (committed or merged, not yet pushed). Merging now" >&2
     echo "  lands the PR head, not that work. Push it, or discard it, then re-run the merge." >&2
     echo "  This sees this host only. Conscious override: re-run with --allow-local-divergence." >&2
