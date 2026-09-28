@@ -541,6 +541,8 @@ def build_tree(
     detect_signal: str | None = TOY_SIGNAL,
     unavailable_signal: str | None = None,
     unknown_signal: str | None = None,
+    good_exit: int = 0,
+    good_signal: str | None = None,
 ) -> Path:
     (tmp_path / "scripts").mkdir()
     (tmp_path / "scripts" / "toy-gate.py").write_text(gate_src, encoding="utf-8")
@@ -567,7 +569,7 @@ def build_tree(
     manifest: dict[str, object] = {
         "gate": "scripts/toy-gate.py",
         "invocation": [sys.executable, "{gate}", "--root", "{case}"],
-        "good_exit": 0,
+        "good_exit": good_exit,
         "cases": cases if cases is not None else [
             {"name": "bad", "input": "cases/bad", "expect": "BAD"},
             {"name": "good", "input": "cases/good", "expect": "GOOD"},
@@ -580,6 +582,8 @@ def build_tree(
         manifest["unavailable_signal"] = unavailable_signal
     if unknown_signal is not None:
         manifest["unknown_signal"] = unknown_signal
+    if good_signal is not None:
+        manifest["good_signal"] = good_signal
     (ctl / "control.json").write_text(json.dumps(manifest), encoding="utf-8")
     return tmp_path
 
@@ -3988,3 +3992,154 @@ def test_every_real_control_stays_inside_the_closed_schema() -> None:
         assert keys <= module.CONTROL_KEYS, f"{manifest}: {sorted(keys - module.CONTROL_KEYS)}"
         for anchor in json.loads(manifest.read_text(encoding="utf-8")).get("anchors", []):
             assert module._anchor_kind_problem(anchor) is None, f"{manifest}: {anchor.get('path')}"
+
+
+# --------------------------------------------------------------------------- #
+# A GOOD case can declare what it must SAY, not only how it must exit (#1350).
+# --------------------------------------------------------------------------- #
+# The mirror of #946 on the other side of the verdict. A gate whose correct
+# answer on the known-good input is a WARNING exits non-zero there, and every
+# warning shares that exit code - so scoring GOOD by `good_exit` alone accepts
+# any warning at all. `controls/flow-finish-gate-resume` was green through #1341
+# while its case's warn changed from the resume signal it exists to test
+# (`carried, unverified`) to an unrelated `zero coverage`.
+TOY_GOOD_SIGNAL = r"^toy-gate: warn \(expected reason\)"
+
+#: Exits 3 on every clean input, like the finish gate's `warn`, and prints WHICH
+#: warning. `tests/OTHERWARN` is the same exit code for a different reason.
+WARNING_GATE = """#!/usr/bin/env python3
+import sys
+from pathlib import Path
+#: NEGATIVE-CONTROL: controls/toy
+root = Path(sys.argv[sys.argv.index("--root") + 1])
+if (root / "tests" / "BAD").exists():
+    print("toy-gate: 1 finding(s)")
+    sys.exit(1)
+if (root / "tests" / "OTHERWARN").exists():
+    print("toy-gate: warn (other reason)")
+    sys.exit(3)
+print("toy-gate: warn (expected reason)")
+sys.exit(3)
+"""
+
+#: Blind to the finding: answers every input with the expected warning.
+BLIND_WARNING_ANCHOR = """#!/usr/bin/env python3
+import sys
+print("toy-gate: warn (expected reason)")
+sys.exit(3)
+"""
+
+
+def _warning_tree(tmp_path: Path, good_signal: str | None, good_case: str = "good") -> Path:
+    """The toy control with good_exit=3; `good_case` picks which tree is registered GOOD."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    root = build_tree(
+        tmp_path, WARNING_GATE, anchor_src=BLIND_WARNING_ANCHOR,
+        cases=[
+            {"name": "bad", "input": "cases/bad", "expect": "BAD"},
+            {"name": "good", "input": f"cases/{good_case}", "expect": "GOOD"},
+        ],
+        good_exit=3, good_signal=good_signal,
+    )
+    other = root / "controls" / "toy" / "cases" / "otherwarn" / "tests"
+    other.mkdir(parents=True)
+    (other / "OTHERWARN").write_text("x", encoding="utf-8")
+    return root
+
+
+def test_a_good_case_that_prints_its_declared_good_signal_passes(tmp_path: Path) -> None:
+    root = _warning_tree(tmp_path, TOY_GOOD_SIGNAL)
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "PASS", result.stdout
+    assert result.returncode == 0
+
+
+def test_a_good_case_exiting_good_with_a_different_warning_is_not_good(tmp_path: Path) -> None:
+    """The #1350 red case at harness level: right exit code, wrong warning.
+
+    Without `good_signal` this input scores PASS - the blindness the issue
+    names, pinned here as a fact of the unset path. With it, the run is
+    UNSIGNALLED: it exited like a clean run without saying what a clean run says.
+    """
+    blind = _warning_tree(tmp_path / "unset", None, good_case="otherwarn")
+    assert verdict_of(run_harness(blind, "--strict").stdout) == "PASS"
+
+    root = _warning_tree(tmp_path / "set", TOY_GOOD_SIGNAL, good_case="otherwarn")
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNSIGNALLED", result.stdout
+    assert "good_signal" in result.stdout, result.stdout
+    assert result.returncode == 1
+
+
+def test_a_good_signal_that_matches_any_warning_restores_the_blindness(tmp_path: Path) -> None:
+    """Specificity is what does the work, so a match-anything-shaped regex is not a fix."""
+    root = _warning_tree(tmp_path, r"^toy-gate: warn", good_case="otherwarn")
+    assert verdict_of(run_harness(root, "--strict").stdout) == "PASS"
+
+
+def test_an_unusable_good_signal_is_unresolved_not_a_silent_fallback(tmp_path: Path) -> None:
+    """As for `detect_signal`: uncompilable or empty-matching must not degrade to exit-only."""
+    for signal, label in ((r"(unclosed", "uncompilable"), (r".*", "dot-star"), ("", "empty")):
+        (tmp_path / label).mkdir()
+        root = _warning_tree(tmp_path / label, signal)
+        result = run_harness(root, "--strict")
+        assert verdict_of(result.stdout) == "UNRESOLVED", f"{label}: {result.stdout}"
+        assert "good_signal" in result.stdout, f"{label}: {result.stdout}"
+
+
+def test_observe_reads_good_signal_only_when_declared() -> None:
+    """The pure function, three directions: matched, unmatched, and unset (unchanged)."""
+    module = _load_harness_module()
+    good = re.compile(TOY_GOOD_SIGNAL, re.MULTILINE)
+    signal = re.compile(TOY_SIGNAL, re.MULTILINE)
+    expected = "toy-gate: warn (expected reason)"
+    other = "toy-gate: warn (other reason)"
+    assert module._observe(3, 3, expected, signal, good_signal=good) == module.GOOD
+    assert module._observe(3, 3, other, signal, good_signal=good) == module.UNSIGNALLED
+    assert module._observe(3, 3, other, signal) == module.GOOD
+
+
+@requires_make
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is not installed")
+@pytest.mark.parametrize(
+    ("variant", "expected"),
+    [
+        ("committed", "PASS"),            # positive control: the real case, unmodified
+        ("no-source", "UNSIGNALLED"),     # the #1350 red: exit 3, different warn
+        ("no-source-unset", "PASS"),      # the pre-#1350 manifest on the same input: blind
+        ("no-source-any-warn", "PASS"),   # a match-any-warn regex: blind again
+    ],
+)
+def test_the_real_resume_control_judges_its_good_case_by_the_resume_signal(
+    tmp_path: Path, variant: str, expected: str
+) -> None:
+    """End to end on the REAL control, gate and anchor, in a scratch root.
+
+    `scripts/` and `lib/` are symlinked, so the gate and the runner that execute
+    are the shipped ones; the resume control is COPIED so one case can be altered
+    without touching the tree. Removing the case's `app.py` leaves its secrets
+    scan nothing to examine (#1341), so it exits 3 with `warn (zero coverage:
+    security_scan)` - the same exit code, the wrong reason. The `committed`
+    variant is this setup's own positive control: if the scratch root could not
+    run the case at all, it would not read PASS.
+    """
+    root = tmp_path / "root"
+    (root / "controls").mkdir(parents=True)
+    (root / "scripts").symlink_to(ROOT / "scripts")
+    (root / "lib").symlink_to(ROOT / "lib")
+    (root / "controls" / "flow-finish-gate").symlink_to(ROOT / "controls" / "flow-finish-gate")
+    ctl = root / "controls" / "flow-finish-gate-resume"
+    shutil.copytree(ROOT / "controls" / "flow-finish-gate-resume", ctl)
+    source = ctl / "cases" / "good-fail-fix-resume" / "app.py"
+    assert source.is_file(), "precondition: the committed good case carries its fixture source"
+    manifest = json.loads((ctl / "control.json").read_text(encoding="utf-8"))
+    if variant != "committed":
+        source.unlink()
+    if variant == "no-source-unset":
+        manifest.pop("good_signal", None)
+    if variant == "no-source-any-warn":
+        manifest["good_signal"] = r"^FLOW_FINISH_GATE: warn"
+    (ctl / "control.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    result = run_harness(root, "--control", "controls/flow-finish-gate-resume")
+    assert verdict_of(result.stdout) == expected, result.stdout

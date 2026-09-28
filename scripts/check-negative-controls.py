@@ -1119,6 +1119,7 @@ def _observe(
     signal: re.Pattern[str],
     unavailable: re.Pattern[str] | None = None,
     unknown: re.Pattern[str] | None = None,
+    good_signal: re.Pattern[str] | None = None,
 ) -> str:
     """What the run SAYS happened - five answers, not two (issues #946, #1117, #1129).
 
@@ -1146,14 +1147,34 @@ def _observe(
 
     The constraints that keep any of these from being a fail-open are enforced
     by the caller, against real output.
+
+    A GOOD EXIT IS NOT A GOOD ANSWER WHEN THE ANSWER IS A WARNING (issue #1350).
+    The mirror of #946 on the other side: a gate whose correct answer on the
+    known-good input is a warn exits non-zero there, and EVERY warn shares that
+    code, so `good_exit` alone accepts any warning at all. When a control
+    declares `good_signal`, a good exit without it is UNSIGNALLED - it exited
+    like a clean run without saying what a clean run says. Unset, this branch is
+    never taken and every control scores exactly as before.
     """
     if exit_code == good_exit:
+        if good_signal is not None and not good_signal.search(output):
+            return UNSIGNALLED
         return GOOD
     if unavailable is not None and unavailable.search(output):
         return UNAVAILABLE
     if unknown is not None and unknown.search(output):
         return UNKNOWN
     return BAD if signal.search(output) else UNSIGNALLED
+
+
+def _missing_signal(code: int, good_exit: int) -> str:
+    """Which declared signal an UNSIGNALLED run lacked (issue #1350).
+
+    UNSIGNALLED at the good exit code can only come from `good_signal`; at any
+    other code it is the detection signal. Naming the wrong one sends a reader to
+    the wrong regex.
+    """
+    return "good_signal" if code == good_exit else "detection signal"
 
 
 #: What a discrimination failure ACTUALLY WAS, keyed by (expected, observed).
@@ -1256,7 +1277,7 @@ def _mismatch(expected: str, observed: str) -> str:
 #: what a control can say.
 CONTROL_KEYS = frozenset({
     "gate", "invocation", "good_exit", "cases", "anchors",
-    "detect_signal", "unavailable_signal", "unknown_signal", "subject_kind",
+    "detect_signal", "unavailable_signal", "unknown_signal", "good_signal", "subject_kind",
     "mutations", "battery", "battery_cwd",
     "limits", "_comment",
 })
@@ -1667,6 +1688,31 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
             )
             return res
 
+    # WHAT A KNOWN-GOOD RUN MUST SAY (issue #1350). Optional, and absence changes
+    # nothing: GOOD stays `exit == good_exit`. Keyed on PRESENCE rather than
+    # truthiness, unlike the two above, because the failure it prevents is a
+    # declared-but-empty pattern: `""` would read as "no signal" and restore the
+    # exit-only scoring under a field claiming to have removed it. For the same
+    # reason a pattern matching EMPTY output is refused - it is satisfied by
+    # silence, so it would accept any warn.
+    raw_good = spec.get("good_signal", "")
+    good_sig: re.Pattern[str] | None = None
+    if "good_signal" in spec:
+        if not isinstance(raw_good, str) or not raw_good.strip():
+            res.details.append("control.json good_signal is not a usable pattern")
+            return res
+        try:
+            good_sig = re.compile(raw_good, re.MULTILINE)
+        except re.error as exc:
+            res.details.append(f"control.json good_signal is not a usable regex: {exc}")
+            return res
+        if good_sig.search(""):
+            res.details.append(
+                f"control.json good_signal /{raw_good}/ matches empty output, so a known-good run "
+                "would be accepted on its exit code alone again (issue #1350)"
+            )
+            return res
+
     # A one-sided control tests nothing, so it may not reach PASS. This was only
     # DOCUMENTED before, and the code required a non-empty list: a GOOD-only
     # control passed against a gate that was genuinely blind, and a BAD-only one
@@ -1860,7 +1906,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
         if code is UNRUNNABLE:
             res.details.append(f"case {case['name']}: the gate could not be executed - {diag}")
             return res
-        observed = _observe(code, good_exit, output, signal, unavailable, unknown_sig)
+        observed = _observe(code, good_exit, output, signal, unavailable, unknown_sig, good_sig)
         res.details.append(
             f"case {case['name']}: expected={expected} observed={observed} (exit {code})"
             + (f" [stderr: {diag}]" if diag else "")
@@ -1966,10 +2012,19 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
             ran_cases.append(case["name"])
         if observed is UNSIGNALLED:
             res.verdict = UNSIGNALLED
-            res.details.append(
-                f"the gate exited {code} without emitting its declared detection signal "
-                f"/{raw_signal}/, so this run cannot be told from a crash"
-            )
+            if code == good_exit:
+                # Reachable only through `good_signal` (issue #1350): a good exit
+                # is otherwise GOOD by construction.
+                res.details.append(
+                    f"the gate exited {code}, its good exit, without emitting its declared "
+                    f"good_signal /{raw_good}/, so a clean answer cannot be told from a "
+                    f"different one that exits the same way"
+                )
+            else:
+                res.details.append(
+                    f"the gate exited {code} without emitting its declared detection signal "
+                    f"/{raw_signal}/, so this run cannot be told from a crash"
+                )
             return res
         # The structural check above is a floor, not the discriminator. A pattern
         # can miss the empty string and still identify nothing - `^binary-guards`
@@ -2135,7 +2190,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
                 res.verdict = UNRESOLVED
                 res.details.append(f"anchor {_anchor_label(anchor, case_path)} could not be executed - {diag}")
                 return res
-            observed = _observe(code, good_exit, output, signal, unavailable, unknown_sig)
+            observed = _observe(code, good_exit, output, signal, unavailable, unknown_sig, good_sig)
             # The anchor is a DIFFERENT PROGRAM, so the gate-side rules about the
             # refusal marker say nothing about its output (issue #1129,
             # counter-model review).
@@ -2178,7 +2233,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
                 res.verdict = UNRESOLVED
                 res.details.append(
                     f"anchor {_anchor_label(anchor, case_path)} exited {code} on the known-bad input without the "
-                    f"declared detection signal, so it cannot be confirmed to have MISSED it "
+                    f"declared {_missing_signal(code, good_exit)}, so it cannot be confirmed to have MISSED it "
                     f"(it may have crashed)"
                     + (f" [stderr: {diag}]" if diag else "")
                 )
@@ -2205,7 +2260,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
                 res.verdict = UNRESOLVED
                 res.details.append(f"anchor {_anchor_label(anchor, case_path)} could not be executed - {diag}")
                 return res
-            observed = _observe(code, good_exit, output, signal, unavailable, unknown_sig)
+            observed = _observe(code, good_exit, output, signal, unavailable, unknown_sig, good_sig)
             # As in the known-bad loop above, and needed separately: an anchor can
             # miss the known-bad input correctly and still be incoherent on the
             # inputs meant to establish it differs in nothing else.
@@ -2228,7 +2283,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
                 res.verdict = UNRESOLVED
                 res.details.append(
                     f"anchor {_anchor_label(anchor, case_path)} exited {code} on a {kind} input without the "
-                    f"declared detection signal, so the anchor-sanity check cannot be resolved "
+                    f"declared {_missing_signal(code, good_exit)}, so the anchor-sanity check cannot be resolved "
                     f"(it may have crashed)"
                     + (f" [stderr: {diag}]" if diag else "")
                 )
