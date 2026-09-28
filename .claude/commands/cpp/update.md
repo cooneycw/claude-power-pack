@@ -1372,6 +1372,32 @@ orphans by Step 6c/7 + `scripts/mcp-drift.py`):
 **For each expected server**, check:
 1. Is it registered in `claude mcp list`?
 2. For second-opinion, is `http://127.0.0.1:8080/mcp` reachable (external server up)?
+3. Is it defined at ONE endpoint? A name can be defined at user, local and
+   project scope at once, and when those point at different endpoints the server
+   a session reaches depends on the directory it started in (issue #1256).
+   "Registered" does not answer this - it read a two-endpoint `second-opinion`
+   as OK while `claude mcp list` itself warned about it. Ask the file-reading
+   check, which covers EVERY MCP name, not only CPP's:
+
+```bash
+cd "$CPP_DIR"
+MCP_SCOPE_STATUS="clean"
+python3 scripts/mcp-drift.py --scope-check
+MCP_SCOPE_RC=$?
+# REPORT and CONTINUE on every outcome - this is advice, never a reason to stop
+# the update. 1 = a conflict (named, with both endpoints, redacted); 3 = a config
+# could not be read, which is NOT clean and must not be relayed as clean.
+case "$MCP_SCOPE_RC" in
+  0) ;;
+  1) MCP_SCOPE_STATUS="SCOPE CONFLICT (see above)" ;;
+  3) MCP_SCOPE_STATUS="NOT ASSESSED (MCP config unreadable)" ;;
+  *) MCP_SCOPE_STATUS="NOT ASSESSED (scope check exited $MCP_SCOPE_RC)" ;;
+esac
+```
+
+Never remove a definition yourself. On a conflict, show both scopes and
+endpoints, and offer Claude Code's own `claude mcp remove <name> -s <scope>` for
+the scope the user says to drop - which wiring is canonical is the user's call.
 
 **For each installed legacy systemd service matching mcp-*, nano-*, or
 coordination**, classify it as:
@@ -1397,7 +1423,10 @@ mcp-evaluate              depr.     no        none        user:mcp-evaluate     
 ```
 
 Status classifications:
-- **OK** - expected server is registered (and, for second-opinion, reachable)
+- **OK** - expected server is registered at ONE endpoint (and, for second-opinion,
+  reachable). Registered at two scopes that disagree is not OK - it is:
+- **SCOPE CONFLICT** - the name is defined at 2+ scopes with different endpoints
+  (`mcp-drift.py --scope-check` exit 1). Report only; never removed by this command
 - **LEGACY SYSTEMD** - a systemd unit remains for a retired server; teardown only
 - **LEGACY DEPRECATED** - a deprecated server has a systemd unit; teardown only
 - **ORPHANED LEGACY** - an installed/running legacy systemd unit CPP no longer ships
