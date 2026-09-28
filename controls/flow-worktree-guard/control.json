@@ -1,0 +1,56 @@
+{
+  "_comment": [
+    "Registration for scripts/flow-worktree-guard.sh (issue #1014).",
+    "WHY A COMMITTED CASE (ADR 0008): /flow:auto Steps 4 and 6 read this guard's verdict",
+    "before commit and nothing downstream re-derives that no edit leaked into main.",
+    "The cases force the guard's THIRD states - could-not-look and nothing-to-look-at - which",
+    "were byte-identical to a clean pass before #1014. run-case.sh builds a real repository",
+    "and linked worktree per run; nothing is committed as a .git directory."
+  ],
+  "gate": "scripts/flow-worktree-guard.sh",
+  "invocation": [
+    "sh",
+    "controls/flow-worktree-guard/run-case.sh",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_WORKTREE_GUARD_CONTROL: finding\\b",
+  "unavailable_signal": "^FLOW_WORKTREE_GUARD_CONTROL: unavailable - ",
+  "cases": [
+    {
+      "name": "bad-git-cannot-answer",
+      "input": "cases/bad-git-cannot-answer",
+      "expect": "BAD",
+      "why": "A git that cannot resolve its own git dir. The gate could not look, and before #1014 that fell into the same silent `exit 0` as a clean pass; it must now report `unknown` (exit 4).",
+      "expected_exit": 1,
+      "expected_output": "FLOW_WORKTREE_GUARD_CONTROL: finding - gate exit 4: FLOW_WORKTREE_GUARD: unknown - git could not resolve this checkout's git dir or common dir"
+    },
+    {
+      "name": "bad-main-checkout",
+      "input": "cases/bad-main-checkout",
+      "expect": "BAD",
+      "why": "The main checkout itself - the current-branch lane. There is no separate tree to leak into, which is `not-applicable` (exit 5), a different fact from a clean look; before #1014 it was the same silent `exit 0`.",
+      "expected_exit": 1,
+      "expected_output": "FLOW_WORKTREE_GUARD_CONTROL: finding - gate exit 5: FLOW_WORKTREE_GUARD: not-applicable - this is the main checkout, with no separate tree to leak into"
+    },
+    {
+      "name": "good-clean-linked-worktree",
+      "input": "cases/good-clean-linked-worktree",
+      "expect": "GOOD",
+      "why": "A linked worktree whose main tree is clean: the gate looked and found no leak, `no-leak` exit 0. Treating every run as suspect would falsely flag this.",
+      "expected_exit": 0,
+      "expected_output": "FLOW_WORKTREE_GUARD_CONTROL: clean-look (gate exit 0)"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "40f771c",
+      "origin": "scripts/flow-worktree-guard.sh",
+      "path": "anchors/historical-pre-1014-flow-worktree-guard.sh",
+      "sha256": "16edebc5ec96685d45b6ad6228fb904f61b12ff6caccf97d667f173ff7370280",
+      "why": "The guard as it stood on main at 40f771c, byte for byte: every could-not-look and nothing-to-look-at path ended in a silent `exit 0`. It MISSES both BAD cases and AGREES with the real gate on the GOOD one - so the distinction the control pins is exactly the one #1014 added."
+    }
+  ]
+}

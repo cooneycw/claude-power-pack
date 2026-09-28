@@ -68,7 +68,23 @@
 #     naming the fresh main paths (and, under --strict, exit 3) (issue #573).
 #   - Non-overlap / stale only: a quiet "[flow] note" listing the pre-existing
 #     main modifications, exit 0.
-#   - Nothing (exit 0) when main is clean or when not in a linked worktree.
+#   - Nothing else when main is clean.
+#   - Always, as the last contract line (issue #1014), the verdict:
+#       FLOW_WORKTREE_GUARD: no-leak | leak | unknown | not-applicable - <detail>
+#     no-leak         looked: main is clean, or its dirt is not this run's leak
+#     leak            looked: an edit this run made landed in main
+#     not-applicable  nothing to examine: not in a git work tree, or this IS the
+#                     main checkout (the current-branch lane), with no separate
+#                     tree to leak into
+#     unknown         could not examine: git missing or failing, or main's tree
+#                     unreadable. NEVER rendered as no-leak - these used to share
+#                     the one silent `exit 0` with a clean pass.
+#
+# Exit under --strict (gate-lib's gate_map, #1014): no-leak 0, leak 3,
+# unknown 4, not-applicable 5 - so a could-not-look answer can never share the
+# good exit. /flow:auto Steps 4 and 6 STOP on 3 and PROCEED-AND-REPORT on 4 and
+# 5. Without --strict the guard stays advisory and always exits 0, but it still
+# prints the verdict.
 #
 # Env (test hook - unset in normal use):
 #   FLOW_WORKTREE_GIT     override the `git` binary (default: git)
@@ -79,8 +95,19 @@
 
 set -uo pipefail
 
+#: NEGATIVE-CONTROL: controls/flow-worktree-guard
+
 # Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
 trap 'printf "FLOW_WORKTREE_GUARD_EXIT=%d\n" "$?" >&2' EXIT
+
+# gate-lib is the one home for the exit mapping (#1126, #1014). `${0%/*}`, never
+# `dirname`, for the reason shellcheck-gate.sh records: a PATH without it would
+# leave the guard unable to load, and so unable to say `unknown`.
+_gate_lib_dir=${0%/*}
+[ "$_gate_lib_dir" = "$0" ] && _gate_lib_dir=.
+# shellcheck disable=SC1091  # gate-lib.sh is resolved at run time and linted as its own file (#972)
+. "$_gate_lib_dir/gate-lib.sh"
+gate_map no-leak=0 leak=3 unknown=4 not-applicable=5
 
 GIT="${FLOW_WORKTREE_GIT:-git}"
 FRESH_MIN="${FLOW_LEAK_FRESH_MIN:-30}"
@@ -97,9 +124,18 @@ for arg in "$@"; do
   esac
 done
 
-# Not a git repo -> nothing to check (fail-open).
-if ! "$GIT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+# verdict VERDICT DETAIL - print the contract line and exit per the declared map
+# under --strict; advisory mode stays exit 0 but still says what it found.
+verdict() {
+  gate_emit FLOW_WORKTREE_GUARD "$1" "$2"
+  if [ "$STRICT" -eq 1 ]; then gate_exit "$1"; fi
   exit 0
+}
+
+# No git at all is could-not-look; not inside a work tree is nothing-to-look-at.
+command -v "$GIT" >/dev/null 2>&1 || verdict unknown "git ('$GIT') is not on PATH"
+if ! "$GIT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  verdict not-applicable "not inside a git work tree"
 fi
 
 # Distinguish a linked worktree from the main checkout: in a linked worktree the
@@ -108,36 +144,51 @@ fi
 # worktree can leak edits into a *separate* main tree.
 GIT_DIR="$("$GIT" rev-parse --path-format=absolute --git-dir 2>/dev/null || true)"
 COMMON_DIR="$("$GIT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
-if [ -z "$COMMON_DIR" ] || [ "$GIT_DIR" = "$COMMON_DIR" ]; then
-  exit 0   # main checkout (or indeterminate) -> no separate tree to leak into.
+# These were ONE branch - `exit 0 # main checkout (or indeterminate)` - and are
+# two different facts (#1014): the main checkout has nothing to leak into, while
+# an unresolvable git dir means the guard could not look at all.
+if [ -z "$COMMON_DIR" ] || [ -z "$GIT_DIR" ]; then
+  verdict unknown "git could not resolve this checkout's git dir or common dir"
+fi
+if [ "$GIT_DIR" = "$COMMON_DIR" ]; then
+  verdict not-applicable "this is the main checkout, with no separate tree to leak into"
 fi
 
 # The main working tree is the parent of the shared .git directory (standard,
 # non-bare layout). Bail out fail-open if that does not resolve to a work tree.
 MAIN_REPO="$(dirname "$COMMON_DIR")"
 if ! "$GIT" -C "$MAIN_REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  exit 0
+  verdict unknown "the main tree '$MAIN_REPO' is not a readable work tree"
 fi
 
 WORKTREE_ROOT="$("$GIT" rev-parse --show-toplevel 2>/dev/null || true)"
 if [ "$MAIN_REPO" = "$WORKTREE_ROOT" ]; then
-  exit 0   # defensive: we somehow resolved to our own tree.
+  verdict unknown "the main tree resolved to this worktree itself"
 fi
 
 # Tracked modifications in the MAIN working tree are the leaked-edit signature.
 # --untracked-files=no keeps normal scratch/untracked noise out; the worktree's
 # own files live under main's gitignored `.claude/worktrees/` and never appear
 # here, so they cannot false-positive.
+# Read into a file first so a FAILED status is seen (#1014): through a process
+# substitution its exit status was discarded and an unreadable main read as a
+# clean one.
+main_status_file=$(mktemp) || verdict unknown "no temporary file for main's status"
+if ! "$GIT" -C "$MAIN_REPO" status --porcelain --untracked-files=no -z >"$main_status_file" 2>/dev/null; then
+  rm -f "$main_status_file"
+  verdict unknown "git status of the main tree '$MAIN_REPO' failed"
+fi
 main_dirty=()
 while IFS= read -r -d '' entry; do
   # porcelain -z: 2-char status, a space, then the path.
   path="${entry:3}"
   [ -n "$path" ] || continue
   main_dirty+=("$path")
-done < <("$GIT" -C "$MAIN_REPO" status --porcelain --untracked-files=no -z 2>/dev/null)
+done <"$main_status_file"
+rm -f "$main_status_file"
 
 if [ "${#main_dirty[@]}" -eq 0 ]; then
-  exit 0
+  verdict no-leak "main is clean"
 fi
 
 # Not every dirty file in main is a leak: the main checkout often carries
@@ -195,7 +246,7 @@ if [ "${#overlap[@]}" -eq 0 ]; then
       echo "  - $p" >&2
     done
     echo "         main: $MAIN_REPO" >&2
-    exit 0
+    verdict no-leak "${#unrelated[@]} pre-existing main modification(s), none this run's"
   fi
 
   # (b) total-leak suspect: worktree idle, main dirty. Keep only FRESH main edits.
@@ -213,7 +264,7 @@ if [ "${#overlap[@]}" -eq 0 ]; then
       echo "  - $p" >&2
     done
     echo "         main: $MAIN_REPO" >&2
-    exit 0
+    verdict no-leak "${#unrelated[@]} stale main modification(s) with an idle worktree"
   fi
 
   # Fresh main edits with a completely idle worktree -> the total-leak signature.
@@ -228,10 +279,7 @@ if [ "${#overlap[@]}" -eq 0 ]; then
   echo "  never a hand-built '.claude/worktrees/<name>/...' absolute path. Move the changes" >&2
   echo "  into the worktree, then revert main:  git -C \"$MAIN_REPO\" checkout -- <path>" >&2
   echo "  (If main was intentionally edited outside this run, ignore this warning.)" >&2
-  if [ "$STRICT" -eq 1 ]; then
-    exit 3
-  fi
-  exit 0
+  verdict leak "total leak: ${#fresh[@]} fresh main edit(s) with an idle worktree"
 fi
 
 # Overlap -> a file this run edited is ALSO dirty in main: the leaked-edit
@@ -266,6 +314,9 @@ echo "  (If these are intentional edits to main, ignore this warning.)" >&2
 # both /flow:auto call sites to --strict (#576) safe rather than a false-stop
 # generator - the promotion was blocked on it during the #576 run itself, where
 # main carried uncommitted retro edits to CLAUDE.md, a file that run had to edit.
+if [ "$STRICT" -eq 0 ]; then
+  verdict leak "${#overlap[@]} file(s) this run edited are also modified in main (advisory)"
+fi
 if [ "$STRICT" -eq 1 ]; then
   fresh_overlap=()
   for p in "${overlap[@]}"; do
@@ -278,11 +329,11 @@ if [ "$STRICT" -eq 1 ]; then
     echo "  --strict: none of the overlapping file(s) were modified in main within the" >&2
     echo "  last ${FRESH_MIN}m, so this is pre-existing dirt rather than a leak from THIS" >&2
     echo "  run - warning only, not blocking (issue #576)." >&2
-    exit 0
+    verdict no-leak "${#overlap[@]} stale overlap(s): pre-existing main dirt, not this run's (issue #576)"
   fi
   echo "" >&2
   echo "  --strict: ${#fresh_overlap[@]} of these were modified in main within the last ${FRESH_MIN}m" >&2
   echo "  (this run's window) - blocking." >&2
-  exit 3
+  verdict leak "${#fresh_overlap[@]} fresh overlap(s) with this run's edits"
 fi
-exit 0
+verdict unknown "fell through every branch - no verdict was reached"

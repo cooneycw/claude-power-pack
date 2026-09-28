@@ -235,7 +235,10 @@ def test_guard_silent_when_main_clean(tmp_path: Path) -> None:
     _main, wt = _make_repo_with_worktree(tmp_path)
     res = _run(wt)
     assert res.returncode == 0
-    assert res.stdout == "" and without_status(res.stderr) == ""
+    # #1014: "clean" is now SAID - a silent run was indistinguishable from one
+    # that could not look. Nothing else is printed.
+    assert res.stdout.strip() == "FLOW_WORKTREE_GUARD: no-leak - main is clean"
+    assert without_status(res.stderr) == ""
 
 
 @requires_git
@@ -344,8 +347,12 @@ def test_guard_noop_in_main_checkout_even_when_dirty(tmp_path: Path) -> None:
     main, _wt = _make_repo_with_worktree(tmp_path)
     (main / "tracked.txt").write_text("dirty-but-intentional\n")
     res = _run(main, "--strict")
-    assert res.returncode == 0
-    assert without_status(res.stderr) == ""
+    # #1014 (ruling RB): never a WARNING here, but no longer a silent exit 0 -
+    # "nothing to examine" is its own verdict, exit 5, which /flow:auto reports
+    # and proceeds past.
+    assert res.returncode == 5
+    assert without_status(res.stderr).strip().startswith("FLOW_WORKTREE_GUARD: not-applicable")
+    assert "WARNING" not in res.stderr
 
 
 @requires_git
@@ -353,8 +360,8 @@ def test_guard_fail_open_outside_git_repo(tmp_path: Path) -> None:
     plain = tmp_path / "plain"
     plain.mkdir()
     res = _run(plain, "--strict")
-    assert res.returncode == 0
-    assert without_status(res.stderr) == ""
+    assert res.returncode == 5  # #1014: not-applicable, reported, never a silent 0
+    assert without_status(res.stderr).strip() == "FLOW_WORKTREE_GUARD: not-applicable - not inside a git work tree"
 
 
 @requires_git
