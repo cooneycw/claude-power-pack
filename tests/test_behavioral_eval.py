@@ -147,12 +147,12 @@ def test_the_gate_is_reachable_from_a_change_to_CLAUDE_md() -> None:
     # trigger's own shape.
     top = pipeline.get("when")
     entries = top if isinstance(top, list) else [top]
+    def _events(entry: dict) -> list:
+        value = entry.get("event")
+        return value if isinstance(value, list) else [value]
+
     unfiltered_pr = [
-        e
-        for e in entries
-        if isinstance(e, dict)
-        and "pull_request" in (e.get("event") if isinstance(e.get("event"), list) else [e.get("event")])
-        and set(e) == {"event"}
+        e for e in entries if isinstance(e, dict) and "pull_request" in _events(e) and set(e) == {"event"}
     ]
     assert unfiltered_pr, (
         f"link 4: no pipeline-level trigger runs on every pull request without a "
