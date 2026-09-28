@@ -1121,12 +1121,20 @@ def test_a_SUCCESS_carries_neither_new_line(tmp_path):
     assert "FLOW_CI_FAILURE_ORIGIN" not in m and "FLOW_CI_PRECODE_FAILURE" not in m
 
 
-def _typed_wpcli(tmp_path: Path, name_state: list[str], name_type: list[str] | None) -> Path:
+def _typed_wpcli(
+    tmp_path: Path,
+    name_state: list[str],
+    name_type: list[str] | None,
+    type_exit: int = 0,
+) -> Path:
     """A woodpecker-cli whose `ps` answers per FORMAT: the name|state call, and
     the separate name|type call. `name_type=None` makes the type call FAIL, the
-    way a CLI whose template cannot render `.step.Type` would."""
+    way a CLI whose template cannot render `.step.Type` would; `type_exit`
+    makes it print rows AND fail."""
     type_branch = (
-        ["cat <<'ROWS'", *name_type, "ROWS", "exit 0"] if name_type is not None else ["exit 1"]
+        ["cat <<'ROWS'", *name_type, "ROWS", f"exit {type_exit}"]
+        if name_type is not None
+        else ["exit 1"]
     )
     body = [
         "#!/usr/bin/env bash",
@@ -1211,6 +1219,32 @@ def test_the_GITHUB_ACTIONS_lane_cannot_classify_and_says_unknown(tmp_path):
                   env={"FLOW_CI_GH": str(path), "WOODPECKER_API_TOKEN": ""})
     m = _markers(result.stdout)
     assert m["FLOW_CI_PROVIDER"] == ["github-actions"], result.stdout + result.stderr
+    assert m["FLOW_CI_FAILED_STEP"] == ["checkout"]
+    assert "FLOW_CI_PRECODE_FAILURE" not in m
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["unknown"]
+
+
+@requires_bash
+def test_a_type_call_that_PRINTS_then_FAILS_is_discarded(tmp_path):
+    """Counter-model review: a partial answer is not a classification."""
+    wpcli = _typed_wpcli(tmp_path, ["clone|failure"], ["clone|clone"], type_exit=1)
+    result = _run(tmp_path, SHA, "--repo", "o/r",
+                  env={"FLOW_CI_CURL": "/nonexistent/curl", "FLOW_CI_WPCLI": str(wpcli)})
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_FAILED_STEP"] == ["clone"]
+    assert "FLOW_CI_PRECODE_FAILURE" not in m
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["unknown"]
+    assert result.returncode == 0
+    assert result.stdout.splitlines()[-1] == "FLOW_CI_STATUS: failure"
+
+
+@requires_bash
+def test_a_step_NAME_carrying_two_TYPES_does_not_borrow_a_neighbours(tmp_path):
+    """Counter-model review: `checkout` in two workflows, one a clone and one a
+    commands step. The name join cannot say which failed - unknown, not precode."""
+    wpcli = _typed_wpcli(tmp_path, ["checkout|success", "checkout|failure"],
+                         ["checkout|clone", "checkout|commands"])
+    m = _cli_run(tmp_path, wpcli)
     assert m["FLOW_CI_FAILED_STEP"] == ["checkout"]
     assert "FLOW_CI_PRECODE_FAILURE" not in m
     assert m["FLOW_CI_FAILURE_ORIGIN"] == ["unknown"]

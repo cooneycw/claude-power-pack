@@ -479,12 +479,26 @@ if command -v "$WPCLI_BIN" >/dev/null 2>&1; then
             # NAMES too. Here a failed or partial answer only leaves a type empty,
             # which reports `unknown`.
             # Plain rows, not an associative array: `declare -A` is bash 4+.
-            WPCLI_TYPE_ROWS="$("$WPCLI_BIN" pipeline ps --format '{{ .step.Name }}|{{ .step.Type }}
-' "$REPO" "$PIPELINE" 2>/dev/null)"
+            # A NON-ZERO exit discards the rows even when some were printed: a
+            # partial answer is not a classification (counter-model review).
+            if ! WPCLI_TYPE_ROWS="$("$WPCLI_BIN" pipeline ps --format '{{ .step.Name }}|{{ .step.Type }}
+' "$REPO" "$PIPELINE" 2>/dev/null)"; then
+                WPCLI_TYPE_ROWS=""
+            fi
+            # The join is by NAME, the only identity these rows carry. A name
+            # that appears with two different types (the same step name in two
+            # workflows) cannot say which one failed, so it stays unknown rather
+            # than borrowing a neighbour's type (counter-model review).
             for step in ${FAILED_STEPS+"${FAILED_STEPS[@]}"}; do
                 found_type=""
+                seen=0
                 while IFS='|' read -r row_step row_type; do
-                    if [[ "$row_step" == "$step" ]]; then found_type="$row_type"; break; fi
+                    [[ "$row_step" == "$step" ]] || continue
+                    if [[ "$seen" -eq 0 ]]; then
+                        found_type="$row_type"; seen=1
+                    elif [[ "$row_type" != "$found_type" ]]; then
+                        found_type=""; break
+                    fi
                 done <<<"$WPCLI_TYPE_ROWS"
                 FAILED_STEP_TYPES+=("$found_type")
             done
