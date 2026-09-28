@@ -4753,6 +4753,7 @@ def test_an_unusable_tmpdir_refuses_before_writing(tmp_path: Path) -> None:
     assert _entry(tmp_path, "zz", "w")["files"] == "a.py", "refused, so nothing may have changed"
 
 
+@requires_tools
 class TestAnotherHostsOwnerIsUnknownNotStale:
     """#1014 Part 2 (ruling RA): the registry cannot observe a remote pid.
 
