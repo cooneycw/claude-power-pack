@@ -601,3 +601,40 @@ class TestAmend:
                                "--value", "same", "--reason", "x")
         assert rc == 2 and "nothing to amend" in err, err
         assert "amendments" not in _candidate(MOD.read_ledger(path, WAVE), cid)
+
+    def test_a_duplicate_link_is_refused_and_names_its_canonical(self, monkeypatch, tmp_path: Path) -> None:
+        path = _ledger_path(tmp_path)
+        canonical = _record(path, "pre-existing-oos", source_issue=17)
+        dup = _record(path, "duplicate", source_issue=18, dedupe_of=canonical["candidate_id"])
+        assert dup["disposition"] == "duplicate", "precondition"
+        rc, _out, err = _amend(monkeypatch, tmp_path, "--candidate-id", dup["candidate_id"], "--field", "evidence",
+                               "--value", "new", "--reason", "x")
+        assert rc == 1 and "duplicate link" in err and canonical["candidate_id"] in err, err
+
+    def test_a_second_amendment_appends_to_the_history(self, monkeypatch, tmp_path: Path) -> None:
+        path = _ledger_path(tmp_path)
+        cid = _record(path, "pre-existing-oos", source_issue=19, evidence="one")["candidate_id"]
+        for value in ("two", "three"):
+            rc, _out, err = _amend(monkeypatch, tmp_path, "--candidate-id", cid, "--field", "evidence",
+                                   "--value", value, "--reason", f"to {value}")
+            assert rc == 0, err
+        history = _candidate(MOD.read_ledger(path, WAVE), cid)["amendments"]
+        assert [(a["previous"], a["value"]) for a in history] == [("one", "two"), ("two", "three")]
+
+    @pytest.mark.parametrize(
+        ("field", "value", "reason", "expected"),
+        [
+            ("evidence", "   ", "r", "value"),
+            ("evidence", "v", "   ", "reason"),
+            ("source_issue", "99", "r", "field"),
+        ],
+    )
+    def test_blank_values_and_unamendable_fields_are_refused(
+        self, monkeypatch, tmp_path: Path, field: str, value: str, reason: str, expected: str
+    ) -> None:
+        path = _ledger_path(tmp_path)
+        cid = _record(path, "pre-existing-oos", source_issue=20, evidence="e")["candidate_id"]
+        rc, _out, err = _amend(monkeypatch, tmp_path, "--candidate-id", cid, "--field", field,
+                               "--value", value, "--reason", reason)
+        assert rc == 2 and expected in err and "unknown verb" not in err, err
+        assert "amendments" not in _candidate(MOD.read_ledger(path, WAVE), cid)
