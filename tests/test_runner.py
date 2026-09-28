@@ -3279,6 +3279,25 @@ class TestClassificationReachesTheGate:
         assert result.tests["check"]["executed"] == 0, result.tests
         assert any("executed NO tests" in w for w in result.warnings), result.warnings
 
+    def test_a_quoted_runner_that_ran_tests_is_not_warned_about(self, tmp_project: Path):
+        """The other half: a classifier that made EVERY step a test step, or a
+        runner that warned on every quoted runner, would pass the test above.
+        Proposed as a red case by the counter-model review (#1298)."""
+        bindir = tmp_project / "bin"
+        bindir.mkdir()
+        fake = bindir / "pytest"
+        fake.write_text("#!/bin/sh\necho '== 66 passed in 0.42s =='\n")
+        fake.chmod(0o755)
+        steps = [
+            StepDef(id="check", command=f'bash -c "{fake} /tmp/cases"', timeout_seconds=30)
+        ]
+        runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
+        result = runner.run("check", step_defs=steps)
+
+        assert result.success
+        assert result.tests["check"]["executed"] == 66, result.tests
+        assert result.warnings == [], result.warnings
+
     def test_an_env_prefixed_lint_that_examined_nothing_is_qualified(
         self, tmp_project: Path
     ):
