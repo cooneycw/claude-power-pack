@@ -144,7 +144,10 @@ def test_an_unreadable_config_is_unknown_never_defaults(tmp_path: Path) -> None:
         ("suppressions:\n  - id: AWS_ACCESS_KEY\n    secrets: 'x'\n", "unknown key(s) ['secrets']"),
         ("suppressions:\n  - path: 'x'\n", "needs a non-empty string `id`"),
         ("suppressions:\n  - id: AWS_ACCESS_KEY\n    secret: '(unclosed'\n", "not a valid regex at position 0"),
-        ("suppressions:\n  - id: AWS_ACCESS_KEY\n    1: x\n    unexpected: y\n", "unknown key(s) ['<int not shown>', 'unexpected']"),
+        (
+            "suppressions:\n  - id: AWS_ACCESS_KEY\n    1: x\n    unexpected: y\n",
+            "unknown key(s) ['<int not shown>', 'unexpected']",
+        ),
         ("gates:\n  flow_finish:\n    block_on: [NOPE]\n", "names an unknown severity"),
         # Counter-model review: falsey and wrong-type shapes used to default or crash.
         ("false\n", "top level is a bool, not a mapping"),
