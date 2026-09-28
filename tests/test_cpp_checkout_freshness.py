@@ -329,3 +329,30 @@ def test_the_anchor_block_is_verbatim_from_164fdd4() -> None:
     begin = next(i for i, ln in enumerate(lines) if "BEGIN verbatim" in ln)
     end = next(i for i, ln in enumerate(lines) if "END verbatim" in ln)
     assert lines[begin + 1 : end] == original
+
+
+def test_a_host_without_timeout_still_measures(repos: tuple[Path, Path, Path], tmp_path: Path) -> None:
+    """Orchestrator review of #1305: with no `timeout`, TIMEOUT_CMD is EMPTY.
+
+    Under `set -u` a bare `"${TIMEOUT_CMD[@]}"` of an empty array is an unbound
+    variable on bash < 4.4 (macOS /bin/bash 3.2), so every fetch died and read
+    `unknown`. This pins the absent-timeout path; it cannot go red on the bash
+    >= 4.4 this suite runs under, which is stated rather than claimed.
+    """
+    _, seed, checkout = repos
+    _advance(seed)
+    bin_dir = tmp_path / "bin-without-timeout"
+    bin_dir.mkdir()
+    for tool in ("bash", "git", "sed", "grep", "head", "tail", "awk", "readlink", "dirname", "cat"):
+        found = shutil.which(tool)
+        if found is None:
+            pytest.skip(f"{tool} is not on PATH")
+        (bin_dir / tool).symlink_to(found)
+    assert shutil.which("timeout", path=str(bin_dir)) is None, "precondition: no timeout on PATH"
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env["PATH"] = str(bin_dir)
+    result = subprocess.run(
+        [str(bin_dir / "bash"), str(SCRIPT), "--path", str(checkout)],
+        capture_output=True, text=True, env=env,
+    )
+    assert _verdict(result) == "behind 1", result.stdout + result.stderr

@@ -80,7 +80,8 @@ def add_evidence(case: Path, stem: str, model: str) -> Path:
     thread_id = "same-thread-in-independent-roots"
     write_json(manifest, {"exec_log": f"{stem}/exec.jsonl", "sessions_dir": f"{stem}/sessions"})
     write_json(evidence / stem / "exec.jsonl", {"type": "thread.started", "thread_id": thread_id})
-    write_json(evidence / stem / "sessions/2026/09/19" / f"rollout-{thread_id}.jsonl", {"model": model})
+    write_json(evidence / stem / "sessions/2026/09/19" / f"rollout-{thread_id}.jsonl",
+               {"type": "turn_context", "payload": {"model": model}})
     return manifest
 
 

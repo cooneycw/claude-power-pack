@@ -145,7 +145,10 @@ TIMEOUT_CMD=()
 if command -v timeout >/dev/null 2>&1; then
     TIMEOUT_CMD=(timeout "$FETCH_TIMEOUT")
 fi
-FETCH_ERR="$(GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true "${TIMEOUT_CMD[@]}" \
+# `${arr[@]+"${arr[@]}"}`, never a bare `"${arr[@]}"`: under `set -u`, bash
+# before 4.4 (macOS's /bin/bash is 3.2) treats an EMPTY array as unbound, so on
+# exactly the host with no `timeout` every fetch died and read `unknown`.
+FETCH_ERR="$(GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true ${TIMEOUT_CMD[@]+"${TIMEOUT_CMD[@]}"} \
     git -C "$CHECKOUT" -c http.lowSpeedLimit=1 -c "http.lowSpeedTime=$FETCH_TIMEOUT" \
     fetch --quiet origin \
     "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" 2>&1)"

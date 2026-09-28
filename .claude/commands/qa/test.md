@@ -170,6 +170,59 @@ gh issue create --repo <repo> --title "<title>" --body "<body>" --label "bug"
 
 ---
 
+## Step 7b: Export a Confirmed Bug as a Regression Test (opt-in)
+
+Run this only when BOTH hold: the bug is confirmed with reproducible steps, and
+the project opted in with `regression_export.enabled: true` in `.claude/qa.yml`
+(see `templates/qa.yml.example`). Otherwise skip it and say so in the summary.
+
+1. **Write the reproduction as a spec** - JSON, schema `cpp.qa-regression/1`,
+   into a scratch file (not the repo):
+   ```json
+   {
+     "schema": "cpp.qa-regression/1",
+     "title": "one click on Add to cart adds exactly one item",
+     "issue": "https://github.com/<owner>/<repo>/issues/<N>",
+     "start": "/shop",
+     "steps": [{"action": "click", "target": {"role": "button", "name": "Add to cart"}}],
+     "expect": [{"target": {"testid": "cart-count"}, "toHaveText": "1"}]
+   }
+   ```
+   - Actions: `goto` (`path`), `click`, `fill` (`value` or `value_env`), `press`
+     (`key`), `check`. Locators: exactly one of `testid`, `role` (+ `name`),
+     `label`, `text`.
+   - `expect` holds the product assertion that FAILS while the bug is present:
+     `toHaveText`, `toContainText`, `toBeVisible: true`, `toBeHidden: true`.
+   - Paths are relative - the base URL comes from the project's Playwright config.
+   - Never put cookies, storage state, tokens or private page data in a spec. The
+     schema has no field for them; a literal value into a password-like field is
+     refused - use `value_env`.
+2. **Export** into the project's own Playwright setup:
+   ```bash
+   python3 ~/Projects/claude-power-pack/scripts/qa-regression-export.py export --root . --spec <spec.json>
+   ```
+   - `QA_REGRESSION_EXPORT: ok` prints the test path, the exact run command and
+     where the trace is written.
+   - `missing-prerequisite` (exit 3) names what is missing (a Playwright config,
+     `@playwright/test` in `node_modules`, `node`). **Stop there:** report it as
+     "no executable handoff" and do NOT install a runner or another stack.
+   - `not-enabled` (exit 5): the project did not opt in; skip the export.
+3. **Prove the test reproduces the bug**, with the project's runner:
+   ```bash
+   python3 ~/Projects/claude-power-pack/scripts/qa-regression-export.py run --root . --test <path>
+   ```
+   Report the verdict verbatim - `reproduced` (the bug is present), `passed`,
+   `unavailable` (the app could not be reached - NOT a reproduction) or `error`.
+   A test that does not report `reproduced` against the buggy app is not a
+   regression test yet: say so rather than handing it off. Link the test path and
+   verdict in the bug's GitHub issue; never attach a trace recorded against a
+   real or production site, only one from local or synthetic data.
+
+The three-arm demonstration of this handoff is `make qa-regression-demo` (issue
+#1291): buggy fixture = `reproduced`, fixed = `passed`, no app = `unavailable`.
+
+---
+
 ## Step 8: Report Summary
 
 After testing (or reaching `--find N` limit), output:
@@ -186,6 +239,10 @@ After testing (or reaching `--find N` limit), output:
 | # | Severity | Area | Description |
 |---|----------|------|-------------|
 | 1 | Critical | login | Form 500 on submit |
+
+### Regression Tests Exported
+(Step 7b: test path, run command and `run` verdict per bug - or "not enabled",
+or the missing prerequisite that stopped the handoff)
 
 ### Test Coverage
 (Dynamic checklist from config test_areas, or generic areas tested)

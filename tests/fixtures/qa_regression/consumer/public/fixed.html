@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Fixture shop</title></head>
+<body>
+  <h1>Fixture shop</h1>
+  <p>Cart: <span data-testid="cart-count">0</span></p>
+  <button type="button" id="add">Add to cart</button>
+  <script>
+    const count = document.querySelector('[data-testid="cart-count"]');
+    const add = () => { count.textContent = String(Number(count.textContent) + 1); };
+    document.getElementById('add').addEventListener('click', add);
+    // Fixed: exactly one listener.
+  </script>
+</body>
+</html>
