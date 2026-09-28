@@ -1,0 +1,20 @@
+{
+  "branch": "issue-1301-flow-eli5-global-skill-is-not-installed-so-flow-au",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "038f889",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1301",
+  "passes": 2,
+  "recorded_at": "2026-09-28T13:43:16Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 5
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "schema": 1,
+  "status": "ran"
+}
