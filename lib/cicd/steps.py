@@ -123,10 +123,49 @@ _PATH_START = ("/", "./", "../", "~/")
 _SCRIPT_DEPTH = 1
 
 
+def _join_continuations(command: str) -> str:
+    """Remove backslash-newline pairs the way a shell does - except inside
+    single quotes, where the pair is literal (counter-model review, #1298).
+
+    shlex keeps an escaped newline as a word of its own, so `bash \\` on one
+    line and `-c "..."` on the next put a newline word between the shell and its
+    `-c`, and the script was no longer found.
+    """
+    out: list[str] = []
+    quote = ""
+    i = 0
+    while i < len(command):
+        ch = command[i]
+        if quote == "'":
+            if ch == "'":
+                quote = ""
+        elif ch == "\\" and i + 1 < len(command):
+            if command[i + 1] == "\n":
+                i += 2
+                continue
+            out.append(ch + command[i + 1])
+            i += 2
+            continue
+        elif ch in "'\"" and (not quote or quote == ch):
+            quote = "" if quote else ch
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def _shell_words(command: str) -> list[str]:
-    """Split like a POSIX shell's quoting; raises ValueError if unbalanced."""
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    """Split like a POSIX shell's quoting; raises ValueError if unbalanced.
+
+    COMMENTS ARE NOT RECOGNISED, deliberately (counter-model review, #1298).
+    shlex treats `#` as a comment start even in the middle of a word, where a
+    shell does not, so `echo build#123; pytest` lost its runner. Telling a
+    word-initial unquoted `#` from a quoted one needs the quote state shlex
+    discards, so comments are read as words instead - which errs toward "test"
+    (`make lint # pytest` classifies, as it did before #1298) and never away.
+    """
+    lexer = shlex.shlex(_join_continuations(command), posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
+    lexer.commenters = ""
     return list(lexer)
 
 

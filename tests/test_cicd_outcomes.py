@@ -325,6 +325,15 @@ class TestStepGating:
             'bash -o pipefail -c "/opt/venv/bin/pytest /tmp/cases"',
             'bash -e -c "/opt/venv/bin/pytest /tmp/cases"',
             'bash -c "PYTEST_WORKERS=4 /opt/venv/bin/pytest /tmp/cases"',
+            # Counter-model review pass 2 (#1298): a `#` inside a word is not a
+            # comment, and a backslash-newline is a continuation, outside and
+            # inside the `-c` script.
+            "echo build#123; /opt/venv/bin/pytest /tmp/cases",
+            'bash \\\n  -c "/opt/venv/bin/pytest /tmp/cases"',
+            'bash -c "cd /srv && \\\n  /opt/venv/bin/pytest /tmp/cases"',
+            # Comments are read as words, deliberately: this over-reports (as
+            # the pre-#1298 regex did) and can never hide a runner.
+            "make lint # pytest",
             # Depth 2 is past the bound: the inner script is scanned raw, which
             # fails TOWARD a test step - never away from one.
             "bash -c \"bash -c '/opt/venv/bin/pytest -q'\"",
@@ -369,6 +378,16 @@ class TestStepGating:
     def test_an_environment_assignment_never_classifies(self, command: str) -> None:
         """A `NAME=value` word says what a variable holds, not what runs (#1298)."""
         assert not ShellStep(StepDef(id="lint", command=command)).is_test_step()
+
+    def test_a_continuation_inside_single_quotes_is_literal(self) -> None:
+        """Only an UNQUOTED or double-quoted backslash-newline is joined (#1298)."""
+        from lib.cicd.steps import _join_continuations
+
+        assert _join_continuations("a \\\nb") == "a b"
+        assert _join_continuations('"a \\\nb"') == '"a b"'
+        assert _join_continuations("'a \\\nb'") == "'a \\\nb'"
+        # An escaped quote does not open a quote.
+        assert _join_continuations("\\' \\\nb") == "\\' b"
 
     def test_builtin_finish_typecheck_is_not_a_test_step(self) -> None:
         """The real step, whose command carries THIS checkout's absolute path.
