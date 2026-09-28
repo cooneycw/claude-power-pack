@@ -126,7 +126,7 @@ def test_the_rendered_test_resets_state_marks_unavailable_and_asserts_the_produc
     assert 'import { test, expect } from "@playwright/test";' in text
     assert "test.use({ storageState: { cookies: [], origins: [] } });" in text
     assert qa.UNAVAILABLE_MARKER in text
-    assert 'await page.goto("/shop");' in text
+    assert 'await reach(page, "/shop");' in text
     assert 'await page.getByRole("button", { name: "Add to cart" }).click();' in text
     assert 'await expect(page.getByTestId("cart-count")).toHaveText("1");' in text
     assert "waitForTimeout" not in text, "no arbitrary sleeps"
@@ -168,6 +168,16 @@ def test_rendered_tests_are_syntactically_valid_javascript(tmp_path):
     assert proc.returncode == 0, proc.stderr
 
 
+def test_every_navigation_checks_reachability():
+    """Counter-model finding: a later route answering 503 read as the bug."""
+    steps = [{"action": "goto", "path": "/checkout"}, {"action": "click", "target": {"testid": "buy"}}]
+    text = qa.render_test(_spec(steps=steps), "@playwright/test")
+    assert 'await reach(page, "/shop");' in text
+    assert 'await reach(page, "/checkout");' in text
+    assert text.count("page.goto(") == 1, "the only raw goto is inside reach()"
+    assert "if (!response || !response.ok())" in text
+
+
 def test_literals_are_escaped_as_js_strings():
     spec = _spec(title='quote " and backslash \\ and `tick` ${x}')
     text = qa.render_test(spec, "@playwright/test")
@@ -185,7 +195,10 @@ def test_export_writes_into_the_configured_dir_and_prints_the_handoff(tmp_path, 
     written = root / "tests/e2e/regressions/regression-one-click-on-add-to-cart-adds-exactly-one-item.spec.mjs"
     assert written.is_file()
     assert f"QA_REGRESSION_TEST: {written.relative_to(root).as_posix()}" in out
-    assert "QA_REGRESSION_RUN: npx playwright test tests/e2e/regressions/" in out
+    assert (
+        "QA_REGRESSION_RUN: npx playwright test "
+        "'/tests/e2e/regressions/regression-one-click-on-add-to-cart-adds-exactly-one-item\\.spec\\.mjs$' --trace on"
+    ) in out
     assert "QA_REGRESSION_TRACE:" in out
     assert out.rstrip().endswith("QA_REGRESSION_EXPORT: ok")
 
@@ -303,6 +316,24 @@ def test_an_unreachable_app_is_unavailable_not_reproduced():
     assert qa.classify_report(_report(down), TARGET)[0] == "unavailable"
 
 
+# Verbatim Playwright 1.63 messages, ANSI colour codes included (measured).
+ESC = "\x1b"
+HEADER = f"Error: {ESC}[2mexpect({ESC}[22m{ESC}[31mlocator{ESC}[39m{ESC}[2m).{ESC}[22mtoHaveText failed\n\n"
+STRICT = HEADER + "Locator: getByTestId('c')\nError: strict mode violation: getByTestId('c') resolved to 2 elements"
+MISMATCH = HEADER + f'Locator:  getByTestId(\'c\')\nExpected: {ESC}[32m"1"{ESC}[39m\nReceived: {ESC}[31m"2"{ESC}[39m'
+NOT_FOUND = HEADER + "Locator: getByTestId('c')\nError: element(s) not found"
+
+
+@pytest.mark.parametrize(
+    "message, verdict",
+    [(MISMATCH, "reproduced"), (NOT_FOUND, "reproduced"), (STRICT, "error")],
+)
+def test_an_ambiguous_locator_is_error_not_reproduced(message, verdict):
+    """Counter-model finding: strict mode shares the `expect(...) failed` header."""
+    failed = {"status": "failed", "error": {"message": message}}
+    assert qa.classify_report(_report(failed), TARGET)[0] == verdict
+
+
 def test_a_neighbours_failed_assertion_with_the_target_skipped_is_error_not_reproduced():
     """Counter-model finding: a failed setup dependency SKIPS the target."""
     report = _report(SKIPPED, neighbour=ASSERTION)
@@ -342,6 +373,15 @@ def test_anything_else_is_error_never_passed(report, why):
 
 
 # ---------------------------------------------------------------------- run
+
+
+def test_the_printed_run_command_escapes_the_relative_path():
+    """Counter-model finding: the printed command used an unescaped regex."""
+    printed = qa._file_filter(Path("/tests/e2e[local]/a.spec.mjs"), anchor_start=False)
+    assert printed == r"/tests/e2e\[local\]/a\.spec\.mjs$"
+    assert re.search(printed, "/abs/project/tests/e2e[local]/a.spec.mjs")
+    assert not re.search(printed, "/abs/project/tests/e2e[local]/aXspec.mjs")
+    assert not re.search(printed, "/abs/project/tests/e2e[local]/a.spec.mjs.bak")
 
 
 def test_the_file_filter_is_an_escaped_anchored_regex():

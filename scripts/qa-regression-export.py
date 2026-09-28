@@ -289,6 +289,20 @@ def render_test(spec: dict[str, Any], module: str) -> str:
         "",
         f"const UNAVAILABLE = {_js(UNAVAILABLE_MARKER)};",
         "",
+        "// Load a route, or fail with the marker that means 'could not run', which the",
+        "// handoff never reads as the bug being present.",
+        "async function reach(page, path) {",
+        "  let response;",
+        "  try {",
+        "    response = await page.goto(path);",
+        "  } catch (err) {",
+        "    throw new Error(`${UNAVAILABLE}: ${err.message.split('\\n')[0]}`);",
+        "  }",
+        "  if (!response || !response.ok()) {",
+        "    throw new Error(`${UNAVAILABLE}: HTTP ${response ? response.status() : 'no response'} for ${path}`);",
+        "  }",
+        "}",
+        "",
         "// A fresh, empty context: never the explorer's session, never a logged-in",
         "// state the project config may set for its other tests.",
         "test.use({ storageState: { cookies: [], origins: [] } });",
@@ -299,15 +313,7 @@ def render_test(spec: dict[str, Any], module: str) -> str:
         lines.append(f"  test.info().annotations.push({{ type: 'issue', description: {_js(spec['issue'])} }});")
     lines += [
         "  await test.step('precondition: app reachable', async () => {",
-        "    let response;",
-        "    try {",
-        f"      response = await page.goto({_js(spec['start'])});",
-        "    } catch (err) {",
-        "      throw new Error(`${UNAVAILABLE}: ${err.message.split('\\n')[0]}`);",
-        "    }",
-        "    if (!response || !response.ok()) {",
-        "      throw new Error(`${UNAVAILABLE}: HTTP ${response ? response.status() : 'no response'}`);",
-        "    }",
+        f"    await reach(page, {_js(spec['start'])});",
         "  });",
     ]
     steps = spec.get("steps", [])
@@ -316,7 +322,9 @@ def render_test(spec: dict[str, Any], module: str) -> str:
         for index, step in enumerate(steps):
             action = step["action"]
             if action == "goto":
-                lines.append(f"    await page.goto({_js(step['path'])});")
+                # Every navigation, not just the first: a later route answering
+                # 503 must read as unavailable, never as the bug (counter-model).
+                lines.append(f"    await reach(page, {_js(step['path'])});")
                 continue
             loc = _locator(step["target"])
             if action == "click":
@@ -398,7 +406,8 @@ def cmd_export(args: argparse.Namespace) -> int:
 
     rel = target.relative_to(root).as_posix()
     print(f"QA_REGRESSION_TEST: {rel}")
-    print(f"QA_REGRESSION_RUN: npx playwright test {shlex.quote(rel)} --trace on")
+    selector = shlex.quote(_file_filter(Path("/" + rel), anchor_start=False))
+    print(f"QA_REGRESSION_RUN: npx playwright test {selector} --trace on")
     print(
         "QA_REGRESSION_TRACE: written under the config's outputDir per run; "
         "open with `npx playwright show-trace <trace.zip>`"
@@ -433,9 +442,18 @@ def _target_results(suites: list[dict[str, Any]], root_dir: Path | None, target:
         yield from _target_results(suite.get("suites", []) or [], root_dir, target)
 
 
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+#: Playwright reports an AMBIGUOUS locator under the same `expect(...) failed`
+#: header as a real mismatch. It is a defect in the test, not a verdict about the
+#: product: once an unrelated change adds a second matching element, a FIXED bug
+#: would otherwise read as reproduced (counter-model review, measured on 1.63).
+LOCATOR_ERRORS = ("strict mode violation",)
+
+
 def _messages(result: dict[str, Any]) -> list[str]:
     errors = [result.get("error")] + list(result.get("errors", []) or [])
-    return [(e or {}).get("message", "") or "" for e in errors if e]
+    return [ANSI.sub("", (e or {}).get("message", "") or "") for e in errors if e]
 
 
 def classify_report(report: dict[str, Any] | None, target: Path | None) -> tuple[str, str, list[str]]:
@@ -470,15 +488,23 @@ def classify_report(report: dict[str, Any] | None, target: Path | None) -> tuple
         return "unavailable", "the app could not be reached - this is NOT a bug reproduction", traces
     if all(s == "passed" for s in statuses) and not top_errors:
         return "passed", f"{len(results)} result(s) of the requested test passed", traces
+    if any(marker in m for m in messages for marker in LOCATOR_ERRORS):
+        return "error", "an assertion locator is ambiguous (strict mode violation) - fix the test; no verdict", traces
     if any(s in ("failed", "timedOut") for s in statuses) and any("expect(" in m for m in messages):
         return "reproduced", "a product assertion failed - the bug is present", traces
     first = next((m.strip().splitlines()[0] for m in messages + top_errors if m.strip()), "unclassified failure")
     return "error", first, traces
 
 
-def _file_filter(path: Path) -> str:
-    """Playwright reads a positional filter as a REGEX: escape and anchor it."""
-    return "^" + re.sub(r"[.*+?^${}()|[\]\\]", lambda m: "\\" + m.group(0), path.as_posix()) + "$"
+def _file_filter(path: Path, *, anchor_start: bool = True) -> str:
+    """Playwright reads a positional filter as a REGEX: escape and anchor it.
+
+    `anchor_start=False` is for the command printed to the consumer, which must
+    not carry this machine's absolute path: `/<relative path>$` still selects
+    exactly that file under the project, and never a similarly named neighbour.
+    """
+    escaped = re.sub(r"([.*+?^${}()|[\]\\])", r"\\\1", path.as_posix())
+    return f"^{escaped}$" if anchor_start else f"{escaped}$"
 
 
 def cmd_run(args: argparse.Namespace) -> int:
