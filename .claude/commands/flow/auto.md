@@ -748,6 +748,14 @@ answer in as a test rather than a comment. Where the narrow answer is deliberate
 correct, widening is not the remedy: say where the larger question is answered
 instead.
 
+**In a `/flow:wave`, re-register when the scope you derived is wider than the lane
+you declared (issue #1266).** A lane is declared at `/flow:register` time, before
+Step 2 has found what the change actually touches. When implementation reaches a
+file outside the declared `--files` - a scope DERIVED here, not granted - re-run
+`/flow:register` with the full list before committing it. Otherwise the roster
+reports no overlap for a file you are editing, and another role can be granted it.
+`--files` REPLACES the lane, so pass every path you still hold, not only the new one.
+
 If implementation hits a blocker that cannot be resolved:
 - **STOP** and report the blocker.
 - Suggest manual intervention.

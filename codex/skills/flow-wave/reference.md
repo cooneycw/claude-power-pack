@@ -374,6 +374,14 @@ the drop (`FLOW_WAVE_FILES_DROPPED`) rather than letting it pass in silence. `ME
 not the push pipeline. `STATE` must be stamped because four broadcasts were true
 when composed and wrong when read.
 
+**A granted lane is a guess until Step 2 has run, and it carries mirrors (issue
+#1266).** Grant a bundled source together with the `codex/skills/` copies its
+resync regenerates - `codex-skill-sync.py --list-mirrors <source>`, run from the CPP checkout, lists
+them - or two roles regenerate one mirror with the roster reporting no overlap.
+And when a role's implementation derives a scope wider than its lane, it
+re-registers with the complete list before committing (`/flow-register`,
+`/flow-auto` Step 4); a re-grant from the orchestrator names the complete lane too.
+
 **The tokens are READ BACK - that is the whole reason this exists.** A lexicon
 nobody validates is prose with extra steps, and a reflexive `GATE: GO` prints
 exactly what a considered one prints. Two mechanisms make a token load-bearing:

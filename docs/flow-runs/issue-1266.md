@@ -25,3 +25,13 @@ statement of the issue contract or of a Tier 3 spec, and it does not graduate.
 
 Scope: 2-3 files, ~200 lines. Risk: the registry's concurrency path; the race test is forced, not timed.
 PR B (items 5, 8, 9) and the re-disposition comments (6, 7, 11, 12) follow.
+
+## PR B - the approved plan (items 5, 8, 9; appended; stacked on PR A until it merges)
+Approver: run45:orch, message 2114 ("approve: PR A ... then PR B (5, 8, 9)") and 2129
+("PR B can proceed locally").
+
+4. `scripts/flow-wave-residuals.py` - an `amend` verb: correct a candidate's consequence, evidence or classification with a required reason, append-only history, refused once the wave is closed (close revalidates against the final tree) and on duplicate links
+5. `tests/test_flow_wave_residuals.py` - amend regressions (red on the pre-fix code: unknown verb)
+6. `.claude/commands/flow/register.md` - item 8: a granted path carries its generated mirrors (codex-skill-sync --list-mirrors); item 9: re-register after a Step-4 scope derivation
+7. `.claude/commands/flow/wave.md` - the same two rules where the orchestrator grants lanes
+8. `.claude/commands/flow/auto.md` - item 9 at Step 4
