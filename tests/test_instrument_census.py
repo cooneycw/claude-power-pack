@@ -631,7 +631,8 @@ def test_typed_subjects_do_not_make_every_target_part_of_the_population(tmp_path
 
 def test_a_make_row_with_no_makefile_is_not_confirmed(tmp_path, capsys):
     """Unread is not absent - and it is not present either."""
-    root = _tree(tmp_path, ["alpha.sh"], _adr(rows="| 1 | `alpha.sh` | v | c | G |\n| 2 | `make verify` | v | c | G |\n"))
+    rows = "| 1 | `alpha.sh` | v | c | G |\n| 2 | `make verify` | v | c | G |\n"
+    root = _tree(tmp_path, ["alpha.sh"], _adr(rows=rows))
     assert icc.main(["check", "--root", str(root)]) == 1
     assert "could not be read" in capsys.readouterr().out
 

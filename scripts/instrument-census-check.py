@@ -105,12 +105,13 @@ BOTH DIRECTIONS, because a membership list lies in two ways
                denominator silently inflates - which moves the coverage
                fraction in the flattering direction.
 
-NON-FILE SUBJECTS ARE DECLARED IN THE DOCUMENT, not listed in here. Fourteen
-census rows name things with no file under `scripts/` for a marker to live in -
-`ruff`, `mypy`, `pytest`, `gitleaks`, `hadolint`, and the `lib.*` module entry
-points. (`make` was one until #1276 made `make <target>` a typed subject.) They are declared on an `instrument-census: external-subjects:`
-marker inside the ADR, so the declaration sits beside what it governs and
-travels with any tree this gate is pointed at.
+NON-FILE SUBJECTS ARE DECLARED IN THE DOCUMENT, not listed in here. Census rows
+name things with no file under `scripts/` for a marker to live in - `ruff`,
+`mypy`, `pytest`, `gitleaks`, `hadolint`, and the `lib.*` module entry points.
+(`make` was one until #1276 made `make <target>` a typed subject.) They are
+declared on an `instrument-census: external-subjects:` marker inside the ADR, so
+the declaration sits beside what it governs and travels with any tree this gate
+is pointed at.
 
 That list NARROWS what is checked, so it is built to fail LOUDLY: a new external
 subject is STALE until someone declares it. A list that narrows and fails quietly
