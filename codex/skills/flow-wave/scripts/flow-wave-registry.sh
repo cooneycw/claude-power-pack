@@ -830,8 +830,23 @@ with_lock() {
     [ -s "$REG_FILE" ] || echo '{}' > "$REG_FILE"
     local tmp
     tmp="$(mktemp "$REG_DIR/.registry.XXXXXX")" || exit 3
+    # THE BEFORE/AFTER OF ONE ENTRY, TAKEN UNDER THE SAME LOCK AS THE WRITE
+    # (issue #1266). A caller that sets LOCK_SNAP_W/LOCK_SNAP_R and the two
+    # output paths gets the entry exactly as it was replaced and exactly as it
+    # was written - no other registration can commit between those reads and
+    # this write, which is the whole point. Reading either outside the lock is
+    # how `register` used to report a lane delta against an entry that had
+    # already been replaced by someone else.
+    if [ -n "${LOCK_SNAP_PREV:-}" ]; then
+      jq -c --arg w "$LOCK_SNAP_W" --arg r "$LOCK_SNAP_R" '.[$w].roles[$r] // null' "$REG_FILE" > "$LOCK_SNAP_PREV" 2>/dev/null \
+        || { rm -f "$tmp"; echo "flow-wave-registry: registry snapshot failed (corrupt JSON?)" >&2; exit 3; }
+    fi
     if jq "$@" "$prog" "$REG_FILE" > "$tmp" 2>/dev/null; then
       mv -f "$tmp" "$REG_FILE"
+      if [ -n "${LOCK_SNAP_NEW:-}" ]; then
+        jq -c --arg w "$LOCK_SNAP_W" --arg r "$LOCK_SNAP_R" '.[$w].roles[$r] // null' "$REG_FILE" > "$LOCK_SNAP_NEW" 2>/dev/null \
+          || { echo "flow-wave-registry: registry snapshot failed after the write" >&2; exit 3; }
+      fi
     else
       rm -f "$tmp"
       echo "flow-wave-registry: registry update failed (corrupt JSON?)" >&2
@@ -852,6 +867,7 @@ with_lock() {
   #: from 0 to 3 on a path that was already broken.
   lock_status=$?
   if [ "$lock_status" -ne 0 ]; then
+    rm -f "${LOCK_SNAP_PREV:-}" "${LOCK_SNAP_NEW:-}" 2>/dev/null
     echo "flow-wave-registry: the registry was NOT updated - nothing was recorded." >&2
     echo "  Treat this as a refusal, not a slow write: re-run once the cause is fixed." >&2
     emit error
@@ -2436,6 +2452,21 @@ case "$VERB" in
     # now, while this process is unambiguously the registering session's own,
     # never re-derived later by a reader on another machine.
     vantage_derive
+    #: TEST-ONLY SEAM, NOT A KNOB (issue #1266). Everything above ran WITHOUT the
+    #: lock - including the read of the current entry - and this is the window a
+    #: concurrent registration can commit inside. A test sets the variable to a
+    #: directory; this touches `paused` there and waits (bounded) for `release`,
+    #: so the interleaving is FORCED rather than hoped for by timing. Unset in
+    #: every real use; nothing reads it but this block.
+    if [ -n "${FLOW_WAVE_REGISTRY_TEST_PAUSE_REGISTER:-}" ]; then
+      : > "$FLOW_WAVE_REGISTRY_TEST_PAUSE_REGISTER/paused"
+      _pause_deadline=$(( $(date +%s) + 30 ))
+      while [ ! -e "$FLOW_WAVE_REGISTRY_TEST_PAUSE_REGISTER/release" ] && [ "$(date +%s)" -lt "$_pause_deadline" ]; do
+        sleep 0.05
+      done
+    fi
+    LOCK_SNAP_W="$WAVE"; LOCK_SNAP_R="$ROLE"
+    LOCK_SNAP_PREV="$(mktemp)"; LOCK_SNAP_NEW="$(mktemp)"
     # shellcheck disable=SC2016  # a jq program; $ names are jq variables (#972)
     with_lock '
       .[$w] //= {"roles": {}} |
@@ -2563,7 +2594,18 @@ case "$VERB" in
     # The `orchestrator` is skipped because `list` exempts it from the pairwise
     # checks unconditionally: it holds no lane, so "its lane is unscoped" is not
     # a fact about anything.
-    NEW_ENTRY="$(entry_json "$WAVE" "$ROLE")"
+    # Both sides of the delta come from the LOCKED transaction (issue #1266):
+    # the entry this write replaced, and the entry it wrote. `$CUR`, read before
+    # the lock for the ownership checks above, is NOT the entry replaced when a
+    # concurrent registration committed in between - measured with the test
+    # seam: the delta reported DROPPED=b.py against the stale read when the
+    # lane actually lost c.py.
+    REPLACED_ENTRY="$(cat "$LOCK_SNAP_PREV" 2>/dev/null)"
+    NEW_ENTRY="$(cat "$LOCK_SNAP_NEW" 2>/dev/null)"
+    rm -f "$LOCK_SNAP_PREV" "$LOCK_SNAP_NEW"
+    LOCK_SNAP_PREV=""; LOCK_SNAP_NEW=""
+    [ -n "$REPLACED_ENTRY" ] || REPLACED_ENTRY=null
+    [ -n "$NEW_ENTRY" ] || NEW_ENTRY=null
     NEW_REPO="$(printf '%s' "$NEW_ENTRY" | jq -r '.repo // ""')"
     NEW_FILES="$(printf '%s' "$NEW_ENTRY" | jq -r '.files // ""')"
     NEW_ISSUE="$(printf '%s' "$NEW_ENTRY" | jq -r '.issue // ""')"
@@ -2592,8 +2634,8 @@ case "$VERB" in
     # (the entry is marked, not erased), which is exactly why this has to be
     # asked rather than inferred from the field being present.
     PREV_FILES=""
-    if [ "$CUR" != "null" ] && [ "$(printf '%s' "$CUR" | jq -r '.released // false')" != "true" ]; then
-      PREV_FILES="$(printf '%s' "$CUR" | jq -r '.files // ""')"
+    if [ "$REPLACED_ENTRY" != "null" ] && [ "$(printf '%s' "$REPLACED_ENTRY" | jq -r '.released // false')" != "true" ]; then
+      PREV_FILES="$(printf '%s' "$REPLACED_ENTRY" | jq -r '.files // ""')"
     fi
     lane_missing "$PREV_FILES" "$NEW_FILES"
     FILES_DROPPED="$LANE_MISSING"; FILES_DROPPED_N="$LANE_MISSING_N"
