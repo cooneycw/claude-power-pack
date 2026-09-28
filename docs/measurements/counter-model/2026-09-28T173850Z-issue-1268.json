@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1268-harness-census",
+  "counts": {
+    "accepted": 7,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "7e4fd8a41a846ca9ba5c1888e28027fae1153560",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1268",
+  "passes": 2,
+  "recorded_at": "2026-09-28T17:38:50Z",
+  "red_cases": {
+    "already_covered": 17,
+    "proposed": 24
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/09/28/rollout-2026-09-28T17-30-58-01a0e911-e242-7893-9e7a-7deee0d52917.jsonl",
+    "thread_id": "01a0e911-e242-7893-9e7a-7deee0d52917"
+  },
+  "schema": 1,
+  "status": "ran"
+}
