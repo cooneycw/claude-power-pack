@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1262-remote-branch-sweep",
+  "counts": {
+    "accepted": 7,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "6f7004c5e81ae7b4b49a85d8658bfce8a3d5b66c",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1262",
+  "passes": 2,
+  "recorded_at": "2026-09-28T12:18:28Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 10
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/09/28/rollout-2026-09-28T12-16-35-01a0e7f2-0cf3-7761-aa2d-963f7158b768.jsonl",
+    "thread_id": "01a0e7f2-0cf3-7761-aa2d-963f7158b768"
+  },
+  "schema": 1,
+  "status": "ran"
+}

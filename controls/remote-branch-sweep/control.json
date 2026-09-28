@@ -1,0 +1,103 @@
+{
+  "_comment": [
+    "Registration for scripts/remote-branch-sweep.py (issue #1262).",
+    "WHY THIS GATE NEEDS A COMMITTED CASE (ADR 0008): it lets DELETIONS through,",
+    "and nothing downstream re-derives a deleted branch. Each case is one branch",
+    "behind a canned GitHub API fixture; nothing here reaches the real remote,",
+    "and the gate's `delete` mode refuses a fixture outright.",
+    "The verdict read is `plan`: SWEEP_DELETE for the one provably-landed shape,",
+    "SWEEP_REFUSED for everything else. The authority is master's narrowing of the",
+    "operator's 'do 1262' - see the gate's docstring - not operator wording.",
+    "expected_exit and expected_output are the observed verdicts."
+  ],
+  "gate": "scripts/remote-branch-sweep.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "plan",
+    "--repo",
+    "o/r",
+    "--api-fixture",
+    "{case}/api.json",
+    "--now",
+    "2026-09-28T12:00:00Z"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^SWEEP_REFUSED:",
+  "cases": [
+    {
+      "name": "good-landed-at-merged-head",
+      "input": "cases/good-landed-at-merged-head",
+      "expect": "GOOD",
+      "why": "A merged PR whose recorded head IS the tip, merge commit on the default branch, pushed weeks ago, no open PR or worktree. The one shape the gate may delete; refusing it would make the sweep inert.",
+      "expected_exit": 0,
+      "expected_output": "SWEEP_DELETE: issue-1-done aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa - PR #1 merged at this tip; merge commit 111111111111 on main\nSWEEP: plan examined=1 delete=1 refused=0"
+    },
+    {
+      "name": "bad-moved-after-merge",
+      "input": "cases/bad-moved-after-merge",
+      "expect": "BAD",
+      "why": "The PR merged, then the branch was pushed to again. The tip is not the merged head, so the branch holds commits nobody merged.",
+      "expected_exit": 1,
+      "expected_output": "SWEEP_REFUSED: issue-1-done [excluded] - PR #1 merged, but the branch moved after the merge\nSWEEP: plan examined=1 delete=0 refused=1"
+    },
+    {
+      "name": "bad-merge-commit-off-default",
+      "input": "cases/bad-merge-commit-off-default",
+      "expect": "BAD",
+      "why": "Merged at this tip, but the merge commit is not reachable from the default branch (reverted or rewritten history). A merged PR is not proof the work is on main.",
+      "expected_exit": 1,
+      "expected_output": "SWEEP_REFUSED: issue-1-done [excluded] - PR #1 merged at this tip, but its merge commit is NOT on the default branch\nSWEEP: plan examined=1 delete=0 refused=1"
+    },
+    {
+      "name": "bad-open-pr-reuses-name",
+      "input": "cases/bad-open-pr-reuses-name",
+      "expect": "BAD",
+      "why": "An older PR merged at this tip, but a NEW open PR uses the same branch name. Deleting it closes someone's open PR.",
+      "expected_exit": 1,
+      "expected_output": "SWEEP_REFUSED: issue-1-done [d] - open PR #2\nSWEEP: plan examined=1 delete=0 refused=1"
+    },
+    {
+      "name": "bad-pushed-within-24h",
+      "input": "cases/bad-pushed-within-24h",
+      "expect": "BAD",
+      "why": "Otherwise landed, but pushed ten hours ago per the activity API. Recent activity means someone may be working here.",
+      "expected_exit": 1,
+      "expected_output": "SWEEP_REFUSED: issue-1-done [excluded] - pushed within 24h (activity)\nSWEEP: plan examined=1 delete=0 refused=1"
+    },
+    {
+      "name": "bad-no-activity-record",
+      "input": "cases/bad-no-activity-record",
+      "expect": "BAD",
+      "why": "Every other (a) condition holds, but GitHub's activity record for the branch does not answer and only the tip's committer date is left. A committer date cannot see a push - a branch recreated today at an old merged commit keeps that commit's date - so recency cannot be established and the branch must not be deleted.",
+      "expected_exit": 1,
+      "expected_output": "SWEEP_REFUSED: issue-1-done [excluded] - push recency unestablished (activity API did not answer; a committer date cannot see a push)\nSWEEP: plan examined=1 delete=0 refused=1"
+    },
+    {
+      "name": "bad-closed-unmerged",
+      "input": "cases/bad-closed-unmerged",
+      "expect": "BAD",
+      "why": "Its PR was closed WITHOUT merging: the branch may hold the only copy of abandoned-but-wanted work. Report only.",
+      "expected_exit": 1,
+      "expected_output": "SWEEP_REFUSED: wip [b] - PR #3 closed without merging\nSWEEP: plan examined=1 delete=0 refused=1"
+    },
+    {
+      "name": "bad-never-had-a-pr",
+      "input": "cases/bad-never-had-a-pr",
+      "expect": "BAD",
+      "why": "No PR has ever used this branch. Nothing establishes it landed anywhere. Report only.",
+      "expected_exit": 1,
+      "expected_output": "SWEEP_REFUSED: orphan [c] - no PR has ever used this branch\nSWEEP: plan examined=1 delete=0 refused=1"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/remote-branch-sweep.py",
+      "path": "anchors/constructed-delete-every-listed-branch.py",
+      "sha256": "d650b8b8e4929a45d2dd77bcdd30e1f269fd87b2dff19498812a7ffd51ef62e8",
+      "why": "CONSTRUCTED, not historical, and PERMANENTLY so: a gate introduced by its own pull request has no blind ancestor on main, so --verify-provenance reads unverified forever and integrity rests on the sha256 above. WHAT IT IS: a sweeper that plans to delete every listed branch. It MISSES all seven BAD cases and AGREES with the real gate on the GOOD case, demonstrating that each refusal - moved tip, merge commit off the default branch, open PR, recent push, no push record, closed unmerged, no PR - is load-bearing."
+    }
+  ]
+}

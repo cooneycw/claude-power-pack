@@ -453,11 +453,20 @@ not the spec.** Read it from whichever surface this installation has (first matc
 wins), then produce the report against THAT spec, including its report template
 and depth floor:
 
-1. the installed global skill: `~/.claude/skills/flow-eli5/SKILL.md`
-2. inside the CPP repo itself: `.claude/commands/flow/eli5.md`
+1. the user-scope command link: `~/.claude/commands/flow/eli5.md` - what
+   `/cpp:init` installs on every host (its command-link step, #663)
+2. a Codex install: `~/.codex/skills/flow-eli5/SKILL.md` (`codex-skill-sync.py --install`)
+3. inside the CPP repo itself: `.claude/commands/flow/eli5.md`
 
-Do NOT produce the report from the summary below alone - outside the CPP repo the
-repo-relative path does not exist, and the summary omits the template and floor.
+This list names only paths an installer actually creates (issue #1301). It used
+to begin with `~/.claude/skills/flow-eli5/SKILL.md`, which nothing installs - the
+2026-06-28 grill for #398 rejected generating that file - so every run outside
+the CPP repo fell through to reading a checkout by hand.
+
+**If none of them resolves, STOP** and report `ELI5 spec not found` with the
+remedy: run `/cpp:init` (it links `~/.claude/commands/<family>`), or on a Codex
+install `codex-skill-sync.py --install`. Do NOT produce the report from the
+summary below alone - the summary omits the template and the depth floor.
 The three sections, for orientation:
 
 1. **ELI5 overview of intent** - what the issue is really trying to accomplish, in plain language a reviewer can sanity-check for a misread.

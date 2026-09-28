@@ -293,6 +293,11 @@
       "consumer": "tests/test_qa_regression_export.py",
       "reason": "the /qa:test Step 7b handoff; exercised end to end by scripts/qa-regression-demo.sh in the qa-regression-demo CI step"
     },
+    "remote-branch-sweep.py": {
+      "class": "tested",
+      "consumer": "tests/test_remote_branch_sweep.py",
+      "reason": "classifies every remote branch; deletes only provably-landed ones, report-first (#1262)"
+    },
     "run-delivery-pilots.py": {
       "class": "not-a-checker",
       "reason": "runs the delivery-pilot experiment and writes its report; it issues no verdict"
