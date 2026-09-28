@@ -40,6 +40,11 @@
       "class": "not-a-checker",
       "reason": "renders C4 Mermaid diagrams; it issues no verdict"
     },
+    "capability-readiness.py": {
+      "class": "tested",
+      "consumer": "tests/test_capability_readiness.py",
+      "reason": "reports whether flow, second-opinion and browser QA are usable (not merely installed) for /cpp:status; controls/capability-readiness is its registered negative control"
+    },
     "check-ignored-additions.sh": {
       "class": "tested",
       "consumer": "tests/test_check_ignored_additions.py",
