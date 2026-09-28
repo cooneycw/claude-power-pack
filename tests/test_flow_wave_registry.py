@@ -4830,8 +4830,14 @@ class TestAnotherHostsOwnerIsUnknownNotStale:
     )
     @pytest.mark.parametrize(
         "contents",
-        ["{ this is not json", "{} trailing-garbage", "{}\n{}\n", "[]", '{"default": {"roles": {"1": "x"}}}'],
-        ids=["unparseable", "trailing-garbage", "two-documents", "not-an-object", "entry-not-an-object"],
+        [
+            "{ this is not json", "{} trailing-garbage", "{}\n{}\n", "[]", "  \n",
+            '{"default": {"roles": {"1": "x"}}}', '{"default": {"roles": {"1": false}}}',
+        ],
+        ids=[
+            "unparseable", "trailing-garbage", "two-documents", "not-an-object", "whitespace-only",
+            "entry-a-string", "entry-false",
+        ],
     )
     def test_a_corrupt_registry_is_an_error_not_a_remote_holder(
         self, tmp_path: Path, verb: tuple[str, ...], contents: str

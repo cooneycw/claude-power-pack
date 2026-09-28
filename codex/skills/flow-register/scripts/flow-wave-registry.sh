@@ -947,7 +947,8 @@ entry_json() { # entry_json WAVE ROLE -> the entry object or 'null'
   # `entry_read_or_die` turns into `error`.
   read_registry | jq -cs --arg w "$1" --arg r "$2" '
     if length == 1 and (.[0] | type) == "object" then
-      (.[0][$w].roles[$r] // null) as $e
+      # No `// null`: it would turn an entry of `false` into absence (review).
+      .[0][$w].roles[$r] as $e
       | if $e == null or ($e | type) == "object" then $e else empty end
     else empty end' 2>/dev/null
 }
