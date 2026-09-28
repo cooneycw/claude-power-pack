@@ -1448,8 +1448,9 @@ def test_an_unterminated_heredoc_does_not_swallow_the_rest_of_the_file(
     rest of the file as the heredoc body, and runs it - the measured fixture
     (`cat <<EOF` then two lines) exited 0; in general the status is whatever the
     command consuming the heredoc returns (#1273). So a script in this shape
-    runs, and every command after the opener is silently data rather than code.
-    That is the same undercount the masking produces.
+    runs, and the ordinary shell lines after the opener become heredoc CONTENT
+    rather than commands - though in an unquoted heredoc a command substitution
+    among them still executes. The unseen-binary undercount is the same shape.
     """
     script = tmp_path / "unterminated.sh"
     script.write_text(

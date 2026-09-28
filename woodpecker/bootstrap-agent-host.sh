@@ -46,7 +46,10 @@ if ! command -v docker >/dev/null; then
     packages+=(docker.io docker-compose-v2)
 fi
 for pkg in qemu-guest-agent ca-certificates curl; do
-    if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q 'install ok installed'; then
+    # ${db:Status-Status} is the installed state alone. Matching the combined
+    # "install ok installed" misread a HELD package ("hold ok installed") as
+    # missing, and apt-get install on a held package can fail the bootstrap.
+    if [ "$(dpkg-query -W -f='${db:Status-Status}' "$pkg" 2>/dev/null)" != "installed" ]; then
         packages+=("$pkg")
     fi
 done

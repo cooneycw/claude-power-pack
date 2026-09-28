@@ -59,16 +59,24 @@ def _path_without_docker(tmp_path: Path) -> str:
     return str(shadow)
 
 
-def _run(tmp_path: Path, *, docker_present: bool, installed: set[str]) -> list[str]:
+def _run(tmp_path: Path, *, docker_present: bool, installed: set[str],
+         held: set[str] = frozenset()) -> list[str]:
     bindir = tmp_path / "bin"
     bindir.mkdir()
     log = tmp_path / "sudo.log"
     _stub(bindir, "sudo", f'printf "%s\\n" "$*" >> "{log}"\n')
     _stub(bindir, "sg", "exit 0\n")
-    status = "\n".join(
-        f'[ "${{@: -1}}" = "{p}" ] && {{ printf "install ok installed"; exit 0; }}' for p in sorted(installed)
-    )
-    _stub(bindir, "dpkg-query", status + "\nexit 1\n")
+    # Emulates dpkg-query for BOTH formats a caller might ask for: the combined
+    # ${Status} ("<want> ok installed", where a held package's want is "hold")
+    # and ${db:Status-Status} (the installed state alone).
+    lines = ['fmt="$2"; pkg="${@: -1}"']
+    for p in sorted(installed | held):
+        want = "hold" if p in held else "install"
+        lines.append(
+            f'[ "$pkg" = "{p}" ] && {{ case "$fmt" in *db:Status-Status*) printf installed;; '
+            f'*) printf "{want} ok installed";; esac; exit 0; }}'
+        )
+    _stub(bindir, "dpkg-query", "\n".join(lines) + "\nexit 1\n")
     if docker_present:
         _stub(bindir, "docker", "exit 0\n")
     base_path = os.environ["PATH"] if docker_present else _path_without_docker(tmp_path)
@@ -119,3 +127,12 @@ def test_a_host_without_docker_gets_the_docker_family(tmp_path: Path) -> None:
     lines = _run(tmp_path, docker_present=False,
                  installed={"qemu-guest-agent", "ca-certificates", "curl"})
     assert _installed_by(lines) == ["docker.io", "docker-compose-v2"], lines
+
+
+def test_a_held_package_is_installed_not_missing(tmp_path: Path) -> None:
+    """Counter-model pass 2: a HELD package reads "hold ok installed", which the
+    combined-status match took for missing - and apt-get install on a held
+    package can fail the bootstrap."""
+    lines = _run(tmp_path, docker_present=True, installed={"ca-certificates", "curl"},
+                 held={"qemu-guest-agent"})
+    assert not any("apt-get" in line for line in lines), lines
