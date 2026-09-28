@@ -314,3 +314,18 @@ def test_a_shallow_clone_is_unknown_not_a_false_divergence(
     assert _git(shallow, "rev-parse", "--is-shallow-repository") == "true"
     result = _run(shallow)
     assert _verdict(result).startswith("unknown: shallow clone"), result.stdout
+
+
+def test_the_anchor_block_is_verbatim_from_164fdd4() -> None:
+    """The anchor's provenance is `n/a` to the harness (the preamble is constructed); the span is checked here."""
+    probe = subprocess.run(
+        ["git", "-C", str(ROOT), "cat-file", "-e", "164fdd4:.claude/commands/cpp/update.md"],
+        capture_output=True,
+    )
+    if probe.returncode != 0:
+        pytest.skip("164fdd4 is not in this clone's history (shallow clone)")
+    original = _git(ROOT, "show", "164fdd4:.claude/commands/cpp/update.md").splitlines()[147:166]
+    lines = PRE_FIX.read_text(encoding="utf-8").splitlines()
+    begin = next(i for i, ln in enumerate(lines) if "BEGIN verbatim" in ln)
+    end = next(i for i, ln in enumerate(lines) if "END verbatim" in ln)
+    assert lines[begin + 1 : end] == original

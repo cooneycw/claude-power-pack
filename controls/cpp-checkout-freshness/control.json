@@ -35,11 +35,11 @@
   "anchors": [
     {
       "kind": "constructed",
-      "sha": "164fdd4",
+      "sha": "n/a",
       "origin": ".claude/commands/cpp/update.md",
       "path": "anchors/164fdd4-pre-fix-update-compare-block.sh",
       "sha256": "843d188caa1d68b6769fcfc1d002853b4c8c75bdaf7c3b2982f6250f664b6997",
-      "why": "The pre-fix logic lived in a markdown fence, not a script, so there was no file to vendor byte-for-byte. The anchor is lines 148-166 of update.md at 164fdd4 reproduced VERBATIM between markers, plus a constructed three-line preamble supplying the gate's calling convention and the `cd`/CURRENT_BRANCH the command set before the block. It prints prose and always exits 0, so it misses every bad case - and on bad-fetch-fails it prints 'Already up to date!' against a remote that is one commit ahead, which is the #1282 defect itself: an unchecked fetch followed by a count against the stale ref. That miss is what makes the post-fix BAD a change in the instrument rather than in the cases."
+      "why": "The pre-fix logic lived in a markdown fence, not a script, so there was no file to vendor byte-for-byte. The anchor is lines 148-166 of update.md at 164fdd4 (sha `n/a` because the file as a whole is constructed and cannot byte-match history; tests/test_cpp_checkout_freshness.py compares the verbatim span against 164fdd4 instead) reproduced VERBATIM between markers, plus a constructed three-line preamble supplying the gate's calling convention and the `cd`/CURRENT_BRANCH the command set before the block. It prints prose and always exits 0, so it misses every bad case - and on bad-fetch-fails it prints 'Already up to date!' against a remote that is one commit ahead, which is the #1282 defect itself: an unchecked fetch followed by a count against the stale ref. That miss is what makes the post-fix BAD a change in the instrument rather than in the cases."
     }
   ]
 }
