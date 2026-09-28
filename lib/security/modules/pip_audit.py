@@ -109,7 +109,15 @@ def scan(project_root: str) -> ScanResult:
         if export_error is not None:
             result.errors.append(export_error)
             return result
-        assert temporary_requirement is not None
+        if temporary_requirement is None:
+            # An explicit raise, not an `assert` (issue #1341): `python -O`
+            # strips asserts, and past this line `None` became
+            # `pip-audit --requirement None` and a GREEN "no vulnerabilities".
+            # `_export_uv_requirements` returns `(None, None)` on no path today;
+            # this makes that a property of the code rather than a convention.
+            raise RuntimeError(
+                "_export_uv_requirements returned neither a requirements file nor an error"
+            )
         population_source = "uv.lock (via `uv export`)"
         requirement_path = temporary_requirement
         finding_file_path = "uv.lock"

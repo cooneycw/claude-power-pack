@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import sys
+import textwrap
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -11,6 +14,12 @@ import pytest
 
 from lib.security.models import Severity
 from lib.security.modules import pip_audit
+
+ROOT = Path(__file__).resolve().parents[1]
+
+#: The autouse fixture below replaces `subprocess.run` on the shared module, so a
+#: test that must launch a real child interpreter keeps its own reference.
+_REAL_RUN = subprocess.run
 
 
 @pytest.fixture(autouse=True)
@@ -176,6 +185,58 @@ class TestPopulationResolution:
             for error in result.errors
         )
         assert all(call.args[0][0] != "pip-audit" for call in run.call_args_list)
+
+    def test_a_none_export_with_no_error_is_refused_under_python_O(
+        self, tmp_path: Path
+    ) -> None:
+        """Issue #1341: the guard on the export's return shape must survive `-O`.
+
+        `_export_uv_requirements` is typed `tuple[Path | None, str | None]`, and
+        `(None, None)` is unreachable by convention only. The caller guarded it
+        with an `assert`, which `python -O` compiles away - and then ran
+        `pip-audit --requirement None` and reported a GREEN "No dependency
+        vulnerabilities found". So this runs in a real `-O` child: an in-process
+        test runs with asserts enabled and would pass against the assert too.
+        """
+        root = _python_project(tmp_path)
+        (root / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+        child = textwrap.dedent(
+            f"""
+            import json, sys
+            from lib.security.modules import pip_audit
+
+            invoked = []
+            pip_audit._export_uv_requirements = lambda root: (None, None)
+            pip_audit.is_available = lambda: True
+
+            def fake_run(cmd, *args, **kwargs):
+                invoked.append([str(part) for part in cmd])
+                raise SystemExit("pip-audit must not be invoked")
+
+            pip_audit.subprocess.run = fake_run
+            raised = None
+            try:
+                pip_audit.scan({str(root)!r})
+            except BaseException as exc:
+                raised = type(exc).__name__
+            print(json.dumps({{"optimize": sys.flags.optimize, "raised": raised, "invoked": invoked}}))
+            """
+        )
+        proc = _REAL_RUN(
+            [sys.executable, "-O", "-c", child],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env={**os.environ, "PYTHONPATH": str(ROOT)},
+        )
+        assert proc.returncode == 0, proc.stderr
+        outcome = json.loads(proc.stdout.strip().splitlines()[-1])
+
+        # Proves the child really ran with asserts stripped; without this, a
+        # lost `-O` would let the pre-fix assert satisfy the test.
+        assert outcome["optimize"] >= 1, outcome
+        assert outcome["invoked"] == [], f"pip-audit was invoked: {outcome['invoked']}"
+        assert outcome["raised"] == "RuntimeError", outcome
 
 
 class TestAuditVerdicts:
