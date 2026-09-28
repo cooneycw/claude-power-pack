@@ -145,25 +145,24 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "These changes may be overwritten by the update."
 fi
 
-# Fetch latest from origin
+# Fetch and compare (issue #1282). The helper checks the fetch and reports
+# `unknown: <reason>` when it cannot count - a failed fetch, a read-only
+# checkout, a detached HEAD (empty CURRENT_BRANCH) - instead of the old
+# `|| echo "0"`, which printed "Already up to date!" for all of them.
 echo ""
 echo "Fetching latest from origin..."
-git fetch origin 2>&1
-
-# Compare with remote
-BEHIND=$(git rev-list HEAD..origin/$CURRENT_BRANCH --count 2>/dev/null || echo "0")
-AHEAD=$(git rev-list origin/$CURRENT_BRANCH..HEAD --count 2>/dev/null || echo "0")
-
-if [ "$BEHIND" -eq 0 ]; then
-  echo ""
-  echo "Already up to date!"
-else
-  echo ""
-  echo "$BEHIND commit(s) behind origin/$CURRENT_BRANCH"
-  echo ""
-  echo "New changes:"
-  git log --oneline HEAD..origin/$CURRENT_BRANCH
-fi
+FRESHNESS=$("$CPP_DIR/scripts/cpp-checkout-freshness.sh" --path "$CPP_DIR" --branch "$CURRENT_BRANCH")
+FRESHNESS_EXIT=$?
+echo "$FRESHNESS"
+VERDICT=$(printf '%s\n' "$FRESHNESS" | sed -n 's/^CPP_CHECKOUT_FRESHNESS: //p')
+BEHIND=""
+case "$VERDICT" in
+  current)     echo ""; echo "Already up to date!"; BEHIND=0 ;;
+  "behind "*)  BEHIND=${VERDICT#behind } ;;
+  "diverged "*) BEHIND=$(printf '%s' "$VERDICT" | sed -n 's/.*behind \([0-9]*\).*/\1/p') ;;
+  "ahead "*)   BEHIND=0; echo ""; echo "Not behind, but carrying local commits origin/$CURRENT_BRANCH does not have." ;;
+  *)           echo ""; echo "Could not determine whether an update is available (exit $FRESHNESS_EXIT) - NOT reporting up to date." ;;
+esac
 ```
 
 Report the version comparison to the user.
