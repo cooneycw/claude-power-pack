@@ -268,6 +268,82 @@ def test_cited_prior_art_still_exists(path: Path, definition: str) -> None:
     assert definition in target.read_text(encoding="utf-8"), (
         f"{CANONICAL} cites {definition} in {path}, which no longer defines it"
     )
+_UNITS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
+    "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
+    "nineteen": 19,
+}
+_TENS = {
+    "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60,
+    "seventy": 70, "eighty": 80, "ninety": 90,
+}
+
+
+def count_word(word: str) -> int:
+    """The integer an English count word names, 1-199 (issue #1333).
+
+    The headings below are written in words, and the two literal dicts this
+    replaces each ended somewhere (the index at thirty-five, the properties at
+    Ten) - so a CORRECT change that grew the document past the last word failed
+    as if it were a mismatch. Parsing the grammar removes that cliff. Anything it
+    cannot parse RAISES and names the word: an unreadable count must never read
+    as 0, which would turn a broken heading into a comparison that happens to
+    fail - or, against an empty population, pass.
+
+    Compounds are hyphenated ("twenty-one"), which is the document's style; an
+    unhyphenated "twenty one" is refused rather than guessed at.
+    """
+    w = word.strip().lower()
+
+    def below_hundred(part: str) -> int:
+        if part in _UNITS:
+            return _UNITS[part]
+        if part in _TENS:
+            return _TENS[part]
+        tens, sep, unit = part.partition("-")
+        if sep and tens in _TENS and unit in _UNITS and _UNITS[unit] < 10:
+            return _TENS[tens] + _UNITS[unit]
+        raise ValueError(f"unrecognised count word: {word!r}")
+
+    if w == "one hundred":
+        return 100
+    if w.startswith("one hundred "):
+        rest = w[len("one hundred "):]
+        rest = rest[len("and "):] if rest.startswith("and ") else rest
+        return 100 + below_hundred(rest)
+    return below_hundred(w)
+
+
+PROPERTIES_HEADING = re.compile(r"^## (\S+) properties that let it survive review$", re.M)
+INDEX_LEAD = re.compile(r"^The (.+?) instances this contract was derived from\.", re.M)
+
+
+def properties_count(text: str) -> tuple[int, int]:
+    """(claimed, actual) for the properties heading of `text`."""
+    heading = PROPERTIES_HEADING.search(text)
+    assert heading, "the properties section heading has been renamed"
+    claimed = count_word(heading.group(1))
+    section = text.split(heading.group(0), 1)[1].split("\n## ", 1)[0]
+    return claimed, len(re.findall(r"^\*\*", section, re.M))
+
+
+def _index_rows(section: str) -> list[str]:
+    return [
+        line for line in section.splitlines()
+        if line.startswith("| ") and not line.startswith("| instance ") and "---" not in line
+    ]
+
+
+def index_count(text: str) -> tuple[int, int]:
+    """(claimed, actual) for the instance-index lead sentence of `text`."""
+    heading = INDEX_LEAD.search(text)
+    assert heading, "the instance-index lead sentence has been reworded"
+    claimed = count_word(heading.group(1))
+    section = text.split("## The instance index", 1)[1].split("\n## ", 1)[0]
+    return claimed, len(_index_rows(section))
+
+
 def test_the_properties_heading_matches_its_population() -> None:
     """The heading counts the properties it introduces.
 
@@ -276,20 +352,12 @@ def test_the_properties_heading_matches_its_population() -> None:
     about exactly that. The heading is a numeric aggregate, so the honest form is
     for the number to BE the count.
     """
-    words = {
-        "Five": 5, "Six": 6, "Seven": 7, "Eight": 8, "Nine": 9, "Ten": 10,
-    }
-    text = (REPO / CANONICAL).read_text(encoding="utf-8")
-    heading = re.search(r"^## (\w+) properties that let it survive review$", text, re.M)
-    assert heading, "the properties section heading has been renamed"
-    claimed = words.get(heading.group(1))
-    assert claimed is not None, f"unrecognised count word: {heading.group(1)}"
-
-    section = text.split(heading.group(0), 1)[1].split("\n## ", 1)[0]
-    actual = len(re.findall(r"^\*\*", section, re.M))
+    claimed, actual = properties_count((REPO / CANONICAL).read_text(encoding="utf-8"))
     assert claimed == actual, (
         f"the heading claims {claimed} properties; the section lists {actual}"
     )
+
+
 def test_the_index_heading_matches_its_population() -> None:
     """The index says how many instances it carries; the number must be the count.
 
@@ -297,24 +365,90 @@ def test_the_index_heading_matches_its_population() -> None:
     document. Both exist because the first draft shipped a heading that counted
     six over a population of seven.
     """
-    words = {
-        "eighteen": 18, "nineteen": 19, "twenty": 20, "twenty-one": 21,
-        "twenty-two": 22, "twenty-three": 23, "twenty-four": 24, "twenty-five": 25,
-        "twenty-six": 26, "twenty-seven": 27, "twenty-eight": 28,
-        "twenty-nine": 29, "thirty": 30, "thirty-one": 31, "thirty-two": 32,
-        "thirty-three": 33, "thirty-four": 34, "thirty-five": 35,
-    }
-    text = (REPO / CANONICAL).read_text(encoding="utf-8")
-    heading = re.search(r"^The ([a-z-]+) instances this contract was derived from\.", text, re.M)
-    assert heading, "the instance-index lead sentence has been reworded"
-    claimed = words.get(heading.group(1))
-    assert claimed is not None, f"unrecognised count word: {heading.group(1)}"
-
-    section = text.split("## The instance index", 1)[1].split("\n## ", 1)[0]
-    rows = [
-        line for line in section.splitlines()
-        if line.startswith("| ") and not line.startswith("| instance ") and "---" not in line
-    ]
-    assert claimed == len(rows), (
-        f"the index claims {claimed} instances; the table has {len(rows)} rows"
+    claimed, actual = index_count((REPO / CANONICAL).read_text(encoding="utf-8"))
+    assert claimed == actual, (
+        f"the index claims {claimed} instances; the table has {actual} rows"
     )
+
+
+# --- #1333: the heading checks can still fail, and growth no longer does ---
+
+_NUMBER_WORDS = {n: w for w, n in {**_UNITS, **_TENS}.items()}
+
+
+def _word_for(n: int) -> str:
+    """Test-side spelling, independent of count_word's parsing path."""
+    if n in _NUMBER_WORDS:
+        return _NUMBER_WORDS[n]
+    return f"{_NUMBER_WORDS[n - n % 10]}-{_NUMBER_WORDS[n % 10]}"
+
+
+def _real_text() -> str:
+    return (REPO / CANONICAL).read_text(encoding="utf-8")
+
+
+def _with_index_word(text: str, word: str) -> str:
+    old = INDEX_LEAD.search(text)
+    assert old
+    return text.replace(old.group(0), f"The {word} instances this contract was derived from.", 1)
+
+
+def test_an_off_by_one_index_heading_fails() -> None:
+    """The red case: the real document with its index word bumped by one."""
+    text = _real_text()
+    claimed, actual = index_count(text)
+    assert claimed == actual, "precondition: the real document agrees"
+    claimed, actual = index_count(_with_index_word(text, _word_for(actual + 1)))
+    assert claimed == actual + 1 and claimed != actual
+
+
+def test_an_off_by_one_properties_heading_fails() -> None:
+    text = _real_text()
+    claimed, actual = properties_count(text)
+    assert claimed == actual, "precondition: the real document agrees"
+    heading = PROPERTIES_HEADING.search(text)
+    assert heading
+    bumped = text.replace(heading.group(0),
+                          f"## {_word_for(actual + 1).capitalize()} properties that let it survive review", 1)
+    claimed, actual = properties_count(bumped)
+    assert claimed == actual + 1 and claimed != actual
+
+
+def test_growing_the_index_past_the_old_cliff_passes() -> None:
+    """The index grown to fifty rows with a heading that says so agrees.
+
+    Red on the pre-fix dict, which ended at thirty-five:
+    `unrecognised count word: fifty`.
+    """
+    text = _real_text()
+    section = text.split("## The instance index", 1)[1].split("\n## ", 1)[0]
+    rows = _index_rows(section)
+    assert 0 < len(rows) < 50, "precondition: the index is below the target size"
+    extra = "\n".join(f"| synthetic-{i} | x | x |" for i in range(50 - len(rows)))
+    grown_section = section.replace(rows[-1], rows[-1] + "\n" + extra, 1)
+    grown = _with_index_word(text.replace(section, grown_section, 1), "fifty")
+    assert index_count(grown) == (50, 50)
+
+
+def test_an_unreadable_count_word_raises_and_is_never_zero() -> None:
+    with pytest.raises(ValueError, match="umpteen"):
+        index_count(_with_index_word(_real_text(), "umpteen"))
+
+
+@pytest.mark.parametrize("word,expected", [
+    ("one", 1), ("Seven", 7), ("thirteen", 13), ("twenty", 20), ("twenty-one", 21),
+    ("thirty-five", 35), ("forty", 40), ("ninety-nine", 99), ("one hundred", 100),
+    ("one hundred and one", 101), ("one hundred fifteen", 115),
+    ("one hundred twenty-one", 121), ("One Hundred Ninety-Nine", 199),
+])
+def test_count_word_parses(word: str, expected: int) -> None:
+    assert count_word(word) == expected
+
+
+@pytest.mark.parametrize("word", [
+    "", "zero", "twenty one", "two hundred", "thirty-", "-one", "twenty-ten",
+    "one hundred and", "hundred", "31",
+])
+def test_count_word_refuses(word: str) -> None:
+    with pytest.raises(ValueError, match="unrecognised count word"):
+        count_word(word)
