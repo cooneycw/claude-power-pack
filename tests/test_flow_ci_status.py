@@ -956,3 +956,32 @@ def test_the_CLI_lane_also_treats_the_event_as_a_preference(tmp_path):
                   env={"FLOW_CI_WPCLI": str(wpcli), "WOODPECKER_API_TOKEN": ""})
     markers = _markers(result.stdout)
     assert markers["FLOW_CI_PIPELINE"] == ["90"], result.stdout + result.stderr
+
+
+@requires_bash
+def test_STRICT_EVENT_never_lets_the_other_lane_answer(tmp_path):
+    """#1300's wait-then-merge recipe: a green PUSH pipeline must not end a wait
+    for the required pull_request lane. Without --strict-event the event is a
+    preference (pinned above for #1308's PR-only SHAs); with it, a filter."""
+    curl = _write_fake_curl(
+        tmp_path,
+        {"/api/repos/lookup/": {"id": 17},
+         "pipelines?per_page": [_pipeline(91, SHA, "success", "push")]},
+        tmp_path / "argv.log",
+    )
+    loose = _run(tmp_path, SHA, "--repo", "o/r", "--event", "pull_request",
+                 env={"FLOW_CI_CURL": str(curl)})
+    strict = _run(tmp_path, SHA, "--repo", "o/r", "--event", "pull_request", "--strict-event",
+                  env={"FLOW_CI_CURL": str(curl)})
+    assert _markers(loose.stdout)["FLOW_CI_STATUS"] == ["success"]
+    m = _markers(strict.stdout)
+    assert m["FLOW_CI_STATUS"] == ["not-found"], strict.stdout + strict.stderr
+    assert m["FLOW_CI_EVENT"][0].endswith("; strict)")
+
+
+@requires_bash
+def test_STRICT_EVENT_holds_on_the_CLI_lane_too(tmp_path):
+    wpcli = _write_fake_wpcli(tmp_path, [f"91|success|{SHA}|push"], [], tmp_path / "argv.log")
+    result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "pull_request", "--strict-event",
+                  env={"FLOW_CI_WPCLI": str(wpcli), "WOODPECKER_API_TOKEN": ""})
+    assert _markers(result.stdout)["FLOW_CI_STATUS"] == ["not-found"], result.stdout

@@ -3418,7 +3418,7 @@ def test_WAIT_CI_is_a_deadline_on_the_stub_clock(tmp_path: Path):
         check_rollup=[[(WOODPECKER, "PENDING")]],
     )
     clock = _stub_clock(tmp_path)
-    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1300-fix", "--wait-ci", "250",
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1300-fix", "--wait-ci=250",
                   extra_env={"GH_PR_MERGE_CLOCK": clock, "GH_PR_MERGE_CHECK_ATTEMPTS": "1"})
     assert result.returncode == 10, result.stdout + result.stderr
     assert "GH_PR_MERGE_CI_WAIT: expired (250s)" in result.stdout
@@ -3432,7 +3432,7 @@ def test_WAIT_CI_green_before_the_deadline_merges(tmp_path: Path):
         check_rollup=[[(WOODPECKER, "PENDING")], [(WOODPECKER, "SUCCESS")]],
     )
     clock = _stub_clock(tmp_path, step=10)
-    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1300-fix", "--wait-ci", "600",
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1300-fix", "--wait-ci=600",
                   extra_env={"GH_PR_MERGE_CLOCK": clock})
     assert result.returncode == 0, result.stderr
     assert "GH_PR_MERGE_CI_WAIT: green" in result.stdout
@@ -3516,3 +3516,22 @@ def test_the_502_retry_still_retries_when_the_new_base_IS_contained(tmp_path: Pa
     assert result.returncode == 0, result.stdout + result.stderr
     merges = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
     assert len(merges) == 2, merges
+
+
+def test_a_BARE_wait_ci_before_the_PR_number_does_not_swallow_it(tmp_path: Path):
+    """Counter-model review of #1300: `--wait-ci 42 feature` consumed 42 as seconds."""
+    stubs = _make_stubs(
+        tmp_path, pr_state="MERGED", required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "SUCCESS")]],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "--wait-ci", "42", "issue-1300-fix")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert any(c.startswith("gh pr merge 42") for c in _calls(stubs))
+
+
+def test_an_EMPTY_observed_rollup_is_none_observed_never_green(tmp_path: Path):
+    stubs = _make_stubs(tmp_path, protection_ok=False, ruleset_ok=False, check_rollup=[[]])
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1300-fix")
+    assert result.returncode == 0, result.stderr  # the #610 fail-open is unchanged
+    assert "GH_PR_MERGE_CI_WAIT: none-observed" in result.stdout
+    assert "GH_PR_MERGE_CI_WAIT: green" not in result.stdout

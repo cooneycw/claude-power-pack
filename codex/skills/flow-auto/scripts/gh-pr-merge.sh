@@ -128,7 +128,7 @@
 #     This marker NEVER changes the exit code - the merge landed either way, and
 #     `/flow:auto` Step 7's "0 means proceed" contract is deliberately intact.
 #
-# Usage:  gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] [--wait-ci [SECS]] <pr-number> <branch-name>
+# Usage:  gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] [--wait-ci[=SECS]] <pr-number> <branch-name>
 #           --admin  force `gh pr merge --admin` from the first attempt - the
 #                    conscious, HUMAN-TYPED branch-protection override (issues
 #                    #517/#579). It skips the required-check wait AND the review
@@ -374,8 +374,11 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --wait-ci)
-            # Optional seconds: `--wait-ci` alone means 1800 (issue #1300).
-            if [[ "${2:-}" =~ ^[0-9]+$ ]]; then WAIT_CI_SECS="$2"; shift 2; else WAIT_CI_SECS=1800; shift; fi
+            # Bare means 1800s (issue #1300). It NEVER takes the next argument:
+            # the PR number is numeric too, so `--wait-ci 42 feature` would
+            # silently consume it (counter-model review). Seconds: --wait-ci=SECS.
+            WAIT_CI_SECS=1800
+            shift
             ;;
         --wait-ci=*)
             WAIT_CI_SECS="${1#*=}"
@@ -388,7 +391,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -*)
             echo "gh-pr-merge.sh: unknown option '$1'" >&2
-            echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] [--wait-ci [SECS]] <pr-number> <branch-name>" >&2
+            echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] [--wait-ci[=SECS]] <pr-number> <branch-name>" >&2
             exit 2
             ;;
         *)
@@ -402,7 +405,7 @@ PR_NUMBER="${POSITIONAL[0]:-}"
 BRANCH="${POSITIONAL[1]:-}"
 
 if [[ -z "$PR_NUMBER" || -z "$BRANCH" ]]; then
-    echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] [--wait-ci [SECS]] <pr-number> <branch-name>" >&2
+    echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] [--wait-ci[=SECS]] <pr-number> <branch-name>" >&2
     exit 2
 fi
 
@@ -776,7 +779,7 @@ wait_for_required_checks() {
     # Exit 10 - a clean stop that never merges - with the two states named apart.
     echo "GH_PR_MERGE_CI_WAIT: expired ($(wait_budget_label))"
     echo "CLEAN STOP: the required-check wait for PR #$PR_NUMBER ran out ($(wait_budget_label)) - not merging, and not a failure (issue #1300)." >&2
-    [[ -n "$running" ]] && echo "  still running: ${running}- CI has not finished; re-run the merge when it is green (--wait-ci [SECS] waits longer)." >&2
+    [[ -n "$running" ]] && echo "  still running: ${running}- CI has not finished; re-run the merge when it is green (--wait-ci[=SECS] waits longer)." >&2
     [[ -n "$missing" ]] && echo "  never posted a status: ${missing}- no pipeline has reported these contexts at all; check that CI was triggered for this head." >&2
     echo "  Do NOT re-gate or re-sync for this: nothing about the branch is wrong." \
          "Overriding a required check would defeat the posture; the break-glass is" \
@@ -826,7 +829,15 @@ wait_for_observed_checks() {
             return 1
         fi
         if [[ -z "$pending" ]]; then
-            echo "GH_PR_MERGE_CI_WAIT: green"
+            # NOTHING OBSERVED IS NOT GREEN (counter-model review): with no
+            # enumerable posture and an empty rollup, the #610 fail-open still
+            # proceeds - GitHub enforces the posture at squash time - but the
+            # marker must not claim a check passed when none was seen.
+            if [[ -n "$(check_states)" ]]; then
+                echo "GH_PR_MERGE_CI_WAIT: green"
+            else
+                echo "GH_PR_MERGE_CI_WAIT: none-observed"
+            fi
             (( announced )) && echo "note: reported check(s) are green; merging." >&2
             return 0
         fi
@@ -1763,14 +1774,6 @@ run_squash() {
                  "(sibling merge race, issue #502) - refetching and retrying" \
                  "(${attempt}/${retries})." >&2
             "$GIT_BIN" fetch origin >/dev/null 2>&1 || true
-            # A RETRY MUST NOT LAND A BASE NOBODY GATED (issue #1300, R2). The
-            # base moved - that is what this error means - so re-check that the
-            # branch contains the new tip before squashing again; otherwise the
-            # retry defeats the #767 guard it runs after.
-            if (( ADMIN_OPT_IN == 0 )) && ! base_contained_now "at the #502 squash retry"; then
-                rm -f "$errfile"
-                exit 6
-            fi
             sleep "$delay"
             # The sibling merge may have made the PR genuinely CONFLICTING -
             # re-poll so that stops us with the clear conflict message instead
@@ -1778,6 +1781,15 @@ run_squash() {
             if ! poll_mergeable; then
                 merge_exit=1
                 break
+            fi
+            # A RETRY MUST NOT LAND A BASE NOBODY GATED (issue #1300, R2). The
+            # base moved - that is what this error means - so re-check that the
+            # branch contains the new tip IMMEDIATELY before squashing again,
+            # after the sleep and the re-poll (counter-model review: checked
+            # before them, a sibling merge in that interval went unseen).
+            if (( ADMIN_OPT_IN == 0 )) && ! base_contained_now "at the #502 squash retry"; then
+                rm -f "$errfile"
+                exit 6
             fi
         fi
         "$GH_BIN" pr merge "$PR_NUMBER" --squash "$@" 2>"$errfile"

@@ -131,11 +131,11 @@ is a backstop, not this decision.
 REQUIRED lane, then merge in the same breath:
 
 ```bash
-~/.claude/scripts/flow-ci-status.sh <pr-head-sha> --path "$(git rev-parse --show-toplevel)" --wait 1800
+~/.claude/scripts/flow-ci-status.sh <pr-head-sha> --path "$(git rev-parse --show-toplevel)" --strict-event --wait 1800
 ```
 
 On `FLOW_CI_STATUS: success`, run the merge below at once - or pass
-`--wait-ci [SECS]` to the helper, which turns its required-check wait into a
+`--wait-ci[=SECS]` to the helper, which turns its required-check wait into a
 deadline. Updating the branch when the base moved costs a CI run, so it is the
 caller's (or orchestrator's) decision; the helper never does it.
 

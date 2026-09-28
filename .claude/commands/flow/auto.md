@@ -1501,12 +1501,15 @@ fill this step.
    a sibling merge can land is seconds rather than the whole CI run:
 
    ```bash
-   ~/.claude/scripts/flow-ci-status.sh <pr-head-sha> --path /path/to/worktree --wait 1800
+   ~/.claude/scripts/flow-ci-status.sh <pr-head-sha> --path /path/to/worktree --strict-event --wait 1800
    ```
 
    (`flow-ci-status.sh` derives the required lane from branch protection since
-   #1262; read `FLOW_CI_EVENT`.) On `success`, invoke the merge helper at once.
-   Alternatively pass `--wait-ci [SECS]` to the helper itself, which makes its
+   #1262; read `FLOW_CI_EVENT`. `--strict-event` makes that lane a FILTER for
+   this recipe: a green pipeline on the other lane must not end the wait, so an
+   absent required-lane pipeline stays `not-found` and the wait continues.) On
+   `success`, invoke the merge helper at once.
+   Alternatively pass `--wait-ci[=SECS]` to the helper itself, which makes its
    required-check wait a deadline instead of the default 60 x 10s. The helper
    re-reads the base immediately before squashing either way. Updating the
    branch when the base moved is the CALLER's decision - it costs a CI run - and
