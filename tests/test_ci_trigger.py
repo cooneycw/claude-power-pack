@@ -9,8 +9,9 @@ The check has three directions, and each is a way the trigger can be wrong:
 
   PUSH ON A NON-MAIN BRANCH   the doubling this issue removes (the pre-fix file).
   PUSH ON MAIN DROPPED        the post-merge verification silently disappears.
-  PULL_REQUEST DROPPED        the one REQUIRED context never reports, so every
-                              PR waits forever or merges on nothing.
+  PULL_REQUEST DROPPED        the one REQUIRED context never reports, so a PR
+  OR NARROWED                 waits forever or merges on nothing. A target-branch
+                              filter on the PR entry is a partial drop.
 
 A `when:` shape the classifier does not understand - an unknown key, a filter it
 cannot evaluate - is itself a violation. "I could not read this trigger" is not
@@ -69,10 +70,15 @@ def trigger_violations(when: Any) -> list[str]:
                 violations.append(
                     f"entry {n}: push runs on branches other than main ({branch_list or 'any'})"
                 )
-        if "pull_request" in events and (branch_list is None or "main" in branch_list):
+        # UNFILTERED only (counter-model review): a branch filter on a PR entry
+        # restricts the TARGET branch, so some pull requests would run nothing.
+        if "pull_request" in events and branch_list is None:
             pr_runs = True
     if not pr_runs:
-        violations.append("pull_request dropped - the required ci/woodpecker/pr context never reports")
+        violations.append(
+            "no unfiltered pull_request entry - some or all pull requests never run the "
+            "pipeline, so the required ci/woodpecker/pr context may never report"
+        )
     if not push_main:
         violations.append("push on main dropped - no post-merge verification")
     return violations
@@ -95,7 +101,12 @@ PRE_1308 = [{"event": ["push", "pull_request"]}]
         # (b) main's push verification removed
         ([{"event": "pull_request"}], "push on main dropped"),
         # (c) the required context's pipeline removed
-        ([{"event": "push", "branch": "main"}], "pull_request dropped"),
+        ([{"event": "push", "branch": "main"}], "no unfiltered pull_request entry"),
+        # (c') ... or narrowed to one target branch (counter-model review)
+        (
+            [{"event": "pull_request", "branch": "main"}, {"event": "push", "branch": "main"}],
+            "no unfiltered pull_request entry",
+        ),
         # a push filter wider than main is still the doubling
         (
             [{"event": "pull_request"}, {"event": "push", "branch": ["main", "release/*"]}],
