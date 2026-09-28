@@ -956,3 +956,74 @@ def test_the_CLI_lane_also_treats_the_event_as_a_preference(tmp_path):
                   env={"FLOW_CI_WPCLI": str(wpcli), "WOODPECKER_API_TOKEN": ""})
     markers = _markers(result.stdout)
     assert markers["FLOW_CI_PIPELINE"] == ["90"], result.stdout + result.stderr
+
+
+@requires_bash
+def test_STRICT_EVENT_never_lets_the_other_lane_answer(tmp_path):
+    """#1300's wait-then-merge recipe: a green PUSH pipeline must not end a wait
+    for the required pull_request lane. Without --strict-event the event is a
+    preference (pinned above for #1308's PR-only SHAs); with it, a filter."""
+    curl = _write_fake_curl(
+        tmp_path,
+        {"/api/repos/lookup/": {"id": 17},
+         "pipelines?per_page": [_pipeline(91, SHA, "success", "push")]},
+        tmp_path / "argv.log",
+    )
+    loose = _run(tmp_path, SHA, "--repo", "o/r", "--event", "pull_request",
+                 env={"FLOW_CI_CURL": str(curl)})
+    strict = _run(tmp_path, SHA, "--repo", "o/r", "--event", "pull_request", "--strict-event",
+                  env={"FLOW_CI_CURL": str(curl)})
+    assert _markers(loose.stdout)["FLOW_CI_STATUS"] == ["success"]
+    m = _markers(strict.stdout)
+    assert m["FLOW_CI_STATUS"] == ["not-found"], strict.stdout + strict.stderr
+    assert m["FLOW_CI_EVENT"][0].endswith("; strict)")
+
+
+@requires_bash
+def test_STRICT_EVENT_holds_on_the_CLI_lane_too(tmp_path):
+    wpcli = _write_fake_wpcli(tmp_path, [f"91|success|{SHA}|push"], [], tmp_path / "argv.log")
+    result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "pull_request", "--strict-event",
+                  env={"FLOW_CI_WPCLI": str(wpcli), "WOODPECKER_API_TOKEN": ""})
+    assert _markers(result.stdout)["FLOW_CI_STATUS"] == ["not-found"], result.stdout
+
+
+def _gha_gh(tmp_path: Path, runs: list[dict]) -> Path:
+    """A gh whose only answer is `run list` (the GitHub Actions lane)."""
+    path = tmp_path / "bin" / "gh"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "#!/usr/bin/env bash\n"
+        'if [[ "$1 $2" == "run list" ]]; then\n'
+        "cat <<'JSON'\n" + json.dumps(runs) + "\nJSON\n"
+        "exit 0\nfi\nexit 1\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+    return path
+
+
+@requires_bash
+def test_STRICT_EVENT_holds_on_the_GITHUB_ACTIONS_lane(tmp_path):
+    """Counter-model review pass 2 of #1300: the Actions fallback took `.[0]`
+    whatever its event, so a green push workflow ended a strict pr wait."""
+    gh = _gha_gh(tmp_path, [{"status": "completed", "conclusion": "success",
+                             "databaseId": 7, "url": "u", "event": "push"}])
+    env = {"FLOW_CI_GH": str(gh), "WOODPECKER_API_TOKEN": ""}
+    strict = _run(tmp_path, SHA, "--repo", "o/r", "--event", "pull_request", "--strict-event", env=env)
+    loose = _run(tmp_path, SHA, "--repo", "o/r", "--event", "pull_request", env=env)
+    ms = _markers(strict.stdout)
+    assert ms["FLOW_CI_PROVIDER"] == ["github-actions"], strict.stdout + strict.stderr
+    assert ms["FLOW_CI_STATUS"] == ["not-found"]
+    assert _markers(loose.stdout)["FLOW_CI_STATUS"] == ["success"]
+
+
+@requires_bash
+def test_the_GITHUB_ACTIONS_lane_finds_the_required_event_when_present(tmp_path):
+    gh = _gha_gh(tmp_path, [
+        {"status": "completed", "conclusion": "success", "databaseId": 7, "url": "u", "event": "push"},
+        {"status": "completed", "conclusion": "failure", "databaseId": 8, "url": "v", "event": "pull_request"},
+    ])
+    result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "pull_request", "--strict-event",
+                  env={"FLOW_CI_GH": str(gh), "WOODPECKER_API_TOKEN": ""})
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_PIPELINE"] == ["8"] and m["FLOW_CI_STATUS"] == ["failure"], result.stdout

@@ -126,6 +126,19 @@ squash whose text carries a negated or incidental closing keyword beside an issu
 number (exits 5 and 7), and that guard cannot tell an example from an instruction. It
 is a backstop, not this decision.
 
+**When CI outlasts main's quiet window (issue #1300):** a required check takes
+15-20 minutes here, longer than `main` stays still. Wait for green on the
+REQUIRED lane, then merge in the same breath:
+
+```bash
+~/.claude/scripts/flow-ci-status.sh <pr-head-sha> --path "$(git rev-parse --show-toplevel)" --strict-event --wait 1800
+```
+
+On `FLOW_CI_STATUS: success`, run the merge below at once - or pass
+`--wait-ci[=SECS]` to the helper, which turns its required-check wait into a
+deadline. Updating the branch when the base moved costs a CI run, so it is the
+caller's (or orchestrator's) decision; the helper never does it.
+
 Then merge the PR:
 
 ```bash
@@ -183,6 +196,17 @@ fi
   intact - report the printed context, reword the clause, and re-run
   `/flow-merge` (or re-run with `--allow-incidental-close` only after the user
   consciously confirms).
+- **`MERGE_RC` = 9 is a CLEAN STOP (issue #1262):** a worktree on this host
+  has the PR's head branch checked out at a commit that is NOT the PR's head on
+  GitHub - a session may be mid-finish there. Leave everything intact, report
+  the printed path and sha; push or discard that work, then re-run
+  (`--allow-local-divergence` is the user's conscious call).
+- **`MERGE_RC` = 10 is a CLEAN STOP (issue #1300):** the required-check wait ran
+  out - CI still running, or a required context never posted a status (the
+  message names which). Not a red check; do not re-sync or re-gate. Wait for
+  green and re-run `/flow-merge`. A `MERGE_RC` of 6 with
+  `GH_PR_MERGE_BASE_AT_SQUASH: <sha>` means the base moved just before the
+  squash - the ordinary exit-6 remedy applies.
 - **`MERGE_RC` = 8 means the incidental-close guard's own self-check failed
   (issue #794):** this is a BROKEN CHECK, not a clean scan of the PR, and must
   never be read as "no hazard found" - report it and investigate the guard

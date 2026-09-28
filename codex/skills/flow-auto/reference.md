@@ -1497,6 +1497,26 @@ fill this step.
    gh pr list --head "$BRANCH" --json number --jq '.[0].number'
    ```
 
+   **When CI outlasts main's quiet window (issue #1300)** - a required check
+   takes 15-20 minutes here, longer than `main` stays still - wait for green on
+   the REQUIRED lane first, then merge in the same breath, so the window in which
+   a sibling merge can land is seconds rather than the whole CI run:
+
+   ```bash
+   ~/.claude/scripts/flow-ci-status.sh <pr-head-sha> --path /path/to/worktree --strict-event --wait 1800
+   ```
+
+   (`flow-ci-status.sh` derives the required lane from branch protection since
+   #1262; read `FLOW_CI_EVENT`. `--strict-event` makes that lane a FILTER for
+   this recipe: a green pipeline on the other lane must not end the wait, so an
+   absent required-lane pipeline stays `not-found` and the wait continues.) On
+   `success`, invoke the merge helper at once.
+   Alternatively pass `--wait-ci[=SECS]` to the helper itself, which makes its
+   required-check wait a deadline instead of the default 60 x 10s. The helper
+   re-reads the base immediately before squashing either way. Updating the
+   branch when the base moved is the CALLER's decision - it costs a CI run - and
+   the helper never does it for you.
+
    Then merge via the layout-aware helper, invoked BARE with the literal PR
    number and branch (#581 discipline). Run from inside a linked worktree,
    plain `gh pr merge --delete-branch` fails AFTER the remote squash succeeds
@@ -1563,6 +1583,17 @@ fill this step.
    - **Helper exit 8 means the incidental-close guard's own self-check failed
      (issue #794):** a BROKEN CHECK, not a clean scan - never read it as "no
      hazard found". Report it and investigate the guard; there is no override.
+   - **Helper exit 10 is also a CLEAN STOP (issue #1300):** the required-check
+     wait ran out (60 x 10s, or the `--wait-ci` deadline) - CI is still running,
+     or a required context never posted a status; the message names which. The
+     PR is left open and untouched. It is NOT a red check and nothing about the
+     branch is wrong: do not re-sync or re-gate. Wait for green (see the recipe
+     below) and re-run the merge. `GH_PR_MERGE_CI_WAIT:` reports the wait's
+     verdict on every run.
+   - **Helper exit 6 can also come from the final base re-read (issue #1300):**
+     `GH_PR_MERGE_BASE_AT_SQUASH: <sha>` means the base moved in the seconds
+     between the post-wait check and the squash, or at a "Base branch was
+     modified" retry. Same remedy as any exit 6.
    - **Helper exit 9 is also a CLEAN STOP (issue #1262):** a worktree on this
      host has the PR's head branch checked out at a commit that is NOT the PR's
      head on GitHub - a session may be mid-finish there (committed or merged

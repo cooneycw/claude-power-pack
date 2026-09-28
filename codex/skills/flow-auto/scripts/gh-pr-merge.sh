@@ -128,7 +128,7 @@
 #     This marker NEVER changes the exit code - the merge landed either way, and
 #     `/flow:auto` Step 7's "0 means proceed" contract is deliberately intact.
 #
-# Usage:  gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] <pr-number> <branch-name>
+# Usage:  gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] [--wait-ci[=SECS]] <pr-number> <branch-name>
 #           --admin  force `gh pr merge --admin` from the first attempt - the
 #                    conscious, HUMAN-TYPED branch-protection override (issues
 #                    #517/#579). It skips the required-check wait AND the review
@@ -302,6 +302,10 @@
 #            NOT the PR's head on GitHub - a session may be mid-finish there.
 #            The PR is left open and untouched - push or discard that work, then
 #            re-run (or consciously re-run with --allow-local-divergence).
+#        10  CLEAN STOP, not a failure (issue #1300): the required-check wait ran
+#            out (60 x 10s, or the --wait-ci deadline). Never a merge, never a
+#            "failed" check: the message names contexts still RUNNING apart from
+#            any that never posted a status. Re-run when CI is green.
 #
 # Already merged (issue #1262): a PR that is MERGED when the helper is invoked
 # prints GH_PR_MERGE_ALREADY_MERGED: <n>, skips every base guard and the squash,
@@ -317,6 +321,8 @@
 #   GH_PR_MERGE_BASE_RETRY_DELAY     seconds before each such retry (default: 2)
 #   GH_PR_MERGE_CHECK_ATTEMPTS       required-check poll attempts (default: 60)
 #   GH_PR_MERGE_CHECK_DELAY          seconds between check polls (default: 10)
+#   GH_PR_MERGE_CLOCK                command printing epoch seconds for the --wait-ci
+#                                    deadline (default: `date +%s`; tests stub it)
 #   GH_PR_MERGE_CURL                 override the `curl` binary (default: curl)
 #   GH_PR_MERGE_QUEUE_WAIT_ATTEMPTS  Woodpecker queued-pipeline poll attempts
 #                                    before the check-poll budget starts (default: 30)
@@ -343,6 +349,7 @@ ALLOW_NEGATED_CLOSE=0
 ALLOW_INCIDENTAL_CLOSE=0
 ALLOW_BASE_MOVE=0
 ALLOW_LOCAL_DIVERGENCE=0
+WAIT_CI_SECS=""
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -366,13 +373,25 @@ while [[ $# -gt 0 ]]; do
             ALLOW_LOCAL_DIVERGENCE=1
             shift
             ;;
+        --wait-ci)
+            # Bare means 1800s (issue #1300). It NEVER takes the next argument:
+            # the PR number is numeric too, so `--wait-ci 42 feature` would
+            # silently consume it (counter-model review). Seconds: --wait-ci=SECS.
+            WAIT_CI_SECS=1800
+            shift
+            ;;
+        --wait-ci=*)
+            WAIT_CI_SECS="${1#*=}"
+            [[ "$WAIT_CI_SECS" =~ ^[0-9]+$ ]] || { echo "gh-pr-merge.sh: --wait-ci needs seconds" >&2; exit 2; }
+            shift
+            ;;
         --)
             shift
             while [[ $# -gt 0 ]]; do POSITIONAL+=("$1"); shift; done
             ;;
         -*)
             echo "gh-pr-merge.sh: unknown option '$1'" >&2
-            echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] <pr-number> <branch-name>" >&2
+            echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] [--wait-ci[=SECS]] <pr-number> <branch-name>" >&2
             exit 2
             ;;
         *)
@@ -386,7 +405,7 @@ PR_NUMBER="${POSITIONAL[0]:-}"
 BRANCH="${POSITIONAL[1]:-}"
 
 if [[ -z "$PR_NUMBER" || -z "$BRANCH" ]]; then
-    echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] <pr-number> <branch-name>" >&2
+    echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] [--wait-ci[=SECS]] <pr-number> <branch-name>" >&2
     exit 2
 fi
 
@@ -659,6 +678,30 @@ check_states() {
         2>/dev/null
 }
 
+# THE WAIT'S BUDGET (issue #1300). Without --wait-ci it is the historical
+# GH_PR_MERGE_CHECK_ATTEMPTS x GH_PR_MERGE_CHECK_DELAY (60 x 10s); with it, a
+# DEADLINE of that many seconds, because CI here takes 15-20 minutes and a fixed
+# 10-minute poll count expired on pipelines that were merely running. The clock
+# is a command so tests can drive the deadline without sleeping (#1311).
+now_epoch() {
+    if [[ -n "${GH_PR_MERGE_CLOCK:-}" ]]; then "$GH_PR_MERGE_CLOCK" 2>/dev/null || date +%s
+    else date +%s; fi
+}
+wait_budget_label() {
+    if [[ -n "$WAIT_CI_SECS" ]]; then echo "${WAIT_CI_SECS}s"
+    else echo "${GH_PR_MERGE_CHECK_ATTEMPTS:-60}x${GH_PR_MERGE_CHECK_DELAY:-10}s"; fi
+}
+# 0 while the wait may continue after poll number $1, 1 once the budget is spent.
+wait_budget_left() {
+    local i="$1"
+    if [[ -n "$WAIT_CI_SECS" ]]; then
+        (( $(now_epoch) < WAIT_DEADLINE ))
+    else
+        (( i < ${GH_PR_MERGE_CHECK_ATTEMPTS:-60} ))
+    fi
+}
+WAIT_DEADLINE=0
+
 # Wait for every required context to go green before the squash (issue #577).
 # Returns 0 to proceed, 1 to stop. A required check that FAILS is a hard stop -
 # never an --admin override - and so is one that never reports within the budget.
@@ -668,6 +711,7 @@ wait_for_required_checks() {
     case "$RESOLVE_STATUS" in
         none)
             # A source answered and declares nothing required: pre-#577 behavior.
+            echo "GH_PR_MERGE_CI_WAIT: none-required"
             return 0
             ;;
         unresolved)
@@ -678,11 +722,11 @@ wait_for_required_checks() {
 
     local -a required=("${REQUIRED_CONTEXTS[@]}")
 
-    local attempts="${GH_PR_MERGE_CHECK_ATTEMPTS:-60}"
     local delay="${GH_PR_MERGE_CHECK_DELAY:-10}"
-    local i ctx state line pending failed
+    local i ctx state line pending failed missing running
+    [[ -n "$WAIT_CI_SECS" ]] && WAIT_DEADLINE=$(( $(now_epoch) + WAIT_CI_SECS ))
 
-    for ((i = 1; i <= attempts; i++)); do
+    for ((i = 1; ; i++)); do
         local -A states=()
         while IFS= read -r line; do
             [[ -z "$line" ]] && continue
@@ -691,6 +735,8 @@ wait_for_required_checks() {
 
         pending=""
         failed=""
+        missing=""
+        running=""
         for ctx in "${required[@]}"; do
             state="${states[$ctx]:-MISSING}"
             case "${state^^}" in
@@ -699,35 +745,46 @@ wait_for_required_checks() {
                 FAILURE|ERROR|CANCELLED|TIMED_OUT|ACTION_REQUIRED|STARTUP_FAILURE)
                     failed+="${ctx} (${state}) "
                     ;;
+                MISSING)
+                    pending+="${ctx} (${state}) "
+                    missing+="${ctx} "
+                    ;;
                 *)
                     pending+="${ctx} (${state}) "
+                    running+="${ctx} (${state}) "
                     ;;
             esac
         done
 
         if [[ -n "$failed" ]]; then
+            echo "GH_PR_MERGE_CI_WAIT: red"
             echo "error: required status check(s) are RED on PR #$PR_NUMBER: ${failed}" >&2
             echo "       Fix CI and push again - this is a required check, so it is" \
                  "never merged past automatically (issue #577, ADR 0004)." >&2
             return 1
         fi
         if [[ -z "$pending" ]]; then
+            echo "GH_PR_MERGE_CI_WAIT: green"
             (( i > 1 )) && echo "note: required status check(s) are green; merging." >&2
             return 0
         fi
-        if (( i < attempts )); then
-            (( i == 1 )) && echo "note: waiting for required status check(s) on PR" \
-                "#$PR_NUMBER: ${pending}" >&2
-            sleep "$delay"
-        fi
+        wait_budget_left "$i" || break
+        (( i == 1 )) && echo "note: waiting for required status check(s) on PR" \
+            "#$PR_NUMBER (budget $(wait_budget_label)): ${pending}" >&2
+        sleep "$delay"
     done
 
-    echo "error: required status check(s) never reported for PR #$PR_NUMBER after" \
-         "$attempts check(s): ${pending}" >&2
-    echo "       Not merging: overriding a required check would defeat the posture." \
-         "If the pipeline genuinely will not run, the documented break-glass is" \
+    # AN EXPIRED WAIT IS ITS OWN VERDICT (issue #1300): not a red check, not a
+    # failed merge, and not "never registered" for a pipeline that is running.
+    # Exit 10 - a clean stop that never merges - with the two states named apart.
+    echo "GH_PR_MERGE_CI_WAIT: expired ($(wait_budget_label))"
+    echo "CLEAN STOP: the required-check wait for PR #$PR_NUMBER ran out ($(wait_budget_label)) - not merging, and not a failure (issue #1300)." >&2
+    [[ -n "$running" ]] && echo "  still running: ${running}- CI has not finished; re-run the merge when it is green (--wait-ci[=SECS] waits longer)." >&2
+    [[ -n "$missing" ]] && echo "  never posted a status: ${missing}- no pipeline has reported these contexts at all; check that CI was triggered for this head." >&2
+    echo "  Do NOT re-gate or re-sync for this: nothing about the branch is wrong." \
+         "Overriding a required check would defeat the posture; the break-glass is" \
          "'gh-pr-merge.sh --admin $PR_NUMBER $BRANCH' (issue #577, ADR 0004)." >&2
-    return 1
+    return 10
 }
 
 # Neither mechanism could be read (issue #610), so nothing is KNOWN to be
@@ -741,15 +798,17 @@ wait_for_required_checks() {
 #     squash itself is the real gate; a client-side guess must never be the thing
 #     that blocks a PR whose posture it cannot even see.
 wait_for_observed_checks() {
-    local attempts="${GH_PR_MERGE_CHECK_ATTEMPTS:-60}"
     local delay="${GH_PR_MERGE_CHECK_DELAY:-10}"
-    local i line name state pending failed announced=0
+    local i line name state pending failed observed announced=0
+    [[ -n "$WAIT_CI_SECS" ]] && WAIT_DEADLINE=$(( $(now_epoch) + WAIT_CI_SECS ))
 
-    for ((i = 1; i <= attempts; i++)); do
+    for ((i = 1; ; i++)); do
         pending=""
         failed=""
+        observed=0
         while IFS= read -r line; do
             [[ -z "$line" ]] && continue
+            observed=$(( observed + 1 ))
             name="${line%%|*}"
             state="${line##*|}"
             case "${state^^}" in
@@ -765,27 +824,41 @@ wait_for_observed_checks() {
         done < <(check_states)
 
         if [[ -n "$failed" ]]; then
+            echo "GH_PR_MERGE_CI_WAIT: red"
             echo "error: status check(s) are RED on PR #$PR_NUMBER: ${failed}" >&2
             echo "       Required contexts could not be enumerated (issue #610), but a red" \
                  "check is authoritative on its own - fix CI and push again." >&2
             return 1
         fi
         if [[ -z "$pending" ]]; then
-            (( announced )) && echo "note: reported check(s) are green; merging." >&2
+            # NOTHING OBSERVED IS NOT GREEN (counter-model review): with no
+            # enumerable posture and an empty rollup, the #610 fail-open still
+            # proceeds - GitHub enforces the posture at squash time - but the
+            # marker must not claim a check passed when none was seen.
+            # Decided from THE SNAPSHOT JUST CLASSIFIED (counter-model review,
+            # pass 2) - a second read could differ from the one judged green.
+            if (( observed > 0 )); then
+                echo "GH_PR_MERGE_CI_WAIT: green"
+            else
+                echo "GH_PR_MERGE_CI_WAIT: none-observed"
+            fi
+            if (( announced && observed > 0 )); then
+                echo "note: reported check(s) are green; merging." >&2
+            fi
             return 0
         fi
-        if (( i < attempts )); then
-            if (( announced == 0 )); then
-                echo "note: required status-check contexts are not enumerable for PR" \
-                     "#$PR_NUMBER (no classic branch protection and no readable ruleset)" \
-                     "- waiting on the check(s) the PR itself reports: ${pending}" >&2
-                announced=1
-            fi
-            sleep "$delay"
+        wait_budget_left "$i" || break
+        if (( announced == 0 )); then
+            echo "note: required status-check contexts are not enumerable for PR" \
+                 "#$PR_NUMBER (no classic branch protection and no readable ruleset)" \
+                 "- waiting on the check(s) the PR itself reports: ${pending}" >&2
+            announced=1
         fi
+        sleep "$delay"
     done
 
-    echo "note: check(s) still pending on PR #$PR_NUMBER after $attempts check(s):" \
+    echo "GH_PR_MERGE_CI_WAIT: observed-fail-open"
+    echo "note: check(s) still pending on PR #$PR_NUMBER after $(wait_budget_label):" \
          "${pending}" >&2
     echo "      Not treating that as a required-check violation - the posture was never" \
          "enumerable, and GitHub enforces it server-side at squash time. Attempting the" \
@@ -1619,7 +1692,11 @@ if (( ADMIN_OPT_IN == 0 )); then
     fi
 
     wait_out_woodpecker_queue
-    if ! wait_for_required_checks; then
+    wait_rc=0
+    wait_for_required_checks || wait_rc=$?
+    if (( wait_rc == 10 )); then
+        exit 10
+    elif (( wait_rc != 0 )); then
         exit 1
     fi
 
@@ -1660,6 +1737,33 @@ if (( ADMIN_OPT_IN == 0 )); then
     review_gate
 fi
 
+# THE LAST READ OF THE BASE, AS CLOSE TO THE SQUASH AS IT CAN BE (issue #1300).
+# The post-wait read above is followed by several network reads (review gate,
+# squash title and body, both keyword guards, the tested-tree fetch); a merge
+# landing in that window was squashed over. Returns 0 when the base is contained
+# (or unreadable - the same fail-open as BASE_MOVED: skipped), 1 when it moved
+# to a tip this branch does not contain. `$1` names the moment, for the marker.
+base_contained_now() {
+    local tip
+    [[ -z "${BASE_WAIT_ROOT:-}" || -z "$PR_BASE_BRANCH" ]] && { echo "GH_PR_MERGE_BASE_AT_SQUASH: skipped"; return 0; }
+    "$GIT_BIN" -C "$BASE_WAIT_ROOT" fetch origin "$PR_BASE_BRANCH" --quiet 2>/dev/null || { echo "GH_PR_MERGE_BASE_AT_SQUASH: skipped"; return 0; }
+    tip=$("$GIT_BIN" -C "$BASE_WAIT_ROOT" rev-parse "refs/remotes/origin/${PR_BASE_BRANCH}" 2>/dev/null)
+    [[ -z "$tip" ]] && { echo "GH_PR_MERGE_BASE_AT_SQUASH: skipped"; return 0; }
+    if "$GIT_BIN" -C "$BASE_WAIT_ROOT" merge-base --is-ancestor "$tip" HEAD 2>/dev/null; then
+        echo "GH_PR_MERGE_BASE_AT_SQUASH: 0"
+        return 0
+    fi
+    echo "GH_PR_MERGE_BASE_AT_SQUASH: $tip"
+    if (( ALLOW_BASE_MOVE )); then
+        echo "warning: override consumed: --allow-base-move bypassed the issue #1300 base re-check $1 for PR #$PR_NUMBER." >&2
+        return 0
+    fi
+    echo "CLEAN STOP: base '$PR_BASE_BRANCH' moved to $tip $1, and this branch does not contain it - not merging PR #$PR_NUMBER (issue #1300)." >&2
+    echo "  The tree that was gated is not the tree that would land. The PR is left open and untouched." >&2
+    echo "  Bring the branch current (the caller's CI-budget decision), re-gate, push, and re-run the merge." >&2
+    return 1
+}
+
 # Attempt the squash, retrying (bounded) only when the base moved under us at
 # squash time (issue #502). Sets the global merge_exit; any error other than
 # "Base branch was modified" is NOT retried, and the post-merge MERGED-state
@@ -1683,6 +1787,19 @@ run_squash() {
             if ! poll_mergeable; then
                 merge_exit=1
                 break
+            fi
+            # A RETRY MUST NOT LAND A BASE NOBODY GATED (issue #1300, R2). The
+            # base moved - that is what this error means - so re-check that the
+            # branch contains the new tip IMMEDIATELY before squashing again,
+            # after the sleep and the re-poll (counter-model review: checked
+            # before them, a sibling merge in that interval went unseen).
+            # KEEP THIS ORDER: the check must read the base AFTER the sleep, or
+            # it validates a tip that is already stale by the time the squash
+            # runs. No stubbed test can tell the orders apart (one base read
+            # either way), so this comment is the only thing holding it.
+            if (( ADMIN_OPT_IN == 0 )) && ! base_contained_now "at the #502 squash retry"; then
+                rm -f "$errfile"
+                exit 6
             fi
         fi
         "$GH_BIN" pr merge "$PR_NUMBER" --squash "$@" 2>"$errfile"
@@ -1761,6 +1878,10 @@ fi
 
 guard_negated_close_keywords
 guard_incidental_close_keywords
+
+if (( ADMIN_OPT_IN == 0 )) && ! base_contained_now "immediately before the squash"; then
+    exit 6
+fi
 
 run_squash ${BASE_FLAGS+"${BASE_FLAGS[@]}"}
 

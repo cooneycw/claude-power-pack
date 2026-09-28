@@ -1251,8 +1251,11 @@ def test_required_check_that_never_reports_times_out_without_merging(tmp_path: P
         check_rollup=[[]],
     )
     result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-577-fix")
-    assert result.returncode == 1
-    assert "never reported" in result.stderr
+    # #1300 (ruling R1): an expired wait is its own verdict, exit 10 - it was 1,
+    # the same code as a red check. A context absent from the rollup is named as
+    # one that never posted a status.
+    assert result.returncode == 10
+    assert "never posted a status" in result.stderr
     assert "--admin" in result.stderr, "the stop must name the documented break-glass"
     assert not any(c.startswith("gh pr merge") for c in _calls(stubs)), "must not merge"
 
@@ -1298,9 +1301,11 @@ def test_unchanged_base_across_check_wait_merges(tmp_path: Path):
     calls = _calls(stubs)
     assert any(c.startswith("gh pr merge") for c in calls), calls
     assert len([c for c in calls if "baseRefName" in c]) == 1, calls
+    # Three reads since #1300: invocation, after the wait, and immediately before
+    # the squash - the last one closes the window the pre-squash reads left open.
     assert len(
         [c for c in calls if "rev-parse refs/remotes/origin/main" in c]
-    ) == 2, calls
+    ) == 3, calls
 
 
 def test_base_move_during_check_wait_clean_stops_before_merge(tmp_path: Path):
@@ -1561,8 +1566,8 @@ def test_contexts_from_both_mechanisms_are_unioned(tmp_path: Path):
         check_rollup=[[("build", "SUCCESS")]],
     )
     result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-610-fix")
-    assert result.returncode == 1
-    assert "never reported" in result.stderr
+    assert result.returncode == 10  # #1300 R1: an expired wait, not a red check
+    assert "never posted a status" in result.stderr
     assert WOODPECKER in result.stderr
     assert not any(c.startswith("gh pr merge") for c in _calls(stubs)), "must not merge"
 
@@ -3357,3 +3362,188 @@ def test_UNREADABLE_fork_metadata_skips_the_divergence_check(tmp_path: Path):
     result = _run(_linked_worktree(tmp_path), stubs, "42", "feature")
     assert result.returncode == 0, result.stderr
     assert "GH_PR_MERGE_LOCAL_DIVERGENCE: skipped (isCrossRepository unreadable)" in result.stdout
+
+
+# --- Issue #1300: waits that can say "still running", and a base re-read at squash ---
+# Each test below was run against 830ef9d (pre-fix) and FAILED there; the PR body
+# records every red and green result. Deadline tests use a stub CLOCK that advances
+# a fixed step per read - never wall-clock sleeps (#1311).
+
+
+def _stub_clock(tmp_path: Path, step: int = 100) -> str:
+    """A clock that starts at 1000 and advances `step` seconds on every read."""
+    ctr = tmp_path / "clock_ctr"
+    clock = tmp_path / "bin" / "clock"
+    _write_stub(
+        clock,
+        f'n=$(cat "{ctr}" 2>/dev/null || echo 0); echo $(( n + 1 )) > "{ctr}"\n'
+        f"echo $(( 1000 + n * {step} ))\n",
+    )
+    return str(clock)
+
+
+def test_an_EXPIRED_required_wait_is_exit_10_and_says_still_running(tmp_path: Path):
+    """Pre-fix: exit 1, the same code as a red check, and "never reported" for a
+    pipeline that was visibly running."""
+    stubs = _make_stubs(
+        tmp_path, pr_state="OPEN", required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "PENDING")]],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1300-fix")
+    assert result.returncode == 10, result.stdout + result.stderr
+    assert "GH_PR_MERGE_CI_WAIT: expired" in result.stdout
+    assert "still running" in result.stderr and WOODPECKER in result.stderr
+    assert "never reported" not in result.stderr
+    assert not any(c.startswith("gh pr merge") for c in _calls(stubs))
+
+
+def test_an_expired_wait_names_a_NEVER_POSTED_context_apart_from_a_running_one(tmp_path: Path):
+    other = "ci/other/required"
+    stubs = _make_stubs(
+        tmp_path, pr_state="OPEN", required_contexts=[WOODPECKER, other],
+        check_rollup=[[(WOODPECKER, "PENDING")]],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1300-fix")
+    assert result.returncode == 10
+    lines = result.stderr.splitlines()
+    assert any("never posted" in ln and other in ln for ln in lines), result.stderr
+    assert any("still running" in ln and WOODPECKER in ln for ln in lines), result.stderr
+
+
+def test_WAIT_CI_is_a_deadline_on_the_stub_clock(tmp_path: Path):
+    """--wait-ci 250 with a clock stepping 100s per read: the wait ends on the
+    deadline, not on the 3-attempt budget the harness pins."""
+    stubs = _make_stubs(
+        tmp_path, pr_state="OPEN", required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "PENDING")]],
+    )
+    clock = _stub_clock(tmp_path)
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1300-fix", "--wait-ci=250",
+                  extra_env={"GH_PR_MERGE_CLOCK": clock, "GH_PR_MERGE_CHECK_ATTEMPTS": "1"})
+    assert result.returncode == 10, result.stdout + result.stderr
+    assert "GH_PR_MERGE_CI_WAIT: expired (250s)" in result.stdout
+    polls = sum("statusCheckRollup" in c for c in _calls(stubs))
+    assert polls >= 3, f"a 250s deadline at 100s per read should poll more than once: {polls}"
+
+
+def test_WAIT_CI_green_before_the_deadline_merges(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path, pr_state="MERGED", required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "PENDING")], [(WOODPECKER, "SUCCESS")]],
+    )
+    clock = _stub_clock(tmp_path, step=10)
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1300-fix", "--wait-ci=600",
+                  extra_env={"GH_PR_MERGE_CLOCK": clock})
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_CI_WAIT: green" in result.stdout
+    assert any(c.startswith("gh pr merge") for c in _calls(stubs))
+
+
+def test_a_RED_required_check_is_still_exit_1_not_10(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path, pr_state="OPEN", required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "FAILURE")]],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1300-fix")
+    assert result.returncode == 1
+    assert "GH_PR_MERGE_CI_WAIT: red" in result.stdout
+
+
+def test_the_OBSERVED_path_still_fails_open_and_now_says_so(tmp_path: Path):
+    """#610's deliberate fail-open is unchanged; it only gains a marker."""
+    stubs = _make_stubs(
+        tmp_path, protection_ok=False, ruleset_ok=False,
+        check_rollup=[[("ci/something", "PENDING")]],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1300-fix")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_CI_WAIT: observed-fail-open" in result.stdout
+
+
+def test_a_base_that_moves_AFTER_the_wait_and_BEFORE_the_squash_stops_it(tmp_path: Path):
+    """Pre-fix: the post-wait read was the last one; a merge landing during the
+    pre-squash reads was squashed over."""
+    stubs = _make_stubs(
+        tmp_path, pr_state="OPEN", required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "SUCCESS")]],
+        base_tips=[BASE_TIP_OLD, BASE_TIP_OLD, BASE_TIP_NEW],
+        ancestors_in_head=[BASE_TIP_OLD],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1300-fix")
+    assert result.returncode == 6, result.stdout + result.stderr
+    assert f"GH_PR_MERGE_BASE_AT_SQUASH: {BASE_TIP_NEW}" in result.stdout
+    assert not any(c.startswith("gh pr merge") for c in _calls(stubs))
+
+
+def test_an_unmoved_base_at_squash_merges(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path, pr_state="MERGED", required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "SUCCESS")]],
+        base_tips=[BASE_TIP_OLD], ancestors_in_head=[BASE_TIP_OLD],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1300-fix")
+    assert result.returncode == 0, result.stderr
+    assert "GH_PR_MERGE_BASE_AT_SQUASH: 0" in result.stdout
+
+
+def test_the_502_retry_never_lands_a_base_the_branch_does_not_contain(tmp_path: Path):
+    """R2: "Base branch was modified" used to be retried after a refetch alone,
+    landing a tree nobody gated. Exactly ONE squash attempt, then exit 6."""
+    stubs = _make_stubs(
+        tmp_path, pr_state="OPEN", required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "SUCCESS")]],
+        merge_outcomes=[(1, "GraphQL: Base branch was modified. Review and try the merge again."),
+                        (0, "")],
+        base_tips=[BASE_TIP_OLD, BASE_TIP_OLD, BASE_TIP_OLD, BASE_TIP_NEW],
+        ancestors_in_head=[BASE_TIP_OLD],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1300-fix")
+    assert result.returncode == 6, result.stdout + result.stderr
+    merges = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert len(merges) == 1, merges
+
+
+def test_the_502_retry_still_retries_when_the_new_base_IS_contained(tmp_path: Path):
+    stubs = _make_stubs(
+        tmp_path, pr_state="MERGED", required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "SUCCESS")]],
+        merge_outcomes=[(1, "GraphQL: Base branch was modified. Review and try the merge again."),
+                        (0, "")],
+        base_tips=[BASE_TIP_OLD, BASE_TIP_OLD, BASE_TIP_OLD, BASE_TIP_NEW],
+        ancestors_in_head=[BASE_TIP_OLD, BASE_TIP_NEW],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1300-fix")
+    assert result.returncode == 0, result.stdout + result.stderr
+    merges = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert len(merges) == 2, merges
+
+
+def test_a_BARE_wait_ci_before_the_PR_number_does_not_swallow_it(tmp_path: Path):
+    """Counter-model review of #1300: `--wait-ci 42 feature` consumed 42 as seconds."""
+    stubs = _make_stubs(
+        tmp_path, pr_state="MERGED", required_contexts=[WOODPECKER],
+        check_rollup=[[(WOODPECKER, "SUCCESS")]],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "--wait-ci", "42", "issue-1300-fix")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert any(c.startswith("gh pr merge 42") for c in _calls(stubs))
+
+
+def test_an_EMPTY_observed_rollup_is_none_observed_never_green(tmp_path: Path):
+    stubs = _make_stubs(tmp_path, protection_ok=False, ruleset_ok=False, check_rollup=[[]])
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1300-fix")
+    assert result.returncode == 0, result.stderr  # the #610 fail-open is unchanged
+    assert "GH_PR_MERGE_CI_WAIT: none-observed" in result.stdout
+    assert "GH_PR_MERGE_CI_WAIT: green" not in result.stdout
+
+
+def test_the_observed_verdict_comes_from_the_snapshot_it_classified(tmp_path: Path):
+    """Counter-model review pass 2 of #1300: an empty snapshot was followed by a
+    SECOND read, and a pending check appearing in it printed `green`."""
+    stubs = _make_stubs(
+        tmp_path, protection_ok=False, ruleset_ok=False,
+        check_rollup=[[], [("ci/late", "PENDING")]],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1300-fix")
+    assert "GH_PR_MERGE_CI_WAIT: none-observed" in result.stdout, result.stdout
+    assert "GH_PR_MERGE_CI_WAIT: green" not in result.stdout

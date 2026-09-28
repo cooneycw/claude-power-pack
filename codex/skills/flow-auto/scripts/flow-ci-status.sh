@@ -44,6 +44,10 @@
 #                  means pull_request, `ci/woodpecker/push/*` alone means push.
 #                  Both, neither, or unreadable falls back to `push`, and the
 #                  FLOW_CI_EVENT line says which source decided.
+#   --strict-event Treat the event as a FILTER, not a preference (issue #1300):
+#                  a pipeline on another event never answers. The wait-then-merge
+#                  recipe uses it so a green push pipeline cannot end a wait for
+#                  the required pull_request lane.
 #   --wait [SECS]  Poll until the status is terminal or SECS elapse
 #                  (default 600, 15s interval). Without it, report once.
 #   --exit-code    Exit 1 when the verdict is `failure`. Every other verdict,
@@ -94,6 +98,7 @@ WAIT_STATE="none"
 SECRET_NAME="${CPP_WOODPECKER_SECRET:-essent-ai}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
 WANT_EXIT_CODE=0
+STRICT_EVENT=0
 
 CURL_BIN="${FLOW_CI_CURL:-curl}"
 AWS_BIN="${FLOW_CI_AWS:-}"
@@ -103,7 +108,7 @@ SLEEP_BIN="${FLOW_CI_SLEEP:-sleep}"
 
 die_usage() {
     echo "flow-ci-status: $1" >&2
-    echo "usage: flow-ci-status.sh [SHA] [--path <dir>] [--repo <owner/name>] [--event <e>] [--wait [SECS]] [--exit-code]" >&2
+    echo "usage: flow-ci-status.sh [SHA] [--path <dir>] [--repo <owner/name>] [--event <e>] [--strict-event] [--wait [SECS]] [--exit-code]" >&2
     exit 2
 }
 
@@ -120,12 +125,13 @@ while [[ $# -gt 0 ]]; do
         --region)      AWS_REGION="${2:-}"; [[ -n "$AWS_REGION" ]] || die_usage "--region needs a value"; shift 2 ;;
         --region=*)    AWS_REGION="${1#*=}"; shift ;;
         --exit-code)   WANT_EXIT_CODE=1; shift ;;
+        --strict-event) STRICT_EVENT=1; shift ;;
         --wait)
             # Optional numeric argument: `--wait` alone means the default.
             if [[ "${2:-}" =~ ^[0-9]+$ ]]; then WAIT_SECS="$2"; shift 2; else WAIT_SECS=600; shift; fi
             ;;
         --wait=*)      WAIT_SECS="${1#*=}"; [[ "$WAIT_SECS" =~ ^[0-9]+$ ]] || die_usage "--wait needs seconds"; shift ;;
-        -h|--help)     sed -n '2,71p' "$0"; exit 0 ;;
+        -h|--help)     sed -n '2,75p' "$0"; exit 0 ;;
         -*)            die_usage "unknown argument: $1" ;;
         *)             [[ -z "$SHA" ]] || die_usage "unexpected argument: $1"; SHA="$1"; shift ;;
     esac
@@ -141,7 +147,7 @@ emit() {
     echo "FLOW_CI_PROVIDER: $PROVIDER"
     echo "FLOW_CI_REF: ${SHA:--}"
     echo "FLOW_CI_REPO: ${REPO:--}"
-    echo "FLOW_CI_EVENT: ${PREFER_EVENT:-$DEFAULT_EVENT} (${EVENT_SOURCE})"
+    echo "FLOW_CI_EVENT: ${PREFER_EVENT:-$DEFAULT_EVENT} (${EVENT_SOURCE}$( (( STRICT_EVENT )) && echo '; strict'))"
     echo "FLOW_CI_PIPELINE: $PIPELINE"
     echo "FLOW_CI_URL: $URL"
     echo "FLOW_CI_WAIT: $WAIT_STATE"
@@ -308,8 +314,8 @@ if [[ "$HAVE_JQ" -eq 1 && -n "$WP_TOKEN" && -n "$WP_SERVER" ]]; then
         DEADLINE=$(( $(date +%s) + WAIT_SECS ))
         while :; do
             MATCHES="$(wp_api "/api/repos/$REPO_ID/pipelines?per_page=50" \
-                | jq -c --arg sha "$SHA" --arg ev "$PREFER_EVENT" \
-                    '[.[] | select(.commit == $sha)]
+                | jq -c --arg sha "$SHA" --arg ev "$PREFER_EVENT" --argjson strict "$STRICT_EVENT" \
+                    '[.[] | select(.commit == $sha) | select($strict == 0 or .event == $ev)]
                      | sort_by(.event != $ev)            # preferred event first
                      | map({number, event, status})' 2>/dev/null)"
             COUNT="$(jq -r 'length' <<<"${MATCHES:-[]}" 2>/dev/null || echo 0)"
@@ -372,6 +378,7 @@ if command -v "$WPCLI_BIN" >/dev/null 2>&1; then
                 MATCHES+=("$number|$state|$commit|$event")
             done <<<"$WPCLI_ROWS"
             while IFS='|' read -r number state commit event; do
+                (( STRICT_EVENT )) && continue
                 [[ "$commit" == "$SHA" && "$event" != "$PREFER_EVENT" ]] || continue
                 MATCHES+=("$number|$state|$commit|$event")
             done <<<"$WPCLI_ROWS"
@@ -428,28 +435,46 @@ if command -v "$WPCLI_BIN" >/dev/null 2>&1; then
 fi
 
 # ── GitHub Actions fallback ────────────────────────────────────────────────
+# The run LIST is fetched and filtered here rather than asking gh for `.[0]`,
+# so --strict-event can hold on this lane too (counter-model review, #1300): a
+# successful push workflow must not end a wait for the pull_request lane. A
+# provider that answers with no run on the required event is `not-found`, and a
+# --wait keeps waiting for it; the event is a preference without --strict-event.
+gha_runs() {
+    "$GH_BIN" run list --repo "$REPO" --commit "$SHA" \
+        --json status,conclusion,databaseId,url,event 2>/dev/null
+}
+gha_pick() {
+    jq -c --arg ev "$PREFER_EVENT" --argjson strict "$STRICT_EVENT" \
+        'if $strict == 1 then [.[] | select(.event == $ev)] else (sort_by(.event != $ev)) end | .[0]' \
+        <<<"$1" 2>/dev/null
+}
 if [[ "$HAVE_JQ" -eq 1 ]] && command -v "$GH_BIN" >/dev/null 2>&1; then
-    RUN_JSON="$("$GH_BIN" run list --repo "$REPO" --commit "$SHA" \
-        --json status,conclusion,databaseId,url --jq '.[0]' 2>/dev/null)"
-    if [[ -n "$RUN_JSON" && "$RUN_JSON" != "null" ]]; then
+    ALL_RUNS="$(gha_runs)"
+    if [[ -n "$ALL_RUNS" && "$(jq -r 'if type == "array" then length else 0 end' <<<"$ALL_RUNS" 2>/dev/null)" -gt 0 ]]; then
         PROVIDER="github-actions"
         DEADLINE=$(( $(date +%s) + WAIT_SECS ))
         while :; do
-            GH_STATUS="$(jq -r '.status // empty' <<<"$RUN_JSON")"
-            GH_CONCL="$(jq -r '.conclusion // empty' <<<"$RUN_JSON")"
-            PIPELINE="$(jq -r '.databaseId // "-"' <<<"$RUN_JSON")"
-            URL="$(jq -r '.url // "-"' <<<"$RUN_JSON")"
-            if [[ "$GH_STATUS" == "completed" ]]; then
-                [[ "$GH_CONCL" == "success" ]] && STATUS="success" || STATUS="failure"
-                [[ "$WAIT_SECS" -gt 0 ]] && WAIT_STATE="settled"
-                break
+            RUN_JSON="$(gha_pick "$ALL_RUNS")"
+            if [[ -z "$RUN_JSON" || "$RUN_JSON" == "null" ]]; then
+                PIPELINE="-"; URL="-"; STATUS="not-found"
+            else
+                GH_STATUS="$(jq -r '.status // empty' <<<"$RUN_JSON")"
+                GH_CONCL="$(jq -r '.conclusion // empty' <<<"$RUN_JSON")"
+                PIPELINE="$(jq -r '.databaseId // "-"' <<<"$RUN_JSON")"
+                URL="$(jq -r '.url // "-"' <<<"$RUN_JSON")"
+                if [[ "$GH_STATUS" == "completed" ]]; then
+                    [[ "$GH_CONCL" == "success" ]] && STATUS="success" || STATUS="failure"
+                    [[ "$WAIT_SECS" -gt 0 ]] && WAIT_STATE="settled"
+                    break
+                fi
+                STATUS="running"
             fi
-            STATUS="running"
             if [[ "$WAIT_SECS" -eq 0 ]]; then break; fi
             if [[ "$(date +%s)" -ge "$DEADLINE" ]]; then WAIT_STATE="expired (${WAIT_SECS}s)"; break; fi
             "$SLEEP_BIN" 15
-            RUN_JSON="$("$GH_BIN" run list --repo "$REPO" --commit "$SHA" \
-                --json status,conclusion,databaseId,url --jq '.[0]' 2>/dev/null)"
+            ALL_RUNS="$(gha_runs)"
+            [[ -n "$ALL_RUNS" ]] || ALL_RUNS="[]"
         done
         if [[ "$STATUS" == "failure" && "$PIPELINE" != "-" ]]; then
             while IFS= read -r step; do
