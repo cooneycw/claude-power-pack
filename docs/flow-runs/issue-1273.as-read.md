@@ -5,7 +5,7 @@ The issue is the authority; read it. This copy exists so a later check can
 report that the source moved. It does not graduate.
 
 - Issue:        #1273
-- Read at:      2026-09-28T17:11:25Z
+- Read at:      2026-09-28T17:28:14Z
 - updatedAt:    2026-09-26T14:12:47Z   (context only - moves on comments and labels)
 - Body digest:  8c288798df5b8eae57358f9afae2c3592becb98d4192a13952abfad7a453d539   (sha256 of the FULL body; the verdict keys on this)
 - Stored bytes: 13968 of 13968 (cap 16384)
