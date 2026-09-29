@@ -1144,6 +1144,27 @@ def _read_json(path: Path) -> tuple[str, object]:
         return "unreadable", f"{path}: {type(exc).__name__}"
 
 
+def disabled_project_servers(claude_json: Path, project_dir: Path,
+                             problems: list[str] | None = None) -> set[str]:
+    """Names in ~/.claude.json .projects[<dir>].disabledMcpjsonServers - the
+    host-local way to switch off a shipped .mcp.json server without editing the
+    tracked file. A list of the wrong shape is reported to `problems`, never
+    read as "nothing disabled"; absent is a fact and disables nothing."""
+    state, data = _read_json(claude_json)
+    if state != "ok" or not isinstance(data, dict):
+        return set()
+    projects = data.get("projects")
+    local = projects.get(str(project_dir.resolve())) if isinstance(projects, dict) else None
+    if not isinstance(local, dict) or local.get("disabledMcpjsonServers") is None:
+        return set()
+    listed = local["disabledMcpjsonServers"]
+    if not isinstance(listed, list) or not all(isinstance(n, str) for n in listed):
+        if problems is not None:
+            problems.append(f"{claude_json}: disabledMcpjsonServers is not a list of names")
+        return set()
+    return set(listed)
+
+
 def collect_scope_definitions(
     claude_json: Path, project_dir: Path, env: dict[str, str]
 ) -> tuple[dict[str, dict[str, tuple]], list[str], set[str], bool]:
@@ -1157,6 +1178,8 @@ def collect_scope_definitions(
     #: scope could not be read (then NO name's consistency is established).
     unreadable_names: set[str] = set()
 
+    disabled = disabled_project_servers(claude_json, project_dir, problems)
+
     def add(scope: str, servers: object, where: str) -> None:
         if servers is None:
             return
@@ -1164,6 +1187,10 @@ def collect_scope_definitions(
             problems.append(f"{where}: mcpServers is not an object")
             return
         for name, spec in servers.items():
+            if scope == "project" and name in disabled:
+                # Claude Code does not load a .mcp.json server the user disabled
+                # for this project, so it defines nothing a session can reach.
+                continue
             try:
                 ep = _endpoint(spec, env)
             except _Unresolved as unset:
@@ -1225,7 +1252,13 @@ def scope_check(claude_json: Path, project_dir: Path, env: dict[str, str]) -> tu
                 if scope in scopes:
                     lines.append(f"  {scope:8} {redact_endpoint(scopes[scope])}")
             lines.append(f"  values hidden; see them with: claude mcp get {name}")
-            lines.append(f"  remedy (only on your say-so): claude mcp remove {name} -s <scope-to-drop>")
+            lines.append(f"  remedy (only on your say-so): claude mcp remove {name} -s <user|local>")
+            if "project" in scopes:
+                # `remove -s project` rewrites the TRACKED .mcp.json, which changes
+                # the repository for everyone, not this host.
+                lines.append(f"  to drop the project entry on this host only, add \"{name}\" to "
+                             f"projects[\"{project_dir.resolve()}\"].disabledMcpjsonServers "
+                             "in ~/.claude.json")
         elif name in unreadable_names or scope_unreadable:
             # A definition (or a whole scope) could not be read, so one endpoint
             # among the READABLE ones says nothing about consistency.
@@ -1233,6 +1266,8 @@ def scope_check(claude_json: Path, project_dir: Path, env: dict[str, str]) -> tu
                          "another could not be read, so consistency is not established)")
         else:
             lines.append(f"OK: {name} ({len(scopes)} definition(s), one endpoint)")
+    for name in sorted(disabled_project_servers(claude_json, project_dir)):
+        lines.append(f"DISABLED: {name} at project scope (disabledMcpjsonServers); not counted as a definition")
     if problems:
         lines.append("UNKNOWN: some MCP configuration could not be read, so this is NOT a clean result:")
         lines.extend(f"  {p}" for p in problems)

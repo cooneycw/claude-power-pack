@@ -21,3 +21,28 @@ statement of the issue contract or of a Tier 3 spec, and it does not graduate.
 3. `.claude/commands/cpp/update.md` - Step 6b calls --scope-check, reports on 1 and 3 and continues; SCOPE CONFLICT status row; OK narrowed
 
 Host-owed: the canonical wiring, removal of the loser, and the run against the real ~/.claude.json.
+
+<!-- flow-run n=2 id=ac54966bc79a4478a13605ca6a59f7bb -->
+## Run 2
+
+- Run-id:            ac54966bc79a4478a13605ca6a59f7bb
+- Run-start:         9e2d3e7fd4e24c895fbb0753cf014a47dd3cb480
+- Issue:             #1256
+- Base SHA:          9e2d3e7f
+- Necessity verdict: Partially addressed
+- Approval:          granted
+- Approver:          cooneycw (owner), in-session reply "approved, go ahead with the stdio canonical plan"
+- Recorded at:       2026-09-29T10:29:01Z
+
+### Section B evidence
+- Delivered earlier: cd3eb00a (PR #1331, --scope-check), c6b02fad (PR #1337, /cpp:status consumes it). Also on these paths, unrelated: 7d1ad79f (#1305), 879df151 (#1287).
+- Related closed issues: #633, #1282, #1290. No duplicate or superseding issue.
+- Host reproduction this run: SCOPE CONFLICT second-opinion, user stdio vs project http://127.0.0.1:8080/mcp (exit 1); 8080 is nginx redirecting to /accounts/login/, not second-opinion.
+- --scope-check does not read projects[<dir>].disabledMcpjsonServers, and its project-scope remedy (`claude mcp remove -s project`) rewrites the tracked .mcp.json.
+
+### Section C - the approved plan
+Canonical wiring on this host: user-scope stdio. The shipped project HTTP entry is disabled on this host only.
+1. `scripts/mcp-drift.py` - a project-scope server listed in that project's disabledMcpjsonServers is not counted as a definition and is reported as disabled; the remedy for a project-scope loser suggests disabling rather than `remove -s project`
+2. `tests/test_mcp_drift.py` - disabled project entry reads OK (red on pre-fix); the same config without the disable still reports SCOPE CONFLICT; project remedy text no longer says `remove -s project`
+Scope: 2 files, ~40-70 lines. Risk: Claude Code might not honour the disable list for that key, in which case the check would read OK while the entry still loads - verify with `claude mcp list`.
+Host-owed (not a repo file): back up ~/.claude.json, add second-opinion to the CPP project's disabledMcpjsonServers, re-run --scope-check expecting exit 0, then close #1256.

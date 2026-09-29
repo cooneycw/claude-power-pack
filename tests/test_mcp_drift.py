@@ -1047,6 +1047,59 @@ def test_scope_conflict_names_both_scopes_and_endpoints(tmp_path: Path, capsys) 
     assert "claude mcp remove second-opinion -s" in out
 
 
+def _disable_project_server(cj: Path, proj: Path, listed: object) -> None:
+    data = json.loads(cj.read_text())
+    data.setdefault("projects", {}).setdefault(str(proj.resolve()), {})["disabledMcpjsonServers"] = listed
+    cj.write_text(json.dumps(data))
+
+
+def test_a_project_entry_disabled_on_this_host_is_not_a_conflict(tmp_path: Path, capsys) -> None:
+    """The #1256 host remedy: keep user-scope stdio, switch off the shipped
+    .mcp.json entry for this project only. Claude Code does not load it, so it
+    is not a second definition. Red on the pre-fix check, which ignored the list."""
+    cj, proj = _scope_fixture(tmp_path, user={"second-opinion": _STDIO},
+                              project={"second-opinion": _HTTP})
+    _disable_project_server(cj, proj, ["second-opinion"])
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 0, out
+    assert "SCOPE CONFLICT" not in out
+    assert "OK: second-opinion (1 definition(s), one endpoint)" in out
+    assert "DISABLED: second-opinion at project scope" in out
+
+
+def test_disabling_a_different_name_leaves_the_conflict(tmp_path: Path, capsys) -> None:
+    """The paired control: the list is read by NAME, so an unrelated entry in it
+    must not silence the conflict."""
+    cj, proj = _scope_fixture(tmp_path, user={"second-opinion": _STDIO},
+                              project={"second-opinion": _HTTP})
+    _disable_project_server(cj, proj, ["tavily"])
+    assert "second-opinion" not in json.loads(cj.read_text())["projects"][str(proj.resolve())][
+        "disabledMcpjsonServers"]
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 1 and "SCOPE CONFLICT: second-opinion" in out, out
+
+
+def test_the_remedy_never_suggests_removing_the_tracked_project_file(tmp_path: Path, capsys) -> None:
+    """`claude mcp remove -s project` rewrites the shipped .mcp.json for everyone."""
+    cj, proj = _scope_fixture(tmp_path, user={"second-opinion": _STDIO},
+                              project={"second-opinion": _HTTP})
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 1, out
+    assert "-s <scope-to-drop>" not in out and "-s project" not in out
+    assert "disabledMcpjsonServers" in out
+
+
+def test_a_malformed_disabled_list_is_unknown_not_clean(tmp_path: Path, capsys) -> None:
+    cj, proj = _scope_fixture(tmp_path, user={"second-opinion": _STDIO},
+                              project={"second-opinion": _HTTP})
+    _disable_project_server(cj, proj, "second-opinion")
+    assert not isinstance(json.loads(cj.read_text())["projects"][str(proj.resolve())][
+        "disabledMcpjsonServers"], list)
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 3, out
+    assert "disabledMcpjsonServers is not a list of names" in out
+
+
 def test_local_scope_is_a_scope_too(tmp_path: Path, capsys) -> None:
     cj, proj = _scope_fixture(tmp_path, local={"second-opinion": _STDIO},
                               project={"second-opinion": _HTTP})
