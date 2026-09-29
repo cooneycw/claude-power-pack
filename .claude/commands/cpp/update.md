@@ -1396,8 +1396,12 @@ esac
 ```
 
 Never remove a definition yourself. On a conflict, show both scopes and
-endpoints, and offer Claude Code's own `claude mcp remove <name> -s <scope>` for
-the scope the user says to drop - which wiring is canonical is the user's call.
+endpoints, and offer Claude Code's own `claude mcp remove <name> -s <user|local>`
+for the scope the user says to drop - which wiring is canonical is the user's call.
+To drop the PROJECT entry, never offer `-s project`: that rewrites the tracked
+`.mcp.json` for every user of the repository. Offer adding the name to
+`projects["<dir>"].disabledMcpjsonServers` in `~/.claude.json` instead, which
+`--scope-check` honours (a disabled project entry is not a definition).
 
 **For each installed legacy systemd service matching mcp-*, nano-*, or
 coordination**, classify it as:
