@@ -589,6 +589,25 @@ def _refuse_environ_of(monkeypatch: pytest.MonkeyPatch, pid: int) -> list[int]:
     return refused
 
 
+def _execd_child(pid: int, comm: str) -> tuple[int, tuple[str, int, int]]:
+    """A descendant of `pid` that has EXEC'd `comm`, with its stat fields.
+
+    Waiting for "any descendant" is not enough. Between fork and exec a child's
+    comm is still its parent's (`bash`), and under CI load that window is
+    visible: pipeline 2957 caught the child there and failed a precondition on
+    a correct tree. This polls until a descendant's own /proc stat shows `comm`.
+    """
+    deadline = time.monotonic() + FIXTURE_DEADLINE
+    seen: list[tuple[int, tuple[str, int, int] | None]] = []
+    while True:
+        seen = [(child, _stat(child)) for child in _descendants(pid)]
+        for child, fields in seen:
+            if fields is not None and fields[0] == comm:
+                return child, fields
+        assert time.monotonic() < deadline, f"precondition: a child exec'd {comm}: {seen}"
+        time.sleep(0.02)
+
+
 @requires_proc
 def test_an_unreadable_neighbour_does_not_fail_the_cleanup_check(monkeypatch: pytest.MonkeyPatch) -> None:
     """Issue #1347: another process of our uid that cannot be read is not ours.
@@ -653,18 +672,15 @@ def test_an_unreadable_process_of_ours_fails_the_cleanup_check(
     )
     try:
         fixture = _fixture_of(proc)
-        deadline = time.monotonic() + FIXTURE_DEADLINE
-        while not (children := _descendants(proc.pid)):
-            assert time.monotonic() < deadline, "precondition: the fixture forked its child"
-            time.sleep(0.02)
         # Asserted from the raw stat fields, NOT through `_could_be_kin`: a
         # precondition that called the rule under test could not show the rule
         # being wrong, only itself failing.
-        comm, pgid, start = _stat(children[0]) or ("", -1, -1)
-        assert (comm, pgid) == ("sleep", fixture.pgid) and start >= fixture.start, (
-            "precondition: the child shares the fixture's group, started after it, and runs sleep"
+        child, (comm, pgid, start) = _execd_child(proc.pid, "sleep")
+        assert pgid == fixture.pgid and start >= fixture.start, (
+            "precondition: the child shares the fixture's group and started after it: "
+            f"{(comm, pgid, start)} vs fixture {(fixture.pgid, fixture.start)}"
         )
-        refused = _refuse_environ_of(monkeypatch, children[0])
+        refused = _refuse_environ_of(monkeypatch, child)
 
         with pytest.raises(pytest.fail.Exception, match="could not read pid"):
             _kin(tag, fixture)
