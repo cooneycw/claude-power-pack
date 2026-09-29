@@ -1079,6 +1079,19 @@ def test_disabling_a_different_name_leaves_the_conflict(tmp_path: Path, capsys) 
     assert rc == 1 and "SCOPE CONFLICT: second-opinion" in out, out
 
 
+def test_disabling_the_project_entry_does_not_hide_a_local_conflict(tmp_path: Path, capsys) -> None:
+    """The list disables the .mcp.json entry only. A filter that dropped the
+    name at every scope would pass the cases above and miss this one."""
+    cj, proj = _scope_fixture(tmp_path, user={"second-opinion": _STDIO},
+                              local={"second-opinion": _HTTP},
+                              project={"second-opinion": _HTTP})
+    _disable_project_server(cj, proj, ["second-opinion"])
+    rc, out = _scope_run(capsys, cj, proj)
+    assert rc == 1, out
+    assert "SCOPE CONFLICT: second-opinion is defined at 2 scopes" in out
+    assert "local    http" in out and "project  http" not in out
+
+
 def test_the_remedy_never_suggests_removing_the_tracked_project_file(tmp_path: Path, capsys) -> None:
     """`claude mcp remove -s project` rewrites the shipped .mcp.json for everyone."""
     cj, proj = _scope_fixture(tmp_path, user={"second-opinion": _STDIO},
