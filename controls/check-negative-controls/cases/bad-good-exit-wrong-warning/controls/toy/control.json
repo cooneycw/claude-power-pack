@@ -1,0 +1,20 @@
+{
+  "gate": "scripts/toy-gate.sh",
+  "invocation": ["sh", "{gate}", "--root", "{case}"],
+  "good_exit": 3,
+  "good_signal": "^toy-gate: warn \\(expected reason\\)",
+  "detect_signal": "^toy-gate: FINDING",
+  "cases": [
+    {"name": "bad", "input": "cases/bad", "expect": "BAD"},
+    {"name": "good", "input": "cases/good", "expect": "GOOD"}
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "0000000",
+      "origin": "scripts/toy-gate.sh",
+      "path": "anchors/0000000-toy-gate.sh",
+      "sha256": "c82b6bfd133d5be8a0585587cf95d83f68bcad86259f8f33e2fefecbc89ddcdb"
+    }
+  ]
+}

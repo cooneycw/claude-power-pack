@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1350-controls-flow-finish-gate-resume-judges-good-fail",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "3ce4092f809c6a141267d07faeba810075c11468",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1350",
+  "passes": 1,
+  "recorded_at": "2026-09-28T23:02:08Z",
+  "red_cases": {
+    "already_covered": 4,
+    "proposed": 6
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/09/28/rollout-2026-09-28T23-01-05-01a0ea40-1960-7940-b1ed-c1c6ba673372.jsonl",
+    "thread_id": "01a0ea40-1960-7940-b1ed-c1c6ba673372"
+  },
+  "schema": 1,
+  "status": "ran"
+}
