@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1347-test-cleanup-of-a-shared-group-fixture-leaves-no-d",
+  "counts": {
+    "accepted": 5,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "31b5a2ff4d719a92d5beda4c36e08c6f05f804aa",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1347",
+  "passes": 2,
+  "recorded_at": "2026-09-28T22:33:12Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 8
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/09/28/rollout-2026-09-28T22-30-37-01a0ea24-38c3-7420-9426-5d6f1e21dcea.jsonl",
+    "thread_id": "01a0ea24-38c3-7420-9426-5d6f1e21dcea"
+  },
+  "schema": 1,
+  "status": "ran"
+}
