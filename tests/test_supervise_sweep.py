@@ -795,6 +795,59 @@ def test_a_cleanup_that_raises_still_reaps_the_marked_children(
                 pass
 
 
+@requires_proc
+def test_the_fallback_reaper_never_signals_an_unmarked_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The SAFETY half of `_reap_marked`: a process without THIS test's tag is never signalled.
+
+    A regression here would kill a neighbour's process, which no other test
+    notices. Three live same-uid processes: one carries the tag (the positive
+    control, so a reaper that selected nothing cannot pass), one carries a
+    DIFFERENT tag, one carries no marker at all.
+
+    NO SIGNAL IS SENT by the reaper here: `os.kill` is a RECORDER for the
+    duration of the call, and the assertion is on the recorded kill set. A
+    reaper broken the way this test exists to catch selects every same-uid
+    process, and in a session container that includes PID 1's keepalive
+    `sleep` - which, under the entrypoint's `set -e`, takes the whole container
+    down (measured: it did, twice, while a real-signal version of this red run
+    was being taken). So the property is proven without ever delivering the
+    signals a broken reaper would send.
+    """
+    tag, other = uuid.uuid4().hex, uuid.uuid4().hex
+    base = {k: v for k, v in os.environ.items() if k != KIN_ENV}
+    marked = subprocess.Popen(["sleep", "300"], env={**base, KIN_ENV: tag})
+    foreign = subprocess.Popen(["sleep", "300"], env={**base, KIN_ENV: other})
+    unmarked = subprocess.Popen(["sleep", "300"], env=base)
+    try:
+        for proc in (marked, foreign, unmarked):  # precondition: each environ is visible
+            deadline = time.monotonic() + FIXTURE_DEADLINE
+            while f"{KIN_ENV}=".encode() not in Path(f"/proc/{proc.pid}/environ").read_bytes() and proc is not unmarked:
+                assert time.monotonic() < deadline, "precondition: the marked environs are readable"
+                time.sleep(0.02)
+
+        recorded: list[tuple[int, int]] = []
+        monkeypatch.setattr(os, "kill", lambda pid, sig: recorded.append((pid, sig)))
+        monkeypatch.setattr(os, "killpg", lambda pgid, sig: recorded.append((-pgid, sig)))
+        killed = _reap_marked(tag)
+        monkeypatch.undo()
+
+        signalled = {pid for pid, _sig in recorded}
+        assert marked.pid in signalled, "positive control: the marked process must be selected"
+        assert foreign.pid not in signalled, "a process carrying ANOTHER test's tag was selected"
+        assert unmarked.pid not in signalled, "a process carrying no marker was selected"
+        assert signalled == {marked.pid} and killed == [marked.pid], (
+            f"only the marked process may be selected: {sorted(signalled)}"
+        )
+    finally:
+        monkeypatch.undo()
+        for proc in (marked, foreign, unmarked):  # our own three, by handle only
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait(timeout=10)
+
+
 def test_an_unreadable_process_table_is_not_an_empty_sweep(tmp_path: Path) -> None:
     """Could-not-look must not render as looked-and-found-nothing."""
     with pytest.raises(SweepUnavailable):
