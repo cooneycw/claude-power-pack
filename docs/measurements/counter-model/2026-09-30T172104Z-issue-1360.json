@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1360-deps-urllib3-2-7-0-in-uv-lock-carries-3-new-cves-c",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "a424ea3dc9fc8da5df602b8f1d9b87b545d8b616",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1360",
+  "passes": 1,
+  "recorded_at": "2026-09-30T17:21:04Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/09/30/rollout-2026-09-30T13-20-20-01a0f354-dc57-7eb0-96e8-e3d361025f93.jsonl",
+    "thread_id": "01a0f354-dc57-7eb0-96e8-e3d361025f93"
+  },
+  "schema": 1,
+  "status": "ran"
+}
