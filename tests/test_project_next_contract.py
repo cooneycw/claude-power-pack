@@ -163,14 +163,14 @@ def _run_with_failing_gh(tmp_path: Path, sandboxed: bool) -> subprocess.Complete
     )
 
 
-def test_gh_failure_inside_codex_sandbox_names_the_sandbox(tmp_path: Path) -> None:  # binary-guard: allow fake gh/git only
+def test_gh_failure_inside_codex_sandbox_names_the_sandbox(tmp_path: Path) -> None:  # binary-guard: allow fake gh/git
     completed = _run_with_failing_gh(tmp_path, sandboxed=True)
     assert completed.returncode == 2
     assert "error connecting to api.github.com" in completed.stderr
     assert "network-disabled sandbox" in completed.stderr
 
 
-def test_gh_failure_outside_codex_sandbox_is_unchanged(tmp_path: Path) -> None:  # binary-guard: allow fake gh/git only
+def test_gh_failure_outside_codex_sandbox_is_unchanged(tmp_path: Path) -> None:  # binary-guard: allow fake gh/git
     completed = _run_with_failing_gh(tmp_path, sandboxed=False)
     assert completed.returncode == 2
     assert completed.stderr.strip() == (
