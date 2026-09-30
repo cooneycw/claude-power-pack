@@ -9,6 +9,7 @@ retired assertion that is simply deleted takes the distinction it drew with it.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -137,3 +138,41 @@ def test_offline_ownership_hash_gate_is_part_of_the_suite() -> None:
 
     assert completed.returncode == 0, completed.stderr
     assert "11 files match" in completed.stdout
+
+
+def _run_with_failing_gh(tmp_path: Path, sandboxed: bool) -> subprocess.CompletedProcess[str]:
+    """Run the entry point against a fake `git` and a `gh` that fails the way a
+    sandboxed one does (issue #1357). Both fakes are /bin/sh scripts on PATH, so
+    no real git or gh binary is reached."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "git").write_text(f"#!/bin/sh\necho '{tmp_path}'\n")
+    (bindir / "gh").write_text("#!/bin/sh\necho 'error connecting to api.github.com' >&2\nexit 1\n")
+    for fake in bindir.iterdir():
+        fake.chmod(0o755)
+    env = {k: v for k, v in os.environ.items() if k != "CODEX_SANDBOX_NETWORK_DISABLED"}
+    env["PATH"] = f"{bindir}{os.pathsep}{env.get('PATH', '')}"
+    if sandboxed:
+        env["CODEX_SANDBOX_NETWORK_DISABLED"] = "1"
+    return subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "project-next.py"), str(tmp_path), "--compact"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+
+def test_gh_failure_inside_codex_sandbox_names_the_sandbox(tmp_path: Path) -> None:  # binary-guard: allow fake gh/git only
+    completed = _run_with_failing_gh(tmp_path, sandboxed=True)
+    assert completed.returncode == 2
+    assert "error connecting to api.github.com" in completed.stderr
+    assert "network-disabled sandbox" in completed.stderr
+
+
+def test_gh_failure_outside_codex_sandbox_is_unchanged(tmp_path: Path) -> None:  # binary-guard: allow fake gh/git only
+    completed = _run_with_failing_gh(tmp_path, sandboxed=False)
+    assert completed.returncode == 2
+    assert completed.stderr.strip() == (
+        "project-next: cannot resolve GitHub repository: gh repo view: error connecting to api.github.com"
+    )

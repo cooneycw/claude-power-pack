@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import subprocess
 from collections.abc import Callable
@@ -25,21 +24,10 @@ class CollectionError(RuntimeError):
     """A required repository-state command failed."""
 
 
-# Codex sets this inside its workspace sandbox, where network is off (issue
-# #1357). A `gh` failure there reads "error connecting to api.github.com", which
-# looks like an outage or a bad login; it is neither, and the hint says so.
-CODEX_SANDBOX_HINT = (
-    " (running inside Codex's network-disabled sandbox,"
-    " CODEX_SANDBOX_NETWORK_DISABLED=1: rerun this helper with escalated permissions)"
-)
-
-
 def subprocess_runner(command: list[str], cwd: Path) -> str:
     completed = subprocess.run(command, cwd=cwd, capture_output=True, text=True, check=False)
     if completed.returncode:
         message = (completed.stderr or completed.stdout or "command failed").strip().splitlines()[0]
-        if command[:1] == ["gh"] and os.environ.get("CODEX_SANDBOX_NETWORK_DISABLED") == "1":
-            message += CODEX_SANDBOX_HINT
         raise CollectionError(f"{' '.join(command[:3])}: {message}")
     return completed.stdout
 

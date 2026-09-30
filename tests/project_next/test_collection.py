@@ -1,18 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import pytest
 
-from lib.project_next.collect import (
-    CollectionError,
-    _spec_inventory,
-    _spec_tasks,
-    collect_repository,
-    subprocess_runner,
-)
+from lib.project_next.collect import CollectionError, _spec_inventory, _spec_tasks, collect_repository
 from lib.project_next.config import ProjectNextConfig
 
 
@@ -193,30 +186,3 @@ def test_spec_inventory_reports_file_readiness_and_partial_sync(tmp_path: Path) 
     assert (readiness.mapped_tasks, readiness.total_tasks) == (1, 2)
     assert readiness.mapping_status == "partial"
     assert readiness.recommended_action == "sync remaining tasks to issues"
-
-
-def _failing_gh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Put a `gh` on PATH that fails the way a sandboxed one does (issue #1357)."""
-    bindir = tmp_path / "bin"
-    bindir.mkdir()
-    fake = bindir / "gh"
-    fake.write_text("#!/bin/sh\necho 'error connecting to api.github.com' >&2\nexit 1\n")
-    fake.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}")
-
-
-def test_gh_failure_in_codex_sandbox_names_the_sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _failing_gh(tmp_path, monkeypatch)
-    monkeypatch.setenv("CODEX_SANDBOX_NETWORK_DISABLED", "1")
-    with pytest.raises(CollectionError) as exc:
-        subprocess_runner(["gh", "repo", "view"], tmp_path)
-    assert "error connecting to api.github.com" in str(exc.value)
-    assert "network-disabled sandbox" in str(exc.value)
-
-
-def test_gh_failure_outside_codex_sandbox_is_unchanged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _failing_gh(tmp_path, monkeypatch)
-    monkeypatch.delenv("CODEX_SANDBOX_NETWORK_DISABLED", raising=False)
-    with pytest.raises(CollectionError) as exc:
-        subprocess_runner(["gh", "repo", "view"], tmp_path)
-    assert str(exc.value) == "gh repo view: error connecting to api.github.com"

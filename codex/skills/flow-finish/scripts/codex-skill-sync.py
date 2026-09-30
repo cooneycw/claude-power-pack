@@ -186,8 +186,8 @@ BUNDLED_DOCS_BULLET = (
 
 
 NETWORK_BULLET = (
-    "Network: this skill's bundled helpers call the network (`gh`, `git"
-    " fetch`/`push`, `curl`, `aws`). Codex's workspace sandbox has no network,"
+    "Network: this skill's bundled helpers appear to call the network (`gh`,"
+    " `git fetch`/`push`, `curl`, `aws`, HTTP). Codex's workspace sandbox has no network,"
     " and an allow rule for `gh` covers only a top-level `gh` command, never one"
     " a helper runs. Run these helpers with escalated permissions. From inside"
     " the sandbox, \"error connecting to api.github.com\" means no network, not a"
@@ -207,15 +207,19 @@ NETWORK_BULLET = (
 #:            same rule _LIB_IMPORT applies. Comment lines are skipped.
 #:   Shell  - the tool at a command position: line start, after `;`, `&`, `|`,
 #:            a backtick, `$(`, or `if`/`then`/`do`/`!`, on a non-comment line.
-#:            The tool may be literal or a `*_BIN` variable, the convention
-#:            gh-pr-merge.sh and flow-ci-status.sh use (`"$GH_BIN" api ...`).
+#:            The tool may be literal or a variable named for it, with or
+#:            without `_BIN`: `"$GH_BIN" api` (gh-pr-merge.sh,
+#:            flow-ci-status.sh), `"$GH" issue view` / `"$GIT" fetch`
+#:            (flow-start-resolve.sh).
 #:
 #: A bare `(` is deliberately NOT a command position: `"... (gh issue create)"`
 #: inside a usage string in flow-worktree-claim.sh is prose, and matching it
 #: flagged four skills that make no network call. Known limit: a command
 #: position inside a quoted string (`echo "retry; gh issue list"`) still
 #: matches - telling it apart needs a shell parser, and the cost of the false
-#: positive is one advisory bullet.
+#: positive is one advisory bullet, which is why the bullet says the helpers
+#: APPEAR to call the network rather than asserting it. Prose shaped exactly
+#: like an argv list inside a Python docstring matches for the same reason.
 _NET_PY = re.compile(
     r"""(?m)^(?!\s*#).*?(?:"""
     r"""\[\s*["'](?:gh|curl|aws)["']"""
@@ -225,9 +229,9 @@ _NET_PY = re.compile(
 )
 _NET_SH = re.compile(
     r"(?m)^(?!\s*#)[^#\n]*?(?:^|[;&|`]|\$\(|\b(?:if|then|do|!)\s)\s*"
-    r"(?:(?:gh|\"?\$\{?GH_BIN\}?\"?)\s+(?:api|issue|pr|repo|run|release|auth|search|label|workflow)\b"
-    r"|(?:git|\"?\$\{?GIT_BIN\}?\"?)\s+(?:-[Cc]\s+\S+\s+)*(?:fetch|push|pull|ls-remote|clone)\b"
-    r"|(?:curl|aws|\"?\$\{?(?:CURL|AWS|WPCLI)_BIN\}?\"?)\s)"
+    r"(?:(?:gh|\"?\$\{?GH(?:_BIN)?\}?\"?)\s+(?:api|issue|pr|repo|run|release|auth|search|label|workflow)\b"
+    r"|(?:git|\"?\$\{?GIT(?:_BIN)?\}?\"?)\s+(?:-[Cc]\s+\S+\s+)*(?:fetch|push|pull|ls-remote|clone)\b"
+    r"|(?:curl|aws|\"?\$\{?(?:CURL|AWS|WPCLI)(?:_BIN)?\}?\"?)\s)"
 )
 
 

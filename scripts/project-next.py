@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -1232,6 +1233,23 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+# Codex sets this inside its workspace sandbox, where network is off (issue
+# #1357). A `gh` failure there reads "error connecting to api.github.com", which
+# looks like an outage or a bad login and is neither. The hint lives HERE, in
+# the unpinned entry point, not in lib/project_next/collect.py: the engine is
+# hash-pinned against the contract version, and a diagnostic is not a contract
+# change that consumers of the versioned payload should see.
+def _codex_sandbox_hint(exc: BaseException) -> str:
+    if not isinstance(exc, CollectionError) or os.environ.get("CODEX_SANDBOX_NETWORK_DISABLED") != "1":
+        return ""
+    if not re.search(r"(?:^|: )gh \w+", str(exc)):
+        return ""
+    return (
+        " (running inside Codex's network-disabled sandbox,"
+        " CODEX_SANDBOX_NETWORK_DISABLED=1: rerun this helper with escalated permissions)"
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     repository = Path(args.repository).resolve()
@@ -1257,7 +1275,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         TypeError,
         ValueError,
     ) as exc:
-        print(f"project-next: {exc}", file=sys.stderr)
+        print(f"project-next: {exc}{_codex_sandbox_hint(exc)}", file=sys.stderr)
         return 2
 
     if result.contract_version != pinned_version:

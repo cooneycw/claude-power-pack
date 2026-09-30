@@ -2125,6 +2125,9 @@ def test_a_path_OUTSIDE_the_repository_is_refused(capsys):
         ("scripts/x.sh", 'default_branch="$("$GH_BIN" api "repos/$REPO")"\n'),
         ("scripts/x.sh", '    | "$CURL_BIN" -s --max-time 30 "$url"\n'),
         ("scripts/x.sh", '"$GIT_BIN" -C "$p" fetch origin\n'),
+        # The bare-name variables of flow-start-resolve.sh (codex re-review).
+        ("scripts/x.sh", 'if ! body="$("$GH" issue view "$N" --json body)"; then\n'),
+        ("scripts/x.sh", '"$GIT" -C "$repo" fetch origin --quiet\n'),
         # An HTTP client import: lib/vendor.py, reached by flow-eli5 (codex review).
         ("lib/vendor.py", "import urllib.request\n"),
     ],
@@ -2179,8 +2182,10 @@ def test_real_repo_skill_without_network_helpers_has_no_network_bullet():
     assert codex_skill_sync.NETWORK_BULLET not in clean["SKILL.md"]
 
 
-def test_real_repo_bin_variable_helpers_carry_the_network_bullet():
-    """flow-merge reaches GitHub only through gh-pr-merge.sh / flow-ci-status.sh,
-    which call `"$GH_BIN"` - the shape the first cut of the detector missed."""
-    skill = (ROOT / "codex" / "skills" / "flow-merge" / "SKILL.md").read_text()
+@pytest.mark.parametrize("skill_name", ["flow-merge", "flow-start"])
+def test_real_repo_variable_tool_helpers_carry_the_network_bullet(skill_name):
+    """flow-merge reaches GitHub only through `"$GH_BIN"` (gh-pr-merge.sh,
+    flow-ci-status.sh) and flow-start only through `"$GH"` / `"$GIT" fetch`
+    (flow-start-resolve.sh) - shapes the first two cuts of the detector missed."""
+    skill = (ROOT / "codex" / "skills" / skill_name / "SKILL.md").read_text()
     assert "Run these helpers with escalated permissions" in skill
