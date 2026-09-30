@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "second-opinion": {
-      "type": "http",
-      "url": "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"
-    }
-  }
-}

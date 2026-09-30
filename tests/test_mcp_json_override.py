@@ -36,10 +36,21 @@ ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_URL = "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"
 
 
-def test_mcp_json_uses_env_expansion_with_default() -> None:
-    data = json.loads((ROOT / ".mcp.json").read_text())
-    assert data["mcpServers"]["second-opinion"]["url"] == EXPECTED_URL
-    assert data["mcpServers"]["second-opinion"]["type"] == "http"
+def test_repo_ships_no_project_scope_second_opinion() -> None:
+    # Issue #1256: a tracked .mcp.json entry is a SECOND definition beside the
+    # user-scope registration /cpp:init makes. Whenever the two differ (a stdio
+    # server, a Tailscale URL, a hand edit) Claude Code reports [Conflicting
+    # scopes], and the per-host escape (disabledMcpjsonServers) is per-path and
+    # was lost to a concurrent rewrite of ~/.claude.json. User scope is the
+    # only registration; the repository defines nothing to compete with it.
+    path = ROOT / ".mcp.json"
+    if not path.exists():
+        return
+    servers = json.loads(path.read_text()).get("mcpServers", {})
+    assert "second-opinion" not in servers, (
+        ".mcp.json defines second-opinion at project scope again - it competes with the "
+        "user-scope registration (issue #1256)"
+    )
 
 
 def test_docs_reference_the_override() -> None:
@@ -150,8 +161,8 @@ def test_every_second_opinion_registration_derives_from_the_shared_url() -> None
     assert all(found.values()), {rel: len(v) for rel, v in found.items()}
     drifted = [f"{rel}: {o}" for rel in INSTALL_DOCS for o in _parity_offenders((ROOT / rel).read_text())]
     assert not drifted, (
-        f"second-opinion must be registered at the same URL as .mcp.json ({EXPECTED_URL}), "
-        "or the two scopes conflict:\n" + "\n".join(drifted)
+        f"second-opinion must be registered from the shared URL expression ({EXPECTED_URL}), "
+        "so every document installs the same endpoint:\n" + "\n".join(drifted)
     )
 
 
@@ -201,7 +212,16 @@ def _run_3c(
     add_exit: int = 0,
     url: str | None = None,
     home_servers: dict | None = None,
+    project_servers: dict | None = None,
 ) -> tuple[str, list[str]]:
+    # CPP_DIR is a fixture checkout, never ROOT: the scope check reads the
+    # project's .mcp.json, and the repository ships none (issue #1256), so a
+    # conflict fixture has to supply its own project-scope definition.
+    cpp = tmp_path / "cpp"
+    cpp.mkdir()
+    (cpp / "scripts").symlink_to(ROOT / "scripts")
+    if project_servers is not None:
+        (cpp / ".mcp.json").write_text(json.dumps({"mcpServers": project_servers}))
     bindir = tmp_path / "bin"
     bindir.mkdir()
     stub = bindir / "claude"
@@ -218,7 +238,7 @@ def _run_3c(
         "PATH": f"{bindir}:{os.environ['PATH']}",
         "HOME": str(tmp_path),
         "CLAUDE_CONFIG_DIR": str(cfg),
-        "CPP_DIR": str(ROOT),
+        "CPP_DIR": str(cpp),
         "STUB_LOG": str(log),
         "STUB_ADD_EXIT": str(add_exit),
     }
@@ -266,18 +286,159 @@ def test_init_reports_a_failed_registration_as_failed(tmp_path: Path) -> None:
 
 _STDIO = {"second-opinion": {"type": "stdio", "command": "/fixture/server", "args": ["--stdio"]}}
 _MATCHING = {"second-opinion": {"type": "http", "url": "http://127.0.0.1:8080/mcp"}}
+_PROJECT = {"second-opinion": {"type": "http", "url": EXPECTED_URL}}
 
 
 @_needs_shell
 def test_init_scope_check_reads_the_active_profile(tmp_path: Path) -> None:
     # Conflict in the CLAUDE_CONFIG_DIR profile, nothing in the default one.
-    out, _ = _run_3c(tmp_path, user_servers=_STDIO, home_servers={})
+    out, _ = _run_3c(tmp_path, user_servers=_STDIO, home_servers={}, project_servers=_PROJECT)
     assert "SCOPE CONFLICT: second-opinion" in out, out
 
 
 @_needs_shell
 def test_init_scope_check_ignores_an_inactive_profile(tmp_path: Path) -> None:
     # The same conflict, but only in the default profile this session is not using.
-    out, _ = _run_3c(tmp_path, user_servers=_MATCHING, home_servers=_STDIO)
+    out, _ = _run_3c(tmp_path, user_servers=_MATCHING, home_servers=_STDIO, project_servers=_PROJECT)
     assert "SCOPE CONFLICT" not in out, out
     assert "OK: second-opinion" in out, out
+
+
+# /cpp:update's legacy migration (issue #1256), run from the command document
+# with the same stub. An install that relied on the tracked .mcp.json loses
+# second-opinion when the pull deletes it, so update registers it at user scope;
+# an install that already has a user-scope entry (stdio, Tailscale) keeps it.
+def _update_migration_block() -> str:
+    text = (ROOT / ".claude/commands/cpp/update.md").read_text()
+    section = text[text.index("#### 6b.0: Second-Opinion Registration") :]
+    start = section.index("```bash\n") + len("```bash\n")
+    return section[start : section.index("\n```", start)]
+
+
+def _run_migration(
+    tmp_path: Path, *, user_servers: dict | None, add_exit: int = 0, raw_config: str | None = None
+) -> tuple[str, list[str]]:
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    stub = bindir / "claude"
+    stub.write_text(_STUB)
+    stub.chmod(0o755)
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    if raw_config is not None:
+        (cfg / ".claude.json").write_text(raw_config)
+    elif user_servers is not None:
+        (cfg / ".claude.json").write_text(json.dumps({"mcpServers": user_servers}))
+    log = tmp_path / "claude.log"
+    env = {
+        "PATH": f"{bindir}:{os.environ['PATH']}",
+        "HOME": str(tmp_path),
+        "CLAUDE_CONFIG_DIR": str(cfg),
+        "STUB_LOG": str(log),
+        "STUB_ADD_EXIT": str(add_exit),
+    }
+    block = _update_migration_block() + '\necho "SO_REGISTRATION_STATUS=$SO_REGISTRATION_STATUS"'
+    out = subprocess.run(["bash", "-c", block], env=env, capture_output=True, text=True, timeout=60)
+    calls = log.read_text().splitlines() if log.exists() else []
+    return out.stdout + out.stderr, [c for c in calls if c.startswith("mcp add") and "second-opinion" in c]
+
+
+@_needs_shell
+def test_update_registers_user_scope_for_a_legacy_install(tmp_path: Path) -> None:
+    out, adds = _run_migration(tmp_path, user_servers={"playwright": {"type": "stdio", "command": "npx"}})
+    assert adds == ["mcp add --transport http --scope user second-opinion http://127.0.0.1:8080/mcp"], out
+    assert "SO_REGISTRATION_STATUS=registered at user scope" in out, out
+
+
+@_needs_shell
+def test_update_registers_when_the_user_config_is_absent(tmp_path: Path) -> None:
+    out, adds = _run_migration(tmp_path, user_servers=None)
+    assert len(adds) == 1, out
+
+
+@_needs_shell
+def test_update_leaves_an_existing_user_scope_entry_untouched(tmp_path: Path) -> None:
+    out, adds = _run_migration(tmp_path, user_servers=_STDIO)
+    assert adds == [], out
+    assert "SO_REGISTRATION_STATUS=already at user scope" in out, out
+
+
+@_needs_shell
+def test_update_reports_a_failed_registration_as_failed(tmp_path: Path) -> None:
+    out, adds = _run_migration(tmp_path, user_servers={}, add_exit=1)
+    assert adds, out
+    assert "SO_REGISTRATION_STATUS=FAILED" in out, out
+    assert "registered at user scope (no" not in out, out
+
+
+# An unreadable or wrongly shaped config is not an established absence
+# (counter-model review, #1256): it must register nothing and say so, and a
+# list-shaped mcpServers naming the server must not read as registered.
+@_needs_shell
+@pytest.mark.parametrize(
+    "raw",
+    ['{"mcpServers": ', '{"mcpServers": ["second-opinion"]}', '["second-opinion"]',
+     '{"mcpServers": {"second-opinion": "x"}}'],
+)
+def test_update_registers_nothing_when_the_user_config_is_unreadable(tmp_path: Path, raw: str) -> None:
+    out, adds = _run_migration(tmp_path, user_servers=None, raw_config=raw)
+    assert adds == [], out
+    assert "SO_REGISTRATION_STATUS=NOT ASSESSED (user config unreadable)" in out, out
+
+
+def _doctor_block() -> str:
+    text = (ROOT / ".claude/commands/flow/doctor.md").read_text()
+    section = text[text.index("### Step 7c: MCP Server Wiring") :]
+    start = section.index("```bash\n") + len("```bash\n")
+    return section[start : section.index("\n```", start)]
+
+
+@_needs_shell
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (json.dumps({"mcpServers": _STDIO}), "[x] second-opinion: registered at user scope"),
+        (json.dumps({"mcpServers": {"playwright": {"type": "stdio"}}}), "[ ] second-opinion: not registered"),
+        (None, "[ ] second-opinion: not registered"),
+        ('{"mcpServers": ', "[?] second-opinion: could not read"),
+        ('{"mcpServers": ["second-opinion"]}', "[?] second-opinion: could not read"),
+    ],
+)
+def test_doctor_reports_user_scope_registration(tmp_path: Path, raw: str | None, expected: str) -> None:
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    if raw is not None:
+        (cfg / ".claude.json").write_text(raw)
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "CLAUDE_CONFIG_DIR": str(cfg)}
+    out = subprocess.run(["bash", "-c", _doctor_block()], env=env, capture_output=True, text=True, timeout=60)
+    assert expected in out.stdout, out.stdout + out.stderr
+
+
+# Only FileNotFoundError is absence (counter-model re-review, #1256): a profile
+# whose directory cannot be traversed must not trigger a registration.
+@_needs_shell
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root ignores directory permissions")
+def test_update_registers_nothing_when_the_profile_is_inaccessible(tmp_path: Path) -> None:
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    stub = bindir / "claude"
+    stub.write_text(_STUB)
+    stub.chmod(0o755)
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    (cfg / ".claude.json").write_text(json.dumps({"mcpServers": {}}))
+    cfg.chmod(0)
+    try:
+        # precondition: the config really is unreachable, not merely absent
+        with pytest.raises(PermissionError):
+            (cfg / ".claude.json").read_text()
+        log = tmp_path / "claude.log"
+        env = {"PATH": f"{bindir}:{os.environ['PATH']}", "HOME": str(tmp_path),
+               "CLAUDE_CONFIG_DIR": str(cfg), "STUB_LOG": str(log)}
+        block = _update_migration_block() + '\necho "SO_REGISTRATION_STATUS=$SO_REGISTRATION_STATUS"'
+        out = subprocess.run(["bash", "-c", block], env=env, capture_output=True, text=True, timeout=60)
+    finally:
+        cfg.chmod(0o755)
+    calls = log.read_text().splitlines() if log.exists() else []
+    assert not [c for c in calls if c.startswith("mcp add")], out.stdout
+    assert "SO_REGISTRATION_STATUS=NOT ASSESSED (user config unreadable)" in out.stdout, out.stdout + out.stderr

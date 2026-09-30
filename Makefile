@@ -828,7 +828,7 @@ drift-check:
 ## Deploy (used by /flow:deploy and /flow:auto Step 9)
 ## CPP ships no deployable services as of #469 - the second-opinion MCP server
 ## runs from its own external repo (github.com/cooneycw/mcp-second-opinion) and
-## CPP consumes it via .mcp.json. This target is an informative no-op so the
+## CPP consumes it via a user-scope registration. This target is an informative no-op so the
 ## flow deploy path stays intact without a container runtime.
 
 ## verify-coverage: utility deploy - an informative no-op since #469; CPP ships no container services
@@ -836,7 +836,7 @@ deploy:
 	@echo "Nothing to deploy: CPP no longer ships container services (issue #469)."
 	@echo "The second-opinion MCP server runs from its own repo:"
 	@echo "  https://github.com/cooneycw/mcp-second-opinion"
-	@echo "Run that server, then point .mcp.json at it (localhost or Tailscale). See /cpp:init."
+	@echo "Run that server, then register it at user scope (localhost or Tailscale). See /cpp:init."
 
 ## Woodpecker CLI setup
 

@@ -48,7 +48,7 @@ Phase 4: Spec Output
 
 ## Prerequisites
 
-- **Required:** the Second Opinion MCP server, connected via the root `.mcp.json` (external `cooneycw/mcp-second-opinion` server; see `/second-opinion:help` for setup)
+- **Required:** the Second Opinion MCP server, registered at user scope (external `cooneycw/mcp-second-opinion` server; see `/second-opinion:help` for setup)
 - **Optional:** Sequential Thinking MCP (enhances Phase 2 reasoning; falls back to inline reasoning if not installed)
 - **Skill:** `evaluate` skill provides domain-specific prompts (loaded automatically)
 

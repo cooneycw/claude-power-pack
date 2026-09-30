@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1256-second-opinion-is-defined-at-two-scopes-with-diffe",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 1
+  },
+  "head": "bf928517ad8b4e8fd7a5a836094e0996ad992701",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1256",
+  "passes": 2,
+  "recorded_at": "2026-09-30T20:52:31Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 6
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/09/30/rollout-2026-09-30T16-50-33-01a0f415-5325-7fd1-ad90-182934bf8dad.jsonl",
+    "thread_id": "01a0f415-5325-7fd1-ad90-182934bf8dad"
+  },
+  "schema": 1,
+  "status": "ran"
+}

@@ -21,8 +21,8 @@ Missing API key: GEMINI_API_KEY or OPENAI_API_KEY
 
 **Solution**: The Second Opinion server is external now - it lives in the
 `cooneycw/mcp-second-opinion` repo. Configure its API keys on the server side per
-that repo's README, then point this project's root `.mcp.json` `second-opinion` entry
-at the running server (`http://127.0.0.1:8080/mcp` for localhost, or a Tailscale URL).
+that repo's README, then register it at user scope with `/cpp:init` or `/cpp:update`
+(`http://127.0.0.1:8080/mcp` for localhost; export `SECOND_OPINION_URL` for a Tailscale URL).
 
 ---
 

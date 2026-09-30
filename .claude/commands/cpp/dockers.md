@@ -39,8 +39,8 @@ If no containers are running, report:
 No Docker containers found.
 
 CPP itself ships no containers. The second-opinion MCP server now runs from the
-external cooneycw/mcp-second-opinion repo and is reached over the root .mcp.json
-streamable-http pointer (localhost or Tailscale). Browser automation is the
+external cooneycw/mcp-second-opinion repo and is reached over a user-scope
+streamable-http registration (localhost or Tailscale). Browser automation is the
 upstream @playwright/mcp npx/stdio server (no container; see /cpp:init).
 ```
 
@@ -93,8 +93,8 @@ Present a structured report:
 ## Docker Container Status
 
 CPP itself ships no containers. The second-opinion MCP server runs from the
-external `cooneycw/mcp-second-opinion` repo (reached over the root `.mcp.json`
-streamable-http pointer), browser automation is the upstream `@playwright/mcp`
+external `cooneycw/mcp-second-opinion` repo (reached over a user-scope
+streamable-http registration), browser automation is the upstream `@playwright/mcp`
 npx/stdio server, and Tavily web tools use the upstream `tavily-mcp` npx/stdio
 server, so none of these appear in the Docker table below.
 
@@ -106,7 +106,7 @@ server, so none of these appear in the Docker table below.
 
 ### Summary
 - **Total containers:** 1 (1 running)
-- **CPP-managed containers:** none (second-opinion is external via .mcp.json; playwright and tavily via npx/stdio)
+- **CPP-managed containers:** none (second-opinion is external, user scope; playwright and tavily via npx/stdio)
 ```
 
 ### Step 6: Suggest Actions
@@ -114,11 +114,11 @@ server, so none of these appear in the Docker table below.
 Based on findings, suggest relevant actions:
 
 - **second-opinion not reachable:** it is no longer a CPP container. Run the
-  external `cooneycw/mcp-second-opinion` server. The root `.mcp.json` already
-  points at `${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp` (issue #633):
-  the default is localhost 8080, and a host where 8080 is taken exports
-  `SECOND_OPINION_URL` with the BASE url, no `/mcp` (e.g.
-  `http://127.0.0.1:8090`, or a Tailscale URL).
+  external `cooneycw/mcp-second-opinion` server. `/cpp:init` registers it at
+  user scope at `${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp` (issues
+  #633, #1256): the default is localhost 8080, and a host where 8080 is taken
+  exports `SECOND_OPINION_URL` with the BASE url, no `/mcp` (e.g.
+  `http://127.0.0.1:8090`, or a Tailscale URL) before registering.
   Check reachability against the SAME address the client will use - curl the
   URL directly rather than splitting host:port by hand (a naive `cut -d:`
   breaks on no-port and scheme forms):

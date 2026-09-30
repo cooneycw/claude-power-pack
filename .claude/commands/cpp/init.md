@@ -389,9 +389,8 @@ This will make the following changes:
     • Start it there (localhost or a Tailscale host). It listens on
       http://127.0.0.1:8080/mcp (streamable-http). CPP does not build or run it.
     • API keys (Gemini/OpenAI/Anthropic) are configured in that repo, not here.
-    • Inside CPP the shipped root .mcp.json already points Claude Code at that URL
-      (project scope). This tier also registers it at USER scope for global use,
-      from the same URL expression so the two scopes always agree:
+    • This tier registers it at USER scope - the only place CPP defines it (the
+      repo ships no .mcp.json entry that could compete, issue #1256):
         claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"
       For a server elsewhere (e.g. a Tailscale address), export SECOND_OPINION_URL
       (base URL, no /mcp) first - do not edit the URL in the command.
@@ -1176,17 +1175,15 @@ Start the server there (on localhost or a Tailscale host). It listens on
 http://127.0.0.1:8080/mcp (streamable-http). API keys (Gemini/OpenAI/Anthropic)
 are configured in that repo, not here.
 
-Inside CPP the shipped root `.mcp.json` already points Claude Code at
-`${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp` at project scope. The next
-step also registers it at user scope for global use, from the SAME expression,
-so the two scopes cannot name different endpoints (issue #1256). If the server
-is not on localhost (e.g. a Tailscale host), export `SECOND_OPINION_URL` with
-its base URL, no `/mcp`, before this step - do not edit the URL in the command.
-Hand-editing it is how a user-scope and a project-scope `second-opinion` come to
-disagree, which Claude Code reports as `[Conflicting scopes]`. The user-scope
-value is expanded once, at registration: if you later change
-`SECOND_OPINION_URL`, re-register (`claude mcp remove second-opinion -s user`,
-then this step again).
+The next step registers it at USER scope, at
+`${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp`. That is the only definition
+CPP makes: the repository used to ship a root `.mcp.json` defining it at project
+scope as well, and whenever the two differed Claude Code reported
+`[Conflicting scopes]` (issue #1256), so that file is gone. If the server is not
+on localhost (e.g. a Tailscale host), export `SECOND_OPINION_URL` with its base
+URL, no `/mcp`, before this step - do not edit the URL in the command. The value
+is expanded once, at registration: if you later change `SECOND_OPINION_URL`,
+re-register (`claude mcp remove second-opinion -s user`, then this step again).
 
 #### 3c. Register MCP Servers
 
@@ -1194,16 +1191,15 @@ then this step again).
 # Add MCP servers to Claude Code
 MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
 
-# Second Opinion is an external streamable-http server. The repo's root .mcp.json
-# already points at it (project scope); this adds a USER-scope registration for
-# global / cross-project use, at the same URL expression .mcp.json uses (#1256).
+# Second Opinion is an external streamable-http server, registered at USER scope
+# only - the repo ships no project-scope .mcp.json entry to compete with it (#1256).
 # `claude mcp add` takes the URL as a positional after the name - it has no
 # --url option, and the form that used one failed while this step still
 # printed success.
-# The guard asks USER scope specifically, never `claude mcp list`: inside a CPP
-# checkout the list always carries the project-scope .mcp.json entry (even
-# while it awaits approval), so a list grep skipped this add on every install
-# run from here, and after a `remove -s user` re-registration as well.
+# The guard asks USER scope specifically, never `claude mcp list`: the list also
+# carries local- and project-scope entries (a project's own .mcp.json, even while
+# it awaits approval), and a list grep once skipped this add on every install run
+# from a checkout that shipped one.
 USER_JSON="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"
 if ! python3 -c 'import json,sys; sys.exit(0 if "second-opinion" in json.load(open(sys.argv[1])).get("mcpServers", {}) else 1)' "$USER_JSON" 2>/dev/null; then
   if claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"; then
@@ -2002,7 +1998,7 @@ Permission Profile: {PROFILE_NAME}
 MCP Servers:
   • second-opinion (external server, http://127.0.0.1:8080/mcp) - Gemini/OpenAI
     code review. Run it from https://github.com/cooneycw/mcp-second-opinion;
-    edit the URL for a Tailscale host. Root .mcp.json points at it (project scope).
+    export SECOND_OPINION_URL for a Tailscale host. Registered at user scope only.
   • playwright (upstream @playwright/mcp, npx/stdio) - Browser automation
 
 Update pathway:
@@ -2050,8 +2046,8 @@ It is an EXTERNAL server - start it from its own repo first:
   https://github.com/cooneycw/mcp-second-opinion
 
 If your server runs on a different host (e.g. a Tailscale address), export
-SECOND_OPINION_URL with its base URL (no /mcp) - that moves the project-scope
-.mcp.json entry too - then re-register at user scope from the same value:
+SECOND_OPINION_URL with its base URL (no /mcp), then re-register at user scope
+from that value:
   claude mcp remove second-opinion -s user
   claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"
 ```

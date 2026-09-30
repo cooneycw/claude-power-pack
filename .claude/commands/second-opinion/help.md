@@ -53,8 +53,7 @@ You can also invoke the MCP tools directly without commands:
 
 - The external Second Opinion server running: clone and start `cooneycw/mcp-second-opinion`. It is opt-in and is not started or auto-registered by CPP.
 - The `second-opinion` MCP server registered in Claude Code, pointing at it. Installing via the plugin does NOT auto-register it, so register it yourself once the server is up:
-  - **Plugin install:** `claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"` (for a remote host, export `SECOND_OPINION_URL` with its base URL first; do not edit the URL, or this entry and a CPP checkout's `.mcp.json` point at different servers).
-  - **CPP repo checkout:** the repo-root `.mcp.json` already registers `second-opinion` at project scope, at `${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp` (export `SECOND_OPINION_URL` for a Tailscale host).
+  - `claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"` (for a remote host, export `SECOND_OPINION_URL` with its base URL first rather than editing the URL). `/cpp:init` and `/cpp:update` run this for you. User scope is the only registration: CPP no longer ships a project-scope `.mcp.json` entry that could compete with it (issue #1256).
 - At least one API key configured on the server side (GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY). All three recommended for cross-provider comparison.
 
 ## Troubleshooting
@@ -66,5 +65,5 @@ You can also invoke the MCP tools directly without commands:
 **Fix:** Make sure the external server is up and `second-opinion` is registered against it:
 
 1. Start the external server from the `cooneycw/mcp-second-opinion` checkout (see that repo's README).
-2. Register `second-opinion` as a streamable-http server at the right URL. Plugin install: `claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"`. CPP repo checkout: the repo-root `.mcp.json` entry reads the same `SECOND_OPINION_URL`, so set that variable for a remote host rather than editing either URL.
+2. Register `second-opinion` as a streamable-http server at the right URL. `claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"`; set `SECOND_OPINION_URL` for a remote host rather than editing the URL.
 3. Reload MCP servers in Claude Code (or restart the session) so the registration is picked up.

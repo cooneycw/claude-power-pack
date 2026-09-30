@@ -116,14 +116,14 @@ deprecated:
       from its own external repo (github.com/cooneycw/mcp-second-opinion) and CPP
       consumes it via a .mcp.json pointer. Retiring it removed CPP's entire Docker
       MCP runtime (issue #469).
-    replacement: external second-opinion server via .mcp.json
+    replacement: external second-opinion server, registered at user scope
     port: 8080
     image_prefix: mcp-second-opinion
     containers:
       - mcp-second-opinion
     # NOTE: intentionally NO claude_registrations / codex_registrations. The new
     # external server keeps the SAME registration name ("second-opinion", now
-    # pointed at :8080/mcp by the root .mcp.json), so listing it here would make
+    # registered at user scope at :8080/mcp, issue #1256), so listing it here would make
     # /cpp:update offer to tear down the user's valid new wiring. Only a stale
     # (exited) container or leftover mcp-second-opinion:* image is an orphan worth
     # removing. The external server ALSO reuses the container name, so mcp-drift.py
