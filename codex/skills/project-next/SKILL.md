@@ -9,6 +9,7 @@ description: "Prioritized next-step report from GitHub issues and worktrees (com
 Generated from a Claude Code command. Where the procedure references these Claude-only surfaces, adapt as follows:
 
 - Helper scripts referenced as `scripts/<name>` are bundled under `scripts/` in this skill directory (byte-identical copies from the claude-power-pack checkout); some expect sibling repo resources, so prefer a full checkout when one is available.
+- Network: this skill's bundled helpers call the network (`gh`, `git fetch`/`push`, `curl`, `aws`). Codex's workspace sandbox has no network, and an allow rule for `gh` covers only a top-level `gh` command, never one a helper runs. Run these helpers with escalated permissions. From inside the sandbox, "error connecting to api.github.com" means no network, not a GitHub outage or a bad login.
 
 # Project Next Steps Recommendation
 

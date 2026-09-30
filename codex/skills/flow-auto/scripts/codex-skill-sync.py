@@ -185,6 +185,51 @@ BUNDLED_DOCS_BULLET = (
 )
 
 
+NETWORK_BULLET = (
+    "Network: this skill's bundled helpers call the network (`gh`, `git"
+    " fetch`/`push`, `curl`, `aws`). Codex's workspace sandbox has no network,"
+    " and an allow rule for `gh` covers only a top-level `gh` command, never one"
+    " a helper runs. Run these helpers with escalated permissions. From inside"
+    " the sandbox, \"error connecting to api.github.com\" means no network, not a"
+    " GitHub outage or a bad login."
+)
+
+#: A network INVOCATION in a bundled helper, not a mention (issue #1357). The
+#: command body is the wrong place to look: project-next's only `gh` call is in
+#: lib/project_next/collect.py, which the command document never names. Two
+#: shapes, each applied only to its own file type:
+#:
+#:   Python - an argv list opening with the tool: `["gh", ...]`, or
+#:            `["git", ..., "fetch", ...]` for the remote git verbs, with any
+#:            arguments (quoted or not, e.g. `"-C", path`) before the verb.
+#:   Shell  - the tool at a command position: line start, after `;`, `&`, `|`,
+#:            a backtick, `$(`, or `if`/`then`/`do`/`!`, on a non-comment line.
+#:
+#: A bare `(` is deliberately NOT a command position: `"... (gh issue create)"`
+#: inside a usage string in flow-worktree-claim.sh is prose, and matching it
+#: flagged four skills that make no network call.
+_NET_PY = re.compile(
+    r"""\[\s*["'](?:gh|curl|aws)["']"""
+    r"""|\[\s*["']git["'][^\]]*?["'](?:fetch|push|pull|ls-remote|clone)["']"""
+)
+_NET_SH = re.compile(
+    r"(?m)^(?!\s*#)[^#\n]*?(?:^|[;&|`]|\$\(|\b(?:if|then|do|!)\s)\s*"
+    r"(?:gh\s+(?:api|issue|pr|repo|run|release|auth|search|label|workflow)\b"
+    r"|git\s+(?:-C\s+\S+\s+)?(?:fetch|push|pull|ls-remote|clone)\b"
+    r"|curl\s|aws\s)"
+)
+
+
+def calls_network(files: dict[str, str]) -> bool:
+    """True when any bundled helper (skill-relative path -> text) invokes the network."""
+    for rel, text in files.items():
+        if rel.endswith(".py") and _NET_PY.search(text):
+            return True
+        if rel.endswith(".sh") and _NET_SH.search(text):
+            return True
+    return False
+
+
 def marker_for(family: str, base: str) -> str:
     return (
         f"{MARKER_PREFIX} edit .claude/commands/{family}/{base} instead -->"
@@ -762,6 +807,17 @@ def generate_skill(
         bullets.append(BUNDLED_SCRIPTS_BULLET)
     if docs:
         bullets.append(BUNDLED_DOCS_BULLET)
+    # Every bundled code file, gathered before the bullets are rendered because
+    # the network bullet is decided by what the helpers DO (issue #1357).
+    bundled: dict[str, str] = {
+        f"scripts/{script}": (SCRIPTS_ROOT / script).read_text() for script in scripts
+    }
+    for rel, source in find_bundled_libs(scripts).items():
+        bundled[rel] = source.read_text()
+    for rel, source in find_bundled_shell_libs(scripts).items():
+        bundled[rel] = source.read_text()
+    if calls_network(bundled):
+        bullets.append(NETWORK_BULLET)
 
     parts: list[str] = [
         "---",
@@ -803,14 +859,9 @@ def generate_skill(
         ]
         files["SKILL.md"] = "\n".join(parts) + "\n"
         files["reference.md"] = f"{marker}\n\n{body.rstrip(chr(10))}\n"
-    for script in scripts:
-        files[f"scripts/{script}"] = (SCRIPTS_ROOT / script).read_text()
-    # Bundled at their repo-relative path, which is what makes the scripts'
-    # own `parents[1]` resolution land inside the skill directory.
-    for rel, source in find_bundled_libs(scripts).items():
-        files[rel] = source.read_text()
-    for rel, source in find_bundled_shell_libs(scripts).items():
-        files[rel] = source.read_text()
+    # Libs are bundled at their repo-relative path, which is what makes the
+    # scripts' own `parents[1]` resolution land inside the skill directory.
+    files.update(bundled)
     for rel, source in find_bundled_data(scripts).items():
         files[rel] = source.read_text()
     for doc in docs:

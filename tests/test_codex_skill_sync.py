@@ -2101,3 +2101,64 @@ def test_a_path_OUTSIDE_the_repository_is_refused(capsys):
     assert rc != 0
     assert [ln for ln in captured.out.splitlines() if ln.strip()] == []
     assert "NOT BUNDLED: /etc/hosts" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# Network-calling helpers (issue #1357)
+# ---------------------------------------------------------------------------
+#
+# Codex runs a helper in its no-network workspace sandbox unless told to
+# escalate, and a `gh` failure there reads like a GitHub outage. The bullet is
+# decided by what the BUNDLED helpers do, not by the command text: project-next's
+# only `gh` call lives in lib/project_next/collect.py.
+
+
+@pytest.mark.parametrize(
+    "rel, text",
+    [
+        ("lib/x/collect.py", 'run(["gh", "repo", "view"], cwd)\n'),
+        ("scripts/x.py", "subprocess.run(['git', '-C', p, 'fetch', 'origin'])\n"),
+        ("scripts/x.sh", 'out="$(gh issue list --state all)"\n'),
+        ("scripts/x.sh", "git fetch origin main --quiet\n"),
+        ("scripts/x.sh", "if curl -fsS https://example.test; then :; fi\n"),
+    ],
+)
+def test_calls_network_flags_an_invocation(rel, text):
+    assert codex_skill_sync.calls_network({rel: text}) is True
+
+
+@pytest.mark.parametrize(
+    "rel, text",
+    [
+        # Prose inside a usage string - the flow-worktree-claim.sh shape.
+        ("scripts/x.sh", 'usage_fail "file one first (gh issue create), then claim"\n'),
+        ("scripts/x.sh", "# gh issue list is what we would call here\n"),
+        # A docstring naming the command a caller runs - flow-wave-plan.py.
+        ("scripts/x.py", '"""Input: the output of\n    gh issue list --state all\n"""\n'),
+        # Local-only git.
+        ("scripts/x.py", 'run(["git", "rev-parse", "--show-toplevel"])\n'),
+        ("scripts/x.sh", "git worktree list --porcelain\n"),
+        # A shell invocation shape in a non-shell file is not read as shell.
+        ("docs/x.md", "gh issue list\n"),
+    ],
+)
+def test_calls_network_ignores_a_mention(rel, text):
+    assert codex_skill_sync.calls_network({rel: text}) is False
+
+
+def test_real_repo_project_next_skill_carries_the_network_bullet():
+    """The skill that failed in the field (#1357) must tell Codex to escalate.
+
+    This is the negative control for the detector on real input: it failed on
+    the generated project-next skill before #1357, which had no such bullet."""
+    skill = (ROOT / "codex" / "skills" / "project-next" / "SKILL.md").read_text()
+    assert "Run these helpers with escalated permissions" in skill
+
+
+def test_real_repo_skill_without_network_helpers_has_no_network_bullet():
+    """The bullet must not be stamped everywhere: a skill whose helpers make no
+    network call stays clean, so the bullet keeps meaning something."""
+    outputs = codex_skill_sync.expected_outputs(codex_skill_sync.FAMILIES)
+    clean = outputs["flow-eli5"]
+    assert not codex_skill_sync.calls_network(clean), "precondition: flow-eli5 bundles no network helper"
+    assert codex_skill_sync.NETWORK_BULLET not in clean["SKILL.md"]

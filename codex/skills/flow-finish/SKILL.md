@@ -11,6 +11,7 @@ Generated from a Claude Code command. Where the procedure references these Claud
 - `CLAUDE.md` references: read `AGENTS.md` first - it is the Codex entry point. Where it defers to `CLAUDE.md`, follow that pointer and `CLAUDE.md` is the rules; where it does not, `AGENTS.md` is. Where the repository has no `AGENTS.md`, read `CLAUDE.md`.
 - Helper scripts referenced as `scripts/<name>` are bundled under `scripts/` in this skill directory (byte-identical copies from the claude-power-pack checkout); some expect sibling repo resources, so prefer a full checkout when one is available.
 - Canonical guidance linked as `docs/<path>` is bundled under `docs/` in this skill directory (byte-identical copies from the claude-power-pack checkout). The source-relative `../../../docs/...` link in the command body resolves outside an installed skill, so the generated copy points at the bundled path instead. docs/ remains the only writable source.
+- Network: this skill's bundled helpers call the network (`gh`, `git fetch`/`push`, `curl`, `aws`). Codex's workspace sandbox has no network, and an allow rule for `gh` covers only a top-level `gh` command, never one a helper runs. Run these helpers with escalated permissions. From inside the sandbox, "error connecting to api.github.com" means no network, not a GitHub outage or a bad login.
 
 # Flow: Finish - Quality Gates, Commit, Push, and Create PR
 
