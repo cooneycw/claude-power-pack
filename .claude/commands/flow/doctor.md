@@ -316,15 +316,14 @@ USER_JSON="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"
 # 0 registered, 1 absent (no file, or no such key), 3 unreadable or wrong shape -
 # an unreadable config is reported as such, never as registered or missing.
 python3 - "$USER_JSON" <<'PY'
-import json, os, sys
-path = sys.argv[1]
-if not os.path.exists(path):
-    sys.exit(1)
+import json, sys
 try:
-    with open(path, encoding="utf-8") as fh:
+    with open(sys.argv[1], encoding="utf-8") as fh:
         data = json.load(fh)
+except FileNotFoundError:
+    sys.exit(1)  # only a missing file is an established absence
 except (OSError, ValueError):
-    sys.exit(3)
+    sys.exit(3)  # permission denied, a directory, bad JSON: unknown
 servers = data.get("mcpServers", {}) if isinstance(data, dict) else None
 if not isinstance(servers, dict):
     sys.exit(3)

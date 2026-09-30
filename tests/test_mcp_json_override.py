@@ -412,3 +412,33 @@ def test_doctor_reports_user_scope_registration(tmp_path: Path, raw: str | None,
     env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "CLAUDE_CONFIG_DIR": str(cfg)}
     out = subprocess.run(["bash", "-c", _doctor_block()], env=env, capture_output=True, text=True, timeout=60)
     assert expected in out.stdout, out.stdout + out.stderr
+
+
+# Only FileNotFoundError is absence (counter-model re-review, #1256): a profile
+# whose directory cannot be traversed must not trigger a registration.
+@_needs_shell
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root ignores directory permissions")
+def test_update_registers_nothing_when_the_profile_is_inaccessible(tmp_path: Path) -> None:
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    stub = bindir / "claude"
+    stub.write_text(_STUB)
+    stub.chmod(0o755)
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    (cfg / ".claude.json").write_text(json.dumps({"mcpServers": {}}))
+    cfg.chmod(0)
+    try:
+        # precondition: the config really is unreachable, not merely absent
+        with pytest.raises(PermissionError):
+            (cfg / ".claude.json").read_text()
+        log = tmp_path / "claude.log"
+        env = {"PATH": f"{bindir}:{os.environ['PATH']}", "HOME": str(tmp_path),
+               "CLAUDE_CONFIG_DIR": str(cfg), "STUB_LOG": str(log)}
+        block = _update_migration_block() + '\necho "SO_REGISTRATION_STATUS=$SO_REGISTRATION_STATUS"'
+        out = subprocess.run(["bash", "-c", block], env=env, capture_output=True, text=True, timeout=60)
+    finally:
+        cfg.chmod(0o755)
+    calls = log.read_text().splitlines() if log.exists() else []
+    assert not [c for c in calls if c.startswith("mcp add")], out.stdout
+    assert "SO_REGISTRATION_STATUS=NOT ASSESSED (user config unreadable)" in out.stdout, out.stdout + out.stderr
