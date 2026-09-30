@@ -2100,6 +2100,10 @@ class TestSkippedSuiteReporting:
             "failed": 0,
             "skipped": 66,
             "errors": 0,
+            # Additive (issue #1362): expected failures and unexpected passes
+            # are their own counts rather than folded into failed/passed.
+            "xfailed": 0,
+            "xpassed": 0,
             "executed": 312,
             "framework": "pytest",
             # Additive (kyle issue #838): one summary parsed, none of them

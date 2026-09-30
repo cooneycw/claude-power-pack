@@ -112,11 +112,52 @@ class TestPytestParsing:
         assert not out.nothing_ran
 
     def test_xfail_and_xpass_count_as_executed(self) -> None:
+        """CONTRACT CHANGE (issue #1362). This used to assert ``failed == 1``
+        for an xfail, pinning the #621 fold as intent. Both still count as
+        EXECUTED - that is #621's question - but neither is a failure or a
+        plain pass, so each keeps its own count."""
         out = parse_suite_outcome("== 5 passed, 1 xfailed, 1 xpassed in 1.00s ==")
         assert out is not None
-        assert out.passed == 6  # 5 passed + 1 xpassed
-        assert out.failed == 1  # xfailed ran and failed as expected
+        assert out.passed == 5
+        assert out.failed == 0
+        assert out.xfailed == 1
+        assert out.xpassed == 1
+        assert out.executed == 7
         assert not out.nothing_ran
+
+    def test_expected_failure_is_not_rendered_as_failed(self) -> None:
+        """Issue #1362, the observed kyle#1401 tail: a SUCCESS gate line read
+        ``1 failed`` when nothing failed."""
+        out = parse_suite_outcome(
+            "==== 165 passed, 3 skipped, 1 xfailed, 1 xpassed in 9.10s ===="
+        )
+        assert out is not None
+        assert out.failed == 0
+        assert out.xfailed == 1
+        assert out.xpassed == 1
+        assert out.summary() == "165 passed, 1 xfailed, 1 xpassed, 3 skipped"
+        assert "failed," not in out.summary().replace("xfailed,", "")
+
+    def test_real_failure_beside_an_xfail_is_not_absorbed(self) -> None:
+        out = parse_suite_outcome("=== 1 failed, 1 xfailed in 0.40s ===")
+        assert out is not None
+        assert out.failed == 1
+        assert out.xfailed == 1
+        assert out.summary() == "0 passed, 1 failed, 1 xfailed, 0 skipped"
+
+    def test_xfail_only_suite_still_executed(self) -> None:
+        """#621's control, kept by #1362: an xfail ran. Dropping xfail from
+        ``executed`` would make this suite read as having executed nothing."""
+        out = parse_suite_outcome("=== 2 xfailed in 0.10s ===")
+        assert out is not None
+        assert out.executed == 2
+        assert not out.nothing_ran
+
+    def test_all_skipped_with_xfail_fields_is_still_nothing_ran(self) -> None:
+        out = parse_suite_outcome("=== 4 skipped in 0.10s ===")
+        assert out is not None
+        assert out.xfailed == 0 and out.xpassed == 0
+        assert out.nothing_ran
 
     def test_summaries_from_two_suites_are_summed(self) -> None:
         """CONTRACT CHANGE (kyle issue #838). This test previously asserted
@@ -204,6 +245,16 @@ class TestUnittestParsing:
         assert out.failed == 2
         assert out.skipped == 1
         assert out.passed == 7
+
+    def test_expected_failures_are_not_failures(self) -> None:
+        """Issue #1362's unittest twin: ``OK (expected failures=1)`` is a
+        passing run and must not render ``1 failed``."""
+        out = parse_suite_outcome("Ran 4 tests in 0.02s\n\nOK (expected failures=1)\n")
+        assert out is not None
+        assert out.failed == 0
+        assert out.xfailed == 1
+        assert out.passed == 3
+        assert out.executed == 4
 
     def test_verdict_without_ran_line_is_ignored(self) -> None:
         # A bare "OK" in arbitrary output is not a test summary.
@@ -563,6 +614,16 @@ class TestBothStreamsAreMerged:
         assert merged.summary_streams == ("stdout",)
         assert merged.passed == 3
 
+    def test_merge_sums_xfailed_and_xpassed(self) -> None:
+        merged = merge_stream_outcomes(
+            [
+                SuiteOutcome(passed=1, xfailed=1, framework="pytest", summary_streams=("stdout",)),
+                SuiteOutcome(passed=2, xpassed=3, framework="pytest", summary_streams=("stderr",)),
+            ]
+        )
+        assert merged is not None
+        assert (merged.xfailed, merged.xpassed, merged.failed) == (1, 3, 0)
+
     def test_merge_of_nothing_is_none(self) -> None:
         assert merge_stream_outcomes([None, None]) is None
 
@@ -609,8 +670,10 @@ Running Playwright tests...
         outcome = parse_suite_outcome(self.TWO_SUITES)
 
         assert outcome is not None
-        # 4051 + 102 + 1 xpassed: xpassed executed and passed (#621's rule).
-        assert outcome.passed == 4154
+        # 4051 + 102 passed, plus 1 xpassed counted on its own (#1362) and
+        # still executed (#621's rule).
+        assert outcome.passed == 4153
+        assert outcome.xpassed == 1
         assert outcome.skipped == 1
         assert outcome.executed == 4154
         assert outcome.invocations == 2
