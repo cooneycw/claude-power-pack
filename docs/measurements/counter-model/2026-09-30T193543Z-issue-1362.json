@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1362-cicd-finish-gate-test-summary-counts-xfailed-as-fa",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "8045fb39ab03bd7f9a405fec322d01c5eeb8c367",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1362",
+  "passes": 1,
+  "recorded_at": "2026-09-30T19:35:43Z",
+  "red_cases": {
+    "already_covered": 2,
+    "proposed": 3
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/09/30/rollout-2026-09-30T15-34-31-01a0f3cf-b837-7f53-9842-4f1121b483d7.jsonl",
+    "thread_id": "01a0f3cf-b837-7f53-9842-4f1121b483d7"
+  },
+  "schema": 1,
+  "status": "ran"
+}

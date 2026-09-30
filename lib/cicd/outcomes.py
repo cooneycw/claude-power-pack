@@ -29,6 +29,13 @@ class SuiteOutcome:
     failed: int = 0
     skipped: int = 0
     errors: int = 0
+    # Expected failures and unexpected passes, kept apart from `failed` and
+    # `passed` (issue #1362). #621 folded them in because both EXECUTED, and
+    # `executed` still counts them - but the summary then printed an xfail as
+    # "1 failed" beside a SUCCESS verdict, which is read as evidence by
+    # sessions that never see the raw runner output.
+    xfailed: int = 0
+    xpassed: int = 0
     framework: str = "unknown"
     # How many summaries were aggregated into these counts, and how many of
     # them executed nothing (kyle issue #838). A step whose command runs the
@@ -64,8 +71,12 @@ class SuiteOutcome:
 
     @property
     def executed(self) -> int:
-        """Tests that actually ran (passed + failed + errored)."""
-        return self.passed + self.failed + self.errors
+        """Tests that actually ran (passed + failed + errored + xfail/xpass).
+
+        xfailed and xpassed tests ran: dropping them here would make an
+        xfail-only suite read as #621's "executed nothing" (issue #1362).
+        """
+        return self.passed + self.failed + self.errors + self.xfailed + self.xpassed
 
     @property
     def nothing_ran(self) -> bool:
@@ -96,6 +107,10 @@ class SuiteOutcome:
             parts.append(f"{self.failed} failed")
         if self.errors:
             parts.append(f"{self.errors} errors")
+        if self.xfailed:
+            parts.append(f"{self.xfailed} xfailed")
+        if self.xpassed:
+            parts.append(f"{self.xpassed} xpassed")
         parts.append(f"{self.skipped} skipped")
         return ", ".join(parts)
 
@@ -105,6 +120,8 @@ class SuiteOutcome:
             "failed": self.failed,
             "skipped": self.skipped,
             "errors": self.errors,
+            "xfailed": self.xfailed,
+            "xpassed": self.xpassed,
             "executed": self.executed,
             "framework": self.framework,
             "invocations": self.invocations,
@@ -232,6 +249,8 @@ def _aggregate(outcomes: list[SuiteOutcome]) -> SuiteOutcome:
         failed=sum(outcome.failed for outcome in outcomes),
         skipped=sum(outcome.skipped for outcome in outcomes),
         errors=sum(outcome.errors for outcome in outcomes),
+        xfailed=sum(outcome.xfailed for outcome in outcomes),
+        xpassed=sum(outcome.xpassed for outcome in outcomes),
         # One framework per step is the norm; "mixed" is honest rather than
         # silently attributing a jest run's tests to pytest.
         framework=outcomes[-1].framework if len(frameworks) == 1 else "mixed",
@@ -284,6 +303,8 @@ def merge_stream_outcomes(
         failed=sum(outcome.failed for outcome in present),
         skipped=sum(outcome.skipped for outcome in present),
         errors=sum(outcome.errors for outcome in present),
+        xfailed=sum(outcome.xfailed for outcome in present),
+        xpassed=sum(outcome.xpassed for outcome in present),
         framework=present[-1].framework if len(frameworks) == 1 else "mixed",
         invocations=sum(outcome.invocations for outcome in present),
         empty_invocations=sum(outcome.empty_invocations for outcome in present),
@@ -364,12 +385,15 @@ def _parse_pytest_line(line: str) -> Optional[SuiteOutcome]:
         return None
     errors = counts.get("error", 0) + counts.get("errors", 0)
     return SuiteOutcome(
-        # xpassed tests executed and passed; xfailed executed and failed as
-        # expected - both ran, which is the distinction #621 cares about.
-        passed=counts.get("passed", 0) + counts.get("xpassed", 0),
-        failed=counts.get("failed", 0) + counts.get("xfailed", 0),
+        # Both ran, which is what #621 cares about, and `executed` counts them;
+        # neither is a failure or a plain pass, so each keeps its own count
+        # (issue #1362).
+        passed=counts.get("passed", 0),
+        failed=counts.get("failed", 0),
         skipped=counts.get("skipped", 0),
         errors=errors,
+        xfailed=counts.get("xfailed", 0),
+        xpassed=counts.get("xpassed", 0),
         framework="pytest",
     )
 
@@ -408,13 +432,15 @@ def _parse_unittest_line(line: str, lines: list[str], idx: int) -> Optional[Suit
         (name, int(num))
         for name, num in _UNITTEST_DETAIL.findall(verdict.group("detail") or "")
     )
-    failed = detail.get("failures", 0) + detail.get("expected failures", 0)
+    failed = detail.get("failures", 0)
+    xfailed = detail.get("expected failures", 0)
     errors = detail.get("errors", 0)
     skipped = detail.get("skipped", 0)
     return SuiteOutcome(
-        passed=max(total - failed - errors - skipped, 0),
+        passed=max(total - failed - xfailed - errors - skipped, 0),
         failed=failed,
         skipped=skipped,
         errors=errors,
+        xfailed=xfailed,
         framework="unittest",
     )
