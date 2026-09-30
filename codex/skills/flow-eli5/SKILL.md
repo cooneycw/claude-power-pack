@@ -10,6 +10,7 @@ Generated from a Claude Code command. Where the procedure references these Claud
 
 - Helper scripts referenced as `scripts/<name>` are bundled under `scripts/` in this skill directory (byte-identical copies from the claude-power-pack checkout); some expect sibling repo resources, so prefer a full checkout when one is available.
 - Canonical guidance linked as `docs/<path>` is bundled under `docs/` in this skill directory (byte-identical copies from the claude-power-pack checkout). The source-relative `../../../docs/...` link in the command body resolves outside an installed skill, so the generated copy points at the bundled path instead. docs/ remains the only writable source.
+- Network: this skill's bundled helpers appear to call the network (`gh`, `git fetch`/`push`, `curl`, `aws`, HTTP). Codex's workspace sandbox has no network, and an allow rule for `gh` covers only a top-level `gh` command, never one a helper runs. Run these helpers with escalated permissions. From inside the sandbox, "error connecting to api.github.com" means no network, not a GitHub outage or a bad login.
 
 # Flow: ELI5 - Post-Analysis Plan + Necessity Gate
 

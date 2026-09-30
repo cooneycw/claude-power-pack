@@ -2101,3 +2101,91 @@ def test_a_path_OUTSIDE_the_repository_is_refused(capsys):
     assert rc != 0
     assert [ln for ln in captured.out.splitlines() if ln.strip()] == []
     assert "NOT BUNDLED: /etc/hosts" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# Network-calling helpers (issue #1357)
+# ---------------------------------------------------------------------------
+#
+# Codex runs a helper in its no-network workspace sandbox unless told to
+# escalate, and a `gh` failure there reads like a GitHub outage. The bullet is
+# decided by what the BUNDLED helpers do, not by the command text: project-next's
+# only `gh` call lives in lib/project_next/collect.py.
+
+
+@pytest.mark.parametrize(
+    "rel, text",
+    [
+        ("lib/x/collect.py", 'run(["gh", "repo", "view"], cwd)\n'),
+        ("scripts/x.py", "subprocess.run(['git', '-C', p, 'fetch', 'origin'])\n"),
+        ("scripts/x.sh", 'out="$(gh issue list --state all)"\n'),
+        ("scripts/x.sh", "git fetch origin main --quiet\n"),
+        ("scripts/x.sh", "if curl -fsS https://example.test; then :; fi\n"),
+        # The *_BIN convention of gh-pr-merge.sh / flow-ci-status.sh (codex review).
+        ("scripts/x.sh", 'default_branch="$("$GH_BIN" api "repos/$REPO")"\n'),
+        ("scripts/x.sh", '    | "$CURL_BIN" -s --max-time 30 "$url"\n'),
+        ("scripts/x.sh", '"$GIT_BIN" -C "$p" fetch origin\n'),
+        # The bare-name variables of flow-start-resolve.sh (codex re-review).
+        ("scripts/x.sh", 'if ! body="$("$GH" issue view "$N" --json body)"; then\n'),
+        ("scripts/x.sh", '"$GIT" -C "$repo" fetch origin --quiet\n'),
+        # An HTTP client import: lib/vendor.py, reached by flow-eli5 (codex review).
+        ("lib/vendor.py", "import urllib.request\n"),
+    ],
+)
+def test_calls_network_flags_an_invocation(rel, text):
+    assert codex_skill_sync.calls_network({rel: text}) is True
+
+
+@pytest.mark.parametrize(
+    "rel, text",
+    [
+        # Prose inside a usage string - the flow-worktree-claim.sh shape.
+        ("scripts/x.sh", 'usage_fail "file one first (gh issue create), then claim"\n'),
+        ("scripts/x.sh", "# gh issue list is what we would call here\n"),
+        # A docstring naming the command a caller runs - flow-wave-plan.py.
+        ("scripts/x.py", '"""Input: the output of\n    gh issue list --state all\n"""\n'),
+        # Local-only git.
+        ("scripts/x.py", 'run(["git", "rev-parse", "--show-toplevel"])\n'),
+        ("scripts/x.sh", "git worktree list --porcelain\n"),
+        ("scripts/x.sh", '"$GIT_BIN" rev-parse HEAD\n'),
+        # A commented-out call, and a remote verb that is not git's subcommand
+        # (codex review).
+        ("scripts/x.py", '# run(["gh", "repo", "view"])\n'),
+        ("scripts/x.py", 'run(["git", "branch", "fetch"])\n'),
+        # A shell invocation shape in a non-shell file is not read as shell.
+        ("docs/x.md", "gh issue list\n"),
+    ],
+)
+def test_calls_network_ignores_a_mention(rel, text):
+    assert codex_skill_sync.calls_network({rel: text}) is False
+
+
+def test_real_repo_project_next_skill_carries_the_network_bullet():
+    """The skill that failed in the field (#1357) must tell Codex to escalate.
+
+    This is the negative control for the detector on real input: it failed on
+    the generated project-next skill before #1357, which had no such bullet."""
+    skill = (ROOT / "codex" / "skills" / "project-next" / "SKILL.md").read_text()
+    assert "Run these helpers with escalated permissions" in skill
+
+
+def test_real_repo_skill_without_network_helpers_has_no_network_bullet():
+    """The bullet must not be stamped everywhere, so it keeps meaning something.
+
+    The control is a skill that bundles NO code at all - established without
+    the detector, so it cannot be certified clean by the detector's own blind
+    spot (codex review: flow-eli5 was used first, and it reaches the network
+    through lib/vendor.py's urllib fetcher)."""
+    outputs = codex_skill_sync.expected_outputs(codex_skill_sync.FAMILIES)
+    clean = outputs["cicd-help"]
+    assert not any(rel.endswith((".py", ".sh")) for rel in clean), "precondition: cicd-help bundles no code"
+    assert codex_skill_sync.NETWORK_BULLET not in clean["SKILL.md"]
+
+
+@pytest.mark.parametrize("skill_name", ["flow-merge", "flow-start"])
+def test_real_repo_variable_tool_helpers_carry_the_network_bullet(skill_name):
+    """flow-merge reaches GitHub only through `"$GH_BIN"` (gh-pr-merge.sh,
+    flow-ci-status.sh) and flow-start only through `"$GH"` / `"$GIT" fetch`
+    (flow-start-resolve.sh) - shapes the first two cuts of the detector missed."""
+    skill = (ROOT / "codex" / "skills" / skill_name / "SKILL.md").read_text()
+    assert "Run these helpers with escalated permissions" in skill

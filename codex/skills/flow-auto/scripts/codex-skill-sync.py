@@ -185,6 +185,66 @@ BUNDLED_DOCS_BULLET = (
 )
 
 
+NETWORK_BULLET = (
+    "Network: this skill's bundled helpers appear to call the network (`gh`,"
+    " `git fetch`/`push`, `curl`, `aws`, HTTP). Codex's workspace sandbox has no network,"
+    " and an allow rule for `gh` covers only a top-level `gh` command, never one"
+    " a helper runs. Run these helpers with escalated permissions. From inside"
+    " the sandbox, \"error connecting to api.github.com\" means no network, not a"
+    " GitHub outage or a bad login."
+)
+
+#: A network INVOCATION in a bundled helper, not a mention (issue #1357). The
+#: command body is the wrong place to look: project-next's only `gh` call is in
+#: lib/project_next/collect.py, which the command document never names. Each
+#: shape is applied only to its own file type:
+#:
+#:   Python - an argv list opening with the tool, `["gh", ...]`, or with git
+#:            whose SUBCOMMAND is a remote verb, `["git", "-C", path, "fetch"]`
+#:            (only `-C`/`-c` pairs may precede it, so `["git", "branch",
+#:            "fetch"]` is local); or an HTTP client import (`urllib.request`,
+#:            `http.client`, `requests`) - the import is the dependency, the
+#:            same rule _LIB_IMPORT applies. Comment lines are skipped.
+#:   Shell  - the tool at a command position: line start, after `;`, `&`, `|`,
+#:            a backtick, `$(`, or `if`/`then`/`do`/`!`, on a non-comment line.
+#:            The tool may be literal or a variable named for it, with or
+#:            without `_BIN`: `"$GH_BIN" api` (gh-pr-merge.sh,
+#:            flow-ci-status.sh), `"$GH" issue view` / `"$GIT" fetch`
+#:            (flow-start-resolve.sh).
+#:
+#: A bare `(` is deliberately NOT a command position: `"... (gh issue create)"`
+#: inside a usage string in flow-worktree-claim.sh is prose, and matching it
+#: flagged four skills that make no network call. Known limit: a command
+#: position inside a quoted string (`echo "retry; gh issue list"`) still
+#: matches - telling it apart needs a shell parser, and the cost of the false
+#: positive is one advisory bullet, which is why the bullet says the helpers
+#: APPEAR to call the network rather than asserting it. Prose shaped exactly
+#: like an argv list inside a Python docstring matches for the same reason.
+_NET_PY = re.compile(
+    r"""(?m)^(?!\s*#).*?(?:"""
+    r"""\[\s*["'](?:gh|curl|aws)["']"""
+    r"""|\[\s*["']git["']\s*,\s*(?:["']-[Cc]["']\s*,\s*[^,\]]+,\s*)*["'](?:fetch|push|pull|ls-remote|clone)["']"""
+    r"""|^\s*(?:import|from)\s+(?:urllib\.request|urllib\s+import\s+request|http\.client|requests)\b"""
+    r")"
+)
+_NET_SH = re.compile(
+    r"(?m)^(?!\s*#)[^#\n]*?(?:^|[;&|`]|\$\(|\b(?:if|then|do|!)\s)\s*"
+    r"(?:(?:gh|\"?\$\{?GH(?:_BIN)?\}?\"?)\s+(?:api|issue|pr|repo|run|release|auth|search|label|workflow)\b"
+    r"|(?:git|\"?\$\{?GIT(?:_BIN)?\}?\"?)\s+(?:-[Cc]\s+\S+\s+)*(?:fetch|push|pull|ls-remote|clone)\b"
+    r"|(?:curl|aws|\"?\$\{?(?:CURL|AWS|WPCLI)(?:_BIN)?\}?\"?)\s)"
+)
+
+
+def calls_network(files: dict[str, str]) -> bool:
+    """True when any bundled helper (skill-relative path -> text) invokes the network."""
+    for rel, text in files.items():
+        if rel.endswith(".py") and _NET_PY.search(text):
+            return True
+        if rel.endswith(".sh") and _NET_SH.search(text):
+            return True
+    return False
+
+
 def marker_for(family: str, base: str) -> str:
     return (
         f"{MARKER_PREFIX} edit .claude/commands/{family}/{base} instead -->"
@@ -762,6 +822,17 @@ def generate_skill(
         bullets.append(BUNDLED_SCRIPTS_BULLET)
     if docs:
         bullets.append(BUNDLED_DOCS_BULLET)
+    # Every bundled code file, gathered before the bullets are rendered because
+    # the network bullet is decided by what the helpers DO (issue #1357).
+    bundled: dict[str, str] = {
+        f"scripts/{script}": (SCRIPTS_ROOT / script).read_text() for script in scripts
+    }
+    for rel, source in find_bundled_libs(scripts).items():
+        bundled[rel] = source.read_text()
+    for rel, source in find_bundled_shell_libs(scripts).items():
+        bundled[rel] = source.read_text()
+    if calls_network(bundled):
+        bullets.append(NETWORK_BULLET)
 
     parts: list[str] = [
         "---",
@@ -803,14 +874,9 @@ def generate_skill(
         ]
         files["SKILL.md"] = "\n".join(parts) + "\n"
         files["reference.md"] = f"{marker}\n\n{body.rstrip(chr(10))}\n"
-    for script in scripts:
-        files[f"scripts/{script}"] = (SCRIPTS_ROOT / script).read_text()
-    # Bundled at their repo-relative path, which is what makes the scripts'
-    # own `parents[1]` resolution land inside the skill directory.
-    for rel, source in find_bundled_libs(scripts).items():
-        files[rel] = source.read_text()
-    for rel, source in find_bundled_shell_libs(scripts).items():
-        files[rel] = source.read_text()
+    # Libs are bundled at their repo-relative path, which is what makes the
+    # scripts' own `parents[1]` resolution land inside the skill directory.
+    files.update(bundled)
     for rel, source in find_bundled_data(scripts).items():
         files[rel] = source.read_text()
     for doc in docs:
