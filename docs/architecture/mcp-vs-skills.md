@@ -75,17 +75,17 @@ Moving functionality from MCP to Skill (or vice versa):
 
 ## MCP Server Deployment
 
-CPP itself ships no container runtime. MCP servers are external or upstream, wired into a project through the root `.mcp.json`:
+CPP itself ships no container runtime. MCP servers are external or upstream, registered at user scope by `/cpp:init`:
 
 | Server | How it runs | Wiring |
 |--------|-------------|--------|
-| Second Opinion | External `cooneycw/mcp-second-opinion` server (run it yourself) | `.mcp.json` streamable-http entry at `http://127.0.0.1:8080/mcp` (localhost) or a Tailscale URL |
+| Second Opinion | External `cooneycw/mcp-second-opinion` server (run it yourself) | User-scope streamable-http registration at `http://127.0.0.1:8080/mcp` (localhost) or a Tailscale URL via `SECOND_OPINION_URL` |
 | Browser automation | Upstream `@playwright/mcp` (npx/stdio) | Registered by `/cpp:init` (no container) |
 | Tavily web tools | Upstream `tavily-mcp` (npx/stdio) | Registered by `/cpp:init`; needs `TAVILY_API_KEY` and Node.js 20+ |
 
 **Secrets:** the external Second Opinion server manages its own API keys - keep them on the server side, never in this repo.
 
-**Connect:** run the external server, then point the `second-opinion` entry in the root `.mcp.json` at its URL (localhost or Tailscale).
+**Connect:** run the external server, then register `second-opinion` at user scope (`/cpp:init` or `/cpp:update`; export `SECOND_OPINION_URL` first for a Tailscale host). CPP ships no project-scope `.mcp.json` entry (issue #1256).
 
 ## Decision Checklist
 

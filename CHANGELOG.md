@@ -386,6 +386,19 @@
 
 ### Removed
 
+- **2026-09-30 - the tracked root `.mcp.json`, so `second-opinion` has one
+  definition instead of two** (issue #1256) - the file defined `second-opinion`
+  at project scope beside the user-scope registration `/cpp:init` makes.
+  Whenever the two differed (a stdio server, a Tailscale URL, a hand edit)
+  Claude Code reported `[Conflicting scopes]`, and which server a session reached
+  depended on the directory it started in. The per-host escape,
+  `disabledMcpjsonServers`, is keyed per path (every worktree still conflicted)
+  and was observed lost to a concurrent rewrite of `~/.claude.json`. User scope
+  is now the only registration. `/cpp:update` Step 6b.0 migrates legacy installs:
+  it registers `second-opinion` at user scope when none exists (the same derived
+  command as `/cpp:init`) and leaves an existing user-scope entry untouched.
+  `/flow:doctor` now checks user scope instead of grepping `.mcp.json`.
+
 - **2026-09-19 - the `mcp-evaluate/` subproject, and with it 34 CVEs** (issue
   #943) - #943 asked which of three paths to take on 11 locked packages carrying
   34 advisories: migrate across major versions, add per-package ceilings, or

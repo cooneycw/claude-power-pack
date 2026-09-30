@@ -234,12 +234,12 @@ else
 fi
 
 # CPP ships no local MCP server projects. The second-opinion server is external
-# (the cooneycw/mcp-second-opinion repo), connected via the root .mcp.json
-# streamable-http pointer. Browser automation is upstream @playwright/mcp (npx/stdio).
+# (the cooneycw/mcp-second-opinion repo), registered at user scope as a
+# streamable-http client (CPP ships no .mcp.json entry for it, #1256). Browser automation is upstream @playwright/mcp (npx/stdio).
 # Tavily web search/extract/crawl/map is upstream tavily-mcp (npx/stdio).
 echo ""
 echo "MCP Server Projects:"
-echo "  [-] none bundled (second-opinion is external via .mcp.json; playwright and tavily via npx/stdio)"
+echo "  [-] none bundled (second-opinion is external, user scope; playwright and tavily via npx/stdio)"
 
 # Check MCP servers registered
 echo ""
@@ -617,7 +617,7 @@ proves the native-API path works - run `/gemma:status`.
 Based on the checks above, report:
 
 1. **Current tier level** - Which tier is fully installed
-2. **MCP wiring** - second-opinion is external (cooneycw/mcp-second-opinion) via `.mcp.json`; there is no CPP-managed container runtime
+2. **MCP wiring** - second-opinion is external (cooneycw/mcp-second-opinion), registered at user scope; there is no CPP-managed container runtime
 3. **Missing components** - What needs to be installed
 4. **Recommendation** - Suggest running `/cpp:init` if incomplete, or `/cpp:update` if legacy systemd units remain
 
@@ -645,11 +645,11 @@ Tier 2 (Standard):
 
 Tier 3 (Full):
   [x] uv: 0.5.x
-  [x] second-opinion: registered (external cooneycw/mcp-second-opinion via .mcp.json)
+  [x] second-opinion: registered (external cooneycw/mcp-second-opinion, user scope)
   [x] playwright: registered (upstream @playwright/mcp, npx/stdio)
   [x] tavily: registered (upstream tavily-mcp, npx/stdio)
-  MCP Server Wiring (.mcp.json):
-    [x] second-opinion: registered in .mcp.json (http://127.0.0.1:8080/mcp)
+  MCP Server Wiring:
+    [x] second-opinion: registered at user scope (http://127.0.0.1:8080/mcp)
     [-] playwright: npx/stdio - no port to probe
     [-] tavily: npx/stdio - no port to probe
   Legacy Systemd:
@@ -692,7 +692,7 @@ Tier 7 (Local Gemma - optional):
 
 ---------------------------------
 Current Level: Tier 2 (Standard)
-MCP wiring: second-opinion external via .mcp.json (no CPP container runtime)
+MCP wiring: second-opinion external, user scope (no CPP container runtime)
 Missing: Shell prompt, CI pipeline, Dockerfile
 
 Run /cpp:init to complete setup

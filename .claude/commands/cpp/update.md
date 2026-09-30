@@ -1284,7 +1284,7 @@ cd "$CPP_DIR"
 echo "=== Repo MCP Server Inventory ==="
 
 # CPP no longer ships a Docker MCP stack. It expects:
-echo "  second-opinion - external streamable-http server (root .mcp.json -> :8080/mcp)"
+echo "  second-opinion - external streamable-http server, user scope only (default :8080/mcp)"
 echo "  playwright      - upstream @playwright/mcp via npx/stdio"
 
 echo ""
@@ -1342,12 +1342,52 @@ fi
 
 ### 6b: Detect Drift
 
+#### 6b.0: Second-Opinion Registration (legacy migration, issue #1256)
+
+Until #1256, CPP shipped a tracked root `.mcp.json` that defined `second-opinion`
+at PROJECT scope. That was a second definition beside the USER-scope one
+`/cpp:init` registers, and whenever the two differed - a stdio server, a
+Tailscale URL, a hand edit - Claude Code saw `[Conflicting scopes]` and which one
+a session reached depended on the directory it started in. The per-host escape,
+`disabledMcpjsonServers` in `~/.claude.json`, is keyed per path (every worktree
+still conflicted) and was lost to a concurrent session rewriting that file.
+
+The pull in Step 3 deleted `.mcp.json`, which removes the competing definition
+for every checkout and worktree at once. An install that relied on it has no
+`second-opinion` left, so register it at user scope - the same command and the
+same guard as `/cpp:init` step 3c. An install that already has a user-scope
+entry keeps it untouched, whatever its transport or URL: that is the owner's
+chosen wiring, and now the only one.
+
+```bash
+# The guard asks USER scope in the active profile, never `claude mcp list`,
+# which also shows local/project entries. It honours CLAUDE_CONFIG_DIR, like init.
+USER_JSON="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"
+if python3 -c 'import json,sys; sys.exit(0 if "second-opinion" in json.load(open(sys.argv[1])).get("mcpServers", {}) else 1)' "$USER_JSON" 2>/dev/null; then
+  SO_REGISTRATION_STATUS="already at user scope"
+  echo "→ second-opinion already registered at user scope (left untouched)"
+elif claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"; then
+  SO_REGISTRATION_STATUS="registered at user scope"
+  echo "✓ second-opinion registered at user scope (no user-scope entry existed)"
+else
+  SO_REGISTRATION_STATUS="FAILED"
+  echo "✗ second-opinion registration FAILED (see the error above) - second-opinion is not registered anywhere"
+fi
+```
+
+For a server that is not on localhost, the user exports `SECOND_OPINION_URL`
+(base URL, no `/mcp`) before this step; the user scope expands it once, at
+registration, so changing it later means `claude mcp remove second-opinion -s
+user` and this step again. A `disabledMcpjsonServers` entry for
+`second-opinion` left over from the old workaround now disables nothing and is
+harmless; leave it.
+
 Compare the inventories and classify each finding. Use the following logic:
 
 **Expected servers** (what CPP wires now, registration-only - no containers):
-- `second-opinion` - external streamable-http server; the root `.mcp.json` points
-  Claude Code at `http://127.0.0.1:8080/mcp` (project scope), optionally also
-  registered at user scope. CPP does not build or run it.
+- `second-opinion` - external streamable-http server, registered at USER scope
+  only (Step 6b.0); CPP ships no project-scope definition of it (#1256). The
+  default endpoint is `http://127.0.0.1:8080/mcp`. CPP does not build or run it.
 - `playwright` - upstream `@playwright/mcp` via npx/stdio.
 - `tavily` - upstream `tavily-mcp` via npx/stdio; provides web search, extract,
   crawl, and map tools. API key from `claude-power-pack/mcp-keys` in AWS SM.
@@ -1398,10 +1438,12 @@ esac
 Never remove a definition yourself. On a conflict, show both scopes and
 endpoints, and offer Claude Code's own `claude mcp remove <name> -s <user|local>`
 for the scope the user says to drop - which wiring is canonical is the user's call.
-To drop the PROJECT entry, never offer `-s project`: that rewrites the tracked
-`.mcp.json` for every user of the repository. Offer adding the name to
+To drop a PROJECT entry, never offer `-s project`: that rewrites a tracked
+`.mcp.json` for every user of that repository. Offer adding the name to
 `projects["<dir>"].disabledMcpjsonServers` in `~/.claude.json` instead, which
-`--scope-check` honours (a disabled project entry is not a definition).
+`--scope-check` honours (a disabled project entry is not a definition). CPP
+itself ships no project-scope `second-opinion` any more (Step 6b.0), so a
+`second-opinion` conflict in a CPP checkout is now user versus local scope.
 
 **For each installed legacy systemd service matching mcp-*, nano-*, or
 coordination**, classify it as:
@@ -1636,11 +1678,12 @@ For user-scope orphaned units, use `systemctl --user ...`, remove the file from
 
 ```
 The external second-opinion server answers on http://127.0.0.1:8080/mcp but is
-not registered with Claude Code (the root .mcp.json only applies inside CPP).
+not registered with Claude Code at any scope (CPP ships no .mcp.json entry for
+it - Step 6b.0 registers it at user scope; if you see this, that step failed).
 ```
 
 Options:
-- **Register** - `claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"` (for a Tailscale host, export `SECOND_OPINION_URL` first rather than editing the URL, so this entry and the root `.mcp.json` name the same endpoint - issue #1256)
+- **Register** - `claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"` (for a Tailscale host, export `SECOND_OPINION_URL` first rather than editing the URL, so every CPP document installs the same endpoint - issue #1256)
 - **Skip** - Leave unregistered
 
 ---
@@ -2082,6 +2125,10 @@ Dependencies:
 Runtime:
   Model: no Docker MCP stack (second-opinion external, playwright via npx)
   Legacy systemd: {none, removed N unit scope(s), or skipped with warning}
+
+Second-opinion registration:
+  {SO_REGISTRATION_STATUS - "already at user scope", "registered at user scope",
+   or "FAILED" (Step 6b.0)}
 
 MCP Drift:
   {drift summary - e.g. "1 new server refreshed via Docker, 1 legacy unit removed"

@@ -7,7 +7,7 @@
 - **Workflow commands** (`/flow:auto`, `/flow:start`, `/flow:eli5`, `/flow:finish`) - Issue-driven development with worktrees, a pre-implementation ELI5 plan/necessity approval gate that cannot be bypassed (#775), quality gates, automated PR lifecycle, and CI verification. The necessity gate also ships standalone as [eli5-gate](https://github.com/cooneycw/eli5-gate) - installable without CPP via `/plugin marketplace add cooneycw/eli5-gate` or `npx skills add cooneycw/eli5-gate`; CPP vendors its canonical core (file gate improvements there)
 - **Wave orchestration** (`/flow:wave`, `/flow:register`, `/flow:sync`) - dependency-ordered issue waves fanned out across worker sessions, coordinated through a durable mailbox with an armed/stale/dead watch status visible on the roster (#778, #801), and per-driver capability declarations (scope, web access) so an orchestrator can check whether a driver can do the work before assigning it, not after a worker refuses (#783)
 - **MCP servers** extending Claude Code's capabilities:
-  - **Second Opinion** - Multi-model code review via external LLMs (Gemini, OpenAI, Anthropic), served by the external `cooneycw/mcp-second-opinion` repo and wired in through the root `.mcp.json` (streamable-http)
+  - **Second Opinion** - Multi-model code review via external LLMs (Gemini, OpenAI, Anthropic), served by the external `cooneycw/mcp-second-opinion` repo and registered at user scope by `/cpp:init` (streamable-http)
   - **Browser automation** - upstream `@playwright/mcp` server (npx/stdio, no container), registered by `/cpp:init`
   - **Tavily** - web search, content extraction, site crawling, and URL mapping via the upstream `tavily-mcp` server (npx/stdio), registered by `/cpp:init`; API key stored in AWS Secrets Manager (`claude-power-pack/mcp-keys`)
 - **PowerPoint generation** - Slide decks via the native Anthropic `pptx` skill (`npx skills add anthropics/skills@pptx`)
@@ -45,7 +45,7 @@ Existing CPP marketplace users should run `/plugin uninstall <family>@cpp` for e
 
 `/cpp:init` also configures the out-of-band infrastructure used by some command families:
 
-- **External Second Opinion server** - the multi-model review server lives in its own repo ([cooneycw/mcp-second-opinion](https://github.com/cooneycw/mcp-second-opinion)). Start the external server, then register it with `claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"` (for a remote host, export `SECOND_OPINION_URL` first rather than editing the URL, so the user-scope entry and the repo's `.mcp.json` agree).
+- **External Second Opinion server** - the multi-model review server lives in its own repo ([cooneycw/mcp-second-opinion](https://github.com/cooneycw/mcp-second-opinion)). Start the external server, then register it with `claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"` (for a remote host, export `SECOND_OPINION_URL` first rather than editing the URL, so every install names the same endpoint).
 - **Browser automation** - registers the upstream `@playwright/mcp` npx/stdio server (no container).
 - **Tavily web tools** - registers the upstream [tavily-mcp](https://github.com/tavily-ai/tavily-mcp) npx/stdio server for web search, extract, crawl, and map. Requires `TAVILY_API_KEY` (stored in AWS Secrets Manager `claude-power-pack/mcp-keys`).
 - **Secrets provisioning** - AWS Secrets Manager access for Woodpecker CI keys (`essent-ai`) and the `CPP_MEMORIES_DSN` common-memory DSN; fetched directly via the AWS SDK/CLI.
@@ -74,7 +74,6 @@ make verify
 ```
 claude-power-pack/
   .claude/commands/     Slash commands (/flow:*, /cicd:*, /security:*, etc.)
-  .mcp.json             Client pointer for the external second-opinion server
   codex/skills/         Generated Codex SKILL.md skills, second harness surface (#555)
   codex/cpp-memory.md   Curated Codex /cpp-memory prompt (#433; flat codex/prompts/ retired #556)
   lib/creds/            Secrets management library
@@ -123,7 +122,7 @@ claude-power-pack/
 CPP ships no container runtime (retired in #469). The `/second-opinion:*` and `/evaluate:*` commands consume an **external** second-opinion server that runs from its own repo:
 
 - Server repo: https://github.com/cooneycw/mcp-second-opinion (server + the AWS Secrets Manager Agent sidecar build recipe + a standalone docker-compose)
-- CPP ships a root `.mcp.json` registering `second-opinion` as a streamable-http client at `${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp` (issue #633): localhost 8080 by default, overridable WITHOUT editing any tracked file by exporting `SECOND_OPINION_URL` with the base url, no `/mcp` (e.g. `export SECOND_OPINION_URL=http://127.0.0.1:8090`, or a Tailscale URL). Start the external server, then either rely on that env override or register at user scope:
+- `second-opinion` is registered at USER scope as a streamable-http client at `${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp` (issues #633, #1256): localhost 8080 by default; for another host export `SECOND_OPINION_URL` with the base url, no `/mcp` (e.g. `export SECOND_OPINION_URL=http://127.0.0.1:8090`, or a Tailscale URL), before registering. CPP ships no project-scope `.mcp.json` entry, so nothing competes with the user-scope one. Start the external server, then register it (`/cpp:init` and `/cpp:update` do this for you):
 
 ```bash
 claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"
@@ -318,7 +317,7 @@ it:
 ### v7.3.0 (2026-07-04)
 
 - **Plugin-marketplace distribution + install-path cutover** (epic #417 Phase B, ADR 0001) - CPP adopted 15 per-family plugins and retired its earlier symlink surface (#477/#478/#479/#480). **Reversed 2026-08-11:** issue #662 / ADR 0005 retires CPP's marketplace lane after version-stamp drift proved unreconcilable; uninstall existing families with `/plugin uninstall <family>@cpp`. The tiered `/cpp:init` + `/cpp:update` symlink surface returned as canonical in #663.
-- **Docker MCP runtime retired** (#469, #423) - Second Opinion moved to its own external repo ([cooneycw/mcp-second-opinion](https://github.com/cooneycw/mcp-second-opinion)) consumed via a `.mcp.json` client pointer; browser automation moved to the upstream `@playwright/mcp` npx server. CPP ships no containers and `make deploy` is an informative no-op.
+- **Docker MCP runtime retired** (#469, #423) - Second Opinion moved to its own external repo ([cooneycw/mcp-second-opinion](https://github.com/cooneycw/mcp-second-opinion)) consumed via a streamable-http client registration; browser automation moved to the upstream `@playwright/mcp` npx server. CPP ships no containers and `make deploy` is an informative no-op.
 - **`/flow:eli5` necessity gate extracted** to the standalone [eli5-gate](https://github.com/cooneycw/eli5-gate) plugin (#443); CPP vendors its canonical core with a drift check.
 
 ### v7.2.0 (2026-06-28)

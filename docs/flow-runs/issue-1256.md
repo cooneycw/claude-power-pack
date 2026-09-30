@@ -71,3 +71,40 @@ Host-owed (not a repo file): back up ~/.claude.json, add second-opinion to the C
 4. `README.md` - same (two sites)
 5. `tests/test_mcp_json_override.py` - no live doc carries `claude mcp add ... --url`; every second-opinion registration derives from SECOND_OPINION_URL; both red on pre-fix
 Scope: 5 files plus codex mirrors, ~60-100 lines. Risks: existing installs with a hand-registered differing URL are reported not repaired; tests pin prompt text, not model execution.
+
+<!-- flow-run n=4 id=73ccaf9c156b4de483672ffc3f4ca5d3 -->
+## Run 4
+
+- Run-id:            73ccaf9c156b4de483672ffc3f4ca5d3
+- Run-start:         8e42600bd85318ca17ba93c9a64ceb18876678bc
+- Issue:             #1256
+- Base SHA:          8e42600b
+- Necessity verdict: Needs reframing
+- Approval:          granted
+- Approver:          cooneycw (owner), in-session reply "approved" to the remove-the-project-entry plan
+- Recorded at:       2026-09-30T21:10:00Z
+
+### Section B evidence
+- Delivered earlier: cd3eb00a (#1331), c6b02fad (#1337), 72cb00c5 (#1355), 005f3174 (#1358). Unrelated on these paths: 7d1ad79f (#1305), 879df151 (#1287), 73636678 (#1335). Related closed: #633, #1282, #1290; no duplicate; no unpushed sibling worktree commits on these paths.
+- Host: the run-3 disabledMcpjsonServers entry (09:47) was gone by 16:30 (rotating backups from 16:30 lack it); --scope-check rc=1 again. Likely a concurrent session saving a stale ~/.claude.json - not proven.
+- Owner reframe 2026-09-30: remove second-opinion from the tracked .mcp.json; user scope is the only registration; /cpp:update registers it for legacy installs.
+
+### Section C - the approved plan
+1. `.mcp.json` - delete (its only entry is second-opinion)
+2. `.claude/commands/cpp/update.md` - Step 6 migration registers a user-scope second-opinion when none exists (same derived-URL command as /cpp:init), leaves an existing one untouched; wiring text stops citing .mcp.json
+3. `.claude/commands/cpp/init.md` - user scope is the only registration
+4. `.claude/commands/flow/doctor.md` - check asks user scope in ~/.claude.json, not .mcp.json
+5. `.claude/commands/cpp/status.md` - wiring text
+6. `.claude/commands/cpp/help.md` - wiring text
+7. `.claude/commands/cpp/dockers.md` - wiring text
+8. `.claude/commands/cpp/load-mcp-docs.md` - wiring text
+9. `.claude/commands/second-opinion/help.md` - drop the CPP-checkout .mcp.json branch
+10. `.claude/commands/evaluate/help.md` - wiring text
+11. `README.md` - wiring text
+12. `CLAUDE.md` - wiring line
+13. `docs/architecture/mcp-vs-skills.md` - table row and connect line
+14. `INSTALLATION_ISSUES.md` - setup pointer
+15. `Makefile` - informative echo
+16. `tests/test_mcp_json_override.py` - pin that the repo ships no project-scope second-opinion (red on pre-fix)
+17. `CHANGELOG.md` - entry
+Scope: ~17 files plus codex mirrors, ~120-200 lines. Risks: a legacy install that never runs /cpp:update loses second-opinion in CPP sessions; user scope expands SECOND_OPINION_URL once at registration; tests pin prompt text, not execution.

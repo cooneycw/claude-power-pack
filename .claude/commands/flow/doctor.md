@@ -297,10 +297,13 @@ CI/CD Readiness: skipped (lib/cicd not available)
 ### Step 7c: MCP Server Wiring
 
 CPP itself no longer runs any MCP server on a fixed local port. The second-opinion
-server is external (the `cooneycw/mcp-second-opinion` repo) and is reached over the
-root `.mcp.json` streamable-http pointer - `${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp`,
-i.e. localhost 8080 by DEFAULT, overridable per host by exporting
-`SECOND_OPINION_URL` with the base url (issue #633); browser automation is the
+server is external (the `cooneycw/mcp-second-opinion` repo) and is registered at
+USER scope by `/cpp:init` / `/cpp:update` - streamable-http at
+`${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp`, i.e. localhost 8080 by
+DEFAULT, overridable per host by exporting `SECOND_OPINION_URL` with the base url
+before registering (issue #633). CPP ships no project-scope `.mcp.json` entry for
+it (issue #1256), so this check reads the user scope of the active profile, not a
+file in the current project; browser automation is the
 upstream `@playwright/mcp` npx/stdio server; Tavily web tools use the upstream
 `tavily-mcp` npx/stdio server.
 Report how second-opinion is wired rather than probing a hardcoded port:
@@ -309,13 +312,15 @@ Report how second-opinion is wired rather than probing a hardcoded port:
 echo ""
 echo "MCP Server Wiring:"
 
-if [ -f ".mcp.json" ] && grep -q "second-opinion" .mcp.json 2>/dev/null; then
-  echo "  [x] second-opinion: registered in .mcp.json (external mcp-second-opinion server)"
+USER_JSON="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"
+if python3 -c 'import json,sys; sys.exit(0 if "second-opinion" in json.load(open(sys.argv[1])).get("mcpServers", {}) else 1)' "$USER_JSON" 2>/dev/null; then
+  echo "  [x] second-opinion: registered at user scope (external mcp-second-opinion server)"
 else
-  echo "  [ ] second-opinion: not registered in .mcp.json"
-  echo "      Run the external cooneycw/mcp-second-opinion server, then point .mcp.json"
-  echo "      at it (default http://127.0.0.1:8080/mcp; export SECOND_OPINION_URL to"
-  echo "      override the base url per host - a Tailscale URL, or a moved port)."
+  echo "  [ ] second-opinion: not registered at user scope"
+  echo "      Run the external cooneycw/mcp-second-opinion server, then /cpp:update, or:"
+  echo '      claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"'
+  echo "      Export SECOND_OPINION_URL first to override the base url per host -"
+  echo "      a Tailscale URL, or a moved port."
 fi
 echo "  [-] playwright: upstream @playwright/mcp over npx/stdio (no port to probe)"
 echo "  [-] tavily: upstream tavily-mcp over npx/stdio (no port to probe)"
@@ -363,7 +368,7 @@ Output a single diagnostic report in this format:
 
 | Server | Transport | Status | Details |
 |--------|-----------|--------|---------|
-| second-opinion | .mcp.json (streamable-http) | ✅/❌ | Registered in .mcp.json (external server) / Not registered |
+| second-opinion | user scope (streamable-http) | ✅/❌ | Registered at user scope (external server) / Not registered |
 | playwright | npx/stdio | - | Upstream @playwright/mcp (no port) |
 | tavily | npx/stdio | - | Upstream tavily-mcp (no port) |
 
@@ -421,7 +426,7 @@ Output a single diagnostic report in this format:
 6. ❌ **No CI pipeline** - Run `/cicd:pipeline` to generate GitHub Actions or Woodpecker CI config
 7. ⚠️ **No health endpoints** - Add `health.endpoints` to `.claude/cicd.yml` for post-deploy verification
 8. ⚠️ **No smoke tests** - Add `health.smoke_tests` to `.claude/cicd.yml` for post-deploy testing
-9. ⚠️ **second-opinion not registered** - It is an external server now. Run the `cooneycw/mcp-second-opinion` repo's server; the root `.mcp.json` entry reaches it at `${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp` (default 8080; export `SECOND_OPINION_URL` for a moved port or a Tailscale URL).
+9. ⚠️ **second-opinion not registered** - It is an external server now. Run the `cooneycw/mcp-second-opinion` repo's server, then `/cpp:update` registers it at user scope at `${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp` (default 8080; export `SECOND_OPINION_URL` first for a moved port or a Tailscale URL).
 
 *All checks passed!* → "Environment is ready for `/flow` workflow."
 ```
