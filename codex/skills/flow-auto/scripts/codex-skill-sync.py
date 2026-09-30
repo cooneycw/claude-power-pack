@@ -196,27 +196,38 @@ NETWORK_BULLET = (
 
 #: A network INVOCATION in a bundled helper, not a mention (issue #1357). The
 #: command body is the wrong place to look: project-next's only `gh` call is in
-#: lib/project_next/collect.py, which the command document never names. Two
-#: shapes, each applied only to its own file type:
+#: lib/project_next/collect.py, which the command document never names. Each
+#: shape is applied only to its own file type:
 #:
-#:   Python - an argv list opening with the tool: `["gh", ...]`, or
-#:            `["git", ..., "fetch", ...]` for the remote git verbs, with any
-#:            arguments (quoted or not, e.g. `"-C", path`) before the verb.
+#:   Python - an argv list opening with the tool, `["gh", ...]`, or with git
+#:            whose SUBCOMMAND is a remote verb, `["git", "-C", path, "fetch"]`
+#:            (only `-C`/`-c` pairs may precede it, so `["git", "branch",
+#:            "fetch"]` is local); or an HTTP client import (`urllib.request`,
+#:            `http.client`, `requests`) - the import is the dependency, the
+#:            same rule _LIB_IMPORT applies. Comment lines are skipped.
 #:   Shell  - the tool at a command position: line start, after `;`, `&`, `|`,
 #:            a backtick, `$(`, or `if`/`then`/`do`/`!`, on a non-comment line.
+#:            The tool may be literal or a `*_BIN` variable, the convention
+#:            gh-pr-merge.sh and flow-ci-status.sh use (`"$GH_BIN" api ...`).
 #:
 #: A bare `(` is deliberately NOT a command position: `"... (gh issue create)"`
 #: inside a usage string in flow-worktree-claim.sh is prose, and matching it
-#: flagged four skills that make no network call.
+#: flagged four skills that make no network call. Known limit: a command
+#: position inside a quoted string (`echo "retry; gh issue list"`) still
+#: matches - telling it apart needs a shell parser, and the cost of the false
+#: positive is one advisory bullet.
 _NET_PY = re.compile(
+    r"""(?m)^(?!\s*#).*?(?:"""
     r"""\[\s*["'](?:gh|curl|aws)["']"""
-    r"""|\[\s*["']git["'][^\]]*?["'](?:fetch|push|pull|ls-remote|clone)["']"""
+    r"""|\[\s*["']git["']\s*,\s*(?:["']-[Cc]["']\s*,\s*[^,\]]+,\s*)*["'](?:fetch|push|pull|ls-remote|clone)["']"""
+    r"""|^\s*(?:import|from)\s+(?:urllib\.request|urllib\s+import\s+request|http\.client|requests)\b"""
+    r")"
 )
 _NET_SH = re.compile(
     r"(?m)^(?!\s*#)[^#\n]*?(?:^|[;&|`]|\$\(|\b(?:if|then|do|!)\s)\s*"
-    r"(?:gh\s+(?:api|issue|pr|repo|run|release|auth|search|label|workflow)\b"
-    r"|git\s+(?:-C\s+\S+\s+)?(?:fetch|push|pull|ls-remote|clone)\b"
-    r"|curl\s|aws\s)"
+    r"(?:(?:gh|\"?\$\{?GH_BIN\}?\"?)\s+(?:api|issue|pr|repo|run|release|auth|search|label|workflow)\b"
+    r"|(?:git|\"?\$\{?GIT_BIN\}?\"?)\s+(?:-[Cc]\s+\S+\s+)*(?:fetch|push|pull|ls-remote|clone)\b"
+    r"|(?:curl|aws|\"?\$\{?(?:CURL|AWS|WPCLI)_BIN\}?\"?)\s)"
 )
 
 

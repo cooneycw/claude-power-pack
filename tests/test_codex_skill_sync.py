@@ -2121,6 +2121,12 @@ def test_a_path_OUTSIDE_the_repository_is_refused(capsys):
         ("scripts/x.sh", 'out="$(gh issue list --state all)"\n'),
         ("scripts/x.sh", "git fetch origin main --quiet\n"),
         ("scripts/x.sh", "if curl -fsS https://example.test; then :; fi\n"),
+        # The *_BIN convention of gh-pr-merge.sh / flow-ci-status.sh (codex review).
+        ("scripts/x.sh", 'default_branch="$("$GH_BIN" api "repos/$REPO")"\n'),
+        ("scripts/x.sh", '    | "$CURL_BIN" -s --max-time 30 "$url"\n'),
+        ("scripts/x.sh", '"$GIT_BIN" -C "$p" fetch origin\n'),
+        # An HTTP client import: lib/vendor.py, reached by flow-eli5 (codex review).
+        ("lib/vendor.py", "import urllib.request\n"),
     ],
 )
 def test_calls_network_flags_an_invocation(rel, text):
@@ -2138,6 +2144,11 @@ def test_calls_network_flags_an_invocation(rel, text):
         # Local-only git.
         ("scripts/x.py", 'run(["git", "rev-parse", "--show-toplevel"])\n'),
         ("scripts/x.sh", "git worktree list --porcelain\n"),
+        ("scripts/x.sh", '"$GIT_BIN" rev-parse HEAD\n'),
+        # A commented-out call, and a remote verb that is not git's subcommand
+        # (codex review).
+        ("scripts/x.py", '# run(["gh", "repo", "view"])\n'),
+        ("scripts/x.py", 'run(["git", "branch", "fetch"])\n'),
         # A shell invocation shape in a non-shell file is not read as shell.
         ("docs/x.md", "gh issue list\n"),
     ],
@@ -2156,9 +2167,20 @@ def test_real_repo_project_next_skill_carries_the_network_bullet():
 
 
 def test_real_repo_skill_without_network_helpers_has_no_network_bullet():
-    """The bullet must not be stamped everywhere: a skill whose helpers make no
-    network call stays clean, so the bullet keeps meaning something."""
+    """The bullet must not be stamped everywhere, so it keeps meaning something.
+
+    The control is a skill that bundles NO code at all - established without
+    the detector, so it cannot be certified clean by the detector's own blind
+    spot (codex review: flow-eli5 was used first, and it reaches the network
+    through lib/vendor.py's urllib fetcher)."""
     outputs = codex_skill_sync.expected_outputs(codex_skill_sync.FAMILIES)
-    clean = outputs["flow-eli5"]
-    assert not codex_skill_sync.calls_network(clean), "precondition: flow-eli5 bundles no network helper"
+    clean = outputs["cicd-help"]
+    assert not any(rel.endswith((".py", ".sh")) for rel in clean), "precondition: cicd-help bundles no code"
     assert codex_skill_sync.NETWORK_BULLET not in clean["SKILL.md"]
+
+
+def test_real_repo_bin_variable_helpers_carry_the_network_bullet():
+    """flow-merge reaches GitHub only through gh-pr-merge.sh / flow-ci-status.sh,
+    which call `"$GH_BIN"` - the shape the first cut of the detector missed."""
+    skill = (ROOT / "codex" / "skills" / "flow-merge" / "SKILL.md").read_text()
+    assert "Run these helpers with escalated permissions" in skill
