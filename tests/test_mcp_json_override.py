@@ -315,7 +315,9 @@ def _update_migration_block() -> str:
     return section[start : section.index("\n```", start)]
 
 
-def _run_migration(tmp_path: Path, *, user_servers: dict | None, add_exit: int = 0) -> tuple[str, list[str]]:
+def _run_migration(
+    tmp_path: Path, *, user_servers: dict | None, add_exit: int = 0, raw_config: str | None = None
+) -> tuple[str, list[str]]:
     bindir = tmp_path / "bin"
     bindir.mkdir()
     stub = bindir / "claude"
@@ -323,7 +325,9 @@ def _run_migration(tmp_path: Path, *, user_servers: dict | None, add_exit: int =
     stub.chmod(0o755)
     cfg = tmp_path / "cfg"
     cfg.mkdir()
-    if user_servers is not None:
+    if raw_config is not None:
+        (cfg / ".claude.json").write_text(raw_config)
+    elif user_servers is not None:
         (cfg / ".claude.json").write_text(json.dumps({"mcpServers": user_servers}))
     log = tmp_path / "claude.log"
     env = {
@@ -364,4 +368,47 @@ def test_update_reports_a_failed_registration_as_failed(tmp_path: Path) -> None:
     out, adds = _run_migration(tmp_path, user_servers={}, add_exit=1)
     assert adds, out
     assert "SO_REGISTRATION_STATUS=FAILED" in out, out
-    assert "registered at user scope" not in out.replace("SO_REGISTRATION_STATUS=FAILED", ""), out
+    assert "registered at user scope (no" not in out, out
+
+
+# An unreadable or wrongly shaped config is not an established absence
+# (counter-model review, #1256): it must register nothing and say so, and a
+# list-shaped mcpServers naming the server must not read as registered.
+@_needs_shell
+@pytest.mark.parametrize(
+    "raw",
+    ['{"mcpServers": ', '{"mcpServers": ["second-opinion"]}', '["second-opinion"]',
+     '{"mcpServers": {"second-opinion": "x"}}'],
+)
+def test_update_registers_nothing_when_the_user_config_is_unreadable(tmp_path: Path, raw: str) -> None:
+    out, adds = _run_migration(tmp_path, user_servers=None, raw_config=raw)
+    assert adds == [], out
+    assert "SO_REGISTRATION_STATUS=NOT ASSESSED (user config unreadable)" in out, out
+
+
+def _doctor_block() -> str:
+    text = (ROOT / ".claude/commands/flow/doctor.md").read_text()
+    section = text[text.index("### Step 7c: MCP Server Wiring") :]
+    start = section.index("```bash\n") + len("```bash\n")
+    return section[start : section.index("\n```", start)]
+
+
+@_needs_shell
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (json.dumps({"mcpServers": _STDIO}), "[x] second-opinion: registered at user scope"),
+        (json.dumps({"mcpServers": {"playwright": {"type": "stdio"}}}), "[ ] second-opinion: not registered"),
+        (None, "[ ] second-opinion: not registered"),
+        ('{"mcpServers": ', "[?] second-opinion: could not read"),
+        ('{"mcpServers": ["second-opinion"]}', "[?] second-opinion: could not read"),
+    ],
+)
+def test_doctor_reports_user_scope_registration(tmp_path: Path, raw: str | None, expected: str) -> None:
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    if raw is not None:
+        (cfg / ".claude.json").write_text(raw)
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "CLAUDE_CONFIG_DIR": str(cfg)}
+    out = subprocess.run(["bash", "-c", _doctor_block()], env=env, capture_output=True, text=True, timeout=60)
+    assert expected in out.stdout, out.stdout + out.stderr

@@ -1362,16 +1362,40 @@ chosen wiring, and now the only one.
 ```bash
 # The guard asks USER scope in the active profile, never `claude mcp list`,
 # which also shows local/project entries. It honours CLAUDE_CONFIG_DIR, like init.
+# Three answers, not two: 0 registered, 1 absent (no file, or no such key), 3 the
+# config could not be read or has the wrong shape. Only an ESTABLISHED absence
+# registers - an unreadable config is not evidence that nothing is there.
 USER_JSON="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"
-if python3 -c 'import json,sys; sys.exit(0 if "second-opinion" in json.load(open(sys.argv[1])).get("mcpServers", {}) else 1)' "$USER_JSON" 2>/dev/null; then
+python3 - "$USER_JSON" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+if not os.path.exists(path):
+    sys.exit(1)
+try:
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+except (OSError, ValueError):
+    sys.exit(3)
+servers = data.get("mcpServers", {}) if isinstance(data, dict) else None
+if not isinstance(servers, dict):
+    sys.exit(3)
+if "second-opinion" not in servers:
+    sys.exit(1)
+sys.exit(0 if isinstance(servers["second-opinion"], dict) else 3)
+PY
+SO_USER_RC=$?
+if [ "$SO_USER_RC" -eq 0 ]; then
   SO_REGISTRATION_STATUS="already at user scope"
   echo "→ second-opinion already registered at user scope (left untouched)"
+elif [ "$SO_USER_RC" -ne 1 ]; then
+  SO_REGISTRATION_STATUS="NOT ASSESSED (user config unreadable)"
+  echo "? could not read $USER_JSON (unreadable or not the expected shape) - registered nothing"
 elif claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"; then
   SO_REGISTRATION_STATUS="registered at user scope"
   echo "✓ second-opinion registered at user scope (no user-scope entry existed)"
 else
   SO_REGISTRATION_STATUS="FAILED"
-  echo "✗ second-opinion registration FAILED (see the error above) - second-opinion is not registered anywhere"
+  echo "✗ second-opinion user-scope registration FAILED (see the error above)"
 fi
 ```
 
@@ -2128,7 +2152,7 @@ Runtime:
 
 Second-opinion registration:
   {SO_REGISTRATION_STATUS - "already at user scope", "registered at user scope",
-   or "FAILED" (Step 6b.0)}
+   "NOT ASSESSED (user config unreadable)", or "FAILED" (Step 6b.0)}
 
 MCP Drift:
   {drift summary - e.g. "1 new server refreshed via Docker, 1 legacy unit removed"

@@ -313,8 +313,30 @@ echo ""
 echo "MCP Server Wiring:"
 
 USER_JSON="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"
-if python3 -c 'import json,sys; sys.exit(0 if "second-opinion" in json.load(open(sys.argv[1])).get("mcpServers", {}) else 1)' "$USER_JSON" 2>/dev/null; then
+# 0 registered, 1 absent (no file, or no such key), 3 unreadable or wrong shape -
+# an unreadable config is reported as such, never as registered or missing.
+python3 - "$USER_JSON" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+if not os.path.exists(path):
+    sys.exit(1)
+try:
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+except (OSError, ValueError):
+    sys.exit(3)
+servers = data.get("mcpServers", {}) if isinstance(data, dict) else None
+if not isinstance(servers, dict):
+    sys.exit(3)
+if "second-opinion" not in servers:
+    sys.exit(1)
+sys.exit(0 if isinstance(servers["second-opinion"], dict) else 3)
+PY
+SO_USER_RC=$?
+if [ "$SO_USER_RC" -eq 0 ]; then
   echo "  [x] second-opinion: registered at user scope (external mcp-second-opinion server)"
+elif [ "$SO_USER_RC" -ne 1 ]; then
+  echo "  [?] second-opinion: could not read $USER_JSON (unreadable or not the expected shape)"
 else
   echo "  [ ] second-opinion: not registered at user scope"
   echo "      Run the external cooneycw/mcp-second-opinion server, then /cpp:update, or:"
