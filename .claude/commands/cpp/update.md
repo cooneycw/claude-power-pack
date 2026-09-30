@@ -1640,7 +1640,7 @@ not registered with Claude Code (the root .mcp.json only applies inside CPP).
 ```
 
 Options:
-- **Register** - `claude mcp add second-opinion --transport http --url http://127.0.0.1:8080/mcp --scope user` (edit the URL for a Tailscale host)
+- **Register** - `claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"` (for a Tailscale host, export `SECOND_OPINION_URL` first rather than editing the URL, so this entry and the root `.mcp.json` name the same endpoint - issue #1256)
 - **Skip** - Leave unregistered
 
 ---

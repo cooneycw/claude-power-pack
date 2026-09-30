@@ -45,7 +45,7 @@ Existing CPP marketplace users should run `/plugin uninstall <family>@cpp` for e
 
 `/cpp:init` also configures the out-of-band infrastructure used by some command families:
 
-- **External Second Opinion server** - the multi-model review server lives in its own repo ([cooneycw/mcp-second-opinion](https://github.com/cooneycw/mcp-second-opinion)). Start the external server, then register it with `claude mcp add second-opinion --transport http --url http://127.0.0.1:8080/mcp --scope user` (use your Tailscale URL for a remote host).
+- **External Second Opinion server** - the multi-model review server lives in its own repo ([cooneycw/mcp-second-opinion](https://github.com/cooneycw/mcp-second-opinion)). Start the external server, then register it with `claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"` (for a remote host, export `SECOND_OPINION_URL` first rather than editing the URL, so the user-scope entry and the repo's `.mcp.json` agree).
 - **Browser automation** - registers the upstream `@playwright/mcp` npx/stdio server (no container).
 - **Tavily web tools** - registers the upstream [tavily-mcp](https://github.com/tavily-ai/tavily-mcp) npx/stdio server for web search, extract, crawl, and map. Requires `TAVILY_API_KEY` (stored in AWS Secrets Manager `claude-power-pack/mcp-keys`).
 - **Secrets provisioning** - AWS Secrets Manager access for Woodpecker CI keys (`essent-ai`) and the `CPP_MEMORIES_DSN` common-memory DSN; fetched directly via the AWS SDK/CLI.
@@ -126,7 +126,7 @@ CPP ships no container runtime (retired in #469). The `/second-opinion:*` and `/
 - CPP ships a root `.mcp.json` registering `second-opinion` as a streamable-http client at `${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp` (issue #633): localhost 8080 by default, overridable WITHOUT editing any tracked file by exporting `SECOND_OPINION_URL` with the base url, no `/mcp` (e.g. `export SECOND_OPINION_URL=http://127.0.0.1:8090`, or a Tailscale URL). Start the external server, then either rely on that env override or register at user scope:
 
 ```bash
-claude mcp add second-opinion --transport http --url http://127.0.0.1:8080/mcp --scope user
+claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"
 ```
 
 Browser automation uses the upstream `@playwright/mcp` npx/stdio server (registered by `/cpp:init`). Tavily web search/extract/crawl/map uses the upstream `tavily-mcp` npx/stdio server (registered by `/cpp:init`); its API key (`TAVILY_API_KEY`) is stored in `claude-power-pack/mcp-keys` alongside the Second Opinion keys. CPP stores no application secrets on disk and runs no secrets sidecar; the remaining AWS Secrets Manager consumers (`essent-ai` for Woodpecker CI keys and the `CPP_MEMORIES_DSN` common-memory DSN) fetch directly via the AWS SDK/CLI.
