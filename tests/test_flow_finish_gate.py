@@ -2971,3 +2971,33 @@ def test_runner_unavailable_fallback_honours_a_declared_mypy_scope(tmp_path: Pat
     invocations = (bindir / "uv.log").read_text().splitlines()
     assert "run --extra dev mypy" in invocations
     assert "run --extra dev mypy ." not in invocations
+
+
+@requires_git
+@requires_bash
+@pytest.mark.skipif(shutil.which("make") is None, reason="make is not installed")
+@pytest.mark.parametrize("plan, expect_fail", [("check", False), ("finish", True)])
+def test_fallback_runs_verify_only_for_plans_that_declare_it(tmp_path: Path, plan: str, expect_fail: bool) -> None:
+    """Issue #1366 (counter-model review): `--plan check` is lint/test/typecheck.
+
+    The runner-less fallback ran `verify` unconditionally, so a failing `verify` -
+    a gate /flow:check never asked for - turned /flow:check red. The finish plan
+    still runs it: the same tree is the red case for that plan.
+    """
+    (tmp_path / "Makefile").write_text(
+        "lint:\n\t@true\ntest:\n\t@echo '1 passed in 0.01s'\ntypecheck:\n\t@true\nverify:\n\t@false\n"
+    )
+    assert "verify:\n\t@false" in (tmp_path / "Makefile").read_text(), "precondition: verify fails"
+    env = dict(os.environ)
+    env.update(FLOW_GATE_CPP_DIR="", CLAUDE_PLUGIN_ROOT="")
+    got = subprocess.run(
+        ["bash", str(SCRIPT), "--plan", plan],
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120,
+    )
+    out = got.stdout + got.stderr
+    assert "deterministic runner unavailable" in out, "precondition: the fallback lane ran"
+    if expect_fail:
+        assert got.returncode == 1, out
+    else:
+        assert got.returncode != 1, out
+        assert "make verify" not in out, out

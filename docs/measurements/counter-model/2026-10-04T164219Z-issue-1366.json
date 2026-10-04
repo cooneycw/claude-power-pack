@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1366-pilot-durable-per-skill-execution-evidence-for-flo",
+  "counts": {
+    "accepted": 9,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "53c30adac7371472ce27e833f608b9aba094a48c",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1366",
+  "passes": 2,
+  "recorded_at": "2026-10-04T16:42:19Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 10
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/04/rollout-2026-10-04T12-37-50-01a107c7-6650-7633-a23c-40b65bc26c69.jsonl",
+    "thread_id": "01a107c7-6650-7633-a23c-40b65bc26c69"
+  },
+  "schema": 1,
+  "status": "ran"
+}

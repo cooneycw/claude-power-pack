@@ -114,6 +114,11 @@
       "consumer": ".claude/commands/flow/eli5.md",
       "reason": "the advisory upstream drift check for the vendored eli5 core; a shim onto eli5-vendor.py, whose offline half `make eli5-check` gates"
     },
+    "execution-evidence-verify.py": {
+      "class": "tested",
+      "consumer": "tests/test_execution_evidence.py",
+      "reason": "reads a durable execution-evidence record and says which claim it supports (#1366); controls/execution-evidence-verify is its registered negative control"
+    },
     "flow-ci-status.sh": {
       "class": "tested",
       "consumer": "tests/test_flow_ci_status.py",
