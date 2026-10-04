@@ -5,6 +5,10 @@ A small, machine-readable record of what the CPP runner actually executed during
 replaying the agent. It is a pilot: one skill, built on the runner's existing
 step records, not a telemetry platform.
 
+The governing specification - the usage-record fields, the boundary with
+skillc's evaluation verdicts, and which ticket owns each #1366/#1367 acceptance
+item - is [`.specify/specs/per-skill-audit/spec.md`](../../.specify/specs/per-skill-audit/spec.md) (#1368).
+
 ## Why it exists
 
 The runner already records every step in `.claude/runs/<run_id>.json`, but that
