@@ -345,6 +345,19 @@ def check_entry(record: StepRecord, gate: bool, carried: bool) -> dict[str, Any]
 # --- the record --------------------------------------------------------------
 
 
+def _recorded_failures(pop: dict[str, Any]) -> int:
+    """Failed + errored tests in a population's own counts.
+
+    Re-derived from the persisted counts rather than from the run's `reruns`,
+    which belong to ONE invocation: a resumed run carries the test step's record
+    but not the earlier invocation's re-run list (counter-model review).
+    """
+    counts = pop.get("counts") if isinstance(pop, dict) else None
+    if not isinstance(counts, dict):
+        return 0
+    return sum(v for k in ("failed", "errors") if isinstance(v := counts.get(k), int) and v > 0)
+
+
 def _outcome(
     terminal_kind: Optional[str],
     state: Optional[RunState],
@@ -360,6 +373,9 @@ def _outcome(
         if c["status"] in ("skipped", "not-run", "pending", "running"):
             quals.append(f"gate {c['id']} did not run ({c['status']})")
         pop = c["population"]
+        failures = _recorded_failures(pop)
+        if c["status"] in ("success", "subsumed") and failures:
+            quals.append(f"gate {c['id']} passed but its own counts record {failures} failure(s)")
         if c["status"] in ("success", "failed") and pop["measured"] and pop["count"] == 0:
             quals.append(f"gate {c['id']} examined nothing (population 0 {pop['unit']})")
         if c.get("carried_from_previous_run"):
@@ -727,8 +743,16 @@ def _structure_errors(record: dict[str, Any]) -> list[str]:
             errors.append(f"observed.{key} is not an object")
     if obs.get("tree_at_end") is not None and not isinstance(obs.get("tree_at_end"), dict):
         errors.append("observed.tree_at_end is not an object")
-    if not isinstance(obs.get("gates", []), list):
-        errors.append("observed.gates is not a list")
+    gates = obs.get("gates", [])
+    if not isinstance(gates, list) or not all(isinstance(g, str) for g in gates):
+        errors.append("observed.gates is not a list of gate ids")
+    runner = obs.get("runner", {})
+    if not isinstance(runner, dict):
+        errors.append("observed.runner is not an object")
+    else:
+        for key in ("warnings", "reruns", "carried_from_previous_run"):
+            if not isinstance(runner.get(key, []), list):
+                errors.append(f"observed.runner.{key} is not a list")
     checks = obs.get("checks")
     if not isinstance(checks, list):
         errors.append("observed.checks is not a list")
@@ -738,6 +762,22 @@ def _structure_errors(record: dict[str, Any]) -> list[str]:
                 errors.append(f"observed.checks[{i}] lacks an id/status")
             elif not isinstance(c.get("population", {}), dict):
                 errors.append(f"observed.checks[{i}].population is not an object")
+            elif not isinstance(c["population"].get("counts", {}), dict):
+                errors.append(f"observed.checks[{i}].population.counts is not an object")
+    # IDENTITY IS REQUIRED, not merely compared (counter-model review). A terminal
+    # record that never captured which checkout and tree it ran against cannot
+    # support a claim about either - and `--no-current` waives the COMPARISON
+    # with today's checkout, never the identity itself.
+    if record.get("terminal") is True and not errors:
+        repo = obs["repository"]
+        if not isinstance(repo.get("worktree"), str) or not repo.get("worktree"):
+            errors.append("observed.repository.worktree was not captured")
+        for key in ("tree_at_start", "tree_at_end"):
+            tree = obs.get(key)
+            if not isinstance(tree, dict) or not isinstance(tree.get("head"), str) or not isinstance(
+                tree.get("tree_signature"), str
+            ):
+                errors.append(f"observed.{key} has no captured HEAD and tree signature")
     return errors
 
 
@@ -778,6 +818,9 @@ def consistency_reasons(record: dict[str, Any]) -> list[str]:
         if status not in ("success", "subsumed"):
             reasons.append(f"gate {c['id']} is {status}, not passed")
         pop = c.get("population") or {}
+        failures = _recorded_failures(pop)
+        if failures:
+            reasons.append(f"gate {c['id']} passed but its own counts record {failures} failure(s)")
         if pop.get("measured") and pop.get("count") == 0:
             reasons.append(f"gate {c['id']} examined nothing (population 0 {pop.get('unit')})")
         if pop.get("measured") and not isinstance(pop.get("count"), int):
@@ -851,7 +894,7 @@ def verify(path: Path, root: Optional[Path] = None, check_current: bool = True) 
             if not reasons:
                 return UNKNOWN, [f"cannot compute the current tree identity of {target} to compare"], None
         else:
-            if recorded and Path(recorded).resolve() != Path(here).resolve():
+            if Path(recorded).resolve() != Path(here).resolve():
                 reasons.append(f"record was made in worktree {recorded}, not this checkout {here}")
             if now["head"] != end.get("head"):
                 reasons.append(f"stale: record is for HEAD {end.get('head')}, current HEAD is {now['head']}")

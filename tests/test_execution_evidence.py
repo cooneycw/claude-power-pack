@@ -486,3 +486,41 @@ def test_bad_neighbour_worktree_record_neither_found_nor_supported(repo: Path, t
     v, reasons = _verdict(theirs, repo)
     assert v == NOT_SUPPORTED and any("not this checkout" in r for r in reasons)
     assert _verdict(theirs, neighbour)[0] == SUPPORTED
+
+
+# --- counter-model re-review (#1366)
+
+
+def test_bad_carried_test_record_with_failures_is_not_clean(repo: Path) -> None:
+    """A resumed run carries the test record but not the earlier run's re-run list."""
+    state = _state({"test": StepStatus.SUCCESS}, "success",
+                   test={"tests": {"passed": 10, "failed": 1, "skipped": 0, "errors": 0, "executed": 11}})
+    path = _write(repo, state=state, gate_ids=["test"], terminal_kind="completed",
+                  executed_from=1, runner_facts={"tree_verified": True})
+    record = json.loads(path.read_text())
+    assert record["observed"]["checks"][0]["carried_from_previous_run"] is True
+    assert record["observed"]["runner"]["reruns"] == [], "precondition: no re-run list survived"
+    assert record["outcome"] == "completed-with-qualifications"
+    record["outcome"], record["qualifications"] = "completed", []
+    path.write_text(json.dumps(record))
+    v, reasons = _verdict(path, repo, current=False)
+    assert v == NOT_SUPPORTED and any("1 failure" in r for r in reasons)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda r: r["observed"]["repository"].update(worktree=None),
+        lambda r: r["observed"]["tree_at_end"].update(head=None),
+        lambda r: r["observed"].update(tree_at_end=None),
+        lambda r: r["observed"]["tree_at_start"].update(tree_signature=None),
+        lambda r: r["observed"].update(gates=[{}]),
+        lambda r: r["observed"].update(runner="broken"),
+        lambda r: r["observed"]["runner"].update(reruns="x"),
+    ],
+)
+def test_unknown_missing_identity_or_malformed_even_without_freshness(repo: Path, mutate) -> None:
+    path, record = _good_record(repo)
+    _mutated(path, record, mutate)
+    assert _verdict(path, repo, current=False)[0] == UNKNOWN
+    assert evidence.cli(["verify", str(path), "--no-current"]) == 4

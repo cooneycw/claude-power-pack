@@ -1505,7 +1505,13 @@ if [[ -f Makefile || -f pyproject.toml ]]; then
     # reproduce #1147 inside the fallback for it. The empty tool argument says
     # there is no `uv run` equivalent: a repo with no verify target SKIPS, and
     # run_fallback_gate reports the skip by name.
-    run_fallback_gate verify "" ""
+    # NOT for `--plan check` (issue #1366, counter-model review): the check plan
+    # is lint/test/typecheck, and a `verify` it never asked for would decide
+    # /flow:check's verdict - a red from outside the plan, or a skipped-gate warn
+    # in every repository without the target. The fallback follows the plan.
+    if [[ "$PLAN" != "check" ]]; then
+        run_fallback_gate verify "" ""
+    fi
 fi
 
 # Report what actually executed, before any verdict (issue #808). A reader
