@@ -318,6 +318,10 @@ def _reason(record: StepRecord) -> Optional[str]:
 def check_entry(record: StepRecord, gate: bool, carried: bool) -> dict[str, Any]:
     ran = record.status in _RAN
     settled = record.status not in (StepStatus.PENDING, StepStatus.RUNNING)
+    # TRUE ONLY FOR A STEP THAT RAN IN THIS INVOCATION (counter-model review): a
+    # skipped, pending or not-run step executed nothing anywhere, and a carried
+    # result was earned by an earlier invocation. `subsumed` ran, as a
+    # prerequisite of an aggregate that succeeded here.
     return {
         "id": record.step_id,
         "gate": gate,
@@ -328,7 +332,10 @@ def check_entry(record: StepRecord, gate: bool, carried: bool) -> dict[str, Any]
         "max_attempts": record.max_attempts,
         "attempted_at": record.started_at,
         "completed_at": record.finished_at if settled else None,
-        "executed_in_this_invocation": not carried,
+        "executed_in_this_invocation": (
+            not carried and record.status in (StepStatus.SUCCESS, StepStatus.FAILED, StepStatus.SUBSUMED)
+        ),
+        "carried_from_previous_run": carried,
         "population": population(record),
         "reason": _reason(record),
         "evidence": _evidence_refs(record),
@@ -355,11 +362,17 @@ def _outcome(
         pop = c["population"]
         if c["status"] in ("success", "failed") and pop["measured"] and pop["count"] == 0:
             quals.append(f"gate {c['id']} examined nothing (population 0 {pop['unit']})")
-        if not c["executed_in_this_invocation"] and c["status"] != "skipped":
+        if c.get("carried_from_previous_run"):
             if not runner_facts.get("tree_verified"):
                 quals.append(f"gate {c['id']} carried from an earlier invocation, unverified")
     if runner_facts.get("warnings"):
         quals.append(f"runner warnings: {len(runner_facts['warnings'])}")
+    for rerun in runner_facts.get("reruns") or []:
+        # A first-attempt failure is never a clean pass, whatever the targeted
+        # re-run said (#769): the runner reports it outside `warnings`.
+        quals.append(
+            f"step {rerun.get('step')}: first attempt failed; targeted re-run {rerun.get('outcome')}"
+        )
     if tree_end is not None and tree_start.get("tree_signature") != tree_end.get("tree_signature"):
         quals.append("working tree changed while the run was executing")
 
@@ -432,6 +445,15 @@ def build_record(
             "checks": checks,
             "runner": {
                 "warnings": list(facts.get("warnings") or []),
+                "reruns": [
+                    {
+                        "step": r.get("step"),
+                        "outcome": r.get("outcome"),
+                        "ids": list(r.get("ids") or [])[:25],
+                    }
+                    for r in (facts.get("reruns") or [])
+                    if isinstance(r, dict)
+                ],
                 "carried_from_previous_run": list(facts.get("carried") or []),
                 "tree_verified": facts.get("tree_verified"),
             },
@@ -623,6 +645,7 @@ def run_with_evidence(runner: Any, plan_name: str, root: Path, step_defs: Any = 
                 settled_here=getattr(runner, "_settled_here", None),
                 runner_facts={
                     "warnings": getattr(result, "warnings", []),
+                    "reruns": getattr(result, "reruns", []),
                     "carried": getattr(result, "carried_from_previous_run", []),
                     "tree_verified": getattr(result, "tree_verified", None),
                 },
@@ -683,8 +706,109 @@ def claim_text(record: dict[str, Any]) -> str:
     )
 
 
+def _structure_errors(record: dict[str, Any]) -> list[str]:
+    """Shape problems that make a record unreadable rather than merely negative."""
+    errors: list[str] = []
+    if not isinstance(record.get("invocation_id"), str):
+        errors.append("invocation_id is not a string")
+    if not isinstance(record.get("terminal"), bool):
+        errors.append("terminal is not a boolean")
+    if not isinstance(record.get("outcome"), str):
+        errors.append("outcome is not a string")
+    if not isinstance(record.get("qualifications", []), list):
+        errors.append("qualifications is not a list")
+    if record.get("terminal_event") is not None and not isinstance(record.get("terminal_event"), dict):
+        errors.append("terminal_event is not an object")
+    obs = record.get("observed")
+    if not isinstance(obs, dict):
+        return errors + ["observed is not an object"]
+    for key in ("repository", "tree_at_start", "helper"):
+        if not isinstance(obs.get(key), dict):
+            errors.append(f"observed.{key} is not an object")
+    if obs.get("tree_at_end") is not None and not isinstance(obs.get("tree_at_end"), dict):
+        errors.append("observed.tree_at_end is not an object")
+    if not isinstance(obs.get("gates", []), list):
+        errors.append("observed.gates is not a list")
+    checks = obs.get("checks")
+    if not isinstance(checks, list):
+        errors.append("observed.checks is not a list")
+    else:
+        for i, c in enumerate(checks):
+            if not isinstance(c, dict) or not isinstance(c.get("id"), str) or not isinstance(c.get("status"), str):
+                errors.append(f"observed.checks[{i}] lacks an id/status")
+            elif not isinstance(c.get("population", {}), dict):
+                errors.append(f"observed.checks[{i}].population is not an object")
+    return errors
+
+
+def consistency_reasons(record: dict[str, Any]) -> list[str]:
+    """Re-derive the verdict from the per-check FACTS, never from the summary.
+
+    The record's own `outcome` and `qualifications` are a summary its writer
+    computed; a reader that trusted them would support any record whose summary
+    said so (counter-model review). Every condition `supported` claims is checked
+    here against the observations it is about. A consistent forgery still passes:
+    this catches contradiction, not authorship.
+    """
+    reasons: list[str] = []
+    event = record.get("terminal_event")
+    if record["terminal"]:
+        if not isinstance(event, dict) or not event.get("kind"):
+            reasons.append("terminal is true but there is no terminal event")
+        elif event.get("kind") != "completed":
+            reasons.append(f"terminal event is {event.get('kind')}, not completed")
+    elif event is not None:
+        reasons.append("a terminal event is present on a record marked non-terminal")
+    obs = record["observed"]
+    checks = obs.get("checks") or []
+    by_id = {c["id"]: c for c in checks}
+    for gate in obs.get("gates") or []:
+        if gate not in by_id:
+            reasons.append(f"gate {gate} is declared but has no check entry")
+        elif not by_id[gate].get("gate"):
+            reasons.append(f"gate {gate} is declared but its check entry is not marked a gate")
+    for c in checks:
+        status = c.get("status")
+        if status == "success" and c.get("exit_code") != 0:
+            reasons.append(f"check {c['id']} is success with exit code {c.get('exit_code')}")
+        if status in ("skipped", "not-run", "pending", "running") and c.get("exit_code") is not None:
+            reasons.append(f"check {c['id']} is {status} but carries exit code {c.get('exit_code')}")
+        if not c.get("gate"):
+            continue
+        if status not in ("success", "subsumed"):
+            reasons.append(f"gate {c['id']} is {status}, not passed")
+        pop = c.get("population") or {}
+        if pop.get("measured") and pop.get("count") == 0:
+            reasons.append(f"gate {c['id']} examined nothing (population 0 {pop.get('unit')})")
+        if pop.get("measured") and not isinstance(pop.get("count"), int):
+            reasons.append(f"gate {c['id']} is marked measured with no count")
+    runner = obs.get("runner") or {}
+    if runner.get("warnings"):
+        reasons.append(f"the runner recorded {len(runner['warnings'])} warning(s)")
+    if runner.get("reruns"):
+        reasons.append("a step failed its first attempt (targeted re-run recorded)")
+    if record["terminal"] and not any(c.get("gate") for c in checks):
+        reasons.append("no gate was recorded - nothing to support")
+    end = obs.get("tree_at_end") or {}
+    start = obs.get("tree_at_start") or {}
+    if record["terminal"] and end.get("tree_signature") != start.get("tree_signature"):
+        reasons.append("working tree changed while the run was executing")
+    return reasons
+
+
+def _toplevel(path: Path) -> Optional[str]:
+    return _git(path, "rev-parse", "--show-toplevel")
+
+
 def verify(path: Path, root: Optional[Path] = None, check_current: bool = True) -> tuple[str, list[str], Optional[str]]:
-    """Return (verdict, reasons, claim). The claim is set only for `supported`."""
+    """Return (verdict, reasons, claim). The claim is set only for `supported`.
+
+    Freshness is checked against ``root``, defaulting to the CALLER's checkout
+    (the current directory) - never to the worktree named inside the record, which
+    would let a neighbouring worktree's record vouch for itself (counter-model
+    review). A record made in a different worktree than the one asking is
+    not-supported here.
+    """
     record, err = _load(path)
     if record is None:
         return UNKNOWN, [err or "unreadable record"], None
@@ -693,6 +817,9 @@ def verify(path: Path, root: Optional[Path] = None, check_current: bool = True) 
     missing = [k for k in _REQUIRED if k not in record]
     if missing:
         return UNKNOWN, [f"record lacks required fields: {', '.join(missing)}"], None
+    shape = _structure_errors(record)
+    if shape:
+        return UNKNOWN, [f"malformed record: {e}" for e in shape], None
 
     reasons: list[str] = []
     inv = record["invocation_id"]
@@ -702,31 +829,30 @@ def verify(path: Path, root: Optional[Path] = None, check_current: bool = True) 
         if sibling.resolve() == path.resolve():
             continue
         other, _ = _load(sibling)
-        if other and other.get("invocation_id") == inv:
+        if isinstance(other, dict) and other.get("invocation_id") == inv:
             reasons.append(f"duplicate invocation {inv} also recorded in {sibling.name}")
     if not record["terminal"]:
         reasons.append("no terminal event: the run was interrupted, killed, or is still running")
     elif record["outcome"] != "completed":
         reasons.append(f"outcome is {record['outcome']}")
-    for q in record.get("qualifications", []):
-        reasons.append(q)
+    reasons.extend(str(q) for q in record.get("qualifications", []))
+    for r in consistency_reasons(record):
+        if r not in reasons:
+            reasons.append(r)
 
     obs = record["observed"]
-    gate_checks = [c for c in obs.get("checks", []) if c.get("gate")]
-    if record["terminal"] and not gate_checks:
-        reasons.append("no gate was recorded - nothing to support")
-    for c in gate_checks:
-        if c.get("status") not in ("success", "subsumed"):
-            reasons.append(f"gate {c.get('id')} is {c.get('status')}, not passed")
-
     end = obs.get("tree_at_end") or {}
     if check_current and record["terminal"]:
-        target = root or Path(obs.get("repository", {}).get("worktree") or ".")
+        target = root or Path(".")
+        here = _toplevel(target)
+        recorded = obs["repository"].get("worktree")
         now = tree_identity(target)
-        if now["head"] is None or now["tree_signature"] is None or end.get("tree_signature") is None:
+        if here is None or now["head"] is None or now["tree_signature"] is None or end.get("tree_signature") is None:
             if not reasons:
                 return UNKNOWN, [f"cannot compute the current tree identity of {target} to compare"], None
         else:
+            if recorded and Path(recorded).resolve() != Path(here).resolve():
+                reasons.append(f"record was made in worktree {recorded}, not this checkout {here}")
             if now["head"] != end.get("head"):
                 reasons.append(f"stale: record is for HEAD {end.get('head')}, current HEAD is {now['head']}")
             elif now["tree_signature"] != end.get("tree_signature"):
@@ -741,11 +867,28 @@ def verify(path: Path, root: Optional[Path] = None, check_current: bool = True) 
 
 
 def latest(root: Path, skill: str) -> Optional[Path]:
+    """Newest record for ``skill`` made in THIS worktree - never a neighbour's.
+
+    The store is shared by every worktree of the repository (it lives in the
+    common git dir), so "newest in the store" can be another session's run
+    (counter-model review). Prefer the path the run itself printed
+    (`CPP_EXECUTION_EVIDENCE: <outcome> <path>`); this is the fallback.
+    """
     directory = store_dir(root, skill)
-    if directory is None or not directory.is_dir():
+    here = _toplevel(root)
+    if directory is None or here is None or not directory.is_dir():
         return None
     records = sorted(directory.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-    return records[0] if records else None
+    for path in records:
+        data, _ = _load(path)
+        if not isinstance(data, dict):
+            continue
+        obs = data.get("observed")
+        repo = obs.get("repository") if isinstance(obs, dict) else None
+        worktree = repo.get("worktree") if isinstance(repo, dict) else None
+        if worktree and Path(worktree).resolve() == Path(here).resolve():
+            return path
+    return None
 
 
 def cli(argv: list[str]) -> int:

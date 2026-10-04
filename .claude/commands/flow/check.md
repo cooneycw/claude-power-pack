@@ -156,17 +156,20 @@ fi
 ### Step 5c: Read the Execution Record
 
 Ask the reader what the record just written supports, rather than restating the
-table (issue #1366). Locate it, then verify it - both bare:
+table (issue #1366). Take the path THIS run printed in Step 2 -
+`CPP_EXECUTION_EVIDENCE: <outcome> <path>` - and verify it, bare, from this
+checkout:
 
 ```bash
-python3 "$CPP_DIR/scripts/execution-evidence-verify.py" latest flow-check
-python3 "$CPP_DIR/scripts/execution-evidence-verify.py" <path printed above>
+python3 "$CPP_DIR/scripts/execution-evidence-verify.py" <path Step 2 printed>
 ```
 
-The runner also prints the path on stderr as `CPP_EXECUTION_EVIDENCE: <outcome>
-<path>`; either source is fine. Skip this step when Step 2 printed
-`CPP_EXECUTION_EVIDENCE: none` or ran without `--evidence`, and report
-`none`.
+Use the run's own path, not "the newest record": the store is shared by every
+worktree of the repository, so the newest one can be another session's run.
+`execution-evidence-verify.py latest flow-check` is the fallback and returns only
+records made in THIS worktree. Skip this step when Step 2 printed
+`CPP_EXECUTION_EVIDENCE: none`, printed no marker, or ran without `--evidence`,
+and report `none` - never a neighbour's or an older record in its place.
 
 - `EXECUTION_EVIDENCE: supported` (exit 0) - repeat its `EXECUTION_EVIDENCE_CLAIM`
   line verbatim. That sentence is the exact claim the record supports, and it

@@ -87,18 +87,34 @@ synthetic secret in the environment.
 ## Reading a record
 
 ```bash
-python3 scripts/execution-evidence-verify.py latest flow-check
-python3 scripts/execution-evidence-verify.py <record.json>            # vs the current tree
+python3 scripts/execution-evidence-verify.py <record.json>            # vs THIS checkout
+python3 scripts/execution-evidence-verify.py <record.json> --path <checkout>
 python3 scripts/execution-evidence-verify.py <record.json> --no-current
+python3 scripts/execution-evidence-verify.py latest flow-check        # newest made in THIS worktree
 ```
+
+The store is shared by every worktree, so the reader never lets a record vouch
+for itself. Freshness is compared against the CALLER's checkout (the current
+directory, or `--path`), never the worktree named inside the record. A record
+made in another worktree is `not-supported` here, and `latest` returns only this
+worktree's records. Prefer the path the run printed over `latest`.
+
+The verdict is re-derived from the per-check facts, not read from the record's
+own `outcome`/`qualifications` summary. A summary saying `completed` over a gate
+that did not pass, a success with a non-zero exit, a measured zero population, a
+declared gate with no entry, a terminal record with no terminal event, runner
+warnings or a recorded targeted re-run each read `not-supported`, whatever the
+summary says. A malformed nested record is `unknown`, never a crash. This
+catches contradiction, not authorship: a consistent forgery still reads
+`supported`.
 
 (`python -m lib.cicd evidence verify|show|latest` is the same reader.)
 
 | verdict | exit | when |
 |---|---|---|
-| `supported` | 0 | terminal `completed`, every gate `success`/`subsumed`, no gate examining nothing, no qualification, file name equals the invocation id with no duplicate in its directory, and (unless `--no-current`) the current HEAD and content signature equal the record's |
-| `not-supported` | 3 | anything else that could be decided: failed, stopped (an aggregate failed and gates were `not-run`), interrupted, no terminal event, a gate skipped or examining nothing, runner warnings, the tree changed during the run, stale HEAD, the same file edited again since, or a copied/duplicate invocation |
-| `unknown` | 4 | unreadable file, unknown schema, missing required fields, or the current tree could not be identified to compare against |
+| `supported` | 0 | terminal `completed` with a matching terminal event, every declared gate present and `success`/`subsumed` with exit 0, no gate examining nothing, no qualification, warning or re-run, file name equals the invocation id with no duplicate in its directory, and (unless `--no-current`) made in this worktree with the current HEAD and content signature equal to the record's |
+| `not-supported` | 3 | anything else that could be decided: failed, stopped (an aggregate failed and gates were `not-run`), interrupted, no terminal event, a gate skipped or examining nothing, runner warnings or a targeted re-run, a summary contradicting its facts, the tree changed during the run, another worktree's record, stale HEAD, the same file edited again since, or a copied/duplicate invocation |
+| `unknown` | 4 | unreadable file, unknown schema, missing or malformed required fields (nested ones included), or the current tree could not be identified to compare against |
 
 ### Reader example - the pilot artifact
 

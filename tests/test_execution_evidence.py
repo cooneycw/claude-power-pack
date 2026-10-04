@@ -69,8 +69,8 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def _run(root: Path, steps: list[StepDef]) -> tuple[Any, Any]:
     runner = DeterministicRunner(project_root=root, output=StringIO())
     result = run_with_evidence(runner, "check", root, steps)
-    store = root / ".git" / "cpp-evidence" / "flow-check"
-    records = sorted(store.glob("*.json"), key=lambda p: p.stat().st_mtime)
+    store = evidence.store_dir(root, "flow-check")
+    records = sorted(store.glob("*.json"), key=lambda p: p.stat().st_mtime) if store else []
     return result, records[-1] if records else None
 
 
@@ -387,3 +387,102 @@ def test_script_execution_evidence_verify_runs_with_bare_python(repo: Path) -> N
         capture_output=True, text=True, check=False,
     )
     assert latest.returncode == 0 and str(path) in latest.stdout
+
+
+# --- counter-model review (#1366): the READER re-derives, the summary is not trusted
+
+
+def _good_record(repo: Path) -> tuple[Path, dict[str, Any]]:
+    state = _state(
+        {"lint": StepStatus.SUCCESS, "typecheck": StepStatus.SUCCESS}, "success",
+        lint={"coverage": {"state": "covered", "units": 12, "tool": "ruff"}},
+        typecheck={"coverage": {"state": "covered", "units": 40, "tool": "mypy"}},
+    )
+    path = _write(repo, state=state, gate_ids=["lint", "typecheck"], terminal_kind="completed")
+    assert _verdict(path, repo)[0] == SUPPORTED, "precondition: the unmutated record is supported"
+    return path, json.loads(path.read_text())
+
+
+def _mutated(path: Path, record: dict[str, Any], mutate) -> Path:
+    mutate(record)
+    path.write_text(json.dumps(record))
+    return path
+
+
+@pytest.mark.parametrize(
+    "label, mutate, needle",
+    [
+        ("zero population", lambda r: r["observed"]["checks"][0]["population"].update(count=0), "examined nothing"),
+        ("declared gate with no entry", lambda r: r["observed"]["checks"].pop(1), "has no check entry"),
+        ("terminal without event", lambda r: r.update(terminal_event=None), "no terminal event"),
+        ("success with non-zero exit", lambda r: r["observed"]["checks"][0].update(exit_code=7), "exit code 7"),
+        (
+            "gate not run under a completed summary",
+            lambda r: r["observed"]["checks"][1].update(status="not-run", exit_code=None),
+            "not passed",
+        ),
+        (
+            "rerun hidden from the summary",
+            lambda r: r["observed"]["runner"].update(reruns=[{"step": "lint", "outcome": "passed-in-isolation"}]),
+            "first attempt",
+        ),
+    ],
+)
+def test_bad_contradictory_record_is_not_supported_despite_its_summary(repo: Path, label, mutate, needle) -> None:
+    path, record = _good_record(repo)
+    assert record["outcome"] == "completed" and record["qualifications"] == []
+    v, reasons = _verdict(_mutated(path, record, mutate), repo, current=False)
+    assert v == NOT_SUPPORTED, label
+    assert any(needle in r for r in reasons), (label, reasons)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda r: r.update(observed=None),
+        lambda r: r["observed"].update(checks=[None]),
+        lambda r: r["observed"].update(repository="x"),
+        lambda r: r.update(terminal="yes"),
+    ],
+)
+def test_unknown_malformed_nested_record_never_crashes(repo: Path, mutate, capsys: pytest.CaptureFixture[str]) -> None:
+    path, record = _good_record(repo)
+    _mutated(path, record, mutate)
+    assert evidence.cli(["verify", str(path), "--path", str(repo)]) == 4
+    assert capsys.readouterr().out.rstrip().endswith("EXECUTION_EVIDENCE: unknown")
+
+
+def test_bad_rerun_that_passed_is_qualified_by_the_writer(repo: Path) -> None:
+    state = _state({"test": StepStatus.SUCCESS}, "success",
+                   test={"tests": {"passed": 10, "failed": 1, "skipped": 0, "errors": 0, "executed": 11}})
+    path = _write(repo, state=state, gate_ids=["test"], terminal_kind="completed",
+                  runner_facts={"reruns": [{"step": "test", "outcome": "passed-in-isolation", "ids": ["t::a"]}]})
+    record = json.loads(path.read_text())
+    assert record["outcome"] == "completed-with-qualifications"
+    assert record["observed"]["runner"]["reruns"][0]["ids"] == ["t::a"]
+    assert _verdict(path, repo)[0] == NOT_SUPPORTED
+
+
+def test_unreached_and_skipped_steps_are_not_marked_executed(repo: Path) -> None:
+    _, path = _run(repo, [_gate("lint", "exit 1"), _gate("test")])
+    checks = {c["id"]: c for c in json.loads(path.read_text())["observed"]["checks"]}
+    assert checks["lint"]["executed_in_this_invocation"] is True
+    assert checks["test"]["executed_in_this_invocation"] is False
+    shutil.rmtree(repo / ".claude" / "runs")  # or the next run RESUMES the failed one
+    _, path = _run(repo, [_gate("lint"), _gate("typecheck", skip_if="true")])
+    checks = {c["id"]: c for c in json.loads(path.read_text())["observed"]["checks"]}
+    assert checks["typecheck"]["executed_in_this_invocation"] is False
+
+
+def test_bad_neighbour_worktree_record_neither_found_nor_supported(repo: Path, tmp_path: Path) -> None:
+    neighbour = tmp_path / "neighbour"
+    _git(repo, "worktree", "add", "-q", str(neighbour))
+    _, mine = _run(repo, [_gate("lint")])
+    _, theirs = _run(neighbour, [_gate("lint")])
+    assert theirs.parent == mine.parent, "precondition: one shared store across worktrees"
+    # The neighbour finished last; this checkout's latest is still its own.
+    assert evidence.latest(repo, "flow-check") == mine
+    assert evidence.latest(neighbour, "flow-check") == theirs
+    v, reasons = _verdict(theirs, repo)
+    assert v == NOT_SUPPORTED and any("not this checkout" in r for r in reasons)
+    assert _verdict(theirs, neighbour)[0] == SUPPORTED
