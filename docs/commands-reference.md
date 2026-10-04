@@ -215,7 +215,7 @@ qualifiers such as `/qa:test` being single-session) are not lost.
 
 - `/flow:start` - Create worktree for an issue
 - `/flow:eli5 <issue>` - Plain-language intent + necessity/staleness verdict + plan approval gate (runs after analyze, before implement)
-- `/flow:check` - Run lint + test + typecheck + security scan (no commit)
+- `/flow:check` - Run lint + test + typecheck + security scan (no commit); lint/test/typecheck leave a durable execution record (#1366, `docs/agents/execution-evidence.md`)
 - `/flow:finish` - Quality gates, commit, push, create PR
 - `/flow:deploy [target]` - Run make deploy + health/smoke checks
 - `/flow:auto` - Full issue lifecycle in one shot (ELI5 plan/necessity approval gate between analyze and implement; the pause has no bypass - see issue #775)

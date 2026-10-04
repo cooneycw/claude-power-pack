@@ -102,22 +102,32 @@ python3 scripts/execution-evidence-verify.py <record.json> --no-current
 
 ### Reader example - the pilot artifact
 
-[`docs/measurements/execution-evidence/flow-check-pilot.json`](../measurements/execution-evidence/flow-check-pilot.json)
-is a real record from running `/flow:check`'s Step 2 on this branch before its
-commit. Its HEAD has since moved, so it is read without the freshness check:
+[`docs/measurements/execution-evidence/cbf9931314ed45d2927fa5e150daa9d2.json`](../measurements/execution-evidence/cbf9931314ed45d2927fa5e150daa9d2.json)
+is a real record: `/flow:check` Step 2 run on this branch at commit `bce7c881`,
+copied out of the store under its own file name (a renamed copy reads as
+replayed). Its HEAD has since moved, so it is read without the freshness check:
 
 ```text
 $ python3 scripts/execution-evidence-verify.py \
-    docs/measurements/execution-evidence/flow-check-pilot.json --no-current
+    docs/measurements/execution-evidence/cbf9931314ed45d2927fa5e150daa9d2.json --no-current
+EXECUTION_EVIDENCE_CLAIM: The CPP runner at commit bce7c881d1ce3d96184dcde85463ebc2a714b926
+  executed plan 'check' in https://github.com/cooneycw/claude-power-pack.git at HEAD
+  bce7c881d1ce3d96184dcde85463ebc2a714b926 with working-tree signature
+  b7ef3f27a374176935f5204d16359aeadb5cf673 (dirty=False): lint success (population not
+  measured); test success (7156 test); typecheck success (355 source file). It does NOT
+  attest who invoked it, that the file is unmodified, or that any step outside this plan
+  ran. Freshness against the current tree was NOT checked.
+EXECUTION_EVIDENCE: supported
 ```
 
-The output is reproduced in the PR that added this file. The exact claim it
-supports has this shape: *the CPP runner at commit C executed plan `check` in
-repository R at HEAD H with working-tree signature S (dirty=D): lint ..., test
-..., typecheck ...* - followed by what it does NOT attest. It says nothing about
-who invoked the run, whether the file is unmodified, or whether any step outside
-the plan ran. A record copied out of its store keeps its file name, so the
-duplicate check only reaches siblings in the same directory.
+(Wrapped here for width; the tool prints one line.)
+
+**The exact claim it supports:** at that commit and tree, the helper observed
+ruff, pytest and mypy exit 0, with 7156 tests executed and 355 source files
+type-checked. Lint's population is `not measured`: ruff stated no file count on
+this run, and the record says so instead of printing a 0. It does not claim
+that `/flow:check`'s security, completeness or ignored-file steps ran, who
+started the run, or that the file has not been edited since.
 
 ## Authority - what this is not
 
