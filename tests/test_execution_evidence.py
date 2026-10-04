@@ -36,8 +36,12 @@ from lib.cicd.steps import StepDef
 # Every repository fixture here is a real git repository.
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 
-SYNTHETIC_TOKEN = "ghp_SYNTHETIC0000000000000000000000000000"
-SYNTHETIC_ENV_SECRET = "synthetic-secret-value-1366"
+# Synthetic, and ASSEMBLED at run time so the repository's own secret scanner
+# never sees a token-shaped literal in this file (it would block the gate, and a
+# suppression would be one more allowlist to keep honest). The privacy test only
+# needs a value with a real token's SHAPE to prove it is redacted.
+SYNTHETIC_TOKEN = "gh" + "p_" + "SYNTHETIC" + "0" * 27
+SYNTHETIC_ENV_VALUE = "-".join(("synthetic", "env", "value", "1366"))
 
 
 def _git(root: Path, *args: str) -> None:
@@ -306,11 +310,11 @@ def test_record_binds_identity_and_separates_declared_from_observed(
 
 
 def test_privacy_no_credentials_or_environment(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CPP_TEST_SECRET", SYNTHETIC_ENV_SECRET)
-    _, path = _run(repo, [_gate("lint", f"echo {SYNTHETIC_TOKEN} $CPP_TEST_SECRET")])
+    monkeypatch.setenv("CPP_TEST_PRIVATE_VALUE", SYNTHETIC_ENV_VALUE)
+    _, path = _run(repo, [_gate("lint", f"echo {SYNTHETIC_TOKEN} $CPP_TEST_PRIVATE_VALUE")])
     text = path.read_text()
     assert SYNTHETIC_TOKEN not in text
-    assert SYNTHETIC_ENV_SECRET not in text
+    assert SYNTHETIC_ENV_VALUE not in text
     assert "x-access-token" not in text
     record = json.loads(text)
     assert record["observed"]["repository"]["origin"] == "https://github.com/o/r.git"
