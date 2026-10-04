@@ -2973,6 +2973,7 @@ def test_runner_unavailable_fallback_honours_a_declared_mypy_scope(tmp_path: Pat
     assert "run --extra dev mypy ." not in invocations
 
 
+@requires_git
 @requires_bash
 @pytest.mark.skipif(shutil.which("make") is None, reason="make is not installed")
 @pytest.mark.parametrize("plan, expect_fail", [("check", False), ("finish", True)])
