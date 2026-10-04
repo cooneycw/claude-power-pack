@@ -18,18 +18,6 @@ CHECKS_PASS=0
 CHECKS_WARN=0
 CHECKS_FAIL=0
 
-# Detect Makefile targets. typecheck is detected alongside lint/test because
-# every shipped CI template runs it as a hard step - a check that omits it
-# reports green on a tree CI will reject (issue #617).
-HAS_LINT=false
-HAS_TEST=false
-HAS_TYPECHECK=false
-if [[ -f "Makefile" ]]; then
-    grep -q "^lint:" Makefile && HAS_LINT=true
-    grep -q "^test:" Makefile && HAS_TEST=true
-    grep -q "^typecheck:" Makefile && HAS_TYPECHECK=true
-fi
-
 # Detect security scanner
 HAS_SECURITY=false
 CPP_DIR=""
@@ -48,53 +36,52 @@ if [ -n "$CPP_DIR" ] && [ -f "$CPP_DIR/lib/cicd/__init__.py" ]; then
 fi
 ```
 
-### Step 2: Run Lint
+### Step 2: Run Lint, Tests and Typecheck - with a durable execution record
+
+Lint, test and typecheck run through the audited gate helper's `check` plan,
+which asks the CPP runner to keep a record of what IT executed (issue #1366):
+per check, its status, exit, timestamps, how much it examined, and any skip or
+not-run reason, bound to this HEAD and working-tree content, in
+`<git-common-dir>/cpp-evidence/flow-check/`. Without it, a green `/flow-check`
+left nothing behind but this report, because the runner's own state file is a
+resume file deleted on success. The record is never committed and never inside
+the working tree. See `docs/agents/execution-evidence.md` in the CPP checkout.
+
+Invoke it BARE (#581 discipline - the inline `lib.cicd run` shape cannot match
+an allowlist rule, issue #613):
 
 ```bash
-if [[ "$HAS_LINT" == "true" ]]; then
-    echo "Running: make lint"
-    make lint
-    LINT_EXIT=$?
-    CHECKS_RUN=$((CHECKS_RUN + 1))
-    if [[ $LINT_EXIT -eq 0 ]]; then
-        CHECKS_PASS=$((CHECKS_PASS + 1))
-    else
-        CHECKS_FAIL=$((CHECKS_FAIL + 1))
-    fi
-fi
+~/.claude/scripts/flow-finish-gate.sh --plan check --evidence flow-check
 ```
 
-### Step 3: Run Tests
+(Exit 127 - helper not installed: suggest `/flow-repair` and fall back to
+`${CLAUDE_PLUGIN_ROOT}/scripts/flow-finish-gate.sh`, else the CPP-checkout copy.
+Exit 2 with `unknown argument: --evidence` means the installed helper predates
+#1366: re-run without `--evidence flow-check` and report that no record was
+written.)
 
-```bash
-if [[ "$HAS_TEST" == "true" ]]; then
-    echo "Running: make test"
-    make test
-    TEST_EXIT=$?
-    CHECKS_RUN=$((CHECKS_RUN + 1))
-    if [[ $TEST_EXIT -eq 0 ]]; then
-        CHECKS_PASS=$((CHECKS_PASS + 1))
-    else
-        CHECKS_FAIL=$((CHECKS_FAIL + 1))
-    fi
-fi
-```
+The `check` plan is exempt from the counter-model enrolment `/flow-finish`
+enforces - `/flow-check` produces no PR (issue #1366, the same reason as Step 5's
+check-summary mode). Read one table row per step id (`lint`, `test`,
+`typecheck`) from the runner JSON's `step_details`, and count each into
+`CHECKS_RUN` / `CHECKS_PASS` / `CHECKS_WARN` / `CHECKS_FAIL`. Use the verdict
+marker for the qualifications:
 
-### Step 3b: Run Typecheck
+- `FLOW_FINISH_GATE: ok` (exit 0) - every step ran and passed.
+- `FLOW_FINISH_GATE: warn (...)` (exit 3) - repeat the qualification verbatim. A
+  `skipped gates:` name is a SKIP row and a `zero coverage:` or no-tests name is
+  a WARN row - never a PASS.
+- `FLOW_FINISH_GATE: fail` (exit 1) - the failing step is a FAIL row.
+- `FLOW_FINISH_GATE: skipped` (exit 4) - no runner and no Makefile gates: three
+  SKIP rows.
 
-```bash
-if [[ "$HAS_TYPECHECK" == "true" ]]; then
-    echo "Running: make typecheck"
-    make typecheck
-    TYPECHECK_EXIT=$?
-    CHECKS_RUN=$((CHECKS_RUN + 1))
-    if [[ $TYPECHECK_EXIT -eq 0 ]]; then
-        CHECKS_PASS=$((CHECKS_PASS + 1))
-    else
-        CHECKS_FAIL=$((CHECKS_FAIL + 1))
-    fi
-fi
-```
+When the runner is unavailable (no CPP checkout, no `uv`) the helper runs the
+same three Makefile targets itself and prints `CPP_EXECUTION_EVIDENCE: none` -
+the fallback writes no record. The runner prefers a step's Makefile target and
+falls back to the configured tool, so a repository with no `lint:` target but a
+ruff configuration still runs lint (issue #628). typecheck runs alongside lint
+and test because every shipped CI template runs it as a hard step - a check that
+omits it reports green on a tree CI will reject (issue #617).
 
 ### Step 4: Run Security Quick Scan
 
@@ -163,6 +150,33 @@ if [ -n "$CPP_DIR" ] && [ -x "$CPP_DIR/scripts/check-ignored-additions.sh" ]; th
 fi
 ```
 
+### Step 5c: Read the Execution Record
+
+Ask the reader what the record just written supports, rather than restating the
+table (issue #1366). Locate it, then verify it - both bare:
+
+```bash
+python3 "$CPP_DIR/scripts/execution-evidence-verify.py" latest flow-check
+python3 "$CPP_DIR/scripts/execution-evidence-verify.py" <path printed above>
+```
+
+The runner also prints the path on stderr as `CPP_EXECUTION_EVIDENCE: <outcome>
+<path>`; either source is fine. Skip this step when Step 2 printed
+`CPP_EXECUTION_EVIDENCE: none` or ran without `--evidence`, and report
+`none`.
+
+- `EXECUTION_EVIDENCE: supported` (exit 0) - repeat its `EXECUTION_EVIDENCE_CLAIM`
+  line verbatim. That sentence is the exact claim the record supports, and it
+  says what it does NOT attest.
+- `not-supported` (exit 3) - list each `EXECUTION_EVIDENCE_REASON`. This is the
+  expected answer whenever a check failed, was skipped or examined nothing; it is
+  the record agreeing with the table, not a second failure.
+- `unknown` (exit 4), or `EXECUTION_EVIDENCE_LATEST: none` - say the run left no
+  readable record. Never report it as supported.
+
+The record covers lint, test and typecheck only. Steps 4, 5 and 5b are not in it,
+and the report must not imply they are.
+
 ### Step 6: Report Results
 
 Present a summary report:
@@ -177,6 +191,7 @@ Present a summary report:
 | Typecheck (`make typecheck`) | PASS/FAIL/SKIP | No issues / 15 errors / No `typecheck:` target |
 | Security scan | PASS/WARN/FAIL/SKIP | Clean / 1 HIGH warning / 1 CRITICAL / lib/security not available |
 | Makefile completeness | PASS/WARN/SKIP | 6/6 targets / 1 missing / lib/cicd not available |
+| Execution record | supported/not-supported/unknown/none | the reader's claim, or its reasons |
 
 **Summary: {CHECKS_PASS} passed, {CHECKS_WARN} warnings, {CHECKS_FAIL} failed ({CHECKS_RUN} checks run)**
 ```
@@ -196,7 +211,9 @@ Based on results:
 
 ## Notes
 
-- This command is **read-only** - it never commits, pushes, or modifies files
+- This command never commits, pushes, or modifies tracked files. It writes only
+  the runner's resume file under `.claude/runs/` and the execution record under
+  the git directory (`cpp-evidence/`), neither of which is part of the tree
 - It runs the same checks as `/flow-finish` Step 2, extracted for standalone use
 - Lint, test and typecheck are the three steps every shipped CI template runs
   (`templates/workflows/ci-*.yml`, `woodpecker-*.yml`), and the `finish`/`check`

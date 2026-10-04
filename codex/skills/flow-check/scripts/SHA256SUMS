@@ -9,5 +9,6 @@
 # Verifying arrival needs a key that is not in this bundle.
 38da5bd182613be886b135553ea0503a02234c7ec1948379a65ade0645b23d34  check-ignored-additions.sh
 609d1bafc79a0c9447f7ffbb26be88d41ad87bfb8316fe2ac8a742ebebb0919b  counter-model-receipt.py
-357db53ee6f155d27b7a1a97426e1bb13ef441c8628afab1599ccc9947265633  flow-finish-gate.sh
+21b2aecaa85de18724f8f09a37a4a0bd44790db494b56571c6a25f548805b299  execution-evidence-verify.py
+dc9e3269cf229c2e69ef9332f5c4cfb1bfda9ebb64d2d6acb4eb7cde2e5f44d5  flow-finish-gate.sh
 4095e524bf802a97f48add745e5c64addfe1055eac67c484b5ad81e5c26b38a8  gate-lib.sh

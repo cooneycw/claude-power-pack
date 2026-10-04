@@ -166,6 +166,11 @@ tests/fixtures/qa_regression/consumer/playwright-report/
 # question, and the answer would be a summarised ledger rather than un-ignoring
 # these.
 !docs/measurements/counter-model/*.json
+# The /flow:check execution-evidence pilot artifact (issue #1366) - tracked despite
+# *.json above because the issue asks for ONE real record a reader can be shown.
+# Named by FILE, not by directory: live records belong in the git directory
+# (cpp-evidence/), and a directory-wide negation would invite committing them.
+!docs/measurements/execution-evidence/flow-check-pilot.json
 # The slate reconciler's hand-maintained claimed-lanes file (issue #1099) -
 # tracked despite *.json above. It IS the declared side of the reconciliation
 # (docs/slate-lanes.md states plainly that it is hand-maintained, not derived),

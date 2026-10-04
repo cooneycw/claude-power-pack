@@ -45,6 +45,7 @@ these rules remain in [commands-reference.md](docs/commands-reference.md) and
 - `docs/agents/closing-report-contract.md` - canonical closing-report contract: owner TO-DO first, then plain language, then evidence.
 - `docs/agents/shared-stash-stack.md` - why a worktree shares one stash stack, the safe alternatives, and what `stash-worktree-guard.sh` does and cannot do.
 - `docs/agents/flow-plan-record.md` - background for `/flow:auto`'s plan record, as-read snapshot and plan-compliance checks (`scripts/flow-plan-record.py`); linked from the procedure, not required reading.
+- `docs/agents/execution-evidence.md` - the `/flow:check` execution-record pilot: what the runner records, where it is kept, and the exact claim `scripts/execution-evidence-verify.py` lets a reader make.
 - `docs/agents/evidence-deleting-idioms.md` - the git and shell idioms that remove the diagnostic and keep the success line: the pinned base, deletion accounting before a push, `$?` after a pipe, and which distinction a tidying flag deletes.
 - `ISSUE_DRIVEN_DEVELOPMENT.md` - issue-driven development source.
 - `PROGRESSIVE_DISCLOSURE_GUIDE.md` - context-loading guidance.

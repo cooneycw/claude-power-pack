@@ -38,6 +38,9 @@
 # Usage:
 #   flow-finish-gate.sh                  # run the 'finish' quality-gate plan
 #   flow-finish-gate.sh --plan check     # pass a different plan through
+#   flow-finish-gate.sh --plan check --evidence flow-check
+#                                        # /flow:check: also keep a durable
+#                                        # execution record (issue #1366)
 #   flow-finish-gate.sh --check-summary  # lib.cicd check --summary (Makefile
 #                                        # completeness, advisory - see the
 #                                        # exit-code table below: it no longer
@@ -227,6 +230,7 @@ gate_map ok=0 fail=1 usage=2 warn=3 skipped=4
 
 PLAN="finish"
 MODE="gate"
+EVIDENCE_SKILL=""
 RERUN_ENABLED="${FLOW_GATE_RERUN:-1}"
 MAX_RERUN_IDS=25
 # A `while`/`shift` loop rather than the `for arg` + deferred-flag shape it
@@ -244,6 +248,15 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --plan=*) PLAN="${1#--plan=}"; shift ;;
+        # The skill whose run this is, for the durable execution record (issue
+        # #1366). Exported to the runner as CPP_EXECUTION_EVIDENCE - an env var,
+        # so a runner that predates #1366 ignores it rather than failing.
+        --evidence)
+            gate_arg_value "$1" "$#" "${2-}"
+            EVIDENCE_SKILL="$GATE_VALUE"
+            shift 2
+            ;;
+        --evidence=*) EVIDENCE_SKILL="${1#--evidence=}"; shift ;;
         --check-summary) MODE="check-summary"; shift ;;
         --help|-h)
             sed -n '2,90p' "$0" | sed 's/^# \{0,1\}//'
@@ -258,6 +271,13 @@ done
 if [[ -z "$PLAN" ]]; then
     echo "flow-finish-gate: --plan requires a value" >&2
     gate_exit usage
+fi
+if [[ -n "$EVIDENCE_SKILL" ]]; then
+    if [[ ! "$EVIDENCE_SKILL" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]]; then
+        echo "flow-finish-gate: --evidence takes a skill name like flow-check" >&2
+        gate_exit usage
+    fi
+    export CPP_EXECUTION_EVIDENCE="$EVIDENCE_SKILL"
 fi
 
 #: --- Counter-model enrolment (issue #1171) ---------------------------------
@@ -626,8 +646,20 @@ if [[ -z "${CM_RECEIPT_HELPER:-}" ]]; then
     [[ -f "$CM_RECEIPT_HELPER" ]] || CM_RECEIPT_HELPER="$CPP_DIR/scripts/counter-model-receipt.py"
 fi
 
-cm_enrolment_evaluate
-CM_ENROLMENT_ENFORCE=1
+# `--plan check` IS THE SECOND /flow:check EXCLUSION (issue #1366), for the
+# reason the check-summary placement above gives: /flow:check produces no PR, so
+# it has nothing to enrol and no way to satisfy the check. It routes its lint /
+# test / typecheck through this helper only because the inline runner shape
+# cannot be allowlisted (#613). The exclusion is the PLAN, not a flag, so the
+# finish plan - the one that leads to a PR - stays enforced. Pinned by the control
+# cases `good-plan-check-not-enforced` and `bad-explicit-plan-finish-no-receipt`.
+if [[ "$PLAN" == "check" ]]; then
+    CM_ENROLMENT_STATE=not-applicable
+    CM_ENROLMENT_LINE="not-applicable: plan 'check' (/flow:check) produces no PR, so there is nothing to enrol"
+else
+    cm_enrolment_evaluate
+    CM_ENROLMENT_ENFORCE=1
+fi
 # Emitted on EVERY finish-mode run, pass or fail, because the issue's fix shape
 # is that the gate's own output carries the line - not that it carries one when
 # something is wrong. A line that appears only on failure is a line no reader
@@ -1180,6 +1212,11 @@ echo "NOTE: deterministic runner unavailable ($REASON); using Makefile fallback.
 # removing. So it runs every gate - correct, just slower - and SAYS so, because
 # a reader comparing the two lanes' timings deserves the reason.
 echo "flow-finish-gate: subsumption: not derived in the fallback lane; all gates run." >&2
+# Stated for the same reason (issue #1366): only the runner writes the durable
+# execution record, so a request for one is answered here, not dropped.
+if [[ -n "$EVIDENCE_SKILL" ]]; then
+    echo "CPP_EXECUTION_EVIDENCE: none - runner unavailable ($REASON); the Makefile fallback writes no record" >&2
+fi
 RAN=0
 FAILED=0
 SKIPPED_GATES=""

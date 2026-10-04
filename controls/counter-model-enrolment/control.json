@@ -71,6 +71,16 @@
       "name": "bad-receipt-names-a-commit-that-exists-nowhere",
       "input": "cases/bad-receipt-names-a-commit-that-exists-nowhere",
       "expect": "BAD"
+    },
+    {
+      "name": "good-plan-check-not-enforced",
+      "input": "cases/good-plan-check-not-enforced",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-explicit-plan-finish-no-receipt",
+      "input": "cases/bad-explicit-plan-finish-no-receipt",
+      "expect": "BAD"
     }
   ],
   "anchors": [

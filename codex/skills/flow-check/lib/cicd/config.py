@@ -1,0 +1,636 @@
+"""CI/CD configuration.
+
+Loads configuration from .claude/cicd.yml if present,
+otherwise uses sensible defaults.
+
+Uses Pydantic v2 for validation with extra="ignore" for backwards
+compatibility - existing configs load without errors even if they
+contain unknown keys.
+
+TRUST MODEL FOR COMMAND-BEARING FIELDS (issue #1113, bandit B602)
+-----------------------------------------------------------------
+Six places in `lib/cicd` run a command string through a shell (`shell=True`),
+and bandit flags every one. The shell is the FEATURE, not an oversight: these
+fields exist so a project can write `make test | tee log` and have it mean what
+it says. Removing `shell=True` would remove the capability, not a bug. So the
+question bandit cannot answer, and which is answered here, is WHOSE STRING
+REACHES IT.
+
+**The assumption: every command string executed by `lib/cicd` originates either
+in a file committed to the project checkout, or in a constant in CPP's own
+source** - and both are therefore at the SAME TRUST LEVEL AS THE CODE. Anyone
+who can write those files can already write `Makefile` or `conftest.py`;
+`shell=True` grants them nothing they did not have.
+
+The actual sources, because naming them wrongly is the easy failure here and the
+first draft of this docstring did exactly that (counter-model review):
+
+- `bootstrap.py:check_dependency` runs `BootstrapDependency.check_command`,
+  from `.claude/bootstrap.yaml`, else built-in constants in `bootstrap.py`.
+- `smoke.py:run_single_test` runs `SmokeTest.command`, from `.claude/cicd.yml`
+  `health.smoke_tests[]` - defined in THIS module.
+- `steps.py:should_skip` runs `StepDef.skip_if`, and `steps.py:execute` runs
+  `StepDef.command`, both from `.claude/cicd_tasks.yml`, else `BUILTIN_PLANS`.
+- `docker_compose.py:_run_shell` runs `DeployConfig.deploy_command` or
+  `.rollback_command`, from `.claude/cicd_tasks.yml` `config:`, else a
+  caller-supplied dict.
+- `guardrails.py:CapabilityCheck.run` runs
+  `ReadinessPolicy.capability_checks[].command`, from the same manifest's
+  readiness config.
+
+Note what is NOT in that table: `.claude/deploy.yaml`. It is read by the
+`/flow:*` command documents in shell, never by `lib/cicd`, and an earlier draft
+of this note named it - which would have sent a reader looking for these
+commands in a file that does not supply them.
+
+`CICDConfig.load()` - this module - reads `<project_root>/.claude/cicd.yml` and
+nothing else. There is no environment-variable, CLI-argument, network or
+CI-event path into any command-bearing field it owns, and `smoke_tests` defaults
+to EMPTY.
+
+**Built-in plan commands are NOT nothing, and this is where a summary would
+mislead.** A project with no config files still executes the `BUILTIN_PLANS`
+steps in `steps.py` - `make deploy`, `python3 -m lib.security gate flow_deploy`
+and so on. Those are constants in CPP's source, which is the strongest end of
+the trust model, not an exception to it; but "no config means no strings" is
+false and must not be written or tested as if it were true.
+
+`tests/test_bandit_dispositions.py` pins all of it: the six `shell=True` sites
+are enumerated from the AST WITH their per-function call counts, a seventh site
+or a duplicated call fails the suite until dispositioned, the built-in commands
+are pinned as a known committed set, and the loader is tested to ignore a
+hostile environment and a foreign cwd.
+
+**What this does NOT cover, stated so the boundary is usable.** A value that a
+CI EVENT can influence - a branch name, a PR title, a tag - is a different trust
+level and must never be interpolated into one of these strings. Where such a
+value is already interpolated into a GENERATED pipeline command,
+`_SAFE_SHELL_TOKEN` below constrains it to safe path/target characters; that
+guard covers the generation path, not this execution path, and the two should
+not be confused.
+
+Full disposition for the remaining eight MEDIUM+ findings:
+`docs/security/bandit-finding-dispositions.md`.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import warnings
+from pathlib import Path
+from typing import Any, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+
+# Safe path/target chars for values that are interpolated into generated CI
+# shell commands (defense-in-depth against a malicious .claude/cicd.yml).
+_SAFE_SHELL_TOKEN = re.compile(r"^[A-Za-z0-9_./-]+$")
+
+
+class BuildConfig(BaseModel):
+    """Build system configuration."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    framework: str = "auto"
+    package_manager: str = "auto"
+    required_targets: list[str] = Field(default_factory=lambda: ["lint", "test"])
+    recommended_targets: list[str] = Field(
+        default_factory=lambda: ["format", "typecheck", "build", "deploy", "clean", "verify"]
+    )
+
+
+class HealthEndpoint(BaseModel):
+    """A single health check endpoint."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    url: str
+    name: str = ""
+    expected_status: int = 200
+    expected_body: str = ""
+    timeout: int = 5
+
+
+# The probe methods a ProcessCheck can name, in the order they are reported.
+# Exactly one must be set (issue #620): a service with no listening socket - a
+# queue worker, a scheduler, a systemd unit that only consumes - has no port to
+# describe, and fabricating one is a probe that tests nothing. Requiring exactly
+# one rather than at least one is deliberate: with several set the runner would
+# need a silent precedence order, and a field that quietly loses to another is
+# the same class of bug this union exists to fix. Want two checks on one
+# service? Write two entries.
+PROCESS_PROBE_FIELDS = ("port", "systemd_user_unit", "systemd_unit", "pattern")
+
+
+class ProcessCheck(BaseModel):
+    """A process health check.
+
+    Names exactly one probe method (issue #620):
+
+    - ``port`` - something is listening on this TCP port (``ss``, then ``lsof``)
+    - ``systemd_user_unit`` - ``systemctl --user is-active <unit>``
+    - ``systemd_unit`` - ``systemctl is-active <unit>``
+    - ``pattern`` - ``pgrep -f <pattern>``
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str
+    port: Optional[int] = None
+    systemd_user_unit: Optional[str] = None
+    systemd_unit: Optional[str] = None
+    pattern: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _exactly_one_probe(self) -> ProcessCheck:
+        named = [f for f in PROCESS_PROBE_FIELDS if getattr(self, f) is not None]
+        if not named:
+            raise ValueError(
+                f"process check '{self.name}' names no probe method - set exactly "
+                f"one of: {', '.join(PROCESS_PROBE_FIELDS)}"
+            )
+        if len(named) > 1:
+            raise ValueError(
+                f"process check '{self.name}' names {len(named)} probe methods "
+                f"({', '.join(named)}) - set exactly one. To check more than one "
+                f"property of a service, add one entry per probe."
+            )
+        return self
+
+    @property
+    def probe(self) -> str:
+        """The name of the single probe field this check uses."""
+        for field in PROCESS_PROBE_FIELDS:
+            if getattr(self, field) is not None:
+                return field
+        # Unreachable: the model validator rejects a probe-less check.
+        raise ValueError(f"process check '{self.name}' names no probe method")
+
+
+class SmokeTest(BaseModel):
+    """A smoke test definition."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str
+    command: str
+    expected_exit: int = 0
+    expected_output: str = ""
+    timeout: int = 10
+
+
+class DeployVerificationConfig(BaseModel):
+    """Post-deploy verification (deploy-confidence) configuration.
+
+    Controls the /cicd:verify baseline comparison: capture health + smoke
+    probes before a deploy, re-run them after, diff the two, and emit an
+    actionable verdict (proceed / review / rollback). Inert unless enabled
+    (or a baseline file already exists).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = False
+    baseline_file: str = ".claude/deploy-baseline.json"
+    # A probe slower than baseline_ms * (1 + latency_regression_pct/100) is
+    # flagged, but only when the current time also exceeds latency_floor_ms
+    # (avoids noise on fast probes where a few ms is a large percentage).
+    latency_regression_pct: float = 50.0
+    latency_floor_ms: float = 100.0
+    # What a latency regression means for the verdict: review | rollback | ignore
+    on_latency_regression: str = "review"
+    # When true and no baseline exists, downgrade PROCEED to REVIEW (we deployed
+    # blind - nothing to compare against).
+    require_baseline: bool = False
+
+
+class HealthConfig(BaseModel):
+    """Health check and smoke test configuration."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    endpoints: list[HealthEndpoint] = Field(default_factory=list)
+    processes: list[ProcessCheck] = Field(default_factory=list)
+    smoke_tests: list[SmokeTest] = Field(default_factory=list)
+    post_deploy: bool = False
+    startup_delay: int = 0
+    deploy_verification: DeployVerificationConfig = Field(default_factory=DeployVerificationConfig)
+
+
+class WoodpeckerConfig(BaseModel):
+    """Woodpecker CI-specific configuration."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    local: bool = True  # Use woodpecker exec for local runs
+    # Self-hosted CI hardening stages (opt-in, default off). When all are unset
+    # the generated .woodpecker.yml is the byte-identical base lint/test/deploy
+    # pipeline. See docs/skills/woodpecker-ci.md for the patterns these emit -
+    # self-hosted CI has no native secret scanning or image gates the way the
+    # GitHub Actions Marketplace does, so they are wired explicitly.
+    secret_scan: bool = False  # Prepend a gitleaks secret-scan stage
+    image_security: bool = False  # Add a Trivy config + filesystem CVE scan stage
+    runtime_smoke: bool = False  # Add a post-build `make <smoke_target>` stage
+    secret_scan_config: str = ".gitleaks.toml"  # gitleaks config path
+    smoke_target: str = "smoke"  # make target invoked by the runtime-smoke stage
+
+    @field_validator("secret_scan_config", "smoke_target")
+    @classmethod
+    def _reject_shell_metacharacters(cls, v: str) -> str:
+        """These values are interpolated into generated CI shell commands, so
+        constrain them to safe path/target characters (no spaces, quotes, or
+        shell metacharacters) to prevent command injection via cicd.yml."""
+        if not _SAFE_SHELL_TOKEN.match(v):
+            raise ValueError(
+                "must contain only letters, digits, '_', '.', '/', or '-' "
+                f"(got {v!r})"
+            )
+        return v
+
+
+class PipelineConfig(BaseModel):
+    """CI/CD pipeline configuration."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    provider: str = "github-actions"  # github-actions | woodpecker | both
+    branches: dict[str, list[str]] = Field(
+        default_factory=lambda: {
+            "main": ["lint", "test", "typecheck", "build"],
+            "pr": ["lint", "test", "typecheck"],
+        }
+    )
+    matrix: dict[str, list[str]] = Field(default_factory=dict)
+    secrets_needed: list[str] = Field(default_factory=list)
+    secrets_source: str = "platform"  # platform | aws-secrets-manager
+    aws_region: str = "us-east-1"
+    aws_secret_name: str = ""  # AWS Secrets Manager secret name for deploy secrets
+    woodpecker: WoodpeckerConfig = Field(default_factory=WoodpeckerConfig)
+
+
+class BranchProtection(BaseModel):
+    """Branch protection rule suggestions."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    require_pr_review: bool = True
+    require_status_checks: list[str] = Field(default_factory=lambda: ["lint", "test"])
+    require_up_to_date: bool = True
+
+
+class InfraTaggingConfig(BaseModel):
+    """Tagging conventions for IaC resources."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    managed_by: str = "terraform"
+    repo: str = ""
+    owner: str = ""
+    extra_tags: dict[str, str] = Field(default_factory=dict)
+
+
+class InfraTierConfig(BaseModel):
+    """Configuration for a single infrastructure tier."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    approval_required: bool = False
+    separate_credentials: bool = False
+
+
+class InfraStateBackend(BaseModel):
+    """Remote state backend configuration."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    type: str = ""  # s3, azure-storage, gcs
+    bucket: str = ""
+    lock: bool = True
+    region: str = ""
+
+
+class InfrastructureConfig(BaseModel):
+    """Infrastructure as Code configuration."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    provider: str = "terraform"  # terraform, pulumi, bicep
+    cloud: str = "aws"  # aws, azure, gcp
+    state_backend: InfraStateBackend = Field(default_factory=InfraStateBackend)
+    tagging: InfraTaggingConfig = Field(default_factory=InfraTaggingConfig)
+    tiers: dict[str, InfraTierConfig] = Field(
+        default_factory=lambda: {
+            "foundation": InfraTierConfig(approval_required=True, separate_credentials=True),
+            "platform": InfraTierConfig(approval_required=False),
+            "app": InfraTierConfig(approval_required=False),
+        }
+    )
+
+
+class ContainerConfig(BaseModel):
+    """Container configuration."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = False
+    base_image: str = "auto"
+    expose_ports: list[int] = Field(default_factory=list)
+    compose_services: list[dict[str, Any]] = Field(default_factory=list)
+
+
+# The health probe lists, and the model each of their entries parses as. Used
+# both by the per-entry soft validation below and by validate_file's nested
+# unknown-key check.
+_HEALTH_PROBE_LISTS: dict[str, type[BaseModel]] = {
+    "endpoints": HealthEndpoint,
+    "processes": ProcessCheck,
+    "smoke_tests": SmokeTest,
+}
+
+
+def _drop_invalid_probes(health_data: dict[str, Any], source: str) -> None:
+    """Drop individually-invalid health probes, in place, with a warning.
+
+    Deploy verification is fail-open by design, so one malformed probe taking
+    the WHOLE config down with it - and with it every other probe plus the
+    verification gate - is a large blast radius for a small mistake (issue
+    #620). A probe that cannot be parsed is dropped and warned about; the rest
+    of the config survives and keeps running.
+
+    Only the per-entry lists are softened. A structural error elsewhere still
+    raises, because there is no smaller unit to fall back to.
+    """
+    for key, model in _HEALTH_PROBE_LISTS.items():
+        entries = health_data.get(key)
+        if not isinstance(entries, list):
+            continue
+
+        kept: list[Any] = []
+        for i, entry in enumerate(entries):
+            try:
+                model.model_validate(entry)
+            except ValidationError as e:
+                reasons = "; ".join(
+                    f"{'.'.join(str(p) for p in err['loc']) or '<entry>'}: {err['msg']}"
+                    for err in e.errors()
+                )
+                warnings.warn(
+                    f"{source}: dropping invalid health.{key}[{i}] - {reasons}. "
+                    f"The remaining probes still run; fix the entry to restore it.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                continue
+            kept.append(entry)
+
+        health_data[key] = kept
+
+
+class CICDConfig(BaseModel):
+    """Full CI/CD configuration."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    build: BuildConfig = Field(default_factory=BuildConfig)
+    health: HealthConfig = Field(default_factory=HealthConfig)
+    pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
+    container: ContainerConfig = Field(default_factory=ContainerConfig)
+    infrastructure: InfrastructureConfig = Field(default_factory=InfrastructureConfig)
+
+    @classmethod
+    def load(cls, project_root: Optional[str] = None) -> CICDConfig:
+        """Load config from .claude/cicd.yml or use defaults."""
+        if project_root is None:
+            project_root = os.getcwd()
+
+        config_path = Path(project_root) / ".claude" / "cicd.yml"
+        if config_path.exists():
+            return cls._from_yaml(config_path)
+
+        return cls._defaults()
+
+    @classmethod
+    def _defaults(cls) -> CICDConfig:
+        return cls()
+
+    @classmethod
+    def _from_yaml(cls, path: Path) -> CICDConfig:
+        """Parse YAML config file using Pydantic model_validate.
+
+        With extra="ignore" on all models, unknown keys are silently
+        dropped - ensuring backwards compatibility with older configs.
+        """
+        try:
+            import yaml
+        except ImportError:
+            return cls._defaults()
+
+        with open(path) as f:
+            data = yaml.safe_load(f) or {}
+
+        # Soften per-probe failures so one bad entry cannot take the whole
+        # config - and the fail-open verification gate - down with it (#620).
+        health_data = data.get("health")
+        if isinstance(health_data, dict):
+            _drop_invalid_probes(health_data, str(path))
+
+        # Handle tagging key mapping (managed-by -> managed_by)
+        infra_data = data.get("infrastructure", {})
+        if infra_data:
+            tagging_data = infra_data.get("tagging", {})
+            if tagging_data and "managed-by" in tagging_data:
+                tagging_data["managed_by"] = tagging_data.pop("managed-by")
+                # Collect extra tags (non-standard keys)
+                known_keys = {"managed_by", "repo", "owner", "extra_tags"}
+                extra = {k: v for k, v in tagging_data.items() if k not in known_keys}
+                if extra:
+                    tagging_data["extra_tags"] = extra
+                    for k in extra:
+                        del tagging_data[k]
+
+        return cls.model_validate(data)
+
+    @classmethod
+    def validate_file(cls, path: Path) -> list[str]:
+        """Validate a config file and return a list of issues with fix suggestions.
+
+        Returns an empty list if the config is valid.
+        """
+        try:
+            import yaml
+        except ImportError:
+            return ["PyYAML not installed - run: uv pip install pyyaml"]
+
+        if not path.exists():
+            return [f"Config file not found: {path}"]
+
+        with open(path) as f:
+            raw = f.read()
+
+        # Check YAML syntax
+        try:
+            data = yaml.safe_load(raw)
+        except yaml.YAMLError as e:
+            return [f"YAML syntax error: {e}"]
+
+        if not isinstance(data, dict):
+            return ["Config must be a YAML mapping (dict), not a scalar or list"]
+
+        issues: list[str] = []
+
+        # Validate known sections
+        known_sections = {"build", "health", "pipeline", "container", "infrastructure"}
+        unknown = set(data.keys()) - known_sections
+        if unknown:
+            issues.append(
+                f"Unknown top-level keys: {', '.join(sorted(unknown))}. "
+                f"Valid keys: {', '.join(sorted(known_sections))}"
+            )
+
+        # Validate build section
+        build_data = data.get("build", {})
+        if build_data and isinstance(build_data, dict):
+            if "provider" in build_data:
+                issues.append(
+                    "build.provider is not valid here. "
+                    "Did you mean pipeline.provider? Move it to the 'pipeline' section."
+                )
+
+        # Validate pipeline section
+        pipeline_data = data.get("pipeline", {})
+        if pipeline_data and isinstance(pipeline_data, dict):
+            provider = pipeline_data.get("provider", "")
+            valid_providers = {"github-actions", "woodpecker", "both"}
+            if provider and provider not in valid_providers:
+                issues.append(
+                    f"pipeline.provider '{provider}' is invalid. "
+                    f"Valid values: {', '.join(sorted(valid_providers))}"
+                )
+
+            secrets_source = pipeline_data.get("secrets_source", "platform")
+            valid_sources = {"platform", "aws-secrets-manager"}
+            if secrets_source not in valid_sources:
+                issues.append(
+                    f"pipeline.secrets_source '{secrets_source}' is invalid. "
+                    f"Valid values: {', '.join(sorted(valid_sources))}"
+                )
+
+            if secrets_source == "aws-secrets-manager":
+                if not pipeline_data.get("aws_secret_name"):
+                    issues.append(
+                        "pipeline.aws_secret_name is required when "
+                        "secrets_source is 'aws-secrets-manager'. "
+                        "Set it to your AWS Secrets Manager secret name "
+                        "(e.g., 'my-project/deploy')."
+                    )
+
+            secrets_needed = pipeline_data.get("secrets_needed", [])
+            branches = pipeline_data.get("branches", {})
+            has_deploy = "deploy" in branches.get("main", [])
+            if secrets_needed and has_deploy and secrets_source == "platform":
+                issues.append(
+                    "pipeline.secrets_source is 'platform' but secrets_needed "
+                    "is set with a deploy step. Consider using "
+                    "'aws-secrets-manager' for centralized secret management. "
+                    "Set pipeline.secrets_source: aws-secrets-manager"
+                )
+
+        # Validate health section
+        health_data = data.get("health", {})
+        if health_data and isinstance(health_data, dict):
+            for i, ep in enumerate(health_data.get("endpoints", [])):
+                if isinstance(ep, dict) and "url" not in ep:
+                    issues.append(f"health.endpoints[{i}] is missing required field 'url'")
+
+            for i, proc in enumerate(health_data.get("processes", [])):
+                if isinstance(proc, dict):
+                    if "name" not in proc:
+                        issues.append(f"health.processes[{i}] is missing required field 'name'")
+                    named = [f for f in PROCESS_PROBE_FIELDS if proc.get(f) is not None]
+                    if not named:
+                        issues.append(
+                            f"health.processes[{i}] names no probe method. Set exactly "
+                            f"one of: {', '.join(PROCESS_PROBE_FIELDS)}"
+                        )
+                    elif len(named) > 1:
+                        issues.append(
+                            f"health.processes[{i}] names {len(named)} probe methods "
+                            f"({', '.join(named)}). Set exactly one - add a separate "
+                            f"entry per probe to check more than one property"
+                        )
+
+            for i, st in enumerate(health_data.get("smoke_tests", [])):
+                if isinstance(st, dict):
+                    if "name" not in st:
+                        issues.append(f"health.smoke_tests[{i}] is missing required field 'name'")
+                    if "command" not in st:
+                        issues.append(f"health.smoke_tests[{i}] is missing required field 'command'")
+
+            # Unknown keys INSIDE a probe (issue #620). Every model here is
+            # extra="ignore", so a typo parses fine and is silently inert -
+            # `expect_status` instead of `expected_status` compares a 302 probe
+            # against the default 200 and nothing ever says so. The top-level
+            # unknown-key check above cannot see this one level down.
+            for key, model in _HEALTH_PROBE_LISTS.items():
+                known = set(model.model_fields)
+                for i, entry in enumerate(health_data.get(key, [])):
+                    if not isinstance(entry, dict):
+                        continue
+                    unknown_keys = set(entry) - known
+                    if unknown_keys:
+                        issues.append(
+                            f"health.{key}[{i}] has unknown keys: "
+                            f"{', '.join(sorted(unknown_keys))}. These are ignored at "
+                            f"load time, so the setting has no effect. Valid keys: "
+                            f"{', '.join(sorted(known))}"
+                        )
+
+        # Validate infrastructure section
+        infra_data = data.get("infrastructure", {})
+        if infra_data and isinstance(infra_data, dict):
+            provider = infra_data.get("provider", "")
+            valid_iac = {"terraform", "pulumi", "bicep"}
+            if provider and provider not in valid_iac:
+                issues.append(
+                    f"infrastructure.provider '{provider}' is invalid. "
+                    f"Valid values: {', '.join(sorted(valid_iac))}"
+                )
+
+            cloud = infra_data.get("cloud", "")
+            valid_clouds = {"aws", "azure", "gcp"}
+            if cloud and cloud not in valid_clouds:
+                issues.append(
+                    f"infrastructure.cloud '{cloud}' is invalid. "
+                    f"Valid values: {', '.join(sorted(valid_clouds))}"
+                )
+
+        # Try Pydantic validation for type errors
+        try:
+            # Handle tagging mapping
+            if infra_data:
+                tagging_data = infra_data.get("tagging", {})
+                if tagging_data and "managed-by" in tagging_data:
+                    tagging_data = dict(tagging_data)
+                    tagging_data["managed_by"] = tagging_data.pop("managed-by")
+                    known_keys = {"managed_by", "repo", "owner", "extra_tags"}
+                    extra = {k: v for k, v in tagging_data.items() if k not in known_keys}
+                    if extra:
+                        tagging_data["extra_tags"] = extra
+                        for k in extra:
+                            del tagging_data[k]
+                    data = dict(data)
+                    data["infrastructure"] = dict(data["infrastructure"])
+                    data["infrastructure"]["tagging"] = tagging_data
+            cls.model_validate(data)
+        except Exception as e:
+            issues.append(f"Validation error: {e}")
+
+        return issues
+
+    @classmethod
+    def json_schema(cls) -> str:
+        """Generate JSON Schema for IDE autocompletion."""
+        return json.dumps(cls.model_json_schema(), indent=2)
