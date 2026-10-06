@@ -67,11 +67,9 @@ same comment:
 2. **Improvement** - CPP pass rate > no-CPP-baseline pass rate, on the same
    task/grader/revision rule 1 certified. IMPROVED is p < 0.05;
    NO_IMPROVEMENT_SHOWN (p >= 0.05) is **valid evidence, rendered as such, and
-   never flips the gate alone** - comment
-   [6006877171](https://github.com/cooneycw/claude-power-pack/issues/1084#issuecomment-6006877171)'s
-   addendum and comment
-   [6007022667](https://github.com/cooneycw/claude-power-pack/issues/1084#issuecomment-6007022667)'s
-   owner ruling ("Require improvement too") both apply.
+   never flips the gate alone** - the owner ruling, comment
+   [6007022667](https://github.com/cooneycw/claude-power-pack/issues/1084#issuecomment-6007022667)
+   ("Require improvement too").
 
 Pairing itself is never inferred from naming, file co-location, or a
 self-declared field - skillc#273's own scope note calls that "not
@@ -171,9 +169,10 @@ Two distinct mechanisms, not to be conflated:
    evaluated by any committed skillc profile.** Any #288 run must either
    re-pin and re-validate a profile against current content, or the result
    it produces is a result about *older* instructions than what ships. This
-   is a precondition for #288, not a detail - comment 6006871866-era design
-   inputs on skillc#287 said the same about the `b8825bd` -> `9661967` move,
-   and it has moved further since (`9661967` -> `ea6dbfa` -> `84ced91`).
+   is a precondition for #288, not a detail - skillc#287 comment
+   [6007031386](https://github.com/cooneycw/skillc/issues/287#issuecomment-6007031386)
+   said the same about the `b8825bd` -> `9661967` move, and it has moved
+   further since (`9661967` -> `ea6dbfa` -> `84ced91`).
 
 A valid null result from a well-designed study is never treated as
 "unknown" or discarded - comment 6007022667: "A no-effect result is still
@@ -198,8 +197,9 @@ A valid null result from a well-designed study is never treated as
 ## Cost - correction to the assignment's framing
 
 This record's assignment cited "the \$10 cap" as a fact to record. That cap
-is **superseded**. Owner ruling, skillc#287 comment, 2026-10-06, 16:49Z,
-recorded verbatim there:
+is **superseded**. Owner ruling, skillc#287 comment
+[6021089903](https://github.com/cooneycw/skillc/issues/287#issuecomment-6021089903),
+2026-10-06 16:49Z, recorded verbatim there:
 
 > the "\$10 cap" on #288 is superseded... size #287/#288 for a valid,
 > adequately powered study... do not size it to a budget... nothing is
@@ -279,7 +279,7 @@ plan, to implement once #288 reports (or to stub as `xfail`/skip now):
 
 | Control | Fixture shape | Expected verdict |
 |---|---|---|
-| Valid DISCRIMINATING + IMPROVED | A certified skillc#273 pairing record plus a CPP-vs-baseline result, both p < 0.05 | Flip eligible (still requires the human/owner step this record does not itself authorize) |
+| Valid DISCRIMINATING + IMPROVED | A certified skillc#273 pairing record plus a CPP-vs-baseline result, both p < 0.05 | Flip: a PR dropping `--advisory`, landed with the certified results and reviewed like any change |
 | Valid DISCRIMINATING + NO_IMPROVEMENT_SHOWN | Same pairing, improvement p >= 0.05 | Stays advisory; recorded as valid null evidence, not discarded |
 | Failing (NOT_SHOWN) | Pairing record where both arms pass/fail together | Stays advisory; not an error, a real finding |
 | Unknown (too few evaluable attempts) | A result below skillc#287's declared tolerance | Stays advisory; reported as UNKNOWN, never defaulted to pass |
