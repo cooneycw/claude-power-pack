@@ -19,7 +19,8 @@
        tools-version-check toolchain-provenance checkout-readers \
        delegated-core-check delegated-core-write \
        version-consistency-check unicode-dashes-check co-authored-by-trailer-check \
-       qa-regression-demo
+       qa-regression-demo \
+       skill-coverage-map-check skill-coverage-snapshot
 
 ## `make` with no target ran `lint` because lint was the first target. Adding
 ## tools-check above it silently made THAT the default - bare `make` would print
@@ -397,7 +398,7 @@ verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-impor
 	control-ci-deps-check ci-coverage-check \
 	consolidation-ledger-check host-surface-check cpp-host-writes-check \
 	version-consistency-check unicode-dashes-check co-authored-by-trailer-check \
-	behavioral-eval-check eli5-check tool-risk-check
+	behavioral-eval-check eli5-check tool-risk-check skill-coverage-map-check
 	@python3 scripts/verify-coverage-check.py --report
 
 ## ACCOUNT FOR EVERY CHECKER, AND SAY WHAT THIS GATE SKIPPED (issue #1028)
@@ -807,6 +808,28 @@ claude-md-behavior-check:
 ## verify-coverage: gate behavioral-eval-check - reads a behavioural-eval verified-result artifact and reports; advisory until both discrimination and improvement (#1084) report their positive verdict on the same certified case; ci: runs behavioral-eval-check
 behavioral-eval-check:
 	@python3 scripts/check-behavioral-eval.py --advisory
+
+## Maps changed CPP skills to their vendored evaluation coverage (#1370):
+## axis 1 (content digest) and axis 2 (dependency closure, read from a
+## committed skillc snapshot - never invoked live). ADVISORY, same reasoning
+## as behavioral-eval-check above: the real first snapshot already reports
+## genuine staleness against current main (#1380's description change), and
+## a hard gate here would block unrelated work on a pre-existing finding this
+## gate exists to SURFACE, not to enforce fixed. `--advisory` maps a printed
+## verdict to 0; a crash still fails, so "looked and found nothing" is never
+## confused with "did not look".
+## verify-coverage: gate skill-coverage-map-check - two-axis staleness over SKILL_FAMILY_MAP, read from a vendored snapshot; advisory, see comment above; ci: runs skill-coverage-map-check
+skill-coverage-map-check:
+	@python3 scripts/check-skill-coverage-map.py --advisory
+
+## Regenerates a vendored skill-coverage snapshot (#1370) - the ONLY place
+## skillc runs from this repository, and never in CI: the script itself
+## refuses under CI and on a dirty tree. Requires --cpp and --skillc
+## checkout paths; run by hand, e.g.:
+##   make skill-coverage-snapshot SKILL=flow-check CPP=/path/to/cpp SKILLC=/path/to/skillc
+## verify-coverage: utility skill-coverage-snapshot - regenerates the vendored skillc profile-diagnose snapshot skill-coverage-map-check reads; it issues no verdict
+skill-coverage-snapshot:
+	@python3 scripts/skill-coverage-snapshot.py $(SKILL) --cpp $(CPP) --skillc $(SKILLC)
 
 ## QA regression export, three-arm demonstration (issue #1291). Exports the
 ## fixture's committed repro spec into a scratch copy of the fixture consumer, then

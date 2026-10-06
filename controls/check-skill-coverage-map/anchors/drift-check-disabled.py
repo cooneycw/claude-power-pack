@@ -68,18 +68,6 @@ skill profile exists (#1367 item 4; skillc only has one CPP profile today,
 `evals/subjects/cpp-codex-flow-check/`).
 """
 
-#: NEGATIVE-CONTROL: controls/check-skill-coverage-map
-#:
-#: This gate is wired into `make verify` and its verdict is read by a human (or
-#: another session) scanning that output - nothing downstream re-derives axis 2,
-#: because axis 2's whole premise is that skillc cannot run again in CI. A blind
-#: version of the drift check (see `check_skill`'s axis-2 block) would print a
-#: confident `current` over a vendored snapshot whose closure has since grown or
-#: shrunk, silently reusing a cached diagnose() verdict that no longer describes
-#: the checkout being audited. The registered control isolates exactly that
-#: comparison - see `controls/check-skill-coverage-map/control.json`'s `limits`
-#: for what it does and does not cover.
-
 from __future__ import annotations
 
 import argparse
@@ -264,7 +252,7 @@ def check_skill(skill: str, repo: Path, snapshot_dir: Path) -> dict[str, Any]:
         result["reason"] = "snapshot's diagnose section has no closure_digests"
         return result
     current_digests = digest_tree(closure_root)
-    drift = _diff_digests(snapshot_digests, current_digests)
+    drift: list[str] = []  # CONSTRUCTED ANCHOR (#1370): drift detection disabled
     result["snapshot_provenance"] = {
         "skillc_commit": diagnose.get("skillc_commit"),
         "cpp_revision_snapshot": diagnose.get("cpp_revision_snapshot"),
