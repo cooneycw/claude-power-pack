@@ -203,24 +203,59 @@ def test_both_axes_stale_at_once_are_both_named_in_reason(tmp_path: Path) -> Non
     assert "synthetic-dependency.sh" in result["reason"], "axis 2's finding must be named too"
 
 
-def test_live_run_against_main_reports_current_on_both_axes() -> None:
+def test_live_run_against_main_is_state_agnostic(capsys: pytest.CaptureFixture[str]) -> None:
     """Live run against THIS checkout's own committed snapshot (#1370
-    refresh, 2026-10-06). The original committed snapshot (profile
-    `cpp-codex-flow-check` @ 85e9b03) showed both axes genuinely stale at
-    once - that real finding is what motivated skillc #330's re-declared
-    profile (`cpp-codex-flow-check-ea6dbfa`), which added the missing
-    dependency and re-pinned the content reference at CPP ea6dbfa. The
-    committed snapshot now points at that profile, so the live gate must
-    read CURRENT on both axes - this test is the quoted confirmation
-    cpp-orch asked for, kept live rather than one-off so a future snapshot
-    going stale again is caught here too.
-    test_stale_dependency_real_fixture_shape keeps the ORIGINAL broken-
-    dependency shape pinned in an immutable synthetic fixture, independent
-    of which profile the committed snapshot currently points at."""
+    refresh, 2026-10-06; made state-agnostic, 2026-10-06, CPP #1388 review).
+
+    An earlier version of this test asserted the specific verdict CURRENT
+    on both axes, true only because skillc #330's profile refresh
+    (`cpp-codex-flow-check-ea6dbfa`) had just made it so. That pinned
+    TODAY'S repo state, not the gate's behaviour: the next flow-check edit
+    - #1388's own NOT_RUN fix included - legitimately changes flow-check's
+    content, which must make axis 1 STALE again, and that is correct. A
+    test that fails every time the gate correctly reports drift is the
+    defect this gate exists to avoid one level up. The live check belongs
+    in CI as an advisory signal (hence `--advisory` below), not as a pinned
+    assertion of which verdict today's tree happens to produce.
+
+    Specific verdicts - current, stale (content), stale (dependency), and
+    unknown (drift) - stay pinned against IMMUTABLE fixtures, so dropping
+    the live verdict assertion removes no coverage:
+    test_a_fully_current_skill (current), test_stale_content_changed_body_only
+    and test_stale_content_changed_description (stale (content)),
+    test_stale_dependency_real_fixture_shape (stale (dependency)),
+    test_snapshot_staleness_is_detected_not_silently_reused, mutation-checked
+    by test_snapshot_staleness_detection_is_mutation_checked (unknown/drift),
+    and test_both_axes_stale_at_once_are_both_named_in_reason (both axes
+    stale together - the live test's own prior scenario, now pinned
+    immutably instead of live)."""
     result = mod.check_skill("flow-check", ROOT, ROOT / "docs" / "measurements" / "skill-coverage")
-    assert result["state"] == "current"
-    assert result["axis1"]["status"] == "current"
-    assert result["axis2"]["status"] == "intact"
+    assert result["state"] in mod.STATES, f"{result['state']!r} is not one of the five declared states"
+    assert "axis1" in result and "status" in result["axis1"], "axis 1 must always be computed and named"
+    assert "axis2" in result and "status" in result["axis2"], (
+        "axis 2 must always be computed and named, even when axis 1 already decided `state`"
+    )
+
+    # The provenance claim is about what a CI READER sees, not about the
+    # dict check_skill() happens to return - counter-model review, 2026-10-06:
+    # the plain (non-JSON) report line never printed provenance at all, so
+    # asserting against check_skill()'s own return value would pass even if
+    # a future edit dropped it from the printed report entirely. --json makes
+    # main() print the full dict verbatim; read THAT back, over --advisory so
+    # the exit code claim is checked in the same call that checks printing.
+    exit_code = mod.main([
+        "--repo", str(ROOT), "--snapshot-dir", str(ROOT / "docs" / "measurements" / "skill-coverage"),
+        "--json", "--advisory",
+    ])
+    assert exit_code == 0, "--advisory must exit 0 regardless of the verdict printed"
+    printed = json.loads(capsys.readouterr().out)["flow-check"]
+    assert printed["state"] in mod.STATES
+    provenance = printed.get("snapshot_provenance")
+    assert isinstance(provenance, dict), "the committed snapshot's reference provenance must be printed"
+    assert provenance.get("skillc_commit"), "provenance must name which skillc commit diagnosed the closure"
+    assert provenance.get("cpp_revision_snapshot"), (
+        "provenance must name which CPP revision the snapshot was taken against"
+    )
 
 
 def test_snapshot_staleness_is_detected_not_silently_reused(tmp_path: Path) -> None:
