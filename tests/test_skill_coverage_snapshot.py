@@ -67,6 +67,52 @@ def test_profile_dir_is_required() -> None:
 
 
 @needs_git
+def test_profile_dir_path_traversal_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fix this test pins (counter-model review, 2026-10-06): an
+    unvalidated --profile-dir let `../` and absolute paths escape
+    evals/subjects/, so a clean skillc checkout could produce a snapshot
+    from uncommitted data OUTSIDE it while recording the clean commit as
+    provenance - defeating the whole point of _refuse_dirty."""
+    _no_ci(monkeypatch)
+    cpp, skillc = tmp_path / "cpp", tmp_path / "skillc"
+    _init_repo(cpp)
+    _init_repo(skillc)
+    called = []
+    monkeypatch.setattr(mod, "write_snapshot", lambda *a, **k: called.append(True))
+    for escaping in ("../elsewhere", "/etc/passwd", "a/b"):
+        with pytest.raises(SystemExit) as exc:
+            mod.main(["flow-check", "--cpp", str(cpp), "--skillc", str(skillc), "--force-ci",
+                       "--profile-dir", escaping])
+        assert exc.value.code == 2, escaping
+    assert not called, "write_snapshot must never run with an escaping --profile-dir"
+
+
+@needs_git
+def test_profile_dir_symlink_escape_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Same fix, the shape a plain string check cannot catch: a plain
+    directory NAME that is a symlink pointing outside evals/subjects/."""
+    _no_ci(monkeypatch)
+    cpp, skillc = tmp_path / "cpp", tmp_path / "skillc"
+    _init_repo(cpp)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    _init_repo(skillc)
+    subjects_dir = skillc / "evals" / "subjects"
+    subjects_dir.mkdir(parents=True)
+    (subjects_dir / "escape-link").symlink_to(outside, target_is_directory=True)
+    subprocess.run(["git", "-C", str(skillc), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(skillc), "-c", "user.email=c@x.invalid", "-c", "user.name=c",
+                     "commit", "--quiet", "-m", "add symlink"], check=True)
+    called = []
+    monkeypatch.setattr(mod, "write_snapshot", lambda *a, **k: called.append(True))
+    with pytest.raises(SystemExit) as exc:
+        mod.main(["flow-check", "--cpp", str(cpp), "--skillc", str(skillc), "--force-ci",
+                   "--profile-dir", "escape-link"])
+    assert exc.value.code == 2
+    assert not called, "write_snapshot must never run with a profile-dir symlink escaping evals/subjects/"
+
+
+@needs_git
 def test_refuses_dirty_cpp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _no_ci(monkeypatch)
     cpp, skillc = tmp_path / "cpp", tmp_path / "skillc"

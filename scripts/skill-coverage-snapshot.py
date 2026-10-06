@@ -92,6 +92,38 @@ def _refuse_dirty(repo: Path) -> None:
         raise SystemExit(2)
 
 
+def _refuse_escaping_profile_dir(skillc: Path, profile_dir: str) -> None:
+    """`--profile-dir` must name a DIRECTORY, never a path (counter-model
+    review, 2026-10-06). Unvalidated, an absolute path discards the
+    `evals/subjects/` prefix and a `../` component escapes it - either lets
+    `--profile-dir` point at content OUTSIDE the skillc checkout whose
+    cleanliness `_refuse_dirty` just verified, so the snapshot's provenance
+    (`skillc_commit`) would name a clean commit that cannot reproduce data
+    that never came from it. Checked by STRING first (no separator, not `.`
+    or `..`) and then by RESOLVED PATH containment, because the string check
+    alone would not catch a symlink named as a plain component that itself
+    points outside `evals/subjects/`.
+    """
+    if not profile_dir or "/" in profile_dir or "\\" in profile_dir or profile_dir in (".", ".."):
+        print(
+            f"skill-coverage-snapshot: REFUSED - --profile-dir {profile_dir!r} must be a "
+            f"single directory name under evals/subjects/, not a path",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    subjects_root = (skillc / "evals" / "subjects").resolve()
+    candidate = (subjects_root / profile_dir).resolve()
+    try:
+        candidate.relative_to(subjects_root)
+    except ValueError:
+        print(
+            f"skill-coverage-snapshot: REFUSED - --profile-dir {profile_dir!r} resolves to "
+            f"{candidate}, outside {subjects_root} (symlink escape?)",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
+
 def digest_tree(root: Path) -> dict[str, str]:
     """relative posix path -> sha256:<hex> for every FILE under root.
 
@@ -247,6 +279,7 @@ def main(argv: list[str] | None = None) -> int:
     # a commit that cannot reproduce it - the same hazard `_refuse_dirty`
     # exists to close for `cpp`, just on the other checkout.
     _refuse_dirty(skillc)
+    _refuse_escaping_profile_dir(skillc, args.profile_dir)
     out_path = write_snapshot(args.skill, cpp, skillc, args.profile_dir, args.out_dir)
     print(f"skill-coverage-snapshot: wrote {out_path}")
     return 0
