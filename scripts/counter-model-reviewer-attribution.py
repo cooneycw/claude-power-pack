@@ -244,6 +244,19 @@ def scan(
             continue
         if not isinstance(receipt, dict) or receipt.get("status") != "ran":
             continue
+        # A DELEGATED receipt is outside this audit's population (issue #1383,
+        # counter-model review). This links a receipt's REVIEWER to the Codex
+        # rollout in its worktree; on a delegated lane that rollout is the
+        # IMPLEMENTER's and the reviewer is a Claude session, so comparing them
+        # would report an honest receipt as misattributed. Excluded and SAID,
+        # not counted: a corpus of only delegated receipts examines nothing and
+        # reads unknown, never clean.
+        if receipt.get("direction") == "delegated":
+            notes.append(
+                f"ATTRIBUTION-NOTE: {name}: delegated receipt excluded; its reviewer "
+                "is a Claude session, which no Codex rollout can attribute"
+            )
+            continue
         examined += 1
 
         branch = receipt.get("branch")

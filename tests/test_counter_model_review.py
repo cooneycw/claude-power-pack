@@ -2162,6 +2162,7 @@ def test_a_delegated_SKIP_is_refused_at_the_write_path(tmp_path: Path) -> None:
     assert "requires --status ran" in proc.stderr
 
 
+@requires_git
 def test_the_GATE_CONTROL_delegated_receipt_is_itself_WELL_FORMED(tmp_path: Path) -> None:
     """The finish gate reads only branch/head/status, so its control case
     `good-delegated-receipt-at-head` would pass with any body. This pins that
