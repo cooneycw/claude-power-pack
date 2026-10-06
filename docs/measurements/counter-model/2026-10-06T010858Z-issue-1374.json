@@ -1,0 +1,24 @@
+{
+  "branch": "fix-1374-behavioral-eval-preamble",
+  "counts": {
+    "accepted": 1,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "5c29631d52b71d69ced45fc9577e53515f0e3900",
+  "implementer": "claude/claude-sonnet-5",
+  "issue": "1374",
+  "passes": 1,
+  "recorded_at": "2026-10-06T01:08:58Z",
+  "red_cases": {
+    "already_covered": 2,
+    "proposed": 2
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/06/rollout-2026-10-06T01-06-31-01a10ebf-77d1-7b82-8e88-0498c58861e0.jsonl",
+    "thread_id": "01a10ebf-77d1-7b82-8e88-0498c58861e0"
+  },
+  "schema": 1,
+  "status": "ran"
+}
