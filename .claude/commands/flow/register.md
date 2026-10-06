@@ -460,6 +460,19 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
    session's messaging socket: delivered 5/5 from a process whose parent chain
    reaches the session, 0/4 from one reparented to init).
 
+   **Arm it from a directory that outlives this work, never a flow worktree
+   (Nit Store, issue #1402).** Worktree removal is the normal end of every
+   `/flow:auto` issue, and a worktree removed while `watch` blocks from inside
+   it does not kill `watch` itself - `watch` has no `pwd` call to fail - but it
+   DOES break the harness's own trailing re-anchor in that same shell, which
+   then exits non-zero AFTER your watch already printed delivered mail and
+   exited 0. The exit code lies; the output does not. If you armed from a
+   worktree and a background task reports failure, read its output file
+   before assuming the mail was lost - `FLOW_MAILBOX: mail` (or any message
+   body) present means delivered regardless of what ran after. Avoid the
+   whole class by arming from the repository root, or any directory this
+   session's work will not remove.
+
    **Re-arm it after EVERY wake, for as long as this session is in the wave
    (issues #801, #814).** The watch is one-shot: it delivers one message and
    exits, so handling a wake without re-arming leaves you deaf with a heartbeat
@@ -1368,6 +1381,21 @@ a different issue likewise resets every lane fact the call does not supply.
 Sessions that die without releasing are caught by
 staleness detection; their entries persist as `stale`. Releasing a role owned by
 another LIVE session refuses without `--force`.
+
+**A stand-down report's "watch stopped" / "lane released" claims must be
+PROBED, never stated from memory (Nit Store, issue #1402).** A real incident:
+a worker's final report said "Watch: stopped at stand-down" and "Lane:
+RELEASED" while its armed watch was still running (reparented, outliving the
+session) and the registry still showed `released=false` for it, because both
+claims came from what the worker believed it had done earlier, not from
+checking. A different session then reads that report as evidence of cleanup.
+Before writing either claim:
+
+- Quote `release`'s own emitted verdict (`FLOW_WAVE_REGISTRY: released`), not
+  a recollection of having run it.
+- Quote `watch --status --role <role> --wave <wave>`'s `FLOW_MAILBOX_WATCH_STATE`
+  line and confirm it reads `dead` or `absent` - anything else means a
+  listener is still live and the "stopped" claim is false.
 
 **Liveness is decided by the process table, on every transport** (#675, #689,
 #869). The proof is the recorded pid on the recorded host - but `kill -0` has

@@ -4484,9 +4484,16 @@ class TestWakeability:
             holder.wait(timeout=10)
 
     def test_unreadable_lineage_never_reads_no_wake(self, tmp_path: Path) -> None:
-        """No socket directory and no hook: parentage is UNKNOWN. That must keep
-        the pre-#1228 reading (armed) and keep refusing a second arm - never a
-        confident `no-wake` built on an instrument that could not look (#800)."""
+        """No socket directory and no hook: parentage is UNKNOWN. That must
+        never read a confident `no-wake` built on an instrument that could not
+        look (#800) - and, since issue #1402, must not read a confident
+        `armed` either. Before #1402 this fell through to the pre-#1228
+        reading (`armed`), which claimed wakeability the instrument never
+        established; it now reads its own state, `wake-unknown`, distinct
+        from both. The duplicate-arm guard is unaffected (#792 item 4 fails
+        open on unknown COUNT, a different axis from unknown SESSION
+        lineage): a second arm attempt is still refused, because a live
+        watcher genuinely exists here whatever its lineage."""
         wave = unique_wave()
         env = _wake_env(tmp_path, None)
         env["FLOW_WAVE_SOCK_DIR"] = str(tmp_path / "no-such-socket-dir")
@@ -4497,7 +4504,7 @@ class TestWakeability:
                 ["bash", str(MAILBOX), "watch", "--status", "--role", "1", "--wave", wave],
                 capture_output=True, text=True, env=env, check=False, timeout=60,
             )
-            assert _detail(st, "FLOW_MAILBOX_WATCH_STATE") == "armed", st.stdout
+            assert _detail(st, "FLOW_MAILBOX_WATCH_STATE") == "wake-unknown", st.stdout
             assert _detail(st, "FLOW_MAILBOX_SESSION_WATCHERS") == "unknown"
             second = subprocess.run(
                 ["bash", str(MAILBOX), "watch", "--role", "1", "--wave", wave,

@@ -1715,10 +1715,16 @@ load_mailbox() {
   return 0
 }
 
-# mailbox_watch_state ROLE -> armed | no-wake | stale | dead | absent | unknown
+# mailbox_watch_state ROLE -> armed | no-wake | wake-unknown | stale | dead |
+# absent | unknown
 # `no-wake` (#1228): watchers exist, none has a Claude Code session in its
 # ancestry - a `supervise` daemon alone. It polls and keeps the heartbeat fresh,
 # so before #1228 it rendered `armed` over sessions that were deaf.
+# `wake-unknown` (#1402): watchers exist, but whether any is session-parented
+# is UNREADABLE (no socket directory, or the ancestry walk vanished mid-walk).
+# Before #1402 this also rendered `armed`, on a guess in the opposite
+# direction from `no-wake`'s own gap - the fix for one gap is not automatically
+# the fix for the other.
 # The value is the mailbox's FUSED verdict (#801) - the live watcher count
 # folded into the heartbeat stamp - not the raw stamp. Before #801 this rendered
 # `watch=armed` for a role whose watch had already exited, because the stamp is
@@ -3599,9 +3605,11 @@ case "$VERB" in
         # watcher behind it is the case that read `armed` and cost three
         # workers their wave. `unknown` counts too - an unassessable watch is
         # not an armed one, and rendering it as clean is this bug's whole
-        # shape (the #800 convention).
+        # shape (the #800 convention). `wake-unknown` (#1402) joins them for
+        # the same reason, over a different gap: the watcher count IS known
+        # here, only its wakeability is not - still not a confirmed armed.
         case "$ws" in
-          absent|stale|dead|unknown|no-wake)
+          absent|stale|dead|unknown|no-wake|wake-unknown)
             WATCH_UNARMED=$((WATCH_UNARMED + 1))
             case "$ws" in
               no-wake) WATCH_DEAF="$WATCH_DEAF $r(no-wake - $(mailbox_watch_watchers "$r") watcher(s) polling, none session-parented)" ;;
@@ -3609,6 +3617,7 @@ case "$VERB" in
               dead)    WATCH_DEAF="$WATCH_DEAF $r(dead - last wake $(human_age "$(mailbox_watch_age "$r")") ago, 0 watchers)" ;;
               stale)   WATCH_DEAF="$WATCH_DEAF $r(stale $(human_age "$(mailbox_watch_age "$r")"))" ;;
               unknown) WATCH_DEAF="$WATCH_DEAF $r(UNKNOWN - watcher count unreadable)" ;;
+              wake-unknown) WATCH_DEAF="$WATCH_DEAF $r(WAKE-UNKNOWN - $(mailbox_watch_watchers "$r") watcher(s) polling, wakeability unreadable)" ;;
             esac
             ;;
         esac
@@ -3867,6 +3876,11 @@ EOF
           dead)    extra="$extra watch=DEAD($(mailbox_watch_watchers "$r") watchers)" ;;
           absent)  extra="$extra watch=ABSENT" ;;
           unknown) extra="$extra watch=UNKNOWN" ;;
+          # #1402: polled, but wakeability unreadable - never collapsed into
+          # `armed` (the pre-#1402 reading) or into a plain not-armed word;
+          # its own token, same capitalisation convention as the other
+          # "could not tell" case above.
+          wake-unknown) extra="$extra watch=WAKE-UNKNOWN($(mailbox_watch_watchers "$r") watchers, session unreadable)" ;;
         esac
         # The route column (issue #814), a SIBLING of watch, never fused into
         # it: `watch=` answers "is a process polling" (#821-affected),

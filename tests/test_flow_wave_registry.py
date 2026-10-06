@@ -2947,6 +2947,55 @@ class TestWatchColumn:
             except OSError:
                 pass
 
+    def test_a_watch_with_unreadable_lineage_reads_WAKE_UNKNOWN_not_armed(
+        self, tmp_path: Path
+    ) -> None:
+        """Nit Store / issue #1402, the roster half. No socket directory to
+        test ancestry against: whether this watcher could wake anyone is
+        UNREADABLE, not confirmed either way. Before #1402 this fell through
+        to the pre-#1228 reading and rendered `watch=armed`, on a guess in
+        the opposite direction from the `no-wake` test above - a watcher this
+        instrument cannot assess is not thereby a healthy one. The watcher
+        count IS confirmed (1 process, live), so this must still count
+        toward WATCH_UNARMED (it is not a confirmed armed watch either),
+        under its own distinct word.
+        """
+        _run(tmp_path, "register", "worker-H", "--wave", "cpp", "--socket", "uds:/tmp/h.sock")
+        env = os.environ.copy()
+        env.update({"FLOW_WAVE_REGISTRY_DIR": str(tmp_path / "reg")})
+        env.pop("FLOW_WAVE_MAILBOX_DIR", None)
+        env.pop("FLOW_WAVE_NOW", None)
+        env["FLOW_WAVE_SOCK_DIR"] = str(tmp_path / "no-such-socket-dir")
+        assert not (tmp_path / "no-such-socket-dir").exists()  # precondition
+        out = subprocess.run(
+            ["bash", "-c",
+             'bash "$0" watch --role worker-H --wave cpp --timeout 60 --interval 1 --peek '
+             '</dev/null >/dev/null 2>&1 & echo $!', str(MAILBOX)],
+            capture_output=True, text=True, env=env, check=True, timeout=30,
+        )
+        orphan = int(out.stdout.strip())
+        try:
+            wf = tmp_path / "reg" / "cpp" / ".watch-worker-H"
+            deadline = time.time() + 15
+            while not wf.exists() and time.time() < deadline:
+                time.sleep(0.05)
+            assert wf.exists(), "orphan watch never armed"  # precondition
+            unknown_env = {"FLOW_WAVE_SOCK_DIR": str(tmp_path / "no-such-socket-dir")}
+            p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID, extra_env=unknown_env)
+            row = _row(p, "worker-H")
+            assert "watch=WAKE-UNKNOWN(1 watchers, session unreadable)" in row, row
+            assert "watch=armed" not in row
+            assert _detail(p, "FLOW_WAVE_WATCH_UNARMED") == "1"
+            assert "worker-H(WAKE-UNKNOWN - 1 watcher(s) polling, wakeability unreadable)" in p.stdout
+            j = _run(tmp_path, "list", "--wave", "cpp", "--json", live=SELF_PID, extra_env=unknown_env)
+            watch = _json_payload(j)["worker-H"]["watch"]
+            assert watch["state"] == "wake-unknown" and watch["session_watchers"] is None
+        finally:
+            try:
+                os.kill(orphan, 9)
+            except OSError:
+                pass
+
     def test_an_exited_watch_reads_DEAD_not_armed(self, tmp_path: Path) -> None:
         """The #801 regression at the surface that misled the orchestrator.
 
