@@ -589,11 +589,13 @@ def _validate_bundle(by_kind: dict[str, list[tuple[Path, dict]]]) -> list[str]:
     lifecycles = _paths_by_attempt(ATTEMPT_LIFECYCLE)
     manifests_by_attempt = _paths_by_attempt(ARTIFACT_MANIFEST)
     receipts_by_attempt = _paths_by_attempt(INSTALLATION_RECEIPT)
+    evidence_by_attempt = _paths_by_attempt(SKILL_EVIDENCE)
 
     for kind, per_attempt, label in (
         (ATTEMPT_LIFECYCLE, lifecycles, "attempt-lifecycle"),
         (ARTIFACT_MANIFEST, manifests_by_attempt, "artifact-manifest"),
         (INSTALLATION_RECEIPT, receipts_by_attempt, "installation-receipt"),
+        (SKILL_EVIDENCE, evidence_by_attempt, "skill-evidence"),
     ):
         for aid, paths in sorted(per_attempt.items()):
             if len(paths) > 1:
@@ -692,6 +694,14 @@ def _validate_bundle(by_kind: dict[str, list[tuple[Path, dict]]]) -> list[str]:
                 continue
             external = entry.get("external_evidence")
             if not isinstance(external, dict) or external.get("present") is not True:
+                continue
+            # skillc's own exemption (records.md:885-889, `_skill_evidence_binding`
+            # at skillc 2202603): `unmatched`/`no-correlating-attempt` is the
+            # HONEST report that this digest does not correlate to this attempt's
+            # own capture - not a forged claim that it does. Restated verbatim so
+            # a conformant GOOD case (skillc's own
+            # `skill-evidence-no-correlating-attempt`) is not refused here.
+            if external.get("reconciliation") == "unmatched" and external.get("reason") == "no-correlating-attempt":
                 continue
             ref = external.get("artifact_ref")
             ref_path = ref.get("path") if isinstance(ref, dict) else None

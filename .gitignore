@@ -123,6 +123,15 @@ desktop.ini
 # passing on every dev box. The `**` is load-bearing - a case tree nests as deep
 # as the repository it models. Same trap as #964/#953, third location.
 !controls/*/cases/**/*.json
+# skillc bundle-rule conformance fixtures (issue #1369) - tracked despite *.json
+# above, same trap as #1012/#924 one directory over. These are skillc's OWN
+# golden bundles, copied verbatim to prove `check-behavioral-eval.py`'s
+# hand-restated subset of skillc's bundle rules still agrees with skillc,
+# which `!controls/*/cases/**/*.json` above cannot reach because this is a
+# sibling tree to `cases/`, not under it. Without this negation the fixtures
+# silently stop existing in a clean clone and
+# `tests/test_behavioral_eval_skillc_conformance.py` collects zero real cases.
+!controls/behavioral-eval/skillc-conformance/**/*.json
 # QA regression-export fixture (issue #1291) - tracked despite *.json above. The
 # lockfile pins the runner version the CI image's browsers match, and the repro
 # spec IS the confirmed bug the demonstration exports; without either the demo

@@ -734,6 +734,8 @@ def _write(directory: Path, **named: dict) -> None:
     ("bad-bundle-regrade-broken-lineage", "bundle-invalid", "not retained in this bundle"),
     ("bad-bundle-evidence-unverified", "evidence-unverified", "not itself readable"),
     ("bad-bundle-contradicting", "inconclusive", "rendered as unknown"),
+    ("bad-bundle-duplicate-attempt", "bundle-invalid", "more than once"),
+    ("bad-bundle-empty-ledger", "bundle-invalid", "nothing to account for"),
 ])
 def test_each_registered_bundle_case_reports_its_verdict(case: str, expect_verdict: str, needle: str) -> None:
     verdict, detail = mod.evaluate(CONTROLS / "cases" / case)

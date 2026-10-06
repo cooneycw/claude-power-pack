@@ -1,0 +1,46 @@
+{
+ "version": 2,
+ "kind": "installation-receipt",
+ "producer": "subject-adapter",
+ "checked_by": "controller",
+ "attempt_id": "att-1",
+ "trial_id": "t-1",
+ "subject": {
+  "locator": "github.com/example/skills",
+  "revision": "abc123",
+  "digest": "sha256:5a"
+ },
+ "surface": "codex-skills",
+ "adapter": {
+  "name": "example-adapter",
+  "version": "0.1"
+ },
+ "client": {
+  "name": "codex",
+  "version": "1.0"
+ },
+ "layers": [
+  {
+   "name": "AGENTS.md",
+   "digest": "sha256:la"
+  }
+ ],
+ "dependencies": [],
+ "allowed_writes": [
+  "workspace/"
+ ],
+ "installed": [
+  {
+   "path": ".codex/skills/slug/SKILL.md",
+   "digest": "sha256:i1"
+  },
+  {
+   "path": ".codex/skills/other/SKILL.md",
+   "digest": "sha256:i2"
+  }
+ ],
+ "readiness": {
+  "discovery_canary": "SATISFIED",
+  "baseline_absence": "SATISFIED"
+ }
+}

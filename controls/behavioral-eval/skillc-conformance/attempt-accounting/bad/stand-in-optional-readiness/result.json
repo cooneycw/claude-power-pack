@@ -1,0 +1,35 @@
+{
+ "version": 2,
+ "kind": "verified-result",
+ "producer": "assembler",
+ "attempt_id": "att-1",
+ "trial_id": "t-1",
+ "result_id": "res-1",
+ "grader": {
+  "id": "slug-grader",
+  "revision": "g1"
+ },
+ "graded_digests": [
+  "sha256:aa"
+ ],
+ "criteria": [
+  {
+   "id": "c1",
+   "mandatory": true,
+   "outcome": "SATISFIED",
+   "evidence": [
+    "grader-log:c1"
+   ]
+  },
+  {
+   "id": "installation-ready",
+   "mandatory": false,
+   "outcome": "UNKNOWN",
+   "missing": "no installation receipt on the agent-trial path; observation.json stands in for it in attempt accounting but does not establish that the subject was installed and discovered"
+  }
+ ],
+ "status": "PASS",
+ "verification": {
+  "readiness_source": "agent-observation"
+ }
+}
