@@ -1,19 +1,20 @@
 {
   "skill": "flow-check",
   "reference": {
-    "description_digest": "sha256:4ae71d5cea400be68a7005097008524bd7a63c590b0a7a8dbc4c12abfd58d19d",
-    "body_digest": "sha256:512b3b45e3b55184b3de739ae6915c2810141ec522a9bdfd89a5a792e3277e70",
-    "source": "skillc evals/subjects/cpp-codex-flow-check/evidence/inventory.json (profile pinned at 85e9b03ad2af1c41020ff6d92d36fa257bdacd2b, pre-#1369; see check-skill-coverage-map.py's module docstring)"
+    "description_digest": "sha256:55531e9c8e5c083130cb4edcb03a88cbc43698286ce4d89c0120540ebbc04be6",
+    "body_digest": "sha256:4b63bf3f537d2e23e61cc4e276f3fe16b0a1a9cfa1d22caf325c791250fc71ff",
+    "source": "skillc evals/subjects/cpp-codex-flow-check-ea6dbfa/evidence/inventory.json (profile pinned at ea6dbfa45f9308ee6ba60f032d8e7031bd6938a1; see check-skill-coverage-map.py's module docstring)"
   },
   "diagnose": {
-    "skillc_commit": "bbd4ed6d392c1c0119153794cd04d6c4da44ef8a",
-    "cpp_revision_snapshot": "8ff62cabac2a7a889192a7733d188f17baf33ef5",
-    "command": "uv run --no-sync skillc profile diagnose /tmp/skill-coverage-snapshot-z6u6c0yw/profile.json --repo /workspace/.work/cpp",
-    "recorded_at": "2026-10-06T15:38:54Z",
+    "skillc_commit": "841689bf13552be71281c9d1603f9ab007b2e612",
+    "profile_dir": "cpp-codex-flow-check-ea6dbfa",
+    "cpp_revision_snapshot": "ea6dbfa45f9308ee6ba60f032d8e7031bd6938a1",
+    "command": "uv run --no-sync skillc profile diagnose /tmp/skill-coverage-snapshot-04q41tkk/profile.json --repo /workspace/.work/cpp",
+    "recorded_at": "2026-10-06T20:58:07Z",
     "result": {
       "diagnostic_schema": 1,
       "profile": "cpp-codex-flow-check",
-      "revision": "8ff62cabac2a7a889192a7733d188f17baf33ef5",
+      "revision": "ea6dbfa45f9308ee6ba60f032d8e7031bd6938a1",
       "selection": [
         "flow-check"
       ],
@@ -21,224 +22,12 @@
       "complete": true,
       "skills": {
         "flow-check": {
-          "status": "broken",
-          "problems": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10,
-            11,
-            12,
-            13,
-            14,
-            15,
-            16,
-            17,
-            18,
-            19,
-            20
-          ]
+          "status": "intact",
+          "problems": []
         }
       },
-      "problems": [
-        {
-          "id": 0,
-          "category": "unresolved-reference",
-          "detail": "unresolved reference: ~/Projects/claude-power-pack/templates/Makefile.example (in codex/skills/flow-check/lib/cicd/cli.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
-          "skills": [
-            "flow-check"
-          ],
-          "in": "codex/skills/flow-check/lib/cicd/cli.py"
-        },
-        {
-          "id": 1,
-          "category": "unresolved-reference",
-          "detail": "unresolved reference: ~/Projects/claude-power-pack/templates/cicd.yml.example (in codex/skills/flow-check/lib/cicd/cli.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
-          "skills": [
-            "flow-check"
-          ],
-          "in": "codex/skills/flow-check/lib/cicd/cli.py"
-        },
-        {
-          "id": 2,
-          "category": "unresolved-reference",
-          "detail": "unresolved reference: /usr/local/bin (in codex/skills/flow-check/lib/cicd/container.py, absolute); each needs a dependency that satisfies it or an unsupported entry with a reason",
-          "skills": [
-            "flow-check"
-          ],
-          "in": "codex/skills/flow-check/lib/cicd/container.py"
-        },
-        {
-          "id": 3,
-          "category": "unresolved-reference",
-          "detail": "unresolved reference: /usr/local/bin/app (in codex/skills/flow-check/lib/cicd/container.py, absolute); each needs a dependency that satisfies it or an unsupported entry with a reason",
-          "skills": [
-            "flow-check"
-          ],
-          "in": "codex/skills/flow-check/lib/cicd/container.py"
-        },
-        {
-          "id": 4,
-          "category": "unresolved-reference",
-          "detail": "unresolved reference: /usr/local/bin/uv (in codex/skills/flow-check/lib/cicd/container.py, absolute); each needs a dependency that satisfies it or an unsupported entry with a reason",
-          "skills": [
-            "flow-check"
-          ],
-          "in": "codex/skills/flow-check/lib/cicd/container.py"
-        },
-        {
-          "id": 5,
-          "category": "unresolved-reference",
-          "detail": "unresolved reference: /usr/local/lib/python3.12 (in codex/skills/flow-check/lib/cicd/container.py, absolute); each needs a dependency that satisfies it or an unsupported entry with a reason",
-          "skills": [
-            "flow-check"
-          ],
-          "in": "codex/skills/flow-check/lib/cicd/container.py"
-        },
-        {
-          "id": 6,
-          "category": "unresolved-reference",
-          "detail": "unresolved reference: ${HOME}/Projects (in codex/skills/flow-check/lib/cicd/manifest.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
-          "skills": [
-            "flow-check"
-          ],
-          "in": "codex/skills/flow-check/lib/cicd/manifest.py"
-        },
-        {
-          "id": 7,
-          "category": "unresolved-reference",
-          "detail": "unresolved reference: ~/.cache/pip (in codex/skills/flow-check/lib/cicd/pipeline.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
-          "skills": [
-            "flow-check"
-          ],
-          "in": "codex/skills/flow-check/lib/cicd/pipeline.py"
-        },
-        {
-          "id": 8,
-          "category": "unresolved-reference",
-          "detail": "unresolved reference: ~/.cache/pypoetry (in codex/skills/flow-check/lib/cicd/pipeline.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
-          "skills": [
-            "flow-check"
-          ],
-          "in": "codex/skills/flow-check/lib/cicd/pipeline.py"
-        },
-        {
-          "id": 9,
-          "category": "unresolved-reference",
-          "detail": "unresolved reference: ~/.cache/uv (in codex/skills/flow-check/lib/cicd/pipeline.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
-          "skills": [
-            "flow-check"
-          ],
-          "in": "codex/skills/flow-check/lib/cicd/pipeline.py"
-        },
-        {
-          "id": 10,
-          "category": "unresolved-reference",
-          "detail": "unresolved reference: ~/.cache/yarn (in codex/skills/flow-check/lib/cicd/pipeline.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
-          "skills": [
-            "flow-check"
-          ],
-          "in": "codex/skills/flow-check/lib/cicd/pipeline.py"
-        },
-        {
-          "id": 11,
-          "category": "unresolved-reference",
-          "detail": "unresolved reference: ~/.cargo (in codex/skills/flow-check/lib/cicd/pipeline.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
-          "skills": [
-            "flow-check"
-          ],
-          "in": "codex/skills/flow-check/lib/cicd/pipeline.py"
-        },
-        {
-          "id": 12,
-          "category": "unresolved-reference",
-          "detail": "unresolved reference: ~/.local/share/pnpm (in codex/skills/flow-check/lib/cicd/pipeline.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
-          "skills": [
-            "flow-check"
-          ],
-          "in": "codex/skills/flow-check/lib/cicd/pipeline.py"
-        },
-        {
-          "id": 13,
-          "category": "unresolved-reference",
-          "detail": "unresolved reference: ~/.local/share/powershell/Modules (in codex/skills/flow-check/lib/cicd/pipeline.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
-          "skills": [
-            "flow-check"
-          ],
-          "in": "codex/skills/flow-check/lib/cicd/pipeline.py"
-        },
-        {
-          "id": 14,
-          "category": "unresolved-reference",
-          "detail": "unresolved reference: ~/.npm (in codex/skills/flow-check/lib/cicd/pipeline.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
-          "skills": [
-            "flow-check"
-          ],
-          "in": "codex/skills/flow-check/lib/cicd/pipeline.py"
-        },
-        {
-          "id": 15,
-          "category": "unresolved-reference",
-          "detail": "unresolved reference: ~/go/pkg/mod (in codex/skills/flow-check/lib/cicd/pipeline.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
-          "skills": [
-            "flow-check"
-          ],
-          "in": "codex/skills/flow-check/lib/cicd/pipeline.py"
-        },
-        {
-          "id": 16,
-          "category": "unresolved-reference",
-          "detail": "unresolved reference: ~/.cache (in codex/skills/flow-check/lib/cicd/runner.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
-          "skills": [
-            "flow-check"
-          ],
-          "in": "codex/skills/flow-check/lib/cicd/runner.py"
-        },
-        {
-          "id": 17,
-          "category": "unresolved-reference",
-          "detail": "unresolved reference: ${HOME}/Projects (in codex/skills/flow-check/lib/cicd/steps.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
-          "skills": [
-            "flow-check"
-          ],
-          "in": "codex/skills/flow-check/lib/cicd/steps.py"
-        },
-        {
-          "id": 18,
-          "category": "unresolved-reference",
-          "detail": "unresolved reference: /opt/venv/bin/pytest (in codex/skills/flow-check/lib/cicd/steps.py, absolute); each needs a dependency that satisfies it or an unsupported entry with a reason",
-          "skills": [
-            "flow-check"
-          ],
-          "in": "codex/skills/flow-check/lib/cicd/steps.py"
-        },
-        {
-          "id": 19,
-          "category": "unresolved-reference",
-          "detail": "unresolved reference: ${CLAUDE_PLUGIN_ROOT}/scripts/flow-finish-gate.sh (in codex/skills/flow-check/reference.md, variable-rooted); each needs a dependency that satisfies it or an unsupported entry with a reason",
-          "skills": [
-            "flow-check"
-          ],
-          "in": "codex/skills/flow-check/reference.md"
-        },
-        {
-          "id": 20,
-          "category": "unresolved-reference",
-          "detail": "unresolved reference: $CPP_DIR/scripts/execution-evidence-verify.py (in codex/skills/flow-check/reference.md, variable-rooted); each needs a dependency that satisfies it or an unsupported entry with a reason",
-          "skills": [
-            "flow-check"
-          ],
-          "in": "codex/skills/flow-check/reference.md"
-        }
-      ],
-      "problem_count": 21
+      "problems": [],
+      "problem_count": 0
     },
     "closure_digests": {
       "SKILL.md": "sha256:71d4652bbee21dca77393994d3809260c23bf38ca4d59c1f11bcc16dbe16260b",

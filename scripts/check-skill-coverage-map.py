@@ -37,10 +37,14 @@ skillc main @ bbd4ed6/2202603): neither #1369's bundle reader
 "Freshness against the CURRENT checkout (R10) is NOT checked here - that is
 #1370's job") nor skillc #272's coverage-report assembler expose a
 {revision, skill, digest} tuple for content-freshness. So the reference stays
-skillc #265's own profile pin (`85e9b03`), read from its committed
-`evidence/inventory.json` values and vendored into the same snapshot file -
-and the output says so explicitly, rather than implying a newer reference
-exists.
+whichever skillc profile pin `skill-coverage-snapshot.py` was last pointed at
+(`--profile-dir`, #1370 refresh) - NOT NAMED HERE, deliberately: skillc
+re-declares a profile as a new directory when it needs a new pin, so a pin
+named in this docstring would strand it the next time that happens, exactly
+as happened to the original `85e9b03` mention. Read the CURRENT pin from the
+committed snapshot's own provenance instead - `docs/measurements/skill-
+coverage/<skill>.json`'s `reference.source` and `diagnose.profile_dir` - and
+the output says so explicitly, rather than implying a newer reference exists.
 
 Output states (five, not fewer - "not evaluated" (unmapped) and "unknown"
 (mapped, undecidable) are different claims with different remedies, #1367

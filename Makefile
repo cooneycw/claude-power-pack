@@ -824,12 +824,15 @@ skill-coverage-map-check:
 
 ## Regenerates a vendored skill-coverage snapshot (#1370) - the ONLY place
 ## skillc runs from this repository, and never in CI: the script itself
-## refuses under CI and on a dirty tree. Requires --cpp and --skillc
-## checkout paths; run by hand, e.g.:
-##   make skill-coverage-snapshot SKILL=flow-check CPP=/path/to/cpp SKILLC=/path/to/skillc
+## refuses under CI and on a dirty tree. Requires --cpp, --skillc and
+## --profile-dir (the directory under <skillc>/evals/subjects/ for this
+## profile - no default, since skillc re-declares a profile as a NEW
+## directory when it needs a new pin, #1370 refresh); run by hand, e.g.:
+##   make skill-coverage-snapshot SKILL=flow-check CPP=/path/to/cpp \
+##     SKILLC=/path/to/skillc PROFILE_DIR=cpp-codex-flow-check-ea6dbfa
 ## verify-coverage: utility skill-coverage-snapshot - regenerates the vendored skillc profile-diagnose snapshot skill-coverage-map-check reads; it issues no verdict
 skill-coverage-snapshot:
-	@python3 scripts/skill-coverage-snapshot.py $(SKILL) --cpp $(CPP) --skillc $(SKILLC)
+	@python3 scripts/skill-coverage-snapshot.py $(SKILL) --cpp $(CPP) --skillc $(SKILLC) --profile-dir $(PROFILE_DIR)
 
 ## QA regression export, three-arm demonstration (issue #1291). Exports the
 ## fixture's committed repro spec into a scratch copy of the fixture consumer, then

@@ -1217,22 +1217,31 @@ empty list - and reports `current` over the known-bad input it misses.
 says "Freshness against the CURRENT checkout (R10) is NOT checked here -
 that is #1370's job") nor skillc #272's coverage-report assembler expose a
 `{revision, skill, digest}` tuple for content freshness, so the reference
-stays skillc #265's own profile pin (`85e9b03`) - and the snapshot's
-`reference.source` field says so explicitly rather than implying a newer one
-exists.
+stays whichever skillc profile pin `skill-coverage-snapshot.py` was last run
+against (its `--profile-dir`, #1370 refresh). NOT NAMED HERE - skillc
+re-declares a profile as a new directory when it needs a new pin, so naming
+one in this prose would strand it exactly as the original `85e9b03` mention
+was stranded by skillc #330. Read the CURRENT pin from the committed
+snapshot's own provenance: `docs/measurements/skill-coverage/<skill>.json`'s
+`reference.source` and `diagnose.profile_dir` fields say so explicitly,
+rather than this document implying a fixed one exists.
 
-**The first committed snapshot is the real one, not a fixture.**
-`docs/measurements/skill-coverage/flow-check.json` was generated against CPP
-main @ `8ff62ca` and skillc main @ `bbd4ed6`, and against current main it
-drives the gate's real controls on BOTH axes AT ONCE, live:
-`tests/test_skill_coverage_map.py::test_live_run_against_main_reports_both_axes_stale`
-asserts the real `reason` names axis 1's finding (#1380's shipped
-description change against the `85e9b03`-pinned reference) and axis 2's
-(`execution-evidence-verify.py` has no skillc dependency) in the same
-output.
-`test_stale_dependency_real_fixture_shape` keeps the same real problem shape
-pinned in isolation (axis 1 held current), so the two tests check the same
-real-world fact from two different angles - one isolated, one live.
+**The committed snapshot is the real one, not a fixture - and it has already
+been refreshed once.** The first snapshot (CPP `8ff62ca`, skillc `bbd4ed6`,
+profile `cpp-codex-flow-check` @ `85e9b03`) showed both axes genuinely stale
+at once: axis 1 from #1380's description change, axis 2 from
+`execution-evidence-verify.py` having no skillc dependency in that profile.
+That profile stayed stale by design (skillc's own stated rule: it is not
+edited once it has a citing case contract), so skillc #330 re-declared a
+SEPARATE profile directory (`cpp-codex-flow-check-ea6dbfa`) with the
+dependency added and the description/body re-pinned at CPP `ea6dbfa` - and
+`docs/measurements/skill-coverage/flow-check.json` was regenerated against
+it, reporting `current` on both axes.
+`test_stale_dependency_real_fixture_shape` keeps the ORIGINAL real problem
+shape pinned in an immutable synthetic fixture regardless of which profile
+the committed snapshot currently points at - it is a regression test for
+the code's behavior on a broken-dependency result, not a live assertion
+about today's snapshot.
 
 **v1's map is the degenerate 1:1 case** (`flow-check` only; skillc has only
 one CPP profile today). Map-level staleness - a skill's file set outgrowing
