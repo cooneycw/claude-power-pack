@@ -656,6 +656,32 @@ Proceeding to quality gates...
 
 If review finds CRITICAL issues that Codex cannot fix via re-prompt (e.g., fundamentally wrong approach), STOP and report. Offer to either re-prompt Codex or hand off to manual implementation.
 
+4. **Record the review as a counter-model receipt (issue #1383).** This review
+   IS the cross-model review for this lane - Codex implemented, this Claude
+   session reviewed - and the finish gate (`flow-finish-gate.sh`) refuses a PR
+   whose branch carries no receipt. Record it in the DELEGATED direction: the
+   implementer is derived from the Step 4 exec stream and the rollout its thread
+   names, the reviewer from this session's transcript. Never record it as a skip
+   (no reviewer was absent) and never as a `/codex:code_review` run (that would
+   be Codex reviewing its own code). Only in a repository that already keeps
+   receipts - writing one elsewhere would enrol it:
+
+   ```bash
+   CM_RECEIPT=~/.claude/scripts/counter-model-receipt.py
+   [ -f "$CM_RECEIPT" ] || CM_RECEIPT="${CLAUDE_PLUGIN_ROOT}/scripts/counter-model-receipt.py"
+   if [ -d docs/measurements/counter-model ] && [ -f "$CM_RECEIPT" ]; then
+       python3 "$CM_RECEIPT" write --dir docs/measurements/counter-model \
+           --issue "$ISSUE_NUM" --branch "$(git branch --show-current)" --status ran \
+           --implementer-exec-log "$CODEX_OUTPUT" \
+           --reviewer-session-id "$CLAUDE_CODE_SESSION_ID" \
+           --accepted <findings fixed> --rejected <n> --deferred <n>
+       git add docs/measurements/counter-model/*.json
+   fi
+   ```
+
+   A refusal (non-zero, no file) means an identity could not be derived - say
+   so in the PR body; do not hand-write a receipt to get past the gate.
+
 Report: `Step 5/8: Review complete - {PASS|N issues found}`
 
 ---

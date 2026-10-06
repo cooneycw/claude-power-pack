@@ -2001,3 +2001,180 @@ def test_the_tracking_notice_can_say_TRACKED_and_is_not_moved_by_a_neighbour(
     assert CM._tracking_state(target)[0] == "untracked"
     subprocess.run(["git", "-C", str(repo), "add", "receipt.json"], check=True)
     assert CM._tracking_state(target) == ("tracked", None)
+
+
+# --------------------------------------------------------------------------- #
+# The delegated direction (issue #1383): Codex implements, Claude reviews.
+# --------------------------------------------------------------------------- #
+
+def _delegated_args(tmp_path: Path, codex_model: str, claude_model: str) -> list[str]:
+    exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, codex_model)
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, claude_model)
+    return [
+        "--issue", "1383", "--branch", "b", "--status", "ran",
+        "--implementer-exec-log", str(exec_log),
+        "--codex-sessions-dir", str(sessions_dir),
+        "--reviewer-session-id", session_id,
+        "--claude-projects-dir", str(projects_dir),
+    ]
+
+
+def _delegated_receipt(**overrides: object) -> dict:
+    receipt = {
+        "schema": CM.SCHEMA,
+        "recorded_at": "2026-10-06T00:00:00Z",
+        "issue": "1383",
+        "branch": "b",
+        "status": "ran",
+        "direction": "delegated",
+        "implementer": "codex/gpt-fixture",
+        "implementer_evidence": {"thread_id": "t", "rollout": "2026/r-t.jsonl"},
+        "reviewer": "claude/opus-fixture",
+        "reviewer_evidence": {"session_id": "s"},
+        "passes": 1,
+        "counts": {"accepted": 0, "rejected": 0, "deferred": 0},
+        "red_cases": {"proposed": 0, "already_covered": 0},
+    }
+    receipt.update(overrides)
+    return {k: v for k, v in receipt.items() if v is not ...}
+
+
+def test_a_DELEGATED_review_is_recorded_with_both_sides_DERIVED(tmp_path: Path) -> None:
+    """The issue's own case: Codex implemented, the supervising Claude session
+    reviewed. Before #1383 there was no honest way to write this receipt, so the
+    finish gate went red on every /codex:auto run. Each identity is derived
+    from the side that produced it - never handed over as a value."""
+    proc = _write(tmp_path, *_delegated_args(tmp_path, "gpt-6-astra", "claude-opus-5-5"))
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["direction"] == "delegated"
+    assert receipt["implementer"] == "codex/gpt-6-astra"
+    assert receipt["reviewer"] == "claude/claude-opus-5-5"
+    assert receipt["implementer_evidence"]["thread_id"] == "thread-for-counter-model-test"
+    assert receipt["reviewer_evidence"] == {"session_id": "session-for-counter-model-test"}
+    assert CM.validate(receipt) == []
+
+
+def test_a_DELEGATED_receipt_naming_the_SAME_model_twice_is_REFUSED() -> None:
+    """NEGATIVE CONTROL (issue #1383). Recording the direction must not open a
+    door around the property: the reviewing model must not be the implementing
+    model, whichever way round the receipt says they sat."""
+    same = _delegated_receipt(implementer="claude/opus-fixture")
+    problems = CM.validate(same, "delegated")
+    assert any("must not be the implementing model" in p for p in problems), problems
+    # ...and the same receipt with two DIFFERENT models is clean, so the refusal
+    # above is about the collision and nothing else.
+    assert CM.validate(_delegated_receipt(), "delegated") == []
+
+
+@pytest.mark.parametrize("overrides, needle", [
+    ({"implementer_evidence": ...}, "implementer_evidence"),
+    ({"reviewer_evidence": {"thread_id": "t", "rollout": "r"}}, "session_id"),
+    ({"reviewer": "codex/gpt-fixture", "implementer": "codex/other"}, "not a Claude session"),
+    ({"direction": "sideways"}, "direction"),
+])
+def test_a_MALFORMED_delegated_receipt_is_refused(overrides: dict, needle: str) -> None:
+    problems = CM.validate(_delegated_receipt(**overrides), "delegated")
+    assert any(needle in p for p in problems), problems
+
+
+def test_a_delegated_SKIP_is_refused() -> None:
+    """The supervising session is always present on a delegated lane, so neither
+    committed skip reason - an inability to run the reviewer - can be true."""
+    skip = _delegated_receipt(status="skipped", skip_reason="reviewer-unavailable",
+                              reviewer=None, reviewer_evidence=...,
+                              passes=..., counts=..., red_cases=...)
+    problems = CM.validate(skip, "delegated")
+    assert any("is not 'ran'" in p for p in problems), problems
+
+
+def test_a_DEFAULT_direction_receipt_may_not_carry_implementer_evidence() -> None:
+    receipt = _delegated_receipt(direction=..., implementer="claude/opus-fixture",
+                                 reviewer="codex/gpt-fixture",
+                                 reviewer_evidence={"thread_id": "t", "rollout": "r"})
+    problems = CM.validate(receipt, "default")
+    assert any("only on a delegated receipt" in p for p in problems), problems
+    del receipt["implementer_evidence"]
+    assert CM.validate(receipt, "default") == []
+
+
+@pytest.mark.parametrize("extra", [
+    ["--reviewer-exec-log", "x.jsonl"],
+    ["--implementer-session-id", "someone"],
+])
+def test_the_two_directions_cannot_be_MIXED(tmp_path: Path, extra: list[str]) -> None:
+    proc = _write(tmp_path, *_delegated_args(tmp_path, "gpt-a", "opus-b"), *extra)
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "cannot be combined" in proc.stderr
+    assert not list(tmp_path.glob("*.json"))
+
+
+def test_a_reviewer_session_alone_is_not_a_direction(tmp_path: Path) -> None:
+    proc = _write(tmp_path, "--issue", "1", "--branch", "b", "--status", "ran",
+                  "--reviewer-session-id", "s")
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "requires --implementer-exec-log" in proc.stderr
+
+
+def test_a_delegated_write_without_a_REVIEWER_session_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    args = _delegated_args(tmp_path, "gpt-a", "opus-b")
+    i = args.index("--reviewer-session-id")
+    del args[i:i + 2]
+    proc = _write(tmp_path, *args)
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "reviewing Claude session" in proc.stderr
+
+
+def test_a_delegated_write_whose_reviewer_session_has_NO_transcript_is_refused(
+    tmp_path: Path,
+) -> None:
+    args = _delegated_args(tmp_path, "gpt-a", "opus-b")
+    args[args.index("--reviewer-session-id") + 1] = "no-such-session"
+    proc = _write(tmp_path, *args)
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "reviewer session" in proc.stderr
+    assert not list(tmp_path.glob("*.json"))
+
+
+def test_a_THREADLESS_implementer_stream_is_refused_not_attributed(tmp_path: Path) -> None:
+    """Qwen Code and OpenCode streams name no Codex thread, so there is no
+    rollout to read the implementing model from. The writer refuses rather than
+    guessing - a receipt naming an implementer nobody can re-derive is worse
+    than none (issue #1383, deferred for those lanes)."""
+    args = _delegated_args(tmp_path, "gpt-a", "opus-b")
+    exec_log = Path(args[args.index("--implementer-exec-log") + 1])
+    exec_log.write_text(json.dumps({"type": "system", "model": "qwen3.8-code"}) + "\n",
+                        encoding="utf-8")
+    proc = _write(tmp_path, *args)
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "implementer exec log" in proc.stderr and "no thread_id" in proc.stderr
+    assert not list(tmp_path.glob("*.json"))
+
+
+def test_a_delegated_SKIP_is_refused_at_the_write_path(tmp_path: Path) -> None:
+    args = _delegated_args(tmp_path, "gpt-a", "opus-b")
+    args[args.index("--status") + 1] = "skipped"
+    proc = _write(tmp_path, *args, "--reason", "reviewer-unavailable")
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "requires --status ran" in proc.stderr
+
+
+@requires_git
+def test_the_GATE_CONTROL_delegated_receipt_is_itself_WELL_FORMED(tmp_path: Path) -> None:
+    """The finish gate reads only branch/head/status, so its control case
+    `good-delegated-receipt-at-head` would pass with any body. This pins that
+    the body it commits is a receipt this writer actually accepts - otherwise
+    the case would prove the gate accepts something no honest run can write."""
+    case = (ROOT / "controls" / "counter-model-enrolment" / "cases"
+            / "good-delegated-receipt-at-head")
+    work = tmp_path / "case"
+    shutil.copytree(case, work)
+    subprocess.run(["bash", "setup.sh"], cwd=work, check=True, capture_output=True)
+    receipt = json.loads(
+        (work / "docs/measurements/counter-model/receipt.json").read_text(encoding="utf-8")
+    )
+    assert receipt["direction"] == "delegated"
+    assert CM.validate(receipt, "control case") == []

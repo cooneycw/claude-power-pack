@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1383-counter-model-receipt-cannot-record-a-delegated-la",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "a463fa5e343407cd30f3dbd18462acb0528e58d3",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1383",
+  "passes": 2,
+  "recorded_at": "2026-10-06T11:13:18Z",
+  "red_cases": {
+    "already_covered": 8,
+    "proposed": 9
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/06/rollout-2026-10-06T07-11-41-01a110e9-84c4-7232-9276-7a59ea4b4488.jsonl",
+    "thread_id": "01a110e9-84c4-7232-9276-7a59ea4b4488"
+  },
+  "schema": 1,
+  "status": "ran"
+}

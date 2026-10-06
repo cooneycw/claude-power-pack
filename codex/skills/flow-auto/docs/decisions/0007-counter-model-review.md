@@ -147,6 +147,20 @@ records `reviewer_evidence` (`thread_id`, and the `rollout` path relative to the
 Codex sessions directory), so the reviewer it names can be re-derived on the
 host that ran it. Receipts written before #1269 carry neither and stay valid.
 
+**The property holds in either direction (#1383).** On the delegated lanes the
+roles invert: Codex implements and the supervising Claude session reviews the
+diff in that lane's Step 5. The writer used to model only "Claude implements,
+Codex reviews", so a delegated run could record nothing true - a `ran` receipt
+derived as Codex reviewing its own code, or a skip claiming a reviewer was
+absent. A delegated receipt now carries `"direction": "delegated"`, derives the
+implementer from the delegated exec stream (`implementer_evidence`: `thread_id`,
+`rollout`) and the reviewer from the Claude session (`reviewer_evidence`:
+`session_id`). The direction is inferred from which evidence was supplied, never
+declared. Nothing about the rule changes: a receipt naming one model on both
+sides is refused whichever way round it claims to be, and a receipt with no
+`direction` means the default one. Qwen and Gemma streams name no thread to read
+a model from, so those lanes are refused rather than attributed.
+
 That is a documented query rather than a summarising script, deliberately: a
 number that decides whether this stage becomes blocking should be derived in the
 open by whoever is deciding.

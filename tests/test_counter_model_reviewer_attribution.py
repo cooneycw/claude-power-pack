@@ -329,3 +329,31 @@ def test_the_session_header_model_cannot_decide_the_attribution(tmp_path: Path) 
     code, output = GATE.scan(fixture / "receipts", fixture / "rollouts", REPO)
     assert code == EXIT_OK, output
     assert "header-only-model" not in output
+
+
+def test_a_DELEGATED_receipt_is_excluded_not_misattributed(tmp_path: Path) -> None:
+    """Issue #1383 (counter-model review). On a delegated lane the Codex rollout
+    in the worktree is the IMPLEMENTER's and the reviewer is a Claude session.
+    Linking that rollout to the receipt's reviewer reported an honest receipt as
+    a disagreement. It is excluded with a note, and a corpus of only delegated
+    receipts examines nothing - unknown, never clean."""
+    fixture = _case(tmp_path, "good-agreement")
+    receipt_path = next((fixture / "receipts").glob("*.json"))
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    # Precondition: as the default direction, this fixture LINKS and agrees, so
+    # the rollout below is one the scan would otherwise attribute.
+    code, output = GATE.scan(fixture / "receipts", fixture / "rollouts", REPO)
+    assert code == 0 and "linked=1" in output, output
+    receipt.update({
+        "direction": "delegated",
+        "implementer": receipt["reviewer"],
+        "implementer_evidence": {"thread_id": "t", "rollout": "r.jsonl"},
+        "reviewer": "claude/claude-opus-5-5",
+        "reviewer_evidence": {"session_id": "s"},
+    })
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    code, output = GATE.scan(fixture / "receipts", fixture / "rollouts", REPO)
+    assert code == EXIT_UNKNOWN, output
+    assert "examined=0" in output
+    assert "ATTRIBUTION-FINDING:" not in output
+    assert "delegated receipt excluded" in output
