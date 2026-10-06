@@ -781,23 +781,30 @@ claude-md-behavior-check:
 ## fails the build on a VERDICT: nothing produces its input yet - the behavioural
 ## case is #1084 half B, which lives in skillc. ADR 0009 asks for the condition
 ## that would move this back, named NOW while nobody has a stake in the answer,
-## and the owner has RULED it (#1084 comments 6006877171, 6007022667), replacing
-## the old "waits on skillc #8/#9/#10" list (closed long ago) and the old
-## single-artifact trigger. Blocking needs BOTH: (1) a validated,
-## controller-produced pairing record (skillc#273) showing the degraded/mutated
-## arm FAIL and the normal arm PASS - never inferred from naming, bundle
-## co-location, or a self-declared field - and (2) a CPP-vs-baseline improvement
-## on that same case, under a predeclared criterion still pending its own owner
-## ruling. A no-effect result on a discriminating case is valid evidence,
-## rendered as such, but never satisfies (2) alone - and until skillc#273
-## exists, every artifact under `docs/measurements/behavioral-eval/` is "not
-## shown to discriminate" regardless of (2). Until both (1) and (2) hold the
-## gate stays advisory. Whoever lands both makes this
+## and the owner has RULED both halves of it (#1084 comments 6006877171,
+## 6007022667, 6014163660 - the last adopts the criterion below and supersedes
+## "still pending its own owner ruling"). Nothing here is inferred: skillc's
+## validated pairing record (skillc#273, merged) emits facts only, and this
+## issue's rule makes the call. Blocking needs BOTH:
+## (1) DISCRIMINATION - one-sided Fisher's exact test, intact pass rate >
+## degraded pass rate, alpha 0.05, over evaluable attempts of a certified
+## skillc#273 pair. DISCRIMINATING is p < 0.05; UNKNOWN is too few evaluable
+## attempts (tolerance predeclared per study in skillc#287) or an uncertified
+## pairing.
+## (2) IMPROVEMENT - the same test, CPP vs a no-CPP-skills baseline, alpha
+## 0.05, on the same task/grader/revision (1) certified. IMPROVED is p < 0.05;
+## NO_IMPROVEMENT_SHOWN (p >= 0.05) is valid evidence, rendered as such, but
+## never satisfies (2) alone. n, ordering and exclusions are predeclared per
+## study in skillc#287; no absolute pass-rate bar for either arm, no optional
+## stopping.
+## The flip needs both verdicts positive, on the same certified case and
+## revision, read from an artifact under `docs/measurements/behavioral-eval/`.
+## Until both hold the gate stays advisory. Whoever lands both makes this
 ## change with them.
 ## `--advisory`, not `|| true`: the gate maps a PRINTED verdict to 0, so a crash (a
 ## traceback exits 1, which is also the `failure` code) still fails. `|| true`
 ## rendered a crashed gate as "looked and found nothing".
-## verify-coverage: gate behavioral-eval-check - reads a behavioural-eval verified-result artifact and reports; advisory until skillc#273's pairing record and a ruled CPP-vs-baseline improvement both land (#1084); ci: runs behavioral-eval-check
+## verify-coverage: gate behavioral-eval-check - reads a behavioural-eval verified-result artifact and reports; advisory until both discrimination and improvement (#1084) report their positive verdict on the same certified case; ci: runs behavioral-eval-check
 behavioral-eval-check:
 	@python3 scripts/check-behavioral-eval.py --advisory
 
