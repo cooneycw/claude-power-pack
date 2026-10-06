@@ -251,6 +251,21 @@ def test_the_advisory_posture_names_what_would_end_it() -> None:
             "too') - case discrimination alone is not enough, and a no-effect "
             "result must not read as satisfying this condition"
         )
+        # #1084's 2026-10-06 follow-up ruling (comment 6014163660) adopted the
+        # improvement criterion and the repeats rule, superseding the earlier
+        # "still pending its own owner ruling" wording this preamble carried.
+        # Checking for "improvement" alone cannot tell a CURRENT citation from
+        # a stale one that already said "pending" - this is the second time
+        # this preamble has drifted behind a ruling (the first was #1374
+        # itself), so the fix is a citation check, not a wider word ban: it
+        # names the specific comment a reader needs, the same way the
+        # existing assertions name skillc#273 rather than just "a producer".
+        assert "6014163660" in preamble, (
+            "the flip condition does not cite the comment that adopted the "
+            "improvement criterion and the repeats rule - without it a reader "
+            "cannot tell this is the current ruling rather than an earlier, "
+            "now-superseded draft of it"
+        )
     else:
         # The flip condition, checked against the tree rather than against prose.
         # This is what makes the pre-commitment binding in the direction that

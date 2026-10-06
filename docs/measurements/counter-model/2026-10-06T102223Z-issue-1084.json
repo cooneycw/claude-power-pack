@@ -1,0 +1,24 @@
+{
+  "branch": "fix-1084-preamble-criterion-adopted",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "d35e6d074de9ecf9f37dad3435eb5a9a2a9abf01",
+  "implementer": "claude/claude-sonnet-5",
+  "issue": "1084",
+  "passes": 1,
+  "recorded_at": "2026-10-06T10:22:23Z",
+  "red_cases": {
+    "already_covered": 1,
+    "proposed": 1
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/06/rollout-2026-10-06T10-21-49-01a110bb-d9e8-7c22-9070-cf59e043dda1.jsonl",
+    "thread_id": "01a110bb-d9e8-7c22-9070-cf59e043dda1"
+  },
+  "schema": 1,
+  "status": "ran"
+}
