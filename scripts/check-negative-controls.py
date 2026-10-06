@@ -2250,7 +2250,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
     #: agree", and a declaration that stops being true reds as UNRESOLVED rather
     #: than decaying into silence.
     sanity_cases = [
-        (control_dir / c["input"], c["expect"], c.get("anchor_expect"))
+        (control_dir / c["input"], c["expect"], c.get("anchor_expect"), c["name"])
         for c in cases
         if c["expect"] in (GOOD, UNKNOWN)
     ]
@@ -2355,7 +2355,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
                 f"anchor {_anchor_label(anchor, case_path)}: missed the known-bad input (blind, as required)"
             )
 
-        for case_path, case_expect, anchor_expect in sanity_cases:
+        for case_path, case_expect, anchor_expect, case_name in sanity_cases:
             #: "known-GOOD" for a GOOD case, "known-UNEXAMINABLE" for an UNKNOWN
             #: one. The property is identical - the anchor must AGREE - but a
             #: message naming the wrong kind of input sends a reader looking for
@@ -2366,7 +2366,16 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
                 res.verdict = UNRESOLVED
                 res.details.append(f"anchor {_anchor_label(anchor, case_path)} could not be executed - {diag}")
                 return res
-            observed = _observe(code, good_exit, output, signal, unavailable, unknown_sig, good_sig)
+            # The SAME per-case override as the gate-side loop (issue #1395,
+            # counter-model review). Without it, an anchor whose clean answer
+            # disagrees with THIS case's own good_signal - but still matches the
+            # control-level one, or there is none - would read as agreeing: the
+            # anchor-sanity property would be checked against a weaker pattern
+            # than the one this case is actually pinned to.
+            effective_good_sig_for_case = case_good_signal.get(case_name, good_sig)
+            observed = _observe(
+                code, good_exit, output, signal, unavailable, unknown_sig, effective_good_sig_for_case
+            )
             # As in the known-bad loop above, and needed separately: an anchor can
             # miss the known-bad input correctly and still be incoherent on the
             # inputs meant to establish it differs in nothing else.

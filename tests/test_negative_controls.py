@@ -4320,6 +4320,16 @@ sys.exit(0)
 """
 
 
+#: Prints the SAME "expected" clean text the good case's own good_signal pins
+#: to, not just a silent exit (issue #1395's anchor-sanity half, counter-model
+#: review): a generic silently-exiting anchor cannot satisfy a case with its
+#: own required text, which is correctly UNRESOLVED rather than a crash, but
+#: these tests need an anchor that genuinely agrees to exercise the override.
+ANCHOR_SAYS_EXPECTED = """#!/usr/bin/env python3
+print("toy-gate: ok (expected)")
+"""
+
+
 def _two_good_signal_tree(tmp_path: Path, case_good_signal: str | None) -> Path:
     good_case: dict[str, object] = {"name": "good", "input": "cases/good", "expect": "GOOD"}
     if case_good_signal is not None:
@@ -4328,7 +4338,10 @@ def _two_good_signal_tree(tmp_path: Path, case_good_signal: str | None) -> Path:
         {"name": "bad", "input": "cases/bad", "expect": "BAD"},
         good_case,
     ]
-    return build_tree(tmp_path, TWO_GOOD_SIGNAL_GATE, cases=cases, detect_signal=r"^toy-gate: finding")
+    return build_tree(
+        tmp_path, TWO_GOOD_SIGNAL_GATE, anchor_src=ANCHOR_SAYS_EXPECTED, cases=cases,
+        detect_signal=r"^toy-gate: finding",
+    )
 
 
 def test_case_good_signal_unset_scores_exactly_as_before(tmp_path: Path) -> None:
@@ -4353,6 +4366,36 @@ def test_case_good_signal_catches_a_good_case_answering_for_the_wrong_reason(tmp
     assert verdict_of(result.stdout) == "UNSIGNALLED", result.stdout
     assert "good_signal" in result.stdout, result.stdout
     assert result.returncode == 1
+
+
+#: Blind like ANCHOR_SAYS_EXPECTED, but answers the OTHER case's clean text.
+ANCHOR_SAYS_OTHER = """#!/usr/bin/env python3
+print("toy-gate: ok (other)")
+"""
+
+
+def test_case_good_signal_reaches_the_anchor_sanity_check_too(tmp_path: Path) -> None:
+    """The anchor half of #1395 (counter-model review).
+
+    Without threading the case's own good_signal into the anchor-sanity
+    loop too, an anchor answering a DIFFERENT clean line than this case is
+    pinned to would still read as agreeing (whenever no control-level
+    good_signal exists to catch it, or a looser one would accept both) -
+    the anchor-sanity property would be checked against a weaker pattern
+    than the gate-side check just enforced one line above it.
+    """
+    good_case = {
+        "name": "good", "input": "cases/good", "expect": "GOOD",
+        "good_signal": r"^toy-gate: ok \(expected\)",
+    }
+    cases = [{"name": "bad", "input": "cases/bad", "expect": "BAD"}, good_case]
+    root = build_tree(
+        tmp_path, TWO_GOOD_SIGNAL_GATE, anchor_src=ANCHOR_SAYS_OTHER, cases=cases,
+        detect_signal=r"^toy-gate: finding",
+    )
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) in ("INERT", "UNRESOLVED"), result.stdout
+    assert result.returncode != 0
 
 
 def test_case_good_signal_overrides_a_broader_control_level_pattern(tmp_path: Path) -> None:
