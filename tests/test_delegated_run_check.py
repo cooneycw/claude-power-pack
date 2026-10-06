@@ -542,12 +542,23 @@ def test_verdicts_on_real_captures(
 # ---------------------------------------------------------------------------
 
 
-def test_a_run_whose_tool_call_was_denied_reports_success_and_says_so(tmp_path: Path) -> None:
-    """The #836 scenario end to end, both halves.
+def test_a_run_whose_only_tool_call_was_denied_reports_failure_with_its_reason(
+    tmp_path: Path,
+) -> None:
+    """The #836 scenario, re-ruled by issue #1379.
 
-    Either half alone is the bug: reporting `failure` would re-introduce the
-    reverted defect, and reporting `success` with nothing else would leave the
-    caller exactly as blind as before.
+    #836 ruled this 1-of-1 denial `success`: `is_fatal` stays non-recursive
+    (a denied call is the /gemma:auto fence working as designed, and that
+    verdict is UNCHANGED - this fixture still does not trip `is_fatal`).
+    But #836 explicitly left open whether "the process ran cleanly" answers
+    "did the work happen", and #1379's owner ruling settled it: it does not.
+    Zero successful calls out of one attempted is the same "nothing
+    happened" #1365 already flags at N>1, so this now reports `failure` -
+    via `all-tools-failed`, never via `is_fatal` going recursive, which
+    would be the reverted defect. The fix's whole requirement is that this
+    is never a BARE failure: TOOL_ERRORS and TOOL_ATTEMPTS both read 1, so a
+    caller can tell "declined its one forbidden action" from a multi-call
+    wipeout, without this helper ever parsing the deny-rule text itself.
     """
     output = write_jsonl(
         tmp_path / "denied-docker.jsonl",
@@ -562,9 +573,16 @@ def test_a_run_whose_tool_call_was_denied_reports_success_and_says_so(tmp_path: 
     )
     proc = run(str(output), "0", "--lane", "gemma", "--expect-tools")
     found = contract(proc.stdout)
-    assert proc.returncode == 0, proc.stdout
-    assert found["DELEGATED_RUN_STATUS"] == ["success"], "the fence working is not a failed run"
+    assert proc.returncode == 1, proc.stdout
+    assert found["DELEGATED_RUN_STATUS"] == ["failure"], (
+        "issue #1379: a 1-of-1 denial is zero accomplishment, same as a "
+        f"multi-call wipeout:\n{proc.stdout}"
+    )
+    assert found["DELEGATED_RUN_SIGNAL"] == ["all-tools-failed"], (
+        f"the failure must say why, not arrive bare:\n{proc.stdout}"
+    )
     assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["1"], "the refusal must be reported somewhere"
+    assert found["DELEGATED_RUN_TOOL_ATTEMPTS"] == ["1"], "and so must the denominator beside it"
 
 
 def test_tool_errors_is_emitted_as_zero_on_a_clean_run(clean_run: Path) -> None:
@@ -635,28 +653,44 @@ def test_a_non_tool_error_state_is_not_counted_as_a_tool_error(tmp_path: Path) -
 
 
 def test_the_tool_error_counter_can_fire_on_the_codex_lane() -> None:
-    """The missing committed case, on a REAL capture (issue #1054).
+    """The missing committed case, on a REAL capture (issue #1054), re-ruled
+    by issue #1379.
 
     `codex-command-failed.jsonl` is a genuine `codex exec --json` run whose one
-    command exited 3. Measured against the helper as it stood before this
-    change: `DELEGATED_RUN_TOOL_ERRORS: 0`, `DELEGATED_RUN_STATUS: success`,
-    and the prose "no tool call reported an error" - an affirmative claim about
-    a command that had just failed, not a silence.
+    command exited 3. Measured against the helper as it stood before #1365:
+    `DELEGATED_RUN_TOOL_ERRORS: 0`, `DELEGATED_RUN_STATUS: success`, and the
+    prose "no tool call reported an error" - an affirmative claim about a
+    command that had just failed, not a silence. #1365 fixed TOOL_ERRORS but
+    left STATUS at `success` for this exact fixture, because it is a 1-of-1
+    run and #1365 scoped `all-tools-failed` to N>1.
 
-    Both halves are asserted, as in the #836 pin: `failure` would re-introduce
-    the reverted defect where a denied call fails the run, and a non-zero count
-    with the verdict quietly moved is not this fix.
+    RED, measured directly against this fixture at main `9661967` (#1365
+    merged, #1379 not yet):
+        DELEGATED_RUN_EXIT: 0
+        DELEGATED_RUN_TOOL_ERRORS: 1
+        DELEGATED_RUN_STATUS: success
+
+    #1379's owner ruling: a failed command IS a zero-accomplishment run when
+    it is the only thing attempted, the same fact #1365 already reports for
+    N>1 regardless of cause (denial or genuine failure, undiscriminated).
+    `is_fatal` is not what flags it - that stays non-recursive, unchanged,
+    the #836 guard - `all-tools-failed` is, and it must say so rather than
+    leaving STATUS bare.
     """
     path = FIXTURES / "codex-command-failed.jsonl"
     assert path.exists(), f"missing fixture {path}"
 
     proc = run(str(path), "0", "--lane", "codex", "--expect-tools")
     found = contract(proc.stdout)
-    assert proc.returncode == 0, proc.stdout
+    assert proc.returncode == 1, proc.stdout
     assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["1"], proc.stdout
-    assert found["DELEGATED_RUN_STATUS"] == ["success"], (
-        "a failed command is not a failed RUN - widening the verdict is the "
-        "reverted #836 defect, not the fix for this one"
+    assert found["DELEGATED_RUN_TOOL_ATTEMPTS"] == ["1"], proc.stdout
+    assert found["DELEGATED_RUN_STATUS"] == ["failure"], (
+        "issue #1379: a single failed command with nothing else attempted is "
+        f"zero accomplishment:\n{proc.stdout}"
+    )
+    assert found["DELEGATED_RUN_SIGNAL"] == ["all-tools-failed"], (
+        f"never a bare STATUS: failure:\n{proc.stdout}"
     )
 
 
@@ -857,7 +891,8 @@ def test_each_arm_of_the_codex_failure_predicate_fires_alone(tmp_path: Path) -> 
 
 
 def test_a_declined_codex_item_is_counted(tmp_path: Path) -> None:
-    """DEFENSIVE, and the provenance is the point (issue #1054 review).
+    """DEFENSIVE, and the provenance is the point (issue #1054 review);
+    re-ruled by issue #1379.
 
     A counter-model reviewer reported that Codex emits `status: "declined"` for
     a refused command, citing upstream Rust. Measuring the shipped binary
@@ -870,6 +905,11 @@ def test_a_declined_codex_item_is_counted(tmp_path: Path) -> None:
     It is matched because the risks are asymmetric: missing it would be the
     false zero this issue is about, while matching it spuriously requires a
     payload that literally says `"status": "declined"`, which has one meaning.
+
+    STATUS itself is no longer `success` here (issue #1379): a refusal is
+    still the fence working as designed - `is_fatal` does not fire, and that
+    is unchanged - but one declined command with nothing else attempted is
+    still zero accomplishment, reported via `all-tools-failed`, not bare.
     """
     output = write_jsonl(
         tmp_path / "declined.jsonl",
@@ -883,7 +923,12 @@ def test_a_declined_codex_item_is_counted(tmp_path: Path) -> None:
     proc = run(str(output), "0", "--lane", "codex")
     found = contract(proc.stdout)
     assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["1"]
-    assert found["DELEGATED_RUN_STATUS"] == ["success"], "a refusal is the fence working"
+    assert found["DELEGATED_RUN_TOOL_ATTEMPTS"] == ["1"]
+    assert found["DELEGATED_RUN_STATUS"] == ["failure"], (
+        "a refusal is the fence working, but it is still zero accomplishment "
+        "(issue #1379)"
+    )
+    assert found["DELEGATED_RUN_SIGNAL"] == ["all-tools-failed"]
 
 
 def test_the_codex_dedupe_does_not_collapse_distinct_calls(tmp_path: Path) -> None:
@@ -922,8 +967,13 @@ def test_the_tool_error_counter_can_fire_on_the_qwen_lane(tmp_path: Path) -> Non
 
     `is_fatal` reads `is_error` only at an event's TOP level - deliberately, so
     a denied call is not a failed run - and this one is two levels down, so
-    nothing saw it. Provenance differs from the codex pin above and is stated
-    rather than implied: source plus a synthetic stream, not a captured run.
+    nothing saw it; that is unchanged. Provenance differs from the codex pin
+    above and is stated rather than implied: source plus a synthetic stream,
+    not a captured run.
+
+    STATUS is no longer `success` (issue #1379): `is_fatal` still correctly
+    does not fire, but one denied call with nothing else attempted is zero
+    accomplishment, reported via `all-tools-failed`.
     """
     output = write_jsonl(
         tmp_path / "qwen-denied.jsonl",
@@ -942,9 +992,14 @@ def test_the_tool_error_counter_can_fire_on_the_qwen_lane(tmp_path: Path) -> Non
     )
     proc = run(str(output), "0", "--lane", "qwen", "--expect-tools")
     found = contract(proc.stdout)
-    assert proc.returncode == 0, proc.stdout
+    assert proc.returncode == 1, proc.stdout
     assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["1"], proc.stdout
-    assert found["DELEGATED_RUN_STATUS"] == ["success"], "the fence working is not a failed run"
+    assert found["DELEGATED_RUN_TOOL_ATTEMPTS"] == ["1"], proc.stdout
+    assert found["DELEGATED_RUN_STATUS"] == ["failure"], (
+        "the fence working does not stop this being zero accomplishment "
+        "(issue #1379)"
+    )
+    assert found["DELEGATED_RUN_SIGNAL"] == ["all-tools-failed"], proc.stdout
 
 
 def test_a_successful_qwen_tool_result_is_not_counted(tmp_path: Path) -> None:
@@ -1069,6 +1124,11 @@ def test_the_contract_carries_every_always_emitted_line(clean_run: Path) -> None
         # exactly what the helper could not read.
         "DELEGATED_RUN_UNPARSED",
         "DELEGATED_RUN_TOOL_ERRORS",
+        # The attempt denominator beside it (#1379): without it, a caller
+        # reading TOOL_ERRORS alone cannot tell "1 of 1 failed" from "1 of 5
+        # failed" - exactly the distinction the all-tools-failed verdict now
+        # needs a reader to be able to make for itself.
+        "DELEGATED_RUN_TOOL_ATTEMPTS",
         "DELEGATED_RUN_STATUS",
     }
     emitted = set(contract(proc.stdout))
@@ -1156,6 +1216,15 @@ def test_the_item_error_check_is_scoped_and_does_not_become_recursive(
 
     If someone later makes the check recursive to catch "one more case", this
     fails - which is the whole point of pinning it.
+
+    STATUS itself flipped to `failure` under issue #1379 (this is a 1-of-1
+    all-tools-failed run like any other single denied call), so the pin
+    moved from STATUS to SIGNAL: it now asserts the failure came from
+    `all-tools-failed` alone, counting the tool call once at the top level -
+    never from `is_fatal`/`is_fatal_item` reaching the nested `item.type:
+    error` and adding a signal like `error-payload`. A regression that made
+    either check recursive would add a second signal here, which this still
+    catches exactly as before.
     """
     output = write_jsonl(
         tmp_path / "nested-item-error.jsonl",
@@ -1170,11 +1239,15 @@ def test_the_item_error_check_is_scoped_and_does_not_become_recursive(
     )
     proc = run(str(output), "0", "--lane", "gemma")
     fields = contract(proc.stdout)
-    assert fields["DELEGATED_RUN_STATUS"] == ["success"], (
-        "a tool call carrying a nested item.type=error is the fence working, "
-        f"not a harness failure:\n{proc.stdout}"
+    assert fields["DELEGATED_RUN_STATUS"] == ["failure"], (
+        "a 1-of-1 all-tools-failed run (issue #1379), not a fence-working "
+        f"success:\n{proc.stdout}"
     )
-    assert proc.returncode == 0, proc.stdout
+    assert fields["DELEGATED_RUN_SIGNAL"] == ["all-tools-failed"], (
+        "the nested item.type=error must still be unreached by is_fatal/"
+        f"is_fatal_item - any other signal means it recursed:\n{proc.stdout}"
+    )
+    assert proc.returncode == 1, proc.stdout
 
 
 def test_the_denominator_says_how_much_was_examined(tmp_path: Path) -> None:
@@ -1719,18 +1792,25 @@ def test_a_successful_non_command_item_keeps_an_all_failed_command_set_from_trip
     assert "all-tools-failed" not in found.get("DELEGATED_RUN_SIGNAL", []), proc.stdout
 
 
-def test_the_all_failed_signal_is_scoped_to_more_than_one_attempt(tmp_path: Path) -> None:
-    """Pins the >1 threshold itself, independent of any single fixture.
+def test_the_all_failed_signal_now_covers_a_single_attempt_too(tmp_path: Path) -> None:
+    """Pins the REMOVAL of the >1 threshold, independent of any single fixture
+    (issue #1379, reversing this test's own prior pin).
 
     #836/#892/#1054's four pinned single-attempt cases (denied-docker,
-    codex-command-failed.jsonl, declined.jsonl, qwen-denied) are not
-    "a denial among successes" - each is a literal 1-of-1 run, verified by
-    reading them: one tool event, no others. So the >1 requirement is not
-    protecting #836's "the other calls succeed" framing specifically; it is
-    what keeps EVERY existing single-attempt-failed pin green while still
-    catching #1365's multi-attempt incident. This stream is the general
-    form - gemma lane, one denied call, nothing else - to pin the threshold
-    without depending on any one fixture's continued existence.
+    codex-command-failed.jsonl, declined.jsonl, qwen-denied) were never "a
+    denial among successes" - each is a literal 1-of-1 run, verified by
+    reading them: one tool event, no others. The old >1 requirement was not
+    protecting #836's "the other calls succeed" framing specifically; it was
+    what kept every existing single-attempt-failed pin green as a side
+    effect, while still catching #1365's multi-attempt incident. #1379's
+    owner ruling settled that this was test-compatibility scoping, not a
+    principled distinction: "every tool it tried came back failed" is never
+    a legitimate outcome whatever N is, and #836's own `is_fatal` (process
+    health, untouched) already covers the model-behaved-correctly half -
+    this signal answers the separate, previously-unanswered "did the work
+    happen" question #836 explicitly left open. This stream is the general
+    form - gemma lane, one denied call, nothing else - to pin the new
+    behavior without depending on any one fixture's continued existence.
     """
     output = write_jsonl(
         tmp_path / "single-attempt-failed.jsonl",
@@ -1743,13 +1823,17 @@ def test_the_all_failed_signal_is_scoped_to_more_than_one_attempt(tmp_path: Path
     )
     proc = run(str(output), "0", "--lane", "gemma")
     found = contract(proc.stdout)
-    assert proc.returncode == 0, proc.stdout
+    assert proc.returncode == 1, proc.stdout
     assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["1"], proc.stdout
-    assert found["DELEGATED_RUN_STATUS"] == ["success"], (
-        "a single attempted call is the #836 shape, not #1365's - this run "
-        f"did try something and was refused once, not exhausted:\n{proc.stdout}"
+    assert found["DELEGATED_RUN_TOOL_ATTEMPTS"] == ["1"], proc.stdout
+    assert found["DELEGATED_RUN_STATUS"] == ["failure"], (
+        "a single attempted call that failed is still zero accomplishment "
+        f"(issue #1379) - the run tried one thing and it did not work:\n{proc.stdout}"
     )
-    assert "all-tools-failed" not in found.get("DELEGATED_RUN_SIGNAL", []), proc.stdout
+    assert found["DELEGATED_RUN_SIGNAL"] == ["all-tools-failed"], (
+        "STATUS: failure must never be bare - the reason signal names why, "
+        f"same as the >1 case:\n{proc.stdout}"
+    )
 
 
 def test_an_unresolved_codex_item_does_not_mask_an_all_failed_run(tmp_path: Path) -> None:
