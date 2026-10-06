@@ -15,17 +15,27 @@ It takes a path to a LOCAL skillc checkout (`--skillc`) - this repository
 has no dependency on skillc and no fixed assumption about where one lives,
 so the path is always explicit, never inferred.
 
+**The profile DIRECTORY under skillc's `evals/subjects/` is also an
+explicit, required input (`--profile-dir`), never a fixed path** (#1370
+refresh). skillc re-declares a profile as a NEW directory when it needs a
+new pin - `evals/subjects/cpp-codex-flow-check/` (85e9b03) stayed untouched
+when `evals/subjects/cpp-codex-flow-check-ea6dbfa/` was declared for the
+later one - so a hardcoded directory name would silently keep reading the
+OLD profile forever after a re-declaration. No default: the whole point is
+that the operator must say which profile they mean, every time.
+
 What it writes to docs/measurements/skill-coverage/<skill>.json:
   - `reference`: the evaluation-bound description_digest/body_digest,
-    copied from skillc's own committed `evals/subjects/cpp-codex-flow-check/
-    evidence/inventory.json` at its `85e9b03` pin (Q1: neither #1369 nor
-    skillc #272 expose a newer reference; see check-skill-coverage-map.py's
+    copied from skillc's own committed `evals/subjects/<profile-dir>/
+    evidence/inventory.json` (Q1: neither #1369 nor skillc #272 expose a
+    newer reference derived any other way; see check-skill-coverage-map.py's
     module docstring for the full answer).
-  - `diagnose`: the skillc commit that produced this snapshot, the CPP
-    revision it was run against, the exact command, `skillc profile
-    diagnose`'s raw result for the skill, and a digest of every file in
-    the skill's `codex/skills/<skill>/` closure AT THIS REVISION - the
-    staleness check's own input.
+  - `diagnose`: the skillc commit that produced this snapshot, the PROFILE
+    DIRECTORY NAME used (so a reader never has to guess which profile a
+    snapshot was taken against), the CPP revision it was run against, the
+    exact command, `skillc profile diagnose`'s raw result for the skill,
+    and a digest of every file in the skill's `codex/skills/<skill>/`
+    closure AT THIS REVISION - the staleness check's own input.
 """
 
 from __future__ import annotations
@@ -117,45 +127,57 @@ def _skillc_commit(skillc: Path) -> str:
     return proc.stdout.strip()
 
 
-def _reference_digests(skillc: Path, skill: str) -> dict[str, str]:
+def _reference_digests(skillc: Path, skill: str, profile_dir: str) -> dict[str, str]:
     """Read the evaluation-bound description_digest/body_digest for `skill`
-    from skillc's own committed evidence/inventory.json (Q1's answer: this
-    is the only reference point that exists until a newer one lands)."""
-    inventory_path = skillc / "evals" / "subjects" / "cpp-codex-flow-check" / "evidence" / "inventory.json"
+    from skillc's own committed evidence/inventory.json under the EXPLICIT
+    `profile_dir` (Q1's answer: this is the only reference point that exists
+    until a newer one lands - and #1370's refresh is "a newer one landed",
+    as a new directory, not an edit to this one)."""
+    inventory_path = skillc / "evals" / "subjects" / profile_dir / "evidence" / "inventory.json"
     data = json.loads(inventory_path.read_text(encoding="utf-8"))
     for entry in data.get("skills", []):
         if entry.get("name") == skill:
             return {
                 "description_digest": entry["description_digest"],
                 "body_digest": entry["body_digest"],
-                "source": f"skillc evals/subjects/cpp-codex-flow-check/evidence/inventory.json "
-                          f"(profile pinned at {data['subject']['revision']}, pre-#1369; see "
+                "source": f"skillc evals/subjects/{profile_dir}/evidence/inventory.json "
+                          f"(profile pinned at {data['subject']['revision']}; see "
                           f"check-skill-coverage-map.py's module docstring)",
             }
     raise SystemExit(f"skill-coverage-snapshot: {skill!r} not found in {inventory_path}")
 
 
-def _mint_subject(skillc: Path, cpp_revision: str, out_path: Path) -> None:
-    base = json.loads((skillc / "evals" / "subjects" / "cpp-codex" / "subject.json").read_text(encoding="utf-8"))
+def _mint_subject(skillc: Path, profile_dir: str, cpp_revision: str, out_path: Path) -> None:
+    """Base the minted subject on the PROFILE'S OWN subject.json, never a
+    fixed `cpp-codex/subject.json` (#1370 refresh). Each re-declared profile
+    directory ships its own subject.json pinned at the revision it was
+    declared for (skillc's own stated rule: "Own subject.json (never
+    evals/subjects/cpp-codex/subject.json...)") - reading a fixed path would
+    keep minting against whichever profile happened to be current when this
+    script was first written, silently ignoring every later re-declaration.
+    The revision is still bumped to the CURRENT cpp_revision being
+    snapshotted, so a later regeneration against a newer CPP commit does not
+    need yet another skillc-side re-declaration just to move the pin."""
+    base = json.loads((skillc / "evals" / "subjects" / profile_dir / "subject.json").read_text(encoding="utf-8"))
     base["revision"] = cpp_revision
     out_path.write_text(json.dumps(base, indent=2), encoding="utf-8")
 
 
-def _mint_profile(skillc: Path, subject_path: Path, out_path: Path) -> None:
+def _mint_profile(skillc: Path, profile_dir: str, subject_path: Path, out_path: Path) -> None:
     base = json.loads(
-        (skillc / "evals" / "subjects" / "cpp-codex-flow-check" / "profile.json").read_text(encoding="utf-8")
+        (skillc / "evals" / "subjects" / profile_dir / "profile.json").read_text(encoding="utf-8")
     )
     base["subject"] = str(subject_path)
     out_path.write_text(json.dumps(base, indent=2), encoding="utf-8")
 
 
-def run_diagnose(skillc: Path, cpp: Path, skill: str, cpp_revision: str) -> dict[str, object]:
+def run_diagnose(skillc: Path, cpp: Path, skill: str, profile_dir: str, cpp_revision: str) -> dict[str, object]:
     with tempfile.TemporaryDirectory(prefix="skill-coverage-snapshot-") as tmp:
         tmp_path = Path(tmp)
         subject_path = tmp_path / "subject.json"
         profile_path = tmp_path / "profile.json"
-        _mint_subject(skillc, cpp_revision, subject_path)
-        _mint_profile(skillc, subject_path, profile_path)
+        _mint_subject(skillc, profile_dir, cpp_revision, subject_path)
+        _mint_profile(skillc, profile_dir, subject_path, profile_path)
         command = ["uv", "run", "--no-sync", "skillc", "profile", "diagnose",
                    str(profile_path), "--repo", str(cpp)]
         proc = subprocess.run(command, cwd=skillc, capture_output=True, text=True, check=False)
@@ -167,11 +189,11 @@ def run_diagnose(skillc: Path, cpp: Path, skill: str, cpp_revision: str) -> dict
         return {"command": " ".join(command), "result": json.loads(proc.stdout)}
 
 
-def write_snapshot(skill: str, cpp: Path, skillc: Path, out_dir: Path) -> Path:
+def write_snapshot(skill: str, cpp: Path, skillc: Path, profile_dir: str, out_dir: Path) -> Path:
     cpp_revision = _repo_head(cpp)
     skillc_commit = _skillc_commit(skillc)
-    reference = _reference_digests(skillc, skill)
-    diagnose = run_diagnose(skillc, cpp, skill, cpp_revision)
+    reference = _reference_digests(skillc, skill, profile_dir)
+    diagnose = run_diagnose(skillc, cpp, skill, profile_dir, cpp_revision)
     closure_root = cpp / "codex" / "skills" / skill
     closure_digests = digest_tree(closure_root)
     snapshot = {
@@ -179,6 +201,7 @@ def write_snapshot(skill: str, cpp: Path, skillc: Path, out_dir: Path) -> Path:
         "reference": reference,
         "diagnose": {
             "skillc_commit": skillc_commit,
+            "profile_dir": profile_dir,
             "cpp_revision_snapshot": cpp_revision,
             "command": diagnose["command"],
             "recorded_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -197,6 +220,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("skill", help="skill name, e.g. flow-check")
     parser.add_argument("--cpp", required=True, type=Path, help="CPP checkout to snapshot")
     parser.add_argument("--skillc", required=True, type=Path, help="local skillc checkout")
+    parser.add_argument("--profile-dir", required=True,
+                         help="directory name under <skillc>/evals/subjects/ for this profile "
+                              "(e.g. cpp-codex-flow-check-ea6dbfa) - no default, so a re-declared "
+                              "profile can never be read by stale habit")
     parser.add_argument("--out-dir", default=Path("docs/measurements/skill-coverage"), type=Path)
     parser.add_argument("--force-ci", action="store_true",
                          help="bypass the CI refusal (tests only - never use this for a real snapshot)")
@@ -220,7 +247,7 @@ def main(argv: list[str] | None = None) -> int:
     # a commit that cannot reproduce it - the same hazard `_refuse_dirty`
     # exists to close for `cpp`, just on the other checkout.
     _refuse_dirty(skillc)
-    out_path = write_snapshot(args.skill, cpp, skillc, args.out_dir)
+    out_path = write_snapshot(args.skill, cpp, skillc, args.profile_dir, args.out_dir)
     print(f"skill-coverage-snapshot: wrote {out_path}")
     return 0
 

@@ -203,25 +203,24 @@ def test_both_axes_stale_at_once_are_both_named_in_reason(tmp_path: Path) -> Non
     assert "synthetic-dependency.sh" in result["reason"], "axis 2's finding must be named too"
 
 
-def test_live_run_against_main_reports_both_axes_stale() -> None:
-    """Golden control 2 AND 3, live, in one call (counter-model review,
-    2026-10-06): the committed real snapshot
-    (docs/measurements/skill-coverage/flow-check.json) against THIS checkout
-    shows axis 1 stale (CPP #1380's shipped description change against the
-    85e9b03-pinned reference) and axis 2 stale (execution-evidence-verify.py
-    has no skillc dependency), at the same time - proving the axis-1
-    short-circuit on `state` does not hide axis 2 from the `reason` an
-    auditor actually reads."""
+def test_live_run_against_main_reports_current_on_both_axes() -> None:
+    """Live run against THIS checkout's own committed snapshot (#1370
+    refresh, 2026-10-06). The original committed snapshot (profile
+    `cpp-codex-flow-check` @ 85e9b03) showed both axes genuinely stale at
+    once - that real finding is what motivated skillc #330's re-declared
+    profile (`cpp-codex-flow-check-ea6dbfa`), which added the missing
+    dependency and re-pinned the content reference at CPP ea6dbfa. The
+    committed snapshot now points at that profile, so the live gate must
+    read CURRENT on both axes - this test is the quoted confirmation
+    cpp-orch asked for, kept live rather than one-off so a future snapshot
+    going stale again is caught here too.
+    test_stale_dependency_real_fixture_shape keeps the ORIGINAL broken-
+    dependency shape pinned in an immutable synthetic fixture, independent
+    of which profile the committed snapshot currently points at."""
     result = mod.check_skill("flow-check", ROOT, ROOT / "docs" / "measurements" / "skill-coverage")
-    assert result["state"] == "stale (content)", "axis 1 still dominates the combined state"
-    assert result["axis1"]["status"] == "stale"
-    assert "description_digest differs" in result["reason"], "axis 1's own finding must still be named"
-    assert "axis2" in result, "axis 2 must be computed even though axis 1 already decided `state`"
-    assert result["axis2"]["status"] == "broken", "the real flow-check closure is genuinely broken too"
-    assert "execution-evidence-verify.py" in result["reason"], (
-        "axis 2's real finding must be named in the SAME reason as axis 1's, "
-        "not hidden behind the content-staleness short-circuit"
-    )
+    assert result["state"] == "current"
+    assert result["axis1"]["status"] == "current"
+    assert result["axis2"]["status"] == "intact"
 
 
 def test_snapshot_staleness_is_detected_not_silently_reused(tmp_path: Path) -> None:
