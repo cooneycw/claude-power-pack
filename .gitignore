@@ -105,6 +105,13 @@ desktop.ini
 # above. The `**` glob keeps future per-family plugins (Phase B2) covered.
 !.claude-plugin/marketplace.json
 !plugins/**/.claude-plugin/plugin.json
+# Vendored skill-coverage snapshots (#1370) - checked in by design, and the
+# blanket *.json rule is exactly what it must survive: check-skill-coverage-map.py
+# reads these as the committed, reproducible-from-a-named-revision reference for
+# both staleness axes, so a copy that existed only on the author's box would make
+# every clean clone report "unknown" for a skill nobody ran skillc against. The
+# `**` glob keeps every future per-skill snapshot covered, not just flow-check's.
+!docs/measurements/skill-coverage/*.json
 # Plugin-bundled hook configs (issue #479, Phase B3) - tracked despite *.json.
 !plugins/**/hooks/hooks.json
 # Negative-control manifests (issue #924) - tracked despite *.json above. A
