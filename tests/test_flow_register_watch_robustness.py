@@ -36,17 +36,23 @@ def test_step_4_names_the_removed_worktree_hazard() -> None:
 
 
 def test_release_section_requires_a_probe_not_a_memory() -> None:
+    """Anchored on "PROBED, never stated from memory" specifically, not the
+    word "stand-down" - that word alone is not unique to this guidance (the
+    quoted incident text also says "stopped at stand-down"), so a later,
+    unrelated mention anywhere in the document could silently defeat a
+    split keyed on it (counter-model review, 2026-10-06)."""
     text = _text()
-    assert "PROBED, never stated from memory" in text, (
+    assert text.count("PROBED, never stated from memory") == 1, (
         "register.md's Release section does not tell a worker to probe its "
         "own watch state and release status before claiming either in a "
         "stand-down report - a real incident had both claims false while "
         "stated from belief (issue #1402)"
     )
-    assert "FLOW_WAVE_REGISTRY: released" in text.split("stand-down")[-1], (
+    rest = text.split("PROBED, never stated from memory", 1)[1]
+    assert "FLOW_WAVE_REGISTRY: released" in rest, (
         "the probe guidance does not name the release command's own "
         "verdict line to quote"
     )
-    assert "FLOW_MAILBOX_WATCH_STATE" in text.split("stand-down")[-1], (
+    assert "FLOW_MAILBOX_WATCH_STATE" in rest, (
         "the probe guidance does not name the watch-status line to quote"
     )
