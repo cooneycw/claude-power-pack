@@ -329,6 +329,23 @@ steps:
     commands:
       - python3 scripts/check-behavioral-eval.py --advisory
 
+  # Maps changed CPP skills to their vendored evaluation coverage (#1370).
+  # Reads the current checkout plus a committed snapshot under
+  # docs/measurements/skill-coverage/ only - no git, no network, and no skillc
+  # invocation (that happens only in the separate, never-CI, operator-run
+  # skill-coverage-snapshot.py), so it runs in this image.
+  #
+  # ADVISORY for the same reason as behavioral-eval-check above: the real first
+  # snapshot already reports genuine staleness against current main (#1380's
+  # description change), and this gate exists to SURFACE that finding, not to
+  # block unrelated work on it. `--advisory` maps a printed verdict to 0; a
+  # crash still fails.
+  skill-coverage-map-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/check-skill-coverage-map.py --advisory
+
   # The QA regression export, demonstrated end to end (issue #1291). This is the
   # load-bearing run: `validate` has no node and no browsers, so there the Python
   # tests can check what the export WRITES but never whether the written test

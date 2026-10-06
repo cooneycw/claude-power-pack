@@ -1168,3 +1168,91 @@ other command families, which are not in its input.
 - maintain-loop-indicator THE FRICTION LEDGER IS IN THE POPULATION AND UNDETERMINED BY CONSTRUCTION. Measured across every record, its keys carry no filing linkage - `run` names the issue the RUN was about, not what the finding became. Matching on signal text would be inference dressed as measurement. Leaving it OUT of the population instead would shrink the denominator and make the attributable share look better than the repository's record-keeping supports
 - maintain-loop-indicator AN INVERTED PAIR IS ITS OWN NAMED CATEGORY - not in the median, not undetermined, not silently dropped. A citing issue created BEFORE the finding is a REFERENCE to existing work rather than a filing event, so folding it in biases the median with a number that is not a delay. Measured on the real capture: exactly one, at MINUS NINE SECONDS, which is the ordinary "file the issue, then record the nit" order. That is why it is a category and not a refusal - refusing would red on an everyday workflow, and separating an ordinary inversion from a faulty one needs a threshold, which is a band
 - maintain-loop-indicator ITS CONTROL IS THE FIRST REGISTERED `subject_kind: reporter` (#1204, #1207) and declares NO `detect_signal`. A reporter has no finding to mark, so every pattern it could declare is dishonest: one that matches its own measurement output, or one that can never match. The marker requirement is carried by `unknown_signal` instead. THE ANCHOR TEACHES THE SAME THING FROM THE OTHER SIDE - A BLIND INSTRUMENT DOES NOT REFUSE, because refusing is the capability it lacks. An earlier anchor exited 2 with an unmarked "no capture to read" and the harness correctly reported it could not tell that from a crash; it now answers every unreadable input with a confident `0 finding(s) recorded`, which is this gate's own thesis turned into a fixture
+
+## `check-skill-coverage-map` (#1370)
+
+Maps changed CPP skills and their dependency closures to current evaluation
+coverage (R10, `.specify/specs/per-skill-audit/spec.md`), over two staleness
+axes that must not be collapsed into one: axis 1 (content) - has the skill's
+own evaluated bytes (description, body digest) moved since the
+evaluation-bound reference - and axis 2 (dependency) - does skillc's
+`profile diagnose` report the skill's dependency closure broken, independent
+of whether its own content changed. `check-skill-coverage-map.py` answers
+both from the current checkout and a vendored snapshot; it never imports or
+invokes skillc, the same discipline #1369's `check-behavioral-eval.py`
+states for itself, since skillc cannot run in CPP's CI.
+
+**Five states, not fewer**, for the same reason `check-behavioral-eval`
+distinguishes `absent` from a clean pass: `not evaluated` (the skill is absent
+from `SKILL_FAMILY_MAP` - axis work is never attempted, and never inherited
+from a mapped sibling) is a membership fact; `unknown` (either axis
+undecidable) is a different claim with a different remedy. `current`,
+`stale (content)` and `stale (dependency)` are the three substantive
+verdicts.
+
+**Axis 2 is always computed, even once axis 1 is already stale** (counter-
+model review, 2026-10-06). Content-staleness still dominates the COMBINED
+`state` - fixing content is step one regardless of what axis 2 says - but
+the `reason` always names both axes, so an auditor who fixes axis 1 is never
+surprised by axis 2 on the next run. On today's real data both axes ARE
+stale at once: see "the first committed snapshot" below.
+
+**Axis 2's own staleness is the sharper half.** The vendored snapshot records
+a digest for every file in the skill's `codex/skills/<skill>/` closure AT
+SNAPSHOT TIME. The gate recomputes the same digests against the CURRENT tree
+on every run; any mismatch reports `unknown` for axis 2, never a
+silently-reused cached `intact`/`broken` verdict (this `unknown` still loses
+to an already-stale axis 1 in the combined `state`, exactly as `broken`
+would). That is CI's whole answer for axis 2: fresh as of the last manual
+regeneration, and able to say whether that regeneration is still valid -
+never a live result. Registered control `controls/check-skill-coverage-map`:
+a closure that grew a file after the snapshot was recorded, with axis 1 held
+current (so the case isolates axis 2's own staleness check rather than
+exercising the content-dominance path above), must read `unknown`. Its
+anchor is CONSTRUCTED - the real drift comparison replaced with a hardcoded
+empty list - and reports `current` over the known-bad input it misses.
+
+**Q1 (no newer evaluation-bound reference exists).** Neither #1369's
+`check-behavioral-eval.py::_evaluate_skill_evidence` (whose own docstring
+says "Freshness against the CURRENT checkout (R10) is NOT checked here -
+that is #1370's job") nor skillc #272's coverage-report assembler expose a
+`{revision, skill, digest}` tuple for content freshness, so the reference
+stays skillc #265's own profile pin (`85e9b03`) - and the snapshot's
+`reference.source` field says so explicitly rather than implying a newer one
+exists.
+
+**The first committed snapshot is the real one, not a fixture.**
+`docs/measurements/skill-coverage/flow-check.json` was generated against CPP
+main @ `8ff62ca` and skillc main @ `bbd4ed6`, and against current main it
+drives the gate's real controls on BOTH axes AT ONCE, live:
+`tests/test_skill_coverage_map.py::test_live_run_against_main_reports_both_axes_stale`
+asserts the real `reason` names axis 1's finding (#1380's shipped
+description change against the `85e9b03`-pinned reference) and axis 2's
+(`execution-evidence-verify.py` has no skillc dependency) in the same
+output.
+`test_stale_dependency_real_fixture_shape` keeps the same real problem shape
+pinned in isolation (axis 1 held current), so the two tests check the same
+real-world fact from two different angles - one isolated, one live.
+
+**v1's map is the degenerate 1:1 case** (`flow-check` only; skillc has only
+one CPP profile today). Map-level staleness - a skill's file set outgrowing
+what `SKILL_FAMILY_MAP` accounts for - is explicitly deferred (owner ruling
+via the cpp-eval orchestrator, 2026-10-06) and routed to the Nit Store (#864)
+when this work ships, not fixed here. v1 also declares no equivalence
+registry: a cosmetic (whitespace/comment-only) change is `stale (content)`
+exactly like any other difference, by the same ruling.
+
+## `skill-coverage-snapshot` (#1370)
+
+The one place skillc runs in this repository, and deliberately never in CI:
+it refuses under CI (`CI`/`WOODPECKER`) and on a dirty working tree, because a
+snapshot must be reproducible from a named, committed revision. It shells out
+to `uv run --no-sync skillc profile diagnose` against an operator-supplied
+local skillc checkout (`--skillc`), reads the evaluation-bound reference
+digests from skillc's own committed `evidence/inventory.json`, and writes
+`docs/measurements/skill-coverage/<skill>.json` - reference digests, the
+skillc commit and CPP revision snapshotted, the raw diagnose() result, and
+the closure digests the `check-skill-coverage-map` drift check (above) reads
+back. It is excluded from the ADR 0008 bound as a generator (same shape as
+`codex-skill-sync.py --write`): it emits no verdict, and that drift check is
+the re-derivation the bound asks for.

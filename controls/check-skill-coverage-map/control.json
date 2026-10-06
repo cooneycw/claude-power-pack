@@ -1,0 +1,37 @@
+{
+  "_comment": "Issue #1370. Registers the snapshot-staleness detector inside check-skill-coverage-map.py's axis 2 (dependency): the sub-check that must notice when the vendored skillc profile-diagnose snapshot no longer matches the CURRENT codex/skills/<skill>/ closure, and therefore refuse to silently reuse a cached 'intact'/'broken' verdict. It does not cover axis 1 (content digest comparison), which is plain SHA-256 over text this script reads directly and needs no control of its own under the ADR 0008 bound - nothing about it is vendored or stale-prone.",
+  "gate": "scripts/check-skill-coverage-map.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--repo",
+    "{case}/repo",
+    "--snapshot-dir",
+    "{case}/repo/docs/measurements/skill-coverage"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^skill-coverage-map: \\S+ \\([^)]+\\): unknown - vendored diagnose\\(\\) snapshot is stale",
+  "limits": "Covers only the closure-digest drift check that gates axis 2's read of the vendored diagnose() result - the one sub-behavior cpp-orch asked be proven able to fail the other way if disabled (#1370). Both cases hold axis 1 CURRENT (the fixture SKILL.md's description/body digests match the snapshot's reference exactly) so axis 1's short-circuit (check_skill returns at 'stale (content)' before axis 2 ever runs) cannot mask what this control is isolating. Fixtures are CONSTRUCTED, not vendored from a real skillc run: the reference digests, closure digests and diagnose() result are all synthetic JSON built to the schema check-skill-coverage-map.py reads, not output copied from an actual skillc invocation - skillc cannot run in CI and this control must. Declared gap: this control does not exercise a missing snapshot, a missing reference section, an absent skill directory, or axis 2's 'broken' status path (stale (dependency)) - those are pinned by tests/test_skill_coverage_map.py instead, which the ADR 0008 bound does not require a registered control for (a unit test the surrounding suite would catch).",
+  "cases": [
+    {
+      "name": "good-current",
+      "input": "cases/good-current",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-snapshot-drift-not-detected",
+      "input": "cases/bad-snapshot-drift-not-detected",
+      "expect": "BAD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/check-skill-coverage-map.py",
+      "path": "anchors/drift-check-disabled.py",
+      "sha256": "17f6b57b6d68fa2c9930aba5dd1f2abb0bed523f2c2421585188d814a5740101",
+      "why": "CONSTRUCTED rather than historical: this gate is new in the same change that registers this control, so no pre-fix commit exists to vendor. The anchor is the real gate with exactly one edit - the line computing `drift` from `_diff_digests(snapshot_digests, current_digests)` replaced with a hardcoded empty list - reproducing the exact failure mode a reviewer found and fixed by hand during this change: disable the comparison and axis 2 falls straight through to reading the vendored diagnose() result's cached status as if it still described the current closure. On bad-snapshot-drift-not-detected (a closure that grew a file after the snapshot was recorded, with axis 1 held current) the anchor reports `current`/exit 0 instead of `unknown`/exit 1 - it silently reuses the stale snapshot. On good-current it agrees with the real gate (`current`/exit 0), so the miss is isolated to the disabled comparison and not a generally broken gate."
+    }
+  ]
+}

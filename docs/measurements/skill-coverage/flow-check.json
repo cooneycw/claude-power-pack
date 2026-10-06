@@ -1,0 +1,283 @@
+{
+  "skill": "flow-check",
+  "reference": {
+    "description_digest": "sha256:4ae71d5cea400be68a7005097008524bd7a63c590b0a7a8dbc4c12abfd58d19d",
+    "body_digest": "sha256:512b3b45e3b55184b3de739ae6915c2810141ec522a9bdfd89a5a792e3277e70",
+    "source": "skillc evals/subjects/cpp-codex-flow-check/evidence/inventory.json (profile pinned at 85e9b03ad2af1c41020ff6d92d36fa257bdacd2b, pre-#1369; see check-skill-coverage-map.py's module docstring)"
+  },
+  "diagnose": {
+    "skillc_commit": "bbd4ed6d392c1c0119153794cd04d6c4da44ef8a",
+    "cpp_revision_snapshot": "8ff62cabac2a7a889192a7733d188f17baf33ef5",
+    "command": "uv run --no-sync skillc profile diagnose /tmp/skill-coverage-snapshot-z6u6c0yw/profile.json --repo /workspace/.work/cpp",
+    "recorded_at": "2026-10-06T15:38:54Z",
+    "result": {
+      "diagnostic_schema": 1,
+      "profile": "cpp-codex-flow-check",
+      "revision": "8ff62cabac2a7a889192a7733d188f17baf33ef5",
+      "selection": [
+        "flow-check"
+      ],
+      "structural": [],
+      "complete": true,
+      "skills": {
+        "flow-check": {
+          "status": "broken",
+          "problems": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20
+          ]
+        }
+      },
+      "problems": [
+        {
+          "id": 0,
+          "category": "unresolved-reference",
+          "detail": "unresolved reference: ~/Projects/claude-power-pack/templates/Makefile.example (in codex/skills/flow-check/lib/cicd/cli.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
+          "skills": [
+            "flow-check"
+          ],
+          "in": "codex/skills/flow-check/lib/cicd/cli.py"
+        },
+        {
+          "id": 1,
+          "category": "unresolved-reference",
+          "detail": "unresolved reference: ~/Projects/claude-power-pack/templates/cicd.yml.example (in codex/skills/flow-check/lib/cicd/cli.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
+          "skills": [
+            "flow-check"
+          ],
+          "in": "codex/skills/flow-check/lib/cicd/cli.py"
+        },
+        {
+          "id": 2,
+          "category": "unresolved-reference",
+          "detail": "unresolved reference: /usr/local/bin (in codex/skills/flow-check/lib/cicd/container.py, absolute); each needs a dependency that satisfies it or an unsupported entry with a reason",
+          "skills": [
+            "flow-check"
+          ],
+          "in": "codex/skills/flow-check/lib/cicd/container.py"
+        },
+        {
+          "id": 3,
+          "category": "unresolved-reference",
+          "detail": "unresolved reference: /usr/local/bin/app (in codex/skills/flow-check/lib/cicd/container.py, absolute); each needs a dependency that satisfies it or an unsupported entry with a reason",
+          "skills": [
+            "flow-check"
+          ],
+          "in": "codex/skills/flow-check/lib/cicd/container.py"
+        },
+        {
+          "id": 4,
+          "category": "unresolved-reference",
+          "detail": "unresolved reference: /usr/local/bin/uv (in codex/skills/flow-check/lib/cicd/container.py, absolute); each needs a dependency that satisfies it or an unsupported entry with a reason",
+          "skills": [
+            "flow-check"
+          ],
+          "in": "codex/skills/flow-check/lib/cicd/container.py"
+        },
+        {
+          "id": 5,
+          "category": "unresolved-reference",
+          "detail": "unresolved reference: /usr/local/lib/python3.12 (in codex/skills/flow-check/lib/cicd/container.py, absolute); each needs a dependency that satisfies it or an unsupported entry with a reason",
+          "skills": [
+            "flow-check"
+          ],
+          "in": "codex/skills/flow-check/lib/cicd/container.py"
+        },
+        {
+          "id": 6,
+          "category": "unresolved-reference",
+          "detail": "unresolved reference: ${HOME}/Projects (in codex/skills/flow-check/lib/cicd/manifest.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
+          "skills": [
+            "flow-check"
+          ],
+          "in": "codex/skills/flow-check/lib/cicd/manifest.py"
+        },
+        {
+          "id": 7,
+          "category": "unresolved-reference",
+          "detail": "unresolved reference: ~/.cache/pip (in codex/skills/flow-check/lib/cicd/pipeline.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
+          "skills": [
+            "flow-check"
+          ],
+          "in": "codex/skills/flow-check/lib/cicd/pipeline.py"
+        },
+        {
+          "id": 8,
+          "category": "unresolved-reference",
+          "detail": "unresolved reference: ~/.cache/pypoetry (in codex/skills/flow-check/lib/cicd/pipeline.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
+          "skills": [
+            "flow-check"
+          ],
+          "in": "codex/skills/flow-check/lib/cicd/pipeline.py"
+        },
+        {
+          "id": 9,
+          "category": "unresolved-reference",
+          "detail": "unresolved reference: ~/.cache/uv (in codex/skills/flow-check/lib/cicd/pipeline.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
+          "skills": [
+            "flow-check"
+          ],
+          "in": "codex/skills/flow-check/lib/cicd/pipeline.py"
+        },
+        {
+          "id": 10,
+          "category": "unresolved-reference",
+          "detail": "unresolved reference: ~/.cache/yarn (in codex/skills/flow-check/lib/cicd/pipeline.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
+          "skills": [
+            "flow-check"
+          ],
+          "in": "codex/skills/flow-check/lib/cicd/pipeline.py"
+        },
+        {
+          "id": 11,
+          "category": "unresolved-reference",
+          "detail": "unresolved reference: ~/.cargo (in codex/skills/flow-check/lib/cicd/pipeline.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
+          "skills": [
+            "flow-check"
+          ],
+          "in": "codex/skills/flow-check/lib/cicd/pipeline.py"
+        },
+        {
+          "id": 12,
+          "category": "unresolved-reference",
+          "detail": "unresolved reference: ~/.local/share/pnpm (in codex/skills/flow-check/lib/cicd/pipeline.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
+          "skills": [
+            "flow-check"
+          ],
+          "in": "codex/skills/flow-check/lib/cicd/pipeline.py"
+        },
+        {
+          "id": 13,
+          "category": "unresolved-reference",
+          "detail": "unresolved reference: ~/.local/share/powershell/Modules (in codex/skills/flow-check/lib/cicd/pipeline.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
+          "skills": [
+            "flow-check"
+          ],
+          "in": "codex/skills/flow-check/lib/cicd/pipeline.py"
+        },
+        {
+          "id": 14,
+          "category": "unresolved-reference",
+          "detail": "unresolved reference: ~/.npm (in codex/skills/flow-check/lib/cicd/pipeline.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
+          "skills": [
+            "flow-check"
+          ],
+          "in": "codex/skills/flow-check/lib/cicd/pipeline.py"
+        },
+        {
+          "id": 15,
+          "category": "unresolved-reference",
+          "detail": "unresolved reference: ~/go/pkg/mod (in codex/skills/flow-check/lib/cicd/pipeline.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
+          "skills": [
+            "flow-check"
+          ],
+          "in": "codex/skills/flow-check/lib/cicd/pipeline.py"
+        },
+        {
+          "id": 16,
+          "category": "unresolved-reference",
+          "detail": "unresolved reference: ~/.cache (in codex/skills/flow-check/lib/cicd/runner.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
+          "skills": [
+            "flow-check"
+          ],
+          "in": "codex/skills/flow-check/lib/cicd/runner.py"
+        },
+        {
+          "id": 17,
+          "category": "unresolved-reference",
+          "detail": "unresolved reference: ${HOME}/Projects (in codex/skills/flow-check/lib/cicd/steps.py, home-relative); each needs a dependency that satisfies it or an unsupported entry with a reason",
+          "skills": [
+            "flow-check"
+          ],
+          "in": "codex/skills/flow-check/lib/cicd/steps.py"
+        },
+        {
+          "id": 18,
+          "category": "unresolved-reference",
+          "detail": "unresolved reference: /opt/venv/bin/pytest (in codex/skills/flow-check/lib/cicd/steps.py, absolute); each needs a dependency that satisfies it or an unsupported entry with a reason",
+          "skills": [
+            "flow-check"
+          ],
+          "in": "codex/skills/flow-check/lib/cicd/steps.py"
+        },
+        {
+          "id": 19,
+          "category": "unresolved-reference",
+          "detail": "unresolved reference: ${CLAUDE_PLUGIN_ROOT}/scripts/flow-finish-gate.sh (in codex/skills/flow-check/reference.md, variable-rooted); each needs a dependency that satisfies it or an unsupported entry with a reason",
+          "skills": [
+            "flow-check"
+          ],
+          "in": "codex/skills/flow-check/reference.md"
+        },
+        {
+          "id": 20,
+          "category": "unresolved-reference",
+          "detail": "unresolved reference: $CPP_DIR/scripts/execution-evidence-verify.py (in codex/skills/flow-check/reference.md, variable-rooted); each needs a dependency that satisfies it or an unsupported entry with a reason",
+          "skills": [
+            "flow-check"
+          ],
+          "in": "codex/skills/flow-check/reference.md"
+        }
+      ],
+      "problem_count": 21
+    },
+    "closure_digests": {
+      "SKILL.md": "sha256:71d4652bbee21dca77393994d3809260c23bf38ca4d59c1f11bcc16dbe16260b",
+      "lib/cicd/__init__.py": "sha256:00f0f4c6f99b2d58fe5b031f1ec18037b1149bbe7046e61d0fda28bef5e8bd6e",
+      "lib/cicd/__main__.py": "sha256:6420d4552d8216e24146f6b07e0c451da5e5ab4fb9cb6ff3368d618a2c333d73",
+      "lib/cicd/bootstrap.py": "sha256:4a061eebfbc0da70b6f72dfffdd98d013eef7b05967f40e021765d46b35efcf7",
+      "lib/cicd/cli.py": "sha256:c1b39f952e314a868cbaaeb7fee0c385d1c4661b69eab45bb17769113edb5796",
+      "lib/cicd/config.py": "sha256:2d287c35e8317bd103b1e2377f34cf6739dccad6da6e03d34f2ec3294eab7d1f",
+      "lib/cicd/container.py": "sha256:2ecb3c0f40cc9954e29441f8a5edad446edab31af9d0f69429416ffb026cf5e3",
+      "lib/cicd/coverage.py": "sha256:5d050770229da151d8dccb3e2bd1c949f9f7e503dc4a15487df6a01221369211",
+      "lib/cicd/deploy/__init__.py": "sha256:fc9e5249db0bf07ee4356dd8e951d7bfde35d380cb22239de1a3f18269ebd3db",
+      "lib/cicd/deploy/docker_compose.py": "sha256:dddd154f8fcb6e1a37261a3dc602dd175db0b69009da4e7f453aed738fc1757f",
+      "lib/cicd/deploy/guardrails.py": "sha256:72b29f31cae36e66739f4d85fc80c1e31cdb40688220fefe7d15e2523a88d61d",
+      "lib/cicd/deploy/strategy.py": "sha256:df28ff1da583e8a806dce26e285f40923bc769e76b6eb4316e53a45adba58756",
+      "lib/cicd/detector.py": "sha256:e09256f2091e89b4d25fad4a3399ea9244b20b1ded2a0e0898da58535c08d7e4",
+      "lib/cicd/evidence.py": "sha256:6688595c0a0641c38f996336ec53f2db62742fcc90d3659c70cd998cfe87e539",
+      "lib/cicd/failure_patterns.py": "sha256:4cba9fe8401c9f557887df6a6d11fdd1e5cb6bd950705128433d627d96d26cf4",
+      "lib/cicd/health.py": "sha256:ad6a94126c84ea075a5acd34465dd5900643ac6f39ff4fbd4c865f13898c01f9",
+      "lib/cicd/infrastructure.py": "sha256:73fb8bfb989f5ce7ca3ead97577f91196a62457e154d60f38659b0240f984823",
+      "lib/cicd/makefile.py": "sha256:d8fbe3ac0af99a72794232b20784c413d020c97510e753ea39cba8e4190b0d5d",
+      "lib/cicd/makefile_declaration.py": "sha256:2094cf58730e7bba868e6be299c82823482470e0c663051ad6d99b61f3141302",
+      "lib/cicd/manifest.py": "sha256:8cdf9bb04db0fd4dff996f0c8d943ab450f4e3952603b7fd466ecd588ab5b5d1",
+      "lib/cicd/manifest_path.py": "sha256:744bd33ccbbc9e75587ffdf4156a3dbc78efce0e870f41b56de20423b3a57389",
+      "lib/cicd/models.py": "sha256:71a7714e6a259c51d4a6e0969284138f2bb2c5243268fd4a718745b82e2c4633",
+      "lib/cicd/mypy_scope.py": "sha256:301ccbe539017e5d0303194f07fe877a1dec43230a64ec1bfe5943dab71736fa",
+      "lib/cicd/outcomes.py": "sha256:e307524eb09fa2ec11600fd19b7e1836e0248970c5be762929f56dd4fe8d8656",
+      "lib/cicd/pipeline.py": "sha256:aea493c89606748419e588d841d093c41652c483d42c4d6c6e4f94c0370040ab",
+      "lib/cicd/runner.py": "sha256:c47b1ce0c1e2b16310885e70d5317ad130ad0dcc524bd5fce8cba086aaf616d8",
+      "lib/cicd/smoke.py": "sha256:172c385af59ff5bc3bccf7e5e7cfc0be198f0b6553d04da24b96e1c7c61440b5",
+      "lib/cicd/state.py": "sha256:d0b83c7997bedce1e2e4214445a8d2cf3d89f20c2c2b6fec78003f6a827d67f6",
+      "lib/cicd/steps.py": "sha256:d82cb77c5c16251c404a39b19ed54618229f39f6a57ec7068891cf1c9efe90f5",
+      "lib/cicd/verify.py": "sha256:be40a53831a0b99c8338647d34059cc94a578b2c26c524991bcdcd6947b1bd24",
+      "reference.md": "sha256:eb075ed42b8f66e7e193a1163fa452c50d1689a6e50cb76aaa9387ea050350e4",
+      "scripts/SHA256SUMS": "sha256:1bfc3bc58e9a16f5383c61e1f561f08794767d9efe303856bce376f96ee2d1b5",
+      "scripts/check-ignored-additions.sh": "sha256:38da5bd182613be886b135553ea0503a02234c7ec1948379a65ade0645b23d34",
+      "scripts/counter-model-receipt.py": "sha256:0614dc06e102e6a0dbfe977314a620bf59cabfe4d88675f0da2498b3d29ab05a",
+      "scripts/execution-evidence-verify.py": "sha256:21b2aecaa85de18724f8f09a37a4a0bd44790db494b56571c6a25f548805b299",
+      "scripts/flow-finish-gate.sh": "sha256:deab55eae681e47f5e3d4692dd94dc597defd1043be409d1dcbc3b8f3489929b",
+      "scripts/gate-lib.sh": "sha256:4095e524bf802a97f48add745e5c64addfe1055eac67c484b5ad81e5c26b38a8"
+    }
+  }
+}
