@@ -574,6 +574,57 @@ def test_description_capped_with_front_loaded_trigger_words(tmp_repo):
     assert len(description) <= codex_skill_sync.DESCRIPTION_MAX + len(" ...")
 
 
+def test_description_max_exempt_is_narrow_not_a_cap_raise(tmp_repo):
+    """DESCRIPTION_MAX_EXEMPT (issue #1380) is a per-skill allowance, not a
+    change to the default: an un-allowlisted skill over DESCRIPTION_MAX still
+    truncates, exactly like test_description_capped_with_front_loaded_trigger_words
+    above - this just makes the narrowness itself an assertion, not an
+    inference from one example.
+
+    The length bound is a LITERAL 150, not `codex_skill_sync.DESCRIPTION_MAX`
+    (counter-model review, #1380): comparing against the constant would stay
+    green even if the constant itself were raised from 150 to, say, 300 - the
+    very global cap-raise this exemption mechanism exists to avoid needing.
+    """
+    long_tail = "very " * 80
+    assert "qa-test" not in codex_skill_sync.DESCRIPTION_MAX_EXEMPT
+    assert codex_skill_sync.DESCRIPTION_MAX == 150
+    description = codex_skill_sync.derive_description(
+        {"description": f"QA test triggers first {long_tail}end"}, "", skill_name="qa-test"
+    )
+    assert description.endswith(" ...")
+    assert len(description) <= 150 + len(" ...")
+
+
+def test_flow_check_regenerates_with_the_full_evidenced_description(tmp_repo):
+    """End-to-end: running the REAL generator entry point (`main(["--write"])`)
+    over a source file carrying the evidenced description must not truncate
+    it, through the real `generate_skill()` call site - not a direct
+    `derive_description(..., skill_name="flow-check")` call that would stay
+    green even if `generate_skill()` stopped passing `skill_name` at all
+    (counter-model review, #1380: that was exactly the gap in the first
+    version of this pin - it asserted the committed mirror file matched, but
+    nothing exercised the actual regeneration path that produces it, so a
+    regression in the call site would go undetected until someone next ran
+    `--write` by hand).
+    """
+    evidenced = (
+        "Use when you are asked to run a project's quality checks (tests, lint, "
+        "type checks, security scan): runs them in one step and reports what "
+        "failed, without committing."
+    )
+    assert "flow-check" in codex_skill_sync.DESCRIPTION_MAX_EXEMPT, (
+        "this test relies on the real, permanent exemption entry rather than adding its own"
+    )
+    (tmp_repo / ".claude" / "commands" / "flow" / "check.md").write_text(
+        f'---\ndescription: "{evidenced}"\n---\n# Flow Check\n\nBody.\n'
+    )
+    assert codex_skill_sync.main(["--write"]) == 0
+    lines = _skill_md(tmp_repo, "flow-check").splitlines()
+    description = json.loads(lines[2][len("description: "):])
+    assert description == evidenced
+
+
 def test_frontmatter_stays_valid_yaml_with_hostile_description(tmp_repo):
     """Colons and quotes in the source description must not break the
     frontmatter (issue #312)."""

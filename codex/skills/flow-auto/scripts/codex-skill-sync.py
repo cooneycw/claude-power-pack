@@ -108,8 +108,28 @@ MARKER_PREFIX = (
 )
 
 # Codex truncates long skill lists, so descriptions stay short with their
-# trigger words up front.
+# trigger words up front. CPP's own heuristic for the COMBINED skill-list
+# budget (#555, e42b71f) - no specific per-description Codex limit is cited
+# anywhere; "front-load trigger words (Codex truncates long skill lists)" is
+# the whole rationale.
 DESCRIPTION_MAX = 150
+
+#: A NARROW, recorded exception to DESCRIPTION_MAX, not a cap raise - every
+#: other skill keeps the 150-char truncation enforced. Each entry's value is
+#: the evidence for why spending extra list-budget on THIS skill's full
+#: description is worth it, cited rather than silently assumed (#1380).
+#: Keyed by the generated skill name (f"{family}-{source_file.stem}").
+DESCRIPTION_MAX_EXEMPT: dict[str, str] = {
+    "flow-check": (
+        "skillc PR #297 (0cbf0fe) / #294 (540d6a3): the full 166-character "
+        "description was tested on the CODEX lane, pinned over the complete "
+        "cpp-codex skill list, and selected 20/20 when the task called for "
+        "it, 0/10 on near-miss tasks - cooneycw/claude-power-pack#1380. The "
+        "truncated tail ('...without committing.') was part of what made it "
+        "selective, so truncating it here would ship a different, "
+        "unevidenced artifact under the evidenced one's name."
+    ),
+}
 
 # Progressive disclosure: bodies at or under this many lines inline into
 # SKILL.md; longer bodies move to reference.md behind a pointer.
@@ -300,10 +320,11 @@ def _visible_lines(body: str) -> list[str]:
     return lines
 
 
-def derive_description(meta: dict[str, str], body: str) -> str:
+def derive_description(meta: dict[str, str], body: str, *, skill_name: str | None = None) -> str:
     """Skill-list description: source frontmatter description when present,
     else H1 title + first prose paragraph. Front-loads the trigger words and
-    caps the length (Codex truncates long skill lists)."""
+    caps the length (Codex truncates long skill lists) - unless `skill_name`
+    is a recorded DESCRIPTION_MAX_EXEMPT entry (#1380)."""
     desc = " ".join(meta.get("description", "").split())
     if not desc:
         title = ""
@@ -331,7 +352,7 @@ def derive_description(meta: dict[str, str], body: str) -> str:
         else:
             desc = title or para
         desc = " ".join(desc.split())
-    if len(desc) > DESCRIPTION_MAX:
+    if len(desc) > DESCRIPTION_MAX and skill_name not in DESCRIPTION_MAX_EXEMPT:
         desc = desc[:DESCRIPTION_MAX].rsplit(" ", 1)[0].rstrip(" ,;:-") + " ..."
     return desc
 
@@ -814,7 +835,7 @@ def generate_skill(
     if docs:
         body = rewrite_doc_refs(body)
     name = f"{family}-{source_file.stem}"
-    description = derive_description(meta, body)
+    description = derive_description(meta, body, skill_name=name)
     marker = marker_for(family, source_file.name)
     bullets = detect_adaptations(body)
     scripts = find_bundled_scripts(body)

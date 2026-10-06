@@ -52,22 +52,34 @@ def test_source_command_carries_the_evidenced_description() -> None:
     assert _frontmatter_description(path) == EVIDENCED_DESCRIPTION
 
 
-def test_codex_mirror_carries_the_evidenced_description() -> None:
-    """The mirror's skill-list description is the generator's OWN derivation
-    of the evidenced string, not a byte-for-byte copy: at 166 characters it
-    exceeds `DESCRIPTION_MAX` (150) and the generator front-truncates it
-    (codex-skill-sync.py:334-335) - a generic, independently-tested behavior
-    (test_codex_skill_sync.py::test_description_capped_with_front_loaded_trigger_words),
-    not specific to this skill. Deriving the expectation from the generator's
-    own function, rather than hand-copying its truncation rule here, is what
-    keeps this test from drifting out of sync with that rule.
+def test_codex_mirror_carries_the_evidenced_description_byte_for_byte() -> None:
+    """The mirror must carry the FULL evidenced string, not the generator's
+    default truncation of it (issue #1380, found in PR review). skillc's
+    study selected on the CODEX lane with the full 166-character text; a
+    mirror that silently truncates to `DESCRIPTION_MAX` (150,
+    codex-skill-sync.py) ships a DIFFERENT, unevidenced string under the
+    evidenced one's name - the dropped tail ("...without committing.") was
+    part of what made it selective. `flow-check` is a recorded, narrow
+    exception in `DESCRIPTION_MAX_EXEMPT`; every other skill still truncates
+    (test_codex_skill_sync.py::test_description_capped_with_front_loaded_trigger_words
+    pins that unchanged default).
+
+    Checks both ends: the generator's OWN `derive_description()`, called the
+    way the real generator call site calls it (with `skill_name="flow-check"`),
+    and the actual committed mirror file - so a regeneration that forgets to
+    pass `skill_name`, and a stale committed mirror nobody regenerated, each
+    have their own failure.
     """
     import json
+
+    expected = codex_skill_sync.derive_description(
+        {"description": EVIDENCED_DESCRIPTION}, "", skill_name="flow-check"
+    )
+    assert expected == EVIDENCED_DESCRIPTION, "the generator truncated an exempt skill's description"
 
     path = ROOT / "codex/skills/flow-check/SKILL.md"
     lines = path.read_text().splitlines()
     assert lines[0] == "---", path
     assert lines[2].startswith("description: "), path
     description = json.loads(lines[2][len("description: "):])
-    expected = codex_skill_sync.derive_description({"description": EVIDENCED_DESCRIPTION}, "")
-    assert description == expected
+    assert description == EVIDENCED_DESCRIPTION
