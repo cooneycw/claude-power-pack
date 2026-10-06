@@ -1,13 +1,13 @@
 {
   "skill": "flow-check",
   "reference": {
-    "description_digest": "sha256:fe647dbf447e414328a6dc91fc7f587078c5b0e4fc549602219b045375e58218",
-    "body_digest": "sha256:8865ae80579d80cba5963e110f61b32009c9da9c78fb23368d2ec6562549e313",
-    "source": "constructed fixture for controls/check-skill-coverage-map (#1370)",
+    "description_digest": "sha256:ebb5230e04266d110879ad5def8a00ab8e822c736c10db337c51131fa68f73d3",
+    "body_digest": "sha256:72fdac5b2ed3fff941f4473d8a40a9abdbce518e4db2b326f90c008d82b65928",
     "files": {
-      "SKILL.md": "sha256:f932d0cf9ebc244ef1589b14e1b155a27447b98d1c893a54253caa9d4f6b079f",
-      "new-helper.txt": "sha256:88d6c9a2e26f2b3a3bc9b4a3acf12696bc94e9cf05cb0d84f67acbdb72d53843"
-    }
+      "SKILL.md": "sha256:839b887f9c6b4002168a4b72f6179d7f19ff089a388ee38ce234f501991781ec",
+      "reference.md": "sha256:c040b132c16c2d24fa2e6cdc6533a99d9eab69b3f4cc76a729a1ed99053c0aab"
+    },
+    "source": "constructed fixture for controls/check-skill-coverage-map-axis1-files (#1390)"
   },
   "diagnose": {
     "skillc_commit": "0000000000000000000000000000000000000000",
@@ -33,7 +33,8 @@
       "problem_count": 0
     },
     "closure_digests": {
-      "SKILL.md": "sha256:f932d0cf9ebc244ef1589b14e1b155a27447b98d1c893a54253caa9d4f6b079f"
+      "SKILL.md": "sha256:839b887f9c6b4002168a4b72f6179d7f19ff089a388ee38ce234f501991781ec",
+      "reference.md": "sha256:84f8d591db352a489b99ab4fcc208314a474e392451fe5196483135408e7e95e"
     }
   }
 }

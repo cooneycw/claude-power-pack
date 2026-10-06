@@ -220,3 +220,53 @@ def test_snapshot_provenance_names_the_profile_directory(tmp_path: Path, monkeyp
     written = json.loads(out_path.read_text(encoding="utf-8"))
     assert written["diagnose"]["profile_dir"] == "cpp-codex-flow-check-ea6dbfa"
     assert "cpp-codex-flow-check-ea6dbfa" in written["reference"]["source"]
+
+
+def test_reference_files_keys_match_digest_tree_on_a_real_closure(tmp_path: Path) -> None:
+    """#1390, cpp-orch's precision point 2: `_reference_files`' keys (the
+    inventory's `files[].source`, stripped of `codex/skills/<skill>/`) must
+    land EXACTLY where `digest_tree()` (over the real on-disk closure) puts
+    the same paths - a byte-identical tree must diff to ZERO. A real
+    multi-directory closure, not a one-file fixture: a silent off-by-one in
+    the prefix strip would either leave every key still prefixed (matching
+    nothing) or strip too much (colliding two files), and a shallow tree
+    cannot distinguish either from success."""
+    skill_dir = tmp_path / "codex" / "skills" / "flow-check"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("skill md\n", encoding="utf-8")
+    (skill_dir / "reference.md").write_text("reference\n", encoding="utf-8")
+    (skill_dir / "lib" / "cicd").mkdir(parents=True)
+    (skill_dir / "lib" / "cicd" / "__init__.py").write_text("", encoding="utf-8")
+    (skill_dir / "scripts").mkdir()
+    (skill_dir / "scripts" / "helper.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+
+    current = mod.digest_tree(skill_dir)
+    assert set(current) == {"SKILL.md", "reference.md", "lib/cicd/__init__.py", "scripts/helper.sh"}
+
+    inventory_entry = {
+        "name": "flow-check",
+        "description_digest": "sha256:" + "a" * 64,
+        "body_digest": "sha256:" + "b" * 64,
+        "files": [
+            {"source": f"codex/skills/flow-check/{rel}", "digest": digest}
+            for rel, digest in current.items()
+        ],
+    }
+    reference_files = mod._reference_files(inventory_entry, "flow-check", tmp_path / "inventory.json")
+    assert reference_files == current, (
+        "same keys, same values - the dict equality itself is the zero-drift proof: "
+        "a key-alignment bug would make this dict compare unequal to digest_tree()'s own output"
+    )
+
+
+def test_reference_files_refuses_a_source_outside_the_skill_prefix(tmp_path: Path) -> None:
+    """The REFUSAL half of the same fix: an inventory file entry whose
+    `source` does not start with `codex/skills/<skill>/` must raise rather
+    than be silently skipped or mis-keyed - a skipped row is exactly the
+    'nothing compared' failure mode cpp-orch named."""
+    inventory_entry = {
+        "name": "flow-check",
+        "files": [{"source": "codex/skills/OTHER-SKILL/SKILL.md", "digest": "sha256:" + "a" * 64}],
+    }
+    with pytest.raises(SystemExit):
+        mod._reference_files(inventory_entry, "flow-check", tmp_path / "inventory.json")
