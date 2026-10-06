@@ -1,0 +1,33 @@
+{
+  "gate": "scripts/toy-gate-exit.sh",
+  "invocation": [
+    "sh",
+    "{gate}",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^toy-gate: FINDING",
+  "cases": [
+    {
+      "name": "bad",
+      "input": "cases/bad",
+      "expect": "BAD",
+      "expected_exit": 1
+    },
+    {
+      "name": "good",
+      "input": "cases/good",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "0000000",
+      "origin": "scripts/toy-gate-exit.sh",
+      "path": "anchors/0000000-toy-gate-exit.sh",
+      "sha256": "0fe099f41a3568ebb497166d1180e9b7bc75c9721bd0d7cbb5b0edc51b257232"
+    }
+  ]
+}

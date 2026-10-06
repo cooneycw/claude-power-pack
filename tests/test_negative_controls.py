@@ -4187,3 +4187,254 @@ def test_an_anchor_that_warns_for_another_reason_is_unresolved_naming_good_signa
     result = run_harness(root, "--strict")
     assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
     assert "without the declared good_signal" in result.stdout, result.stdout
+
+
+# --------------------------------------------------------------------------- #
+# A case can be pinned to its OWN exit code, not only its bucket (#1395).
+# --------------------------------------------------------------------------- #
+# `detect_signal`/`good_signal` are REGEXES, and a gate with more than two real
+# verdicts can legitimately match more than one of them with ONE pattern - the
+# real shape is controls/counter-model-reviewer-attribution's
+# `^ATTRIBUTION-(FINDING|UNKNOWN):`, which matches both of its own BAD
+# verdicts. A case can therefore drift from one specific exit code to a
+# DIFFERENT one while staying in the same bucket, and `observed == expected`
+# alone cannot see it - #864 comment 5749164411's own measurement, on a
+# mutation the battery read as PASS.
+TWO_BAD_SIGNAL = r"^toy-gate: finding"
+
+#: Two distinct findings sharing ONE detect_signal, at two different exit
+#: codes - the shape the harness-wide bucket comparison cannot tell apart.
+TWO_BAD_GATE = """#!/usr/bin/env python3
+import sys
+from pathlib import Path
+#: NEGATIVE-CONTROL: controls/toy
+root = Path(sys.argv[sys.argv.index("--root") + 1])
+if (root / "tests" / "TRIP_B").exists():
+    print("toy-gate: finding (reason b)")
+    sys.exit(2)
+if (root / "tests" / "TRIP_A").exists():
+    print("toy-gate: finding (reason a)")
+    sys.exit(1)
+print("toy-gate: ok")
+sys.exit(0)
+"""
+
+
+def _two_bad_tree(tmp_path: Path, expected_exit: int | None) -> Path:
+    cases: list[dict[str, object]] = [
+        {"name": "good", "input": "cases/good", "expect": "GOOD"},
+    ]
+    bad_case: dict[str, object] = {"name": "bad", "input": "cases/bad", "expect": "BAD"}
+    if expected_exit is not None:
+        bad_case["expected_exit"] = expected_exit
+    cases.insert(0, bad_case)
+    return build_tree(tmp_path, TWO_BAD_GATE, detect_signal=TWO_BAD_SIGNAL, cases=cases)
+
+
+def test_expected_exit_unset_scores_exactly_as_before(tmp_path: Path) -> None:
+    """Absence changes nothing: a case with no expected_exit is the bucket
+    comparison alone, same as every control before this issue."""
+    root = _two_bad_tree(tmp_path, None)
+    (root / "controls" / "toy" / "cases" / "bad" / "tests" / "TRIP_B").write_text("x", encoding="utf-8")
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "PASS", result.stdout
+
+
+def test_expected_exit_matching_the_real_exit_passes(tmp_path: Path) -> None:
+    root = _two_bad_tree(tmp_path, 1)
+    (root / "controls" / "toy" / "cases" / "bad" / "tests" / "TRIP_A").write_text("x", encoding="utf-8")
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "PASS", result.stdout
+
+
+def test_expected_exit_catches_a_case_that_drifted_to_a_neighbouring_bad_exit(tmp_path: Path) -> None:
+    """The #1395 red case at harness level: same BAD bucket, different exit.
+
+    The case is registered for exit 1 (reason a) but its own fixture trips
+    reason b (exit 2) instead - the #1048-style mutation the battery missed.
+    """
+    root = _two_bad_tree(tmp_path, 1)
+    (root / "controls" / "toy" / "cases" / "bad" / "tests" / "TRIP_B").write_text("x", encoding="utf-8")
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "BLIND", result.stdout
+    assert "expected_exit" in result.stdout, result.stdout
+    assert result.returncode == 1
+
+
+def test_expected_exit_must_be_an_int(tmp_path: Path) -> None:
+    root = _two_bad_tree(tmp_path, 1)
+    manifest_path = root / "controls" / "toy" / "control.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["cases"][0]["expected_exit"] = "1"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "expected_exit" in result.stdout, result.stdout
+
+
+def test_expected_exit_on_a_good_case_must_agree_with_good_exit(tmp_path: Path) -> None:
+    """GOOD already means exit == good_exit; a different declared value is
+    incoherent, not merely redundant, and is refused rather than ignored."""
+    root = _two_bad_tree(tmp_path, 1)
+    manifest_path = root / "controls" / "toy" / "control.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["cases"][1]["expected_exit"] = 1  # the GOOD case, disagreeing with good_exit=0
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "expected_exit" in result.stdout, result.stdout
+
+
+def test_expected_exit_on_a_bad_case_must_not_equal_good_exit(tmp_path: Path) -> None:
+    """A BAD case can never legitimately exit at good_exit - that would
+    contradict its own bucket - so the declaration is refused outright."""
+    root = _two_bad_tree(tmp_path, 0)
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "expected_exit" in result.stdout, result.stdout
+
+
+# --------------------------------------------------------------------------- #
+# A case can declare its OWN good_signal, overriding the control-level one
+# (#1395).
+# --------------------------------------------------------------------------- #
+# #1350's good_signal is ONE pattern for every GOOD case in a control. A
+# control whose good cases each answer a genuinely different clean line at the
+# SAME exit code - controls/counter-model-enrolment's actual shape, #864
+# comment 5880256649 - cannot be given a single pattern narrow enough to tell
+# them apart without that pattern also accepting some of its own real good
+# cases on the wrong one.
+TWO_GOOD_SIGNAL_GATE = """#!/usr/bin/env python3
+import sys
+from pathlib import Path
+#: NEGATIVE-CONTROL: controls/toy
+root = Path(sys.argv[sys.argv.index("--root") + 1])
+if (root / "tests" / "BAD").exists():
+    print("toy-gate: finding")
+    sys.exit(1)
+if (root / "tests" / "OTHER_GOOD").exists():
+    print("toy-gate: ok (other)")
+    sys.exit(0)
+print("toy-gate: ok (expected)")
+sys.exit(0)
+"""
+
+
+def _two_good_signal_tree(tmp_path: Path, case_good_signal: str | None) -> Path:
+    good_case: dict[str, object] = {"name": "good", "input": "cases/good", "expect": "GOOD"}
+    if case_good_signal is not None:
+        good_case["good_signal"] = case_good_signal
+    cases = [
+        {"name": "bad", "input": "cases/bad", "expect": "BAD"},
+        good_case,
+    ]
+    return build_tree(tmp_path, TWO_GOOD_SIGNAL_GATE, cases=cases, detect_signal=r"^toy-gate: finding")
+
+
+def test_case_good_signal_unset_scores_exactly_as_before(tmp_path: Path) -> None:
+    root = _two_good_signal_tree(tmp_path, None)
+    (root / "controls" / "toy" / "cases" / "good" / "tests" / "OTHER_GOOD").write_text("x", encoding="utf-8")
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "PASS", result.stdout
+
+
+def test_case_good_signal_matching_the_real_answer_passes(tmp_path: Path) -> None:
+    root = _two_good_signal_tree(tmp_path, r"^toy-gate: ok \(expected\)")
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "PASS", result.stdout
+
+
+def test_case_good_signal_catches_a_good_case_answering_for_the_wrong_reason(tmp_path: Path) -> None:
+    """The #1395 red case: the case's own fixture answers a DIFFERENT clean
+    line than the one it is pinned to, at the same exit code."""
+    root = _two_good_signal_tree(tmp_path, r"^toy-gate: ok \(expected\)")
+    (root / "controls" / "toy" / "cases" / "good" / "tests" / "OTHER_GOOD").write_text("x", encoding="utf-8")
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNSIGNALLED", result.stdout
+    assert "good_signal" in result.stdout, result.stdout
+    assert result.returncode == 1
+
+
+def test_case_good_signal_overrides_a_broader_control_level_pattern(tmp_path: Path) -> None:
+    """Per-case takes precedence: a control-level pattern loose enough to
+    accept both good answers does not excuse one case's own narrower pin."""
+    root = build_tree(
+        tmp_path, TWO_GOOD_SIGNAL_GATE,
+        cases=[
+            {"name": "bad", "input": "cases/bad", "expect": "BAD"},
+            {
+                "name": "good", "input": "cases/good", "expect": "GOOD",
+                "good_signal": r"^toy-gate: ok \(expected\)",
+            },
+        ],
+        detect_signal=r"^toy-gate: finding",
+        good_signal=r"^toy-gate: ok",  # control-level: matches either answer
+    )
+    (root / "controls" / "toy" / "cases" / "good" / "tests" / "OTHER_GOOD").write_text("x", encoding="utf-8")
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNSIGNALLED", result.stdout
+
+
+def test_case_good_signal_is_refused_on_a_non_good_case(tmp_path: Path) -> None:
+    root = build_tree(
+        tmp_path, TWO_GOOD_SIGNAL_GATE,
+        cases=[
+            {"name": "bad", "input": "cases/bad", "expect": "BAD", "good_signal": r"^toy-gate: finding"},
+            {"name": "good", "input": "cases/good", "expect": "GOOD"},
+        ],
+        detect_signal=r"^toy-gate: finding",
+    )
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "good_signal" in result.stdout, result.stdout
+
+
+@pytest.mark.parametrize(("signal", "label"), [(r"(unclosed", "uncompilable"), (r".*", "dot-star"), ("", "empty")])
+def test_case_good_signal_bad_pattern_is_unresolved_not_a_silent_fallback(
+    tmp_path: Path, signal: str, label: str,
+) -> None:
+    (tmp_path / label).mkdir()
+    root = _two_good_signal_tree(tmp_path / label, signal)
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", f"{label}: {result.stdout}"
+    assert "good_signal" in result.stdout, f"{label}: {result.stdout}"
+
+
+def test_case_good_signal_must_be_a_string(tmp_path: Path) -> None:
+    root = _two_good_signal_tree(tmp_path, r"^toy-gate: ok \(expected\)")
+    manifest_path = root / "controls" / "toy" / "control.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["cases"][1]["good_signal"] = 123
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    result = run_harness(root, "--strict")
+    assert verdict_of(result.stdout) == "UNRESOLVED", result.stdout
+    assert "good_signal" in result.stdout, result.stdout
+
+
+def test_the_real_reviewer_attribution_control_catches_a_drift_to_the_neighbouring_exit(
+    tmp_path: Path,
+) -> None:
+    """End to end on the REAL control (#864 comment 5749164411's own example).
+
+    `controls/counter-model-reviewer-attribution` already declares
+    `expected_exit` on every case (previously read only by its own dedicated
+    pytest file, never by this harness). Its `bad-blind-extractor` case is
+    registered for exit 2 (ATTRIBUTION-UNKNOWN); swapping in `bad-disagreement`'s
+    fixture under that name drifts it to exit 1 (ATTRIBUTION-FINDING) - the
+    SAME mutation #1048/PR #1112 measured, in the same BAD bucket either way.
+    """
+    root = tmp_path / "root"
+    (root / "controls").mkdir(parents=True)
+    (root / "scripts").symlink_to(ROOT / "scripts")
+    ctl = root / "controls" / "counter-model-reviewer-attribution"
+    shutil.copytree(ROOT / "controls" / "counter-model-reviewer-attribution", ctl)
+
+    result = run_harness(root, "--control", "controls/counter-model-reviewer-attribution")
+    assert verdict_of(result.stdout) == "PASS", result.stdout
+
+    shutil.rmtree(ctl / "cases" / "bad-blind-extractor")
+    shutil.copytree(ctl / "cases" / "bad-disagreement", ctl / "cases" / "bad-blind-extractor")
+
+    result = run_harness(root, "--control", "controls/counter-model-reviewer-attribution")
+    assert verdict_of(result.stdout) == "BLIND", result.stdout
+    assert "expected_exit" in result.stdout, result.stdout
