@@ -18,6 +18,7 @@ that one, which is the reason check-ci-coverage.py:127 gives for not having one.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import subprocess
@@ -937,3 +938,82 @@ def test_a_producer_reported_coverage_file_is_noted_but_never_judged(tmp_path: P
     assert "PRODUCER-REPORTED" in detail
     assert "coverage-report.json" in detail
     assert "#1084" in detail
+
+
+# --------------------------------------- codex counter-model review (#1369)
+
+@pytest.mark.parametrize("stray_kind", ["attempt-lifecycle", "installation-receipt", "skill-evidence"])
+def test_an_orphan_record_of_any_attempt_bound_kind_is_refused(tmp_path: Path, stray_kind: str) -> None:
+    """A STRAY record for an unplanned attempt escaped the orphan check for
+    every kind except verified-result/artifact-manifest - codex counter-model
+    review, [MEDIUM] 'Orphan lifecycle, receipt, and skill-evidence records
+    escape ledger binding'."""
+    _write(tmp_path, ledger=_ledger([{"attempt_id": "att-1"}]), lifecycle=_lifecycle("att-1"),
+           manifest=_manifest("att-1"), result=_result("att-1"))
+    stray: dict = {"version": 2, "kind": stray_kind, "producer": "controller", "attempt_id": "att-9", "trial_id": "t-1"}
+    if stray_kind == "skill-evidence":
+        stray["producer"] = "assembler"
+        stray["skills"] = []
+    (tmp_path / "stray.json").write_text(json.dumps(stray))
+    verdict, detail = mod.evaluate(tmp_path)
+    assert verdict == "bundle-invalid", detail
+    assert "att-9" in detail
+    assert "which the ledger never issued" in detail
+
+
+def test_a_non_list_artifacts_field_is_refused_not_crashed(tmp_path: Path) -> None:
+    """codex counter-model review, [MEDIUM] 'Malformed bundle fields can crash
+    the gate': `"artifacts": 1` raised TypeError during digest collection."""
+    bad_manifest = _manifest("att-1")
+    bad_manifest["artifacts"] = 1
+    _write(tmp_path, ledger=_ledger([{"attempt_id": "att-1"}]), lifecycle=_lifecycle("att-1"),
+           manifest=bad_manifest, result=_result("att-1"))
+    verdict, detail = mod.evaluate(tmp_path)  # must not raise
+    assert verdict == "bundle-invalid", detail
+    assert "artifacts is not a list" in detail
+
+
+def test_a_non_string_regrade_of_field_is_refused_not_crashed(tmp_path: Path) -> None:
+    """codex counter-model review, [MEDIUM] 'Malformed bundle fields can crash
+    the gate': `"regrade_of": []` raised TypeError on an unhashable dict key."""
+    _write(tmp_path, ledger=_ledger([{"attempt_id": "att-1"}]), lifecycle=_lifecycle("att-1"),
+           manifest=_manifest("att-1"))
+    (tmp_path / "result.json").write_text(json.dumps(_result("att-1", result_id="res-1", regrade_of=[])))
+    verdict, detail = mod.evaluate(tmp_path)  # must not raise
+    assert verdict == "bundle-invalid", detail
+    assert "regrade_of is not a string" in detail
+
+
+def test_a_matched_citation_is_checked_against_the_payloads_own_bytes(tmp_path: Path) -> None:
+    """codex counter-model review, [HIGH] 'Matched evidence is never checked
+    against its cited digest': the payload's own hash was never compared to
+    `artifact_ref.digest`, so swapping the cited file for a different, still
+    well-formed usage record silently kept reporting PASS."""
+    swapped = json.dumps({"schema": "cpp.execution-evidence/v1", "not": "the cited record"}).encode()
+    real_digest = f"sha256:{hashlib.sha256(swapped).hexdigest()}"
+    (tmp_path / "cpp-usage").mkdir()
+    (tmp_path / "cpp-usage" / "x.json").write_bytes(swapped)
+
+    claimed_digest = "sha256:" + "0" * 64  # what the citation and manifest both (falsely) declare
+    manifest = _manifest("att-1", artifacts=[
+        {"path": "out.txt", "type": "file", "size": 1, "digest": "sha256:aa"},
+        {"path": "cpp-usage/x.json", "type": "file", "size": 1, "digest": claimed_digest},
+    ])
+    evidence = {
+        "version": 2, "kind": "skill-evidence", "producer": "assembler",
+        "attempt_id": "att-1", "trial_id": "t-1",
+        "skills": [{
+            "skill": {"path": "SKILL.md"},
+            "external_evidence": {
+                "present": True, "source": "cpp.execution-evidence/v1",
+                "artifact_ref": {"path": "cpp-usage/x.json", "digest": claimed_digest},
+                "reconciliation": "matched",
+            },
+        }],
+    }
+    _write(tmp_path, ledger=_ledger([{"attempt_id": "att-1"}]), lifecycle=_lifecycle("att-1"),
+           manifest=manifest, result=_result("att-1"), evidence=evidence)
+    verdict, detail = mod.evaluate(tmp_path)
+    assert verdict == "evidence-unverified", detail
+    assert real_digest in detail
+    assert claimed_digest in detail

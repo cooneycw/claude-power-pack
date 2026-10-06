@@ -149,6 +149,7 @@ covering it.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -624,17 +625,17 @@ def _validate_bundle(by_kind: dict[str, list[tuple[Path, dict]]]) -> list[str]:
                 f"controller never accounted for it (records.md:903)"
             )
 
-    # ledger-binding's minimal half (records.md:862): no orphan/unplanned attempt.
+    # ledger-binding's minimal half (records.md:862): no orphan/unplanned
+    # attempt - applied to EVERY attempt-bound kind (counter-model review:
+    # the first cut only checked verified-result and artifact-manifest, so
+    # an orphan lifecycle, receipt or skill-evidence record for an unplanned
+    # attempt silently passed).
     results_by_attempt: dict[str, list[Path]] = {}
-    for path, rec in by_kind.get(KIND, []):
-        aid = rec.get("attempt_id")
-        if isinstance(aid, str):
-            results_by_attempt.setdefault(aid, []).append(path)
-        else:
-            findings.append(f"{path.name}: verified-result has no string attempt_id (records.md:862)")
-    for label, per_attempt in (
-        ("verified-result", results_by_attempt),
-        ("artifact-manifest", manifests_by_attempt),
+    for kind, per_attempt, label in (
+        (ATTEMPT_LIFECYCLE, lifecycles, "attempt-lifecycle"),
+        (ARTIFACT_MANIFEST, manifests_by_attempt, "artifact-manifest"),
+        (INSTALLATION_RECEIPT, receipts_by_attempt, "installation-receipt"),
+        (SKILL_EVIDENCE, evidence_by_attempt, "skill-evidence"),
     ):
         for aid in sorted(per_attempt):
             if aid not in planned:
@@ -642,6 +643,18 @@ def _validate_bundle(by_kind: dict[str, list[tuple[Path, dict]]]) -> list[str]:
                     f"{label} cites attempt {aid!r}, which the ledger never issued "
                     f"(records.md:862, ledger-binding)"
                 )
+    for path, rec in by_kind.get(KIND, []):
+        aid = rec.get("attempt_id")
+        if isinstance(aid, str):
+            results_by_attempt.setdefault(aid, []).append(path)
+        else:
+            findings.append(f"{path.name}: verified-result has no string attempt_id (records.md:862)")
+    for aid in sorted(results_by_attempt):
+        if aid not in planned:
+            findings.append(
+                f"verified-result cites attempt {aid!r}, which the ledger never issued "
+                f"(records.md:862, ledger-binding)"
+            )
 
     # ledger-binding (records.md:863-864): every attempt-bound record names
     # the trial the ledger actually planned that attempt under - a record
@@ -673,12 +686,16 @@ def _validate_bundle(by_kind: dict[str, list[tuple[Path, dict]]]) -> list[str]:
     # acceptance item 1) - previously out-of-subset
     # (`ledger-binding/bad/unplanned-grader`, `.../altered-artifact`).
     captured_digests: dict[str, set[str]] = {}
-    for _path, rec in by_kind.get(ARTIFACT_MANIFEST, []):
+    for path, rec in by_kind.get(ARTIFACT_MANIFEST, []):
         aid = rec.get("attempt_id")
         if not isinstance(aid, str):
             continue
+        artifacts = rec.get("artifacts")
+        if not isinstance(artifacts, list):
+            findings.append(f"{path.name}: artifact-manifest's artifacts is not a list (records.md:192)")
+            continue
         digests = {
-            a.get("digest") for a in (rec.get("artifacts") or [])
+            a.get("digest") for a in artifacts
             if isinstance(a, dict) and isinstance(a.get("digest"), str)
         }
         captured_digests.setdefault(aid, set()).update(digests)
@@ -740,6 +757,9 @@ def _validate_bundle(by_kind: dict[str, list[tuple[Path, dict]]]) -> list[str]:
         regrade_of = rec.get("regrade_of")
         if regrade_of is None:
             continue
+        if not isinstance(regrade_of, str):
+            findings.append(f"{path.name}: regrade_of is not a string (records.md:926)")
+            continue
         original = results_by_id.get(regrade_of)
         if original is None or original is rec:
             findings.append(
@@ -790,10 +810,14 @@ def _validate_bundle(by_kind: dict[str, list[tuple[Path, dict]]]) -> list[str]:
                     f"path/digest pair (records.md:470)"
                 )
                 continue
+            attempt_manifest_artifacts: list[object] = [
+                a
+                for _mp, mrec in by_kind.get(ARTIFACT_MANIFEST, [])
+                if mrec.get("attempt_id") == aid and isinstance(mrec.get("artifacts"), list)
+                for a in mrec["artifacts"]
+            ]
             matches = [
-                a for mp, mrec in by_kind.get(ARTIFACT_MANIFEST, [])
-                if mrec.get("attempt_id") == aid
-                for a in (mrec.get("artifacts") or [])
+                a for a in attempt_manifest_artifacts
                 if isinstance(a, dict) and a.get("path") == ref_path and a.get("digest") == ref_digest
             ]
             if len(matches) != 1:
@@ -846,9 +870,33 @@ def _evaluate_skill_evidence(pop_dir: Path, by_kind: dict[str, list[tuple[Path, 
                 continue
             ref = external.get("artifact_ref")
             ref_path = ref.get("path") if isinstance(ref, dict) else None
-            if not isinstance(ref_path, str):
+            ref_digest = ref.get("digest") if isinstance(ref, dict) else None
+            if not isinstance(ref_path, str) or not isinstance(ref_digest, str):
                 continue
             payload = pop_dir / ref_path
+            # The digest is checked HERE, against the bytes on disk - never
+            # trusted from the citation (counter-model review). `_validate_bundle`
+            # already confirmed `ref_digest` matches a manifest entry, but that
+            # is a comparison between two DECLARATIONS; neither one is the
+            # payload's own bytes. Swapping the file at `ref_path` for a
+            # different, independently valid usage record would otherwise
+            # still read as `matched` and verify clean.
+            try:
+                actual_digest = f"sha256:{hashlib.sha256(payload.read_bytes()).hexdigest()}"
+            except OSError as exc:
+                return "evidence-unverified", (
+                    f"{path.name}: skill {skill_path!r} reconciliation is 'matched', but its "
+                    f"cited usage-record payload {ref_path!r} could not be read ({exc}); "
+                    f"skillc's check-records validates only the reference's shape, never the "
+                    f"bytes it names (R14)"
+                )
+            if actual_digest != ref_digest:
+                return "evidence-unverified", (
+                    f"{path.name}: skill {skill_path!r} reconciliation is 'matched', but "
+                    f"{ref_path!r}'s own bytes hash to {actual_digest!r}, not the cited "
+                    f"{ref_digest!r}; the citation does not identify the bytes it is matched "
+                    f"against (R14)"
+                )
             verdict, reasons, _claim = _evidence.verify(payload, check_current=False)
             if verdict == _evidence.UNKNOWN:
                 return "evidence-unverified", (
