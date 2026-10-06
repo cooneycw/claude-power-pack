@@ -277,6 +277,26 @@ def test_unknown_schema_is_not_guessed(repo: Path) -> None:
     assert _verdict(path, repo)[0] == UNKNOWN
 
 
+def test_unknown_check_missing_population_is_not_a_crash(repo: Path) -> None:
+    """A check entry missing `population` entirely must read UNKNOWN, never crash.
+
+    cooneycw/claude-power-pack#1373: `_structure_errors` guarded with
+    `c.get("population", {})` on one line and then indexed `c["population"]`
+    directly on the next, so the guard's own default never protected the read
+    it was written for. This is squarely the reader's documented threat model
+    (a malformed/incomplete record), and a `KeyError` is outside its documented
+    exit-code contract (0/3/4 only) - the same class of defect `test_unknown_schema_is_not_guessed`
+    above exists to pin for a different field.
+    """
+    _, path = _run(repo, [_gate("lint")])
+    data = json.loads(path.read_text())
+    del data["observed"]["checks"][0]["population"]
+    path.write_text(json.dumps(data))
+    verdict, reasons = _verdict(path, repo)
+    assert verdict == UNKNOWN
+    assert any("population" in r for r in reasons)
+
+
 def test_cli_exit_codes_follow_the_verdict(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
     _, path = _run(repo, [_gate("lint")])
     assert evidence.cli(["verify", str(path), "--path", str(repo)]) == 0
