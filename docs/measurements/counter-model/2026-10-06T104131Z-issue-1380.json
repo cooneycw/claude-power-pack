@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1380-flow-check-selective-description",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "682e66f792eb92b6e26832b19aa147ec70352917",
+  "implementer": "claude/claude-sonnet-5",
+  "issue": "1380",
+  "passes": 1,
+  "recorded_at": "2026-10-06T10:41:31Z",
+  "red_cases": {
+    "already_covered": 2,
+    "proposed": 2
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/06/rollout-2026-10-06T10-41-03-01a110cd-774f-7ec1-a6a1-c928ed800aeb.jsonl",
+    "thread_id": "01a110cd-774f-7ec1-a6a1-c928ed800aeb"
+  },
+  "schema": 1,
+  "status": "ran"
+}

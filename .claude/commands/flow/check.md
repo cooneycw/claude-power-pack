@@ -1,5 +1,5 @@
 ---
-description: Run quality checks (lint + test + typecheck + security) without committing
+description: "Use when you are asked to run a project's quality checks (tests, lint, type checks, security scan): runs them in one step and reports what failed, without committing."
 allowed-tools: Bash(make:*), Bash(grep:*), Bash(test:*), Bash(python3:*), Bash(PYTHONPATH=*), Bash(git:*), Bash(~/.claude/scripts/flow-finish-gate.sh:*), Read
 ---
 
