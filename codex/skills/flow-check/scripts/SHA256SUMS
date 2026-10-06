@@ -8,7 +8,7 @@
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
 38da5bd182613be886b135553ea0503a02234c7ec1948379a65ade0645b23d34  check-ignored-additions.sh
-609d1bafc79a0c9447f7ffbb26be88d41ad87bfb8316fe2ac8a742ebebb0919b  counter-model-receipt.py
+0614dc06e102e6a0dbfe977314a620bf59cabfe4d88675f0da2498b3d29ab05a  counter-model-receipt.py
 21b2aecaa85de18724f8f09a37a4a0bd44790db494b56571c6a25f548805b299  execution-evidence-verify.py
 deab55eae681e47f5e3d4692dd94dc597defd1043be409d1dcbc3b8f3489929b  flow-finish-gate.sh
 4095e524bf802a97f48add745e5c64addfe1055eac67c484b5ad81e5c26b38a8  gate-lib.sh

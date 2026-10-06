@@ -48,6 +48,11 @@
       "expect": "GOOD"
     },
     {
+      "name": "good-delegated-receipt-at-head",
+      "input": "cases/good-delegated-receipt-at-head",
+      "expect": "GOOD"
+    },
+    {
       "name": "good-committed-skip-reason",
       "input": "cases/good-committed-skip-reason",
       "expect": "GOOD"

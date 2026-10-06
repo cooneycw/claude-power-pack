@@ -55,6 +55,23 @@ EXIT_USAGE = 2
 
 STATUSES = ("ran", "skipped")
 
+#: WHICH WAY ROUND THE TWO MODELS SAT (issue #1383). The default direction -
+#: Claude implements, Codex reviews - is what every receipt before #1383
+#: records, and a receipt with no `direction` field still means exactly that.
+#: `delegated` is the /codex:auto lane: Codex implements, and the supervising
+#: Claude session reviews the diff in that lane's Step 5. Before this, the
+#: writer could only model the first direction, so a delegated run had two
+#: options and both were false: a `ran` receipt derived as "Codex reviewed
+#: Claude's code" (inverting the property this file checks), or a skip reason
+#: claiming a reviewer was absent when it was not.
+#:
+#: THE PROPERTY DOES NOT CHANGE WITH THE DIRECTION. Both identities are still
+#: DERIVED (#1047/#1048), each from the side that produced it, and a receipt
+#: naming the same model twice is refused whichever way round it claims to be.
+DIRECTION_DEFAULT = "claude-implements"
+DIRECTION_DELEGATED = "delegated"
+DIRECTIONS = (DIRECTION_DEFAULT, DIRECTION_DELEGATED)
+
 #: A skip must say WHICH skip. An open-ended reason string would let
 #: "not today" and "the reviewer binary is missing" share a bucket, and those
 #: two say opposite things about whether the stage is working.
@@ -299,23 +316,27 @@ def rollout_turn_model(rollout_text: str) -> tuple[str | None, str | None]:
 
 
 def _derive_reviewer_from_exec_log(
-    exec_log: Path, sessions_dir: Path
+    exec_log: Path, sessions_dir: Path, role: str = "reviewer"
 ) -> tuple[str | None, dict | None, str | None]:
-    """Derive the reviewing model from one exec stream and its own rollout.
+    """Derive the model behind one Codex exec stream from its own rollout.
 
-    Returns `(reviewer, evidence, error)`. `evidence` is the pointer a later
-    reader needs to re-derive the reviewer (issue #1269): the thread id this
+    Returns `(model, evidence, error)`. `evidence` is the pointer a later
+    reader needs to re-derive the model (issue #1269): the thread id this
     derivation was anchored on, and the rollout it read, relative to the
     sessions directory so the receipt does not carry a host's home path.
+
+    `role` only names the stream in diagnostics. On the default direction the
+    stream is the REVIEWER's; on a delegated lane (issue #1383) it is the
+    IMPLEMENTER's - the same derivation, read from the other side.
     """
     try:
         exec_text = exec_log.read_text(encoding="utf-8")
     except OSError as exc:
-        return None, None, f"cannot read reviewer exec log {exec_log}: {exc}"
+        return None, None, f"cannot read {role} exec log {exec_log}: {exc}"
 
     thread_match = re.search(r'"thread_id"\s*:\s*"([^"]*)"', exec_text)
     if thread_match is None or not thread_match.group(1):
-        return None, None, f"reviewer exec log {exec_log} contains no thread_id"
+        return None, None, f"{role} exec log {exec_log} contains no thread_id"
     thread_id = thread_match.group(1)
 
     try:
@@ -515,6 +536,11 @@ def build(args: argparse.Namespace) -> dict:
     # must keep validating. `cmd_write` always sets it on a `ran` receipt.
     if getattr(args, "reviewer_evidence", None):
         receipt["reviewer_evidence"] = args.reviewer_evidence
+    # Written ONLY for a delegated run (issue #1383): absent means the default
+    # direction, which is what every earlier receipt already means by omission.
+    if getattr(args, "direction", DIRECTION_DEFAULT) == DIRECTION_DELEGATED:
+        receipt["direction"] = DIRECTION_DELEGATED
+        receipt["implementer_evidence"] = args.implementer_evidence
     if args.status == "skipped":
         receipt["skip_reason"] = args.reason
     else:
@@ -586,6 +612,23 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
         if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{7,40}", head):
             bad.append(f"{source}: head {head!r} is not a git object name")
 
+    direction = receipt.get("direction", DIRECTION_DEFAULT)
+    if direction not in DIRECTIONS:
+        bad.append(f"{source}: direction {direction!r} not in {DIRECTIONS}")
+        return bad
+    delegated = direction == DIRECTION_DELEGATED
+
+    def _names(evidence: object, keys: tuple[str, ...]) -> bool:
+        return isinstance(evidence, dict) and all(
+            isinstance(evidence.get(k), str) and evidence[k].strip() for k in keys
+        )
+
+    # Where each identity came from. On the default direction the CODEX side is
+    # the reviewer; on a delegated one it is the implementer and the reviewer is
+    # a Claude session (issue #1383). Each pointer is shaped by the side it
+    # names, so a receipt cannot carry one direction's evidence under the other
+    # direction's label.
+    reviewer_keys = ("session_id",) if delegated else ("thread_id", "rollout")
     if "reviewer_evidence" in receipt:
         evidence = receipt["reviewer_evidence"]
         if status == "skipped":
@@ -593,14 +636,46 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
                 f"{source}: a skipped run must not carry 'reviewer_evidence'; "
                 "no review happened"
             )
-        elif not isinstance(evidence, dict) or not all(
-            isinstance(evidence.get(k), str) and evidence[k].strip()
-            for k in ("thread_id", "rollout")
-        ):
+        elif not _names(evidence, reviewer_keys):
             bad.append(
                 f"{source}: reviewer_evidence {evidence!r} must name a non-empty "
-                "'thread_id' and 'rollout'"
+                + " and ".join(repr(k) for k in reviewer_keys)
             )
+
+    if delegated:
+        # A delegated receipt exists BECAUSE a review happened: the supervising
+        # Claude session is always present on that lane, so neither committed
+        # skip reason (an inability to run the reviewer) can be true of it.
+        if status != "ran":
+            bad.append(
+                f"{source}: a delegated receipt records a review that happened; "
+                f"status {status!r} is not 'ran'"
+            )
+        if not _names(receipt.get("implementer_evidence"), ("thread_id", "rollout")):
+            bad.append(
+                f"{source}: a delegated receipt must carry implementer_evidence "
+                "naming a non-empty 'thread_id' and 'rollout'"
+            )
+        if not _names(receipt.get("reviewer_evidence"), ("session_id",)):
+            bad.append(
+                f"{source}: a delegated receipt must carry reviewer_evidence "
+                "naming a non-empty 'session_id'"
+            )
+        # The direction is checkable against the identities themselves: on a
+        # delegated lane the REVIEWER is the Claude session. A receipt saying
+        # `delegated` while a non-Claude model reviewed is the default
+        # direction mislabelled.
+        if isinstance(reviewer, str) and reviewer.strip() \
+                and not reviewer.startswith("claude/"):
+            bad.append(
+                f"{source}: a delegated receipt's reviewer {reviewer!r} is not a "
+                "Claude session; the supervising session is the reviewer"
+            )
+    elif "implementer_evidence" in receipt:
+        bad.append(
+            f"{source}: 'implementer_evidence' is recorded only on a delegated "
+            "receipt; the default direction derives the implementer from a session"
+        )
 
     if status == "skipped":
         if receipt.get("skip_reason") not in SKIP_REASONS:
@@ -771,8 +846,44 @@ def _same_commit(a: object, b: object) -> bool:
     return len(short) >= 7 and full.startswith(short)
 
 
+def _derive_delegated(args: argparse.Namespace) -> str | None:
+    """Both identities for a delegated run (issue #1383), or the refusal.
+
+    The inverse of the default direction, with the same rule on each side: the
+    IMPLEMENTER is derived from the delegated model's own exec stream and the
+    rollout its thread id names, and the REVIEWER from the supervising Claude
+    session's transcript. Neither is accepted as a value. A stream that names
+    no thread - Qwen Code and OpenCode streams today - is refused rather than
+    attributed: there is no rollout to read a model from, and a receipt naming
+    an implementer nobody can re-derive is worse than none.
+    """
+    sessions_dir = args.codex_sessions_dir or _default_codex_sessions_dir()
+    implementer, evidence, error = _derive_reviewer_from_exec_log(
+        args.implementer_exec_log, sessions_dir, role="implementer"
+    )
+    if error is not None:
+        return error
+    projects_dir = args.claude_projects_dir or _default_claude_projects_dir()
+    reviewer, error = _derive_implementer_from_session(
+        args.reviewer_session_id, projects_dir
+    )
+    if error is not None:
+        return f"reviewer session: {error}"
+    args.implementer = implementer
+    args.implementer_evidence = evidence
+    args.reviewer = reviewer
+    args.reviewer_evidence = {"session_id": args.reviewer_session_id}
+    return None
+
+
 def cmd_write(args: argparse.Namespace) -> int:
-    if args.status == "ran":
+    delegated = getattr(args, "direction", DIRECTION_DEFAULT) == DIRECTION_DELEGATED
+    if delegated:
+        error = _derive_delegated(args)
+        if error is not None:
+            print(f"counter-model-receipt: {error}", file=sys.stderr)
+            return EXIT_INVALID
+    elif args.status == "ran":
         sessions_dir = args.codex_sessions_dir or _default_codex_sessions_dir()
         reviewer, evidence, error = _derive_reviewer_from_exec_log(
             args.reviewer_exec_log, sessions_dir
@@ -786,20 +897,21 @@ def cmd_write(args: argparse.Namespace) -> int:
         args.reviewer = None
         args.reviewer_evidence = None
 
-    session_id = args.implementer_session_id or os.environ.get("CLAUDE_CODE_SESSION_ID")
-    if not session_id:
-        print(
-            "counter-model-receipt: missing implementer session id; supply "
-            "--implementer-session-id or set CLAUDE_CODE_SESSION_ID",
-            file=sys.stderr,
-        )
-        return EXIT_INVALID
-    projects_dir = args.claude_projects_dir or _default_claude_projects_dir()
-    implementer, error = _derive_implementer_from_session(session_id, projects_dir)
-    if error is not None:
-        print(f"counter-model-receipt: {error}", file=sys.stderr)
-        return EXIT_INVALID
-    args.implementer = implementer
+    if not delegated:
+        session_id = args.implementer_session_id or os.environ.get("CLAUDE_CODE_SESSION_ID")
+        if not session_id:
+            print(
+                "counter-model-receipt: missing implementer session id; supply "
+                "--implementer-session-id or set CLAUDE_CODE_SESSION_ID",
+                file=sys.stderr,
+            )
+            return EXIT_INVALID
+        projects_dir = args.claude_projects_dir or _default_claude_projects_dir()
+        implementer, error = _derive_implementer_from_session(session_id, projects_dir)
+        if error is not None:
+            print(f"counter-model-receipt: {error}", file=sys.stderr)
+            return EXIT_INVALID
+        args.implementer = implementer
 
     args.head, head_warning = _derive_head(getattr(args, "head", None))
     if head_warning:
@@ -967,6 +1079,18 @@ def main() -> int:
         type=Path,
         help="Claude projects root (defaults to ~/.claude/projects)",
     )
+    w.add_argument(
+        "--implementer-exec-log",
+        type=Path,
+        help="DELEGATED lane (issue #1383): the delegated model's --json exec "
+             "stream, from which to derive the IMPLEMENTING model",
+    )
+    w.add_argument(
+        "--reviewer-session-id",
+        help="DELEGATED lane (issue #1383): the supervising Claude session that "
+             "reviewed the diff, from which to derive the REVIEWING model "
+             "(defaults to $CLAUDE_CODE_SESSION_ID when --implementer-exec-log is given)",
+    )
     w.add_argument("--passes", type=int, default=1)
     for k in COUNTS:
         w.add_argument(f"--{k}", type=int, default=0)
@@ -993,12 +1117,36 @@ def main() -> int:
     sr.set_defaults(func=cmd_skip_reasons)
 
     args = ap.parse_args()
+    if args.cmd == "write":
+        # The direction is DERIVED from which evidence was supplied, never
+        # declared by a flag of its own (issue #1383): a `--direction` value
+        # would be one more assertion about the run, the thing #1048 removed.
+        if args.implementer_exec_log is not None:
+            args.direction = DIRECTION_DELEGATED
+            if args.status != "ran":
+                ap.error("--implementer-exec-log records a delegated review that "
+                         "happened; it requires --status ran")
+            if args.reviewer_exec_log is not None or args.implementer_session_id:
+                ap.error("--implementer-exec-log (delegated: Codex implements, Claude "
+                         "reviews) cannot be combined with --reviewer-exec-log or "
+                         "--implementer-session-id (the other direction)")
+            args.reviewer_session_id = (args.reviewer_session_id
+                                        or os.environ.get("CLAUDE_CODE_SESSION_ID"))
+            if not args.reviewer_session_id:
+                ap.error("--implementer-exec-log requires --reviewer-session-id or "
+                         "CLAUDE_CODE_SESSION_ID: the reviewing Claude session")
+        else:
+            args.direction = DIRECTION_DEFAULT
+            if args.reviewer_session_id:
+                ap.error("--reviewer-session-id is the delegated direction and "
+                         "requires --implementer-exec-log")
     if args.cmd == "write" and args.status == "skipped" and not args.reason:
         ap.error("--status skipped requires --reason")
     if (args.cmd == "write" and args.status == "skipped"
             and args.reviewer_exec_log is not None):
         ap.error("--status skipped must not carry --reviewer-exec-log; no review happened")
     if (args.cmd == "write" and args.status == "ran"
+            and args.direction != DIRECTION_DELEGATED
             and args.reviewer_exec_log is None):
         ap.error("--status ran requires --reviewer-exec-log")
     return int(args.func(args))

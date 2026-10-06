@@ -304,6 +304,8 @@ Proceeding to quality gates...
 
 {{STEP5_CRITICAL}}
 
+{{STEP5_RECEIPT}}
+
 Report: `Step 5/8: Review complete - {PASS|N issues found}`
 
 ---
