@@ -58,13 +58,21 @@ def _write_skill(repo: Path, skill: str, description: str, body: str,
 
 def _write_snapshot(snapshot_dir: Path, skill: str, *, description: str, body: str,
                      closure_digests: dict[str, str], status: str = "intact",
-                     problems: list[dict[str, Any]] | None = None) -> None:
+                     problems: list[dict[str, Any]] | None = None,
+                     reference_files: dict[str, str] | None = None) -> None:
+    """`reference_files` is axis 1's per-file evaluation-bound reference
+    (#1390) - defaults to `closure_digests` (axis 2's own baseline), which
+    is correct for the common case: in the clean starting fixture, both
+    represent the SAME on-disk tree at fixture-build time. A test that
+    wants axis 1's per-file reference to diverge from axis 2's snapshot
+    baseline passes `reference_files` explicitly."""
     snapshot_dir.mkdir(parents=True, exist_ok=True)
     snapshot = {
         "skill": skill,
         "reference": {
             "description_digest": _digest(description),
             "body_digest": _digest(body),
+            "files": reference_files if reference_files is not None else dict(closure_digests),
             "source": "test fixture",
         },
         "diagnose": {
@@ -151,6 +159,84 @@ def test_no_equivalence_registry_a_cosmetic_edit_is_still_stale(tmp_path: Path) 
         "v1 ships with no equivalence registry - ANY digest difference is stale, "
         "including a cosmetic one"
     )
+
+
+# --------------------------------------- #1390: axis 1 covers EVERY file
+
+
+def test_stale_content_reference_md_changed(tmp_path: Path) -> None:
+    """The motivating case for #1390: reference.md holds most of a skill's
+    actual instructions (the generator's progressive-disclosure split), and
+    a change to it alone - SKILL.md's description/body untouched - must
+    read stale (content), naming the file."""
+    repo = tmp_path / "repo"
+    snapshot_dir = tmp_path / "snapshot"
+    skill_dir = _write_skill(repo, "flow-check", BASE_DESCRIPTION, BASE_BODY,
+                              extra_files={"reference.md": "the original full procedure\n"})
+    closure_digests = mod.digest_tree(skill_dir)
+    _write_snapshot(snapshot_dir, "flow-check", description=BASE_DESCRIPTION, body=BASE_BODY,
+                     closure_digests=closure_digests, reference_files=closure_digests)
+    (skill_dir / "reference.md").write_text("an edited full procedure\n", encoding="utf-8")
+    result = mod.check_skill("flow-check", repo, snapshot_dir)
+    assert result["state"] == "stale (content)"
+    assert result["axis1"]["status"] == "stale"
+    assert "reference.md (content changed)" in result["axis1"]["detail"]
+
+
+def test_stale_content_new_bundled_file_added(tmp_path: Path) -> None:
+    """A file present in the shipped skill directory but absent from the
+    evaluation-bound reference (e.g. a new helper the generator started
+    bundling) must read stale (content), naming it as added - never
+    silently ignored because only CHANGED files were checked."""
+    repo, snapshot_dir, _ = _base_fixture(tmp_path)
+    skill_dir = repo / "codex" / "skills" / "flow-check"
+    (skill_dir / "scripts" / "new-helper.sh").parent.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "scripts" / "new-helper.sh").write_text("#!/bin/sh\necho new\n", encoding="utf-8")
+    result = mod.check_skill("flow-check", repo, snapshot_dir)
+    assert result["state"] == "stale (content)"
+    assert "scripts/new-helper.sh (added)" in result["axis1"]["detail"]
+
+
+def test_stale_content_reference_file_removed(tmp_path: Path) -> None:
+    """A file named in the evaluation-bound reference but no longer shipped
+    must read stale (content), naming it as removed."""
+    repo = tmp_path / "repo"
+    snapshot_dir = tmp_path / "snapshot"
+    skill_dir = _write_skill(repo, "flow-check", BASE_DESCRIPTION, BASE_BODY,
+                              extra_files={"reference.md": "full procedure\n"})
+    closure_digests = mod.digest_tree(skill_dir)
+    _write_snapshot(snapshot_dir, "flow-check", description=BASE_DESCRIPTION, body=BASE_BODY,
+                     closure_digests=closure_digests, reference_files=closure_digests)
+    (skill_dir / "reference.md").unlink()
+    result = mod.check_skill("flow-check", repo, snapshot_dir)
+    assert result["state"] == "stale (content)"
+    assert "reference.md (removed)" in result["axis1"]["detail"]
+
+
+def test_current_requires_reference_files_key_alignment(tmp_path: Path) -> None:
+    """Zero differences on a byte-identical, multi-file tree (#1390,
+    cpp-orch's precision point 2): proves the key alignment between
+    reference.files (vendored from the inventory, source-path-stripped)
+    and digest_tree()'s own keys holds for more than a one-file skill - a
+    silent mismatch here would either mark everything changed or compare
+    nothing at all, and both would be masked by a single-file fixture."""
+    repo = tmp_path / "repo"
+    snapshot_dir = tmp_path / "snapshot"
+    skill_dir = _write_skill(
+        repo, "flow-check", BASE_DESCRIPTION, BASE_BODY,
+        extra_files={
+            "reference.md": "full procedure\n",
+            "scripts/helper.sh": "#!/bin/sh\necho hi\n",
+            "lib/cicd/__init__.py": "",
+        },
+    )
+    closure_digests = mod.digest_tree(skill_dir)
+    assert len(closure_digests) >= 4, "sanity: the fixture must actually have multiple files"
+    _write_snapshot(snapshot_dir, "flow-check", description=BASE_DESCRIPTION, body=BASE_BODY,
+                     closure_digests=closure_digests, reference_files=closure_digests)
+    result = mod.check_skill("flow-check", repo, snapshot_dir)
+    assert result["state"] == "current"
+    assert result["axis1"]["status"] == "current"
 
 
 def test_stale_dependency_real_fixture_shape(tmp_path: Path) -> None:
@@ -258,16 +344,36 @@ def test_live_run_against_main_is_state_agnostic(capsys: pytest.CaptureFixture[s
     )
 
 
+def _axis2_only_drift_fixture(tmp_path: Path) -> tuple[Path, Path]:
+    """A fixture that isolates axis 2's OWN snapshot-staleness check from
+    axis 1's per-file check (#1390): `reference.md` exists in the CURRENT
+    tree and in axis 1's reference (so axis 1 reads current), but axis 2's
+    `diagnose.closure_digests` predates it (so axis 2's drift check fires
+    in isolation). Before #1390, axis 1 had no per-file check at all, so
+    adding a new file to the tree only ever exercised axis 2 - these two
+    tests now need to construct that isolation explicitly instead of
+    getting it for free."""
+    repo = tmp_path / "repo"
+    snapshot_dir = tmp_path / "snapshot"
+    skill_dir = _write_skill(repo, "flow-check", BASE_DESCRIPTION, BASE_BODY,
+                              extra_files={"reference.md": "full procedure\n"})
+    current_digests = mod.digest_tree(skill_dir)
+    closure_digests_before_reference_md = {
+        k: v for k, v in current_digests.items() if k != "reference.md"
+    }
+    _write_snapshot(snapshot_dir, "flow-check", description=BASE_DESCRIPTION, body=BASE_BODY,
+                     closure_digests=closure_digests_before_reference_md,
+                     reference_files=current_digests)
+    return repo, snapshot_dir
+
+
 def test_snapshot_staleness_is_detected_not_silently_reused(tmp_path: Path) -> None:
     """The committed red case cpp-orch asked for explicitly: a snapshot whose
     recorded closure digest differs from the CURRENT tree must yield axis-2
     UNKNOWN, never a reused (and therefore wrong) 'current' or 'stale'."""
-    repo, snapshot_dir, _ = _base_fixture(tmp_path)
-    # Change a file in the closure AFTER the snapshot was taken - the
-    # snapshot's own closure_digests still name the OLD bytes.
-    skill_dir = repo / "codex" / "skills" / "flow-check"
-    (skill_dir / "reference.md").write_text("a new file the snapshot never saw\n", encoding="utf-8")
+    repo, snapshot_dir = _axis2_only_drift_fixture(tmp_path)
     result = mod.check_skill("flow-check", repo, snapshot_dir)
+    assert result["axis1"]["status"] == "current", "axis 1 must stay current - isolating axis 2's own check"
     assert result["state"] == "unknown"
     assert "stale" in result["reason"]
     assert "reference.md (added)" in result["reason"]
@@ -277,9 +383,7 @@ def test_snapshot_staleness_detection_is_mutation_checked(tmp_path: Path) -> Non
     """Disable the drift check (pretend the digests always match) and
     confirm the SAME fixture then wrongly reports a verdict instead of
     unknown - the case the staleness check exists to prevent."""
-    repo, snapshot_dir, _ = _base_fixture(tmp_path)
-    skill_dir = repo / "codex" / "skills" / "flow-check"
-    (skill_dir / "reference.md").write_text("a new file the snapshot never saw\n", encoding="utf-8")
+    repo, snapshot_dir = _axis2_only_drift_fixture(tmp_path)
 
     # Reproduce the mutation directly: call the drift comparator with equal
     # dicts (what a broken "always fresh" implementation would effectively do).

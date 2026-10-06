@@ -3,7 +3,10 @@
   "reference": {
     "description_digest": "sha256:fe647dbf447e414328a6dc91fc7f587078c5b0e4fc549602219b045375e58218",
     "body_digest": "sha256:8865ae80579d80cba5963e110f61b32009c9da9c78fb23368d2ec6562549e313",
-    "source": "constructed fixture for controls/check-skill-coverage-map (#1370)"
+    "source": "constructed fixture for controls/check-skill-coverage-map (#1370)",
+    "files": {
+      "SKILL.md": "sha256:f932d0cf9ebc244ef1589b14e1b155a27447b98d1c893a54253caa9d4f6b079f"
+    }
   },
   "diagnose": {
     "skillc_commit": "0000000000000000000000000000000000000000",

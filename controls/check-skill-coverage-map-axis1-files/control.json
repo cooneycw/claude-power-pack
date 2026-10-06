@@ -1,0 +1,37 @@
+{
+  "_comment": "Issue #1390. Registers axis 1's PER-FILE check inside check-skill-coverage-map.py: the sub-check that must notice a change to a file OTHER than SKILL.md (most load-bearingly reference.md, where the generator's progressive-disclosure split moves most of a skill's actual instructions) shipped under codex/skills/<skill>/, and report it as stale (content) rather than missing it entirely. A SEPARATE registration from controls/check-skill-coverage-map (axis 2's snapshot-staleness detector) because disabling THIS behavior does not make that control's anchor blind, and disabling THAT one does not make this one's anchor blind - they are independent properties of the same gate, the same shape as this repository's flow-finish-gate family (row 1, ADR 0008).",
+  "gate": "scripts/check-skill-coverage-map.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--repo",
+    "{case}/repo",
+    "--snapshot-dir",
+    "{case}/repo/docs/measurements/skill-coverage"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^skill-coverage-map: \\S+ \\([^)]+\\): stale \\(content\\) - .*\\((?:content changed|added|removed)\\)",
+  "limits": "Covers only axis 1's whole-closure per-file comparison (#1390) - the check that catches a change to reference.md or any other shipped file besides SKILL.md's description/body. Both cases hold axis 2 CURRENT (the fixture's diagnose.closure_digests matches the current tree exactly) so axis 2 cannot mask or substitute for what this control isolates. Fixtures are CONSTRUCTED, not vendored from a real skillc run - the reference digests and diagnose() result are synthetic JSON built to the schema check-skill-coverage-map.py reads. Declared gap: this control does not exercise the added/removed sub-cases (a file present in one side but not the other) - those are pinned by tests/test_skill_coverage_map.py (test_stale_content_new_bundled_file_added, test_stale_content_reference_file_removed) instead, which the ADR 0008 bound does not require a registered control for.",
+  "cases": [
+    {
+      "name": "good-current",
+      "input": "cases/good-current",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-reference-md-changed-not-detected",
+      "input": "cases/bad-reference-md-changed-not-detected",
+      "expect": "BAD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/check-skill-coverage-map.py",
+      "path": "anchors/per-file-check-disabled.py",
+      "sha256": "220762a0c9898d7a34e804ebb993813d3454cf7b54245d9e3e1d830e1503d04a",
+      "why": "CONSTRUCTED: the real pre-#1390 behavior, reproduced exactly - the per-file comparison block (reference_files/current_digests/file_diffs) removed, reverting axis 1 to comparing only description_digest/body_digest, exactly as the gate read before this issue. On bad-reference-md-changed-not-detected (reference.md edited on disk, SKILL.md and axis 2 both still agreeing) the anchor reports `current`/exit 0 instead of `stale (content)`/exit 1 - the real-world defect #1390 reports: 'axis1: current ... axis2: null ... state: unknown' on main, with the remedy pointing at the wrong axis. On good-current it agrees with the real gate (`current`/exit 0), so the miss is isolated to the removed per-file check and not a generally broken gate."
+    }
+  ]
+}

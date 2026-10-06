@@ -1173,14 +1173,41 @@ other command families, which are not in its input.
 
 Maps changed CPP skills and their dependency closures to current evaluation
 coverage (R10, `.specify/specs/per-skill-audit/spec.md`), over two staleness
-axes that must not be collapsed into one: axis 1 (content) - has the skill's
-own evaluated bytes (description, body digest) moved since the
-evaluation-bound reference - and axis 2 (dependency) - does skillc's
-`profile diagnose` report the skill's dependency closure broken, independent
-of whether its own content changed. `check-skill-coverage-map.py` answers
-both from the current checkout and a vendored snapshot; it never imports or
-invokes skillc, the same discipline #1369's `check-behavioral-eval.py`
-states for itself, since skillc cannot run in CPP's CI.
+axes that must not be collapsed into one: axis 1 (content) - has EVERY file
+shipped under `codex/skills/<skill>/` moved since the evaluation-bound
+reference - and axis 2 (dependency) - does skillc's `profile diagnose`
+report the skill's dependency closure broken, independent of whether its own
+content changed. `check-skill-coverage-map.py` answers both from the current
+checkout and a vendored snapshot; it never imports or invokes skillc, the
+same discipline #1369's `check-behavioral-eval.py` states for itself, since
+skillc cannot run in CPP's CI.
+
+**Axis 1 covers every file, not only SKILL.md (#1390).** The generator moves
+most of a skill's actual instructions into `reference.md` behind a
+progressive-disclosure pointer (#864: `codex-skill-sync.py`'s
+`INLINE_MAX_LINES` split), so the original design - SKILL.md's
+description/body digests only - read a `reference.md`-only change as axis-2
+snapshot drift (`unknown`, remedy "re-run the snapshot") rather than
+axis-1 content staleness (the correct remedy: re-evaluate). Measured on
+#1388's real branch before the fix: `axis1: current; axis2: unknown
+(snapshot stale); state: unknown` - one `skill-coverage-snapshot.py` regen
+away from a FALSE GREEN, since regenerating would have flipped axis 2 back
+to current while axis 1 kept saying current for text that was never
+evaluated. The fix compares `digest_tree(closure_root)` (the exact function
+axis 2 already used for its own drift check) against a NEW `reference.files`
+map vendored from skillc's inventory `skills[].files[]` (sha256 `digest`,
+not `git_blob` - same hash family the rest of this gate already uses, zero
+new hashing logic), keyed by path relative to `codex/skills/<skill>/` to
+match `digest_tree()`'s own keys exactly - a silent key mismatch here would
+either mark every file changed or compare nothing at all, so
+`skill-coverage-snapshot.py`'s `_reference_files` REFUSES an inventory entry
+whose `source` does not carry the expected prefix rather than mis-keying or
+skipping it. SKILL.md's description/body digests stay as the finer-grained
+sub-check (skillc's evidence model tracks them separately for R14
+cross-checking); the per-file check is the coarser one that catches
+everything else, including bundled helpers and the `lib/cicd` copy the
+generator ships with the skill - a change to one of those is axis-1
+content-stale independent of whether it is ALSO axis-2 dependency-relevant.
 
 **Five states, not fewer**, for the same reason `check-behavioral-eval`
 distinguishes `absent` from a clean pass: `not evaluated` (the skill is absent
@@ -1211,6 +1238,16 @@ current (so the case isolates axis 2's own staleness check rather than
 exercising the content-dominance path above), must read `unknown`. Its
 anchor is CONSTRUCTED - the real drift comparison replaced with a hardcoded
 empty list - and reports `current` over the known-bad input it misses.
+
+**Axis 1's per-file check has its OWN registration, `controls/check-skill-
+coverage-map-axis1-files` (#1390)** - a separate control, not a case added
+to the one above, because disabling axis 1's per-file comparison does not
+make the axis-2 anchor blind and disabling axis 2's drift check does not
+make THIS anchor blind (same shape as this repository's `flow-finish-gate`
+family). A `reference.md` edit with axis 2 held current must read `stale
+(content)` naming the file; its anchor is CONSTRUCTED - the per-file
+comparison removed entirely, reverting to the exact pre-#1390 behavior - and
+reports `current` over the known-bad input it misses.
 
 **Q1 (no newer evaluation-bound reference exists).** Neither #1369's
 `check-behavioral-eval.py::_evaluate_skill_evidence` (whose own docstring

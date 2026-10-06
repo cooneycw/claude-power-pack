@@ -105,18 +105,6 @@ skill profile exists (#1367 item 4; skillc only has one CPP profile today,
 #: comparison - see `controls/check-skill-coverage-map/control.json`'s `limits`
 #: for what it does and does not cover.
 
-#: NEGATIVE-CONTROL: controls/check-skill-coverage-map-axis1-files
-#:
-#: A SEPARATE registration for axis 1's per-file check (#1390) - disabling it
-#: does not make the axis-2 control above blind, and disabling axis 2's drift
-#: check does not make THIS one blind, so one anchor cannot stand for both. A
-#: blind version of this check (see `check_skill`'s axis-1 per-file block)
-#: would compare only SKILL.md's description/body and silently ignore a
-#: changed reference.md or bundled helper - exactly the real #1390 defect,
-#: which read `unknown` via axis 2's drift detector instead of `stale
-#: (content)`. See `controls/check-skill-coverage-map-axis1-files/control.json`'s
-#: `limits` for what it does and does not cover.
-
 from __future__ import annotations
 
 import argparse
@@ -298,14 +286,9 @@ def check_skill(skill: str, repo: Path, snapshot_dir: Path) -> dict[str, Any]:
     # DIFFERENT comparison, against the evaluation-bound reference rather
     # than the last snapshot, so regenerating the snapshot alone can never
     # make a real content change read current.
-    reference_files = reference.get("files")
-    if not isinstance(reference_files, dict):
-        result["state"] = "unknown"
-        result["reason"] = "snapshot's reference section is missing the per-file 'files' map (#1390)"
-        return result
+    # CONSTRUCTED ANCHOR (#1390): the per-file check disabled, reverting to
+    # the pre-#1390 behavior (SKILL.md's description/body only).
     current_digests = digest_tree(closure_root)
-    file_diffs = _diff_digests(reference_files, current_digests)
-    axis1_mismatches.extend(file_diffs)
 
     result["axis1"] = {
         "status": "stale" if axis1_mismatches else "current",

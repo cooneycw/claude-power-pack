@@ -159,12 +159,43 @@ def _skillc_commit(skillc: Path) -> str:
     return proc.stdout.strip()
 
 
-def _reference_digests(skillc: Path, skill: str, profile_dir: str) -> dict[str, str]:
-    """Read the evaluation-bound description_digest/body_digest for `skill`
-    from skillc's own committed evidence/inventory.json under the EXPLICIT
-    `profile_dir` (Q1's answer: this is the only reference point that exists
-    until a newer one lands - and #1370's refresh is "a newer one landed",
-    as a new directory, not an edit to this one)."""
+def _reference_files(entry: dict[str, object], skill: str, inventory_path: Path) -> dict[str, str]:
+    """Per-file evaluation-bound digests for `skill`, keyed EXACTLY as
+    `digest_tree()` keys the current tree (#1390): relative-posix-path
+    under `codex/skills/<skill>/`.
+
+    The inventory's `files[].source` is relative to the CPP repo root at
+    the pin (e.g. `codex/skills/flow-check/reference.md`) - a DIFFERENT
+    base than `digest_tree()`'s keys (relative to the skill's own closure
+    root). A silent mismatch here would either mark every file changed (a
+    loud false-stale, if the prefix were simply left on) or compare nothing
+    at all (a silent false-current, if the two key sets never intersected) -
+    so the prefix is stripped explicitly and any entry that does not carry
+    it is a REFUSAL, never a skipped row.
+    """
+    prefix = f"codex/skills/{skill}/"
+    files: dict[str, str] = {}
+    for file_entry in entry.get("files", []):  # type: ignore[union-attr]
+        source = file_entry.get("source", "")
+        if not source.startswith(prefix):
+            raise SystemExit(
+                f"skill-coverage-snapshot: {inventory_path} skill {skill!r} file entry "
+                f"{source!r} does not start with {prefix!r} - cannot key it to match "
+                f"digest_tree()'s relative paths"
+            )
+        files[source[len(prefix):]] = file_entry["digest"]
+    return files
+
+
+def _reference_digests(skillc: Path, skill: str, profile_dir: str) -> dict[str, object]:
+    """Read the evaluation-bound description_digest/body_digest, and every
+    shipped file's digest, for `skill` from skillc's own committed
+    evidence/inventory.json under the EXPLICIT `profile_dir` (Q1's answer:
+    this is the only reference point that exists until a newer one lands -
+    and #1370's refresh is "a newer one landed", as a new directory, not an
+    edit to this one). `files` covers EVERY file under
+    codex/skills/<skill>/ the generator ships - not only SKILL.md (#1390) -
+    so a change to reference.md or a bundled helper is caught too."""
     inventory_path = skillc / "evals" / "subjects" / profile_dir / "evidence" / "inventory.json"
     data = json.loads(inventory_path.read_text(encoding="utf-8"))
     for entry in data.get("skills", []):
@@ -172,6 +203,7 @@ def _reference_digests(skillc: Path, skill: str, profile_dir: str) -> dict[str, 
             return {
                 "description_digest": entry["description_digest"],
                 "body_digest": entry["body_digest"],
+                "files": _reference_files(entry, skill, inventory_path),
                 "source": f"skillc evals/subjects/{profile_dir}/evidence/inventory.json "
                           f"(profile pinned at {data['subject']['revision']}; see "
                           f"check-skill-coverage-map.py's module docstring)",
