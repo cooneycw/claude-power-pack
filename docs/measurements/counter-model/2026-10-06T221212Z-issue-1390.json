@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1390-skill-coverage-map-axis-1-ignores-codex-skills-ski",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "a20eb30e7d8b114440a10854cf2bc1d6fac9345e",
+  "implementer": "claude/claude-sonnet-5",
+  "issue": "1390",
+  "passes": 1,
+  "recorded_at": "2026-10-06T22:12:12Z",
+  "red_cases": {
+    "already_covered": 4,
+    "proposed": 4
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/06/rollout-2026-10-06T22-11-38-01a11345-b632-7b72-b3ea-a770e3ffe648.jsonl",
+    "thread_id": "01a11345-b632-7b72-b3ea-a770e3ffe648"
+  },
+  "schema": 1,
+  "status": "ran"
+}
