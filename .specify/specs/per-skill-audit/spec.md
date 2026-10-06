@@ -5,15 +5,20 @@
 > contract: #1367. Programme: skillc #245, workstream skillc #249, waves skillc
 > #258 / #259.
 > **Created:** 2026-10-04. **Re-pinned:** 2026-10-06 (audit, no content change).
-> **Status:** Draft - the skillc side is re-pinned to `cooneycw/skillc@0375fe8`
-> (origin/main on 2026-10-06; was `8c74a88` on 2026-10-04). skillc #268, which
-> defines the per-skill attribution and export records, remains in progress and
-> still has NOTHING on skillc main or any open branch/PR as of this re-pin.
-> Every skillc-side field below that #268 will own is marked **[#268]** and must
-> be re-pinned again when #268 lands. Every explicit line-number citation into
-> `skillc/records.py` and `docs/specs/evaluation-facility/records.md` below was
-> checked against `0375fe8` and is unchanged from the `8c74a88` pin (neither
-> file changed in between).
+> **PROVISIONALLY re-pinned:** 2026-10-06 - skillc #268 is now
+> `cooneycw/skillc#299` ("feat(records): define and validate per-skill
+> evidence attribution and export records (Closes #268)"), head `fd66c74`,
+> **OPEN, not merged**. Every `[#268]` citation below is re-pinned to `fd66c74`
+> on that basis, provisionally - re-check every cited line when the PR merges,
+> since `records.md` may move again before the merge commit if skillc acts on
+> the two gaps named in the Open Questions below.
+> **Status:** Draft - the rest of the skillc side is pinned to
+> `cooneycw/skillc@0375fe8` (origin/main on 2026-10-06; was `8c74a88` on
+> 2026-10-04). Every explicit line-number citation into `skillc/records.py`
+> and `docs/specs/evaluation-facility/records.md` outside the `[#268]` ones
+> was checked against `0375fe8` and is unchanged from the `8c74a88` pin
+> (neither file changed in between on `main`; `fd66c74` is a branch commit,
+> not yet on `main`).
 >
 > Two tickets this spec's dependents will need landed since the `8c74a88` pin,
 > not yet reflected in R10-R13 or section E below: skillc **#264** (merged as
@@ -100,9 +105,9 @@ pack-wide PASS cannot stand in for current per-skill assurance.
 
 | ID | Requirement |
 |----|-------------|
-| R7 | **A usage record is never a skillc record kind.** skillc v2 has seven kinds, each with exactly one authorized producer (`skillc/records.py:82-90`): `controller`, `assembler`, or `subject-adapter` for the receipt, checked by the controller. A CPP usage record has no `kind` in that table and is written inside the subject's environment. skillc states "Records never live in the subject's writable environment" (records.md:559-560). So a usage record may enter a skillc bundle only as **evidence a controller-produced record refers to** (for example an artifact with a digest in an `artifact-manifest`), never as an observation or a verdict. Which field carries it is **[#268]**. |
-| R8 | **Local consistency is not provenance.** CPP's reader (`scripts/execution-evidence-verify.py`) checks that a record is internally consistent: it re-derives the verdict from per-check facts, never from `outcome`/`qualifications`. It also checks that the record is bound to the reading checkout's HEAD and tree, and is not renamed or duplicated. A consistent forgery still reads `supported`. This mirrors skillc's own limit: records.md:481 "cannot catch a forger who writes `assembler`", and records.md:610-611 "Digests are checked for agreement between records, never against the bytes they name". Provenance requires a controller-owned witness: skillc #269, over the #183 request/reply channel. |
-| R9 | **Reconciliation states stay distinct.** A consumer must keep these separate: no usage record; usage record present but not matched to any controller-captured attempt; matched; and matched but contradicting controller state. Absence of a usage record is not evidence of non-use. A usage record is not evidence of use the controller did not observe. The deterministic rules for duplicate, stale, missing and unmatched evidence are **[#268]**. |
+| R7 | **A usage record is never a skillc record kind.** skillc v2 now has EIGHT kinds (`#268`/`fd66c74` added `skill-evidence`), each with exactly one authorized producer (`skillc/records.py:92-101` at `fd66c74`, was `82-90` before `skill-evidence`): `controller`, `assembler`, or `subject-adapter` for the receipt, checked by the controller. A CPP usage record still has no `kind` in that table and is still written inside the subject's environment. skillc states "Records never live in the subject's writable environment" (records.md:810-811 at `fd66c74`, was 559-560 before `skill-evidence` was inserted above it). **`[#268]` answered (fd66c74, provisional):** a usage record enters a bundle only as an ordinary `artifact-manifest.artifacts` entry (path/type/size/digest); `skill-evidence.external_evidence.artifact_ref` then cites that entry's `{path, digest}` (records.md:490-499). Never an `observations` stream, never a bare `raw` pointer, never an observation or a verdict in its own right. |
+| R8 | **Local consistency is not provenance.** CPP's reader (`scripts/execution-evidence-verify.py`) checks that a record is internally consistent: it re-derives the verdict from per-check facts, never from `outcome`/`qualifications`. It also checks that the record is bound to the reading checkout's HEAD and tree, and is not renamed or duplicated. A consistent forgery still reads `supported`. This mirrors skillc's own limit: records.md:481 "cannot catch a forger who writes `assembler`", and records.md:610-611 "Digests are checked for agreement between records, never against the bytes they name" (both citations are against main `0375fe8`, unaffected by `#299`/`fd66c74` since neither is a `[#268]` field; they move to :716 and :866 respectively once `fd66c74`'s `skill-evidence` insertions land on main - re-pin then). Provenance requires a controller-owned witness: skillc #269, over the #183 request/reply channel. |
+| R9 | **Reconciliation states stay distinct.** A consumer must keep these separate: no usage record; usage record present but not matched to any controller-captured attempt; matched; and matched but contradicting controller state. Absence of a usage record is not evidence of non-use. A usage record is not evidence of use the controller did not observe. **`[#268]` answered (fd66c74, provisional):** `skill-evidence.external_evidence.reconciliation` is exactly these four states - `absent`/`unmatched`/`matched`/`contradicting` (records.md:450-451, :564-574). **Gap found 2026-10-06, relayed to skillc before merge, not yet resolved as of this pin:** unlike `execution_observed` (records.md:607-634), which is refused without a cited controller witness record, `contradicting` carries no equivalent enforcement - the `skill-evidence` rule (records.md:845) only requires SOME reason string, from no closed vocabulary, not a witness citation. See R15. |
 
 ### C. The consumer's responsibilities - #1369, #1370, #1371
 
@@ -112,7 +117,8 @@ pack-wide PASS cannot stand in for current per-skill assurance.
 | R11 | **Complete bundle accounting.** A per-skill verdict counts only when the whole producer bundle accounts for it. skillc's BUNDLE rules (`ledger-binding`, `unique-ids`, `attempt-accounting`, `lineage`) need the ledger and manifest beside the result. `check-behavioral-eval.py` today reads results "alone - NOT against any ledger" and must keep saying so until #1369 reads the bundle (`behavioral-eval-export.md:22-34`). |
 | R12 | **Populations stay visibly different.** Fixture-only consumer tests, locally generated CPP usage records and live independently graded trials are three populations. A report may show them side by side, never summed into one rate (#1367 item 3). |
 | R13 | **No new blocking policy here.** Enrollment is #1371's decision under #1084's existing constraint (section D). |
-| R14 | **The referenced payload is CPP's own to validate - skillc never decodes it.** Added 2026-10-06, naming a duty skillc #268 states as its own boundary rather than ours: "a genuinely malformed CPP payload behind a correctly labelled, correctly digested reference is invisible to skillc and must stay the consumer's problem" ([skillc #268, `records.md` Q4](https://github.com/cooneycw/skillc/blob/2f67f076c034e349329fb6dbff2e0003e6a0832d/docs/specs/evaluation-facility/records.md#answering-cpp-1368s-open-questions-r7-r9-and-cpp-w2s-q1-q4), line ~508-518). skillc's `check-records` validates only the manifest entry's envelope (digest present, `external_evidence.source` in its own closed vocabulary) and the `skill-evidence` record's own shape; it never parses the referenced bytes as `cpp.execution-evidence/v1`. So whatever `external_evidence.reconciliation` skillc reports (R9's four states), #1369 must independently run `scripts/execution-evidence-verify.py` (or equivalent) against the referenced artifact itself before trusting it - a `matched` reconciliation says the usage record correlates to a controller-captured attempt, never that the usage record's own bytes are well-formed CPP evidence. This duty exists whether or not #1373 (a crash instead of `unknown` on one malformed shape, fixed on branch `fix-1373-execution-evidence-population-crash`) is live; it is a boundary R10/R11 did not previously name, not a workaround for that bug. |
+| R14 | **The referenced payload is CPP's own to validate - skillc never decodes it.** Added 2026-10-06, naming a duty skillc #268 states as its own boundary rather than ours. Re-pinned (provisional, `fd66c74`): "a genuinely malformed payload behind a correctly labelled, correctly digested, correctly declared reference is invisible to skillc and must stay the consumer's problem" (records.md:558-563; was the shorter, single-layer version at `2f67f076` line ~508-518, now strengthened to a two-layer check - FORMAT plus a new controller-declared `external_evidence_sources` allowlist, records.md:531-563). skillc's `check-records` validates only the manifest entry's envelope and the `skill-evidence` record's own shape; it never parses the referenced bytes as `cpp.execution-evidence/v1`. So whatever `external_evidence.reconciliation` skillc reports (R9's four states), #1369 must independently run `scripts/execution-evidence-verify.py` (or equivalent, now fixed - cooneycw/claude-power-pack#1373, merged 762945f) against the referenced artifact itself before trusting it - a `matched` reconciliation says the usage record correlates to a controller-captured attempt, never that the usage record's own bytes are well-formed CPP evidence. This duty exists whether or not #1373 was live; it is a boundary R10/R11 did not previously name, not a workaround for that bug. |
+| R15 | **An un-witnessed `contradicting` renders as `unknown`, not as a verdict.** Added 2026-10-06, pending skillc's answer to the R9 gap above. Until skillc's `check-records` enforces a witness-record citation on `external_evidence.reconciliation: contradicting` the way it already enforces one on `execution_observed` (records.md:607-634), #1369 must not render an un-witnessed `contradicting` as evidence either way. It renders as `unknown`, carrying the reconciliation's own `reason` string verbatim, rather than trusting an assembler's unenforced claim that something disagreed. This keeps #1369 safe under either outcome of the relayed gap: if skillc adds the enforcement, every `contradicting` #1369 ever sees is witnessed by construction and this rule is a no-op; if skillc does not, #1369 was never trusting an unenforced field. |
 
 ### Non-functional
 
@@ -293,10 +299,25 @@ declared association, not a proof that the flow's other steps ran.
 
 ## Open Questions
 
-- [ ] **[#268]** Which field of which controller-produced record references a CPP
-  usage record (artifact-manifest entry, observation stream, or a new kind), and
-  the reconciliation rules for duplicate, stale, missing and unmatched records.
-  Re-pin this spec's skillc SHA when #268 lands.
+- [x] **[#268]** Which field references a CPP usage record, and the
+  reconciliation vocabulary: answered by `cooneycw/skillc#299` (head
+  `fd66c74`, **PR open, not yet merged** - this spec's `[#268]` citations
+  are PROVISIONALLY re-pinned to it; re-check every cited line at the merge
+  commit). Two sub-items from that answer are still open, relayed to skillc
+  as time-sensitive while #299 is open:
+  - [ ] `external_evidence.reconciliation: contradicting` is documented as
+    gated on a controller witness (the same way `execution_observed` is,
+    records.md:607-634 at `fd66c74`) but no rule enforces it, and the
+    `reason` vocabulary (`outcome-disagreement`/`stale-identity`) is not
+    closed either. Mitigated on our side by R15 regardless of skillc's
+    answer.
+  - [ ] No golden fixture exists for `reconciliation: unmatched` with reason
+    `duplicate-invocation` or `no-correlating-attempt` (checked directly
+    against the six named cases, records.md:582-591 at `fd66c74`) - raised
+    originally by cpp-w3, still unaddressed in #299.
+  - Minor, not blocking: `external_evidence.artifact_ref` is checked for
+    existence in the attempt's manifest, not for resolving to exactly one
+    entry if two captured artifacts shared a digest.
 - [x] **[#1371]** Which enrollment reading (section D) applies: resolved
   2026-10-06, reading 2 (discrimination required). Still open under #1371:
   whether a committed bundle meeting section D's evidence requirement exists
