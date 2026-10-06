@@ -203,8 +203,24 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if not args.force_ci:
         _refuse_ci()
-    _refuse_dirty(args.cpp)
-    out_path = write_snapshot(args.skill, args.cpp, args.skillc, args.out_dir)
+    # RESOLVED BEFORE ANYTHING ELSE (counter-model review, 2026-10-06):
+    # `run_diagnose` below shells out with `cwd=skillc`, so a RELATIVE `--cpp`
+    # (e.g. `--cpp .` from the CPP checkout) would resolve against the WRONG
+    # directory in that one call while every other call here (`git -C`,
+    # `_repo_head`) resolves it against the caller's cwd as intended -
+    # diagnosing a repository that is not the one just checked clean.
+    cpp = args.cpp.resolve()
+    skillc = args.skillc.resolve()
+    _refuse_dirty(cpp)
+    # SKILLC MUST BE CLEAN TOO. `run_diagnose`/`_mint_subject`/`_mint_profile`/
+    # `_reference_digests` all read skillc's WORKING TREE (profile.json,
+    # subject.json, evidence/inventory.json, the skillc module itself) while
+    # the snapshot records only `skillc_commit` (its HEAD) as provenance. An
+    # uncommitted edit to any of those would run silently and be attributed to
+    # a commit that cannot reproduce it - the same hazard `_refuse_dirty`
+    # exists to close for `cpp`, just on the other checkout.
+    _refuse_dirty(skillc)
+    out_path = write_snapshot(args.skill, cpp, skillc, args.out_dir)
     print(f"skill-coverage-snapshot: wrote {out_path}")
     return 0
 

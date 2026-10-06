@@ -176,6 +176,33 @@ def test_stale_dependency_real_fixture_shape(tmp_path: Path) -> None:
     assert result["axis1"]["status"] == "current", "axis 1 must stay current - only axis 2 is broken here"
 
 
+def test_both_axes_stale_at_once_are_both_named_in_reason(tmp_path: Path) -> None:
+    """The SAME combination logic as the live test below, pinned against an
+    IMMUTABLE synthetic fixture (counter-model review, 2026-10-06): unlike
+    the live test, this one can never go red just because someone fixes
+    flow-check's real content or regenerates the real snapshot - it checks
+    the CODE's behavior, not today's repo state."""
+    repo, snapshot_dir, _ = _base_fixture(tmp_path)
+    _write_skill(repo, "flow-check", "A completely different description.", BASE_BODY)
+    skill_dir = repo / "codex" / "skills" / "flow-check"
+    closure_digests = mod.digest_tree(skill_dir)
+    _write_snapshot(
+        snapshot_dir, "flow-check", description=BASE_DESCRIPTION, body=BASE_BODY,
+        closure_digests=closure_digests, status="broken",
+        problems=[{
+            "id": 0, "category": "unresolved-reference",
+            "detail": "unresolved reference: synthetic-dependency.sh",
+            "skills": ["flow-check"], "in": "codex/skills/flow-check/reference.md",
+        }],
+    )
+    result = mod.check_skill("flow-check", repo, snapshot_dir)
+    assert result["state"] == "stale (content)", "axis 1 still dominates the combined state"
+    assert result["axis1"]["status"] == "stale"
+    assert result["axis2"]["status"] == "broken", "axis 2 must still be computed, not skipped"
+    assert "description_digest differs" in result["reason"], "axis 1's finding must be named"
+    assert "synthetic-dependency.sh" in result["reason"], "axis 2's finding must be named too"
+
+
 def test_live_run_against_main_reports_both_axes_stale() -> None:
     """Golden control 2 AND 3, live, in one call (counter-model review,
     2026-10-06): the committed real snapshot
@@ -299,3 +326,23 @@ def test_say_exits_nonzero_on_any_non_current_state() -> None:
 def test_say_exits_zero_when_all_current() -> None:
     results = {"flow-check": {"family": "flow:check", "state": "current", "reason": ""}}
     assert mod._say(results) == 0
+
+
+def test_say_quiet_prints_nothing_but_returns_the_same_code(capsys: pytest.CaptureFixture[str]) -> None:
+    """The fix this test pins (counter-model review, 2026-10-06): `--json`
+    put human-readable lines on the same stdout as the JSON dump, so a
+    machine consumer's `json.loads` raised "Extra data" even on a clean run.
+    `quiet=True` must compute the identical exit code with zero output."""
+    results = {"flow-check": {"family": "flow:check", "state": "stale (content)", "reason": "x"}}
+    code = mod._say(results, quiet=True)
+    assert code == 1
+    assert capsys.readouterr().out == ""
+
+
+def test_json_mode_emits_only_json_on_stdout(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    repo, snapshot_dir, _ = _base_fixture(tmp_path)
+    exit_code = mod.main(["--repo", str(repo), "--snapshot-dir", str(snapshot_dir), "--json"])
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    parsed = json.loads(out)  # must not raise "Extra data" - the whole point of the fix
+    assert parsed["flow-check"]["state"] == "current"

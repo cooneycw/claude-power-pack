@@ -346,19 +346,30 @@ def audit(repo: Path, snapshot_dir: Path) -> dict[str, dict[str, Any]]:
     return out
 
 
-def _say(results: dict[str, dict[str, Any]]) -> int:
+def _say(results: dict[str, dict[str, Any]], *, quiet: bool = False) -> int:
+    """Print the human-readable report and return the exit code - or, with
+    `quiet=True`, compute and return the SAME code with no output at all.
+
+    `quiet` exists for `--json` (counter-model review, 2026-10-06): printing
+    these lines after a `json.dumps` dump put non-JSON text on the same
+    stdout a machine consumer had just been told carried the full result,
+    so `json.loads` on that output raised "Extra data" even on a clean run.
+    """
     any_problem = False
     for skill, verdict in results.items():
         state = verdict["state"]
+        if state not in ("current",):
+            any_problem = True
+        if quiet:
+            continue
         reason = verdict.get("reason", "")
         line = f"skill-coverage-map: {skill} ({verdict['family']}): {state}"
         if reason:
             line += f" - {reason}"
         print(line)
-        if state not in ("current",):
-            any_problem = True
-    print(f"skill-coverage-map: {len(results)} mapped skill(s) checked; "
-          f"'not evaluated' is a map-membership fact, never inherited from a mapped sibling")
+    if not quiet:
+        print(f"skill-coverage-map: {len(results)} mapped skill(s) checked; "
+              f"'not evaluated' is a map-membership fact, never inherited from a mapped sibling")
     return 1 if any_problem else 0
 
 
@@ -374,9 +385,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="emit the full result as JSON")
     args = parser.parse_args(argv)
     results = audit(args.repo, args.snapshot_dir)
+    code = _say(results, quiet=args.json)
     if args.json:
         print(json.dumps(results, indent=2))
-    code = _say(results)
     return 0 if args.advisory else code
 
 
