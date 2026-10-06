@@ -1,0 +1,152 @@
+{
+  "schema": "cpp.execution-evidence/v1",
+  "record_kind": "cpp-usage-record",
+  "authority": "Helper-observed local usage record. Inspectable evidence, NOT tamper-proof attestation: the file is writable by anyone with access to the git directory. Not an evaluation verdict; skillc and CI re-derive what they rely on under their own authority.",
+  "invocation_id": "cbf9931314ed45d2927fa5e150daa9d2",
+  "run_id": "check-c202c5ba",
+  "plan": "check",
+  "plan_record_run_id": "c6d7dc52fae24e5d9b2cbb1e72c11638",
+  "begun_at": "2026-10-04T16:24:56Z",
+  "terminal": true,
+  "terminal_event": {
+    "kind": "completed",
+    "at": "2026-10-04T16:30:13Z",
+    "detail": null
+  },
+  "outcome": "completed",
+  "qualifications": [],
+  "declared": {
+    "skill": "flow-check",
+    "skill_source": null,
+    "parent_invocation_id": null,
+    "source": "agent-declared through the environment; recorded, not verified by the helper"
+  },
+  "observed": {
+    "repository": {
+      "origin": "https://github.com/cooneycw/claude-power-pack.git",
+      "common_dir": "/home/cooneycw/Projects/claude-power-pack/.git",
+      "worktree": "/home/cooneycw/Projects/claude-power-pack-issue-1366-pilot-durable-per-skill-execution-evidence-for-flo",
+      "branch": "issue-1366-pilot-durable-per-skill-execution-evidence-for-flo"
+    },
+    "tree_at_start": {
+      "head": "bce7c881d1ce3d96184dcde85463ebc2a714b926",
+      "dirty": false,
+      "tree_signature": "b7ef3f27a374176935f5204d16359aeadb5cf673",
+      "taken_at": "2026-10-04T16:24:56Z"
+    },
+    "tree_at_end": {
+      "head": "bce7c881d1ce3d96184dcde85463ebc2a714b926",
+      "dirty": false,
+      "tree_signature": "b7ef3f27a374176935f5204d16359aeadb5cf673",
+      "taken_at": "2026-10-04T16:30:13Z"
+    },
+    "helper": {
+      "name": "lib.cicd runner",
+      "cpp_commit": "bce7c881d1ce3d96184dcde85463ebc2a714b926",
+      "cpp_runner_modified": false,
+      "module_sha256": {
+        "lib/cicd/runner.py": "c47b1ce0c1e2b16310885e70d5317ad130ad0dcc524bd5fce8cba086aaf616d8",
+        "lib/cicd/state.py": "d0b83c7997bedce1e2e4214445a8d2cf3d89f20c2c2b6fec78003f6a827d67f6",
+        "lib/cicd/steps.py": "d82cb77c5c16251c404a39b19ed54618229f39f6a57ec7068891cf1c9efe90f5",
+        "lib/cicd/evidence.py": "f7b0cb5f8f9683075775eec26f1d77aedf074e3921b93646e7c0d11b1f5cb787"
+      }
+    },
+    "skill_source": {
+      "path": ".claude/commands/flow/check.md",
+      "sha256": "13f145a8098e9c3185e0127e04da8d945de3a2a332178f06d37e30a67a17faf2",
+      "note": "Digest of the canonical source in the helper's own CPP checkout. It is not proof of which copy (Claude command, Codex mirror) the agent read."
+    },
+    "gates": [
+      "lint",
+      "test",
+      "typecheck"
+    ],
+    "checks": [
+      {
+        "id": "lint",
+        "gate": true,
+        "status": "success",
+        "exit_code": 0,
+        "attempt": 1,
+        "max_attempts": 1,
+        "attempted_at": "2026-10-04T12:24:57-0400",
+        "completed_at": "2026-10-04T12:24:57-0400",
+        "executed_in_this_invocation": true,
+        "population": {
+          "kind": "coverage",
+          "measured": false,
+          "count": null,
+          "unit": "unit",
+          "state": "unknown",
+          "tool": "unknown"
+        },
+        "reason": null,
+        "evidence": {
+          "output_sha256": "df1116f359e834afd6a034defcde34a9a565e53ff21243185301623b334dcb41",
+          "output_bytes": 51,
+          "note": "Digests of the runner's retained output tail (at most 5000 chars). Raw text is not stored here, so credentials printed by a tool cannot leak through it."
+        }
+      },
+      {
+        "id": "test",
+        "gate": true,
+        "status": "success",
+        "exit_code": 0,
+        "attempt": 1,
+        "max_attempts": 1,
+        "attempted_at": "2026-10-04T12:24:57-0400",
+        "completed_at": "2026-10-04T12:30:11-0400",
+        "executed_in_this_invocation": true,
+        "population": {
+          "kind": "tests",
+          "measured": true,
+          "count": 7156,
+          "unit": "test",
+          "counts": {
+            "passed": 7156,
+            "failed": 0,
+            "skipped": 2,
+            "errors": 0
+          },
+          "framework": "pytest"
+        },
+        "reason": null,
+        "evidence": {
+          "output_sha256": "1eeb8217f999b1c2a2054255a192c78da1162d05972786c02bada3da3b65a6fb",
+          "output_bytes": 4998,
+          "note": "Digests of the runner's retained output tail (at most 5000 chars). Raw text is not stored here, so credentials printed by a tool cannot leak through it."
+        }
+      },
+      {
+        "id": "typecheck",
+        "gate": true,
+        "status": "success",
+        "exit_code": 0,
+        "attempt": 1,
+        "max_attempts": 1,
+        "attempted_at": "2026-10-04T12:30:11-0400",
+        "completed_at": "2026-10-04T12:30:12-0400",
+        "executed_in_this_invocation": true,
+        "population": {
+          "kind": "coverage",
+          "measured": true,
+          "count": 355,
+          "unit": "source file",
+          "state": "covered",
+          "tool": "mypy"
+        },
+        "reason": null,
+        "evidence": {
+          "output_sha256": "9f4664dca60cc2e8b55358c250246fdc7c06a8ae48c0ed2fbf3404019b1618ea",
+          "output_bytes": 2008,
+          "note": "Digests of the runner's retained output tail (at most 5000 chars). Raw text is not stored here, so credentials printed by a tool cannot leak through it."
+        }
+      }
+    ],
+    "runner": {
+      "warnings": [],
+      "carried_from_previous_run": [],
+      "tree_verified": false
+    }
+  }
+}

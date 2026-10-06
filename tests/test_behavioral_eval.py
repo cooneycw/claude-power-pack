@@ -684,3 +684,239 @@ def test_the_ci_step_is_advisory_without_swallowing_a_crash() -> None:
         assert "--advisory" in line, (
             f"CI runs the gate BLOCKING before its pre-committed trigger: {line!r}"
         )
+
+
+# --------------------------------------------------------- #1369: bundle reading
+
+def _ledger(attempts: list[dict], trial_id: str = "t-1", **extra: object) -> dict:
+    record: dict = {
+        "version": 2, "kind": "trial-ledger", "producer": "controller",
+        "experiment_id": "exp-1",
+        "trials": [{"trial_id": trial_id, "attempts": attempts}],
+    }
+    record.update(extra)
+    return record
+
+
+def _lifecycle(attempt_id: str, trial_id: str = "t-1") -> dict:
+    return {
+        "version": 2, "kind": "attempt-lifecycle", "producer": "controller",
+        "attempt_id": attempt_id, "trial_id": trial_id, "disposition": "captured",
+    }
+
+
+def _manifest(attempt_id: str, artifacts: list[dict] | None = None, trial_id: str = "t-1") -> dict:
+    return {
+        "version": 2, "kind": "artifact-manifest", "producer": "controller",
+        "attempt_id": attempt_id, "trial_id": trial_id,
+        "artifacts": artifacts if artifacts is not None else [
+            {"path": "out.txt", "type": "file", "size": 1, "digest": "sha256:aa"},
+        ],
+    }
+
+
+def _result(attempt_id: str, trial_id: str = "t-1", **extra: object) -> dict:
+    return _v2("PASS", [_crit("c1", True, "SATISFIED")],
+               attempt_id=attempt_id, trial_id=trial_id, **extra)
+
+
+def _write(directory: Path, **named: dict) -> None:
+    for name, record in named.items():
+        (directory / f"{name}.json").write_text(json.dumps(record))
+
+
+@pytest.mark.parametrize(("case", "expect_verdict", "needle"), [
+    ("good-fresh-bundle", "pass", "bundle valid against the restated subset"),
+    ("good-bundle-skill-evidence-matched", "pass", "bundle valid against the restated subset"),
+    ("bad-bundle-two-ledgers", "bundle-invalid", "exactly one issues its attempt IDs"),
+    ("bad-bundle-missing-lifecycle", "bundle-invalid", "no attempt-lifecycle record"),
+    ("bad-bundle-orphan-result", "bundle-invalid", "which the ledger never issued"),
+    ("bad-bundle-regrade-broken-lineage", "bundle-invalid", "not retained in this bundle"),
+    ("bad-bundle-evidence-unverified", "evidence-unverified", "not itself readable"),
+    ("bad-bundle-contradicting", "inconclusive", "rendered as unknown"),
+])
+def test_each_registered_bundle_case_reports_its_verdict(case: str, expect_verdict: str, needle: str) -> None:
+    verdict, detail = mod.evaluate(CONTROLS / "cases" / case)
+    assert verdict == expect_verdict, detail
+    assert needle in detail
+
+
+def test_a_lone_result_with_no_subdirectories_is_still_checked_alone(tmp_path: Path) -> None:
+    """The legacy path, byte-for-byte: no `trial-ledger` anywhere means no bundle
+    gate ever runs, exactly as before #1369."""
+    (tmp_path / "r.json").write_text(json.dumps(_v2("PASS", [_crit("c", True, "SATISFIED")])))
+    assert mod.evaluate(tmp_path) == mod._evaluate_lone_results(tmp_path)
+    assert mod.evaluate(tmp_path)[0] == "pass"
+
+
+def test_duplicate_planned_attempt_id_is_refused(tmp_path: Path) -> None:
+    _write(tmp_path, ledger=_ledger([{"attempt_id": "att-1"}, {"attempt_id": "att-1"}]),
+           lifecycle=_lifecycle("att-1"), manifest=_manifest("att-1"), result=_result("att-1"))
+    verdict, detail = mod.evaluate(tmp_path)
+    assert verdict == "bundle-invalid"
+    assert "more than once" in detail
+
+
+def test_duplicate_result_id_is_refused(tmp_path: Path) -> None:
+    _write(tmp_path, ledger=_ledger([{"attempt_id": "att-1"}]),
+           lifecycle=_lifecycle("att-1"), manifest=_manifest("att-1"))
+    (tmp_path / "result-a.json").write_text(json.dumps(_result("att-1", result_id="res-dup")))
+    (tmp_path / "result-b.json").write_text(json.dumps(
+        _result("att-1", result_id="res-dup", regrade_of="res-dup")))
+    verdict, detail = mod.evaluate(tmp_path)
+    assert verdict == "bundle-invalid"
+    assert "is used by 2 results" in detail
+
+
+def test_a_second_conflicting_lifecycle_for_one_attempt_is_refused(tmp_path: Path) -> None:
+    _write(tmp_path, ledger=_ledger([{"attempt_id": "att-1"}]), manifest=_manifest("att-1"),
+           result=_result("att-1"))
+    (tmp_path / "lifecycle-a.json").write_text(json.dumps(_lifecycle("att-1")))
+    (tmp_path / "lifecycle-b.json").write_text(json.dumps(_lifecycle("att-1")))
+    verdict, detail = mod.evaluate(tmp_path)
+    assert verdict == "bundle-invalid"
+    assert "conflicting attempt-lifecycle records" in detail
+
+
+def test_an_empty_ledger_has_nothing_to_account_for(tmp_path: Path) -> None:
+    _write(tmp_path, ledger=_ledger([]))
+    verdict, detail = mod.evaluate(tmp_path)
+    assert verdict == "bundle-invalid"
+    assert "nothing to account for" in detail
+
+
+def test_a_bundle_with_no_verified_result_is_refused(tmp_path: Path) -> None:
+    _write(tmp_path, ledger=_ledger([{"attempt_id": "att-1"}]),
+           lifecycle=_lifecycle("att-1"), manifest=_manifest("att-1"))
+    verdict, detail = mod.evaluate(tmp_path)
+    assert verdict == "bundle-invalid"
+    assert "no verified-result record to read" in detail
+
+
+def test_a_regrade_for_a_different_attempt_than_its_original_is_refused(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        ledger=_ledger([{"attempt_id": "att-1"}, {"attempt_id": "att-2"}]),
+        lifecycle1=_lifecycle("att-1"), lifecycle2=_lifecycle("att-2"),
+        manifest1=_manifest("att-1"), manifest2=_manifest("att-2"),
+    )
+    (tmp_path / "result.json").write_text(json.dumps(_result("att-1", result_id="res-1")))
+    (tmp_path / "regrade.json").write_text(json.dumps(
+        _result("att-2", result_id="res-2", regrade_of="res-1")))
+    verdict, detail = mod.evaluate(tmp_path)
+    assert verdict == "bundle-invalid"
+    assert "but its original graded" in detail
+
+
+def test_a_regrade_over_different_bytes_than_its_original_is_refused(tmp_path: Path) -> None:
+    _write(tmp_path, ledger=_ledger([{"attempt_id": "att-1"}]),
+           lifecycle=_lifecycle("att-1"), manifest=_manifest("att-1"))
+    (tmp_path / "result.json").write_text(json.dumps(
+        _result("att-1", result_id="res-1", graded_digests=["sha256:aa"])))
+    (tmp_path / "regrade.json").write_text(json.dumps(
+        _result("att-1", result_id="res-2", regrade_of="res-1", graded_digests=["sha256:bb"])))
+    verdict, detail = mod.evaluate(tmp_path)
+    assert verdict == "bundle-invalid"
+    assert "graded different bytes" in detail
+
+
+def test_artifact_ref_resolving_to_zero_manifest_entries_is_refused(tmp_path: Path) -> None:
+    evidence = {
+        "version": 2, "kind": "skill-evidence", "producer": "assembler",
+        "attempt_id": "att-1", "trial_id": "t-1",
+        "skills": [{
+            "skill": {"path": "SKILL.md"},
+            "external_evidence": {
+                "present": True, "source": "cpp.execution-evidence/v1",
+                "artifact_ref": {"path": "missing.json", "digest": "sha256:nope"},
+                "reconciliation": "matched",
+            },
+        }],
+    }
+    _write(tmp_path, ledger=_ledger([{"attempt_id": "att-1"}]), lifecycle=_lifecycle("att-1"),
+           manifest=_manifest("att-1"), result=_result("att-1"), evidence=evidence)
+    verdict, detail = mod.evaluate(tmp_path)
+    assert verdict == "bundle-invalid"
+    assert "resolves to 0 entries" in detail
+
+
+def test_artifact_ref_resolving_to_more_than_one_manifest_entry_is_refused(tmp_path: Path) -> None:
+    dup_artifacts = [
+        {"path": "cpp-usage/x.json", "type": "file", "size": 1, "digest": "sha256:dd"},
+        {"path": "cpp-usage/x.json", "type": "file", "size": 1, "digest": "sha256:dd"},
+    ]
+    evidence = {
+        "version": 2, "kind": "skill-evidence", "producer": "assembler",
+        "attempt_id": "att-1", "trial_id": "t-1",
+        "skills": [{
+            "skill": {"path": "SKILL.md"},
+            "external_evidence": {
+                "present": True, "source": "cpp.execution-evidence/v1",
+                "artifact_ref": {"path": "cpp-usage/x.json", "digest": "sha256:dd"},
+                "reconciliation": "matched",
+            },
+        }],
+    }
+    _write(tmp_path, ledger=_ledger([{"attempt_id": "att-1"}]), lifecycle=_lifecycle("att-1"),
+           manifest=_manifest("att-1", artifacts=dup_artifacts), result=_result("att-1"),
+           evidence=evidence)
+    verdict, detail = mod.evaluate(tmp_path)
+    assert verdict == "bundle-invalid"
+    assert "resolves to 2 entries" in detail
+
+
+def test_unmatched_and_absent_reconciliation_pass_through_unchanged(tmp_path: Path) -> None:
+    """R9: neither state is evidence either way, so neither blocks a clean PASS."""
+    evidence = {
+        "version": 2, "kind": "skill-evidence", "producer": "assembler",
+        "attempt_id": "att-1", "trial_id": "t-1",
+        "skills": [
+            {"skill": {"path": "SKILL.md"}, "external_evidence": {"present": False}},
+            {"skill": {"path": "OTHER.md"},
+             "external_evidence": {
+                 "present": True, "source": "cpp.execution-evidence/v1",
+                 "artifact_ref": {"path": "out.txt", "digest": "sha256:aa"},
+                 "reconciliation": "unmatched", "reason": "no-correlating-attempt",
+             }},
+        ],
+    }
+    _write(tmp_path, ledger=_ledger([{"attempt_id": "att-1"}]), lifecycle=_lifecycle("att-1"),
+           manifest=_manifest("att-1"), result=_result("att-1"), evidence=evidence)
+    verdict, _detail = mod.evaluate(tmp_path)
+    assert verdict == "pass"
+
+
+def test_evaluate_checks_the_directory_itself_then_each_subdirectory_in_order(tmp_path: Path) -> None:
+    """#1369's layout: `directory` is a candidate population too, and the first
+    unclean candidate - in sorted order - decides the verdict."""
+    (tmp_path / "lone.json").write_text(json.dumps(_v2("PASS", [_crit("c", True, "SATISFIED")])))
+    good_bundle = tmp_path / "a-bundle"
+    good_bundle.mkdir()
+    _write(good_bundle, ledger=_ledger([{"attempt_id": "att-1"}]), lifecycle=_lifecycle("att-1"),
+           manifest=_manifest("att-1"), result=_result("att-1"))
+    verdict, _detail = mod.evaluate(tmp_path)
+    assert verdict == "pass", "a bare result plus a clean bundle subdirectory must both pass"
+
+    bad_bundle = tmp_path / "b-bundle"
+    bad_bundle.mkdir()
+    _write(bad_bundle, ledger=_ledger([]))
+    verdict, detail = mod.evaluate(tmp_path)
+    assert verdict == "bundle-invalid", (
+        "the directory itself and 'a-bundle' are clean; 'b-bundle' (sorted after "
+        "both) must still be reached and must still decide the verdict"
+    )
+    assert "nothing to account for" in detail
+
+
+def test_a_producer_reported_coverage_file_is_noted_but_never_judged(tmp_path: Path) -> None:
+    """#272-shaped output (`rows`, no record `kind`) is never read for its
+    contents and never affects the verdict (owner ruling on #1369's plan,
+    mailbox 5225) - but its presence is not silently dropped either."""
+    _write(tmp_path, ledger=_ledger([{"attempt_id": "att-1"}]), lifecycle=_lifecycle("att-1"),
+           manifest=_manifest("att-1"), result=_result("att-1"))
+    (tmp_path / "coverage-report.json").write_text(json.dumps({"inventory": "x", "rows": []}))
+    verdict, detail = mod.evaluate(tmp_path)
+    assert verdict == "pass"
+    assert "PRODUCER-REPORTED" in detail
+    assert "coverage-report.json" in detail
+    assert "#1084" in detail
