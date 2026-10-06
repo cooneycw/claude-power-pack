@@ -779,17 +779,25 @@ claude-md-behavior-check:
 
 ## ADVISORY, AND THE FLIP IS PRE-COMMITTED (#1084, ADR 0009). It reports and never
 ## fails the build on a VERDICT: nothing produces its input yet - the behavioural
-## case is #1084 half B, which lives in skillc and waits on skillc #8, #9 and #10 -
-## so a hard prerequisite would red `main`
-## permanently for an honest reason. ADR 0009 asks for the condition that would
-## move this back, named NOW while nobody has a stake in the answer: it becomes
-## blocking when `docs/measurements/behavioral-eval/` holds at least one artifact
-## recorded by a real behavioural case. Until then there is nothing for blocking to
-## protect; after it, there is. Whoever lands half B makes that change with it.
+## case is #1084 half B, which lives in skillc. ADR 0009 asks for the condition
+## that would move this back, named NOW while nobody has a stake in the answer,
+## and the owner has RULED it (#1084 comments 6006877171, 6007022667), replacing
+## the old "waits on skillc #8/#9/#10" list (closed long ago) and the old
+## single-artifact trigger. Blocking needs BOTH: (1) a validated,
+## controller-produced pairing record (skillc#273) showing the degraded/mutated
+## arm FAIL and the normal arm PASS - never inferred from naming, bundle
+## co-location, or a self-declared field - and (2) a CPP-vs-baseline improvement
+## on that same case, under a predeclared criterion still pending its own owner
+## ruling. A no-effect result on a discriminating case is valid evidence,
+## rendered as such, but never satisfies (2) alone - and until skillc#273
+## exists, every artifact under `docs/measurements/behavioral-eval/` is "not
+## shown to discriminate" regardless of (2). Until both (1) and (2) hold the
+## gate stays advisory. Whoever lands both makes this
+## change with them.
 ## `--advisory`, not `|| true`: the gate maps a PRINTED verdict to 0, so a crash (a
 ## traceback exits 1, which is also the `failure` code) still fails. `|| true`
 ## rendered a crashed gate as "looked and found nothing".
-## verify-coverage: gate behavioral-eval-check - reads a behavioural-eval verified-result artifact and reports; advisory until #1084 half B produces one; ci: runs behavioral-eval-check
+## verify-coverage: gate behavioral-eval-check - reads a behavioural-eval verified-result artifact and reports; advisory until skillc#273's pairing record and a ruled CPP-vs-baseline improvement both land (#1084); ci: runs behavioral-eval-check
 behavioral-eval-check:
 	@python3 scripts/check-behavioral-eval.py --advisory
 

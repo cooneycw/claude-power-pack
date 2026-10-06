@@ -233,6 +233,24 @@ def test_the_advisory_posture_names_what_would_end_it() -> None:
         assert "half B" in preamble, (
             "the flip condition does not name the work that would satisfy it"
         )
+        # #1084's 2026-10-06 owner ruling (comments 6006877171, 6007022667)
+        # replaced "at least one artifact" with a two-part condition. A
+        # preamble that still only names the directory and half B is the
+        # STALE condition CPP #1374 exists to fix - it would read a valid but
+        # non-discriminating artifact (the shape skillc PR #201 produced) as
+        # license to drop `--advisory`.
+        assert "skillc#273" in preamble, (
+            "the flip condition does not name its producer dependency "
+            "(skillc#273's validated pairing record) - #1084's ruling, not the "
+            "stale skillc #8/#9/#10 list, decides when case discrimination is "
+            "shown"
+        )
+        assert "improvement" in preamble.lower(), (
+            "the flip condition does not name the CPP-vs-baseline improvement "
+            "the owner separately ruled is required ('Require improvement "
+            "too') - case discrimination alone is not enough, and a no-effect "
+            "result must not read as satisfying this condition"
+        )
     else:
         # The flip condition, checked against the tree rather than against prose.
         # This is what makes the pre-commitment binding in the direction that
