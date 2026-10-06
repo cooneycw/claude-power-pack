@@ -64,12 +64,18 @@
 #   DELEGATED_RUN_UNPARSED: <non-blank lines that did NOT parse (issue #1265)>
 #   DELEGATED_RUN_TOOL_ERRORS: <count of tool calls that reported an error, in
 #                         any harness's shape; ALWAYS emitted, 0 too - see below>
+#   DELEGATED_RUN_TOOL_ATTEMPTS: <count of tool calls attempted at all, any
+#                         outcome; ALWAYS emitted, 0 too (issue #1379). Read
+#                         beside TOOL_ERRORS: equal and non-zero is exactly the
+#                         all-tools-failed condition below, so a STATUS:
+#                         failure from that signal is never bare - the counts
+#                         that produced it are right next to it>
 #   DELEGATED_RUN_STATUS: success | failure
 #
 # Two conventions live in that block, and the difference is deliberate rather
 # than stylistic. SIGNAL and DETAIL are omitted when there is nothing to say.
-# LANE, FILE, EXIT, EVENTS, RECOGNIZED, UNPARSED, TOOL_ERRORS and STATUS are
-# always emitted.
+# LANE, FILE, EXIT, EVENTS, RECOGNIZED, UNPARSED, TOOL_ERRORS, TOOL_ATTEMPTS
+# and STATUS are always emitted.
 #
 # TOOL_ERRORS is in the second family because it is a COUNT, and a count that
 # appears only when non-zero cannot distinguish "I looked and found none" from
@@ -146,17 +152,32 @@
 #                    /codex:auto run would have failed as tool-free
 #   no-terminal-event  the stream stops before its terminal event: a truncated
 #                    or killed run (fails w/ --expect-tools)
-#   all-tools-failed MORE THAN ONE tool call was attempted and every single one
-#                    of them failed (issue #1365). With zero successful calls
-#                    the delegated model cannot have read, written or verified
-#                    anything, so "the process ran cleanly" and "nothing
-#                    happened" coincide exactly - unlike a single denied call,
-#                    which is the /gemma:auto fence working as designed (#836)
-#                    and stays success. Scoped to >1 attempts for exactly that
-#                    reason: it must not re-flag #836/#892/#1054's pinned
-#                    single-attempt cases. A 1-of-1 failed run is a DIFFERENT,
-#                    still-open residual - this signal does not cover it.
-#                    Always fails the run, with or without --expect-tools.
+#   all-tools-failed AT LEAST ONE tool call was attempted and every single one
+#                    of them failed (issue #1365, extended to a single attempt
+#                    by issue #1379). With zero successful calls the delegated
+#                    model cannot have read, written or verified anything, so
+#                    "the process ran cleanly" and "nothing happened" coincide
+#                    exactly - at N=1 just as much as at N>1. This is a
+#                    DIFFERENT question from #836's: #836's `is_fatal` (above)
+#                    answers "did the process run cleanly", stays non-recursive,
+#                    and is untouched by this signal - a single denied call is
+#                    still the /gemma:auto fence working as designed, not a
+#                    harness-level failure. This signal answers the other
+#                    question #836 explicitly left open, "did the delegated
+#                    work happen", the same way #1365 already answered it for
+#                    N>1: "every tool it tried came back failed" is never a
+#                    legitimate outcome, whatever N is. #1379's owner ruling
+#                    settled the #836/#892/#1054 single-attempt pins
+#                    (denied-docker, codex-command-failed, declined,
+#                    qwen-denied) the other way: each now reports failure,
+#                    with DELEGATED_RUN_SIGNAL: all-tools-failed plus
+#                    DELEGATED_RUN_TOOL_ATTEMPTS/DELEGATED_RUN_TOOL_ERRORS
+#                    naming why - never a bare STATUS: failure, so a caller can
+#                    still tell "correctly declined its one forbidden action"
+#                    from "the work broke" and decide retry vs accept. No
+#                    deny-rule text is parsed to tell the two apart; this
+#                    signal does not try. Always fails the run, with or
+#                    without --expect-tools.
 #
 # Exit codes:
 #   0  the run succeeded (DELEGATED_RUN_STATUS: success)
@@ -268,6 +289,7 @@ UNPARSED=0
 #: `git show c7297c2~1:scripts/delegated-run-check.sh` - Nit Store #864 comment
 #: 5679524656, corrected in #1265.) Found while adding the denominator.
 TOOL_ERRORS=0
+TOOL_ATTEMPTS=0
 DETAIL=""
 
 add_signal() { SIGNALS+=("$1"); }
@@ -916,21 +938,32 @@ else:
         signals.add("no-terminal-event")
     if turns is not None and turns <= 1:
         signals.add("no-turns")
-    # issue #1365: more than one tool call was attempted and EVERY one of
-    # them failed. The >1 requirement is load-bearing, not an arbitrary
-    # floor: a single attempted call that failed is #836/#892/#1054's
-    # already-protected shape (a denied `git commit`, tried once, the model
-    # moves on - the fence working as designed), and widening this to
-    # attempted == 1 would re-flag every one of those pinned cases as a
-    # failure. Always fails the run - not gated behind --expect-tools, unlike
-    # the three signals above, because unlike "the model asked no tools",
-    # "every tool it tried came back failed" is never a legitimate outcome.
-    if tool_errors > 0 and tool_attempts > 1 and tool_errors == tool_attempts:
+    # issue #1365, extended to N=1 by issue #1379: at least one tool call was
+    # attempted and EVERY one of them failed. #1365 originally required > 1
+    # attempts so this could not re-flag #836/#892/#1054's pinned
+    # single-attempt cases (a denied `git commit`, tried once, the model
+    # moves on - the fence working as designed). #1379's owner ruling settled
+    # that the `> 1` floor was test-compatibility scoping, not a principled
+    # claim that N=1 differs from N>1: none of the four pinned fixtures has
+    # #836's "denied among successful others" shape, each is one attempt in
+    # total, and #836's own `is_fatal` (process health) is untouched either
+    # way - this signal answers the SEPARATE "did the work happen" question
+    # #836 explicitly left open, and "every tool it tried came back failed"
+    # is never a legitimate outcome whatever N is. Always fails the run - not
+    # gated behind --expect-tools, unlike the three signals above, because
+    # unlike "the model asked no tools", "every tool it tried came back
+    # failed" is never a legitimate outcome. DELEGATED_RUN_TOOL_ATTEMPTS is
+    # emitted alongside DELEGATED_RUN_TOOL_ERRORS so a caller never sees a
+    # bare STATUS: failure - it can always tell a 1-of-1 denial from a
+    # multi-attempt wipeout from the counts, without this helper ever parsing
+    # deny-rule text to do it for them.
+    if tool_errors > 0 and tool_errors == tool_attempts:
         signals.add("all-tools-failed")
 
 print("SIGNALS=" + ",".join(sorted(signals)))
 print("DETAIL=" + detail)
 print("TOOL_ERRORS=%d" % tool_errors)
+print("TOOL_ATTEMPTS=%d" % tool_attempts)
 print("EVENTS=%d" % parsed)
 print("RECOGNIZED=%d" % recognized)
 print("UNPARSED=%d" % unparsed)
@@ -940,6 +973,7 @@ PYEOF
 
     TOOL_ERRORS=0   # reset per parse; the global default above covers the
                     # paths that never reach the parser at all.
+    TOOL_ATTEMPTS=0 # same reasoning, same reset
     if [[ "$PY_STATUS" -ne 0 || -z "$PY_OUT" ]]; then
         # python3 is a hard dependency of the repo (3.11+), so this is a real
         # anomaly rather than a portability case. Report it as a signal instead
@@ -955,9 +989,11 @@ PYEOF
         PY_SIGNALS="$(py_field SIGNALS)"
         PY_DETAIL="$(py_field DETAIL)"
         PY_TOOL_ERRORS="$(py_field TOOL_ERRORS)"
+        PY_TOOL_ATTEMPTS="$(py_field TOOL_ATTEMPTS)"
         PY_EVENTS="$(py_field EVENTS)"
         PY_RECOGNIZED="$(py_field RECOGNIZED)"
         [[ "$PY_TOOL_ERRORS" =~ ^[0-9]+$ ]] && TOOL_ERRORS="$PY_TOOL_ERRORS"
+        [[ "$PY_TOOL_ATTEMPTS" =~ ^[0-9]+$ ]] && TOOL_ATTEMPTS="$PY_TOOL_ATTEMPTS"
         [[ "$PY_EVENTS" =~ ^[0-9]+$ ]] && EVENTS="$PY_EVENTS"
         [[ "$PY_RECOGNIZED" =~ ^[0-9]+$ ]] && RECOGNIZED="$PY_RECOGNIZED"
         PY_UNPARSED="$(py_field UNPARSED)"
@@ -1037,6 +1073,7 @@ echo "DELEGATED_RUN_EVENTS: $EVENTS"
 echo "DELEGATED_RUN_RECOGNIZED: $RECOGNIZED"
 echo "DELEGATED_RUN_UNPARSED: $UNPARSED"
 echo "DELEGATED_RUN_TOOL_ERRORS: $TOOL_ERRORS"
+echo "DELEGATED_RUN_TOOL_ATTEMPTS: $TOOL_ATTEMPTS"
 echo "DELEGATED_RUN_STATUS: $STATUS"
 
 [[ "$STATUS" == "success" ]] && exit 0
