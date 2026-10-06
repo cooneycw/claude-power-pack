@@ -142,11 +142,21 @@ grading PASS and the degraded arm grading FAIL ... Flip
 `behavioral-eval-check` to blocking in the same PR") both read as reading 2.
 Reviewed and recorded 2026-10-06
 ([CPP #1084 comment](https://github.com/cooneycw/claude-power-pack/issues/1084#issuecomment-6006863349)):
-the flip precondition is case discrimination, not a CPP-vs-baseline effect
-delta - a **non-discriminating** result (degraded arm also passes, as skillc
-#201's live run came back) never flips it, however valid the run; a
-**no-effect** result (the case discriminates, but a separate CPP-vs-baseline
-study comes back null) is valid evidence and does not block the flip. A valid
+the flip precondition starts from case discrimination, not a CPP-vs-baseline
+effect delta - a **non-discriminating** result (degraded arm also passes, as
+skillc #201's live run came back) never flips it, however valid the run.
+
+**Superseded the same day by an owner ruling** ([CPP #1084, 2026-10-06](https://github.com/cooneycw/claude-power-pack/issues/1084#issuecomment-6007022667) -
+"Require improvement too"): the flip now needs **both** case discrimination
+**and** a predeclared CPP-vs-baseline improvement on that same discriminating
+case. The reconciliation comment's line that a no-effect result "does not
+block the flip" is explicitly overridden - a no-effect result on a
+discriminating case is still valid evidence, retained and reported, but it
+**never** flips the gate by itself. The improvement criterion itself is not
+yet ruled (no threshold, test or minimum sample - #1367 still forbids a
+universal pass-rate threshold); it will be a per-study, predeclared criterion
+put to the owner before any candidate artifact exists. Until it is ruled, no
+artifact can satisfy this half either, independent of #273 below. A valid
 null comparison must never be rendered as an invalid bundle just because it
 does not justify enrollment.
 
@@ -171,14 +181,17 @@ FAIL while the normal arm graded PASS - never from file/case naming, two
 results sitting in one bundle, or a self-declared field in a subject-writable
 record.
 
-**Evidence that would settle it, once #273 exists** (#1371 still owns the
-enrollment decision itself). A committed bundle containing: the
+**Evidence that would settle discrimination, once #273 exists** (#1371 still
+owns the enrollment decision itself). A committed bundle containing: the
 controller-produced pairing record from #273 naming a CPP-dependent case and
 its degraded/mutated counterpart; that counterpart's `verified-result` grading
 FAIL; and the normal arm's `verified-result` grading PASS - all passing
-skillc's bundle rules. Until then, every artifact, including a fully valid
-one, is rendered "not shown to discriminate" by construction, the gate stays
-advisory, and no blocking policy changes in this spec. `docs/measurements/behavioral-eval/`
+skillc's bundle rules. **That alone is no longer sufficient** - the owner
+ruling above adds a second, independent requirement: a predeclared
+CPP-vs-baseline improvement criterion on that same discriminating case, not
+yet ruled. Until both exist, every artifact, including a fully valid
+discriminating one, cannot flip the gate, the gate stays advisory, and no
+blocking policy changes in this spec. `docs/measurements/behavioral-eval/`
 is a 404 on CPP main as of this writing, so the question is current, not
 historical.
 
