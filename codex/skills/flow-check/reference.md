@@ -71,7 +71,16 @@ marker for the qualifications:
 - `FLOW_FINISH_GATE: warn (...)` (exit 3) - repeat the qualification verbatim. A
   `skipped gates:` name is a SKIP row and a `zero coverage:` or no-tests name is
   a WARN row - never a PASS.
-- `FLOW_FINISH_GATE: fail` (exit 1) - the failing step is a FAIL row.
+- `FLOW_FINISH_GATE: fail` (exit 1) - the failing step is a FAIL row. `lint test
+  typecheck` is one aggregate (issue #1152): when an earlier step fails, make
+  halts there, and any later step's `step_details` entry carries `status:
+  not-run` rather than running at all. That step is its own **NOT_RUN** row -
+  never a PASS, and never left out of the table. Its detail is the entry's
+  `not_run_reason` (e.g. "lint failed"), which names the stage that failed
+  first. A NOT_RUN row counts into none of `CHECKS_RUN` / `PASS` / `WARN` /
+  `FAIL` - it did not execute, so none of those are true of it - but it is
+  still its own row in the report table, never folded into the FAIL row that
+  caused it and never silently dropped.
 - `FLOW_FINISH_GATE: skipped` (exit 4) - no runner and no Makefile gates: three
   SKIP rows.
 
@@ -190,8 +199,8 @@ Present a summary report:
 | Check | Status | Details |
 |-------|--------|---------|
 | Lint (`make lint`) | PASS/FAIL/SKIP | All checks passed / 3 errors / No Makefile |
-| Tests (`make test`) | PASS/FAIL/SKIP | 211 passed / 2 failed / No Makefile |
-| Typecheck (`make typecheck`) | PASS/FAIL/SKIP | No issues / 15 errors / No `typecheck:` target |
+| Tests (`make test`) | PASS/FAIL/SKIP/NOT_RUN | 211 passed / 2 failed / No Makefile / lint failed |
+| Typecheck (`make typecheck`) | PASS/FAIL/SKIP/NOT_RUN | No issues / 15 errors / No `typecheck:` target / lint failed |
 | Security scan | PASS/WARN/FAIL/SKIP | Clean / 1 HIGH warning / 1 CRITICAL / lib/security not available |
 | Makefile completeness | PASS/WARN/SKIP | 6/6 targets / 1 missing / lib/cicd not available |
 | Execution record | supported/not-supported/unknown/none | the reader's claim, or its reasons |
@@ -204,6 +213,10 @@ Status symbols:
 - **WARN** - Non-blocking issue found (proceed with caution)
 - **FAIL** - Blocking issue found (fix before `/flow-finish`)
 - **SKIP** - Check not available (no Makefile, lib not installed)
+- **NOT_RUN** - Never executed because an earlier step in the same aggregate
+  (`lint test typecheck`) failed first and `make` halted there. Distinct from
+  SKIP: a SKIP step was never applicable, a NOT_RUN step would have run if an
+  earlier one had passed. Never reported as PASS.
 
 ### Final Message
 
