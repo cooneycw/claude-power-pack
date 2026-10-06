@@ -4,12 +4,27 @@
 > #1369 (consumer), #1370 (change map), #1371 (enrollment policy). Outcome
 > contract: #1367. Programme: skillc #245, workstream skillc #249, waves skillc
 > #258 / #259.
-> **Created:** 2026-10-04
-> **Status:** Draft - the skillc side is pinned to `cooneycw/skillc@8c74a88`
-> (origin/main on 2026-10-04). skillc #268, which defines the per-skill
-> attribution and export records, was in progress when this was written and has
-> NOTHING on skillc main yet. Every skillc-side field below that #268 will own is
-> marked **[#268]** and must be re-pinned when #268 lands.
+> **Created:** 2026-10-04. **Re-pinned:** 2026-10-06 (audit, no content change).
+> **Status:** Draft - the skillc side is re-pinned to `cooneycw/skillc@0375fe8`
+> (origin/main on 2026-10-06; was `8c74a88` on 2026-10-04). skillc #268, which
+> defines the per-skill attribution and export records, remains in progress and
+> still has NOTHING on skillc main or any open branch/PR as of this re-pin.
+> Every skillc-side field below that #268 will own is marked **[#268]** and must
+> be re-pinned again when #268 lands. Every explicit line-number citation into
+> `skillc/records.py` and `docs/specs/evaluation-facility/records.md` below was
+> checked against `0375fe8` and is unchanged from the `8c74a88` pin (neither
+> file changed in between).
+>
+> Two tickets this spec's dependents will need landed since the `8c74a88` pin,
+> not yet reflected in R10-R13 or section E below: skillc **#264** (merged as
+> PR #291, `docs/specs/evaluation-facility/protocol.md` section 10 - the three
+> workflow-contract lanes and the flow-check obligation matrix) and skillc
+> **#265** (merged as PR #292, `docs/specs/evaluation-facility/profiles.md` and
+> `skillc/profile.py` - the transitive installation profile, with a worked
+> `evals/subjects/cpp-codex-flow-check/` profile that records a per-skill
+> `description_digest` / `body_digest`). Neither is #268 and neither changes
+> this spec's own requirements, but #1369 (R10, current-content matching) and
+> #1370 (the change map) now have real artifacts to cite rather than none.
 
 ---
 
@@ -245,6 +260,15 @@ declared association, not a proof that the flow's other steps ran.
 - [ ] Whether usage records for skills other than `flow-check` are worth emitting.
   Decide from the pilot's use, not in advance (#1366 "then decide further
   emitters from the pilot").
+- [ ] Section F's "Failed" example is labelled **real, from an earlier run on
+  the same branch**, unlike the Good example, which names a committed path
+  (`docs/measurements/execution-evidence/cbf9931...json`) independently
+  verifiable against `scripts/execution-evidence-verify.py`, and unlike the
+  Unknown example, which is explicitly labelled **constructed**. No path backs
+  the Failed example's "real" claim here. Either link the actual record (if one
+  survives in `<git-common-dir>/cpp-evidence/`, outside the tree per R5, or was
+  captured before #1372 trimmed retention) or relabel it constructed like
+  Unknown - "real" should mean the same thing in both places it is claimed.
 
 ---
 
