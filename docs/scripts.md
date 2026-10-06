@@ -1188,21 +1188,29 @@ from `SKILL_FAMILY_MAP` - axis work is never attempted, and never inherited
 from a mapped sibling) is a membership fact; `unknown` (either axis
 undecidable) is a different claim with a different remedy. `current`,
 `stale (content)` and `stale (dependency)` are the three substantive
-verdicts, and axis 1 short-circuits axis 2: once content itself is stale,
-the dependency-closure question is moot and is never asked.
+verdicts.
+
+**Axis 2 is always computed, even once axis 1 is already stale** (counter-
+model review, 2026-10-06). Content-staleness still dominates the COMBINED
+`state` - fixing content is step one regardless of what axis 2 says - but
+the `reason` always names both axes, so an auditor who fixes axis 1 is never
+surprised by axis 2 on the next run. On today's real data both axes ARE
+stale at once: see "the first committed snapshot" below.
 
 **Axis 2's own staleness is the sharper half.** The vendored snapshot records
 a digest for every file in the skill's `codex/skills/<skill>/` closure AT
 SNAPSHOT TIME. The gate recomputes the same digests against the CURRENT tree
-on every run; any mismatch reports `unknown`, never a silently-reused cached
-`intact`/`broken` verdict. That is CI's whole answer for axis 2: fresh as of
-the last manual regeneration, and able to say whether that regeneration is
-still valid - never a live result. Registered control
-`controls/check-skill-coverage-map`: a closure that grew a file after the
-snapshot was recorded, with axis 1 held current so its short-circuit cannot
-mask the finding, must read `unknown`. Its anchor is CONSTRUCTED - the real
-drift comparison replaced with a hardcoded empty list - and reports `current`
-over the known-bad input it misses.
+on every run; any mismatch reports `unknown` for axis 2, never a
+silently-reused cached `intact`/`broken` verdict (this `unknown` still loses
+to an already-stale axis 1 in the combined `state`, exactly as `broken`
+would). That is CI's whole answer for axis 2: fresh as of the last manual
+regeneration, and able to say whether that regeneration is still valid -
+never a live result. Registered control `controls/check-skill-coverage-map`:
+a closure that grew a file after the snapshot was recorded, with axis 1 held
+current (so the case isolates axis 2's own staleness check rather than
+exercising the content-dominance path above), must read `unknown`. Its
+anchor is CONSTRUCTED - the real drift comparison replaced with a hardcoded
+empty list - and reports `current` over the known-bad input it misses.
 
 **Q1 (no newer evaluation-bound reference exists).** Neither #1369's
 `check-behavioral-eval.py::_evaluate_skill_evidence` (whose own docstring
@@ -1216,13 +1224,15 @@ exists.
 **The first committed snapshot is the real one, not a fixture.**
 `docs/measurements/skill-coverage/flow-check.json` was generated against CPP
 main @ `8ff62ca` and skillc main @ `bbd4ed6`, and against current main it
-drives the gate's real controls on both axes: `stale (content)` from #1380's
-shipped description change against the `85e9b03`-pinned reference, and
-`stale (dependency)` pinned separately by
-`tests/test_skill_coverage_map.py::test_stale_dependency_real_fixture_shape`
-using `execution-evidence-verify.py`'s actual problem shape (a live run
-cannot show both at once - axis 1's short-circuit is what this file already
-states).
+drives the gate's real controls on BOTH axes AT ONCE, live:
+`tests/test_skill_coverage_map.py::test_live_run_against_main_reports_both_axes_stale`
+asserts the real `reason` names axis 1's finding (#1380's shipped
+description change against the `85e9b03`-pinned reference) and axis 2's
+(`execution-evidence-verify.py` has no skillc dependency) in the same
+output.
+`test_stale_dependency_real_fixture_shape` keeps the same real problem shape
+pinned in isolation (axis 1 held current), so the two tests check the same
+real-world fact from two different angles - one isolated, one live.
 
 **v1's map is the degenerate 1:1 case** (`flow-check` only; skillc has only
 one CPP profile today). Map-level staleness - a skill's file set outgrowing

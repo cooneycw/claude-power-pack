@@ -49,8 +49,13 @@ item 4):
     not evaluated       - skill absent from SKILL_FAMILY_MAP; axis work is
                            never even attempted for it
     current             - mapped, axis1 current, axis2 current
-    stale (content)     - mapped, axis1 stale (axis2 is irrelevant once
-                           content itself is stale)
+    stale (content)     - mapped, axis1 stale. AXIS 2 IS STILL COMPUTED AND
+                           NAMED - content-staleness dominates the combined
+                           `state` (fixing content is step one regardless of
+                           what axis 2 says), but the `reason` always states
+                           both axes, so an auditor who fixes axis 1 cannot
+                           be surprised by axis 2 on the next run (counter-
+                           model review, 2026-10-06)
     stale (dependency)  - mapped, axis1 current, axis2 stale
     unknown             - mapped, but either axis is undecidable (snapshot
                            missing/stale, reference missing, skill directory
@@ -67,6 +72,18 @@ built to extend rather than over-built for many-to-many before a second real
 skill profile exists (#1367 item 4; skillc only has one CPP profile today,
 `evals/subjects/cpp-codex-flow-check/`).
 """
+
+#: NEGATIVE-CONTROL: controls/check-skill-coverage-map
+#:
+#: This gate is wired into `make verify` and its verdict is read by a human (or
+#: another session) scanning that output - nothing downstream re-derives axis 2,
+#: because axis 2's whole premise is that skillc cannot run again in CI. A blind
+#: version of the drift check (see `check_skill`'s axis-2 block) would print a
+#: confident `current` over a vendored snapshot whose closure has since grown or
+#: shrunk, silently reusing a cached diagnose() verdict that no longer describes
+#: the checkout being audited. The registered control isolates exactly that
+#: comparison - see `controls/check-skill-coverage-map/control.json`'s `limits`
+#: for what it does and does not cover.
 
 from __future__ import annotations
 
@@ -219,11 +236,12 @@ def check_skill(skill: str, repo: Path, snapshot_dir: Path) -> dict[str, Any]:
     ref_description_digest = reference.get("description_digest")
     ref_body_digest = reference.get("body_digest")
 
-    axis1_mismatches = []
     if ref_description_digest is None or ref_body_digest is None:
         result["state"] = "unknown"
         result["reason"] = "snapshot's reference section is missing description_digest/body_digest"
         return result
+
+    axis1_mismatches = []
     if current_description_digest != ref_description_digest:
         axis1_mismatches.append(
             f"description_digest differs (reference {ref_description_digest}, current {current_description_digest})"
@@ -236,54 +254,79 @@ def check_skill(skill: str, repo: Path, snapshot_dir: Path) -> dict[str, Any]:
         "status": "stale" if axis1_mismatches else "current",
         "detail": "; ".join(axis1_mismatches) if axis1_mismatches else "digests match the evaluation-bound reference",
     }
-    if axis1_mismatches:
-        result["state"] = "stale (content)"
-        return result
 
     # --- Axis 2: dependency closure, via the vendored snapshot -----------
+    #
+    # ALWAYS COMPUTED, even when axis 1 is already stale (counter-model
+    # review, 2026-10-06). The COMBINED verdict still lets content-staleness
+    # dominate `state` - fixing content is step one regardless of what axis 2
+    # says - but an auditor who fixes axis 1 must not then discover axis 2's
+    # gap as a surprise second finding on the next run. So both axes are
+    # computed and named on every call, win or lose.
     diagnose = snapshot.get("diagnose")
     if not isinstance(diagnose, dict):
-        result["state"] = "unknown"
-        result["reason"] = "snapshot has no diagnose section"
-        return result
-    snapshot_digests = diagnose.get("closure_digests")
-    if not isinstance(snapshot_digests, dict):
-        result["state"] = "unknown"
-        result["reason"] = "snapshot's diagnose section has no closure_digests"
-        return result
-    current_digests = digest_tree(closure_root)
-    drift: list[str] = []  # CONSTRUCTED ANCHOR (#1370): drift detection disabled
-    result["snapshot_provenance"] = {
-        "skillc_commit": diagnose.get("skillc_commit"),
-        "cpp_revision_snapshot": diagnose.get("cpp_revision_snapshot"),
-        "recorded_at": diagnose.get("recorded_at"),
-    }
-    if drift:
-        result["state"] = "unknown"
+        axis2_state, axis2_detail = "unknown", "snapshot has no diagnose section"
+    else:
+        snapshot_digests = diagnose.get("closure_digests")
+        if not isinstance(snapshot_digests, dict):
+            axis2_state, axis2_detail = "unknown", "snapshot's diagnose section has no closure_digests"
+        else:
+            current_digests = digest_tree(closure_root)
+            drift: list[str] = []  # CONSTRUCTED ANCHOR (#1370): drift detection disabled
+            result["snapshot_provenance"] = {
+                "skillc_commit": diagnose.get("skillc_commit"),
+                "cpp_revision_snapshot": diagnose.get("cpp_revision_snapshot"),
+                "recorded_at": diagnose.get("recorded_at"),
+            }
+            if drift:
+                axis2_state = "unknown"
+                axis2_detail = (
+                    "vendored diagnose() snapshot is stale - the closure changed since it was "
+                    f"recorded: {', '.join(drift)}. Re-run scripts/skill-coverage-snapshot.py "
+                    "and commit a fresh snapshot."
+                )
+            else:
+                skill_result = diagnose.get("result", {})
+                status = skill_result.get("skills", {}).get(skill, {}).get("status")
+                problems = [
+                    p for p in skill_result.get("problems", [])
+                    if skill in p.get("skills", [])
+                ]
+                result["axis2"] = {"status": status, "problems": problems}
+                if status == "broken":
+                    axis2_state = "stale (dependency)"
+                    axis2_detail = (
+                        f"skillc profile diagnose reports {skill} broken: "
+                        + "; ".join(f"[{p['category']}] {p['detail']}" for p in problems)
+                    )
+                elif status == "intact":
+                    axis2_state = "current"
+                    axis2_detail = "skillc profile diagnose reports the dependency closure intact"
+                else:
+                    axis2_state = "unknown"
+                    axis2_detail = f"vendored diagnose() reports an unrecognized status: {status!r}"
+
+    if "axis2" not in result:
+        result["axis2"] = {"status": None}
+    result["axis2"]["detail"] = axis2_detail
+
+    # --- Combine: content-staleness dominates `state` (owner ruling,
+    # 2026-10-06), but the reason always names both axes so a fix to one
+    # cannot hide a finding on the other.
+    if axis1_mismatches:
+        result["state"] = "stale (content)"
         result["reason"] = (
-            "vendored diagnose() snapshot is stale - the closure changed since it was "
-            f"recorded: {', '.join(drift)}. Re-run scripts/skill-coverage-snapshot.py "
-            "and commit a fresh snapshot."
+            f"axis1: stale [{result['axis1']['detail']}]; axis2: {axis2_state} [{axis2_detail}]"
         )
         return result
 
-    skill_result = diagnose.get("result", {})
-    status = skill_result.get("skills", {}).get(skill, {}).get("status")
-    problems = [
-        p for p in skill_result.get("problems", [])
-        if skill in p.get("skills", [])
-    ]
-    result["axis2"] = {"status": status, "problems": problems}
-    if status == "broken":
-        result["state"] = "stale (dependency)"
-        result["reason"] = (
-            f"skillc profile diagnose reports {skill} broken: "
-            + "; ".join(f"[{p['category']}] {p['detail']}" for p in problems)
-        )
-        return result
-    if status != "intact":
+    if axis2_state == "unknown":
         result["state"] = "unknown"
-        result["reason"] = f"vendored diagnose() reports an unrecognized status: {status!r}"
+        result["reason"] = axis2_detail
+        return result
+    if axis2_state == "stale (dependency)":
+        result["state"] = "stale (dependency)"
+        result["reason"] = axis2_detail
         return result
 
     result["state"] = "current"
