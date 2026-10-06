@@ -122,7 +122,7 @@ pack-wide PASS cannot stand in for current per-skill assurance.
 
 ---
 
-## D. The unresolved #1084 enrollment interpretation
+## D. The #1084 enrollment interpretation - now recorded, still not enrolled
 
 **Today.** `make behavioral-eval-check` runs `scripts/check-behavioral-eval.py
 --advisory` (Makefile:792-794). The flip to blocking is pre-committed (Makefile
@@ -130,29 +130,57 @@ pack-wide PASS cannot stand in for current per-skill assurance.
 holds at least one artifact recorded by a real behavioural case". #1084's own
 constraint is "do not gate on a suite that has not been shown to discriminate".
 
-**What is unresolved.** Both readings of "an artifact recorded by a real behavioural
-case" are defensible, and they disagree on the first plausible artifact:
+**The reading question (as of 2026-10-04) is resolved; no artifact exists yet.**
+Two readings of "an artifact recorded by a real behavioural case" were both
+defensible and disagreed on the first plausible artifact: (1) any real
+`verified-result`, even a null comparison (both arms PASS), flips the gate; or
+(2) only a result shown to discriminate (a paired degraded/mutated arm failing)
+flips it. #1084's own text already decided this without needing inference -
+its constraint ("do not gate on a suite that has not been shown to
+discriminate") and its 2026-09-28 next-step comment ("Show the normal arm
+grading PASS and the degraded arm grading FAIL ... Flip
+`behavioral-eval-check` to blocking in the same PR") both read as reading 2.
+Reviewed and recorded 2026-10-06
+([CPP #1084 comment](https://github.com/cooneycw/claude-power-pack/issues/1084#issuecomment-6006863349)):
+the flip precondition is case discrimination, not a CPP-vs-baseline effect
+delta - a **non-discriminating** result (degraded arm also passes, as skillc
+#201's live run came back) never flips it, however valid the run; a
+**no-effect** result (the case discriminates, but a separate CPP-vs-baseline
+study comes back null) is valid evidence and does not block the flip. A valid
+null comparison must never be rendered as an invalid bundle just because it
+does not justify enrollment.
 
-1. **Any real record flips it.** A valid `verified-result` from a real case,
-   even a NULL comparison (both arms PASS, as in skillc #26's selection report),
-   enrolls the gate.
-2. **Only a discriminating record flips it.** The case must also have been shown
-   to discriminate: it is paired with a degraded arm or mutation it reports
-   failure on (#1084 "Negative control" and skillc #150).
+**What settles "discriminating" is #273, not inference, and it does not exist
+yet.** A null-PASS and a discriminating-PASS are indistinguishable from any
+v2 record today: the trial-ledger `case` identity is exactly `{id, revision}`
+plus `observes_selection` (`skillc/trial.py:76-94`, `records.md:135`), and no
+record or bundle rule declares that a case has a degraded or mutation
+counterpart
+([CPP #1084 comment](https://github.com/cooneycw/claude-power-pack/issues/1084#issuecomment-6006877171);
+[skillc #273 comment](https://github.com/cooneycw/skillc/issues/273#issuecomment-6006863590)).
+skillc has made this a binding scope note on skillc #273: it must either
+represent the arm pairing in a validated, controller-produced record that
+refuses an unpaired or mismatched claim, or state that pairing is not
+computable and refuse to label any result "discriminating" at all. Neither
+disposition exists yet. **Decision (CPP side, recorded so it is not left
+implicit): the Makefile's pre-commitment waits for skillc #273 or an
+equivalent controller-produced pairing record.** It is not reinterpreted to
+mean "any real record". An exported artifact flips the gate only when a
+validated producer record certifies the pairing **and** the paired arm graded
+FAIL while the normal arm graded PASS - never from file/case naming, two
+results sitting in one bundle, or a self-declared field in a subject-writable
+record.
 
-Under reading 1, a null result would make the gate blocking with nothing proven
-to discriminate. That collides with #1084's constraint. Under reading 2, the
-same null result is still VALID evidence and must be retained and reported. A
-valid null comparison must never be rendered as an invalid bundle just because
-it does not justify enrollment.
-
-**Evidence that settles it** (#1371 owns the decision). It needs a committed
-`verified-result` bundle from a CPP-dependent case with a degraded arm. The bundle
-must show the case reporting FAIL on the degraded arm and PASS on the intact arm,
-and pass skillc's bundle rules. It also needs a recorded policy line naming which
-reading applies, its expiry, and its unknown handling. Until then, reading 2 is
-the conservative default. The gate stays advisory and no blocking policy changes
-in this spec.
+**Evidence that would settle it, once #273 exists** (#1371 still owns the
+enrollment decision itself). A committed bundle containing: the
+controller-produced pairing record from #273 naming a CPP-dependent case and
+its degraded/mutated counterpart; that counterpart's `verified-result` grading
+FAIL; and the normal arm's `verified-result` grading PASS - all passing
+skillc's bundle rules. Until then, every artifact, including a fully valid
+one, is rendered "not shown to discriminate" by construction, the gate stays
+advisory, and no blocking policy changes in this spec. `docs/measurements/behavioral-eval/`
+is a 404 on CPP main as of this writing, so the question is current, not
+historical.
 
 ---
 
@@ -255,8 +283,15 @@ declared association, not a proof that the flow's other steps ran.
   usage record (artifact-manifest entry, observation stream, or a new kind), and
   the reconciliation rules for duplicate, stale, missing and unmatched records.
   Re-pin this spec's skillc SHA when #268 lands.
-- [ ] **[#1371]** Which enrollment reading (section D) applies, decided on the
-  evidence named there.
+- [x] **[#1371]** Which enrollment reading (section D) applies: resolved
+  2026-10-06, reading 2 (discrimination required). Still open under #1371:
+  whether a committed bundle meeting section D's evidence requirement exists
+  before enrollment proceeds.
+- [ ] **[skillc #273]** Added as a dependency 2026-10-06. Neither disposition
+  section D names (a validated pairing record, or an explicit
+  "not computable" refusal) exists on skillc yet. #1369 and #1371 cannot
+  consume a pairing record, and #1371 cannot enroll a discriminating result,
+  until #273 lands one of the two. Re-pin section D's skillc SHA when it does.
 - [ ] Whether usage records for skills other than `flow-check` are worth emitting.
   Decide from the pilot's use, not in advance (#1366 "then decide further
   emitters from the pilot").
