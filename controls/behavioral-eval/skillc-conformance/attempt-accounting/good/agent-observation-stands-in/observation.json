@@ -1,0 +1,59 @@
+{
+ "version": 2,
+ "kind": "agent-observation",
+ "producer": "controller",
+ "attempt_id": "att-1",
+ "trial_id": "t-1",
+ "client": "codex",
+ "status": "observed",
+ "reason": null,
+ "transcript": {
+  "files_found": 1,
+  "prompt_delivered": true,
+  "prompt_delivery_reason": null,
+  "canary_satisfied": true,
+  "canary_reason": null,
+  "skill_invocations": [
+   "diagnosing-bugs"
+  ],
+  "skill_invocation_detection": "heuristic",
+  "skills_listed": null,
+  "skills_listed_source": "not observed",
+  "grading_eligible": true,
+  "census": {
+   "client_version": "0.157.1",
+   "model": "example-model",
+   "line_types": {
+    "response_item/message": 4
+   },
+   "unrecognized_types": [],
+   "response_items_inspected": 4,
+   "error": null
+  }
+ },
+ "credential": {
+  "delivered": true,
+  "source": "subscription",
+  "remaining_seconds_at_launch": 7200,
+  "refresh_observed_in_container": false
+ },
+ "grading": {
+  "grader_supplied": true,
+  "eligible": true,
+  "blocked_reason": null,
+  "graded_status": "PASS",
+  "category": "verdict",
+  "criteria": [
+   {
+    "id": "R1",
+    "mandatory": true,
+    "outcome": "SATISFIED"
+   },
+   {
+    "id": "R2",
+    "mandatory": true,
+    "outcome": "SATISFIED"
+   }
+  ]
+ }
+}

@@ -1,0 +1,25 @@
+{
+ "version": 2,
+ "kind": "verified-result",
+ "producer": "assembler",
+ "attempt_id": "att-1",
+ "trial_id": "t-1",
+ "result_id": "res-1",
+ "grader": {
+  "id": "slug-grader",
+  "revision": "g1"
+ },
+ "criteria": [
+  {
+   "id": "c1",
+   "mandatory": true,
+   "outcome": "SATISFIED",
+   "evidence": [
+    "grader-log:c1"
+   ]
+  }
+ ],
+ "status": "NOT_RUN",
+ "run_state": "NOT_RUN",
+ "reason": "said it never ran"
+}

@@ -1,0 +1,50 @@
+{
+ "version": 2,
+ "kind": "skill-evidence",
+ "producer": "assembler",
+ "attempt_id": "att-1",
+ "trial_id": "t-1",
+ "skills": [
+  {
+   "skill": {
+    "path": ".codex/skills/slug/SKILL.md"
+   },
+   "invocation": {
+    "lineage": "root"
+   },
+   "lifecycle": {
+    "listed": {
+     "status": "CONFIRMED",
+     "evidence": {
+      "path": "receipt.json",
+      "digest": "sha256:i1"
+     }
+    },
+    "read_observed": {
+     "status": "UNKNOWN",
+     "reason": "no-transcript-stream-declared"
+    },
+    "execution_observed": {
+     "status": "UNKNOWN",
+     "reason": "no-controller-witness"
+    }
+   },
+   "criteria_owned": [
+    {
+     "id": "c1",
+     "outcome": "SATISFIED",
+     "shared": false
+    }
+   ],
+   "external_evidence": {
+    "present": true,
+    "source": "cpp.execution-evidence/v1",
+    "artifact_ref": {
+     "path": "cpp-usage/att-1.json",
+     "digest": "sha256:not-captured"
+    },
+    "reconciliation": "matched"
+   }
+  }
+ ]
+}

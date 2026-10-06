@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1369-behavioral-eval-bundle",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 1
+  },
+  "head": "fb6d164dcac6648d6ebf70b98cd638a06b99317e",
+  "implementer": "claude/claude-sonnet-5",
+  "issue": "1369",
+  "passes": 1,
+  "recorded_at": "2026-10-06T14:54:14Z",
+  "red_cases": {
+    "already_covered": 17,
+    "proposed": 20
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/06/rollout-2026-10-06T14-48-40-01a111b0-280b-7371-ba43-6019171ea5d3.jsonl",
+    "thread_id": "01a111b0-280b-7371-ba43-6019171ea5d3"
+  },
+  "schema": 1,
+  "status": "ran"
+}

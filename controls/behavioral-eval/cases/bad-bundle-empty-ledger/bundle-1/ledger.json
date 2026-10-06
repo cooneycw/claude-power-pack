@@ -1,0 +1,12 @@
+{
+ "version": 2,
+ "kind": "trial-ledger",
+ "producer": "controller",
+ "experiment_id": "exp-1",
+ "trials": [
+  {
+   "trial_id": "t-1",
+   "attempts": []
+  }
+ ]
+}

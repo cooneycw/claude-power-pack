@@ -1,0 +1,66 @@
+{
+ "version": 2,
+ "kind": "trial-ledger",
+ "producer": "controller",
+ "experiment_id": "exp-1",
+ "trials": [
+  {
+   "trial_id": "t-1",
+   "case": {
+    "id": "slug-fix",
+    "revision": "r1"
+   },
+   "grader": {
+    "id": "slug-grader",
+    "revision": "g1"
+   },
+   "subject": {
+    "digest": "sha256:5a"
+   },
+   "client": {
+    "name": "codex",
+    "version": "1.0"
+   },
+   "image": {
+    "digest": "sha256:1a"
+   },
+   "config": {
+    "digest": "sha256:cf"
+   },
+   "attempts": [
+    {
+     "attempt_id": "att-1"
+    }
+   ]
+  },
+  {
+   "trial_id": "t-2",
+   "case": {
+    "id": "slug-fix",
+    "revision": "r1"
+   },
+   "grader": {
+    "id": "slug-grader",
+    "revision": "g1"
+   },
+   "subject": {
+    "digest": "sha256:5a"
+   },
+   "client": {
+    "name": "codex",
+    "version": "1.0"
+   },
+   "image": {
+    "digest": "sha256:1a"
+   },
+   "config": {
+    "digest": "sha256:cf"
+   },
+   "attempts": [
+    {
+     "attempt_id": "att-2"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,18 @@
+{
+ "version": 2,
+ "kind": "pilot-report",
+ "producer": "assembler",
+ "experiment_id": "exp-1",
+ "attempts": [
+  {
+   "attempt_id": "att-1",
+   "trial_id": "t-1",
+   "disposition": "not-run",
+   "criteria": [],
+   "uncertainty": "attempt never started",
+   "interventions": 0,
+   "cost_usd": {"setup": 0.0, "agent": "UNKNOWN", "grading": "UNKNOWN", "total": "UNKNOWN"},
+   "time_seconds": {"setup": 0, "agent": "UNKNOWN", "grading": "UNKNOWN", "total": "UNKNOWN"}
+  }
+ ]
+}

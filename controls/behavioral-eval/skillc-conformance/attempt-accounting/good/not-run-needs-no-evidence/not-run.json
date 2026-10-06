@@ -1,0 +1,16 @@
+{
+ "version": 2,
+ "kind": "verified-result",
+ "producer": "assembler",
+ "attempt_id": "att-2",
+ "trial_id": "t-1",
+ "result_id": "res-2",
+ "grader": {
+  "id": "slug-grader",
+  "revision": "g1"
+ },
+ "criteria": [],
+ "status": "NOT_RUN",
+ "run_state": "NOT_RUN",
+ "reason": "budget exhausted"
+}
