@@ -760,9 +760,11 @@ def _structure_errors(record: dict[str, Any]) -> list[str]:
         for i, c in enumerate(checks):
             if not isinstance(c, dict) or not isinstance(c.get("id"), str) or not isinstance(c.get("status"), str):
                 errors.append(f"observed.checks[{i}] lacks an id/status")
-            elif not isinstance(c.get("population", {}), dict):
+                continue
+            population = c.get("population")
+            if not isinstance(population, dict):
                 errors.append(f"observed.checks[{i}].population is not an object")
-            elif not isinstance(c["population"].get("counts", {}), dict):
+            elif not isinstance(population.get("counts", {}), dict):
                 errors.append(f"observed.checks[{i}].population.counts is not an object")
     # IDENTITY IS REQUIRED, not merely compared (counter-model review). A terminal
     # record that never captured which checkout and tree it ran against cannot
