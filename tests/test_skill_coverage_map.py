@@ -232,7 +232,9 @@ def test_live_run_against_main_is_state_agnostic(capsys: pytest.CaptureFixture[s
     result = mod.check_skill("flow-check", ROOT, ROOT / "docs" / "measurements" / "skill-coverage")
     assert result["state"] in mod.STATES, f"{result['state']!r} is not one of the five declared states"
     assert "axis1" in result and "status" in result["axis1"], "axis 1 must always be computed and named"
-    assert "axis2" in result and "status" in result["axis2"], "axis 2 must always be computed and named, even when axis 1 already decided `state`"
+    assert "axis2" in result and "status" in result["axis2"], (
+        "axis 2 must always be computed and named, even when axis 1 already decided `state`"
+    )
 
     # The provenance claim is about what a CI READER sees, not about the
     # dict check_skill() happens to return - counter-model review, 2026-10-06:
@@ -251,7 +253,9 @@ def test_live_run_against_main_is_state_agnostic(capsys: pytest.CaptureFixture[s
     provenance = printed.get("snapshot_provenance")
     assert isinstance(provenance, dict), "the committed snapshot's reference provenance must be printed"
     assert provenance.get("skillc_commit"), "provenance must name which skillc commit diagnosed the closure"
-    assert provenance.get("cpp_revision_snapshot"), "provenance must name which CPP revision the snapshot was taken against"
+    assert provenance.get("cpp_revision_snapshot"), (
+        "provenance must name which CPP revision the snapshot was taken against"
+    )
 
 
 def test_snapshot_staleness_is_detected_not_silently_reused(tmp_path: Path) -> None:
