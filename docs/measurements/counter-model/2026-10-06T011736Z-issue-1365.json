@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1365-delegated-run-check-sh-status-success-when-every-a",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "b8825bd31608b254dfabac1589100fc675d44061",
+  "implementer": "claude/claude-sonnet-5",
+  "issue": "1365",
+  "passes": 2,
+  "recorded_at": "2026-10-06T01:17:36Z",
+  "red_cases": {
+    "already_covered": 11,
+    "proposed": 11
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/06/rollout-2026-10-06T01-14-21-01a10ec6-a1c4-7d91-9738-3ce6852ef43e.jsonl",
+    "thread_id": "01a10ec6-a1c4-7d91-9738-3ce6852ef43e"
+  },
+  "schema": 1,
+  "status": "ran"
+}

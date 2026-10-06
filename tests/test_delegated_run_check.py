@@ -1571,3 +1571,360 @@ def test_a_tool_shaped_error_inside_a_successful_call_s_output_is_not_counted(tm
         ],
     )
     assert contract(run(str(output), "0", "--lane", "gemma").stdout)["DELEGATED_RUN_TOOL_ERRORS"] == ["0"]
+
+
+# ---------------------------------------------------------------------------
+# Issue #1365: TOOL_ERRORS was purely informational - however many tool calls
+# failed, STATUS stayed `success` as long as the CLI itself did not crash. A
+# real kyle coding-candidate run (2026-10-01) tried three shell commands, all
+# three failed with the SAME harness-level cause (no sandbox helper in the
+# container, "Failed to create unified exec process"), and the helper still
+# reported `STATUS: success` - the worker caught it only by diffing the
+# worktree by hand. The fix is deliberately narrow: #836 already settled that
+# a SINGLE denied/failed call must not fail the run (the fence working as
+# designed), so this only fires when MORE THAN ONE call was attempted and
+# EVERY one of them failed.
+# ---------------------------------------------------------------------------
+
+
+def test_a_run_where_every_attempted_tool_call_failed_is_not_a_success(tmp_path: Path) -> None:
+    """The committed red case: issue #1365's own incident shape.
+
+    Reconstructed from the issue's quoted item (`item_3`, verbatim
+    `aggregated_output`/`exit_code`/`status`) repeated across three ids, since
+    no raw capture file was attached to the issue - stated here rather than
+    implied, the same provenance distinction `test_a_declined_codex_item_is_
+    counted` draws for its own synthetic stream. Measured against the
+    PRE-FIX helper (`git stash`, re-run): `DELEGATED_RUN_TOOL_ERRORS: 3`,
+    `DELEGATED_RUN_STATUS: success`, exit 0 - the exact defect this pins
+    against.
+    """
+    output = write_jsonl(
+        tmp_path / "all-three-failed.jsonl",
+        [
+            {"type": "thread.started", "thread_id": "redacted"},
+            {"type": "turn.started"},
+            {"type": "item.completed", "item": {
+                "id": "item_1", "type": "command_execution", "command": "/usr/bin/sh -c pwd",
+                "aggregated_output": "Failed to create unified exec process: No such file or directory (os error 2)",
+                "exit_code": -1, "status": "failed"}},
+            {"type": "item.completed", "item": {
+                "id": "item_2", "type": "command_execution", "command": "/usr/bin/sh -c ls",
+                "aggregated_output": "Failed to create unified exec process: No such file or directory (os error 2)",
+                "exit_code": -1, "status": "failed"}},
+            {"type": "item.completed", "item": {
+                "id": "item_3", "type": "command_execution", "command": "/usr/bin/sh -c git status",
+                "aggregated_output": "Failed to create unified exec process: No such file or directory (os error 2)",
+                "exit_code": -1, "status": "failed"}},
+            {"type": "item.completed", "item": {
+                "id": "item_4", "type": "agent_message",
+                "text": "I was unable to run any commands in this environment."}},
+            {"type": "turn.completed"},
+        ],
+    )
+    proc = run(str(output), "0", "--lane", "codex")
+    found = contract(proc.stdout)
+    assert proc.returncode == 1, proc.stdout
+    assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["3"], proc.stdout
+    assert found["DELEGATED_RUN_STATUS"] == ["failure"], (
+        "zero of three attempted tool calls succeeded - the delegated model "
+        f"could not have done anything:\n{proc.stdout}"
+    )
+    assert "all-tools-failed" in found["DELEGATED_RUN_SIGNAL"], proc.stdout
+
+
+def test_one_of_three_failing_is_still_the_836_case(tmp_path: Path) -> None:
+    """The required control: a real partial failure must not regress (#836).
+
+    Exactly the shape the issue's own Proposed section describes as the
+    control - one of three calls denied/failed, the other two succeed - and
+    it is `#836`'s case restated with a wider denominator: `TOOL_ERRORS` is
+    non-zero, SOME calls succeeded, so the run is not "every attempted call
+    failed" and must stay `success`.
+    """
+    output = write_jsonl(
+        tmp_path / "one-of-three-failed.jsonl",
+        [
+            {"type": "thread.started", "thread_id": "redacted"},
+            {"type": "turn.started"},
+            {"type": "item.completed", "item": {
+                "id": "item_1", "type": "command_execution", "command": "make lint",
+                "exit_code": 0, "status": "completed"}},
+            {"type": "item.completed", "item": {
+                "id": "item_2", "type": "command_execution", "command": "git commit -m x",
+                "aggregated_output": "permission denied by rule: git commit*",
+                "exit_code": 1, "status": "failed"}},
+            {"type": "item.completed", "item": {
+                "id": "item_3", "type": "command_execution", "command": "make test",
+                "exit_code": 0, "status": "completed"}},
+            {"type": "turn.completed"},
+        ],
+    )
+    proc = run(str(output), "0", "--lane", "codex")
+    found = contract(proc.stdout)
+    assert proc.returncode == 0, proc.stdout
+    assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["1"], proc.stdout
+    assert found["DELEGATED_RUN_STATUS"] == ["success"], (
+        "two of three calls succeeded - widening this to failure would be "
+        f"the reverted #836 defect, not the #1365 fix:\n{proc.stdout}"
+    )
+    assert "all-tools-failed" not in found.get("DELEGATED_RUN_SIGNAL", []), proc.stdout
+
+
+def test_a_successful_non_command_item_keeps_an_all_failed_command_set_from_tripping(
+    tmp_path: Path,
+) -> None:
+    """Orchestrator review condition 1: `attempted` must see every tool-type
+    item, not only `command_execution`.
+
+    A patch (`file_change`) applies cleanly while every shell command the same
+    run tried fails - real work happened, so this must stay `success`. A
+    recognizer that only counted `command_execution` as an "attempt" would
+    see 0 attempts and 2 errors, trip no all-failed check by coincidence, and
+    give the right answer for the wrong reason on a stream shaped slightly
+    differently; this stream's `file_change` succeeding is what actually
+    exercises the breadth of the `TOOL_TYPES` scope shared with the error
+    counters. A lane whose recognizer cannot see some OTHER item type (none
+    are known missing from `TOOL_TYPES` today - see the header's `#1265`
+    note on `collab_tool_call`) would be invisible to both counters alike,
+    which is the existing scope, not a gap this change opens.
+    """
+    output = write_jsonl(
+        tmp_path / "patch-ok-commands-failed.jsonl",
+        [
+            {"type": "thread.started", "thread_id": "redacted"},
+            {"type": "turn.started"},
+            {"type": "item.completed", "item": {
+                "id": "item_1", "type": "file_change",
+                "changes": [{"path": "a.py", "kind": "update"}], "status": "completed"}},
+            {"type": "item.completed", "item": {
+                "id": "item_2", "type": "command_execution", "command": "make lint",
+                "aggregated_output": "Failed to create unified exec process: No such file or directory (os error 2)",
+                "exit_code": -1, "status": "failed"}},
+            {"type": "item.completed", "item": {
+                "id": "item_3", "type": "command_execution", "command": "make test",
+                "aggregated_output": "Failed to create unified exec process: No such file or directory (os error 2)",
+                "exit_code": -1, "status": "failed"}},
+            {"type": "turn.completed"},
+        ],
+    )
+    proc = run(str(output), "0", "--lane", "codex")
+    found = contract(proc.stdout)
+    assert proc.returncode == 0, proc.stdout
+    assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["2"], proc.stdout
+    assert found["DELEGATED_RUN_STATUS"] == ["success"], (
+        "the patch landed - this is not a run that did zero work:\n"
+        f"{proc.stdout}"
+    )
+    assert "all-tools-failed" not in found.get("DELEGATED_RUN_SIGNAL", []), proc.stdout
+
+
+def test_the_all_failed_signal_is_scoped_to_more_than_one_attempt(tmp_path: Path) -> None:
+    """Pins the >1 threshold itself, independent of any single fixture.
+
+    #836/#892/#1054's four pinned single-attempt cases (denied-docker,
+    codex-command-failed.jsonl, declined.jsonl, qwen-denied) are not
+    "a denial among successes" - each is a literal 1-of-1 run, verified by
+    reading them: one tool event, no others. So the >1 requirement is not
+    protecting #836's "the other calls succeed" framing specifically; it is
+    what keeps EVERY existing single-attempt-failed pin green while still
+    catching #1365's multi-attempt incident. This stream is the general
+    form - gemma lane, one denied call, nothing else - to pin the threshold
+    without depending on any one fixture's continued existence.
+    """
+    output = write_jsonl(
+        tmp_path / "single-attempt-failed.jsonl",
+        [
+            {"type": "step_start"},
+            {"type": "tool_use", "part": {"tool": "bash", "state": {
+                "status": "error", "error": "permission denied by rule: git commit*"}}},
+            {"type": "step_finish", "part": {"reason": "stop"}},
+        ],
+    )
+    proc = run(str(output), "0", "--lane", "gemma")
+    found = contract(proc.stdout)
+    assert proc.returncode == 0, proc.stdout
+    assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["1"], proc.stdout
+    assert found["DELEGATED_RUN_STATUS"] == ["success"], (
+        "a single attempted call is the #836 shape, not #1365's - this run "
+        f"did try something and was refused once, not exhausted:\n{proc.stdout}"
+    )
+    assert "all-tools-failed" not in found.get("DELEGATED_RUN_SIGNAL", []), proc.stdout
+
+
+def test_an_unresolved_codex_item_does_not_mask_an_all_failed_run(tmp_path: Path) -> None:
+    """Counter-model review finding (codex review of #1365 itself): an item
+    that only reaches `item.started` - still running, `status: "in_progress"`,
+    `exit_code: null` - must not be counted as a successfully-resolved
+    attempt. Without `item_is_resolved`, two failed completed commands plus
+    one started-but-never-completed command would attempt=3, errors=2,
+    3 != 2, and `all-tools-failed` would NOT fire despite every call that
+    actually FINISHED having failed. Measured against the helper before this
+    follow-up fix: `DELEGATED_RUN_STATUS: success` over exactly this stream.
+    """
+    output = write_jsonl(
+        tmp_path / "unresolved-item.jsonl",
+        [
+            {"type": "thread.started", "thread_id": "t1"},
+            {"type": "turn.started"},
+            {"type": "item.completed", "item": {
+                "id": "item_1", "type": "command_execution", "command": "make lint",
+                "exit_code": -1, "status": "failed"}},
+            {"type": "item.completed", "item": {
+                "id": "item_2", "type": "command_execution", "command": "make test",
+                "exit_code": -1, "status": "failed"}},
+            {"type": "item.started", "item": {
+                "id": "item_3", "type": "command_execution", "command": "make typecheck",
+                "exit_code": None, "status": "in_progress"}},
+            {"type": "turn.completed"},
+        ],
+    )
+    proc = run(str(output), "0", "--lane", "codex")
+    found = contract(proc.stdout)
+    assert proc.returncode == 1, proc.stdout
+    assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["2"], proc.stdout
+    assert found["DELEGATED_RUN_STATUS"] == ["failure"], (
+        "both commands that actually finished failed - a third, still "
+        f"running, must not rescue the verdict:\n{proc.stdout}"
+    )
+    assert "all-tools-failed" in found["DELEGATED_RUN_SIGNAL"], proc.stdout
+
+
+def test_the_codex_attempt_dedupe_matches_the_error_dedupe(tmp_path: Path) -> None:
+    """Counter-model review red case, SECOND PASS: the first cut of this test
+    excluded `item.started` via `item_is_resolved`, leaving only ONE
+    countable event in the whole stream - so it passed even with the
+    `counted_codex_attempt_items` dedupe deleted outright, having nothing
+    left to collapse. This version gives the dedupe something to do: ONE
+    call reported across TWO *resolved* events sharing an id (`item.updated`
+    then `item.completed`, both `status: "failed"` - the shape
+    `test_a_failed_codex_item_is_counted_once_across_its_lifecycle` already
+    pins on the error-side set), plus a SECOND, distinct failed call.
+
+    With the dedupe intact: 2 attempts (one per id), 2 errors, equal and >1
+    -> `all-tools-failed`. Delete `counted_codex_attempt_items`'s id check
+    and `item_7`'s two events both count: 3 attempts, 2 errors, unequal ->
+    the signal does not fire and this test goes red - which is the point.
+    """
+    output = write_jsonl(
+        tmp_path / "one-call-two-resolved-events-plus-another.jsonl",
+        [
+            {"type": "item.updated", "item": {
+                "id": "item_7", "type": "command_execution",
+                "exit_code": 2, "status": "failed"}},
+            {"type": "item.completed", "item": {
+                "id": "item_7", "type": "command_execution",
+                "exit_code": 2, "status": "failed"}},
+            {"type": "item.completed", "item": {
+                "id": "item_8", "type": "command_execution",
+                "exit_code": 3, "status": "failed"}},
+            {"type": "turn.completed"},
+        ],
+    )
+    proc = run(str(output), "0", "--lane", "codex")
+    found = contract(proc.stdout)
+    assert proc.returncode == 1, proc.stdout
+    assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["2"], (
+        "one error per DISTINCT id - item_7's two events must dedupe to one"
+        f":\n{proc.stdout}"
+    )
+    assert found["DELEGATED_RUN_STATUS"] == ["failure"], (
+        "two distinct calls, both failed - a broken attempt-dedupe would "
+        f"inflate attempts past errors and hide this:\n{proc.stdout}"
+    )
+    assert "all-tools-failed" in found["DELEGATED_RUN_SIGNAL"], proc.stdout
+
+
+def test_a_null_status_codex_item_is_not_treated_as_resolved(tmp_path: Path) -> None:
+    """Counter-model review red case, SECOND PASS: `item_is_resolved`'s first
+    cut excluded only the literal `"in_progress"` status. `status: null`
+    lower-cases to the Python string `"none"`, which is not `"in_progress"`
+    either, so the exclusion-list version silently counted a `null`-status
+    item as RESOLVED - the exact hole a null-check-shaped read would miss.
+    Two failed commands plus one `null`-status item must still read as
+    all-failed: the positive-evidence rewrite (`status == "completed"` or a
+    real integer `exit_code`) treats `null` as neither, so it does not count
+    as an attempt at all and cannot rescue the verdict.
+    """
+    output = write_jsonl(
+        tmp_path / "null-status-item.jsonl",
+        [
+            {"type": "item.completed", "item": {
+                "id": "item_1", "type": "command_execution",
+                "exit_code": -1, "status": "failed"}},
+            {"type": "item.completed", "item": {
+                "id": "item_2", "type": "command_execution",
+                "exit_code": -1, "status": "failed"}},
+            {"type": "item.started", "item": {
+                "id": "item_3", "type": "command_execution",
+                "exit_code": None, "status": None}},
+            {"type": "turn.completed"},
+        ],
+    )
+    proc = run(str(output), "0", "--lane", "codex")
+    found = contract(proc.stdout)
+    assert proc.returncode == 1, proc.stdout
+    assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["2"], proc.stdout
+    assert found["DELEGATED_RUN_STATUS"] == ["failure"], (
+        f"a null-status item must not read as a resolved success:\n{proc.stdout}"
+    )
+    assert "all-tools-failed" in found["DELEGATED_RUN_SIGNAL"], proc.stdout
+
+
+def test_the_gemma_lane_catches_an_all_failed_multi_attempt_run(tmp_path: Path) -> None:
+    """The gemma/OpenCode recognizer gets its own multi-attempt red case
+    (counter-model review), not only the codex lane the incident happened on.
+
+    Two distinct tool calls, both denied/failed, nothing else attempted.
+    """
+    output = write_jsonl(
+        tmp_path / "gemma-two-failed.jsonl",
+        [
+            {"type": "step_start"},
+            {"type": "tool_use", "part": {"tool": "bash", "state": {"status": "error"}}},
+            {"type": "tool_use", "part": {"tool": "bash", "state": {"status": "error"}}},
+            {"type": "step_finish", "part": {"reason": "stop"}},
+        ],
+    )
+    proc = run(str(output), "0", "--lane", "gemma")
+    found = contract(proc.stdout)
+    assert proc.returncode == 1, proc.stdout
+    assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["2"], proc.stdout
+    assert found["DELEGATED_RUN_STATUS"] == ["failure"], proc.stdout
+    assert "all-tools-failed" in found["DELEGATED_RUN_SIGNAL"], proc.stdout
+
+
+def test_the_qwen_lane_catches_an_all_failed_multi_attempt_run(tmp_path: Path) -> None:
+    """The qwen recognizer's own multi-attempt red case (counter-model review).
+
+    Two `tool_result` blocks in the same message, both `is_error: true`,
+    neither call ever succeeding. The terminal event deliberately reports
+    `is_error: false` (the Qwen false-success shape #836/#798 are about) so
+    this pins `all-tools-failed` in isolation - a `result` carrying its own
+    top-level `is_error: true` would already fail via `is_fatal`, which would
+    make the assertion true for the wrong reason.
+    """
+    output = write_jsonl(
+        tmp_path / "qwen-two-failed.jsonl",
+        [
+            {"type": "assistant", "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "t1", "name": "run_shell_command"},
+                {"type": "tool_use", "id": "t2", "name": "run_shell_command"}]}},
+            {"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "t1", "is_error": True,
+                 "content": "denied"},
+                {"type": "tool_result", "tool_use_id": "t2", "is_error": True,
+                 "content": "denied"}]}},
+            {"type": "result", "subtype": "success", "is_error": False, "num_turns": 2,
+             "result": "Done."},
+        ],
+    )
+    proc = run(str(output), "0", "--lane", "qwen")
+    found = contract(proc.stdout)
+    assert proc.returncode == 1, proc.stdout
+    assert found["DELEGATED_RUN_TOOL_ERRORS"] == ["2"], proc.stdout
+    assert found["DELEGATED_RUN_STATUS"] == ["failure"], proc.stdout
+    assert found["DELEGATED_RUN_SIGNAL"] == ["all-tools-failed"], (
+        "must fail via the NEW signal specifically, not error-payload/api-error:"
+        f"\n{proc.stdout}"
+    )
