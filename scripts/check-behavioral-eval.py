@@ -533,19 +533,29 @@ def _validate_bundle(by_kind: dict[str, list[tuple[Path, dict]]]) -> list[str]:
     891-898); every planned attempt has an attempt-lifecycle record, so it
     cannot silently drop out (attempt-accounting's minimal half, records.md:
     900-903); every attempt-bound record cites an attempt the ledger actually
-    issued (ledger-binding's minimal half, records.md:862); a regrade links
-    to a retained original for the same attempt and the same graded_digests
-    (lineage, scoped to results only - "only if a result depends on it" -
-    records.md:925-931); and a `skill-evidence` entry's `artifact_ref`
-    resolves to exactly one entry in that same attempt's own
-    artifact-manifest (records.md:470, 885-889).
+    issued, under the trial the ledger actually planned it under - a record
+    naming a different trial is a cross-trial record (ledger-binding,
+    records.md:862, 863-864); a result names the trial's planned grader (a
+    regrade may carry a new revision, never a different grader) and cites
+    only digests its attempt's manifest actually captured (records.md:
+    868-869, 870-871 - pulled in 2026-10-06 per #1369 acceptance item 1,
+    "ledger/manifest/result binding"); a regrade links to a retained
+    original for the same attempt and the same graded_digests (lineage,
+    scoped to results only - "only if a result depends on it" - records.md:
+    925-931); and a `skill-evidence` entry's `artifact_ref` resolves to
+    exactly one entry in that same attempt's own artifact-manifest
+    (records.md:470, 885-889).
 
-    NOT restated, and therefore NOT checked by this function: stale or
-    cross-trial receipts, `skill-invocations`/pilot-report binding, forged
-    `criteria_owned` status, attempt-level `retry_of`, the
-    agent-observation receipt stand-in, and every other clause of skillc's
-    four bundle rules. A bundle with no finding here is checked against this
-    restated subset, never certified against skillc's full rule set.
+    NOT restated, and therefore NOT checked by this function: stale
+    receipts (subject/client vs the trial's plan), `skill-invocations`/
+    pilot-report binding, forged `criteria_owned` status, attempt-level
+    `retry_of`, the agent-observation receipt stand-in, and every other
+    clause of skillc's four bundle rules. A bundle with no finding here is
+    checked against this restated subset, never certified against skillc's
+    full rule set. `tests/test_behavioral_eval_skillc_conformance.py`'s
+    `OUT_OF_SUBSET_BAD_CASES` names every one of these explicitly, against
+    skillc's own golden fixtures, rather than leaving them an unchecked
+    claim in this docstring.
     """
     findings: list[str] = []
     ledgers = by_kind.get(TRIAL_LEDGER, [])
@@ -557,6 +567,7 @@ def _validate_bundle(by_kind: dict[str, list[tuple[Path, dict]]]) -> list[str]:
     _ledger_path, ledger = ledgers[0]
 
     planned: dict[str, dict] = {}
+    attempt_trial: dict[str, dict] = {}
     duplicate_planned: set[str] = set()
     trials = ledger.get("trials")
     for trial in trials if isinstance(trials, list) else []:
@@ -572,6 +583,7 @@ def _validate_bundle(by_kind: dict[str, list[tuple[Path, dict]]]) -> list[str]:
             if aid in planned:
                 duplicate_planned.add(aid)
             planned[aid] = attempt
+            attempt_trial[aid] = trial
     for aid in sorted(duplicate_planned):
         findings.append(f"ledger plans attempt_id {aid!r} more than once (records.md:894)")
     if not planned:
@@ -629,6 +641,72 @@ def _validate_bundle(by_kind: dict[str, list[tuple[Path, dict]]]) -> list[str]:
                 findings.append(
                     f"{label} cites attempt {aid!r}, which the ledger never issued "
                     f"(records.md:862, ledger-binding)"
+                )
+
+    # ledger-binding (records.md:863-864): every attempt-bound record names
+    # the trial the ledger actually planned that attempt under - a record
+    # naming any other trial is a cross-trial record. Pulled into the
+    # restated subset 2026-10-06 (#1369 acceptance item 1: "ledger/manifest/
+    # result binding") - previously out-of-subset, found by the skillc
+    # conformance sweep (`ledger-binding/bad/cross-trial`).
+    for kind, label in (
+        (ATTEMPT_LIFECYCLE, "attempt-lifecycle"), (ARTIFACT_MANIFEST, "artifact-manifest"),
+        (INSTALLATION_RECEIPT, "installation-receipt"), (KIND, "verified-result"),
+        (SKILL_EVIDENCE, "skill-evidence"),
+    ):
+        for path, rec in by_kind.get(kind, []):
+            aid = rec.get("attempt_id")
+            if not isinstance(aid, str) or aid not in planned:
+                continue  # orphan attempt is already findings above, not this check
+            planned_trial_id = attempt_trial[aid].get("trial_id")
+            if rec.get("trial_id") != planned_trial_id:
+                findings.append(
+                    f"{path.name}: {label} names trial {rec.get('trial_id')!r}, but the "
+                    f"ledger planned attempt {aid!r} under {planned_trial_id!r}; a "
+                    f"cross-trial record (records.md:863-864)"
+                )
+
+    # ledger-binding (records.md:868-869, 870-871): a result names the
+    # trial's planned grader (a regrade may carry a new revision, never a
+    # different grader), and cites only digests its attempt's manifest
+    # actually captured. Pulled into the restated subset 2026-10-06 (#1369
+    # acceptance item 1) - previously out-of-subset
+    # (`ledger-binding/bad/unplanned-grader`, `.../altered-artifact`).
+    captured_digests: dict[str, set[str]] = {}
+    for _path, rec in by_kind.get(ARTIFACT_MANIFEST, []):
+        aid = rec.get("attempt_id")
+        if not isinstance(aid, str):
+            continue
+        digests = {
+            a.get("digest") for a in (rec.get("artifacts") or [])
+            if isinstance(a, dict) and isinstance(a.get("digest"), str)
+        }
+        captured_digests.setdefault(aid, set()).update(digests)
+    for path, rec in by_kind.get(KIND, []):
+        aid = rec.get("attempt_id")
+        if not isinstance(aid, str) or aid not in planned:
+            continue
+        planned_grader = attempt_trial[aid].get("grader")
+        grader = rec.get("grader")
+        regrade = "regrade_of" in rec
+        g_keys = ("id",) if regrade else ("id", "revision")
+        got = tuple((grader or {}).get(k) for k in g_keys) if isinstance(grader, dict) else None
+        want = tuple((planned_grader or {}).get(k) for k in g_keys) if isinstance(planned_grader, dict) else None
+        if got != want:
+            findings.append(
+                f"{path.name}: grader {got} is not the trial's planned {want} "
+                f"(records.md:868-869)"
+            )
+        have = captured_digests.get(aid)
+        if have is None:
+            continue  # no manifest at all is attempt-accounting's finding, not this one
+        graded_digests = rec.get("graded_digests")
+        for digest in graded_digests if isinstance(graded_digests, list) else []:
+            if isinstance(digest, str) and digest not in have:
+                findings.append(
+                    f"{path.name}: graded {digest!r}, which no manifest for attempt "
+                    f"{aid!r} captured - an altered or substituted artifact "
+                    f"(records.md:870-871)"
                 )
 
     # unique-ids (records.md:898): at most one original result per attempt;

@@ -688,14 +688,16 @@ def test_the_ci_step_is_advisory_without_swallowing_a_crash() -> None:
 
 # --------------------------------------------------------- #1369: bundle reading
 
-def _ledger(attempts: list[dict], trial_id: str = "t-1", **extra: object) -> dict:
-    record: dict = {
+def _ledger(attempts: list[dict], trial_id: str = "t-1", **trial_extra: object) -> dict:
+    """`trial_extra` updates the one trial's own dict (not the ledger record) -
+    e.g. `grader={"id": "other", "revision": "1"}` to test a mismatch against
+    `_result()`'s default grader `{"id": "g", "revision": "1"}`."""
+    trial: dict = {"trial_id": trial_id, "attempts": attempts, "grader": {"id": "g", "revision": "1"}}
+    trial.update(trial_extra)
+    return {
         "version": 2, "kind": "trial-ledger", "producer": "controller",
-        "experiment_id": "exp-1",
-        "trials": [{"trial_id": trial_id, "attempts": attempts}],
+        "experiment_id": "exp-1", "trials": [trial],
     }
-    record.update(extra)
-    return record
 
 
 def _lifecycle(attempt_id: str, trial_id: str = "t-1") -> dict:
@@ -716,6 +718,11 @@ def _manifest(attempt_id: str, artifacts: list[dict] | None = None, trial_id: st
 
 
 def _result(attempt_id: str, trial_id: str = "t-1", **extra: object) -> dict:
+    """`graded_digests` defaults to `_manifest()`'s own default artifact digest
+    (`sha256:aa`), so a bundle built from these helpers' defaults is clean
+    against the graded_digests-vs-manifest check unless a test overrides
+    one side on purpose."""
+    extra.setdefault("graded_digests", ["sha256:aa"])
     return _v2("PASS", [_crit("c1", True, "SATISFIED")],
                attempt_id=attempt_id, trial_id=trial_id, **extra)
 
@@ -811,8 +818,15 @@ def test_a_regrade_for_a_different_attempt_than_its_original_is_refused(tmp_path
 
 
 def test_a_regrade_over_different_bytes_than_its_original_is_refused(tmp_path: Path) -> None:
+    """Both digests are genuinely captured (so the graded_digests-vs-manifest
+    check stays clean) - only the LINEAGE finding (different bytes from the
+    original) should fire here."""
+    two_artifacts = [
+        {"path": "out.txt", "type": "file", "size": 1, "digest": "sha256:aa"},
+        {"path": "out2.txt", "type": "file", "size": 1, "digest": "sha256:bb"},
+    ]
     _write(tmp_path, ledger=_ledger([{"attempt_id": "att-1"}]),
-           lifecycle=_lifecycle("att-1"), manifest=_manifest("att-1"))
+           lifecycle=_lifecycle("att-1"), manifest=_manifest("att-1", artifacts=two_artifacts))
     (tmp_path / "result.json").write_text(json.dumps(
         _result("att-1", result_id="res-1", graded_digests=["sha256:aa"])))
     (tmp_path / "regrade.json").write_text(json.dumps(
@@ -860,7 +874,8 @@ def test_artifact_ref_resolving_to_more_than_one_manifest_entry_is_refused(tmp_p
         }],
     }
     _write(tmp_path, ledger=_ledger([{"attempt_id": "att-1"}]), lifecycle=_lifecycle("att-1"),
-           manifest=_manifest("att-1", artifacts=dup_artifacts), result=_result("att-1"),
+           manifest=_manifest("att-1", artifacts=dup_artifacts),
+           result=_result("att-1", graded_digests=["sha256:dd"]),
            evidence=evidence)
     verdict, detail = mod.evaluate(tmp_path)
     assert verdict == "bundle-invalid"

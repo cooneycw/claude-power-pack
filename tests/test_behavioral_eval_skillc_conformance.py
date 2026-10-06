@@ -89,10 +89,13 @@ GOOD_CASES = (
 #: `_validate_bundle` must report at least one finding on every one.
 FLAGGED_BAD_CASES = (
     "attempt-accounting/bad/no-lifecycle",
+    "ledger-binding/bad/altered-artifact",
+    "ledger-binding/bad/cross-trial",
     "ledger-binding/bad/skill-evidence-altered-artifact",
     "ledger-binding/bad/skill-evidence-altered-artifact-contradicting",
     "ledger-binding/bad/skill-evidence-duplicate-invocation-uncaptured",
     "ledger-binding/bad/unknown-attempt",
+    "ledger-binding/bad/unplanned-grader",
     "lineage/bad/regrade-erased-original",
     "lineage/bad/regrade-other-bytes",
     "unique-ids/bad/conflicting-receipts",
@@ -126,11 +129,6 @@ OUT_OF_SUBSET_BAD_CASES: dict[str, str] = {
         "the agent-observation receipt stand-in (#139) is not restated",
     "attempt-accounting/bad/unaccounted-attempt":
         "disposition-vs-capture-state consistency for an attempt is not restated",
-    "ledger-binding/bad/altered-artifact":
-        "verified-result.graded_digests vs manifest capture is not restated "
-        "(only skill-evidence's own artifact_ref is)",
-    "ledger-binding/bad/cross-trial":
-        "trial_id consistency between a record and its planned trial is not restated",
     "ledger-binding/bad/pilot-report-missing-attempt":
         "pilot-report accounting is not restated",
     "ledger-binding/bad/skill-evidence-duplicate-invocation-mislabeled":
@@ -160,9 +158,8 @@ OUT_OF_SUBSET_BAD_CASES: dict[str, str] = {
     "ledger-binding/bad/skill-invocations-required-but-absent":
         "skill-invocations binding is not restated",
     "ledger-binding/bad/stale-receipt":
-        "receipt-vs-trial-plan consistency is not restated",
-    "ledger-binding/bad/unplanned-grader":
-        "grader-vs-trial-plan consistency is not restated",
+        "receipt-vs-trial-plan consistency (subject.digest, client) is not restated - "
+        "'ledger/manifest/result binding' (#1369 acceptance item 1) does not name receipts",
     "lineage/bad/regrade-cycle":
         "a MULTI-node regrade cycle is not detected - only a regrade naming itself, "
         "or an original not retained in the bundle, is",
