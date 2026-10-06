@@ -146,6 +146,17 @@
 #                    /codex:auto run would have failed as tool-free
 #   no-terminal-event  the stream stops before its terminal event: a truncated
 #                    or killed run (fails w/ --expect-tools)
+#   all-tools-failed MORE THAN ONE tool call was attempted and every single one
+#                    of them failed (issue #1365). With zero successful calls
+#                    the delegated model cannot have read, written or verified
+#                    anything, so "the process ran cleanly" and "nothing
+#                    happened" coincide exactly - unlike a single denied call,
+#                    which is the /gemma:auto fence working as designed (#836)
+#                    and stays success. Scoped to >1 attempts for exactly that
+#                    reason: it must not re-flag #836/#892/#1054's pinned
+#                    single-attempt cases. A 1-of-1 failed run is a DIFFERENT,
+#                    still-open residual - this signal does not cover it.
+#                    Always fails the run, with or without --expect-tools.
 #
 # Exit codes:
 #   0  the run succeeded (DELEGATED_RUN_STATUS: success)
@@ -342,6 +353,7 @@ signals = set()
 detail = ""
 turns = None
 tool_errors = 0
+tool_attempts = 0
 saw_tool = False
 saw_terminal = False
 recognized = 0
@@ -471,6 +483,33 @@ def errored_tool_calls(node):
     return found
 
 
+def attempted_tool_calls(node):
+    """Count every OpenCode/gemma tool call attempted, success or failure
+    (issue #1365).
+
+    The sibling of `errored_tool_calls` with the `state.status` filter
+    removed: every node carrying its own string `tool` key is one attempted
+    call, counted exactly once (the walk does not descend into it, same as
+    the error counter). Used only to tell "some calls succeeded" from "every
+    attempted call failed" - never to decide a verdict on its own, and never
+    combined with `errored_tool_calls`' count without also comparing them.
+    """
+    found = 0
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, list):
+            stack.extend(v for v in current if isinstance(v, (dict, list)))
+            continue
+        if not isinstance(current, dict):
+            continue
+        if isinstance(current.get("tool"), str):
+            found += 1
+            continue
+        stack.extend(v for v in current.values() if isinstance(v, (dict, list)))
+    return found
+
+
 #: Item ids already counted as a failed Codex tool call. The Codex CLI reports
 #: ONE call across SEVERAL events carrying the same `item.id` - `item.started`
 #: then `item.completed` in every capture on disk, and the binary also emits
@@ -565,6 +604,82 @@ def errored_codex_item(node):
     return 1
 
 
+#: Attempt-side dedupe set, kept SEPARATE from `counted_codex_items` (issue
+#: #1365). The two counters answer different questions - "how many calls
+#: failed" vs. "how many were attempted" - so a call already claimed by the
+#: error counter's id set must still be countable here, and vice versa.
+counted_codex_attempt_items = set()
+
+
+def item_is_resolved(item):
+    """Whether a Codex tool item reached a terminal outcome (issue #1365,
+    counter-model review, SECOND PASS finding).
+
+    `item.started` (and `item.updated` mid-command) carries `status:
+    "in_progress"` and `exit_code: null` - a call still RUNNING, neither a
+    success nor a failure yet. Counting it as an attempt before it resolves
+    lets an unresolved call sit in the denominator: two commands fail, a
+    third only ever reaches `item.started` before the stream ends on
+    `turn.completed` (a malformed capture, but not an impossible one), and
+    without this check `tool_attempts` (3) would not equal `tool_errors` (2)
+    - masking a run where nothing that finished succeeded.
+
+    POSITIVE evidence only, not an exclusion list - the first cut returned
+    "anything that isn't the known in-flight spelling", and a counter-model
+    second pass caught the hole that shape always has: `status: null` reads
+    as the Python string `"none"` once lower-cased, which is not
+    `"in_progress"`, so it was being counted as RESOLVED. An unrecognized
+    status - `null`, a future harness spelling, anything not verified here -
+    must read as unresolved, exactly like a value this script has never
+    seen reads as `unknown` everywhere else in it. `status: "completed"` is
+    the one success spelling observed in every real capture on disk; a
+    non-bool integer `exit_code` is the command's own terminal signal,
+    independent of how `status` is spelled.
+    """
+    if item_reports_failure(item):
+        return True
+    if str(item.get("status", "")).lower() == "completed":
+        return True
+    exit_code = item.get("exit_code")
+    return isinstance(exit_code, int) and not isinstance(exit_code, bool)
+
+
+def attempted_codex_item(node):
+    """Count a Codex CLI tool item attempted and RESOLVED, success or
+    failure (#1365).
+
+    Sibling of `errored_codex_item` with the failure filter replaced by
+    `item_is_resolved` (see its docstring for why "attempted" must mean
+    "finished", not "started"). Counts every tool-type item the harness
+    reports - `command_execution`, `file_change`, `mcp_tool_call`,
+    `collab_tool_call`, and any other member of `TOOL_TYPES` the two
+    counters already share. A lane's recognizer sees only what `TOOL_TYPES`
+    names; an item type absent from that set (none are known today) is
+    invisible to both this counter and `errored_codex_item` alike, which is
+    the existing scope, not a new gap.
+
+    Same `item.id` dedupe discipline as the error counter, on its OWN set:
+    Codex reports one call across several events (`item.started`,
+    `item.updated`, `item.completed`) sharing an id, and counting per event
+    would inflate an attempt into several.
+    """
+    if not type_of(node).startswith("item."):
+        return 0
+    item = node.get("item")
+    if not isinstance(item, dict):
+        return 0
+    if str(item.get("type", "")).lower() not in TOOL_TYPES:
+        return 0
+    if not item_is_resolved(item):
+        return 0
+    item_id = item.get("id")
+    if isinstance(item_id, str) and item_id:
+        if item_id in counted_codex_attempt_items:
+            return 0
+        counted_codex_attempt_items.add(item_id)
+    return 1
+
+
 def errored_tool_results(node):
     """Count Claude-shaped `tool_result` blocks whose `is_error` is true (#1054).
 
@@ -601,6 +716,27 @@ def errored_tool_results(node):
         if isinstance(block, dict)
         and str(block.get("type", "")).lower() == "tool_result"
         and block.get("is_error") is True
+    )
+
+
+def attempted_tool_results(node):
+    """Count every Qwen `tool_result` block attempted, success or failure
+    (issue #1365).
+
+    Sibling of `errored_tool_results` with the `is_error` filter removed.
+    Same structural scope: exactly `node["message"]["content"][]`, so a
+    `tool_result` belonging to something else cannot inflate the count.
+    """
+    message = node.get("message")
+    if not isinstance(message, dict):
+        return 0
+    content = message.get("content")
+    if not isinstance(content, list):
+        return 0
+    return sum(
+        1
+        for block in content
+        if isinstance(block, dict) and str(block.get("type", "")).lower() == "tool_result"
     )
 
 
@@ -727,6 +863,12 @@ with open(path, "r", encoding="utf-8", errors="replace") as handle:
             tool_errors += errored_tool_calls(obj)
             tool_errors += errored_codex_item(obj)
             tool_errors += errored_tool_results(obj)
+            # Same three-recognizer split, counting every attempt rather than
+            # only the failed ones (issue #1365) - needed to tell "some calls
+            # succeeded" from "every attempted call failed".
+            tool_attempts += attempted_tool_calls(obj)
+            tool_attempts += attempted_codex_item(obj)
+            tool_attempts += attempted_tool_results(obj)
 
         terminal = kind in TERMINAL_TYPES
         if terminal:
@@ -774,6 +916,17 @@ else:
         signals.add("no-terminal-event")
     if turns is not None and turns <= 1:
         signals.add("no-turns")
+    # issue #1365: more than one tool call was attempted and EVERY one of
+    # them failed. The >1 requirement is load-bearing, not an arbitrary
+    # floor: a single attempted call that failed is #836/#892/#1054's
+    # already-protected shape (a denied `git commit`, tried once, the model
+    # moves on - the fence working as designed), and widening this to
+    # attempted == 1 would re-flag every one of those pinned cases as a
+    # failure. Always fails the run - not gated behind --expect-tools, unlike
+    # the three signals above, because unlike "the model asked no tools",
+    # "every tool it tried came back failed" is never a legitimate outcome.
+    if tool_errors > 0 and tool_attempts > 1 and tool_errors == tool_attempts:
+        signals.add("all-tools-failed")
 
 print("SIGNALS=" + ",".join(sorted(signals)))
 print("DETAIL=" + detail)
