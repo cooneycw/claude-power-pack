@@ -1,0 +1,25 @@
+{
+  "branch": "fix-1400-counter-model-scope-recording",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 1
+  },
+  "head": "8b4e722ba25e7c6a71627d8dcac8269179e59100",
+  "implementer": "claude/claude-sonnet-5",
+  "issue": "1400",
+  "passes": 2,
+  "recorded_at": "2026-10-07T01:41:55Z",
+  "red_cases": {
+    "already_covered": 7,
+    "proposed": 7
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/07/rollout-2026-10-07T01-39-43-01a11404-3a4e-7853-b0a5-e6dca5af49cc.jsonl",
+    "thread_id": "01a11404-3a4e-7853-b0a5-e6dca5af49cc"
+  },
+  "schema": 1,
+  "scope": "diff-only",
+  "status": "ran"
+}
