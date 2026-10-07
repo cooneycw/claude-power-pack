@@ -352,6 +352,16 @@ def _derive_reviewer_from_exec_log(
             f"no rollout matching thread_id {thread_id!r} under Codex sessions "
             f"directory {sessions_dir}"
         )
+    if len(matches) > 1:
+        # Mirrors _derive_implementer_from_session's equivalent refusal
+        # (issue #1400, Nit Store #864 comment 5867878307): a thread id is a
+        # UUID, so a real collision needs a copied or restored sessions
+        # tree, but picking `matches[0]` silently would then name a
+        # reviewer from an arbitrary one of the copies.
+        return None, None, (
+            f"multiple rollouts matching thread_id {thread_id!r} under Codex "
+            f"sessions directory {sessions_dir}"
+        )
 
     rollout = matches[0]
     try:
@@ -1047,6 +1057,35 @@ def cmd_skip_reasons(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_rollout_model(args: argparse.Namespace) -> int:
+    """Derive one Codex exec stream's reviewing model and print it alone.
+
+    Issue #1400 (Nit Store #864 comment 5867878058): `/codex:code_review` and
+    `/codex:ask` used to hand-roll this derivation in shell - `find ... | head
+    -1` for the rollout, then `grep -o '"model":"[^"]*"' | head -1` for the
+    model - which is exactly the whole-file-first-match bug #1269 removed
+    from this script, re-introduced a second time in two command documents
+    that never called back into the fix. This subcommand is the one
+    implementation both now call, so there is one place this can go wrong
+    again rather than three.
+
+    Prints `codex/<model>` to stdout and exits 0 on success. On any refusal
+    (ambiguous match, undeclared model, disagreeing turns, ...) prints
+    nothing to stdout, prints the reason to stderr, and exits 1 - a caller
+    that only checks the exit code still gets an empty MODEL, never a wrong
+    one.
+    """
+    sessions_dir = args.sessions_dir or _default_codex_sessions_dir()
+    model, _evidence, error = _derive_reviewer_from_exec_log(
+        args.exec_log, sessions_dir, role=args.role
+    )
+    if error is not None:
+        print(f"counter-model-receipt: {error}", file=sys.stderr)
+        return EXIT_INVALID
+    print(model)
+    return EXIT_OK
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -1115,6 +1154,17 @@ def main() -> int:
     sr = sub.add_parser("skip-reasons",
                         help="print the committed skip reasons, one per line")
     sr.set_defaults(func=cmd_skip_reasons)
+
+    rm = sub.add_parser(
+        "rollout-model",
+        help="derive one Codex --json exec stream's model from its rollout "
+             "(issue #1400: the one implementation /codex:code_review and "
+             "/codex:ask should both call instead of hand-rolled grep/find)",
+    )
+    rm.add_argument("--exec-log", type=Path, required=True)
+    rm.add_argument("--sessions-dir", type=Path)
+    rm.add_argument("--role", default="reviewer")
+    rm.set_defaults(func=cmd_rollout_model)
 
     args = ap.parse_args()
     if args.cmd == "write":

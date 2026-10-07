@@ -34,20 +34,21 @@ take the thread id from the stream, and read that thread's rollout:
 
 ```bash
 CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
-THREAD=$(grep -o '"thread_id":"[^"]*"' "$STREAM" | head -1 | cut -d\" -f4)
-# FAIL CLOSED. With THREAD empty the -name pattern degrades to "*.jsonl",
-# which matches EVERY rollout on the host - measured 2026-09-19: 394 files,
-# head -1 returning a confident model name from a session 12 days old and
-# unrelated. An empty THREAD means UNKNOWN and must never become a name.
-if [ -z "$THREAD" ]; then
-    REVIEW_MODEL=""
+CM_RECEIPT=~/.claude/scripts/counter-model-receipt.py
+[ -f "$CM_RECEIPT" ] || CM_RECEIPT="${CLAUDE_PLUGIN_ROOT}/scripts/counter-model-receipt.py"
+# FAIL CLOSED, and REFUSE rather than guess on an ambiguous match (issue
+# #1400). This used to be inline `find ... -name "*$THREAD.jsonl" | head -1`
+# then `grep -o '"model":"[^"]*"' | head -1` - the exact whole-file,
+# first-match bug #1269 fixed inside the script, reintroduced here because
+# this document never called back into the fix. `rollout-model` is now the
+# one implementation both this document and `/codex:ask` call, so a second
+# fix is never needed for a third copy.
+if [ -f "$CM_RECEIPT" ]; then
+    REVIEW_MODEL=$(python3 "$CM_RECEIPT" rollout-model \
+        --exec-log "$STREAM" --sessions-dir "$CODEX_DIR/sessions" 2>/dev/null) \
+        || REVIEW_MODEL=""
 else
-    ROLLOUT=$(find "$CODEX_DIR/sessions" -type f -name "*$THREAD.jsonl" | head -1)
-    if [ -n "$ROLLOUT" ]; then
-        REVIEW_MODEL=$(grep -o '"model":"[^"]*"' "$ROLLOUT" | head -1 | cut -d\" -f4)
-    else
-        REVIEW_MODEL=""
-    fi
+    REVIEW_MODEL=""
 fi
 ```
 

@@ -974,6 +974,43 @@ def test_an_exec_log_without_a_matching_rollout_is_refused(tmp_path: Path) -> No
     assert list(tmp_path.glob("*.json")) == []
 
 
+def test_multiple_matching_reviewer_rollouts_are_refused(tmp_path: Path) -> None:
+    """The reviewer side of issue #1400's Nit Store finding (comment
+    5867878307): `_derive_reviewer_from_exec_log` used to collect every
+    rollout file ending in the thread id and silently take `matches[0]`,
+    while `_derive_implementer_from_session` refuses the equivalent
+    ambiguity on the implementer side. Two real rollout trees ending in the
+    same thread id need a copied or restored sessions directory to occur -
+    but when they do, a receipt should name no reviewer rather than an
+    arbitrary one of two."""
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
+    thread_id = "wanted-thread"
+    exec_log = tmp_path / "reviewer-exec.jsonl"
+    exec_log.write_text(
+        json.dumps({"type": "thread.started", "thread_id": thread_id}) + "\n",
+        encoding="utf-8",
+    )
+    sessions_dir = tmp_path / "sessions"
+    first = sessions_dir / "2026" / "09" / "19"
+    second = sessions_dir / "2026" / "09" / "20"
+    first.mkdir(parents=True)
+    second.mkdir(parents=True)
+    (first / f"rollout-{thread_id}.jsonl").write_text(
+        _rollout_text("gpt-5.5"), encoding="utf-8"
+    )
+    (second / f"rollout-{thread_id}.jsonl").write_text(
+        _rollout_text("gpt-5"), encoding="utf-8"
+    )
+    proc = _write(
+        tmp_path, "--issue", "1400", "--branch", "b", "--status", "ran",
+        *_reviewer_evidence_args(exec_log, sessions_dir),
+        *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
+    )
+    assert proc.returncode == CM.EXIT_INVALID, proc.stderr
+    assert "multiple rollouts matching thread_id" in proc.stderr
+    assert list(tmp_path.glob("*.json")) == []
+
+
 def test_a_matching_rollout_without_a_model_is_refused(tmp_path: Path) -> None:
     session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "discarded")
@@ -2178,3 +2215,72 @@ def test_the_GATE_CONTROL_delegated_receipt_is_itself_WELL_FORMED(tmp_path: Path
     )
     assert receipt["direction"] == "delegated"
     assert CM.validate(receipt, "control case") == []
+
+
+# --------------------------------------------------------------------------- #
+# `rollout-model` subcommand (issue #1400): the one implementation
+# /codex:code_review and /codex:ask should both call instead of hand-rolled
+# `find ... | head -1` / `grep -o '"model":"[^"]*"' | head -1` shell, which
+# reintroduced the exact whole-file-first-match bug #1269 removed from this
+# script (Nit Store #864 comment 5867878058).
+# --------------------------------------------------------------------------- #
+
+def _rollout_model(tmp_path: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(SCRIPT), "rollout-model", *args],
+        capture_output=True, text=True,
+    )
+
+
+def test_rollout_model_prints_the_derived_model(tmp_path: Path) -> None:
+    exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
+    proc = _rollout_model(
+        tmp_path, "--exec-log", str(exec_log), "--sessions-dir", str(sessions_dir)
+    )
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    assert proc.stdout.strip() == "codex/gpt-5.5"
+    assert proc.stderr == ""
+
+
+def test_rollout_model_refuses_an_ambiguous_match_and_prints_nothing(
+    tmp_path: Path,
+) -> None:
+    """The exact defect this subcommand exists to stop reintroducing: a
+    caller that only checks the exit code must see an EMPTY stdout on
+    refusal, never a value borrowed from the wrong rollout."""
+    thread_id = "wanted-thread"
+    exec_log = tmp_path / "reviewer-exec.jsonl"
+    exec_log.write_text(
+        json.dumps({"type": "thread.started", "thread_id": thread_id}) + "\n",
+        encoding="utf-8",
+    )
+    sessions_dir = tmp_path / "sessions"
+    first = sessions_dir / "a"
+    second = sessions_dir / "b"
+    first.mkdir(parents=True)
+    second.mkdir(parents=True)
+    (first / f"rollout-{thread_id}.jsonl").write_text(
+        _rollout_text("gpt-5.5"), encoding="utf-8"
+    )
+    (second / f"rollout-{thread_id}.jsonl").write_text(
+        _rollout_text("gpt-5"), encoding="utf-8"
+    )
+    proc = _rollout_model(
+        tmp_path, "--exec-log", str(exec_log), "--sessions-dir", str(sessions_dir)
+    )
+    assert proc.returncode == CM.EXIT_INVALID, proc.stdout
+    assert proc.stdout == ""
+    assert "multiple rollouts matching thread_id" in proc.stderr
+
+
+def test_rollout_model_refuses_a_threadless_stream(tmp_path: Path) -> None:
+    exec_log = tmp_path / "reviewer-exec.jsonl"
+    exec_log.write_text('{"type":"item.completed"}\n', encoding="utf-8")
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    proc = _rollout_model(
+        tmp_path, "--exec-log", str(exec_log), "--sessions-dir", str(sessions_dir)
+    )
+    assert proc.returncode == CM.EXIT_INVALID
+    assert proc.stdout == ""
+    assert "contains no thread_id" in proc.stderr
