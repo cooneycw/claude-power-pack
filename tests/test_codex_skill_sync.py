@@ -2018,6 +2018,119 @@ def test_the_manifest_moves_when_a_bundled_script_changes(tmp_path: Path):
     )
 
 
+# --- The mirror-provenance note (issue #1408 bullet 1) ----------------------
+#
+# SKILL.md and reference.md already name their own canonical source
+# (`marker_for`), from inside themselves, because the generator rewrites both
+# on the way in. Nothing else bundled can do that without ceasing to be a
+# byte-identical copy of its source - these tests pin the ALTERNATIVE sign
+# instead: a note, beside those files, naming every one of them.
+
+
+def test_every_bundle_with_code_or_docs_carries_a_provenance_note():
+    bundles = sorted((ROOT / "codex" / "skills").glob("*/"))
+    assert bundles, "no generated skills at all - this test would be vacuous"
+    for skill_dir in bundles:
+        if not (skill_dir / "SKILL.md").is_file():
+            continue
+        byte_identical = [
+            f for f in skill_dir.rglob("*")
+            if f.is_file()
+            and f.name not in ("SKILL.md", "reference.md", MANIFEST_NAME, codex_skill_sync.PROVENANCE_NAME)
+            and "__pycache__" not in f.parts
+        ]
+        if not byte_identical:
+            continue
+        assert (skill_dir / codex_skill_sync.PROVENANCE_NAME).is_file(), (
+            f"{skill_dir} bundles {len(byte_identical)} file(s) with no "
+            f"{codex_skill_sync.PROVENANCE_NAME}"
+        )
+
+
+def test_the_provenance_note_lists_exactly_what_it_covers():
+    """Completeness, not merely presence - the manifest's own lesson (#1185)
+    applied to its sibling note."""
+    for note in sorted((ROOT / "codex" / "skills").glob("*/" + codex_skill_sync.PROVENANCE_NAME)):
+        skill_dir = note.parent
+        listed = {
+            line[len("- `"): -1]
+            for line in note.read_text().splitlines()
+            if line.startswith("- `")
+        }
+        present = {
+            f.relative_to(skill_dir).as_posix()
+            for f in skill_dir.rglob("*")
+            if f.is_file()
+            and f.name not in ("SKILL.md", "reference.md", MANIFEST_NAME, codex_skill_sync.PROVENANCE_NAME)
+            and "__pycache__" not in f.parts
+        }
+        assert listed == present, (
+            f"{note}: listed-but-absent {sorted(listed - present)}, "
+            f"present-but-unlisted {sorted(present - listed)}"
+        )
+
+
+def test_the_provenance_note_does_not_list_itself_or_the_self_naming_files():
+    for note in sorted((ROOT / "codex" / "skills").glob("*/" + codex_skill_sync.PROVENANCE_NAME)):
+        rows = [line for line in note.read_text().splitlines() if line.startswith("- `")]
+        for excluded in ("SKILL.md", "reference.md", codex_skill_sync.PROVENANCE_NAME):
+            assert all(excluded not in line for line in rows), (
+                f"{note} names {excluded}, which already signs itself"
+            )
+
+
+def test_a_bundle_with_nothing_byte_identical_carries_no_empty_provenance_note():
+    assert codex_skill_sync.provenance_note({"SKILL.md": "x"}) is None
+    assert codex_skill_sync.provenance_note(
+        {"SKILL.md": "x", f"scripts/{MANIFEST_NAME}": "sums"}
+    ) is None, "a manifest with nothing it manifests must not make the note non-empty"
+
+
+def test_the_provenance_note_moves_when_a_bundled_file_set_changes(tmp_path: Path):
+    """The `scripts_manifest` mobility lesson (#1185), applied to the sibling
+    note: a note that never changes certifies whatever bundle it is handed."""
+    files = codex_skill_sync.generate_skill(
+        ROOT / ".claude" / "commands" / "flow" / "check.md",
+        "flow",
+        codex_skill_sync.generated_names(["flow"]),
+    )
+    before = files.get(codex_skill_sync.PROVENANCE_NAME)
+    assert before is not None, "flow-check bundles code and produced no provenance note"
+
+    # CONTROL: unchanged in, identical out.
+    assert codex_skill_sync.provenance_note(dict(files)) == before, (
+        "recomputing over an unchanged bundle changed the note"
+    )
+
+    added = dict(files)
+    added["lib/cicd/zz-synthetic.py"] = "x = 1\n"
+    after = codex_skill_sync.provenance_note(added)
+    assert after != before, "adding a bundled file did not move the note"
+    assert "lib/cicd/zz-synthetic.py" in after
+
+
+def test_a_missing_provenance_note_fails_check(tmp_repo):
+    """issue #1408's explicit ask: a missing or stale stamp must fail --check,
+    exactly like any other generated file - this is the automatic consequence
+    of provenance_note() participating in generate_skill()'s own output dict,
+    pinned here rather than only trusted."""
+    (tmp_repo / "scripts" / "helper.sh").write_text("#!/bin/bash\necho helper\n")
+    (tmp_repo / ".claude" / "commands" / "flow" / "auto.md").write_text(
+        "# Flow Auto\n\nUses scripts/helper.sh.\n"
+    )
+    assert codex_skill_sync.main(["--write"]) == 0
+    note_path = tmp_repo / "codex" / "skills" / "flow-auto" / codex_skill_sync.PROVENANCE_NAME
+    assert note_path.is_file(), "fixture precondition: a provenance note must be generated"
+
+    assert codex_skill_sync.main(["--check"]) == 0, "fixture precondition: a fresh write must check clean"
+
+    note_path.unlink()
+    assert codex_skill_sync.main(["--check"]) != 0
+
+    note_path.write_text("stale content\n")
+    assert codex_skill_sync.main(["--check"]) != 0
+
+
 # ---------------------------------------------------------------------------
 # Issue #1408 bullet 4: `~/.claude/scripts/<name>` (the convenience-install
 # absolute path) is remapped to the skill-relative `scripts/<name>` when
