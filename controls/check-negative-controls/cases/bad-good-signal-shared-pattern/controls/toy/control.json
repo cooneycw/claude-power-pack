@@ -1,0 +1,39 @@
+{
+  "gate": "scripts/toy-gate-good.sh",
+  "invocation": [
+    "sh",
+    "{gate}",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^toy-gate: FINDING",
+  "cases": [
+    {
+      "name": "bad",
+      "input": "cases/bad",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-accepted",
+      "input": "cases/good-accepted",
+      "expect": "GOOD",
+      "good_signal": "^toy-gate: ok \\(accepted\\)"
+    },
+    {
+      "name": "good-not-enrolled",
+      "input": "cases/good-not-enrolled",
+      "expect": "GOOD",
+      "good_signal": "^toy-gate: ok \\(not-enrolled\\)"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "0000000",
+      "origin": "scripts/toy-gate-good.sh",
+      "path": "anchors/0000000-toy-gate-good.sh",
+      "sha256": "62cc9e911918c158478ae2aacf7fd15357c9a06d9e15fe02c444d82d012ce6f1"
+    }
+  ]
+}

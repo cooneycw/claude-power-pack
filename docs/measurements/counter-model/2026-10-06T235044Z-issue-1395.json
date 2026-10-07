@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1395-negative-control-verdict-granularity",
+  "counts": {
+    "accepted": 1,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "1cddbdc5d0a1fb6cc903429f9d5766bbad5eaa24",
+  "implementer": "claude/claude-sonnet-5",
+  "issue": "1395",
+  "passes": 1,
+  "recorded_at": "2026-10-06T23:50:44Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 7
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/06/rollout-2026-10-06T23-41-43-01a11398-2d73-7482-bbae-02b14acb3a1e.jsonl",
+    "thread_id": "01a11398-2d73-7482-bbae-02b14acb3a1e"
+  },
+  "schema": 1,
+  "status": "ran"
+}

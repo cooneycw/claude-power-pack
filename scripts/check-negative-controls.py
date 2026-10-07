@@ -1713,6 +1713,89 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
             )
             return res
 
+    # PER-CASE expected_exit (issue #1395). `detect_signal`/`good_signal` are
+    # REGEXES, and a gate with more than two real verdicts (several have had
+    # exactly that shape since #1027 gave each its own exit code) can legitimately
+    # match more than one of them with ONE pattern - `^ATTRIBUTION-(FINDING|
+    # UNKNOWN):` matches both. So a case can drift from one specific verdict to
+    # a DIFFERENT one that shares the same BAD bucket, and the harness-wide
+    # `expect: BAD` comparison alone cannot see it: `observed == expected` stays
+    # true on both sides of the drift. `expected_exit` was already a convention
+    # several controls recorded for their OWN bespoke pytest to check
+    # (counter-model-reviewer-attribution among them) - the harness itself never
+    # read it. This makes it load-bearing here too. Optional, and absence changes
+    # nothing - every control that never declared it scores exactly as before.
+    #
+    # SCOPE: this checks the GATE's own exit code only (the main loop below). It
+    # does not extend to the anchor-vs-gate agreement loops further down, which
+    # ask a different question (does the anchor AGREE with the gate's reading) -
+    # not extended here; that is a separate property from the two defects this
+    # issue closes, both of which are in how the gate's OWN output is scored.
+    case_expected_exit: dict[str, int] = {}
+    for case in cases:
+        raw_exit = case.get("expected_exit")
+        if raw_exit is None:
+            continue
+        name = case["name"]
+        if not isinstance(raw_exit, int) or isinstance(raw_exit, bool):
+            res.details.append(f"control.json case {name!r}'s expected_exit is not an int")
+            return res
+        case_expect = case.get("expect")
+        if case_expect == GOOD:
+            if raw_exit != good_exit:
+                res.details.append(
+                    f"control.json case {name!r} is a GOOD case declaring expected_exit "
+                    f"{raw_exit}, which disagrees with the control's own good_exit {good_exit} - "
+                    "GOOD already means exit == good_exit, so a different value is incoherent"
+                )
+                return res
+        elif raw_exit == good_exit:
+            res.details.append(
+                f"control.json case {name!r} is a {case_expect} case declaring expected_exit "
+                f"{raw_exit}, the control's own good_exit - a {case_expect} case can never "
+                "legitimately exit there"
+            )
+            return res
+        case_expected_exit[name] = raw_exit
+
+    # PER-CASE good_signal (issue #1395), overriding the control-level good_signal
+    # above for THIS case only. #1350's good_signal is ONE pattern for every GOOD
+    # case in a control; a control whose good cases each answer a genuinely
+    # DIFFERENT clean line (one case "accepted", another "not-enrolled", another
+    # "undecidable" - controls/counter-model-enrolment's actual shape) cannot be
+    # given a single pattern narrow enough to tell them apart without the pattern
+    # also rejecting some of its own real good cases. Only meaningful on a GOOD
+    # case: `_observe` reads `good_signal` only at `exit_code == good_exit`, which
+    # a non-GOOD case never reaches by definition.
+    case_good_signal: dict[str, re.Pattern[str]] = {}
+    for case in cases:
+        raw_case_good = case.get("good_signal")
+        if raw_case_good is None:
+            continue
+        name = case["name"]
+        if case.get("expect") != GOOD:
+            res.details.append(
+                f"control.json case {name!r} declares good_signal on a {case.get('expect')} case. "
+                "It is only meaningful on a GOOD case - _observe reads it only at the good exit "
+                "code, which a non-GOOD case never reaches by definition"
+            )
+            return res
+        if not isinstance(raw_case_good, str) or not raw_case_good.strip():
+            res.details.append(f"control.json case {name!r}'s good_signal is not a usable pattern")
+            return res
+        try:
+            compiled_case_good = re.compile(raw_case_good, re.MULTILINE)
+        except re.error as exc:
+            res.details.append(f"control.json case {name!r}'s good_signal is not a usable regex: {exc}")
+            return res
+        if compiled_case_good.search(""):
+            res.details.append(
+                f"control.json case {name!r}'s good_signal /{raw_case_good}/ matches empty "
+                "output, so this case would be accepted on its exit code alone again"
+            )
+            return res
+        case_good_signal[name] = compiled_case_good
+
     # A one-sided control tests nothing, so it may not reach PASS. This was only
     # DOCUMENTED before, and the code required a non-empty list: a GOOD-only
     # control passed against a gate that was genuinely blind, and a BAD-only one
@@ -1906,7 +1989,10 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
         if code is UNRUNNABLE:
             res.details.append(f"case {case['name']}: the gate could not be executed - {diag}")
             return res
-        observed = _observe(code, good_exit, output, signal, unavailable, unknown_sig, good_sig)
+        # A case's OWN good_signal (issue #1395), when it declared one, takes
+        # precedence over the control-level pattern above for this case only.
+        effective_good_sig = case_good_signal.get(case["name"], good_sig)
+        observed = _observe(code, good_exit, output, signal, unavailable, unknown_sig, effective_good_sig)
         res.details.append(
             f"case {case['name']}: expected={expected} observed={observed} (exit {code})"
             + (f" [stderr: {diag}]" if diag else "")
@@ -2014,11 +2100,13 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
             res.verdict = UNSIGNALLED
             if code == good_exit:
                 # Reachable only through `good_signal` (issue #1350): a good exit
-                # is otherwise GOOD by construction.
+                # is otherwise GOOD by construction. Shows the EFFECTIVE pattern
+                # (issue #1395) - this case's own good_signal when it declared
+                # one, never the control-level text for a case that overrode it.
                 res.details.append(
                     f"the gate exited {code}, its good exit, without emitting its declared "
-                    f"good_signal /{raw_good}/, so a clean answer cannot be told from a "
-                    f"different one that exits the same way"
+                    f"good_signal /{effective_good_sig.pattern if effective_good_sig else raw_good}/, "
+                    f"so a clean answer cannot be told from a different one that exits the same way"
                 )
             else:
                 res.details.append(
@@ -2050,6 +2138,24 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
         if observed != expected:
             res.verdict = BLIND
             res.details.append("the gate did not discriminate: it " + _mismatch(expected, observed))
+            return res
+        # THE BUCKET MATCHING IS A FLOOR, NOT THE DISCRIMINATOR (issue #1395).
+        # `observed == expected` only says the two sides agree on GOOD/BAD/
+        # UNAVAILABLE/UNKNOWN; a case pinned to a SPECIFIC exit code can still
+        # drift to a different exit code inside that same bucket (a BAD case
+        # moving from exit 2 to exit 1, as #864 comment 5749164411 measured on
+        # controls/counter-model-reviewer-attribution), and nothing above this
+        # line would see it - the pattern match already passed. Only fires when
+        # the case actually declared expected_exit; a control that never did is
+        # scored exactly as before.
+        case_exit = case_expected_exit.get(case["name"])
+        if case_exit is not None and code != case_exit:
+            res.verdict = BLIND
+            res.details.append(
+                f"the gate did not discriminate: case {case['name']} observed {expected} "
+                f"correctly but exited {code}, not its registered expected_exit {case_exit} - "
+                "the same bucket, a different verdict"
+            )
             return res
         if expected == BAD:
             bad_cases.append(case_path)
@@ -2144,7 +2250,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
     #: agree", and a declaration that stops being true reds as UNRESOLVED rather
     #: than decaying into silence.
     sanity_cases = [
-        (control_dir / c["input"], c["expect"], c.get("anchor_expect"))
+        (control_dir / c["input"], c["expect"], c.get("anchor_expect"), c["name"])
         for c in cases
         if c["expect"] in (GOOD, UNKNOWN)
     ]
@@ -2249,7 +2355,7 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
                 f"anchor {_anchor_label(anchor, case_path)}: missed the known-bad input (blind, as required)"
             )
 
-        for case_path, case_expect, anchor_expect in sanity_cases:
+        for case_path, case_expect, anchor_expect, case_name in sanity_cases:
             #: "known-GOOD" for a GOOD case, "known-UNEXAMINABLE" for an UNKNOWN
             #: one. The property is identical - the anchor must AGREE - but a
             #: message naming the wrong kind of input sends a reader looking for
@@ -2260,7 +2366,16 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
                 res.verdict = UNRESOLVED
                 res.details.append(f"anchor {_anchor_label(anchor, case_path)} could not be executed - {diag}")
                 return res
-            observed = _observe(code, good_exit, output, signal, unavailable, unknown_sig, good_sig)
+            # The SAME per-case override as the gate-side loop (issue #1395,
+            # counter-model review). Without it, an anchor whose clean answer
+            # disagrees with THIS case's own good_signal - but still matches the
+            # control-level one, or there is none - would read as agreeing: the
+            # anchor-sanity property would be checked against a weaker pattern
+            # than the one this case is actually pinned to.
+            effective_good_sig_for_case = case_good_signal.get(case_name, good_sig)
+            observed = _observe(
+                code, good_exit, output, signal, unavailable, unknown_sig, effective_good_sig_for_case
+            )
             # As in the known-bad loop above, and needed separately: an anchor can
             # miss the known-bad input correctly and still be incoherent on the
             # inputs meant to establish it differs in nothing else.
