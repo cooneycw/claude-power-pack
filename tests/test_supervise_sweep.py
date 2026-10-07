@@ -69,12 +69,17 @@ FIXTURE_DEADLINE = 10.0
 def _fake_daemon(
     tmp_path: Path, verb: str, marker: str | None,
     body: str = "sleep 300\n", own_group: bool = True, setup: str = "",
-    ready_timeout: float = FIXTURE_DEADLINE,
+    ready_timeout: float = FIXTURE_DEADLINE, process_group: int | None = None,
 ) -> subprocess.Popen:
     """A process with the daemon's exact argv shape that only sleeps.
 
     Launched in its own session, as `supervise` launches the real one, so the
     sweep's group kill takes the `sleep` with it.
+
+    `process_group`, when given, joins this process to that EXISTING group
+    instead of starting its own session - pass `own_group=False` alongside
+    it. This is the PRIVATE-group construction (issue #1430, see
+    `_private_group`): a dedicated leader's pgid, not the worker-wide one.
 
     READY MEANS `setup` HAS RUN, not that the process exists (issue #1297). The
     argv shows in /proc the moment exec happens - before bash has read a single
@@ -99,7 +104,9 @@ def _fake_daemon(
         env[TEST_OWNER_ENV] = marker
     proc = subprocess.Popen(
         ["bash", str(script), verb, "--role", "1", "--wave", "testwave-sweep"],
-        env=env, cwd=str(tmp_path), start_new_session=own_group,
+        env=env, cwd=str(tmp_path),
+        start_new_session=False if process_group is not None else own_group,
+        process_group=process_group,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
 
@@ -132,6 +139,34 @@ def _fake_daemon(
     return proc
 
 
+def _private_group() -> subprocess.Popen:
+    """A parked group leader giving fixtures a PRIVATE pgid (issue #1430).
+
+    Every xdist worker under one `pytest -n N` otherwise shares ONE process
+    group (#1404: measured, gw0-gw2 all in one pgid), so an `own_group=False`
+    fixture's pgid alone cannot distinguish it from another worker's own
+    copy of the SAME test, started within the same 10ms start tick - measured
+    directly: a genuinely alive, already-reparented neighbour's comm, pgid
+    and start all matched this fixture's, and `_kill_subtree`'s own trace
+    proved it was never this fixture's descendant. A fixture joined to THIS
+    leader's group (via `_fake_daemon`'s `process_group=`) is never a member
+    of any other worker's fixtures, so the comm/pgid/start heuristic cannot
+    mismatch on timing alone, however close the ticks are. Reap in `finally`.
+
+    `process_group=0` (not `start_new_session=True`): `setpgid` can only move
+    a process INTO a group that is in its own SESSION, and `start_new_session`
+    calls `setsid()`, putting the leader in a session of its own - any later
+    fixture would then fail `setpgid` with EPERM trying to join a group in a
+    session it is not part of (measured directly). `process_group=0` makes
+    this leader its own group leader WITHOUT a new session, so it stays in
+    this test process's session and later fixtures can join it.
+    """
+    return subprocess.Popen(
+        ["sleep", "300"], process_group=0,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+
+
 def _candidates() -> list[int]:
     return [pid for pid, _start in orphaned_supervise_daemons(owner_env=TEST_OWNER_ENV)]
 
@@ -157,31 +192,86 @@ def _cleanup(*procs: subprocess.Popen) -> None:
             pass
 
 
+#: Bound for `_kill_subtree`'s enumerate-kill-poll loop (issue #1430). Deliberately
+#: separate from `FIXTURE_DEADLINE`, which bounds test setup/precondition polling -
+#: this bounds production-adjacent cleanup, called from many `finally` blocks.
+KILL_SUBTREE_DEADLINE = 2.0
+
+
+def _live_descendants(pid: int) -> list[int]:
+    """`_descendants(pid)` filtered to non-zombie - a zombie is dead and will be
+    reaped; it is never something left to kill (issue #1430)."""
+    return [p for p in _descendants(pid) if (f := _proc_fields(p)) is not None and f[0] != "Z"]
+
+
 def _kill_subtree(proc: subprocess.Popen) -> None:
-    """Kill a shared-group fixture AND everything under it (issue #1343).
+    """Kill a shared-group fixture AND everything under it (issues #1343, #1430).
+
+    Never called on a fixture with its OWN process group - `_cleanup` dispatches
+    those to `killpg` instead, via its own `getpgid(pid) == pid` check, before
+    this function ever runs. Every caller here shares a group with something
+    else (the whole xdist worker, per the #1404 finding that every worker under
+    one `pytest -n N` shares one pgid) - `killpg` on that group would signal a
+    neighbour, which is exactly why this function enumerates and kills by pid.
 
     `proc.kill()` alone reaches only the bash parent: bash does not exec its
     last command, so the `sleep 300` child survived, was reparented to the
     subreaper, and stayed in the runner's process group - one orphan per full
-    suite run. The parent is STOPPED first so it can neither fork a
+    suite run. The parent is STOPPED first, each pass, so it can neither fork a
     replacement child nor reap one (which would free its pid for reuse) while
-    the subtree is enumerated and killed, deepest first.
+    that pass's subtree is enumerated and killed, deepest first.
+
+    A single enumerate-then-kill pass is not enough (issue #1430, measured
+    directly under full-file `-n 12` load, 4 failures in 70 runs - this
+    function's own prior docstring claimed a single pass "closes [the fork
+    race] by construction", measured 5 of 5; that was underpowered). Two
+    distinct failures, not one, both closed the same way:
+      (a) a child forked in the instant between SIGSTOP being sent and
+          actually landing survives a single enumeration;
+      (b) `os.kill(pid, SIGKILL)` returns once the signal is QUEUED, not once
+          the kernel has actually scheduled the target to die, so a single
+          pass can return while a just-killed child is still briefly alive,
+          not yet a zombie or gone.
+    So this loops: SIGSTOP, enumerate, SIGKILL, and poll every just-killed pid
+    for an exited state (zombie or gone) before re-enumerating - (b) is closed
+    by the poll, (a) by re-checking for a FIXED POINT (an enumeration with no
+    live descendant left) rather than trusting the first one. Bounded by
+    `KILL_SUBTREE_DEADLINE`; on expiry this raises naming the survivors rather
+    than returning quietly - a fixture this cannot kill is a fact the caller
+    needs, not one to swallow.
     """
-    os.kill(proc.pid, signal.SIGSTOP)
-    # SIGSTOP is asynchronous: enumerating before it lands leaves the fork
-    # window open (counter-model review). Wait for the stopped state - or for
-    # the parent to be gone, which leaves nothing to fork. A bound that expires
-    # still kills; it only means the window was not provably shut.
-    deadline = time.monotonic() + FIXTURE_DEADLINE
-    while (fields := _proc_fields(proc.pid)) is not None and fields[0] not in ("T", "t", "Z"):
-        if time.monotonic() >= deadline:
+    deadline = time.monotonic() + KILL_SUBTREE_DEADLINE
+    while True:
+        os.kill(proc.pid, signal.SIGSTOP)
+        # SIGSTOP is asynchronous: enumerating before it lands leaves the fork
+        # window open (counter-model review). Wait for the stopped state - or for
+        # the parent to be gone, which leaves nothing to fork. A bound that expires
+        # still kills; it only means the window was not provably shut.
+        while (fields := _proc_fields(proc.pid)) is not None and fields[0] not in ("T", "t", "Z"):
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.001)
+        live = _live_descendants(proc.pid)
+        if not live:
             break
-        time.sleep(0.001)
-    for pid in reversed(_descendants(proc.pid)):
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except OSError:
-            pass
+        for pid in reversed(live):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+        while time.monotonic() < deadline and any(
+            (f := _proc_fields(pid)) is not None and f[0] != "Z" for pid in live
+        ):
+            time.sleep(0.001)
+        if time.monotonic() >= deadline:
+            survivors = [pid for pid in live if (f := _proc_fields(pid)) is not None and f[0] != "Z"]
+            if survivors:
+                pytest.fail(
+                    f"_kill_subtree could not kill {survivors} of {proc.pid}'s subtree "
+                    f"within {KILL_SUBTREE_DEADLINE:g}s",
+                    pytrace=False,
+                )
+            break
     proc.kill()
 
 
@@ -394,16 +484,21 @@ class _Fixture:
     pid: int
     pgid: int
     start: int  # /proc/<pid>/stat field 22, clock ticks since boot
+    script_path: str  # this fixture's own script (argv[1] of its bash invocation, #1430)
+    script_text: str  # that script's own source text, read once at construction
 
 
-def _stat(pid: int) -> tuple[str, int, int, int] | None:
-    """``(comm, ppid, pgid, start)`` from /proc/<pid>/stat, or None if GONE.
+def _stat(pid: int) -> tuple[str, int, int, int, str] | None:
+    """``(comm, ppid, pgid, start, state)`` from /proc/<pid>/stat, or None if GONE.
 
     Readable for any process of ours even when its environ is refused, which is
     what lets an unreadable pid be judged at all. Anchored on the LAST ``)``:
     comm may contain spaces and parentheses. Only disappearance returns None;
     any other failure RAISES, because "could not identify it" is not "not
-    ours" (counter-model review).
+    ours" (counter-model review). `state` is the raw one-letter code (e.g.
+    ``Z`` zombie, ``T``/``t`` stopped) - #1430 found a killed-but-not-yet-
+    reaped zombie judged a live survivor because this function never
+    exposed it, unlike `pid_alive`'s own happy-path check.
     """
     try:
         raw = Path(f"/proc/{pid}/stat").read_text()
@@ -411,17 +506,138 @@ def _stat(pid: int) -> tuple[str, int, int, int] | None:
         return None
     comm = raw[raw.index("(") + 1 : raw.rindex(")")]
     rest = raw[raw.rindex(")") + 2 :].split()
-    return comm, int(rest[1]), int(rest[2]), int(rest[19])
+    return comm, int(rest[1]), int(rest[2]), int(rest[19]), rest[0]
+
+
+#: Bound for `_resolve_stat`'s unreadable-candidate retry (issue #1430): a
+#: transient EACCES or malformed read is worth waiting out before concluding
+#: "unidentifiable" - a candidate that resolves within this window (to GONE,
+#: a zombie, or a clean read) is judged on that fact, never on a first,
+#: possibly-transient failure. Measured directly: a candidate unreadable at
+#: first (EACCES) settled to GONE moments later and was misjudged kin on the
+#: first read alone - the fallback this closes lives in this test helper,
+#: not a production instrument, so tightening it is in scope.
+UNREADABLE_RESOLVE_DEADLINE = 0.5
+UNREADABLE_RESOLVE_STEP = 0.02
+
+
+class _StillUnreadable(Exception):
+    """Raised by `_resolve_stat` when a candidate never resolves within the window."""
+
+
+def _resolve_stat(pid: int) -> tuple[str, int, int, int, str] | None:
+    """``_stat(pid)``, retried for up to `UNREADABLE_RESOLVE_DEADLINE` (issue #1430).
+
+    A permission refusal and a malformed/vanishing read are retried
+    identically: either can resolve to a clean read or to GONE within the
+    window, and a candidate that does should be judged on that fact. Raises
+    `_StillUnreadable` only if nothing resolved by the deadline - that case
+    alone falls back to `_could_be_kin`'s conservative guess.
+    """
+    deadline = time.monotonic() + UNREADABLE_RESOLVE_DEADLINE
+    while True:
+        try:
+            return _stat(pid)
+        except (PermissionError, OSError, ValueError, IndexError):
+            if time.monotonic() >= deadline:
+                raise _StillUnreadable(pid) from None
+            time.sleep(UNREADABLE_RESOLVE_STEP)
+
+
+def _cmdline_of(pid: int) -> tuple[str, ...] | None:
+    """This pid's argv, or `None` if unreadable or still mid-exec (issue #1430).
+
+    ``/proc/<pid>/cmdline`` reads back EMPTY (not absent) for a process
+    between `fork()` and the `exec()` that populates it - treated as "not
+    yet identifiable", the same caution `_stat` already applies to its own
+    GONE case, rather than a confident empty tuple that could vacuously
+    satisfy a shape check.
+    """
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        return None
+    if not raw:
+        return None
+    return tuple(
+        part.decode("utf-8", "surrogateescape") for part in raw.rstrip(b"\x00").split(b"\x00")
+    )
+
+
+def _matches_fixture_shape(cmdline: tuple[str, ...], fixture: _Fixture) -> bool:
+    """Whether `cmdline` is something THIS fixture's own script would run (issue #1430).
+
+    Derived from the fixture's actual argv and script body - a POSITIVE
+    match against what the fixture spawns, never a second, hand-maintained
+    list of things that look unlike it (orchestrator ruling): a denylist of
+    "doesn't look like our daemon" grows and drifts out of sync with what
+    `_fake_daemon` actually does; this can only say yes to what the fixture
+    itself would produce.
+    """
+    if len(cmdline) >= 2 and cmdline[0] == "bash" and cmdline[1] == fixture.script_path:
+        return True  # the daemon script process itself (e.g. a respawned parent)
+    return bool(cmdline) and " ".join(cmdline) in fixture.script_text
+
+
+def _own_ancestors() -> frozenset[int]:
+    """This process's own ancestor chain: xdist worker, controller, shell, ... (#1430).
+
+    None of these can ever be a descendant of a fixture THIS test spawns -
+    descendants flow downward from the fixture's own pid, never upward into
+    our own lineage. Walked once per `_kin` call, not per candidate.
+
+    RETRIES ON EACCES TOO, unlike `_could_be_kin`'s own judgment of a
+    stranger candidate (measured directly, issue #1430: the controller/
+    worker processes this walk visits are exactly the ones seen hitting the
+    transient stat/environ EACCES, so an unretried hit here silently
+    TRUNCATES the chain - the walk stops one hop short, `own_ancestors`
+    never gains the controller's own pid, and the structural exclusion it
+    exists to provide goes missing for exactly the candidate it was added
+    for). This is a different question from judging a stranger: every pid
+    in this walk is already KNOWN to be a real ancestor from the previous
+    hop's own ppid field, so retrying here resolves a transient read, it
+    does not decide an identity.
+    """
+    seen: set[int] = set()
+    pid = os.getpid()
+    while pid not in seen:
+        seen.add(pid)
+        fields = None
+        for attempt in range(3):
+            try:
+                fields = _stat(pid)
+                break
+            except OSError:
+                if attempt == 2:
+                    break
+                time.sleep(0.01)
+        if fields is None:
+            break
+        if fields[1] == pid:
+            break
+        pid = fields[1]
+    return frozenset(seen)
 
 
 def _fixture_of(proc: subprocess.Popen) -> _Fixture:
     fields = _stat(proc.pid)
     assert fields is not None, "precondition: the fixture is alive when first observed"
-    return _Fixture(proc.pid, fields[2], fields[3])
+    cmdline = _cmdline_of(proc.pid)
+    assert cmdline is not None and len(cmdline) >= 2, (
+        "precondition: our own fixture's argv is readable immediately after launch"
+    )
+    script_path = cmdline[1]
+    script_text = Path(script_path).read_text(encoding="utf-8")
+    return _Fixture(proc.pid, fields[2], fields[3], script_path, script_text)
 
 
-def _could_be_kin(pid: int, fixture: _Fixture, live_descendants: frozenset[int]) -> bool:
-    """Whether an UNREADABLE pid could be one of the fixture's (issues #1347, #1404).
+def _could_be_kin(
+    pid: int,
+    fixture: _Fixture,
+    live_descendants: frozenset[int],
+    own_ancestors: frozenset[int],
+) -> bool:
+    """Whether an UNREADABLE pid could be one of the fixture's (issues #1347, #1404, #1430).
 
     Every xdist worker shares one process group (measured: gw0-gw2 all in one
     pgid), so the group alone cannot tell a neighbour from the fixture, and
@@ -437,22 +653,63 @@ def _could_be_kin(pid: int, fixture: _Fixture, live_descendants: frozenset[int])
     own currently-live descendants, or it is DEFINITELY not ours, whatever
     it looks like - positive evidence, not the conservative guess. Only a
     REPARENTED candidate (ppid == 1, ancestry severed by `_cleanup` exactly
-    as #1343 describes) falls back to the comm/pgid/start heuristic, which
-    is what it still cannot fully separate from a neighbour's own reparented
-    leak (bash and sleep are not non-dumpable, so their environ is not
-    expected to be refused at all once settled) - the stated residual #1347
-    already named, now narrowed to the case ancestry genuinely cannot see.
+    as #1343 describes) falls back to the comm/pgid/start heuristic.
+
+    `_resolve_stat` retries an unreadable candidate for up to
+    `UNREADABLE_RESOLVE_DEADLINE` before this function ever reaches a
+    conservative guess (issue #1430: two independent captures showed a
+    candidate EACCES at first, then fully GONE moments later, misjudged kin
+    on the first read alone - a transient worth waiting out, not deciding
+    on). Only once nothing resolves within that window does it fall back,
+    and even then rule out what cannot be ours first:
+      1. structural: a pid that is one of THIS TEST's own ancestors can
+         never be a descendant of a fixture we spawned;
+      2. positive match: if its cmdline is readable, kin only if that
+         cmdline is something the fixture's own script would actually run;
+      3. otherwise (cmdline also unreadable): the #1347-shaped residual this
+         fallback exists for - still conservatively possibly ours.
+
+    When it DOES resolve, a candidate that started before the fixture is
+    excluded structurally (`start < fixture.start`) before the ancestry/
+    heuristic checks below - deliberately not by comparing pid numbers
+    directly (orchestrator ruling, #1430): a pid counter can wrap, making
+    "lower" meaningless, where a starttime tick never wraps within one
+    `-n 12` invocation.
     """
     try:
-        fields = _stat(pid)
-    except (OSError, ValueError, IndexError):
-        return True  # unidentifiable: judged conservatively as possibly ours
+        fields = _resolve_stat(pid)
+    except _StillUnreadable:
+        if pid in own_ancestors:
+            return False  # cannot be a descendant of something we spawned
+        cmdline = _cmdline_of(pid)
+        if cmdline is not None:
+            return _matches_fixture_shape(cmdline, fixture)
+        return True  # unidentifiable for the full window: conservatively possibly ours
     if fields is None:
+        return False  # resolved to GONE within the window: not running, not a survivor
+    comm, ppid, pgid, start, state = fields
+    if state == "Z":
+        # Killed-but-not-yet-reaped (issue #1430): `_kill_subtree` SIGSTOPs
+        # the bash parent so it can never fork a replacement, then SIGKILLs
+        # its children and the still-stopped parent - so the parent never
+        # runs its own wait() and the dead child's zombie reparents to init
+        # (ppid 1) until init reaps it. Measured directly: a zombie with
+        # ppid 1 and pgid/start matching the fixture EXACTLY, i.e. genuinely
+        # its own former child, already killed - not a live escapee. The
+        # happy path already excludes a zombie via `pid_alive`; this is the
+        # same exclusion for the unreadable-environ path, which never had it.
         return False
-    comm, ppid, pgid, start = fields
+    if start < fixture.start:
+        # Cannot have started before the fixture it supposedly descends from -
+        # structural, and unlike pid ordering it survives pid wraparound
+        # (issue #1430, orchestrator-directed: two independent captures showed
+        # the escaped candidate's own pid LOWER than the fixture's, settling
+        # to fully GONE moments later - exactly what the retry above and this
+        # check together now exclude).
+        return False
     if ppid != 1 and ppid != fixture.pid and ppid not in live_descendants:
         return False  # a live process with a real, different, known parent
-    return comm in KIN_COMMS and pgid == fixture.pgid and start >= fixture.start
+    return comm in KIN_COMMS and pgid == fixture.pgid
 
 
 def _kin(tag: str, fixture: _Fixture) -> list[int]:
@@ -468,18 +725,23 @@ def _kin(tag: str, fixture: _Fixture) -> list[int]:
     anything older than the fixture or running something else - is skipped;
     failing on it failed this test for someone else's process (issue #1347).
     `_could_be_kin` now checks actual ancestry first for a LIVE candidate
-    (issue #1404): what the verdict still cannot separate is its narrowed
-    residual, a REPARENTED same-group `bash`/`sleep` whose severed ancestry
-    makes it indistinguishable from a neighbour's own reparented leak.
+    (issue #1404), and structural ancestry plus a positive cmdline match for
+    an UNIDENTIFIABLE one (issue #1430): what the verdict still cannot
+    separate is its narrowed residual, a REPARENTED same-group `bash`/
+    `sleep` whose severed ancestry makes it indistinguishable from a
+    neighbour's own reparented leak, with an unreadable cmdline too.
 
-    `live_descendants` is a SNAPSHOT, taken once per call rather than
-    re-walked per candidate: the fixture's own tree can only grow during
-    this scan (a child forking), never lose a member ancestry already
-    proved, so a snapshot cannot stale-negative a pid that really is ours.
+    `live_descendants` and `own_ancestors` are SNAPSHOTS, each taken once
+    per call rather than re-walked per candidate: the fixture's own tree can
+    only grow during this scan (a child forking), never lose a member
+    ancestry already proved, so a snapshot cannot stale-negative a pid that
+    really is ours; our own ancestor chain does not change during a test at
+    all.
     """
     needle = f"{KIN_ENV}={tag}".encode()
     uid = os.getuid()
     live_descendants = frozenset(_descendants(fixture.pid))
+    own_ancestors = _own_ancestors()
     found = []
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit():
@@ -491,7 +753,7 @@ def _kin(tag: str, fixture: _Fixture) -> list[int]:
         except (FileNotFoundError, ProcessLookupError):
             continue  # exited between listing and reading: not a survivor
         except OSError as exc:
-            if _could_be_kin(int(entry.name), fixture, live_descendants):
+            if _could_be_kin(int(entry.name), fixture, live_descendants, own_ancestors):
                 pytest.fail(f"could not read pid {entry.name}'s environment: {exc}", pytrace=False)
             continue  # a neighbour's process: not ours to judge
         if needle in environ.split(b"\0") and pid_alive(int(entry.name)):
@@ -535,41 +797,62 @@ def _check_cleanup(tmp_path: Path, body: str) -> None:
     to prevent. The finally cleans up only a fixture that is still unreaped -
     a reaped pid may already belong to someone else - then reaps anything still
     carrying this test's marker.
+
+    `leader` gives the fixture a PRIVATE group rather than the worker-wide one
+    (issue #1430, see `_private_group`): measured, a candidate from another
+    worker's own copy of this test, started in the same 10ms tick, otherwise
+    matches comm/pgid/start indistinguishably from a genuine escapee.
     """
-    tag = uuid.uuid4().hex
-    proc = _fake_daemon(
-        tmp_path, "__supervise_daemon", DEAD_OWNER,
-        body=f"export {KIN_ENV}={tag}\n{body}", own_group=False,
-    )
+    leader = _private_group()
     try:
-        fixture = _fixture_of(proc)
-        deadline = time.monotonic() + FIXTURE_DEADLINE
-        while not [pid for pid in _kin(tag, fixture) if pid != proc.pid]:
-            if time.monotonic() >= deadline:
-                pytest.fail("precondition: the fixture never forked its child", pytrace=False)
-            time.sleep(0.02)
-
-        _cleanup(proc)
-
-        survivors = _kin(tag, fixture)
-        assert not survivors, f"_cleanup left descendants running: {survivors}"
-    finally:
+        tag = uuid.uuid4().hex
+        proc = _fake_daemon(
+            tmp_path, "__supervise_daemon", DEAD_OWNER,
+            body=f"export {KIN_ENV}={tag}\n{body}", own_group=False,
+            process_group=leader.pid,
+        )
+        fixture_pgid = os.getpgid(proc.pid)
+        worker_pgid = os.getpgid(0)
+        assert fixture_pgid == leader.pid, "precondition: the fixture joined the private group"
+        assert leader.pid != proc.pid, "precondition: the private group is not the fixture's own pid"
+        assert leader.pid != worker_pgid, (
+            "precondition: the private group is not the worker's own shared pgid"
+        )
         try:
-            if proc.poll() is None:
-                _cleanup(proc)
+            fixture = _fixture_of(proc)
+            deadline = time.monotonic() + FIXTURE_DEADLINE
+            while not [pid for pid in _kin(tag, fixture) if pid != proc.pid]:
+                if time.monotonic() >= deadline:
+                    pytest.fail("precondition: the fixture never forked its child", pytrace=False)
+                time.sleep(0.02)
+
+            _cleanup(proc)
+
+            survivors = _kin(tag, fixture)
+            assert not survivors, f"_cleanup left descendants running: {survivors}"
         finally:
-            # Even when `_cleanup` itself raised (counter-model review). The
-            # parent goes FIRST: its own environ does not carry the marker
-            # (`export` reaches children only), and a live parent could fork a
-            # replacement after the reaper's snapshot. SIGKILL through the
-            # unreaped Popen handle cannot hit a recycled pid.
             try:
                 if proc.poll() is None:
-                    proc.kill()
-                    proc.wait(timeout=10)
-            except Exception:  # noqa: BLE001 - the reaper below must still run
-                pass
-            _reap_marked(tag)
+                    _cleanup(proc)
+            finally:
+                # Even when `_cleanup` itself raised (counter-model review). The
+                # parent goes FIRST: its own environ does not carry the marker
+                # (`export` reaches children only), and a live parent could fork a
+                # replacement after the reaper's snapshot. SIGKILL through the
+                # unreaped Popen handle cannot hit a recycled pid.
+                try:
+                    if proc.poll() is None:
+                        proc.kill()
+                        proc.wait(timeout=10)
+                except Exception:  # noqa: BLE001 - the reaper below must still run
+                    pass
+                _reap_marked(tag)
+    finally:
+        leader.kill()
+        try:
+            leader.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
 
 
 @requires_proc
@@ -585,11 +868,16 @@ def test_cleanup_of_a_shared_group_fixture_leaves_no_descendant(tmp_path: Path, 
     `sleep 300` outlived every full suite run, reparented to the subreaper.
     Survivors are found by inherited marker, not by pids captured beforehand,
     so a replacement forked during cleanup would be counted too (counter-model
-    review). What this does NOT prove: that the SIGSTOP in `_kill_subtree` is
-    needed. Measured with it removed, the respawning case still passed 5 of 5 -
-    bash does not fork its replacement inside the microseconds before the parent
-    is killed, so that race cannot be forced from here. The SIGSTOP closes it by
-    construction; this test pins the leak the issue measured.
+    review).
+
+    An earlier version of this docstring claimed a single SIGSTOP-then-kill
+    pass "closes [the fork race] by construction", measured at 5 of 5 trials
+    with SIGSTOP removed. That was underpowered (issue #1430): measured
+    directly under full-file `-n 12` load across 70 runs, this test failed 4
+    times - captured state `('sleep', 1, <fixture's own pgid>, <fixture's own
+    start>, 'R')`, genuinely alive and running, reparented to init - a real
+    escape, not a misreading. `_kill_subtree` now loops enumerate-SIGKILL-poll
+    to a fixed point rather than trusting one pass.
     """
     _check_cleanup(tmp_path, body)
 
@@ -610,7 +898,7 @@ def _refuse_environ_of(monkeypatch: pytest.MonkeyPatch, pid: int) -> list[int]:
     return refused
 
 
-def _execd_child(pid: int, comm: str) -> tuple[int, tuple[str, int, int, int]]:
+def _execd_child(pid: int, comm: str) -> tuple[int, tuple[str, int, int, int, str]]:
     """A descendant of `pid` that has EXEC'd `comm`, with its stat fields.
 
     Waiting for "any descendant" is not enough. Between fork and exec a child's
@@ -619,7 +907,7 @@ def _execd_child(pid: int, comm: str) -> tuple[int, tuple[str, int, int, int]]:
     a correct tree. This polls until a descendant's own /proc stat shows `comm`.
     """
     deadline = time.monotonic() + FIXTURE_DEADLINE
-    seen: list[tuple[int, tuple[str, int, int, int] | None]] = []
+    seen: list[tuple[int, tuple[str, int, int, int, str] | None]] = []
     while True:
         seen = [(child, _stat(child)) for child in _descendants(pid)]
         for child, fields in seen:
@@ -641,8 +929,8 @@ def test_an_unreadable_neighbour_does_not_fail_the_cleanup_check(monkeypatch: py
     assert os.stat(f"/proc/{neighbour}").st_uid == os.getuid(), "precondition: same uid"
     here = _stat(os.getpid())
     assert here is not None
-    fixture = _Fixture(os.getpid(), here[2], here[3] + 1)  # started after the neighbour
-    assert not _could_be_kin(neighbour, fixture, frozenset()), (
+    fixture = _Fixture(os.getpid(), here[2], here[3] + 1, "", "")  # started after the neighbour
+    assert not _could_be_kin(neighbour, fixture, frozenset(), frozenset()), (
         "precondition: the neighbour is not a candidate"
     )
     refused = _refuse_environ_of(monkeypatch, neighbour)
@@ -672,81 +960,503 @@ def test_a_live_same_group_sibling_with_matching_comm_and_timing_is_not_kin(
     own pgid, so the sibling is genuinely NOT the fixture's descendant
     despite matching pgid/comm/timing exactly - the live ancestry check now
     excludes it on that basis alone, never reaching the old heuristic.
+
+    Issue #1430: this test's own construction broke its premise under full-
+    file `-n 12` load, measured directly - a "live, non-reparented sibling" is
+    the premise, but captures showed the decoy's own bash dead within a few
+    milliseconds of being spawned, reparenting `sibling_child` to init before
+    the check ran (4 failures in 170 runs, by content distinct from the
+    respawning-child residual below). The exact cause was not pinned down, but
+    the decoy's bash is now held SIGSTOPped for the rest of the test, which
+    removes the window by construction: a stopped process cannot exit, be
+    scheduled, or be reaped by anything. 0 failures in 60 runs since. The
+    sibling_child precondition is still asserted explicitly, right before the
+    check, so a future violation fails as "the decoy broke its premise" and is
+    never misread as the instrument's verdict.
+
+    `leader` puts BOTH `proc` and `sibling` in a group PRIVATE to this test,
+    not the worker-wide one (issue #1430, see `_private_group`): "same group"
+    is this test's own deliberate premise, so it still needs one, just not
+    shared with any other worker's own fixtures.
+    """
+    leader = _private_group()
+    try:
+        tag = uuid.uuid4().hex
+        proc = _fake_daemon(
+            tmp_path, "__supervise_daemon", DEAD_OWNER,
+            body=f"export {KIN_ENV}={tag}\nsleep 300\n", own_group=False,
+            process_group=leader.pid,
+        )
+        sibling: subprocess.Popen | None = None
+        try:
+            fixture = _fixture_of(proc)
+            assert fixture.pgid == leader.pid != proc.pid, (
+                "precondition: the fixture joined the private group, not its own pid"
+            )
+            sibling = _fake_daemon(
+                tmp_path, "__supervise_daemon", DEAD_OWNER,
+                body="sleep 300\n", own_group=False, process_group=leader.pid,
+            )
+            assert os.getpgid(sibling.pid) == leader.pid, (
+                "precondition: the sibling joined the SAME private group as the fixture"
+            )
+            sibling_child, (comm, _ppid, pgid, start, _state) = _execd_child(sibling.pid, "sleep")
+            # Hold the decoy's OWN parent stopped for the rest of this test (issue
+            # #1430, orchestrator-directed): measured live, the decoy's bash
+            # sometimes died on its own within a few milliseconds of this point -
+            # by what exact mechanism was not pinned down, but a STOPPED process
+            # cannot exit, be scheduled, or be reaped by anything, so this removes
+            # the premise-violating window by construction rather than by
+            # diagnosing it further. `sibling_child` stays bash's live descendant;
+            # only bash's own ability to run (and thus to die) is frozen.
+            os.kill(sibling.pid, signal.SIGSTOP)
+            deadline = time.monotonic() + FIXTURE_DEADLINE
+            while (f := _proc_fields(sibling.pid)) is not None and f[0] not in ("T", "t", "Z"):
+                assert time.monotonic() < deadline, "precondition: the decoy's own bash reached stopped state"
+                time.sleep(0.001)
+            assert pgid == fixture.pgid and start >= fixture.start, (
+                "precondition: the sibling's own child matches the OLD heuristic "
+                f"exactly: {(comm, pgid, start)} vs fixture {(fixture.pgid, fixture.start)}"
+            )
+            live_descendants = frozenset(_descendants(fixture.pid))
+            assert sibling_child not in live_descendants, (
+                "precondition: the sibling's child is genuinely not the fixture's descendant"
+            )
+            assert not _could_be_kin(sibling_child, fixture, live_descendants, frozenset()), (
+                "the sibling's child must not be judged kin on pgid/comm/timing alone"
+            )
+
+            refused = _refuse_environ_of(monkeypatch, sibling_child)
+            # Matches `_check_cleanup`'s real order: clean up OUR fixture first,
+            # then check for survivors. Skipping this step would make `_kin`
+            # correctly find `proc` itself still alive and carrying the tag -
+            # a true positive on our own live fixture, not evidence either way
+            # about the sibling.
+            _cleanup(proc)
+            # The premise this test checks, asserted right here rather than assumed
+            # (issue #1430, orchestrator-directed diagnosis): a violated premise -
+            # the decoy itself no longer alive and parented to its own bash - fails
+            # here, distinctly from `_kin`'s verdict below, so a failure can never be
+            # misread as the instrument's fault when the decoy's own construction
+            # broke instead.
+            sibling_fields = _stat(sibling_child)
+            assert sibling_fields is not None and sibling_fields[4] != "Z" and sibling_fields[1] == sibling.pid, (
+                f"precondition: the decoy sibling_child is still alive and parented to "
+                f"its own bash right before the check: {sibling_fields} vs sibling.pid={sibling.pid}"
+            )
+            assert _kin(tag, fixture) == [], (
+                "a genuinely unrelated sibling's unreadable environ must not fail this check"
+            )
+            assert refused == [sibling_child], "precondition: the refusal branch was exercised"
+        finally:
+            try:
+                if proc.poll() is None:
+                    _cleanup(proc)
+            finally:
+                try:
+                    if sibling is not None and sibling.poll() is None:
+                        _cleanup(sibling)
+                finally:
+                    _reap_marked(tag)
+    finally:
+        leader.kill()
+        try:
+            leader.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+
+
+@requires_proc
+def test_an_xdist_sibling_worker_with_unreadable_stat_is_not_kin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Issue #1430, counter-model review: measured directly under full-file
+    `-n 12` load that the pytest CONTROLLER process itself - never a
+    descendant of any fixture - transiently failed `/proc/<pid>/stat` and
+    `/proc/<pid>/environ` both, and the old unconditional "unidentifiable,
+    so possibly ours" fallback judged it kin anyway. A python-shaped
+    throwaway process stands in for that controller/worker shape: not our
+    ancestor, cmdline readable and plainly not the fixture's own script or
+    its forked `sleep`, so it must be ruled out by the cmdline check (the
+    structural ancestor check alone does not cover it - this process is
+    simply unrelated, not upstream of us).
     """
     tag = uuid.uuid4().hex
     proc = _fake_daemon(
         tmp_path, "__supervise_daemon", DEAD_OWNER,
         body=f"export {KIN_ENV}={tag}\nsleep 300\n", own_group=False,
     )
-    sibling: subprocess.Popen | None = None
+    worker: subprocess.Popen | None = None
     try:
         fixture = _fixture_of(proc)
-        sibling = _fake_daemon(
-            tmp_path, "__supervise_daemon", DEAD_OWNER,
-            body="sleep 300\n", own_group=False,
+        worker = subprocess.Popen(["python3", "-c", "import time; time.sleep(5)"])
+        worker_here = worker.pid  # subprocess.Popen(["python3", ...]) execs directly, no bash wrapper
+        deadline = time.monotonic() + FIXTURE_DEADLINE
+        worker_cmdline = _cmdline_of(worker_here)
+        while worker_cmdline is None:  # still between fork() and exec()
+            assert time.monotonic() < deadline, "precondition: the worker's cmdline populated"
+            time.sleep(0.02)
+            worker_cmdline = _cmdline_of(worker_here)
+        assert not _matches_fixture_shape(worker_cmdline, fixture), (
+            "precondition: a python worker's cmdline does not match the fixture's shape"
         )
-        sibling_child, (comm, _ppid, pgid, start) = _execd_child(sibling.pid, "sleep")
-        assert pgid == fixture.pgid and start >= fixture.start, (
-            "precondition: the sibling's own child matches the OLD heuristic "
-            f"exactly: {(comm, pgid, start)} vs fixture {(fixture.pgid, fixture.start)}"
+        own_ancestors = _own_ancestors()
+        assert worker_here not in own_ancestors, "precondition: the worker is not our ancestor"
+        # `_could_be_kin` is exercised DIRECTLY here, not through `_kin`'s own
+        # /proc scan - it never reads environ itself, so only `stat` needs
+        # refusing to reach the branch under test.
+        real_text = Path.read_text
+        stat_path = Path(f"/proc/{worker_here}/stat")
+        stat_refused: list[int] = []
+
+        def read_text(self: Path, *args: object, **kwargs: object) -> str:
+            if self == stat_path:
+                stat_refused.append(worker_here)
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_text(self, *args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(Path, "read_text", read_text)
+        live_descendants = frozenset(_descendants(fixture.pid))
+        assert not _could_be_kin(worker_here, fixture, live_descendants, own_ancestors), (
+            "an unrelated python-shaped sibling must not be judged kin on an "
+            "unreadable stat alone"
+        )
+        assert stat_refused and set(stat_refused) == {worker_here}, (
+            "precondition: the refusal branch was exercised (repeatedly, across the "
+            "UNREADABLE_RESOLVE_DEADLINE retry, issue #1430)"
+        )
+    finally:
+        _cleanup(proc)
+        if worker is not None:
+            worker.kill()
+            worker.wait(timeout=10)
+        _reap_marked(tag)
+
+
+@requires_proc
+def test_an_escaped_descendant_with_unreadable_stat_is_still_kin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Issue #1430's own red case: the instrument must keep catching the
+    leak it exists for. A real fixture descendant whose stat is ALSO
+    refused (on top of environ) must still be judged kin, because its
+    cmdline matches what the fixture's own script actually runs - the
+    positive match, not the structural exclusion, is what keeps this case
+    caught.
+    """
+    tag = uuid.uuid4().hex
+    proc = _fake_daemon(
+        tmp_path, "__supervise_daemon", DEAD_OWNER,
+        body=f"export {KIN_ENV}={tag}\nsleep 300\n", own_group=False,
+    )
+    try:
+        fixture = _fixture_of(proc)
+        child, _fields = _execd_child(proc.pid, "sleep")
+        # `_execd_child` waits only for /proc/<pid>/stat's `comm` to update;
+        # /proc/<pid>/cmdline can still read back empty a moment later - the
+        # same fork/exec race `_cmdline_of` itself documents (#1430).
+        deadline = time.monotonic() + FIXTURE_DEADLINE
+        child_cmdline = _cmdline_of(child)
+        while child_cmdline is None:
+            assert time.monotonic() < deadline, "precondition: the descendant's cmdline populated"
+            time.sleep(0.02)
+            child_cmdline = _cmdline_of(child)
+        assert _matches_fixture_shape(child_cmdline, fixture), (
+            "precondition: the real descendant's cmdline matches the fixture's own script"
+        )
+        own_ancestors = _own_ancestors()
+        assert child not in own_ancestors, "precondition: a descendant cannot be our ancestor"
+        # `_could_be_kin` is exercised DIRECTLY here, not through `_kin`'s own
+        # /proc scan - it never reads environ itself, so only `stat` needs
+        # refusing to reach the branch under test.
+        real_text = Path.read_text
+        stat_path = Path(f"/proc/{child}/stat")
+        stat_refused: list[int] = []
+
+        def read_text(self: Path, *args: object, **kwargs: object) -> str:
+            if self == stat_path:
+                stat_refused.append(child)
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_text(self, *args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(Path, "read_text", read_text)
+        live_descendants = frozenset(_descendants(fixture.pid))
+        assert _could_be_kin(child, fixture, live_descendants, own_ancestors), (
+            "a real escaped descendant matching the fixture's own script must "
+            "still be judged kin, even with stat also unreadable"
+        )
+        assert stat_refused and set(stat_refused) == {child}, (
+            "precondition: the refusal branch was exercised (repeatedly, across the "
+            "UNREADABLE_RESOLVE_DEADLINE retry, issue #1430)"
+        )
+    finally:
+        _cleanup(proc)
+        _reap_marked(tag)
+
+
+@requires_proc
+def test_a_killed_but_unreaped_zombie_child_is_not_kin(tmp_path: Path) -> None:
+    """Issue #1430's kill-reliability residual, measured directly under
+    full-file `-n 12` load: `_kill_subtree` SIGSTOPs the bash parent (so it
+    can neither fork a replacement nor reap one) before SIGKILLing its
+    children, then SIGKILLs the still-stopped parent itself - so the parent
+    never runs its own `wait()` and the dead child's zombie is left for its
+    new reaper (init, once the parent dies, or us meanwhile) to collect.
+    Caught live twice: a zombie `sleep`, `ppid` already 1, `pgid`/`start`
+    matching the fixture EXACTLY - genuinely its own former child, already
+    killed, not a live escapee - judged `_could_be_kin` anyway because
+    neither `_stat` nor the ppid==1 bypass had ever looked at `state`. The
+    happy path already excludes a zombie via `pid_alive`; this pins the
+    same exclusion for the unreadable-environ path, which never had it.
+
+    Built deterministically rather than raced against init's own reap
+    timing: SIGSTOP the parent directly (so it cannot reap its child at
+    all, no matter how this process schedules), SIGKILL the child, and
+    assert the zombie persists under that stopped parent - not yet
+    reparented to init, so this measures `_could_be_kin`'s own state check
+    in isolation from reparenting timing, which the live captures above
+    already established independently.
+    """
+    tag = uuid.uuid4().hex
+    proc = _fake_daemon(
+        tmp_path, "__supervise_daemon", DEAD_OWNER,
+        body=f"export {KIN_ENV}={tag}\nsleep 300\n", own_group=False,
+    )
+    try:
+        fixture = _fixture_of(proc)
+        child, _fields = _execd_child(proc.pid, "sleep")
+        os.kill(proc.pid, signal.SIGSTOP)
+        deadline = time.monotonic() + FIXTURE_DEADLINE
+        while True:
+            parent_fields = _stat(proc.pid)
+            assert parent_fields is not None, "precondition: the parent is still running"
+            if parent_fields[4] in ("T", "t"):
+                break
+            assert time.monotonic() < deadline, "precondition: the parent reached stopped state"
+            time.sleep(0.001)
+        os.kill(child, signal.SIGKILL)
+        zombie_fields = None
+        while time.monotonic() < deadline:
+            zombie_fields = _stat(child)
+            if zombie_fields is not None and zombie_fields[4] == "Z":
+                break
+            time.sleep(0.001)
+        assert zombie_fields is not None and zombie_fields[4] == "Z", (
+            f"precondition: the killed child settled to a zombie, not reaped by its "
+            f"stopped parent: {zombie_fields}"
+        )
+        assert zombie_fields[1] == proc.pid, (
+            "precondition: the zombie is still parented to the stopped bash, not yet "
+            f"reparented - isolates the state check from reparenting timing: {zombie_fields}"
+        )
+        assert zombie_fields[2] == fixture.pgid and zombie_fields[3] >= fixture.start, (
+            "precondition: the zombie still matches the fixture's own pgid/start exactly, "
+            f"as measured live: {zombie_fields} vs fixture {(fixture.pgid, fixture.start)}"
         )
         live_descendants = frozenset(_descendants(fixture.pid))
-        assert sibling_child not in live_descendants, (
-            "precondition: the sibling's child is genuinely not the fixture's descendant"
+        assert not _could_be_kin(child, fixture, live_descendants, frozenset()), (
+            "a killed-but-not-yet-reaped zombie must not be judged a live survivor, "
+            "even though its ppid, pgid, comm and start all still match the fixture"
         )
-        assert not _could_be_kin(sibling_child, fixture, live_descendants), (
-            "the sibling's child must not be judged kin on pgid/comm/timing alone"
-        )
-
-        refused = _refuse_environ_of(monkeypatch, sibling_child)
-        # Matches `_check_cleanup`'s real order: clean up OUR fixture first,
-        # then check for survivors. Skipping this step would make `_kin`
-        # correctly find `proc` itself still alive and carrying the tag -
-        # a true positive on our own live fixture, not evidence either way
-        # about the sibling.
-        _cleanup(proc)
-        assert _kin(tag, fixture) == [], (
-            "a genuinely unrelated sibling's unreadable environ must not fail this check"
-        )
-        assert refused == [sibling_child], "precondition: the refusal branch was exercised"
     finally:
         try:
-            if proc.poll() is None:
-                _cleanup(proc)
-        finally:
-            try:
-                if sibling is not None and sibling.poll() is None:
-                    _cleanup(sibling)
-            finally:
-                _reap_marked(tag)
+            os.kill(proc.pid, signal.SIGCONT)
+        except OSError:
+            pass
+        _cleanup(proc)
+        _reap_marked(tag)
+
+
+@requires_proc
+def test_a_candidate_unreadable_at_first_then_gone_is_not_kin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Issue #1430 (orchestrator-directed): a candidate refused at first -
+    stat AND cmdline both - that genuinely exits before the retry window
+    closes must resolve to NOT kin, not to a snapshot of the first, transient
+    refusal. Red on the pre-retry code: judging the first read alone fell to
+    "unidentifiable even by cmdline: conservatively possibly ours" and
+    returned kin for a process later provably gone - exactly the shape of
+    the two live captures that motivated `_resolve_stat`'s longer window
+    (one candidate's own pid lower than the fixture's, settling to fully
+    GONE moments after the first EACCES).
+    """
+    tag = uuid.uuid4().hex
+    proc = _fake_daemon(
+        tmp_path, "__supervise_daemon", DEAD_OWNER,
+        body=f"export {KIN_ENV}={tag}\nsleep 300\n", own_group=False,
+    )
+    target = subprocess.Popen(["sleep", "5"])
+    try:
+        fixture = _fixture_of(proc)
+        target.kill()
+        stat_path = Path(f"/proc/{target.pid}/stat")
+        cmdline_path = Path(f"/proc/{target.pid}/cmdline")
+        real_text = Path.read_text
+        real_bytes = Path.read_bytes
+        # Refused for well under UNREADABLE_RESOLVE_DEADLINE, then heals to a
+        # real read - by which point `target` (already killed above) is
+        # genuinely gone or a zombie, never a clean "still running" read.
+        refuse_until = time.monotonic() + 0.15
+
+        def read_text(self: Path, *args: object, **kwargs: object) -> str:
+            if self == stat_path and time.monotonic() < refuse_until:
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_text(self, *args, **kwargs)  # type: ignore[arg-type]
+
+        def read_bytes(self: Path, *args: object, **kwargs: object) -> bytes:
+            if self == cmdline_path and time.monotonic() < refuse_until:
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_bytes(self, *args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(Path, "read_text", read_text)
+        monkeypatch.setattr(Path, "read_bytes", read_bytes)
+        live_descendants = frozenset(_descendants(fixture.pid))
+        assert not _could_be_kin(target.pid, fixture, live_descendants, frozenset()), (
+            "a candidate refused at first, then genuinely gone, must not be judged kin"
+        )
+    finally:
+        target.kill()
+        try:
+            target.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+        _cleanup(proc)
+        _reap_marked(tag)
+
+
+@requires_proc
+def test_own_ancestors_never_contains_a_freshly_spawned_fixtures_pid(tmp_path: Path) -> None:
+    """Issue #1430: the structural exclusion cannot misfire on a real fixture
+    by construction - a fixture is a NEW CHILD this test spawns, so it can
+    never appear in this test's own ancestor chain (which only walks
+    upward: xdist worker, controller, shell, ...). Pinned directly rather
+    than inferred, since a bug here would silently exclude every real
+    fixture from ever being judged kin.
+    """
+    tag = uuid.uuid4().hex
+    proc = _fake_daemon(
+        tmp_path, "__supervise_daemon", DEAD_OWNER,
+        body=f"export {KIN_ENV}={tag}\nsleep 300\n", own_group=False,
+    )
+    try:
+        fixture = _fixture_of(proc)
+        child, _fields = _execd_child(proc.pid, "sleep")
+        own_ancestors = _own_ancestors()
+        assert fixture.pid not in own_ancestors, (
+            "a freshly spawned fixture must never appear in our own ancestor chain"
+        )
+        assert child not in own_ancestors, (
+            "a fixture's own descendant must never appear in our own ancestor chain"
+        )
+    finally:
+        _cleanup(proc)
+        _reap_marked(tag)
+
+
+@requires_proc
+def test_own_ancestors_exhausting_its_retries_shortens_rather_than_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #1430: bounded retry (3 attempts, 10ms apart) on the walk's own
+    EACCES, per the orchestrator's question - and on exhaustion, the walk
+    stops ONE HOP SHORT rather than raising. A shorter chain is the safe
+    failure direction here: it makes the structural exclusion MISS a real
+    ancestor (falling through to the conservative cmdline-or-possibly-ours
+    path for that candidate, same as today), never WRONGLY excludes
+    something that is not actually an ancestor.
+    """
+    parent = os.getppid()
+    grandparent_fields = _stat(parent)
+    assert grandparent_fields is not None, "precondition: the parent's own stat is readable"
+    grandparent = grandparent_fields[1]
+    real_text = Path.read_text
+    stat_path = Path(f"/proc/{parent}/stat")
+    attempts: list[float] = []
+
+    def read_text(self: Path, *args: object, **kwargs: object) -> str:
+        if self == stat_path:
+            attempts.append(time.monotonic())
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_text(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    own_ancestors = _own_ancestors()  # must not raise
+    assert os.getpid() in own_ancestors, "the walk's own starting pid is always included"
+    # `parent` is already KNOWN to be a real ancestor from the PREVIOUS hop
+    # (our own pid's own ppid field, read before `parent`'s stat is ever
+    # touched) - it stays included. What the retry exhaustion stops is
+    # extending PAST it: `parent`'s own ppid cannot be read, so the
+    # grandparent is never reached, guessed, or included.
+    assert parent in own_ancestors, "the last hop confirmed via the previous pid's ppid stays in"
+    assert grandparent not in own_ancestors, (
+        "the chain stops short at the pid whose own stat could not be read, "
+        "rather than guessing past it"
+    )
+    assert len(attempts) == 3, f"expected exactly 3 bounded attempts, got {len(attempts)}"
+    gaps = [b - a for a, b in zip(attempts, attempts[1:])]
+    assert all(gap >= 0.008 for gap in gaps), (
+        f"expected ~10ms between retries, got gaps {gaps}"
+    )
 
 
 @requires_proc
 def test_an_unidentifiable_unreadable_process_fails_the_cleanup_check(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Environ refused AND stat unreadable (not gone): unobserved, so the check fails.
+    """Environ, stat AND cmdline all refused, on a process that is not our
+    ancestor: unobserved by every means, so the check fails.
 
-    Before, any stat failure read as "not a candidate", and the scan skipped a
-    process it could neither read nor identify (counter-model review).
+    Before #1347's fix, any stat failure read as "not a candidate" (the scan
+    skipped a process it could neither read nor identify). Before #1430,
+    this test used `os.getppid()` as its target - which IS an ancestor of
+    the calling process, so #1430's structural exclusion now rules that
+    case out WITHOUT reaching this fallback at all, no longer testing the
+    truly-unidentifiable residual. A throwaway, unrelated subprocess - not
+    an ancestor, not a descendant, no relation to the fixture - keeps this
+    test aimed at what the conservative fallback still exists for.
     """
-    neighbour = os.getppid()
-    here = _stat(os.getpid())
-    assert here is not None
-    fixture = _Fixture(os.getpid(), here[2], here[3] + 1)
-    refused = _refuse_environ_of(monkeypatch, neighbour)
-    real_text = Path.read_text
-    stat_path = Path(f"/proc/{neighbour}/stat")
+    target = subprocess.Popen(["sleep", "5"])
+    try:
+        here = _stat(os.getpid())
+        assert here is not None
+        fixture = _Fixture(os.getpid(), here[2], here[3] + 1, "", "")
+        assert target.pid not in _own_ancestors(), "precondition: target is not our ancestor"
+        real_text = Path.read_text
+        real_bytes = Path.read_bytes
+        stat_path = Path(f"/proc/{target.pid}/stat")
+        environ_path = Path(f"/proc/{target.pid}/environ")
+        cmdline_path = Path(f"/proc/{target.pid}/cmdline")
+        refused: list[str] = []
 
-    def read_text(self: Path, *args: object, **kwargs: object) -> str:
-        if self == stat_path:
-            raise PermissionError(13, "Permission denied", str(self))
-        return real_text(self, *args, **kwargs)  # type: ignore[arg-type]
+        def read_text(self: Path, *args: object, **kwargs: object) -> str:
+            if self == stat_path:
+                refused.append("stat")
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_text(self, *args, **kwargs)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(Path, "read_text", read_text)
-    with pytest.raises(pytest.fail.Exception, match="could not read pid"):
-        _kin(uuid.uuid4().hex, fixture)
-    assert refused == [neighbour], "precondition: the refusal branch was actually exercised"
+        def read_bytes(self: Path) -> bytes:
+            if self in (environ_path, cmdline_path):
+                refused.append(self.name if self != environ_path else "environ")
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_bytes(self)
+
+        monkeypatch.setattr(Path, "read_text", read_text)
+        monkeypatch.setattr(Path, "read_bytes", read_bytes)
+        # Matched on THIS target's own pid, not the bare phrase (issue #1430):
+        # an ambient, unrelated transient EACCES elsewhere in /proc during the
+        # scan could ALSO raise "could not read pid <other>'s environment",
+        # which would satisfy a bare-phrase match without this test's own
+        # refusal ever having fired - exactly the imprecision #1430 is about,
+        # now inside this test's own assertion.
+        with pytest.raises(pytest.fail.Exception, match=f"could not read pid {target.pid}"):
+            _kin(uuid.uuid4().hex, fixture)
+        assert "stat" in refused and "environ" in refused and "cmdline" in refused, (
+            f"precondition: all three refusal branches were actually exercised: {refused}"
+        )
+    finally:
+        target.kill()
+        target.wait(timeout=10)
 
 
 @requires_proc
@@ -768,14 +1478,19 @@ def test_an_unreadable_process_of_ours_fails_the_cleanup_check(
         # Asserted from the raw stat fields, NOT through `_could_be_kin`: a
         # precondition that called the rule under test could not show the rule
         # being wrong, only itself failing.
-        child, (comm, _ppid, pgid, start) = _execd_child(proc.pid, "sleep")
+        child, (comm, _ppid, pgid, start, _state) = _execd_child(proc.pid, "sleep")
         assert pgid == fixture.pgid and start >= fixture.start, (
             "precondition: the child shares the fixture's group and started after it: "
             f"{(comm, pgid, start)} vs fixture {(fixture.pgid, fixture.start)}"
         )
         refused = _refuse_environ_of(monkeypatch, child)
 
-        with pytest.raises(pytest.fail.Exception, match="could not read pid"):
+        # Matched on THIS child's own pid, not the bare phrase (issue #1430):
+        # an ambient, unrelated transient EACCES elsewhere in /proc during the
+        # scan could ALSO raise "could not read pid <other>'s environment",
+        # satisfying a bare-phrase match without this test's own refusal
+        # having fired at all.
+        with pytest.raises(pytest.fail.Exception, match=f"could not read pid {child}"):
             _kin(tag, fixture)
         assert refused, "precondition: the refusal branch was actually exercised"
     finally:
