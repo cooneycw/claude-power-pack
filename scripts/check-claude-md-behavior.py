@@ -86,12 +86,14 @@ GENERATED_DOCS_DIR = "docs"
 BUNDLER = "scripts/codex-skill-sync.py"
 
 
-def _bundler_is_managed(root: Path):
-    """The bundler's own managed-skill predicate, imported rather than restated.
+def _load_bundler(root: Path):
+    """Import `scripts/codex-skill-sync.py` itself, or None if it cannot be.
 
-    A second copy of that rule here could drift from the one that actually writes the
-    files. If it cannot be imported, every candidate fails closed: an unverifiable
-    copy is reported, never waved through.
+    Both `is_managed` (the managed-skill predicate) and `PROVENANCE_NAME`
+    (the generated filename, issue #1408) are read from this ONE import -
+    a second copy of either here could drift from the one that actually
+    writes the files. If the module cannot be imported, every caller fails
+    closed: an unverifiable candidate is reported, never waved through.
     """
     script = root / BUNDLER
     if not script.is_file():
@@ -104,7 +106,7 @@ def _bundler_is_managed(root: Path):
         spec.loader.exec_module(module)
     except Exception:
         return None
-    return getattr(module, "is_managed", None)
+    return module
 
 
 def _canonical_source(path: Path, root: Path) -> Path | None:
@@ -133,6 +135,30 @@ def is_verified_generated_doc(path: Path, root: Path, is_managed) -> bool:
         return path.read_bytes() == source.read_bytes()
     except OSError:
         return False
+
+
+def is_verified_provenance_note(path: Path, root: Path, is_managed, provenance_name: str | None) -> bool:
+    """True for a managed skill's own mirror-provenance note (issue #1408).
+
+    `PROVENANCE.md`'s entire content is generator-ASSEMBLED filename
+    bullets - never free prose a human writes - so it cannot restate
+    lifecycle policy in the way this check exists to catch, even when one
+    of the bundled paths it names happens to BE
+    `docs/agents/knowledge-lifecycle.md` (a real, separately-verified
+    distribution under the same skill, via `is_verified_generated_doc`
+    above). `codex-skills-check` (the DRIFT/MISSING/STALE gate) already
+    verifies this file's bytes against what the generator produces; this is
+    recognition of that existing guarantee, not a second one - which is why
+    it checks only the FILENAME (read from the bundler, never hardcoded a
+    second time) and that the enclosing skill is managed, not the bytes.
+    """
+    if is_managed is None or not provenance_name or path.name != provenance_name:
+        return False
+    try:
+        skill_dir = root.joinpath(*SKILLS_ROOT, path.relative_to(root.joinpath(*SKILLS_ROOT)).parts[0])
+    except ValueError:
+        return False
+    return is_managed(skill_dir)
 
 
 COMMAND_RE = re.compile(r"(?<![\w/])/(?:[a-z0-9-]+):(?:[a-z0-9_-]+)")
@@ -212,13 +238,19 @@ def check_tree(root: Path) -> list[Finding]:
     ]
 
     policy_roots = (root / ".claude" / "commands", root / ".claude" / "skills", root / "codex" / "skills")
-    is_managed = _bundler_is_managed(root)
+    bundler = _load_bundler(root)
+    is_managed = getattr(bundler, "is_managed", None) if bundler is not None else None
+    provenance_name = getattr(bundler, "PROVENANCE_NAME", None) if bundler is not None else None
     for policy_root in policy_roots:
         if not policy_root.is_dir():
             continue
         for path in sorted(policy_root.rglob("*.md")):
             # Verified distribution of a canonical document, not a second policy.
             if is_verified_generated_doc(path, root, is_managed):
+                continue
+            # The generated provenance note itself (issue #1408) - a filename
+            # listing, never free prose that could restate policy.
+            if is_verified_provenance_note(path, root, is_managed, provenance_name):
                 continue
             source = path.read_text(encoding="utf-8").casefold()
             relative = str(path.relative_to(root))

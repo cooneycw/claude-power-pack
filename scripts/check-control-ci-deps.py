@@ -944,7 +944,23 @@ def requirements(root: Path, control_dir: Path, binary_gate) -> tuple[set[str], 
     effective = command or shebang
     if command is None and shebang:
         needed.add(shebang)
-    if effective in {"sh", "bash"}:
+    # `effective` NAMES THE WRAPPER'S INTERPRETER, NOT NECESSARILY WHAT THE
+    # GATE IS WRITTEN IN (issue #1408 fallout). A wrapper shaped
+    # `["sh", "run-case.sh", "{case}", "{gate}"]` hands `{gate}`'s PATH to
+    # `run-case.sh` as a plain string argument - `sh` never sources or
+    # executes it as shell. `codex-skill-sync-network-detector` et al. pass
+    # that path into a NESTED `python3 -` heredoc that `importlib`-loads it
+    # as a Python MODULE, so scanning it with the shell-oriented
+    # `binaries_in_script` matched prose and string literals inside that
+    # Python source (`NETWORK_BULLET`'s "... \`curl\`, \`aws\` ...", the old
+    # `_NET_PY`/`_NET_SH` regex patterns) as if they were real command
+    # invocations - a false positive of the EXACT class #1408 itself fixed
+    # in the gate's own network-call detector, now reproduced one layer up
+    # in THIS checker. A `.py` gate is never valid shell input, so it is
+    # never scanned as shell, regardless of what wraps it; a `.sh` gate
+    # genuinely sourced or executed by that wrapper (install-drift.sh,
+    # flow-wave-registry.sh) is unaffected.
+    if effective in {"sh", "bash"} and gate.suffix != ".py":
         needed |= set(binary_gate.binaries_in_script(gate))
 
     # A WRAPPER's OWN needs are ADDED to the gate's, never substituted for

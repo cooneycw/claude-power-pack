@@ -115,6 +115,25 @@ PROBES = (
     ),
 )
 
+#: The GENERATED MIRROR's own probe set, overriding exactly one entry (issue
+#: #1408 bullet 4). The source surface legitimately keeps the convenience-
+#: install absolute path `~/.claude/scripts/nit-store-resolve.sh` literally -
+#: that is what a human or Claude session reads, where `~/.claude/scripts`
+#: resolves. The generated bundle is correctly rewritten to the bundled
+#: relative path `scripts/nit-store-resolve.sh` (the exact bug #1408 bullet 4
+#: fixed: an unremapped absolute path in a Codex-only install hits exit 127,
+#: since there is no `~/.claude/scripts/` there) - so the MIRROR satisfies the
+#: same INTENT ("calls the shared resolver") through different literal text,
+#: and needs a probe that accepts either form.
+MIRROR_PROBES = tuple(
+    (
+        ("calls the shared resolver", re.compile(r"(?:~/\.claude/scripts/|scripts/)nit-store-resolve\.sh"))
+        if name == "calls the shared resolver"
+        else (name, pattern)
+    )
+    for name, pattern in PROBES
+)
+
 
 def _section(text: str) -> str:
     """The nit-store step only, so a probe cannot match unrelated prose elsewhere."""
@@ -180,7 +199,7 @@ def test_generated_codex_bundle_carries_the_step(surface: Path, mirror: Path) ->
     """
     assert mirror.is_file(), f"{mirror} is missing"
     mirrored = _section(mirror.read_text())
-    for name, pattern in PROBES:
+    for name, pattern in MIRROR_PROBES:
         assert pattern.search(mirrored), (
             f"{mirror.relative_to(ROOT)} no longer {name} - "
             "run `python3 scripts/codex-skill-sync.py --write`"
@@ -203,6 +222,21 @@ def test_probes_are_not_vacuous() -> None:
         survivors = [name for name, pattern in PROBES if pattern.search(stripped)]
         assert not survivors, (
             f"{surface.name}: probes match outside the nit-store section, so they "
+            f"prove nothing about it: {survivors}"
+        )
+
+
+def test_mirror_probes_are_not_vacuous() -> None:
+    """The same positive control, for `MIRROR_PROBES` against the mirrors."""
+    for mirror in MIRRORS.values():
+        text = mirror.read_text()
+        stripped = re.sub(
+            r"^###[^\n]*Nit Store[^\n]*$.*?(?=^### |\Z)", "", text, flags=re.M | re.S
+        )
+        assert stripped != text, f"control removed nothing from {mirror.name}"
+        survivors = [name for name, pattern in MIRROR_PROBES if pattern.search(stripped)]
+        assert not survivors, (
+            f"{mirror.name}: probes match outside the nit-store section, so they "
             f"prove nothing about it: {survivors}"
         )
 
