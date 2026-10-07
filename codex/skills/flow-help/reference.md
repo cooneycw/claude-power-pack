@@ -91,10 +91,15 @@ gates:
 suppressions:
   - id: HARDCODED_SECRET       # Finding type to suppress
     path: tests/fixtures/.*    # Regex for file path (optional)
+    secret: 'AKIA[A-Z0-9]{16}' # Regex for the exact value (optional)
     reason: "Test fixtures with fake credentials"
 ```
 
 If no `.claude/security.yml` exists, the defaults above are used. If `lib/security` is not available, the gate is skipped with a warning.
+
+This gate does not read `.gitleaks.toml`; a canary declared in that file's
+own allowlist is recognized there only - a second copy of the same canary
+elsewhere needs its own `secret:` suppression (issue #1405, `/security-help`).
 
 ## Conventions
 

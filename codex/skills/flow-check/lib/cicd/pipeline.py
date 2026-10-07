@@ -367,6 +367,23 @@ def generate_woodpecker(info: FrameworkInfo, config: CICDConfig) -> str:
     return "\n".join(lines)
 
 
+#: Metadata-only gitleaks report template (issue #1405, matching #1288's own
+#: fix to CPP's secret-scan-check.sh / .gitleaks-findings.tmpl). `--verbose`
+#: prints each finding's Match and Secret, and `--redact` alone cannot make
+#: that safe: it masks only a finding's OWN secret, so a value sitting inside
+#: ANOTHER rule's match still prints in full. So the generated step is never
+#: given `--verbose` at all - it renders rule/file/line through this template
+#: instead, piped to `--report-path -` so nothing touches disk as a file an
+#: unrelated step could read.
+_GITLEAKS_FINDINGS_TEMPLATE = (
+    "{{- range . }}RuleID: {{ .RuleID }}\n"
+    "File: {{ .File }}\n"
+    "Line: {{ .StartLine }}\n"
+    "\n"
+    "{{ end -}}"
+)
+
+
 def _woodpecker_secret_scan_step(gitleaks_config: str) -> list[str]:
     """Emit a gitleaks secret-scan stage (self-hosted CI has none natively).
 
@@ -376,16 +393,24 @@ def _woodpecker_secret_scan_step(gitleaks_config: str) -> list[str]:
     """
     detect = (
         f'if [ -f "{gitleaks_config}" ]; then '
-        f'gitleaks detect --source . --config "{gitleaks_config}" --verbose; '
-        f"else gitleaks detect --source . --verbose; fi"
+        f'gitleaks detect --source . --config "{gitleaks_config}" --redact '
+        f"--report-format template --report-template .gitleaks-findings.tmpl --report-path -; "
+        f"else gitleaks detect --source . --redact "
+        f"--report-format template --report-template .gitleaks-findings.tmpl --report-path -; fi"
     )
-    return [
+    lines = [
         "  - name: secret-scan",
         "    image: zricethezav/gitleaks:v8.30.1",
         "    commands:",
-        f"      - {detect}",
-        "",
+        "      - |",
+        "        cat > .gitleaks-findings.tmpl <<'TMPL'",
     ]
+    for line in _GITLEAKS_FINDINGS_TEMPLATE.split("\n"):
+        lines.append(f"        {line}" if line else "")
+    lines.append("        TMPL")
+    lines.append(f"      - {detect}")
+    lines.append("")
+    return lines
 
 
 def _woodpecker_image_security_step() -> list[str]:

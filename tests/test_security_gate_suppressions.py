@@ -52,6 +52,19 @@ NO_YAML = (
     "runpy.run_module('lib.security', run_name='__main__')\n"
 )
 
+#: Blocks `import tomllib`, exactly as a pre-3.11 host python3 does (issue #1405).
+NO_TOMLLIB = (
+    "import sys\n"
+    "class _Block:\n"
+    "    def find_spec(self, name, path=None, target=None):\n"
+    "        if name == 'tomllib' or name.startswith('tomllib.'):\n"
+    "            raise ImportError('No module named tomllib (blocked by test)')\n"
+    "sys.meta_path.insert(0, _Block())\n"
+    "import runpy\n"
+    "sys.argv = ['lib.security', *sys.argv[1:]]\n"
+    "runpy.run_module('lib.security', run_name='__main__')\n"
+)
+
 
 def _repo(tmp_path: Path, files: dict[str, str], config: str | None = None) -> Path:
     repo = tmp_path / "repo"
@@ -68,12 +81,21 @@ def _repo(tmp_path: Path, files: dict[str, str], config: str | None = None) -> P
 
 
 def _gate(
-    repo: Path, *, without_yaml: bool = False, gate_name: str = "flow_finish"
+    repo: Path,
+    *,
+    without_yaml: bool = False,
+    without_tomllib: bool = False,
+    gate_name: str = "flow_finish",
 ) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
     env["PYTHONPATH"] = str(ROOT)
     argv = ["gate", gate_name, "--path", str(repo)]
-    cmd = [sys.executable, "-c", NO_YAML, *argv] if without_yaml else [sys.executable, "-m", "lib.security", *argv]
+    if without_yaml:
+        cmd = [sys.executable, "-c", NO_YAML, *argv]
+    elif without_tomllib:
+        cmd = [sys.executable, "-c", NO_TOMLLIB, *argv]
+    else:
+        cmd = [sys.executable, "-m", "lib.security", *argv]
     return subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=ROOT)
 
 
@@ -355,6 +377,126 @@ def test_the_value_match_is_bound_to_the_declared_value_not_the_whole_file(
     assert ".claude/security.yml" in result.stdout
     assert "[HARDCODED_SECRET]" in result.stdout, result.stdout
     assert OTHER not in result.stdout + result.stderr
+
+
+GITLEAKS_ALLOWLIST = f"""[extend]
+useDefault = true
+
+[allowlist]
+  regexes = [
+    '''{CANARY}''',
+  ]
+"""
+
+
+def test_a_canary_declared_in_gitleaks_own_allowlist_is_exempt_there(tmp_path: Path) -> None:
+    """Issue #1405 item (d), RED pre-fix.
+
+    `.gitleaks.toml` is a security-policy file in the same class as
+    `.claude/security.yml`: a repository that plants a value as gitleaks'
+    OWN allowlisted canary (a literal regex entry that happens to look like a
+    secret) had no way to tell CPP's native scanner that fact, so the same
+    canary blocked `lib.security gate` even though gitleaks itself was told
+    to ignore it.
+    """
+    repo = _repo(tmp_path, {".gitleaks.toml": GITLEAKS_ALLOWLIST})
+    result = _gate(repo, gate_name="flow_finish")
+    assert " PASS " in _line(result), result.stdout
+    assert "AWS_ACCESS_KEY" not in result.stdout
+
+
+def test_the_gitleaks_exemption_does_not_leak_to_other_files(tmp_path: Path) -> None:
+    """NEGATIVE CONTROL: the same canary in an ORDINARY source file still
+
+    blocks (issue #1405 orchestrator ruling). The exemption is bound to
+    findings located IN `.gitleaks.toml` itself.
+    """
+    repo = _repo(
+        tmp_path,
+        {
+            ".gitleaks.toml": GITLEAKS_ALLOWLIST,
+            "src/app.py": f'KEY = "{CANARY}"\n',
+        },
+    )
+    result = _gate(repo, gate_name="flow_finish")
+    assert " FAIL " in _line(result), result.stdout
+    assert "src/app.py" in result.stdout
+    assert "[AWS_ACCESS_KEY]" in result.stdout
+
+
+def test_the_gitleaks_exemption_is_bound_to_declared_literals(tmp_path: Path) -> None:
+    """A DIFFERENT, undeclared secret-shaped value elsewhere in the SAME
+
+    `.gitleaks.toml` - not inside an allowlist array - must still block: the
+    widening exempts declared literal text, not the whole file (issue #1405).
+    """
+    toml_text = GITLEAKS_ALLOWLIST + f'  description = "see {OTHER}"\n'
+    repo = _repo(tmp_path, {".gitleaks.toml": toml_text})
+    result = _gate(repo, gate_name="flow_finish")
+    assert " FAIL " in _line(result), result.stdout
+    assert ".gitleaks.toml" in result.stdout
+    assert "[AWS_ACCESS_KEY]" in result.stdout
+    assert OTHER not in result.stdout + result.stderr
+
+
+def test_a_malformed_gitleaks_toml_fails_closed(tmp_path: Path) -> None:
+    """An unparsable `.gitleaks.toml` exempts nothing - fails closed, same as
+
+    a missing `.claude/security.yml` leaves nothing to exempt (issue #1405).
+    Never a crash, never a silent pass.
+    """
+    malformed = "[allowlist\n  regexes = [ '''" + CANARY + "''' ]\n"
+    repo = _repo(tmp_path, {".gitleaks.toml": malformed})
+    result = _gate(repo, gate_name="flow_finish")
+    assert " FAIL " in _line(result), result.stdout
+    assert "[AWS_ACCESS_KEY]" in result.stdout
+
+
+def test_a_gitleaks_toml_with_an_oversized_integer_fails_closed(tmp_path: Path) -> None:
+    """Counter-model review (codex): a decimal integer literal past Python's
+
+    int-to-str conversion limit makes `tomllib.loads` raise `ValueError`, not
+    `tomllib.TOMLDecodeError` - an exception class the original except clause
+    did not list, which crashed the whole security scan over one unrelated
+    TOML value instead of failing closed (issue #1405).
+    """
+    toml_text = "x = " + "9" * 5000 + "\n"
+    repo = _repo(tmp_path, {".gitleaks.toml": toml_text, "src/app.py": f'KEY = "{CANARY}"\n'})
+    result = _gate(repo, gate_name="flow_finish")
+    assert "Traceback" not in result.stderr, result.stderr
+    assert " FAIL " in _line(result), result.stdout
+    assert "[AWS_ACCESS_KEY]" in result.stdout
+
+
+def test_a_gitleaks_toml_with_deeply_nested_arrays_fails_closed(tmp_path: Path) -> None:
+    """Counter-model review (codex): arrays nested past the interpreter's
+
+    recursion limit make `tomllib.loads` raise `RecursionError`, also not
+    `tomllib.TOMLDecodeError` (issue #1405).
+    """
+    toml_text = "x = " + "[" * 2000 + "]" * 2000 + "\n"
+    repo = _repo(tmp_path, {".gitleaks.toml": toml_text, "src/app.py": f'KEY = "{CANARY}"\n'})
+    result = _gate(repo, gate_name="flow_finish")
+    assert "Traceback" not in result.stderr, result.stderr
+    assert " FAIL " in _line(result), result.stdout
+    assert "[AWS_ACCESS_KEY]" in result.stdout
+
+
+def test_a_pre_311_host_without_tomllib_fails_closed_not_crashed(tmp_path: Path) -> None:
+    """RED pre-fix (issue #1405). `lib.security gate` is invoked as a bare
+
+    `python3 -m lib.security gate ...` inside an arbitrary target repo, not
+    only under CPP's own 3.11+ venv (`lib/cicd/mypy_scope.py`'s own
+    precedent: "the host python3 may predate that"). An unguarded module-
+    level `import tomllib` crashed the WHOLE security scan on such a host -
+    never a traceback, and the canary still blocks (today's behaviour before
+    this feature existed).
+    """
+    repo = _repo(tmp_path, {".gitleaks.toml": GITLEAKS_ALLOWLIST})
+    result = _gate(repo, without_tomllib=True, gate_name="flow_finish")
+    assert "Traceback" not in result.stderr, result.stderr
+    assert " FAIL " in _line(result), result.stdout
+    assert "[AWS_ACCESS_KEY]" in result.stdout
 
 
 def test_the_hint_yaml_survives_an_apostrophe_in_the_path(tmp_path: Path) -> None:

@@ -101,15 +101,31 @@ gates:
 # Each entry must have an 'id' matching the finding type.
 # 'path' is an optional regex - if provided, only findings in matching
 # files are suppressed. 'reason' documents why the suppression exists.
+# 'secret' is an optional exact-value regex (fullmatch) - if provided, only
+# a finding whose matched value matches it is suppressed, regardless of id:
+# a real key committed beside a planted canary still blocks (issue #1299,
+# #1405). Omitting it suppresses every finding of that id at that path.
 suppressions:
   - id: HARDCODED_SECRET         # Finding type (from /security:explain)
     path: tests/fixtures/.*      # Only suppress in test fixtures
+    secret: 'AKIA[A-Z0-9]{16}'   # Exact value this suppression covers
     reason: "Test fixtures with fake credentials"
 
   - id: DEBUG_FLAG_ENABLED
     path: docs/examples/.*
     reason: "Example code intentionally shows debug configuration"
 ```
+
+### A `.gitleaks.toml` canary is not automatically exempt elsewhere
+
+This gate does not read `.gitleaks.toml` and never applies its allowlist to
+your source files - the two tools are independent (issue #935). The one
+exception: a finding located IN `.gitleaks.toml` itself, whose matched text is
+a literal that file's OWN allowlist already declares, is recognized there -
+the policy file stating its own canary (issue #1405). That does not reach a
+*second* copy of the same canary elsewhere, such as a gitleaks fixture file
+under `controls/` or `tests/`: suppress that one explicitly with a `secret:`
+entry, the same mechanism as any other planted test value.
 
 ### Default Behavior (no security.yml)
 

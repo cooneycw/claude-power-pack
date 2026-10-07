@@ -469,7 +469,34 @@ class TestWoodpeckerHardening:
         info = _make_info(Framework.PYTHON, PackageManager.UV)
         output = generate_woodpecker(info, self._hardened_config(secret_scan=True))
         assert 'if [ -f ".gitleaks.toml" ]' in output
-        assert "else gitleaks detect --source . --verbose; fi" in output
+        assert (
+            "else gitleaks detect --source . --redact --report-format template "
+            "--report-template .gitleaks-findings.tmpl --report-path -; fi"
+        ) in output
+
+    def test_secret_scan_never_uses_bare_verbose(self) -> None:
+        """Issue #1405 item (e). `--verbose` prints each finding's Match and
+
+        Secret, and `--redact` alone cannot make that safe (#1288's own
+        finding: it masks only a finding's OWN secret, so a value inside
+        another rule's match still prints). The generated step must render
+        findings through the metadata-only template instead.
+        """
+        info = _make_info(Framework.PYTHON, PackageManager.UV)
+        output = generate_woodpecker(info, self._hardened_config(secret_scan=True))
+        assert "--verbose" not in output
+        assert "--redact" in output
+        assert "--report-format template" in output
+        assert "--report-template .gitleaks-findings.tmpl" in output
+        assert "--report-path -" in output
+        # The template file is written by the step itself (the generated
+        # pipeline runs in an external repo, which has no CPP checkout to
+        # read .gitleaks-findings.tmpl from) and renders rule/file/line only.
+        assert "cat > .gitleaks-findings.tmpl <<'TMPL'" in output
+        assert "RuleID: {{ .RuleID }}" in output
+        step_start = output.index("  - name: secret-scan")
+        step_end = output.index("  - name: ", step_start + 1)
+        assert "Secret" not in output[step_start:step_end]
 
     def test_secret_scan_custom_config_path(self) -> None:
         info = _make_info(Framework.PYTHON, PackageManager.UV)

@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1405-gitleaks-allowlist-redaction-docs",
+  "counts": {
+    "accepted": 1,
+    "deferred": 0,
+    "rejected": 5
+  },
+  "head": "766437a48187a083fc885da2bc23f11dbabd02ee",
+  "implementer": "claude/claude-sonnet-5",
+  "issue": "1405",
+  "passes": 1,
+  "recorded_at": "2026-10-07T01:32:36Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/07/rollout-2026-10-07T01-30-16-01a113fb-90cd-7e70-ae61-14e4c04bbf4e.jsonl",
+    "thread_id": "01a113fb-90cd-7e70-ae61-14e4c04bbf4e"
+  },
+  "schema": 1,
+  "status": "ran"
+}
