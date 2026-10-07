@@ -1,0 +1,35 @@
+{
+  "gate": "scripts/flow-wave-registry.sh",
+  "invocation": [
+    "sh",
+    "controls/flow-wave-registry-observed/run-case.sh",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_WAVE_REGISTRY_OBSERVED_CONTROL: finding\\b",
+  "unavailable_signal": "^FLOW_WAVE_REGISTRY_OBSERVED_CONTROL: unavailable - ",
+  "limits": "A SEPARATE registration from controls/flow-wave-registry, same gate (the harness supports several registrations per gate, #986), and - unlike the other separate registrations in this issue - the SAME underlying text, 'overlapping FILE LANES': both controls exercise report_overlap's one elif arm, and this axis's new code path reuses that arm's existing warning rather than inventing a second one. Kept separate anyway because the FIXTURE SHAPE differs structurally, not just the inputs: controls/flow-wave-registry's cases are a committed registry.json and nothing else, generated from declared --files strings with no git history involved at all. This axis is about each role's OBSERVED diff against a merge base, which cannot be expressed as a static JSON fixture the way a declared lane can - this adapter builds a real git origin plus two worktrees FRESH, every run, from a one-word scenario file, rather than committing repository internals (two nested .git directories) that would drift from whatever the gate's own git-diff assumptions expect next.\n\nWHAT THIS ESTABLISHES (issue #1403, Nit Store #864): a role whose declared --files lane does NOT include a path, but whose own `git diff` against the merge base touches it anyway, is reported in the SAME WARNING as a declared-vs-declared collision - the gap found in production (worker-B wrote into worker-A's controls/ area while declaring unrelated files; two sessions on one register produced zero warnings, confirmed by a human reading the actual worktree, not by any gate). The good case proves the positive-silence side: when both roles' diffs stay inside their own declared lanes, nothing fires.\n\nWHAT THIS DOES NOT ESTABLISH. Nothing about the unreachable-cwd case (observed writes: unknown) or the undeclared-writes advisory (FLOW_WAVE_LANE_UNDECLARED_WRITES) - both are pytest-covered in tests/test_flow_wave_registry.py::TestObservedWritesCatchTheUndeclaredCollision, not duplicated here; a control's job is to prove the WARNING fix is not blind on a real input, not to re-walk every case shape a unit test suite already owns. Nothing about observed-vs-observed collisions (both sides touching an undeclared path neither declares) - same reasoning, pytest-covered. Nothing about claim-derived rows, which take a different report_overlap call site this fixture does not exercise.",
+  "cases": [
+    {
+      "name": "bad-undeclared-write",
+      "input": "cases/bad-undeclared-write",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-disjoint-observed",
+      "input": "cases/good-disjoint-observed",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "49ff7c2",
+      "origin": "scripts/flow-wave-registry.sh",
+      "path": "anchors/49ff7c2-pre-observed-axis-flow-wave-registry.sh",
+      "sha256": "a879477ec46ef289da9f6e359244cdc4c990b9429f8b14651736e8b908daeff7",
+      "why": "HISTORICAL, vendored byte-for-byte from 49ff7c2, the commit this branch was built from (identical bytes to controls/flow-wave-registry-malformed's anchor, by coincidence of timing, not by sharing a file). MEASURED against the bad case: report_overlap compares only declared --files strings at this revision, so worker-A's undeclared write into controls/b-owned is invisible and `list` exits 0 reporting no overlap - the production gap Nit Store #864 found, reproduced from the control rather than asserted."
+    }
+  ]
+}

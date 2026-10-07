@@ -5017,3 +5017,178 @@ def test_lane_check_still_works_on_a_valid_registry(tmp_path: Path) -> None:
     assert "not valid content" not in p.stdout + p.stderr
     assert "FLOW_WAVE_LANE_CHECK=ok" in p.stdout, p.stdout
 
+
+
+# ---------------------------------------------------------------------------
+# Issue #1403 bullet 1: the FILE-LANE overlap arm compared only DECLARED
+# lanes against each other, so a worker writing into a directory it never
+# declared - the exact Nit Store #864 finding - produced no warning at all.
+# report_overlap now also compares each side's OBSERVED diff (git diff vs
+# merge base, reusing lane-check's own algorithm and lane_covers) against
+# the OTHER side's declared lane.
+# ---------------------------------------------------------------------------
+
+
+def _overlap_worktrees(tmp: Path) -> tuple[Path, Path, Path]:
+    """A shared origin plus two independent worktrees cloned from it.
+
+    worker-a's worktree carries an UNDECLARED write into worker-b's declared
+    lane, plus harmless noise (an untracked scratch file) that must never be
+    mistaken for a collision. worker-b's worktree is clean within its own
+    declared lane.
+    """
+    origin = tmp / "origin"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(origin)], check=True, capture_output=True)
+    git_o = ["git", "-C", str(origin)]
+    subprocess.run([*git_o, "config", "user.email", "t@example.com"], check=True, capture_output=True)
+    subprocess.run([*git_o, "config", "user.name", "t"], check=True, capture_output=True)
+    (origin / "controls" / "a-owned").mkdir(parents=True)
+    (origin / "controls" / "b-owned").mkdir(parents=True)
+    (origin / "controls" / "a-owned" / "x.sh").write_text("a\n")
+    (origin / "controls" / "b-owned" / "y.sh").write_text("b\n")
+    subprocess.run([*git_o, "add", "-A"], check=True, capture_output=True)
+    subprocess.run([*git_o, "commit", "-qm", "init"], check=True, capture_output=True)
+    subprocess.run([*git_o, "update-ref", "refs/remotes/origin/main", "HEAD"], check=True, capture_output=True)
+
+    worker_a = tmp / "worker-a"
+    worker_b = tmp / "worker-b"
+    shutil.copytree(origin, worker_a)
+    shutil.copytree(origin, worker_b)
+
+    (worker_a / "controls" / "a-owned" / "x.sh").write_text("a-changed\n")
+    # THE UNDECLARED COLLISION: worker-a never declares controls/b-owned.
+    (worker_a / "controls" / "b-owned" / "intrusion.sh").write_text("undeclared\n")
+    subprocess.run(["git", "-C", str(worker_a), "add", "controls"], check=True, capture_output=True)
+    # HARMLESS NOISE: untracked, not gitignored, must never read as a collision.
+    (worker_a / "scratch-notes.txt").write_text("not committed, not staged\n")
+
+    (worker_b / "controls" / "b-owned" / "y.sh").write_text("b-changed\n")
+    subprocess.run(["git", "-C", str(worker_b), "add", "controls"], check=True, capture_output=True)
+
+    return origin, worker_a, worker_b
+
+
+@requires_git_tools
+class TestObservedWritesCatchTheUndeclaredCollision:
+    def _register_pair(self, tmp_path: Path, origin: Path, worker_a: Path, worker_b: Path) -> None:
+        _run(
+            tmp_path, "register", "worker-A", "--wave", "cpp",
+            "--socket", "uds:/tmp/a.sock", "--repo", str(origin),
+            "--cwd", str(worker_a), "--files", "controls/a-owned",
+            pid=SELF_PID, session=SELF_SESSION,
+        )
+        _run(
+            tmp_path, "register", "worker-B", "--wave", "cpp",
+            "--socket", "uds:/tmp/b.sock", "--repo", str(origin),
+            "--cwd", str(worker_b), "--files", "controls/b-owned",
+            pid=OTHER_PID, session=OTHER_SESSION,
+        )
+
+    def test_an_undeclared_write_into_anothers_lane_is_caught(self, tmp_path: Path) -> None:
+        """THE #1403 RED: before the fix, worker-A's intrusion into worker-B's
+        declared lane produced no warning at all - report_overlap compared
+        only declared lanes, and worker-A never declared controls/b-owned."""
+        origin, worker_a, worker_b = _overlap_worktrees(tmp_path)
+        self._register_pair(tmp_path, origin, worker_a, worker_b)
+        p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+        assert "overlapping FILE LANES" in p.stdout, p.stdout
+        assert "controls/b-owned/intrusion.sh" in p.stdout, p.stdout
+        assert "lane overlap detected" in p.stderr, p.stderr
+
+    def test_harmless_noise_does_not_trigger_the_warning(self, tmp_path: Path) -> None:
+        """Control: an untracked, non-gitignored scratch file - the kind of
+        noise every real worktree carries - must never read as a collision.
+        Uses worker-B's own worktree alone (no intrusion) to isolate this
+        from the red case above."""
+        origin, worker_a, worker_b = _overlap_worktrees(tmp_path)
+        # Remove the deliberate intrusion from this worktree; keep the noise.
+        (worker_a / "controls" / "b-owned" / "intrusion.sh").unlink()
+        subprocess.run(
+            ["git", "-C", str(worker_a), "add", "-A", "controls"],
+            check=True, capture_output=True,
+        )
+        self._register_pair(tmp_path, origin, worker_a, worker_b)
+        p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+        assert "overlapping FILE LANES" not in p.stdout, p.stdout
+        assert "scratch-notes.txt" not in p.stdout, p.stdout
+
+    def test_both_sides_observing_the_same_path_is_caught(self, tmp_path: Path) -> None:
+        """Observed-vs-observed: neither side's DECLARED lane names the path,
+        but both sides' diffs touch it - a real double-write `shared_files`
+        cannot see because it compares declarations only."""
+        origin, worker_a, worker_b = _overlap_worktrees(tmp_path)
+        (worker_a / "controls" / "b-owned" / "intrusion.sh").unlink()
+        # A path NEW relative to the shared merge base, created independently
+        # in both worktrees - no real git remote needed, since the fix only
+        # ever diffs each worktree against ITS OWN merge base.
+        (worker_a / "shared.txt").write_text("a-touched\n")
+        (worker_b / "shared.txt").write_text("b-touched\n")
+        subprocess.run(
+            ["git", "-C", str(worker_a), "add", "-A", "controls", "shared.txt"],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(worker_b), "add", "-A", "controls", "shared.txt"],
+            check=True, capture_output=True,
+        )
+        self._register_pair(tmp_path, origin, worker_a, worker_b)
+        p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+        assert "overlapping FILE LANES" in p.stdout, p.stdout
+        assert "shared.txt" in p.stdout, p.stdout
+
+    def test_an_unreachable_cwd_reports_unknown_not_clean(self, tmp_path: Path) -> None:
+        """Operator ruling: a registered role whose cwd does not exist on
+        this host - the ordinary case for a per-session container - must
+        render unknown, never silently clean."""
+        origin, worker_a, worker_b = _overlap_worktrees(tmp_path)
+        _run(
+            tmp_path, "register", "worker-A", "--wave", "cpp",
+            "--socket", "uds:/tmp/a.sock", "--repo", str(origin),
+            "--cwd", "/nonexistent/container/path", "--files", "controls/a-owned",
+            pid=SELF_PID, session=SELF_SESSION,
+        )
+        _run(
+            tmp_path, "register", "worker-B", "--wave", "cpp",
+            "--socket", "uds:/tmp/b.sock", "--repo", str(origin),
+            "--cwd", str(worker_b), "--files", "controls/b-owned",
+            pid=OTHER_PID, session=OTHER_SESSION,
+        )
+        p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+        assert "observed writes: unknown" in p.stdout, p.stdout
+        assert "cwd not reachable from this host" in p.stdout, p.stdout
+
+    def test_a_write_outside_every_declared_lane_is_an_advisory_not_a_warning(
+        self, tmp_path: Path
+    ) -> None:
+        """The #1403 advisory tail: a path NEITHER side declared at all is
+        reported as an incomplete-declaration advisory
+        (FLOW_WAVE_LANE_UNDECLARED_WRITES), not the collision WARNING - it
+        is not inside anyone's claimed territory to collide over."""
+        origin, worker_a, worker_b = _overlap_worktrees(tmp_path)
+        (worker_a / "controls" / "b-owned" / "intrusion.sh").unlink()
+        (worker_a / "src").mkdir()
+        (worker_a / "src" / "unclaimed.py").write_text("nobody declared this\n")
+        subprocess.run(
+            ["git", "-C", str(worker_a), "add", "-A", "controls", "src"],
+            check=True, capture_output=True,
+        )
+        self._register_pair(tmp_path, origin, worker_a, worker_b)
+        p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+        assert "overlapping FILE LANES" not in p.stdout, p.stdout
+        assert "UNDECLARED WRITES" in p.stdout, p.stdout
+        assert "worker-A" in p.stdout, p.stdout
+        assert "FLOW_WAVE_LANE_UNDECLARED_WRITES=1" in p.stdout, p.stdout
+
+    def test_fully_declared_pair_reports_zero_undeclared_writes(self, tmp_path: Path) -> None:
+        """Positive-silence control: when every touched path is inside
+        SOME live role's declared lane, the advisory stays at zero."""
+        origin, worker_a, worker_b = _overlap_worktrees(tmp_path)
+        (worker_a / "controls" / "b-owned" / "intrusion.sh").unlink()
+        subprocess.run(
+            ["git", "-C", str(worker_a), "add", "-A", "controls"],
+            check=True, capture_output=True,
+        )
+        self._register_pair(tmp_path, origin, worker_a, worker_b)
+        p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+        assert "FLOW_WAVE_LANE_UNDECLARED_WRITES=0" in p.stdout, p.stdout
+        assert "UNDECLARED WRITES" not in p.stdout, p.stdout

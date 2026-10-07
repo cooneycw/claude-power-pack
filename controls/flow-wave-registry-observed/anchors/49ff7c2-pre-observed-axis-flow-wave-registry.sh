@@ -938,54 +938,6 @@ registry_unreadable() {
   ! cat "$REG_FILE" >/dev/null 2>&1
 }
 
-#: NEGATIVE-CONTROL: controls/flow-wave-registry-malformed
-# registry_malformed -> 0 when the registry OPENS fine but is not exactly one
-# JSON object document (issue #1403). Deliberately NOT folded into
-# `registry_unreadable` above: #1014 Part 2 already gave `entry_json` +
-# `entry_read_or_die` this exact check for every PER-ROLE verb (register,
-# release, get, verify), with its own "could not be parsed" message -
-# test_a_corrupt_registry_is_an_error_not_a_remote_holder pins that wording
-# for all four, and its own comment says content corruption deliberately
-# PASSES the up-front unreadable guard so that downstream, more specific
-# path can run. Folding this in there would intercept those four verbs
-# earlier with a less specific message - same exit code, same verdict, but
-# a regression in what the message can tell a reader.
-#
-# So this is the WHOLE-REGISTRY counterpart, for the readers that have no
-# per-role entry_json to fall through to: `list` and the other
-# `REG="$(read_registry)"` call sites. `jq -cs` (slurp) parses the WHOLE
-# stream as a sequence of JSON documents and fails on a non-JSON tail;
-# requiring EXACTLY ONE object document on top of that additionally refuses
-# a concatenation of two otherwise-valid documents, which slurp alone would
-# accept as a two-element array - the same shape entry_json already tests.
-registry_malformed() {
-  registry_unreadable && return 1
-  ! read_registry 2>/dev/null | jq -cs -e 'length == 1 and (.[0] | type) == "object"' \
-      >/dev/null 2>&1
-}
-
-# refuse_if_registry_malformed -> returns 0 (and prints/exits nothing) when
-# the registry is a single valid JSON object; otherwise reports and exits 3.
-# Called explicitly at each `REG="$(read_registry)"` site that has no
-# per-role entry_json/entry_read_or_die of its own (policy, lane-check,
-# list's NORMAL path) - NOT folded into the shared pre-dispatch
-# registry_unreadable gate, for two reasons. First, register/release/get/
-# verify already get this exact protection from entry_json, with their own
-# more specific "could not be parsed" message
-# (test_a_corrupt_registry_is_an_error_not_a_remote_holder pins the wording);
-# gating them here too would just intercept earlier with a less specific
-# one. Second, `list --any-live` already validates the SAME shape itself,
-# inline, before this would ever run, and answers `undeterminable`/exit 2 -
-# a pre-dispatch call here would pre-empt that with a plain exit 3 instead,
-# changing an answer nothing asked to change. So this is called from each
-# site AFTER any such verb-specific handling has had its chance to run.
-refuse_if_registry_malformed() {
-  registry_malformed || return 0
-  echo "flow-wave-registry: the registry at $REG_FILE exists and can be read, but is not valid content - its contents are UNKNOWN, not empty (issue #1403). Nothing was read; repair or remove it and re-run." >&2
-  emit error
-  exit 3
-}
-
 entry_json() { # entry_json WAVE ROLE -> the entry object or 'null'
   # SLURPED, so a parse error anywhere in the file yields NO output (#1014
   # Part 2, counter-model review). Streamed, `{} garbage` printed `null` for the
@@ -1453,61 +1405,6 @@ EOF
   return 0
 }
 
-#: NEGATIVE-CONTROL: controls/flow-wave-registry-observed
-# observed_touched CWD BASE_REF -> sets OBSERVED_STATUS (ok|unknown) and
-# OBSERVED_ARR (the touched paths, NUL-safe).
-#
-# THE SAME ALGORITHM lane-check uses (#985), DELIBERATELY, for issue #1403's
-# Nit Store finding: a worker writing into a directory it never declared was
-# invisible to the overlap detector because that detector compared only
-# DECLARED lanes against each other. `git diff --name-only` against the
-# MERGE BASE is the right OBSERVED signal, not `git status --porcelain`: a
-# role that already committed its stray write has a clean working tree,
-# which status cannot see and a diff against a sensible base still can -
-# with the same false-positive protection #985 gave lane-check (the merge
-# base, never the moving tip, so a branch merely behind main does not read
-# every sibling's merged file as this role's own change).
-#
-# THE ONE REAL DIFFERENCE FROM lane-check: that verb runs FROM the role's
-# own cwd, AS that role, so its git calls use the process's ambient cwd.
-# This is called FROM THE ROSTER, about ANOTHER role's cwd - often in a
-# DIFFERENT container, invisible from here entirely - so every git call is
-# `-C`-scoped and CWD's reachability is itself part of what this answers.
-# Untracked paths are OUT OF SCOPE here exactly as lane-check declares them:
-# a stray but uncommitted file is not yet part of what either role would
-# push, so grading it would refuse a collision that cannot reach anybody.
-#
-# UNREACHABLE IS UNKNOWN, NEVER "NO WRITES" (operator ruling): a role
-# registered from inside a per-session container is the ordinary case in
-# this fleet, and that container is not on this host's filesystem at all.
-# `report_overlap` must read OBSERVED_STATUS and skip the comparison on
-# `unknown`, loudly, rather than let an empty OBSERVED_ARR read as a clean
-# role - the exact absence-reads-as-presence failure #800 already named for
-# unscoped lanes.
-observed_touched() {
-  local cwd="$1" base_ref="$2" merge_base tmp
-  OBSERVED_STATUS="unknown"
-  OBSERVED_ARR=()
-  [ -n "$cwd" ] && [ -d "$cwd" ] || return 0
-  command -v git >/dev/null 2>&1 || return 0
-  git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
-  git -C "$cwd" rev-parse --verify "$base_ref" >/dev/null 2>&1 || return 0
-  merge_base="$(git -C "$cwd" merge-base HEAD "$base_ref" 2>/dev/null)"
-  [ -n "$merge_base" ] || return 0
-  tmp="${TMPDIR:-/tmp}/flow-observed.$$.${RANDOM}"
-  if ! git -C "$cwd" diff -z --no-renames --name-only "$merge_base" > "$tmp" 2>/dev/null; then
-    rm -f "$tmp"
-    return 0
-  fi
-  while IFS= read -r -d '' f; do
-    [ -n "$f" ] || continue
-    OBSERVED_ARR+=("$f")
-  done < "$tmp"
-  rm -f "$tmp"
-  OBSERVED_STATUS="ok"
-  return 0
-}
-
 # report_overlap A_LABEL A_ISS A_BR A_CWD A_REPO B_LABEL B_ISS B_BR B_CWD B_REPO
 #                [A_FILES B_FILES]
 #
@@ -1530,59 +1427,6 @@ report_overlap() {
   local bl="$6" ib="$7" bb="$8" cb="$9" rb="${10}"
   local fa="${11:-}" fb="${12:-}" shared
   shared="$(shared_files "$fa" "$fb")"
-
-  # OBSERVED WRITES (issue #1403, Nit Store #864): what each side's OWN diff
-  # against the merge base actually touches, independent of what either
-  # declared. Scoped identically to the FILE-LANE arm below (same $ra/$rb) -
-  # an observed path in a DIFFERENT repo is not a collision either, and
-  # neither is a role with no cwd on this host (an orchestrator, a claim row
-  # with no worktree recorded).
-  local obs_a_status="unknown" obs_b_status="unknown"
-  local -a obs_a_arr=() obs_b_arr=()
-  if [ -n "$ra" ] && [ "$ra" = "$rb" ] && [ -n "$ca" ] && [ -n "$cb" ]; then
-    observed_touched "$ca" "origin/main"
-    obs_a_status="$OBSERVED_STATUS"; obs_a_arr=("${OBSERVED_ARR[@]}")
-    observed_touched "$cb" "origin/main"
-    obs_b_status="$OBSERVED_STATUS"; obs_b_arr=("${OBSERVED_ARR[@]}")
-    # UNREACHABLE IS UNKNOWN, NEVER SILENCE (operator ruling): a role's cwd
-    # usually lives in ANOTHER container, invisible from where `list` runs.
-    # Reported here rather than folded into any WARNING below, because it is
-    # true whether or not a collision also fires - an unchecked role must
-    # never read as a clean one just because nothing else was wrong either.
-    [ "$obs_a_status" = "unknown" ] &&
-      echo "  info: '$al' observed writes: unknown - cwd not reachable from this host ($ca)."
-    [ "$obs_b_status" = "unknown" ] &&
-      echo "  info: '$bl' observed writes: unknown - cwd not reachable from this host ($cb)."
-  fi
-  # Extend `shared` with anything either side's OBSERVED diff puts inside the
-  # OTHER's DECLARED lane (undeclared by the writer - the Nit Store scenario
-  # exactly), or that both sides OBSERVED in common regardless of either
-  # declaration - a real double-write `shared_files` cannot see because it
-  # compares declarations only. De-duplicated against the declared-vs-
-  # declared set so a path already named is never listed twice.
-  local _p
-  if [ "$obs_a_status" = "ok" ] && [ -n "$fb" ]; then
-    for _p in ${obs_a_arr[@]+"${obs_a_arr[@]}"}; do
-      lane_covers "$_p" "$fb" || continue
-      case " $shared " in *" $_p "*) continue ;; esac
-      shared="${shared:+$shared }$_p"
-    done
-  fi
-  if [ "$obs_b_status" = "ok" ] && [ -n "$fa" ]; then
-    for _p in ${obs_b_arr[@]+"${obs_b_arr[@]}"}; do
-      lane_covers "$_p" "$fa" || continue
-      case " $shared " in *" $_p "*) continue ;; esac
-      shared="${shared:+$shared }$_p"
-    done
-  fi
-  if [ "$obs_a_status" = "ok" ] && [ "$obs_b_status" = "ok" ]; then
-    for _p in ${obs_a_arr[@]+"${obs_a_arr[@]}"}; do
-      case " ${obs_b_arr[*]+${obs_b_arr[*]}} " in *" $_p "*) : ;; *) continue ;; esac
-      case " $shared " in *" $_p "*) continue ;; esac
-      shared="${shared:+$shared }$_p"
-    done
-  fi
-
   if [ -n "$ia" ] && [ "$ia" = "$ib" ] && [ -n "$ra" ] && [ "$ra" = "$rb" ]; then
     echo "  WARNING: '$al' and '$bl' both claim issue #$ia in $ra - two sessions on one issue race each other's worktrees (#597)."
     WARNED=1
@@ -3308,7 +3152,6 @@ case "$VERB" in
   #: go quiet exactly when it has nothing to check.
   lane-check)
     REG="$(read_registry)"
-    refuse_if_registry_malformed
     CUR="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$ROLE" '.[$w].roles[$r] // empty')"
     [ -n "$CUR" ] || { echo "flow-wave-registry: role '$ROLE' is not registered in wave '$WAVE'" >&2; emit error; exit 2; }
     LANE="$(printf '%s' "$CUR" | jq -r '.files // ""')"
@@ -3635,14 +3478,6 @@ case "$VERB" in
       fi
       exit 1
     fi
-    # The NORMAL (non-any-live) path has no validity check of its own (issue
-    # #1403): ROLES_JQ_STATUS above is 0 on a streaming partial parse too, so
-    # it cannot tell "zero roles, affirmatively" from "the parse failed after
-    # the first document". `--any-live` already validates the same shape
-    # above and answers `undeterminable`/exit 2 on this exact file, which is
-    # why this check sits HERE rather than before the ANY_LIVE_ONLY branch -
-    # it must never run on that path, or it would pre-empt that answer.
-    refuse_if_registry_malformed
     POL="$(policy_json "$WAVE")"
     POL_REV="$(policy_rev_of "$POL")"
     # One call to the sibling mailbox, cached for every render below (#778).
@@ -4157,43 +3992,6 @@ EOF
       fi
       LIVE_ROLES="$LIVE_ROLES $r"
     done
-    # LANE_UNDECLARED_WRITES (issue #1403, the advisory tail): a path a live
-    # role's OWN diff touches that falls inside NO live role's declared lane
-    # at all - not even its own. Distinct from the WARNING report_overlap
-    # fires for a path inside SOMEONE ELSE's declared lane: this is "nobody
-    # claimed this path", which is the #800 UNSCOPED shape one level over -
-    # a positive count is the signal working (a declaration that is
-    # incomplete), not a collision to block on, so it is reported and never
-    # refuses. Computed once, over the UNION of every live role's declared
-    # lane, rather than inside report_overlap's pairwise calls: this is a
-    # per-ROLE fact, not a per-PAIR one, and checking it pairwise would
-    # double-count (or miss) a role with more than one live peer.
-    ALL_DECLARED_LANES=""
-    for r in $LIVE_ROLES; do
-      e="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$r" '.[$w].roles[$r]')"
-      r_files="$(printf '%s' "$e" | jq -r '.files // ""')"
-      [ -n "$r_files" ] || continue
-      ALL_DECLARED_LANES="${ALL_DECLARED_LANES:+$ALL_DECLARED_LANES,}$r_files"
-    done
-    LANE_UNDECLARED_WRITES=0
-    LANE_UNDECLARED_WRITES_ROLES=""
-    for r in $LIVE_ROLES; do
-      e="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$r" '.[$w].roles[$r]')"
-      r_cwd="$(printf '%s' "$e" | jq -r '.cwd // ""')"
-      r_repo="$(printf '%s' "$e" | jq -r '.repo // ""')"
-      [ -n "$r_cwd" ] || continue
-      [ -n "$r_repo" ] || continue
-      observed_touched "$r_cwd" "origin/main"
-      [ "$OBSERVED_STATUS" = "ok" ] || continue
-      _miss=0
-      for _p in ${OBSERVED_ARR[@]+"${OBSERVED_ARR[@]}"}; do
-        lane_covers "$_p" "$ALL_DECLARED_LANES" && continue
-        _miss=1
-      done
-      [ "$_miss" -eq 1 ] || continue
-      LANE_UNDECLARED_WRITES=$((LANE_UNDECLARED_WRITES + 1))
-      LANE_UNDECLARED_WRITES_ROLES="$LANE_UNDECLARED_WRITES_ROLES $r"
-    done
     for a in $LIVE_ROLES; do
       for b in $LIVE_ROLES; do
         [ "$a" \< "$b" ] || continue
@@ -4248,16 +4046,6 @@ EOF
       echo "  Each fixes it by re-registering with --repo <path>; --repo is rewritten by every re-register (--files is preserved), so it must be passed every time."
     fi
     [ "$UNSCOPED" -gt 0 ] && echo "flow-wave-registry: overlap detection is UNSCOPED for $UNSCOPED live role(s) - this roster CANNOT be read as clean (#800)." >&2
-    # Issue #1403's advisory tail: a live role's OWN diff touched something
-    # no live role declared at all - not a collision to block on (that is
-    # report_overlap's WARNING, already fired above if it applies), just a
-    # declaration that is incomplete. A positive count is the signal
-    # working - a lane that has drifted behind what the role is actually
-    # doing, the same reading #1026 gives a stale brief.
-    if [ -n "$LANE_UNDECLARED_WRITES_ROLES" ]; then
-      echo "  UNDECLARED WRITES: live role(s) whose diff touches a path no live role declared:${LANE_UNDECLARED_WRITES_ROLES}"
-      echo "  Not a collision by itself - re-register with --files naming the complete lane if this is real work."
-    fi
     # The wave declared a driver and these roles did not (#1026). Named on the
     # roster for the same reason the unscoped lanes above are: the wave-level
     # field is inherited DOCTRINE, not a value that lands in a role's entry, so
@@ -4337,7 +4125,6 @@ EOF
     echo "FLOW_WAVE_UNREAD=$UNREAD_TOTAL"
     echo "FLOW_WAVE_BOOTSTRAP=$BOOTSTRAP_STATE"
     echo "FLOW_WAVE_OVERLAP_UNSCOPED=$UNSCOPED"
-    echo "FLOW_WAVE_LANE_UNDECLARED_WRITES=$LANE_UNDECLARED_WRITES"
     echo "FLOW_WAVE_DRIVER_UNDECLARED=$DRIVER_UNDECLARED"
     echo "FLOW_WAVE_DRIVER_POPULATION=$DRIVER_POPULATION"
     echo "FLOW_WAVE_LIVENESS_UNDETERMINED=$UNDETERMINED"
