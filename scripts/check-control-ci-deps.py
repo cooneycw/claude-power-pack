@@ -73,6 +73,18 @@ nobody can read this gate as "every dependency is satisfied":
                   gate, which excludes anything the script declares it degrades
                   without. This is the surface the `git` failure above came
                   through.
+  wrapper body    when `invocation` runs a WRAPPER script rather than the
+                  declared gate directly - 26 of 41 registered controls do -
+                  that wrapper's OWN `sh`/`bash` hard-required binaries, ADDED
+                  to the gate's rather than substituted for them (issue #1407
+                  fallout): walking the wrapper INSTEAD of the gate would drop
+                  every binary the gate needs that the wrapper does not stub,
+                  across all 26. A control may self-declare, via
+                  `ci_deps_provided_by_invocation`, that its own wrapper
+                  satisfies a specific binary the gate would otherwise need -
+                  verified against the wrapper's own text (does it write that
+                  name to a directory it also prepends to PATH?), never taken
+                  as free text.
 
 NOT EXAMINED: what a PYTHON gate shells out to, and what a case FIXTURE needs.
 Both would need the AST and shell analysis `check-test-binary-guards.py` spends
@@ -682,6 +694,75 @@ ENV_SHORT_WITH_VALUE = frozenset("uC")
 ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
 
+def _wrapper_file(invocation: list[str], gate_rel: str | None) -> str | None:
+    """The wrapper script path `invocation` runs instead of the gate, or None.
+
+    26 of this repository's registered controls invoke a WRAPPER rather than
+    the declared `gate` directly (issue #1407 fallout, orchestrator ruling) -
+    almost always `[interpreter, wrapper_path, ...]` ahead of `{case}`/`{gate}`
+    placeholders, e.g. `["sh", "controls/X/run-case.sh", "{case}", "{gate}"]`.
+    Only that two-token shape is read; `bash -c '<inline script>'` and similar
+    hide their script inside an argument string this reader does not parse, so
+    they are left alone rather than guessed at - the same bound this file
+    already states for everything else it does not statically resolve.
+
+    None when there is no second token, the interpreter is not one this reader
+    walks, the second token is an option or a `{gate}`/`{case}` placeholder, or
+    it names the declared gate itself - which is "run directly", not wrapped.
+    """
+    if len(invocation) < 2:
+        return None
+    if Path(invocation[0]).name not in {"sh", "bash", "python3", "python"}:
+        return None
+    candidate = invocation[1]
+    if candidate.startswith("-"):
+        return None
+    if "{gate}" in candidate or "{case}" in candidate:
+        return None
+    if candidate == gate_rel:
+        return None
+    return candidate
+
+
+#: THE MINIMAL, HONEST RULE for a control's self-declared
+#: `ci_deps_provided_by_invocation` claim (issue #1407 fallout, orchestrator
+#: ruling): the wrapper's own text must contain a WRITE whose target's last
+#: path component is exactly the claimed binary's name, and the SAME directory
+#: expression preceding that `/<name>` must also appear prepended to PATH
+#: somewhere in the same file - mirroring
+#: `controls/lane-serveability-check/run-case.sh`'s own
+#: `cat > "$T/bin/curl" <<STUB ... ; env PATH="$T/bin:$PATH" ... bash "$gate"`
+#: shape exactly.
+#:
+#: THIS IS NOT A SHELL INTERPRETER, AND SAYS SO. It does not check that the
+#: written file is executable, that it behaves like the real binary, or that
+#: the write and the PATH assignment execute on the same path through the
+#: script - only that something lands at that name and that location reaches
+#: PATH *somewhere* in the file. A write built through an intermediate
+#: variable this cannot trace back to its own assignment, or a PATH prefix
+#: spelled with different quoting or whitespace than the write, is UNVERIFIED
+#: and refused - the same direction every other asymmetry in this file already
+#: favours.
+_WRAPPER_WRITE_RE = re.compile(
+    r"""[>:]\s*"?'?(?P<dir>[\w$./{}-]*?)/(?P<name>[\w.+-]+)"?'?\s*(?:<<|$)""",
+    re.MULTILINE,
+)
+
+
+def _verify_provided(wrapper_text: str, name: str) -> bool:
+    """True when `wrapper_text` demonstrably stages `name` on PATH itself."""
+    for match in _WRAPPER_WRITE_RE.finditer(wrapper_text):
+        if match.group("name") != name:
+            continue
+        dir_expr = match.group("dir")
+        if not dir_expr:
+            continue
+        prefix_re = re.compile(rf'PATH=["\']?{re.escape(dir_expr)}:\$PATH')
+        if prefix_re.search(wrapper_text):
+            return True
+    return False
+
+
 def unwrap_env(invocation: list[str]) -> tuple[int | None, str | None]:
     """`(index of the command env runs, None)`, or `(None, why it is unread)`.
 
@@ -827,6 +908,41 @@ def requirements(root: Path, control_dir: Path, binary_gate) -> tuple[set[str], 
         needed.add(shebang)
     if effective in {"sh", "bash"}:
         needed |= set(binary_gate.binaries_in_script(gate))
+
+    # A WRAPPER's OWN needs are ADDED to the gate's, never substituted for
+    # them (issue #1407 fallout, orchestrator ruling - NOT "walk the wrapper
+    # instead of the gate", which a survey of main found would drop every
+    # binary the gate needs that a wrapper happens not to stub, across 26 of
+    # this repository's registered controls - the more dangerous direction,
+    # where a control goes UNAVAILABLE or CI breaks without anyone noticing).
+    # A control may also self-declare, via `ci_deps_provided_by_invocation`,
+    # that its own wrapper satisfies a binary the gate would otherwise need -
+    # verified against the wrapper's own text, never taken as free text (see
+    # `_verify_provided`).
+    wrapper_rel = _wrapper_file(invocation, declared)
+    wrapper_text: str | None = None
+    if wrapper_rel:
+        wrapper_path = root / wrapper_rel
+        if wrapper_path.is_file():
+            try:
+                wrapper_text = wrapper_path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                wrapper_text = None
+            if Path(invocation[0]).name in {"sh", "bash"}:
+                needed |= set(binary_gate.binaries_in_script(wrapper_path))
+
+    for raw_name in spec.get("ci_deps_provided_by_invocation", []) or []:
+        name = str(raw_name)
+        if wrapper_text is not None and _verify_provided(wrapper_text, name):
+            needed.discard(name)
+        else:
+            notes.append(
+                f"declares `ci_deps_provided_by_invocation` includes `{name}`, but "
+                f"{wrapper_rel or 'this control has no wrapper file'} does not "
+                f"demonstrably write `{name}` to a directory it also prepends to PATH "
+                "- this is a stale or unverifiable claim, not a provided binary"
+            )
+
     return needed, notes
 
 

@@ -1,0 +1,13 @@
+{
+  "_comment": [
+    "A miniature registration (issue #1407 fallout). The gate hard-requires",
+    "curl, and this control claims `ci_deps_provided_by_invocation: [\"curl\"]`",
+    "- but the wrapper stages a stub named `wget`, never `curl`. The checker",
+    "must refuse this as a stale or unverifiable claim rather than trust the",
+    "declared key as free text, so curl must still be reported as needed and",
+    "unprovided."
+  ],
+  "gate": "scripts/toy-gate-curl.sh",
+  "invocation": ["sh", "scripts/toy-wrapper.sh", "{case}", "{gate}"],
+  "ci_deps_provided_by_invocation": ["curl"]
+}

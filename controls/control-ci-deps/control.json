@@ -95,6 +95,30 @@
       "name": "bad-python-import-under-if-true",
       "input": "cases/bad-python-import-under-if-true",
       "expect": "BAD"
+    },
+    {
+      "name": "bad-wrapper-without-provided-key",
+      "input": "cases/bad-wrapper-without-provided-key",
+      "expect": "BAD",
+      "why": "A control whose gate hard-requires curl, invoked through a wrapper that stages a real curl stub, but which declares no `ci_deps_provided_by_invocation`. Today's real make-test failure (lane-serveability-check, issue #1407 fallout), reproduced as the intended red: the checker must not trust a wrapper's own stub without an explicit, verified claim."
+    },
+    {
+      "name": "good-wrapper-with-verified-provided-key",
+      "input": "cases/good-wrapper-with-verified-provided-key",
+      "expect": "GOOD",
+      "why": "Identical to bad-wrapper-without-provided-key except the control declares `ci_deps_provided_by_invocation: [\"curl\"]`, and the wrapper's own text genuinely demonstrates it. The half that matters for a gate wedged at 'fail': a checker that refuses every provided claim passes the bad cases on its own."
+    },
+    {
+      "name": "bad-wrapper-provided-key-not-created",
+      "input": "cases/bad-wrapper-provided-key-not-created",
+      "expect": "BAD",
+      "why": "The control claims `ci_deps_provided_by_invocation: [\"curl\"]`, but its wrapper stages a stub named `wget`, never `curl`. A checker that trusted the declared key as free text would score this clean; it must verify the claim against the wrapper's own text and refuse a stale one."
+    },
+    {
+      "name": "bad-wrapper-gate-needs-not-provided",
+      "input": "cases/bad-wrapper-gate-needs-not-provided",
+      "expect": "BAD",
+      "why": "The gate hard-requires both curl and jq; the wrapper genuinely stages and the control genuinely (and correctly) claims only curl. jq must still be reported as needed - pinning that `ci_deps_provided_by_invocation` narrows a gate's needs by exactly what it verifies, never by walking the wrapper INSTEAD of the gate (the orchestrator's ruled-out direction, which would drop every binary the gate needs that a wrapper happens not to stub, across the 26 registered controls that invoke one)."
     }
   ],
   "anchors": [

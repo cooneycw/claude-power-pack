@@ -1,0 +1,14 @@
+{
+  "_comment": [
+    "A miniature registration (issue #1407 fallout). Identical gate and",
+    "wrapper to bad-wrapper-without-provided-key, except this control DOES",
+    "declare `ci_deps_provided_by_invocation: [\"curl\"]` - and the wrapper's",
+    "own text genuinely demonstrates it: it writes a file named `curl` under",
+    "a directory it also prepends to PATH before running the gate. The",
+    "checker must verify that claim against the wrapper's own text and clear",
+    "curl from what the gate needs, scoring this clean."
+  ],
+  "gate": "scripts/toy-gate-curl.sh",
+  "invocation": ["sh", "scripts/toy-wrapper.sh", "{case}", "{gate}"],
+  "ci_deps_provided_by_invocation": ["curl"]
+}

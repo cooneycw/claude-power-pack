@@ -1,0 +1,13 @@
+{
+  "_comment": [
+    "A miniature registration (issue #1407 fallout). The gate hard-requires",
+    "curl, and the invocation runs it through a WRAPPER that stages a curl",
+    "stub on PATH before running the gate - mirroring",
+    "controls/lane-serveability-check/run-case.sh exactly. This case declares",
+    "NO `ci_deps_provided_by_invocation`, so the checker must still report",
+    "curl as needed and unprovided: this is today's real `make test` failure,",
+    "reproduced here as the intended red."
+  ],
+  "gate": "scripts/toy-gate-curl.sh",
+  "invocation": ["sh", "scripts/toy-wrapper.sh", "{case}", "{gate}"]
+}
