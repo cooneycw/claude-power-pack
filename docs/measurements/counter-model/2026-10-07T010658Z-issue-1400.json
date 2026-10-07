@@ -1,0 +1,24 @@
+{
+  "branch": "fix-1400-counter-model-identity-derivation",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "b94968f419b5c55eb4d1902fbb8eabaf87d7495f",
+  "implementer": "claude/claude-sonnet-5",
+  "issue": "1400",
+  "passes": 1,
+  "recorded_at": "2026-10-07T01:06:58Z",
+  "red_cases": {
+    "already_covered": 4,
+    "proposed": 4
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/07/rollout-2026-10-07T01-06-20-01a113e5-a5a5-7252-bbc2-a6de0fd8c2f1.jsonl",
+    "thread_id": "01a113e5-a5a5-7252-bbc2-a6de0fd8c2f1"
+  },
+  "schema": 1,
+  "status": "ran"
+}
