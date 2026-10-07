@@ -1121,6 +1121,80 @@ def test_a_SUCCESS_carries_neither_new_line(tmp_path):
     assert "FLOW_CI_FAILURE_ORIGIN" not in m and "FLOW_CI_PRECODE_FAILURE" not in m
 
 
+# ── Fetch-failure exit code (issue #1411) ──────────────────────────────────
+#
+# `jq-stage` (a `commands`-type step) fetching jq over the network and failing
+# used to read as a `code` failure under #1342's clone-only logic, sending a
+# worker to bisect its own diff for a network blip. `ci-stage-jq.py`,
+# `ci-stage-git.py` and `ci-stage-make.py` now all return 75 (EX_TEMPFAIL,
+# BSD sysexits.h) specifically for "could not fetch", distinct from the 1 they
+# still return for a sha256/scheme mismatch - a real, code-adjacent finding
+# that must never be laundered into precode.
+
+
+@requires_bash
+def test_red_case_a_COMMANDS_step_with_exit_75_is_marked_pre_code(tmp_path):
+    """RED on the pre-#1411 script: exit 75 from a `commands` step used to be
+    indistinguishable from any other code failure - no step-type signal, and
+    no exit-code signal was read at all."""
+    result = _api_failure(tmp_path, [
+        {"name": "clone", "type": "clone", "state": "success", "exit_code": 0},
+        {"name": "jq-stage", "type": "commands", "state": "failure", "exit_code": 75},
+    ])
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_FAILED_STEP"] == ["jq-stage"]
+    assert m["FLOW_CI_PRECODE_FAILURE"] == ["jq-stage"]
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["precode"]
+
+
+@requires_bash
+def test_the_must_not_flip_anchor_exit_1_from_a_COMMANDS_step_stays_code(tmp_path):
+    """The hash-mismatch exit code (1) must keep reading `code` - a tampered
+    or substituted download is exactly what must NOT be laundered into
+    precode. This is the control's GOOD case, not a new behaviour."""
+    result = _api_failure(tmp_path, [
+        {"name": "clone", "type": "clone", "state": "success", "exit_code": 0},
+        {"name": "jq-stage", "type": "commands", "state": "failure", "exit_code": 1},
+    ])
+    m = _markers(result.stdout)
+    assert "FLOW_CI_PRECODE_FAILURE" not in m
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["code"]
+
+
+@requires_bash
+def test_exit_75_and_a_genuine_code_failure_together_are_MIXED(tmp_path):
+    result = _api_failure(tmp_path, [
+        {"name": "jq-stage", "type": "commands", "state": "failure", "exit_code": 75},
+        {"name": "validate", "type": "commands", "state": "failure", "exit_code": 2},
+    ])
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_PRECODE_FAILURE"] == ["jq-stage"]
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["mixed"]
+
+
+@requires_bash
+def test_a_MISSING_exit_code_never_defaults_to_precode(tmp_path):
+    """Absence of the field (an older API, or a shape that omits it) must stay
+    `code` for a `commands`-type step - never read as evidence either way."""
+    result = _api_failure(tmp_path, [{"name": "validate", "type": "commands", "state": "failure"}])
+    m = _markers(result.stdout)
+    assert "FLOW_CI_PRECODE_FAILURE" not in m
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["code"]
+
+
+@requires_bash
+def test_exit_75_from_a_CLONE_step_still_reports_precode_not_double_counted(tmp_path):
+    """A clone step cannot carry this convention's exit code in practice, but
+    if it somehow did, the two signals must not double-report or conflict -
+    one precode step stays one precode step."""
+    result = _api_failure(tmp_path, [
+        {"name": "clone", "type": "clone", "state": "failure", "exit_code": 75},
+    ])
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_PRECODE_FAILURE"] == ["clone"]
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["precode"]
+
+
 def _typed_wpcli(
     tmp_path: Path,
     name_state: list[str],

@@ -1,0 +1,21 @@
+{
+  "gate": "scripts/flow-ci-status.sh",
+  "invocation": ["sh", "controls/flow-ci-status/run-case.sh", "{case}", "{gate}"],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_CI_CONTROL: precode$",
+  "ci_deps_provided_by_invocation": ["curl"],
+  "limits": "WHAT THIS ESTABLISHES: that scripts/flow-ci-status.sh's FLOW_CI_FAILURE_ORIGIN classifies a failed commands-type step by its EXIT CODE (75, EX_TEMPFAIL - the convention ci-stage-jq.py/ci-stage-git.py/ci-stage-make.py all return for 'could not fetch'), not only by the provider's step TYPE (clone). The bad case (a jq-stage-shaped step failing with exit 75) must report precode; the good case (the same step failing with exit 1, the sha256/scheme-mismatch code) must still report code - the must-not-flip anchor, since laundering a tampered-bytes finding into precode would be worse than the defect #1411 fixes. The gate's OWN exit code does not vary with this distinction (it is 0 unless --exit-code is passed, and then 1 for any failure, precode or not), so run-case.sh does not pass it through: it reads FLOW_CI_FAILURE_ORIGIN from stdout and recomputes a verdict-shaped exit itself (0 for code, 1 for precode), which is what good_exit and detect_signal are read against. NO NETWORK, NO WOODPECKER SERVER: run-case.sh puts a stub curl first on PATH and answers the gate's three real calls (repo lookup, pipeline list, one pipeline's workflow detail) from fixed JSON, varying only the one failed step's exit_code per case - the same no-network shape controls/lane-serveability-check already uses for an HTTP-fetching gate. TRANSPORT IS NOT EXERCISED: this proves the CLASSIFICATION of a given exit code, not how Woodpecker's API actually renders one, and not the woodpecker-cli fallback lane (a separate code path this control does not reach - it has no verified way to carry a per-step exit code today, so it stays on the pre-#1411 behaviour by construction, not by a case here). Does not cover the clone-type half of FLOW_CI_FAILURE_ORIGIN (#1342's own prior control, if one exists, or the existing tests/test_flow_ci_status.py cases), the MIXED verdict, or a step with no exit_code field at all. MEASURED directly (issue #1411): the first draft of run-case.sh's embedded curl stub used bash's ${@: -1} to read the last argument, and /bin/sh here resolves to dash - a silent 'Bad substitution' on every stub invocation, which wp_api's own 2>/dev/null swallowed into an empty REPO_ID and read as 'no provider answered', not as a stub bug. Fixed with a POSIX-safe 'for url in \"$@\"; do :; done' loop; the case file below is what caught it, by failing to run at all rather than by scoring wrong.",
+  "cases": [
+    {"name": "bad-fetch-failure-exit-75", "input": "cases/bad-fetch-failure-exit-75", "expect": "BAD"},
+    {"name": "good-hash-mismatch-exit-1", "input": "cases/good-hash-mismatch-exit-1", "expect": "GOOD"}
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "09020fa",
+      "origin": "scripts/flow-ci-status.sh",
+      "path": "anchors/09020fa-flow-ci-status.sh",
+      "sha256": "a09364a8bd51f53cc5479f5891a0022707c86a9f13f9775df4c1d8a6a368f16b"
+    }
+  ]
+}

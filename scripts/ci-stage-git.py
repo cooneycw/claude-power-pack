@@ -82,6 +82,19 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+#: Exit code for "could not fetch" - a transient the fetch's CALLER did not
+#: cause, distinct from exit 1 ("fetched, but the bytes/scheme are wrong" -
+#: a real, code-adjacent finding that must keep reading as `code`). 75 is
+#: EX_TEMPFAIL from BSD sysexits.h ("temporary failure, try again"); chosen
+#: for its established meaning, not invented. `scripts/flow-ci-status.sh`
+#: reads this exact value to classify a failed step as pre-code regardless
+#: of step name or type (issue #1411) - shared BY CONVENTION across
+#: `ci-stage-jq.py`, `ci-stage-git.py` and `ci-stage-make.py`, each defining
+#: it independently (matching this file's own no-shared-module style)
+#: rather than importing one; `tests/test_ci_stage_exit_codes.py` pins all
+#: three against drift.
+EX_FETCH_FAILED = 75
+
 #: (url, sha256 of the archive). Bookworm, amd64 - the distribution the image is
 #: built from, so libc6 and friends are present by construction. HTTPS is required
 #: (see `_require_https`); `apt` prints these as http, and they are rewritten here
@@ -306,7 +319,16 @@ def main() -> int:
 
     for url, want in PACKAGES:
         name = url.rsplit("/", 1)[-1]
-        blob = _fetch(url)
+        try:
+            blob = _fetch(url)
+        except ValueError as exc:
+            # A scheme check failed (local misconfig or a redirect downgrade,
+            # issue #1113) - code, never laundered into precode (#1411).
+            print(f"ci-stage-git: {exc}", file=sys.stderr)
+            return 1
+        except Exception as exc:  # noqa: BLE001 - the cause is reported, not classified
+            print(f"ci-stage-git: FAILED to download {name}: {exc}", file=sys.stderr)
+            return EX_FETCH_FAILED
         got = _sha256(blob)
         if got != want:
             print(f"ci-stage-git: {name} sha256 {got} != pinned {want}", file=sys.stderr)

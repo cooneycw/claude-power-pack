@@ -145,69 +145,37 @@ FAILED_STEPS=()
 # The provider's TYPE for each failed step, index-aligned with FAILED_STEPS
 # (issue #1342). Empty means the lane could not say - never "a code step".
 FAILED_STEP_TYPES=()
-# The provider's EXIT CODE for each failed step, index-aligned with
-# FAILED_STEPS (issue #1411). Empty/absent means the lane could not say -
-# never treated as the fetch-failure code, and never treated as evidence of
-# anything else either.
-FAILED_STEP_EXIT_CODES=()
 # Set when the failed-step enumeration itself failed part-way: the names that
 # arrived are still reported, but an origin over a partial list is not one.
 FAILED_STEPS_INCOMPLETE=0
 
-# The fetch-failure exit code `ci-stage-jq.py`, `ci-stage-git.py` and
-# `ci-stage-make.py` all return for "could not fetch" (issue #1411) - 75,
-# BSD sysexits.h's EX_TEMPFAIL. Defined once here to cite, not to invent:
-# each stager defines the SAME value independently (no shared Python module
-# this bash script could import from); `tests/test_ci_stage_exit_codes.py`
-# pins all three against drift from this number.
-readonly EX_FETCH_FAILED=75
-
 # WHERE a failure happened, not only which step (issue #1342). A red `clone`
 # step - the checkout that runs before any of the change's code - read exactly
 # like a red test suite, so a worker debugged its own diff for a network blip.
-# Pre-code is decided by the provider's step TYPE (`clone` on Woodpecker) OR
-# its EXIT CODE (issue #1411: `EX_FETCH_FAILED` from a `commands`-type stager
-# step, e.g. `jq-stage`) - never by a list of step names: a name list is a
-# hardcoded universe, and a step renamed or added later would silently fall
-# outside it. The exit-code check does not require a `clone` type (a fetch
-# failure is never that type) and does not replace it (a `clone` failure
-# carries no exit code of this convention at all) - the two signals name
-# disjoint step shapes.
+# Pre-code is decided by the provider's step TYPE (`clone` on Woodpecker), never
+# by a list of step names: a name list is a hardcoded universe, and a step
+# renamed or added later would silently fall outside it.
 #
 # The ORIGIN line is what keeps the marker's ABSENCE from being read as
 # evidence. Without it, "no FLOW_CI_PRECODE_FAILURE line" would mean "a code
 # failure" on every lane that cannot classify at all - GitHub Actions, whose
 # checkout is a step inside a job, or a CLI whose template gave no type. Those
-# report `unknown`, which is a different answer from `code`. A step with NO
-# type and NO exit code is unknown for the same reason; a step with a type but
-# no exit code (the common case - only a fetch failure sets this convention)
-# is classified by type alone, exactly as before.
+# report `unknown`, which is a different answer from `code`.
 failure_origin() {
-    local i n="${#FAILED_STEPS[@]}" precode=0 code=0 t ec
+    local i n="${#FAILED_STEPS[@]}" precode=0 code=0
     if [[ "$n" -eq 0 || "$FAILED_STEPS_INCOMPLETE" -eq 1 ]]; then echo "unknown"; return; fi
     for (( i = 0; i < n; i++ )); do
-        t="${FAILED_STEP_TYPES[$i]:-}"
-        ec="${FAILED_STEP_EXIT_CODES[$i]:-}"
-        if [[ "$t" == "clone" || "$ec" == "$EX_FETCH_FAILED" ]]; then
-            precode=$(( precode + 1 ))
-        elif [[ -n "$t" ]]; then
-            code=$(( code + 1 ))
-        else
-            echo "unknown"; return
-        fi
+        case "${FAILED_STEP_TYPES[$i]:-}" in
+            "")    echo "unknown"; return ;;
+            clone) precode=$(( precode + 1 )) ;;
+            *)     code=$(( code + 1 )) ;;
+        esac
     done
     if [[ "$code" -eq 0 ]]; then echo "precode"
     elif [[ "$precode" -eq 0 ]]; then echo "code"
     else echo "mixed"
     fi
 }
-
-#: NEGATIVE-CONTROL: controls/flow-ci-status
-#: ADR 0008 row 10, class G: FLOW_CI_STATUS decides Step 8's deploy-or-stop,
-#: and nothing re-derives it (issue #1411). The control answers this script's
-#: curl from files through a stub on PATH, varying only a failed step's
-#: exit_code, and checks that exit 75 (EX_FETCH_FAILED) reports precode while
-#: exit 1 still reports code. See its `limits`.
 
 emit() {
     echo "FLOW_CI_PROVIDER: $PROVIDER"
@@ -223,10 +191,8 @@ emit() {
     if [[ "$STATUS" == "failure" ]]; then
         local i
         for (( i = 0; i < ${#FAILED_STEPS[@]}; i++ )); do
-            if [[ "${FAILED_STEP_TYPES[$i]:-}" == "clone" \
-                || "${FAILED_STEP_EXIT_CODES[$i]:-}" == "$EX_FETCH_FAILED" ]]; then
-                echo "FLOW_CI_PRECODE_FAILURE: ${FAILED_STEPS[$i]}"
-            fi
+            [[ "${FAILED_STEP_TYPES[$i]:-}" == "clone" ]] \
+                && echo "FLOW_CI_PRECODE_FAILURE: ${FAILED_STEPS[$i]}"
         done
         echo "FLOW_CI_FAILURE_ORIGIN: $(failure_origin)"
     fi
@@ -427,21 +393,17 @@ if [[ "$HAVE_JQ" -eq 1 && -n "$WP_TOKEN" && -n "$WP_SERVER" ]]; then
         # Name the failed steps: pipeline colour cannot tell a red test suite
         # from a red deploy step, and Step 8 needs that distinction.
         if [[ "$STATUS" == "failure" && "$PIPELINE" != "-" ]]; then
-            # Name, TYPE and EXIT CODE from the one response (issues #1342,
-            # #1411). A step with no `type` or `exit_code` field records an
-            # empty value, which classifies as unknown (type) or simply
-            # uninvolved (exit code - absence is never read as the
-            # fetch-failure code). `|`, not a tab: a tab is IFS WHITESPACE,
-            # which collapses an empty field and shifts the rest silently
-            # (#698/#700).
-            while IFS='|' read -r step step_type step_exit_code; do
+            # Name and TYPE from the one response (issue #1342). A step with no
+            # `type` field records an empty type, which classifies as unknown.
+            # `|`, not a tab: a tab is IFS WHITESPACE, which collapses an empty
+            # field and shifts the rest silently (#698/#700).
+            while IFS='|' read -r step step_type; do
                 if [[ -n "$step" ]]; then
                     FAILED_STEPS+=("$step")
                     FAILED_STEP_TYPES+=("$step_type")
-                    FAILED_STEP_EXIT_CODES+=("$step_exit_code")
                 fi
             done < <(wp_api "/api/repos/$REPO_ID/pipelines/$PIPELINE" \
-                | jq -r '[.workflows[]?.children[]? | select(.state=="failure" or .state=="error" or .state=="killed") | "\(.name)|\(.type // "")|\(.exit_code // "")"] | .[]' 2>/dev/null)
+                | jq -r '[.workflows[]?.children[]? | select(.state=="failure" or .state=="error" or .state=="killed") | "\(.name)|\(.type // "")"] | .[]' 2>/dev/null)
         fi
         emit
     fi

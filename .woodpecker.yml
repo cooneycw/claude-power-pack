@@ -149,7 +149,13 @@ steps:
       # test_the_real_control_discriminates_and_its_anchor_is_blind drives the
       # WHOLE control register, so this image needs every registered control's
       # tool - not just the ones whose own step happens to run here (#960).
-      - PATH="$PWD/.ci-bin:$PATH" uv run pytest -n "$(sh scripts/pytest-workers.sh)"
+      # `--durations=25` (issue #1411): a CI timeout used to answer "slow or
+      # hung?" by reproducing quietly, hours later, on a different host - #1311
+      # found genuinely slow ~33s tests sitting next to ones that ran 0.2-2s
+      # quiet and 10-120s in CI (a 50-60x stall under load). With this flag the
+      # slowest 25 tests' actual times are in the very log that failed, so the
+      # call can be made from it alone.
+      - PATH="$PWD/.ci-bin:$PATH" uv run pytest -n "$(sh scripts/pytest-workers.sh)" --durations=25
       # NAME THE SUBSUMPTION TESTS, because the full run's summary CANNOT say
       # whether they ran (#1165). Those tests carry a `shutil.which("make")`
       # guard per CLAUDE.md, and this image has no system make - it has the one
