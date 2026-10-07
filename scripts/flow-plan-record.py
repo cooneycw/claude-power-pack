@@ -695,11 +695,23 @@ def cmd_compliance(issue: str, base: str | None) -> int:
     excluded_exact = {record_rel(issue), snapshot_rel(issue)}
     receipt_re = re.compile(rf"^docs/measurements/counter-model/[^/]*-issue-{issue}\.json$")
 
+    # A planned entry ending in `/` is a DIRECTORY, matched as a path prefix on
+    # both sides (issue #1399) - `/flow:register` already treats a declared
+    # directory as containing the paths under it, and compliance disagreed with
+    # its own sibling. Scoped to entries that actually end in `/`: an exact-file
+    # entry's matching is unchanged, so `src/app.py` still never matches
+    # `src/app.py.bak`.
+    planned_dirs = [p for p in planned if p.endswith("/")]
+    planned_exact = {p for p in planned if not p.endswith("/")}
+
+    def is_planned(path: str) -> bool:
+        return path in planned_exact or any(path.startswith(d) for d in planned_dirs)
+
     unplanned: list[str] = []
     unresolved_mirrors: list[str] = []
     touched_set = frozenset(touched)
     for f in touched:
-        if f in planned:
+        if is_planned(f):
             continue                     # an explicitly planned path wins over any rule
         if f in excluded_exact or receipt_re.match(f):
             continue
@@ -719,11 +731,20 @@ def cmd_compliance(issue: str, base: str | None) -> int:
                 derived = BUNDLED_RE.match(f)
                 unresolved_mirrors.append(
                     f"{f}  (derived source {derived.group(1)} does not exist)" if derived else f)
-            elif src not in planned:
+            elif not is_planned(src):
                 unplanned.append(f"{f}  (mirror of {src}, which the plan does not name)")
             continue
         unplanned.append(f)
-    untouched = [f for f in planned if f not in touched]
+    def is_untouched(p: str) -> bool:
+        # A planned DIRECTORY is untouched only if NO touched file matches its
+        # prefix - git diffs never emit a bare directory path, so literal
+        # containment (the old check) could never succeed for one even when
+        # real work happened under it.
+        if p.endswith("/"):
+            return not any(t.startswith(p) for t in touched)
+        return p not in touched
+
+    untouched = [p for p in planned if is_untouched(p)]
 
     code = OK
     if not unplanned and not untouched and not unresolved_mirrors:

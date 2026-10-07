@@ -124,6 +124,69 @@ def test_a_plan_item_never_touched_is_reported(tmp_path: Path) -> None:
     assert "PLANNED BUT NOT TOUCHED: tests/test_app.py" in out
 
 
+# ------------------------------------------------------------------ issue #1399: a planned
+# directory is a path PREFIX, not a literal filename, on both sides
+
+@requires_git
+def test_a_planned_directory_entry_matches_files_under_it_by_prefix(tmp_path: Path) -> None:
+    """A plan line naming a directory must not report divergence on its own work.
+
+    Before #1399: every file under the directory read as TOUCHED BUT NOT
+    PLANNED, and the directory itself as PLANNED BUT NOT TOUCHED - the exact
+    shape reported twice, independently (Nit Store #864 comments 5847159922,
+    5874226875).
+    """
+    repo, base = make_repo(tmp_path)
+    (repo / "fixtures").mkdir()
+    (repo / "fixtures" / "a.json").write_text("1\n")
+    (repo / "fixtures" / "b.json").write_text("2\n")
+    write_plan(repo, "fixtures/")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "fixture tree")
+    out = run(repo, base)
+    assert "PLAN_COMPLIANCE: agreement" in out, out
+    assert "TOUCHED BUT NOT PLANNED" not in out
+    assert "PLANNED BUT NOT TOUCHED" not in out
+
+
+@requires_git
+def test_an_exact_planned_file_does_not_prefix_match_a_similarly_named_neighbour(
+    tmp_path: Path,
+) -> None:
+    """Prefix matching is scoped to entries ending in `/` - an exact file must
+    keep its exact meaning, or a planned `src/app.py` would silently also
+    cover an unplanned `src/app.py.bak`."""
+    repo, base = make_repo(tmp_path)
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("a\n")
+    (repo / "src" / "app.py.bak").write_text("b\n")
+    write_plan(repo, "src/app.py")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "work plus a stray backup file")
+    out = run(repo, base)
+    assert "PLAN_COMPLIANCE: divergence" in out, out
+    assert "TOUCHED BUT NOT PLANNED: src/app.py.bak" in out
+
+
+@requires_git
+def test_a_planned_directory_containing_a_mirrored_source_is_not_divergence(
+    tmp_path: Path,
+) -> None:
+    """The directory-prefix rule and the codex-mirror attribution must agree:
+    a mirror's source resolved inside a planned directory is planned too, not
+    reported twice by two different mechanisms."""
+    repo, base = make_repo(tmp_path)
+    (repo / "docs" / "agents").mkdir(parents=True)
+    (repo / "codex" / "skills" / "s" / "docs" / "agents").mkdir(parents=True)
+    (repo / "docs" / "agents" / "k.md").write_text("k\n")
+    (repo / "codex" / "skills" / "s" / "docs" / "agents" / "k.md").write_text("k\n")
+    write_plan(repo, "docs/agents/")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "source+mirror under a planned directory")
+    out = run(repo, base)
+    assert "PLAN_COMPLIANCE: agreement" in out, out
+
+
 # ------------------------------------------------------------------ the #1030 case
 
 @requires_git
