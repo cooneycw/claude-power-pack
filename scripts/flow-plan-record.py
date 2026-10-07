@@ -698,7 +698,7 @@ def cmd_compliance(issue: str, base: str | None) -> int:
             compliance_unknown(f"the diff could not be computed ({exc})")
         return {f for f in out.splitlines() if f}
 
-    def log_touched(ref_range: str) -> set[str]:
+    def log_touched(ref_range: str, exclude_ref: str | None = None) -> set[str]:
         # --first-parent: stay on THIS run's own commit chain, so a commit
         # reachable only through a merge's SECOND parent (upstream work this
         # run merged in) is never visited (#1320 pass-3's protection,
@@ -709,12 +709,22 @@ def cmd_compliance(issue: str, base: str | None) -> int:
         # up, because it is this run's own edit regardless of where HEAD nets
         # out (issue #1399; the endpoint-diff intersection this replaces
         # could not see that at all).
+        #
+        # `exclude_ref`, when given, excludes commits reachable from it too
+        # (counter-model review, #1399): a FAST-FORWARD (no merge commit) of
+        # upstream work onto this branch puts that work on the first-parent
+        # chain, where --no-merges alone cannot tell it apart from this run's
+        # own commits. Excluding by COMMIT IDENTITY (`--not <ref>`) rather
+        # than by content keeps bullet C intact: a revert to main's bytes
+        # made in THIS run's own commit is still this run's commit, not
+        # reachable from exclude_ref, and stays counted.
+        cmd = ["git", "-C", str(root), "log", "--first-parent", "--no-merges",
+               "--name-only", "--pretty=format:", ref_range]
+        if exclude_ref is not None:
+            cmd += ["--not", exclude_ref]
+        cmd.append("--")
         try:
-            out = subprocess.run(
-                ["git", "-C", str(root), "log", "--first-parent", "--no-merges",
-                 "--name-only", "--pretty=format:", ref_range, "--"],
-                capture_output=True, text=True, check=True,
-            ).stdout
+            out = subprocess.run(cmd, capture_output=True, text=True, check=True).stdout
         except (OSError, subprocess.CalledProcessError) as exc:
             compliance_unknown(f"this run's commit log could not be read ({exc})")
         return {f for f in out.splitlines() if f}
@@ -744,12 +754,41 @@ def cmd_compliance(issue: str, base: str | None) -> int:
             compliance_unknown(f"this run's recorded start {run_start[:12]} is no longer an "
                                "ancestor of HEAD (history was rewritten), so this run's own "
                                "changes cannot be separated - pass --base to choose a scope")
-        print(f"PLAN_COMPLIANCE_BASE: this run's start ({run_start[:12]}), from its own "
-              "first-parent, non-merge commits plus any still-uncommitted change - a file "
-              "edited then reverted back to main's content partway through this run still "
-              "counts as this run's touch (KNOWN LIMITATION: an edit made only inside a "
-              "merge commit's own conflict resolution is not visible to --no-merges and is "
-              "not counted)")
+        # Resolve the upstream ref ITSELF (not main_base, its merge-base with
+        # HEAD): excluding by commit identity needs the ref to walk from, and
+        # unlike main_base this can be known even when HEAD and origin/main
+        # share no ancestry at all (counter-model review, #1399).
+        upstream_resolved = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--verify", "--quiet", "origin/main"],
+            capture_output=True,
+        ).returncode == 0
+        if upstream_resolved and subprocess.run(
+            ["git", "-C", str(root), "merge-base", "--is-ancestor", "HEAD", "origin/main"],
+            capture_output=True,
+        ).returncode == 0:
+            # HEAD is itself reachable from origin/main: this run's own work is
+            # already merged upstream (or this run never diverged from it), so
+            # EVERY commit in run_start..HEAD is also reachable from origin/main
+            # and the exclusion would empty the touched set. That must read as
+            # "cannot separate", never as zero touched files agreeing with an
+            # empty plan - the two are indistinguishable only in their output,
+            # never in what they mean.
+            compliance_unknown(f"this run's start {run_start[:12]} and HEAD are both reachable "
+                               "from origin/main - this run's own work is already merged "
+                               "upstream, so its commits cannot be separated from upstream's")
+        if upstream_resolved:
+            print(f"PLAN_COMPLIANCE_BASE: this run's start ({run_start[:12]}), from its own "
+                  "first-parent, non-merge commits not reachable from origin/main, plus any "
+                  "still-uncommitted change - a file edited then reverted back to main's "
+                  "content partway through this run still counts as this run's touch "
+                  "(KNOWN LIMITATION: an edit made only inside a merge commit's own conflict "
+                  "resolution is not visible to --no-merges and is not counted)")
+            exclude_ref = "origin/main"
+        else:
+            print(f"PLAN_COMPLIANCE_BASE: this run's start ({run_start[:12]}); "
+                  "touched-set: upstream unresolved, fast-forwarded upstream work may be "
+                  "counted - origin/main does not resolve here")
+            exclude_ref = None
         # log_touched reads COMMITTED history only - `git log` never looks at the
         # index or the working tree, so a staged or unstaged file this run has
         # not committed yet would otherwise be invisible (counter-model review:
@@ -758,7 +797,9 @@ def cmd_compliance(issue: str, base: str | None) -> int:
         # against the run's own current HEAD, which is precisely the staged +
         # unstaged population - the same one `--base` and the final `else`
         # branch already see via their own changed_since call.
-        touched = sorted(log_touched(f"{run_start}..HEAD") | changed_since("HEAD"))
+        touched = sorted(
+            log_touched(f"{run_start}..HEAD", exclude_ref) | changed_since("HEAD")
+        )
     else:
         if not main_base:
             compliance_unknown("no merge-base of HEAD and origin/main, so there is no base to "

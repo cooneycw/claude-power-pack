@@ -968,6 +968,38 @@ def test_a_rewritten_run_start_is_pinned_as_unknown(tmp_path: Path) -> None:
 
 
 @requires_git
+def test_a_run_already_merged_upstream_is_unknown_never_zero_touched(tmp_path: Path) -> None:
+    """Counter-model review, pass 2 (#1399): excluding by commit identity
+    (`--not origin/main`) empties the touched set entirely when HEAD is
+    itself reachable from origin/main - this run's work is already merged
+    upstream (or never diverged from it), so its commits cannot be told
+    apart from upstream's. That must read as UNKNOWN, never as an empty
+    touched set agreeing with an empty-looking plan - the two outputs are
+    identical, but mean opposite things about whether anything was checked.
+    """
+    repo, _base = make_repo(tmp_path)
+    assert helper(repo, "session-R", "reconcile", "42").returncode == 0
+    assert helper(repo, "session-R", "begin-run", "42").returncode == 0
+    record = repo / "docs" / "flow-runs" / "issue-42.md"
+    with record.open("a") as fh:
+        fh.write("- Approval:          granted\n\n### Section C - the approved plan\n"
+                 "1. `src/app.py` - because\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run's record")
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("a\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run's work")
+    # this run's own HEAD is now, itself, "origin/main" - already merged.
+    git(repo, "update-ref", "refs/remotes/origin/main", git(repo, "rev-parse", "HEAD").strip())
+    out = helper(repo, "session-R", "compliance", "42").stdout
+    assert "PLAN_COMPLIANCE: unknown" in out, out
+    assert "and HEAD are both reachable" in out, out
+    assert "already merged upstream" in out, out
+    assert "PLAN_COMPLIANCE: agreement" not in out
+
+
+@requires_git
 def test_a_commit_log_that_cannot_be_read_is_unknown_never_agreement(tmp_path: Path) -> None:
     """`log_touched`'s own failure branch (the elif-start path, issue #1399).
 

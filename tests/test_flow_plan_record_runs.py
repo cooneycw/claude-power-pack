@@ -377,6 +377,50 @@ def test_upstream_merged_after_the_run_started_is_not_this_runs_work(repo: Path)
 
 
 @requires_git
+def test_upstream_work_absorbed_by_a_fast_forward_is_not_this_runs_work(repo: Path) -> None:
+    """Counter-model review, pass 2 (#1399): the test above covers a MERGE
+    commit; --first-parent alone cannot tell a fast-forward (no merge commit
+    at all) apart from this run's own commits, because a fast-forwarded
+    upstream commit sits directly ON the first-parent chain. The branch
+    fast-forwards to upstream commit B (no local work yet, so no divergence
+    to prevent it); this run's own commits come AFTER that. Upstream then
+    moves on further to C, built on B, and does NOT fast-forward again (this
+    branch has diverged by then) - so by compliance time, origin/main is C,
+    and B (this run never created it) must still be excluded by identity.
+    """
+    base = git(repo, "rev-parse", "HEAD").strip()
+    git(repo, "update-ref", "refs/remotes/origin/main", base)
+    reconcile(repo, "session-B")
+    assert helper(repo, "session-B", "begin-run", "42").returncode == 0
+    run_start = git(repo, "rev-parse", "HEAD").strip()
+    # upstream moves to B; this run's own branch fast-forwards to it directly
+    # (no merge commit - it has no commits of its own yet to diverge with).
+    (repo / "docs").mkdir(exist_ok=True)
+    (repo / "docs" / "unrelated.md").write_text("upstream B\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "upstream work (B)")
+    git(repo, "update-ref", "refs/remotes/origin/main", git(repo, "rev-parse", "HEAD").strip())
+    _plan_b(repo, "session-B")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run B's record")
+    (repo / "src").mkdir()
+    (repo / "src" / "b.py").write_text("b\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run B's work")
+    # upstream moves on FURTHER to C, built on B; this branch does not ff again.
+    git(repo, "checkout", "-q", "-b", "upstream-continues", run_start)
+    git(repo, "merge", "-q", "--no-edit", "origin/main")
+    (repo / "docs" / "more.md").write_text("upstream C\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "upstream work (C)")
+    git(repo, "update-ref", "refs/remotes/origin/main", git(repo, "rev-parse", "HEAD").strip())
+    git(repo, "checkout", "-q", "issue-42-a-fixture")
+    out = helper(repo, "session-B", "compliance", "42").stdout
+    assert "docs/unrelated.md" not in out, f"fast-forwarded upstream work was blamed:\n{out}"
+    assert "PLAN_COMPLIANCE: agreement" in out, out
+
+
+@requires_git
 def test_a_rewritten_run_start_is_unknown_never_a_wider_scope(repo: Path) -> None:
     """Pass-3 MEDIUM: after a rebase the run's start is not an ancestor; do not widen."""
     reconcile(repo, "session-B")
@@ -397,6 +441,28 @@ def test_a_rewritten_run_start_is_unknown_never_a_wider_scope(repo: Path) -> Non
     proc = helper(repo, "session-B", "compliance", "42")
     assert proc.returncode == 4, proc.stdout
     assert "is no longer an ancestor of HEAD" in proc.stdout
+
+
+@requires_git
+def test_an_unresolvable_upstream_falls_back_labelled_not_silently(repo: Path) -> None:
+    """Counter-model review, pass 2 (#1399): with no origin/main to exclude
+    by, don't guess - keep today's (pre-exclusion) behaviour and say so, so
+    a reader can tell "verified, upstream work excluded" from "could not
+    check, might be included" apart. The `repo` fixture carries no remote,
+    which is the ordinary unresolvable case (no fetch has ever happened).
+    """
+    reconcile(repo, "session-B")
+    _plan_b(repo, "session-B")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run B's record")
+    (repo / "src").mkdir()
+    (repo / "src" / "b.py").write_text("b\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run B's work")
+    out = helper(repo, "session-B", "compliance", "42").stdout
+    assert "touched-set: upstream unresolved" in out, out
+    assert "fast-forwarded upstream work may be counted" in out, out
+    assert "PLAN_COMPLIANCE: agreement" in out, out
 
 
 # ------------------------------------------------------------------ issue #1399: the
