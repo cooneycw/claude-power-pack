@@ -1,0 +1,35 @@
+{
+  "gate": "scripts/flow-wave-registry.sh",
+  "invocation": [
+    "sh",
+    "controls/flow-wave-registry-malformed/run-case.sh",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_WAVE_REGISTRY_MALFORMED_CONTROL: finding\\b",
+  "unavailable_signal": "^FLOW_WAVE_REGISTRY_MALFORMED_CONTROL: unavailable - ",
+  "limits": "A SEPARATE registration from controls/flow-wave-registry on the SAME gate (the harness supports several registrations per gate, #986): that one's detect_signal fires on a FILE-LANE overlap WARNING from a report-only arm where `list` always exits 0; this one fires on `list` REFUSING to answer at all. Different signal, different reason, so bundling them would risk one case passing on the other's signal - the exact hazard a shared alternation creates.\n\nWHAT THIS ESTABLISHES (issue #1403): a registry.json that opens fine but is not exactly one JSON object document - trailing garbage after an otherwise-valid document, in the bad case here - makes `list` REFUSE (exit 3, FLOW_WAVE: error, a message naming invalid content) rather than silently compute zero roles from a streaming jq's partial parse and report 'no roles registered for wave cpp', FLOW_WAVE: listed, exit 0. The good case is the genuinely empty registry (`{}`, one valid document with no roles), which must keep reading as a clean, ordinary empty roster.\n\nWHAT THIS DOES NOT ESTABLISH. Nothing about register/release/get/verify, which have their own, older protection via entry_json/entry_read_or_die (#1014 Part 2) and their own control coverage via tests/test_flow_wave_registry.py's parametrized corrupt-registry class - this control's fixture (list only) does not exercise those verbs at all. Nothing about `list --any-live`, which validates the identical document shape itself, inline, before this fix would ever run for that path, and already answered `undeterminable`/exit 2 on this same corrupt file before #1403 - this fix runs strictly AFTER that branch's own exit, by construction, so it cannot be the thing demonstrated here. Nothing about `lane-check`, which gets the identical fix but is not this gate's `list` verb and has its own pytest coverage instead (test_lane_check_reports_a_corrupt_registry_not_an_unregistered_role) rather than a dedicated control, since lane-check's own existing control registration is scoped to a different question (the diff-vs-lane comparison) and this would not fit it.\n\nTHE BAD FIXTURE'S SHAPE: 'trailing garbage after an object' specifically, not every malformed shape this fix also refuses (two concatenated documents, a bare array) - those are pinned by the pytest parametrization (test_list_reports_a_corrupt_registry_not_an_empty_roster), not duplicated here. A control's job is to prove the fix is NOT blind on a real input, not to re-walk the whole parametrized matrix a unit test already owns.",
+  "cases": [
+    {
+      "name": "bad-trailing-garbage",
+      "input": "cases/bad-trailing-garbage",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-empty",
+      "input": "cases/good-empty",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "49ff7c2",
+      "origin": "scripts/flow-wave-registry.sh",
+      "path": "anchors/49ff7c2-pre-malformed-check-flow-wave-registry.sh",
+      "sha256": "a879477ec46ef289da9f6e359244cdc4c990b9429f8b14651736e8b908daeff7",
+      "why": "HISTORICAL, vendored byte-for-byte from 49ff7c2, the commit this branch was built from - the script exactly as it stood before this fix. MEASURED against the bad case: it reports 'no roles registered for wave cpp', FLOW_WAVE: listed, exit 0 - the false-clean collapse issue #1403 (absorbing Nit Store #864) found, reproduced from the control rather than asserted, and what makes the post-fix green a change in the gate rather than a change in the case."
+    }
+  ]
+}

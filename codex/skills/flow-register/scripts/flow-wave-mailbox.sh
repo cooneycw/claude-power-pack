@@ -3348,22 +3348,26 @@ EOF
         done <<EOF
 $WROLES
 EOF
+        # "NOT LISTENING", never "deaf" - operator request, cooneycw/kyle#1369:
+        # a disability metaphor for a session not receiving its mail. The
+        # replacement vocabulary is kyle's own: "not listening" in prose,
+        # "unlistened" for the state.
         if [ -n "$DEAF_ROLES" ]; then
-          echo "DEAF: no live watcher that can wake role(s):$DEAF_ROLES - mail sent to them will not wake anyone (#801; no-wake = polled only by processes with no session in their ancestry, #1228)."
+          echo "NOT LISTENING: no live watcher that can wake role(s):$DEAF_ROLES - mail sent to them will not wake anyone (#801; no-wake = polled only by processes with no session in their ancestry, #1228)."
         fi
-        # Kept separate from DEAF on purpose: `unknown` is not a claim that
-        # nobody is listening, it is the refusal to make either claim.
+        # Kept separate from NOT LISTENING on purpose: `unknown` is not a claim
+        # that nobody is listening, it is the refusal to make either claim.
         if [ -n "$UNKNOWN_ROLES" ]; then
           echo "UNKNOWN: the process table could not be read, so the watch state of role(s):$UNKNOWN_ROLES is UNCHECKED, not clean (#801)."
         fi
         # Issue #1402: a THIRD "could not tell" bucket, kept separate from
-        # both DEAF and UNKNOWN - these roles ARE confirmed polling (the
-        # count is known), only their WAKEABILITY is unreadable. Folding this
-        # into DEAF would claim a confirmed deafness this instrument never
-        # established; folding it into armed (the pre-#1402 bug) would claim
-        # the opposite.
+        # both NOT LISTENING and UNKNOWN - these roles ARE confirmed polling
+        # (the count is known), only their WAKEABILITY is unreadable. Folding
+        # this into NOT LISTENING would claim a confirmed unlistened state
+        # this instrument never established; folding it into armed (the
+        # pre-#1402 bug) would claim the opposite.
         if [ -n "$WAKE_UNKNOWN_ROLES" ]; then
-          echo "WAKE-UNKNOWN: role(s):$WAKE_UNKNOWN_ROLES ARE being polled, but whether any watcher can wake anyone is UNREADABLE (#1402) - armed cannot be claimed, deaf cannot be claimed."
+          echo "WAKE-UNKNOWN: role(s):$WAKE_UNKNOWN_ROLES ARE being polled, but whether any watcher can wake anyone is UNREADABLE (#1402) - armed cannot be claimed, unlistened cannot be claimed."
         fi
         # The route table (issue #814), separate from WATCH on purpose (see
         # the header's ROUTE READINESS section): WATCH says a process is
