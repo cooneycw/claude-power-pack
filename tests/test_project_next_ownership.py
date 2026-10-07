@@ -87,6 +87,11 @@ def _rewrite_manifest(root: Path, **changes: object) -> None:
     path.write_text(json.dumps(data), encoding="utf-8")
 
 
+requires_real_git = pytest.mark.skipif(
+    shutil.which("git") is None, reason="git not available in this environment"
+)
+
+
 def _run_git(root: Path, *args: str) -> None:
     subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True)
 
@@ -237,7 +242,7 @@ def test_root_names_the_case_not_the_real_repository(capsys: pytest.CaptureFixtu
     assert "lib/project_next/rank.py" in out
 
 
-def test_the_shipped_invocation_still_works_as_a_subprocess() -> None:
+def test_the_shipped_invocation_still_works_as_a_subprocess() -> None:  # binary-guard: allow check skips --repin git
     """`make project-next-check` calls this as a program, not as a module.
 
     Every test above drives `main()` directly, which cannot catch an import-time
@@ -458,6 +463,7 @@ def test_an_ancestor_named_pycache_does_not_disable_the_scan(
 # before this change was made (git stash; the second `--repin` below exited 1).
 
 
+@requires_real_git
 def test_repin_succeeds_a_second_time_on_the_same_branch(tmp_path: Path) -> None:
     """The reported bug, fixed: a SECOND repin on one branch, after the first
 
@@ -481,6 +487,7 @@ def test_repin_succeeds_a_second_time_on_the_same_branch(tmp_path: Path) -> None
     assert pno.main(["check", "--root", str(root)]) == 0
 
 
+@requires_real_git
 def test_repin_still_refuses_an_engine_change_unbumped_relative_to_the_baseline(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -504,6 +511,7 @@ def test_repin_still_refuses_an_engine_change_unbumped_relative_to_the_baseline(
     assert "lib/project_next/rank.py" in err
 
 
+@requires_real_git
 def test_repin_refuses_when_origin_main_merge_base_cannot_be_resolved(tmp_path: Path) -> None:
     """A git repository with no `origin/main` ref at all must REFUSE, not
 
@@ -522,6 +530,7 @@ def test_repin_refuses_when_origin_main_merge_base_cannot_be_resolved(tmp_path: 
     assert pno.main(["--repin", "--root", str(root)]) == 1
 
 
+@requires_real_git
 def test_repin_baseline_override_lets_a_caller_choose_the_comparison_ref(tmp_path: Path) -> None:
     """`--baseline <ref>` is the explicit escape hatch for when origin/main
 
@@ -540,6 +549,7 @@ def test_repin_baseline_override_lets_a_caller_choose_the_comparison_ref(tmp_pat
     assert pno.main(["--repin", "--root", str(root), "--baseline", base_sha]) == 0
 
 
+@requires_real_git
 def test_repin_refuses_a_baseline_ref_that_does_not_resolve(tmp_path: Path) -> None:
     """Counter-model finding: an unresolvable `--baseline` (a typo, a ref
 
