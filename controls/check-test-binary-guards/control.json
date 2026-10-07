@@ -20,8 +20,13 @@
       "expect": "BAD"
     },
     {
-      "name": "bad-heredoc-text-in-quoted-string-or-comment",
-      "input": "cases/bad-heredoc-text-in-quoted-string-or-comment",
+      "name": "bad-heredoc-quoted-string",
+      "input": "cases/bad-heredoc-quoted-string",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-heredoc-comment-boundary",
+      "input": "cases/bad-heredoc-comment-boundary",
       "expect": "BAD"
     },
     {
