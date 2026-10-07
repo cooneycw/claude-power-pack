@@ -2713,17 +2713,41 @@ def test_a_synthetic_anchor_is_not_checked_against_a_commit_it_never_had(tmp_pat
 
 
 @requires_git
-def test_the_real_synthetic_anchors_are_not_reported_as_mismatched() -> None:
-    """The regression this actually fixed, pinned on the real register.
+@requires_git
+def test_the_real_synthetic_anchors_are_not_reported_as_mismatched(tmp_path: Path) -> None:
+    """The regression this actually fixed, pinned on the mechanism (#1404).
 
-    `controls/deletion-accounting` carries a synthetic anchor and reported
-    MISMATCH under `--verify-provenance` before #1157. With provenance now
-    FAILING the run, that false alarm would have become a false red on a real
-    control - so the two changes are inseparable: switching the axis on without
-    this fix would have manufactured exactly the kind of failure the axis exists
-    to prevent.
+    Synthetic rather than the real battery: `controls/deletion-accounting` is
+    the real-world instance (its origin text quotes the glob pattern
+    `^-[^-]`) and reported MISMATCH under `--verify-provenance` before #1157,
+    but the defect is general, not specific to that one control's current
+    wording. `git show <sha>:<origin>` reads an origin containing pathspec
+    glob metacharacters as a PATHSPEC rather than a path, matches nothing,
+    and exits 0 with EMPTY output - which an unguarded byte-compare hashes as
+    content. With provenance now FAILING the run, that false alarm would
+    become a false red on a real control, so `kind: "synthetic"` must
+    short-circuit before the git lookup ever runs, for any origin text.
     """
-    result = run_harness(ROOT, "--verify-provenance")
+    root = build_tree(tmp_path, SEEING_GATE)
+    subprocess.run(["git", "init", "-q", str(root)], check=True, timeout=60)
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True, timeout=60)
+    subprocess.run(
+        ["git", "-C", str(root), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"],
+        check=True, timeout=60,
+    )
+    ctl = root / "controls" / "toy"
+    anchor_path = ctl / "anchors" / "deadbee-toy.py"
+    manifest = json.loads((ctl / "control.json").read_text(encoding="utf-8"))
+    manifest["anchors"] = [{
+        "kind": "synthetic",
+        "sha": "0000000",
+        "origin": "a design quoting the glob pattern `^-[^-]`",
+        "path": "anchors/deadbee-toy.py",
+        "sha256": hashlib.sha256(anchor_path.read_bytes()).hexdigest(),
+    }]
+    (ctl / "control.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    result = run_harness(root, "--verify-provenance")
     assert "NEGATIVE_CONTROL_PROVENANCE: MISMATCH" not in result.stdout, (
         "a synthetic anchor is being compared against history again\n" + result.stdout
     )
