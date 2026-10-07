@@ -332,7 +332,7 @@ def test_the_value_match_does_not_leak_outside_the_config_file(tmp_path: Path) -
     result = _gate(repo, gate_name="flow_deploy")
     assert " FAIL " in _line(result), result.stdout
     assert "src/other.py" in result.stdout
-    assert "[HARDCODED_SECRET]" in result.stdout or "[AWS_ACCESS_KEY]" in result.stdout, result.stdout
+    assert "[HARDCODED_SECRET]" in result.stdout, result.stdout
 
 
 def test_the_value_match_is_bound_to_the_declared_value_not_the_whole_file(
@@ -353,7 +353,7 @@ def test_the_value_match_is_bound_to_the_declared_value_not_the_whole_file(
     result = _gate(repo, gate_name="flow_deploy")
     assert " FAIL " in _line(result), result.stdout
     assert ".claude/security.yml" in result.stdout
-    assert "[HARDCODED_SECRET]" in result.stdout or "[AWS_ACCESS_KEY]" in result.stdout, result.stdout
+    assert "[HARDCODED_SECRET]" in result.stdout, result.stdout
     assert OTHER not in result.stdout + result.stderr
 
 
