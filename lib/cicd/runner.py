@@ -117,6 +117,26 @@ RERUN_PASSED_IN_ISOLATION = "passed-in-isolation"
 # (issue #769).
 MAX_RERUN_IDS = 25
 
+# A FAILED step used to log only its exit code (issue #1409, comment
+# 5855612734): "FAILED (exit 1)" with no command and no output sent a reader
+# to re-run the repo's own gates by hand to learn what ruff, mypy or pytest
+# actually said. Full output can be megabytes; a tail is proportionate to a
+# log line and still names the actual cause in the overwhelming common case
+# (a lint/type error, an assertion, a traceback - all near the END of the
+# output, which is also where every runner's own summary line lives).
+DIAGNOSTIC_TAIL_LINES = 40
+
+
+def _tail_lines(text: str, limit: int = DIAGNOSTIC_TAIL_LINES) -> str:
+    """The last `limit` lines of `text`, noting how many were dropped."""
+    if not text.strip():
+        return "(empty)"
+    lines = text.splitlines()
+    if len(lines) <= limit:
+        return "\n".join(lines)
+    dropped = len(lines) - limit
+    return f"... ({dropped} earlier line(s) omitted) ...\n" + "\n".join(lines[-limit:])
+
 
 def _project_python_floor(project_root: Optional[Path]) -> Optional[str]:
     """Return the target project's minimum Python version (e.g. "3.12").
@@ -1239,7 +1259,10 @@ class DeterministicRunner:
                 else:
                     self._log(
                         f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
-                        f"FAILED (exit {result.exit_code}){qualifier}"
+                        f"FAILED (exit {result.exit_code}){qualifier}\n"
+                        f"    command: {step.command}\n"
+                        f"    stdout (tail): {_tail_lines(result.output)}\n"
+                        f"    stderr (tail): {_tail_lines(result.error)}"
                     )
                 failed_ids: list[str] = []
                 if (

@@ -3118,6 +3118,70 @@ class TestATimeoutIsNotAFailure:
         assert "FAILED (exit 1)" in log.getvalue()
         assert "TIMED OUT" not in log.getvalue()
 
+    def test_a_failure_names_its_command_and_output(self, tmp_project: Path):
+        """Issue #1409, comment 5855612734: a FAILED step used to log only
+        its exit code - "FAILED (exit 1)" with no command and no output -
+        so an operator in a no-Makefile repo could not tell "lint found a
+        real issue" from "the runner could not resolve a lint command" (and
+        had to re-run the repo's own gates by hand to find out). The step's
+        own command and a tail of both streams now ride along on the SAME
+        log line."""
+        log = StringIO()
+        runner = DeterministicRunner(project_root=tmp_project, output=log)
+        result = runner.run(
+            "check",
+            step_defs=[
+                StepDef(
+                    id="lint",
+                    command=(
+                        "echo 'app.py:3:1: F401 unused import' && "
+                        "echo 'traceback: ruff failed' >&2 && exit 1"
+                    ),
+                    timeout_seconds=30,
+                )
+            ],
+        )
+        assert not result.success
+        logged = log.getvalue()
+        assert "FAILED (exit 1)" in logged
+        assert "command:" in logged and "F401 unused import" in logged, (
+            "the failing command must be named, not just its exit code"
+        )
+        assert "F401 unused import" in logged, "stdout must be shown"
+        assert "ruff failed" in logged, "stderr must be shown"
+
+    def test_a_long_failure_output_is_tailed_not_dumped_twice(self, tmp_project: Path):
+        """The step's OWN output already streams live to the log as it runs
+        (`line 1` legitimately appears once, from that stream) - the new
+        FAILED-line diagnostic is an END-OF-STEP summary alongside it, not a
+        replacement, and dumping the full output a second time there would
+        double an already-large log for a long, failing suite. The tail
+        must add the cause (near the end, where a summary/traceback/
+        assertion lives) without re-printing the early lines a second
+        time."""
+        log = StringIO()
+        runner = DeterministicRunner(project_root=tmp_project, output=log)
+        result = runner.run(
+            "check",
+            step_defs=[
+                StepDef(
+                    id="test",
+                    command=(
+                        "for i in $(seq 1 100); do echo \"line $i\"; done; "
+                        "echo THE_ACTUAL_FAILURE; exit 1"
+                    ),
+                    timeout_seconds=30,
+                )
+            ],
+        )
+        assert not result.success
+        logged = log.getvalue()
+        assert logged.count("line 1\n") == 1, (
+            "an early line must appear once (the live stream), not again in the tail"
+        )
+        assert "omitted" in logged
+        assert "THE_ACTUAL_FAILURE" in logged
+
     def test_the_targeted_rerun_does_not_fire_for_a_timeout(self, tmp_project: Path):
         """#769 re-runs a step against only its FAILED ids. A timed-out step has
         no failed ids - it has an unfinished run - so re-running it burns the
