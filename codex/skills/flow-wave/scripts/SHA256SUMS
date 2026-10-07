@@ -7,7 +7,7 @@
 # corruption, a partial edit, and post-build modification. It does NOT
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
-b03f36b81105e82d0ebb494197d9d46fe5ddd1c2005dd1266de716a3cfcf046b  flow-driver-capability.sh
+439d8e012be0936bee854aea7a17894d7ce2e013a2e2b1509950c062a9009d50  flow-driver-capability.sh
 0df497631d63145844d6cbd88beec84d484d1abb48a09d90f3d1f0de18a1b9cf  flow-pr-watch.sh
 abf0ef9f5421bb958f4ccdd973c65c33bc2533c4ce2ab91b5447346add197248  flow-vantage.sh
 f54492dba94f31cf4cbb919b258f564f61b18f313efb57ab06603d44a87233a5  flow-wave-lexicon.sh

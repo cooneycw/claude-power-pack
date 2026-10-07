@@ -505,6 +505,17 @@ case "$CMD" in
     [ -n "$NEEDS" ] || usage_fail "check requires --needs <implementation|research|web|container|meta>[,...]"
 
     NEED_LIST="$(printf '%s' "$NEEDS" | tr ',' ' ')"
+    # A NON-EMPTY STRING IS NOT A NON-EMPTY POPULATION (counter-model finding,
+    # #1397). `--needs ','` or `--needs ' '` passes the raw non-empty check
+    # above, but `tr ',' ' '` turns either into pure whitespace, which bash's
+    # own word-splitting then iterates ZERO times - so the validation loop
+    # below never runs (nothing to call unknown), and `check` proceeds with
+    # no needs declared at all, reporting `fit` for a request that asked
+    # nothing. Checked by COUNTING the split, not by re-inspecting the raw
+    # string, since the raw string is exactly what already passed.
+    NEED_COUNT=0
+    for n in $NEED_LIST; do NEED_COUNT=$((NEED_COUNT + 1)); done
+    [ "$NEED_COUNT" -gt 0 ] || usage_fail "--needs '$NEEDS' names no need - one of: implementation, research, web, container, meta"
     for n in $NEED_LIST; do
       case "$n" in
         implementation|research|web|container|meta) : ;;

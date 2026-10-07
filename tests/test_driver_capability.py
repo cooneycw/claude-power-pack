@@ -991,6 +991,34 @@ def test_an_empty_needs_value_is_a_usage_error_not_a_silent_drop() -> None:
     assert "non-empty value" in proc2.stderr
 
 
+@requires_bash
+@pytest.mark.parametrize("value", [",", " ", ",,", "  "])
+def test_a_comma_or_whitespace_only_needs_value_is_a_usage_error(value: str) -> None:
+    """COUNTER-MODEL FINDING, #1397: a NON-EMPTY string is not a non-empty
+    POPULATION. `--needs ','` and `--needs ' '` both pass the raw
+    non-empty-string check the previous test pins, then `tr ',' ' '` turns
+    either into pure whitespace - which bash's own word-splitting iterates
+    ZERO times, so the unknown-need validation loop never runs (nothing to
+    call unknown) and `check` silently proceeded with NO needs declared,
+    reporting `fit` for a request that asked for nothing. Before this fix:
+    `check codex:auto --needs ','` reported `FLOW_DRIVER_CHECK: fit`, exit 0,
+    with `FLOW_DRIVER_NEEDS=` empty - a usage error presenting as success.
+    """
+    proc = _run("check", "codex:auto", "--needs", value)
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "names no need" in proc.stderr, proc.stderr
+
+
+@requires_bash
+def test_a_real_need_mixed_with_a_comma_only_second_flag_still_checks_the_real_one() -> None:
+    """The fix must not overreach: a genuine need accumulated alongside a
+    degenerate second flag is still checked - the degenerate flag contributes
+    nothing and is harmlessly absorbed, it does not blank the real one."""
+    proc = _run("check", "codex:auto", "--needs", "research", "--needs", ",")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "research" in _fields(proc.stdout)["FLOW_DRIVER_UNMET"]
+
+
 # --------------------------------------------------------------------------- #
 # #1397 - `list` distinguishes an ABORTED row from a genuinely empty one
 # --------------------------------------------------------------------------- #
