@@ -102,6 +102,35 @@ class TestPytestParsing:
         assert out.nothing_ran
         assert out.skipped == 0
 
+    def test_everything_deselected_is_nothing_ran(self) -> None:
+        """`--last-failed --last-failed-no-failures none` against an
+        invocation with nothing in its OWN cache prints this, never "no
+        tests ran" (issue #1409, kyle#1472): pytest DID collect items, it
+        just selected none of them. Measured verbatim (verbose and quiet):
+        `collecting ... collected 2 items / 2 deselected / 0 selected` then
+        `================ 2 deselected in 0.00s ================`, or bare
+        `2 deselected in 0.00s` under `-q`. Pre-fix this returned None
+        entirely - invisible to `any_invocation_empty`, not even counted as
+        an empty invocation - which is what let a sibling invocation's
+        unrelated exit code make the #769 re-run report UNKNOWN instead of
+        naming what actually happened."""
+        out = parse_suite_outcome("2 deselected in 0.00s")
+        assert out is not None
+        assert out.framework == "pytest"
+        assert out.nothing_ran
+        assert out.passed == 0
+        assert out.failed == 0
+
+    def test_partial_deselection_keeps_its_passed_count(self) -> None:
+        """The companion case: `1 passed, 3 deselected in 0.00s` already
+        parsed correctly before this fix (a real `passed` keyword is
+        present), and must keep doing so - the new all-deselected path must
+        never fire when a count word is already recognized."""
+        out = parse_suite_outcome("1 passed, 3 deselected in 0.00s")
+        assert out is not None
+        assert out.passed == 1
+        assert not out.nothing_ran
+
     def test_failures_and_errors(self) -> None:
         out = parse_suite_outcome("=== 2 failed, 8 passed, 1 error in 3.20s ===")
         assert out is not None

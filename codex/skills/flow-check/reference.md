@@ -228,8 +228,10 @@ Based on results:
 ## Notes
 
 - This command never commits, pushes, or modifies tracked files. It writes only
-  the runner's resume file under `.claude/runs/` and the execution record under
-  the git directory (`cpp-evidence/`), neither of which is part of the tree
+  the runner's resume file (`cpp-runs/` under the git directory in a git
+  repository since issue #1409, `.claude/runs/` otherwise) and the execution
+  record (`cpp-evidence/` under the git directory), neither of which is part
+  of the tree
 - It runs the same checks as `/flow-finish` Step 2, extracted for standalone use
 - Lint, test and typecheck are the three steps every shipped CI template runs
   (`templates/workflows/ci-*.yml`, `woodpecker-*.yml`), and the `finish`/`check`

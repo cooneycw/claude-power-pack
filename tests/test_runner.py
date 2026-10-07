@@ -1660,6 +1660,57 @@ class TestBothStreamsReachTheRunnerDecisions:
         assert result.reruns[0]["outcome"] != RERUN_PASSED_IN_ISOLATION
         assert "RE-RUN INCONCLUSIVE" in log.getvalue()
 
+    def test_a_deselected_sibling_invocation_gets_a_specific_message(
+        self, tmp_project: Path
+    ) -> None:
+        """The real incident (issue #1409, kyle#1472): a multi-invocation
+        test target (unit then browser) fails in the unit phase. The #769
+        re-run re-executes the WHOLE target under `--last-failed
+        --last-failed-no-failures none`: the unit phase's own cache
+        correctly narrows to the retried id and it passes (`1 passed in
+        13.41s`); the browser phase's cache has no overlap at all, so
+        pytest deselects everything (`2 deselected in 0.00s`, exit 5),
+        which fails the aggregate step.
+
+        Before issue #1409's fix, `2 deselected in 0.00s` was not
+        recognized as ANY kind of outcome at all (not even an empty one),
+        so `any_invocation_empty` stayed False and the run fell through to
+        the generic "no failing id could be read" / failed-unattributed
+        path - exactly what kyle#1472 observed. The fix for THIS test is
+        the outcomes-parser recognition (test_cicd_outcomes.py); this test
+        pins that the resulting inconclusive message is specific about
+        WHY, rather than merely generic - verdict stays `inconclusive`,
+        never a credited pass (declined per orchestrator ruling: the
+        existing `test_an_unrelated_passing_suite_cannot_clear_the_
+        original_failure` guard exists because a weaker version of
+        crediting this exact shape was already a real bug once)."""
+        step = StepDef(
+            id="test",
+            command=(
+                "if [ -f rerun-marker ]; then "
+                "printf '=== 1 passed in 13.41s ===\\n'; "
+                "printf '2 deselected in 0.00s\\n'; "
+                "exit 5; "
+                "else : > rerun-marker; "
+                "printf '=== 1 failed in 0.01s ===\\n'; "
+                "printf 'FAILED tests/a.py::t1 - AssertionError\\n'; "
+                "exit 1; fi"
+            ),
+            timeout_seconds=30,
+        )
+        log = StringIO()
+        result = DeterministicRunner(
+            project_root=tmp_project, output=log, rerun_failed=True
+        ).run("check", step_defs=[step])
+
+        assert result.reruns[0]["outcome"] == "inconclusive"
+        assert result.reruns[0]["outcome"] != RERUN_PASSED_IN_ISOLATION
+        logged = log.getvalue()
+        assert "RE-RUN INCONCLUSIVE" in logged
+        assert "selected nothing" in logged
+        assert "exactly 1 passed" in logged
+        assert "cannot attribute that pass to the retried id" in logged
+
     def test_an_empty_invocation_on_the_other_stream_still_warns(
         self, tmp_project: Path
     ) -> None:
@@ -3066,6 +3117,70 @@ class TestATimeoutIsNotAFailure:
         assert "timed_out_step" not in result.to_dict()
         assert "FAILED (exit 1)" in log.getvalue()
         assert "TIMED OUT" not in log.getvalue()
+
+    def test_a_failure_names_its_command_and_output(self, tmp_project: Path):
+        """Issue #1409, comment 5855612734: a FAILED step used to log only
+        its exit code - "FAILED (exit 1)" with no command and no output -
+        so an operator in a no-Makefile repo could not tell "lint found a
+        real issue" from "the runner could not resolve a lint command" (and
+        had to re-run the repo's own gates by hand to find out). The step's
+        own command and a tail of both streams now ride along on the SAME
+        log line."""
+        log = StringIO()
+        runner = DeterministicRunner(project_root=tmp_project, output=log)
+        result = runner.run(
+            "check",
+            step_defs=[
+                StepDef(
+                    id="lint",
+                    command=(
+                        "echo 'app.py:3:1: F401 unused import' && "
+                        "echo 'traceback: ruff failed' >&2 && exit 1"
+                    ),
+                    timeout_seconds=30,
+                )
+            ],
+        )
+        assert not result.success
+        logged = log.getvalue()
+        assert "FAILED (exit 1)" in logged
+        assert "command:" in logged and "F401 unused import" in logged, (
+            "the failing command must be named, not just its exit code"
+        )
+        assert "F401 unused import" in logged, "stdout must be shown"
+        assert "ruff failed" in logged, "stderr must be shown"
+
+    def test_a_long_failure_output_is_tailed_not_dumped_twice(self, tmp_project: Path):
+        """The step's OWN output already streams live to the log as it runs
+        (`line 1` legitimately appears once, from that stream) - the new
+        FAILED-line diagnostic is an END-OF-STEP summary alongside it, not a
+        replacement, and dumping the full output a second time there would
+        double an already-large log for a long, failing suite. The tail
+        must add the cause (near the end, where a summary/traceback/
+        assertion lives) without re-printing the early lines a second
+        time."""
+        log = StringIO()
+        runner = DeterministicRunner(project_root=tmp_project, output=log)
+        result = runner.run(
+            "check",
+            step_defs=[
+                StepDef(
+                    id="test",
+                    command=(
+                        "for i in $(seq 1 100); do echo \"line $i\"; done; "
+                        "echo THE_ACTUAL_FAILURE; exit 1"
+                    ),
+                    timeout_seconds=30,
+                )
+            ],
+        )
+        assert not result.success
+        logged = log.getvalue()
+        assert logged.count("line 1\n") == 1, (
+            "an early line must appear once (the live stream), not again in the tail"
+        )
+        assert "omitted" in logged
+        assert "THE_ACTUAL_FAILURE" in logged
 
     def test_the_targeted_rerun_does_not_fire_for_a_timeout(self, tmp_project: Path):
         """#769 re-runs a step against only its FAILED ids. A timed-out step has

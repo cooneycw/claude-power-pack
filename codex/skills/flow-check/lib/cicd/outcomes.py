@@ -139,6 +139,13 @@ _PYTEST_NO_TESTS = re.compile(r"\bno tests ran\b", re.IGNORECASE)
 _PYTEST_COUNT = re.compile(
     r"(\d+)\s+(passed|failed|skipped|error|errors|xfailed|xpassed)\b"
 )
+# "2 deselected in 0.00s" - distinct from "no tests ran": pytest DID collect
+# items, a selector (`-k`, or `--last-failed --last-failed-no-failures none`
+# finding nothing in ITS OWN cache) excluded every one of them (issue #1409).
+# Matched only when `_PYTEST_COUNT` found no OTHER count word on the same
+# line, so "1 passed, 3 deselected in 0.00s" keeps its real `passed` count
+# instead of being read as nothing_ran.
+_PYTEST_ALL_DESELECTED = re.compile(r"\b\d+\s+deselected\b")
 
 # jest / vitest: "Tests:       2 skipped, 10 passed, 12 total".
 _JEST_LINE = re.compile(r"^\s*Tests:\s+(?P<counts>.+?)\s*$")
@@ -382,6 +389,8 @@ def _parse_pytest_line(line: str) -> Optional[SuiteOutcome]:
         return SuiteOutcome(framework="pytest")
     counts = {name: int(num) for num, name in _PYTEST_COUNT.findall(line)}
     if not counts:
+        if _PYTEST_ALL_DESELECTED.search(line):
+            return SuiteOutcome(framework="pytest")
         return None
     errors = counts.get("error", 0) + counts.get("errors", 0)
     return SuiteOutcome(
