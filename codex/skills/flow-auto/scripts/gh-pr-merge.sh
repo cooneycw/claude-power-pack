@@ -1684,7 +1684,7 @@ _report_base_advance() {
                 overlap=$(comm -12 <(sort <<<"$base_files") <(sort <<<"$pr_files") 2>/dev/null)
                 if [[ -n "$overlap" ]]; then
                     echo "  touches file(s) this PR also changes (informational only, does not change the refusal):" >&2
-                    echo "$overlap" | sed 's/^/    /' >&2
+                    printf '%s\n' "$overlap" | sed 's/^/    /' >&2
                 else
                     echo "  touches no file this PR changes (informational only - still refused: branch protection requires an up-to-date head regardless)" >&2
                 fi
