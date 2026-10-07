@@ -1642,6 +1642,48 @@ guard_incidental_close_keywords() {
 surface_deletions
 retarget_stacked_children
 
+# Names the advance and the remedy on every exit-6 path (issue #1412). The
+# literal ask behind #1412(b) - tell a genuinely moved base from ordinary
+# churn, so disjoint sibling merges could proceed - was DECLINED: branch
+# protection already requires an up-to-date head (measured directly on PR
+# #1417, rejected with "the head branch is not up to date with the base
+# branch"), so relaxing this guard for disjoint changes would only move the
+# SAME refusal from here to the server, with a worse message. The guard's
+# ancestry check is correct and agrees with the server's own rule; this
+# function exists only to make the already-correct refusal legible, never to
+# change when it fires. $1=worktree root, $2=old (last-known-contained) tip,
+# $3=new tip, $4=base branch name.
+_report_base_advance() {
+    local root="$1" old="$2" new="$3" base_branch="$4"
+    local n base_files pr_files overlap
+    echo "  base advanced (${old:-unknown}..$new)" >&2
+    if [[ -n "$root" && -n "$old" ]]; then
+        n=$("$GIT_BIN" -C "$root" rev-list --count "${old}..${new}" 2>/dev/null)
+        if [[ -n "$n" ]]; then
+            echo "  $n commit(s):" >&2
+            "$GIT_BIN" -C "$root" log --oneline "${old}..${new}" 2>/dev/null | sed 's/^/    /' >&2
+            # INFORMATIONAL ONLY (counter-model note: never read as a reason to
+            # relax the exit) - overlap or its absence does not change anything
+            # below. `old` is the last tip THIS guard already confirmed as an
+            # ancestor of HEAD, so `old..HEAD` is exactly this PR's own changes.
+            base_files=$("$GIT_BIN" -C "$root" diff --name-only "${old}..${new}" 2>/dev/null)
+            pr_files=$("$GIT_BIN" -C "$root" diff --name-only "${old}..HEAD" 2>/dev/null)
+            if [[ -n "$base_files" && -n "$pr_files" ]]; then
+                overlap=$(comm -12 <(sort <<<"$base_files") <(sort <<<"$pr_files") 2>/dev/null)
+                if [[ -n "$overlap" ]]; then
+                    echo "  touches file(s) this PR also changes (informational only, does not change the refusal):" >&2
+                    echo "$overlap" | sed 's/^/    /' >&2
+                else
+                    echo "  touches no file this PR changes (informational only - still refused: branch protection requires an up-to-date head regardless)" >&2
+                fi
+            fi
+        fi
+    fi
+    echo "  branch protection requires an up-to-date head - rebase and re-run:" >&2
+    echo "        git fetch origin $base_branch" >&2
+    echo "        git merge origin/$base_branch" >&2
+}
+
 # An explicit --admin is a conscious owner override of protection, so it also
 # skips the wait, the queue wait that precedes it, and the base-move guard around
 # them (issues #717/#767); without it, required checks must be green before the
@@ -1728,9 +1770,8 @@ if (( ADMIN_OPT_IN == 0 )); then
         else
             echo "CLEAN STOP: base '$PR_BASE_BRANCH' advanced while the required checks were running - not merging PR #$PR_NUMBER (issue #767)." >&2
             echo "  The tree that was gated is not the tree that would land. The PR is left open and untouched." >&2
-            echo "  Bring the branch current, re-run the quality gate, push, and re-run the merge:" >&2
-            echo "        git fetch origin $PR_BASE_BRANCH" >&2
-            echo "        git merge origin/$PR_BASE_BRANCH" >&2
+            _report_base_advance "$BASE_WAIT_ROOT" "$BASE_TIP_BEFORE" "$BASE_TIP_AFTER" "$PR_BASE_BRANCH"
+            echo "  Re-run the quality gate, push, and re-run the merge." >&2
             echo "  Resume /flow:auto Step 7 from its sync sub-step, or re-run /flow:merge." >&2
             echo "  Conscious override: re-run this helper with --allow-base-move." >&2
             exit 6
@@ -1768,7 +1809,8 @@ base_contained_now() {
     fi
     echo "CLEAN STOP: base '$PR_BASE_BRANCH' moved to $tip $1, and this branch does not contain it - not merging PR #$PR_NUMBER (issue #1300)." >&2
     echo "  The tree that was gated is not the tree that would land. The PR is left open and untouched." >&2
-    echo "  Bring the branch current (the caller's CI-budget decision), re-gate, push, and re-run the merge." >&2
+    _report_base_advance "$BASE_WAIT_ROOT" "${BASE_TIP_AFTER:-$BASE_TIP_BEFORE}" "$tip" "$PR_BASE_BRANCH"
+    echo "  (the caller's CI-budget decision) re-gate, push, and re-run the merge." >&2
     return 1
 }
 
