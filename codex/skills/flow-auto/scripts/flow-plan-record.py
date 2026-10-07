@@ -81,6 +81,47 @@ def snapshot_rel(issue: str) -> str:
     return f"docs/flow-runs/issue-{issue}.as-read.md"
 
 
+def self_stamp() -> str:
+    """Identify the RUNNING COPY of this script, never the tree under examination (#1399).
+
+    `root` (the --root/target repo this file's commands examine) and
+    `__file__` (where THIS script itself lives) are different paths in
+    exactly the case this exists for: a kyle-managed `~/.claude/scripts/
+    flow-plan-record.py` has no `.git` tree anywhere nearby, and a stale
+    copy there can silently differ from the checkout's own file and omit a
+    fix the checkout already carries (Nit Store #864 comment 5874632553) -
+    nothing before this printed WHICH COPY produced a verdict.
+
+    THE CONTENT HASH IS ALWAYS INCLUDED, never only the commit (counter-model
+    review): `worktree-at-<sha>` alone names the CHECKOUT's HEAD, which says
+    nothing about whether this exact file has an uncommitted local edit
+    sitting on top of that commit - two different sets of bytes at the same
+    HEAD would otherwise read as the same copy. git, when this file's own
+    directory is inside a work tree, additionally names the COMMIT
+    (`worktree-at-<sha>`, the same wording `check-negative-controls.py`'s
+    `_source_stamp` uses for the analogous "which copy" question) beside the
+    hash, for a human reading the output. Without git - the installed-copy
+    case - the content hash is the only answer: never a guess, and a reader
+    can still compare it against `git show <expected>:scripts/flow-plan-
+    record.py | sha256sum`.
+    """
+    here = pathlib.Path(__file__).resolve()
+    try:
+        digest = hashlib.sha256(here.read_bytes()).hexdigest()[:12]
+    except OSError:
+        return "unknown"
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(here.parent), "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return f"worktree-at-{out.stdout.strip()} content-{digest}"
+    except (OSError, subprocess.SubprocessError):  # pragma: no cover - defensive
+        pass
+    return f"content-{digest} (not git-tracked at this path)"
+
+
 # ---------------------------------------------------------------- run identity (#1320)
 #
 # THE RECORD WAS KEYED ON THE ISSUE, SO A SECOND RUN WAS SATISFIED BY THE FIRST.
@@ -494,6 +535,7 @@ def write_run_part(out: pathlib.Path, run_id: str | None, part: str) -> None:
 
 def cmd_drift(issue: str, live_file: str | None) -> int:
     """A failed fetch and a missing snapshot are UNRESOLVED, never clean."""
+    print(f"FLOW_PLAN_RECORD_SELF: {self_stamp()}")
 
     def drift_unresolved(why: str) -> NoReturn:
         print(f"ISSUE_DRIFT: unresolved ({why})")
@@ -595,6 +637,7 @@ def compliance_unknown(why: str) -> NoReturn:
 
 def cmd_compliance(issue: str, base: str | None) -> int:
     """Compare the diff's FILE SET against Section C. Reports; never blocks."""
+    print(f"FLOW_PLAN_RECORD_SELF: {self_stamp()}")
     # Make new files visible first: `git diff <ref>` skips untracked paths, so
     # without intent-to-add an entire unplanned new file reports agreement.
     # ENUMERATED paths only (never `add -N .`), NUL-delimited, and held in a list
@@ -655,6 +698,37 @@ def cmd_compliance(issue: str, base: str | None) -> int:
             compliance_unknown(f"the diff could not be computed ({exc})")
         return {f for f in out.splitlines() if f}
 
+    def log_touched(ref_range: str, exclude_ref: str | None = None) -> set[str]:
+        # --first-parent: stay on THIS run's own commit chain, so a commit
+        # reachable only through a merge's SECOND parent (upstream work this
+        # run merged in) is never visited (#1320 pass-3's protection,
+        # restated structurally rather than by diffing two endpoints).
+        # --no-merges: the merge commit itself carries no diff of its own
+        # here. EVERY commit's own file list is counted - a file reverted to
+        # main's content partway through this run's own history still shows
+        # up, because it is this run's own edit regardless of where HEAD nets
+        # out (issue #1399; the endpoint-diff intersection this replaces
+        # could not see that at all).
+        #
+        # `exclude_ref`, when given, excludes commits reachable from it too
+        # (counter-model review, #1399): a FAST-FORWARD (no merge commit) of
+        # upstream work onto this branch puts that work on the first-parent
+        # chain, where --no-merges alone cannot tell it apart from this run's
+        # own commits. Excluding by COMMIT IDENTITY (`--not <ref>`) rather
+        # than by content keeps bullet C intact: a revert to main's bytes
+        # made in THIS run's own commit is still this run's commit, not
+        # reachable from exclude_ref, and stays counted.
+        cmd = ["git", "-C", str(root), "log", "--first-parent", "--no-merges",
+               "--name-only", "--pretty=format:", ref_range]
+        if exclude_ref is not None:
+            cmd += ["--not", exclude_ref]
+        cmd.append("--")
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, check=True).stdout
+        except (OSError, subprocess.CalledProcessError) as exc:
+            compliance_unknown(f"this run's commit log could not be read ({exc})")
+        return {f for f in out.splitlines() if f}
+
     mb_proc = subprocess.run(["git", "-C", str(root), "merge-base", "HEAD", "origin/main"],
                              capture_output=True, text=True)
     main_base = mb_proc.stdout.strip() if mb_proc.returncode == 0 else ""
@@ -663,10 +737,14 @@ def cmd_compliance(issue: str, base: str | None) -> int:
     if base is not None:
         touched = sorted(changed_since(base))       # an explicitly chosen, broader scope
     elif start:
-        # THIS RUN'S CHANGES ONLY (counter-model review, three passes): a file this
-        # run is answerable for changed SINCE THE RUN STARTED - so a prior run's
-        # committed work is not blamed on it - AND differs from the main merge base -
-        # so upstream work merged in after the start is not blamed on it either.
+        # THIS RUN'S OWN COMMITS ONLY (issue #1399, counter-model review, four
+        # passes): walked by first-parent history rather than diffed between
+        # two endpoints, so upstream work merged in after the start is not
+        # blamed on this run (structurally - see log_touched), and a file this
+        # run edited and later reverted back to main's content is still this
+        # run's touch, not silently cancelled by its own ending state. A prior
+        # run's committed work is excluded because it is outside run_start..HEAD
+        # entirely, not because of anything this computation does.
         run_start = start.group(1)
         if subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", run_start,
                            "HEAD"], capture_output=True).returncode != 0:
@@ -676,15 +754,52 @@ def cmd_compliance(issue: str, base: str | None) -> int:
             compliance_unknown(f"this run's recorded start {run_start[:12]} is no longer an "
                                "ancestor of HEAD (history was rewritten), so this run's own "
                                "changes cannot be separated - pass --base to choose a scope")
-        touched_set_ = changed_since(run_start)
-        if main_base:
-            touched_set_ &= changed_since(main_base)
-            print(f"PLAN_COMPLIANCE_BASE: this run's start ({run_start[:12]}), excluding "
-                  f"files unchanged from the main merge base ({main_base[:12]})")
+        # Resolve the upstream ref ITSELF (not main_base, its merge-base with
+        # HEAD): excluding by commit identity needs the ref to walk from, and
+        # unlike main_base this can be known even when HEAD and origin/main
+        # share no ancestry at all (counter-model review, #1399).
+        upstream_resolved = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--verify", "--quiet", "origin/main"],
+            capture_output=True,
+        ).returncode == 0
+        if upstream_resolved and subprocess.run(
+            ["git", "-C", str(root), "merge-base", "--is-ancestor", "HEAD", "origin/main"],
+            capture_output=True,
+        ).returncode == 0:
+            # HEAD is itself reachable from origin/main: this run's own work is
+            # already merged upstream (or this run never diverged from it), so
+            # EVERY commit in run_start..HEAD is also reachable from origin/main
+            # and the exclusion would empty the touched set. That must read as
+            # "cannot separate", never as zero touched files agreeing with an
+            # empty plan - the two are indistinguishable only in their output,
+            # never in what they mean.
+            compliance_unknown(f"this run's start {run_start[:12]} and HEAD are both reachable "
+                               "from origin/main - this run's own work is already merged "
+                               "upstream, so its commits cannot be separated from upstream's")
+        if upstream_resolved:
+            print(f"PLAN_COMPLIANCE_BASE: this run's start ({run_start[:12]}), from its own "
+                  "first-parent, non-merge commits not reachable from origin/main, plus any "
+                  "still-uncommitted change - a file edited then reverted back to main's "
+                  "content partway through this run still counts as this run's touch "
+                  "(KNOWN LIMITATION: an edit made only inside a merge commit's own conflict "
+                  "resolution is not visible to --no-merges and is not counted)")
+            exclude_ref = "origin/main"
         else:
-            print(f"PLAN_COMPLIANCE_BASE: this run's start ({run_start[:12]}); upstream "
-                  "merges NOT excluded (no origin/main to compare with)")
-        touched = sorted(touched_set_)
+            print(f"PLAN_COMPLIANCE_BASE: this run's start ({run_start[:12]}); "
+                  "touched-set: upstream unresolved, fast-forwarded upstream work may be "
+                  "counted - origin/main does not resolve here")
+            exclude_ref = None
+        # log_touched reads COMMITTED history only - `git log` never looks at the
+        # index or the working tree, so a staged or unstaged file this run has
+        # not committed yet would otherwise be invisible (counter-model review:
+        # confirmed empirically that an uncommitted unplanned file reported
+        # agreement without this). changed_since("HEAD") is exactly the diff
+        # against the run's own current HEAD, which is precisely the staged +
+        # unstaged population - the same one `--base` and the final `else`
+        # branch already see via their own changed_since call.
+        touched = sorted(
+            log_touched(f"{run_start}..HEAD", exclude_ref) | changed_since("HEAD")
+        )
     else:
         if not main_base:
             compliance_unknown("no merge-base of HEAD and origin/main, so there is no base to "
@@ -695,11 +810,23 @@ def cmd_compliance(issue: str, base: str | None) -> int:
     excluded_exact = {record_rel(issue), snapshot_rel(issue)}
     receipt_re = re.compile(rf"^docs/measurements/counter-model/[^/]*-issue-{issue}\.json$")
 
+    # A planned entry ending in `/` is a DIRECTORY, matched as a path prefix on
+    # both sides (issue #1399) - `/flow:register` already treats a declared
+    # directory as containing the paths under it, and compliance disagreed with
+    # its own sibling. Scoped to entries that actually end in `/`: an exact-file
+    # entry's matching is unchanged, so `src/app.py` still never matches
+    # `src/app.py.bak`.
+    planned_dirs = [p for p in planned if p.endswith("/")]
+    planned_exact = {p for p in planned if not p.endswith("/")}
+
+    def is_planned(path: str) -> bool:
+        return path in planned_exact or any(path.startswith(d) for d in planned_dirs)
+
     unplanned: list[str] = []
     unresolved_mirrors: list[str] = []
     touched_set = frozenset(touched)
     for f in touched:
-        if f in planned:
+        if is_planned(f):
             continue                     # an explicitly planned path wins over any rule
         if f in excluded_exact or receipt_re.match(f):
             continue
@@ -719,11 +846,20 @@ def cmd_compliance(issue: str, base: str | None) -> int:
                 derived = BUNDLED_RE.match(f)
                 unresolved_mirrors.append(
                     f"{f}  (derived source {derived.group(1)} does not exist)" if derived else f)
-            elif src not in planned:
+            elif not is_planned(src):
                 unplanned.append(f"{f}  (mirror of {src}, which the plan does not name)")
             continue
         unplanned.append(f)
-    untouched = [f for f in planned if f not in touched]
+    def is_untouched(p: str) -> bool:
+        # A planned DIRECTORY is untouched only if NO touched file matches its
+        # prefix - git diffs never emit a bare directory path, so literal
+        # containment (the old check) could never succeed for one even when
+        # real work happened under it.
+        if p.endswith("/"):
+            return not any(t.startswith(p) for t in touched)
+        return p not in touched
+
+    untouched = [p for p in planned if is_untouched(p)]
 
     code = OK
     if not unplanned and not untouched and not unresolved_mirrors:
@@ -792,6 +928,7 @@ def cmd_head_check(issue: str, head: str | None) -> int:
 
     "Could not look" (4) and "looked and it is missing" (1) are different exits.
     """
+    print(f"FLOW_PLAN_RECORD_SELF: {self_stamp()}")
     rec = record_rel(issue)
     if head is None:
         try:
