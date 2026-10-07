@@ -142,6 +142,10 @@ class TestMalformedTransitionsAreRefused:
             ("OVERRULE", "a ruling must name the issue it answers"),
             ("PUSHBACK", "pushback with no argument can be skimmed past as agreement"),
             ("LEDGER\ndelivered: x", "the ledger shape requires all three sections"),
+            (
+                'GATE: HOLD #208 behind #194 #208\'s own body declares "Parent: #194 ..."',
+                "a HOLD cannot be behind itself (issue #1403)",
+            ),
         ],
     )
     def test_refused(self, tmp_path: Path, body: str, because: str):
@@ -269,6 +273,18 @@ class TestWellFormedTransitionsParse:
         proc = _validate(tmp_path, "GATE: HOLD #52 behind #56, #57 waiting on the migration")
         assert proc.returncode == 0, proc.stderr
 
+    def test_hold_behind_a_double_dash_still_separates_blockers_from_reason(
+        self, tmp_path: Path
+    ):
+        """Issue #1403's declared escape hatch: inserting '--' stops the
+        behind-list scan before it reaches a '#N' that starts the reason,
+        even when that reason would otherwise collide with the self-
+        reference refusal."""
+        proc = _validate(
+            tmp_path, "GATE: HOLD #208 behind #194 -- #208 is tracked separately"
+        )
+        assert proc.returncode == 0, proc.stderr
+
 
 # --------------------------------------------------------------------------
 # record: the ledger entry is DERIVED, never hand-written.
@@ -312,6 +328,29 @@ class TestRecordDerivesTheLedger:
         entry = self._ledger(tmp_path)[0]
         assert entry["ruling"] == "hold"
         assert entry["holds_behind"] == [56, 57]
+
+    def test_a_self_referential_hold_records_nothing(self, tmp_path: Path):
+        """THE #1403 RED: before the fix, this recorded holds_behind:[194,208]
+        - #208 held behind itself, a hold that can never be satisfied, with
+        `record` reporting success."""
+        proc = _run(
+            tmp_path, "record", "--wave", WAVE,
+            stdin='GATE: HOLD #208 behind #194 #208\'s own body declares "Parent: #194 ..."\n',
+        )
+        assert proc.returncode == 1
+        assert _verdict(proc) == "invalid"
+        assert not (tmp_path / "wave" / WAVE / "verdicts.json").exists()
+
+    def test_the_double_dash_escape_hatch_records_only_the_real_blocker(
+        self, tmp_path: Path
+    ):
+        _run(
+            tmp_path, "record", "--wave", WAVE,
+            stdin="GATE: HOLD #208 behind #194 -- #208 is tracked separately\n",
+        )
+        entry = self._ledger(tmp_path)[0]
+        assert entry["ruling"] == "hold"
+        assert entry["holds_behind"] == [194]
 
     def test_conditions_become_the_reason(self, tmp_path: Path):
         body = (

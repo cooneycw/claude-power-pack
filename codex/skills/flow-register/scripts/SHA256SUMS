@@ -9,7 +9,7 @@
 # Verifying arrival needs a key that is not in this bundle.
 439d8e012be0936bee854aea7a17894d7ce2e013a2e2b1509950c062a9009d50  flow-driver-capability.sh
 abf0ef9f5421bb958f4ccdd973c65c33bc2533c4ce2ab91b5447346add197248  flow-vantage.sh
-f54492dba94f31cf4cbb919b258f564f61b18f313efb57ab06603d44a87233a5  flow-wave-lexicon.sh
+a9562871ed70557fdca7b5045ea41f0eaa4654cab8863164ad5befa74dc45734  flow-wave-lexicon.sh
 0bc47126217308ba60711449a7a2e53ceb96ce6d898a5bae13f740b38d377fe4  flow-wave-mailbox.sh
-a879477ec46ef289da9f6e359244cdc4c990b9429f8b14651736e8b908daeff7  flow-wave-registry.sh
+612bf00d3ed98e02b16bb37386b1ec4ea0d44b2f3f9f3a330a87ad72b5cdb13c  flow-wave-registry.sh
 23f23e508ac30c492364c5235d5b388ecd17420da5c47600885e0624522ef06c  toolchain-provenance.sh

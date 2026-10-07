@@ -4939,3 +4939,81 @@ class TestAnotherHostsOwnerIsUnknownNotStale:
         p = _run(tmp_path, "register", "1", "--socket", "uds:/tmp/x.sock", session="-")
         assert _verdict(p) == "updated", p.stdout + p.stderr
 
+
+# ---------------------------------------------------------------------------
+# Issue #1403 bullet 4: a corrupt registry.json read as an empty-but-valid
+# roster by `list` and `lane-check`, false clean. Separate from
+# TestAnotherHostsOwnerIsUnknownNotStale's own corrupt-registry coverage
+# above: those verbs (register/release/get/verify) are protected by
+# entry_json/entry_read_or_die since #1014 Part 2, with their own "could not
+# be parsed" wording; list's normal path and lane-check had no protection at
+# all, and `refuse_if_registry_malformed` gives them a DIFFERENT message
+# (the shared helper's), which is why these are not folded into that
+# parametrized class.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "contents",
+    ["{} trailing-garbage", "{}\n{}\n", "[]"],
+    ids=["trailing-garbage", "two-documents", "not-an-object"],
+)
+def test_list_reports_a_corrupt_registry_not_an_empty_roster(
+    tmp_path: Path, contents: str
+) -> None:
+    """THE #1403 RED: before the fix, `printf '{} trailing-garbage' >
+    registry.json; list --wave cpp` printed 'no roles registered for wave
+    cpp', FLOW_WAVE: listed, exit 0 - jq's streaming parse of the corrupt
+    file silently yielded zero roles. `list --any-live` on the SAME file
+    already correctly answered `undeterminable`/exit 2 (its own inline
+    check); the normal path had none."""
+    reg = tmp_path / "reg"
+    reg.mkdir(parents=True, exist_ok=True)
+    (reg / "registry.json").write_text(contents)
+    p = _run(tmp_path, "list", "--wave", "cpp")
+    assert p.returncode == 3, p.stdout + p.stderr
+    assert _verdict(p) == "error"
+    assert "no roles registered" not in p.stdout
+    assert "FLOW_WAVE: listed" not in p.stdout
+    assert "not valid content" in p.stderr
+
+
+def test_list_any_live_is_unaffected_by_the_normal_path_fix(tmp_path: Path) -> None:
+    """Control: the new check sits AFTER the any-live branch's own exit, so
+    --any-live's pre-existing undeterminable answer on the same file must
+    not change shape (e.g. to the normal path's exit 3 error block)."""
+    reg = tmp_path / "reg"
+    reg.mkdir(parents=True, exist_ok=True)
+    (reg / "registry.json").write_text("{} trailing-garbage")
+    p = _run(tmp_path, "list", "--wave", "cpp", "--any-live")
+    assert p.returncode == 2, p.stdout + p.stderr
+    assert p.stdout.strip() == "FLOW_WAVE_ANY_LIVE=undeterminable"
+
+
+def test_lane_check_reports_a_corrupt_registry_not_an_unregistered_role(
+    tmp_path: Path,
+) -> None:
+    """Before the fix, lane-check's own jq read nothing from the corrupt
+    file and treated that identically to a genuinely absent role: 'worker-A
+    is not registered', exit 2 - a true cause (corruption) reported as a
+    different, misleading one (never registered)."""
+    reg = tmp_path / "reg"
+    reg.mkdir(parents=True, exist_ok=True)
+    (reg / "registry.json").write_text("{} trailing-garbage")
+    p = _run(tmp_path, "lane-check", "worker-A", "--wave", "cpp")
+    assert p.returncode == 3, p.stdout + p.stderr
+    assert _verdict(p) == "error"
+    assert "is not registered" not in p.stderr
+    assert "not valid content" in p.stderr
+
+
+@requires_git_tools
+def test_lane_check_still_works_on_a_valid_registry(tmp_path: Path) -> None:
+    """Positive-silence control: the new guard must not fire on a real,
+    valid registration, and the existing lane-check behavior is unchanged."""
+    repo = _lane_repo(tmp_path)
+    _run(tmp_path, "register", "w", "--wave", "zz", "--repo", str(repo), "--files", "mine.sh")
+    p = _run(tmp_path, "lane-check", "w", "--wave", "zz", cwd=repo)
+    assert "not valid content" not in p.stdout + p.stderr
+    assert "FLOW_WAVE_LANE_CHECK=ok" in p.stdout, p.stdout
+

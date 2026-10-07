@@ -586,6 +586,34 @@ parse_gate() { # parse_gate LINENO REST BLOCK_START
     return
   fi
 
+  # A SELF-REFERENCE IS A PARSE DEFECT, NOT A RULING (issue #1403, Nit Store
+  # #864). The behind-list scan above has no way to tell "the last real
+  # blocker" from "the first word of prose that happens to start with #N" -
+  # both are `[[:space:],]+#[0-9]+` to it - so a HOLD reason beginning with
+  # an issue reference gets that reference silently absorbed into $behind.
+  # Observed 2026-09-15: `GATE: HOLD #208 behind #194 #208's own body
+  # declares "Parent: #194 ..."` recorded holds_behind:[194,208] - #208 held
+  # behind itself, which can never be satisfied, and neither `validate` nor
+  # `record` flagged it.
+  #
+  # REFUSING THE SUBJECT'S OWN ISSUE IS THE PART THIS CAN ACTUALLY PROVE: no
+  # HOLD is ever correctly blocked on itself, so this one case is detectable
+  # regardless of the general ambiguity, which has no fix here short of a
+  # required separator. A reason that legitimately starts with a DIFFERENT
+  # issue reference (not the subject's own) is not caught by this - that
+  # general case remains a declared, unfixed gap; insert `--` before the
+  # reason to stop the scan there instead (the repeat group requires
+  # `[[:space:],]+#[0-9]+` with no non-space/comma text between tokens, so a
+  # literal `--` breaks the match and everything after it reads as prose).
+  if [ "$verb" = "HOLD" ] && [ -n "$issue" ]; then
+    case " $behind " in
+      *" $issue "*)
+        add_err "$ln" "GATE: HOLD $label cannot be held behind itself - #$issue appeared in its own 'behind' list, almost certainly because the reason that follows starts with another '#N' that got absorbed into the blocker list instead of being read as prose. Separate them with '--' (e.g. 'behind #194 -- #208 already covers the same ground')."
+        return
+        ;;
+    esac
+  fi
+
   block="$(block_lines "$start")"
   conds="$(printf '%s\n' "$block" | sed -n 's/^[[:space:]]*[-*][[:space:]]\{1,\}\(.*\)$/\1/p;s/^[[:space:]]*[0-9]\{1,\}\.[[:space:]]\{1,\}\(.*\)$/\1/p')"
   serial="$(printf '%s\n' "$block" | sed -n 's/^[[:space:]]*[Ss]erializes:[[:space:]]*\(.*\)$/\1/p' | head -1)"
