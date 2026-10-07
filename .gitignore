@@ -52,6 +52,18 @@ desktop.ini
 
 # Project specific
 *.json
+# POLICY (issue #1406): every negation below this line that re-includes a
+# fixture under controls/ is NAMED or FILENAME-SCOPED on purpose, never a
+# blanket `!controls/**`. A blanket exemption would also re-include a stray
+# scratch file - `controls/<name>/anchors/notes.json`, say - that is
+# correctly meant to stay out of the repository; narrow negations are the
+# deliberate cost of keeping that distinction, not an oversight to batch away.
+# tests/test_vendor_module.py::test_the_control_case_json_negation_does_not_leak_past_controls
+# pins both sides: the fixture a negation targets is tracked, and an
+# unrelated file at the same depth stays ignored. A new control-fixture shape
+# needing its own line is therefore expected, not a bug in this list -
+# `tests/test_negative_controls.py::test_every_discovered_controls_files_are_tracked`
+# is the fail-loud backstop if one is ever missed.
 !package.json
 !tsconfig.json
 !renovate.json
@@ -114,13 +126,23 @@ desktop.ini
 !docs/measurements/skill-coverage/*.json
 # Plugin-bundled hook configs (issue #479, Phase B3) - tracked despite *.json.
 !plugins/**/hooks/hooks.json
-# Negative-control manifests (issue #924) - tracked despite *.json above. A
-# control.json IS the executable half of a registration: without it the gate's
-# `#: NEGATIVE-CONTROL:` directive resolves to UNRESOLVED and the control never
-# runs. The blanket rule already swallowed one silently - `git add` no-ops on an
-# ignored path with no error - so the framework shipped with its only control
-# inert. The `*` glob covers the next consumer, not just the first.
-!controls/*/control.json
+# Negative-control manifests (issue #924, widened #1406) - tracked despite
+# *.json above. A control.json IS the executable half of a registration:
+# without it the gate's `#: NEGATIVE-CONTROL:` directive resolves to
+# UNRESOLVED and the control never runs. The blanket rule already swallowed
+# one silently - `git add` no-ops on an ignored path with no error - so the
+# framework shipped with its only control inert.
+#
+# `**` ON THE CONTROL SEGMENT, not `*` (#1406): a control.json nested under a
+# NON-cases/ subdirectory - controls/<name>/anchors/<nested>/control.json, or
+# any other depth - was still swallowed by the blanket rule; `*` only ever
+# matched exactly one segment. `!controls/*/cases/**/*.json` below already
+# reached arbitrary depth under a cases/ tree, so that shape was never the
+# live gap; this one was. `**` here still matches ONLY the literal filename
+# `control.json` - a sibling `notes.json` at the same depth stays ignored, by
+# design: see the leak test below and
+# tests/test_vendor_module.py::test_the_control_case_json_negation_does_not_leak_past_controls.
+!controls/**/control.json
 # Negative-control CASE data that is itself JSON (issue #1012) - tracked despite
 # *.json above. The negation on the line before it is ONE level deep and cannot
 # reach a case tree, and the vendor controls put a manifest at
@@ -162,7 +184,7 @@ tests/fixtures/qa_regression/consumer/playwright-report/
 # re-included every JSON in every anchors directory, which
 # tests/test_vendor_module.py::test_the_control_case_json_negation_does_not_leak_past_controls
 # caught by name - "the negation is a hole, not a hole-saw". The `*` on the
-# CONTROL name follows `!controls/*/control.json` above and covers the next
+# CONTROL name follows `!controls/**/control.json` above and covers the next
 # consumer; the FILE is named because the next anchor fixture earns its own
 # line rather than widening this one.
 !controls/*/anchors/wrong-object-roster.json
@@ -205,7 +227,7 @@ tests/fixtures/qa_regression/consumer/playwright-report/
 # seventeen cases against their registered verdicts and exit codes.
 # WHAT WOULD MOVE THIS BACK (issue #936): these negations hold only while that
 # directory is prototype fixture data. If it is promoted into controls/ the
-# `!controls/*/control.json` line above already covers the manifest and these
+# `!controls/**/control.json` line above already covers the manifest and these
 # entries should be removed rather than left behind.
 # THIS IS THE LESSER HALF OF THE FIX. A negation list is a hand-maintained
 # enumeration of places where the blanket rule is wrong, and the line above
@@ -271,7 +293,7 @@ logs/
 # empty-anchor and anchor-with-noise cases exist precisely to exercise its
 # contents. Placed AFTER *.log deliberately - gitignore takes the LAST matching
 # rule, so the companion negation for these fixtures' *.json (up beside
-# `!controls/*/control.json`) works where it sits only because *.json precedes
+# `!controls/**/control.json`) works where it sits only because *.json precedes
 # it. The first cut of this line sat there too and was silently inert; a
 # two-sided `git check-ignore -v` probe caught it.
 # NOT UNCHECKED - checked elsewhere: `forced-claim-check.py --selftest`, which
@@ -297,7 +319,6 @@ logs/
 
 # Testing
 .pytest_cache/
-.coverage
 htmlcov/
 .tox/
 

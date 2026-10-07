@@ -734,6 +734,23 @@ def test_the_control_case_json_negation_does_not_leak_past_controls() -> None:
     ):
         assert ignored(still_ignored), f"{still_ignored} must stay ignored - the negation leaked"
 
+    # `!controls/**/control.json` (#1406): a control.json nested under a
+    # NON-cases/ subdirectory - anchors/, or any other depth - must reach,
+    # which `!controls/*/control.json`'s single `*` never did. These paths
+    # are deliberately HYPOTHETICAL (not real files): the point is the
+    # PATTERN's reach, at a depth no real fixture happens to occupy yet.
+    assert not ignored("controls/eli5-vendor/anchors/nested/control.json")
+    assert not ignored("controls/eli5-vendor/some/arbitrary/depth/control.json")
+    for still_ignored_1406 in (
+        # The filename is what the negation targets, not the directory - a
+        # sibling at the identical depth must still be swallowed by the
+        # blanket rule, or `**` would have widened into the blanket exemption
+        # #1406's own .gitignore comment explicitly rejects.
+        "controls/eli5-vendor/anchors/nested/notes.json",
+        "controls/eli5-vendor/some/arbitrary/depth/notes.json",
+    ):
+        assert ignored(still_ignored_1406), f"{still_ignored_1406} must stay ignored - the negation leaked"
+
 
 # --- the marker layout pins the commit it FETCHED (issue #1263) ---------------
 
