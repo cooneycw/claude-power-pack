@@ -297,6 +297,112 @@ def test_unknown_check_missing_population_is_not_a_crash(repo: Path) -> None:
     assert any("population" in r for r in reasons)
 
 
+def test_unknown_check_population_explicit_null_is_not_a_crash(repo: Path) -> None:
+    """The explicit-null sibling of the key-deletion case above (issue #1410).
+
+    `c.get("population")` returns `None` for both an absent key and a
+    present-but-null one, so the code path is identical - but they are
+    distinct literal inputs a hand-edited or forged record could carry, and
+    nothing exercised this one before. Includes the positive control #1410
+    asked for: proves the mutation is NECESSARY by checking the record
+    verifies `supported` before it is applied.
+    """
+    _, path = _run(repo, [_gate("lint")])
+    assert _verdict(path, repo)[0] == SUPPORTED  # positive control
+    data = json.loads(path.read_text())
+    data["observed"]["checks"][0]["population"] = None
+    path.write_text(json.dumps(data))
+    verdict, reasons = _verdict(path, repo)
+    assert verdict == UNKNOWN
+    assert any("population" in r for r in reasons)
+
+
+def test_tests_kind_check_with_counts_absent_is_not_supported(repo: Path) -> None:
+    """A "tests"-kind check whose `population.counts` key is ABSENT must be
+
+    UNKNOWN, never silently accepted (issue #1410 ruling). The producer
+    (`population()` in `lib/cicd/evidence.py`) ALWAYS writes a `counts` dict
+    - even an empty one - for a tests-kind check, so an absent key is not a
+    shape the real producer ever emits: a record claiming tests ran with no
+    record of how many is exactly the lie this verifier exists to catch.
+    Before this fix, `population.get("counts", {})` defaulted a missing key
+    to `{}` and this case passed silently - the RED this test pins.
+    """
+    state = _state(
+        {"test": StepStatus.SUCCESS}, "success",
+        test={"tests": {"passed": 10, "failed": 0, "skipped": 0, "errors": 0, "executed": 10}},
+    )
+    path = _write(repo, state=state, gate_ids=["test"], terminal_kind="completed")
+    data = json.loads(path.read_text())
+    pop = data["observed"]["checks"][0]["population"]
+    assert pop["kind"] == "tests" and "counts" in pop  # the producer's own contract
+    del data["observed"]["checks"][0]["population"]["counts"]
+    path.write_text(json.dumps(data))
+    verdict, reasons = _verdict(path, repo)
+    assert verdict == UNKNOWN
+    assert any("counts" in r for r in reasons)
+
+
+def test_tests_kind_check_with_counts_null_is_not_supported(repo: Path) -> None:
+    """The explicit-null sibling of the absent-key case above - already
+
+    refused before this fix (`population.get("counts", {})` only defaults a
+    MISSING key, never a present-but-null one), pinned here so the two
+    literal forms stay symmetric going forward rather than drifting apart
+    again.
+    """
+    state = _state(
+        {"test": StepStatus.SUCCESS}, "success",
+        test={"tests": {"passed": 10, "failed": 0, "skipped": 0, "errors": 0, "executed": 10}},
+    )
+    path = _write(repo, state=state, gate_ids=["test"], terminal_kind="completed")
+    data = json.loads(path.read_text())
+    data["observed"]["checks"][0]["population"]["counts"] = None
+    path.write_text(json.dumps(data))
+    verdict, reasons = _verdict(path, repo)
+    assert verdict == UNKNOWN
+    assert any("counts" in r for r in reasons)
+
+
+def test_tests_kind_check_with_valid_counts_is_still_supported(repo: Path) -> None:
+    """Positive control for the two cases above: an unmutated tests-kind
+
+    record - a real `counts` dict straight from the producer - must still
+    verify `supported`.
+    """
+    state = _state(
+        {"test": StepStatus.SUCCESS}, "success",
+        test={"tests": {"passed": 10, "failed": 0, "skipped": 0, "errors": 0, "executed": 10}},
+    )
+    path = _write(repo, state=state, gate_ids=["test"], terminal_kind="completed")
+    assert _verdict(path, repo)[0] == SUPPORTED
+
+
+def test_non_tests_kind_check_counts_null_matches_counts_absent(repo: Path) -> None:
+    """A non-"tests"-kind check (coverage here) never gets a `counts` key from
+
+    the real producer at all, so an absent key and an explicit null are the
+    SAME fact - "no counts recorded" - and must score identically (issue
+    #1410 ruling). Before this fix they diverged: absent passed, explicit
+    null was refused as "population.counts is not an object".
+    """
+    state = _state(
+        {"lint": StepStatus.SUCCESS}, "success",
+        lint={"coverage": {"state": "covered", "units": 12, "tool": "ruff"}},
+    )
+    path = _write(repo, state=state, gate_ids=["lint"], terminal_kind="completed")
+    data = json.loads(path.read_text())
+    pop = data["observed"]["checks"][0]["population"]
+    assert pop["kind"] != "tests" and "counts" not in pop  # the producer's own contract
+    verdict_absent = _verdict(path, repo)[0]
+
+    data["observed"]["checks"][0]["population"]["counts"] = None
+    path.write_text(json.dumps(data))
+    verdict_null = _verdict(path, repo)[0]
+
+    assert verdict_absent == verdict_null == SUPPORTED
+
+
 def test_cli_exit_codes_follow_the_verdict(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
     _, path = _run(repo, [_gate("lint")])
     assert evidence.cli(["verify", str(path), "--path", str(repo)]) == 0
