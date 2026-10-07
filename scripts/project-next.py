@@ -74,6 +74,12 @@ LIFECYCLE_STATES = frozenset({"active", "graduated", "stale", "retained"})
 GRADUATION_LEDGER = Path(".specify/graduation-ledger.json")
 GRADUATION_LEDGER_VERSION = 1
 DECISION_ID = re.compile(r"\bD\d{3}\b")
+# A spec ledger's own owner-decision rows (issue #1398) - the same KIND of
+# object as a Wayfinder DNNN decision (a named, owner-held gate with a stated
+# blocking effect), in a second registry: ``.specify/specs/*/ledger.md``'s
+# "## A. Owner decisions" table, where each row heads `### QN - <status>`.
+LEDGER_DECISION_ID = re.compile(r"\bQ\d+\b")
+LEDGER_HEADER = re.compile(r"^###\s+(?P<id>Q\d+)\s*-\s*(?P<status>.+?)\s*$", re.MULTILINE)
 WAYFINDER_MAP = Path(".claude") / "wayfinder-map.json"
 # Matched against normalize_label() output, so `wayfinder:map` arrives as `wayfinder-map`.
 WAYFINDER_LABEL_PREFIX = "wayfinder-"
@@ -585,15 +591,61 @@ def read_wayfinder_map(repository: Path) -> tuple[WayfinderMap, dict[str, object
     return WayfinderMap("absent", "", f"checked {checked}"), None
 
 
+@dataclass(frozen=True)
+class LedgerStatus:
+    """One ``.specify/specs/*/ledger.md`` read, and what came of it (#1398).
+
+    ``unreadable`` must NOT be silently treated as "no open decisions" - that
+    is exactly the false-clean a broken ledger would otherwise produce, so a
+    caller that discovers one routes every Q-referencing issue conservatively
+    rather than dropping the ledger from consideration.
+    """
+
+    path: str
+    state: str
+    detail: str = ""
+    pending: dict[str, str] = field(default_factory=dict)
+
+
+def read_ledger_decisions(repository: Path) -> tuple[LedgerStatus, ...]:
+    """Every ``.specify/specs/*/ledger.md``'s owner-decision rows, read once.
+
+    A row heads ``### QN - <status>``; anything not stating RESOLVED is read
+    as a live, PENDING gate - fail toward "still blocking" on an ambiguous
+    status rather than assuming it was decided.
+    """
+    results: list[LedgerStatus] = []
+    for path in sorted((repository / ".specify" / "specs").glob("*/ledger.md")):
+        rel = str(path.relative_to(repository))
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            results.append(LedgerStatus(rel, "unreadable", str(exc)))
+            continue
+        pending = {
+            match.group("id"): match.group("status")
+            for match in LEDGER_HEADER.finditer(text)
+            if "RESOLVED" not in match.group("status").upper()
+        }
+        results.append(LedgerStatus(rel, "read", f"{len(pending)} pending decision(s)", pending))
+    return tuple(results)
+
+
 def planning_routes(
-    repository: Path, state: RepositoryState, payload: dict[str, object] | None = None
+    repository: Path,
+    state: RepositoryState,
+    payload: dict[str, object] | None = None,
+    ledgers: tuple[LedgerStatus, ...] | None = None,
 ) -> tuple[PlanningRoute, ...]:
     """Route map-linked decision tickets and ``wayfinder:*``-labelled issues to planning.
 
     ``payload`` is the map already read by ``read_wayfinder_map``; omitted, it is read here.
+    ``ledgers`` is likewise ``read_ledger_decisions``'s result; omitted, it is read here.
     """
     if payload is None:
         _, payload = read_wayfinder_map(repository)
+    if ledgers is None:
+        ledgers = read_ledger_decisions(repository)
     routes: list[PlanningRoute] = []
     routed: set[int] = set()
     decisions = payload.get("decisions") if payload and payload.get("state") == "awaiting-decisions" else None
@@ -626,6 +678,43 @@ def planning_routes(
                         reason="resolve the linked Wayfinder decision before implementation planning",
                     )
                 )
+    # A spec ledger's QN owner-decision row (#1398) - the same kind of object
+    # as a Wayfinder DNNN decision, in a second registry. An UNREADABLE ledger
+    # must not read as "no open decisions" (the false-clean this issue is
+    # about): every Q-referencing issue is routed conservatively, naming the
+    # parse failure, rather than silently finding zero pending rows in it.
+    for issue in state.issues:
+        if issue.number in routed:
+            continue
+        issue_q_ids = set(LEDGER_DECISION_ID.findall(f"{issue.title}\n{issue.body}"))
+        if not issue_q_ids:
+            continue
+        for ledger in ledgers:
+            if ledger.state == "unreadable":
+                routed.add(issue.number)
+                routes.append(
+                    PlanningRoute(
+                        issue_number=issue.number,
+                        artifact=ledger.path,
+                        action="/project:init",
+                        reason=f"a spec ledger could not be parsed ({ledger.path}: {ledger.detail}); "
+                        "resolve manually before implementation planning",
+                    )
+                )
+                break
+            matched = sorted(issue_q_ids & set(ledger.pending))
+            if matched:
+                routed.add(issue.number)
+                routes.append(
+                    PlanningRoute(
+                        issue_number=issue.number,
+                        artifact=f"{ledger.path}#{matched[0]}",
+                        action="/project:init",
+                        reason=f"resolve the pending ledger decision {matched[0]} ({ledger.path}) "
+                        "before implementation planning",
+                    )
+                )
+                break
     # The label is the checkable trigger, not body text: prose DISCUSSING wayfinding
     # would trip a text match, and a seed that says "do not implement" in a sentence
     # still reached flow:auto (#1035).

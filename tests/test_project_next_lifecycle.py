@@ -193,6 +193,67 @@ def test_wayfinder_decision_ticket_routes_to_planning_in_every_mode(tmp_path: Pa
         assert "never `flow:auto`" in rendered
 
 
+def _ledger(tmp_path: Path, slug: str, *rows: str) -> Path:
+    path = tmp_path / ".specify" / "specs" / slug / "ledger.md"
+    path.parent.mkdir(parents=True)
+    body = "## A. Owner decisions\n\n" + "\n\n".join(rows) + "\n"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+def test_a_pending_ledger_decision_routes_its_issue_to_planning(tmp_path: Path) -> None:
+    """The nit's motivating case (#1398): a spec ledger's own owner-decision
+
+    row is the same kind of object as a Wayfinder DNNN decision - a named,
+    owner-held gate - and now routes the same way, instead of the issue
+    reading as an ordinary, resolvable `uncertain`.
+    """
+    _ledger(tmp_path, "codex-consolidation", "### Q8 - OWNER DECISION - PENDING\n\nchoose the runtime.")
+    state = _state(issues=[{"number": 42, "title": "Child task", "body": "**Blocked on Q8**"}])
+    result = project_next.recommend(state)
+    routes = project_next.planning_routes(tmp_path, state)
+    extensions = project_next.CppExtensions((), (), routes, ())
+
+    assert any(
+        route.issue_number == 42 and route.action == "/project:init" and "Q8" in route.reason
+        for route in routes
+    )
+    for mode in ("brief", "compact", "full"):
+        rendered = project_next.render_cpp(result, state, mode, extensions)
+        assert "/flow:auto 42" not in rendered
+
+
+def test_a_resolved_ledger_decision_does_not_route_its_issue(tmp_path: Path) -> None:
+    """The companion negative: a RESOLVED row names no live gate, so the
+
+    issue it was blocking is ordinary implementation work again.
+    """
+    _ledger(tmp_path, "codex-consolidation", "### Q8 - RESOLVED 2026-09-20, by reversing the presumption")
+    state = _state(issues=[{"number": 42, "title": "Child task", "body": "No longer blocked (Q8 resolved)."}])
+    routes = project_next.planning_routes(tmp_path, state)
+
+    assert not any(route.issue_number == 42 for route in routes)
+
+
+def test_an_unreadable_ledger_routes_every_q_referencing_issue_conservatively(tmp_path: Path) -> None:
+    """An unparseable ledger must NOT read as "no open decisions" - the exact
+
+    false-clean this issue is about. Every issue referencing ANY QN id is
+    routed, naming the parse failure, rather than silently finding zero
+    pending rows in a ledger that could not be read at all.
+    """
+    path = tmp_path / ".specify" / "specs" / "codex-consolidation" / "ledger.md"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"\xff\xfe not valid utf-8")
+    state = _state(issues=[{"number": 42, "title": "Child task", "body": "**Blocked on Q8**"}])
+    routes = project_next.planning_routes(tmp_path, state)
+
+    matching = [route for route in routes if route.issue_number == 42]
+    assert len(matching) == 1
+    assert matching[0].action == "/project:init"
+    assert "could not be parsed" in matching[0].reason
+
+
 def test_graduation_ledger_without_a_version_field_is_rejected_loudly(tmp_path: Path) -> None:
     # The ledger is a human-written, git-tracked interface #724 (T006's
     # graduation gate) is expected to write to - a missing/mismatched version

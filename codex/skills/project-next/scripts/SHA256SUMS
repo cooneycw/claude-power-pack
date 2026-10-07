@@ -7,4 +7,4 @@
 # corruption, a partial edit, and post-build modification. It does NOT
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
-4be3e5d0c193e05899a2608dd1836f8b6c5cf76f98d0ba84a7a2427f5b5c18af  project-next.py
+e137e067bd639c4894a1a39d85e552b63de5ce0307817323480fdb5e03af887d  project-next.py
