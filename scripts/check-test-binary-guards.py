@@ -326,17 +326,27 @@ SHELL_BINARY_RE = re.compile(
 #: Anchors that put the following command in a CONDITION rather than a step.
 CONDITION_ANCHORS = frozenset({"if", "elif", "while", "until"})
 
-#: A `command -v X` preceded on its own line by ONLY the keyword that opens
-#: its own condition test - `if`, `elif`, `while`, `until`, each with an
-#: optional negation - is not nested inside anything (issue #1407). It IS
-#: the preflight: `if ! command -v curl ...; then ... exit N; fi` at column
-#: 0 is a TOP-LEVEL, unconditionally-exiting preflight, and the text before
-#: the match being the condition's own opener is not evidence of nesting -
-#: only the line's actual INDENTATION (checked separately) is. Text that is
-#: NOT this - a different command joined by `&&`, or trailing context from
-#: an earlier condition - still means the preflight was folded into
-#: something else, and keeps being read as nested.
-CONDITION_OPENER_RE = re.compile(r"^(?:if|elif|while|until)\s*!?\s*$")
+#: A `command -v X` preceded on its own line by ONLY the keyword that OPENS
+#: its own condition test - `if`, `while`, `until`, each with an optional
+#: negation - is not nested inside anything (issue #1407). It IS the
+#: preflight: `if ! command -v curl ...; then ... exit N; fi` at column 0 is
+#: a TOP-LEVEL, unconditionally-exiting preflight, and the text before the
+#: match being the condition's own opener is not evidence of nesting - only
+#: the line's actual INDENTATION (checked separately) is. Text that is NOT
+#: this - a different command joined by `&&`, or trailing context from an
+#: earlier condition - still means the preflight was folded into something
+#: else, and keeps being read as nested.
+#:
+#: DELIBERATELY EXCLUDES `elif` (counter-model review): unlike `if`/`while`/
+#: `until`, which each OPEN a new conditional or loop, an `elif` is a
+#: CONTINUATION of a PRIOR `if` - it runs only when an EARLIER sibling
+#: branch's condition was false, which the line's own indentation cannot
+#: distinguish from a genuinely unconditional entry point. `if true; then
+#: :; elif ! command -v curl ...; then exit 1; fi` sits at column 0 exactly
+#: like a real top-level preflight, but the preflight only runs when the
+#: first branch's condition failed - column 0 there is a coincidence of
+#: shell's own if/elif/fi alignment convention, not evidence of reach.
+CONDITION_OPENER_RE = re.compile(r"^(?:if|while|until)\s*!?\s*$")
 
 #: ``command -v jq`` / ``type jq`` / ``hash jq`` - a preflight, not a use. Whether
 #: its failure branch exits decides if the script declares the binary mandatory.
@@ -464,6 +474,11 @@ FILENAME_TAIL_RE = re.compile(r"-[\w.+-]*\.(?:sh|bash|py)\b")
 #: it executes itself.
 HEREDOC_OPEN_RE = re.compile(r"<<-?\s*(?:'(?P<sq>[A-Za-z_][A-Za-z0-9_]*)'|\"(?P<dq>[A-Za-z_][A-Za-z0-9_]*)\")")
 
+#: Shell operators that end a word the same way whitespace does, for the
+#: same-line comment-boundary check below (issue #1407, counter-model
+#: review): `echo ok;# <<EOF` is a real comment right after `;`.
+WORD_BOUNDARY_CHARS = frozenset(";&|()")
+
 
 def _heredoc_opener_is_live(line: str, pos: int) -> bool:
     """Is a HEREDOC_OPEN_RE match at `line[pos]` real CODE (issue #1407), not
@@ -478,14 +493,20 @@ def _heredoc_opener_is_live(line: str, pos: int) -> bool:
     rather than reaching for it is the same boundary `_mask_heredocs`' own
     docstring already draws for cross-line reach.
 
-    Two things this must get right, both measured rather than assumed:
+    Three things this must get right, each measured rather than assumed:
     - `echo "a#b <<EOF"` - the `#` is INSIDE the quote, so it is not a
       comment, and `<<EOF` deeper in the same quote is not live either.
       Handled by never inspecting `#` while a quote is open.
     - `${x#prefix}` is parameter expansion, not a comment start - a `#`
       preceded by non-whitespace (here, `x`) is not a comment opener. Only a
-      `#` that BEGINS A WORD (preceded by whitespace, or at position 0)
-      starts a real shell comment.
+      `#` that BEGINS A WORD starts a real shell comment.
+    - A WORD BOUNDARY is whitespace, line-start, OR a shell operator -
+      `echo ok;# <<EOF` is a real comment right after the `;` (counter-model
+      review): `;` is not whitespace, but it ends the previous command the
+      same way whitespace ends a previous word. `WORD_BOUNDARY_CHARS` names
+      the operators this same-line scan can recognize without a real
+      tokenizer; it is not exhaustive (`` ` ``, `<`, `>` are not included),
+      matching the deliberately narrow, same-line-only scope stated above.
     A real opener reached after a quote CLOSES on the same line still
     counts: `in_single`/`in_double` both go false once their closing quote
     is seen, and nothing re-opens them on fake evidence.
@@ -510,7 +531,7 @@ def _heredoc_opener_is_live(line: str, pos: int) -> bool:
             continue
         if ch == "#":
             preceding = line[i - 1] if i > 0 else ""
-            if preceding == "" or preceding.isspace():
+            if preceding == "" or preceding.isspace() or preceding in WORD_BOUNDARY_CHARS:
                 return False  # a real comment starts before `pos`
             # Else: adjacent to non-whitespace (e.g. `${x#prefix}`) - not a
             # comment opener, fall through and keep scanning normally.

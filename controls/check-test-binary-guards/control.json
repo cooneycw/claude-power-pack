@@ -35,6 +35,11 @@
       "expect": "GOOD"
     },
     {
+      "name": "good-elif-conditional-preflight",
+      "input": "cases/good-elif-conditional-preflight",
+      "expect": "GOOD"
+    },
+    {
       "name": "good-separator-shift",
       "input": "cases/good-separator-shift",
       "expect": "GOOD"
