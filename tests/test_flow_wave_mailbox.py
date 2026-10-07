@@ -877,6 +877,32 @@ class TestListWatchState:
         assert "10s ago" in proc.stdout  # the age is still reported, not hidden
         assert "DEAF:" in proc.stdout
 
+    def test_list_roster_reports_WAKE_UNKNOWN_without_the_word_confirmed(
+        self, tmp_path: Path
+    ) -> None:
+        """Direct pin for the roster line this is actually on, not just the
+        incidental catch (issue #1402, CI PR #1415's first real run against
+        this fix): `confirmed` is route_state's word alone (issue #814), and
+        the WAKE-UNKNOWN roster line must never borrow it to mean "lineage
+        unproven" - `TestSupervisorNeverAcknowledges.
+        test_route_does_not_read_confirmed_on_a_supervisor_ack` caught this by
+        accident, in an environment where SOCK_DIR happened to be missing; a
+        direct test should not depend on that accident."""
+        env = _wake_env(tmp_path, None)
+        env["FLOW_WAVE_SOCK_DIR"] = str(tmp_path / "no-such-socket-dir")
+        assert not (tmp_path / "no-such-socket-dir").exists()  # precondition
+        orphan = _spawn_orphan_watch(env, "1", WAVE, tmp_path)
+        try:
+            proc = subprocess.run(
+                ["bash", str(MAILBOX), "list", "--wave", WAVE],
+                capture_output=True, text=True, env=env, check=False, timeout=60,
+            )
+            assert _watch_rows(proc)["1"][0] == "wake-unknown", proc.stdout
+            assert "WAKE-UNKNOWN:" in proc.stdout
+            assert "confirmed" not in proc.stdout
+        finally:
+            os.kill(orphan, 9)
+
     def test_a_fresh_heartbeat_alone_never_reads_armed(self, tmp_path: Path) -> None:
         """The bug in one assertion: age is not evidence anyone is listening.
 
@@ -4506,6 +4532,15 @@ class TestWakeability:
             )
             assert _detail(st, "FLOW_MAILBOX_WATCH_STATE") == "wake-unknown", st.stdout
             assert _detail(st, "FLOW_MAILBOX_SESSION_WATCHERS") == "unknown"
+            # `confirmed` is reserved for route_state (issue #814) - an
+            # ack actually recorded. The wake-unknown prose must not use it
+            # to mean "lineage unproven", or TestSupervisorNeverAcknowledges'
+            # invariant that `list` output never says `confirmed` without an
+            # agent ack breaks on a wave whose daemon lineage is unreadable
+            # (caught in CI on PR #1415's first real run against this fix,
+            # not locally - this repo's container can read SOCK_DIR, CI's
+            # cannot).
+            assert "confirmed" not in st.stdout
             second = subprocess.run(
                 ["bash", str(MAILBOX), "watch", "--role", "1", "--wave", wave,
                  "--timeout", "3", "--interval", "1", "--peek"],

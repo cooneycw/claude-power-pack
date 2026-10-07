@@ -2398,7 +2398,7 @@ case "$VERB" in
           echo "  flow-wave-mailbox.sh watch --role $ROLE --wave $WAVE --timeout 1800 --consume"
           ;;
         wake-unknown)
-          echo "flow-wave-mailbox: role '$ROLE' is being POLLED by $WCOUNT watcher(s), but whether any of them can WAKE anyone is UNKNOWN - no socket directory to test ancestry against, or the walk vanished mid-walk (issue #1402). Do NOT read this as armed: an unconfirmed lineage is not confirmed wakeability. If you can arm from a session, do so as a BACKGROUND tool call (run_in_background, never a trailing &):"
+          echo "flow-wave-mailbox: role '$ROLE' is being POLLED by $WCOUNT watcher(s), but whether any of them can WAKE anyone is UNKNOWN - no socket directory to test ancestry against, or the walk vanished mid-walk (issue #1402). Do NOT read this as armed: an unreadable lineage does not establish wakeability either way. If you can arm from a session, do so as a BACKGROUND tool call (run_in_background, never a trailing &):"
           echo "  flow-wave-mailbox.sh watch --role $ROLE --wave $WAVE --timeout 1800 --consume"
           ;;
         stale)
@@ -3363,7 +3363,7 @@ EOF
         # established; folding it into armed (the pre-#1402 bug) would claim
         # the opposite.
         if [ -n "$WAKE_UNKNOWN_ROLES" ]; then
-          echo "WAKE-UNKNOWN: role(s):$WAKE_UNKNOWN_ROLES ARE being polled, but whether any watcher can wake anyone is UNREADABLE (#1402) - not confirmed armed, not confirmed deaf."
+          echo "WAKE-UNKNOWN: role(s):$WAKE_UNKNOWN_ROLES ARE being polled, but whether any watcher can wake anyone is UNREADABLE (#1402) - armed cannot be claimed, deaf cannot be claimed."
         fi
         # The route table (issue #814), separate from WATCH on purpose (see
         # the header's ROUTE READINESS section): WATCH says a process is
