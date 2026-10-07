@@ -191,12 +191,24 @@ SCRIPTS_REL = "scripts"
 #: registrations here and derives its `DISCOVERY_SCOPE` line from this tuple, and
 #: this gate's population rule below is what makes each kind countable. Adding a
 #: kind means changing this module once, so the numerator's population and the
-#: denominator's cannot move apart (#979/#1036). A `lib/` module is NOT a kind
-#: yet: admitting "a file anywhere" would make this gate demand that every lib/
-#: file be accounted for, which is a separate decision.
+#: denominator's cannot move apart (#979/#1036).
+#:
+#: #1394 WIDENED BOTH `file` AND `lib-module` AT ONCE, for the reason #1276 gave
+#: for Makefile targets: a kind discoverable by one reader and not accounted for
+#: by the other splits the numerator's population from the denominator's. `file`
+#: now reads `scripts/` RECURSIVELY (subdirectories were the other half of
+#: #1394's acceptance) and `lib-module` is new: a marker directly inside a `lib/`
+#: package file, whose census subject is that file's own PACKAGE, dotted -
+#: `lib/security/cli.py` is about `lib.security`, the subject row 61 already
+#: names, not about the file `cli.py`, which no census row mentions. This does
+#: NOT widen `SCRIPTS_REL`'s OWN population check above (every `scripts/` file
+#: needs a census row): that gate's population is `script_files()`, a separate
+#: rule, untouched here. A `lib/` file with no marker is simply not discovered;
+#: nothing requires one to carry one.
 DISCOVERY_SOURCES: tuple[tuple[str, str], ...] = (
-    ("file", "scripts/* (top-level files only; subdirectories are not read)"),
+    ("file", "scripts/** (recursive; issue #1394 widened this from top-level files only)"),
     ("make-target", "Makefile targets (a marker directly above the rule it covers)"),
+    ("lib-module", "lib/**/*.py (a marker inside a module file; the subject is its package, dotted)"),
 )
 
 #: The Makefile a `make-target` gate lives in, relative to the root.
@@ -204,6 +216,30 @@ MAKEFILE_REL = "Makefile"
 
 #: A census subject about a make target is `make:<target>` (see `subject_of`).
 MAKE_SUBJECT_PREFIX = "make:"
+
+#: The directory a `lib-module` registration must live under (issue #1394).
+LIB_REL = "lib"
+
+
+def lib_module_subject(file: str) -> str | None:
+    """The census subject a `lib/` module gate is, or None when `file` is not one.
+
+    The subject is the file's own PACKAGE, dotted - its immediate parent
+    directory, relative to the root, with `/` replaced by `.`. This is a
+    structural computation, not a declared field: `lib/security/cli.py`
+    resolves to `lib.security` purely from its own path, so there is nothing
+    for a control.json to get stale by restating it.
+
+    None when `file` is not a `.py` file at least two segments under `lib/`
+    (`parts[0] == "lib"`, at least three parts total). A bare `lib/x.py`
+    would resolve to the single segment `lib`, which is not what any
+    `lib.<pkg>` census row names and would collide with every other `lib/`
+    top-level file; requiring a real package directory avoids that.
+    """
+    parts = Path(file).parts
+    if len(parts) < 3 or parts[0] != LIB_REL or not file.endswith(".py"):
+        return None
+    return ".".join(parts[:-1])
 
 #: What this module will read as a make target name. Deliberately narrower than
 #: GNU make: no variables, no patterns, no special targets - a subject has to name
@@ -311,10 +347,15 @@ class GateRef:
 
     @property
     def subject(self) -> str:
-        """The census subject this gate is: the file's name, or `make:<target>`."""
+        """The census subject this gate is: the file's name, `make:<target>`,
+        or - when the file resolves as one (issue #1394) - its `lib/`
+        package, dotted. A plain `file` kind covers both scripts/ files and
+        lib/ modules; which one a given file is is a structural fact of its
+        own path (`lib_module_subject`), not a second thing `kind` has to say."""
         if self.kind == "make-target":
             return f"{MAKE_SUBJECT_PREFIX}{self.target}"
-        return Path(self.file).name
+        lib_subject = lib_module_subject(self.file)
+        return lib_subject if lib_subject is not None else Path(self.file).name
 
     def describe(self) -> str:
         return self.file if self.kind == "file" else f"{self.file} target `{self.target}`"
@@ -453,7 +494,7 @@ def cells(line: str) -> list[str]:
     return [cell.strip() for cell in line.strip().strip("|").split("|")]
 
 
-def subject_of(token: str) -> str:
+def subject_of(token: str, root: Path | None = None) -> str:
     """The file a backticked token is about.
 
     The HEAD WORD, so `branch-protection.sh check` is about
@@ -468,6 +509,35 @@ def subject_of(token: str) -> str:
     thing a marker can sit beside, so it is a registrable subject, validated as
     an existing target by `typed_subject_problem`. A bare `make`, or a `make`
     followed by something that is not a target name, keeps the old reading.
+
+    A PATH NORMALIZES TO ITS BASENAME ONLY WHEN THAT EXACT PATH IS REAL
+    (issue #1394, counter-model finding). This repository's census cites a
+    plain basename (`check-skills-install.py`); a forked or renamed
+    repository may cite the full relative path instead (kyle:
+    `scripts/check-skills-install.py`), because that is how ITS own census
+    happens to be written - `registration_subject` in
+    `check-negative-controls.py` always resolves a plain-file registration to
+    `path.name`, a basename, so a census that kept the directory prefix would
+    disagree with every registration on that ground alone, and every one of
+    that repository's controls would print as
+    NEGATIVE_CONTROL_CENSUS_NONMEMBER: a confident, wrong answer, not an
+    unknown.
+
+    BUT STRIPPING UNCONDITIONALLY TRADES THAT FALSE NEGATIVE FOR A FALSE
+    POSITIVE: a row for a deleted or mistyped `scripts/nested/alpha.sh` would
+    then resolve against an unrelated top-level `alpha.sh`, the "our thing vs.
+    a neighbour's" conflation this repository's own detector-contract rule
+    exists to catch (CLAUDE.md). So a `/`-containing head word is normalized
+    to its basename only when `root` is given AND that exact path - tried
+    both as written and under `scripts/` - exists; otherwise it is returned
+    UNCHANGED, which cannot then match any real file or registration by
+    coincidence, and correctly reads STALE/NONMEMBER instead. `root=None`
+    (every call site before this finding, and any caller with no filesystem
+    to check) keeps the unconditional strip - this is a NARROWING available
+    to callers that can afford the extra check, not a behaviour change for
+    them. A subject with no `/` (a bare basename, `make:<target>`, or a
+    dotted `lib.<pkg>` subject) has nothing to strip and `root` is irrelevant
+    to it either way.
     """
     stripped = token.strip()
     if not stripped:
@@ -475,7 +545,12 @@ def subject_of(token: str) -> str:
     words = stripped.split()
     if words[0] == "make" and len(words) > 1 and MAKE_TARGET_RE.fullmatch(words[1]):
         return f"{MAKE_SUBJECT_PREFIX}{words[1]}"
-    return words[0]
+    head = words[0]
+    if "/" not in head:
+        return head
+    if root is not None and not (root / head).is_file() and not (root / SCRIPTS_REL / head).is_file():
+        return head
+    return head.rsplit("/", 1)[-1]
 
 
 def table_text(text: str) -> str:
@@ -569,11 +644,15 @@ def retired_rows(text: str) -> tuple[list[tuple[int, str]], str]:
     return retired, state
 
 
-def census_subjects(text: str) -> list[str]:
+def census_subjects(text: str, root: Path | None = None) -> list[str]:
     """One subject per numbered census row: the FIRST backticked token of column 2.
 
     Only the first - see the module docstring. A row that mentions a second
     script in passing is a row about the first one.
+
+    `root`, when given, is passed to `subject_of` so a path-form subject only
+    normalizes to a basename when that exact path is real (issue #1394) -
+    see its docstring.
     """
     subjects: list[str] = []
     for line in census_rows(text):
@@ -583,13 +662,13 @@ def census_subjects(text: str) -> list[str]:
         tokens = BACKTICKED_RE.findall(row[1])
         if not tokens:
             continue
-        subject = subject_of(tokens[0])
+        subject = subject_of(tokens[0], root)
         if subject:
             subjects.append(subject)
     return subjects
 
 
-def exclusion_subjects(text: str) -> tuple[list[str], bool]:
+def exclusion_subjects(text: str, root: Path | None = None) -> tuple[list[str], bool]:
     """Every backticked subject in the exclusions table's first column.
 
     Returns `(subjects, found)`. ALL tokens, not just the first: that column
@@ -600,6 +679,8 @@ def exclusion_subjects(text: str) -> tuple[list[str], bool]:
     need opposite responses. A missing section means this gate cannot see the
     exclusions at all and every legitimately-excluded file would report
     UNACCOUNTED; that is a broken read, not a finding.
+
+    `root`, when given, is passed to `subject_of` - see `census_subjects`.
     """
     subjects: list[str] = []
     found = False
@@ -618,7 +699,7 @@ def exclusion_subjects(text: str) -> tuple[list[str], bool]:
         if not row:
             continue
         for token in BACKTICKED_RE.findall(row[0]):
-            subject = subject_of(token)
+            subject = subject_of(token, root)
             if subject:
                 subjects.append(subject)
     return subjects, found
@@ -635,15 +716,65 @@ def declared_externals(text: str) -> set[str]:
     return declared
 
 
+#: Derived bytecode is not an instrument (same exclusion
+#: `check-negative-controls.py`'s own tracking axis uses, issue #1239) - a
+#: `.pyc` written beside a script the first time it runs would otherwise
+#: enter this population with no census row of its own.
+_DERIVED_BYTECODE_SUFFIXES = frozenset({".pyc", ".pyo"})
+
+
 def script_files(root: Path) -> dict[str, str]:
-    """Every regular file directly under `scripts/`, mapped name -> name.
+    """Every regular file under `scripts/`, RECURSIVELY, mapped basename ->
+    path relative to `scripts/`.
 
     DERIVED FROM THE TREE, never from a list in here: a gate that hardcodes the
-    population it is checking has the very bug it exists to catch. Directories
-    are skipped - `__pycache__` is not an instrument.
+    population it is checking has the very bug it exists to catch.
+
+    RECURSIVE SINCE #1394 (counter-model finding), to stay in step with
+    `check-negative-controls.py`'s own `discover`, which #1394 widened the
+    same way: before this, a `scripts/` SUBDIRECTORY file could be registered
+    and scored as a negative control while this gate - the one that enforces
+    "every `scripts/` file has a census row" - could not see it at all, so it
+    could carry a real, discriminating control and never be required to have
+    one. Keyed by BASENAME, matching `subject_of`'s normalized form, so a
+    census subject and this population agree on what "the same file" means;
+    the VALUE is the real path relative to `scripts/`, used in diagnostics so
+    a nested file is not misreported as a top-level one. `__pycache__` and
+    derived bytecode are excluded by NAME, not by ignore status - reading the
+    filesystem directly, this gate has no git index to ask.
     """
     scripts_dir = root / SCRIPTS_REL
-    return {path.name: path.name for path in sorted(scripts_dir.iterdir()) if path.is_file()}
+    return {
+        path.name: str(path.relative_to(scripts_dir))
+        for path in sorted(scripts_dir.rglob("*"))
+        if path.is_file()
+        and "__pycache__" not in path.relative_to(scripts_dir).parts
+        and path.suffix not in _DERIVED_BYTECODE_SUFFIXES
+    }
+
+
+def lib_subject_problem(subject: str, root: Path) -> str | None:
+    """Why a `lib.<pkg>` census subject does not resolve, or None when it does.
+
+    Only subjects shaped like this file's own `lib.<pkg>` convention are typed
+    here (issue #1394); anything else returns None - it is the file/external
+    rule's to judge, same division `typed_subject_problem` already draws for
+    `make:` subjects.
+
+    Validated STRUCTURALLY, the same way a `make:` subject is checked against
+    the Makefile's real targets: a row whose package was removed or renamed is
+    STALE, exactly like a row whose file was. This does NOT require the
+    package to carry a registered negative control - that is
+    `check-negative-controls.py`'s own, separate question, same as a `make:`
+    subject is never required to have one either.
+    """
+    prefix = f"{LIB_REL}."
+    if not subject.startswith(prefix):
+        return None
+    pkg_dir = root / Path(*subject.split("."))
+    if not pkg_dir.is_dir():
+        return f"{'/'.join(subject.split('.'))}/ does not exist under {LIB_REL}/"
+    return None
 
 
 def run_check(root: Path) -> int:
@@ -668,7 +799,7 @@ def run_check(root: Path) -> int:
         print(f"instrument-census-check: {SCRIPTS_REL}/ holds no files; nothing compared.")
         return 1
 
-    census = census_subjects(text)
+    census = census_subjects(text, root)
     if not census:
         # Same reasoning in the other direction: no rows parsed means the
         # extractor is broken or the table moved, and EVERY file would then
@@ -676,7 +807,7 @@ def run_check(root: Path) -> int:
         print(f"instrument-census-check: {adr_rel} parsed to 0 census rows; nothing compared.")
         return 1
 
-    exclusions, exclusions_found = exclusion_subjects(text)
+    exclusions, exclusions_found = exclusion_subjects(text, root)
     if not exclusions_found:
         print(f"instrument-census-check: {adr_rel} has no 'Excluded, with the reason' section; nothing compared.")
         return 1
@@ -690,7 +821,7 @@ def run_check(root: Path) -> int:
         if name in subjects:
             continue
         print(
-            f"UNACCOUNTED: {SCRIPTS_REL}/{name} is named by no census row and no "
+            f"UNACCOUNTED: {SCRIPTS_REL}/{files[name]} is named by no census row and no "
             f"exclusion in {adr_rel}"
         )
         findings += 1
@@ -701,6 +832,13 @@ def run_check(root: Path) -> int:
     # does NOT widen to every make target: this gate asks "is every file under
     # scripts/ accounted for", and "every target" would fail each untouched one
     # the day it landed.
+    #
+    # `lib.<pkg>` IS THE SAME SHAPE OF ANSWER, NOT A THIRD RULE (issue #1394).
+    # Row 61 (`lib.security gate`) moved from `externals` to a real registered
+    # `lib-module` control, and removing it from `externals` without this
+    # branch would make it STALE: it still names no file under `scripts/`, and
+    # a subject is checked against `externals` FIRST (line below) only for
+    # subjects that remain declared there - `lib.security` no longer is.
     targets = make_targets(root)
     typed = 0
     for subject in dict.fromkeys(census + exclusions):
@@ -713,6 +851,14 @@ def run_check(root: Path) -> int:
             findings += 1
             continue
         if subject in files or subject in externals:
+            continue
+        if subject.startswith(f"{LIB_REL}."):
+            typed += 1
+            problem = lib_subject_problem(subject, root)
+            if problem is None:
+                continue
+            print(f"STALE: {adr_rel} subject `{subject}` does not resolve: {problem}")
+            findings += 1
             continue
         print(
             f"STALE: {adr_rel} subject `{subject}` names no file in {SCRIPTS_REL}/ "

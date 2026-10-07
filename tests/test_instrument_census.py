@@ -485,6 +485,42 @@ def test_directories_under_scripts_are_not_required_to_be_accounted_for(tmp_path
     assert icc.main(["check", "--root", str(root)]) == 0
 
 
+# --------------------------------------------------------------------------- #
+# #1394 - `script_files` reads `scripts/` recursively, matching
+# `check-negative-controls.py`'s own widened `discover` (counter-model
+# finding, Codex): before this, a `scripts/` subdirectory file could carry a
+# real, registered, discriminating negative control and never be required to
+# have a census row at all, because THIS gate's population never saw it.
+# --------------------------------------------------------------------------- #
+
+
+def test_a_scripts_subdirectory_file_with_a_matching_row_passes(tmp_path):
+    """THE POSITIVE HALF: a nested file, properly enumerated, now passes -
+    this gate's population and `check-negative-controls.py`'s discovery agree
+    on what "the same file" means (basename, per `subject_of`)."""
+    root = _tree(
+        tmp_path, ["alpha.sh"],
+        _adr(rows="| 1 | `alpha.sh` | v | c | G |\n| 2 | `nested-gate.py` | v | c | G |\n"),
+    )
+    (root / "scripts" / "nested").mkdir()
+    (root / "scripts" / "nested" / "nested-gate.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    assert icc.main(["check", "--root", str(root)]) == 0
+
+
+def test_a_scripts_subdirectory_file_with_NO_row_is_UNACCOUNTED(tmp_path, capsys):
+    """THE COUNTER-MODEL RED: before this fix, a nested file was invisible to
+    this gate's population - `script_files` used `iterdir()`, top-level
+    only - so it could never be reported UNACCOUNTED no matter what it
+    carried. The message names the REAL nested path, not a basename that
+    would misreport its location."""
+    root = _tree(tmp_path, ["alpha.sh"], _adr(rows="| 1 | `alpha.sh` | v | c | G |\n"))
+    (root / "scripts" / "nested").mkdir()
+    (root / "scripts" / "nested" / "nested-gate.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    assert icc.main(["check", "--root", str(root)]) == 1
+    out = capsys.readouterr().out
+    assert "UNACCOUNTED: scripts/nested/nested-gate.py" in out
+
+
 # ---------------------------------------------------------------------------
 # Fenced examples are not the document speaking
 # ---------------------------------------------------------------------------
@@ -816,3 +852,151 @@ def test_a_retired_section_without_its_table_is_unread_not_zero(tmp_path, capsys
     out = capsys.readouterr().out
     assert "RETIRED_UNREAD: " in out
     assert "DUPLICATE_ROW" not in out
+
+
+# --------------------------------------------------------------------------- #
+# #1394 - a path-form census subject normalizes to its basename only when
+# that exact path is real (counter-model finding, Codex): blind stripping
+# would let a STALE or mistyped nested path resolve against an unrelated
+# top-level file of the same name
+# --------------------------------------------------------------------------- #
+
+
+def test_a_stale_nested_path_does_not_match_a_neighbouring_basename(tmp_path, capsys):
+    """THE COUNTER-MODEL RED: before this fix, `subject_of` stripped ANY
+    `/`-containing head word to its basename unconditionally, so a row citing
+    a deleted or mistyped `scripts/nested/alpha.sh` would resolve against an
+    unrelated top-level `alpha.sh` just because the basenames coincide - the
+    exact "distinguish our thing from a neighbour's" failure CLAUDE.md's
+    detector-contract rule names. The row must stay STALE, naming the FULL
+    path it actually cited, not the basename it coincidentally shares."""
+    root = _tree(
+        tmp_path,
+        ["alpha.sh"],
+        _adr(rows="| 1 | `scripts/nested/alpha.sh` | v | c | G |\n"),
+    )
+    assert icc.main(["check", "--root", str(root)]) == 1
+    out = capsys.readouterr().out
+    assert "STALE" in out
+    assert "scripts/nested/alpha.sh" in out
+
+
+def test_a_real_path_form_subject_still_resolves_to_its_basename(tmp_path):
+    """The positive half, and kyle's own motivating case: when the full path
+    IS real, normalization to basename still happens exactly as it did before
+    this fix - this is a narrowing of WHEN to normalize, not a retraction of
+    the capability itself."""
+    root = _tree(
+        tmp_path,
+        ["alpha.sh"],
+        _adr(rows="| 1 | `scripts/alpha.sh` | v | c | G |\n"),
+    )
+    assert icc.main(["check", "--root", str(root)]) == 0
+
+
+def test_subject_of_without_root_keeps_the_unconditional_strip(tmp_path):
+    """`root=None` (every call site before this fix) is unaffected: a direct
+    `subject_of` caller with no filesystem to check gets the plain head-word
+    reading, exactly as before #1394's path-validation."""
+    assert icc.subject_of("scripts/nested/alpha.sh") == "alpha.sh"
+    assert icc.subject_of("alpha.sh") == "alpha.sh"
+
+
+def test_subject_of_with_root_tries_both_the_literal_and_the_scripts_relative_form(tmp_path):
+    """A path-form subject may be written with the `scripts/` prefix (kyle's
+    own convention) or without it (relative to `scripts/` itself) - both
+    resolve when the file is real."""
+    root = tmp_path / "repo"
+    (root / "scripts").mkdir(parents=True)
+    (root / "scripts" / "alpha.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    assert icc.subject_of("scripts/alpha.sh", root) == "alpha.sh"
+    assert icc.subject_of("alpha.sh", root) == "alpha.sh"
+    assert icc.subject_of("scripts/nosuch.sh", root) == "scripts/nosuch.sh"
+
+
+# --------------------------------------------------------------------------- #
+# #1394 - `lib.<pkg>` is a typed, validated subject, the same shape as
+# `make:<target>`, so it can move OUT of `externals` once a `lib/` package
+# actually exists (row 61, `lib.security gate`, was declared external for
+# exactly that gap)
+# --------------------------------------------------------------------------- #
+
+
+def _with_lib_package(root: Path, rel: str) -> Path:
+    (root / rel).mkdir(parents=True)
+    (root / rel / "__init__.py").write_text("", encoding="utf-8")
+    return root
+
+
+def test_a_row_for_an_existing_lib_package_resolves(tmp_path):
+    """The positive half: `lib.widget` resolves once `lib/widget/` exists,
+    with NO `externals` declaration needed - same as `make:<target>` needs
+    none once the target exists."""
+    root = _with_lib_package(
+        _tree(
+            tmp_path,
+            ["alpha.sh"],
+            _adr(rows="| 1 | `alpha.sh` | v | c | G |\n| 2 | `lib.widget gate` | v | c | G |\n"),
+        ),
+        "lib/widget",
+    )
+    assert icc.main(["check", "--root", str(root)]) == 0
+
+
+def test_a_row_for_a_MISSING_lib_package_is_stale(tmp_path, capsys):
+    """THE #1394 RED for the census half, mirroring #1276's make-target one.
+
+    A row naming a `lib.<pkg>` subject whose package does not exist must not
+    resolve silently just because it is DOTTED rather than a `scripts/`
+    basename - that would describe a deleted (or never-existing) instrument
+    forever, the same hole `make:<target>` closed for Makefile rules.
+    """
+    root = _tree(
+        tmp_path,
+        ["alpha.sh"],
+        _adr(rows="| 1 | `alpha.sh` | v | c | G |\n| 2 | `lib.nosuch gate` | v | c | G |\n"),
+    )
+    assert icc.main(["check", "--root", str(root)]) == 1
+    out = capsys.readouterr().out
+    assert "STALE" in out
+    assert "lib.nosuch" in out
+
+
+def test_a_lib_subject_still_declared_external_is_accepted_either_way(tmp_path):
+    """Removing a `lib.<pkg>` subject from `externals` is what #1394 did for
+    row 61 ONCE it had a real package and a real registered control - but a
+    `lib.<pkg>` subject that REMAINS declared external (no package exists
+    yet, as for every OTHER `lib.*` row this issue did not touch) must still
+    resolve via the externals branch, not newly fail by falling through to
+    the typed check."""
+    root = _tree(
+        tmp_path,
+        ["alpha.sh"],
+        _adr(
+            rows="| 1 | `alpha.sh` | v | c | G |\n| 2 | `lib.widget gate` | v | c | G |\n",
+            externals="lib.widget",
+        ),
+    )
+    assert not (root / "lib" / "widget").exists()
+    assert icc.main(["check", "--root", str(root)]) == 0
+
+
+def test_lib_subject_problem_ignores_non_lib_subjects(tmp_path):
+    """Only `lib.`-shaped subjects are typed here - everything else is the
+    file/external rule's to judge, same division as `typed_subject_problem`
+    draws for `make:` (and non-`make:`) subjects."""
+    root = tmp_path / "repo"
+    root.mkdir()
+    assert icc.lib_subject_problem("ruff", root) is None
+    assert icc.lib_subject_problem("alpha.sh", root) is None
+    assert icc.lib_subject_problem("make:verify", root) is None
+
+
+def test_the_real_lib_security_subject_no_longer_needs_externals():
+    """Row 61 moved out of `externals` for #1394's acceptance demo - pins that
+    it resolves structurally now (a real `lib/security/` package), not merely
+    because the real-tree drift gate above happens to be green for other
+    reasons."""
+    text = (ROOT / icc.ADR_REL).read_text(encoding="utf-8")
+    assert "lib.security" not in icc.declared_externals(text)
+    assert icc.lib_subject_problem("lib.security", ROOT) is None

@@ -97,6 +97,7 @@ def cmd_explain(args: argparse.Namespace) -> int:
     return 1
 
 
+#: NEGATIVE-CONTROL: controls/lib-security-gate
 def cmd_gate(args: argparse.Namespace) -> int:
     """Check if scan results pass a flow gate.
 

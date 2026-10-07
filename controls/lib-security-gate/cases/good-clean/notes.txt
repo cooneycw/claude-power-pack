@@ -1,0 +1,1 @@
+Nothing secret here - the known-good fixture for controls/lib-security-gate.

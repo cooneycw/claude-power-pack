@@ -1965,18 +1965,18 @@ def test_the_run_states_where_it_looked_for_registrations(tmp_path: Path) -> Non
     assert scope and "scripts/" in scope, scope
 
 
-def test_a_marker_in_a_scripts_subdirectory_is_not_discovered(tmp_path: Path) -> None:
-    """The case that PINS the scope line to what `discover` actually does.
+def test_a_marker_in_a_scripts_subdirectory_IS_discovered(tmp_path: Path) -> None:
+    """THE #1394 RED-THEN-GREEN: `discover` now reads `scripts/` recursively.
 
-    `DISCOVERY_SCOPE` is a claim written in prose beside `iterdir()`, and prose
-    does not fail. This is what brings someone back to it: widen discovery to
-    `rglob()` and this case goes red, so the sentence cannot go on describing a
-    search that changed underneath it.
-
-    #1276 answered "whether to widen" for ONE kind - Makefile targets - in both
-    readers at once. Subdirectories are still not read, and this case still pins
-    that: widening one reader without the other splits the numerator's population
-    from the denominator's, which is the defect this whole line of work is about.
+    This test USED TO pin the opposite claim, under the name `..._is_not_
+    discovered`, with a docstring explaining exactly how to invert it: "widen
+    discovery to `rglob()` and this case goes red, so the sentence cannot go
+    on describing a search that changed underneath it." #1394 is that
+    widening - issue #1394's own acceptance names "a `scripts/` subdirectory
+    file can be registered" - done for BOTH readers at once
+    (`instrument-census-check.py`'s `DISCOVERY_SOURCES` description moved
+    together), so a marker here is both DISCOVERED and EVALUATED, not merely
+    counted.
     """
     root = build_tree(tmp_path, SEEING_GATE)
     nested = root / "scripts" / "nested"
@@ -1985,11 +1985,10 @@ def test_a_marker_in_a_scripts_subdirectory_is_not_discovered(tmp_path: Path) ->
         "#: NEGATIVE-CONTROL: controls/nowhere\nprint('x')\n", encoding="utf-8"
     )
     out = run_harness(root)
-    assert contract(out.stdout, "NEGATIVE_CONTROL_REGISTERED") == "1", (
-        "a marker in a scripts/ SUBDIRECTORY was discovered - discovery widened, "
-        f"so DISCOVERY_SCOPE in check-negative-controls.py is now wrong\n{out.stdout}"
-    )
-    assert "controls/nowhere" not in out.stdout, out.stdout
+    assert contract(out.stdout, "NEGATIVE_CONTROL_REGISTERED") == "2", out.stdout
+    assert "NEGATIVE_CONTROL_GATE: scripts/nested/hidden-gate.py" in out.stdout, out.stdout
+    # The named control does not exist - UNRESOLVED, not silently dropped.
+    assert "no control.json at controls/nowhere" in out.stdout, out.stdout
 
 
 # #1117 - "its tool is missing" is not "it stopped discriminating"
@@ -3782,11 +3781,16 @@ def test_a_blank_line_breaks_adjacency(tmp_path: Path) -> None:
 
 
 def test_the_scope_line_names_every_kind_it_read(tmp_path: Path) -> None:
-    """C's floor: `N of N` cannot be read as covering kinds nobody enumerated."""
+    """C's floor: `N of N` cannot be read as covering kinds nobody enumerated.
+
+    `lib/` joined the scope at #1394: the line must now NAME it, for the same
+    reason it must not have claimed it before #1394 landed - the scope line is
+    a claim about what `discover` actually reads, not a fixed list that ages.
+    """
     root = build_tree(tmp_path, SEEING_GATE)
     scope = contract(run_harness(root).stdout, "NEGATIVE_CONTROL_DISCOVERY_SCOPE") or ""
     assert "scripts/*" in scope and "Makefile targets" in scope, scope
-    assert "lib/" not in scope, scope
+    assert "lib/" in scope, scope
 
 
 def test_an_unreadable_Makefile_is_UNREAD_not_empty(tmp_path: Path) -> None:
@@ -4481,3 +4485,224 @@ def test_the_real_reviewer_attribution_control_catches_a_drift_to_the_neighbouri
     result = run_harness(root, "--control", "controls/counter-model-reviewer-attribution")
     assert verdict_of(result.stdout) == "BLIND", result.stdout
     assert "expected_exit" in result.stdout, result.stdout
+
+
+# --------------------------------------------------------------------------- #
+# #1394 - a `lib/` module is a registrable gate, and a forked repository's
+# path-form census subjects normalize to the same form a registration resolves
+# to
+# --------------------------------------------------------------------------- #
+
+
+def build_lib_tree(
+    tmp_path: Path,
+    gate_src: str = SEEING_GATE,
+    anchor_src: str | None = BLIND_GATE,
+    lib_rel: str = "lib/toy/toy-gate.py",
+    with_scripts: bool = True,
+) -> Path:
+    """A tree whose only registration is a `lib/` MODULE, not a scripts/ file.
+
+    Reuses `SEEING_GATE`/`BLIND_GATE` verbatim - their embedded marker
+    (`#: NEGATIVE-CONTROL: controls/toy`) names a CONTROL, not a path, so
+    where the file sits is immaterial to it. `evaluate` is this test's
+    target, not package-import mechanics, so the gate is invoked as a plain
+    script (`sys.executable {gate} --root {case}`), the same shape
+    `build_tree`'s scripts/ fixture uses - the real `lib.security` control
+    this issue motivates needs package-relative-import handling that a toy
+    gate has no reason to exercise a second time.
+    """
+    if with_scripts:
+        (tmp_path / "scripts").mkdir()
+        (tmp_path / "scripts" / "unregistered.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    gate_path = tmp_path / lib_rel
+    gate_path.parent.mkdir(parents=True)
+    gate_path.write_text(gate_src, encoding="utf-8")
+    ctl = tmp_path / "controls" / "toy"
+    (ctl / "cases" / "bad" / "tests").mkdir(parents=True)
+    (ctl / "cases" / "good" / "tests").mkdir(parents=True)
+    (ctl / "cases" / "bad" / "tests" / "BAD").write_text("x", encoding="utf-8")
+    anchors: list[dict[str, str]] = []
+    if anchor_src is not None:
+        (ctl / "anchors").mkdir()
+        anchor = ctl / "anchors" / "deadbee-toy.py"
+        anchor.write_text(anchor_src, encoding="utf-8")
+        anchors = [{
+            "kind": "historical", "sha": "deadbee", "origin": lib_rel,
+            "path": "anchors/deadbee-toy.py",
+            "sha256": hashlib.sha256(anchor.read_bytes()).hexdigest(),
+        }]
+    manifest = {
+        "gate": lib_rel,
+        "invocation": [sys.executable, "{gate}", "--root", "{case}"],
+        "good_exit": 0,
+        "detect_signal": TOY_SIGNAL,
+        "cases": [
+            {"name": "bad", "input": "cases/bad", "expect": "BAD"},
+            {"name": "good", "input": "cases/good", "expect": "GOOD"},
+        ],
+        "anchors": anchors,
+    }
+    (ctl / "control.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return tmp_path
+
+
+def test_a_lib_module_registration_is_discovered_and_scored(tmp_path: Path) -> None:
+    """THE #1394 RED: a gate implemented under `lib/`, not `scripts/`, is
+    countable - the concrete motivating case (cpp-w2's comment on #1394): CPP's
+    own `lib.security gate` (ADR 0008 row 61) has no `scripts/` entry point at
+    all, so it could not be registered until `discover` could see `lib/` too.
+
+    Before #1394: `NEGATIVE_CONTROL_REGISTERED: 0` for this tree and an
+    UNCHECKED run, whatever the control proved.
+    """
+    root = build_lib_tree(tmp_path)
+    write_census(root, ["lib.toy gate", "unregistered.sh"])
+    out = run_harness(root, "--strict")
+    assert contract(out.stdout, "NEGATIVE_CONTROL_REGISTERED") == "1", out.stdout
+    assert verdict_of(out.stdout) == "PASS", out.stdout
+    assert "NEGATIVE_CONTROL_GATE: lib/toy/toy-gate.py" in out.stdout, out.stdout
+    assert contract(out.stdout, "NEGATIVE_CONTROL_CENSUS_MEMBERS") == "1", out.stdout
+    assert out.returncode == 0, out.stdout + out.stderr
+
+
+def test_a_lib_module_subject_is_its_package_not_its_filename(tmp_path: Path) -> None:
+    """The subject is `lib.toy`, the directory - never `toy-gate.py`, the file.
+
+    Row 61's census cell names the PACKAGE (`lib.security`), not any one file
+    inside it, because `cli.py` is an implementation detail the census has
+    never enumerated. A membership check keyed on the filename would never
+    find a census row for ANY `lib/` gate - the defect this subject rule
+    exists to avoid.
+    """
+    root = build_lib_tree(tmp_path)
+    write_census(root, ["toy-gate.py"])  # the FILENAME, deliberately wrong
+    out = run_harness(root)
+    assert contract(out.stdout, "NEGATIVE_CONTROL_CENSUS_NONMEMBERS") == "1", out.stdout
+    assert "NEGATIVE_CONTROL_CENSUS_NONMEMBER: lib.toy" in out.stdout, out.stdout
+
+
+def test_a_lib_module_registration_OUTSIDE_the_census_fails(tmp_path: Path) -> None:
+    """Ruling item 4 (#1276), extended to the new kind: a non-member fails.
+
+    Widening discovery without this would count a control in the numerator
+    whose gate the denominator never enumerated - the #979/#1036 split,
+    arriving a third time for a third kind.
+    """
+    root = build_lib_tree(tmp_path)
+    write_census(root, ["unregistered.sh"])
+    out = run_harness(root, "--strict")
+    assert "NEGATIVE_CONTROL_CENSUS_NONMEMBER: lib.toy" in out.stdout, out.stdout
+    assert "NEGATIVE_CONTROL_CENSUS_NONMEMBER_REFUSED: lib.toy" in out.stdout, out.stdout
+    assert out.returncode == 1, out.stdout
+
+
+def test_a_lib_module_registration_is_discovered_with_no_scripts_directory(tmp_path: Path) -> None:
+    """A tree with `lib/` and no `scripts/` at all still has a source to read -
+    the same no-early-return guarantee #1276 established for a bare Makefile."""
+    root = build_lib_tree(tmp_path, with_scripts=False)
+    assert not (root / "scripts").exists()
+    write_census(root, ["lib.toy gate"])
+    out = run_harness(root, "--strict")
+    assert contract(out.stdout, "NEGATIVE_CONTROL_REGISTERED") == "1", out.stdout
+    assert verdict_of(out.stdout) == "PASS", out.stdout
+
+
+def test_a_bare_lib_file_is_not_a_registrable_subject(tmp_path: Path) -> None:
+    """`lib/x.py` has no PACKAGE to be the subject of - `lib` alone is not a
+    `lib.<pkg>` census row, and would collide with every other top-level
+    `lib/` file if it were accepted as one. The registration is discovered
+    (it is a `.py` file under `lib/`) but resolves to the plain filename,
+    which the census (correctly) does not contain either."""
+    root = build_lib_tree(tmp_path, lib_rel="lib/toy-gate.py")
+    write_census(root, ["toy-gate.py"])
+    out = run_harness(root)
+    assert contract(out.stdout, "NEGATIVE_CONTROL_REGISTERED") == "1", out.stdout
+    assert contract(out.stdout, "NEGATIVE_CONTROL_CENSUS_MEMBERS") == "1", out.stdout
+
+
+def test_a_non_python_file_under_lib_is_not_discovered(tmp_path: Path) -> None:
+    """`discover`'s `lib/` loop reads `*.py` only (issue #1394): a marker in a
+    non-Python file under `lib/` has no `lib_module_subject` to resolve to -
+    rather than silently discover it and let it fall back to a plain filename
+    subject with no census row to match, it is simply not looked for there."""
+    root = build_lib_tree(tmp_path)
+    (root / "lib" / "toy" / "notes.txt").write_text(
+        "#: NEGATIVE-CONTROL: controls/elsewhere\n", encoding="utf-8"
+    )
+    out = run_harness(root)
+    assert contract(out.stdout, "NEGATIVE_CONTROL_REGISTERED") == "1", out.stdout
+
+
+def test_an_undecodable_lib_file_is_skipped_silently_like_a_scripts_one(tmp_path: Path) -> None:
+    """A per-file read failure is skipped SILENTLY for `lib/`, exactly the
+    `scripts/` file kind's own existing behaviour - this is deliberately NOT
+    the Makefile kind's `DISCOVERY_UNREAD`/UNREAD-not-EMPTY distinction
+    (counter-model review, #1394: an earlier draft of this test's name and
+    docstring claimed that guarantee for `lib/` too, which was never true).
+
+    The two are not the same risk. The Makefile is ONE named file: losing it
+    silently drops EVERY make-target registration in one read, which is why
+    its own absence/unreadability is reported and fails `--strict`. `scripts/`
+    and `lib/` are populations of MANY files, where one bad encoding affects
+    only the registration AT that path - the same shape a crashed test would
+    already surface in review (a tracked file nobody can read is its own,
+    separate problem), not a reason to turn every discovery loop into a
+    second UNREAD-reporting mechanism. The REAL registration elsewhere in the
+    tree is still found regardless."""
+    root = build_lib_tree(tmp_path)
+    (root / "lib" / "toy" / "binary.py").write_bytes(b"\xff\xfe\x00\x01#: NEGATIVE-CONTROL: x\n")
+    out = run_harness(root, "--strict")
+    assert contract(out.stdout, "NEGATIVE_CONTROL_REGISTERED") == "1", out.stdout
+
+
+def test_the_real_lib_security_gate_control_discriminates_and_its_anchor_is_blind(
+    real_battery: subprocess.CompletedProcess[str],
+) -> None:
+    """End to end against the REAL `controls/lib-security-gate` (#1394's own
+    acceptance demo): row 61 of the census, `lib.security gate`, implemented
+    entirely under `lib/security/` with no `scripts/` entry point, now has a
+    registered, discriminating control."""
+    block = control_block(real_battery.stdout, "lib/security/cli.py")
+    assert "VERDICT: PASS" in block, block
+    for line in real_battery.stdout.splitlines():
+        assert line != "NEGATIVE_CONTROL_CENSUS_NONMEMBER: lib.security", real_battery.stdout
+
+
+# --------------------------------------------------------------------------- #
+# #1394 - a forked/renamed repository's census may cite a PATH, not a
+# basename, and `registration_subject` always resolves a plain-file
+# registration to a basename
+# --------------------------------------------------------------------------- #
+
+
+def test_a_path_form_census_subject_normalizes_to_the_registrations_basename(
+    tmp_path: Path,
+) -> None:
+    """THE #1394 RED: kyle's own convention, reproduced directly.
+
+    cpp-w2's comment on #1394 measured kyle's census citing the full relative
+    path (`scripts/check-skills-install.py`) where this repository cites the
+    basename alone (`check-skills-install.py`) - and `registration_subject`
+    always resolves a plain-file registration to `path.name`, a basename. Pre-
+    fix, a census row written the kyle way reported every one of that
+    repository's registered controls as a NONMEMBER: a confident, wrong
+    answer, not an unknown.
+    """
+    root = build_tree(tmp_path, SEEING_GATE)
+    write_census(root, ["scripts/toy-gate.py"])  # the PATH form, not the basename
+    out = run_harness(root, "--strict")
+    assert contract(out.stdout, "NEGATIVE_CONTROL_CENSUS_MEMBERS") == "1", out.stdout
+    assert contract(out.stdout, "NEGATIVE_CONTROL_CENSUS_NONMEMBERS") == "0", out.stdout
+    assert verdict_of(out.stdout) == "PASS", out.stdout
+
+
+def test_two_subjects_that_normalize_to_the_same_basename_still_count_as_one_row(
+    tmp_path: Path,
+) -> None:
+    """The row count is unaffected by normalization - it is a property of
+    subject MATCHING, never of how many rows the census happens to have."""
+    root = build_tree(tmp_path, SEEING_GATE)
+    write_census(root, ["scripts/toy-gate.py"])
+    out = run_harness(root)
+    assert contract(out.stdout, "NEGATIVE_CONTROL_UNIVERSE") == "1", out.stdout

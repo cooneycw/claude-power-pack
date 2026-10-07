@@ -1,0 +1,26 @@
+{
+  "gate": "lib/security/cli.py",
+  "invocation": [
+    "python3",
+    "-c",
+    "import sys, os, importlib; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(sys.argv[1])))); sys.argv = ['lib.security', 'gate', 'flow_finish', '--path', sys.argv[2]]; importlib.import_module('lib.security.cli').run()",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^BLOCKED:",
+  "limits": "Covers the lib.security gate's OWN discrimination on a single planted CRITICAL secret (a synthetic AWS access key id) - not every scanner module scan_quick runs, and not flow_deploy's separate, stricter policy. The invocation imports lib.security.cli by its real dotted name rather than running {gate} as a top-level script, because cli.py uses package-relative imports (from .config import ...) that fail outside package context; sys.path is seeded from {gate}'s own path so the anchor substitution (control.json's whole mechanism) actually swaps which lib/security/cli.py gets imported, rather than always importing the real one regardless of {gate}. The anchor's lib/security/__init__.py is load-bearing, not boilerplate: without it, lib (a namespace package, no __init__.py anywhere) merges the anchor's and the real tree's lib/security/ portions, and Python's import system still finds the real one's __init__.py and resolves lib.security.cli to the REAL file even with the anchor's directory first on sys.path - the anchor silently never ran, and the control read as INERT instead of PASS (measured while building this control). A regular package with its own __init__.py in the FIRST sys.path entry wins outright instead of merging.",
+  "cases": [
+    {"name": "bad-critical-secret", "input": "cases/bad-critical-secret", "expect": "BAD"},
+    {"name": "good-clean", "input": "cases/good-clean", "expect": "GOOD"}
+  ],
+  "anchors": [
+    {
+      "kind": "synthetic",
+      "sha": "0000000",
+      "origin": "a minimal always-PASS stand-in written for this control (#1394) - lib.security's own gate has no earlier, simpler implementation to borrow a historical blind version from",
+      "path": "anchors/0000000-always-pass/lib/security/cli.py",
+      "sha256": "df2ef0046b833e53e3cb74ef5724fe32c2441ddcc349a754b3c850e38bbf4498"
+    }
+  ]
+}
