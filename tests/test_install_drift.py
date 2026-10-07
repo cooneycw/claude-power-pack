@@ -29,14 +29,26 @@ pytestmark = pytest.mark.skipif(
 
 
 def _make_checkout(root: Path) -> Path:
-    """A post-#662 checkout deliberately has no plugins/ directory."""
+    """A post-#662 checkout deliberately has no plugins/ directory.
+
+    Carries a (trivial, non-functional) scripts/cpp-host-write.sh, matching
+    every real CPP checkout: issue #1401's third ownership marker requires
+    it, so a baseline fixture without one would make every orphan-positive
+    test below report zero orphans - not a host collision avoided, but the
+    marker this very fixture is supposed to represent being absent from it.
+    """
     (root / ".claude" / "commands" / "flow").mkdir(parents=True)
     (root / "scripts").mkdir()
     (root / "CLAUDE.md").write_text("# fake CPP\n", encoding="utf-8")
     (root / ".claude" / "commands" / "flow" / "auto.md").write_text(
         "# auto\n", encoding="utf-8"
     )
-    (root / "scripts" / HELPER).write_text(HELPER_BODY, encoding="utf-8")
+    helper_path = root / "scripts" / HELPER
+    helper_path.write_text(HELPER_BODY, encoding="utf-8")
+    helper_path.chmod(0o755)
+    (root / "scripts" / "cpp-host-write.sh").write_text(
+        "#!/bin/sh\necho stub\n", encoding="utf-8"
+    )
     return root
 
 
@@ -1331,3 +1343,252 @@ def test_an_orphan_only_population_is_still_reported(tmp_path: Path):
 
     assert "retired-vendor.py" in report.stdout, report.stdout
     assert payload["orphaned_helpers"] == ["retired-vendor.py"], payload
+
+
+# --------------------------------------------------------------------------- #
+# #1401 bullet 3 - a dangling link into a DIFFERENT real Claude Code project
+# must not be reported as our orphan, even when that project also carries
+# CLAUDE.md and .claude/commands/ (every Claude project does)
+# --------------------------------------------------------------------------- #
+
+
+def test_a_near_miss_claude_project_link_is_NOT_our_orphan(tmp_path: Path):
+    """THE #1401 RED: the two-marker test was too permissive.
+
+    `test_another_projects_link_is_NOT_our_orphan` above was never a near
+    miss - its `another-project` has no CLAUDE.md or .claude/commands/ at
+    all, so it already failed the OLD two-marker test on its own. This
+    fixture is the actual gap (counter-model review, #1401): a dangling link
+    into a root that ALSO carries both markers, exactly as every Claude Code
+    project does, but is not a CPP checkout - it ships no
+    scripts/cpp-host-write.sh, the one seam only a CPP checkout has because
+    it is what creates install-shaped links in the first place.
+    """
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    scripts = _make_helpers(home)
+    other_project = tmp_path / "other-claude-project"
+    (other_project / ".claude" / "commands").mkdir(parents=True)
+    (other_project / "scripts").mkdir()
+    (other_project / "CLAUDE.md").write_text("# some other project\n", encoding="utf-8")
+    (scripts / "tool.sh").symlink_to(other_project / "scripts" / "tool.sh")
+    assert not (scripts / "tool.sh").exists(), "fixture must dangle"
+    assert (other_project / "CLAUDE.md").is_file()
+    assert (other_project / ".claude" / "commands").is_dir()
+    assert not (other_project / "scripts" / "cpp-host-write.sh").exists(), (
+        "the fixture's whole point is a project that passes the OLD two-marker "
+        "test and fails the new third one"
+    )
+
+    report = _run(checkout, home)
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert payload["orphaned_helpers"] == [], payload
+    assert "tool.sh" not in report.stdout.split("checkout provenance")[0], report.stdout
+
+
+def test_a_real_cpp_checkouts_link_is_still_our_orphan(tmp_path: Path):
+    """The positive half: adding the third marker must not blind the axis to
+    its own live specimen - a dangling link into a root that DOES carry
+    cpp-host-write.sh is still reported, exactly as before."""
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    scripts = _make_helpers(home)
+    (scripts / "retired-vendor.py").symlink_to(checkout / "scripts" / "retired-vendor.py")
+    assert not (scripts / "retired-vendor.py").exists(), "fixture must dangle"
+
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+    assert payload["orphaned_helpers"] == ["retired-vendor.py"], payload
+
+
+# --------------------------------------------------------------------------- #
+# #1401 bullet 2 - scripts/ has executables the stable path has never linked,
+# because the on-demand install has not run since they were added
+# --------------------------------------------------------------------------- #
+
+
+def test_the_installer_loops_still_read_the_filter_this_axis_assumes() -> None:
+    """COUPLING TEST (issue #1401): `HELPERS_UNLINKED`'s population is "every
+    executable regular file directly under scripts/" because that is the
+    EXACT filter both shipping installers run. If a future change narrows
+    either loop's filter, this axis's own population would silently diverge
+    from what actually gets linked - this test is what a future editor
+    trips over instead of discovering that by hand."""
+    init_doc = (ROOT / ".claude" / "commands" / "cpp" / "init.md").read_text(encoding="utf-8")
+    update_doc = (ROOT / ".claude" / "commands" / "cpp" / "update.md").read_text(encoding="utf-8")
+    needle = '[ -f "$script" ] && [ -x "$script" ] || continue'
+    assert needle in init_doc, (
+        "cpp:init's install loop filter changed shape - update "
+        "HELPERS_UNLINKED's population to match"
+    )
+    assert needle in update_doc, (
+        "cpp:update's install loop filter changed shape - update "
+        "HELPERS_UNLINKED's population to match"
+    )
+
+
+def test_an_executable_added_to_the_checkout_since_the_last_install_is_unlinked(tmp_path: Path):
+    """THE #1401 RED: nit store #864 measured this directly - 17 executables
+    present in the checkout and absent from the stable path, none of them
+    curated-missing, because the on-demand install simply had not run again
+    since they were added. Before this axis: invisible on every term."""
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    _make_helpers(home)  # HELPER is already linked and current
+    (checkout / "scripts" / "new-tool.sh").write_text(
+        "#!/bin/sh\necho new\n", encoding="utf-8"
+    )
+    (checkout / "scripts" / "new-tool.sh").chmod(0o755)
+
+    report = _run(checkout, home)
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert payload["helpers_unlinked"] == 1, payload
+    assert payload["unlinked_helpers"] == ["new-tool.sh"], payload
+    assert "new-tool.sh" in report.stdout, report.stdout
+    assert "run /cpp:update" in _run(checkout, home, "--quiet").stdout
+
+
+def test_a_correctly_installed_checkout_reports_zero_unlinked(tmp_path: Path):
+    """THE POSITIVE-SILENCE CASE cpp-orch asked for explicitly: a host where
+    every checkout executable IS already linked must report zero, not cry
+    wolf about content a correct install already accounted for."""
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    scripts = _make_helpers(home)
+    (scripts / "cpp-host-write.sh").symlink_to(checkout / "scripts" / "cpp-host-write.sh")
+
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+    assert payload["helpers_unlinked"] == 0, payload
+    assert payload["unlinked_helpers"] == [], payload
+    assert "0 unlinked" in _run(checkout, home).stdout
+
+
+def test_a_non_executable_checkout_file_is_never_unlinked(tmp_path: Path):
+    """The population is executables ONLY, matching the installer's own
+    `[ -x ]` test - a non-executable file (a README, a fixture, a module the
+    installer was never going to link) must never appear here."""
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    _make_helpers(home)
+    (checkout / "scripts" / "notes.txt").write_text("not executable\n", encoding="utf-8")
+    assert not os.access(checkout / "scripts" / "notes.txt", os.X_OK)
+
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+    assert payload["helpers_unlinked"] == 0, payload
+    assert "notes.txt" not in payload["unlinked_helpers"]
+
+
+def test_an_unlinked_helper_is_not_double_reported_as_missing(tmp_path: Path):
+    """An entry already counted by the curated flow-helpers-install.sh axis
+    must not ALSO show up as unlinked - one gap, one name, one axis."""
+    checkout = _make_checkout(tmp_path / "checkout")
+    _install_real_flow_helpers_installer(checkout)
+    home = tmp_path / "home"
+    _make_helpers(home)
+
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+    missing = set(payload["missing_helpers"])
+    unlinked = set(payload["unlinked_helpers"])
+    assert not (missing & unlinked), payload
+
+
+def test_an_unlinked_helper_is_not_double_reported_as_current(tmp_path: Path):
+    """THE REAL OVERLAP: the parity loop at the top of this file iterates the
+    INSTALLED side and reports content drift for any plain file at the
+    stable path, symlink or not. _make_helpers installs HELPER as a plain,
+    byte-identical copy - current by that axis, and (before the exclusion
+    added alongside this test) ALSO unlinked by this one, because a plain
+    copy is never a symlink. One root cause (no symlink at the stable path)
+    must not surface under two axis names."""
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    _make_helpers(home)  # HELPER installed as a plain, current, non-symlink copy
+
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+    assert payload["helpers_current"] == 1, payload
+    assert HELPER not in payload["unlinked_helpers"], payload
+
+
+def test_an_unlinked_helper_is_not_double_reported_as_stale(tmp_path: Path):
+    """The same overlap, on the stale side: a plain copy whose content has
+    drifted is reported once, by the axis that can actually say WHAT
+    changed - not a second time here, where all this axis could say is
+    "not a symlink", which is already implied by being stale at all."""
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    scripts = _make_helpers(home)
+    (scripts / HELPER).write_text("#!/bin/sh\necho stale\n", encoding="utf-8")
+
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+    assert payload["helpers_stale"] == 1, payload
+    assert HELPER not in payload["unlinked_helpers"], payload
+
+
+def test_an_unlinked_only_population_is_still_reported(tmp_path: Path):
+    """Mirrors the orphan-only gap this file already pins for ORPHANED: a
+    host whose ONLY finding is an unlinked helper must not take the early
+    "nothing found" skip-exit."""
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    scripts = home / ".claude" / "scripts"
+    scripts.mkdir(parents=True)
+    assert not list(scripts.iterdir()), "the population must be unlinked-ONLY"
+
+    report = _run(checkout, home)
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert HELPER in report.stdout, report.stdout
+    assert payload["helpers_unlinked"] == 1, payload
+    assert payload["unlinked_helpers"] == [HELPER], payload
+
+
+# --------------------------------------------------------------------------- #
+# #1401 bullet 1 - --quiet surfaces the skipped (unmarked, never judged)
+# Claude-skills count, but only when CPP already has a real stake in the root
+# --------------------------------------------------------------------------- #
+
+
+def test_skipped_count_appears_in_quiet_when_managed_and_skipped_are_both_positive(
+    tmp_path: Path,
+) -> None:
+    checkout = _make_checkout(tmp_path / "checkout")
+    _install_real_skills_checker(checkout)
+    _make_canonical_skill(checkout)
+    home = tmp_path / "home"
+    _make_installed_skill(home, MANAGED_SKILL)
+    _make_installed_skill(home, UNMARKED_SKILL, name="neighbour")
+
+    quiet = _run(checkout, home, "--quiet").stdout
+    assert "unmarked and never judged" in quiet, quiet
+    assert "1 other package(s)" in quiet, quiet
+
+
+def test_skipped_count_stays_silent_in_quiet_when_nothing_is_managed(
+    tmp_path: Path,
+) -> None:
+    """THE REFERENCE-HOST CASE comment 5855696368 measured: 0 managed, N
+    skipped, none of them CPP's - must stay silent, or every session start
+    on a host with no CPP packages here prints a standing line about
+    someone else's content."""
+    checkout = _make_checkout(tmp_path / "checkout")
+    _install_real_skills_checker(checkout)
+    _make_canonical_skill(checkout)
+    home = tmp_path / "home"
+    _make_installed_skill(home, UNMARKED_SKILL, name="neighbour")
+
+    quiet = _run(checkout, home, "--quiet").stdout
+    assert "unmarked and never judged" not in quiet, quiet
+
+
+def test_skipped_count_adds_nothing_when_managed_is_positive_but_skipped_is_zero(
+    tmp_path: Path,
+) -> None:
+    checkout = _make_checkout(tmp_path / "checkout")
+    _install_real_skills_checker(checkout)
+    _make_canonical_skill(checkout)
+    home = tmp_path / "home"
+    _make_installed_skill(home, MANAGED_SKILL)
+
+    quiet = _run(checkout, home, "--quiet").stdout
+    assert "unmarked and never judged" not in quiet, quiet

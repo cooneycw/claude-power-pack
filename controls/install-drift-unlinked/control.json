@@ -1,0 +1,35 @@
+{
+  "gate": "scripts/install-drift.sh",
+  "invocation": [
+    "sh",
+    "controls/install-drift-unlinked/run-case.sh",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^  Unlinked helpers \\(in scripts/, not yet installed - run /cpp:update\\): \\S",
+  "unavailable_signal": "^INSTALL_DRIFT_CONTROL: unavailable - ",
+  "limits": "A SEPARATE registration on the SAME gate as controls/install-drift (the harness supports several registrations per gate; #986 made discovery see them all), because this axis's bad case fires a DIFFERENT output line than the orphan axis's, and widening one detect_signal into an alternation would let either case pass for the other's reason - the exact 'detects for the wrong reason' failure a single combined registration would risk. Covers the HELPERS_UNLINKED axis only (issue #1401): an executable directly under the checkout's scripts/ with no symlink at the matching name in the stable path. The population is deliberately EVERY checkout executable passing the installer's own `[ -f ] && [ -x ]` filter (tests/test_install_drift.py asserts both .claude/commands/cpp/init.md and update.md still read that literal filter, so a narrowing there is caught rather than silently diverging), not a second curated list - this is what makes it see the Nit Store #864 gap the curated flow-helpers-install.sh HELPERS array and its MISSING check cannot: a script added to scripts/ since the last install that was never curated at all. 'ALREADY LINKED' matches cmd_link_into's own idempotency test, `[ -L ]`, not a stricter shape check, so a dangling symlink at the stable path still counts as linked here exactly as the real installer would treat it. THE DECLARED OVERLAP WITH THE PARITY LOOP ABOVE IT IN THE SCRIPT: that loop iterates the INSTALLED side and reports current/stale for ANY plain (non-symlink) file at the stable path matching a checkout basename, regardless of link shape - so a plain, byte-identical copy (current) or a plain, diverged copy (stale) is ALSO, by definition, not a symlink. Both would double-report under this axis's name for the identical root cause (the install at that path predates the symlink-based installer) without the explicit exclusion the gate carries: an entry already counted as current or stale there is skipped here. test_an_unlinked_helper_is_not_double_reported_as_current and ..._as_stale pin that exclusion directly; this control's own fixtures isolate the finding to a name absent from the stable path entirely; so neither case here exercises that exclusion path, and a regression in it would not be caught by this control alone. REPORT-ONLY, LIKE THE ORPHAN AXIS: a positive count joins the early-skip guard (so an unlinked-only host does not take the terse 'nothing found' exit) but does not move VERDICT, so run-case.sh uses the identical two-independent-channel adapter (--json count vs. the human report's named line) rather than the gate's own exit code - a single-channel adapter keyed on the line the runner also reads would agree with itself by construction. DECLARED GAP, same direction as the orphan axis's: a non-executable file added to scripts/ (a README, a module the installer was never going to link) is never reported, by design, matching the installer's own `[ -x ]` test - test_a_non_executable_checkout_file_is_never_unlinked pins it. Anchor is 65fc868, the commit immediately preceding issue #1401's work: at that revision the axis, the --json key, and the report line do not exist at all, so the anchor's run on the bad case has no helpers_unlinked key and names nothing - BLIND, as required, and is what makes the post-fix green a change in the gate rather than a change in the cases.",
+  "cases": [
+    {
+      "name": "good-correctly-linked",
+      "input": "cases/good-correctly-linked",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-new-executable-unlinked",
+      "input": "cases/bad-new-executable-unlinked",
+      "expect": "BAD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "65fc868",
+      "origin": "scripts/install-drift.sh",
+      "path": "anchors/65fc868-pre-unlinked-axis-install-drift.sh",
+      "sha256": "ded9a5c1601f95025cfd5070a99f9c9fe01f76d791c5481336c4b2f32692cb8d",
+      "why": "HISTORICAL, vendored byte-for-byte from the commit immediately preceding issue #1401's work (the base this branch was built from). The axis, its --json key and its report line do not exist at this revision, so on the known-bad case (a checkout executable added since the last install, with no symlink at the stable path) it reports '1 current, 0 stale, 0 missing, 0 orphaned' and 'installed helpers and Codex skills match the checkout', exit 0, with the new executable sitting right there unmentioned - the measurement Nit Store #864 made directly, reproduced from the control rather than asserted."
+    }
+  ]
+}

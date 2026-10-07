@@ -340,27 +340,8 @@ if [ -n "$SCRIPTS_DIR" ] && [ -d "$SCRIPTS_DIR" ]; then
         # cannot be attributed to us any more, so it is not reported. That is
         # the conservative direction - an unreported orphan is a gap, an
         # unattributed accusation about someone else's file is a defect.
-        #
-        # CLAUDE.md + .claude/commands/ IS NOT ENOUGH (issue #1401, counter-model
-        # review). Every Claude Code project carries both, so a dangling link
-        # into a DIFFERENT real Claude project - not a host file at all, just
-        # someone else's checkout that happens to also be Claude-enabled - passed
-        # this test and was reported as OUR orphan. `cpp-host-write.sh
-        # cmd_unlink_orphan` already carries the fix for exactly this (#1263):
-        # the root must also ship `scripts/cpp-host-write.sh`, the one seam only
-        # a CPP checkout has, because it is what CREATES install-shaped links in
-        # the first place. This script had the same vulnerable two-marker test
-        # independently and never got the matching fix.
-        #
-        # DECLARED LIMIT, widened by this fix: a CPP checkout old enough to
-        # predate `cpp-host-write.sh` itself would now be skipped too - a link
-        # into it reads as unattributable rather than as our orphan. That is an
-        # UNDER-report in an axis that is reported, not drift-contributing, so
-        # it is the same safe direction the "removed entirely" limit above
-        # already accepts, not a new risk.
-        # shellcheck disable=SC2015  # intended: continue unless ALL THREE tests hold (#972)
-        [ -f "$link_root/CLAUDE.md" ] && [ -d "$link_root/.claude/commands" ] \
-            && [ -f "$link_root/scripts/cpp-host-write.sh" ] || continue
+        # shellcheck disable=SC2015  # intended: continue unless BOTH tests hold (#972)
+        [ -f "$link_root/CLAUDE.md" ] && [ -d "$link_root/.claude/commands" ] || continue
         # EXISTENCE, not shape. `-e` follows the link, which is exactly "does
         # the checkout still have something at the end of this link".
         [ -e "$installed" ] && continue
@@ -407,75 +388,6 @@ else
     HELPERS_MISSING_UNAVAILABLE_REASON="flow-helpers-install.sh not found in checkout"
 fi
 HELPERS_MISSING=${#MISSING_HELPERS[@]}
-
-# --- Installed helper UNLINKED detection (issue #1401) ----------------------
-#: NEGATIVE-CONTROL: controls/install-drift-unlinked
-# #828's MISSING check above only judges the CURATED flow-helpers-install.sh
-# HELPERS array (21 of ~100 executables under scripts/); the parity loop at
-# the top of this file only judges entries that are ALREADY installed.
-# Neither sees a script added to scripts/ since the last /cpp:init or
-# /cpp:update run - the exact gap Nit Store #864 measured directly: 17
-# executables present in the checkout and absent from the stable path, none
-# of them curated-missing, because the on-demand install that builds the
-# farm simply had not run again since they were added.
-#
-# THE POPULATION IS THE INSTALLER'S OWN RULE, not every file and not a
-# second curated list. `.claude/commands/cpp/init.md` (around line 690) and
-# `.claude/commands/cpp/update.md` (around line 683) run BYTE-IDENTICAL
-# loops - every `[ -f "$script" ] && [ -x "$script" ]` entry directly under
-# scripts/, no further filter - and hand each to `cpp-host-write.sh
-# link-into`, which adds no filtering of its own beyond "source exists" (see
-# that function's own header comment). So "should be linked" and "every
-# executable regular file directly under scripts/" are the SAME population
-# by construction: a host that ran either installer after the last scripts/
-# addition has every one of them linked, and this axis reports zero. A
-# positive count is the signal working - a `git pull` outran the last
-# install, not a false alarm about content the install loop was never going
-# to touch anyway. Whether the install loop'S OWN blanket filter is the right
-# one (should `check-*.py` be in the farm at all) is a separate question for
-# that loop, not this comparison - the same relationship #828's MISSING axis
-# already has with the HELPERS array it judges without second-guessing.
-#
-# "ALREADY LINKED" MATCHES THE INSTALLER'S OWN IDEMPOTENCY TEST, not a shape
-# check: `cmd_link_into` treats ANY symlink at the target name as already
-# installed and skips, regardless of what it resolves to - so this axis asks
-# the identical question, `[ -L ]`, rather than a stricter one that could
-# disagree with what a real install run would actually do.
-#
-# COUPLING, NAMED RATHER THAN ASSUMED: if a future change narrows either
-# installer's filter beyond `[ -f ] && [ -x ]`, this axis's population would
-# silently diverge from what the installer actually runs.
-# tests/test_install_drift.py asserts both loops still read that literal
-# filter, so an editor who changes it finds a failing test rather than
-# discovering the drift by hand later.
-HELPERS_UNLINKED=0
-UNLINKED_HELPERS=()
-if [ -n "$SCRIPTS_DIR" ] && [ -d "$SCRIPTS_DIR" ] && [ -d "$CHECKOUT/scripts" ]; then
-    for source_script in "$CHECKOUT/scripts"/*; do
-        [ -f "$source_script" ] || continue
-        [ -x "$source_script" ] || continue
-        name="${source_script##*/}"
-        # Already counted as curated-missing - do not report the same gap
-        # under two different axis names.
-        already_missing=0
-        for missing in "${MISSING_HELPERS[@]:-}"; do
-            [ "$missing" = "$name" ] && { already_missing=1; break; }
-        done
-        [ "$already_missing" -eq 1 ] && continue
-        # Already judged current or stale by the parity loop above, which
-        # iterates the installed side and reports content drift for any
-        # plain (non-symlink) file at the stable path matching a checkout
-        # basename. That axis is strictly more specific for a plain-copy
-        # install (it says whether the content matches, not just whether a
-        # link exists), so a name it already covers must not also appear
-        # here under a different name for the identical root cause: the
-        # install at that path predates the symlink-based installer.
-        [ -L "$SCRIPTS_DIR/$name" ] && continue
-        [ -f "$SCRIPTS_DIR/$name" ] && continue
-        HELPERS_UNLINKED=$(( HELPERS_UNLINKED + 1 ))
-        UNLINKED_HELPERS+=("$name")
-    done
-fi
 
 # --- Installed Codex skill parity (#823) ------------------------------------
 # A skill dir is OURS (managed by codex-skill-sync.py) when its SKILL.md
@@ -681,14 +593,8 @@ fi
 # mode. The axis was invisible in exactly the population where it is the only
 # thing there is to say. Every orphan fixture happened to include a current
 # helper, which is why the tests did not reach it.
-#
-# HELPERS_UNLINKED JOINS IT FOR THE SAME REASON (issue #1401): a host whose
-# ~/.claude/scripts/ exists (so the axis actually runs - see its own guard)
-# but holds no current/stale/missing/orphaned entries at all would otherwise
-# score zero on every other term and skip-exit, silently dropping the one
-# thing this axis exists to say about that host.
 if [ "$RETIRED" -eq 0 ] && [ "$HELPERS_TOTAL" -eq 0 ] && [ "$HELPERS_MISSING" -eq 0 ] \
-   && [ "$HELPERS_ORPHANED" -eq 0 ] && [ "$HELPERS_UNLINKED" -eq 0 ] \
+   && [ "$HELPERS_ORPHANED" -eq 0 ] \
    && [ "$CODEX_SKILLS_CHECKED" -eq 0 ] && [ "$CLAUDE_SKILLS_MANAGED" -eq 0 ] \
    && [ "$CLAUDE_SKILLS_UNANSWERED" -eq 0 ] && [ "$CLAUDE_SKILLS_UNJUDGED" -eq 0 ]; then
     emit_skip "no retired CPP marketplace surface, installed checkout helpers, or installed Codex/Claude skills found"
@@ -734,9 +640,6 @@ if [ "$MODE" = "quiet" ]; then
     if [ "$HELPERS_MISSING" -gt 0 ]; then
         clauses+=("${HELPERS_MISSING} helper(s) missing - run /cpp:update")
     fi
-    if [ "$HELPERS_UNLINKED" -gt 0 ]; then
-        clauses+=("${HELPERS_UNLINKED} helper(s) added to the checkout since the last install - run /cpp:update")
-    fi
     if [ "$CODEX_SKILLS_STALE" -gt 0 ]; then
         clauses+=("${CODEX_SKILLS_STALE} Codex skill(s) stale - run codex-skill-sync.py --install")
     fi
@@ -748,30 +651,6 @@ if [ "$MODE" = "quiet" ]; then
     fi
     if [ "$CLAUDE_SKILLS_STALE" -gt 0 ]; then
         clauses+=("${CLAUDE_SKILLS_STALE} Claude skill(s) stale in ${CLAUDE_SKILLS_DIR} - re-install from the checkout")
-    fi
-    # THE SKIPPED (unmarked, never judged) COUNT, GATED NARROWLY (issue #1401).
-    # Report mode and --json have always carried CLAUDE_SKILLS_SKIPPED; quiet
-    # never has, so the SessionStart hook - the one surface that actually
-    # reaches a human - said nothing about a population it deliberately never
-    # judged. The obvious unconditional fix was measured to cry wolf: on the
-    # reference host 0 packages are CPP-marked and 13 are skipped, none of
-    # them CPP's business, and printing that every session start is exactly
-    # the "standing line about someone else's content" failure that trains
-    # people to stop reading the hook.
-    #
-    # So this fires ONLY when CPP already has a real stake in this install
-    # root (CLAUDE_SKILLS_MANAGED > 0) AND the skipped count is a measured,
-    # positive number - never on "?" (unmeasured, #1034's own UNKNOWN-is-not-
-    # ZERO rule) and never on a host with zero managed packages, where the
-    # skipped count describes content that is correctly none of CPP's
-    # business. This needs no persisted state (the three candidates the nit
-    # named all did) and stays silent on the reference host; it only speaks
-    # where a user already has CPP packages here to read the context for.
-    if [ "$CLAUDE_SKILLS_MANAGED" -gt 0 ]; then
-        case "$CLAUDE_SKILLS_SKIPPED" in
-            ""|*[!0-9]*|0) : ;;
-            *) clauses+=("${CLAUDE_SKILLS_SKIPPED} other package(s) present in ${CLAUDE_SKILLS_DIR}, unmarked and never judged (informational)") ;;
-        esac
     fi
     # AN UNANSWERED QUESTION REACHES THE QUIET SURFACE TOO. Report mode said
     # "NOT CHECKED" and quiet said nothing at all, so a host whose checker was
@@ -842,12 +721,6 @@ if [ "$MODE" = "json" ]; then
         printf '%s"%s"' "$separator" "$helper"
         separator=,
     done
-    printf '],"helpers_unlinked":%s,"unlinked_helpers":[' "$HELPERS_UNLINKED"
-    separator=""
-    for helper in "${UNLINKED_HELPERS[@]}"; do
-        printf '%s"%s"' "$separator" "$helper"
-        separator=,
-    done
     printf '],"split":%s,"codex_skills_checked":%s,"codex_skills_current":%s,' \
         "$([ "$SPLIT" -eq 1 ] && echo true || echo false)" \
         "$([ "$CODEX_SKILLS_CHECKED" -eq 1 ] && echo true || echo false)" \
@@ -891,7 +764,7 @@ fi
 
 echo "install-drift: checkout $CHECKOUT"
 echo "  host helpers       ${SCRIPTS_DIR:-<none>}"
-echo "    ${HELPERS_CURRENT} current, ${HELPERS_STALE} stale, ${HELPERS_MISSING} missing, ${HELPERS_ORPHANED} orphaned, ${HELPERS_UNLINKED} unlinked"
+echo "    ${HELPERS_CURRENT} current, ${HELPERS_STALE} stale, ${HELPERS_MISSING} missing, ${HELPERS_ORPHANED} orphaned"
 if [ "${#STALE_HELPERS[@]}" -gt 0 ]; then
     echo ""
     echo "  Stale helpers: ${STALE_HELPERS[*]}"
@@ -907,10 +780,6 @@ if [ "${#ORPHANED_HELPERS[@]}" -gt 0 ]; then
     # members, so anyone reconciling this axis by count passes with the
     # wrong set. The names are the only checkable output.
     echo "  Orphaned helpers (installed, no longer in the checkout): ${ORPHANED_HELPERS[*]}"
-fi
-if [ "${#UNLINKED_HELPERS[@]}" -gt 0 ]; then
-    echo ""
-    echo "  Unlinked helpers (in scripts/, not yet installed - run /cpp:update): ${UNLINKED_HELPERS[*]}"
 fi
 if [ "$HELPERS_MISSING_CHECKED" -eq 0 ]; then
     echo ""
@@ -1016,9 +885,6 @@ case "$VERDICT" in
         # nothing when it named something. Say it on the ok path too.
         if [ "$HELPERS_ORPHANED" -gt 0 ]; then
             ok_subjects="$ok_subjects (with ${HELPERS_ORPHANED} orphaned helper(s) named above)"
-        fi
-        if [ "$HELPERS_UNLINKED" -gt 0 ]; then
-            ok_subjects="$ok_subjects (with ${HELPERS_UNLINKED} unlinked helper(s) named above)"
         fi
         if [ "$CLAUDE_SKILLS_MANAGED" -gt 0 ]; then
             ok_subjects="$ok_subjects and ${CLAUDE_SKILLS_MANAGED} CPP-marked Claude skill(s)"
