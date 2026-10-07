@@ -100,7 +100,7 @@ if leaked_noise:
     sys.exit(0)
 
 print(
-    "CODEX_SKILL_SYNC_OVER_BUNDLE_CONTROL: finding - closure is exactly the required set, no noise"
+    "CODEX_SKILL_SYNC_OVER_BUNDLE_CONTROL: finding - required dependencies present; no listed noise bundled"
     if noise
     else "CODEX_SKILL_SYNC_OVER_BUNDLE_CONTROL: no finding - ordinary package, nothing to avoid"
 )

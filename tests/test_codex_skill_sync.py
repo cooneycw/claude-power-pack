@@ -568,6 +568,202 @@ def test_an_unreferenced_lazy_submodule_is_not_bundled(tmp_repo):
     )
 
 
+# --- #1408 counter-model review: five gaps in the lazy/TYPE_CHECKING closure ---
+
+
+def test_a_lazy_chain_two_hops_deep_is_fully_bundled(tmp_repo):
+    """A SINGLE pass over the lazy-map resolution under-bundled a second hop.
+
+    `lib/pkg_a/submodule_a.py` (pulled in by resolving pkg_a's lazy map) itself
+    references `lib/pkg_b`'s lazy export - but `pkg_b/__init__.py` only enters
+    `out` partway through the ORIGINAL implementation, after `all_texts` had
+    already been captured for the first (and only) lazy-resolution pass, so
+    `submodule_b.py` was silently dropped. Fixed by looping lazy-resolution +
+    drain() to a fixed point.
+    """
+    pkg_a = tmp_repo / "lib" / "pkg_a"
+    pkg_a.mkdir(parents=True)
+    (pkg_a / "__init__.py").write_text(
+        "from typing import TYPE_CHECKING, Any\n"
+        "if TYPE_CHECKING:\n    from .submodule_a import thing_a\n"
+        '_NAME_TO_MODULE = {"thing_a": "submodule_a"}\n'
+        "def __getattr__(name: str) -> Any:\n"
+        "    module = _NAME_TO_MODULE.get(name)\n"
+        "    if module is None:\n        raise AttributeError(name)\n"
+        "    import importlib\n"
+        '    value = getattr(importlib.import_module(f".{module}", __name__), name)\n'
+        "    globals()[name] = value\n    return value\n"
+    )
+    (pkg_a / "submodule_a.py").write_text("from lib.pkg_b import thing_b\nthing_a = thing_b\n")
+    pkg_b = tmp_repo / "lib" / "pkg_b"
+    pkg_b.mkdir(parents=True)
+    (pkg_b / "__init__.py").write_text(
+        "from typing import TYPE_CHECKING, Any\n"
+        "if TYPE_CHECKING:\n    from .submodule_b import thing_b\n"
+        '_NAME_TO_MODULE = {"thing_b": "submodule_b"}\n'
+        "def __getattr__(name: str) -> Any:\n"
+        "    module = _NAME_TO_MODULE.get(name)\n"
+        "    if module is None:\n        raise AttributeError(name)\n"
+        "    import importlib\n"
+        '    value = getattr(importlib.import_module(f".{module}", __name__), name)\n'
+        "    globals()[name] = value\n    return value\n"
+    )
+    (pkg_b / "submodule_b.py").write_text("thing_b = 'reached the second hop'\n")
+    (tmp_repo / "scripts" / "importer.py").write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "REPO_ROOT = Path(__file__).resolve().parents[1]\n"
+        "sys.path.insert(0, str(REPO_ROOT))\n"
+        "from lib.pkg_a import thing_a\nprint(thing_a)\n"
+    )
+    (tmp_repo / ".claude" / "commands" / "flow" / "auto.md").write_text(
+        "# Flow Auto\n\nUses scripts/importer.py.\n"
+    )
+    codex_skill_sync.main(["--write"])
+    bundled = tmp_repo / "codex" / "skills" / "flow-auto"
+    assert (bundled / "lib" / "pkg_b" / "submodule_b.py").is_file(), (
+        "the second hop of a lazy-export chain was not bundled"
+    )
+    result = subprocess.run(
+        [sys.executable, str(bundled / "scripts" / "importer.py")],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    assert result.returncode == 0, f"{result.stdout}{result.stderr}"
+    assert "reached the second hop" in result.stdout
+
+
+def test_a_lazy_export_reached_through_an_import_alias_is_bundled(tmp_repo):
+    """`import lib.pkg as alias; alias.thing` reached `__init__.py` fine but
+    `_referenced_lazy_names` only matched the attribute chain against the
+    package's REAL dotted name, never an aliased single-name binding."""
+    lib = tmp_repo / "lib" / "lazy_pkg"
+    lib.mkdir(parents=True)
+    (lib / "__init__.py").write_text(
+        "from typing import TYPE_CHECKING, Any\n"
+        "if TYPE_CHECKING:\n    from .submodule import thing\n"
+        '_NAME_TO_MODULE = {"thing": "submodule"}\n'
+        "def __getattr__(name: str) -> Any:\n"
+        "    module = _NAME_TO_MODULE.get(name)\n"
+        "    if module is None:\n        raise AttributeError(name)\n"
+        "    import importlib\n"
+        '    value = getattr(importlib.import_module(f".{module}", __name__), name)\n'
+        "    globals()[name] = value\n    return value\n"
+    )
+    (lib / "submodule.py").write_text("thing = 'reached via an import alias'\n")
+    (tmp_repo / "scripts" / "importer.py").write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "REPO_ROOT = Path(__file__).resolve().parents[1]\n"
+        "sys.path.insert(0, str(REPO_ROOT))\n"
+        "import lib.lazy_pkg as pkg\nprint(pkg.thing)\n"
+    )
+    (tmp_repo / ".claude" / "commands" / "flow" / "auto.md").write_text(
+        "# Flow Auto\n\nUses scripts/importer.py.\n"
+    )
+    codex_skill_sync.main(["--write"])
+    bundled = tmp_repo / "codex" / "skills" / "flow-auto"
+    assert (bundled / "lib" / "lazy_pkg" / "submodule.py").is_file()
+    result = subprocess.run(
+        [sys.executable, str(bundled / "scripts" / "importer.py")],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    assert result.returncode == 0, f"{result.stdout}{result.stderr}"
+    assert "reached via an import alias" in result.stdout
+
+
+def test_an_unrelated_string_dict_does_not_qualify_a_package_as_lazy():
+    """`_lazy_getattr_map` used to accept ANY module-level (or even nested)
+    string-to-string dict once `__getattr__` existed anywhere in the file,
+    regardless of whether `__getattr__` referenced it."""
+    mod = codex_skill_sync
+    unrelated = (
+        '_UNRELATED = {"a": "b", "c": "d"}\n\n'
+        "def __getattr__(name):\n    raise AttributeError(name)\n"
+    )
+    assert mod._lazy_getattr_map(unrelated) is None
+
+    nested = (
+        "def __getattr__(name):\n    raise AttributeError(name)\n\n"
+        "class Foo:\n"
+        "    def bar(self):\n"
+        '        _NAME_TO_MODULE = {"x": "y"}\n'
+        "        return _NAME_TO_MODULE\n"
+    )
+    assert mod._lazy_getattr_map(nested) is None, (
+        "a dict nested inside an unrelated method must not qualify the module"
+    )
+
+    real = (
+        '_NAME_TO_MODULE = {"x": "y"}\n\n'
+        "def __getattr__(name):\n    return _NAME_TO_MODULE[name]\n"
+    )
+    assert mod._lazy_getattr_map(real) == {"x": "y"}, (
+        "a dict __getattr__ actually references must still qualify"
+    )
+
+
+def test_an_unrelated_type_checking_name_does_not_suppress_a_live_import():
+    """`_is_type_checking_test` used to accept ANY name or attribute ending in
+    `TYPE_CHECKING`, so `if settings.TYPE_CHECKING:` or a locally assigned
+    `TYPE_CHECKING = True` excluded a live import exactly like the real
+    typing sentinel, with no way to tell them apart."""
+    mod = codex_skill_sync
+    fake_attr = (
+        "class settings:\n    TYPE_CHECKING = True\n\n"
+        "if settings.TYPE_CHECKING:\n    from .state import x\n"
+    )
+    assert len(mod._live_relative_imports(fake_attr)) == 1, (
+        "an unrelated settings.TYPE_CHECKING must not suppress a live import"
+    )
+
+    fake_local = "TYPE_CHECKING = True\nif TYPE_CHECKING:\n    from .state import x\n"
+    assert len(mod._live_relative_imports(fake_local)) == 1, (
+        "a locally assigned TYPE_CHECKING must not suppress a live import"
+    )
+
+    real_aliased = (
+        "from typing import TYPE_CHECKING as TC\nif TC:\n    from .state import x\n"
+    )
+    assert len(mod._live_relative_imports(real_aliased)) == 0, (
+        "an aliased typing.TYPE_CHECKING import must still be recognized"
+    )
+
+    real_module = "import typing\nif typing.TYPE_CHECKING:\n    from .state import x\n"
+    assert len(mod._live_relative_imports(real_module)) == 0, (
+        "import typing; typing.TYPE_CHECKING must still be recognized"
+    )
+
+
+def test_an_import_inside_a_match_case_is_still_a_live_dependency():
+    """`_live_import_nodes`'s walk traversed `body`/`orelse`/`finalbody`/
+    `handlers` but never `ast.Match.cases` - each `match_case`'s own `body`
+    is a field of the CASE, not of the `Match` node, so an import inside any
+    case was silently invisible to dependency discovery."""
+    mod = codex_skill_sync
+    matched = (
+        "def f(x):\n"
+        "    match x:\n"
+        "        case 1:\n"
+        "            from .state import y\n"
+        "            return y\n"
+        "        case _:\n"
+        "            return None\n"
+    )
+    assert len(mod._live_relative_imports(matched)) == 1, (
+        "an import inside a match case must still be discovered"
+    )
+
+    guarded = (
+        "from typing import TYPE_CHECKING\n"
+        "def f(x):\n"
+        "    match x:\n"
+        "        case 1:\n"
+        "            if TYPE_CHECKING:\n"
+        "                from .state import y\n"
+    )
+    assert len(mod._live_relative_imports(guarded)) == 0, (
+        "the TYPE_CHECKING exclusion must still propagate inside a match case"
+    )
+
+
 def test_a_runtime_data_file_the_entry_point_reads_is_bundled(tmp_repo):
     """Code is not the whole dependency (#1028 counter-model review).
 

@@ -624,12 +624,51 @@ _SIBLING_REF = re.compile(
 
 
 #: NEGATIVE-CONTROL: controls/codex-skill-sync-over-bundle
-def _is_type_checking_test(test: ast.expr) -> bool:
-    """True for an `if` test naming TYPE_CHECKING, bare or `typing.`-qualified."""
+def _typing_checking_bindings(tree: ast.Module) -> tuple[set[str], set[str]]:
+    """Names this file's own imports actually bind to `typing.TYPE_CHECKING`
+    (bare, respecting `as`) and to the `typing` module itself (respecting
+    `as`) - issue #1408, counter-model review.
+
+    `_is_type_checking_test` used to accept ANY name ending in
+    `TYPE_CHECKING`, bare or attribute, regardless of what imported it -
+    so `if settings.TYPE_CHECKING:` (an unrelated application flag) or a
+    locally assigned `TYPE_CHECKING = True` excluded a live import exactly
+    like the real typing sentinel does, with no way to tell them apart. Only
+    a name this file imports FROM `typing` is the real guard.
+    """
+    checking_names: set[str] = set()
+    typing_module_names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module == "typing":
+            checking_names.update(
+                alias.asname or alias.name
+                for alias in node.names
+                if alias.name == "TYPE_CHECKING"
+            )
+        elif isinstance(node, ast.Import):
+            typing_module_names.update(
+                alias.asname or alias.name
+                for alias in node.names
+                if alias.name == "typing"
+            )
+    return checking_names, typing_module_names
+
+
+def _is_type_checking_test(
+    test: ast.expr, checking_names: set[str], typing_module_names: set[str]
+) -> bool:
+    """True for an `if` test that resolves to `typing.TYPE_CHECKING` through
+    an import THIS FILE actually has - bare (`from typing import
+    TYPE_CHECKING`, any `as`) or module-qualified (`import typing`, any
+    `as`, then `<name>.TYPE_CHECKING`)."""
     if isinstance(test, ast.Name):
-        return test.id == "TYPE_CHECKING"
+        return test.id in checking_names
     if isinstance(test, ast.Attribute):
-        return test.attr == "TYPE_CHECKING"
+        return (
+            test.attr == "TYPE_CHECKING"
+            and isinstance(test.value, ast.Name)
+            and test.value.id in typing_module_names
+        )
     return False
 
 
@@ -660,16 +699,28 @@ def _live_import_nodes(text: str) -> list[ast.Import | ast.ImportFrom]:
     except SyntaxError:
         return []
     live: list[ast.Import | ast.ImportFrom] = []
+    checking_names, typing_module_names = _typing_checking_bindings(tree)
 
     def walk(nodes: list[ast.stmt], skip: bool) -> None:
         for node in nodes:
-            if isinstance(node, ast.If) and _is_type_checking_test(node.test):
+            if isinstance(node, ast.If) and _is_type_checking_test(
+                node.test, checking_names, typing_module_names
+            ):
                 walk(node.body, True)
                 walk(node.orelse, skip)
                 continue
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 if not skip:
                     live.append(node)
+                continue
+            if isinstance(node, ast.Match):
+                # `match_case.body` is a field of the CASE, not of the
+                # `Match` node itself, so the generic `body`/`orelse`/
+                # `finalbody`/`handlers` walk below never reaches it
+                # (counter-model review) - an import inside any case
+                # silently never counted as a dependency.
+                for case in node.cases:
+                    walk(case.body, skip)
                 continue
             for field in ("body", "orelse", "finalbody", "handlers"):
                 child = getattr(node, field, None)
@@ -734,26 +785,41 @@ def _lazy_getattr_map(text: str) -> dict[str, str] | None:
     a SECOND copy of the map drifts from the real one on the package's next
     refactor, silently.
 
-    A module qualifies only when it DEFINES `__getattr__` (PEP 562) AND has
-    a module-level dict literal whose keys and values are all string
-    constants - the shape `lib/cicd/__init__.py` uses, not a convention
-    tied to that one package.
+    A module qualifies only when it DEFINES a MODULE-LEVEL `__getattr__`
+    (PEP 562) whose own body REFERENCES a MODULE-LEVEL dict literal (by
+    name) whose keys and values are all string constants - the shape
+    `lib/cicd/__init__.py` uses, not a convention tied to that one package.
+
+    Both restrictions are load-bearing (counter-model review): `ast.walk`
+    over the WHOLE tree finds a dict or a function nested inside ANY class
+    or other function too, and `__getattr__` existing somewhere says nothing
+    about which dict it resolves against. A package with a real PEP 562
+    `__getattr__` and an UNRELATED string-to-string dict elsewhere in the
+    file (a config table, an error-message map) would otherwise be
+    classified as lazy and resolved through the wrong map - silently
+    suppressing this function's own whole-directory bundling for a package
+    that was never actually lazy in the way this fix assumes.
     """
     try:
         tree = ast.parse(text)
     except SyntaxError:
         return None
-    has_getattr = any(
-        isinstance(node, ast.FunctionDef) and node.name == "__getattr__"
-        for node in ast.walk(tree)
+    getattr_fn = next(
+        (
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "__getattr__"
+        ),
+        None,
     )
-    if not has_getattr:
+    if getattr_fn is None:
         return None
-    for node in ast.walk(tree):
+    referenced = {node.id for node in ast.walk(getattr_fn) if isinstance(node, ast.Name)}
+    for node in tree.body:
         if not (
             isinstance(node, ast.Assign)
             and len(node.targets) == 1
             and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id in referenced
             and isinstance(node.value, ast.Dict)
         ):
             continue
@@ -776,13 +842,25 @@ def _lazy_getattr_map(text: str) -> dict[str, str] | None:
 def _referenced_lazy_names(text: str, package_dotted: str) -> set[str]:
     """Names this file's own text accesses through `package_dotted`'s lazy
     `__getattr__`: `from <package_dotted> import <name>` (module-absolute,
-    `level == 0`) or a `<package_dotted>.<name>` attribute chain."""
+    `level == 0`), a `<package_dotted>.<name>` attribute chain, or the same
+    chain through an explicit `import <package_dotted> as <alias>` (issue
+    #1408, counter-model review - `import lib.cicd as c; c.run_health_checks`
+    bundled the package's own `__init__.py` fine but never recorded
+    `run_health_checks`, since the attribute chain started at `c`, not at
+    `pkg_parts`)."""
     names: set[str] = set()
     try:
         tree = ast.parse(text)
     except SyntaxError:
         return names
     pkg_parts = package_dotted.split(".")
+    aliases = {
+        alias.asname
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+        if alias.name == package_dotted and alias.asname
+    }
     for node in ast.walk(tree):
         if (
             isinstance(node, ast.ImportFrom)
@@ -799,7 +877,9 @@ def _referenced_lazy_names(text: str, package_dotted: str) -> set[str]:
             if isinstance(cur, ast.Name):
                 chain.append(cur.id)
                 chain.reverse()
-                if chain[:-1] == pkg_parts:
+                via_real_name = chain[:-1] == pkg_parts
+                via_alias = len(chain) == 2 and chain[0] in aliases
+                if via_real_name or via_alias:
                     names.add(chain[-1])
     return names
 
@@ -1088,11 +1168,26 @@ def find_bundled_libs(scripts: list[str]) -> dict[str, Path]:
     # anything actually bundled so far REFERENCES one of those names, and
     # bundle only that submodule, by reading the package's OWN map rather
     # than a second copy of it kept here (the #1136 lesson).
-    lazy_packages = [
-        child.parent for child in out.values()
-        if child.name == "__init__.py" and _lazy_getattr_map(child.read_text())
-    ]
-    if lazy_packages:
+    #
+    # TO A FIXED POINT, not one pass (counter-model review). A submodule
+    # pulled in by ONE lazy package's map can itself reference a SECOND lazy
+    # package - `lib/pkg_a/submodule_a.py` doing `from lib.pkg_b import
+    # thing_b` - and that second package's own `__init__.py` only entered
+    # `out` partway through this function, after `all_texts` had already been
+    # captured. A single pass reads the snapshot from before that arrival and
+    # never re-reads it, so `thing_b`'s submodule is silently dropped. Looping
+    # until a whole pass adds nothing new closes multi-hop chains of any
+    # depth, because each iteration recomputes `lazy_packages` and `all_texts`
+    # against the CURRENT `out`, including whatever the previous iteration's
+    # `drain()` just pulled in.
+    while True:
+        before = len(out)
+        lazy_packages = [
+            child.parent for child in out.values()
+            if child.name == "__init__.py" and _lazy_getattr_map(child.read_text())
+        ]
+        if not lazy_packages:
+            break
         entry_texts = [
             (SCRIPTS_ROOT / n).read_text()
             for n in scripts
@@ -1126,10 +1221,14 @@ def find_bundled_libs(scripts: list[str]) -> dict[str, Path]:
                         continue
                     out[str(rel_child)] = resolved
                     pending.append((str(rel_child), resolved))
-        # The lazy submodules just added may carry their OWN relative
-        # imports (same shape as any other package module) - drain them
-        # through the identical worklist logic rather than a second copy.
+        # The lazy submodules just added may carry their OWN relative or
+        # absolute imports (same shape as any other package module) - drain
+        # them through the identical worklist logic rather than a second
+        # copy. This is what can introduce a brand new lazy `__init__.py`
+        # the next iteration's `lazy_packages` scan needs to see.
         drain()
+        if len(out) == before:
+            break
     return out
 
 
