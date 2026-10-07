@@ -45,15 +45,15 @@
     "source": "skillc evals/subjects/cpp-codex-flow-check-ea6dbfa/evidence/inventory.json (profile pinned at ea6dbfa45f9308ee6ba60f032d8e7031bd6938a1; see check-skill-coverage-map.py's module docstring)"
   },
   "diagnose": {
-    "skillc_commit": "841689bf13552be71281c9d1603f9ab007b2e612",
+    "skillc_commit": "0518cc036645637bb9fb66ff8f87610b81b63d7d",
     "profile_dir": "cpp-codex-flow-check-ea6dbfa",
-    "cpp_revision_snapshot": "e5bc50d846844f0d5416ec81cef6bfcad1c0be53",
-    "command": "uv run --no-sync skillc profile diagnose /tmp/skill-coverage-snapshot-s9qxb8pb/profile.json --repo /workspace/.work/cpp",
-    "recorded_at": "2026-10-06T21:42:58Z",
+    "cpp_revision_snapshot": "ea6dbfa45f9308ee6ba60f032d8e7031bd6938a1",
+    "command": "uv run --no-sync skillc profile diagnose /tmp/skill-coverage-snapshot-dxly_tqh/profile.json --repo /workspace/.work/cpp-pin-ea6dbfa",
+    "recorded_at": "2026-10-07T06:09:27Z",
     "result": {
       "diagnostic_schema": 1,
       "profile": "cpp-codex-flow-check",
-      "revision": "e5bc50d846844f0d5416ec81cef6bfcad1c0be53",
+      "revision": "ea6dbfa45f9308ee6ba60f032d8e7031bd6938a1",
       "selection": [
         "flow-check"
       ],
