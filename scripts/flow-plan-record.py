@@ -781,8 +781,13 @@ def cmd_compliance(issue: str, base: str | None) -> int:
                   "first-parent, non-merge commits not reachable from origin/main, plus any "
                   "still-uncommitted change - a file edited then reverted back to main's "
                   "content partway through this run still counts as this run's touch "
-                  "(KNOWN LIMITATION: an edit made only inside a merge commit's own conflict "
-                  "resolution is not visible to --no-merges and is not counted)")
+                  "(KNOWN LIMITATIONS: an edit made only inside a merge commit's own conflict "
+                  "resolution is not visible to --no-merges and is not counted; and if ONE OF "
+                  "THIS RUN'S OWN commits becomes reachable from origin/main while the run "
+                  "keeps working - possible under a merge-commit or rebase-merge integration "
+                  "of a partial branch, never under a squash merge, which always mints a new "
+                  "commit hash - that commit's own files are excluded too, under-reporting "
+                  "this run's unplanned work)")
             exclude_ref = "origin/main"
         else:
             print(f"PLAN_COMPLIANCE_BASE: this run's start ({run_start[:12]}); "
