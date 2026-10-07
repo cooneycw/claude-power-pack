@@ -1115,10 +1115,21 @@ git merge --no-edit origin/main
    a real behaviour change on the path people reach when something has
    already gone wrong.
 
+   **`--scope` carries `/codex:code_review`'s `CODEX_REVIEW_SCOPE` marker
+   (issue #1400), and is re-measured, not trusted as printed.** Unlike
+   `--reviewer`, this flag still exists - a `full`/`diff-only`/`unverified`
+   CLAIM is not itself the measurement the way a model name copied from a
+   banner would be, because the writer independently re-checks it against
+   `$STREAM` (the same exec log already supplied above): any
+   `command_execution` item there whose sandboxed exec process could not even
+   launch downgrades a claimed `full` to `diff-only`, printing why. A claim
+   can only be downgraded, never upgraded, so pass the marker exactly as
+   `/codex:code_review` printed it:
+
    ```bash
    python3 "$CM_RECEIPT" write --dir "$(git rev-parse --show-toplevel)/docs/measurements/counter-model" \
        --issue "$ISSUE_NUM" --branch "$BRANCH" \
-       --status ran --reviewer-exec-log "$STREAM" \
+       --status ran --reviewer-exec-log "$STREAM" --scope "$CODEX_REVIEW_SCOPE" \
        --implementer-session-id "$CLAUDE_CODE_SESSION_ID" \
        --passes 2 --accepted 3 --rejected 1 --deferred 0 \
        --red-cases-proposed 4 --red-cases-already-covered 3

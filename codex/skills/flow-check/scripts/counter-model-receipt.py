@@ -55,6 +55,14 @@ EXIT_USAGE = 2
 
 STATUSES = ("ran", "skipped")
 
+#: How much of the repository the reviewer could actually read (issue #1261,
+#: recorded on the receipt since issue #1400). `full` - the sandbox started
+#: and could read the tree. `diff-only` - the sandbox could not start, so the
+#: reviewer judged the diff alone. `unverified` - no probe could be run at
+#: all. Only `ran` receipts may carry it; a skip recorded no review and
+#: therefore read nothing.
+SCOPES = ("full", "diff-only", "unverified")
+
 #: WHICH WAY ROUND THE TWO MODELS SAT (issue #1383). The default direction -
 #: Claude implements, Codex reviews - is what every receipt before #1383
 #: records, and a receipt with no `direction` field still means exactly that.
@@ -378,6 +386,40 @@ def _derive_reviewer_from_exec_log(
     return f"codex/{model}", evidence, None
 
 
+def _mid_run_sandbox_failures(exec_text: str) -> int:
+    """Count `command_execution` items whose SANDBOXED EXEC PROCESS ITSELF
+    could not launch - never a command that ran and merely returned a
+    non-zero exit (issue #1400, comment 5858478984).
+
+    `exit_code: -1` paired with `status: "failed"` is codex's own signature
+    for "could not create the exec process at all" (the shape of the real
+    #1265/#836 incident recorded in docs/flow-runs/issue-1365.as-read.md and
+    pinned across tests/test_delegated_run_check.py) - structurally different
+    from `exit_code: 1, status: "failed"` on a `grep` that simply found
+    nothing. The pre-run scope probe in `/codex:code_review` detects exactly
+    this failure mode by trying to launch the SAME sandboxed exec machinery
+    against one tracked file; this is that same test, re-applied to every
+    command the reviewer actually ran, so a probe that passed before the
+    review started is not trusted alone for its whole duration.
+    """
+    failures = 0
+    for line in exec_text.split("\n"):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(record, dict) or record.get("type") != "item.completed":
+            continue
+        item = record.get("item")
+        if not isinstance(item, dict) or item.get("type") != "command_execution":
+            continue
+        if item.get("exit_code") == -1 and item.get("status") == "failed":
+            failures += 1
+    return failures
+
+
 def _default_codex_sessions_dir() -> Path:
     codex_home = os.environ.get("CODEX_HOME")
     if codex_home:
@@ -546,6 +588,11 @@ def build(args: argparse.Namespace) -> dict:
     # must keep validating. `cmd_write` always sets it on a `ran` receipt.
     if getattr(args, "reviewer_evidence", None):
         receipt["reviewer_evidence"] = args.reviewer_evidence
+    # OPTIONAL for the same reason: every receipt before #1400 has none
+    # (issue #1261 introduced the probe; nothing recorded its answer). `ran`
+    # only - a skip recorded no review and therefore read nothing.
+    if getattr(args, "scope", None) and args.status == "ran":
+        receipt["scope"] = args.scope
     # Written ONLY for a delegated run (issue #1383): absent means the default
     # direction, which is what every earlier receipt already means by omission.
     if getattr(args, "direction", DIRECTION_DEFAULT) == DIRECTION_DELEGATED:
@@ -651,6 +698,15 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
                 f"{source}: reviewer_evidence {evidence!r} must name a non-empty "
                 + " and ".join(repr(k) for k in reviewer_keys)
             )
+
+    if "scope" in receipt:
+        scope = receipt["scope"]
+        if status == "skipped":
+            bad.append(
+                f"{source}: a skipped run must not carry 'scope'; no review happened"
+            )
+        elif scope not in SCOPES:
+            bad.append(f"{source}: scope {scope!r} not in {SCOPES}")
 
     if delegated:
         # A delegated receipt exists BECAUSE a review happened: the supervising
@@ -903,6 +959,24 @@ def cmd_write(args: argparse.Namespace) -> int:
             return EXIT_INVALID
         args.reviewer = reviewer
         args.reviewer_evidence = evidence
+        # Re-measure the caller's pre-run scope CLAIM against the same exec
+        # log the reviewer identity was just derived from (issue #1400): a
+        # probe that passed before the review started is not trusted alone
+        # for the review's whole duration.
+        if getattr(args, "scope", None) == "full":
+            exec_text = args.reviewer_exec_log.read_text(encoding="utf-8")
+            failures = _mid_run_sandbox_failures(exec_text)
+            if failures:
+                print(
+                    f"counter-model-receipt: NOTE - downgrading scope 'full' to "
+                    f"'diff-only': {failures} command_execution item(s) in "
+                    f"{args.reviewer_exec_log} could not launch the sandboxed "
+                    "exec process (exit_code -1), the same failure mode the "
+                    "pre-run probe checks for, so the claimed scope did not "
+                    "hold for the review's whole duration",
+                    file=sys.stderr,
+                )
+                args.scope = "diff-only"
     else:
         args.reviewer = None
         args.reviewer_evidence = None
@@ -1109,6 +1183,14 @@ def main() -> int:
         help="Codex sessions root (defaults to $CODEX_HOME/sessions or ~/.codex/sessions)",
     )
     w.add_argument(
+        "--scope",
+        choices=SCOPES,
+        help="/codex:code_review's pre-run CODEX_REVIEW_SCOPE claim (issue "
+             "#1400); re-measured against --reviewer-exec-log and downgraded "
+             "from 'full' if any command_execution item there could not "
+             "launch the sandboxed exec process",
+    )
+    w.add_argument(
         "--implementer-session-id",
         help="Claude session from which to derive the IMPLEMENTING model "
              "(defaults to $CLAUDE_CODE_SESSION_ID)",
@@ -1180,6 +1262,10 @@ def main() -> int:
                 ap.error("--implementer-exec-log (delegated: Codex implements, Claude "
                          "reviews) cannot be combined with --reviewer-exec-log or "
                          "--implementer-session-id (the other direction)")
+            if args.scope:
+                ap.error("--scope measures a Codex REVIEWER's sandbox access "
+                         "(/codex:code_review); the delegated direction's "
+                         "reviewer is a Claude session and has no such probe")
             args.reviewer_session_id = (args.reviewer_session_id
                                         or os.environ.get("CLAUDE_CODE_SESSION_ID"))
             if not args.reviewer_session_id:
@@ -1195,6 +1281,8 @@ def main() -> int:
     if (args.cmd == "write" and args.status == "skipped"
             and args.reviewer_exec_log is not None):
         ap.error("--status skipped must not carry --reviewer-exec-log; no review happened")
+    if args.cmd == "write" and args.status == "skipped" and args.scope:
+        ap.error("--status skipped must not carry --scope; no review happened")
     if (args.cmd == "write" and args.status == "ran"
             and args.direction != DIRECTION_DELEGATED
             and args.reviewer_exec_log is None):

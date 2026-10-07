@@ -370,7 +370,12 @@ is the caller's decision (`/flow:auto` Step 6 item 1c does exactly that).
 
 State the `CODEX_REVIEW_SCOPE` with the findings. A `diff-only` or `unverified`
 review is still a review, but say which it was: good findings are not evidence
-that the reviewer could read the surrounding code (issue #1261).
+that the reviewer could read the surrounding code (issue #1261). A caller
+recording a receipt passes this same marker as `--scope` to
+`counter-model-receipt.py write` (issue #1400) - the writer re-measures it
+against `$STREAM` and can only downgrade a claimed `full`, never upgrade a
+`diff-only` or `unverified` one, so passing the marker as printed loses
+nothing.
 
 If `CODEX_EXIT` is non-zero, report the failure honestly and do not fabricate
 findings; a calling workflow treats it like the exit-3 unavailable case.

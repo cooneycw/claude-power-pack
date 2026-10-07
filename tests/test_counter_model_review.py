@@ -2284,3 +2284,171 @@ def test_rollout_model_refuses_a_threadless_stream(tmp_path: Path) -> None:
     assert proc.returncode == CM.EXIT_INVALID
     assert proc.stdout == ""
     assert "contains no thread_id" in proc.stderr
+
+
+# --------------------------------------------------------------------------- #
+# `--scope` (issue #1400, Nit Store #864 comments 5858478984 / 5858479079):
+# CODEX_REVIEW_SCOPE recorded on the receipt, and re-measured against the
+# same exec log the reviewer identity is derived from - not trusted from the
+# pre-run probe alone.
+# --------------------------------------------------------------------------- #
+
+def _exec_log_with_items(
+    tmp_path: Path, thread_id: str, items: list[dict]
+) -> Path:
+    exec_log = tmp_path / "reviewer-exec.jsonl"
+    lines = [json.dumps({"type": "thread.started", "thread_id": thread_id})]
+    lines.extend(json.dumps(item) for item in items)
+    exec_log.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return exec_log
+
+
+def _command_execution(exit_code: int | None, status: str) -> dict:
+    return {
+        "type": "item.completed",
+        "item": {"id": "item_1", "type": "command_execution",
+                  "exit_code": exit_code, "status": status},
+    }
+
+
+def test_scope_full_is_recorded_on_the_receipt(tmp_path: Path) -> None:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
+    thread_id = "thread-for-counter-model-test"
+    exec_log = _exec_log_with_items(
+        tmp_path, thread_id, [_command_execution(0, "completed")]
+    )
+    sessions_dir = tmp_path / "sessions"
+    rollout_dir = sessions_dir / "2026" / "09" / "19"
+    rollout_dir.mkdir(parents=True)
+    (rollout_dir / f"rollout-{thread_id}.jsonl").write_text(
+        _rollout_text("gpt-5.5"), encoding="utf-8"
+    )
+    out_dir = tmp_path / "out"
+    proc = _write(
+        tmp_path, "--dir", str(out_dir), "--issue", "1400", "--branch", "b",
+        "--status", "ran", "--passes", "1", "--scope", "full",
+        *_reviewer_evidence_args(exec_log, sessions_dir),
+        *_implementer_evidence_args(session_id, projects_dir),
+    )
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    assert "downgrading scope" not in proc.stderr
+    receipt = json.loads(next(out_dir.glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["scope"] == "full"
+
+
+def test_scope_downgrades_from_full_when_a_sandbox_launch_fails_mid_run(
+    tmp_path: Path,
+) -> None:
+    """The exact gap comment 5858478984 names: the pre-run probe cannot see a
+    read denied DURING the review. `exit_code: -1` paired with `status:
+    "failed"` is codex's own signature for the sandboxed exec process itself
+    failing to launch - the same failure mode the pre-run probe tests for."""
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
+    thread_id = "thread-for-counter-model-test"
+    exec_log = _exec_log_with_items(
+        tmp_path, thread_id,
+        [_command_execution(0, "completed"), _command_execution(-1, "failed")],
+    )
+    sessions_dir = tmp_path / "sessions"
+    rollout_dir = sessions_dir / "2026" / "09" / "19"
+    rollout_dir.mkdir(parents=True)
+    (rollout_dir / f"rollout-{thread_id}.jsonl").write_text(
+        _rollout_text("gpt-5.5"), encoding="utf-8"
+    )
+    out_dir = tmp_path / "out"
+    proc = _write(
+        tmp_path, "--dir", str(out_dir), "--issue", "1400", "--branch", "b",
+        "--status", "ran", "--passes", "1", "--scope", "full",
+        *_reviewer_evidence_args(exec_log, sessions_dir),
+        *_implementer_evidence_args(session_id, projects_dir),
+    )
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    assert "downgrading scope 'full' to 'diff-only'" in proc.stderr
+    receipt = json.loads(next(out_dir.glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["scope"] == "diff-only"
+
+
+def test_an_ordinary_nonzero_exit_does_not_downgrade_scope(tmp_path: Path) -> None:
+    """The precision this re-measurement needs (counter-model review): a
+    reviewer's own `grep` that simply finds nothing is ALSO `status: "failed"`
+    in codex's stream, but at `exit_code: 1` - a command that ran, not a
+    sandbox that could not launch. Downgrading on this would be a false
+    positive, the same defect class in the opposite direction."""
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
+    thread_id = "thread-for-counter-model-test"
+    exec_log = _exec_log_with_items(
+        tmp_path, thread_id, [_command_execution(1, "failed")]
+    )
+    sessions_dir = tmp_path / "sessions"
+    rollout_dir = sessions_dir / "2026" / "09" / "19"
+    rollout_dir.mkdir(parents=True)
+    (rollout_dir / f"rollout-{thread_id}.jsonl").write_text(
+        _rollout_text("gpt-5.5"), encoding="utf-8"
+    )
+    out_dir = tmp_path / "out"
+    proc = _write(
+        tmp_path, "--dir", str(out_dir), "--issue", "1400", "--branch", "b",
+        "--status", "ran", "--passes", "1", "--scope", "full",
+        *_reviewer_evidence_args(exec_log, sessions_dir),
+        *_implementer_evidence_args(session_id, projects_dir),
+    )
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    assert "downgrading scope" not in proc.stderr
+    receipt = json.loads(next(out_dir.glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["scope"] == "full"
+
+
+def test_scope_diff_only_is_never_upgraded(tmp_path: Path) -> None:
+    """Re-measurement only ever moves `full` toward `diff-only` - a review
+    that already declared diff-only is not re-checked for an upgrade."""
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
+    exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
+    out_dir = tmp_path / "out"
+    proc = _write(
+        tmp_path, "--dir", str(out_dir), "--issue", "1400", "--branch", "b",
+        "--status", "ran", "--passes", "1", "--scope", "diff-only",
+        *_reviewer_evidence_args(exec_log, sessions_dir),
+        *_implementer_evidence_args(session_id, projects_dir),
+    )
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next(out_dir.glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["scope"] == "diff-only"
+
+
+def test_scope_is_refused_on_a_skip(tmp_path: Path) -> None:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
+    proc = _write(
+        tmp_path, "--issue", "1400", "--branch", "b", "--status", "skipped",
+        "--reason", "reviewer-unavailable", "--scope", "full",
+        *_implementer_evidence_args(session_id, projects_dir),
+    )
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "must not carry --scope" in proc.stderr
+
+
+def test_scope_is_refused_on_the_delegated_lane(tmp_path: Path) -> None:
+    args = _delegated_args(tmp_path, "gpt-a", "opus-b")
+    proc = _write(tmp_path, *args, "--scope", "full")
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "delegated direction's reviewer is a Claude session" in proc.stderr
+
+
+def test_scope_is_OPTIONAL_but_checked_when_present() -> None:
+    ran = {
+        "schema": 1, "recorded_at": "2026-09-28T00:00:00Z", "issue": "1400",
+        "branch": "b", "status": "ran", "reviewer": "codex/x",
+        "implementer": "claude/y", "passes": 1,
+        "counts": {"accepted": 0, "rejected": 0, "deferred": 0},
+        "red_cases": {"proposed": 0, "already_covered": 0},
+    }
+    assert CM.validate(dict(ran)) == []
+    for value in ("full", "diff-only", "unverified"):
+        assert CM.validate(dict(ran, scope=value)) == []
+    assert CM.validate(dict(ran, scope="partial"))
+    skipped = {
+        "schema": 1, "recorded_at": "2026-09-28T00:00:00Z", "issue": "1400",
+        "branch": "b", "status": "skipped", "reviewer": None,
+        "implementer": "claude/y", "skip_reason": "codex-absent",
+        "scope": "full",
+    }
+    assert any("scope" in p for p in CM.validate(skipped))
