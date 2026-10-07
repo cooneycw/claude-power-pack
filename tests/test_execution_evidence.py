@@ -654,3 +654,48 @@ def test_unknown_missing_identity_or_malformed_even_without_freshness(repo: Path
     _mutated(path, record, mutate)
     assert _verdict(path, repo, current=False)[0] == UNKNOWN
     assert evidence.cli(["verify", str(path), "--no-current"]) == 4
+
+
+# --- the committed canonical pilot sample (issue #1410) --------------------
+
+CANONICAL_PILOT_SAMPLE = (
+    Path(__file__).resolve().parents[1]
+    / "docs" / "measurements" / "execution-evidence"
+    / "e5fd38dc103949e2b3f84d7b060862b6.json"
+)
+
+RETIRED_PILOT_SAMPLE = (
+    Path(__file__).resolve().parents[1]
+    / "docs" / "measurements" / "execution-evidence"
+    / "cbf9931314ed45d2927fa5e150daa9d2.json"
+)
+
+
+def test_canonical_pilot_sample_carries_carried_from_previous_run_per_check() -> None:
+    """The CURRENT canonical sample must carry the per-check
+
+    `carried_from_previous_run` field the producer now writes (issue #1410):
+    before this issue, the committed sample predated that field (only the
+    record-level `observed.runner.carried_from_previous_run` existed), which
+    is exactly the gap this test would have caught had it existed then - see
+    the retired-sample assertion below, which pins that gap rather than
+    silently losing it.
+    """
+    record = json.loads(CANONICAL_PILOT_SAMPLE.read_text())
+    checks = record["observed"]["checks"]
+    assert checks, "precondition: the canonical sample has at least one check"
+    for check in checks:
+        assert "carried_from_previous_run" in check, check["id"]
+
+
+def test_retired_pilot_sample_predates_the_per_check_field() -> None:
+    """The byte-identical, never-regenerated retired sample (skillc pins it by
+
+    name and sha256) must NOT be mistaken for carrying the current producer
+    contract - this is the negative half of the assertion above, proving it
+    is a real gap in that specific file rather than a vacuously-true check.
+    """
+    record = json.loads(RETIRED_PILOT_SAMPLE.read_text())
+    checks = record["observed"]["checks"]
+    assert checks, "precondition: the retired sample has at least one check"
+    assert all("carried_from_previous_run" not in c for c in checks)
