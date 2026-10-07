@@ -20,7 +20,7 @@ from .models import (
     WorktreeDetail,
 )
 
-CONTRACT_VERSION = "1.4"
+CONTRACT_VERSION = "1.5"
 PHASE = re.compile(r"\b(?:wave|phase)[-\s:]*(?P<number>\d+)\b", re.IGNORECASE)
 
 
@@ -144,7 +144,7 @@ def _candidate(issue: Issue, state: RepositoryState, config: ProjectNextConfig) 
         critical=critical,
         stale=stale,
         rationale="; ".join(evidence) + "; ordered by the deterministic rank tuple",
-        command=f"$flow-auto {issue.number}",
+        command=f"/flow:auto {issue.number}",
     )
 
 
@@ -217,6 +217,9 @@ def _top_action(
 
     dirty_worktrees = []
     for worktree in state.worktrees:
+        # UNKNOWN (dirty is None) is never offered as "resume this" - we cannot
+        # confidently say there is uncommitted work here worth protecting, and
+        # `not None` is True, so this already skips it (#1398).
         if not worktree.dirty:
             continue
         match = re.search(r"(?:^|/)issue-(\d+)(?:-|$)", worktree.branch, re.IGNORECASE)
@@ -317,15 +320,21 @@ def _top_action(
 
 
 def _dirty_worktrees_off_open_issues(state: RepositoryState) -> tuple[str, ...]:
-    """Name dirty worktrees whose branch maps to an issue that is not open."""
+    """Name dirty OR status-unknown worktrees whose branch maps to a closed issue.
+
+    Unknown is never clean (#1398): a worktree whose `git status` call failed
+    might hold real uncommitted work, so it gets the same caution a confirmed-
+    dirty one does rather than being silently excluded from this warning.
+    """
     open_numbers = {issue.number for issue in state.issues}
     warnings = []
     for worktree in state.worktrees:
         number = issue_number_from_branch(worktree.branch)
-        if worktree.dirty and number is not None and number not in open_numbers:
+        if worktree.dirty is not False and number is not None and number not in open_numbers:
+            state_word = "status-unknown" if worktree.dirty is None else "dirty"
             warnings.append(
-                f"dirty worktree {worktree.path} ({worktree.branch}) names issue #{number}, which is not open; "
-                "it is not recommended as continue_work - inspect it before resuming or removing it"
+                f"{state_word} worktree {worktree.path} ({worktree.branch}) names issue #{number}, which is not "
+                "open; it is not recommended as continue_work - inspect it before resuming or removing it"
             )
     return tuple(warnings)
 
@@ -433,9 +442,12 @@ def _worktree_report(
         cleanup_reason = ""
         if cleanup_recommended:
             cleanup_reason = "branch does not map to an open issue; it may be merged, closed, or abandoned"
+            # Unknown is never clean (#1398): a worktree whose status could not be
+            # read gets the SAME removal-leaning action a confirmed-dirty one does,
+            # never the lighter-weight review suggestion a confirmed-clean one gets.
             action = (
                 "Inspect uncommitted changes; do not remove automatically"
-                if worktree.dirty
+                if worktree.dirty is not False
                 else "Review with $flow-cleanup"
             )
             cleanup.append(
@@ -459,6 +471,7 @@ def _worktree_report(
                 recent_commits=worktree.recent_commits,
                 cleanup_recommended=cleanup_recommended,
                 cleanup_reason=cleanup_reason,
+                status_unknown_reason=worktree.status_unknown_reason,
             )
         )
         if worktree.branch:

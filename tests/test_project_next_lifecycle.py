@@ -189,7 +189,7 @@ def test_wayfinder_decision_ticket_routes_to_planning_in_every_mode(tmp_path: Pa
     for mode in ("brief", "compact", "full"):
         rendered = project_next.render_cpp(result, state, mode, extensions)
         assert "/project:init" in rendered
-        assert "$flow-auto 7" not in rendered
+        assert "/flow:auto 7" not in rendered
         assert "never `flow:auto`" in rendered
 
 
@@ -242,8 +242,8 @@ def test_a_wayfinder_label_never_emits_a_flow_auto_route_and_an_unlabelled_issue
     assert routes[0].artifact == "label:wayfinder:map"
     for mode in ("compact", "full"):
         rendered = project_next.render_cpp(result, state, mode, extensions)
-        assert "$flow-auto 876" not in rendered
-        assert "$flow-auto 900" in rendered
+        assert "/flow:auto 876" not in rendered
+        assert "/flow:auto 900" in rendered
 
 
 def test_the_map_reads_absent_only_when_it_is_absent_and_unreadable_when_it_is_malformed(tmp_path: Path) -> None:
@@ -367,19 +367,19 @@ def test_json_gives_a_labelled_seed_the_planning_route_not_flow_auto(
     payload = json.loads(capsys.readouterr().out)
     commands = {candidate["issue_number"]: candidate["command"] for candidate in payload["candidates"]}
 
-    assert "$flow-auto" not in commands[876]
+    assert "/flow:auto" not in commands[876]
     assert commands[876].startswith("/project:init")
-    assert commands[900] == "$flow-auto 900"
+    assert commands[900] == "/flow:auto 900"
 
 
 def test_routing_one_issue_never_rewrites_a_neighbour_whose_number_it_prefixes() -> None:
     routes = (project_next.PlanningRoute(87, "label:wayfinder:map", "/project:init", "seed"),)
-    text = "→ `$flow-auto 87`\n→ `$flow-auto 876`\n$flow-auto 87"
+    text = "→ `/flow:auto 87`\n→ `/flow:auto 876`\n/flow:auto 87"
 
     rendered = project_next._apply_route_rendering(text, routes)
 
-    assert "`$flow-auto 876`" in rendered
-    assert "$flow-auto 87`" not in rendered
+    assert "`/flow:auto 876`" in rendered
+    assert "/flow:auto 87`" not in rendered
     assert rendered.count("/project:init") == 2
 
 

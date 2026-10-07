@@ -1076,7 +1076,10 @@ def _apply_route_rendering(text: str, routes: tuple[PlanningRoute, ...]) -> str:
         if route.issue_number is None:
             continue
         # Anchor the number: routing #87 must never rewrite the command for #876 (#1035).
-        pattern = re.compile(rf"(`?)\$flow-auto {route.issue_number}(?!\d)\1")
+        # The engine's own rendered command is `/flow:auto N` (#1398, was Codex's
+        # leftover `$flow-auto N`); this regex must track that literally, or a
+        # wayfinder-routed issue's command silently stops being overridden.
+        pattern = re.compile(rf"(`?)/flow:auto {route.issue_number}(?!\d)\1")
         replacement = f"\\g<1>{route.action}\\g<1> (Wayfinder planning only)"
         text = pattern.sub(replacement, text)
     return text

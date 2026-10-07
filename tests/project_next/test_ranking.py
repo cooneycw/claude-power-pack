@@ -95,7 +95,7 @@ def test_operational_report_keeps_critical_blocked_work_out_of_startable_tiers(
     assert [candidate.issue_number for candidate in result.candidates] == [3, 4, 5]
     assert result.candidates[0].priority == "high (p1)"
     assert result.candidates[0].phase == "wave/phase 1"
-    assert result.candidates[0].command == "$flow-auto 3"
+    assert result.candidates[0].command == "/flow:auto 3"
     assert result.backlog_tiers.critical == (1,)
     assert result.backlog_tiers.active == (2,)
     assert result.backlog_tiers.ready == (3,)
@@ -146,6 +146,94 @@ def test_dirty_unmapped_worktree_cleanup_requires_inspection() -> None:
     candidate = recommend(state).cleanup_candidates[0]
 
     assert candidate.action == "Inspect uncommitted changes; do not remove automatically"
+
+
+def test_status_unknown_unmapped_worktree_cleanup_also_requires_inspection() -> None:
+    """Unknown is never clean (#1398): a worktree whose `git status` call
+
+    failed gets the SAME removal-leaning caution a confirmed-dirty one does,
+    never the lighter "Review with $flow-cleanup" a confirmed-clean one gets.
+    """
+    state = RepositoryState(
+        repository="example/repo",
+        default_branch="main",
+        collected_at="2026-08-07T13:00:00Z",
+        worktrees=(
+            Worktree(
+                "/repo-topic", "topic", dirty=None,
+                status_unknown_reason="git status --short: fatal: not a git repository",
+            ),
+        ),
+    )
+
+    candidate = recommend(state).cleanup_candidates[0]
+    detail = recommend(state).worktree_details[0]
+
+    assert candidate.action == "Inspect uncommitted changes; do not remove automatically"
+    assert detail.dirty is None
+    assert detail.status_unknown_reason == "git status --short: fatal: not a git repository"
+
+
+def test_status_unknown_worktree_off_an_open_issue_is_not_warned_about() -> None:
+    """The companion negative: an unknown-status worktree mapped to an OPEN
+
+    issue is ordinary in-flight work, not a cleanup concern - the warning in
+    `_dirty_worktrees_off_open_issues` is about CLOSED issues specifically.
+    """
+    state = RepositoryState(
+        repository="example/repo",
+        default_branch="main",
+        collected_at="2026-08-07T13:00:00Z",
+        issues=(Issue(number=5, title="Open work", body=""),),
+        worktrees=(Worktree("/repo-issue-5", "issue-5-x", dirty=None, status_unknown_reason="git failed"),),
+    )
+
+    result = recommend(state)
+
+    assert not any("status-unknown" in warning for warning in result.warnings)
+
+
+def test_status_unknown_worktree_off_a_closed_issue_is_warned_about() -> None:
+    """The positive case this bullet is actually about: before the fix, an
+
+    UNKNOWN-status worktree off a closed issue was silently excluded from
+    this warning (`if worktree.dirty and ...` - `None` is falsy) exactly as
+    if it had been read and found clean.
+    """
+    state = RepositoryState(
+        repository="example/repo",
+        default_branch="main",
+        collected_at="2026-08-07T13:00:00Z",
+        worktrees=(
+            Worktree(
+                "/repo-issue-9", "issue-9-x", dirty=None,
+                status_unknown_reason="git status --short: fatal: not a git repository",
+            ),
+        ),
+    )
+
+    result = recommend(state)
+
+    assert any("status-unknown worktree" in warning and "#9" in warning for warning in result.warnings)
+
+
+def test_status_unknown_worktree_is_never_offered_as_the_resume_top_action() -> None:
+    """Site 1 of the four (#1398): unknown is not offered as "resume this" -
+
+    we cannot confidently say there is uncommitted work here worth
+    protecting, so it is excluded exactly as a confirmed-clean worktree is.
+    """
+    state = RepositoryState(
+        repository="example/repo",
+        default_branch="main",
+        collected_at="2026-08-07T13:00:00Z",
+        issues=(Issue(number=11, title="Resumable work", body=""),),
+        worktrees=(Worktree("/repo-issue-11", "issue-11-x", dirty=None, status_unknown_reason="git failed"),),
+    )
+
+    result = recommend(state)
+
+    assert result.top_action is None or "uncommitted changes" not in result.top_action.reason
 
 
 def test_unmatched_label_vocabulary_is_reported_instead_of_passing_issue_order_as_rank(

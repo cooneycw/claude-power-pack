@@ -163,7 +163,7 @@ def test_a_marked_inbox_is_never_available_nor_the_next_startable_issue() -> Non
     assert 864 not in result.ranked_available
     assert all(candidate.issue_number != 864 for candidate in result.candidates)
     assert result.next_startable_issue == 900
-    assert "$flow-auto 864" not in render_result(result, state, "compact")
+    assert "/flow:auto 864" not in render_result(result, state, "compact")
 
 
 def test_the_same_inbox_without_the_marker_is_still_ranked_first() -> None:
@@ -246,3 +246,26 @@ def test_depends_on_something_unresolvable_is_still_uncertain(text: str) -> None
     )
 
     assert classify_repository(state).uncertain == (3,)
+
+
+def test_a_status_unknown_worktree_evidence_says_unknown_not_clean() -> None:
+    """Site 5 (classify.py, #1398): the in_flight evidence string for a
+
+    worktree whose status could not be read must say `:unknown`, never fall
+    through to `:clean` the way `':dirty' if worktree.dirty else ':clean'`
+    used to for `dirty=None`.
+    """
+    from lib.project_next.models import Worktree
+
+    state = RepositoryState(
+        repository="example/repo",
+        default_branch="main",
+        collected_at="2026-08-07T13:00:00Z",
+        issues=(Issue(13, "In-flight work", body=""),),
+        worktrees=(Worktree("/repo-issue-13", "issue-13-x", dirty=None, status_unknown_reason="git failed"),),
+    )
+
+    classification = classify_repository(state)
+
+    assert 13 in classification.in_flight
+    assert any(evidence.endswith(":unknown") for evidence in classification.in_flight_evidence[13])

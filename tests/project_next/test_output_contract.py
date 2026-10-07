@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from lib.project_next import CONTRACT_VERSION
-from lib.project_next.models import RepositoryState
+from lib.project_next.models import RepositoryState, Worktree
 from lib.project_next.rank import recommend
 from lib.project_next.render import render_result
 
@@ -18,7 +18,7 @@ def test_all_human_modes_are_versioned_and_separate_both_decisions(project_next_
 
     for mode in ("brief", "compact", "full"):
         rendered = render_result(result, state, mode)
-        assert "1.4" in rendered
+        assert "1.5" in rendered
         assert "Top action" in rendered
         assert "Next safe issue" in rendered
         assert "#1" in rendered
@@ -29,7 +29,7 @@ def test_structured_output_is_versioned_and_json_serializable(project_next_scena
     state = RepositoryState.from_dict(project_next_scenarios["active_pr_and_safe_issue"]["state"])
     payload = recommend(state).to_dict()
 
-    assert CONTRACT_VERSION == "1.4"
+    assert CONTRACT_VERSION == "1.5"
     assert payload["contract_version"] == CONTRACT_VERSION
     assert payload["top_action"]["issue_number"] == 1
     assert payload["next_startable_issue"] == 2
@@ -45,6 +45,30 @@ def test_human_modes_match_golden_operational_report(project_next_scenarios: dic
         assert render_result(result, state, mode) == expected
 
 
+def test_the_full_worktree_table_renders_status_unknown_not_clean() -> None:
+    """Site 4 of the four (#1398): the "Working tree" column must say
+
+    `unknown (git status failed: <reason>)`, never fall through to `clean`
+    the way `if worktree.dirty: ... else: "clean"` used to for `dirty=None`.
+    """
+    state = RepositoryState(
+        repository="example/repo",
+        default_branch="main",
+        collected_at="2026-08-07T13:00:00Z",
+        worktrees=(
+            Worktree(
+                "/repo-issue-7", "issue-7-x", dirty=None,
+                status_unknown_reason="git status --short: fatal: not a git repository",
+            ),
+        ),
+    )
+
+    rendered = render_result(recommend(state), state, "full")
+
+    assert "unknown (git status failed: git status --short: fatal: not a git repository)" in rendered
+    assert "| /repo-issue-7 | issue-7-x |" in rendered
+
+
 def test_json_mode_matches_golden_empty_repository_contract(project_next_scenarios: dict[str, Any]) -> None:
     state = RepositoryState.from_dict(project_next_scenarios["empty_repository"]["state"])
     rendered = json.dumps(recommend(state).to_dict(), indent=2, sort_keys=True)
@@ -56,6 +80,6 @@ def test_compact_has_at_most_three_safe_candidates(project_next_scenarios: dict[
     state = RepositoryState.from_dict(project_next_scenarios["operational_report"]["state"])
     rendered = render_result(recommend(state), state, "compact")
 
-    assert rendered.count("`$flow-auto ") == 3
+    assert rendered.count("`/flow:auto ") == 3
     assert "#1 Critical security repair — blocked" in rendered
-    assert "`$flow-auto 1`" not in rendered
+    assert "`/flow:auto 1`" not in rendered

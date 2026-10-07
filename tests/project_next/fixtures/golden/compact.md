@@ -1,4 +1,4 @@
-## example/operations — Project Next 1.4
+## example/operations — Project Next 1.5
 
 **Top action:** continue_pr: Build active foundation (issue #2, PR #20) — PR #20 is active and should be completed before broad new work. Evidence: head:issue-2-active-foundation, checks:pending, review:unknown.
 **Next safe issue:** #3 Wave 1 feature
@@ -6,11 +6,11 @@
 
 ### Ready to start (top 3)
 1. #3 Wave 1 feature [priority high (p1); phase wave/phase 1; type feature; quick win no]
-   high (p1); wave/phase 1; feature; ordered by the deterministic rank tuple → `$flow-auto 3`
+   high (p1); wave/phase 1; feature; ordered by the deterministic rank tuple → `/flow:auto 3`
 2. #4 Document setup [priority default; phase unspecified; type quick-win; quick win yes]
-   default; unspecified; quick-win; ordered by the deterministic rank tuple → `$flow-auto 4`
+   default; unspecified; quick-win; ordered by the deterministic rank tuple → `/flow:auto 4`
 3. #5 Planning epic [priority default; phase unspecified; type planning; quick win no]
-   default; unspecified; planning; ordered by the deterministic rank tuple → `$flow-auto 5`
+   default; unspecified; planning; ordered by the deterministic rank tuple → `/flow:auto 5`
 
 ### Critical work (not startable)
 - #1 Critical security repair — blocked

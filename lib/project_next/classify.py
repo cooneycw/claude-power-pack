@@ -25,6 +25,11 @@ WEAK_DEPENDENCY_LEAD = re.compile(r"\b(?:requires?|required\s+by|needs|after|fol
 # as in "**Depends on:** #367" or "(depends on T004)".
 REFERENCE_CONNECTOR = re.compile(r"[\s:*_>()\[\]]*")
 ISSUE_REFERENCE = re.compile(r"#(?P<start>\d+)(?:\s*[-–—]\s*#?(?P<end>\d+))?")
+# A cross-repo reference (`owner/repo#N`) has no local edge this repo's inventory can
+# check - unlike a bare `#N`, it names a DIFFERENT repository's issue (#1398). Checked
+# before ISSUE_REFERENCE at the same position, so the owner/repo prefix is consumed with
+# it rather than left dangling for ISSUE_REFERENCE to match on the bare `#N` tail alone.
+CROSS_REPO_REFERENCE = re.compile(r"(?P<repo>[\w.-]+/[\w.-]+)#(?P<number>\d+)")
 TASK_REFERENCE = re.compile(r"(?P<task>[A-Z]{1,4}(?:-[A-Z]{1,4})?\d{2,4})\b")
 REFERENCE_SEPARATOR = re.compile(r"[\s,;&/–—-]*(?:and|plus|then)?[\s]*", re.IGNORECASE)
 DANGLING_REFERENCE = re.compile(r"#(?!\d)")
@@ -81,28 +86,42 @@ def _skip(pattern: re.Pattern[str], line: str, position: int) -> int:
     return match.end() if match else position
 
 
-def _reference_list(line: str, position: int) -> tuple[set[int], set[str], int]:
-    """Consume a comma/range separated run of issue and task references at `position`."""
+def _reference_list(line: str, position: int) -> tuple[set[int], set[str], list[str], int]:
+    """Consume a comma/range separated run of issue, task and cross-repo references.
+
+    `consumed` counts only LOCAL (same-repo issue or spec-task) references, never a
+    cross-repo one (#1398): a cross-repo reference names no local edge this inventory
+    can resolve, so a dependency line naming ONLY cross-repo references must still be
+    reported uncertain by the caller rather than read as attached and resolved - the
+    distinction `external` (returned alongside) lets the caller phrase that report
+    specifically, instead of falling into "the blocker names no issue or spec task".
+    """
     issues: set[int] = set()
     tasks: set[str] = set()
+    external: list[str] = []
     consumed = 0
     while position < len(line):
-        issue_match = ISSUE_REFERENCE.match(line, position)
-        task_match = None if issue_match else TASK_REFERENCE.match(line, position)
-        if issue_match:
+        cross_match = CROSS_REPO_REFERENCE.match(line, position)
+        issue_match = None if cross_match else ISSUE_REFERENCE.match(line, position)
+        task_match = None if (cross_match or issue_match) else TASK_REFERENCE.match(line, position)
+        if cross_match:
+            external.append(f"{cross_match.group('repo')}#{cross_match.group('number')}")
+            position = cross_match.end()
+        elif issue_match:
             start = int(issue_match.group("start"))
             end = int(issue_match.group("end") or start)
             span = end - start
             issues.update(range(start, end + 1) if 0 < span <= MAX_REFERENCE_RANGE else (start,))
             position = issue_match.end()
+            consumed += 1
         elif task_match:
             tasks.add(task_match.group("task").upper())
             position = task_match.end()
+            consumed += 1
         else:
             break
-        consumed += 1
         position = _skip(REFERENCE_SEPARATOR, line, position)
-    return issues, tasks, consumed
+    return issues, tasks, external, consumed
 
 
 def _declares_none(line: str, position: int) -> bool:
@@ -125,14 +144,20 @@ def _line_references(line: str) -> tuple[set[int], set[str], list[str]]:
     for pattern, strong in ((STRONG_DEPENDENCY_LEAD, True), (WEAK_DEPENDENCY_LEAD, False)):
         for lead in pattern.finditer(line):
             start = _skip(REFERENCE_CONNECTOR, line, lead.end())
-            found_issues, found_tasks, consumed = _reference_list(line, start)
+            found_issues, found_tasks, found_external, consumed = _reference_list(line, start)
             issues |= found_issues
             tasks |= found_tasks
             if consumed or not strong or _declares_none(line, start):
                 continue
-            detail = "an issue reference is present but not attached to the phrase"
-            if not ISSUE_REFERENCE.search(line) and not DANGLING_REFERENCE.search(line):
-                detail = "the blocker names no issue or spec task"
+            if found_external:
+                # A cross-repo reference is CORRECTLY uncertain - this repo's inventory
+                # cannot check another repository's issue state - but the reason must
+                # say so, not read as "not attached" when it plainly is (#1398).
+                detail = f"depends on {', '.join(found_external)}, not checkable from this repo's inventory"
+            else:
+                detail = "an issue reference is present but not attached to the phrase"
+                if not ISSUE_REFERENCE.search(line) and not DANGLING_REFERENCE.search(line):
+                    detail = "the blocker names no issue or spec task"
             unresolved.append(f"'{lead.group(0).strip()}' declares a dependency but {detail}: {line.strip()}")
     return issues, tasks, unresolved
 
@@ -249,7 +274,10 @@ def classify_repository(state: RepositoryState, non_startable_labels: tuple[str,
     for worktree in state.worktrees:
         number = issue_number_from_branch(worktree.branch)
         if number in issue_numbers:
-            evidence[number].add(f"worktree:{worktree.path}{':dirty' if worktree.dirty else ':clean'}")
+            # Unknown is never clean (#1398): a failed `git status` call must not
+            # read as "clean" in the evidence text either.
+            status = "unknown" if worktree.dirty is None else ("dirty" if worktree.dirty else "clean")
+            evidence[number].add(f"worktree:{worktree.path}:{status}")
         elif worktree.branch and worktree.branch != state.default_branch:
             unmapped_worktrees.append(f"{worktree.path} ({worktree.branch})")
 

@@ -12,7 +12,7 @@ repository has been private and dormant since 2026-09-22 (#1076), and
 
 ## Version and entry points
 
-Contract version `1.4` accepts a structured `RepositoryState` and emits a
+Contract version `1.5` accepts a structured `RepositoryState` and emits a
 structured `RecommendationResult`. Run it from a CPP checkout with:
 
 ```bash
@@ -161,7 +161,7 @@ be the top action while a different issue is the safe next issue to start.
 - `--brief` shows the top action, next safe issue, and inventory confidence.
 - compact mode shows at most three safe candidates. Each candidate carries its
   priority, phase/wave, issue type, quick-win signal, stable rank tuple,
-  deterministic rationale, and `$flow-auto` command. Active, blocked,
+  deterministic rationale, and `/flow:auto` command. Active, blocked,
   uncertain, and critical non-startable work stays visibly separate.
 - `--full` adds mutually assigned operational tiers, categorized backlog counts,
   pull requests, Spec Kit file and mapping readiness, worktrees with their
@@ -182,7 +182,7 @@ synchronized or a specification group complete.
 Missing mappings produce `sync_spec`; stale or ambiguous identities produce
 `resolve_spec_mapping`. Neither state is silently treated as completed work.
 
-All modes name the `1.4` contract. Missing prerequisites and incomplete state
+All modes name the `1.5` contract. Missing prerequisites and incomplete state
 are explicit failure states; they never become a confident recommendation.
 
 Renderers cap long collector output: warnings list the first five entries and
@@ -197,6 +197,18 @@ always carries the complete lists.
 the `non_startable_labels` configuration key. A consumer that sums the four
 `1.3` partitions to count open issues must add the fifth; every other consumer
 reads `1.4` payloads unchanged.
+
+`1.5` (#1398) keeps every `1.4` field. The rendered start command is
+`/flow:auto N`, Claude Code's own skill syntax - `1.4` and earlier emitted
+Codex's leftover `$flow-auto N`, which never resolved on this surface.
+`Worktree.dirty` is `bool | None`: `None` means the `git status` call itself
+FAILED, a different fact from a confirmed-clean tree, and carries a new
+`status_unknown_reason` field naming why; a consumer that reads `dirty` as a
+plain boolean must now check for `None` first, or `bool(None)` silently reads
+as clean. A dependency-text reference to a DIFFERENT repository
+(`owner/repo#N`) is recognized and reported `uncertain` with a reason naming
+it explicitly, where `1.4` and earlier reported the generic "not attached to
+the phrase" - the partition is unchanged, only the reason text.
 
 `1.3` keeps every `1.2` field and adds `untracked_only` to worktree state and
 worktree details, plus the `review_untracked` top-action kind. Consumers that
