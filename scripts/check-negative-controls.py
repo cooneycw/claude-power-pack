@@ -1327,7 +1327,7 @@ def _mismatch(expected: str, observed: str) -> str:
 CONTROL_KEYS = frozenset({
     "gate", "invocation", "good_exit", "cases", "anchors",
     "detect_signal", "unavailable_signal", "unknown_signal", "good_signal", "subject_kind",
-    "mutations", "battery", "battery_cwd",
+    "mutations", "combinations", "battery", "battery_cwd",
     "limits", "_comment",
 })
 

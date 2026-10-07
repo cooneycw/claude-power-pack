@@ -3995,6 +3995,30 @@ def test_an_unknown_top_level_key_is_refused(tmp_path: Path) -> None:
     assert "unknown top-level key(s) detect_signl" in out.stdout, out.stdout
 
 
+def test_combinations_is_now_a_known_top_level_key(tmp_path: Path) -> None:
+    """RED before issue #1396: `combinations` (mutation-probe's own schema
+
+    addition for combinatorial mutation support) was unknown here, so a
+    control declaring one was refused as UNRESOLVED by THIS harness even
+    though mutation-probe.py itself would have accepted it.
+    """
+    root = build_tree(tmp_path, SEEING_GATE)
+    _edit_manifest(root, lambda spec: spec.update({"combinations": []}))
+    assert verdict_of(run_harness(root, "--strict").stdout) == "PASS"
+
+
+def test_a_near_miss_spelling_of_combinations_is_still_refused(tmp_path: Path) -> None:
+    """The widening for `combinations` must not have widened past it - a typo
+
+    one character off is exactly the #1268 hazard this schema exists to catch.
+    """
+    root = build_tree(tmp_path, SEEING_GATE)
+    _edit_manifest(root, lambda spec: spec.update({"combinatons": []}))
+    out = run_harness(root, "--strict")
+    assert verdict_of(out.stdout) == "UNRESOLVED", out.stdout
+    assert "unknown top-level key(s) combinatons" in out.stdout, out.stdout
+
+
 @pytest.mark.parametrize("prose_key", ["limits", "_comment"])
 def test_both_prose_keys_are_accepted(tmp_path: Path, prose_key: str) -> None:
     root = build_tree(tmp_path, SEEING_GATE)

@@ -98,6 +98,19 @@ in the replacement is a backslash and not an escape; and `count` is the number
 of substitutions that MUST occur - an anchor matching twice is as wrong as one
 matching nothing, which is why the count is required rather than inferred.
 
+An `expect: "uncaught"` entry also REQUIRES `blocked_by`, a closed-vocabulary
+category separate from the free-prose `why` (issue #1396): `why` stays the
+human account of this specific gap, and `blocked_by` is what makes the REASON
+countable and diffable - five of this register's then-seven uncaught entries
+had arrived as copy-pasted prose before a required-but-unconstrained `why`
+alone proved not to be enough. The values, each with at least one real entry
+using it (grep `BLOCKED_BY_REASONS` below for the full one-line definitions):
+`input-cannot-be-committed`, `case-precondition-refused`,
+`host-or-tool-property`, `masked-by-sibling`, `anchor-would-also-catch`. A
+value that stretches to cover a shape it was not built for lies the same way
+free prose does - add a new one only for a genuinely different shape, never
+to avoid naming one more.
+
 A manifest may declare its own `battery` (argv) when it is not one of
 `controls/*`, with `battery_cwd` naming where to run it; the default battery is
 the register itself, narrowed to the one control under test. Two substitutions
@@ -105,6 +118,36 @@ are available in that argv: `{root}` is the sandbox, and `{python}` is the
 interpreter running this probe - a battery needing the project's dependencies
 must use `{python}`, because the sandbox holds tracked files only and therefore
 has no virtualenv for a runner-resolution walk to find.
+
+COMBINATIONS: WHEN TWO PROTECTIONS MASK EACH OTHER
+---------------------------------------------------
+Single-mutation probing cannot tell "this protection is genuinely redundant
+with its sibling" from "nobody tried removing both" - it can only ever report
+the SAME verdict for both, one mutation at a time (issue #1396). A manifest
+may declare a `combinations` entry, applying several EXISTING mutations
+TOGETHER, in ONE sandbox, in declared order:
+
+    "combinations": [
+      {
+        "name": "both-guards-together",
+        "protection": "removing both must still fail",
+        "mutations": ["comment-rejection", "some-other-mutation"],
+        "expect": "caught",
+        "why": "..."
+      }
+    ]
+
+Each member names an EXISTING `mutations` entry by `name` - a combination
+never re-declares find/replace text, so one protection has one definition
+however many combinations reference it. Members apply in LIST ORDER, each
+`find` checked against the text AFTER the earlier members' edits, never
+against the original; if a later member's `find` only matches because an
+earlier member already landed, that is what "together" means, and if it
+does NOT match even then, the combination is INAPPLICABLE, never silently
+partial. A combination's `name` must not collide with any mutation's name -
+both are reported as distinct lines, under distinct names, and a reader
+needs to tell them apart. `expect`, `why` and `blocked_by` follow the exact
+same rules as a plain mutation.
 
 WHAT THIS DOES NOT DO
 ---------------------
@@ -166,6 +209,51 @@ FAILING = (UNCAUGHT, STALE, INAPPLICABLE, UNRESOLVED)
 #: control as a subprocess), short enough that a wedged gate under mutation is
 #: reported rather than inherited by whatever is waiting on this run.
 BATTERY_TIMEOUT = 300
+
+#: The closed vocabulary for `blocked_by` on an `expect: "uncaught"` entry
+#: (issue #1396). REQUIRED, not optional: free prose satisfies any string, so
+#: the register's seven then-uncaught entries arrived with five copy-pasted
+#: paragraphs before #1135 hand-rewrote them into distinct reasons - a
+#: required field that accepts anything is decorative, and the copy-paste is
+#: how a required-but-unconstrained field becomes a convention. Each value
+#: below has at least one real entry using it (`controls/shellcheck-gate` and
+#: `controls/mutation-probe` themselves); do not add a value speculatively -
+#: a vocabulary member that stretches to cover a shape it was not built for
+#: lies the same way free prose does.
+BLOCKED_BY_INPUT_CANNOT_BE_COMMITTED = "input-cannot-be-committed"
+BLOCKED_BY_CASE_PRECONDITION_REFUSED = "case-precondition-refused"
+BLOCKED_BY_HOST_OR_TOOL_PROPERTY = "host-or-tool-property"
+BLOCKED_BY_MASKED_BY_SIBLING = "masked-by-sibling"
+BLOCKED_BY_ANCHOR_WOULD_ALSO_CATCH = "anchor-would-also-catch"
+
+#: name -> one-line definition, for `--strict`'s error text and for
+#: docs/scripts.md to quote verbatim rather than restate.
+BLOCKED_BY_REASONS = {
+    BLOCKED_BY_INPUT_CANNOT_BE_COMMITTED: (
+        "no case tree can construct an input that exercises only this "
+        "protection - the condition it guards against cannot be built as "
+        "committed test data"
+    ),
+    BLOCKED_BY_CASE_PRECONDITION_REFUSED: (
+        "the harness's own case-registration precondition refuses the input "
+        "before the gate under test ever runs"
+    ),
+    BLOCKED_BY_HOST_OR_TOOL_PROPERTY: (
+        "the condition is a property of the host or the wrapped tool, not of "
+        "any tree a committed --root case can hold"
+    ),
+    BLOCKED_BY_MASKED_BY_SIBLING: (
+        "a sibling protection in the same gate produces the identical verdict "
+        "on the only input that reaches either, so removing this one alone is "
+        "unobservable - see the paired combination entry"
+    ),
+    BLOCKED_BY_ANCHOR_WOULD_ALSO_CATCH: (
+        "isolating this protection needs an input the harness's own "
+        "anchor-sanity check would also detect, which fails that DIFFERENT "
+        "invariant (the anchor must miss every BAD case) rather than "
+        "demonstrating this one"
+    ),
+}
 
 
 @dataclass
@@ -417,6 +505,118 @@ def _gate_file(raw: object) -> tuple[str | None, str | None]:
     return gate_ref.file, None
 
 
+def _apply_steps(original: str, steps: list[tuple[str, str, int]]) -> tuple[str | None, str | None]:
+    """Apply find/replace/count steps IN ORDER onto one running text (issue #1396).
+
+    A single mutation is a one-step list; a combination is a multi-step list -
+    the same function scores both, because once the steps are applied the
+    rest (sandbox, syntax check, battery) does not care how many there were.
+    Each step's `find` is matched against the text AFTER every earlier step's
+    substitution, never against the original - that is what "applied
+    together" means. Returns `(mutated_text, None)` on full success, or
+    `(None, detail)` naming which step (1-indexed, so it reads the same way a
+    human counts members) failed and why.
+
+    The three failure shapes are the ones a single mutation already had
+    (issue #970): `find` is not a usable regex, it matched a different count
+    than declared, or `replace` left the text byte-identical - each now
+    scoped to the step currently being applied, because a later step seeing
+    an already-mutated text is not an error, it is the point.
+    """
+    text = original
+    for index, (find, replace, want) in enumerate(steps, start=1):
+        label = f"step {index} of {len(steps)}"
+        try:
+            #: `replace` is a LITERAL, never a substitution template (issue
+            #: #970's own reasoning, unchanged by multi-step application).
+            mutated, got = re.subn(find, lambda _m: replace, text, flags=re.MULTILINE)
+        except re.error as exc:
+            return None, f"{label}: `find` is not a usable regex: {exc}"
+        if got != want:
+            return None, (
+                f"{label}: `find` matched {got} time(s), the declaration requires {want}; the "
+                "gate was NOT weakened at this step, so a green battery here says nothing about "
+                "the battery")
+        if mutated == text:
+            return None, (
+                f"{label}: `find` matched {got} time(s) but `replace` left the text at this "
+                "step BYTE-IDENTICAL, so no protection was removed and the battery's verdict is "
+                "about unchanged code")
+        text = mutated
+    if text == original:
+        #: Each STEP changed something (checked above), but a later step can
+        #: undo an earlier one - A->B then B->A nets to no edit at all. Caught
+        #: here rather than per-step because no single step is byte-identical;
+        #: only the CUMULATIVE result is, and a cumulative no-op scored as a
+        #: real mutation would report ACCEPTED or UNCAUGHT for a gap that was
+        #: never opened (counter-model review, issue #1396).
+        return None, (
+            f"{len(steps)} step(s) each changed the text, but the COMBINED result is BYTE-"
+            "IDENTICAL to the original - a later step undid an earlier one, so no protection "
+            "was removed and the battery's verdict is about unchanged code")
+    return text, None
+
+
+def _validate_blocked_by(entry: dict, expect: str) -> str | None:
+    """REQUIRED on every `expect: "uncaught"` entry (issue #1396): `why` stays
+
+    free prose for the human account, and `blocked_by` is the SEPARATE,
+    closed-vocabulary field that makes the reason countable and diffable.
+    Deliberately not a constraint on `why` itself - constraining the existing
+    free-prose field would break every entry already written, and the
+    absorbed Nit Store comment this issue cites explicitly asked only that
+    the CATEGORY be stated separately, leaving `why` as prose. Returns an
+    error detail, or None when the entry needs no `blocked_by` (expect is not
+    "uncaught") or already has a valid one.
+    """
+    if expect != "uncaught":
+        return None
+    blocked_by = entry.get("blocked_by")
+    if isinstance(blocked_by, str) and blocked_by in BLOCKED_BY_REASONS:
+        return None
+    allowed = ", ".join(sorted(BLOCKED_BY_REASONS))
+    return (
+        f"expect=uncaught with blocked_by={blocked_by!r}: must be one of the closed vocabulary "
+        f"[{allowed}], never free text or absent - an unenumerated or missing value cannot be "
+        "counted, diffed, or told from an oversight")
+
+
+def _score_mutated_gate(
+    mutated: str, expect: str, why: str,
+    new_sandbox: Callable[[], Path], resolve_gate: Callable[[Path], Path | None],
+    run_battery: Callable[[Path], tuple[int | None, str]],
+) -> tuple[str, str, list[str]]:
+    """Run ONE already-mutated gate text through a fresh sandbox and score it.
+
+    Shared by a single mutation and a combination (issue #1396): once the
+    final mutated text exists, scoring it is identical either way - a fresh
+    sandbox so the only difference from the baseline is the gate
+    (counter-model review, accepted, issue #970), the same syntax check, one
+    battery run. Returns `(verdict, evidence, details-to-append)`.
+    """
+    run_sandbox = new_sandbox()
+    run_gate = resolve_gate(run_sandbox)
+    if run_gate is None:
+        return UNRESOLVED, "", ["the gate could not be resolved in a fresh sandbox"]
+    run_gate.write_text(mutated, encoding="utf-8")
+    parses, syntax_why = syntax_ok(run_gate)
+    if not parses:
+        return INAPPLICABLE, "", [
+            f"the mutated gate does not parse ({syntax_why}); a broken file is not a weaker "
+            "instrument, and a battery reddened by one proves nothing"]
+    details = [f"mutated gate syntax: {syntax_why}"]
+    code, out = run_battery(run_sandbox)
+    if code is None:
+        return UNRESOLVED, "", details + [f"the battery could not be run under mutation: {out}"]
+    if code != 0:
+        verdict = STALE if expect == "uncaught" else CAUGHT
+        return verdict, _battery_evidence(out), details
+    verdict = ACCEPTED if expect == "uncaught" else UNCAUGHT
+    if expect == "uncaught":
+        details.append(why)
+    return verdict, "", details
+
+
 def run_manifest(manifest_rel: str, root: Path, new_sandbox: Callable[[], Path],
                  quiet: bool) -> list[Probe]:
     """Probe every mutation one manifest declares. Returns one Probe per mutation.
@@ -511,10 +711,20 @@ def run_manifest(manifest_rel: str, root: Path, new_sandbox: Callable[[], Path],
         print(f"MUTATION_PROBE_BASELINE: green ({manifest_rel})")
 
     probes: list[Probe] = []
+    #: Every NAME the manifest declares a mutation under, valid or not - a
+    #: combination colliding with a mutation that was itself rejected (e.g.
+    #: missing `blocked_by`) is still a collision, because `steps_by_name`
+    #: below only ever holds the valid ones (counter-model review, #1396).
+    declared_mutation_names = {str(entry.get("name", "?")) for entry in mutations}
+    #: name -> (find, replace, count), so a combination can apply several
+    #: EXISTING mutations together without re-declaring their find/replace
+    #: text (issue #1396) - one definition per protection, referenced by name.
+    steps_by_name: dict[str, tuple[str, str, int]] = {}
     for entry in mutations:
         name = str(entry.get("name", "?"))
         protection = str(entry.get("protection", ""))
         expect = str(entry.get("expect", "caught")).lower()
+        why = str(entry.get("why", ""))
         probe = Probe(manifest_rel, gate_rel, name, protection, UNRESOLVED)
 
         find = entry.get("find")
@@ -535,79 +745,121 @@ def run_manifest(manifest_rel: str, root: Path, new_sandbox: Callable[[], Path],
                 "positive integer: a declaration that removes nothing is not a mutation)")
             probes.append(probe)
             continue
-        if expect == "uncaught" and not str(entry.get("why", "")).strip():
+        if expect == "uncaught" and not why.strip():
             probe.details.append(
                 "expect=uncaught with no `why`: an accepted gap with no written reason "
                 "cannot be reviewed later and cannot be told from an oversight")
             probe.verdict = INAPPLICABLE
             probes.append(probe)
             continue
-
-        try:
-            #: `replace` is a LITERAL, never a substitution template. As a
-            #: template, a backslash in the replacement is an escape - so
-            #: swapping one regex constant for another (`\s`, `\$`, a
-            #: backreference-looking `\1`) raised `bad escape` and the
-            #: mutation was reported INAPPLICABLE for a reason that had
-            #: nothing to do with the gate. A mutation declaration is a piece
-            #: of source code to paste in, so it is pasted in.
-            mutated, got = re.subn(find, lambda _m: replace, original, flags=re.MULTILINE)
-        except re.error as exc:
+        blocked_by_error = _validate_blocked_by(entry, expect)
+        if blocked_by_error:
             probe.verdict = INAPPLICABLE
-            probe.details.append(f"`find` is not a usable regex: {exc}")
-            probes.append(probe)
-            continue
-        if got != want:
-            probe.verdict = INAPPLICABLE
-            probe.details.append(
-                f"`find` matched {got} time(s), the declaration requires {want}; the gate was "
-                "NOT weakened, so a green battery here says nothing about the battery")
-            probes.append(probe)
-            continue
-        #: The count says the pattern MATCHED; only this says the file CHANGED.
-        #: Counter-model review, accepted (issue #970): a `replace` equal to the
-        #: text it matches substitutes the declared number of times and leaves
-        #: the gate byte-identical, so the battery is run against an unmutated
-        #: instrument and its green is read as a verdict about coverage.
-        if mutated == original:
-            probe.verdict = INAPPLICABLE
-            probe.details.append(
-                f"`find` matched {got} time(s) but `replace` left the gate BYTE-IDENTICAL, so "
-                "no protection was removed and the battery's verdict is about the original")
+            probe.details.append(blocked_by_error)
             probes.append(probe)
             continue
 
-        #: A FRESH sandbox per mutation, so the only difference between this run
-        #: and the baseline is the gate (counter-model review, accepted).
-        run_sandbox = new_sandbox()
-        run_gate = resolve_gate(run_sandbox)
-        if run_gate is None:
-            probe.verdict = UNRESOLVED
-            probe.details.append("the gate could not be resolved in a fresh sandbox")
+        steps_by_name[name] = (find, replace, want)
+        mutated, apply_error = _apply_steps(original, [(find, replace, want)])
+        if apply_error:
+            probe.verdict = INAPPLICABLE
+            probe.details.append(apply_error)
             probes.append(probe)
             continue
-        run_gate.write_text(mutated, encoding="utf-8")
-        parses, why = syntax_ok(run_gate)
-        if not parses:
+
+        verdict, evidence, details = _score_mutated_gate(
+            mutated, expect, why, new_sandbox, resolve_gate, run_battery)
+        probe.verdict = verdict
+        probe.evidence = evidence
+        probe.details.extend(details)
+        probes.append(probe)
+
+    #: Combinations (issue #1396): apply SEVERAL named mutations together, in
+    #: ONE sandbox, in declared order, so two protections that mask each other
+    #: one at a time (zero-matched-is-unknown / linter-crash-is-unknown in
+    #: controls/shellcheck-gate - weaken either alone and the sibling catches
+    #: it) can finally be asked the question single-mutation probing cannot
+    #: express: does removing BOTH together change the verdict? Each step's
+    #: `find` is checked against the text AFTER the earlier steps' edits, not
+    #: against the original - that is what "together" means here; if an
+    #: earlier substitution removes what a later step's `find` was looking
+    #: for, that is INAPPLICABLE, never silently partial.
+    combo_names: set[str] = set()
+    combinations = spec.get("combinations") or []
+    if not isinstance(combinations, list):
+        probe = Probe(manifest_rel, gate_rel, "combinations", "", INAPPLICABLE, details=[
+            f"`combinations` must be a list of objects, got {type(combinations).__name__} - "
+            "a malformed manifest is not a weaker instrument, it is an unreadable one"])
+        probes.append(probe)
+        combinations = []
+    for entry in combinations:
+        if not isinstance(entry, dict):
+            probe = Probe(manifest_rel, gate_rel, "?", "", INAPPLICABLE, details=[
+                f"combination entry is not an object (got {type(entry).__name__})"])
+            probes.append(probe)
+            continue
+        name = str(entry.get("name", "?"))
+        protection = str(entry.get("protection", ""))
+        expect = str(entry.get("expect", "caught")).lower()
+        why = str(entry.get("why", ""))
+        probe = Probe(manifest_rel, gate_rel, name, protection, UNRESOLVED)
+
+        #: Checked against every DECLARED mutation name, not just the valid
+        #: ones in `steps_by_name` - a mutation rejected for its own reasons
+        #: (a bad find/replace, a missing blocked_by) still claims its name,
+        #: and a combination reusing it would report two Probes under one
+        #: name (counter-model review, issue #1396).
+        if name in declared_mutation_names or name in combo_names:
             probe.verdict = INAPPLICABLE
             probe.details.append(
-                f"the mutated gate does not parse ({why}); a broken file is not a weaker "
-                "instrument, and a battery reddened by one proves nothing")
+                f"combination name {name!r} collides with an existing mutation or combination "
+                "name - each entry must be identifiable on its own in a report")
             probes.append(probe)
             continue
-        probe.details.append(f"mutated gate syntax: {why}")
-        code, out = run_battery(run_sandbox)
+        combo_names.add(name)
 
-        if code is None:
-            probe.verdict = UNRESOLVED
-            probe.details.append(f"the battery could not be run under mutation: {out}")
-        elif code != 0:
-            probe.evidence = _battery_evidence(out)
-            probe.verdict = STALE if expect == "uncaught" else CAUGHT
-        else:
-            probe.verdict = ACCEPTED if expect == "uncaught" else UNCAUGHT
-            if expect == "uncaught":
-                probe.details.append(str(entry.get("why", "")))
+        members = entry.get("mutations")
+        if (not isinstance(members, list) or len(members) < 2
+                or not all(isinstance(m, str) for m in members)):
+            probe.verdict = INAPPLICABLE
+            probe.details.append(
+                "combination declares no usable `mutations` list (at least two existing "
+                "mutation names - a list of one is not a combination)")
+            probes.append(probe)
+            continue
+        unknown_members = [m for m in members if m not in steps_by_name]
+        if unknown_members:
+            probe.verdict = INAPPLICABLE
+            probe.details.append(
+                f"combination names mutation(s) not declared in this manifest: {unknown_members}")
+            probes.append(probe)
+            continue
+        if expect == "uncaught" and not why.strip():
+            probe.details.append(
+                "expect=uncaught with no `why`: an accepted gap with no written reason "
+                "cannot be reviewed later and cannot be told from an oversight")
+            probe.verdict = INAPPLICABLE
+            probes.append(probe)
+            continue
+        blocked_by_error = _validate_blocked_by(entry, expect)
+        if blocked_by_error:
+            probe.verdict = INAPPLICABLE
+            probe.details.append(blocked_by_error)
+            probes.append(probe)
+            continue
+
+        mutated, apply_error = _apply_steps(original, [steps_by_name[m] for m in members])
+        if apply_error:
+            probe.verdict = INAPPLICABLE
+            probe.details.append(apply_error)
+            probes.append(probe)
+            continue
+
+        verdict, evidence, details = _score_mutated_gate(
+            mutated, expect, why, new_sandbox, resolve_gate, run_battery)
+        probe.verdict = verdict
+        probe.evidence = evidence
+        probe.details.extend(details)
         probes.append(probe)
 
     return probes

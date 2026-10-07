@@ -76,7 +76,8 @@
    "replace": "true || _gate_refuse",
    "count": 1,
    "expect": "uncaught",
-  "why": "MASKED, by design, and honest rather than a false green (the single-mutation limitation re-dispositioned under #1268 R3). With the map requirement disabled, bad-no-map still reaches gate_exit, whose own lookup finds no code for the verdict in an empty map and refuses it - so the case is refused through a second protection and this one reads UNCAUGHT. Each protection covers for the other; a case isolating this one would need a probe that emits and never exits, which is not a state any gate is allowed to reach."
+  "why": "MASKED, by design, and honest rather than a false green (the single-mutation limitation re-dispositioned under #1268 R3). With the map requirement disabled, bad-no-map still reaches gate_exit, whose own lookup finds no code for the verdict in an empty map and refuses it - so the case is refused through a second protection and this one reads UNCAUGHT. Each protection covers for the other; a case isolating this one would need a probe that emits and never exits, which is not a state any gate is allowed to reach.",
+  "blocked_by": "masked-by-sibling"
   },
   {
    "name": "unmapped-verdict",

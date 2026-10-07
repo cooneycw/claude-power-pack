@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -224,7 +225,8 @@ def test_an_accepted_gap_that_is_now_caught_reports_stale(tmp_path: Path) -> Non
     has since closed - and the register would report a gap that no longer exists
     while nothing said so.
     """
-    mutation = dict(COMMENT_REJECTION, expect="uncaught", why="no case reaches it")
+    mutation = dict(COMMENT_REJECTION, expect="uncaught", why="no case reaches it",
+                     blocked_by="input-cannot-be-committed")
     root = _tree(tmp_path, good_case=True, mutations=[mutation])
     result = _probe(root, "--strict")
     assert "MUTATION-STALE: controls/toy/control.json::comment-rejection" in result.stdout
@@ -233,7 +235,8 @@ def test_an_accepted_gap_that_is_now_caught_reports_stale(tmp_path: Path) -> Non
 
 def test_an_accepted_gap_that_is_still_uncaught_is_not_a_failure(tmp_path: Path) -> None:
     """A STATED gap is the outcome this tool wants where no control can be written."""
-    mutation = dict(COMMENT_REJECTION, expect="uncaught", why="no case can reach it")
+    mutation = dict(COMMENT_REJECTION, expect="uncaught", why="no case can reach it",
+                     blocked_by="input-cannot-be-committed")
     root = _tree(tmp_path, good_case=False, mutations=[mutation])
     result = _probe(root, "--strict")
     assert "MUTATION-ACCEPTED: controls/toy/control.json::comment-rejection" in result.stdout
@@ -647,3 +650,442 @@ def test_a_malformed_typed_gate_is_UNRESOLVED_not_a_path(tmp_path: Path, gate: o
     out = _probe(root)
     assert "UNRESOLVED" in out.stdout, out.stdout + out.stderr
     assert why in out.stdout, out.stdout
+
+
+# ---------------------------------------------------------------------------
+# Issue #1396: `blocked_by` is REQUIRED on every expect:uncaught entry, and
+# combinations let several declared mutations be applied together so two
+# protections that mask each other one at a time can finally be asked
+# whether removing BOTH changes the verdict.
+# ---------------------------------------------------------------------------
+
+
+def test_blocked_by_missing_on_an_uncaught_entry_is_inapplicable(tmp_path: Path) -> None:
+    mutation = dict(COMMENT_REJECTION, expect="uncaught", why="no case reaches it")
+    root = _tree(tmp_path, good_case=False, mutations=[mutation])
+    result = _probe(root)
+    assert "MUTATION-INAPPLICABLE: controls/toy/control.json::comment-rejection" in result.stdout
+    assert "blocked_by=None" in result.stdout
+    assert "closed vocabulary" in result.stdout
+
+
+def test_blocked_by_unrecognized_on_an_uncaught_entry_is_inapplicable(tmp_path: Path) -> None:
+    mutation = dict(COMMENT_REJECTION, expect="uncaught", why="no case reaches it",
+                     blocked_by="it-just-cannot-be-done")
+    root = _tree(tmp_path, good_case=False, mutations=[mutation])
+    result = _probe(root)
+    assert "MUTATION-INAPPLICABLE: controls/toy/control.json::comment-rejection" in result.stdout
+    assert "'it-just-cannot-be-done'" in result.stdout
+    assert "closed vocabulary" in result.stdout
+
+
+def test_blocked_by_is_not_required_on_an_expect_caught_entry(tmp_path: Path) -> None:
+    """The field is scoped to expect:uncaught - a caught entry needs no reason
+
+    for a gap that, per this run, does not exist.
+    """
+    root = _tree(tmp_path, good_case=True, mutations=[COMMENT_REJECTION])
+    result = _probe(root, "--strict")
+    assert "MUTATION-CAUGHT: controls/toy/control.json::comment-rejection" in result.stdout
+    assert result.returncode == 0
+
+
+#: A toy gate with TWO protections that MUTUALLY MASK each other on the one
+#: input that reaches either - mirroring controls/shellcheck-gate's real
+#: zero-matched-is-unknown / linter-crash-is-unknown pair (issue #1396).
+#: Guard A refuses an empty directory outright; Guard B refuses a simulated
+#: "tool" exit code outside {0, 1} - reached only when Guard A is bypassed,
+#: and ALSO triggered by the same zero-file condition (`simulated_tool_rc =
+#: 3`), exactly as shellcheck exits 3 when invoked with no file arguments.
+#: Removing either ALONE changes nothing (the sibling still refuses); only
+#: removing BOTH TOGETHER lets the gate fall through to a false "ok".
+MASKED_GATE = '''#!/usr/bin/env python3
+"""A toy gate with two protections that mask each other (issue #1396)."""
+import pathlib
+import sys
+
+
+def main() -> int:
+    root = pathlib.Path(sys.argv[sys.argv.index("--root") + 1])
+    files = [p for p in sorted(root.rglob("*")) if p.is_file()]
+    count = len(files)
+    if count == 0:
+        print("TOY-FINDING: no files matched", file=sys.stderr)
+        return 1
+    found = any(
+        "FORBIDDEN" in line and not line.strip().startswith("#")
+        for path in files for line in path.read_text().splitlines()
+    )
+    simulated_tool_rc = 3 if count == 0 else (1 if found else 0)
+    if simulated_tool_rc not in (0, 1):
+        print("TOY-FINDING: tool exited weird", file=sys.stderr)
+        return 1
+    if simulated_tool_rc == 1:
+        print("TOY-FINDING: forbidden token", file=sys.stderr)
+        return 1
+    print("toy-gate: ok")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+'''
+
+MASKED_BATTERY = '''#!/usr/bin/env python3
+"""A miniature battery for the masked-pair toy gate (issue #1396)."""
+import json
+import pathlib
+import subprocess
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+SPEC = json.loads((ROOT / "controls" / "toy" / "control.json").read_text())
+
+
+def main() -> int:
+    failed = 0
+    for case in SPEC["cases"]:
+        proc = subprocess.run(
+            [sys.executable, str(ROOT / SPEC["gate"]), "--root",
+             str(ROOT / "controls" / "toy" / case["input"])],
+            capture_output=True, text=True, check=False)
+        observed = "GOOD" if proc.returncode == 0 else "BAD"
+        if observed != case["expect"]:
+            failed += 1
+            print("TOY-BATTERY-FAIL: " + case["name"], file=sys.stderr)
+    if failed:
+        return 1
+    print("toy-battery: ok")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+'''
+
+#: Refuses an empty directory outright. Masked alone: Guard B (below) also
+#: fires on the same zero-file input, reached only once Guard A is removed.
+GUARD_A = {
+    "name": "zero-count-refusal",
+    "protection": "zero files matched must fail the battery, not pass silently",
+    "find": (r'    if count == 0:\n        print\("TOY-FINDING: no files matched", '
+              r'file=sys\.stderr\)\n        return 1\n'),
+    "replace": "    if False:\n        pass\n",
+    "count": 1,
+    "expect": "uncaught",
+    "why": "masked by the sibling tool-crash guard below, which also fires on count==0",
+    "blocked_by": "masked-by-sibling",
+}
+
+#: Refuses a simulated tool exit outside {0, 1}. Masked alone: Guard A fires
+#: FIRST on the only input that reaches this check at all (count==0).
+GUARD_B = {
+    "name": "tool-crash-refusal",
+    "protection": "a simulated tool exit outside 0/1 must fail the battery, not pass silently",
+    "find": (r'    if simulated_tool_rc not in \(0, 1\):\n        print\('
+              r'"TOY-FINDING: tool exited weird", file=sys\.stderr\)\n        return 1\n'),
+    "replace": "    if False:\n        pass\n",
+    "count": 1,
+    "expect": "uncaught",
+    "why": "masked by the sibling zero-count guard above, which fires first on count==0",
+    "blocked_by": "masked-by-sibling",
+}
+
+#: Genuinely decorative on its own: a comment no case can ever observe.
+INERT_COMMENT = {
+    "name": "comment-only-change",
+    "protection": "a comment carries no behavior",
+    "find": r'"""A toy gate with two protections that mask each other \(issue #1396\)\."""\n',
+    "replace": '"""A toy gate with two protections that mask each other (issue #1396)."""\n# noop\n',
+    "count": 1,
+    "expect": "uncaught",
+    "why": "a comment carries no behavior; no case can ever observe this change",
+    "blocked_by": "input-cannot-be-committed",
+}
+
+
+def _masked_tree(tmp_path: Path, *, mutations: list[dict], combinations: Any) -> Path:
+    """A self-contained repository with the masked-pair toy gate (issue #1396)."""
+    root = tmp_path / "tree"
+    (root / "scripts").mkdir(parents=True)
+    (root / "scripts" / "toy-gate.py").write_text(MASKED_GATE)
+    (root / "scripts" / "toy-battery.py").write_text(MASKED_BATTERY)
+    cases = root / "controls" / "toy" / "cases"
+    #: The BAD case is an EMPTY directory - zero files, triggering Guard A
+    #: (and, if bypassed, the same condition drives Guard B's trigger too).
+    (cases / "bad").mkdir(parents=True)
+    (cases / "good").mkdir(parents=True)
+    (cases / "good" / "input.txt").write_text("nothing forbidden here\n")
+    registered = [
+        {"name": "bad", "input": "cases/bad", "expect": "BAD"},
+        {"name": "good", "input": "cases/good", "expect": "GOOD"},
+    ]
+    (root / "controls" / "toy" / "control.json").write_text(json.dumps({
+        "gate": "scripts/toy-gate.py",
+        "battery": ["{python}", "scripts/toy-battery.py"],
+        "cases": registered,
+        "mutations": mutations,
+        "combinations": combinations,
+    }))
+    return root
+
+
+def test_a_masked_pair_is_individually_uncaught_but_caught_in_combination(tmp_path: Path) -> None:
+    """The motivating case (issue #1396): two protections, each ACCEPTED alone
+
+    because its sibling masks it, but CAUGHT when removed together - the
+    question single-mutation probing cannot even ask.
+    """
+    combo = {
+        "name": "zero-count-and-crash-together",
+        "protection": "removing both together must still fail",
+        "mutations": ["zero-count-refusal", "tool-crash-refusal"],
+        "expect": "caught",
+        "why": "both guards removed lets the gate fall through to a false ok",
+    }
+    root = _masked_tree(tmp_path, mutations=[GUARD_A, GUARD_B], combinations=[combo])
+    result = _probe(root, "--strict")
+    assert "MUTATION-ACCEPTED: controls/toy/control.json::zero-count-refusal" in result.stdout
+    assert "MUTATION-ACCEPTED: controls/toy/control.json::tool-crash-refusal" in result.stdout
+    assert ("MUTATION-CAUGHT: controls/toy/control.json::zero-count-and-crash-together"
+            in result.stdout)
+    assert result.returncode == 0
+
+
+def test_a_combination_the_battery_still_misses_reports_uncaught(tmp_path: Path) -> None:
+    """A combination is not automatically CAUGHT just for existing: pairing one
+
+    masked guard with a genuinely decorative mutation changes nothing, because
+    the OTHER guard still independently covers the masked one's removal.
+    """
+    combo = {
+        "name": "zero-count-and-inert-together",
+        "protection": "pairing a masked guard with a no-op must still be missed",
+        "mutations": ["zero-count-refusal", "comment-only-change"],
+        "expect": "uncaught",
+        "why": "tool-crash-refusal still independently catches zero-count-refusal's removal, "
+               "and the comment changes nothing observable",
+        "blocked_by": "masked-by-sibling",
+    }
+    root = _masked_tree(tmp_path, mutations=[GUARD_A, GUARD_B, INERT_COMMENT], combinations=[combo])
+    result = _probe(root, "--strict")
+    assert ("MUTATION-ACCEPTED: controls/toy/control.json::zero-count-and-inert-together"
+            in result.stdout)
+    assert result.returncode == 0
+
+
+def test_combinations_field_before_the_fix_was_silently_ignored(tmp_path: Path) -> None:
+    """Names the fix's crux directly: a combination entry must produce its OWN
+
+    probe line, under its own name - not be silently absent from the report.
+    """
+    combo = {
+        "name": "zero-count-and-crash-together",
+        "protection": "removing both together must still fail",
+        "mutations": ["zero-count-refusal", "tool-crash-refusal"],
+        "expect": "caught",
+        "why": "both guards removed lets the gate fall through to a false ok",
+    }
+    root = _masked_tree(tmp_path, mutations=[GUARD_A, GUARD_B], combinations=[combo])
+    result = _probe(root, "--strict")
+    assert "zero-count-and-crash-together" in result.stdout, (
+        "a declared combination must appear in the report under its own name")
+
+
+def test_a_combination_name_colliding_with_a_mutation_name_is_inapplicable(tmp_path: Path) -> None:
+    combo = {
+        "name": "zero-count-refusal",  # collides with GUARD_A's own name
+        "mutations": ["zero-count-refusal", "tool-crash-refusal"],
+        "expect": "caught",
+    }
+    root = _masked_tree(tmp_path, mutations=[GUARD_A, GUARD_B], combinations=[combo])
+    result = _probe(root)
+    assert "MUTATION-INAPPLICABLE: controls/toy/control.json::zero-count-refusal" in result.stdout
+    assert "collides" in result.stdout
+
+
+def test_a_combination_naming_an_unknown_mutation_is_inapplicable(tmp_path: Path) -> None:
+    combo = {
+        "name": "combo-with-a-typo",
+        "mutations": ["zero-count-refusal", "tool-crash-refusel"],  # typo
+        "expect": "caught",
+    }
+    root = _masked_tree(tmp_path, mutations=[GUARD_A, GUARD_B], combinations=[combo])
+    result = _probe(root)
+    assert "MUTATION-INAPPLICABLE: controls/toy/control.json::combo-with-a-typo" in result.stdout
+    assert "not declared in this manifest" in result.stdout
+
+
+def test_a_combination_of_fewer_than_two_mutations_is_inapplicable(tmp_path: Path) -> None:
+    combo = {
+        "name": "not-really-a-combination",
+        "mutations": ["zero-count-refusal"],
+        "expect": "caught",
+    }
+    root = _masked_tree(tmp_path, mutations=[GUARD_A, GUARD_B], combinations=[combo])
+    result = _probe(root)
+    assert ("MUTATION-INAPPLICABLE: controls/toy/control.json::not-really-a-combination"
+            in result.stdout)
+    assert "at least two" in result.stdout
+
+
+def test_a_combinations_step_is_checked_against_the_already_mutated_text(tmp_path: Path) -> None:
+    """Pins the declared-order semantics (issue #1396): each step's `find` is
+
+    matched against the text AFTER the earlier steps' edits. A combination
+    whose SECOND member's `find` only matches once the FIRST member's edit
+    has already landed APPLIES in that order; declared in the opposite
+    order, the second member's `find` never matches the original text and
+    the combination is INAPPLICABLE instead.
+    """
+    # `tool-crash-refusal`'s find (`if simulated_tool_rc not in (0, 1):...`)
+    # matches the ORIGINAL text unconditionally - it does not depend on
+    # zero-count-refusal having run first. So to pin order-dependence
+    # directly, declare a synthetic second step whose find text only exists
+    # AFTER zero-count-refusal's replacement has landed.
+    order_dependent = {
+        "name": "depends-on-prior-step",
+        "find": r"    if False:\n        pass\n    found = any",
+        "replace": "    if False:\n        pass  # order-dependent\n    found = any",
+        "count": 1,
+        "expect": "caught",
+    }
+    combo_right_order = {
+        "name": "right-order",
+        "mutations": ["zero-count-refusal", "depends-on-prior-step"],
+        "expect": "caught",
+    }
+    combo_wrong_order = {
+        "name": "wrong-order",
+        "mutations": ["depends-on-prior-step", "zero-count-refusal"],
+        "expect": "caught",
+    }
+    root = _masked_tree(
+        tmp_path, mutations=[GUARD_A, GUARD_B, order_dependent],
+        combinations=[combo_right_order, combo_wrong_order])
+    result = _probe(root)
+    #: `depends-on-prior-step`'s own edit is cosmetic (a comment), so in the
+    #: correct order this combination removes only Guard A - UNCAUGHT, same
+    #: as Guard A alone (masked by Guard B, untouched here). The point is NOT
+    #: this exact verdict; it is that the step APPLIED AT ALL only when Guard
+    #: A's replacement landed first, which "wrong-order" below disproves.
+    assert "MUTATION-INAPPLICABLE: controls/toy/control.json::right-order" not in result.stdout
+    assert "MUTATION-UNCAUGHT: controls/toy/control.json::right-order" in result.stdout
+    assert "MUTATION-INAPPLICABLE: controls/toy/control.json::wrong-order" in result.stdout
+    assert ("step 1 of 2: `find` matched 0 time(s)" in result.stdout), (
+        "wrong-order must fail at ITS FIRST step - depends-on-prior-step's find text "
+        "does not exist in the ORIGINAL gate, only after zero-count-refusal has landed")
+
+
+#: Each half of this pair is, on its own, a real one-step mutation (its
+#: `replace` differs from its `find`'s text). Combined in declared order,
+#: the second step exactly undoes the first - counter-model review, #1396.
+FLIP_TO_UPPER = {
+    "name": "flip-ok-marker-upper",
+    "protection": "the toy gate's own success marker, flipped to uppercase",
+    "find": r'print\("toy-gate: ok"\)',
+    "replace": 'print("toy-gate: OK")',
+    "count": 1,
+    "expect": "caught",
+}
+FLIP_BACK_TO_LOWER = {
+    "name": "flip-ok-marker-back",
+    "protection": "undoes flip-ok-marker-upper - reaches the UPPERCASE text that step produces",
+    "find": r'print\("toy-gate: OK"\)',
+    "replace": 'print("toy-gate: ok")',
+    "count": 1,
+    "expect": "caught",
+}
+
+
+def test_a_combination_whose_steps_cancel_out_is_inapplicable_not_accepted(tmp_path: Path) -> None:
+    """Two steps that each change the text can still net to NO edit at all if
+
+    the second undoes the first (issue #1396, counter-model review). Scoring
+    that as CAUGHT/ACCEPTED/UNCAUGHT would be a verdict about the UNMUTATED
+    gate reported as if a protection had been removed.
+    """
+    combo = {
+        "name": "flip-and-flip-back",
+        "mutations": ["flip-ok-marker-upper", "flip-ok-marker-back"],
+        "expect": "caught",
+    }
+    root = _masked_tree(
+        tmp_path, mutations=[GUARD_A, GUARD_B, FLIP_TO_UPPER, FLIP_BACK_TO_LOWER],
+        combinations=[combo])
+    result = _probe(root)
+    assert "MUTATION-INAPPLICABLE: controls/toy/control.json::flip-and-flip-back" in result.stdout
+    assert "COMBINED result is BYTE-IDENTICAL to the original" in result.stdout
+
+
+#: Deliberately missing `blocked_by` despite `expect: "uncaught"`, so this
+#: entry is rejected during the single-mutation pass and never enters
+#: `steps_by_name` - but it still CLAIMS its name in the manifest.
+REJECTED_MUTATION_WITH_A_NAME = {
+    "name": "shares-a-name",
+    "protection": "deliberately invalid - missing blocked_by - to test name collision",
+    "find": r'print\("toy-gate: ok"\)',
+    "replace": 'print("toy-gate: OK")',
+    "count": 1,
+    "expect": "uncaught",
+    "why": "deliberately missing blocked_by",
+}
+
+
+def test_a_combination_colliding_with_a_rejected_mutations_name_is_inapplicable(
+        tmp_path: Path) -> None:
+    """A mutation rejected for its OWN reasons (here, a missing `blocked_by`)
+
+    never reaches `steps_by_name` - but it still claims its name, and a
+    combination reusing that name must still be refused as a collision
+    (counter-model review, issue #1396), not silently run under a name that
+    is already ambiguous in the report.
+    """
+    combo = {
+        "name": "shares-a-name",
+        "mutations": ["zero-count-refusal", "tool-crash-refusal"],
+        "expect": "caught",
+    }
+    root = _masked_tree(
+        tmp_path, mutations=[GUARD_A, GUARD_B, REJECTED_MUTATION_WITH_A_NAME],
+        combinations=[combo])
+    result = _probe(root)
+    lines = [
+        line for line in result.stdout.splitlines()
+        if line.startswith("MUTATION-") and "controls/toy/control.json::shares-a-name" in line]
+    assert len(lines) == 2, (
+        "both the rejected mutation and the colliding combination must report under this "
+        f"name, distinctly: {lines}")
+    assert all(line.startswith("MUTATION-INAPPLICABLE:") for line in lines)
+    assert "collides" in result.stdout
+
+
+def test_a_combinations_entry_that_is_not_an_object_is_inapplicable_not_a_crash(
+        tmp_path: Path) -> None:
+    """A malformed `combinations` member must not crash the probe (issue
+
+    #1396, counter-model review) - `check-negative-controls.py`'s own schema
+    check only refuses an unknown TOP-LEVEL key, it does not validate shape.
+    """
+    root = _masked_tree(tmp_path, mutations=[GUARD_A, GUARD_B], combinations=["not-an-object"])
+    result = _probe(root)
+    assert "combination entry is not an object" in result.stdout
+
+
+def test_a_combinations_field_that_is_not_a_list_is_inapplicable_not_a_crash(
+        tmp_path: Path) -> None:
+    root = _masked_tree(tmp_path, mutations=[GUARD_A, GUARD_B], combinations={"oops": True})
+    result = _probe(root)
+    assert "`combinations` must be a list of objects" in result.stdout
+
+
+def test_a_null_combinations_field_is_treated_as_no_combinations(tmp_path: Path) -> None:
+    """`"combinations": null` must not crash, and is treated the same as the
+
+    key's absence - the same convention this file already applies to a null
+    `mutations` field.
+    """
+    root = _masked_tree(tmp_path, mutations=[GUARD_A, GUARD_B], combinations=None)
+    result = _probe(root, "--strict")
+    assert result.returncode == 0
+    assert "MUTATION-ACCEPTED: controls/toy/control.json::zero-count-refusal" in result.stdout
