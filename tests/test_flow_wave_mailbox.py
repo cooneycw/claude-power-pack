@@ -1901,10 +1901,65 @@ def _supervise_log(tmp: Path, wave: str, role: str) -> Path:
 def _wait_for(predicate, timeout: float = 10.0, interval: float = 0.1) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if predicate():
-            return True
+        try:
+            if predicate():
+                return True
+        except FileNotFoundError:
+            # A predicate that reads a file racing its own creation (several
+            # callers do `lambda: "..." in some_path.read_text()` without a
+            # prior `.exists()` guard) must read as "not yet", not as a
+            # reason to abort before the caller's own timeout (issue #1404,
+            # Nit Store #864 comment 5982428923). The file genuinely not
+            # existing YET is exactly the condition this function exists to
+            # wait out - a predicate that still cannot read it once the
+            # deadline passes raises normally from the final call below,
+            # which is NOT swallowed, so a predicate that is simply wrong
+            # (a typo'd path, for instance) still surfaces its own error
+            # rather than silently reading as "timed out".
+            pass
         time.sleep(interval)
     return predicate()
+
+
+def test_wait_for_treats_a_file_racing_its_own_creation_as_not_yet(
+    tmp_path: Path,
+) -> None:
+    """The exact bug issue #1404 (Nit Store #864 comment 5982428923) names:
+    `_wait_for(lambda: "..." in log.read_text())` aborted on the FIRST poll
+    when the file did not exist yet, rather than waiting out the timeout it
+    was given - observed in CI (pipeline 2984) as a `FileNotFoundError`
+    reading a supervise daemon's own log, 1 of 7126 tests, on a PR that
+    never touched the mailbox.
+
+    Deterministic, no daemon or timing luck involved: the file genuinely
+    does not exist for the first ~0.2s of the wait, on a background thread
+    this test controls directly."""
+    target = tmp_path / "appears-after-a-delay.txt"
+    assert not target.exists()  # precondition: the race this reproduces
+
+    def write_after_delay() -> None:
+        time.sleep(0.2)
+        target.write_text("ready")
+
+    writer = threading.Thread(target=write_after_delay)
+    writer.start()
+    try:
+        assert _wait_for(lambda: target.read_text() == "ready", timeout=2)
+    finally:
+        writer.join(timeout=5)
+
+
+def test_wait_for_still_raises_a_predicate_that_never_finds_its_file(
+    tmp_path: Path,
+) -> None:
+    """The other half: catching `FileNotFoundError` during polling must not
+    turn into silently swallowing a predicate that is simply WRONG (a
+    typo'd path, a file nothing ever creates). The final, post-deadline
+    call is deliberately not wrapped, so a file that never appears still
+    raises - never reads as an ordinary `False` timeout."""
+    target = tmp_path / "nothing-ever-creates-this.txt"
+    with pytest.raises(FileNotFoundError):
+        _wait_for(lambda: target.read_text() == "ready", timeout=0.3)
 
 
 def _daemon_pid(tmp: Path, wave: str, role: str) -> int:
