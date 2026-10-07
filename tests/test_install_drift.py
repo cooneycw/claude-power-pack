@@ -246,7 +246,7 @@ def test_multiple_cached_families_are_named(tmp_path: Path):
 
 
 def test_quiet_retired_cache_is_one_non_failing_line(tmp_path: Path):
-    checkout = _make_checkout(tmp_path / "checkout")
+    checkout = _make_checkout_with_no_scripts(tmp_path / "checkout")
     home = tmp_path / "home"
     _make_cache(home, "flow", "security")
 
@@ -259,8 +259,26 @@ def test_quiet_retired_cache_is_one_non_failing_line(tmp_path: Path):
     ]
 
 
+def _make_checkout_with_no_scripts(root: Path) -> Path:
+    """Like _make_checkout, but with no scripts/ entry at all - true emptiness
+    for the global-skip tests. _make_checkout's HELPER is a real, executable
+    checkout script (issue #1401 needs it for the unlinked axis's population
+    tests), so it is no longer a valid "nothing here" fixture on its own:
+    with no install at all it is itself unlinked, and installed it is itself
+    current - either way HELPERS_TOTAL or HELPERS_UNLINKED is nonzero, which
+    defeats the terse skip this fixture exists to exercise (counter-model
+    review, #1401: the fix that makes an absent install root still report
+    every checkout executable as unlinked also retires this shortcut)."""
+    (root / ".claude" / "commands" / "flow").mkdir(parents=True)
+    (root / "CLAUDE.md").write_text("# fake CPP\n", encoding="utf-8")
+    (root / ".claude" / "commands" / "flow" / "auto.md").write_text(
+        "# auto\n", encoding="utf-8"
+    )
+    return root
+
+
 def test_no_retired_surface_is_skipped_silently_in_quiet_mode(tmp_path: Path):
-    checkout = _make_checkout(tmp_path / "checkout")
+    checkout = _make_checkout_with_no_scripts(tmp_path / "checkout")
     home = tmp_path / "home"
     home.mkdir()
 
@@ -457,8 +475,11 @@ def test_empty_codex_skills_tree_is_not_reported_ok(tmp_path: Path):
 
 def test_absent_codex_skills_tree_does_not_defeat_the_global_skip(tmp_path: Path):
     """Regression guard: nothing installed of any of the three kinds still
-    hits the terse emit_skip path exactly as it did before #823."""
-    checkout = _make_checkout(tmp_path / "checkout")
+    hits the terse emit_skip path exactly as it did before #823. Uses
+    _make_checkout_with_no_scripts, not _make_checkout: a real, executable
+    checkout script is itself a fourth kind now (#1401's unlinked axis), and
+    this guard is about the original three."""
+    checkout = _make_checkout_with_no_scripts(tmp_path / "checkout")
     home = tmp_path / "home"
     home.mkdir()
 
@@ -1539,6 +1560,23 @@ def test_an_unlinked_only_population_is_still_reported(tmp_path: Path):
     payload = json.loads(_run(checkout, home, "--json").stdout)
 
     assert HELPER in report.stdout, report.stdout
+    assert payload["helpers_unlinked"] == 1, payload
+    assert payload["unlinked_helpers"] == [HELPER], payload
+
+
+def test_an_absent_install_root_still_reports_every_checkout_executable_unlinked(
+    tmp_path: Path,
+):
+    """COUNTER-MODEL FINDING (codex): the parity loop above has nothing to
+    say when ~/.claude/scripts does not exist at all, because it iterates
+    the INSTALLED side. This axis iterates the CHECKOUT side, so a host
+    that never ran /cpp:init has every checkout executable unlinked - the
+    exact claim this axis exists to make, not a reason to stay silent."""
+    checkout = _make_checkout(tmp_path / "checkout")
+    home = tmp_path / "home"
+    assert not (home / ".claude" / "scripts").exists()
+
+    payload = json.loads(_run(checkout, home, "--json").stdout)
     assert payload["helpers_unlinked"] == 1, payload
     assert payload["unlinked_helpers"] == [HELPER], payload
 

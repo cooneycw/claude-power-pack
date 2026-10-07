@@ -450,7 +450,16 @@ HELPERS_MISSING=${#MISSING_HELPERS[@]}
 # discovering the drift by hand later.
 HELPERS_UNLINKED=0
 UNLINKED_HELPERS=()
-if [ -n "$SCRIPTS_DIR" ] && [ -d "$SCRIPTS_DIR" ] && [ -d "$CHECKOUT/scripts" ]; then
+# NO `[ -d "$SCRIPTS_DIR" ]` TERM (counter-model review, codex): unlike the
+# parity loop above, which only has installed-side entries to iterate and so
+# has nothing to say when the install root is absent, this axis iterates the
+# CHECKOUT side - a host that has never installed anything has every checkout
+# executable unlinked, which is exactly what this axis exists to say. Requiring
+# the install root to exist first silently reported zero for "never scanned"
+# and "scanned, found none" alike, hiding the gap entirely on a host that had
+# not run /cpp:init at all. `-L`/`-f` on a path under a missing directory are
+# simply false, so the loop body needs no other change.
+if [ -n "$SCRIPTS_DIR" ] && [ -d "$CHECKOUT/scripts" ]; then
     for source_script in "$CHECKOUT/scripts"/*; do
         [ -f "$source_script" ] || continue
         [ -x "$source_script" ] || continue
