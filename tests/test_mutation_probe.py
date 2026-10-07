@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -803,7 +804,7 @@ INERT_COMMENT = {
 }
 
 
-def _masked_tree(tmp_path: Path, *, mutations: list[dict], combinations: list[dict]) -> Path:
+def _masked_tree(tmp_path: Path, *, mutations: list[dict], combinations: Any) -> Path:
     """A self-contained repository with the masked-pair toy gate (issue #1396)."""
     root = tmp_path / "tree"
     (root / "scripts").mkdir(parents=True)
@@ -974,3 +975,117 @@ def test_a_combinations_step_is_checked_against_the_already_mutated_text(tmp_pat
     assert ("step 1 of 2: `find` matched 0 time(s)" in result.stdout), (
         "wrong-order must fail at ITS FIRST step - depends-on-prior-step's find text "
         "does not exist in the ORIGINAL gate, only after zero-count-refusal has landed")
+
+
+#: Each half of this pair is, on its own, a real one-step mutation (its
+#: `replace` differs from its `find`'s text). Combined in declared order,
+#: the second step exactly undoes the first - counter-model review, #1396.
+FLIP_TO_UPPER = {
+    "name": "flip-ok-marker-upper",
+    "protection": "the toy gate's own success marker, flipped to uppercase",
+    "find": r'print\("toy-gate: ok"\)',
+    "replace": 'print("toy-gate: OK")',
+    "count": 1,
+    "expect": "caught",
+}
+FLIP_BACK_TO_LOWER = {
+    "name": "flip-ok-marker-back",
+    "protection": "undoes flip-ok-marker-upper - reaches the UPPERCASE text that step produces",
+    "find": r'print\("toy-gate: OK"\)',
+    "replace": 'print("toy-gate: ok")',
+    "count": 1,
+    "expect": "caught",
+}
+
+
+def test_a_combination_whose_steps_cancel_out_is_inapplicable_not_accepted(tmp_path: Path) -> None:
+    """Two steps that each change the text can still net to NO edit at all if
+
+    the second undoes the first (issue #1396, counter-model review). Scoring
+    that as CAUGHT/ACCEPTED/UNCAUGHT would be a verdict about the UNMUTATED
+    gate reported as if a protection had been removed.
+    """
+    combo = {
+        "name": "flip-and-flip-back",
+        "mutations": ["flip-ok-marker-upper", "flip-ok-marker-back"],
+        "expect": "caught",
+    }
+    root = _masked_tree(
+        tmp_path, mutations=[GUARD_A, GUARD_B, FLIP_TO_UPPER, FLIP_BACK_TO_LOWER],
+        combinations=[combo])
+    result = _probe(root)
+    assert "MUTATION-INAPPLICABLE: controls/toy/control.json::flip-and-flip-back" in result.stdout
+    assert "COMBINED result is BYTE-IDENTICAL to the original" in result.stdout
+
+
+#: Deliberately missing `blocked_by` despite `expect: "uncaught"`, so this
+#: entry is rejected during the single-mutation pass and never enters
+#: `steps_by_name` - but it still CLAIMS its name in the manifest.
+REJECTED_MUTATION_WITH_A_NAME = {
+    "name": "shares-a-name",
+    "protection": "deliberately invalid - missing blocked_by - to test name collision",
+    "find": r'print\("toy-gate: ok"\)',
+    "replace": 'print("toy-gate: OK")',
+    "count": 1,
+    "expect": "uncaught",
+    "why": "deliberately missing blocked_by",
+}
+
+
+def test_a_combination_colliding_with_a_rejected_mutations_name_is_inapplicable(
+        tmp_path: Path) -> None:
+    """A mutation rejected for its OWN reasons (here, a missing `blocked_by`)
+
+    never reaches `steps_by_name` - but it still claims its name, and a
+    combination reusing that name must still be refused as a collision
+    (counter-model review, issue #1396), not silently run under a name that
+    is already ambiguous in the report.
+    """
+    combo = {
+        "name": "shares-a-name",
+        "mutations": ["zero-count-refusal", "tool-crash-refusal"],
+        "expect": "caught",
+    }
+    root = _masked_tree(
+        tmp_path, mutations=[GUARD_A, GUARD_B, REJECTED_MUTATION_WITH_A_NAME],
+        combinations=[combo])
+    result = _probe(root)
+    lines = [
+        line for line in result.stdout.splitlines()
+        if line.startswith("MUTATION-") and "controls/toy/control.json::shares-a-name" in line]
+    assert len(lines) == 2, (
+        "both the rejected mutation and the colliding combination must report under this "
+        f"name, distinctly: {lines}")
+    assert all(line.startswith("MUTATION-INAPPLICABLE:") for line in lines)
+    assert "collides" in result.stdout
+
+
+def test_a_combinations_entry_that_is_not_an_object_is_inapplicable_not_a_crash(
+        tmp_path: Path) -> None:
+    """A malformed `combinations` member must not crash the probe (issue
+
+    #1396, counter-model review) - `check-negative-controls.py`'s own schema
+    check only refuses an unknown TOP-LEVEL key, it does not validate shape.
+    """
+    root = _masked_tree(tmp_path, mutations=[GUARD_A, GUARD_B], combinations=["not-an-object"])
+    result = _probe(root)
+    assert "combination entry is not an object" in result.stdout
+
+
+def test_a_combinations_field_that_is_not_a_list_is_inapplicable_not_a_crash(
+        tmp_path: Path) -> None:
+    root = _masked_tree(tmp_path, mutations=[GUARD_A, GUARD_B], combinations={"oops": True})
+    result = _probe(root)
+    assert "`combinations` must be a list of objects" in result.stdout
+
+
+def test_a_null_combinations_field_is_treated_as_no_combinations(tmp_path: Path) -> None:
+    """`"combinations": null` must not crash, and is treated the same as the
+
+    key's absence - the same convention this file already applies to a null
+    `mutations` field.
+    """
+    root = _masked_tree(tmp_path, mutations=[GUARD_A, GUARD_B], combinations=None)
+    result = _probe(root, "--strict")
+    assert result.returncode == 0
+    assert "MUTATION-ACCEPTED: controls/toy/control.json::zero-count-refusal" in result.stdout

@@ -543,6 +543,17 @@ def _apply_steps(original: str, steps: list[tuple[str, str, int]]) -> tuple[str 
                 "step BYTE-IDENTICAL, so no protection was removed and the battery's verdict is "
                 "about unchanged code")
         text = mutated
+    if text == original:
+        #: Each STEP changed something (checked above), but a later step can
+        #: undo an earlier one - A->B then B->A nets to no edit at all. Caught
+        #: here rather than per-step because no single step is byte-identical;
+        #: only the CUMULATIVE result is, and a cumulative no-op scored as a
+        #: real mutation would report ACCEPTED or UNCAUGHT for a gap that was
+        #: never opened (counter-model review, issue #1396).
+        return None, (
+            f"{len(steps)} step(s) each changed the text, but the COMBINED result is BYTE-"
+            "IDENTICAL to the original - a later step undid an earlier one, so no protection "
+            "was removed and the battery's verdict is about unchanged code")
     return text, None
 
 
@@ -700,6 +711,11 @@ def run_manifest(manifest_rel: str, root: Path, new_sandbox: Callable[[], Path],
         print(f"MUTATION_PROBE_BASELINE: green ({manifest_rel})")
 
     probes: list[Probe] = []
+    #: Every NAME the manifest declares a mutation under, valid or not - a
+    #: combination colliding with a mutation that was itself rejected (e.g.
+    #: missing `blocked_by`) is still a collision, because `steps_by_name`
+    #: below only ever holds the valid ones (counter-model review, #1396).
+    declared_mutation_names = {str(entry.get("name", "?")) for entry in mutations}
     #: name -> (find, replace, count), so a combination can apply several
     #: EXISTING mutations together without re-declaring their find/replace
     #: text (issue #1396) - one definition per protection, referenced by name.
@@ -769,14 +785,31 @@ def run_manifest(manifest_rel: str, root: Path, new_sandbox: Callable[[], Path],
     #: earlier substitution removes what a later step's `find` was looking
     #: for, that is INAPPLICABLE, never silently partial.
     combo_names: set[str] = set()
-    for entry in spec.get("combinations", []):
+    combinations = spec.get("combinations") or []
+    if not isinstance(combinations, list):
+        probe = Probe(manifest_rel, gate_rel, "combinations", "", INAPPLICABLE, details=[
+            f"`combinations` must be a list of objects, got {type(combinations).__name__} - "
+            "a malformed manifest is not a weaker instrument, it is an unreadable one"])
+        probes.append(probe)
+        combinations = []
+    for entry in combinations:
+        if not isinstance(entry, dict):
+            probe = Probe(manifest_rel, gate_rel, "?", "", INAPPLICABLE, details=[
+                f"combination entry is not an object (got {type(entry).__name__})"])
+            probes.append(probe)
+            continue
         name = str(entry.get("name", "?"))
         protection = str(entry.get("protection", ""))
         expect = str(entry.get("expect", "caught")).lower()
         why = str(entry.get("why", ""))
         probe = Probe(manifest_rel, gate_rel, name, protection, UNRESOLVED)
 
-        if name in steps_by_name or name in combo_names:
+        #: Checked against every DECLARED mutation name, not just the valid
+        #: ones in `steps_by_name` - a mutation rejected for its own reasons
+        #: (a bad find/replace, a missing blocked_by) still claims its name,
+        #: and a combination reusing it would report two Probes under one
+        #: name (counter-model review, issue #1396).
+        if name in declared_mutation_names or name in combo_names:
             probe.verdict = INAPPLICABLE
             probe.details.append(
                 f"combination name {name!r} collides with an existing mutation or combination "
