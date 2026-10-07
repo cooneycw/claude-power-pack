@@ -2264,10 +2264,42 @@ def test_calls_network_flags_an_invocation(rel, text):
         ("scripts/x.py", 'run(["git", "branch", "fetch"])\n'),
         # A shell invocation shape in a non-shell file is not read as shell.
         ("docs/x.md", "gh issue list\n"),
+        # THE #1408 RED (Nit Store #864, found by the #1359 counter-model
+        # review, deferred then): an argv-shaped list inside a Python
+        # docstring used to match the old regex. A docstring is ONE
+        # ast.Constant node to the real parser - it can never contain a
+        # nested ast.List, so the AST-based detector never sees this shape
+        # at all, regex tweak or not.
+        ("scripts/x.py", '"""Example: run(["gh", "issue", "list"]) shows the shape."""\n'),
+        # THE #1408 RED, shell side: a command position inside a quoted
+        # shell string. The `;` that used to open a command position sits
+        # inside the double-quoted span, which the per-line quote tracker
+        # now sees.
+        ("scripts/x.sh", 'echo "retry; gh issue list"\n'),
     ],
 )
 def test_calls_network_ignores_a_mention(rel, text):
     assert codex_skill_sync.calls_network({rel: text}) is False
+
+
+@pytest.mark.parametrize(
+    "rel, text",
+    [
+        # Command substitution INSIDE a double-quoted string still runs in
+        # real bash - an enclosing `"..."` does not suppress `$(...)`  the
+        # way a `'...'` would (counter-model review on the B2 fix itself).
+        ("scripts/x.sh", 'out="$(gh issue list --state all)"\n'),
+        # The same *_BIN variable convention, nested inside a substitution
+        # that is itself inside a double-quoted assignment.
+        ("scripts/x.sh", 'default_branch="$("$GH_BIN" api "repos/$REPO")"\n'),
+        ("scripts/x.sh", 'if ! body="$("$GH" issue view "$N" --json body)"; then\n'),
+    ],
+)
+def test_calls_network_flags_a_substitution_inside_a_double_quote(rel, text):
+    """A flat one-level quote tracker masked this as inert - the SAME shape
+    as the false positive it was built to fix, for the opposite reason:
+    `$(...)` is a fresh parsing context, not more of the enclosing string."""
+    assert codex_skill_sync.calls_network({rel: text}) is True
 
 
 def test_real_repo_project_next_skill_carries_the_network_bullet():

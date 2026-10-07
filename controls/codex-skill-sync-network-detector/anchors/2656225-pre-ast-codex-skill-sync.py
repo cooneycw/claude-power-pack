@@ -51,7 +51,6 @@ the git-less CI validate container. Reconcile drift by editing the SOURCE
 from __future__ import annotations
 
 import argparse
-import ast
 import contextlib
 import errno
 import hashlib
@@ -235,188 +234,33 @@ NETWORK_BULLET = (
 #:
 #: A bare `(` is deliberately NOT a command position: `"... (gh issue create)"`
 #: inside a usage string in flow-worktree-claim.sh is prose, and matching it
-#: flagged four skills that make no network call.
-#:
-#: PYTHON IS AST, NOT REGEX (issue #1408, counter-model review, codex LOW,
-#: PR #1359). A string or a docstring is ONE `ast.Constant` node to the real
-#: parser - it can never contain a nested `ast.List` node, so prose shaped
-#: exactly like `run(["gh", "issue", "list"])` inside a docstring simply does
-#: not generate the AST shape this detector looks for. No regex tweak closes
-#: that gap; the parser already refuses to open it.
-#:
-#: SHELL KEEPS A COMMAND-POSITION CHECK, because a full shell parser is a
-#: much bigger dependency than `ast` for one advisory bullet - but it now
-#: tracks quote state per line (the same per-line quote-span tracking
-#: `check-test-binary-guards.py` added for heredocs in #1407) and only
-#: accepts a match whose START position is OUTSIDE any open quote.
-#: `echo "retry; gh issue list"` no longer matches: the `;` that used to open
-#: a command position sits inside the double-quoted span. A REAL command
-#: position - line start, after `;`, `&`, `|`, a backtick, `$(`, or
-#: `if`/`then`/`do`/`!` - still matches outside quotes, with the tool literal
-#: or a variable named for it, with or without `_BIN`: `"$GH_BIN" api`
-#: (gh-pr-merge.sh, flow-ci-status.sh), `"$GH" issue view` / `"$GIT" fetch`
-#: (flow-start-resolve.sh).
-_NET_PY_TOOLS = ("gh", "curl", "aws")
-_NET_GIT_REMOTE_VERBS = ("fetch", "push", "pull", "ls-remote", "clone")
-_NET_PY_IMPORT_MODULES = ("urllib.request", "http.client", "requests")
-
-
-def _py_list_is_network_argv(node: ast.List) -> bool:
-    """True when a list literal's elements open with a network-tool argv shape."""
-    if not node.elts:
-        return False
-    first = node.elts[0]
-    if not (isinstance(first, ast.Constant) and isinstance(first.value, str)):
-        return False
-    if first.value in _NET_PY_TOOLS:
-        return True
-    if first.value != "git":
-        return False
-    # Only `-C <path>` / `-c <key=val>` PAIRS may precede the subcommand, so
-    # `["git", "branch", "fetch"]` (the literal branch name "fetch") is local.
-    i = 1
-    while i + 1 < len(node.elts):
-        flag = node.elts[i]
-        if isinstance(flag, ast.Constant) and flag.value in ("-C", "-c"):
-            i += 2
-            continue
-        break
-    if i >= len(node.elts):
-        return False
-    verb = node.elts[i]
-    return isinstance(verb, ast.Constant) and verb.value in _NET_GIT_REMOTE_VERBS
-
-
-#: NEGATIVE-CONTROL: controls/codex-skill-sync-network-detector
-def _py_calls_network(text: str) -> bool:
-    try:
-        tree = ast.parse(text)
-    except SyntaxError:
-        # A bundled script that cannot parse is a different problem entirely,
-        # not this detector's to diagnose; it reports no network call rather
-        # than guessing at malformed source.
-        return False
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            for arg in (*node.args, *(kw.value for kw in node.keywords)):
-                if isinstance(arg, ast.List) and _py_list_is_network_argv(arg):
-                    return True
-        elif isinstance(node, ast.Import):
-            if any(alias.name in _NET_PY_IMPORT_MODULES for alias in node.names):
-                return True
-        elif isinstance(node, ast.ImportFrom):
-            module = node.module or ""
-            if module in _NET_PY_IMPORT_MODULES or module == "urllib" and any(
-                alias.name == "request" for alias in node.names
-            ):
-                return True
-    return False
-
-
-def _sh_quote_free_mask(line: str) -> list[bool]:
-    """True at each index of `line` that is outside a quoted span and before
-    any unquoted `#` - the only positions a real command can start at.
-
-    `$( ... )` is tracked as a NESTED, FRESH parsing context (a stack, not a
-    flag), because real bash still performs command substitution INSIDE a
-    double-quoted string - `out="$(gh issue list)"` genuinely runs `gh`, and
-    an enclosing double quote does not suppress it the way a single quote
-    would. A flat one-level quote tracker that masked everything inside the
-    outer `"..."` made this case indistinguishable from the one this
-    function exists to mask - `echo "retry; gh issue list"` - which really
-    is inert text. The distinguishing fact is `$(`, not quote depth, so each
-    `$(...)` gets quote state that starts over, exactly as bash's own parser
-    restarts tokenizing inside one.
-    """
-    mask = [True] * len(line)
-    stack = [{"single": False, "double": False}]
-    paren_depth: list[int] = []
-    i = 0
-    n = len(line)
-    while i < n:
-        ch = line[i]
-        top = stack[-1]
-        if top["single"]:
-            mask[i] = False
-            if ch == "'":
-                top["single"] = False
-            i += 1
-            continue
-        if top["double"]:
-            if ch == '"' and line[i - 1] != "\\":
-                mask[i] = False
-                top["double"] = False
-                i += 1
-                continue
-            if line[i : i + 2] == "$(":
-                # A substitution inside a double-quoted string still runs -
-                # start a FRESH context for its contents, left unmasked.
-                stack.append({"single": False, "double": False})
-                paren_depth.append(1)
-                i += 2
-                continue
-            mask[i] = False
-            i += 1
-            continue
-        if ch == "#" and len(stack) == 1:
-            for j in range(i, n):
-                mask[j] = False
-            break
-        if ch == "'":
-            top["single"] = True
-            # The OPENING quote char itself stays free: `"$GH_BIN"` quotes a
-            # COMMAND WORD, and the tool pattern below expects to match that
-            # leading quote as part of the token - only what comes strictly
-            # AFTER it is the string's own inert content.
-            i += 1
-            continue
-        if ch == '"':
-            top["double"] = True
-            i += 1
-            continue
-        if line[i : i + 2] == "$(":
-            stack.append({"single": False, "double": False})
-            paren_depth.append(1)
-            i += 2
-            continue
-        if ch == "(" and paren_depth:
-            paren_depth[-1] += 1
-            i += 1
-            continue
-        if ch == ")" and paren_depth:
-            paren_depth[-1] -= 1
-            if paren_depth[-1] == 0:
-                paren_depth.pop()
-                stack.pop()
-            i += 1
-            continue
-        i += 1
-    return mask
-
-
-_NET_SH_CORE = re.compile(
-    r"(?:^|[;&|`]|\$\(|\b(?:if|then|do|!)\s)\s*"
+#: flagged four skills that make no network call. Known limit: a command
+#: position inside a quoted string (`echo "retry; gh issue list"`) still
+#: matches - telling it apart needs a shell parser, and the cost of the false
+#: positive is one advisory bullet, which is why the bullet says the helpers
+#: APPEAR to call the network rather than asserting it. Prose shaped exactly
+#: like an argv list inside a Python docstring matches for the same reason.
+_NET_PY = re.compile(
+    r"""(?m)^(?!\s*#).*?(?:"""
+    r"""\[\s*["'](?:gh|curl|aws)["']"""
+    r"""|\[\s*["']git["']\s*,\s*(?:["']-[Cc]["']\s*,\s*[^,\]]+,\s*)*["'](?:fetch|push|pull|ls-remote|clone)["']"""
+    r"""|^\s*(?:import|from)\s+(?:urllib\.request|urllib\s+import\s+request|http\.client|requests)\b"""
+    r")"
+)
+_NET_SH = re.compile(
+    r"(?m)^(?!\s*#)[^#\n]*?(?:^|[;&|`]|\$\(|\b(?:if|then|do|!)\s)\s*"
     r"(?:(?:gh|\"?\$\{?GH(?:_BIN)?\}?\"?)\s+(?:api|issue|pr|repo|run|release|auth|search|label|workflow)\b"
     r"|(?:git|\"?\$\{?GIT(?:_BIN)?\}?\"?)\s+(?:-[Cc]\s+\S+\s+)*(?:fetch|push|pull|ls-remote|clone)\b"
     r"|(?:curl|aws|\"?\$\{?(?:CURL|AWS|WPCLI)(?:_BIN)?\}?\"?)\s)"
 )
 
 
-def _sh_calls_network(text: str) -> bool:
-    for line in text.splitlines():
-        mask = _sh_quote_free_mask(line)
-        for match in _NET_SH_CORE.finditer(line):
-            if mask[match.start()]:
-                return True
-    return False
-
-
 def calls_network(files: dict[str, str]) -> bool:
     """True when any bundled helper (skill-relative path -> text) invokes the network."""
     for rel, text in files.items():
-        if rel.endswith(".py") and _py_calls_network(text):
+        if rel.endswith(".py") and _NET_PY.search(text):
             return True
-        if rel.endswith(".sh") and _sh_calls_network(text):
+        if rel.endswith(".sh") and _NET_SH.search(text):
             return True
     return False
 
@@ -527,55 +371,6 @@ def detect_adaptations(body: str) -> list[str]:
         for patterns, bullet in ADAPTATIONS
         if any(pattern in body for pattern in patterns)
     ]
-
-
-#: `~/.claude/scripts/<name>` - the convenience-install absolute path a command
-#: document invokes a helper by (issue #1408, Nit Store #864). The RELATIVE
-#: form `scripts/<name>` already reads correctly unchanged in both the CPP
-#: checkout (repo-root-relative) and a generated skill (skill-dir-relative,
-#: since the helper is bundled at that same relative path) - which is exactly
-#: why `_SCRIPT_REF` needs no rewrite at all for that shape. The absolute form
-#: has no such luck: `~/.claude/scripts/` names a path that exists only on a
-#: host with the convenience install, never inside a generated skill, so it
-#: must become the relative form before anything downstream can see it as a
-#: dependency - it previously became nothing, and the Codex entry point hit
-#: exit 127.
-_ABS_CLAUDE_SCRIPT_REF = re.compile(r"~/\.claude/scripts/([A-Za-z0-9._-]+\.(?:sh|py))\b")
-
-
-#: NEGATIVE-CONTROL: controls/codex-skill-sync-remap
-def rewrite_absolute_script_refs(body: str) -> tuple[str, list[str]]:
-    """Rewrite `~/.claude/scripts/<name>` to `scripts/<name>` when `<name>` is
-    a real checkout script (so `find_bundled_scripts` bundles it exactly as it
-    already does for a relative reference - no second bundling path).
-
-    Returns `(new_body, unremapped)`: `unremapped` names any `<name>` that is
-    NOT a real checkout script, left untouched in the body rather than
-    rewritten to a relative path that would resolve to nothing bundled - a
-    typo'd or genuinely host-only name must be named as a gap, not silently
-    pointed at a file this generator never ships.
-    """
-    unremapped: list[str] = []
-
-    def repl(match: re.Match[str]) -> str:
-        name = match.group(1)
-        if (SCRIPTS_ROOT / name).is_file():
-            return f"scripts/{name}"
-        unremapped.append(name)
-        return match.group(0)
-
-    new_body = _ABS_CLAUDE_SCRIPT_REF.sub(repl, body)
-    return new_body, sorted(set(unremapped))
-
-
-def unremapped_script_bullet(names: list[str]) -> str:
-    joined = ", ".join(f"`~/.claude/scripts/{n}`" for n in names)
-    return (
-        f"Absolute path(s) {joined}: no matching checkout script was found, so"
-        " this skill cannot bundle it and the reference will not resolve in a"
-        " Codex-only install (exit 127). Obtain the helper from a"
-        " claude-power-pack checkout, or file a Nit Store finding."
-    )
 
 
 _SCRIPT_REF = re.compile(r"scripts/([A-Za-z0-9._-]+\.(?:sh|py))")
@@ -1033,11 +828,6 @@ def generate_skill(
     """Map of skill-dir-relative path -> content for one command."""
     meta, body = parse_frontmatter(source_file.read_text())
     body = rewrite_slash_refs(body, names).rstrip("\n") + "\n"
-    # Rewrite the absolute convenience-install path BEFORE find_bundled_scripts
-    # runs: a rewritten `~/.claude/scripts/<name>` becomes a plain
-    # `scripts/<name>` reference, which is the ONLY shape that detector reads -
-    # one bundling path, not two.
-    body, unremapped_scripts = rewrite_absolute_script_refs(body)
     # Rewrite doc links BEFORE deriving the description: the description is cut
     # from the opening paragraphs, so a later rewrite leaves the broken
     # source-relative path advertised in the skill's own frontmatter.
@@ -1053,8 +843,6 @@ def generate_skill(
         bullets.append(BUNDLED_SCRIPTS_BULLET)
     if docs:
         bullets.append(BUNDLED_DOCS_BULLET)
-    if unremapped_scripts:
-        bullets.append(unremapped_script_bullet(unremapped_scripts))
     # Every bundled code file, gathered before the bullets are rendered because
     # the network bullet is decided by what the helpers DO (issue #1357).
     bundled: dict[str, str] = {
