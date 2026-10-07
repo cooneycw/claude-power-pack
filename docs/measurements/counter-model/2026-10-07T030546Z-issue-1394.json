@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1394-negative-control-discovery",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "fc14d4ccb666e9e7d4daece56d562d36a800a119",
+  "implementer": "claude/claude-sonnet-5",
+  "issue": "1394",
+  "passes": 1,
+  "recorded_at": "2026-10-07T03:05:46Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 5
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/07/rollout-2026-10-07T02-34-20-01a11436-38f1-7353-88a2-a28bec328d61.jsonl",
+    "thread_id": "01a11436-38f1-7353-88a2-a28bec328d61"
+  },
+  "schema": 1,
+  "status": "ran"
+}

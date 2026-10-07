@@ -590,9 +590,9 @@ fails the pipeline, so registering one would trade a working control for a red
 build. `tests/test_stash_worktree_guard.py` carries both halves issue #1056
 names, plus a blind-hook variant asserting the known-bad outcome flips.
 
-<!-- instrument-census: external-subjects: ruff, mypy, pytest, gitleaks, lib.cicd, lib.security, lib.creds, pipeline, infra-init, infra-discover, infra-pipeline, init-manifest -->
+<!-- instrument-census: external-subjects: ruff, mypy, pytest, gitleaks, lib.cicd, lib.creds, pipeline, infra-init, infra-discover, infra-pipeline, init-manifest -->
 
-`ruff`, `mypy`, `pytest`, `gitleaks`, `lib.cicd`, `lib.security`, `lib.creds`,
+`ruff`, `mypy`, `pytest`, `gitleaks`, `lib.cicd`, `lib.creds`,
 and the `lib.cicd` subcommands `pipeline`, `infra-init`, `infra-discover`,
 `infra-pipeline` and `init-manifest`. `hadolint` was on this list until issue #943;
 see the note under **Universe and derivation** for why it left. `make` was on it
@@ -602,10 +602,23 @@ REGISTRABLE - a `#: NEGATIVE-CONTROL:` marker directly above the rule, with a
 `gate: {kind: make-target, file: Makefile, target: <t>}` manifest, is discovered
 and scored like a `scripts/` gate. The population does not widen to every make
 target; only the targets a row names are checked, and a registered make-target
-gate with no row FAILS the negative-control run rather than being named. Being on this list is a statement about where the instrument
-LIVES, never that it is out of the bound - `gitleaks` is row 44 and carries a
-control today, reached by wrapping it in `secret-scan-check.sh` (row 72). The
-wrapper is the route for the others.
+gate with no row FAILS the negative-control run rather than being named.
+`lib.security` left the same way, at issue #1394: a `#: NEGATIVE-CONTROL:`
+marker directly inside a `lib/` module file is now discovered too, resolved to
+the TYPED subject `lib.<pkg>` (the file's own package, dotted - row 61,
+`lib.security gate`, is `lib.security`), validated against a real `lib/<pkg>/`
+directory the same way `make:<target>` is validated against a real Makefile
+target. Rows 60 and 61 share that one subject and both now resolve
+structurally rather than by declaration. `controls/lib-security-gate` is the
+registered control (#1394's own acceptance demo: a gate implemented entirely
+under `lib/security/`, with no `scripts/` entry point at all, that could not be
+registered by any arrangement before). `lib.cicd` and `lib.creds` remain on
+this list - the KIND now exists for them too, but nothing registers a marker
+for either yet, so they are unchanged by this issue. Being on this list is a
+statement about where the instrument LIVES, never that it is out of the bound -
+`gitleaks` is row 44 and carries a control today, reached by wrapping it in
+`secret-scan-check.sh` (row 72). The wrapper is the route for `lib.cicd` and
+`lib.creds` until one of them gets its own direct marker.
 
 A row that stops being an instrument is RETIRED, not deleted: it moves to the
 **Retired** table below with the number it held, so no number is reused and the

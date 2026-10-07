@@ -326,7 +326,7 @@ def census_instruments(root: Path) -> set[str] | None:
         census, _label = module.resolve_adr(root)
         if census is None:
             return None
-        return set(module.census_subjects(census.read_text()))
+        return set(module.census_subjects(census.read_text(), root))
     except Exception:  # noqa: BLE001 - any failure here is UNREAD, never EMPTY
         return None
 

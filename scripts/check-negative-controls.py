@@ -714,7 +714,7 @@ def instrument_census(root: Path) -> Census:
         census.disagreement = f"{CENSUS_GATE_REL} could not be loaded"
         return census
     try:
-        subjects = rule.census_subjects(text)
+        subjects = rule.census_subjects(text, root)
         externals = rule.declared_externals(text)
     except Exception as exc:  # noqa: BLE001 - a broken rule is UNREAD, never EMPTY
         census.disagreement = f"{CENSUS_GATE_REL} raised {type(exc).__name__}: {exc}"
@@ -734,7 +734,7 @@ def instrument_census(root: Path) -> Census:
     census.subjects = set(subjects)
     census.external = sum(1 for subject in subjects if subject in externals)
     try:
-        excluded, found = rule.exclusion_subjects(text)
+        excluded, found = rule.exclusion_subjects(text, root)
         census.excluded = set(excluded) if found else None
     except Exception:  # noqa: BLE001 - unread exclusions are UNKNOWN, never empty
         census.excluded = None
@@ -760,46 +760,49 @@ def split_nonmembers(nonmembers: list[str] | None, census: Census) -> tuple[list
 
 
 #: WHERE A MARKER CAN BE SEEN AT ALL, stated because "no control found" and "I
-#: did not look there" are otherwise the same silence (issue #1036). `discover`
-#: below calls `iterdir()`, not `rglob()`, so a registration is invisible in
+#: did not look there" are otherwise the same silence (issue #1036).
+#:
+#: ORIGINALLY `iterdir()`, not `rglob()`: a registration was invisible in
 #: `controls/`, in `lib/`, in a config file such as `.gitleaks.toml`, and in any
-#: `scripts/` SUBDIRECTORY.
+#: `scripts/` SUBDIRECTORY - and that was a deliberate scope limit, held by a
+#: committed claim test, not an oversight: widening ONE reader without the
+#: other (`instrument-census-check.py`'s population rule) would split the
+#: numerator's population from the denominator's, the defect this whole line
+#: of work is about.
 #:
-#: THAT FITS CPP AND IS NOT A UNIVERSAL RULE. This repository's instruments are
-#: overwhelmingly top-level scripts, and `instrument-census-check.py` derives the
-#: census population with the same `scripts/`-only rule - so widening one without
-#: the other would split the numerator's population from the denominator's, which
-#: is the defect this whole line of work is about. A repository whose instruments
-#: are library modules (kyle: 64 of 77 enumerated verdict contracts are not under
-#: `scripts/`) needs that decision made for BOTH readers at once, not here.
+#: #1276 made that call for ONE new kind, and for BOTH readers at once: a
+#: marker directly above a Makefile rule, with a typed
+#: `{kind: make-target, file, target}` gate, resolved to the census subject
+#: `make:<target>`. #1394 makes it for scripts/ subdirectories AND for `lib/`
+#: modules, the same way - `discover` below now reads `scripts/` recursively
+#: and `lib/**/*.py` for the marker, and `lib_module_subject` in the shared
+#: census rule module is what makes a `lib.<pkg>` subject resolvable. The list
+#: of kinds lives in that module (`DISCOVERY_SOURCES`) and `discovery_scope()`
+#: prints it, so this file cannot claim a scope the census does not count.
 #:
-#: This constant is a CLAIM, and `tests/test_negative_controls.py` holds it: a
-#: marker planted in a `scripts/` subdirectory must not be discovered. Widen
-#: `discover` and that case fails, which is what brings someone back to this text.
-#:
-#: #1276 MADE THAT DECISION FOR ONE KIND, AND FOR BOTH READERS AT ONCE. A marker
-#: directly above a Makefile rule is now discovered too, with a typed
-#: `{kind: make-target, file, target}` gate, and the census resolves it as the
-#: subject `make:<target>`. The list of kinds lives in the shared census rule
-#: module (`DISCOVERY_SOURCES`) and `discovery_scope()` prints it, so this file
-#: cannot claim a scope the census does not count. Subdirectories of `scripts/`
-#: and `lib/` modules are still NOT read.
-DISCOVERY_SCOPE_FALLBACK = "scripts/* (top-level files only; subdirectories are not read)"
+#: `tests/test_negative_controls.py` holds the committed claim for each
+#: widening as it lands: `test_a_marker_in_a_scripts_subdirectory_IS_discovered`
+#: (the #1394 scripts/ half; it used to be named `..._is_not_discovered`, and
+#: its own history is the reason to read before renaming a pinned test rather
+#: than assuming a red means a regression) and the `lib-module` discovery
+#: tests alongside it.
+DISCOVERY_SCOPE_FALLBACK = "scripts/** (recursive)"
 
 
 def discovery_scope() -> str:
     """Where registrations are looked for, DERIVED from the shared rule (#1276).
 
     The census rule module's `DISCOVERY_SOURCES` is the one list both readers
-    move with. When that module cannot be loaded, only the `scripts/` kind is
-    read - and the line SAYS the Makefile kind was not, rather than printing the
-    old sentence as though nothing else existed to read.
+    move with. When that module cannot be loaded, only the (recursive)
+    `scripts/` kind is read - and the line SAYS the Makefile and `lib/` kinds
+    were not, rather than printing the old sentence as though nothing else
+    existed to read.
     """
     rule = _census_rule()
     sources = getattr(rule, "DISCOVERY_SOURCES", None) if rule is not None else None
     if not sources:
         return (
-            f"{DISCOVERY_SCOPE_FALLBACK}; Makefile targets NOT read - "
+            f"{DISCOVERY_SCOPE_FALLBACK}; Makefile targets and lib/ modules NOT read - "
             f"{CENSUS_GATE_REL} could not be loaded"
         )
     return "; ".join(description for _kind, description in sources)
@@ -970,8 +973,9 @@ def adjacent_targets(makefile: Path, control_rel: str) -> tuple[list[str], str |
     return [], f"no registration for {control_rel} in {makefile.name}"
 
 
-def registration_subject(path: Path, control_rel: str) -> str:
-    """The census subject a registration is about: a file name, or `make:<target>`.
+def registration_subject(path: Path, control_rel: str, root: Path) -> str:
+    """The census subject a registration is about: a file name, `make:<target>`,
+    or - for a `lib/` module (issue #1394) - its package, dotted.
 
     For a Makefile registration the target comes from the MANIFEST, checked
     against the rule the marker sits above - not from the rule alone, because a
@@ -979,31 +983,51 @@ def registration_subject(path: Path, control_rel: str) -> str:
     must not change which gate is registered (counter-model review, #1276). A
     manifest that cannot be read, or names a target the rule does not define,
     reads `make:?`: never a member, so it FAILS rather than guessing.
+
+    A `lib/` module's subject is a PURE FUNCTION of the registering file's own
+    path (`lib_module_subject`, in the shared census rule module) - there is no
+    separate manifest field to cross-check it against, unlike a Makefile
+    target: the marker and the subject live in the same one file, so there is
+    no neighbour for an edit to silently re-point at. `root` is needed only to
+    recover that file's path relative to it; a path this function cannot place
+    under `root` (should not happen - `discover` only ever yields paths under
+    it) reads as the plain-file case rather than guessing a subject.
     """
-    if not _makefile_registration(path):
-        return path.name
+    if _makefile_registration(path):
+        rule = _census_rule()
+        prefix = getattr(rule, "MAKE_SUBJECT_PREFIX", "make:")
+        targets, _why = adjacent_targets(path, control_rel)
+        try:
+            spec = json.loads((path.parent / control_rel / "control.json").read_text(encoding="utf-8"))
+            gate_ref, _gate_why = rule.parse_gate(spec.get("gate", "")) if rule is not None else (None, None)
+        except (OSError, ValueError, AttributeError):
+            gate_ref = None
+        if gate_ref is not None and gate_ref.kind == "make-target" and gate_ref.target in targets:
+            return f"{prefix}{gate_ref.target}"
+        return f"{prefix}?"
     rule = _census_rule()
-    prefix = getattr(rule, "MAKE_SUBJECT_PREFIX", "make:")
-    targets, _why = adjacent_targets(path, control_rel)
-    try:
-        spec = json.loads((path.parent / control_rel / "control.json").read_text(encoding="utf-8"))
-        gate_ref, _gate_why = rule.parse_gate(spec.get("gate", "")) if rule is not None else (None, None)
-    except (OSError, ValueError, AttributeError):
-        gate_ref = None
-    if gate_ref is not None and gate_ref.kind == "make-target" and gate_ref.target in targets:
-        return f"{prefix}{gate_ref.target}"
-    return f"{prefix}?"
+    subject_fn = getattr(rule, "lib_module_subject", None) if rule is not None else None
+    if subject_fn is not None:
+        try:
+            rel = str(path.resolve().relative_to(root.resolve()))
+        except (OSError, ValueError):
+            rel = None
+        if rel is not None:
+            lib_subject = subject_fn(rel)
+            if lib_subject is not None:
+                return lib_subject
+    return path.name
 
 
 def census_membership(
-    registrations: list[tuple[Path, str]], census: Census
+    registrations: list[tuple[Path, str]], census: Census, root: Path
 ) -> tuple[int | None, list[str] | None]:
     """`(members, nonmembers)` for the discovered registrations (issue #1036).
 
     The gate a registration covers is the FILE THE DIRECTIVE LIVES IN -
     `evaluate` refuses any manifest that declares otherwise - so the census
-    subject to resolve against is that file's basename, which is the form the
-    census table uses.
+    subject to resolve against is that file's basename (or, since #1394, its
+    `lib/` package), which is the form the census table uses.
 
     `(None, None)` when the census subjects could not be read. An unreadable
     membership list must not report every control as a non-member, and must not
@@ -1012,7 +1036,7 @@ def census_membership(
     """
     if census.subjects is None:
         return None, None
-    names = sorted({registration_subject(path, control) for path, control in registrations})
+    names = sorted({registration_subject(path, control, root) for path, control in registrations})
     nonmembers = [name for name in names if name not in census.subjects]
     return len(names) - len(nonmembers), nonmembers
 
@@ -1044,7 +1068,15 @@ def discover(root: Path) -> list[tuple[Path, str]]:
     scripts_dir = root / "scripts"
     # No early return: a tree with a Makefile and no scripts/ still has a source
     # to read (counter-model review, #1276).
-    for path in sorted(scripts_dir.iterdir()) if scripts_dir.is_dir() else []:
+    #
+    # RECURSIVE SINCE #1394: `rglob`, not `iterdir`. Widened together with the
+    # census population rule's own `lib-module` kind below, for the reason
+    # #1276 gave for Makefile targets - a kind this file can see and the census
+    # cannot account for splits the numerator's population from the
+    # denominator's. `test_a_marker_in_a_scripts_subdirectory_is_not_discovered`
+    # held the OLD behaviour; it is now
+    # `test_a_marker_in_a_scripts_subdirectory_IS_discovered`.
+    for path in sorted(scripts_dir.rglob("*")) if scripts_dir.is_dir() else []:
         if not path.is_file():
             continue
         try:
@@ -1071,6 +1103,23 @@ def discover(root: Path) -> list[tuple[Path, str]]:
             text = ""
         for match in REGISTRATION_RE.finditer(text):
             found.append((makefile, match.group("path")))
+    # THE THIRD KIND (#1394): registrations inside `lib/` module files - the
+    # population gap cpp-w2's comment on #1394 named concretely (row 61,
+    # `lib.security gate`, implemented entirely under `lib/security/`, with
+    # no `scripts/` entry point of its own). Same rule-gated discipline as the
+    # Makefile kind above, and the same reason: `lib_module_subject` is what
+    # makes a `lib.<pkg>` subject resolvable, so this file cannot discover one
+    # the census-side rule cannot also resolve.
+    lib_dir = root / getattr(rule, "LIB_REL", "lib") if rule is not None else None
+    for path in sorted(lib_dir.rglob("*.py")) if lib_dir is not None and lib_dir.is_dir() else []:
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        for match in REGISTRATION_RE.finditer(text):
+            found.append((path, match.group("path")))
     return found
 
 
@@ -2712,7 +2761,7 @@ def main(argv: list[str] | None = None) -> int:
     # an oversight: whether it should fail is a separate question (the issue
     # says so in terms), and printing the fact does not pre-empt it. What is
     # closed here is that the two states used to produce identical output.
-    members, nonmembers = census_membership(registrations, census)
+    members, nonmembers = census_membership(registrations, census, root)
     print(f"NEGATIVE_CONTROL_CENSUS_MEMBERS: {'unknown' if members is None else members}")
     print(f"NEGATIVE_CONTROL_CENSUS_NONMEMBERS: "
           f"{'unknown' if nonmembers is None else len(nonmembers)}")
@@ -2835,7 +2884,7 @@ def main(argv: list[str] | None = None) -> int:
             disc_registrations = [
                 reg for reg, res in zip(registrations, results) if res.verdict == PASS
             ]
-            disc_members, disc_nonmembers = census_membership(disc_registrations, census)
+            disc_members, disc_nonmembers = census_membership(disc_registrations, census, root)
             headline = _headline(
                 discriminating, census, disc_members, disc_nonmembers, whence,
                 registered=len(registrations),
