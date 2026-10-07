@@ -1007,35 +1007,123 @@ def _verdicts_by_gate(out: str) -> dict[tuple[str, str], str]:
     return pairs
 
 
+def _check_all_tracked(harness, root: Path, control_dirs: list[str]) -> dict[str, tuple[str, list[str]]]:
+    """The generalized check's own logic, shared by the real test and its
+
+    red-first companion (counter-model review, #1406): a control is only
+    PROVEN tracked at `verdict == "tracked"` - `"unverified"` (a git call
+    that failed or a path that was not a directory) is NOT a pass, the same
+    "unknown is never clean" rule this issue's other two fixes follow.
+    """
+    failures: dict[str, tuple[str, list[str]]] = {}
+    for control_rel in control_dirs:
+        control_dir = root / control_rel
+        verdict, details = harness._tracking(control_dir, root)
+        if verdict != "tracked":
+            failures[control_rel] = (verdict, details)
+    return failures
+
+
+def _two_control_repo(tmp_path: Path) -> Path:
+    """Two registered controls (#1406) - one clean, one with an untracked
+
+    control.json nested under a NON-cases/ subdirectory (anchors/), the
+    LIVE gap this issue's .gitignore fix closes. The repo's own .gitignore
+    carries the REAL current shape - including the already-working
+    `!controls/*/cases/**/*.json` rule - so this fixture cannot be satisfied
+    by accident via a DIFFERENT, already-fixed gap (counter-model review:
+    the first cut of this fixture put the untracked file under cases/, which
+    the real cases/** rule already reaches, so it modelled #1012's old,
+    solved problem rather than #1406's live one).
+    """
+    root = tmp_path / "repo"
+    (root / "scripts").mkdir(parents=True)
+    (root / "controls" / "alpha").mkdir(parents=True)
+    (root / "controls" / "beta" / "anchors" / "nested").mkdir(parents=True)
+    (root / "scripts" / "gate-alpha.py").write_text("#: NEGATIVE-CONTROL: controls/alpha\n", encoding="utf-8")
+    (root / "scripts" / "gate-beta.py").write_text("#: NEGATIVE-CONTROL: controls/beta\n", encoding="utf-8")
+    (root / "controls" / "alpha" / "control.json").write_text("{}\n", encoding="utf-8")
+    (root / "controls" / "beta" / "control.json").write_text("{}\n", encoding="utf-8")
+    (root / ".gitignore").write_text(
+        "*.json\n!controls/*/control.json\n!controls/*/cases/**/*.json\n", encoding="utf-8"
+    )
+    subprocess.run(["git", "init", "-q", str(root)], check=True, timeout=60)
+    subprocess.run(["git", "-C", str(root), "config", "user.email", "c@c"], check=True, timeout=60)
+    subprocess.run(["git", "-C", str(root), "config", "user.name", "c"], check=True, timeout=60)
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True, timeout=60)
+    subprocess.run(["git", "-C", str(root), "commit", "-q", "-m", "base"], check=True, timeout=60)
+    # Written AFTER the commit, so `git add -A` never ran on it - a file the
+    # repo's own blanket *.json swallows, because the fixture's negation (the
+    # pre-#1406 `!controls/*/control.json`, ONE segment deep) never reaches a
+    # control.json under anchors/, under a DIFFERENT control than the one a
+    # narrow, named check would be looking at.
+    nested = root / "controls" / "beta" / "anchors" / "nested" / "control.json"
+    nested.write_text("{}\n", encoding="utf-8")
+    precondition = subprocess.run(
+        ["git", "-C", str(root), "check-ignore", "-q", str(nested)], check=False, timeout=60,
+    )
+    assert precondition.returncode == 0, "precondition: the nested manifest must be gitignored"
+    return root
+
+
 @requires_git
-def test_every_file_of_the_self_registration_is_tracked() -> None:
+def test_the_narrow_self_registration_check_misses_a_different_controls_untracked_file(
+    tmp_path: Path,
+) -> None:
+    """Pins the #1406 premise directly, through DISCOVERY, not a hand-picked
+
+    pair of paths: a check scoped to ONE named control directory - the shape
+    this file's tracking test used to have, pinned to
+    `controls/check-negative-controls` only - cannot see an untracked file
+    under a DIFFERENT control that `discover()` finds right alongside it.
+    That is exactly why the old test was generalized rather than left as the
+    precedent the next control's author would have had to notice and copy.
+    """
+    root = _two_control_repo(tmp_path)
+    harness = _load_harness_module()
+
+    registrations = harness.discover(root)
+    discovered = sorted({control for _path, control in registrations})
+    assert discovered == ["controls/alpha", "controls/beta"], (
+        "precondition: discover() must find BOTH fixture registrations"
+    )
+
+    # The OLD shape: a check scoped to one control name misses beta entirely.
+    narrow_failures = _check_all_tracked(harness, root, ["controls/alpha"])
+    assert not narrow_failures, "alpha is clean; a check scoped to it must pass"
+
+    # The GENERALIZED shape, over what discover() actually found: catches it.
+    generalized_failures = _check_all_tracked(harness, root, discovered)
+    assert set(generalized_failures) == {"controls/beta"}, generalized_failures
+    assert generalized_failures["controls/beta"][0] == "UNTRACKED", generalized_failures
+
+
+@requires_git
+def test_every_discovered_controls_files_are_tracked() -> None:
     """The control is only real in a CLEAN CHECKOUT, and .gitignore hides it.
 
-    `.gitignore` carries a blanket `*.json` with a `!controls/*/control.json`
-    negation that is ONE level deep. The nested case trees put their manifests
-    at `controls/<x>/cases/<y>/controls/toy/control.json`, which that negation
-    does not reach, so they were silently untracked and every local run passed
-    on files a clean checkout would not have. Codex found it; a clean clone
-    reported the self-registration BLIND.
+    GENERALIZES the former `test_every_file_of_the_self_registration_is_tracked`
+    (#1406), which asserted this ONLY for `controls/check-negative-controls`.
+    The untracked-nested-fixture trap (#964, #953, and #1406's own
+    control.json-depth finding) is a property of the .gitignore shape, not of
+    any one control, and the narrow test only ever proved it for itself - see
+    the companion test above, which shows a different control's untracked
+    file passing right past a check scoped that way.
 
-    This asserts every file under the control directory is tracked, so a future
-    nested case added and forgotten fails loudly here rather than in CI, or
-    worse, passes locally forever.
+    DISCOVERY ONLY (issue #1311's budget lesson): `harness.discover()` plus one
+    `git ls-files` per control directory, no battery run - under CI load a
+    full battery run crossed the 120s budget three times before #1311 moved
+    the test above off it, and this generalization must not reintroduce that.
     """
-    tracked = set(subprocess.run(
-        ["git", "-C", str(ROOT), "ls-files", "controls/check-negative-controls"],
-        capture_output=True, text=True, check=True,
-    ).stdout.split())
-    on_disk = {
-        str(p.relative_to(ROOT))
-        for p in SELF_CONTROL.rglob("*")
-        if p.is_file()
-    }
-    assert on_disk, "the control directory is empty; this test is vacuous"
-    missing = sorted(on_disk - tracked)
-    assert not missing, (
-        "these files exist locally but are NOT tracked, so a clean checkout "
-        f"gets a broken control: {missing}"
+    harness = _load_harness_module()
+    registrations = harness.discover(ROOT)
+    control_dirs = sorted({control for _path, control in registrations})
+    assert control_dirs, "discover() found no registrations; this test is vacuous"
+
+    failures = _check_all_tracked(harness, ROOT, control_dirs)
+    assert not failures, (
+        "these control(s) are not PROVEN tracked (tracked/UNTRACKED/unverified), so a "
+        f"clean checkout may get a broken control: {failures}"
     )
 
 def test_discover_is_not_recursive_so_nested_case_trees_are_not_double_discovered() -> None:
