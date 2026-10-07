@@ -40,6 +40,19 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+#: Exit code for "could not fetch" - a transient the fetch's CALLER did not
+#: cause, distinct from exit 1 ("fetched, but the bytes/scheme are wrong" -
+#: a real, code-adjacent finding that must keep reading as `code`). 75 is
+#: EX_TEMPFAIL from BSD sysexits.h ("temporary failure, try again"); chosen
+#: for its established meaning, not invented. `scripts/flow-ci-status.sh`
+#: reads this exact value to classify a failed step as pre-code regardless
+#: of step name or type (issue #1411) - shared BY CONVENTION across
+#: `ci-stage-jq.py`, `ci-stage-git.py` and `ci-stage-make.py`, each defining
+#: it independently (matching this file's own no-shared-module style)
+#: rather than importing one; `tests/test_ci_stage_exit_codes.py` pins all
+#: three against drift.
+EX_FETCH_FAILED = 75
+
 #: jq 1.7.1, linux-amd64, from the project's own GitHub release.
 JQ_URL = "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64"
 
@@ -153,16 +166,29 @@ def main() -> int:
 
     try:
         _require_https(JQ_URL)
+    except ValueError as exc:
+        # A local misconfiguration (the hardcoded URL was edited to something
+        # unusable) - code, not a fetch failure, so this keeps exit 1 (#1411).
+        print(f"ci-stage-jq: {exc}", file=sys.stderr)
+        return 1
+
+    try:
         # NOT suppressed: bandit still reports B310 here, by design. The
         # scheme is enforced on JQ_URL one line up and on every redirect
         # target by the opener - GitHub redirects this download every run.
         with _HTTPS_ONLY_OPENER.open(JQ_URL, timeout=120) as response:  # noqa: S310
             payload = response.read()
+    except ValueError as exc:
+        # A redirect target failed the same https-only check (issue #1113) -
+        # a scheme downgrade, not a transient. Code, never laundered into
+        # precode: a worker should look at this, not shrug it off (#1411).
+        print(f"ci-stage-jq: {exc}", file=sys.stderr)
+        return 1
     except Exception as exc:  # noqa: BLE001 - the cause is reported, not classified
         print(f"ci-stage-jq: FAILED to download {JQ_URL}: {exc}", file=sys.stderr)
         print("ci-stage-jq: this is not a pass - the controls that need jq cannot run.",
               file=sys.stderr)
-        return 1
+        return EX_FETCH_FAILED
 
     got = _sha256(payload)
     if got != JQ_SHA256:

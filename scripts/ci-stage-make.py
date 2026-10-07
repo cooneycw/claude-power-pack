@@ -56,6 +56,19 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+#: Exit code for "could not fetch" - a transient the fetch's CALLER did not
+#: cause, distinct from exit 1 ("fetched, but the bytes/scheme are wrong" -
+#: a real, code-adjacent finding that must keep reading as `code`). 75 is
+#: EX_TEMPFAIL from BSD sysexits.h ("temporary failure, try again"); chosen
+#: for its established meaning, not invented. `scripts/flow-ci-status.sh`
+#: reads this exact value to classify a failed step as pre-code regardless
+#: of step name or type (issue #1411) - shared BY CONVENTION across
+#: `ci-stage-jq.py`, `ci-stage-git.py` and `ci-stage-make.py`, each defining
+#: it independently (matching this file's own no-shared-module style)
+#: rather than importing one; `tests/test_ci_stage_exit_codes.py` pins all
+#: three against drift.
+EX_FETCH_FAILED = 75
+
 #: Debian bookworm's make, from the distribution the image is built from.
 MAKE_URL = (
     "https://deb.debian.org/debian/pool/main/m/make-dfsg/make_4.3-4.1_amd64.deb"
@@ -234,16 +247,28 @@ def main() -> int:
 
     try:
         _require_https(MAKE_URL)
+    except ValueError as exc:
+        # A local misconfiguration (the hardcoded URL was edited to something
+        # unusable) - code, not a fetch failure, so this keeps exit 1 (#1411).
+        print(f"ci-stage-make: {exc}", file=sys.stderr)
+        return 1
+
+    try:
         # NOT suppressed: bandit still reports B310 here, by design. The scheme
         # is enforced on MAKE_URL one line up and on every redirect target by
         # the opener.
         with _HTTPS_ONLY_OPENER.open(MAKE_URL, timeout=120) as response:  # noqa: S310
             payload = response.read()
+    except ValueError as exc:
+        # A redirect target failed the same https-only check - a scheme
+        # downgrade, not a transient. Code, never laundered into precode (#1411).
+        print(f"ci-stage-make: {exc}", file=sys.stderr)
+        return 1
     except Exception as exc:  # noqa: BLE001 - the cause is reported, not classified
         print(f"ci-stage-make: FAILED to download {MAKE_URL}: {exc}", file=sys.stderr)
         print("ci-stage-make: this is not a pass - subsumption cannot ask make, and the "
               "controls that exercise it cannot run.", file=sys.stderr)
-        return 1
+        return EX_FETCH_FAILED
 
     got = _sha256(payload)
     if got != DEB_SHA256:
