@@ -357,6 +357,79 @@ def test_the_value_match_is_bound_to_the_declared_value_not_the_whole_file(
     assert OTHER not in result.stdout + result.stderr
 
 
+GITLEAKS_ALLOWLIST = f"""[extend]
+useDefault = true
+
+[allowlist]
+  regexes = [
+    '''{CANARY}''',
+  ]
+"""
+
+
+def test_a_canary_declared_in_gitleaks_own_allowlist_is_exempt_there(tmp_path: Path) -> None:
+    """Issue #1405 item (d), RED pre-fix.
+
+    `.gitleaks.toml` is a security-policy file in the same class as
+    `.claude/security.yml`: a repository that plants a value as gitleaks'
+    OWN allowlisted canary (a literal regex entry that happens to look like a
+    secret) had no way to tell CPP's native scanner that fact, so the same
+    canary blocked `lib.security gate` even though gitleaks itself was told
+    to ignore it.
+    """
+    repo = _repo(tmp_path, {".gitleaks.toml": GITLEAKS_ALLOWLIST})
+    result = _gate(repo, gate_name="flow_finish")
+    assert " PASS " in _line(result), result.stdout
+    assert "AWS_ACCESS_KEY" not in result.stdout
+
+
+def test_the_gitleaks_exemption_does_not_leak_to_other_files(tmp_path: Path) -> None:
+    """NEGATIVE CONTROL: the same canary in an ORDINARY source file still
+
+    blocks (issue #1405 orchestrator ruling). The exemption is bound to
+    findings located IN `.gitleaks.toml` itself.
+    """
+    repo = _repo(
+        tmp_path,
+        {
+            ".gitleaks.toml": GITLEAKS_ALLOWLIST,
+            "src/app.py": f'KEY = "{CANARY}"\n',
+        },
+    )
+    result = _gate(repo, gate_name="flow_finish")
+    assert " FAIL " in _line(result), result.stdout
+    assert "src/app.py" in result.stdout
+    assert "[AWS_ACCESS_KEY]" in result.stdout
+
+
+def test_the_gitleaks_exemption_is_bound_to_declared_literals(tmp_path: Path) -> None:
+    """A DIFFERENT, undeclared secret-shaped value elsewhere in the SAME
+
+    `.gitleaks.toml` - not inside an allowlist array - must still block: the
+    widening exempts declared literal text, not the whole file (issue #1405).
+    """
+    toml_text = GITLEAKS_ALLOWLIST + f'  description = "see {OTHER}"\n'
+    repo = _repo(tmp_path, {".gitleaks.toml": toml_text})
+    result = _gate(repo, gate_name="flow_finish")
+    assert " FAIL " in _line(result), result.stdout
+    assert ".gitleaks.toml" in result.stdout
+    assert "[AWS_ACCESS_KEY]" in result.stdout
+    assert OTHER not in result.stdout + result.stderr
+
+
+def test_a_malformed_gitleaks_toml_fails_closed(tmp_path: Path) -> None:
+    """An unparsable `.gitleaks.toml` exempts nothing - fails closed, same as
+
+    a missing `.claude/security.yml` leaves nothing to exempt (issue #1405).
+    Never a crash, never a silent pass.
+    """
+    malformed = "[allowlist\n  regexes = [ '''" + CANARY + "''' ]\n"
+    repo = _repo(tmp_path, {".gitleaks.toml": malformed})
+    result = _gate(repo, gate_name="flow_finish")
+    assert " FAIL " in _line(result), result.stdout
+    assert "[AWS_ACCESS_KEY]" in result.stdout
+
+
 def test_the_hint_yaml_survives_an_apostrophe_in_the_path(tmp_path: Path) -> None:
     import yaml
 

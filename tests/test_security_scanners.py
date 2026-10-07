@@ -473,7 +473,7 @@ class TestCmdGate:
 class TestApplySuppressions:
     """Test suppression logic."""
 
-    def test_suppress_finding(self) -> None:
+    def test_suppress_finding(self, tmp_path: Path) -> None:
         result = ScanResult(findings=[
             Finding(id="HARDCODED_SECRET", severity=Severity.HIGH, title="Secret", file_path="tests/test.py"),
             Finding(id="DEBUG_FLAG", severity=Severity.MEDIUM, title="Debug"),
@@ -481,17 +481,17 @@ class TestApplySuppressions:
         config = SecurityConfig(suppressions=[
             Suppression(id="HARDCODED_SECRET", path=r"tests/.*", reason="Test fixtures"),
         ])
-        _apply_suppressions(result, config)
+        _apply_suppressions(result, config, str(tmp_path))
         assert len(result.findings) == 1
         assert result.findings[0].id == "DEBUG_FLAG"
         assert "suppressed" in result.passed[0]
 
-    def test_no_suppressions(self) -> None:
+    def test_no_suppressions(self, tmp_path: Path) -> None:
         result = ScanResult(findings=[
             Finding(id="A", severity=Severity.HIGH, title="A"),
         ])
         config = SecurityConfig()
-        _apply_suppressions(result, config)
+        _apply_suppressions(result, config, str(tmp_path))
         assert len(result.findings) == 1
 
 
