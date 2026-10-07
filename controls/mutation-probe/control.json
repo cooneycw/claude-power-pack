@@ -32,8 +32,8 @@
     {
       "name": "verdict-comparison",
       "protection": "a mutation counts as caught only when the battery goes RED; running it is not the proof",
-      "find": "elif code != 0:",
-      "replace": "elif True:",
+      "find": "    if code != 0:",
+      "replace": "    if True:",
       "count": 1,
       "expect": "caught"
     },
@@ -44,7 +44,8 @@
       "replace": "    if False:",
       "count": 1,
       "expect": "uncaught",
-      "why": "The committed pair cannot reach this protection: both trees have a GREEN unmutated battery by construction, so removing the refusal changes no verdict here. Reaching it needs a case tree whose battery is red before any mutation - a control for 'this tool declines to score against a broken battery' rather than for its discrimination - and that is tests/test_mutation_probe.py::test_an_already_red_battery_is_unresolved_not_caught. Recorded as an ACCEPTED gap rather than left silent; if a future case tree closes it, this entry reports STALE and must be dropped."
+      "why": "The committed pair cannot reach this protection: both trees have a GREEN unmutated battery by construction, so removing the refusal changes no verdict here. Reaching it needs a case tree whose battery is red before any mutation - a control for 'this tool declines to score against a broken battery' rather than for its discrimination - and that is tests/test_mutation_probe.py::test_an_already_red_battery_is_unresolved_not_caught. Recorded as an ACCEPTED gap rather than left silent; if a future case tree closes it, this entry reports STALE and must be dropped.",
+      "blocked_by": "input-cannot-be-committed"
     }
   ]
 }
