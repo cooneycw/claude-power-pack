@@ -1302,14 +1302,55 @@ class DeterministicRunner:
                         # support the conclusion, so the conclusion is not
                         # drawn.
                         rerun_verdict = "inconclusive"
-                        self._log(
-                            f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
-                            f"RE-RUN INCONCLUSIVE - {rerun_outcome.empty_invocations} "
-                            f"of {rerun_outcome.invocations} re-run invocations "
-                            "executed NO tests, so the retried ids were not "
-                            "necessarily among those that ran; the original "
-                            "failure stands"
-                        )
+                        # NAME it when the evidence is this specific (issue
+                        # #1409, kyle#1472): a multi-invocation target where
+                        # one invocation ran cleanly - passed count exactly
+                        # matching the retried ids, zero failed/errors
+                        # anywhere - while a SIBLING invocation ran nothing
+                        # (its own `--last-failed` cache had no overlap, so
+                        # pytest deselected everything under this re-run's
+                        # filter). The verdict stays inconclusive on purpose
+                        # (declined: crediting counts alone as "this id
+                        # passed" is the exact defect class
+                        # test_an_unrelated_passing_suite_cannot_clear_the_
+                        # original_failure exists to refuse - a same-count
+                        # coincidence from an unrelated or stale invocation
+                        # is not distinguishable from a genuine pass at this
+                        # level). But the reader gets the full picture
+                        # instead of a bare "could not be read", and is
+                        # already told the one thing that WOULD resolve it:
+                        # a direct re-run of just the failing invocation.
+                        if (
+                            rerun_outcome.failed == 0
+                            and rerun_outcome.errors == 0
+                            and rerun_outcome.passed == id_count
+                        ):
+                            self._log(
+                                f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                                "RE-RUN INCONCLUSIVE - a sibling invocation "
+                                f"selected nothing ({rerun_outcome.empty_invocations} "
+                                f"of {rerun_outcome.invocations} ran no tests "
+                                "at all, deselected under this re-run's own "
+                                "--last-failed filter), but ANOTHER invocation "
+                                f"reports exactly {rerun_outcome.passed} passed "
+                                f"and zero failed - matching the {id_count} "
+                                "retried id(s) in count alone. The gate "
+                                "cannot attribute that pass to the retried "
+                                "id(s) from counts alone (a coincidental or "
+                                "stale match looks identical); the original "
+                                "failure stands. Re-run just the step that "
+                                "contains the retried id(s) directly to "
+                                "confirm"
+                            )
+                        else:
+                            self._log(
+                                f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                                f"RE-RUN INCONCLUSIVE - {rerun_outcome.empty_invocations} "
+                                f"of {rerun_outcome.invocations} re-run invocations "
+                                "executed NO tests, so the retried ids were not "
+                                "necessarily among those that ran; the original "
+                                "failure stands"
+                            )
                     elif rerun_result.success and rerun_outcome is not None:
                         rerun_verdict = RERUN_PASSED_IN_ISOLATION
                         # Say what the re-run ESTABLISHED, which is narrower than

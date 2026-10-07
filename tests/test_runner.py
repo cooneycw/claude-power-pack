@@ -1660,6 +1660,57 @@ class TestBothStreamsReachTheRunnerDecisions:
         assert result.reruns[0]["outcome"] != RERUN_PASSED_IN_ISOLATION
         assert "RE-RUN INCONCLUSIVE" in log.getvalue()
 
+    def test_a_deselected_sibling_invocation_gets_a_specific_message(
+        self, tmp_project: Path
+    ) -> None:
+        """The real incident (issue #1409, kyle#1472): a multi-invocation
+        test target (unit then browser) fails in the unit phase. The #769
+        re-run re-executes the WHOLE target under `--last-failed
+        --last-failed-no-failures none`: the unit phase's own cache
+        correctly narrows to the retried id and it passes (`1 passed in
+        13.41s`); the browser phase's cache has no overlap at all, so
+        pytest deselects everything (`2 deselected in 0.00s`, exit 5),
+        which fails the aggregate step.
+
+        Before issue #1409's fix, `2 deselected in 0.00s` was not
+        recognized as ANY kind of outcome at all (not even an empty one),
+        so `any_invocation_empty` stayed False and the run fell through to
+        the generic "no failing id could be read" / failed-unattributed
+        path - exactly what kyle#1472 observed. The fix for THIS test is
+        the outcomes-parser recognition (test_cicd_outcomes.py); this test
+        pins that the resulting inconclusive message is specific about
+        WHY, rather than merely generic - verdict stays `inconclusive`,
+        never a credited pass (declined per orchestrator ruling: the
+        existing `test_an_unrelated_passing_suite_cannot_clear_the_
+        original_failure` guard exists because a weaker version of
+        crediting this exact shape was already a real bug once)."""
+        step = StepDef(
+            id="test",
+            command=(
+                "if [ -f rerun-marker ]; then "
+                "printf '=== 1 passed in 13.41s ===\\n'; "
+                "printf '2 deselected in 0.00s\\n'; "
+                "exit 5; "
+                "else : > rerun-marker; "
+                "printf '=== 1 failed in 0.01s ===\\n'; "
+                "printf 'FAILED tests/a.py::t1 - AssertionError\\n'; "
+                "exit 1; fi"
+            ),
+            timeout_seconds=30,
+        )
+        log = StringIO()
+        result = DeterministicRunner(
+            project_root=tmp_project, output=log, rerun_failed=True
+        ).run("check", step_defs=[step])
+
+        assert result.reruns[0]["outcome"] == "inconclusive"
+        assert result.reruns[0]["outcome"] != RERUN_PASSED_IN_ISOLATION
+        logged = log.getvalue()
+        assert "RE-RUN INCONCLUSIVE" in logged
+        assert "selected nothing" in logged
+        assert "exactly 1 passed" in logged
+        assert "cannot attribute that pass to the retried id" in logged
+
     def test_an_empty_invocation_on_the_other_stream_still_warns(
         self, tmp_project: Path
     ) -> None:
