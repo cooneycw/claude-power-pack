@@ -1000,6 +1000,52 @@ def test_own_ancestors_never_contains_a_freshly_spawned_fixtures_pid(tmp_path: P
 
 
 @requires_proc
+def test_own_ancestors_exhausting_its_retries_shortens_rather_than_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #1430: bounded retry (3 attempts, 10ms apart) on the walk's own
+    EACCES, per the orchestrator's question - and on exhaustion, the walk
+    stops ONE HOP SHORT rather than raising. A shorter chain is the safe
+    failure direction here: it makes the structural exclusion MISS a real
+    ancestor (falling through to the conservative cmdline-or-possibly-ours
+    path for that candidate, same as today), never WRONGLY excludes
+    something that is not actually an ancestor.
+    """
+    parent = os.getppid()
+    grandparent_fields = _stat(parent)
+    assert grandparent_fields is not None, "precondition: the parent's own stat is readable"
+    grandparent = grandparent_fields[1]
+    real_text = Path.read_text
+    stat_path = Path(f"/proc/{parent}/stat")
+    attempts: list[float] = []
+
+    def read_text(self: Path, *args: object, **kwargs: object) -> str:
+        if self == stat_path:
+            attempts.append(time.monotonic())
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_text(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    own_ancestors = _own_ancestors()  # must not raise
+    assert os.getpid() in own_ancestors, "the walk's own starting pid is always included"
+    # `parent` is already KNOWN to be a real ancestor from the PREVIOUS hop
+    # (our own pid's own ppid field, read before `parent`'s stat is ever
+    # touched) - it stays included. What the retry exhaustion stops is
+    # extending PAST it: `parent`'s own ppid cannot be read, so the
+    # grandparent is never reached, guessed, or included.
+    assert parent in own_ancestors, "the last hop confirmed via the previous pid's ppid stays in"
+    assert grandparent not in own_ancestors, (
+        "the chain stops short at the pid whose own stat could not be read, "
+        "rather than guessing past it"
+    )
+    assert len(attempts) == 3, f"expected exactly 3 bounded attempts, got {len(attempts)}"
+    gaps = [b - a for a, b in zip(attempts, attempts[1:])]
+    assert all(gap >= 0.008 for gap in gaps), (
+        f"expected ~10ms between retries, got gaps {gaps}"
+    )
+
+
+@requires_proc
 def test_an_unidentifiable_unreadable_process_fails_the_cleanup_check(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
