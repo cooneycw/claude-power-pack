@@ -1,0 +1,35 @@
+{
+  "gate": "scripts/codex-skill-sync.py",
+  "invocation": [
+    "sh",
+    "controls/codex-skill-sync-over-bundle/run-case.sh",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^CODEX_SKILL_SYNC_OVER_BUNDLE_CONTROL: finding\\b",
+  "unavailable_signal": "^CODEX_SKILL_SYNC_OVER_BUNDLE_CONTROL: unavailable - ",
+  "limits": "A SEPARATE registration on the same gate as controls/codex-skill-sync-remap and controls/codex-skill-sync-network-detector (row 33's other #1408 controls, per the issue's own ruling: per-axis, since all three fire on unrelated signals). This one covers bullet 3 only: `find_bundled_libs()`'s dependency closure for a bundled Python library.\n\nWHAT 'FINDING' MEANS HERE: a shared rule read from two manifest files each fixture carries (`required.txt`, `noise.txt`), not hardcoded in the adapter. `required.txt` names files the closure MUST contain - their absence is UNAVAILABLE (the gate failed to run at all), never a verdict about over-bundling. `noise.txt` names files the closure must NOT contain; it is non-empty only in the bad fixture. A finding is 'every required file present AND no noise file leaked in' - for the bad fixture that means the fix correctly held the line; for the good fixture (`noise.txt` absent) the same rule reduces to 'required files all present', which maps to NO finding by construction, since nothing bad-shaped exists there to catch.\n\nWHAT THIS ESTABLISHES (issue #1408, Nit Store #864): `lib/cicd/__init__.py`'s real shape, reproduced as a minimal fixture rather than depending on the live repository file staying exactly as measured. The bad case's `lib/pkg/__init__.py` carries BOTH halves of the live bug in one file - a `if TYPE_CHECKING:` block listing lazy `__getattr__` re-exports (mypy-only, never executed) AND a module docstring usage example (`from lib.pkg import unrelated_helper`) that matches a line-shape import scanner exactly like real code. The old regex-based `_LIB_IMPORT`/`_RELATIVE_IMPORT` scan read either as a live dependency; the docstring line resolves to the PACKAGE DIRECTORY and rglobs every module under it - which is what actually produced the 29-file flow-check bundle this issue measured, not the TYPE_CHECKING block alone (that half would, at most, bundle two extra files via the relative-import path, not all 29). The fix (`_live_import_nodes`, AST-based with a TYPE_CHECKING exclusion) closes both: a docstring is one `Constant` node and can never contain an `Import`/`ImportFrom` node, and a TYPE_CHECKING-guarded statement is walked and excluded structurally rather than by a second pattern. The good case is the ruling's own explicit ask for the other half: an ordinary package with neither shape must still bundle completely, proving the fix narrows the closure rather than breaking it.\n\nWHAT THIS DOES NOT ESTABLISH. Nothing about the LAZY-MAP bundling pass added alongside this fix (a name reached only through `__getattr__` must still be bundled, or TYPE_CHECKING-exclusion alone would under-bundle a real runtime dependency) - that is pytest-covered (test_a_lazy_getattr_reexport_is_bundled_and_the_bundle_runs, test_an_unreferenced_lazy_submodule_is_not_bundled), not duplicated here, since a control's job is proving the TYPE_CHECKING/docstring fix is not blind on a real input, not re-walking every shape a unit test suite already owns. Nothing about the real flow-check bundle shrinking from 29 to 3 files, which is its own pytest regression (test_flow_checks_lib_closure_is_the_three_files_it_actually_runs) and its own runtime-closure proof (test_real_repo_flow_check_runtime_closure_runs_isolated_and_reds_without_state) - a synthetic fixture here keeps this control's anchor comparison independent of that file ever changing shape again. Nothing about bullets 2/4, which have their own registrations.",
+  "cases": [
+    {
+      "name": "bad-docstring-and-typecheck-overbundle",
+      "input": "cases/bad-docstring-and-typecheck-overbundle",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-ordinary-package",
+      "input": "cases/good-ordinary-package",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "2656225",
+      "origin": "scripts/codex-skill-sync.py",
+      "path": "anchors/2656225-pre-overbundle-codex-skill-sync.py",
+      "sha256": "f074b644be2a0365240ebb606791f3fe17de1324be6f954baca3089f70c784b7",
+      "why": "HISTORICAL, vendored byte-for-byte from 2656225 (identical bytes to the other two #1408 anchors, by coincidence of timing - all three were cut from the same pre-issue commit, not shared files). MEASURED against the bad case: the old regex-based `_LIB_IMPORT` matches the docstring's `from lib.pkg import unrelated_helper` line, resolves `lib.pkg` to its package directory, and `rglob`'s both `unrelated1.py` and `unrelated2.py` into the closure - the over-bundle, reproduced from the control rather than asserted."
+    }
+  ]
+}

@@ -602,27 +602,206 @@ _SIBLING_REF = re.compile(
     r"(?:\$\{?\w+\}?|\$\((?:dirname|readlink)[^)]*\))/([A-Za-z0-9._-]+\.(?:sh|py))"
 )
 
-#: `from lib.x import ...` / `import lib.x`. A Python helper's real dependency is
-#: its import, not a filename in its prose, so this is the only Python signal
-#: read here.
-_LIB_IMPORT = re.compile(r"^\s*(?:from|import)\s+(lib(?:\.[A-Za-z_][A-Za-z0-9_]*)+)", re.M)
+#: `from lib.x import ...` / `import lib.x`, and single-dot relative imports
+#: inside a bundled package module (`from .b import value` -> the module `b`;
+#: `from . import b, c` -> the modules `b` and `c`) are both resolved by the
+#: AST-based `_live_absolute_lib_imports`/`_live_relative_imports` below
+#: (issue #1408) rather than by a regex here - see their docstrings for why a
+#: line-shape match over-bundled `lib/cicd/` from its own module docstring.
+#:
+#: The second relative-import spelling (`from . import b, c`) is absent from
+#: this repository today, and that is exactly why `_relative_import_names`
+#: still handles it: a rule written against only the shapes currently present
+#: is one refactor away from silently bundling an incomplete package, and the
+#: symptom would be an ImportError in a shipped artifact rather than a red
+#: here.
+#:
+#: Parent-relative (`from ..x`) is deliberately NOT matched (`level == 1`
+#: only): these packages are vendored whole from their own root, so a
+#: parent-relative import reaches outside the tree being bundled and means
+#: the vendoring boundary is wrong - which is a thing to notice, not to paper
+#: over by copying more files.
 
-#: Single-dot relative imports inside a bundled package module, in BOTH spellings:
-#:
-#:     from .b import value     -> the module `b`
-#:     from . import b, c       -> the modules `b` and `c`
-#:
-#: The second form is absent from this repository today, and that is exactly why
-#: it is here: a rule written against only the shapes currently present is one
-#: refactor away from silently bundling an incomplete package, and the symptom
-#: would be an ImportError in a shipped artifact rather than a red here.
-#:
-#: Parent-relative (`from ..x`) is deliberately NOT matched: these packages are
-#: vendored whole from their own root, so a parent-relative import reaches
-#: outside the tree being bundled and means the vendoring boundary is wrong -
-#: which is a thing to notice, not to paper over by copying more files.
-_RELATIVE_IMPORT = re.compile(r"^\s*from\s+\.([A-Za-z_][A-Za-z0-9_]*)\s+import", re.M)
-_RELATIVE_FROM_PACKAGE = re.compile(r"^\s*from\s+\.\s+import\s+([^\n#]+)", re.M)
+
+#: NEGATIVE-CONTROL: controls/codex-skill-sync-over-bundle
+def _is_type_checking_test(test: ast.expr) -> bool:
+    """True for an `if` test naming TYPE_CHECKING, bare or `typing.`-qualified."""
+    if isinstance(test, ast.Name):
+        return test.id == "TYPE_CHECKING"
+    if isinstance(test, ast.Attribute):
+        return test.attr == "TYPE_CHECKING"
+    return False
+
+
+def _live_import_nodes(text: str) -> list[ast.Import | ast.ImportFrom]:
+    """`Import`/`ImportFrom` statements NOT nested inside `if TYPE_CHECKING:`
+    (issue #1408, counter-model review).
+
+    A block guard is control flow a regex cannot see - only the parser knows
+    a statement sits inside an `if` whose test names TYPE_CHECKING, which
+    `importlib`/`__getattr__` never executes. `lib/cicd/__init__.py` lists
+    all 29 submodules there for mypy's benefit alone; the old regexes
+    (`_RELATIVE_IMPORT`/`_RELATIVE_FROM_PACKAGE` for `from .x import ...`,
+    `_LIB_IMPORT` for `from lib.x import ...`) read line shape alone, so a
+    USAGE EXAMPLE in that module's own docstring (`from lib.cicd import
+    run_health_checks`) matched `_LIB_IMPORT` exactly like a live import and
+    bundled the whole package via `rglob` - not even a TYPE_CHECKING case,
+    just text that happens to start a line the same way code does.
+
+    Walks into every compound statement (functions, classes, other `if`s)
+    so an import nested deeper still counts, with the SAME TYPE_CHECKING
+    exclusion propagated into it - not just the module's top level. A
+    docstring is a single `Constant` node and never produces an `Import`/
+    `ImportFrom` node at all, so this exclusion is structural rather than a
+    second pattern to keep in sync with the first.
+    """
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return []
+    live: list[ast.Import | ast.ImportFrom] = []
+
+    def walk(nodes: list[ast.stmt], skip: bool) -> None:
+        for node in nodes:
+            if isinstance(node, ast.If) and _is_type_checking_test(node.test):
+                walk(node.body, True)
+                walk(node.orelse, skip)
+                continue
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                if not skip:
+                    live.append(node)
+                continue
+            for field in ("body", "orelse", "finalbody", "handlers"):
+                child = getattr(node, field, None)
+                if not child:
+                    continue
+                if field == "handlers":
+                    for handler in child:
+                        walk(handler.body, skip)
+                else:
+                    walk(child, skip)
+
+    walk(tree.body, False)
+    return live
+
+
+def _live_relative_imports(text: str) -> list[ast.ImportFrom]:
+    """`from .x import ...` / `from . import x, y` statements among the live
+    (non-TYPE_CHECKING) imports `_live_import_nodes` returns."""
+    return [
+        node
+        for node in _live_import_nodes(text)
+        if isinstance(node, ast.ImportFrom) and node.level == 1
+    ]
+
+
+def _live_absolute_lib_imports(text: str) -> list[str]:
+    """Dotted `lib.*` targets of the live (non-TYPE_CHECKING) imports
+    `_live_import_nodes` returns - replaces `_LIB_IMPORT`'s regex scan, which
+    cannot tell a docstring's `from lib.cicd import ...` usage example from a
+    real import (issue #1408: that example is exactly what over-bundled
+    `lib/cicd/` for flow-check)."""
+    dotted: list[str] = []
+    for node in _live_import_nodes(text):
+        if isinstance(node, ast.Import):
+            dotted.extend(
+                alias.name for alias in node.names
+                if alias.name == "lib" or alias.name.startswith("lib.")
+            )
+        elif (
+            isinstance(node, ast.ImportFrom)
+            and node.level == 0
+            and node.module
+            and (node.module == "lib" or node.module.startswith("lib."))
+        ):
+            dotted.append(node.module)
+    return dotted
+
+
+def _relative_import_names(node: ast.ImportFrom) -> list[str]:
+    """The sibling module name(s) one `from .x import ...` / `from . import
+    x, y` AST node names - both spellings `_live_relative_imports` returns."""
+    if node.module:
+        return [node.module]
+    return [alias.name for alias in node.names]
+
+
+def _lazy_getattr_map(text: str) -> dict[str, str] | None:
+    """The `{name: submodule}` dict a lazy `__getattr__` package resolves
+    against, read from the package's OWN AST rather than hardcoded here -
+    issue #1408's ruling, and the same #1136 lesson this repository has
+    already paid for once ("a hardcoded universe again, one entry longer"):
+    a SECOND copy of the map drifts from the real one on the package's next
+    refactor, silently.
+
+    A module qualifies only when it DEFINES `__getattr__` (PEP 562) AND has
+    a module-level dict literal whose keys and values are all string
+    constants - the shape `lib/cicd/__init__.py` uses, not a convention
+    tied to that one package.
+    """
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return None
+    has_getattr = any(
+        isinstance(node, ast.FunctionDef) and node.name == "__getattr__"
+        for node in ast.walk(tree)
+    )
+    if not has_getattr:
+        return None
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and isinstance(node.value, ast.Dict)
+        ):
+            continue
+        mapping: dict[str, str] = {}
+        for key, value in zip(node.value.keys, node.value.values):
+            if not (
+                isinstance(key, ast.Constant)
+                and isinstance(key.value, str)
+                and isinstance(value, ast.Constant)
+                and isinstance(value.value, str)
+            ):
+                mapping = {}
+                break
+            mapping[key.value] = value.value
+        if mapping:
+            return mapping
+    return None
+
+
+def _referenced_lazy_names(text: str, package_dotted: str) -> set[str]:
+    """Names this file's own text accesses through `package_dotted`'s lazy
+    `__getattr__`: `from <package_dotted> import <name>` (module-absolute,
+    `level == 0`) or a `<package_dotted>.<name>` attribute chain."""
+    names: set[str] = set()
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return names
+    pkg_parts = package_dotted.split(".")
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.ImportFrom)
+            and node.level == 0
+            and node.module == package_dotted
+        ):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.Attribute):
+            chain: list[str] = []
+            cur: ast.expr = node
+            while isinstance(cur, ast.Attribute):
+                chain.append(cur.attr)
+                cur = cur.value
+            if isinstance(cur, ast.Name):
+                chain.append(cur.id)
+                chain.reverse()
+                if chain[:-1] == pkg_parts:
+                    names.add(chain[-1])
+    return names
 
 #: A module-level constant naming a REPO-RELATIVE DATA FILE:
 #: `MANIFEST_PATH = REPO_ROOT / ".claude" / "project-next-vendor.json"`.
@@ -816,68 +995,141 @@ def find_bundled_libs(scripts: list[str]) -> dict[str, Path]:
     # by coincidence, which is not a property anything was checking.
     pending: list[tuple[str, Path]] = []
     seen: set[Path] = set()
+
+    def drain() -> None:
+        while pending:
+            origin, path = pending.pop()
+            if path in seen:
+                continue
+            seen.add(path)
+            text = path.read_text()
+
+            # Absolute `lib.*` imports, resolved against the repository root.
+            # AST-based and TYPE_CHECKING-aware (issue #1408) - see
+            # `_live_absolute_lib_imports` for why the regex this replaced
+            # over-bundled `lib/cicd/` from its own module docstring.
+            for dotted in _live_absolute_lib_imports(text):
+                rel = _lib_package_path(dotted)
+                if rel is None:
+                    raise SystemExit(
+                        f"codex-skill-sync: {origin} imports `{dotted}`, which "
+                        f"resolves to no package under the repository root or vendor/. "
+                        f"Bundling it would ship a script that cannot start."
+                    )
+                source = REPO_ROOT / rel
+                if source.is_dir():
+                    source_init = source / "__init__.py"
+                    # A LAZY `__getattr__` package (issue #1408) resolves its
+                    # re-exports one name at a time at runtime, so bundling
+                    # every module under it eagerly is exactly the over-bundle
+                    # this issue exists to remove - `from lib.cicd import
+                    # run_health_checks` would otherwise rglob all 29 files
+                    # for one. The post-drain lazy-map pass below bundles
+                    # only the submodule(s) actually referenced; an ordinary
+                    # (non-lazy) package keeps the old whole-directory bundle,
+                    # since nothing yet in this repository imports one by its
+                    # bare package name while depending on only some of it.
+                    if source_init.is_file() and _lazy_getattr_map(source_init.read_text()) is not None:
+                        targets = [source_init]
+                    else:
+                        targets = sorted(source.rglob("*.py"))
+                else:
+                    targets = [source]
+                for child in targets:
+                    out[str(child.relative_to(REPO_ROOT))] = child
+                    pending.append((str(child.relative_to(REPO_ROOT)), child))
+                # EVERY `__init__.py` ON THE WAY DOWN. `from lib.project_next.rank
+                # import ...` resolves to one module, so bundling only that module
+                # leaves the package's own `__init__.py` behind - and the six
+                # modules import each other relatively (`from .models import ...`),
+                # which needs the package to BE one. Python would fall back to a
+                # namespace package and skip an `__init__.py` that is 488 bytes of
+                # real code, so the bundle would import and then behave differently
+                # from the checkout: the worst failure shape for a mirror whose
+                # whole purpose is being byte-identical.
+                for parent in rel.parents:
+                    init = REPO_ROOT / parent / "__init__.py"
+                    if init.is_file():
+                        out[str(init.relative_to(REPO_ROOT))] = init
+                        pending.append((str(init.relative_to(REPO_ROOT)), init))
+
+            # Relative imports INSIDE a bundled package - `from .b import value` -
+            # AST-based and TYPE_CHECKING-aware (issue #1408): only meaningful once
+            # we are walking a package's own modules, which is exactly what the
+            # worklist made possible.
+            if path.parent != SCRIPTS_ROOT:
+                names: list[str] = []
+                for node in _live_relative_imports(text):
+                    names.extend(_relative_import_names(node))
+                for module in names:
+                    if not module.isidentifier():
+                        continue
+                    sibling = path.parent / f"{module}.py"
+                    subpackage = path.parent / module / "__init__.py"
+                    for candidate in (sibling, subpackage):
+                        if candidate.is_file():
+                            rel_child = candidate.relative_to(REPO_ROOT)
+                            out[str(rel_child)] = candidate
+                            pending.append((str(rel_child), candidate))
+
     for name in scripts:
         path = SCRIPTS_ROOT / name
         if path.suffix == ".py":
             pending.append((f"scripts/{name}", path))
+    drain()
 
-    while pending:
-        origin, path = pending.pop()
-        if path in seen:
-            continue
-        seen.add(path)
-        text = path.read_text()
-
-        # Absolute `lib.*` imports, resolved against the repository root.
-        for match in _LIB_IMPORT.finditer(text):
-            dotted = match.group(1)
-            rel = _lib_package_path(dotted)
-            if rel is None:
-                raise SystemExit(
-                    f"codex-skill-sync: {origin} imports `{dotted}`, which "
-                    f"resolves to no package under the repository root or vendor/. "
-                    f"Bundling it would ship a script that cannot start."
-                )
-            source = REPO_ROOT / rel
-            targets = sorted(source.rglob("*.py")) if source.is_dir() else [source]
-            for child in targets:
-                out[str(child.relative_to(REPO_ROOT))] = child
-                pending.append((str(child.relative_to(REPO_ROOT)), child))
-            # EVERY `__init__.py` ON THE WAY DOWN. `from lib.project_next.rank
-            # import ...` resolves to one module, so bundling only that module
-            # leaves the package's own `__init__.py` behind - and the six
-            # modules import each other relatively (`from .models import ...`),
-            # which needs the package to BE one. Python would fall back to a
-            # namespace package and skip an `__init__.py` that is 488 bytes of
-            # real code, so the bundle would import and then behave differently
-            # from the checkout: the worst failure shape for a mirror whose
-            # whole purpose is being byte-identical.
-            for parent in rel.parents:
-                init = REPO_ROOT / parent / "__init__.py"
-                if init.is_file():
-                    out[str(init.relative_to(REPO_ROOT))] = init
-                    pending.append((str(init.relative_to(REPO_ROOT)), init))
-
-        # Relative imports INSIDE a bundled package - `from .b import value`.
-        # Only meaningful once we are walking a package's own modules, which is
-        # exactly what the worklist made possible.
-        if path.parent != SCRIPTS_ROOT:
-            names = [m.group(1) for m in _RELATIVE_IMPORT.finditer(text)]
-            for match in _RELATIVE_FROM_PACKAGE.finditer(text):
-                names.extend(
-                    part.split(" as ")[0].strip().strip("()")
-                    for part in match.group(1).split(",")
-                )
-            for module in names:
-                if not module.isidentifier():
-                    continue
-                sibling = path.parent / f"{module}.py"
-                subpackage = path.parent / module / "__init__.py"
-                for candidate in (sibling, subpackage):
-                    if candidate.is_file():
-                        rel_child = candidate.relative_to(REPO_ROOT)
-                        out[str(rel_child)] = candidate
-                        pending.append((str(rel_child), candidate))
+    # LAZY `__getattr__` RE-EXPORTS (issue #1408): a TYPE_CHECKING-guarded
+    # import is invisible to the worklist above BY DESIGN - it is never
+    # executed. But the package's OWN `__getattr__` can still reach that
+    # submodule at RUNTIME, on first attribute access, so dropping it
+    # unconditionally can ship a mirror that ImportErrors in Codex the
+    # moment something touches a re-exported name. The fix is not to trust
+    # the TYPE_CHECKING list (undoing the fix above) - it is to ask whether
+    # anything actually bundled so far REFERENCES one of those names, and
+    # bundle only that submodule, by reading the package's OWN map rather
+    # than a second copy of it kept here (the #1136 lesson).
+    lazy_packages = [
+        child.parent for child in out.values()
+        if child.name == "__init__.py" and _lazy_getattr_map(child.read_text())
+    ]
+    if lazy_packages:
+        entry_texts = [
+            (SCRIPTS_ROOT / n).read_text()
+            for n in scripts
+            if (SCRIPTS_ROOT / n).suffix == ".py"
+        ]
+        all_texts = entry_texts + [child.read_text() for child in out.values()]
+        for package_dir in lazy_packages:
+            init_path = package_dir / "__init__.py"
+            mapping = _lazy_getattr_map(init_path.read_text())
+            if mapping is None:
+                continue
+            package_dotted = ".".join(package_dir.relative_to(REPO_ROOT).parts)
+            referenced: set[str] = set()
+            for text in all_texts:
+                referenced |= _referenced_lazy_names(text, package_dotted)
+            for name in referenced:
+                # The map first - that is what `__getattr__` actually
+                # resolves against. A name ABSENT from the map but matching a
+                # real submodule is `from lib.cicd import evidence`'s shape:
+                # Python imports that as a submodule directly, bypassing
+                # `__getattr__` entirely (and `evidence` is deliberately not
+                # one of the map's keys), so the map alone would under-bundle it.
+                submodule = mapping.get(name, name)
+                candidate = package_dir / f"{submodule}.py"
+                subpackage = package_dir / submodule / "__init__.py"
+                for resolved in (candidate, subpackage):
+                    if not resolved.is_file():
+                        continue
+                    rel_child = resolved.relative_to(REPO_ROOT)
+                    if str(rel_child) in out:
+                        continue
+                    out[str(rel_child)] = resolved
+                    pending.append((str(rel_child), resolved))
+        # The lazy submodules just added may carry their OWN relative
+        # imports (same shape as any other package module) - drain them
+        # through the identical worklist logic rather than a second copy.
+        drain()
     return out
 
 

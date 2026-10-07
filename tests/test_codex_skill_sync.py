@@ -274,6 +274,72 @@ def test_real_repo_project_next_runs_a_real_query_from_its_own_bundle(tmp_path):
     assert "No such file or directory" not in result.stdout + result.stderr
 
 
+def test_real_repo_flow_check_runtime_closure_runs_isolated_and_reds_without_state(tmp_path):
+    """issue #1408 bullet 3's own runtime-closure proof, not just a file count.
+
+    "29 shrank to 3" is a claim about `find_bundled_libs`'s RETURN VALUE; this
+    proves the 3 files it kept are what the bundled entry points actually run
+    on, with NO repository checkout anywhere on `sys.path` - a COPY of the
+    generated skill directory in a tmp tree the real repo cannot leak into
+    (Codex installs a skill exactly this way: standalone, nothing beside it).
+
+    `execution-evidence-verify.py` resolves its own import root from
+    `Path(__file__).resolve().parents[1]`, so running the COPY's own file
+    inserts the COPY's skill root, never this checkout's - isolation falls
+    out of the entry point's own design rather than anything this test does.
+
+    The NEGATIVE HALF matters at least as much as the positive one: deleting
+    `state.py` (one of the three) must turn the identical invocation into an
+    ImportError. A trimmed closure that still ran with a module MISSING would
+    mean the trim found nothing - it would mean nothing was ever bundled from
+    that module in the first place, which is exactly as wrong as the 29-file
+    over-bundle, just quieter.
+    """
+    skill_src = ROOT / "codex" / "skills" / "flow-check"
+    isolated = tmp_path / "flow-check-isolated"
+    shutil.copytree(skill_src, isolated)
+    entry = isolated / "scripts" / "execution-evidence-verify.py"
+    assert entry.is_file()
+
+    record = tmp_path / "bogus-record.json"
+    record.write_text(json.dumps({"schema": "bogus"}))
+
+    clean_env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    result = subprocess.run(
+        [sys.executable, str(entry), str(record)],
+        capture_output=True, text=True, timeout=120, check=False,
+        env=clean_env,
+    )
+    assert result.returncode == 4, f"{result.stdout}{result.stderr}"
+    assert "EXECUTION_EVIDENCE: unknown" in result.stdout
+    assert "ModuleNotFoundError" not in result.stderr
+
+    help_result = subprocess.run(
+        [sys.executable, str(isolated / "scripts" / "counter-model-receipt.py"), "--help"],
+        capture_output=True, text=True, timeout=120, check=False,
+        env=clean_env,
+    )
+    assert help_result.returncode == 0, f"{help_result.stdout}{help_result.stderr}"
+
+    # RED CASE: remove a module the closure needs and confirm the SAME
+    # invocation now fails. This is the under-bundling check a file-count
+    # alone cannot make - it proves `state.py` was load-bearing, not merely
+    # present.
+    (isolated / "lib" / "cicd" / "state.py").unlink()
+    red_result = subprocess.run(
+        [sys.executable, str(entry), str(record)],
+        capture_output=True, text=True, timeout=120, check=False,
+        env=clean_env,
+    )
+    assert red_result.returncode not in (0, 3, 4), (
+        f"removing a real dependency must break the run, not change its verdict\n"
+        f"{red_result.stdout}{red_result.stderr}"
+    )
+    assert "ModuleNotFoundError" in red_result.stderr or "ImportError" in red_result.stderr, (
+        f"expected an import failure naming the missing module\n{red_result.stderr}"
+    )
+
+
 def test_a_mention_is_not_a_dependency(tmp_repo):
     """The closure follows `$VAR/<name>`, never a `scripts/<name>` mention.
 
@@ -384,6 +450,122 @@ def test_the_from_package_import_form_is_followed_too(tmp_repo):
     )
     assert result.returncode == 0, f"{result.stdout}{result.stderr}"
     assert "reached via from-package import" in result.stdout
+
+
+def test_a_lazy_getattr_reexport_is_bundled_and_the_bundle_runs(tmp_repo):
+    """issue #1408 bullet 3: a TYPE_CHECKING-only import must not vanish from
+    the closure just because it is invisible to the worklist's normal walk.
+
+    `lib/cicd/__init__.py`'s real shape (issue #1163): the package lists its
+    re-exports under `if TYPE_CHECKING:` for mypy alone, and resolves them for
+    real through `__getattr__`'s `_NAME_TO_MODULE` map on first access. Ignoring
+    the TYPE_CHECKING block (this issue's other half) is correct for modules
+    nothing references, but a module an entry script DOES reach only through
+    that lazy map must still be bundled, or the shipped copy ImportErrors the
+    moment something touches the re-exported name - the exact regression a
+    closure fix must not introduce while narrowing the over-bundle.
+
+    No real script in this repository's current bundled set exercises this
+    path for flow-check specifically (its own entry point reaches `evidence`
+    via a module-absolute `from lib.cicd.evidence import cli`, never through
+    `lib.cicd`'s lazy map) - hence a synthetic fixture.
+    """
+    lib = tmp_repo / "lib" / "lazy_pkg"
+    lib.mkdir(parents=True)
+    (lib / "__init__.py").write_text(
+        "from typing import TYPE_CHECKING, Any\n"
+        "\n"
+        "if TYPE_CHECKING:\n"
+        "    from .submodule import thing\n"
+        "\n"
+        "_NAME_TO_MODULE = {\"thing\": \"submodule\"}\n"
+        "\n"
+        "\n"
+        "def __getattr__(name: str) -> Any:\n"
+        "    module = _NAME_TO_MODULE.get(name)\n"
+        "    if module is None:\n"
+        "        raise AttributeError(name)\n"
+        "    import importlib\n"
+        "    value = getattr(importlib.import_module(f\".{module}\", __name__), name)\n"
+        "    globals()[name] = value\n"
+        "    return value\n"
+    )
+    (lib / "submodule.py").write_text("thing = 'reached via the lazy map'\n")
+    (tmp_repo / "scripts" / "importer.py").write_text(
+        "import sys\n"
+        "from pathlib import Path\n"
+        "REPO_ROOT = Path(__file__).resolve().parents[1]\n"
+        "sys.path.insert(0, str(REPO_ROOT))\n"
+        "from lib.lazy_pkg import thing\n"
+        "print(thing)\n"
+    )
+    (tmp_repo / ".claude" / "commands" / "flow" / "auto.md").write_text(
+        "# Flow Auto\n\nUses scripts/importer.py.\n"
+    )
+
+    codex_skill_sync.main(["--write"])
+    bundled = tmp_repo / "codex" / "skills" / "flow-auto"
+    assert (bundled / "lib" / "lazy_pkg" / "submodule.py").is_file(), (
+        "the lazily re-exported module was not bundled"
+    )
+
+    result = subprocess.run(
+        [sys.executable, str(bundled / "scripts" / "importer.py")],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    assert result.returncode == 0, f"{result.stdout}{result.stderr}"
+    assert "reached via the lazy map" in result.stdout
+
+
+def test_an_unreferenced_lazy_submodule_is_not_bundled(tmp_repo):
+    """The other half: the lazy-map pass must not degrade into rglob-ing the
+    whole package again, which would undo bullet 3's own fix.
+
+    Same package as the test above, but the entry script never touches
+    `other_thing`, so `other_submodule.py` - mapped but unreferenced - must
+    stay out of the bundle.
+    """
+    lib = tmp_repo / "lib" / "lazy_pkg"
+    lib.mkdir(parents=True)
+    (lib / "__init__.py").write_text(
+        "from typing import TYPE_CHECKING, Any\n"
+        "\n"
+        "if TYPE_CHECKING:\n"
+        "    from .submodule import thing\n"
+        "    from .other_submodule import other_thing\n"
+        "\n"
+        "_NAME_TO_MODULE = {\"thing\": \"submodule\", \"other_thing\": \"other_submodule\"}\n"
+        "\n"
+        "\n"
+        "def __getattr__(name: str) -> Any:\n"
+        "    module = _NAME_TO_MODULE.get(name)\n"
+        "    if module is None:\n"
+        "        raise AttributeError(name)\n"
+        "    import importlib\n"
+        "    value = getattr(importlib.import_module(f\".{module}\", __name__), name)\n"
+        "    globals()[name] = value\n"
+        "    return value\n"
+    )
+    (lib / "submodule.py").write_text("thing = 'reached via the lazy map'\n")
+    (lib / "other_submodule.py").write_text("other_thing = 'never referenced'\n")
+    (tmp_repo / "scripts" / "importer.py").write_text(
+        "import sys\n"
+        "from pathlib import Path\n"
+        "REPO_ROOT = Path(__file__).resolve().parents[1]\n"
+        "sys.path.insert(0, str(REPO_ROOT))\n"
+        "from lib.lazy_pkg import thing\n"
+        "print(thing)\n"
+    )
+    (tmp_repo / ".claude" / "commands" / "flow" / "auto.md").write_text(
+        "# Flow Auto\n\nUses scripts/importer.py.\n"
+    )
+
+    codex_skill_sync.main(["--write"])
+    bundled = tmp_repo / "codex" / "skills" / "flow-auto"
+    assert (bundled / "lib" / "lazy_pkg" / "submodule.py").is_file()
+    assert not (bundled / "lib" / "lazy_pkg" / "other_submodule.py").exists(), (
+        "an unreferenced lazy-mapped submodule must not be bundled"
+    )
 
 
 def test_a_runtime_data_file_the_entry_point_reads_is_bundled(tmp_repo):
@@ -1664,6 +1846,34 @@ def test_the_shell_lib_rule_does_not_widen_to_unrelated_scripts() -> None:
     assert set(both) == {"scripts/gate-lib.sh"}, (
         f"only the sourced library may be added; got {sorted(both)}"
     )
+
+
+def test_flow_checks_lib_closure_is_the_three_files_it_actually_runs():
+    """issue #1408 bullet 3: flow-check's real dependency is `evidence.py` and
+    its own `from .state import ...` - three files, not all 29 of `lib/cicd/`.
+
+    Before the fix, `lib/cicd/__init__.py`'s OWN module docstring (a
+    `Quick Start:` usage example reading `from lib.cicd import
+    run_health_checks`) matched the line-shape regex this replaced exactly
+    like a real import, resolved to the PACKAGE DIRECTORY, and `rglob`'d
+    every one of its 29 modules into the bundle. The TYPE_CHECKING-guarded
+    re-export list in that same file is a second, independent instance of
+    the identical class of bug (a block the interpreter never executes,
+    read by a regex as if it always runs) - both are closed by moving to
+    `ast.parse` rather than widening the old regexes.
+
+    RED CONFIRMED (not re-asserted here; see the #1408 PR description): this
+    assertion fails against the pre-fix `scripts/codex-skill-sync.py`
+    (commit 3672b12), which bundles all 29 `lib/cicd/*.py` files for these
+    two scripts.
+    """
+    mod = codex_skill_sync
+    got = mod.find_bundled_libs(["execution-evidence-verify.py", "counter-model-receipt.py"])
+    assert set(got) == {
+        "lib/cicd/__init__.py",
+        "lib/cicd/evidence.py",
+        "lib/cicd/state.py",
+    }, f"the minimal runtime closure changed shape; got {sorted(got)}"
 
 
 def test_a_source_line_the_bundler_cannot_follow_refuses(tmp_path: Path) -> None:
