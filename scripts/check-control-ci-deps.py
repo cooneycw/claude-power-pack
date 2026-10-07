@@ -734,6 +734,14 @@ def _wrapper_file(invocation: list[str], gate_rel: str | None) -> str | None:
 #: `cat > "$T/bin/curl" <<STUB ... ; env PATH="$T/bin:$PATH" ... bash "$gate"`
 #: shape exactly.
 #:
+#: ONLY `>` IS A WRITE (counter-model review). `:` is shell's null command -
+#: `: "$T/bin/curl"` creates nothing - and a first cut of this regex accepted
+#: it anyway, which would let a stale claim verify against text that writes
+#: no file at all. COMMENTED-OUT TEXT IS NOT CODE EITHER (same review): a
+#: whole-line `#`-prefixed comment is blanked before either pattern runs, so
+#: `# cat > "$T/bin/curl" <<STUB` cannot verify a claim the wrapper's actual
+#: code never executes.
+#:
 #: THIS IS NOT A SHELL INTERPRETER, AND SAYS SO. It does not check that the
 #: written file is executable, that it behaves like the real binary, or that
 #: the write and the PATH assignment execute on the same path through the
@@ -743,22 +751,52 @@ def _wrapper_file(invocation: list[str], gate_rel: str | None) -> str | None:
 #: spelled with different quoting or whitespace than the write, is UNVERIFIED
 #: and refused - the same direction every other asymmetry in this file already
 #: favours.
+#:
+#: STILL NOT ORDER-AWARE (counter-model review, flagged and not fixed here):
+#: a wrapper that hard-requires a REAL `curl` for some earlier step, then
+#: separately stages a stub `curl` for the gate, verifies the same as one that
+#: only ever uses the stub - `binaries_in_script` reports presence file-wide,
+#: never per call site or in sequence, the same bound already named for the
+#: gate-side `degrades`/`hard_required` sets this file's own #1407 fallout
+#: commit routed to the Nit Store rather than fixing. No control in this
+#: repository has that shape today (`run-case.sh` only ever touches the
+#: stub), so this is a stated limitation, not a live finding.
 _WRAPPER_WRITE_RE = re.compile(
-    r"""[>:]\s*"?'?(?P<dir>[\w$./{}-]*?)/(?P<name>[\w.+-]+)"?'?\s*(?:<<|$)""",
+    r""">\s*"?'?(?P<dir>[\w$./{}-]*?)/(?P<name>[\w.+-]+)"?'?\s*(?:<<|$)""",
     re.MULTILINE,
 )
+
+#: A `PATH=` assignment, never a suffix of a longer name like `OTHERPATH=`
+#: (counter-model review: the first cut's bare `PATH=` matched inside one).
+_PATH_ASSIGNMENT_BOUNDARY = r"(?<![A-Za-z0-9_])"
+
+
+def _strip_comment_lines(text: str) -> str:
+    """Blank whole-line shell comments, so a claim cannot verify against text
+
+    that never runs. Deliberately whole-line only: an inline trailing comment
+    after real code on the same line does not change what that line's own
+    write or PATH assignment already did, and splitting a line to strip only
+    its tail risks cutting a quoted string that happens to contain `#`.
+    """
+    return "\n".join(
+        "" if line.lstrip().startswith("#") else line for line in text.splitlines()
+    )
 
 
 def _verify_provided(wrapper_text: str, name: str) -> bool:
     """True when `wrapper_text` demonstrably stages `name` on PATH itself."""
-    for match in _WRAPPER_WRITE_RE.finditer(wrapper_text):
+    live_text = _strip_comment_lines(wrapper_text)
+    for match in _WRAPPER_WRITE_RE.finditer(live_text):
         if match.group("name") != name:
             continue
         dir_expr = match.group("dir")
         if not dir_expr:
             continue
-        prefix_re = re.compile(rf'PATH=["\']?{re.escape(dir_expr)}:\$PATH')
-        if prefix_re.search(wrapper_text):
+        prefix_re = re.compile(
+            rf'{_PATH_ASSIGNMENT_BOUNDARY}PATH=["\']?{re.escape(dir_expr)}:\$PATH'
+        )
+        if prefix_re.search(live_text):
             return True
     return False
 

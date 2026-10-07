@@ -119,6 +119,12 @@
       "input": "cases/bad-wrapper-gate-needs-not-provided",
       "expect": "BAD",
       "why": "The gate hard-requires both curl and jq; the wrapper genuinely stages and the control genuinely (and correctly) claims only curl. jq must still be reported as needed - pinning that `ci_deps_provided_by_invocation` narrows a gate's needs by exactly what it verifies, never by walking the wrapper INSTEAD of the gate (the orchestrator's ruled-out direction, which would drop every binary the gate needs that a wrapper happens not to stub, across the 26 registered controls that invoke one)."
+    },
+    {
+      "name": "bad-wrapper-own-need-not-provided",
+      "input": "cases/bad-wrapper-own-need-not-provided",
+      "expect": "BAD",
+      "why": "The gate needs only curl, genuinely staged and genuinely claimed provided. The WRAPPER itself independently hard-requires jq for its own bootstrap, never staged or claimed. jq must still be reported as needed - pinning the ADDITIVE wrapper walk itself (counter-model review, pass 2): removing `binaries_in_script(wrapper_path)` from requirements() leaves this case passing by accident, since nothing else in the fixture surfaces jq. None of the other four cases exercises this - each of their toy wrappers needs nothing independently of what it stages for the gate."
     }
   ],
   "anchors": [

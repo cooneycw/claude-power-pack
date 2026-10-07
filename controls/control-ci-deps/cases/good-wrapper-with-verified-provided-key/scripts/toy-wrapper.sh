@@ -1,9 +1,12 @@
 #!/bin/sh
 # Mirrors controls/lane-serveability-check/run-case.sh's own shape exactly:
 # stages a throwaway curl stub on PATH, then runs the real gate through it.
-# This case carries NO `ci_deps_provided_by_invocation` key, so the real
-# gate's own curl requirement must still be reported - this is today's
-# make-test failure, reproduced on purpose as the intended red.
+# This control's own control.json DOES declare `ci_deps_provided_by_invocation:
+# ["curl"]`, and this wrapper's text genuinely demonstrates the claim - the
+# checker must verify it against this file's own text and score the control
+# clean (counter-model review: an earlier copy-paste left this comment
+# claiming the opposite, the bad-wrapper-without-provided-key case's own
+# header, which described this file correctly there and not here).
 set -eu
 T=$(mktemp -d "${TMPDIR:-/tmp}/toy-wrapper.XXXXXX")
 mkdir "$T/bin"
