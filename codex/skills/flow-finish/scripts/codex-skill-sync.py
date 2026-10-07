@@ -373,6 +373,55 @@ def detect_adaptations(body: str) -> list[str]:
     ]
 
 
+#: `~/.claude/scripts/<name>` - the convenience-install absolute path a command
+#: document invokes a helper by (issue #1408, Nit Store #864). The RELATIVE
+#: form `scripts/<name>` already reads correctly unchanged in both the CPP
+#: checkout (repo-root-relative) and a generated skill (skill-dir-relative,
+#: since the helper is bundled at that same relative path) - which is exactly
+#: why `_SCRIPT_REF` needs no rewrite at all for that shape. The absolute form
+#: has no such luck: `~/.claude/scripts/` names a path that exists only on a
+#: host with the convenience install, never inside a generated skill, so it
+#: must become the relative form before anything downstream can see it as a
+#: dependency - it previously became nothing, and the Codex entry point hit
+#: exit 127.
+_ABS_CLAUDE_SCRIPT_REF = re.compile(r"~/\.claude/scripts/([A-Za-z0-9._-]+\.(?:sh|py))\b")
+
+
+#: NEGATIVE-CONTROL: controls/codex-skill-sync-remap
+def rewrite_absolute_script_refs(body: str) -> tuple[str, list[str]]:
+    """Rewrite `~/.claude/scripts/<name>` to `scripts/<name>` when `<name>` is
+    a real checkout script (so `find_bundled_scripts` bundles it exactly as it
+    already does for a relative reference - no second bundling path).
+
+    Returns `(new_body, unremapped)`: `unremapped` names any `<name>` that is
+    NOT a real checkout script, left untouched in the body rather than
+    rewritten to a relative path that would resolve to nothing bundled - a
+    typo'd or genuinely host-only name must be named as a gap, not silently
+    pointed at a file this generator never ships.
+    """
+    unremapped: list[str] = []
+
+    def repl(match: re.Match[str]) -> str:
+        name = match.group(1)
+        if (SCRIPTS_ROOT / name).is_file():
+            return f"scripts/{name}"
+        unremapped.append(name)
+        return match.group(0)
+
+    new_body = _ABS_CLAUDE_SCRIPT_REF.sub(repl, body)
+    return new_body, sorted(set(unremapped))
+
+
+def unremapped_script_bullet(names: list[str]) -> str:
+    joined = ", ".join(f"`~/.claude/scripts/{n}`" for n in names)
+    return (
+        f"Absolute path(s) {joined}: no matching checkout script was found, so"
+        " this skill cannot bundle it and the reference will not resolve in a"
+        " Codex-only install (exit 127). Obtain the helper from a"
+        " claude-power-pack checkout, or file a Nit Store finding."
+    )
+
+
 _SCRIPT_REF = re.compile(r"scripts/([A-Za-z0-9._-]+\.(?:sh|py))")
 
 
@@ -828,6 +877,11 @@ def generate_skill(
     """Map of skill-dir-relative path -> content for one command."""
     meta, body = parse_frontmatter(source_file.read_text())
     body = rewrite_slash_refs(body, names).rstrip("\n") + "\n"
+    # Rewrite the absolute convenience-install path BEFORE find_bundled_scripts
+    # runs: a rewritten `~/.claude/scripts/<name>` becomes a plain
+    # `scripts/<name>` reference, which is the ONLY shape that detector reads -
+    # one bundling path, not two.
+    body, unremapped_scripts = rewrite_absolute_script_refs(body)
     # Rewrite doc links BEFORE deriving the description: the description is cut
     # from the opening paragraphs, so a later rewrite leaves the broken
     # source-relative path advertised in the skill's own frontmatter.
@@ -843,6 +897,8 @@ def generate_skill(
         bullets.append(BUNDLED_SCRIPTS_BULLET)
     if docs:
         bullets.append(BUNDLED_DOCS_BULLET)
+    if unremapped_scripts:
+        bullets.append(unremapped_script_bullet(unremapped_scripts))
     # Every bundled code file, gathered before the bullets are rendered because
     # the network bullet is decided by what the helpers DO (issue #1357).
     bundled: dict[str, str] = {

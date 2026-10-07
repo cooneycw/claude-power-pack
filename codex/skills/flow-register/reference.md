@@ -198,7 +198,7 @@ re-declaration is cheap where a blind wave is not.
 **Check your diff against your own lane before you push (#985).**
 
 ```bash
-~/.claude/scripts/flow-wave-registry.sh lane-check worker-B --wave cpp-completion
+scripts/flow-wave-registry.sh lane-check worker-B --wave cpp-completion
 ```
 
 A stale payload silently reverts another worker's merged work, and **every
@@ -222,7 +222,7 @@ Three outcomes, and the third is why it exists:
 **Check your lane against the grant that authorised it, too (#1026).**
 
 ```bash
-~/.claude/scripts/flow-wave-registry.sh lane-check worker-B --wave cpp-completion \
+scripts/flow-wave-registry.sh lane-check worker-B --wave cpp-completion \
   --granted 'scripts/flow-wave-registry.sh,tests/test_flow_wave_registry.py'
 ```
 
@@ -273,7 +273,7 @@ replaces the lane, so pass every path still held.
 **Escalating an unanswered message (#971).**
 
 ```bash
-~/.claude/scripts/flow-wave-mailbox.sh escalate --role worker-B --wave cpp-completion
+scripts/flow-wave-mailbox.sh escalate --role worker-B --wave cpp-completion
 ```
 
 `route=unconfirmed` has been computed since #778 and nothing acted on it.
@@ -291,7 +291,7 @@ success against the wrong session.
 construction:
 
 ```bash
-~/.claude/scripts/flow-wave-mailbox.sh ack --role orchestrator --wave W --revs N --answered-elsewhere
+scripts/flow-wave-mailbox.sh ack --role orchestrator --wave W --revs N --answered-elsewhere
 ```
 
 Lane 1 is the documented fast path, so answering there while the durable copy
@@ -301,7 +301,7 @@ sits unacked is the ORDINARY healthy shape - this wave ran most of a session wit
 ### Declaring the policy (orchestrator, once)
 
 ```bash
-~/.claude/scripts/flow-wave-registry.sh policy set --wave cpp \
+scripts/flow-wave-registry.sh policy set --wave cpp \
   --repo /home/user/Projects/claude-power-pack \
   --driver flow:auto \
   --authority implement \
@@ -346,7 +346,7 @@ BARE at its stable path (#581 invocation discipline - never wrapped, chained,
 or followed by `echo $?`):
 
 ```bash
-~/.claude/scripts/flow-wave-registry.sh <verb> ...
+scripts/flow-wave-registry.sh <verb> ...
 ```
 
 (Exit 127 - helper not installed: fall back to
@@ -364,7 +364,7 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
    (literal values):
 
    ```bash
-   ~/.claude/scripts/flow-wave-registry.sh register 1 --wave cpp --cwd /path/to/worktree --repo /path/to/repo --issue 42 --branch issue-42-slug --model opus --permission-mode bypassPermissions --driver flow:auto --files scripts/flow-wave-registry.sh,tests/test_flow_wave_registry.py
+   scripts/flow-wave-registry.sh register 1 --wave cpp --cwd /path/to/worktree --repo /path/to/repo --issue 42 --branch issue-42-slug --model opus --permission-mode bypassPermissions --driver flow:auto --files scripts/flow-wave-registry.sh,tests/test_flow_wave_registry.py
    ```
 
    The role-level facts are optional and each answers a routing question the
@@ -450,7 +450,7 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
    `run_in_background: true`, NEVER a trailing `&`:
 
    ```bash
-   ~/.claude/scripts/flow-wave-mailbox.sh watch --role 1 --wave cpp --timeout 1800 --consume
+   scripts/flow-wave-mailbox.sh watch --role 1 --wave cpp --timeout 1800 --consume
    ```
 
    **Why it must be a background TOOL CALL (issue #1228).** The harness
@@ -520,7 +520,7 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
    OTHER than this session reads its log:
 
    ```bash
-   ~/.claude/scripts/flow-wave-mailbox.sh supervise --role 1 --wave cpp --timeout 300 --interval 3
+   scripts/flow-wave-mailbox.sh supervise --role 1 --wave cpp --timeout 300 --interval 3
    ```
 
    The roster reads a role held only by `supervise` as `watch=NO-WAKE`, never
@@ -656,7 +656,7 @@ same parser `send` runs, so a report can be checked without spending a delivery
 attempt. Invoke it BARE at the stable path (#581 discipline):
 
 ```bash
-~/.claude/scripts/flow-wave-lexicon.sh validate --body-file /tmp/report.md
+scripts/flow-wave-lexicon.sh validate --body-file /tmp/report.md
 ```
 
 It prints one `FLOW_LEXICON_TRANSITION=` line per recognized token and ends in
@@ -884,7 +884,7 @@ which number was meant.
 decision stops depending on anyone reading the right paragraph and believing it:
 
 ```bash
-~/.claude/scripts/flow-vantage.sh          # or scripts/flow-vantage.sh in a CPP checkout
+scripts/flow-vantage.sh          # or scripts/flow-vantage.sh in a CPP checkout
 ```
 
 **Established on 2.1.266, 2026-09-20**, from the host, against the container
@@ -1077,11 +1077,11 @@ this value could go today.
 (#581 discipline):
 
 ```bash
-~/.claude/scripts/flow-wave-mailbox.sh send  --to 1 --wave cpp --body-file /tmp/brief.md
-~/.claude/scripts/flow-wave-mailbox.sh send  --to orchestrator --from 1 --wave cpp --body "..."
-~/.claude/scripts/flow-wave-mailbox.sh read  --role 1 --wave cpp
-~/.claude/scripts/flow-wave-mailbox.sh watch --role 1 --wave cpp --timeout 1800 --consume
-~/.claude/scripts/flow-wave-mailbox.sh list  --wave cpp
+scripts/flow-wave-mailbox.sh send  --to 1 --wave cpp --body-file /tmp/brief.md
+scripts/flow-wave-mailbox.sh send  --to orchestrator --from 1 --wave cpp --body "..."
+scripts/flow-wave-mailbox.sh read  --role 1 --wave cpp
+scripts/flow-wave-mailbox.sh watch --role 1 --wave cpp --timeout 1800 --consume
+scripts/flow-wave-mailbox.sh list  --wave cpp
 ```
 
 (Exit 127 - helper not installed: fall back to
@@ -1203,7 +1203,7 @@ reconcile the recorded address with the address the transport actually stamped
 on that message:
 
 ```bash
-~/.claude/scripts/flow-wave-registry.sh verify 1 --wave cpp --from <observed-address>
+scripts/flow-wave-registry.sh verify 1 --wave cpp --from <observed-address>
 ```
 
 Pass the `from=` value VERBATIM, whatever its shape. Two forms seen in the field
@@ -1235,7 +1235,7 @@ orchestrator's own watch as a BACKGROUND Bash call, so a worker's hello or
 report wakes this session instead of waiting for the next time a human looks:
 
 ```bash
-~/.claude/scripts/flow-wave-mailbox.sh watch --role orchestrator --wave cpp --timeout 1800 --consume
+scripts/flow-wave-mailbox.sh watch --role orchestrator --wave cpp --timeout 1800 --consume
 ```
 
 It covers every `inbox-*.md` at once. Re-arm after handling each wake.
@@ -1278,7 +1278,7 @@ re-brief for a worker whose compaction dropped more detail than expected.
 **Roster** - `/flow-register --list [--wave W]`:
 
 ```bash
-~/.claude/scripts/flow-wave-registry.sh list --wave cpp
+scripts/flow-wave-registry.sh list --wave cpp
 ```
 
 - Shows `role -> address`, liveness, verification state, and current issue -
@@ -1373,7 +1373,7 @@ scheme.
 ### Release - `/flow-register --release`
 
 ```bash
-~/.claude/scripts/flow-wave-registry.sh release 1 --wave cpp
+scripts/flow-wave-registry.sh release 1 --wave cpp
 ```
 
 Run on leaving the wave. Release clears the role's lane - issue, PR, branch,

@@ -46,13 +46,13 @@ worktrees. The error is correct to ignore, which is exactly why the worktrees
 pile up: 33 of them and 3.1G after a single wave on cooneycw/kyle.
 
 ```bash
-~/.claude/scripts/flow-worktree-sweep.sh --repo "$MAIN_REPO"
+scripts/flow-worktree-sweep.sh --repo "$MAIN_REPO"
 ```
 
 That is a **dry run** and removes nothing. Read the report, then apply:
 
 ```bash
-~/.claude/scripts/flow-worktree-sweep.sh --repo "$MAIN_REPO" --apply
+scripts/flow-worktree-sweep.sh --repo "$MAIN_REPO" --apply
 ```
 
 `--apply` re-derives every condition itself. The dry-run output is a report, not
@@ -115,7 +115,7 @@ still carrying a live `/flow` claim (issue #597) is never pruned even if its
 directory is gone. Step 2's sweep skips a locked entry for the
 same reason and never passes `--steal`, so the two agree: a claim outranks both
 of them. That is the intended asymmetry - a claim outranks cleanup.
-Inspect one with `~/.claude/scripts/flow-worktree-claim.sh check --issue <N>`;
+Inspect one with `scripts/flow-worktree-claim.sh check --issue <N>`;
 a claim whose owning process is gone reports `stale` and is released by the
 next run that needs the worktree.
 

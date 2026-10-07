@@ -1808,6 +1808,65 @@ def test_the_manifest_moves_when_a_bundled_script_changes(tmp_path: Path):
     )
 
 
+# ---------------------------------------------------------------------------
+# Issue #1408 bullet 4: `~/.claude/scripts/<name>` (the convenience-install
+# absolute path) is remapped to the skill-relative `scripts/<name>` when
+# `<name>` is a real checkout script, so find_bundled_scripts bundles it
+# exactly as it already does for a relative reference - never a second
+# bundling path.
+# ---------------------------------------------------------------------------
+
+
+def test_an_absolute_claude_scripts_path_is_remapped_and_bundled(tmp_repo):
+    src = tmp_repo / ".claude" / "commands" / "qa"
+    (src / "test.md").write_text(
+        "---\ndescription: QA test\n---\n# QA Test\n\n"
+        "Invoke it bare:\n\n```bash\n~/.claude/scripts/helper.sh --check\n```\n"
+    )
+    files = codex_skill_sync.generate_skill(
+        src / "test.md", "qa", codex_skill_sync.generated_names(["flow", "qa"]),
+    )
+    body = files["SKILL.md"]
+    assert "~/.claude/scripts/helper.sh" not in body, body
+    assert "scripts/helper.sh" in body, body
+    assert "scripts/helper.sh" in files, "the remapped script must be bundled"
+
+
+def test_an_unremapped_absolute_path_is_left_alone_and_named(tmp_repo):
+    """THE #1408 RED: before the fix, `~/.claude/scripts/flow-finish-gate.sh`
+    was passed through verbatim - invisible to find_bundled_scripts (which
+    only reads the relative `scripts/<name>` shape), so the helper was never
+    bundled and the reference hit exit 127 on a Codex-only install."""
+    src = tmp_repo / ".claude" / "commands" / "qa"
+    (src / "test.md").write_text(
+        "---\ndescription: QA test\n---\n# QA Test\n\n"
+        "Invoke it bare:\n\n```bash\n~/.claude/scripts/missing-helper.sh\n```\n"
+    )
+    files = codex_skill_sync.generate_skill(
+        src / "test.md", "qa", codex_skill_sync.generated_names(["flow", "qa"]),
+    )
+    body = files["SKILL.md"]
+    # A name with no matching checkout script must NOT be rewritten to a
+    # relative path that would resolve to nothing bundled.
+    assert "~/.claude/scripts/missing-helper.sh" in body, body
+    assert "missing-helper.sh" not in files
+    assert "no matching checkout script was found" in body, body
+
+
+def test_flow_check_no_longer_ships_an_unresolvable_absolute_path():
+    """End-to-end against the REAL repository: flow-check's own source names
+    `~/.claude/scripts/flow-finish-gate.sh` twice, the committed red case
+    (Nit Store #864, found via cooneycw/skillc#264)."""
+    files = codex_skill_sync.generate_skill(
+        ROOT / ".claude" / "commands" / "flow" / "check.md",
+        "flow",
+        codex_skill_sync.generated_names(["flow"]),
+    )
+    rendered = files.get("reference.md") or files["SKILL.md"]
+    assert "~/.claude/scripts/" not in rendered, rendered
+    assert "scripts/flow-finish-gate.sh" in files
+
+
 def test_the_manifest_never_lists_itself_whatever_the_caller_passes():
     """Correctness that depends on the caller's call order is not correctness."""
     out = codex_skill_sync.scripts_manifest(
