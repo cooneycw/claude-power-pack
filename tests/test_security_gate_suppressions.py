@@ -430,6 +430,36 @@ def test_a_malformed_gitleaks_toml_fails_closed(tmp_path: Path) -> None:
     assert "[AWS_ACCESS_KEY]" in result.stdout
 
 
+def test_a_gitleaks_toml_with_an_oversized_integer_fails_closed(tmp_path: Path) -> None:
+    """Counter-model review (codex): a decimal integer literal past Python's
+
+    int-to-str conversion limit makes `tomllib.loads` raise `ValueError`, not
+    `tomllib.TOMLDecodeError` - an exception class the original except clause
+    did not list, which crashed the whole security scan over one unrelated
+    TOML value instead of failing closed (issue #1405).
+    """
+    toml_text = "x = " + "9" * 5000 + "\n"
+    repo = _repo(tmp_path, {".gitleaks.toml": toml_text, "src/app.py": f'KEY = "{CANARY}"\n'})
+    result = _gate(repo, gate_name="flow_finish")
+    assert "Traceback" not in result.stderr, result.stderr
+    assert " FAIL " in _line(result), result.stdout
+    assert "[AWS_ACCESS_KEY]" in result.stdout
+
+
+def test_a_gitleaks_toml_with_deeply_nested_arrays_fails_closed(tmp_path: Path) -> None:
+    """Counter-model review (codex): arrays nested past the interpreter's
+
+    recursion limit make `tomllib.loads` raise `RecursionError`, also not
+    `tomllib.TOMLDecodeError` (issue #1405).
+    """
+    toml_text = "x = " + "[" * 2000 + "]" * 2000 + "\n"
+    repo = _repo(tmp_path, {".gitleaks.toml": toml_text, "src/app.py": f'KEY = "{CANARY}"\n'})
+    result = _gate(repo, gate_name="flow_finish")
+    assert "Traceback" not in result.stderr, result.stderr
+    assert " FAIL " in _line(result), result.stdout
+    assert "[AWS_ACCESS_KEY]" in result.stdout
+
+
 def test_the_hint_yaml_survives_an_apostrophe_in_the_path(tmp_path: Path) -> None:
     import yaml
 

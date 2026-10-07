@@ -216,7 +216,20 @@ def _gitleaks_policy_literals(project_root: str) -> frozenset[str]:
         return frozenset()
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8", errors="strict"))
-    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+    except (
+        OSError,
+        UnicodeDecodeError,
+        tomllib.TOMLDecodeError,
+        # Counter-model review (codex): an adversarial-sized TOML can make the
+        # stdlib parser raise outside its own documented TOMLDecodeError - a
+        # decimal integer literal past Python's int-to-str conversion limit
+        # raises ValueError, and arrays/inline tables nested past the
+        # interpreter's recursion limit raise RecursionError. Both are still
+        # "could not parse this file", not a reason to crash the whole
+        # security scan over one unrelated policy file.
+        ValueError,
+        RecursionError,
+    ):
         return frozenset()
 
     literals: set[str] = set()
