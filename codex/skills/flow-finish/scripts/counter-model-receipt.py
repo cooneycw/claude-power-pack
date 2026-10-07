@@ -386,10 +386,11 @@ def _derive_reviewer_from_exec_log(
     return f"codex/{model}", evidence, None
 
 
-def _mid_run_sandbox_failures(exec_text: str) -> int:
-    """Count `command_execution` items whose SANDBOXED EXEC PROCESS ITSELF
-    could not launch - never a command that ran and merely returned a
-    non-zero exit (issue #1400, comment 5858478984).
+def _mid_run_sandbox_failures(exec_text: str) -> tuple[int, int]:
+    """Count `command_execution` items, and how many of those show the
+    SANDBOXED EXEC PROCESS ITSELF failing to launch - never a command that
+    ran and merely returned a non-zero exit (issue #1400, comment
+    5858478984). Returns `(failures, examined)`.
 
     `exit_code: -1` paired with `status: "failed"` is codex's own signature
     for "could not create the exec process at all" (the shape of the real
@@ -401,8 +402,17 @@ def _mid_run_sandbox_failures(exec_text: str) -> int:
     against one tracked file; this is that same test, re-applied to every
     command the reviewer actually ran, so a probe that passed before the
     review started is not trusted alone for its whole duration.
+
+    `examined` is returned so a zero FAILURE count can be told apart from a
+    zero POPULATION (counter-model review, codex gpt-6.1-sol): an exec log
+    with no `command_execution` items at all offers no mid-run evidence
+    either way, which is a materially weaker claim than "N commands
+    launched and none failed" - `cmd_write` treats the two differently
+    rather than letting an unexercised re-measurement read as a confirmed
+    one.
     """
     failures = 0
+    examined = 0
     for line in exec_text.split("\n"):
         if not line.strip():
             continue
@@ -415,9 +425,10 @@ def _mid_run_sandbox_failures(exec_text: str) -> int:
         item = record.get("item")
         if not isinstance(item, dict) or item.get("type") != "command_execution":
             continue
+        examined += 1
         if item.get("exit_code") == -1 and item.get("status") == "failed":
             failures += 1
-    return failures
+    return failures, examined
 
 
 def _default_codex_sessions_dir() -> Path:
@@ -705,6 +716,16 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
             bad.append(
                 f"{source}: a skipped run must not carry 'scope'; no review happened"
             )
+        elif delegated:
+            # The CLI guard refuses `--scope` on the delegated lane (the
+            # reviewer there is a Claude session, which has no sandbox probe
+            # to measure) - the schema must refuse it too, or a hand-built
+            # or historical receipt could carry it unchecked (counter-model
+            # review, codex gpt-6.1-sol).
+            bad.append(
+                f"{source}: a delegated receipt must not carry 'scope'; its "
+                "reviewer is a Claude session, which has no sandbox probe"
+            )
         elif scope not in SCOPES:
             bad.append(f"{source}: scope {scope!r} not in {SCOPES}")
 
@@ -965,18 +986,32 @@ def cmd_write(args: argparse.Namespace) -> int:
         # for the review's whole duration.
         if getattr(args, "scope", None) == "full":
             exec_text = args.reviewer_exec_log.read_text(encoding="utf-8")
-            failures = _mid_run_sandbox_failures(exec_text)
+            failures, examined = _mid_run_sandbox_failures(exec_text)
             if failures:
                 print(
                     f"counter-model-receipt: NOTE - downgrading scope 'full' to "
-                    f"'diff-only': {failures} command_execution item(s) in "
-                    f"{args.reviewer_exec_log} could not launch the sandboxed "
-                    "exec process (exit_code -1), the same failure mode the "
-                    "pre-run probe checks for, so the claimed scope did not "
-                    "hold for the review's whole duration",
+                    f"'diff-only': {failures} of {examined} command_execution "
+                    f"item(s) in {args.reviewer_exec_log} could not launch the "
+                    "sandboxed exec process (exit_code -1), the same failure "
+                    "mode the pre-run probe checks for, so the claimed scope "
+                    "did not hold for the review's whole duration",
                     file=sys.stderr,
                 )
                 args.scope = "diff-only"
+            elif examined == 0:
+                # A re-measurement with nothing to examine is not a
+                # confirmation: "0 failed of 0 examined" and "0 failed of 10
+                # examined" are different claims, and only the second one
+                # actually re-measured anything (counter-model review, codex
+                # gpt-6.1-sol).
+                print(
+                    f"counter-model-receipt: NOTE - downgrading scope 'full' to "
+                    f"'unverified': {args.reviewer_exec_log} carries no "
+                    "command_execution item at all, so there is no mid-run "
+                    "evidence to re-measure the pre-run probe's claim against",
+                    file=sys.stderr,
+                )
+                args.scope = "unverified"
     else:
         args.reviewer = None
         args.reviewer_evidence = None

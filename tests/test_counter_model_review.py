@@ -2336,6 +2336,31 @@ def test_scope_full_is_recorded_on_the_receipt(tmp_path: Path) -> None:
     assert receipt["scope"] == "full"
 
 
+def test_scope_downgrades_from_full_to_unverified_when_nothing_was_examined(
+    tmp_path: Path,
+) -> None:
+    """The gap codex gpt-6.1-sol found reviewing this change: `0 failed` of
+    `0 examined` is not a confirmation of anything, and used to read
+    identically to `0 failed` of 10 examined - an unexercised re-measurement
+    passing as a confirmed one. An exec log that carries no command_execution
+    item at all (just the thread_id marker) offers no mid-run evidence
+    either way, so the claim can be neither confirmed nor refuted - distinct
+    from both `full` (confirmed) and `diff-only` (refuted)."""
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
+    exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
+    out_dir = tmp_path / "out"
+    proc = _write(
+        tmp_path, "--dir", str(out_dir), "--issue", "1400", "--branch", "b",
+        "--status", "ran", "--passes", "1", "--scope", "full",
+        *_reviewer_evidence_args(exec_log, sessions_dir),
+        *_implementer_evidence_args(session_id, projects_dir),
+    )
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    assert "downgrading scope 'full' to 'unverified'" in proc.stderr
+    receipt = json.loads(next(out_dir.glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["scope"] == "unverified"
+
+
 def test_scope_downgrades_from_full_when_a_sandbox_launch_fails_mid_run(
     tmp_path: Path,
 ) -> None:
@@ -2452,3 +2477,15 @@ def test_scope_is_OPTIONAL_but_checked_when_present() -> None:
         "scope": "full",
     }
     assert any("scope" in p for p in CM.validate(skipped))
+
+
+def test_scope_is_refused_at_the_SCHEMA_LEVEL_on_a_delegated_receipt() -> None:
+    """The gap codex gpt-6.1-sol found reviewing this change: the CLI write
+    guard already refuses `--scope` on the delegated lane, but `validate()`
+    had no matching check - an otherwise-valid delegated receipt carrying
+    `scope` (hand-built, or from an older writer version) would pass schema
+    validation despite the stated restriction."""
+    delegated = _delegated_receipt(scope="full")
+    problems = CM.validate(delegated, "delegated")
+    assert any("scope" in p for p in problems), problems
+    assert CM.validate(_delegated_receipt(), "delegated") == []
