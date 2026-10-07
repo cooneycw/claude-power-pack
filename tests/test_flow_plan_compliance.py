@@ -187,6 +187,66 @@ def test_a_planned_directory_containing_a_mirrored_source_is_not_divergence(
     assert "PLAN_COMPLIANCE: agreement" in out, out
 
 
+@requires_git
+def test_a_mirrors_source_outside_the_planned_directory_is_still_unplanned(
+    tmp_path: Path,
+) -> None:
+    """Codex review (#1399): the positive case above must not quietly become
+    true for every mirror - a source the planned directory does NOT contain
+    is still unplanned, found through the SAME mirror-attribution mechanism."""
+    repo, base = make_repo(tmp_path)
+    (repo / "docs" / "agents").mkdir(parents=True)
+    (repo / "docs" / "other").mkdir(parents=True)
+    (repo / "codex" / "skills" / "s" / "docs" / "other").mkdir(parents=True)
+    (repo / "docs" / "other" / "k.md").write_text("k\n")
+    (repo / "codex" / "skills" / "s" / "docs" / "other" / "k.md").write_text("k\n")
+    write_plan(repo, "docs/agents/")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "mirror whose source is outside the planned directory")
+    out = run(repo, base)
+    assert "PLAN_COMPLIANCE: divergence" in out, out
+    assert "mirror of docs/other/k.md, which the plan does not name" in out, out
+
+
+@requires_git
+def test_a_planned_directory_with_nothing_touched_under_it_is_untouched(
+    tmp_path: Path,
+) -> None:
+    """Codex review (#1399): the prefix rule's negative side - a planned
+    directory that genuinely received no work is still reported untouched,
+    not accidentally satisfied by the empty-population case."""
+    repo, base = make_repo(tmp_path)
+    (repo / "src").mkdir()
+    (repo / "src" / "unrelated.py").write_text("x\n")
+    write_plan(repo, "fixtures/")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "unrelated work, nothing under the planned directory")
+    out = run(repo, base)
+    assert "PLAN_COMPLIANCE: divergence" in out, out
+    assert "PLANNED BUT NOT TOUCHED: fixtures/" in out, out
+    assert "TOUCHED BUT NOT PLANNED: src/unrelated.py" in out, out
+
+
+@requires_git
+def test_a_similarly_named_neighbour_directory_is_not_matched_by_prefix(
+    tmp_path: Path,
+) -> None:
+    """Codex review (#1399): `fixtures/` must not match `fixtures-extra/...` -
+    a prefix check without the trailing slash on the CANDIDATE side would
+    treat "fixtures" as a prefix of "fixtures-extra", which it is not a
+    path-prefix of."""
+    repo, base = make_repo(tmp_path)
+    (repo / "fixtures-extra").mkdir()
+    (repo / "fixtures-extra" / "a.json").write_text("x\n")
+    write_plan(repo, "fixtures/")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "a similarly named neighbour directory")
+    out = run(repo, base)
+    assert "PLAN_COMPLIANCE: divergence" in out, out
+    assert "TOUCHED BUT NOT PLANNED: fixtures-extra/a.json" in out, out
+    assert "PLANNED BUT NOT TOUCHED: fixtures/" in out, out
+
+
 # ------------------------------------------------------------------ the #1030 case
 
 @requires_git
