@@ -76,16 +76,21 @@ SECRET_PATTERNS = [
     ),
 ]
 
-# Variable assignment patterns that suggest hardcoded secrets
+# Variable assignment patterns that suggest hardcoded secrets. The value
+# itself is capturing group 1 (issue #1405) - without it, `scan()` below has
+# no actual value to put in `Finding.secret_value`, and a `secret:`
+# suppression's exact-value match (issue #1299, `_is_declared_in_config`) can
+# never apply to one of these findings at all, no matter what id it is
+# declared under.
 ASSIGNMENT_PATTERNS = [
     (
-        r"""(?:password|passwd|pwd)\s*[=:]\s*["'][^"']{8,}["']""",
+        r"""(?:password|passwd|pwd)\s*[=:]\s*["']([^"']{8,})["']""",
         "HARDCODED_PASSWORD",
         "Hardcoded password in source code",
         "Passwords should never be hardcoded. Use environment variables or a secrets manager.",
     ),
     (
-        r"""(?:secret|api_?key|auth_?token|access_?token)\s*[=:]\s*["'][A-Za-z0-9+/=_-]{16,}["']""",
+        r"""(?:secret|api_?key|auth_?token|access_?token)\s*[=:]\s*["']([A-Za-z0-9+/=_-]{16,})["']""",
         "HARDCODED_SECRET",
         "Hardcoded secret/token in source code",
         "Secrets and tokens should be loaded from environment variables or a secrets manager.",
@@ -117,6 +122,15 @@ SKIP_FILES = {"package-lock.json", "yarn.lock", "uv.lock", "poetry.lock"}
 # `SKIP_DIRS` entry: every other `.claude/*.json`, and a nested project's
 # `sub/.claude/runs/`, are still scanned.
 RUNNER_STATE_DIR = (".claude", "runs")
+
+# `lib/cicd/verify.py`'s own per-workstation runtime state file, relative to
+# the scan root (issue #1405) - documented there as "like .claude/runs/", and
+# the same defect as RUNNER_STATE_DIR above: a tree with no project source at
+# all still reports `scanned=1`, because the file is JSON and `.json` is a
+# scanned extension. An EXACT root-anchored path, not a `SKIP_FILES` entry: a
+# bare-name skip would also hide a differently-located, unrelated file of the
+# same name.
+DEPLOY_BASELINE_FILE = (".claude", "deploy-baseline.json")
 
 # Files that contain patterns/regex for masking/detection (not actual secrets)
 SKIP_PATTERN_FILES = {
@@ -177,6 +191,8 @@ def scan(project_root: str) -> ScanResult:
         for pattern, finding_id, title, why in ASSIGNMENT_PATTERNS:
             for match in re.finditer(pattern, content, re.IGNORECASE):
                 line_num = content[: match.start()].count("\n") + 1
+                value = match.group(1)
+                masked = value[:4] + "*" * min(16, len(value) - 4) if len(value) > 4 else "****"
                 result.findings.append(
                     Finding(
                         id=finding_id,
@@ -187,6 +203,8 @@ def scan(project_root: str) -> ScanResult:
                         why=why,
                         fix="Move to environment variable or secrets manager.",
                         time_estimate="~5 minutes",
+                        raw_match=masked,
+                        secret_value=value,
                     )
                 )
 
@@ -222,11 +240,25 @@ def _find_source_files(root: Path) -> list[Path]:
                 continue
             if path.relative_to(root).parts[: len(RUNNER_STATE_DIR)] == RUNNER_STATE_DIR:
                 continue
+            if path.relative_to(root).parts == DEPLOY_BASELINE_FILE:
+                continue
             if path.name in SKIP_FILES:
                 continue
             if path.name in SKIP_PATTERN_FILES:
                 continue
-            if path.suffix in SCAN_EXTENSIONS or path.name in (".env.example", ".env.sample"):
+            # `.env*` names are matched by PREFIX, not by suffix (issue #1405):
+            # a plain `.env` or `.env.production` has no entry in
+            # `SCAN_EXTENSIONS` at all, so a tracked file of either name was
+            # invisible to this content scanner - only `env_files.py`'s
+            # presence-only `ENV_TRACKED` check ever looked at it, and
+            # suppressing that one finding left the file's actual content
+            # (if any secret inside it) completely uninspected. Matches
+            # `env_files.py`'s own `name.startswith(".env")` convention.
+            if (
+                path.suffix in SCAN_EXTENSIONS
+                or path.name in (".env.example", ".env.sample")
+                or path.name.startswith(".env")
+            ):
                 files.append(path)
     return _filter_gitignored(root, files)
 

@@ -198,6 +198,58 @@ class TestSecretsScanner:
         assert flagged == [".claude/other.json", "sub/.claude/runs/x.json"]
         assert result.units_scanned == 2
 
+    def test_a_tracked_env_file_is_actually_scanned(self, tmp_path: Path) -> None:
+        # Issue #1405 item (a), RED pre-fix. `.env` and `.env.<suffix>` names
+        # have no entry in SCAN_EXTENSIONS at all, so a plain `.env` (not
+        # `.env.example`/`.env.sample`, the only two names special-cased) was
+        # invisible to this content scanner - only `env_files.py`'s
+        # presence-only ENV_TRACKED check ever looked at the file, and
+        # suppressing that one finding left its actual content completely
+        # uninspected.
+        (tmp_path / ".env").write_text("AWS_KEY=AKIAIOSFODNN7EXAMPLE\n")
+        (tmp_path / ".env.production").write_text("AWS_KEY=AKIAIOSFODNN7EXAMPLE\n")
+        result = secrets.scan(str(tmp_path))
+        flagged = sorted(str(f.file_path) for f in result.findings if f.id == "AWS_ACCESS_KEY")
+        assert flagged == [".env", ".env.production"]
+
+    def test_env_example_and_sample_are_still_scanned_too(self, tmp_path: Path) -> None:
+        # The other half: the two names already special-cased before #1405
+        # must still be reached by the widened `.startswith(".env")` check.
+        (tmp_path / ".env.example").write_text("AWS_KEY=AKIAIOSFODNN7EXAMPLE\n")
+        (tmp_path / ".env.sample").write_text("AWS_KEY=AKIAIOSFODNN7EXAMPLE\n")
+        result = secrets.scan(str(tmp_path))
+        flagged = sorted(str(f.file_path) for f in result.findings if f.id == "AWS_ACCESS_KEY")
+        assert flagged == [".env.example", ".env.sample"]
+
+    def test_the_deploy_baseline_file_is_not_counted_as_a_source_file(
+        self, tmp_path: Path
+    ) -> None:
+        # Issue #1405 item (c), RED pre-fix. `lib/cicd/verify.py` documents
+        # `.claude/deploy-baseline.json` as "per-workstation runtime state,
+        # like .claude/runs/" - but only `.claude/runs/` was ever skipped
+        # (#1341), so a tree with no project source at all still reported
+        # units_scanned=1 because this file is JSON, a scanned extension.
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "deploy-baseline.json").write_text('{"checks": []}\n')
+        result = secrets.scan(str(tmp_path))
+        assert result.units_scanned == 0, secrets._find_source_files(tmp_path)
+
+    def test_the_deploy_baseline_skip_is_exactly_that_file(self, tmp_path: Path) -> None:
+        # The other half: a skip widened to all of `.claude`, or to any file
+        # named `deploy-baseline.json`, would pass the test above and blind
+        # the scanner. Both of these must still be read and flagged.
+        key = '{"key": "AKIAIOSFODNN7EXAMPLE"}\n'
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "other.json").write_text(key)
+        nested = tmp_path / "sub" / ".claude"
+        nested.mkdir(parents=True)
+        (nested / "deploy-baseline.json").write_text(key)
+
+        result = secrets.scan(str(tmp_path))
+        flagged = sorted(str(f.file_path) for f in result.findings if f.id == "AWS_ACCESS_KEY")
+        assert flagged == [".claude/other.json", "sub/.claude/deploy-baseline.json"]
+        assert result.units_scanned == 2
+
 
 class TestDebugFlagsScanner:
     """Test debug flag detection scanner."""
