@@ -30,7 +30,7 @@ from lib.cicd.evidence import (
     verify,
 )
 from lib.cicd.runner import DeterministicRunner
-from lib.cicd.state import RunState, StepStatus
+from lib.cicd.state import RunState, StepStatus, runner_state_dir
 from lib.cicd.steps import StepDef
 
 # Every repository fixture here is a real git repository.
@@ -492,7 +492,7 @@ def test_unreached_and_skipped_steps_are_not_marked_executed(repo: Path) -> None
     checks = {c["id"]: c for c in json.loads(path.read_text())["observed"]["checks"]}
     assert checks["lint"]["executed_in_this_invocation"] is True
     assert checks["test"]["executed_in_this_invocation"] is False
-    shutil.rmtree(repo / ".claude" / "runs")  # or the next run RESUMES the failed one
+    shutil.rmtree(runner_state_dir(repo))  # or the next run RESUMES the failed one (issue #1409)
     _, path = _run(repo, [_gate("lint"), _gate("typecheck", skip_if="true")])
     checks = {c["id"]: c for c in json.loads(path.read_text())["observed"]["checks"]}
     assert checks["typecheck"]["executed_in_this_invocation"] is False

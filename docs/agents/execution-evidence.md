@@ -11,11 +11,13 @@ item - is [`.specify/specs/per-skill-audit/spec.md`](../../.specify/specs/per-sk
 
 ## Why it exists
 
-The runner already records every step in `.claude/runs/<run_id>.json`, but that
-file is a RESUME file: `RunState.cleanup()` deletes it the moment a run
-succeeds. So a green `/flow:check` left nothing behind but the agent's own
-results table - a claim, not a record. The execution record is written by the
-helper, from the step records it settled, and it survives.
+The runner already records every step in its own state file (`<git-dir>/cpp-
+runs/<run_id>.json` in a git repository since issue #1409, `.claude/runs/
+<run_id>.json` otherwise), but that file is a RESUME file: `RunState.cleanup()`
+deletes it the moment a run succeeds. So a green `/flow:check` left nothing
+behind but the agent's own results table - a claim, not a record. The
+execution record is written by the helper, from the step records it settled,
+and it survives.
 
 ## What is covered
 

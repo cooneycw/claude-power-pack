@@ -88,6 +88,65 @@ class StepRecord:
         return cls(**{k: v for k, v in data.items() if k in known})
 
 
+def _git_dir(root: Path) -> Optional[Path]:
+    """The repository's real ``.git`` directory for ``root``, or ``None``.
+
+    Never raises, never guesses (issue #1409): no git binary, ``root`` not a
+    repository, or any subprocess failure all answer ``None`` the same way
+    ``compute_tree_signature`` does below.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--path-format=absolute", "--git-dir"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    text = proc.stdout.strip()
+    return Path(text) if text else None
+
+
+def runner_state_dir(root: Path) -> Path:
+    """Where ``RunState`` writes its bookkeeping (issue #1409).
+
+    Prefers ``<git-dir>/cpp-runs`` - never inside the working tree, so it can
+    never be picked up by ``git add -A`` and committed into a repository that
+    does not ``.gitignore`` it. That happened for real in
+    cooneycw/skillc#8 (Nit Store #864 comment 5847507826): a failed gate left
+    an untracked ``.claude/runs/finish-cfaef128.json``, the next prescribed
+    ``git add -A`` committed it, and a later successful run's cleanup then
+    committed its DELETION too - gate bookkeeping and a deletion nobody did,
+    both in the repository's history. The same ``git rev-parse
+    --path-format=absolute --git-dir`` call already backs
+    ``lib/cicd/evidence.py``'s and ``scripts/flow-plan-record.py``'s own
+    out-of-tree state, for the identical reason.
+
+    Falls back to the pre-#1409 ``<root>/.claude/runs`` when git is
+    unavailable (no binary, not a repository, or any subprocess failure) -
+    the same fail-open rule ``compute_tree_signature`` states below: an
+    unanswerable "where" must never become a behavior change for an
+    environment this runner never promised git to.
+
+    Deliberately per-WORKTREE (``--git-dir``, not ``--git-common-dir``): a
+    linked worktree's own ``.git/worktrees/<name>/`` does not survive
+    ``git worktree remove``, matching this file's existing lifecycle exactly
+    - the pre-#1409 location did not survive worktree removal either, since
+    it lived inside the worktree's own working tree. `lib/cicd/evidence.py`'s
+    execution-evidence record chooses the COMMON dir instead because IT is
+    meant to outlive the worktree that produced it; this is resume
+    bookkeeping for one run and is correctly gone with it.
+    """
+    git_dir = _git_dir(root)
+    if git_dir is not None:
+        return git_dir / "cpp-runs"
+    return root / ".claude" / "runs"
+
+
 def compute_tree_signature(project_root: Path) -> Optional[str]:
     """Content signature of the working tree, or None when it can't be trusted.
 
@@ -251,7 +310,7 @@ class RunState:
 
     @property
     def state_dir(self) -> Path:
-        return Path(".claude/runs")
+        return runner_state_dir(Path("."))
 
     @property
     def state_file(self) -> Path:
@@ -260,7 +319,7 @@ class RunState:
     def save(self, project_root: Optional[Path] = None) -> Path:
         """Persist state to JSON file."""
         root = project_root or Path(".")
-        state_dir = root / ".claude" / "runs"
+        state_dir = runner_state_dir(root)
         state_dir.mkdir(parents=True, exist_ok=True)
         state_file = state_dir / f"{self.run_id}.json"
         state_file.write_text(json.dumps(self.to_dict(), indent=2))
@@ -269,7 +328,7 @@ class RunState:
     def cleanup(self, project_root: Optional[Path] = None) -> None:
         """Remove state file on successful completion."""
         root = project_root or Path(".")
-        state_file = root / ".claude" / "runs" / f"{self.run_id}.json"
+        state_file = runner_state_dir(root) / f"{self.run_id}.json"
         if state_file.exists():
             state_file.unlink()
 
@@ -430,7 +489,7 @@ class RunState:
     def load(cls, run_id: str, project_root: Optional[Path] = None) -> RunState:
         """Load state from a JSON file."""
         root = project_root or Path(".")
-        state_file = root / ".claude" / "runs" / f"{run_id}.json"
+        state_file = runner_state_dir(root) / f"{run_id}.json"
         if not state_file.exists():
             raise FileNotFoundError(f"No run state found: {state_file}")
         data = json.loads(state_file.read_text())
@@ -440,7 +499,7 @@ class RunState:
     def find_latest(cls, plan_name: str, project_root: Optional[Path] = None) -> Optional[RunState]:
         """Find the most recent run state for a plan (if any failed runs exist)."""
         root = project_root or Path(".")
-        state_dir = root / ".claude" / "runs"
+        state_dir = runner_state_dir(root)
         if not state_dir.exists():
             return None
         candidates = sorted(state_dir.glob(f"{plan_name}-*.json"), key=lambda p: p.stat().st_mtime, reverse=True)

@@ -184,8 +184,11 @@ def test_advisory_flag_overrides_the_worktree_default(tmp_path: Path) -> None:
 
 
 def test_a_failed_gates_leftover_run_state_never_blocks_a_worktree(tmp_path: Path) -> None:
-    # lib.cicd leaves .claude/runs/<plan>-<id>.json behind when a gate FAILS.
-    # Blocking on it would make every run after the first red gate block too.
+    # lib.cicd left .claude/runs/<plan>-<id>.json behind when a gate FAILED,
+    # before issue #1409 moved new state outside the working tree; the
+    # exemption stays for a leftover from an older runner, or a target
+    # whose git directory could not be resolved. Blocking on it would make
+    # every run after the first red gate block too.
     _, wt = _worktree(tmp_path)
     (wt / ".claude" / "runs").mkdir(parents=True)
     (wt / ".claude" / "runs" / "finish-deadbeef.json").write_text("{}", encoding="utf-8")

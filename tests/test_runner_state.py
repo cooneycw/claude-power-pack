@@ -139,6 +139,45 @@ class TestRunState:
 
         assert RunState.find_latest("finish", tmp_project) is None
 
+    @requires_git
+    def test_save_lands_outside_the_working_tree_in_a_git_repo(self, tmp_project: Path):
+        """The actual Nit Store defect (issue #1409, comment 5847507826):
+        a failed gate in cooneycw/skillc#8 left an untracked
+        ``.claude/runs/finish-cfaef128.json`` that the next prescribed
+        ``git add -A`` committed, and a later successful run's cleanup then
+        committed its DELETION too - gate bookkeeping, and a deletion
+        nobody did, both landing in the repository's history. In a git
+        repo the state file must live where ``git add -A`` structurally
+        cannot reach it."""
+        _git_repo(tmp_project)
+        state = RunState.create("finish", ["lint"])
+        path = state.save(tmp_project)
+
+        assert not (tmp_project / ".claude" / "runs").exists(), (
+            "the old location must stay empty in a git repo"
+        )
+        assert ".git" in path.parts, path
+        assert path.is_relative_to(tmp_project / ".git"), path
+
+        status = subprocess.run(
+            ["git", "status", "--porcelain"], cwd=tmp_project,
+            check=True, capture_output=True, text=True,
+        ).stdout
+        assert status == "", (
+            f"the state file must be invisible to git status: {status!r}"
+        )
+
+    def test_save_falls_back_to_the_working_tree_without_git(self, tmp_project: Path):
+        """`tmp_project` here is NOT a git repository (no `_git_repo` init),
+        so `runner_state_dir` must fail open to the pre-#1409 location
+        rather than raise or silently drop the state - the same rule
+        `compute_tree_signature` already states for an unverifiable git
+        answer."""
+        state = RunState.create("finish", ["lint"])
+        path = state.save(tmp_project)
+        assert path == tmp_project / ".claude" / "runs" / f"{state.run_id}.json"
+        assert path.exists()
+
     def test_pending_steps(self):
         state = RunState.create("finish", ["lint", "test", "security"])
         state.mark_step_success(0)
