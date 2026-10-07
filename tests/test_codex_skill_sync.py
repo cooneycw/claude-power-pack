@@ -274,6 +274,72 @@ def test_real_repo_project_next_runs_a_real_query_from_its_own_bundle(tmp_path):
     assert "No such file or directory" not in result.stdout + result.stderr
 
 
+def test_real_repo_flow_check_runtime_closure_runs_isolated_and_reds_without_state(tmp_path):
+    """issue #1408 bullet 3's own runtime-closure proof, not just a file count.
+
+    "29 shrank to 3" is a claim about `find_bundled_libs`'s RETURN VALUE; this
+    proves the 3 files it kept are what the bundled entry points actually run
+    on, with NO repository checkout anywhere on `sys.path` - a COPY of the
+    generated skill directory in a tmp tree the real repo cannot leak into
+    (Codex installs a skill exactly this way: standalone, nothing beside it).
+
+    `execution-evidence-verify.py` resolves its own import root from
+    `Path(__file__).resolve().parents[1]`, so running the COPY's own file
+    inserts the COPY's skill root, never this checkout's - isolation falls
+    out of the entry point's own design rather than anything this test does.
+
+    The NEGATIVE HALF matters at least as much as the positive one: deleting
+    `state.py` (one of the three) must turn the identical invocation into an
+    ImportError. A trimmed closure that still ran with a module MISSING would
+    mean the trim found nothing - it would mean nothing was ever bundled from
+    that module in the first place, which is exactly as wrong as the 29-file
+    over-bundle, just quieter.
+    """
+    skill_src = ROOT / "codex" / "skills" / "flow-check"
+    isolated = tmp_path / "flow-check-isolated"
+    shutil.copytree(skill_src, isolated)
+    entry = isolated / "scripts" / "execution-evidence-verify.py"
+    assert entry.is_file()
+
+    record = tmp_path / "bogus-record.json"
+    record.write_text(json.dumps({"schema": "bogus"}))
+
+    clean_env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    result = subprocess.run(
+        [sys.executable, str(entry), str(record)],
+        capture_output=True, text=True, timeout=120, check=False,
+        env=clean_env,
+    )
+    assert result.returncode == 4, f"{result.stdout}{result.stderr}"
+    assert "EXECUTION_EVIDENCE: unknown" in result.stdout
+    assert "ModuleNotFoundError" not in result.stderr
+
+    help_result = subprocess.run(
+        [sys.executable, str(isolated / "scripts" / "counter-model-receipt.py"), "--help"],
+        capture_output=True, text=True, timeout=120, check=False,
+        env=clean_env,
+    )
+    assert help_result.returncode == 0, f"{help_result.stdout}{help_result.stderr}"
+
+    # RED CASE: remove a module the closure needs and confirm the SAME
+    # invocation now fails. This is the under-bundling check a file-count
+    # alone cannot make - it proves `state.py` was load-bearing, not merely
+    # present.
+    (isolated / "lib" / "cicd" / "state.py").unlink()
+    red_result = subprocess.run(
+        [sys.executable, str(entry), str(record)],
+        capture_output=True, text=True, timeout=120, check=False,
+        env=clean_env,
+    )
+    assert red_result.returncode not in (0, 3, 4), (
+        f"removing a real dependency must break the run, not change its verdict\n"
+        f"{red_result.stdout}{red_result.stderr}"
+    )
+    assert "ModuleNotFoundError" in red_result.stderr or "ImportError" in red_result.stderr, (
+        f"expected an import failure naming the missing module\n{red_result.stderr}"
+    )
+
+
 def test_a_mention_is_not_a_dependency(tmp_repo):
     """The closure follows `$VAR/<name>`, never a `scripts/<name>` mention.
 
@@ -384,6 +450,318 @@ def test_the_from_package_import_form_is_followed_too(tmp_repo):
     )
     assert result.returncode == 0, f"{result.stdout}{result.stderr}"
     assert "reached via from-package import" in result.stdout
+
+
+def test_a_lazy_getattr_reexport_is_bundled_and_the_bundle_runs(tmp_repo):
+    """issue #1408 bullet 3: a TYPE_CHECKING-only import must not vanish from
+    the closure just because it is invisible to the worklist's normal walk.
+
+    `lib/cicd/__init__.py`'s real shape (issue #1163): the package lists its
+    re-exports under `if TYPE_CHECKING:` for mypy alone, and resolves them for
+    real through `__getattr__`'s `_NAME_TO_MODULE` map on first access. Ignoring
+    the TYPE_CHECKING block (this issue's other half) is correct for modules
+    nothing references, but a module an entry script DOES reach only through
+    that lazy map must still be bundled, or the shipped copy ImportErrors the
+    moment something touches the re-exported name - the exact regression a
+    closure fix must not introduce while narrowing the over-bundle.
+
+    No real script in this repository's current bundled set exercises this
+    path for flow-check specifically (its own entry point reaches `evidence`
+    via a module-absolute `from lib.cicd.evidence import cli`, never through
+    `lib.cicd`'s lazy map) - hence a synthetic fixture.
+    """
+    lib = tmp_repo / "lib" / "lazy_pkg"
+    lib.mkdir(parents=True)
+    (lib / "__init__.py").write_text(
+        "from typing import TYPE_CHECKING, Any\n"
+        "\n"
+        "if TYPE_CHECKING:\n"
+        "    from .submodule import thing\n"
+        "\n"
+        "_NAME_TO_MODULE = {\"thing\": \"submodule\"}\n"
+        "\n"
+        "\n"
+        "def __getattr__(name: str) -> Any:\n"
+        "    module = _NAME_TO_MODULE.get(name)\n"
+        "    if module is None:\n"
+        "        raise AttributeError(name)\n"
+        "    import importlib\n"
+        "    value = getattr(importlib.import_module(f\".{module}\", __name__), name)\n"
+        "    globals()[name] = value\n"
+        "    return value\n"
+    )
+    (lib / "submodule.py").write_text("thing = 'reached via the lazy map'\n")
+    (tmp_repo / "scripts" / "importer.py").write_text(
+        "import sys\n"
+        "from pathlib import Path\n"
+        "REPO_ROOT = Path(__file__).resolve().parents[1]\n"
+        "sys.path.insert(0, str(REPO_ROOT))\n"
+        "from lib.lazy_pkg import thing\n"
+        "print(thing)\n"
+    )
+    (tmp_repo / ".claude" / "commands" / "flow" / "auto.md").write_text(
+        "# Flow Auto\n\nUses scripts/importer.py.\n"
+    )
+
+    codex_skill_sync.main(["--write"])
+    bundled = tmp_repo / "codex" / "skills" / "flow-auto"
+    assert (bundled / "lib" / "lazy_pkg" / "submodule.py").is_file(), (
+        "the lazily re-exported module was not bundled"
+    )
+
+    result = subprocess.run(
+        [sys.executable, str(bundled / "scripts" / "importer.py")],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    assert result.returncode == 0, f"{result.stdout}{result.stderr}"
+    assert "reached via the lazy map" in result.stdout
+
+
+def test_an_unreferenced_lazy_submodule_is_not_bundled(tmp_repo):
+    """The other half: the lazy-map pass must not degrade into rglob-ing the
+    whole package again, which would undo bullet 3's own fix.
+
+    Same package as the test above, but the entry script never touches
+    `other_thing`, so `other_submodule.py` - mapped but unreferenced - must
+    stay out of the bundle.
+    """
+    lib = tmp_repo / "lib" / "lazy_pkg"
+    lib.mkdir(parents=True)
+    (lib / "__init__.py").write_text(
+        "from typing import TYPE_CHECKING, Any\n"
+        "\n"
+        "if TYPE_CHECKING:\n"
+        "    from .submodule import thing\n"
+        "    from .other_submodule import other_thing\n"
+        "\n"
+        "_NAME_TO_MODULE = {\"thing\": \"submodule\", \"other_thing\": \"other_submodule\"}\n"
+        "\n"
+        "\n"
+        "def __getattr__(name: str) -> Any:\n"
+        "    module = _NAME_TO_MODULE.get(name)\n"
+        "    if module is None:\n"
+        "        raise AttributeError(name)\n"
+        "    import importlib\n"
+        "    value = getattr(importlib.import_module(f\".{module}\", __name__), name)\n"
+        "    globals()[name] = value\n"
+        "    return value\n"
+    )
+    (lib / "submodule.py").write_text("thing = 'reached via the lazy map'\n")
+    (lib / "other_submodule.py").write_text("other_thing = 'never referenced'\n")
+    (tmp_repo / "scripts" / "importer.py").write_text(
+        "import sys\n"
+        "from pathlib import Path\n"
+        "REPO_ROOT = Path(__file__).resolve().parents[1]\n"
+        "sys.path.insert(0, str(REPO_ROOT))\n"
+        "from lib.lazy_pkg import thing\n"
+        "print(thing)\n"
+    )
+    (tmp_repo / ".claude" / "commands" / "flow" / "auto.md").write_text(
+        "# Flow Auto\n\nUses scripts/importer.py.\n"
+    )
+
+    codex_skill_sync.main(["--write"])
+    bundled = tmp_repo / "codex" / "skills" / "flow-auto"
+    assert (bundled / "lib" / "lazy_pkg" / "submodule.py").is_file()
+    assert not (bundled / "lib" / "lazy_pkg" / "other_submodule.py").exists(), (
+        "an unreferenced lazy-mapped submodule must not be bundled"
+    )
+
+
+# --- #1408 counter-model review: five gaps in the lazy/TYPE_CHECKING closure ---
+
+
+def test_a_lazy_chain_two_hops_deep_is_fully_bundled(tmp_repo):
+    """A SINGLE pass over the lazy-map resolution under-bundled a second hop.
+
+    `lib/pkg_a/submodule_a.py` (pulled in by resolving pkg_a's lazy map) itself
+    references `lib/pkg_b`'s lazy export - but `pkg_b/__init__.py` only enters
+    `out` partway through the ORIGINAL implementation, after `all_texts` had
+    already been captured for the first (and only) lazy-resolution pass, so
+    `submodule_b.py` was silently dropped. Fixed by looping lazy-resolution +
+    drain() to a fixed point.
+    """
+    pkg_a = tmp_repo / "lib" / "pkg_a"
+    pkg_a.mkdir(parents=True)
+    (pkg_a / "__init__.py").write_text(
+        "from typing import TYPE_CHECKING, Any\n"
+        "if TYPE_CHECKING:\n    from .submodule_a import thing_a\n"
+        '_NAME_TO_MODULE = {"thing_a": "submodule_a"}\n'
+        "def __getattr__(name: str) -> Any:\n"
+        "    module = _NAME_TO_MODULE.get(name)\n"
+        "    if module is None:\n        raise AttributeError(name)\n"
+        "    import importlib\n"
+        '    value = getattr(importlib.import_module(f".{module}", __name__), name)\n'
+        "    globals()[name] = value\n    return value\n"
+    )
+    (pkg_a / "submodule_a.py").write_text("from lib.pkg_b import thing_b\nthing_a = thing_b\n")
+    pkg_b = tmp_repo / "lib" / "pkg_b"
+    pkg_b.mkdir(parents=True)
+    (pkg_b / "__init__.py").write_text(
+        "from typing import TYPE_CHECKING, Any\n"
+        "if TYPE_CHECKING:\n    from .submodule_b import thing_b\n"
+        '_NAME_TO_MODULE = {"thing_b": "submodule_b"}\n'
+        "def __getattr__(name: str) -> Any:\n"
+        "    module = _NAME_TO_MODULE.get(name)\n"
+        "    if module is None:\n        raise AttributeError(name)\n"
+        "    import importlib\n"
+        '    value = getattr(importlib.import_module(f".{module}", __name__), name)\n'
+        "    globals()[name] = value\n    return value\n"
+    )
+    (pkg_b / "submodule_b.py").write_text("thing_b = 'reached the second hop'\n")
+    (tmp_repo / "scripts" / "importer.py").write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "REPO_ROOT = Path(__file__).resolve().parents[1]\n"
+        "sys.path.insert(0, str(REPO_ROOT))\n"
+        "from lib.pkg_a import thing_a\nprint(thing_a)\n"
+    )
+    (tmp_repo / ".claude" / "commands" / "flow" / "auto.md").write_text(
+        "# Flow Auto\n\nUses scripts/importer.py.\n"
+    )
+    codex_skill_sync.main(["--write"])
+    bundled = tmp_repo / "codex" / "skills" / "flow-auto"
+    assert (bundled / "lib" / "pkg_b" / "submodule_b.py").is_file(), (
+        "the second hop of a lazy-export chain was not bundled"
+    )
+    result = subprocess.run(
+        [sys.executable, str(bundled / "scripts" / "importer.py")],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    assert result.returncode == 0, f"{result.stdout}{result.stderr}"
+    assert "reached the second hop" in result.stdout
+
+
+def test_a_lazy_export_reached_through_an_import_alias_is_bundled(tmp_repo):
+    """`import lib.pkg as alias; alias.thing` reached `__init__.py` fine but
+    `_referenced_lazy_names` only matched the attribute chain against the
+    package's REAL dotted name, never an aliased single-name binding."""
+    lib = tmp_repo / "lib" / "lazy_pkg"
+    lib.mkdir(parents=True)
+    (lib / "__init__.py").write_text(
+        "from typing import TYPE_CHECKING, Any\n"
+        "if TYPE_CHECKING:\n    from .submodule import thing\n"
+        '_NAME_TO_MODULE = {"thing": "submodule"}\n'
+        "def __getattr__(name: str) -> Any:\n"
+        "    module = _NAME_TO_MODULE.get(name)\n"
+        "    if module is None:\n        raise AttributeError(name)\n"
+        "    import importlib\n"
+        '    value = getattr(importlib.import_module(f".{module}", __name__), name)\n'
+        "    globals()[name] = value\n    return value\n"
+    )
+    (lib / "submodule.py").write_text("thing = 'reached via an import alias'\n")
+    (tmp_repo / "scripts" / "importer.py").write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "REPO_ROOT = Path(__file__).resolve().parents[1]\n"
+        "sys.path.insert(0, str(REPO_ROOT))\n"
+        "import lib.lazy_pkg as pkg\nprint(pkg.thing)\n"
+    )
+    (tmp_repo / ".claude" / "commands" / "flow" / "auto.md").write_text(
+        "# Flow Auto\n\nUses scripts/importer.py.\n"
+    )
+    codex_skill_sync.main(["--write"])
+    bundled = tmp_repo / "codex" / "skills" / "flow-auto"
+    assert (bundled / "lib" / "lazy_pkg" / "submodule.py").is_file()
+    result = subprocess.run(
+        [sys.executable, str(bundled / "scripts" / "importer.py")],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    assert result.returncode == 0, f"{result.stdout}{result.stderr}"
+    assert "reached via an import alias" in result.stdout
+
+
+def test_an_unrelated_string_dict_does_not_qualify_a_package_as_lazy():
+    """`_lazy_getattr_map` used to accept ANY module-level (or even nested)
+    string-to-string dict once `__getattr__` existed anywhere in the file,
+    regardless of whether `__getattr__` referenced it."""
+    mod = codex_skill_sync
+    unrelated = (
+        '_UNRELATED = {"a": "b", "c": "d"}\n\n'
+        "def __getattr__(name):\n    raise AttributeError(name)\n"
+    )
+    assert mod._lazy_getattr_map(unrelated) is None
+
+    nested = (
+        "def __getattr__(name):\n    raise AttributeError(name)\n\n"
+        "class Foo:\n"
+        "    def bar(self):\n"
+        '        _NAME_TO_MODULE = {"x": "y"}\n'
+        "        return _NAME_TO_MODULE\n"
+    )
+    assert mod._lazy_getattr_map(nested) is None, (
+        "a dict nested inside an unrelated method must not qualify the module"
+    )
+
+    real = (
+        '_NAME_TO_MODULE = {"x": "y"}\n\n'
+        "def __getattr__(name):\n    return _NAME_TO_MODULE[name]\n"
+    )
+    assert mod._lazy_getattr_map(real) == {"x": "y"}, (
+        "a dict __getattr__ actually references must still qualify"
+    )
+
+
+def test_an_unrelated_type_checking_name_does_not_suppress_a_live_import():
+    """`_is_type_checking_test` used to accept ANY name or attribute ending in
+    `TYPE_CHECKING`, so `if settings.TYPE_CHECKING:` or a locally assigned
+    `TYPE_CHECKING = True` excluded a live import exactly like the real
+    typing sentinel, with no way to tell them apart."""
+    mod = codex_skill_sync
+    fake_attr = (
+        "class settings:\n    TYPE_CHECKING = True\n\n"
+        "if settings.TYPE_CHECKING:\n    from .state import x\n"
+    )
+    assert len(mod._live_relative_imports(fake_attr)) == 1, (
+        "an unrelated settings.TYPE_CHECKING must not suppress a live import"
+    )
+
+    fake_local = "TYPE_CHECKING = True\nif TYPE_CHECKING:\n    from .state import x\n"
+    assert len(mod._live_relative_imports(fake_local)) == 1, (
+        "a locally assigned TYPE_CHECKING must not suppress a live import"
+    )
+
+    real_aliased = (
+        "from typing import TYPE_CHECKING as TC\nif TC:\n    from .state import x\n"
+    )
+    assert len(mod._live_relative_imports(real_aliased)) == 0, (
+        "an aliased typing.TYPE_CHECKING import must still be recognized"
+    )
+
+    real_module = "import typing\nif typing.TYPE_CHECKING:\n    from .state import x\n"
+    assert len(mod._live_relative_imports(real_module)) == 0, (
+        "import typing; typing.TYPE_CHECKING must still be recognized"
+    )
+
+
+def test_an_import_inside_a_match_case_is_still_a_live_dependency():
+    """`_live_import_nodes`'s walk traversed `body`/`orelse`/`finalbody`/
+    `handlers` but never `ast.Match.cases` - each `match_case`'s own `body`
+    is a field of the CASE, not of the `Match` node, so an import inside any
+    case was silently invisible to dependency discovery."""
+    mod = codex_skill_sync
+    matched = (
+        "def f(x):\n"
+        "    match x:\n"
+        "        case 1:\n"
+        "            from .state import y\n"
+        "            return y\n"
+        "        case _:\n"
+        "            return None\n"
+    )
+    assert len(mod._live_relative_imports(matched)) == 1, (
+        "an import inside a match case must still be discovered"
+    )
+
+    guarded = (
+        "from typing import TYPE_CHECKING\n"
+        "def f(x):\n"
+        "    match x:\n"
+        "        case 1:\n"
+        "            if TYPE_CHECKING:\n"
+        "                from .state import y\n"
+    )
+    assert len(mod._live_relative_imports(guarded)) == 0, (
+        "the TYPE_CHECKING exclusion must still propagate inside a match case"
+    )
 
 
 def test_a_runtime_data_file_the_entry_point_reads_is_bundled(tmp_repo):
@@ -1666,6 +2044,34 @@ def test_the_shell_lib_rule_does_not_widen_to_unrelated_scripts() -> None:
     )
 
 
+def test_flow_checks_lib_closure_is_the_three_files_it_actually_runs():
+    """issue #1408 bullet 3: flow-check's real dependency is `evidence.py` and
+    its own `from .state import ...` - three files, not all 29 of `lib/cicd/`.
+
+    Before the fix, `lib/cicd/__init__.py`'s OWN module docstring (a
+    `Quick Start:` usage example reading `from lib.cicd import
+    run_health_checks`) matched the line-shape regex this replaced exactly
+    like a real import, resolved to the PACKAGE DIRECTORY, and `rglob`'d
+    every one of its 29 modules into the bundle. The TYPE_CHECKING-guarded
+    re-export list in that same file is a second, independent instance of
+    the identical class of bug (a block the interpreter never executes,
+    read by a regex as if it always runs) - both are closed by moving to
+    `ast.parse` rather than widening the old regexes.
+
+    RED CONFIRMED (not re-asserted here; see the #1408 PR description): this
+    assertion fails against the pre-fix `scripts/codex-skill-sync.py`
+    (commit 3672b12), which bundles all 29 `lib/cicd/*.py` files for these
+    two scripts.
+    """
+    mod = codex_skill_sync
+    got = mod.find_bundled_libs(["execution-evidence-verify.py", "counter-model-receipt.py"])
+    assert set(got) == {
+        "lib/cicd/__init__.py",
+        "lib/cicd/evidence.py",
+        "lib/cicd/state.py",
+    }, f"the minimal runtime closure changed shape; got {sorted(got)}"
+
+
 def test_a_source_line_the_bundler_cannot_follow_refuses(tmp_path: Path) -> None:
     """An unfollowable source RAISES rather than shipping a silently incomplete bundle.
 
@@ -1806,6 +2212,178 @@ def test_the_manifest_moves_when_a_bundled_script_changes(tmp_path: Path):
     assert row_before and row_after and row_before != row_after, (
         f"the manifest moved but {victim_name}'s own row did not"
     )
+
+
+# --- The mirror-provenance note (issue #1408 bullet 1) ----------------------
+#
+# SKILL.md and reference.md already name their own canonical source
+# (`marker_for`), from inside themselves, because the generator rewrites both
+# on the way in. Nothing else bundled can do that without ceasing to be a
+# byte-identical copy of its source - these tests pin the ALTERNATIVE sign
+# instead: a note, beside those files, naming every one of them.
+
+
+def test_every_bundle_with_code_or_docs_carries_a_provenance_note():
+    bundles = sorted((ROOT / "codex" / "skills").glob("*/"))
+    assert bundles, "no generated skills at all - this test would be vacuous"
+    for skill_dir in bundles:
+        if not (skill_dir / "SKILL.md").is_file():
+            continue
+        byte_identical = [
+            f for f in skill_dir.rglob("*")
+            if f.is_file()
+            and f.name not in ("SKILL.md", "reference.md", MANIFEST_NAME, codex_skill_sync.PROVENANCE_NAME)
+            and "__pycache__" not in f.parts
+        ]
+        if not byte_identical:
+            continue
+        assert (skill_dir / codex_skill_sync.PROVENANCE_NAME).is_file(), (
+            f"{skill_dir} bundles {len(byte_identical)} file(s) with no "
+            f"{codex_skill_sync.PROVENANCE_NAME}"
+        )
+
+
+def test_the_provenance_note_lists_exactly_what_it_covers():
+    """Completeness, not merely presence - the manifest's own lesson (#1185)
+    applied to its sibling note."""
+    for note in sorted((ROOT / "codex" / "skills").glob("*/" + codex_skill_sync.PROVENANCE_NAME)):
+        skill_dir = note.parent
+        listed = {
+            line[len("- `"): -1]
+            for line in note.read_text().splitlines()
+            if line.startswith("- `")
+        }
+        present = {
+            f.relative_to(skill_dir).as_posix()
+            for f in skill_dir.rglob("*")
+            if f.is_file()
+            and f.name not in ("SKILL.md", "reference.md", MANIFEST_NAME, codex_skill_sync.PROVENANCE_NAME)
+            and "__pycache__" not in f.parts
+        }
+        assert listed == present, (
+            f"{note}: listed-but-absent {sorted(listed - present)}, "
+            f"present-but-unlisted {sorted(present - listed)}"
+        )
+
+
+def test_the_provenance_note_does_not_list_itself_or_the_self_naming_files():
+    for note in sorted((ROOT / "codex" / "skills").glob("*/" + codex_skill_sync.PROVENANCE_NAME)):
+        rows = [line for line in note.read_text().splitlines() if line.startswith("- `")]
+        for excluded in ("SKILL.md", "reference.md", codex_skill_sync.PROVENANCE_NAME):
+            assert all(excluded not in line for line in rows), (
+                f"{note} names {excluded}, which already signs itself"
+            )
+
+
+def test_a_bundle_with_nothing_byte_identical_carries_no_empty_provenance_note():
+    assert codex_skill_sync.provenance_note({"SKILL.md": "x"}) is None
+    assert codex_skill_sync.provenance_note(
+        {"SKILL.md": "x", f"scripts/{MANIFEST_NAME}": "sums"}
+    ) is None, "a manifest with nothing it manifests must not make the note non-empty"
+
+
+def test_the_provenance_note_moves_when_a_bundled_file_set_changes(tmp_path: Path):
+    """The `scripts_manifest` mobility lesson (#1185), applied to the sibling
+    note: a note that never changes certifies whatever bundle it is handed."""
+    files = codex_skill_sync.generate_skill(
+        ROOT / ".claude" / "commands" / "flow" / "check.md",
+        "flow",
+        codex_skill_sync.generated_names(["flow"]),
+    )
+    before = files.get(codex_skill_sync.PROVENANCE_NAME)
+    assert before is not None, "flow-check bundles code and produced no provenance note"
+
+    # CONTROL: unchanged in, identical out.
+    assert codex_skill_sync.provenance_note(dict(files)) == before, (
+        "recomputing over an unchanged bundle changed the note"
+    )
+
+    added = dict(files)
+    added["lib/cicd/zz-synthetic.py"] = "x = 1\n"
+    after = codex_skill_sync.provenance_note(added)
+    assert after != before, "adding a bundled file did not move the note"
+    assert "lib/cicd/zz-synthetic.py" in after
+
+
+def test_a_missing_provenance_note_fails_check(tmp_repo):
+    """issue #1408's explicit ask: a missing or stale stamp must fail --check,
+    exactly like any other generated file - this is the automatic consequence
+    of provenance_note() participating in generate_skill()'s own output dict,
+    pinned here rather than only trusted."""
+    (tmp_repo / "scripts" / "helper.sh").write_text("#!/bin/bash\necho helper\n")
+    (tmp_repo / ".claude" / "commands" / "flow" / "auto.md").write_text(
+        "# Flow Auto\n\nUses scripts/helper.sh.\n"
+    )
+    assert codex_skill_sync.main(["--write"]) == 0
+    note_path = tmp_repo / "codex" / "skills" / "flow-auto" / codex_skill_sync.PROVENANCE_NAME
+    assert note_path.is_file(), "fixture precondition: a provenance note must be generated"
+
+    assert codex_skill_sync.main(["--check"]) == 0, "fixture precondition: a fresh write must check clean"
+
+    note_path.unlink()
+    assert codex_skill_sync.main(["--check"]) != 0
+
+    note_path.write_text("stale content\n")
+    assert codex_skill_sync.main(["--check"]) != 0
+
+
+# ---------------------------------------------------------------------------
+# Issue #1408 bullet 4: `~/.claude/scripts/<name>` (the convenience-install
+# absolute path) is remapped to the skill-relative `scripts/<name>` when
+# `<name>` is a real checkout script, so find_bundled_scripts bundles it
+# exactly as it already does for a relative reference - never a second
+# bundling path.
+# ---------------------------------------------------------------------------
+
+
+def test_an_absolute_claude_scripts_path_is_remapped_and_bundled(tmp_repo):
+    src = tmp_repo / ".claude" / "commands" / "qa"
+    (src / "test.md").write_text(
+        "---\ndescription: QA test\n---\n# QA Test\n\n"
+        "Invoke it bare:\n\n```bash\n~/.claude/scripts/helper.sh --check\n```\n"
+    )
+    files = codex_skill_sync.generate_skill(
+        src / "test.md", "qa", codex_skill_sync.generated_names(["flow", "qa"]),
+    )
+    body = files["SKILL.md"]
+    assert "~/.claude/scripts/helper.sh" not in body, body
+    assert "scripts/helper.sh" in body, body
+    assert "scripts/helper.sh" in files, "the remapped script must be bundled"
+
+
+def test_an_unremapped_absolute_path_is_left_alone_and_named(tmp_repo):
+    """THE #1408 RED: before the fix, `~/.claude/scripts/flow-finish-gate.sh`
+    was passed through verbatim - invisible to find_bundled_scripts (which
+    only reads the relative `scripts/<name>` shape), so the helper was never
+    bundled and the reference hit exit 127 on a Codex-only install."""
+    src = tmp_repo / ".claude" / "commands" / "qa"
+    (src / "test.md").write_text(
+        "---\ndescription: QA test\n---\n# QA Test\n\n"
+        "Invoke it bare:\n\n```bash\n~/.claude/scripts/missing-helper.sh\n```\n"
+    )
+    files = codex_skill_sync.generate_skill(
+        src / "test.md", "qa", codex_skill_sync.generated_names(["flow", "qa"]),
+    )
+    body = files["SKILL.md"]
+    # A name with no matching checkout script must NOT be rewritten to a
+    # relative path that would resolve to nothing bundled.
+    assert "~/.claude/scripts/missing-helper.sh" in body, body
+    assert "missing-helper.sh" not in files
+    assert "no matching checkout script was found" in body, body
+
+
+def test_flow_check_no_longer_ships_an_unresolvable_absolute_path():
+    """End-to-end against the REAL repository: flow-check's own source names
+    `~/.claude/scripts/flow-finish-gate.sh` twice, the committed red case
+    (Nit Store #864, found via cooneycw/skillc#264)."""
+    files = codex_skill_sync.generate_skill(
+        ROOT / ".claude" / "commands" / "flow" / "check.md",
+        "flow",
+        codex_skill_sync.generated_names(["flow"]),
+    )
+    rendered = files.get("reference.md") or files["SKILL.md"]
+    assert "~/.claude/scripts/" not in rendered, rendered
+    assert "scripts/flow-finish-gate.sh" in files
 
 
 def test_the_manifest_never_lists_itself_whatever_the_caller_passes():
@@ -2205,10 +2783,42 @@ def test_calls_network_flags_an_invocation(rel, text):
         ("scripts/x.py", 'run(["git", "branch", "fetch"])\n'),
         # A shell invocation shape in a non-shell file is not read as shell.
         ("docs/x.md", "gh issue list\n"),
+        # THE #1408 RED (Nit Store #864, found by the #1359 counter-model
+        # review, deferred then): an argv-shaped list inside a Python
+        # docstring used to match the old regex. A docstring is ONE
+        # ast.Constant node to the real parser - it can never contain a
+        # nested ast.List, so the AST-based detector never sees this shape
+        # at all, regex tweak or not.
+        ("scripts/x.py", '"""Example: run(["gh", "issue", "list"]) shows the shape."""\n'),
+        # THE #1408 RED, shell side: a command position inside a quoted
+        # shell string. The `;` that used to open a command position sits
+        # inside the double-quoted span, which the per-line quote tracker
+        # now sees.
+        ("scripts/x.sh", 'echo "retry; gh issue list"\n'),
     ],
 )
 def test_calls_network_ignores_a_mention(rel, text):
     assert codex_skill_sync.calls_network({rel: text}) is False
+
+
+@pytest.mark.parametrize(
+    "rel, text",
+    [
+        # Command substitution INSIDE a double-quoted string still runs in
+        # real bash - an enclosing `"..."` does not suppress `$(...)`  the
+        # way a `'...'` would (counter-model review on the B2 fix itself).
+        ("scripts/x.sh", 'out="$(gh issue list --state all)"\n'),
+        # The same *_BIN variable convention, nested inside a substitution
+        # that is itself inside a double-quoted assignment.
+        ("scripts/x.sh", 'default_branch="$("$GH_BIN" api "repos/$REPO")"\n'),
+        ("scripts/x.sh", 'if ! body="$("$GH" issue view "$N" --json body)"; then\n'),
+    ],
+)
+def test_calls_network_flags_a_substitution_inside_a_double_quote(rel, text):
+    """A flat one-level quote tracker masked this as inert - the SAME shape
+    as the false positive it was built to fix, for the opposite reason:
+    `$(...)` is a fresh parsing context, not more of the enclosing string."""
+    assert codex_skill_sync.calls_network({rel: text}) is True
 
 
 def test_real_repo_project_next_skill_carries_the_network_bullet():

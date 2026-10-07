@@ -1,0 +1,35 @@
+{
+  "gate": "scripts/codex-skill-sync.py",
+  "invocation": [
+    "sh",
+    "controls/codex-skill-sync-provenance/run-case.sh",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^CODEX_SKILL_SYNC_PROVENANCE_CONTROL: finding\\b",
+  "unavailable_signal": "^CODEX_SKILL_SYNC_PROVENANCE_CONTROL: unavailable - ",
+  "limits": "A SEPARATE registration on the same gate as controls/codex-skill-sync-remap, controls/codex-skill-sync-network-detector and controls/codex-skill-sync-over-bundle (row 33's other #1408 controls, per the issue's own ruling: per-axis, since each fires on an unrelated signal). This one covers bullet 1 only: the mirror-provenance note (`provenance_note()`/`PROVENANCE_NAME`) that `--check` must enforce exactly like any other generated file.\n\nWHAT 'FINDING' MEANS HERE: the adapter runs the real two-step sequence a caller follows - `--write` then `--check` - against a tmp copy of a tiny fixture repo, never a synthetic call into one function. A `corrupt.txt` marker in the bad case says to delete the generated note after `--write`, before `--check`; its absence in the good case means nothing is touched. A finding is `--check` exiting non-zero AND naming the note's own path in its output - for the bad case that is the fix catching a planted defect; for the good case the identical rule inverts by construction, since nothing bad-shaped exists in an untouched fresh write for the gate to find.\n\nTHE ANCHOR'S BLINDNESS IS A DIFFERENT SHAPE than the other three #1408 controls, and the adapter says so rather than treating it as an error: the pre-fix gate generates NO provenance note at all, so there is nothing for the bad case's deletion step to delete. That absence of an artifact to corrupt IS the blind condition itself - a gate that never produces the note cannot know to miss it - not a precondition failure the adapter should refuse on. The first draft of this adapter got this backwards (scored UNAVAILABLE on the anchor, since `note_path.is_file()` was a hard precondition before the fix); fixed by making the delete step a no-op when there is nothing to delete, so the measurement reaches the anchor's own `--check` instead of stopping before it.\n\nWHAT THIS ESTABLISHES (issue #1408, Nit Store #864 comment 5685525565): `SKILL.md` and `reference.md` already name their own canonical source from inside themselves (`marker_for`, pre-existing); `scripts/`, `lib/` and bundled `docs/`/data files cannot without breaking the byte-identity their own tests pin, so `provenance_note()` is the 'nearest honest alternative' - a note, beside those files, naming every one of them - and like every other key `generate_skill()` returns, `run_check`'s generic MISSING/DRIFT/STALE loop covers it automatically. This control proves that coverage is real on a live invocation, not merely implied by the dict key existing.\n\nWHAT THIS DOES NOT ESTABLISH. The STALE half (a present-but-wrong note) is pytest-covered directly against the gate (test_a_missing_provenance_note_fails_check in tests/test_codex_skill_sync.py, which exercises both halves against the real module in-process) rather than duplicated here - a control's job is proving the fix is not blind on a real input, not re-walking every shape a unit test suite already owns, and the MISSING half is the one the anchor's own absence-of-a-generator makes meaningfully different to demonstrate. Nothing about bullets 2/3/4, which have their own registrations.",
+  "cases": [
+    {
+      "name": "bad-missing-provenance-note",
+      "input": "cases/bad-missing-provenance-note",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-present-provenance-note",
+      "input": "cases/good-present-provenance-note",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "2656225",
+      "origin": "scripts/codex-skill-sync.py",
+      "path": "anchors/2656225-pre-provenance-codex-skill-sync.py",
+      "sha256": "f074b644be2a0365240ebb606791f3fe17de1324be6f954baca3089f70c784b7",
+      "why": "HISTORICAL, vendored byte-for-byte from 2656225 (identical bytes to the other three #1408 anchors, by coincidence of timing - all four were cut from the same pre-issue commit, not shared files). MEASURED against the bad case: this version has no `provenance_note`/`PROVENANCE_NAME` at all, so `--write` produces no note to delete and `--check` never mentions one either way - total blindness, reproduced from the control rather than asserted."
+    }
+  ]
+}

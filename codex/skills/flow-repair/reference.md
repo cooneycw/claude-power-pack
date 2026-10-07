@@ -8,7 +8,7 @@ commands invoke and the permission allowlist matches.
 ## Why this exists (issue #590)
 
 The flow commands are only half the product: Step 1 of `/flow-start` and
-`/flow-auto` runs `~/.claude/scripts/flow-start-resolve.sh`, `/flow-merge` runs
+`/flow-auto` runs `scripts/flow-start-resolve.sh`, `/flow-merge` runs
 `gh-pr-merge.sh`, and so on. Historically only the repo-local `/cpp:init` /
 `/cpp:update` installer put those there. The retired marketplace lane could
 leave commands without those host helpers, producing exit 127 (#590, #662).
@@ -25,7 +25,7 @@ Legacy caches may still bundle the helper family at
 `${CLAUDE_PLUGIN_ROOT}/scripts/` until they are uninstalled. This command copies
 or links helpers to `~/.claude/scripts/`. That stable path matters:
 the #581 allowlist rules in `templates/claude-settings-permissions.json` match
-`Bash(~/.claude/scripts/flow-start-resolve.sh:*)` and friends, and a versioned
+`Bash(scripts/flow-start-resolve.sh:*)` and friends, and a versioned
 plugin-cache path would never match them - running the helpers in place would
 trade exit-127 breakage for a permission prompt on every call.
 
@@ -85,7 +85,7 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/flow-helpers-install.sh
 truth is reachable, which is the normal case inside a session container:
 
 ```bash
-~/.claude/scripts/flow-helpers-install.sh
+scripts/flow-helpers-install.sh
 ```
 
 **Reordering helps only where a source of truth EXISTS, and that is worth

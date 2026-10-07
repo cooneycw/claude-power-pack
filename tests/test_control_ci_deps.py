@@ -527,6 +527,62 @@ def test_a_directly_run_gate_still_depends_on_its_shebang(tmp_path: Path) -> Non
     assert "CI_DEP: toy needs `zsh`" in out.stdout, out.stdout
 
 
+def test_a_python_gate_wrapped_by_sh_is_not_scanned_as_shell(tmp_path: Path) -> None:
+    """issue #1408 fallout: `effective in {"sh", "bash"}` named the WRAPPER's
+    own interpreter, not what the gate is written in.
+
+    `codex-skill-sync-network-detector`'s `invocation` is shaped
+    `["sh", "run-case.sh", "{case}", "{gate}"]` - `sh` runs the WRAPPER, which
+    hands `{gate}`'s path to a NESTED `python3 -` heredoc that `importlib`s it
+    as a module. `sh` never sources or executes the `.py` gate as shell. Before
+    this fix, `binaries_in_script` was applied to it anyway and matched the
+    word "curl" inside an ordinary Python string literal - a false positive of
+    the exact class issue #1408 fixed one layer down, in the gate's own
+    network-call detector, reproduced here in THIS checker.
+    """
+    pipeline(tmp_path)
+    gate_script(
+        tmp_path,
+        "scripts/toy-gate.py",
+        f"#!/usr/bin/env python3\n{MARKER}"
+        'NETWORK_BULLET = "this mentions `curl` and `aws` in prose, never runs them"\n'
+        "print('toy-gate: ok - 0 finding(s)')\n",
+    )
+    gate_script(
+        tmp_path,
+        "scripts/toy-wrapper.sh",
+        '#!/bin/sh\npython3 "$2"\n',
+    )
+    control(
+        tmp_path, "toy", "scripts/toy-gate.py",
+        ["sh", "scripts/toy-wrapper.sh", "{case}", "{gate}"],
+    )
+    out = run(tmp_path)
+    assert out.returncode == 0, out.stdout
+    assert "curl" not in out.stdout, out.stdout
+
+
+def test_a_shell_gate_wrapped_by_sh_is_still_scanned(tmp_path: Path) -> None:
+    """The other half: a genuinely SHELL gate sourced or run by its `sh`
+    wrapper (install-drift.sh, flow-wave-registry.sh's own shape) must keep
+    being scanned - the fix above is scoped to `.py` gates, not to every
+    wrapped invocation."""
+    pipeline(tmp_path)
+    gate_script(tmp_path, "scripts/toy-gate.sh", NEEDS_GIT)
+    gate_script(
+        tmp_path,
+        "scripts/toy-wrapper.sh",
+        '#!/bin/sh\n. "$2"\n',
+    )
+    control(
+        tmp_path, "toy", "scripts/toy-gate.sh",
+        ["sh", "scripts/toy-wrapper.sh", "{case}", "{gate}"],
+    )
+    out = run(tmp_path)
+    assert out.returncode == 1, out.stdout
+    assert "CI_DEP: toy needs `git`" in out.stdout, out.stdout
+
+
 # --------------------------------------------------------------------------- #
 # Counter-model review, SECOND pass (codex/gpt-6-astra). Every case below is a
 # false GREEN the first round of fixes still allowed - the direction that lets a

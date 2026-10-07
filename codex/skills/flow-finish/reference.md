@@ -112,7 +112,7 @@ plus an interpolated `$CPP_DIR` can never match a permission prefix rule, so
 the inline shape prompts on every run. Invoke it BARE (#581 discipline):
 
 ```bash
-~/.claude/scripts/flow-finish-gate.sh
+scripts/flow-finish-gate.sh
 ```
 
 (Exit 127 - helper not installed: fall back to
@@ -274,7 +274,7 @@ checks `uv`, and applies the #430 invocation contract itself; #613). Invoke
 BARE (#581 discipline):
 
 ```bash
-~/.claude/scripts/flow-finish-gate.sh --check-summary
+scripts/flow-finish-gate.sh --check-summary
 ```
 
 - `FLOW_FINISH_GATE: warn` (exit 3) - **missing required targets**: display as a warning but **do NOT block**.
@@ -373,7 +373,7 @@ advisory (exit 0). Invoke bare at the stable path (#581 discipline; on exit 127
 skip it):
 
 ```bash
-~/.claude/scripts/check-ignored-additions.sh
+scripts/check-ignored-additions.sh
 ```
 
 - If it reports, confirm each listed file is genuinely scratch. If any is an
@@ -438,7 +438,7 @@ widen this change to fix it, and do not drop it. Record it.
 Resolve the repository's nit store with the shared resolver, bare:
 
 ```bash
-~/.claude/scripts/nit-store-resolve.sh
+scripts/nit-store-resolve.sh
 ```
 
 It is the ONLY copy of the repository-to-issue map (#1272, #1273). It reads the

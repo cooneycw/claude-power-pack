@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1408-nit-store",
+  "counts": {
+    "accepted": 6,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "17eaa1dc81f4d37cef62f11700effacecf34beb7",
+  "implementer": "claude/claude-sonnet-5",
+  "issue": "1408",
+  "passes": 1,
+  "recorded_at": "2026-10-07T11:45:46Z",
+  "red_cases": {
+    "already_covered": 9,
+    "proposed": 11
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/07/rollout-2026-10-07T11-34-49-01a11625-0bfb-7a53-ac7a-e31ab9fd8dd2.jsonl",
+    "thread_id": "01a11625-0bfb-7a53-ac7a-e31ab9fd8dd2"
+  },
+  "schema": 1,
+  "status": "ran"
+}

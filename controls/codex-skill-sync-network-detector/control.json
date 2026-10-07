@@ -1,0 +1,35 @@
+{
+  "gate": "scripts/codex-skill-sync.py",
+  "invocation": [
+    "sh",
+    "controls/codex-skill-sync-network-detector/run-case.sh",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^CODEX_SKILL_SYNC_NETWORK_CONTROL: finding\\b",
+  "unavailable_signal": "^CODEX_SKILL_SYNC_NETWORK_CONTROL: unavailable - ",
+  "limits": "A SEPARATE registration on the same gate as controls/codex-skill-sync-remap and controls/codex-skill-sync-over-bundle (row 33's first controls, issue #1408 ruling: per-axis, since all three fire on unrelated signals). This one covers bullet 2 only: the network-helper advisory detector's false positives.\n\nWHAT 'FINDING' MEANS HERE: a single shared predicate for both cases - `calls_network()` answering False on the fixture. For the bad case (a known false-positive shape) that means the fix correctly suppressed it; for the good case (a real network call) False would mean the fix over-corrected into blindness, so that case's own `expect: GOOD` catches a broken fix that swings too far the other way, not just one that does nothing.\n\nWHY THE ADAPTER CALLS `calls_network()` DIRECTLY rather than driving the full `generate_skill()` pipeline: the detector operates on BUNDLED SCRIPT CONTENT (the `files` dict `generate_skill` assembles from whatever `find_bundled_scripts`/`find_bundled_libs` resolve against the real checkout's SCRIPTS_ROOT), never on a command document's body directly - the body only decides WHICH scripts get bundled. Routing a fixture through the whole pipeline would need a fixture script actually present under `scripts/` to be discovered, which is a bigger and less direct dependency than calling the one function this axis is actually about.\n\nWHAT THIS ESTABLISHES (issue #1408, Nit Store #864, found by the #1359 counter-model review and deferred then): an argv-shaped list inside a Python docstring (`\"\"\"...run([\"gh\", \"issue\", \"list\"])...\"\"\"`) no longer stamps the Network adaptation bullet on a skill whose helpers make no real call - ast.parse represents a docstring as ONE Constant node, which can never contain a nested List node, so the AST walk simply does not generate the shape the old regex matched. The paired good case is the ruling's own explicit ask: a REAL `subprocess.run([\"gh\", \"issue\", \"list\"])` call must still be flagged - proving the fix narrows the detector rather than disabling it.\n\nWHAT THIS DOES NOT ESTABLISH. Nothing about the shell-side fix (the quoted-string false positive, or the command-substitution-inside-a-double-quote case the fix's own build surfaced as a near-regression) - both are pytest-covered in tests/test_codex_skill_sync.py (test_calls_network_ignores_a_mention, test_calls_network_flags_a_substitution_inside_a_double_quote), not duplicated here since a control's job is proving the Python-side fix is not blind on a real input, not re-walking every shape a unit test suite already owns. Nothing about bullets 3/4, which have their own registrations.",
+  "cases": [
+    {
+      "name": "bad-docstring-argv-false-positive",
+      "input": "cases/bad-docstring-argv-false-positive",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-real-gh-call",
+      "input": "cases/good-real-gh-call",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "2656225",
+      "origin": "scripts/codex-skill-sync.py",
+      "path": "anchors/2656225-pre-ast-codex-skill-sync.py",
+      "sha256": "f074b644be2a0365240ebb606791f3fe17de1324be6f954baca3089f70c784b7",
+      "why": "HISTORICAL, vendored byte-for-byte from 2656225 (identical bytes to the other two #1408 anchors, by coincidence of timing - all three were cut from the same pre-issue commit, not shared files). MEASURED against the bad case: the old regex-based _NET_PY matches the docstring's argv-shaped text and calls_network() answers True - the false positive, reproduced from the control rather than asserted."
+    }
+  ]
+}

@@ -18,7 +18,7 @@ bare first (fail-open; it releases only a claim owned by this session or an
 abandoned one):
 
 ```bash
-~/.claude/scripts/flow-worktree-claim.sh release /path/to/worktree
+scripts/flow-worktree-claim.sh release /path/to/worktree
 ```
 
 `worktree-remove.sh` does this itself, and **exits 4** rather than removing a
@@ -87,7 +87,7 @@ BARE as a separate call (#581 discipline - never fold it back into a compound
 block):
 
 ```bash
-~/.claude/scripts/flow-finish-gate.sh
+scripts/flow-finish-gate.sh
 ```
 
 On `FLOW_FINISH_GATE: fail` (exit 1): **STOP** - the quality gate failed on
@@ -131,7 +131,7 @@ is a backstop, not this decision.
 REQUIRED lane, then merge in the same breath:
 
 ```bash
-~/.claude/scripts/flow-ci-status.sh <pr-head-sha> --path "$(git rev-parse --show-toplevel)" --strict-event --wait 1800
+scripts/flow-ci-status.sh <pr-head-sha> --path "$(git rev-parse --show-toplevel)" --strict-event --wait 1800
 ```
 
 On `FLOW_CI_STATUS: success`, run the merge below at once - or pass
@@ -152,8 +152,8 @@ PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
 # --delete-branch in a linked worktree, deletes the remote branch itself, and
 # verifies the PR reached MERGED before reporting failure. Local worktree/branch
 # cleanup stays in Step 5 below (git path, issue #627).
-if [[ -x ~/.claude/scripts/gh-pr-merge.sh ]]; then
-    ~/.claude/scripts/gh-pr-merge.sh "$PR_NUMBER" "$BRANCH"
+if [[ -x scripts/gh-pr-merge.sh ]]; then
+    scripts/gh-pr-merge.sh "$PR_NUMBER" "$BRANCH"
     MERGE_RC=$?
 else
     # Inline fallback (helper not installed): same linked-worktree guard.
@@ -271,8 +271,8 @@ CLEANUP_REFUSED_MARKER="$CLEANUP_REFUSED_DIR/$(basename "$WORKTREE_PATH")"
 mkdir -p "$CLEANUP_REFUSED_DIR"
 rm -f "$CLEANUP_REFUSED_MARKER"   # only THIS worktree's entry; a sibling's survives
 cleanup_refused=0
-if [[ -x ~/.claude/scripts/worktree-remove.sh ]]; then
-    ~/.claude/scripts/worktree-remove.sh "$WORKTREE_PATH" --force --delete-branch
+if [[ -x scripts/worktree-remove.sh ]]; then
+    scripts/worktree-remove.sh "$WORKTREE_PATH" --force --delete-branch
 else
     # Refuse - and make the refusal LEGIBLE (issue #973). Three echoes to
     # stderr are not a channel the closing report consumes, so a refusal that

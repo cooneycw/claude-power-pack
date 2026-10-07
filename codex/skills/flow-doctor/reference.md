@@ -174,7 +174,7 @@ host copies. A legacy cache fallback receives helpers by copy; a checkout uses
 symlinks that follow `git pull`. `--check` compares content and never writes:
 
 ```bash
-~/.claude/scripts/flow-helpers-install.sh --check
+scripts/flow-helpers-install.sh --check
 ```
 
 If that exits 127, the family is not installed at all - try the bundled copy
@@ -374,7 +374,7 @@ Output a single diagnostic report in this format:
 |-------|--------|---------|
 | Makefile | ✅/⚠️/❌ | Targets: lint, test, deploy / Not found |
 | hooks.json | ⚠️/✅ | Leftover from an older install / Absent, as expected since #1206 |
-| mask-output helper | ✅/❌ | ~/.claude/scripts/hook-mask-output.sh (files at rest; not a live hook) |
+| mask-output helper | ✅/❌ | scripts/hook-mask-output.sh (files at rest; not a live hook) |
 | prompt-context.sh | ✅/❌ | Shell prompt context |
 | worktree-remove.sh | ✅/⚠️ | Git-lane cleanup (issue #627; inline `git worktree remove` fallback) |
 | secrets-mask.sh | ✅/❌ | Output masking filter |

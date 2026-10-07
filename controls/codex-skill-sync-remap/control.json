@@ -1,0 +1,35 @@
+{
+  "gate": "scripts/codex-skill-sync.py",
+  "invocation": [
+    "sh",
+    "controls/codex-skill-sync-remap/run-case.sh",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^CODEX_SKILL_SYNC_REMAP_CONTROL: finding\\b",
+  "unavailable_signal": "^CODEX_SKILL_SYNC_REMAP_CONTROL: unavailable - ",
+  "limits": "ROW 33's FIRST registration (issue #1408): `codex-skill-sync.py --check`/`--write` carried no negative control at all before this issue - `controls/codex-skill-resync` exists but targets a DIFFERENT script, `scripts/codex-skill-resync.sh`, the re-sync TRIGGER from #1136, not this generator's own output correctness. A SEPARATE registration per axis, per the ruling: this one covers bullet 4 only (the unremapped absolute-path gap); bullets 2 (network-detector false positives) and 3 (TYPE_CHECKING over-bundling) get their own registrations on the same gate, since all three fire on different, unrelated signals.\n\nWHAT 'FINDING' MEANS HERE, the opposite sense from most controls in this repository: the fix is a SILENT CORRECTION - codex-skill-sync.py emits no warning line when it rewrites `~/.claude/scripts/<name>` to the relative `scripts/<name>` and bundles it. So the adapter cannot grep the gate's own output for a message; it compares the RENDERED skill content directly. 'Finding' means 'the fix's signature behavior fired': the absolute path is gone from the rendered body AND the target script is bundled. BOTH channels must agree (the same two-independent-channels discipline as the #1401/#1403 adapters) - a rewrite with no bundle, or vice versa, is a gate that ran incoherently, scored unavailable, never a detection.\n\nWHAT THIS ESTABLISHES: a command doc naming `~/.claude/scripts/flow-finish-gate.sh` (a REAL checkout script) gets that reference rewritten to `scripts/flow-finish-gate.sh` and the script bundled alongside it - closing the exact gap Nit Store #864 found (cooneycw/skillc#264): flow-check's own generated reference.md shipped the unremapped absolute path twice, so every bundled-script invocation hit exit 127 in a Codex-only install and the completeness step read NOT_APPLICABLE in every skillc trial home. The good case proves the positive-silence side: a command doc with no absolute-path reference at all triggers neither channel, which is checked BEFORE the remap/bundle comparison (not after) - checking the comparison unconditionally misread 'nothing to remap' as the two channels disagreeing, caught while building this control.\n\nWHAT THIS DOES NOT ESTABLISH. Nothing about a name with NO matching checkout script (`~/.claude/scripts/typo'd-name.sh`) - that is pytest-covered (test_an_unremapped_absolute_path_is_left_alone_and_named), not duplicated here, since a control's job is proving the fix is not blind on a real input, not re-walking every shape a unit test suite already owns. Nothing about `~/.codex/` paths, which are deliberately out of this bullet's remap scope (they already name the Codex-native install location, not a Claude-only one needing translation). Nothing about bullets 2/3, which have their own registrations.",
+  "cases": [
+    {
+      "name": "bad-resolvable-absolute-path",
+      "input": "cases/bad-resolvable-absolute-path",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-no-absolute-path",
+      "input": "cases/good-no-absolute-path",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "2656225",
+      "origin": "scripts/codex-skill-sync.py",
+      "path": "anchors/2656225-pre-remap-codex-skill-sync.py",
+      "sha256": "f074b644be2a0365240ebb606791f3fe17de1324be6f954baca3089f70c784b7",
+      "why": "HISTORICAL, vendored byte-for-byte from 2656225, the commit this branch was built from (the just-merged #1403 PR, immediately before any #1408 work). MEASURED against the bad case: generate_skill() passes the absolute path through unrewritten and bundles nothing - the exact production gap, reproduced from the control rather than asserted."
+    }
+  ]
+}

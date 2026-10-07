@@ -60,7 +60,7 @@ directory VERBATIM as a literal path - the same directory the session reports as
 its cwd, not `$(pwd)` and not the directory a previous step left you in:
 
 ```bash
-~/.claude/scripts/flow-start-resolve.sh 42 --session-cwd /home/user/Projects/my-repo
+scripts/flow-start-resolve.sh 42 --session-cwd /home/user/Projects/my-repo
 ```
 
 If it is omitted the helper still works, but it says so
@@ -165,7 +165,7 @@ uses the git path. Pick exactly the path the contract names:
 the worktree, run bare (literal values from the contract):
 
 ```bash
-~/.claude/scripts/flow-start-resolve.sh --verify 42 issue-42-fix-login
+scripts/flow-start-resolve.sh --verify 42 issue-42-fix-login
 ```
 
 This is the moat: it fails (`FLOW_START_VERIFY: fail`, exit 1) when the

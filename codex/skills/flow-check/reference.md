@@ -51,7 +51,7 @@ Invoke it BARE (#581 discipline - the inline `lib.cicd run` shape cannot match
 an allowlist rule, issue #613):
 
 ```bash
-~/.claude/scripts/flow-finish-gate.sh --plan check --evidence flow-check
+scripts/flow-finish-gate.sh --plan check --evidence flow-check
 ```
 
 (Exit 127 - helper not installed: suggest `/flow-repair` and fall back to
@@ -123,7 +123,7 @@ printed word below, not by treating any exit as failure). Invoke it BARE
 `/flow-repair` and count the check as SKIP):
 
 ```bash
-~/.claude/scripts/flow-finish-gate.sh --check-summary
+scripts/flow-finish-gate.sh --check-summary
 ```
 
 - `FLOW_FINISH_GATE: ok` (exit 0) - count a PASS.
