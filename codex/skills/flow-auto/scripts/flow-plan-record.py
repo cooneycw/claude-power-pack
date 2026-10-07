@@ -762,7 +762,20 @@ def cmd_compliance(issue: str, base: str | None) -> int:
             ["git", "-C", str(root), "rev-parse", "--verify", "--quiet", "origin/main"],
             capture_output=True,
         ).returncode == 0
-        if upstream_resolved and subprocess.run(
+        # HEAD != run_start FIRST (pre-merge review, #1429): a run that has
+        # made no commits of its own yet has HEAD == run_start by
+        # construction, and HEAD is trivially "reachable from origin/main"
+        # in that case whenever origin/main is simply at or ahead of
+        # run_start - the normal state of a run that just branched and has
+        # not committed, not evidence of anything being merged. The guard
+        # must fire only once there is a NON-EMPTY run_start..HEAD range for
+        # it to be a statement about - log_touched's range is empty either
+        # way, and changed_since("HEAD") alone already answers correctly
+        # for a run with no commits.
+        head_sha = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, text=True,
+        ).stdout.strip()
+        if upstream_resolved and head_sha != run_start and subprocess.run(
             ["git", "-C", str(root), "merge-base", "--is-ancestor", "HEAD", "origin/main"],
             capture_output=True,
         ).returncode == 0:

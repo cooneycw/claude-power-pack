@@ -968,6 +968,35 @@ def test_a_rewritten_run_start_is_pinned_as_unknown(tmp_path: Path) -> None:
 
 
 @requires_git
+def test_a_run_with_no_commits_of_its_own_yet_is_not_already_merged(tmp_path: Path) -> None:
+    """Pre-merge review regression (#1429): `merge-base --is-ancestor HEAD
+    origin/main` is ALSO true when HEAD == run_start - the ordinary state of
+    a run that has branched and begun, but not yet committed anything of its
+    own. The "already merged" guard must fire only once there is a run_start
+    ..HEAD range for it to be a statement about; a run with no commits yet
+    is answered correctly by changed_since("HEAD") alone, same as any other
+    run. No existing case before this one reached the guard at all: the
+    `repo`/`make_repo` fixtures carry no origin/main by default, so this is
+    also this guard's first real-origin-main-present case of any kind.
+    """
+    repo, _base = make_repo(tmp_path)
+    git(repo, "update-ref", "refs/remotes/origin/main", git(repo, "rev-parse", "HEAD").strip())
+    assert helper(repo, "session-R", "reconcile", "42").returncode == 0
+    assert helper(repo, "session-R", "begin-run", "42").returncode == 0
+    record = repo / "docs" / "flow-runs" / "issue-42.md"
+    with record.open("a") as fh:
+        fh.write("- Approval:          granted\n\n### Section C - the approved plan\n"
+                 "1. `src/app.py` - because\n")
+    # the record itself is deliberately NOT committed - this run has made no
+    # commits of its own yet, so HEAD == run_start.
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("a\n")
+    out = helper(repo, "session-R", "compliance", "42").stdout
+    assert "PLAN_COMPLIANCE: agreement" in out, out
+    assert "already merged upstream" not in out, out
+
+
+@requires_git
 def test_a_run_already_merged_upstream_is_unknown_never_zero_touched(tmp_path: Path) -> None:
     """Counter-model review, pass 2 (#1399): excluding by commit identity
     (`--not origin/main`) empties the touched set entirely when HEAD is
