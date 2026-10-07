@@ -124,6 +124,129 @@ def test_a_plan_item_never_touched_is_reported(tmp_path: Path) -> None:
     assert "PLANNED BUT NOT TOUCHED: tests/test_app.py" in out
 
 
+# ------------------------------------------------------------------ issue #1399: a planned
+# directory is a path PREFIX, not a literal filename, on both sides
+
+@requires_git
+def test_a_planned_directory_entry_matches_files_under_it_by_prefix(tmp_path: Path) -> None:
+    """A plan line naming a directory must not report divergence on its own work.
+
+    Before #1399: every file under the directory read as TOUCHED BUT NOT
+    PLANNED, and the directory itself as PLANNED BUT NOT TOUCHED - the exact
+    shape reported twice, independently (Nit Store #864 comments 5847159922,
+    5874226875).
+    """
+    repo, base = make_repo(tmp_path)
+    (repo / "fixtures").mkdir()
+    (repo / "fixtures" / "a.json").write_text("1\n")
+    (repo / "fixtures" / "b.json").write_text("2\n")
+    write_plan(repo, "fixtures/")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "fixture tree")
+    out = run(repo, base)
+    assert "PLAN_COMPLIANCE: agreement" in out, out
+    assert "TOUCHED BUT NOT PLANNED" not in out
+    assert "PLANNED BUT NOT TOUCHED" not in out
+
+
+@requires_git
+def test_an_exact_planned_file_does_not_prefix_match_a_similarly_named_neighbour(
+    tmp_path: Path,
+) -> None:
+    """Prefix matching is scoped to entries ending in `/` - an exact file must
+    keep its exact meaning, or a planned `src/app.py` would silently also
+    cover an unplanned `src/app.py.bak`."""
+    repo, base = make_repo(tmp_path)
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("a\n")
+    (repo / "src" / "app.py.bak").write_text("b\n")
+    write_plan(repo, "src/app.py")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "work plus a stray backup file")
+    out = run(repo, base)
+    assert "PLAN_COMPLIANCE: divergence" in out, out
+    assert "TOUCHED BUT NOT PLANNED: src/app.py.bak" in out
+
+
+@requires_git
+def test_a_planned_directory_containing_a_mirrored_source_is_not_divergence(
+    tmp_path: Path,
+) -> None:
+    """The directory-prefix rule and the codex-mirror attribution must agree:
+    a mirror's source resolved inside a planned directory is planned too, not
+    reported twice by two different mechanisms."""
+    repo, base = make_repo(tmp_path)
+    (repo / "docs" / "agents").mkdir(parents=True)
+    (repo / "codex" / "skills" / "s" / "docs" / "agents").mkdir(parents=True)
+    (repo / "docs" / "agents" / "k.md").write_text("k\n")
+    (repo / "codex" / "skills" / "s" / "docs" / "agents" / "k.md").write_text("k\n")
+    write_plan(repo, "docs/agents/")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "source+mirror under a planned directory")
+    out = run(repo, base)
+    assert "PLAN_COMPLIANCE: agreement" in out, out
+
+
+@requires_git
+def test_a_mirrors_source_outside_the_planned_directory_is_still_unplanned(
+    tmp_path: Path,
+) -> None:
+    """Codex review (#1399): the positive case above must not quietly become
+    true for every mirror - a source the planned directory does NOT contain
+    is still unplanned, found through the SAME mirror-attribution mechanism."""
+    repo, base = make_repo(tmp_path)
+    (repo / "docs" / "agents").mkdir(parents=True)
+    (repo / "docs" / "other").mkdir(parents=True)
+    (repo / "codex" / "skills" / "s" / "docs" / "other").mkdir(parents=True)
+    (repo / "docs" / "other" / "k.md").write_text("k\n")
+    (repo / "codex" / "skills" / "s" / "docs" / "other" / "k.md").write_text("k\n")
+    write_plan(repo, "docs/agents/")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "mirror whose source is outside the planned directory")
+    out = run(repo, base)
+    assert "PLAN_COMPLIANCE: divergence" in out, out
+    assert "mirror of docs/other/k.md, which the plan does not name" in out, out
+
+
+@requires_git
+def test_a_planned_directory_with_nothing_touched_under_it_is_untouched(
+    tmp_path: Path,
+) -> None:
+    """Codex review (#1399): the prefix rule's negative side - a planned
+    directory that genuinely received no work is still reported untouched,
+    not accidentally satisfied by the empty-population case."""
+    repo, base = make_repo(tmp_path)
+    (repo / "src").mkdir()
+    (repo / "src" / "unrelated.py").write_text("x\n")
+    write_plan(repo, "fixtures/")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "unrelated work, nothing under the planned directory")
+    out = run(repo, base)
+    assert "PLAN_COMPLIANCE: divergence" in out, out
+    assert "PLANNED BUT NOT TOUCHED: fixtures/" in out, out
+    assert "TOUCHED BUT NOT PLANNED: src/unrelated.py" in out, out
+
+
+@requires_git
+def test_a_similarly_named_neighbour_directory_is_not_matched_by_prefix(
+    tmp_path: Path,
+) -> None:
+    """Codex review (#1399): `fixtures/` must not match `fixtures-extra/...` -
+    a prefix check without the trailing slash on the CANDIDATE side would
+    treat "fixtures" as a prefix of "fixtures-extra", which it is not a
+    path-prefix of."""
+    repo, base = make_repo(tmp_path)
+    (repo / "fixtures-extra").mkdir()
+    (repo / "fixtures-extra" / "a.json").write_text("x\n")
+    write_plan(repo, "fixtures/")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "a similarly named neighbour directory")
+    out = run(repo, base)
+    assert "PLAN_COMPLIANCE: divergence" in out, out
+    assert "TOUCHED BUT NOT PLANNED: fixtures-extra/a.json" in out, out
+    assert "PLANNED BUT NOT TOUCHED: fixtures/" in out, out
+
+
 # ------------------------------------------------------------------ the #1030 case
 
 @requires_git
@@ -842,3 +965,109 @@ def test_a_rewritten_run_start_is_pinned_as_unknown(tmp_path: Path) -> None:
     out = helper(repo, "session-R", "compliance", "42").stdout
     assert "PLAN_COMPLIANCE: unknown (this run's recorded start" in out, out
     assert "is no longer an ancestor of HEAD" in out
+
+
+@requires_git
+def test_a_run_with_no_commits_of_its_own_yet_is_not_already_merged(tmp_path: Path) -> None:
+    """Pre-merge review regression (#1429): `merge-base --is-ancestor HEAD
+    origin/main` is ALSO true when HEAD == run_start - the ordinary state of
+    a run that has branched and begun, but not yet committed anything of its
+    own. The "already merged" guard must fire only once there is a run_start
+    ..HEAD range for it to be a statement about; a run with no commits yet
+    is answered correctly by changed_since("HEAD") alone, same as any other
+    run. No existing case before this one reached the guard at all: the
+    `repo`/`make_repo` fixtures carry no origin/main by default, so this is
+    also this guard's first real-origin-main-present case of any kind.
+    """
+    repo, _base = make_repo(tmp_path)
+    git(repo, "update-ref", "refs/remotes/origin/main", git(repo, "rev-parse", "HEAD").strip())
+    assert helper(repo, "session-R", "reconcile", "42").returncode == 0
+    assert helper(repo, "session-R", "begin-run", "42").returncode == 0
+    record = repo / "docs" / "flow-runs" / "issue-42.md"
+    with record.open("a") as fh:
+        fh.write("- Approval:          granted\n\n### Section C - the approved plan\n"
+                 "1. `src/app.py` - because\n")
+    # the record itself is deliberately NOT committed - this run has made no
+    # commits of its own yet, so HEAD == run_start.
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("a\n")
+    out = helper(repo, "session-R", "compliance", "42").stdout
+    assert "PLAN_COMPLIANCE: agreement" in out, out
+    assert "already merged upstream" not in out, out
+
+
+@requires_git
+def test_a_run_already_merged_upstream_is_unknown_never_zero_touched(tmp_path: Path) -> None:
+    """Counter-model review, pass 2 (#1399): excluding by commit identity
+    (`--not origin/main`) empties the touched set entirely when HEAD is
+    itself reachable from origin/main - this run's work is already merged
+    upstream (or never diverged from it), so its commits cannot be told
+    apart from upstream's. That must read as UNKNOWN, never as an empty
+    touched set agreeing with an empty-looking plan - the two outputs are
+    identical, but mean opposite things about whether anything was checked.
+    """
+    repo, _base = make_repo(tmp_path)
+    assert helper(repo, "session-R", "reconcile", "42").returncode == 0
+    assert helper(repo, "session-R", "begin-run", "42").returncode == 0
+    record = repo / "docs" / "flow-runs" / "issue-42.md"
+    with record.open("a") as fh:
+        fh.write("- Approval:          granted\n\n### Section C - the approved plan\n"
+                 "1. `src/app.py` - because\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run's record")
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("a\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run's work")
+    # this run's own HEAD is now, itself, "origin/main" - already merged.
+    git(repo, "update-ref", "refs/remotes/origin/main", git(repo, "rev-parse", "HEAD").strip())
+    out = helper(repo, "session-R", "compliance", "42").stdout
+    assert "PLAN_COMPLIANCE: unknown" in out, out
+    assert "and HEAD are both reachable" in out, out
+    assert "already merged upstream" in out, out
+    assert "PLAN_COMPLIANCE: agreement" not in out
+
+
+@requires_git
+def test_a_commit_log_that_cannot_be_read_is_unknown_never_agreement(tmp_path: Path) -> None:
+    """`log_touched`'s own failure branch (the elif-start path, issue #1399).
+
+    Forced via a `git` shim that fails only `log` - the same technique
+    `test_an_uncomputable_diff_is_unknown_never_agreement` uses to force
+    `changed_since`'s failure, since nothing about ordinary git usage can
+    make `git log <real-ancestor>..HEAD` fail on its own.
+    """
+    repo, _base = make_repo(tmp_path)
+    assert helper(repo, "session-R", "reconcile", "42").returncode == 0
+    assert helper(repo, "session-R", "begin-run", "42").returncode == 0
+    record = repo / "docs" / "flow-runs" / "issue-42.md"
+    with record.open("a") as fh:
+        fh.write("- Approval:          granted\n\n### Section C - the approved plan\n"
+                 "1. `x.txt` - because\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run's record")
+    (repo / "x.txt").write_text("1\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run's work")
+
+    real_git = shutil.which("git")
+    shim_dir = tmp_path / "shim"
+    shim_dir.mkdir()
+    (shim_dir / "git").write_text(
+        "#!/bin/sh\n"
+        # the real invocation is `git -C <path> log ...`, so "log" is never
+        # $1 - scan every argument rather than assuming a position.
+        'for a in "$@"; do\n'
+        '  if [ "$a" = "log" ]; then echo "shim: log refused" >&2; exit 1; fi\n'
+        "done\n"
+        f'exec "{real_git}" "$@"\n'
+    )
+    (shim_dir / "git").chmod(0o755)
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CODE_SESSION_ID"}
+    env["CLAUDE_CODE_SESSION_ID"] = "session-R"
+    env["PATH"] = f"{shim_dir}:{env['PATH']}"
+    proc = subprocess.run(["python3", str(HELPER), "compliance", "42"], cwd=repo,
+                          capture_output=True, text=True, env=env)
+    assert proc.returncode == 4, proc.stdout
+    assert "this run's commit log could not be read" in proc.stdout, proc.stdout
+    assert "PLAN_COMPLIANCE: agreement" not in proc.stdout

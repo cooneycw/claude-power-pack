@@ -1,0 +1,25 @@
+{
+  "branch": "fix-1399-plan-record-path-matching",
+  "counts": {
+    "accepted": 2,
+    "deferred": 1,
+    "rejected": 0
+  },
+  "head": "c275d897bcf1ff48ee2c95aed53ff4c03becf683",
+  "implementer": "claude/claude-sonnet-5",
+  "issue": "1399",
+  "passes": 1,
+  "recorded_at": "2026-10-07T06:04:22Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 8
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/07/rollout-2026-10-07T05-56-52-01a114ef-a39d-77d2-9514-4a76c1341948.jsonl",
+    "thread_id": "01a114ef-a39d-77d2-9514-4a76c1341948"
+  },
+  "schema": 1,
+  "scope": "diff-only",
+  "status": "ran"
+}
