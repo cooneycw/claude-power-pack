@@ -1,0 +1,15 @@
+{
+  "_comment": [
+    "A miniature registration (issue #1407 fallout). The gate hard-requires",
+    "BOTH curl and jq. The wrapper genuinely stages and this control",
+    "genuinely claims only curl - a true, verifiable claim - but jq is never",
+    "staged or claimed. The checker must still report jq as needed and",
+    "unprovided: this pins that `ci_deps_provided_by_invocation` narrows a",
+    "gate's needs by exactly what it verifies, never by switching the whole",
+    "gate's requirement set off (the 'walk the wrapper instead of the gate'",
+    "shape the orchestrator ruled against)."
+  ],
+  "gate": "scripts/toy-gate-curl-jq.sh",
+  "invocation": ["sh", "scripts/toy-wrapper.sh", "{case}", "{gate}"],
+  "ci_deps_provided_by_invocation": ["curl"]
+}

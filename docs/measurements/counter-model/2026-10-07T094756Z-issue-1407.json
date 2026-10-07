@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1407-nit-store-check-test-binary-guards-py-masking-and",
+  "counts": {
+    "accepted": 3,
+    "deferred": 1,
+    "rejected": 0
+  },
+  "head": "ea97595d26b10ace429c1b3baa15952510a7faf9",
+  "implementer": "claude/claude-sonnet-5",
+  "issue": "1407",
+  "passes": 2,
+  "recorded_at": "2026-10-07T09:47:56Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 1
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/07/rollout-2026-10-07T09-39-36-01a115bb-9198-7230-900d-edba6908a6b4.jsonl",
+    "thread_id": "01a115bb-9198-7230-900d-edba6908a6b4"
+  },
+  "schema": 1,
+  "status": "ran"
+}

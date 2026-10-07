@@ -1329,6 +1329,12 @@ CONTROL_KEYS = frozenset({
     "detect_signal", "unavailable_signal", "unknown_signal", "good_signal", "subject_kind",
     "mutations", "combinations", "battery", "battery_cwd",
     "limits", "_comment",
+    # `check-control-ci-deps.py` only (issue #1407 fallout, orchestrator
+    # ruling): binaries this control's OWN wrapper demonstrably stages on PATH
+    # itself, so the battery's CI step need not stage them too. Verified
+    # against the wrapper's own text - see `_verify_provided` there - never
+    # taken as free text.
+    "ci_deps_provided_by_invocation",
 })
 
 #: The anchor kinds a control may declare (issue #1268). `vendored` is real

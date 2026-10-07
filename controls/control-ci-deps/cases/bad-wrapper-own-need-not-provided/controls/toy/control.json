@@ -1,0 +1,16 @@
+{
+  "_comment": [
+    "A miniature registration (issue #1407 fallout, counter-model finding 4).",
+    "The gate needs only curl, which the wrapper genuinely stages and the",
+    "control genuinely (and correctly) claims as provided. But the WRAPPER",
+    "itself independently hard-requires jq, unconditionally, before it ever",
+    "stages the curl stub or runs the gate. jq must still be reported as",
+    "needed and unprovided - pinning that a wrapper's OWN hard-required",
+    "binaries are ADDED to what requirements() reports, not only the gate's.",
+    "Removing that additive walk would leave this case passing by accident,",
+    "since nothing else here surfaces jq."
+  ],
+  "gate": "scripts/toy-gate-curl.sh",
+  "invocation": ["sh", "scripts/toy-wrapper.sh", "{case}", "{gate}"],
+  "ci_deps_provided_by_invocation": ["curl"]
+}

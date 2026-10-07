@@ -20,8 +20,28 @@
       "expect": "BAD"
     },
     {
+      "name": "bad-heredoc-quoted-string",
+      "input": "cases/bad-heredoc-quoted-string",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-heredoc-comment-boundary",
+      "input": "cases/bad-heredoc-comment-boundary",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-if-bang-preflight",
+      "input": "cases/bad-if-bang-preflight",
+      "expect": "BAD"
+    },
+    {
       "name": "good-direct-invocation",
       "input": "cases/good-direct-invocation",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-elif-conditional-preflight",
+      "input": "cases/good-elif-conditional-preflight",
       "expect": "GOOD"
     },
     {
