@@ -227,8 +227,13 @@ To suppress a known false positive, add it to `.claude/security.yml`:
 suppressions:
   - id: HARDCODED_SECRET
     path: tests/fixtures/.*
+    secret: 'AKIA[A-Z0-9]{16}'   # optional: pin to this exact value only
     reason: "Test fixtures with fake credentials"
 ```
+
+This gate does not read `.gitleaks.toml` (issue #935); a canary declared in
+that file's own allowlist is recognized there, but a second copy of it
+elsewhere needs its own `secret:` suppression (issue #1405, `/security:help`).
 
 ### Step 2d: Documentation Update Check (optional, non-blocking)
 
