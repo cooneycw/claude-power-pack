@@ -39,6 +39,20 @@
       "anchor_expect": "clean",
       "anchor_expect_reason": "The constructed anchor only ever inspects schema/terminal/outcome (anchors/constructed-trusts-own-outcome.py) and never looks inside checks[] at all, so it has no code path that could notice a missing population key - it is not that it fails to refuse THIS population, it never examines any check's population on any input. Requiring it to agree would need a second, unrelated capability bolted onto a reader that is deliberately minimal, not a fix to the blindness this control exists to demonstrate.",
       "why": "Added by cooneycw/claude-power-pack#1373. A `checks[]` entry missing `population` entirely is squarely the reader's documented threat model (a malformed/incomplete record, the same class `test_unknown_schema_is_not_guessed` exercises for the schema field) and must read `unknown`/exit 4, never crash. Pre-fix, this input raised an unhandled KeyError (exit 1, no EXECUTION_EVIDENCE marker at all) - a fifth exit outside the reader's documented 0/3/4 contract. MEASURED: the fixed gate reports `unknown`; the blind anchor, which never inspects `checks[]`, reports `supported` on this input (terminal=true, outcome=completed is enough for it)."
+    },
+    {
+      "name": "bad-tests-kind-counts-absent",
+      "input": "cases/bad-tests-kind-counts-absent",
+      "expect": "UNKNOWN",
+      "anchor_expect": "clean",
+      "anchor_expect_reason": "Same reason as unknown-check-missing-population above: the constructed anchor never inspects checks[] at all, so it has no code path that could notice an absent counts key on a tests-kind population either.",
+      "why": "Added by issue #1410. A \"tests\"-kind check's `population.counts` key is ABSENT - the producer (population() in lib/cicd/evidence.py) always writes a counts dict, even an empty one, for a tests-kind check, so this is a record claiming tests ran with no record of how many. Before #1410, `population.get(\"counts\", {})` defaulted the missing key to `{}` and this case scored `supported` silently. MEASURED: the fixed gate reports `unknown` (observed.checks[0].population.counts is not an object); the blind anchor reports `supported`."
+    },
+    {
+      "name": "good-coverage-kind-counts-null",
+      "input": "cases/good-coverage-kind-counts-null",
+      "expect": "GOOD",
+      "why": "Added by issue #1410. A non-\"tests\"-kind check (coverage here) never gets a `counts` key from the real producer at all, so an explicit `\"counts\": null` is the SAME fact as an absent key - \"no counts recorded\" - and must still verify `supported`, never refused. Before #1410 this would have scored `unknown` (the asymmetry the issue fixes); the GOOD half matters for a gate wedged at \"fail\", which would pass the BAD case above on its own."
     }
   ],
   "anchors": [
