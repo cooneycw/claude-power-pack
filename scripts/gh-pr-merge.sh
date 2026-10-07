@@ -1413,6 +1413,13 @@ guard_negated_close_keywords() {
     # cooneycw/kyle#99" matched NOTHING, so this guard never saw it at all and
     # the merge proceeded, the same class of silent-close #726 exists to stop,
     # just invisible to the regex rather than defeated by negation.
+    # LOOSER than real GitHub owner/repo naming rules, deliberately (counter-
+    # model review): `\w` admits an underscore, which a GitHub owner name
+    # never contains, so a string shaped like "foo_bar/repo#N" that is not
+    # actually a valid cross-repo reference can still trigger a refusal. The
+    # error direction is the safe one for a guard - a spurious refusal costs
+    # a human a look, same as the other near-miss shapes these two guards
+    # already accept catching too broadly rather than too narrowly.
     keyword_re='(?i)\b(?:close(?:s|d)?|fix(?:es|ed)?|resolve(?:s|d)?)\b:?\s*(?:[\w.-]+/[\w.-]+)?#[[:digit:]]+'
     auxiliary_re='does|do|did|will|would|shall|should|can|could|must|may|might|is|are|was|were|be|been|has|have|had'
     negation_re="(?i)(?:\\b(?:(?:${auxiliary_re})\\h+not|not|never|no)\\b|\\b[[:alpha:]]+n(?:'|${apostrophe})t\\b)(?:\\h+[[:alpha:]]+){0,2}\\h*$"
@@ -1666,6 +1673,11 @@ _report_base_advance() {
             # relax the exit) - overlap or its absence does not change anything
             # below. `old` is the last tip THIS guard already confirmed as an
             # ancestor of HEAD, so `old..HEAD` is exactly this PR's own changes.
+            # This is the NET diff endpoint-to-endpoint, not a union over every
+            # intervening commit (counter-model review): a file touched then
+            # reverted within the base's own advance reports no overlap here,
+            # even though an intermediate commit did touch it. Acceptable for
+            # a line that never decides anything - the exit stays 6 either way.
             base_files=$("$GIT_BIN" -C "$root" diff --name-only "${old}..${new}" 2>/dev/null)
             pr_files=$("$GIT_BIN" -C "$root" diff --name-only "${old}..HEAD" 2>/dev/null)
             if [[ -n "$base_files" && -n "$pr_files" ]]; then
