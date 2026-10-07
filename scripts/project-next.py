@@ -49,7 +49,7 @@ MANIFEST_PATH = REPO_ROOT / ".claude" / "project-next-ownership.json"
 # subprocess test in tests/test_project_next_contract.py exists.
 sys.path.insert(0, str(REPO_ROOT))
 
-from lib.project_next.classify import _dependencies, _task_issue_index  # noqa: E402
+from lib.project_next.classify import _dependencies, _task_issue_index, strip_code  # noqa: E402
 from lib.project_next.collect import (  # noqa: E402
     CollectionError,
     CommandRunner,
@@ -613,12 +613,17 @@ def read_ledger_decisions(repository: Path) -> tuple[LedgerStatus, ...]:
     A row heads ``### QN - <status>``; anything not stating RESOLVED is read
     as a live, PENDING gate - fail toward "still blocking" on an ambiguous
     status rather than assuming it was decided.
+
+    Fenced code is stripped first (counter-model review): an example inside
+    a ```` ``` ```` block showing ``### Q8 - PENDING`` as sample text is not
+    a real decision, and `strip_code` is the same discipline the dependency-
+    text parser already applies to issue bodies for the identical reason.
     """
     results: list[LedgerStatus] = []
     for path in sorted((repository / ".specify" / "specs").glob("*/ledger.md")):
         rel = str(path.relative_to(repository))
         try:
-            text = path.read_text(encoding="utf-8")
+            text = strip_code(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError) as exc:
             results.append(LedgerStatus(rel, "unreadable", str(exc)))
             continue
@@ -689,32 +694,54 @@ def planning_routes(
         issue_q_ids = set(LEDGER_DECISION_ID.findall(f"{issue.title}\n{issue.body}"))
         if not issue_q_ids:
             continue
+        unreadable = next((ledger for ledger in ledgers if ledger.state == "unreadable"), None)
+        if unreadable is not None:
+            routed.add(issue.number)
+            routes.append(
+                PlanningRoute(
+                    issue_number=issue.number,
+                    artifact=unreadable.path,
+                    action="/project:init",
+                    reason=f"a spec ledger could not be parsed ({unreadable.path}: {unreadable.detail}); "
+                    "resolve manually before implementation planning",
+                )
+            )
+            continue
+        # A `QN` id is LOCAL TO ITS OWN LEDGER (#1398 counter-model review),
+        # never a repository-wide identifier - each spec numbers its owner
+        # decisions from Q1, so two specs' ledgers can both declare a "Q8"
+        # with different statuses. Collecting every (ledger, id) match before
+        # picking one is what lets a genuinely ambiguous id be reported as
+        # such, rather than silently resolved by ledger sort order.
+        by_id: dict[str, list[str]] = {}
         for ledger in ledgers:
-            if ledger.state == "unreadable":
-                routed.add(issue.number)
-                routes.append(
-                    PlanningRoute(
-                        issue_number=issue.number,
-                        artifact=ledger.path,
-                        action="/project:init",
-                        reason=f"a spec ledger could not be parsed ({ledger.path}: {ledger.detail}); "
-                        "resolve manually before implementation planning",
-                    )
+            for qid in sorted(issue_q_ids & set(ledger.pending)):
+                by_id.setdefault(qid, []).append(ledger.path)
+        if not by_id:
+            continue
+        routed.add(issue.number)
+        ambiguous = {qid: paths for qid, paths in by_id.items() if len(paths) > 1}
+        if ambiguous:
+            qid, paths = sorted(ambiguous.items())[0]
+            routes.append(
+                PlanningRoute(
+                    issue_number=issue.number,
+                    artifact=", ".join(paths),
+                    action="/project:init",
+                    reason=f"{qid} is PENDING in more than one ledger ({', '.join(paths)}) - ambiguous "
+                    "ownership; resolve manually before implementation planning",
                 )
-                break
-            matched = sorted(issue_q_ids & set(ledger.pending))
-            if matched:
-                routed.add(issue.number)
-                routes.append(
-                    PlanningRoute(
-                        issue_number=issue.number,
-                        artifact=f"{ledger.path}#{matched[0]}",
-                        action="/project:init",
-                        reason=f"resolve the pending ledger decision {matched[0]} ({ledger.path}) "
-                        "before implementation planning",
-                    )
-                )
-                break
+            )
+            continue
+        qid, paths = sorted(by_id.items())[0]
+        routes.append(
+            PlanningRoute(
+                issue_number=issue.number,
+                artifact=f"{paths[0]}#{qid}",
+                action="/project:init",
+                reason=f"resolve the pending ledger decision {qid} ({paths[0]}) before implementation planning",
+            )
+        )
     # The label is the checkable trigger, not body text: prose DISCUSSING wayfinding
     # would trip a text match, and a seed that says "do not implement" in a sentence
     # still reached flow:auto (#1035).

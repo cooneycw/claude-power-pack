@@ -254,6 +254,63 @@ def test_an_unreadable_ledger_routes_every_q_referencing_issue_conservatively(tm
     assert "could not be parsed" in matching[0].reason
 
 
+def test_the_same_decision_id_pending_in_two_ledgers_is_reported_ambiguous(tmp_path: Path) -> None:
+    """Counter-model finding: `QN` is LOCAL TO ITS OWN LEDGER, not a
+
+    repository-wide identifier - each spec numbers its decisions from Q1, so
+    two specs can both declare a pending "Q8". Before this, sorted discovery
+    order silently picked one ledger; this must be reported as ambiguous
+    instead.
+    """
+    _ledger(tmp_path, "spec-alpha", "### Q8 - OWNER DECISION - PENDING\n\nchoose the runtime.")
+    _ledger(tmp_path, "spec-beta", "### Q8 - OWNER DECISION - PENDING\n\nchoose the storage layer.")
+    state = _state(issues=[{"number": 42, "title": "Child task", "body": "**Blocked on Q8**"}])
+    routes = project_next.planning_routes(tmp_path, state)
+
+    matching = [route for route in routes if route.issue_number == 42]
+    assert len(matching) == 1
+    assert "ambiguous" in matching[0].reason
+    assert "spec-alpha" in matching[0].reason
+    assert "spec-beta" in matching[0].reason
+
+
+def test_a_resolved_q_id_in_one_ledger_does_not_mask_the_same_pending_id_in_another(
+    tmp_path: Path,
+) -> None:
+    """The companion negative: RESOLVED in one ledger and PENDING in another
+
+    is not ambiguous - only the pending ledger blocks, and it is named.
+    """
+    _ledger(tmp_path, "spec-alpha", "### Q8 - RESOLVED 2026-09-20, by reversing the presumption")
+    _ledger(tmp_path, "spec-beta", "### Q8 - OWNER DECISION - PENDING\n\nchoose the storage layer.")
+    state = _state(issues=[{"number": 42, "title": "Child task", "body": "**Blocked on Q8**"}])
+    routes = project_next.planning_routes(tmp_path, state)
+
+    matching = [route for route in routes if route.issue_number == 42]
+    assert len(matching) == 1
+    assert "ambiguous" not in matching[0].reason
+    assert "spec-beta" in matching[0].reason
+
+
+def test_a_fenced_code_example_is_not_read_as_a_live_ledger_decision(tmp_path: Path) -> None:
+    """Counter-model finding: `LEDGER_HEADER` scanned the whole file with no
+
+    fence-awareness, so a markdown EXAMPLE showing `### Q8 - PENDING` as
+    sample text inside a code fence would be misread as a real decision.
+    `strip_code` is the same discipline the dependency-text parser already
+    applies to issue bodies.
+    """
+    _ledger(
+        tmp_path,
+        "codex-consolidation",
+        "Example row shape:\n\n```\n### Q8 - OWNER DECISION - PENDING\n```\n\nNo real decisions yet.",
+    )
+    state = _state(issues=[{"number": 42, "title": "Child task", "body": "**Blocked on Q8**"}])
+    routes = project_next.planning_routes(tmp_path, state)
+
+    assert not any(route.issue_number == 42 for route in routes)
+
+
 def test_graduation_ledger_without_a_version_field_is_rejected_loudly(tmp_path: Path) -> None:
     # The ledger is a human-written, git-tracked interface #724 (T006's
     # graduation gate) is expected to write to - a missing/mismatched version

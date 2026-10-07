@@ -538,3 +538,19 @@ def test_repin_baseline_override_lets_a_caller_choose_the_comparison_ref(tmp_pat
     _bump_contract_version(root)
 
     assert pno.main(["--repin", "--root", str(root), "--baseline", base_sha]) == 0
+
+
+def test_repin_refuses_a_baseline_ref_that_does_not_resolve(tmp_path: Path) -> None:
+    """Counter-model finding: an unresolvable `--baseline` (a typo, a ref
+
+    never fetched) must REFUSE, not silently behave like a legitimate first
+    pin - `_recorded_at_ref` treats every failed `git show` as "absent",
+    which is correct for a real commit with no manifest yet and wrong for a
+    ref that is not a commit at all.
+    """
+    root = _git_sandbox(tmp_path)
+    engine = root / "lib" / "project_next" / "rank.py"
+    engine.write_text(engine.read_text(encoding="utf-8") + "# change\n", encoding="utf-8")
+    _bump_contract_version(root)
+
+    assert pno.main(["--repin", "--root", str(root), "--baseline", "not-a-real-ref"]) == 1

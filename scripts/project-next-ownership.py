@@ -208,6 +208,22 @@ def _merge_base_with_origin_main(root: Path) -> str | None:
     return proc.stdout.strip() if proc.returncode == 0 and proc.stdout.strip() else None
 
 
+def _ref_exists(root: Path, ref: str) -> bool:
+    """Does `ref` resolve to a real commit? (counter-model review, #1398)
+
+    `_recorded_at_ref` treats EVERY failed `git show` as "absent", which is
+    right for a baseline commit that simply has no manifest yet - but
+    without this check first, a bad `--baseline` (a typo, a ref `git fetch`
+    never brought down) resolves the SAME way: no comparison, repin allowed.
+    An invalid ref must REFUSE, not silently behave like a legitimate first
+    pin.
+    """
+    return subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+        capture_output=True, text=True, check=False,
+    ).returncode == 0
+
+
 def _recorded_at_ref(root: Path, ref: str) -> tuple[str, tuple[str | None, dict[str, str]] | None]:
     """("absent"|"unreadable"|"ok", payload) - the manifest as committed AT `ref`.
 
@@ -278,6 +294,14 @@ def _repin(root: Path, baseline: str | None = None) -> int:
                 file=sys.stderr,
             )
             return 1
+
+    if ref is not None and not _ref_exists(root, ref):
+        print(
+            f"REFUSED: baseline ref {ref!r} does not resolve to a commit, so a changed engine "
+            "cannot be distinguished from an unchanged one.",
+            file=sys.stderr,
+        )
+        return 1
 
     if ref is not None:
         state, previous = _recorded_at_ref(root, ref)

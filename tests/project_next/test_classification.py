@@ -269,3 +269,75 @@ def test_a_status_unknown_worktree_evidence_says_unknown_not_clean() -> None:
 
     assert 13 in classification.in_flight
     assert any(evidence.endswith(":unknown") for evidence in classification.in_flight_evidence[13])
+
+
+def test_a_cross_repo_dependency_is_uncertain_with_a_specific_reason() -> None:
+    """The nit's motivating case (#1398): `cooneycw/skillc#8` is not "an issue
+
+    reference present but not attached to the phrase" - it IS attached, it
+    just names a different repository's issue. The reason must say so.
+    """
+    state = RepositoryState(
+        repository="example/repo",
+        default_branch="main",
+        collected_at="2026-08-07T13:00:00Z",
+        issues=(Issue(6, "Waits on another repo", body="Depends on: other/repo#8, other/repo#9."),),
+    )
+
+    result = classify_repository(state)
+
+    assert result.uncertain == (6,)
+    reasons = " ".join(result.uncertainty[6])
+    assert "other/repo#8" in reasons
+    assert "not checkable from this repo's inventory" in reasons
+    assert "not attached to the phrase" not in reasons
+
+
+def test_a_mixed_local_and_cross_repo_dependency_still_reports_the_external_one() -> None:
+    """Counter-model finding: a satisfied local dependency must not silence a
+
+    DIFFERENT repository's blocker on the same line - `consumed` (from the
+    local #4) used to suppress the external report entirely, which could
+    have let #6 read `available` once #4 closed despite the cross-repo
+    blocker remaining open.
+    """
+    state = RepositoryState(
+        repository="example/repo",
+        default_branch="main",
+        collected_at="2026-08-07T13:00:00Z",
+        issues=(
+            Issue(6, "Waits on both", body="Depends on: #4, other/repo#9."),
+            Issue(4, "Local prerequisite", body="Depends on: None"),
+        ),
+    )
+
+    result = classify_repository(state)
+
+    assert result.available == (4,)
+    assert 6 in result.uncertain
+    reasons = " ".join(result.uncertainty[6])
+    assert "other/repo#9" in reasons
+    assert "not checkable from this repo's inventory" in reasons
+
+
+def test_a_self_repo_qualified_reference_is_a_local_dependency_not_external() -> None:
+    """Counter-model finding: `example/repo#4` naming THIS repository is `#4`,
+
+    not an unresolvable cross-repo blocker - a copy-pasted fully-qualified
+    reference to the issue's own repo must resolve exactly like a bare `#4`.
+    """
+    state = RepositoryState(
+        repository="example/repo",
+        default_branch="main",
+        collected_at="2026-08-07T13:00:00Z",
+        issues=(
+            Issue(6, "Waits on a local issue, fully qualified", body="Depends on: example/repo#4."),
+            Issue(4, "Local prerequisite", body="Depends on: None"),
+        ),
+    )
+
+    result = classify_repository(state)
+
+    assert result.uncertain == ()
+    assert 6 in result.blocked
+    assert result.dependency_map[6] == (4,)
