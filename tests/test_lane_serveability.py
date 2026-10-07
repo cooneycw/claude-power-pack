@@ -329,6 +329,7 @@ def _run_without_curl(path_without_curl, tmp_path):
     )
 
 
+@requires_curl
 def test_probe_that_could_not_run_reports_unknown(path_without_curl, tmp_path):
     """No curl means no observation - and that is neither `serving` nor `dead`.
 
@@ -345,6 +346,7 @@ def test_probe_that_could_not_run_reports_unknown(path_without_curl, tmp_path):
     assert c["http"] == "-", "no probe was made, so there is no status code to report"
 
 
+@requires_curl
 def test_unknown_prose_does_not_read_as_clean(path_without_curl, tmp_path):
     """The wording is the safeguard: `unknown` must not be mistaken for healthy."""
     result = _run_without_curl(path_without_curl, tmp_path)
@@ -416,6 +418,7 @@ def test_quiet_suppresses_prose_but_not_the_contract(stub):
     assert "lane-serveability-check:" not in result.stdout
 
 
+@requires_curl
 @pytest.mark.parametrize("args", [
     ["--endpoint", "http://127.0.0.1:1"],                      # no model
     ["--model", "m"],                                          # no endpoint
@@ -847,6 +850,7 @@ def test_a_probe_reports_the_window_it_was_given(stub):
     assert c["status"] == "serving", "--valid-for changes no verdict in probe mode"
 
 
+@requires_curl
 def test_a_recent_pass_reads_as_fresh():
     result = run_age(int(time.time()) - 10)
     assert result.returncode == 0, result.stdout
@@ -855,6 +859,7 @@ def test_a_recent_pass_reads_as_fresh():
     assert c["recorded"] == "serving"
 
 
+@requires_curl
 def test_an_old_pass_reads_as_stale_not_fresh(fixed_clock):
     """The other verdict. Without this, `fresh` above is an instrument that cannot fail.
 
@@ -936,6 +941,7 @@ def run_age_at(clock_bin, age_seconds: int, recorded: str = "serving", *extra: s
     )
 
 
+@requires_curl
 @pytest.mark.parametrize("age,expected_freshness,expected_exit", [
     (119, "fresh", 0),
     (120, "fresh", 0),   # inclusive: AT the bound has not yet exceeded it
@@ -958,6 +964,7 @@ def test_the_window_boundary_is_inclusive(fixed_clock, age, expected_freshness, 
     assert result.returncode == expected_exit
 
 
+@requires_curl
 def test_freshness_never_launders_a_dead_verdict():
     """`fresh` is not `go`.
 
@@ -974,12 +981,14 @@ def test_freshness_never_launders_a_dead_verdict():
     assert c["recorded"] == "dead", "and it genuinely IS a refusal"
 
 
+@requires_curl
 def test_a_fresh_unreachable_is_still_a_refusal():
     result = run_age(int(time.time()) - 5, "unreachable")
     assert result.returncode == 3, result.stdout
     assert contract(result.stdout)["freshness"] == "fresh"
 
 
+@requires_curl
 def test_a_fresh_unknown_is_still_unchecked():
     """A recent NON-observation is not a recent observation.
 
@@ -993,6 +1002,7 @@ def test_a_fresh_unknown_is_still_unchecked():
     assert "nothing to keep fresh" in c["detail"]
 
 
+@requires_curl
 def test_the_age_contract_is_exactly_these_keys():
     """The age block is its own contract, and STATUS is absent from it by design.
 
@@ -1009,6 +1019,7 @@ def test_the_age_contract_is_exactly_these_keys():
     )
 
 
+@requires_curl
 def test_age_mode_emits_no_serveability_status():
     """The two axes are separate variables, and one of them is simply absent here.
 
@@ -1025,6 +1036,7 @@ def test_age_mode_emits_no_serveability_status():
         assert "LANE_SERVE_FRESHNESS" in out, "the freshness answer has its own key"
 
 
+@requires_curl
 def test_stale_and_undecidable_age_are_separated_in_detail():
     """Three causes, one exit code - so DETAIL is the ONLY surviving carrier.
 
@@ -1084,6 +1096,7 @@ def test_stale_and_undecidable_age_are_separated_in_detail():
     )
 
 
+@requires_curl
 def test_a_garbled_timestamp_is_undecidable_not_a_usage_error():
     """Exit 4, not exit 2, and the distinction is deliberate.
 
@@ -1098,6 +1111,7 @@ def test_a_garbled_timestamp_is_undecidable_not_a_usage_error():
         assert contract(result.stdout)["freshness"] == "unknown"
 
 
+@requires_curl
 def test_a_garbled_timestamp_cannot_forge_a_contract_line():
     """The echoed value is untrusted input, and it lands in the output block.
 
@@ -1113,6 +1127,7 @@ def test_a_garbled_timestamp_cannot_forge_a_contract_line():
     )
 
 
+@requires_curl
 def test_age_mode_requires_the_recorded_verdict():
     """Structural, not advisory: you cannot ask for an age without the verdict.
 
@@ -1128,6 +1143,7 @@ def test_age_mode_requires_the_recorded_verdict():
     assert "Freshness alone is not a verdict" in result.stderr
 
 
+@requires_curl
 def test_a_bad_recorded_value_is_a_wiring_error():
     """Exit 2 here, exit 4 for a bad timestamp - and the asymmetry is the point.
 
@@ -1158,6 +1174,7 @@ def path_without_date(tmp_path):
     return bin_dir
 
 
+@requires_curl
 def test_a_host_without_a_clock_cannot_call_anything_fresh(path_without_date, tmp_path):
     """No clock means no age, and an unknown age must never read as fresh.
 
@@ -1200,6 +1217,7 @@ def test_the_window_is_documented_as_a_policy_choice_in_the_code():
     )
 
 
+@requires_curl
 def test_help_reaches_the_end_of_the_header_block():
     """The help text is a `sed` range over this file's own header, so it can truncate.
 
@@ -1242,6 +1260,7 @@ _VALUE_TAKING_FLAGS = [
 ]
 
 
+@requires_curl
 @pytest.mark.parametrize("flag", _VALUE_TAKING_FLAGS)
 def test_a_flag_with_no_value_is_a_usage_error_not_a_hang(flag):
     """`shift 2` fails when the flag is the last argument, and `|| true` hid it.
@@ -1259,6 +1278,7 @@ def test_a_flag_with_no_value_is_a_usage_error_not_a_hang(flag):
     assert "requires a value" in result.stderr
 
 
+@requires_curl
 def test_a_multiline_window_cannot_forge_a_contract_line():
     """`grep -Eq '^[0-9]+$'` tested a LINE; the argument was never whole-string checked.
 
@@ -1283,6 +1303,7 @@ def test_a_multiline_window_cannot_forge_a_contract_line():
     )
 
 
+@requires_curl
 def test_a_zero_padded_timestamp_never_reaches_the_probe():
     """`08` is digit-shaped and is not a valid arithmetic literal.
 
@@ -1310,6 +1331,7 @@ def test_a_zero_padded_timestamp_never_reaches_the_probe():
 _WRAPS_TO_ZERO_AGE = 18_446_744_073_709_551_616
 
 
+@requires_curl
 @pytest.mark.parametrize("label", ["wraps_to_fresh", "wraps_to_future"])
 def test_an_oversized_timestamp_is_undecidable_not_wrapped(label):
     """Bash arithmetic is 64-bit and wraps SILENTLY, which is the dangerous shape.

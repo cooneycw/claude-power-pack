@@ -20,6 +20,16 @@
       "expect": "BAD"
     },
     {
+      "name": "bad-heredoc-text-in-quoted-string-or-comment",
+      "input": "cases/bad-heredoc-text-in-quoted-string-or-comment",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-if-bang-preflight",
+      "input": "cases/bad-if-bang-preflight",
+      "expect": "BAD"
+    },
+    {
       "name": "good-direct-invocation",
       "input": "cases/good-direct-invocation",
       "expect": "GOOD"

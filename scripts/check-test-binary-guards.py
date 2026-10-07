@@ -326,6 +326,18 @@ SHELL_BINARY_RE = re.compile(
 #: Anchors that put the following command in a CONDITION rather than a step.
 CONDITION_ANCHORS = frozenset({"if", "elif", "while", "until"})
 
+#: A `command -v X` preceded on its own line by ONLY the keyword that opens
+#: its own condition test - `if`, `elif`, `while`, `until`, each with an
+#: optional negation - is not nested inside anything (issue #1407). It IS
+#: the preflight: `if ! command -v curl ...; then ... exit N; fi` at column
+#: 0 is a TOP-LEVEL, unconditionally-exiting preflight, and the text before
+#: the match being the condition's own opener is not evidence of nesting -
+#: only the line's actual INDENTATION (checked separately) is. Text that is
+#: NOT this - a different command joined by `&&`, or trailing context from
+#: an earlier condition - still means the preflight was folded into
+#: something else, and keeps being read as nested.
+CONDITION_OPENER_RE = re.compile(r"^(?:if|elif|while|until)\s*!?\s*$")
+
 #: ``command -v jq`` / ``type jq`` / ``hash jq`` - a preflight, not a use. Whether
 #: its failure branch exits decides if the script declares the binary mandatory.
 PREFLIGHT_RE = re.compile(
@@ -453,6 +465,66 @@ FILENAME_TAIL_RE = re.compile(r"-[\w.+-]*\.(?:sh|bash|py)\b")
 HEREDOC_OPEN_RE = re.compile(r"<<-?\s*(?:'(?P<sq>[A-Za-z_][A-Za-z0-9_]*)'|\"(?P<dq>[A-Za-z_][A-Za-z0-9_]*)\")")
 
 
+def _heredoc_opener_is_live(line: str, pos: int) -> bool:
+    """Is a HEREDOC_OPEN_RE match at `line[pos]` real CODE (issue #1407), not
+
+    a token that merely appears inside a quoted string or after a comment
+    opens EARLIER ON THIS SAME LINE? `_mask_heredocs` runs before
+    `_mask_noncode` (see that function's docstring for why that order is
+    required), so neither quoting nor comments are resolved when this scan
+    runs - which is also why this is deliberately SAME-LINE ONLY. A quote
+    that opened on an earlier line is outside what a function running before
+    the real quote-state-machine can see; declaring that limitation here
+    rather than reaching for it is the same boundary `_mask_heredocs`' own
+    docstring already draws for cross-line reach.
+
+    Two things this must get right, both measured rather than assumed:
+    - `echo "a#b <<EOF"` - the `#` is INSIDE the quote, so it is not a
+      comment, and `<<EOF` deeper in the same quote is not live either.
+      Handled by never inspecting `#` while a quote is open.
+    - `${x#prefix}` is parameter expansion, not a comment start - a `#`
+      preceded by non-whitespace (here, `x`) is not a comment opener. Only a
+      `#` that BEGINS A WORD (preceded by whitespace, or at position 0)
+      starts a real shell comment.
+    A real opener reached after a quote CLOSES on the same line still
+    counts: `in_single`/`in_double` both go false once their closing quote
+    is seen, and nothing re-opens them on fake evidence.
+    """
+    in_single = False
+    in_double = False
+    i = 0
+    while i < pos:
+        ch = line[i]
+        if in_single:
+            if ch == "'":
+                in_single = False
+            i += 1
+            continue
+        if in_double:
+            if ch == "\\" and i + 1 < pos:
+                i += 2
+                continue
+            if ch == '"':
+                in_double = False
+            i += 1
+            continue
+        if ch == "#":
+            preceding = line[i - 1] if i > 0 else ""
+            if preceding == "" or preceding.isspace():
+                return False  # a real comment starts before `pos`
+            # Else: adjacent to non-whitespace (e.g. `${x#prefix}`) - not a
+            # comment opener, fall through and keep scanning normally.
+        elif ch == "'":
+            in_single = True
+        elif ch == '"':
+            in_double = True
+        elif ch == "\\" and i + 1 < pos:
+            i += 2
+            continue
+        i += 1
+    return not (in_single or in_double)
+
+
 def _mask_heredocs(source: str) -> str:
     """Blank the BODY of every quoted-delimiter heredoc (issue #906).
 
@@ -481,6 +553,14 @@ def _mask_heredocs(source: str) -> str:
 
     Length and newlines are preserved, as `_mask_noncode` requires, so every
     caller's line arithmetic still holds.
+
+    A heredoc-opener-SHAPED token that is only TEXT - inside a quoted usage
+    string, or after a comment opens on the same line - must not open a real
+    mask either (issue #1407): `echo "usage: cat <<'EOF' > file"` and a
+    `#:` doc-comment line both carry `<<'X'` as prose, and treating either as
+    a real opener masks every REAL line after it to EOF - the undercount
+    direction, same as the backtick case above. `_heredoc_opener_is_live`
+    filters these before the first candidate is ever trusted.
     """
     lines = source.split("\n")
     out: list[str] = []
@@ -499,6 +579,7 @@ def _mask_heredocs(source: str) -> str:
         pending = [
             m.group("sq") or m.group("dq")
             for m in HEREDOC_OPEN_RE.finditer(line)
+            if _heredoc_opener_is_live(line, m.start())
         ]
         if pending:
             # Only the FIRST delimiter can be tracked without a real parser; a
@@ -786,10 +867,10 @@ def _failure_branch(lines: list[str], index: int) -> str:
     return "\n".join(collected)
 
 
-def _preflight_declarations(lines: list[str]) -> tuple[set[str], set[str]]:
+def _preflight_declarations(lines: list[str]) -> tuple[set[str], set[str], set[str]]:
     """What a script's own ``command -v`` preflights declare about each binary.
 
-    Returns ``(degrades, scoped)``:
+    Returns ``(degrades, scoped, hard_required)``:
 
     - ``degrades`` - a preflight whose failure branch does not ``exit``
       (``command -v git >/dev/null 2>&1 || return 0``). The author is stating in
@@ -799,9 +880,16 @@ def _preflight_declarations(lines: list[str]) -> tuple[set[str], set[str]]:
       (``flow-driver-capability.sh``: "``--json`` is the ONLY path that needs
       jq"). Tracing which tests take that path is beyond a text scan, so only
       TOP-LEVEL uses of such a binary count.
-
-    A top-level exiting preflight is neither: it declares the whole script
-    unusable without the binary, and every use counts.
+    - ``hard_required`` - a TOP-LEVEL preflight exits, so the whole script is
+      unusable without the binary. This OUTRANKS a later use's own fail-soft
+      markers (issue #1407): ``if ! command -v curl ...; then ... exit N; fi``
+      followed by ``curl ... 2>/dev/null`` is not "softly" optional - the
+      preflight has already exited if curl were absent, so the redirect is
+      ordinary error-handling for a binary known present, not evidence the
+      script survives without it. Excludes any binary also in ``degrades``,
+      so a script with one exiting AND one degrading preflight for the same
+      binary - a contradiction this scan does not try to adjudicate - is not
+      silently resolved in either direction.
     """
     degrades: set[str] = set()
     top_level: set[str] = set()
@@ -811,13 +899,16 @@ def _preflight_declarations(lines: list[str]) -> tuple[set[str], set[str]]:
             binary = match.group("bin")
             if not EXIT_RE.search(_failure_branch(lines, index)):
                 degrades.add(binary)
-            elif line[: match.start()].strip():
-                nested.add(binary)  # e.g. `if ! command -v jq ...` indented, or after `&&`
+            elif (
+                line[: match.start()].strip()
+                and not CONDITION_OPENER_RE.match(line[: match.start()].strip())
+            ):
+                nested.add(binary)  # e.g. `[ -n "$X" ] && command -v jq ...`
             elif len(line) - len(line.lstrip()) > 0:
                 nested.add(binary)
             else:
                 top_level.add(binary)
-    return degrades, nested - top_level
+    return degrades, nested - top_level, top_level - degrades
 
 
 def _is_case_label(line: str, col: int, bin_len: int) -> bool:
@@ -923,13 +1014,16 @@ def binaries_in_script(path: Path) -> frozenset[str]:
     # (issue #906).
     source = _mask_noncode(_mask_heredocs(text))
     lines = source.splitlines()
-    degrades, scoped = _preflight_declarations(lines)
+    degrades, scoped, hard_required = _preflight_declarations(lines)
     required = {
         use.binary
         for use in _script_uses(source, lines)
-        if not use.failsoft
-        and use.binary not in degrades
-        and not (use.binary in scoped and use.indent > 0)
+        if use.binary in hard_required
+        or (
+            not use.failsoft
+            and use.binary not in degrades
+            and not (use.binary in scoped and use.indent > 0)
+        )
     }
     found = frozenset(required)
     _SCRIPT_SCAN_CACHE[key] = found
@@ -1851,7 +1945,7 @@ def fail_soft_population(root: Path) -> list[tuple[str, str, list[str], bool]]:
     for script in sorted(p for p in scripts_dir.iterdir() if p.is_file() and p.suffix == ".sh"):
         source = _mask_noncode(_mask_heredocs(script.read_text(encoding="utf-8", errors="replace")))
         lines = source.splitlines()
-        degrades, _scoped = _preflight_declarations(lines)
+        degrades, _scoped, _hard_required = _preflight_declarations(lines)
         required = binaries_in_script(script)
         by_binary: dict[str, list[_ScriptUse]] = {}
         for use in _script_uses(source, lines):
