@@ -2361,6 +2361,45 @@ def test_scope_downgrades_from_full_to_unverified_when_nothing_was_examined(
     assert receipt["scope"] == "unverified"
 
 
+def test_an_in_progress_command_with_no_terminal_outcome_also_downgrades_to_unverified(
+    tmp_path: Path,
+) -> None:
+    """Counter-model review pass 2 (codex gpt-6.1-sol) raised this as a
+    MEDIUM, reading `item.started` (no exit code, `status: "in_progress"`)
+    as counted toward `examined` from the diff text alone - it could not run
+    the code to check. REJECTED on inspection: `_mid_run_sandbox_failures`
+    only matches the OUTER envelope `type == "item.completed"`, and
+    `item.started` never carries that type, so it was never counted. This
+    pins the behavior the finding worried about, confirmed correct rather
+    than fixed."""
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
+    thread_id = "thread-for-counter-model-test"
+    exec_log = _exec_log_with_items(
+        tmp_path, thread_id,
+        [{"type": "item.started", "item": {"id": "item_1",
+                                            "type": "command_execution",
+                                            "exit_code": None,
+                                            "status": "in_progress"}}],
+    )
+    sessions_dir = tmp_path / "sessions"
+    rollout_dir = sessions_dir / "2026" / "09" / "19"
+    rollout_dir.mkdir(parents=True)
+    (rollout_dir / f"rollout-{thread_id}.jsonl").write_text(
+        _rollout_text("gpt-5.5"), encoding="utf-8"
+    )
+    out_dir = tmp_path / "out"
+    proc = _write(
+        tmp_path, "--dir", str(out_dir), "--issue", "1400", "--branch", "b",
+        "--status", "ran", "--passes", "1", "--scope", "full",
+        *_reviewer_evidence_args(exec_log, sessions_dir),
+        *_implementer_evidence_args(session_id, projects_dir),
+    )
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    assert "downgrading scope 'full' to 'unverified'" in proc.stderr
+    receipt = json.loads(next(out_dir.glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["scope"] == "unverified"
+
+
 def test_scope_downgrades_from_full_when_a_sandbox_launch_fails_mid_run(
     tmp_path: Path,
 ) -> None:
