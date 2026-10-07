@@ -46,6 +46,7 @@ each stub appends its argv to a call log the tests assert against.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -3547,3 +3548,173 @@ def test_the_observed_verdict_comes_from_the_snapshot_it_classified(tmp_path: Pa
     result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1300-fix")
     assert "GH_PR_MERGE_CI_WAIT: none-observed" in result.stdout, result.stdout
     assert "GH_PR_MERGE_CI_WAIT: green" not in result.stdout
+
+
+def test_negated_cross_repo_close_keyword_refuses(tmp_path: Path):
+    """Issue #1412 item (a), RED pre-fix.
+
+    `owner/repo#N` is GitHub's own cross-repo closing syntax. Before this
+    fix, the keyword regex only matched a bare `#N`, so "Does not close
+    cooneycw/kyle#99" matched nothing at all - the #726 guard never saw it,
+    and the merge proceeded, silently closing a DIFFERENT repo's issue on
+    merge despite the disclaimer (the exact #726 hazard, just invisible to
+    the regex rather than defeated by negation).
+    """
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        pr_title="docs: clarify follow-up scope",
+        pr_body="Does not close cooneycw/kyle#99",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1412-fix")
+    assert result.returncode == 5, result.stderr
+    assert "CLEAN STOP" in result.stderr
+    assert "#99" in result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert merge_calls == [], "negated cross-repo close must leave the PR untouched"
+
+
+def test_plain_cross_repo_close_keyword_passes(tmp_path: Path):
+    """A legitimate, non-negated cross-repo directive must still merge
+
+    normally - the widened regex must not turn every cross-repo mention into
+    a false refusal (issue #1412).
+    """
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_title="fix: complete issue work",
+        pr_body="Closes cooneycw/kyle#99",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1412-fix")
+    assert result.returncode == 0, result.stderr
+    assert "merged" in result.stdout
+    assert any(c.startswith("gh pr merge") for c in _calls(stubs))
+
+
+def test_incidental_cross_repo_close_keyword_refuses(tmp_path: Path):
+    """The #794 incidental guard must see a cross-repo reference too (issue
+
+    #1412) - mirrors the existing same-repo near-miss
+    (test_incidental_close_keyword_refuses_adjective_in_commit_subject),
+    just with an owner/repo-qualified issue number.
+    """
+    subject = "Amend section 4 with the resolved cooneycw/kyle#509/terms-risk finding"
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        pr_title="docs: amend terms",
+        pr_body="Summary.",
+        pr_commits=[subject],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1412-fix")
+    assert result.returncode == 7, result.stderr
+    assert "CLEAN STOP" in result.stderr
+    assert "#509" in result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert merge_calls == [], "incidental cross-repo close must leave the PR untouched"
+
+
+# ---------------------------------------------------------------------------
+# _report_base_advance (issue #1412 item b): names the advance and the
+# remedy on an exit-6 refusal. Tested in isolation against a REAL git repo -
+# unlike the rest of this file, which drives the whole script against a
+# fully synthetic git/gh stub that has no real commit graph to diff. The
+# existing exit-6 tests above already confirm this function is CALLED at the
+# right moments; these confirm what it PRINTS.
+# ---------------------------------------------------------------------------
+
+requires_real_git = pytest.mark.skipif(
+    shutil.which("git") is None, reason="git not available in this environment"
+)
+
+
+def _extract_shell_function(name: str) -> str:
+    """Pull one function's source out of gh-pr-merge.sh, for isolated testing."""
+    script = (ROOT / "scripts" / "gh-pr-merge.sh").read_text()
+    match = re.search(rf"^{re.escape(name)}\(\) \{{.*?^\}}", script, re.DOTALL | re.MULTILINE)
+    assert match, f"{name}() not found in gh-pr-merge.sh"
+    return match.group(0)
+
+
+def _call_report_base_advance(root: Path, old: str, new: str, base_branch: str) -> str:
+    func_src = _extract_shell_function("_report_base_advance")
+    script = f'GIT_BIN=git\n{func_src}\n_report_base_advance "{root}" "{old}" "{new}" "{base_branch}"\n'
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    return result.stderr
+
+
+def _git(cwd: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True)
+
+
+def _divergent_base_repo(tmp_path: Path, base_file: str) -> tuple[Path, str, str]:
+    """A real repo: a shared commit (old), then the PR's own commit on HEAD
+
+    (touching pr_only.txt), and a SEPARATE base-advance commit not on HEAD
+    (touching ``base_file``). Returns (root, old_sha, new_sha).
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    _git(root, "init", "--quiet")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "Test")
+    (root / "shared.txt").write_text("shared\n")
+    _git(root, "add", "shared.txt")
+    _git(root, "commit", "--quiet", "-m", "initial")
+    old = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+    # The base's own advance, on a side branch (never checked out as HEAD).
+    _git(root, "branch", "base-advance", old)
+    _git(root, "checkout", "--quiet", "base-advance")
+    (root / base_file).write_text("base change\n")
+    _git(root, "add", base_file)
+    _git(root, "commit", "--quiet", "-m", "sibling merge touching " + base_file)
+    new = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+    # HEAD (the PR's own branch) stays on the original commit plus its own change.
+    _git(root, "checkout", "--quiet", old)
+    (root / "pr_only.txt").write_text("pr change\n")
+    _git(root, "add", "pr_only.txt")
+    _git(root, "commit", "--quiet", "-m", "PR's own change")
+    return root, old, new
+
+
+@requires_real_git
+def test_report_base_advance_names_commits_and_remedy_when_disjoint(tmp_path: Path) -> None:
+    root, old, new = _divergent_base_repo(tmp_path, base_file="unrelated.txt")
+    stderr = _call_report_base_advance(root, old, new, "main")
+    assert f"base advanced ({old}..{new})" in stderr
+    assert "1 commit(s):" in stderr
+    assert "sibling merge touching unrelated.txt" in stderr
+    assert "touches no file this PR changes" in stderr
+    assert "touches file(s) this PR also changes" not in stderr
+    assert "branch protection requires an up-to-date head - rebase and re-run:" in stderr
+    assert "git fetch origin main" in stderr
+    assert "git merge origin/main" in stderr
+
+
+@requires_real_git
+def test_report_base_advance_names_the_overlap_when_the_same_file_moved(tmp_path: Path) -> None:
+    root, old, new = _divergent_base_repo(tmp_path, base_file="pr_only.txt")
+    stderr = _call_report_base_advance(root, old, new, "main")
+    assert f"base advanced ({old}..{new})" in stderr
+    assert "touches file(s) this PR also changes (informational only, does not change the refusal):" in stderr
+    assert "pr_only.txt" in stderr
+    assert "touches no file this PR changes" not in stderr
+
+
+def test_report_base_advance_degrades_cleanly_with_no_root(tmp_path: Path) -> None:
+    """Fail-open shape (matches the rest of the guard): an unreadable root
+
+    must still print the advance and the remedy, never crash.
+    """
+    stderr = _call_report_base_advance(Path("/nonexistent"), "", "deadbeef", "main")
+    assert "base advanced (unknown..deadbeef)" in stderr
+    assert "branch protection requires an up-to-date head" in stderr
