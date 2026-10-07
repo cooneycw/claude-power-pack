@@ -1202,8 +1202,22 @@ _TEST_BUDGET = 300
 
 
 @contextlib.contextmanager
-def live_controls_tree_exclusive(timeout: float = _LOCK_BUDGET) -> Iterator[None]:
+def live_controls_tree_exclusive(
+    timeout: float = _LOCK_BUDGET, lock_path: Path | None = None
+) -> Iterator[None]:
     """Hold the live `controls/` tree exclusively for the duration.
+
+    `lock_path` defaults to `_LIVE_TREE_LOCK` - every REAL caller coordinating
+    actual access to the live tree takes that default, deliberately, so they
+    all serialise against each other. It exists as a parameter only for
+    `test_the_lock_deadline_is_reachable_and_says_who_to_blame` (issue #1420),
+    which needs to simulate contention IN ISOLATION: that test takes the lock
+    itself first to force the timeout path deterministically, and doing that
+    on the real, shared path raced any OTHER test legitimately holding it at
+    the same moment under xdist - a different shape from the #1420 fixture
+    race (a production coordination lock three tests share BY DESIGN, not an
+    accidental shared mutable fixture), but the same remedy: give the test
+    exercising the MECHANISM its own private resource instead.
 
     WHY A LOCK AND NOT A MARKER (issue #1061). Two tests in this file use the
     REAL tree and one of them DIRTIES it: `test_an_untracked_control_file_
@@ -1225,8 +1239,9 @@ def live_controls_tree_exclusive(timeout: float = _LOCK_BUDGET) -> Iterator[None
     reintroduce exactly the race this exists to remove, silently and only under
     load - the worst of the three outcomes.
     """
+    path = lock_path if lock_path is not None else _LIVE_TREE_LOCK
     deadline = time.monotonic() + timeout
-    fh = os.open(_LIVE_TREE_LOCK, os.O_CREAT | os.O_RDWR, 0o644)
+    fh = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
     try:
         while True:
             try:
@@ -1244,7 +1259,7 @@ def live_controls_tree_exclusive(timeout: float = _LOCK_BUDGET) -> Iterator[None
                 if time.monotonic() >= deadline:
                     raise AssertionError(
                         f"could not take the live controls tree lock within {timeout}s "
-                        f"({_LIVE_TREE_LOCK}); another test is holding it far longer "
+                        f"({path}); another test is holding it far longer "
                         "than its ~20s window, which is a defect in that test, not here"
                     ) from None
                 time.sleep(0.2)
@@ -1535,7 +1550,7 @@ def test_a_lock_system_failure_is_not_blamed_on_a_neighbouring_test(monkeypatch)
     assert not isinstance(caught.value, AssertionError)
 
 
-def test_the_lock_deadline_is_reachable_and_says_who_to_blame() -> None:
+def test_the_lock_deadline_is_reachable_and_says_who_to_blame(tmp_path: Path) -> None:
     """The red case for the timeout half (#1061 re-review, MEDIUM).
 
     flock associates a lock with the OPEN FILE DESCRIPTION, so a second open of
@@ -1543,19 +1558,32 @@ def test_the_lock_deadline_is_reachable_and_says_who_to_blame() -> None:
     deterministic to exercise without a second worker. The point is that the
     deadline FIRES: at the previous 300s default, pytest's 120s per-test budget
     killed the test first and this diagnostic could never be reached.
+
+    USES A PRIVATE `lock_path`, NEVER `_LIVE_TREE_LOCK` (issue #1420). This
+    test takes the lock itself first to force contention deterministically -
+    but on the real, shared path, that first non-blocking acquire can itself
+    contend against an UNRELATED test legitimately holding that same lock at
+    that moment (`test_an_untracked_control_file_refuses_the_green`, which
+    holds it for ~19s by design). Confirmed reproducible: forcing the
+    equivalent interleaving against the real path on `origin/main` made the
+    very first `flock` raise `BlockingIOError` instead of succeeding. A
+    private, per-test lock file removes that dependency entirely - this test
+    is about the DEADLINE MECHANISM, not about the live tree, so it never
+    needed the real path at all.
     """
-    holder = os.open(_LIVE_TREE_LOCK, os.O_CREAT | os.O_RDWR, 0o644)
+    lock_path = tmp_path / "test.lock"
+    holder = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
     try:
         fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
         with pytest.raises(AssertionError, match="could not take the live controls tree lock"):
-            with live_controls_tree_exclusive(timeout=0.5):
+            with live_controls_tree_exclusive(timeout=0.5, lock_path=lock_path):
                 pass
     finally:
         fcntl.flock(holder, fcntl.LOCK_UN)
         os.close(holder)
 
     # and it is genuinely released - the same call now succeeds
-    with live_controls_tree_exclusive(timeout=5.0):
+    with live_controls_tree_exclusive(timeout=5.0, lock_path=lock_path):
         pass
 
 
@@ -3311,7 +3339,7 @@ def test_a_gate_with_no_detect_signal_is_still_refused() -> None:
 
 
 @pytest.mark.skipif(shutil.which("sh") is None, reason="drives a toy gate through sh")
-def test_an_explicitly_invalid_detect_signal_is_refused_not_treated_as_omitted() -> None:
+def test_an_explicitly_invalid_detect_signal_is_refused_not_treated_as_omitted(tmp_path: Path) -> None:
     """OMITTED is not INVALID - the distinction this whole change rests on.
 
     FOUND BY COUNTER-MODEL REVIEW. The exemption first keyed on "is there a
@@ -3328,25 +3356,37 @@ def test_an_explicitly_invalid_detect_signal_is_refused_not_treated_as_omitted()
     empty conflation that the change's own rationale is built on, written into
     the change itself. It is asserted here so the next edit cannot reintroduce
     it quietly.
+
+    OPERATES ON A `tmp_path` COPY, NEVER THE TRACKED FIXTURE (issue #1420).
+    This test used to write directly onto the real, shared
+    `good-reporter-without-detect-signal` fixture - restored in a `finally`,
+    but still a real file on disk for the duration of each write. Under
+    pytest-xdist, `test_a_reporter_may_omit_detect_signal_when_it_declares_
+    unknown_signal` reads that SAME file from a different worker and races
+    it: confirmed reproducible 3/3 on `origin/main` with
+    `-n 8 -k "<both test names>"`, independent of any other change. Copying
+    the fixture into `tmp_path` removes the race rather than narrowing its
+    window - there is no shared file left to collide on.
     """
     import json as _json
 
-    toy = (ROOT / "controls" / "check-negative-controls" / "cases"
-           / "good-reporter-without-detect-signal" / "controls" / "toy" / "control.json")
+    real_root = (
+        ROOT / "controls" / "check-negative-controls" / "cases" / "good-reporter-without-detect-signal"
+    )
+    root = tmp_path / "root"
+    shutil.copytree(real_root, root)
+    toy = root / "controls" / "toy" / "control.json"
     original = toy.read_text(encoding="utf-8")
     assert "detect_signal" not in _json.loads(original), (
         "the fixture must OMIT detect_signal for this test to mean anything"
     )
-    try:
-        for bad in ("", " ", None, 0, []):
-            doc = _json.loads(original)
-            doc["detect_signal"] = bad
-            toy.write_text(_json.dumps(doc, indent=2), encoding="utf-8")
-            out = run_harness(toy.parents[2], "--strict")
-            assert out.returncode != 0, f"detect_signal={bad!r} was treated as omitted"
-            assert "declares no detect_signal" in out.stdout + out.stderr, out.stdout
-    finally:
-        toy.write_text(original, encoding="utf-8")
+    for bad in ("", " ", None, 0, []):
+        doc = _json.loads(original)
+        doc["detect_signal"] = bad
+        toy.write_text(_json.dumps(doc, indent=2), encoding="utf-8")
+        out = run_harness(root, "--strict")
+        assert out.returncode != 0, f"detect_signal={bad!r} was treated as omitted"
+        assert "declares no detect_signal" in out.stdout + out.stderr, out.stdout
 
     # A VALID BUT OVER-BROAD PATTERN IS A THIRD CASE, and it takes a different
     # path: `.*` is a usable regex, so it is NOT an omission and NOT invalid -
@@ -3354,19 +3394,24 @@ def test_an_explicitly_invalid_detect_signal_is_refused_not_treated_as_omitted()
     # guard. Pinned here because "declared something broken" and "declared
     # something too wide" fail for different reasons and a reader chasing
     # either should land in the right place.
-    try:
-        doc = _json.loads(original)
-        doc["detect_signal"] = ".*"
-        toy.write_text(_json.dumps(doc, indent=2), encoding="utf-8")
-        out = run_harness(toy.parents[2], "--strict")
-        assert out.returncode != 0
-        assert "matches empty output" in out.stdout + out.stderr, out.stdout
-    finally:
-        toy.write_text(original, encoding="utf-8")
+    doc = _json.loads(original)
+    doc["detect_signal"] = ".*"
+    toy.write_text(_json.dumps(doc, indent=2), encoding="utf-8")
+    out = run_harness(root, "--strict")
+    assert out.returncode != 0
+    assert "matches empty output" in out.stdout + out.stderr, out.stdout
 
     # ...and omission itself still passes, or the assertions above are vacuous.
-    out = run_harness(toy.parents[2], "--strict")
+    toy.write_text(original, encoding="utf-8")
+    out = run_harness(root, "--strict")
     assert out.returncode == 0, out.stdout + out.stderr
+
+    # SELF-VERIFYING ISOLATION (issue #1420): the real, shared fixture must
+    # never have been touched at all, every single mutation above landed on
+    # the `tmp_path` copy. This is the permanent anchor against reintroducing
+    # the race - pinning "a concurrent reader is unaffected" directly, rather
+    # than relying on xdist scheduling to happen to exercise it.
+    assert (real_root / "controls" / "toy" / "control.json").read_text(encoding="utf-8") == original
 
 
 def _load_harness_module():
