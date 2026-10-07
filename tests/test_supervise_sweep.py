@@ -396,8 +396,8 @@ class _Fixture:
     start: int  # /proc/<pid>/stat field 22, clock ticks since boot
 
 
-def _stat(pid: int) -> tuple[str, int, int] | None:
-    """``(comm, pgid, start)`` from /proc/<pid>/stat, or None if it is GONE.
+def _stat(pid: int) -> tuple[str, int, int, int] | None:
+    """``(comm, ppid, pgid, start)`` from /proc/<pid>/stat, or None if GONE.
 
     Readable for any process of ours even when its environ is refused, which is
     what lets an unreadable pid be judged at all. Anchored on the LAST ``)``:
@@ -411,25 +411,37 @@ def _stat(pid: int) -> tuple[str, int, int] | None:
         return None
     comm = raw[raw.index("(") + 1 : raw.rindex(")")]
     rest = raw[raw.rindex(")") + 2 :].split()
-    return comm, int(rest[2]), int(rest[19])
+    return comm, int(rest[1]), int(rest[2]), int(rest[19])
 
 
 def _fixture_of(proc: subprocess.Popen) -> _Fixture:
     fields = _stat(proc.pid)
     assert fields is not None, "precondition: the fixture is alive when first observed"
-    return _Fixture(proc.pid, fields[1], fields[2])
+    return _Fixture(proc.pid, fields[2], fields[3])
 
 
-def _could_be_kin(pid: int, fixture: _Fixture) -> bool:
-    """Whether an UNREADABLE pid could be one of the fixture's (issue #1347).
+def _could_be_kin(pid: int, fixture: _Fixture, live_descendants: frozenset[int]) -> bool:
+    """Whether an UNREADABLE pid could be one of the fixture's (issues #1347, #1404).
 
     Every xdist worker shares one process group (measured: gw0-gw2 all in one
-    pgid), so the group alone cannot tell a neighbour from the fixture. A
-    candidate must ALSO have started no earlier than the fixture and run what the
-    fixture runs. Stated residual, deliberately not closed: an unreadable
-    `bash` or `sleep` of a NEIGHBOUR, in this group and started during this
-    test, is still judged a candidate. bash and sleep are not non-dumpable, so
-    their environ is not expected to be refused.
+    pgid), so the group alone cannot tell a neighbour from the fixture, and
+    start-time ticks (10ms resolution) do not either when several workers
+    launch their own fixture in the same tick - measured directly (issue
+    #1404): a cross-worker candidate whose REAL parent is a different,
+    live, unrelated process still passed the old pgid+comm+start check and
+    failed the test on someone else's transient (mid-exec) unreadable
+    environ.
+
+    So a LIVE candidate (ppid != 1, not yet reparented) is judged by actual
+    ancestry FIRST: its ppid must be the fixture's own pid or one of its
+    own currently-live descendants, or it is DEFINITELY not ours, whatever
+    it looks like - positive evidence, not the conservative guess. Only a
+    REPARENTED candidate (ppid == 1, ancestry severed by `_cleanup` exactly
+    as #1343 describes) falls back to the comm/pgid/start heuristic, which
+    is what it still cannot fully separate from a neighbour's own reparented
+    leak (bash and sleep are not non-dumpable, so their environ is not
+    expected to be refused at all once settled) - the stated residual #1347
+    already named, now narrowed to the case ancestry genuinely cannot see.
     """
     try:
         fields = _stat(pid)
@@ -437,7 +449,9 @@ def _could_be_kin(pid: int, fixture: _Fixture) -> bool:
         return True  # unidentifiable: judged conservatively as possibly ours
     if fields is None:
         return False
-    comm, pgid, start = fields
+    comm, ppid, pgid, start = fields
+    if ppid != 1 and ppid != fixture.pid and ppid not in live_descendants:
+        return False  # a live process with a real, different, known parent
     return comm in KIN_COMMS and pgid == fixture.pgid and start >= fixture.start
 
 
@@ -453,12 +467,19 @@ def _kin(tag: str, fixture: _Fixture) -> list[int]:
     An unreadable process that cannot be ours - another xdist worker's python,
     anything older than the fixture or running something else - is skipped;
     failing on it failed this test for someone else's process (issue #1347).
-    What the verdict still cannot separate is `_could_be_kin`'s stated residual:
-    an unreadable same-group `bash`/`sleep` started during this test fails the
-    check conservatively, whoever owns it.
+    `_could_be_kin` now checks actual ancestry first for a LIVE candidate
+    (issue #1404): what the verdict still cannot separate is its narrowed
+    residual, a REPARENTED same-group `bash`/`sleep` whose severed ancestry
+    makes it indistinguishable from a neighbour's own reparented leak.
+
+    `live_descendants` is a SNAPSHOT, taken once per call rather than
+    re-walked per candidate: the fixture's own tree can only grow during
+    this scan (a child forking), never lose a member ancestry already
+    proved, so a snapshot cannot stale-negative a pid that really is ours.
     """
     needle = f"{KIN_ENV}={tag}".encode()
     uid = os.getuid()
+    live_descendants = frozenset(_descendants(fixture.pid))
     found = []
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit():
@@ -470,7 +491,7 @@ def _kin(tag: str, fixture: _Fixture) -> list[int]:
         except (FileNotFoundError, ProcessLookupError):
             continue  # exited between listing and reading: not a survivor
         except OSError as exc:
-            if _could_be_kin(int(entry.name), fixture):
+            if _could_be_kin(int(entry.name), fixture, live_descendants):
                 pytest.fail(f"could not read pid {entry.name}'s environment: {exc}", pytrace=False)
             continue  # a neighbour's process: not ours to judge
         if needle in environ.split(b"\0") and pid_alive(int(entry.name)):
@@ -589,7 +610,7 @@ def _refuse_environ_of(monkeypatch: pytest.MonkeyPatch, pid: int) -> list[int]:
     return refused
 
 
-def _execd_child(pid: int, comm: str) -> tuple[int, tuple[str, int, int]]:
+def _execd_child(pid: int, comm: str) -> tuple[int, tuple[str, int, int, int]]:
     """A descendant of `pid` that has EXEC'd `comm`, with its stat fields.
 
     Waiting for "any descendant" is not enough. Between fork and exec a child's
@@ -598,7 +619,7 @@ def _execd_child(pid: int, comm: str) -> tuple[int, tuple[str, int, int]]:
     a correct tree. This polls until a descendant's own /proc stat shows `comm`.
     """
     deadline = time.monotonic() + FIXTURE_DEADLINE
-    seen: list[tuple[int, tuple[str, int, int] | None]] = []
+    seen: list[tuple[int, tuple[str, int, int, int] | None]] = []
     while True:
         seen = [(child, _stat(child)) for child in _descendants(pid)]
         for child, fields in seen:
@@ -620,12 +641,84 @@ def test_an_unreadable_neighbour_does_not_fail_the_cleanup_check(monkeypatch: py
     assert os.stat(f"/proc/{neighbour}").st_uid == os.getuid(), "precondition: same uid"
     here = _stat(os.getpid())
     assert here is not None
-    fixture = _Fixture(os.getpid(), here[1], here[2] + 1)  # started after the neighbour
-    assert not _could_be_kin(neighbour, fixture), "precondition: the neighbour is not a candidate"
+    fixture = _Fixture(os.getpid(), here[2], here[3] + 1)  # started after the neighbour
+    assert not _could_be_kin(neighbour, fixture, frozenset()), (
+        "precondition: the neighbour is not a candidate"
+    )
     refused = _refuse_environ_of(monkeypatch, neighbour)
 
     assert _kin(uuid.uuid4().hex, fixture) == []
     assert refused == [neighbour], "precondition: the refusal branch was actually exercised"
+
+
+@requires_proc
+def test_a_live_same_group_sibling_with_matching_comm_and_timing_is_not_kin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Issue #1404: measured directly under `-n 4`, not a theoretical case - a
+    DIFFERENT worker's own fixture, sharing xdist's one process group,
+    matching comm and started within the same clock tick, used to be judged
+    `_could_be_kin` by the old pgid+comm+start heuristic alone. When that
+    SIBLING's environ happened to be transiently unreadable (confirmed by
+    direct diagnosis: cmdline read back empty while environ raised EACCES -
+    a real kernel race reading a process still mid-exec), the test failed
+    attributing a NEIGHBOUR's unreadable process to itself. Reproduced live
+    4-5 times in 8-10 runs under `-n 4` pre-fix; 1 time in 30 post-fix, and
+    that one occurrence's own ppid was already 1 (reparented) - issue
+    #1347's own stated, still-open residual, not this one.
+
+    A sibling fixture in THIS test, not a real second xdist worker, but the
+    same shape: `own_group=False` means both processes inherit THIS test's
+    own pgid, so the sibling is genuinely NOT the fixture's descendant
+    despite matching pgid/comm/timing exactly - the live ancestry check now
+    excludes it on that basis alone, never reaching the old heuristic.
+    """
+    tag = uuid.uuid4().hex
+    proc = _fake_daemon(
+        tmp_path, "__supervise_daemon", DEAD_OWNER,
+        body=f"export {KIN_ENV}={tag}\nsleep 300\n", own_group=False,
+    )
+    sibling: subprocess.Popen | None = None
+    try:
+        fixture = _fixture_of(proc)
+        sibling = _fake_daemon(
+            tmp_path, "__supervise_daemon", DEAD_OWNER,
+            body="sleep 300\n", own_group=False,
+        )
+        sibling_child, (comm, _ppid, pgid, start) = _execd_child(sibling.pid, "sleep")
+        assert pgid == fixture.pgid and start >= fixture.start, (
+            "precondition: the sibling's own child matches the OLD heuristic "
+            f"exactly: {(comm, pgid, start)} vs fixture {(fixture.pgid, fixture.start)}"
+        )
+        live_descendants = frozenset(_descendants(fixture.pid))
+        assert sibling_child not in live_descendants, (
+            "precondition: the sibling's child is genuinely not the fixture's descendant"
+        )
+        assert not _could_be_kin(sibling_child, fixture, live_descendants), (
+            "the sibling's child must not be judged kin on pgid/comm/timing alone"
+        )
+
+        refused = _refuse_environ_of(monkeypatch, sibling_child)
+        # Matches `_check_cleanup`'s real order: clean up OUR fixture first,
+        # then check for survivors. Skipping this step would make `_kin`
+        # correctly find `proc` itself still alive and carrying the tag -
+        # a true positive on our own live fixture, not evidence either way
+        # about the sibling.
+        _cleanup(proc)
+        assert _kin(tag, fixture) == [], (
+            "a genuinely unrelated sibling's unreadable environ must not fail this check"
+        )
+        assert refused == [sibling_child], "precondition: the refusal branch was exercised"
+    finally:
+        try:
+            if proc.poll() is None:
+                _cleanup(proc)
+        finally:
+            try:
+                if sibling is not None and sibling.poll() is None:
+                    _cleanup(sibling)
+            finally:
+                _reap_marked(tag)
 
 
 @requires_proc
@@ -640,7 +733,7 @@ def test_an_unidentifiable_unreadable_process_fails_the_cleanup_check(
     neighbour = os.getppid()
     here = _stat(os.getpid())
     assert here is not None
-    fixture = _Fixture(os.getpid(), here[1], here[2] + 1)
+    fixture = _Fixture(os.getpid(), here[2], here[3] + 1)
     refused = _refuse_environ_of(monkeypatch, neighbour)
     real_text = Path.read_text
     stat_path = Path(f"/proc/{neighbour}/stat")
@@ -675,7 +768,7 @@ def test_an_unreadable_process_of_ours_fails_the_cleanup_check(
         # Asserted from the raw stat fields, NOT through `_could_be_kin`: a
         # precondition that called the rule under test could not show the rule
         # being wrong, only itself failing.
-        child, (comm, pgid, start) = _execd_child(proc.pid, "sleep")
+        child, (comm, _ppid, pgid, start) = _execd_child(proc.pid, "sleep")
         assert pgid == fixture.pgid and start >= fixture.start, (
             "precondition: the child shares the fixture's group and started after it: "
             f"{(comm, pgid, start)} vs fixture {(fixture.pgid, fixture.start)}"
