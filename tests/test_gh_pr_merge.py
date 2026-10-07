@@ -3625,6 +3625,10 @@ def test_incidental_cross_repo_close_keyword_refuses(tmp_path: Path):
 # right moments; these confirm what it PRINTS.
 # ---------------------------------------------------------------------------
 
+requires_real_git = pytest.mark.skipif(
+    shutil.which("git") is None, reason="git not available in this environment"
+)
+
 
 def _extract_shell_function(name: str) -> str:
     """Pull one function's source out of gh-pr-merge.sh, for isolated testing."""
@@ -3682,6 +3686,7 @@ def _divergent_base_repo(tmp_path: Path, base_file: str) -> tuple[Path, str, str
     return root, old, new
 
 
+@requires_real_git
 def test_report_base_advance_names_commits_and_remedy_when_disjoint(tmp_path: Path) -> None:
     root, old, new = _divergent_base_repo(tmp_path, base_file="unrelated.txt")
     stderr = _call_report_base_advance(root, old, new, "main")
@@ -3695,6 +3700,7 @@ def test_report_base_advance_names_commits_and_remedy_when_disjoint(tmp_path: Pa
     assert "git merge origin/main" in stderr
 
 
+@requires_real_git
 def test_report_base_advance_names_the_overlap_when_the_same_file_moved(tmp_path: Path) -> None:
     root, old, new = _divergent_base_repo(tmp_path, base_file="pr_only.txt")
     stderr = _call_report_base_advance(root, old, new, "main")
