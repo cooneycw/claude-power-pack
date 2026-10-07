@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1405-false-negatives-env-suppression-baseline",
+  "counts": {
+    "accepted": 1,
+    "deferred": 0,
+    "rejected": 3
+  },
+  "head": "4a7a6fe5e9e9f378ad6e253a4803dfc84bc1b284",
+  "implementer": "claude/claude-sonnet-5",
+  "issue": "1405",
+  "passes": 1,
+  "recorded_at": "2026-10-07T00:45:48Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/07/rollout-2026-10-07T00-44-13-01a113d1-64c0-7972-9e32-962f2f56ac53.jsonl",
+    "thread_id": "01a113d1-64c0-7972-9e32-962f2f56ac53"
+  },
+  "schema": 1,
+  "status": "ran"
+}
