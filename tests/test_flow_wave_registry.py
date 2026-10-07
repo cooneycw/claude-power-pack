@@ -5192,3 +5192,94 @@ class TestObservedWritesCatchTheUndeclaredCollision:
         p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
         assert "FLOW_WAVE_LANE_UNDECLARED_WRITES=0" in p.stdout, p.stdout
         assert "UNDECLARED WRITES" not in p.stdout, p.stdout
+
+    def test_a_different_repos_lane_does_not_mask_the_advisory(self, tmp_path: Path) -> None:
+        """COUNTER-MODEL FINDING (codex): the advisory's lane union must be
+        scoped PER REPO. Two roles in UNRELATED repos, one declaring a lane
+        whose name happens to match a path the other role touches
+        undeclared, must not let the second role's finding disappear - the
+        two repos share no relationship beyond a coincidental path string."""
+        origin, worker_a, worker_b = _overlap_worktrees(tmp_path)
+        (worker_a / "controls" / "b-owned" / "intrusion.sh").unlink()
+        (worker_a / "src").mkdir()
+        (worker_a / "src" / "unclaimed.py").write_text("nobody in THIS repo declared this\n")
+        subprocess.run(
+            ["git", "-C", str(worker_a), "add", "-A", "controls", "src"],
+            check=True, capture_output=True,
+        )
+        # A SEPARATE repo and worker whose declared lane happens to share the
+        # name "src" - must have no bearing on worker-A's finding above.
+        other_repo = tmp_path / "other-origin"
+        subprocess.run(["git", "init", "-q", "-b", "main", str(other_repo)], check=True, capture_output=True)
+        git_other = ["git", "-C", str(other_repo)]
+        subprocess.run([*git_other, "config", "user.email", "t@example.com"], check=True, capture_output=True)
+        subprocess.run([*git_other, "config", "user.name", "t"], check=True, capture_output=True)
+        (other_repo / "src").mkdir()
+        (other_repo / "src" / "elsewhere.py").write_text("unrelated\n")
+        subprocess.run([*git_other, "add", "-A"], check=True, capture_output=True)
+        subprocess.run([*git_other, "commit", "-qm", "init"], check=True, capture_output=True)
+        subprocess.run([*git_other, "update-ref", "refs/remotes/origin/main", "HEAD"], check=True, capture_output=True)
+        worker_c = tmp_path / "worker-c"
+        shutil.copytree(other_repo, worker_c)
+
+        self._register_pair(tmp_path, origin, worker_a, worker_b)
+        third_pid = "7777"
+        _run(
+            tmp_path, "register", "worker-C", "--wave", "cpp",
+            "--socket", "uds:/tmp/c.sock", "--repo", str(other_repo),
+            "--cwd", str(worker_c), "--files", "src",
+            pid=third_pid, session="sess-c",
+        )
+        p = _run(
+            tmp_path, "list", "--wave", "cpp",
+            live=f"{SELF_PID}:{OTHER_PID}:{third_pid}",
+        )
+        assert "FLOW_WAVE_LANE_UNDECLARED_WRITES=1" in p.stdout, p.stdout
+        assert "worker-A" in p.stdout, p.stdout
+
+    def test_a_singleton_live_role_with_unreachable_cwd_still_reports_unknown(
+        self, tmp_path: Path
+    ) -> None:
+        """COUNTER-MODEL FINDING (codex): the unreachable-cwd notice used to
+        live only inside report_overlap's pairwise calls, so a wave with
+        exactly ONE live role - no pair ever formed - never printed it, and
+        the advisory silently read 0. Must still render unknown."""
+        _run(
+            tmp_path, "register", "worker-A", "--wave", "cpp",
+            "--socket", "uds:/tmp/a.sock", "--repo", str(tmp_path),
+            "--cwd", "/nonexistent/container/path", "--files", "controls/a-owned",
+            pid=SELF_PID, session=SELF_SESSION,
+        )
+        p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID)
+        assert "observed writes: unknown" in p.stdout, p.stdout
+        assert "cwd not reachable from this host" in p.stdout, p.stdout
+
+    def test_similarly_named_but_distinct_observed_paths_are_not_collapsed(
+        self, tmp_path: Path
+    ) -> None:
+        """COUNTER-MODEL FINDING (codex): the observed-vs-observed check used
+        to flatten the other side's touched paths into one space-joined
+        string and substring-match against it, so worker-A touching
+        'one.txt' could match worker-B touching a DIFFERENT file whose name
+        happens to contain 'one.txt' as a substring. Neither side declares
+        anything covering these paths, isolating this from the WARNING the
+        earlier tests already pin."""
+        origin, worker_a, worker_b = _overlap_worktrees(tmp_path)
+        (worker_a / "controls" / "b-owned" / "intrusion.sh").unlink()
+        (worker_a / "one.txt").write_text("a\n")
+        # A filename containing a literal SPACE, with "one.txt" as a space-
+        # delimited substring of it - the exact shape a space-joined
+        # membership test (rather than an exact-token one) would falsely
+        # match against worker-A's distinct "one.txt".
+        (worker_b / "prefix one.txt suffix").write_text("b\n")
+        subprocess.run(
+            ["git", "-C", str(worker_a), "add", "-A", "controls", "one.txt"],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(worker_b), "add", "-A", "controls", "prefix one.txt suffix"],
+            check=True, capture_output=True,
+        )
+        self._register_pair(tmp_path, origin, worker_a, worker_b)
+        p = _run(tmp_path, "list", "--wave", "cpp", live=f"{SELF_PID}:{OTHER_PID}")
+        assert "overlapping FILE LANES" not in p.stdout, p.stdout

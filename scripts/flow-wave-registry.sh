@@ -1525,62 +1525,103 @@ observed_touched() {
 # the answer that hid every file-level collision in the reference wave. Both file
 # arguments are optional so the claim call site - which has no declared lane to
 # offer - passes nothing and behaves exactly as before.
+# _in_space_list NEEDLE LIST -> 0 when NEEDLE is an EXACT token in the
+# space-separated LIST (counter-model review, #1403). `case " $list " in
+# *" $needle "*)` is a SUBSTRING test, not a membership test: a needle of
+# "one.txt" matches inside a neighbour's "prefix one.txt suffix", and a
+# needle that itself contains a space ("one.txt two.txt") matches against
+# two unrelated single-file entries. Exact per-token comparison via
+# word-splitting has neither failure mode - it can still misjudge a path
+# whose name CONTAINS a literal space (the same pre-existing limit
+# `shared_files`'s own space-joined output already carries), but it cannot
+# manufacture a collision between two paths that share no token at all,
+# which is what this function exists to rule out.
+_in_space_list() {
+  local _needle="$1" _list="$2" _tok
+  # shellcheck disable=SC2086  # deliberate word-splitting of $_list into $@
+  set -- $_list
+  for _tok in "$@"; do
+    [ "$_tok" = "$_needle" ] && return 0
+  done
+  return 1
+}
+
+# _in_newline_list NEEDLE BLOB -> 0 when NEEDLE is an EXACT LINE of the
+# newline-separated BLOB (counter-model re-review, #1403). `_in_space_list`
+# above still word-splits on IFS, which includes SPACE - so a BLOB entry
+# that itself contains a literal space ("prefix one.txt suffix", the exact
+# shape the counter-model finding used) gets fragmented into "prefix",
+# "one.txt" and "suffix" as three separate tokens, and a needle of
+# "one.txt" then matches a FRAGMENT of an unrelated filename, the identical
+# false-positive class under a different cause. observed_touched's BLOB is
+# newline-joined specifically so it can be read back a LINE at a time
+# instead, which only ever splits on the one separator this data cannot
+# itself contain post-`git diff -z` (a bare `\0`-to-`\n` conversion), never
+# on space.
+_in_newline_list() {
+  local _needle="$1" _blob="$2" _line
+  while IFS= read -r _line; do
+    [ "$_line" = "$_needle" ] && return 0
+  done <<EOF
+$_blob
+EOF
+  return 1
+}
+
 report_overlap() {
   local al="$1" ia="$2" ba="$3" ca="$4" ra="$5"
   local bl="$6" ib="$7" bb="$8" cb="$9" rb="${10}"
   local fa="${11:-}" fb="${12:-}" shared
+  local obs_a_status="${13:-unknown}" obs_b_status="${14:-unknown}"
+  local obs_a_blob="${15:-}" obs_b_blob="${16:-}"
   shared="$(shared_files "$fa" "$fb")"
 
   # OBSERVED WRITES (issue #1403, Nit Store #864): what each side's OWN diff
   # against the merge base actually touches, independent of what either
-  # declared. Scoped identically to the FILE-LANE arm below (same $ra/$rb) -
-  # an observed path in a DIFFERENT repo is not a collision either, and
-  # neither is a role with no cwd on this host (an orchestrator, a claim row
-  # with no worktree recorded).
-  local obs_a_status="unknown" obs_b_status="unknown"
-  local -a obs_a_arr=() obs_b_arr=()
-  if [ -n "$ra" ] && [ "$ra" = "$rb" ] && [ -n "$ca" ] && [ -n "$cb" ]; then
-    observed_touched "$ca" "origin/main"
-    obs_a_status="$OBSERVED_STATUS"; obs_a_arr=("${OBSERVED_ARR[@]}")
-    observed_touched "$cb" "origin/main"
-    obs_b_status="$OBSERVED_STATUS"; obs_b_arr=("${OBSERVED_ARR[@]}")
-    # UNREACHABLE IS UNKNOWN, NEVER SILENCE (operator ruling): a role's cwd
-    # usually lives in ANOTHER container, invisible from where `list` runs.
-    # Reported here rather than folded into any WARNING below, because it is
-    # true whether or not a collision also fires - an unchecked role must
-    # never read as a clean one just because nothing else was wrong either.
-    [ "$obs_a_status" = "unknown" ] &&
-      echo "  info: '$al' observed writes: unknown - cwd not reachable from this host ($ca)."
-    [ "$obs_b_status" = "unknown" ] &&
-      echo "  info: '$bl' observed writes: unknown - cwd not reachable from this host ($cb)."
-  fi
-  # Extend `shared` with anything either side's OBSERVED diff puts inside the
-  # OTHER's DECLARED lane (undeclared by the writer - the Nit Store scenario
-  # exactly), or that both sides OBSERVED in common regardless of either
-  # declaration - a real double-write `shared_files` cannot see because it
-  # compares declarations only. De-duplicated against the declared-vs-
-  # declared set so a path already named is never listed twice.
+  # declared. The caller precomputes this ONCE per role (not per pair,
+  # counter-model review) and passes it in as $13-$16; this function only
+  # consumes it. $obs_a_blob/$obs_b_blob are NEWLINE-joined touched paths.
+  #
+  # Extend `shared` with anything either side's OBSERVED diff puts inside
+  # the OTHER's DECLARED lane (undeclared by the writer - the Nit Store
+  # scenario exactly), or that both sides OBSERVED in common regardless of
+  # either declaration - a real double-write `shared_files` cannot see
+  # because it compares declarations only. De-duplicated against the
+  # declared-vs-declared set so a path already named is never listed twice.
   local _p
-  if [ "$obs_a_status" = "ok" ] && [ -n "$fb" ]; then
-    for _p in ${obs_a_arr[@]+"${obs_a_arr[@]}"}; do
+  if [ "$obs_a_status" = "ok" ] && [ -n "$fb" ] && [ -n "$obs_a_blob" ]; then
+    while IFS= read -r _p; do
+      [ -n "$_p" ] || continue
       lane_covers "$_p" "$fb" || continue
-      case " $shared " in *" $_p "*) continue ;; esac
+      _in_space_list "$_p" "$shared" && continue
       shared="${shared:+$shared }$_p"
-    done
+    done <<EOF
+$obs_a_blob
+EOF
   fi
-  if [ "$obs_b_status" = "ok" ] && [ -n "$fa" ]; then
-    for _p in ${obs_b_arr[@]+"${obs_b_arr[@]}"}; do
+  if [ "$obs_b_status" = "ok" ] && [ -n "$fa" ] && [ -n "$obs_b_blob" ]; then
+    while IFS= read -r _p; do
+      [ -n "$_p" ] || continue
       lane_covers "$_p" "$fa" || continue
-      case " $shared " in *" $_p "*) continue ;; esac
+      _in_space_list "$_p" "$shared" && continue
       shared="${shared:+$shared }$_p"
-    done
+    done <<EOF
+$obs_b_blob
+EOF
   fi
-  if [ "$obs_a_status" = "ok" ] && [ "$obs_b_status" = "ok" ]; then
-    for _p in ${obs_a_arr[@]+"${obs_a_arr[@]}"}; do
-      case " ${obs_b_arr[*]+${obs_b_arr[*]}} " in *" $_p "*) : ;; *) continue ;; esac
-      case " $shared " in *" $_p "*) continue ;; esac
+  if [ "$obs_a_status" = "ok" ] && [ "$obs_b_status" = "ok" ] && [ -n "$obs_a_blob" ] && [ -n "$obs_b_blob" ]; then
+    while IFS= read -r _p; do
+      [ -n "$_p" ] || continue
+      # EXACT LINE match against B's blob - never a space-joined substring
+      # test, and never IFS word-splitting either, since a touched path can
+      # itself contain a space (`_in_newline_list`'s header explains why
+      # `_in_space_list` is not safe for this specific comparison).
+      _in_newline_list "$_p" "$obs_b_blob" || continue
+      _in_space_list "$_p" "$shared" && continue
       shared="${shared:+$shared }$_p"
-    done
+    done <<EOF
+$obs_a_blob
+EOF
   fi
 
   if [ -n "$ia" ] && [ "$ia" = "$ib" ] && [ -n "$ra" ] && [ "$ra" = "$rb" ]; then
@@ -4157,39 +4198,97 @@ EOF
       fi
       LIVE_ROLES="$LIVE_ROLES $r"
     done
-    # LANE_UNDECLARED_WRITES (issue #1403, the advisory tail): a path a live
-    # role's OWN diff touches that falls inside NO live role's declared lane
-    # at all - not even its own. Distinct from the WARNING report_overlap
-    # fires for a path inside SOMEONE ELSE's declared lane: this is "nobody
-    # claimed this path", which is the #800 UNSCOPED shape one level over -
-    # a positive count is the signal working (a declaration that is
-    # incomplete), not a collision to block on, so it is reported and never
-    # refuses. Computed once, over the UNION of every live role's declared
-    # lane, rather than inside report_overlap's pairwise calls: this is a
-    # per-ROLE fact, not a per-PAIR one, and checking it pairwise would
-    # double-count (or miss) a role with more than one live peer.
-    ALL_DECLARED_LANES=""
-    for r in $LIVE_ROLES; do
-      e="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$r" '.[$w].roles[$r]')"
-      r_files="$(printf '%s' "$e" | jq -r '.files // ""')"
-      [ -n "$r_files" ] || continue
-      ALL_DECLARED_LANES="${ALL_DECLARED_LANES:+$ALL_DECLARED_LANES,}$r_files"
-    done
-    LANE_UNDECLARED_WRITES=0
-    LANE_UNDECLARED_WRITES_ROLES=""
+    # OBSERVED-WRITE CACHE (issue #1403, counter-model review): each live
+    # role's own `git diff` against the merge base, computed EXACTLY ONCE
+    # per role - never per-pair. Two defects fell out of computing it inside
+    # report_overlap's pairwise calls instead: a role with zero or one live
+    # peer never reached a comparison at all, so its "observed writes:
+    # unknown" notice (an unreachable cwd) never printed, and the same git
+    # subprocess ran again for every pair a busy wave's role took part in.
+    # Parallel INDEXED arrays, not associative (bash 3.2 has no `declare
+    # -A`, and nothing else in this file assumes 4+) - role_obs_lookup below
+    # does the linear scan a name-keyed array would do with a hash instead.
+    ROLE_OBS_NAME=(); ROLE_OBS_REPO=(); ROLE_OBS_STATUS=(); ROLE_OBS_BLOB=()
     for r in $LIVE_ROLES; do
       e="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$r" '.[$w].roles[$r]')"
       r_cwd="$(printf '%s' "$e" | jq -r '.cwd // ""')"
       r_repo="$(printf '%s' "$e" | jq -r '.repo // ""')"
-      [ -n "$r_cwd" ] || continue
-      [ -n "$r_repo" ] || continue
+      ROLE_OBS_NAME+=("$r")
+      ROLE_OBS_REPO+=("$r_repo")
+      if [ -z "$r_cwd" ] || [ -z "$r_repo" ]; then
+        # No cwd/repo declared at all is not the same claim as "declared but
+        # unreachable" - an orchestrator or a lane-less role legitimately has
+        # neither, and is not what the unreachable-cwd notice is for.
+        ROLE_OBS_STATUS+=("not-applicable")
+        ROLE_OBS_BLOB+=("")
+        continue
+      fi
       observed_touched "$r_cwd" "origin/main"
-      [ "$OBSERVED_STATUS" = "ok" ] || continue
-      _miss=0
-      for _p in ${OBSERVED_ARR[@]+"${OBSERVED_ARR[@]}"}; do
-        lane_covers "$_p" "$ALL_DECLARED_LANES" && continue
-        _miss=1
+      ROLE_OBS_STATUS+=("$OBSERVED_STATUS")
+      ROLE_OBS_BLOB+=("$(printf '%s\n' "${OBSERVED_ARR[@]+"${OBSERVED_ARR[@]}"}")")
+      # UNREACHABLE IS UNKNOWN, NEVER SILENCE (operator ruling): a role's cwd
+      # usually lives in ANOTHER container, invisible from where `list` runs.
+      # Printed HERE, once per role regardless of how many live peers it has
+      # (zero included), rather than inside report_overlap's pairwise calls -
+      # an unchecked role must never read as a clean one just because it
+      # also happened to have no peer to collide with.
+      [ "$OBSERVED_STATUS" = "unknown" ] &&
+        echo "  info: '$r' observed writes: unknown - cwd not reachable from this host ($r_cwd)."
+    done
+    # role_obs_lookup NAME -> sets ROLE_OBS_FOUND_STATUS/ROLE_OBS_FOUND_BLOB,
+    # or STATUS=unknown and BLOB="" when NAME is not in the cache (a claim
+    # row, which never enters LIVE_ROLES and so was never cached).
+    role_obs_lookup() {
+      local _name="$1" _i
+      ROLE_OBS_FOUND_STATUS="unknown"
+      ROLE_OBS_FOUND_BLOB=""
+      for _i in "${!ROLE_OBS_NAME[@]}"; do
+        [ "${ROLE_OBS_NAME[$_i]}" = "$_name" ] || continue
+        ROLE_OBS_FOUND_STATUS="${ROLE_OBS_STATUS[$_i]}"
+        ROLE_OBS_FOUND_BLOB="${ROLE_OBS_BLOB[$_i]}"
+        return 0
       done
+      return 0
+    }
+    # LANE_UNDECLARED_WRITES (the advisory tail): a path a live role's OWN
+    # diff touches that falls inside NO live role's declared lane IN THE
+    # SAME REPO - not even its own. Distinct from the WARNING report_overlap
+    # fires for a path inside SOMEONE ELSE's declared lane: this is "nobody
+    # claimed this path", which is the #800 UNSCOPED shape one level over -
+    # a positive count is the signal working (a declaration that is
+    # incomplete), not a collision to block on, so it is reported and never
+    # refuses.
+    #
+    # SCOPED PER REPO (counter-model review): a lane declared by a role in a
+    # DIFFERENT repository must never suppress a finding here. Two roles
+    # with no relationship beyond a coincidentally-matching relative path
+    # are not the same claim as one role's own incomplete declaration, and
+    # unioning across repos silently let the first case masquerade as the
+    # second.
+    LANE_UNDECLARED_WRITES=0
+    LANE_UNDECLARED_WRITES_ROLES=""
+    for _i in "${!ROLE_OBS_NAME[@]}"; do
+      [ "${ROLE_OBS_STATUS[$_i]}" = "ok" ] || continue
+      r="${ROLE_OBS_NAME[$_i]}"
+      r_repo="${ROLE_OBS_REPO[$_i]}"
+      same_repo_lanes=""
+      for r2 in $LIVE_ROLES; do
+        e2="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$r2" '.[$w].roles[$r]')"
+        r2_repo="$(printf '%s' "$e2" | jq -r '.repo // ""')"
+        [ -n "$r2_repo" ] || continue
+        [ "$r2_repo" = "$r_repo" ] || continue
+        r2_files="$(printf '%s' "$e2" | jq -r '.files // ""')"
+        [ -n "$r2_files" ] || continue
+        same_repo_lanes="${same_repo_lanes:+$same_repo_lanes,}$r2_files"
+      done
+      _miss=0
+      while IFS= read -r _p; do
+        [ -n "$_p" ] || continue
+        lane_covers "$_p" "$same_repo_lanes" && continue
+        _miss=1
+      done <<EOF
+${ROLE_OBS_BLOB[$_i]}
+EOF
       [ "$_miss" -eq 1 ] || continue
       LANE_UNDECLARED_WRITES=$((LANE_UNDECLARED_WRITES + 1))
       LANE_UNDECLARED_WRITES_ROLES="$LANE_UNDECLARED_WRITES_ROLES $r"
@@ -4204,7 +4303,10 @@ EOF
         ba="$(printf '%s' "$ea" | jq -r '.branch // ""')"; bb="$(printf '%s' "$eb" | jq -r '.branch // ""')"
         ca="$(printf '%s' "$ea" | jq -r '.cwd // ""')"; cb="$(printf '%s' "$eb" | jq -r '.cwd // ""')"
         fa="$(printf '%s' "$ea" | jq -r '.files // ""')"; fb="$(printf '%s' "$eb" | jq -r '.files // ""')"
-        report_overlap "$a" "$ia" "$ba" "$ca" "$ra" "$b" "$ib" "$bb" "$cb" "$rb" "$fa" "$fb"
+        role_obs_lookup "$a"; oa_status="$ROLE_OBS_FOUND_STATUS"; oa_blob="$ROLE_OBS_FOUND_BLOB"
+        role_obs_lookup "$b"; ob_status="$ROLE_OBS_FOUND_STATUS"; ob_blob="$ROLE_OBS_FOUND_BLOB"
+        report_overlap "$a" "$ia" "$ba" "$ca" "$ra" "$b" "$ib" "$bb" "$cb" "$rb" "$fa" "$fb" \
+          "$oa_status" "$ob_status" "$oa_blob" "$ob_blob"
       done
     done
     # Claim-derived lanes participate in overlap detection (#687 item 2) - an
