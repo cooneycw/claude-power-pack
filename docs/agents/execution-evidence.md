@@ -124,19 +124,19 @@ catches contradiction, not authorship: a consistent forgery still reads
 
 ### Reader example - the pilot artifact
 
-[`docs/measurements/execution-evidence/cbf9931314ed45d2927fa5e150daa9d2.json`](../measurements/execution-evidence/cbf9931314ed45d2927fa5e150daa9d2.json)
-is a real record: `/flow:check` Step 2 run on this branch at commit `bce7c881`,
+[`docs/measurements/execution-evidence/e5fd38dc103949e2b3f84d7b060862b6.json`](../measurements/execution-evidence/e5fd38dc103949e2b3f84d7b060862b6.json)
+is a real record: `/flow:check` Step 2 run on this branch at commit `b8f783b`,
 copied out of the store under its own file name (a renamed copy reads as
 replayed). Its HEAD has since moved, so it is read without the freshness check:
 
 ```text
 $ python3 scripts/execution-evidence-verify.py \
-    docs/measurements/execution-evidence/cbf9931314ed45d2927fa5e150daa9d2.json --no-current
-EXECUTION_EVIDENCE_CLAIM: The CPP runner at commit bce7c881d1ce3d96184dcde85463ebc2a714b926
-  executed plan 'check' in https://github.com/cooneycw/claude-power-pack.git at HEAD
-  bce7c881d1ce3d96184dcde85463ebc2a714b926 with working-tree signature
-  b7ef3f27a374176935f5204d16359aeadb5cf673 (dirty=False): lint success (population not
-  measured); test success (7156 test); typecheck success (355 source file). It does NOT
+    docs/measurements/execution-evidence/e5fd38dc103949e2b3f84d7b060862b6.json --no-current
+EXECUTION_EVIDENCE_CLAIM: The CPP runner at commit b8f783bce4cc856957eb8edeca2889f01e6235b5
+  executed plan 'check' in https://github.com/cooneycw/claude-power-pack at HEAD
+  b8f783bce4cc856957eb8edeca2889f01e6235b5 with working-tree signature
+  09bdb65ed841cbebbe51f7b76e65babbcf18e75e (dirty=False): lint success (population not
+  measured); test success (7515 test); typecheck success (364 source file). It does NOT
   attest who invoked it, that the file is unmodified, or that any step outside this plan
   ran. Freshness against the current tree was NOT checked.
 EXECUTION_EVIDENCE: supported
@@ -145,11 +145,23 @@ EXECUTION_EVIDENCE: supported
 (Wrapped here for width; the tool prints one line.)
 
 **The exact claim it supports:** at that commit and tree, the helper observed
-ruff, pytest and mypy exit 0, with 7156 tests executed and 355 source files
+ruff, pytest and mypy exit 0, with 7515 tests executed and 364 source files
 type-checked. Lint's population is `not measured`: ruff stated no file count on
 this run, and the record says so instead of printing a 0. It does not claim
 that `/flow:check`'s security, completeness or ignored-file steps ran, who
-started the run, or that the file has not been edited since.
+started the run, or that the file has not been edited since. Each check also
+carries its own `carried_from_previous_run` (issue #1410): this sample's own
+producer always writes it, `False` here since nothing was carried.
+
+**The retired sample.**
+[`cbf9931314ed45d2927fa5e150daa9d2.json`](../measurements/execution-evidence/cbf9931314ed45d2927fa5e150daa9d2.json)
+is the PRE-#1410 historical sample - kept byte-identical, never regenerated,
+because skillc pins it by name and sha256
+(`evals/subjects/cpp-codex-flow-check/gate_reconciliation.py` and
+`tests/fixtures/cpp-usage-record/README.md`). Its checks predate the per-check
+`carried_from_previous_run` field the producer now writes (the fact lived only
+at `observed.runner.carried_from_previous_run`, record-level); do not treat its
+shape as the current producer contract.
 
 ## Authority - what this is not
 

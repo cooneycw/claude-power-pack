@@ -1,0 +1,86 @@
+{
+  "record": {
+    "schema": "cpp.execution-evidence/v1",
+    "record_kind": "cpp-usage-record",
+    "authority": "control fixture",
+    "invocation_id": "@INV@",
+    "run_id": "check-00000000",
+    "plan": "check",
+    "plan_record_run_id": null,
+    "begun_at": "2026-10-04T00:00:00Z",
+    "terminal": true,
+    "terminal_event": {
+      "kind": "completed",
+      "at": "2026-10-04T00:00:01Z",
+      "detail": null
+    },
+    "outcome": "completed",
+    "qualifications": [],
+    "declared": {
+      "skill": "flow-check",
+      "skill_source": null,
+      "parent_invocation_id": null,
+      "source": "agent-declared"
+    },
+    "observed": {
+      "repository": {
+        "origin": null,
+        "common_dir": null,
+        "worktree": "@WORKTREE@",
+        "branch": null
+      },
+      "tree_at_start": {
+        "head": "@HEAD@",
+        "dirty": false,
+        "tree_signature": "@SIG@",
+        "taken_at": "2026-10-04T00:00:00Z"
+      },
+      "tree_at_end": {
+        "head": "@HEAD@",
+        "dirty": false,
+        "tree_signature": "@SIG@",
+        "taken_at": "2026-10-04T00:00:00Z"
+      },
+      "helper": {
+        "name": "lib.cicd runner",
+        "cpp_commit": "control",
+        "module_sha256": {}
+      },
+      "skill_source": {
+        "path": ".claude/commands/flow/check.md",
+        "sha256": null,
+        "note": ""
+      },
+      "gates": [
+        "test"
+      ],
+      "checks": [
+        {
+          "id": "test",
+          "gate": true,
+          "status": "success",
+          "exit_code": 0,
+          "attempt": 1,
+          "max_attempts": 1,
+          "attempted_at": "2026-10-04T00:00:00Z",
+          "completed_at": "2026-10-04T00:00:01Z",
+          "executed_in_this_invocation": true,
+          "carried_from_previous_run": false,
+          "reason": null,
+          "evidence": null,
+          "population": {
+            "kind": "tests",
+            "measured": true,
+            "count": 10,
+            "unit": "test"
+          }
+        }
+      ],
+      "runner": {
+        "warnings": [],
+        "carried_from_previous_run": [],
+        "tree_verified": null
+      }
+    }
+  }
+}

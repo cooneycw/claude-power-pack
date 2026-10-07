@@ -211,6 +211,11 @@ tests/fixtures/qa_regression/consumer/playwright-report/
 # Named by FILE, not by directory: live records belong in the git directory
 # (cpp-evidence/), and a directory-wide negation would invite committing them.
 !docs/measurements/execution-evidence/cbf9931314ed45d2927fa5e150daa9d2.json
+# The CURRENT canonical sample (issue #1410) - ADDED alongside the one above,
+# never replacing it: skillc pins the original by name and sha256, so it stays
+# byte-identical and retired rather than regenerated. This one carries the
+# per-check `carried_from_previous_run` field the producer now writes.
+!docs/measurements/execution-evidence/e5fd38dc103949e2b3f84d7b060862b6.json
 # The slate reconciler's hand-maintained claimed-lanes file (issue #1099) -
 # tracked despite *.json above. It IS the declared side of the reconciliation
 # (docs/slate-lanes.md states plainly that it is hand-maintained, not derived),

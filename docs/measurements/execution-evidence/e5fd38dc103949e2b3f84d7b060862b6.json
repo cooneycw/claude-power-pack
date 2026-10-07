@@ -1,0 +1,156 @@
+{
+  "schema": "cpp.execution-evidence/v1",
+  "record_kind": "cpp-usage-record",
+  "authority": "Helper-observed local usage record. Inspectable evidence, NOT tamper-proof attestation: the file is writable by anyone with access to the git directory. Not an evaluation verdict; skillc and CI re-derive what they rely on under their own authority.",
+  "invocation_id": "e5fd38dc103949e2b3f84d7b060862b6",
+  "run_id": "check-f80a8230",
+  "plan": "check",
+  "plan_record_run_id": null,
+  "begun_at": "2026-10-07T10:32:10Z",
+  "terminal": true,
+  "terminal_event": {
+    "kind": "completed",
+    "at": "2026-10-07T10:38:10Z",
+    "detail": null
+  },
+  "outcome": "completed",
+  "qualifications": [],
+  "declared": {
+    "skill": "flow-check",
+    "skill_source": null,
+    "parent_invocation_id": null,
+    "source": "agent-declared through the environment; recorded, not verified by the helper"
+  },
+  "observed": {
+    "repository": {
+      "origin": "https://github.com/cooneycw/claude-power-pack",
+      "common_dir": "/workspace/.work/claude-power-pack/.git",
+      "worktree": "/workspace/.work/claude-power-pack-issue-1410-nit-store-execution-evidence-schema-and-test-gaps",
+      "branch": "issue-1410-nit-store-execution-evidence-schema-and-test-gaps"
+    },
+    "tree_at_start": {
+      "head": "b8f783bce4cc856957eb8edeca2889f01e6235b5",
+      "dirty": false,
+      "tree_signature": "09bdb65ed841cbebbe51f7b76e65babbcf18e75e",
+      "taken_at": "2026-10-07T10:32:10Z"
+    },
+    "tree_at_end": {
+      "head": "b8f783bce4cc856957eb8edeca2889f01e6235b5",
+      "dirty": false,
+      "tree_signature": "09bdb65ed841cbebbe51f7b76e65babbcf18e75e",
+      "taken_at": "2026-10-07T10:38:10Z"
+    },
+    "helper": {
+      "name": "lib.cicd runner",
+      "cpp_commit": "b8f783bce4cc856957eb8edeca2889f01e6235b5",
+      "cpp_runner_modified": false,
+      "module_sha256": {
+        "lib/cicd/runner.py": "b51cc7193b667e37ac563b07b9efadf143cfcb00dc370e085e0773515b07cb07",
+        "lib/cicd/state.py": "8aaf1597d8a95fac57b650b03f83010e23dda94dbb185c0402fc7ac4ccfc59f5",
+        "lib/cicd/steps.py": "d82cb77c5c16251c404a39b19ed54618229f39f6a57ec7068891cf1c9efe90f5",
+        "lib/cicd/evidence.py": "ba2ed1244a9ae0c35a7e1e662799649c20645c7269dc7521fbb609e8852b3305"
+      }
+    },
+    "skill_source": {
+      "path": ".claude/commands/flow/check.md",
+      "sha256": "b0c1fed60598fc078c229cb1ca33ed49fe8c3d9868807e9e5e4bd2953583ca9e",
+      "note": "Digest of the canonical source in the helper's own CPP checkout. It is not proof of which copy (Claude command, Codex mirror) the agent read."
+    },
+    "gates": [
+      "lint",
+      "test",
+      "typecheck"
+    ],
+    "checks": [
+      {
+        "id": "lint",
+        "gate": true,
+        "status": "success",
+        "exit_code": 0,
+        "attempt": 1,
+        "max_attempts": 1,
+        "attempted_at": "2026-10-07T10:32:11+0000",
+        "completed_at": "2026-10-07T10:32:11+0000",
+        "executed_in_this_invocation": true,
+        "carried_from_previous_run": false,
+        "population": {
+          "kind": "coverage",
+          "measured": false,
+          "count": null,
+          "unit": "unit",
+          "state": "unknown",
+          "tool": "unknown"
+        },
+        "reason": null,
+        "evidence": {
+          "output_sha256": "df1116f359e834afd6a034defcde34a9a565e53ff21243185301623b334dcb41",
+          "output_bytes": 51,
+          "note": "Digests of the runner's retained output tail (at most 5000 chars). Raw text is not stored here, so credentials printed by a tool cannot leak through it."
+        }
+      },
+      {
+        "id": "test",
+        "gate": true,
+        "status": "success",
+        "exit_code": 0,
+        "attempt": 1,
+        "max_attempts": 1,
+        "attempted_at": "2026-10-07T10:32:11+0000",
+        "completed_at": "2026-10-07T10:38:02+0000",
+        "executed_in_this_invocation": true,
+        "carried_from_previous_run": false,
+        "population": {
+          "kind": "tests",
+          "measured": true,
+          "count": 7515,
+          "unit": "test",
+          "counts": {
+            "passed": 7515,
+            "failed": 0,
+            "skipped": 19,
+            "errors": 0
+          },
+          "framework": "pytest"
+        },
+        "reason": null,
+        "evidence": {
+          "output_sha256": "3d05a76e62d55dd769f7c3f574d220e2fb675530463357de623af1147e880622",
+          "output_bytes": 4998,
+          "note": "Digests of the runner's retained output tail (at most 5000 chars). Raw text is not stored here, so credentials printed by a tool cannot leak through it."
+        }
+      },
+      {
+        "id": "typecheck",
+        "gate": true,
+        "status": "success",
+        "exit_code": 0,
+        "attempt": 1,
+        "max_attempts": 1,
+        "attempted_at": "2026-10-07T10:38:02+0000",
+        "completed_at": "2026-10-07T10:38:10+0000",
+        "executed_in_this_invocation": true,
+        "carried_from_previous_run": false,
+        "population": {
+          "kind": "coverage",
+          "measured": true,
+          "count": 364,
+          "unit": "source file",
+          "state": "covered",
+          "tool": "mypy"
+        },
+        "reason": null,
+        "evidence": {
+          "output_sha256": "4ce937bacfdf707306a5098e9ce7518e7843d061c2888ab7bff865ac873906b4",
+          "output_bytes": 2008,
+          "note": "Digests of the runner's retained output tail (at most 5000 chars). Raw text is not stored here, so credentials printed by a tool cannot leak through it."
+        }
+      }
+    ],
+    "runner": {
+      "warnings": [],
+      "reruns": [],
+      "carried_from_previous_run": [],
+      "tree_verified": false
+    }
+  }
+}
