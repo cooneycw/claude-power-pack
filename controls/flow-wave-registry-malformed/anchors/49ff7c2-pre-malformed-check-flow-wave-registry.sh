@@ -938,54 +938,6 @@ registry_unreadable() {
   ! cat "$REG_FILE" >/dev/null 2>&1
 }
 
-#: NEGATIVE-CONTROL: controls/flow-wave-registry-malformed
-# registry_malformed -> 0 when the registry OPENS fine but is not exactly one
-# JSON object document (issue #1403). Deliberately NOT folded into
-# `registry_unreadable` above: #1014 Part 2 already gave `entry_json` +
-# `entry_read_or_die` this exact check for every PER-ROLE verb (register,
-# release, get, verify), with its own "could not be parsed" message -
-# test_a_corrupt_registry_is_an_error_not_a_remote_holder pins that wording
-# for all four, and its own comment says content corruption deliberately
-# PASSES the up-front unreadable guard so that downstream, more specific
-# path can run. Folding this in there would intercept those four verbs
-# earlier with a less specific message - same exit code, same verdict, but
-# a regression in what the message can tell a reader.
-#
-# So this is the WHOLE-REGISTRY counterpart, for the readers that have no
-# per-role entry_json to fall through to: `list` and the other
-# `REG="$(read_registry)"` call sites. `jq -cs` (slurp) parses the WHOLE
-# stream as a sequence of JSON documents and fails on a non-JSON tail;
-# requiring EXACTLY ONE object document on top of that additionally refuses
-# a concatenation of two otherwise-valid documents, which slurp alone would
-# accept as a two-element array - the same shape entry_json already tests.
-registry_malformed() {
-  registry_unreadable && return 1
-  ! read_registry 2>/dev/null | jq -cs -e 'length == 1 and (.[0] | type) == "object"' \
-      >/dev/null 2>&1
-}
-
-# refuse_if_registry_malformed -> returns 0 (and prints/exits nothing) when
-# the registry is a single valid JSON object; otherwise reports and exits 3.
-# Called explicitly at each `REG="$(read_registry)"` site that has no
-# per-role entry_json/entry_read_or_die of its own (policy, lane-check,
-# list's NORMAL path) - NOT folded into the shared pre-dispatch
-# registry_unreadable gate, for two reasons. First, register/release/get/
-# verify already get this exact protection from entry_json, with their own
-# more specific "could not be parsed" message
-# (test_a_corrupt_registry_is_an_error_not_a_remote_holder pins the wording);
-# gating them here too would just intercept earlier with a less specific
-# one. Second, `list --any-live` already validates the SAME shape itself,
-# inline, before this would ever run, and answers `undeterminable`/exit 2 -
-# a pre-dispatch call here would pre-empt that with a plain exit 3 instead,
-# changing an answer nothing asked to change. So this is called from each
-# site AFTER any such verb-specific handling has had its chance to run.
-refuse_if_registry_malformed() {
-  registry_malformed || return 0
-  echo "flow-wave-registry: the registry at $REG_FILE exists and can be read, but is not valid content - its contents are UNKNOWN, not empty (issue #1403). Nothing was read; repair or remove it and re-run." >&2
-  emit error
-  exit 3
-}
-
 entry_json() { # entry_json WAVE ROLE -> the entry object or 'null'
   # SLURPED, so a parse error anywhere in the file yields NO output (#1014
   # Part 2, counter-model review). Streamed, `{} garbage` printed `null` for the
@@ -3200,7 +3152,6 @@ case "$VERB" in
   #: go quiet exactly when it has nothing to check.
   lane-check)
     REG="$(read_registry)"
-    refuse_if_registry_malformed
     CUR="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$ROLE" '.[$w].roles[$r] // empty')"
     [ -n "$CUR" ] || { echo "flow-wave-registry: role '$ROLE' is not registered in wave '$WAVE'" >&2; emit error; exit 2; }
     LANE="$(printf '%s' "$CUR" | jq -r '.files // ""')"
@@ -3527,14 +3478,6 @@ case "$VERB" in
       fi
       exit 1
     fi
-    # The NORMAL (non-any-live) path has no validity check of its own (issue
-    # #1403): ROLES_JQ_STATUS above is 0 on a streaming partial parse too, so
-    # it cannot tell "zero roles, affirmatively" from "the parse failed after
-    # the first document". `--any-live` already validates the same shape
-    # above and answers `undeterminable`/exit 2 on this exact file, which is
-    # why this check sits HERE rather than before the ANY_LIVE_ONLY branch -
-    # it must never run on that path, or it would pre-empt that answer.
-    refuse_if_registry_malformed
     POL="$(policy_json "$WAVE")"
     POL_REV="$(policy_rev_of "$POL")"
     # One call to the sibling mailbox, cached for every render below (#778).
