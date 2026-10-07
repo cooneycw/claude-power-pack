@@ -7,11 +7,27 @@ Provides quick, standard, and deep scan modes.
 from __future__ import annotations
 
 import re
-import tomllib
 from pathlib import Path
+from typing import Optional
 
 from .config import SecurityConfig
 from .models import Finding, ScanResult
+
+# Guarded (issue #1405): `lib.security gate` is invoked as a bare
+# `python3 -m lib.security gate ...` inside an ARBITRARY target repo
+# (`lib/cicd/steps.py`'s StepDef has no interpreter pin), not only under
+# CPP's own uv-managed 3.11+ venv. `tomllib` is stdlib only from 3.11
+# (`lib/cicd/mypy_scope.py`'s own precedent: "the host python3 may predate
+# that"), so an unguarded module-level import would crash the WHOLE security
+# scan on an older host - the same failure class the ValueError/RecursionError
+# fix below exists to prevent, one level earlier. `tomllib is None` is checked
+# at every call site instead; the fallback is simply today's behaviour before
+# this feature existed (fails closed - nothing in `.gitleaks.toml` is
+# exempted, so it still blocks).
+try:
+    import tomllib
+except ImportError:  # pragma: no cover - exercised via sys.modules patch in tests
+    tomllib = None  # type: ignore[assignment]
 from .modules import debug_flags, env_files, gitignore, gitleaks, npm_audit, permissions, pip_audit, secrets
 
 
@@ -143,7 +159,9 @@ def check_gate(result: ScanResult, gate_name: str, config: SecurityConfig | None
 
 def _apply_suppressions(result: ScanResult, config: SecurityConfig, project_root: str) -> None:
     """Remove suppressed findings from results."""
-    gitleaks_literals = _gitleaks_policy_literals(project_root)
+    gitleaks_literals, gitleaks_notice = _gitleaks_policy_literals(project_root)
+    if gitleaks_notice:
+        result.skipped.append(gitleaks_notice)
     if not config.suppressions and not gitleaks_literals:
         return
 
@@ -201,7 +219,7 @@ GITLEAKS_POLICY_REL = ".gitleaks.toml"
 _GITLEAKS_ALLOWLIST_KEYS = ("paths", "regexes", "stopwords", "commits")
 
 
-def _gitleaks_policy_literals(project_root: str) -> frozenset[str]:
+def _gitleaks_policy_literals(project_root: str) -> tuple[frozenset[str], Optional[str]]:
     """Every string gitleaks' OWN allowlist declares in `.gitleaks.toml`.
 
     Read once per scan, not parsed as regex and not applied to any file but
@@ -210,10 +228,21 @@ def _gitleaks_policy_literals(project_root: str) -> frozenset[str]:
     `.claude/security.yml` leaves `_is_declared_in_config` with nothing to
     exempt - never an exception, and never a reason to trust the file's
     content more broadly.
+
+    Returns `(literals, notice)`: `notice` is non-None only when the file
+    exists but could not be examined (`tomllib` unavailable on this host),
+    so the caller can say so once instead of silently blocking with no
+    explanation.
     """
     path = Path(project_root) / GITLEAKS_POLICY_REL
     if not path.is_file():
-        return frozenset()
+        return frozenset(), None
+    if tomllib is None:
+        return frozenset(), (
+            "`.gitleaks.toml` found but could not be examined: tomllib is "
+            "unavailable on this host (Python 3.11+ required) - its own "
+            "declared canaries are not recognized here"
+        )
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8", errors="strict"))
     except (
@@ -230,7 +259,7 @@ def _gitleaks_policy_literals(project_root: str) -> frozenset[str]:
         ValueError,
         RecursionError,
     ):
-        return frozenset()
+        return frozenset(), None
 
     literals: set[str] = set()
 
@@ -249,7 +278,7 @@ def _gitleaks_policy_literals(project_root: str) -> frozenset[str]:
             if isinstance(rule, dict):
                 _collect(rule.get("allowlist"))
 
-    return frozenset(literals)
+    return frozenset(literals), None
 
 
 def _is_declared_in_gitleaks_policy(finding: Finding, gitleaks_literals: frozenset[str]) -> bool:

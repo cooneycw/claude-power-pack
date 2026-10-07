@@ -52,6 +52,19 @@ NO_YAML = (
     "runpy.run_module('lib.security', run_name='__main__')\n"
 )
 
+#: Blocks `import tomllib`, exactly as a pre-3.11 host python3 does (issue #1405).
+NO_TOMLLIB = (
+    "import sys\n"
+    "class _Block:\n"
+    "    def find_spec(self, name, path=None, target=None):\n"
+    "        if name == 'tomllib' or name.startswith('tomllib.'):\n"
+    "            raise ImportError('No module named tomllib (blocked by test)')\n"
+    "sys.meta_path.insert(0, _Block())\n"
+    "import runpy\n"
+    "sys.argv = ['lib.security', *sys.argv[1:]]\n"
+    "runpy.run_module('lib.security', run_name='__main__')\n"
+)
+
 
 def _repo(tmp_path: Path, files: dict[str, str], config: str | None = None) -> Path:
     repo = tmp_path / "repo"
@@ -68,12 +81,21 @@ def _repo(tmp_path: Path, files: dict[str, str], config: str | None = None) -> P
 
 
 def _gate(
-    repo: Path, *, without_yaml: bool = False, gate_name: str = "flow_finish"
+    repo: Path,
+    *,
+    without_yaml: bool = False,
+    without_tomllib: bool = False,
+    gate_name: str = "flow_finish",
 ) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
     env["PYTHONPATH"] = str(ROOT)
     argv = ["gate", gate_name, "--path", str(repo)]
-    cmd = [sys.executable, "-c", NO_YAML, *argv] if without_yaml else [sys.executable, "-m", "lib.security", *argv]
+    if without_yaml:
+        cmd = [sys.executable, "-c", NO_YAML, *argv]
+    elif without_tomllib:
+        cmd = [sys.executable, "-c", NO_TOMLLIB, *argv]
+    else:
+        cmd = [sys.executable, "-m", "lib.security", *argv]
     return subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=ROOT)
 
 
@@ -455,6 +477,23 @@ def test_a_gitleaks_toml_with_deeply_nested_arrays_fails_closed(tmp_path: Path) 
     toml_text = "x = " + "[" * 2000 + "]" * 2000 + "\n"
     repo = _repo(tmp_path, {".gitleaks.toml": toml_text, "src/app.py": f'KEY = "{CANARY}"\n'})
     result = _gate(repo, gate_name="flow_finish")
+    assert "Traceback" not in result.stderr, result.stderr
+    assert " FAIL " in _line(result), result.stdout
+    assert "[AWS_ACCESS_KEY]" in result.stdout
+
+
+def test_a_pre_311_host_without_tomllib_fails_closed_not_crashed(tmp_path: Path) -> None:
+    """RED pre-fix (issue #1405). `lib.security gate` is invoked as a bare
+
+    `python3 -m lib.security gate ...` inside an arbitrary target repo, not
+    only under CPP's own 3.11+ venv (`lib/cicd/mypy_scope.py`'s own
+    precedent: "the host python3 may predate that"). An unguarded module-
+    level `import tomllib` crashed the WHOLE security scan on such a host -
+    never a traceback, and the canary still blocks (today's behaviour before
+    this feature existed).
+    """
+    repo = _repo(tmp_path, {".gitleaks.toml": GITLEAKS_ALLOWLIST})
+    result = _gate(repo, without_tomllib=True, gate_name="flow_finish")
     assert "Traceback" not in result.stderr, result.stderr
     assert " FAIL " in _line(result), result.stdout
     assert "[AWS_ACCESS_KEY]" in result.stdout
