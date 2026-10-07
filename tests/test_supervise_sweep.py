@@ -394,6 +394,8 @@ class _Fixture:
     pid: int
     pgid: int
     start: int  # /proc/<pid>/stat field 22, clock ticks since boot
+    script_path: str  # this fixture's own script (argv[1] of its bash invocation, #1430)
+    script_text: str  # that script's own source text, read once at construction
 
 
 def _stat(pid: int) -> tuple[str, int, int, int] | None:
@@ -414,14 +416,126 @@ def _stat(pid: int) -> tuple[str, int, int, int] | None:
     return comm, int(rest[1]), int(rest[2]), int(rest[19])
 
 
+def _stat_settled(pid: int) -> tuple[str, int, int, int] | None:
+    """``_stat(pid)``, retried briefly for a process caught mid-exit (issue #1430).
+
+    A malformed read (`_stat`'s own ValueError/IndexError from parsing a
+    truncated ``/proc/<pid>/stat``) is consistent with the process vanishing
+    between the read and the parse - a kernel-level race, not a permission
+    refusal - so it is worth a few short retries: a process that settles to
+    GONE (`_stat` returning `None`) during the window is honestly "not
+    running", never judged on a half-read snapshot. `PermissionError` is
+    NOT retried here and is re-raised immediately: EACCES is the case
+    `_could_be_kin` exists to judge, not a transient-existence question a
+    retry could resolve (orchestrator ruling, #1430).
+    """
+    attempts = 3
+    for attempt in range(attempts):
+        try:
+            return _stat(pid)
+        except PermissionError:
+            raise
+        except (OSError, ValueError, IndexError):
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.01)
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _cmdline_of(pid: int) -> tuple[str, ...] | None:
+    """This pid's argv, or `None` if unreadable or still mid-exec (issue #1430).
+
+    ``/proc/<pid>/cmdline`` reads back EMPTY (not absent) for a process
+    between `fork()` and the `exec()` that populates it - treated as "not
+    yet identifiable", the same caution `_stat` already applies to its own
+    GONE case, rather than a confident empty tuple that could vacuously
+    satisfy a shape check.
+    """
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        return None
+    if not raw:
+        return None
+    return tuple(
+        part.decode("utf-8", "surrogateescape") for part in raw.rstrip(b"\x00").split(b"\x00")
+    )
+
+
+def _matches_fixture_shape(cmdline: tuple[str, ...], fixture: _Fixture) -> bool:
+    """Whether `cmdline` is something THIS fixture's own script would run (issue #1430).
+
+    Derived from the fixture's actual argv and script body - a POSITIVE
+    match against what the fixture spawns, never a second, hand-maintained
+    list of things that look unlike it (orchestrator ruling): a denylist of
+    "doesn't look like our daemon" grows and drifts out of sync with what
+    `_fake_daemon` actually does; this can only say yes to what the fixture
+    itself would produce.
+    """
+    if len(cmdline) >= 2 and cmdline[0] == "bash" and cmdline[1] == fixture.script_path:
+        return True  # the daemon script process itself (e.g. a respawned parent)
+    return bool(cmdline) and " ".join(cmdline) in fixture.script_text
+
+
+def _own_ancestors() -> frozenset[int]:
+    """This process's own ancestor chain: xdist worker, controller, shell, ... (#1430).
+
+    None of these can ever be a descendant of a fixture THIS test spawns -
+    descendants flow downward from the fixture's own pid, never upward into
+    our own lineage. Walked once per `_kin` call, not per candidate.
+
+    RETRIES ON EACCES TOO, unlike `_could_be_kin`'s own judgment of a
+    stranger candidate (measured directly, issue #1430: the controller/
+    worker processes this walk visits are exactly the ones seen hitting the
+    transient stat/environ EACCES, so an unretried hit here silently
+    TRUNCATES the chain - the walk stops one hop short, `own_ancestors`
+    never gains the controller's own pid, and the structural exclusion it
+    exists to provide goes missing for exactly the candidate it was added
+    for). This is a different question from judging a stranger: every pid
+    in this walk is already KNOWN to be a real ancestor from the previous
+    hop's own ppid field, so retrying here resolves a transient read, it
+    does not decide an identity.
+    """
+    seen: set[int] = set()
+    pid = os.getpid()
+    while pid not in seen:
+        seen.add(pid)
+        fields = None
+        for attempt in range(3):
+            try:
+                fields = _stat(pid)
+                break
+            except OSError:
+                if attempt == 2:
+                    break
+                time.sleep(0.01)
+        if fields is None:
+            break
+        if fields[1] == pid:
+            break
+        pid = fields[1]
+    return frozenset(seen)
+
+
 def _fixture_of(proc: subprocess.Popen) -> _Fixture:
     fields = _stat(proc.pid)
     assert fields is not None, "precondition: the fixture is alive when first observed"
-    return _Fixture(proc.pid, fields[2], fields[3])
+    cmdline = _cmdline_of(proc.pid)
+    assert cmdline is not None and len(cmdline) >= 2, (
+        "precondition: our own fixture's argv is readable immediately after launch"
+    )
+    script_path = cmdline[1]
+    script_text = Path(script_path).read_text(encoding="utf-8")
+    return _Fixture(proc.pid, fields[2], fields[3], script_path, script_text)
 
 
-def _could_be_kin(pid: int, fixture: _Fixture, live_descendants: frozenset[int]) -> bool:
-    """Whether an UNREADABLE pid could be one of the fixture's (issues #1347, #1404).
+def _could_be_kin(
+    pid: int,
+    fixture: _Fixture,
+    live_descendants: frozenset[int],
+    own_ancestors: frozenset[int],
+) -> bool:
+    """Whether an UNREADABLE pid could be one of the fixture's (issues #1347, #1404, #1430).
 
     Every xdist worker shares one process group (measured: gw0-gw2 all in one
     pgid), so the group alone cannot tell a neighbour from the fixture, and
@@ -437,18 +551,35 @@ def _could_be_kin(pid: int, fixture: _Fixture, live_descendants: frozenset[int])
     own currently-live descendants, or it is DEFINITELY not ours, whatever
     it looks like - positive evidence, not the conservative guess. Only a
     REPARENTED candidate (ppid == 1, ancestry severed by `_cleanup` exactly
-    as #1343 describes) falls back to the comm/pgid/start heuristic, which
-    is what it still cannot fully separate from a neighbour's own reparented
-    leak (bash and sleep are not non-dumpable, so their environ is not
-    expected to be refused at all once settled) - the stated residual #1347
-    already named, now narrowed to the case ancestry genuinely cannot see.
+    as #1343 describes) falls back to the comm/pgid/start heuristic.
+
+    When `_stat` itself cannot settle (issue #1430, counter-model review:
+    measured directly under full-file `-n 12` load that the pytest
+    CONTROLLER process - never a descendant of anything a test spawns -
+    transiently failed `/proc/<pid>/stat` and `/proc/<pid>/environ` both,
+    and the old unconditional "unidentifiable, so possibly ours" fallback
+    judged it kin anyway), rule out what cannot be ours BEFORE falling back
+    to that conservative guess:
+      1. structural: a pid that is one of THIS TEST's own ancestors can
+         never be a descendant of a fixture we spawned;
+      2. positive match: if its cmdline is readable, kin only if that
+         cmdline is something the fixture's own script would actually run;
+      3. otherwise (cmdline also unreadable): the #1347 residual this
+         fallback exists for - still conservatively possibly ours.
     """
     try:
-        fields = _stat(pid)
+        fields = _stat_settled(pid)
+    except PermissionError:
+        if pid in own_ancestors:
+            return False  # cannot be a descendant of something we spawned
+        cmdline = _cmdline_of(pid)
+        if cmdline is not None:
+            return _matches_fixture_shape(cmdline, fixture)
+        return True  # unidentifiable even by cmdline: conservatively possibly ours
     except (OSError, ValueError, IndexError):
-        return True  # unidentifiable: judged conservatively as possibly ours
+        return True  # still unidentifiable after the bounded retry
     if fields is None:
-        return False
+        return False  # settled to GONE during the retry: not running, not a survivor
     comm, ppid, pgid, start = fields
     if ppid != 1 and ppid != fixture.pid and ppid not in live_descendants:
         return False  # a live process with a real, different, known parent
@@ -468,18 +599,23 @@ def _kin(tag: str, fixture: _Fixture) -> list[int]:
     anything older than the fixture or running something else - is skipped;
     failing on it failed this test for someone else's process (issue #1347).
     `_could_be_kin` now checks actual ancestry first for a LIVE candidate
-    (issue #1404): what the verdict still cannot separate is its narrowed
-    residual, a REPARENTED same-group `bash`/`sleep` whose severed ancestry
-    makes it indistinguishable from a neighbour's own reparented leak.
+    (issue #1404), and structural ancestry plus a positive cmdline match for
+    an UNIDENTIFIABLE one (issue #1430): what the verdict still cannot
+    separate is its narrowed residual, a REPARENTED same-group `bash`/
+    `sleep` whose severed ancestry makes it indistinguishable from a
+    neighbour's own reparented leak, with an unreadable cmdline too.
 
-    `live_descendants` is a SNAPSHOT, taken once per call rather than
-    re-walked per candidate: the fixture's own tree can only grow during
-    this scan (a child forking), never lose a member ancestry already
-    proved, so a snapshot cannot stale-negative a pid that really is ours.
+    `live_descendants` and `own_ancestors` are SNAPSHOTS, each taken once
+    per call rather than re-walked per candidate: the fixture's own tree can
+    only grow during this scan (a child forking), never lose a member
+    ancestry already proved, so a snapshot cannot stale-negative a pid that
+    really is ours; our own ancestor chain does not change during a test at
+    all.
     """
     needle = f"{KIN_ENV}={tag}".encode()
     uid = os.getuid()
     live_descendants = frozenset(_descendants(fixture.pid))
+    own_ancestors = _own_ancestors()
     found = []
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit():
@@ -491,7 +627,7 @@ def _kin(tag: str, fixture: _Fixture) -> list[int]:
         except (FileNotFoundError, ProcessLookupError):
             continue  # exited between listing and reading: not a survivor
         except OSError as exc:
-            if _could_be_kin(int(entry.name), fixture, live_descendants):
+            if _could_be_kin(int(entry.name), fixture, live_descendants, own_ancestors):
                 pytest.fail(f"could not read pid {entry.name}'s environment: {exc}", pytrace=False)
             continue  # a neighbour's process: not ours to judge
         if needle in environ.split(b"\0") and pid_alive(int(entry.name)):
@@ -641,8 +777,8 @@ def test_an_unreadable_neighbour_does_not_fail_the_cleanup_check(monkeypatch: py
     assert os.stat(f"/proc/{neighbour}").st_uid == os.getuid(), "precondition: same uid"
     here = _stat(os.getpid())
     assert here is not None
-    fixture = _Fixture(os.getpid(), here[2], here[3] + 1)  # started after the neighbour
-    assert not _could_be_kin(neighbour, fixture, frozenset()), (
+    fixture = _Fixture(os.getpid(), here[2], here[3] + 1, "", "")  # started after the neighbour
+    assert not _could_be_kin(neighbour, fixture, frozenset(), frozenset()), (
         "precondition: the neighbour is not a candidate"
     )
     refused = _refuse_environ_of(monkeypatch, neighbour)
@@ -694,7 +830,7 @@ def test_a_live_same_group_sibling_with_matching_comm_and_timing_is_not_kin(
         assert sibling_child not in live_descendants, (
             "precondition: the sibling's child is genuinely not the fixture's descendant"
         )
-        assert not _could_be_kin(sibling_child, fixture, live_descendants), (
+        assert not _could_be_kin(sibling_child, fixture, live_descendants, frozenset()), (
             "the sibling's child must not be judged kin on pgid/comm/timing alone"
         )
 
@@ -722,31 +858,204 @@ def test_a_live_same_group_sibling_with_matching_comm_and_timing_is_not_kin(
 
 
 @requires_proc
+def test_an_xdist_sibling_worker_with_unreadable_stat_is_not_kin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Issue #1430, counter-model review: measured directly under full-file
+    `-n 12` load that the pytest CONTROLLER process itself - never a
+    descendant of any fixture - transiently failed `/proc/<pid>/stat` and
+    `/proc/<pid>/environ` both, and the old unconditional "unidentifiable,
+    so possibly ours" fallback judged it kin anyway. A python-shaped
+    throwaway process stands in for that controller/worker shape: not our
+    ancestor, cmdline readable and plainly not the fixture's own script or
+    its forked `sleep`, so it must be ruled out by the cmdline check (the
+    structural ancestor check alone does not cover it - this process is
+    simply unrelated, not upstream of us).
+    """
+    tag = uuid.uuid4().hex
+    proc = _fake_daemon(
+        tmp_path, "__supervise_daemon", DEAD_OWNER,
+        body=f"export {KIN_ENV}={tag}\nsleep 300\n", own_group=False,
+    )
+    worker: subprocess.Popen | None = None
+    try:
+        fixture = _fixture_of(proc)
+        worker = subprocess.Popen(["python3", "-c", "import time; time.sleep(5)"])
+        worker_here = worker.pid  # subprocess.Popen(["python3", ...]) execs directly, no bash wrapper
+        deadline = time.monotonic() + FIXTURE_DEADLINE
+        worker_cmdline = _cmdline_of(worker_here)
+        while worker_cmdline is None:  # still between fork() and exec()
+            assert time.monotonic() < deadline, "precondition: the worker's cmdline populated"
+            time.sleep(0.02)
+            worker_cmdline = _cmdline_of(worker_here)
+        assert not _matches_fixture_shape(worker_cmdline, fixture), (
+            "precondition: a python worker's cmdline does not match the fixture's shape"
+        )
+        own_ancestors = _own_ancestors()
+        assert worker_here not in own_ancestors, "precondition: the worker is not our ancestor"
+        # `_could_be_kin` is exercised DIRECTLY here, not through `_kin`'s own
+        # /proc scan - it never reads environ itself, so only `stat` needs
+        # refusing to reach the branch under test.
+        real_text = Path.read_text
+        stat_path = Path(f"/proc/{worker_here}/stat")
+        stat_refused: list[int] = []
+
+        def read_text(self: Path, *args: object, **kwargs: object) -> str:
+            if self == stat_path:
+                stat_refused.append(worker_here)
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_text(self, *args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(Path, "read_text", read_text)
+        live_descendants = frozenset(_descendants(fixture.pid))
+        assert not _could_be_kin(worker_here, fixture, live_descendants, own_ancestors), (
+            "an unrelated python-shaped sibling must not be judged kin on an "
+            "unreadable stat alone"
+        )
+        assert stat_refused == [worker_here], "precondition: the refusal branch was exercised"
+    finally:
+        _cleanup(proc)
+        if worker is not None:
+            worker.kill()
+            worker.wait(timeout=10)
+        _reap_marked(tag)
+
+
+@requires_proc
+def test_an_escaped_descendant_with_unreadable_stat_is_still_kin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Issue #1430's own red case: the instrument must keep catching the
+    leak it exists for. A real fixture descendant whose stat is ALSO
+    refused (on top of environ) must still be judged kin, because its
+    cmdline matches what the fixture's own script actually runs - the
+    positive match, not the structural exclusion, is what keeps this case
+    caught.
+    """
+    tag = uuid.uuid4().hex
+    proc = _fake_daemon(
+        tmp_path, "__supervise_daemon", DEAD_OWNER,
+        body=f"export {KIN_ENV}={tag}\nsleep 300\n", own_group=False,
+    )
+    try:
+        fixture = _fixture_of(proc)
+        child, _fields = _execd_child(proc.pid, "sleep")
+        assert _matches_fixture_shape(_cmdline_of(child), fixture), (
+            "precondition: the real descendant's cmdline matches the fixture's own script"
+        )
+        own_ancestors = _own_ancestors()
+        assert child not in own_ancestors, "precondition: a descendant cannot be our ancestor"
+        # `_could_be_kin` is exercised DIRECTLY here, not through `_kin`'s own
+        # /proc scan - it never reads environ itself, so only `stat` needs
+        # refusing to reach the branch under test.
+        real_text = Path.read_text
+        stat_path = Path(f"/proc/{child}/stat")
+        stat_refused: list[int] = []
+
+        def read_text(self: Path, *args: object, **kwargs: object) -> str:
+            if self == stat_path:
+                stat_refused.append(child)
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_text(self, *args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(Path, "read_text", read_text)
+        live_descendants = frozenset(_descendants(fixture.pid))
+        assert _could_be_kin(child, fixture, live_descendants, own_ancestors), (
+            "a real escaped descendant matching the fixture's own script must "
+            "still be judged kin, even with stat also unreadable"
+        )
+        assert stat_refused == [child], "precondition: the refusal branch was exercised"
+    finally:
+        _cleanup(proc)
+        _reap_marked(tag)
+
+
+@requires_proc
+def test_own_ancestors_never_contains_a_freshly_spawned_fixtures_pid(tmp_path: Path) -> None:
+    """Issue #1430: the structural exclusion cannot misfire on a real fixture
+    by construction - a fixture is a NEW CHILD this test spawns, so it can
+    never appear in this test's own ancestor chain (which only walks
+    upward: xdist worker, controller, shell, ...). Pinned directly rather
+    than inferred, since a bug here would silently exclude every real
+    fixture from ever being judged kin.
+    """
+    tag = uuid.uuid4().hex
+    proc = _fake_daemon(
+        tmp_path, "__supervise_daemon", DEAD_OWNER,
+        body=f"export {KIN_ENV}={tag}\nsleep 300\n", own_group=False,
+    )
+    try:
+        fixture = _fixture_of(proc)
+        child, _fields = _execd_child(proc.pid, "sleep")
+        own_ancestors = _own_ancestors()
+        assert fixture.pid not in own_ancestors, (
+            "a freshly spawned fixture must never appear in our own ancestor chain"
+        )
+        assert child not in own_ancestors, (
+            "a fixture's own descendant must never appear in our own ancestor chain"
+        )
+    finally:
+        _cleanup(proc)
+        _reap_marked(tag)
+
+
+@requires_proc
 def test_an_unidentifiable_unreadable_process_fails_the_cleanup_check(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Environ refused AND stat unreadable (not gone): unobserved, so the check fails.
+    """Environ, stat AND cmdline all refused, on a process that is not our
+    ancestor: unobserved by every means, so the check fails.
 
-    Before, any stat failure read as "not a candidate", and the scan skipped a
-    process it could neither read nor identify (counter-model review).
+    Before #1347's fix, any stat failure read as "not a candidate" (the scan
+    skipped a process it could neither read nor identify). Before #1430,
+    this test used `os.getppid()` as its target - which IS an ancestor of
+    the calling process, so #1430's structural exclusion now rules that
+    case out WITHOUT reaching this fallback at all, no longer testing the
+    truly-unidentifiable residual. A throwaway, unrelated subprocess - not
+    an ancestor, not a descendant, no relation to the fixture - keeps this
+    test aimed at what the conservative fallback still exists for.
     """
-    neighbour = os.getppid()
-    here = _stat(os.getpid())
-    assert here is not None
-    fixture = _Fixture(os.getpid(), here[2], here[3] + 1)
-    refused = _refuse_environ_of(monkeypatch, neighbour)
-    real_text = Path.read_text
-    stat_path = Path(f"/proc/{neighbour}/stat")
+    target = subprocess.Popen(["sleep", "5"])
+    try:
+        here = _stat(os.getpid())
+        assert here is not None
+        fixture = _Fixture(os.getpid(), here[2], here[3] + 1, "", "")
+        assert target.pid not in _own_ancestors(), "precondition: target is not our ancestor"
+        real_text = Path.read_text
+        real_bytes = Path.read_bytes
+        stat_path = Path(f"/proc/{target.pid}/stat")
+        environ_path = Path(f"/proc/{target.pid}/environ")
+        cmdline_path = Path(f"/proc/{target.pid}/cmdline")
+        refused: list[str] = []
 
-    def read_text(self: Path, *args: object, **kwargs: object) -> str:
-        if self == stat_path:
-            raise PermissionError(13, "Permission denied", str(self))
-        return real_text(self, *args, **kwargs)  # type: ignore[arg-type]
+        def read_text(self: Path, *args: object, **kwargs: object) -> str:
+            if self == stat_path:
+                refused.append("stat")
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_text(self, *args, **kwargs)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(Path, "read_text", read_text)
-    with pytest.raises(pytest.fail.Exception, match="could not read pid"):
-        _kin(uuid.uuid4().hex, fixture)
-    assert refused == [neighbour], "precondition: the refusal branch was actually exercised"
+        def read_bytes(self: Path) -> bytes:
+            if self in (environ_path, cmdline_path):
+                refused.append(self.name if self != environ_path else "environ")
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_bytes(self)
+
+        monkeypatch.setattr(Path, "read_text", read_text)
+        monkeypatch.setattr(Path, "read_bytes", read_bytes)
+        # Matched on THIS target's own pid, not the bare phrase (issue #1430):
+        # an ambient, unrelated transient EACCES elsewhere in /proc during the
+        # scan could ALSO raise "could not read pid <other>'s environment",
+        # which would satisfy a bare-phrase match without this test's own
+        # refusal ever having fired - exactly the imprecision #1430 is about,
+        # now inside this test's own assertion.
+        with pytest.raises(pytest.fail.Exception, match=f"could not read pid {target.pid}"):
+            _kin(uuid.uuid4().hex, fixture)
+        assert "stat" in refused and "environ" in refused and "cmdline" in refused, (
+            f"precondition: all three refusal branches were actually exercised: {refused}"
+        )
+    finally:
+        target.kill()
+        target.wait(timeout=10)
 
 
 @requires_proc
@@ -775,7 +1084,12 @@ def test_an_unreadable_process_of_ours_fails_the_cleanup_check(
         )
         refused = _refuse_environ_of(monkeypatch, child)
 
-        with pytest.raises(pytest.fail.Exception, match="could not read pid"):
+        # Matched on THIS child's own pid, not the bare phrase (issue #1430):
+        # an ambient, unrelated transient EACCES elsewhere in /proc during the
+        # scan could ALSO raise "could not read pid <other>'s environment",
+        # satisfying a bare-phrase match without this test's own refusal
+        # having fired at all.
+        with pytest.raises(pytest.fail.Exception, match=f"could not read pid {child}"):
             _kin(tag, fixture)
         assert refused, "precondition: the refusal branch was actually exercised"
     finally:
