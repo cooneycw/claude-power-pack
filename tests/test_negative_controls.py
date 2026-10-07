@@ -2713,20 +2713,26 @@ def test_a_synthetic_anchor_is_not_checked_against_a_commit_it_never_had(tmp_pat
 
 
 @requires_git
-@requires_git
-def test_the_real_synthetic_anchors_are_not_reported_as_mismatched(tmp_path: Path) -> None:
-    """The regression this actually fixed, pinned on the mechanism (#1404).
+def test_a_synthetic_anchors_glob_like_origin_is_not_reported_as_mismatched(tmp_path: Path) -> None:
+    """The mechanism behind the regression #1157 actually fixed (#1404).
 
-    Synthetic rather than the real battery: `controls/deletion-accounting` is
-    the real-world instance (its origin text quotes the glob pattern
-    `^-[^-]`) and reported MISMATCH under `--verify-provenance` before #1157,
-    but the defect is general, not specific to that one control's current
-    wording. `git show <sha>:<origin>` reads an origin containing pathspec
-    glob metacharacters as a PATHSPEC rather than a path, matches nothing,
-    and exits 0 with EMPTY output - which an unguarded byte-compare hashes as
-    content. With provenance now FAILING the run, that false alarm would
-    become a false red on a real control, so `kind: "synthetic"` must
-    short-circuit before the git lookup ever runs, for any origin text.
+    Renamed from `test_the_real_...` (orchestrator review, #1404): this test
+    no longer reads any real anchor, so a name claiming "the real" one would
+    be a false claim about what it exercises. The real-register half of this
+    coverage - byte-comparing an actual historical anchor against git
+    history - is `test_the_real_historical_anchors_are_byte_verified_
+    against_git_history` below; this test pins the MECHANISM instead.
+
+    `controls/deletion-accounting` is the real-world instance (its origin
+    text quotes the glob pattern `^-[^-]`) and reported MISMATCH under
+    `--verify-provenance` before #1157, but the defect is general, not
+    specific to that one control's current wording. `git show <sha>:<origin>`
+    reads an origin containing pathspec glob metacharacters as a PATHSPEC
+    rather than a path, matches nothing, and exits 0 with EMPTY output -
+    which an unguarded byte-compare hashes as content. With provenance now
+    FAILING the run, that false alarm would become a false red on a real
+    control, so `kind: "synthetic"` must short-circuit before the git lookup
+    ever runs, for any origin text.
     """
     root = build_tree(tmp_path, SEEING_GATE)
     subprocess.run(["git", "init", "-q", str(root)], check=True, timeout=60)
@@ -2751,6 +2757,77 @@ def test_the_real_synthetic_anchors_are_not_reported_as_mismatched(tmp_path: Pat
     assert "NEGATIVE_CONTROL_PROVENANCE: MISMATCH" not in result.stdout, (
         "a synthetic anchor is being compared against history again\n" + result.stdout
     )
+
+
+#: Every control whose anchor is `kind: "historical"` with a real, resolvable
+#: short-sha (issue #1404). A `synthetic`, `constructed` or `vendored` anchor's
+#: `sha` is a placeholder (`0000000`, a descriptive string like
+#: `constructed-argv0-only`) that `_provenance` either short-circuits on or
+#: that git can never resolve either way - neither is affected by
+#: --verify-provenance and scoping to them here would prove nothing. This is
+#: the actual, narrower population --verify-provenance can say anything about.
+_HISTORICAL_ANCHOR_CONTROLS = (
+    "check-negative-controls",
+    "check-negative-fixture-preconditions",
+    "check-test-binary-guards",
+    "cpp-commands-link",
+    "delegated-run-check",
+    "flow-finish-gate-declared-gates",
+    "flow-finish-gate-plan-reconciliation",
+    "flow-finish-gate-subsumption",
+    "flow-finish-gate",
+    "flow-helpers-install",
+    "flow-pr-watch",
+    "flow-wave-lexicon",
+    "flow-wave-plan",
+    "flow-wave-registry-takeover",
+    "flow-wave-registry",
+    "flow-worktree-guard",
+    "hook-mask-output",
+    "install-drift",
+    "shellcheck-gate",
+)
+
+
+@requires_git
+def test_the_real_historical_anchors_are_byte_verified_against_git_history() -> None:
+    """Provenance against the REAL register, scoped to what can actually be verified.
+
+    Neither CI (the `negative-controls` step's image is git-free by design,
+    the #451/#489/#577 trap - see .woodpecker.yml) nor `make verify` /
+    `make negative-controls` (neither passes --verify-provenance) ever
+    byte-compares a real anchor against the git history it claims. This unit
+    test is therefore the ONLY place that happens (orchestrator review,
+    #1404) - replacing the old `test_the_real_synthetic_anchors_are_not_
+    reported_as_mismatched`, which read real anchors only incidentally, by
+    running the whole ~65-control battery, and lost that coverage entirely
+    when rewritten synthetic for speed.
+
+    Calls `_provenance` DIRECTLY (via `_load_harness_module`) rather than
+    shelling out through `--control` per registration: a subprocess harness
+    run also re-executes the whole case battery (gate and anchor, bad and
+    good) to get to the one provenance line, which is unrelated work this
+    property does not need. 19 scoped `--control --verify-provenance`
+    subprocess runs measured at 59-61s under `-n 12` (49-51% of the 120s
+    budget, over the orchestrator's 25% bar) versus 0.12s for the same 19
+    registrations' `_provenance` calls alone, unloaded - the case battery
+    was the entire cost, not the git comparison.
+
+    Scoped to `_HISTORICAL_ANCHOR_CONTROLS` rather than the full register:
+    those are the only registrations whose anchor can actually produce a
+    MISMATCH under this check (see its comment) - a synthetic, constructed
+    or vendored anchor's placeholder `sha` never resolves either way.
+    """
+    harness = _load_harness_module()
+    for control in _HISTORICAL_ANCHOR_CONTROLS:
+        manifest_path = ROOT / "controls" / control / "control.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for anchor in manifest.get("anchors", []):
+            anchor_path = (ROOT / "controls" / control / anchor["path"]).resolve()
+            verdict = harness._provenance(anchor, anchor_path, ROOT, True)
+            assert verdict != "MISMATCH", (
+                f"{control}: a real anchor no longer matches the git history it claims"
+            )
 
 
 # --------------------------------------------------------------------------- #
