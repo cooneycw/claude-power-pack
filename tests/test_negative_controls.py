@@ -4660,17 +4660,22 @@ def test_an_undecodable_lib_file_is_skipped_silently_like_a_scripts_one(tmp_path
     assert contract(out.stdout, "NEGATIVE_CONTROL_REGISTERED") == "1", out.stdout
 
 
-def test_the_real_lib_security_gate_control_discriminates_and_its_anchor_is_blind(
-    real_battery: subprocess.CompletedProcess[str],
-) -> None:
+def test_the_real_lib_security_gate_control_discriminates_and_its_anchor_is_blind() -> None:
     """End to end against the REAL `controls/lib-security-gate` (#1394's own
     acceptance demo): row 61 of the census, `lib.security gate`, implemented
     entirely under `lib/security/` with no `scripts/` entry point, now has a
-    registered, discriminating control."""
-    block = control_block(real_battery.stdout, "lib/security/cli.py")
+    registered, discriminating control.
+
+    Scoped via --control rather than the whole battery (#1404): this needs
+    only its one real registration, and the census lines (including the
+    NONMEMBER check below) are printed regardless of --control, since the
+    census is a property of the whole tree, not of the selected registration.
+    """
+    result = run_harness(ROOT, "--control", "controls/lib-security-gate")
+    block = control_block(result.stdout, "lib/security/cli.py")
     assert "VERDICT: PASS" in block, block
-    for line in real_battery.stdout.splitlines():
-        assert line != "NEGATIVE_CONTROL_CENSUS_NONMEMBER: lib.security", real_battery.stdout
+    for line in result.stdout.splitlines():
+        assert line != "NEGATIVE_CONTROL_CENSUS_NONMEMBER: lib.security", result.stdout
 
 
 # --------------------------------------------------------------------------- #
