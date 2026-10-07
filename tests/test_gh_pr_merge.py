@@ -3547,3 +3547,69 @@ def test_the_observed_verdict_comes_from_the_snapshot_it_classified(tmp_path: Pa
     result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1300-fix")
     assert "GH_PR_MERGE_CI_WAIT: none-observed" in result.stdout, result.stdout
     assert "GH_PR_MERGE_CI_WAIT: green" not in result.stdout
+
+
+def test_negated_cross_repo_close_keyword_refuses(tmp_path: Path):
+    """Issue #1412 item (a), RED pre-fix.
+
+    `owner/repo#N` is GitHub's own cross-repo closing syntax. Before this
+    fix, the keyword regex only matched a bare `#N`, so "Does not close
+    cooneycw/kyle#99" matched nothing at all - the #726 guard never saw it,
+    and the merge proceeded, silently closing a DIFFERENT repo's issue on
+    merge despite the disclaimer (the exact #726 hazard, just invisible to
+    the regex rather than defeated by negation).
+    """
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        pr_title="docs: clarify follow-up scope",
+        pr_body="Does not close cooneycw/kyle#99",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1412-fix")
+    assert result.returncode == 5, result.stderr
+    assert "CLEAN STOP" in result.stderr
+    assert "#99" in result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert merge_calls == [], "negated cross-repo close must leave the PR untouched"
+
+
+def test_plain_cross_repo_close_keyword_passes(tmp_path: Path):
+    """A legitimate, non-negated cross-repo directive must still merge
+
+    normally - the widened regex must not turn every cross-repo mention into
+    a false refusal (issue #1412).
+    """
+    stubs = _make_stubs(
+        tmp_path,
+        merge_exit=0,
+        pr_state="MERGED",
+        pr_title="fix: complete issue work",
+        pr_body="Closes cooneycw/kyle#99",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1412-fix")
+    assert result.returncode == 0, result.stderr
+    assert "merged" in result.stdout
+    assert any(c.startswith("gh pr merge") for c in _calls(stubs))
+
+
+def test_incidental_cross_repo_close_keyword_refuses(tmp_path: Path):
+    """The #794 incidental guard must see a cross-repo reference too (issue
+
+    #1412) - mirrors the existing same-repo near-miss
+    (test_incidental_close_keyword_refuses_adjective_in_commit_subject),
+    just with an owner/repo-qualified issue number.
+    """
+    subject = "Amend section 4 with the resolved cooneycw/kyle#509/terms-risk finding"
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        pr_title="docs: amend terms",
+        pr_body="Summary.",
+        pr_commits=[subject],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1412-fix")
+    assert result.returncode == 7, result.stderr
+    assert "CLEAN STOP" in result.stderr
+    assert "#509" in result.stderr
+    merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert merge_calls == [], "incidental cross-repo close must leave the PR untouched"

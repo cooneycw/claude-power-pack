@@ -1408,7 +1408,12 @@ guard_negated_close_keywords() {
     local en_dash=$'\xE2\x80\x93' em_dash=$'\xE2\x80\x94' apostrophe=$'\xE2\x80\x99'
     # grep -b reports byte offsets, so keep Bash and the grep children byte-oriented.
     local -x LC_ALL=C
-    keyword_re='(?i)\b(?:close(?:s|d)?|fix(?:es|ed)?|resolve(?:s|d)?)\b:?\s*#[[:digit:]]+'
+    # `(?:[\w.-]+/[\w.-]+)?` before `#` (issue #1412) recognizes GitHub's
+    # cross-repo closing syntax, `owner/repo#N` - without it, "Does not close
+    # cooneycw/kyle#99" matched NOTHING, so this guard never saw it at all and
+    # the merge proceeded, the same class of silent-close #726 exists to stop,
+    # just invisible to the regex rather than defeated by negation.
+    keyword_re='(?i)\b(?:close(?:s|d)?|fix(?:es|ed)?|resolve(?:s|d)?)\b:?\s*(?:[\w.-]+/[\w.-]+)?#[[:digit:]]+'
     auxiliary_re='does|do|did|will|would|shall|should|can|could|must|may|might|is|are|was|were|be|been|has|have|had'
     negation_re="(?i)(?:\\b(?:(?:${auxiliary_re})\\h+not|not|never|no)\\b|\\b[[:alpha:]]+n(?:'|${apostrophe})t\\b)(?:\\h+[[:alpha:]]+){0,2}\\h*$"
 
@@ -1576,7 +1581,10 @@ guard_incidental_close_keywords() {
     local after prefix suffix display_suffix context found=0 immediate_suffix
     local en_dash=$'\xE2\x80\x93' em_dash=$'\xE2\x80\x94'
     local -x LC_ALL=C
-    keyword_re='(?i)\b(?:close(?:s|d)?|fix(?:es|ed)?|resolve(?:s|d)?)\b:?\s*#[[:digit:]]+'
+    # Same cross-repo widening as guard_negated_close_keywords (issue #1412):
+    # `owner/repo#N` must be visible to this guard too, or an incidental
+    # cross-repo reference waves through unexamined.
+    keyword_re='(?i)\b(?:close(?:s|d)?|fix(?:es|ed)?|resolve(?:s|d)?)\b:?\s*(?:[\w.-]+/[\w.-]+)?#[[:digit:]]+'
 
     _incidental_close_selfcheck
 
