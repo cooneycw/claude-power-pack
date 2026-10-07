@@ -4953,6 +4953,7 @@ class TestAnotherHostsOwnerIsUnknownNotStale:
 # ---------------------------------------------------------------------------
 
 
+@requires_tools
 @pytest.mark.parametrize(
     "contents",
     ["{} trailing-garbage", "{}\n{}\n", "[]"],
@@ -4978,6 +4979,7 @@ def test_list_reports_a_corrupt_registry_not_an_empty_roster(
     assert "not valid content" in p.stderr
 
 
+@requires_tools
 def test_list_any_live_is_unaffected_by_the_normal_path_fix(tmp_path: Path) -> None:
     """Control: the new check sits AFTER the any-live branch's own exit, so
     --any-live's pre-existing undeterminable answer on the same file must
@@ -4990,6 +4992,7 @@ def test_list_any_live_is_unaffected_by_the_normal_path_fix(tmp_path: Path) -> N
     assert p.stdout.strip() == "FLOW_WAVE_ANY_LIVE=undeterminable"
 
 
+@requires_tools
 def test_lane_check_reports_a_corrupt_registry_not_an_unregistered_role(
     tmp_path: Path,
 ) -> None:
