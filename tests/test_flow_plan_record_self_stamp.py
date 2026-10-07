@@ -89,6 +89,42 @@ def test_two_byte_identical_copies_report_the_same_stamp(tmp_path: Path) -> None
 
 
 @requires_git
+def test_an_uncommitted_edit_to_the_script_itself_changes_the_stamp(tmp_path: Path) -> None:
+    """Counter-model review (#1399): the commit-only half of the stamp names
+    the CHECKOUT's HEAD, which does not move when this exact file gets an
+    uncommitted local edit - two different sets of bytes at the same HEAD
+    would otherwise read as the same copy. The content hash must differ even
+    though `worktree-at-<sha>` does not.
+    """
+    repo = tmp_path / "wt"
+    repo.mkdir()
+    scripts_dir = repo / "scripts"
+    scripts_dir.mkdir()
+    committed = scripts_dir / "flow-plan-record.py"
+    committed.write_bytes(HELPER.read_bytes())
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "t@e.com"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "t"], check=True)
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "x"], check=True)
+
+    stamp_clean = _stamp_from(committed, repo)
+    with committed.open("a") as fh:
+        fh.write("\n# an uncommitted local edit\n")
+    stamp_dirty = _stamp_from(committed, repo)
+
+    assert "worktree-at-" in stamp_clean and "worktree-at-" in stamp_dirty, (
+        f"expected the git-tracked branch for both: {stamp_clean!r}, {stamp_dirty!r}"
+    )
+    assert stamp_clean.split()[0] == stamp_dirty.split()[0], (
+        "precondition: HEAD must not have moved between the two readings"
+    )
+    assert stamp_clean != stamp_dirty, (
+        f"an uncommitted edit to the script itself did not change its stamp: {stamp_clean!r}"
+    )
+
+
+@requires_git
 def test_the_stamp_appears_beside_every_verdict_producing_subcommand(tmp_path: Path) -> None:
     """compliance, drift and head-check each print it - a stale copy lies in
     every sub-command, not only the one that happened to be measured."""

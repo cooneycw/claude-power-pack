@@ -92,27 +92,33 @@ def self_stamp() -> str:
     fix the checkout already carries (Nit Store #864 comment 5874632553) -
     nothing before this printed WHICH COPY produced a verdict.
 
-    git, when this file's own directory is inside a work tree, names the
-    COMMIT (`worktree-at-<sha>`, the same wording `check-negative-controls.
-    py`'s `_source_stamp` uses for the analogous "which copy" question).
-    Otherwise - the installed-copy case - a content hash of this exact file
-    is the only honest answer: never a guess, and a reader can still compare
-    it against `git show <expected>:scripts/flow-plan-record.py | sha256sum`.
+    THE CONTENT HASH IS ALWAYS INCLUDED, never only the commit (counter-model
+    review): `worktree-at-<sha>` alone names the CHECKOUT's HEAD, which says
+    nothing about whether this exact file has an uncommitted local edit
+    sitting on top of that commit - two different sets of bytes at the same
+    HEAD would otherwise read as the same copy. git, when this file's own
+    directory is inside a work tree, additionally names the COMMIT
+    (`worktree-at-<sha>`, the same wording `check-negative-controls.py`'s
+    `_source_stamp` uses for the analogous "which copy" question) beside the
+    hash, for a human reading the output. Without git - the installed-copy
+    case - the content hash is the only answer: never a guess, and a reader
+    can still compare it against `git show <expected>:scripts/flow-plan-
+    record.py | sha256sum`.
     """
     here = pathlib.Path(__file__).resolve()
+    try:
+        digest = hashlib.sha256(here.read_bytes()).hexdigest()[:12]
+    except OSError:
+        return "unknown"
     try:
         out = subprocess.run(
             ["git", "-C", str(here.parent), "rev-parse", "--short", "HEAD"],
             capture_output=True, text=True, timeout=10, check=False,
         )
         if out.returncode == 0 and out.stdout.strip():
-            return f"worktree-at-{out.stdout.strip()}"
+            return f"worktree-at-{out.stdout.strip()} content-{digest}"
     except (OSError, subprocess.SubprocessError):  # pragma: no cover - defensive
         pass
-    try:
-        digest = hashlib.sha256(here.read_bytes()).hexdigest()[:12]
-    except OSError:
-        return "unknown"
     return f"content-{digest} (not git-tracked at this path)"
 
 
@@ -739,11 +745,20 @@ def cmd_compliance(issue: str, base: str | None) -> int:
                                "ancestor of HEAD (history was rewritten), so this run's own "
                                "changes cannot be separated - pass --base to choose a scope")
         print(f"PLAN_COMPLIANCE_BASE: this run's start ({run_start[:12]}), from its own "
-              "first-parent, non-merge commits only - a file edited then reverted back to "
-              "main's content partway through this run still counts as this run's touch "
-              "(KNOWN LIMITATION: an edit made only inside a merge commit's own conflict "
-              "resolution is not visible to --no-merges and is not counted)")
-        touched = sorted(log_touched(f"{run_start}..HEAD"))
+              "first-parent, non-merge commits plus any still-uncommitted change - a file "
+              "edited then reverted back to main's content partway through this run still "
+              "counts as this run's touch (KNOWN LIMITATION: an edit made only inside a "
+              "merge commit's own conflict resolution is not visible to --no-merges and is "
+              "not counted)")
+        # log_touched reads COMMITTED history only - `git log` never looks at the
+        # index or the working tree, so a staged or unstaged file this run has
+        # not committed yet would otherwise be invisible (counter-model review:
+        # confirmed empirically that an uncommitted unplanned file reported
+        # agreement without this). changed_since("HEAD") is exactly the diff
+        # against the run's own current HEAD, which is precisely the staged +
+        # unstaged population - the same one `--base` and the final `else`
+        # branch already see via their own changed_since call.
+        touched = sorted(log_touched(f"{run_start}..HEAD") | changed_since("HEAD"))
     else:
         if not main_base:
             compliance_unknown("no merge-base of HEAD and origin/main, so there is no base to "

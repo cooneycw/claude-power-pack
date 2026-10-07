@@ -461,6 +461,30 @@ def test_a_revert_to_mains_content_is_still_this_runs_touch(repo: Path) -> None:
 
 
 @requires_git
+def test_an_uncommitted_unplanned_file_is_still_touched(repo: Path) -> None:
+    """Counter-model review (#1399): `log_touched` reads COMMITTED history
+    only - `git log` never looks at the index or the working tree - so a
+    staged or unstaged file this run has not committed yet was invisible to
+    it alone. Confirmed empirically before fixing: an uncommitted unplanned
+    file reported PLAN_COMPLIANCE: agreement with the fix's first cut.
+    changed_since("HEAD") (the same call `--base` and the no-Run-start
+    branch already use) is unioned in to cover it.
+    """
+    reconcile(repo, "session-B")
+    _plan_b(repo, "session-B")                      # Section C names only src/b.py
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run B's record")
+    (repo / "src").mkdir()
+    (repo / "src" / "b.py").write_text("b\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run B's planned work")
+    (repo / "src" / "stray.py").write_text("stray\n")  # never committed
+    out = helper(repo, "session-B", "compliance", "42").stdout
+    assert "PLAN_COMPLIANCE: divergence" in out, out
+    assert "TOUCHED BUT NOT PLANNED: src/stray.py" in out, out
+
+
+@requires_git
 def test_an_edit_and_revert_entirely_within_this_runs_own_commits_still_counts(
     repo: Path,
 ) -> None:
