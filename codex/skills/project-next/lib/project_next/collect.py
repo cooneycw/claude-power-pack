@@ -67,6 +67,15 @@ def _checks_state(rollup: Any) -> str:
     return "unknown"
 
 
+#: NEGATIVE-CONTROL: controls/project-next
+#:     Registered per issue #1398 (ADR 0008 census row 23: `project-next.py` +
+#:     the vendored engine, consumer `/project:next`, class G - a gate that
+#:     lets work THROUGH, whose JSON output the command document declares
+#:     authoritative, so nothing downstream re-derives it). A worktree whose
+#:     `git status` call fails here must read as UNEXAMINED, never as clean -
+#:     the pre-#1398 behaviour, vendored as this control's anchor, did the
+#:     latter and fed a removal-leaning cleanup action for work nothing had
+#:     actually verified was safe to discard.
 def _parse_worktrees(output: str, repository: Path, runner: CommandRunner, warnings: list[str]) -> tuple[Worktree, ...]:
     entries: list[dict[str, str]] = []
     current: dict[str, str] = {}
