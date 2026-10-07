@@ -266,7 +266,8 @@ def analyze_failure_patterns(
     """Analyze failure history and detect repeated patterns.
 
     Args:
-        project_root: Project directory containing .claude/runs/ and .claude/deploy.log.
+        project_root: Project directory whose runner state (see
+            `lib.cicd.state.runner_state_dir`) and `.claude/deploy.log` are scanned.
         threshold: Minimum occurrences to qualify as a pattern (default: 2).
 
     Returns:

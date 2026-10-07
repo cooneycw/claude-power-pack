@@ -1,7 +1,9 @@
 """Run state persistence for the deterministic CI/CD runner.
 
-Persists step execution state to JSON files in .claude/runs/ so that
-failed runs can be resumed from the last successful step.
+Persists step execution state to JSON files (see `runner_state_dir()`: inside
+the target repository's git directory since issue #1409, `.claude/runs/`
+when git is unavailable) so that failed runs can be resumed from the last
+successful step.
 """
 
 from __future__ import annotations
@@ -273,8 +275,8 @@ def _duration_seconds(started: Optional[str], finished: Optional[str]) -> Option
 class RunState:
     """Persistent state for a runner execution.
 
-    Saved to .claude/runs/<run_id>.json after each step completes.
-    Enables resume from the last successful step.
+    Saved to ``<run_id>.json`` under ``runner_state_dir()`` after each step
+    completes. Enables resume from the last successful step.
     """
 
     run_id: str

@@ -1,7 +1,9 @@
 """Durable per-skill execution evidence over the runner's own step records (issue #1366).
 
-WHY THIS EXISTS. The runner's state file (``.claude/runs/<run_id>.json``) is a
-RESUME file: ``RunState.cleanup()`` deletes it the moment a run succeeds, so after
+WHY THIS EXISTS. The runner's state file (``<git-dir>/cpp-runs/<run_id>.json``
+in a git repository since issue #1409, ``.claude/runs/<run_id>.json``
+otherwise) is a RESUME file: ``RunState.cleanup()`` deletes it the moment a
+run succeeds, so after
 a green ``/flow:check`` nothing survives that a reader could inspect - only the
 agent's own table saying it passed. This module keeps a small, machine-readable
 record of what the runner actually executed, written by the helper rather than by

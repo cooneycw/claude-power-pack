@@ -116,9 +116,13 @@ _INTENTIONAL_IGNORES=".claude/settings.local.json .claude/friction.jsonl \
 .claude/deploy-baseline.json"
 
 # Directories of by-design runtime state, matched as a root-relative PREFIX.
-# `.claude/runs/` holds lib.cicd's per-run state: removed on success but LEFT
-# BEHIND by a failed gate, inside the worktree - so without this entry the first
-# failed gate would make every later run in that worktree block (issue #1258).
+# `.claude/runs/` held lib.cicd's per-run state, inside the worktree: removed
+# on success but LEFT BEHIND by a failed gate (issue #1258) - so without this
+# entry the first failed gate would make every later run in that worktree
+# block. Issue #1409 moved new state to `<git-dir>/cpp-runs/`, which `git
+# status` cannot see at all, so this entry no longer matches a current write
+# - kept for a leftover file from a pre-#1409 runner, or for a target that
+# `runner_state_dir()` could not resolve a git directory for at all.
 _INTENTIONAL_IGNORE_DIRS=".claude/runs/"
 
 is_intentional_ignore() {

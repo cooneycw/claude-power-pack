@@ -1,8 +1,9 @@
 """Failure pattern analysis for the CI/CD runner.
 
-Scans .claude/runs/ state files and .claude/deploy.log to detect repeated
-failures from the same root cause category. When patterns emerge, returns
-actionable recommendations including validation gate suggestions.
+Scans the runner's state files (see `lib.cicd.state.runner_state_dir`, issue
+#1409) and .claude/deploy.log to detect repeated failures from the same root
+cause category. When patterns emerge, returns actionable recommendations
+including validation gate suggestions.
 
 Usage:
     from lib.cicd.failure_patterns import analyze_failure_patterns
@@ -19,6 +20,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+
+from lib.cicd.state import runner_state_dir
 
 FAILURE_CATEGORIES: dict[str, list[re.Pattern[str]]] = {
     "shell-compat": [
@@ -192,8 +195,8 @@ def classify_error(error_text: str) -> Optional[str]:
 
 
 def _scan_run_states(project_root: Path) -> list[FailureInstance]:
-    """Scan .claude/runs/ for failed step records."""
-    runs_dir = project_root / ".claude" / "runs"
+    """Scan the runner's state directory (issue #1409) for failed step records."""
+    runs_dir = runner_state_dir(project_root)
     instances: list[FailureInstance] = []
     if not runs_dir.exists():
         return instances
@@ -263,7 +266,8 @@ def analyze_failure_patterns(
     """Analyze failure history and detect repeated patterns.
 
     Args:
-        project_root: Project directory containing .claude/runs/ and .claude/deploy.log.
+        project_root: Project directory whose runner state (see
+            `lib.cicd.state.runner_state_dir`) and `.claude/deploy.log` are scanned.
         threshold: Minimum occurrences to qualify as a pattern (default: 2).
 
     Returns:
@@ -275,7 +279,7 @@ def analyze_failure_patterns(
     deploy_instances = _scan_deploy_log(root)
     all_instances = run_instances + deploy_instances
 
-    runs_dir = root / ".claude" / "runs"
+    runs_dir = runner_state_dir(root)
     total_runs = len(list(runs_dir.glob("*.json"))) if runs_dir.exists() else 0
     deploy_log = root / ".claude" / "deploy.log"
     deploy_entries = 0

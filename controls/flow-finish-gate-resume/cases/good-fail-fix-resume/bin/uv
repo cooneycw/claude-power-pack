@@ -60,10 +60,32 @@ if [[ ! -f .phase1-done ]]; then
         echo "  a run that FAILS at the aggregate, or there is nothing to resume." >&2
         exit 9
     fi
-    state=$(ls .claude/runs/*.json 2>/dev/null | head -1)
+    # Mirrors lib.cicd.state.runner_state_dir() exactly (issue #1409): the
+    # real runner no longer writes .claude/runs/ inside a git repository, so
+    # a stub that kept the old bare path would either find nothing (silent
+    # PRECONDITION FAILED for the wrong reason) or - worse - find a stale
+    # file from a PRIOR case run sharing this tmp copy and read it as phase
+    # 1's own state. Named explicitly, never "2>/dev/null"-ed away, so a
+    # mismatch between this stub and the real resolution fails LOUDLY
+    # instead of quietly keeping the expected verdict for an unrelated
+    # reason (counter-model review / orchestrator finding, #1409).
+    git_dir=$(git -C . rev-parse --path-format=absolute --git-dir 2>/dev/null)
+    if [[ -n "$git_dir" ]]; then
+        state_dir="$git_dir/cpp-runs"
+    else
+        state_dir="$(pwd)/.claude/runs"
+    fi
+    echo "uv-stub: resolved state dir: $state_dir (git_dir=${git_dir:-<none>})" >&2
+    if [[ ! -d "$state_dir" ]]; then
+        echo "uv-stub: PRECONDITION FAILED - $state_dir does not exist, so" >&2
+        echo "  phase 1 left no state file at all; phase 2 would be a FRESH" >&2
+        echo "  run, not a resume." >&2
+        exit 9
+    fi
+    state=$(ls "$state_dir"/*.json | head -1)
     if [[ -z "$state" ]]; then
-        echo "uv-stub: PRECONDITION FAILED - phase 1 left no state file, so" >&2
-        echo "  phase 2 would be a FRESH run, not a resume." >&2
+        echo "uv-stub: PRECONDITION FAILED - $state_dir exists but holds no" >&2
+        echo "  *.json state file, so phase 2 would be a FRESH run, not a resume." >&2
         exit 9
     fi
     if ! grep -q '"status": "not-run"' "$state"; then
