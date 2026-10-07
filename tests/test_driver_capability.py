@@ -915,3 +915,178 @@ def test_each_delegated_preflight_asks_the_meta_question(family: str) -> None:
         f"{family}/auto.md must still name the fenced paths in its preflight and "
         "still refuse the carve-out repair (issue #877)"
     )
+
+
+# --------------------------------------------------------------------------- #
+# #1397 - repeated `--needs` accumulates instead of silently keeping only the
+# last flag
+# --------------------------------------------------------------------------- #
+
+
+@requires_bash
+def test_repeated_needs_accumulates_the_nits_own_measured_case() -> None:
+    """THE #1397 RED, reproduced exactly from the absorbed nit's own table.
+
+    Before this fix: `--needs research --needs implementation` reported
+    `fit`, exit 0 - the LAST flag's value (`implementation`) silently
+    replaced the first (`research`), and codex:auto's very real inability to
+    do research vanished from the output with nothing to say it had been
+    dropped.
+    """
+    proc = _run("check", "codex:auto", "--needs", "research", "--needs", "implementation")
+    assert proc.returncode == 1, (
+        f"research must still be an unmet need; got exit {proc.returncode}\n{proc.stdout}"
+    )
+    assert _verdict(proc.stdout, "FLOW_DRIVER_CHECK") == "mismatch"
+    assert "research" in _fields(proc.stdout)["FLOW_DRIVER_UNMET"]
+
+
+@requires_bash
+def test_needs_accumulates_regardless_of_order() -> None:
+    """The nit's table measured BOTH orders losing a need; both must now hold."""
+    first = _run("check", "codex:auto", "--needs", "implementation", "--needs", "research")
+    second = _run("check", "codex:auto", "--needs", "research", "--needs", "implementation")
+    for proc in (first, second):
+        assert proc.returncode == 1, proc.stdout
+        assert "research" in _fields(proc.stdout)["FLOW_DRIVER_UNMET"]
+
+
+@requires_bash
+def test_needs_long_form_and_equals_form_both_accumulate() -> None:
+    """Mixing `--needs x` and `--needs=y` must accumulate together, not reset."""
+    proc = _run("check", "codex:auto", "--needs", "research", "--needs=implementation")
+    assert proc.returncode == 1, proc.stdout
+    assert "research" in _fields(proc.stdout)["FLOW_DRIVER_UNMET"]
+
+
+@requires_bash
+def test_a_repeated_identical_need_is_not_double_counted() -> None:
+    """Accumulation must not duplicate a BLOCKED line for the same need."""
+    proc = _run("check", "codex:auto", "--needs", "research", "--needs", "research")
+    assert proc.returncode == 1, proc.stdout
+    blocked_lines = [
+        line for line in proc.stdout.splitlines() if line.startswith("FLOW_DRIVER_BLOCKED: research")
+    ]
+    assert len(blocked_lines) == 1, (
+        f"the same need was reported as blocked {len(blocked_lines)} times, not once:\n{proc.stdout}"
+    )
+
+
+@requires_bash
+def test_an_empty_needs_value_is_a_usage_error_not_a_silent_drop() -> None:
+    """`--needs research --needs ""` must not silently become just `research`.
+
+    `tr ',' ' '` folds a trailing empty segment into whitespace, and bash's own
+    word-splitting then drops it as a token - so an unguarded accumulation
+    would accept the empty value and simply never iterate it, which is the
+    same "off-spec input narrows the check silently" failure the accumulation
+    fix itself exists to close, from the other direction.
+    """
+    proc = _run("check", "codex:auto", "--needs", "research", "--needs", "")
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "non-empty value" in proc.stderr
+
+    proc2 = _run("check", "codex:auto", "--needs=")
+    assert proc2.returncode == 2, proc2.stdout + proc2.stderr
+    assert "non-empty value" in proc2.stderr
+
+
+@requires_bash
+@pytest.mark.parametrize("value", [",", " ", ",,", "  "])
+def test_a_comma_or_whitespace_only_needs_value_is_a_usage_error(value: str) -> None:
+    """COUNTER-MODEL FINDING, #1397: a NON-EMPTY string is not a non-empty
+    POPULATION. `--needs ','` and `--needs ' '` both pass the raw
+    non-empty-string check the previous test pins, then `tr ',' ' '` turns
+    either into pure whitespace - which bash's own word-splitting iterates
+    ZERO times, so the unknown-need validation loop never runs (nothing to
+    call unknown) and `check` silently proceeded with NO needs declared,
+    reporting `fit` for a request that asked for nothing. Before this fix:
+    `check codex:auto --needs ','` reported `FLOW_DRIVER_CHECK: fit`, exit 0,
+    with `FLOW_DRIVER_NEEDS=` empty - a usage error presenting as success.
+    """
+    proc = _run("check", "codex:auto", "--needs", value)
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "names no need" in proc.stderr, proc.stderr
+
+
+@requires_bash
+def test_a_real_need_mixed_with_a_comma_only_second_flag_still_checks_the_real_one() -> None:
+    """The fix must not overreach: a genuine need accumulated alongside a
+    degenerate second flag is still checked - the degenerate flag contributes
+    nothing and is harmlessly absorbed, it does not blank the real one."""
+    proc = _run("check", "codex:auto", "--needs", "research", "--needs", ",")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "research" in _fields(proc.stdout)["FLOW_DRIVER_UNMET"]
+
+
+# --------------------------------------------------------------------------- #
+# #1397 - `list` distinguishes an ABORTED row from a genuinely empty one
+# --------------------------------------------------------------------------- #
+
+
+def _list_call_site_mutant(tmp_path: Path, *, json_site: bool) -> Path:
+    """A COPY of the real script, with ONE `list` call site's 4th argument
+    dropped - reproducing #1023's exact shape (a future axis reaching
+    `driver_record` but missing one of `list`'s two call sites) WITHOUT ever
+    touching the real file (issue #1397)."""
+    text = CAP.read_text(encoding="utf-8")
+    if json_site:
+        old = '                     --arg c "$(safe_row cannot_of "$scope" "$web" "$container" "$meta")" \\'
+        new = '                     --arg c "$(safe_row cannot_of "$scope" "$web" "$container")" \\'
+    else:
+        old = '        cannot="$(safe_row cannot_of "$scope" "$web" "$container" "$meta")"'
+        new = '        cannot="$(safe_row cannot_of "$scope" "$web" "$container")"'
+    assert old in text, "anchor text not found - has the real script's call site changed shape?"
+    mutant = tmp_path / "flow-driver-capability-mutant.sh"
+    mutant.write_text(text.replace(old, new), encoding="utf-8")
+    return mutant
+
+
+@requires_bash
+def test_an_aborted_list_row_is_marked_not_rendered_as_empty_plain(tmp_path: Path) -> None:
+    """THE #1397 RED for plain `list`: before `safe_row`, this exact mutation
+    (the #1023 shape) rendered `cannot=-` for codex:auto - indistinguishable
+    from a driver with no incapacities, even though codex:auto genuinely
+    cannot do research, web or container work."""
+    mutant = _list_call_site_mutant(tmp_path, json_site=False)
+    proc = subprocess.run(["bash", str(mutant), "list"], capture_output=True, text=True)
+    assert "ABORTED" in proc.stdout, (
+        f"an aborted row must render a marker distinct from '-':\n{proc.stdout}"
+    )
+    lines = {
+        line.split()[0]: line
+        for line in proc.stdout.splitlines()
+        if line.strip().startswith(("flow:", "codex:", "qwen:", "gemma:"))
+    }
+    assert "ABORTED" in lines["codex:auto"], lines["codex:auto"]
+
+
+@requires_bash
+@requires_jq
+def test_an_aborted_list_row_is_marked_not_rendered_as_empty_json(tmp_path: Path) -> None:
+    """THE #1397 RED for `list --json`: the same mutation, the JSON call site."""
+    mutant = _list_call_site_mutant(tmp_path, json_site=True)
+    proc = subprocess.run(["bash", str(mutant), "list", "--json"], capture_output=True, text=True)
+    rows = json.loads(proc.stdout)
+    codex_row = next(r for r in rows if r["driver"] == "codex:auto")
+    assert codex_row["cannot"] == ["ABORTED(exit=1)"], codex_row
+
+
+@requires_bash
+def test_list_is_unaffected_by_the_guard_when_nothing_aborts() -> None:
+    """The guard must be invisible on the happy path - no mutation here."""
+    proc = _run("list")
+    assert proc.returncode == 0, proc.stdout
+    assert "ABORTED" not in proc.stdout
+    assert "cannot=research" in proc.stdout  # codex:auto, unguarded and real
+
+
+@requires_bash
+@requires_jq
+def test_list_json_is_unaffected_by_the_guard_when_nothing_aborts() -> None:
+    proc = _run("list", "--json")
+    assert proc.returncode == 0, proc.stdout
+    rows = json.loads(proc.stdout)
+    assert all("ABORTED" not in str(r["cannot"]) for r in rows), rows
+    codex_row = next(r for r in rows if r["driver"] == "codex:auto")
+    assert codex_row["cannot"] == ["research", "web", "container", "meta"], codex_row

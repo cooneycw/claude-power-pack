@@ -1,0 +1,20 @@
+{
+  "gate": "scripts/flow-driver-capability.sh",
+  "invocation": ["sh", "-c", "exec bash \"$1\" check $(cat \"$2/argv\")", "_", "{gate}", "{case}"],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_DRIVER_CHECK: mismatch$",
+  "limits": "Covers only the --needs accumulation fix (issue #1397, acceptance bullet 1) - the one change to this gate's VERDICT. The case's own `argv` file supplies the CLI arguments after `check`, deliberately unquoted in the invocation so it splits into separate --needs flags, which is what reproduces the repeated-flag defect at all; a single comma-joined --needs value never exercised the bug. Does not cover the list command's abort-vs-empty fix (bullet 3), which changes no verdict this control's gate/anchor pair could discriminate on.",
+  "cases": [
+    {"name": "bad-repeated-needs-drops-research", "input": "cases/bad-repeated-needs-drops-research", "expect": "BAD"},
+    {"name": "good-multi-need-fit", "input": "cases/good-multi-need-fit", "expect": "GOOD"}
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "d67c942",
+      "origin": "scripts/flow-driver-capability.sh",
+      "path": "anchors/d67c942-flow-driver-capability.sh",
+      "sha256": "4e8132ddc02ced5c17c2e86cf2031bf2cb9232ee0093dee437af4c430452d82b"
+    }
+  ]
+}

@@ -173,7 +173,6 @@
 # block a wave over a name it has never heard of - the routing question is then
 # simply unanswered, which is where every driver stood before this file existed.
 
-#: NEGATIVE-CONTROL: controls/flow-driver-capability
 set -uo pipefail
 
 # Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
@@ -306,35 +305,6 @@ cannot_of() {
   printf '%s' "$out"
 }
 
-# safe_row FUNCTION ARGS... -> FUNCTION's stdout, or a distinct ABORT marker
-# (issue #1397). `fence_of` and `cannot_of` are 4-arg functions referencing
-# `$4` under `set -uo pipefail` (#1023's own shape: #877 added the `meta`
-# parameter and two of `list`'s call sites went uncorrected for a time,
-# which made the unbound-variable abort exit the command substitution with
-# empty stdout - rendered by `${cannot:--}` IDENTICALLY to a driver that
-# genuinely has no incapacities). `list` is the one caller that builds this
-# matrix from a loop over several drivers rather than one `driver_record`
-# lookup already destructured by hand, so it is the one place a FUTURE axis
-# addition can repeat the same shape: add a field, update `driver_record`
-# and the two callers that unpack its pipe-string by hand, and forget one of
-# `list`'s two call sites.
-#
-# `set -uo pipefail` has no `-e` in this script, so a command substitution
-# returning nonzero does not itself abort the caller - `rc=$?` right after it
-# sees the real status, which is what makes this check possible at all
-# (verified directly: a 4-arg function called with 3 args under `set -uo
-# pipefail` returns 1 from the substitution without killing the invoking
-# shell).
-safe_row() {
-  local out rc
-  out="$("$@")"; rc=$?
-  if [ "$rc" -ne 0 ]; then
-    printf 'ABORTED(exit=%d)' "$rc"
-    return 0
-  fi
-  printf '%s' "$out"
-}
-
 # emit_driver CANONICAL - the FLOW_DRIVER_*= detail block for one driver.
 emit_driver() {
   local key="$1" rec scope web web_basis scope_basis container container_basis meta meta_basis cannot
@@ -383,33 +353,8 @@ DRIVER=""; NEEDS=""; JSON_OUT=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    # ACCUMULATES, NEVER ASSIGNS (issue #1397). Both branches used to assign
-    # NEEDS outright, so a repeated flag silently dropped every earlier one -
-    # `--needs research --needs implementation` reported `fit` for a request
-    # that also needed research, because only the LAST flag's value survived.
-    # The documented form is one comma-separated flag; repeating it is
-    # off-spec, but an off-spec invocation of a guard must widen what it
-    # checks, never narrow it silently. Comma-joining keeps `tr ',' ' '`
-    # below working unchanged for either one flag or several.
-    #
-    # An EMPTY value is refused HERE, not left to fall through (issue #1397):
-    # `tr ',' ' '` folds a stray empty segment into whitespace that bash's
-    # own word-splitting then drops as though it were never given, so
-    # `--needs research --needs ""` would silently become just `research`
-    # rather than a usage error - the same "off-spec input narrows the check"
-    # failure the accumulation fix exists to close, arriving from the other
-    # direction.
-    --needs)
-      [ "$#" -ge 2 ] || usage_fail "--needs requires a comma-separated list"
-      [ -n "$2" ] || usage_fail "--needs requires a non-empty value"
-      NEEDS="${NEEDS:+$NEEDS,}$2"
-      shift
-      ;;
-    --needs=*)
-      _needs_val="${1#--needs=}"
-      [ -n "$_needs_val" ] || usage_fail "--needs requires a non-empty value"
-      NEEDS="${NEEDS:+$NEEDS,}$_needs_val"
-      ;;
+    --needs) [ "$#" -ge 2 ] || usage_fail "--needs requires a comma-separated list"; NEEDS="$2"; shift ;;
+    --needs=*) NEEDS="${1#--needs=}" ;;
     --json) JSON_OUT=1 ;;
     --*) usage_fail "unknown option: $1" ;;
     *)
@@ -467,8 +412,8 @@ case "$CMD" in
                      --arg wb "$web_basis" --arg sb "$scope_basis" \
                      --arg cnt "$container" --arg cntb "$container_basis" \
                      --arg m "$meta" --arg mb "$meta_basis" \
-                     --arg f "$(safe_row fence_of "$scope" "$web" "$container" "$meta")" \
-                     --arg c "$(safe_row cannot_of "$scope" "$web" "$container" "$meta")" \
+                     --arg f "$(fence_of "$scope" "$web" "$container" "$meta")" \
+                     --arg c "$(cannot_of "$scope" "$web" "$container" "$meta")" \
               '{driver:$d, scope:$s, web:$w, web_basis:$wb, scope_basis:$sb,
                 container:$cnt, container_basis:$cntb,
                 meta:$m, meta_basis:$mb,
@@ -491,7 +436,7 @@ case "$CMD" in
         container="${rest%%|*}"; rest="${rest#*|}"
         rest="${rest#*|}"
         meta="${rest%%|*}"
-        cannot="$(safe_row cannot_of "$scope" "$web" "$container" "$meta")"
+        cannot="$(cannot_of "$scope" "$web" "$container" "$meta")"
         printf '  %-12s %-20s web=%-4s container=%-4s cannot=%s\n' \
           "$d" "$scope" "$web" "$container" "${cannot:--}"
       done
@@ -505,37 +450,12 @@ case "$CMD" in
     [ -n "$NEEDS" ] || usage_fail "check requires --needs <implementation|research|web|container|meta>[,...]"
 
     NEED_LIST="$(printf '%s' "$NEEDS" | tr ',' ' ')"
-    # A NON-EMPTY STRING IS NOT A NON-EMPTY POPULATION (counter-model finding,
-    # #1397). `--needs ','` or `--needs ' '` passes the raw non-empty check
-    # above, but `tr ',' ' '` turns either into pure whitespace, which bash's
-    # own word-splitting then iterates ZERO times - so the validation loop
-    # below never runs (nothing to call unknown), and `check` proceeds with
-    # no needs declared at all, reporting `fit` for a request that asked
-    # nothing. Checked by COUNTING the split, not by re-inspecting the raw
-    # string, since the raw string is exactly what already passed.
-    NEED_COUNT=0
-    for n in $NEED_LIST; do NEED_COUNT=$((NEED_COUNT + 1)); done
-    [ "$NEED_COUNT" -gt 0 ] || usage_fail "--needs '$NEEDS' names no need - one of: implementation, research, web, container, meta"
     for n in $NEED_LIST; do
       case "$n" in
         implementation|research|web|container|meta) : ;;
         *) usage_fail "unknown need '$n' - one of: implementation, research, web, container, meta" ;;
       esac
     done
-
-    # DE-DUPLICATED, FIRST OCCURRENCE WINS ORDER (issue #1397). Accumulation
-    # makes `--needs research --needs research` arrive as `research research`
-    # - without this, the SAME need would be appended to UNMET twice and
-    # printed as two identical FLOW_DRIVER_BLOCKED lines below, double-
-    # counting one real gap rather than reporting it once.
-    _SEEN=""; _DEDUPED=""
-    for n in $NEED_LIST; do
-      case " $_SEEN " in
-        *" $n "*) : ;;
-        *) _SEEN="$_SEEN $n"; _DEDUPED="$_DEDUPED $n" ;;
-      esac
-    done
-    NEED_LIST="${_DEDUPED# }"
 
     KEY="$(canonicalize "$DRIVER")"
     if [ -z "$KEY" ]; then
