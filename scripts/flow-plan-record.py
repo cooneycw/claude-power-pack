@@ -81,6 +81,41 @@ def snapshot_rel(issue: str) -> str:
     return f"docs/flow-runs/issue-{issue}.as-read.md"
 
 
+def self_stamp() -> str:
+    """Identify the RUNNING COPY of this script, never the tree under examination (#1399).
+
+    `root` (the --root/target repo this file's commands examine) and
+    `__file__` (where THIS script itself lives) are different paths in
+    exactly the case this exists for: a kyle-managed `~/.claude/scripts/
+    flow-plan-record.py` has no `.git` tree anywhere nearby, and a stale
+    copy there can silently differ from the checkout's own file and omit a
+    fix the checkout already carries (Nit Store #864 comment 5874632553) -
+    nothing before this printed WHICH COPY produced a verdict.
+
+    git, when this file's own directory is inside a work tree, names the
+    COMMIT (`worktree-at-<sha>`, the same wording `check-negative-controls.
+    py`'s `_source_stamp` uses for the analogous "which copy" question).
+    Otherwise - the installed-copy case - a content hash of this exact file
+    is the only honest answer: never a guess, and a reader can still compare
+    it against `git show <expected>:scripts/flow-plan-record.py | sha256sum`.
+    """
+    here = pathlib.Path(__file__).resolve()
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(here.parent), "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return f"worktree-at-{out.stdout.strip()}"
+    except (OSError, subprocess.SubprocessError):  # pragma: no cover - defensive
+        pass
+    try:
+        digest = hashlib.sha256(here.read_bytes()).hexdigest()[:12]
+    except OSError:
+        return "unknown"
+    return f"content-{digest} (not git-tracked at this path)"
+
+
 # ---------------------------------------------------------------- run identity (#1320)
 #
 # THE RECORD WAS KEYED ON THE ISSUE, SO A SECOND RUN WAS SATISFIED BY THE FIRST.
@@ -494,6 +529,7 @@ def write_run_part(out: pathlib.Path, run_id: str | None, part: str) -> None:
 
 def cmd_drift(issue: str, live_file: str | None) -> int:
     """A failed fetch and a missing snapshot are UNRESOLVED, never clean."""
+    print(f"FLOW_PLAN_RECORD_SELF: {self_stamp()}")
 
     def drift_unresolved(why: str) -> NoReturn:
         print(f"ISSUE_DRIFT: unresolved ({why})")
@@ -595,6 +631,7 @@ def compliance_unknown(why: str) -> NoReturn:
 
 def cmd_compliance(issue: str, base: str | None) -> int:
     """Compare the diff's FILE SET against Section C. Reports; never blocks."""
+    print(f"FLOW_PLAN_RECORD_SELF: {self_stamp()}")
     # Make new files visible first: `git diff <ref>` skips untracked paths, so
     # without intent-to-add an entire unplanned new file reports agreement.
     # ENUMERATED paths only (never `add -N .`), NUL-delimited, and held in a list
@@ -813,6 +850,7 @@ def cmd_head_check(issue: str, head: str | None) -> int:
 
     "Could not look" (4) and "looked and it is missing" (1) are different exits.
     """
+    print(f"FLOW_PLAN_RECORD_SELF: {self_stamp()}")
     rec = record_rel(issue)
     if head is None:
         try:
