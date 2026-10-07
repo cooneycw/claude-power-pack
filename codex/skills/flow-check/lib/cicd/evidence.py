@@ -766,8 +766,29 @@ def _structure_errors(record: dict[str, Any]) -> list[str]:
             population = c.get("population")
             if not isinstance(population, dict):
                 errors.append(f"observed.checks[{i}].population is not an object")
-            elif not isinstance(population.get("counts", {}), dict):
-                errors.append(f"observed.checks[{i}].population.counts is not an object")
+            else:
+                counts = population.get("counts")
+                # KIND-AWARE (issue #1410 ruling): the producer's own contract
+                # (population() in this module) writes `counts` as a dict,
+                # possibly empty, for EVERY "tests"-kind check and NEVER AT
+                # ALL for any other kind (coverage, unmeasured). So for a
+                # tests-kind check, an absent, null, or otherwise non-dict
+                # counts is a record CLAIMING tests ran with no record of how
+                # many - the exact lie this verifier exists to catch - and
+                # must be refused the same way regardless of which of those
+                # three shapes it took. This TIGHTENS the absent case, which
+                # used to pass silently. For every other kind, counts was
+                # never written at all, so an absent key and an explicit null
+                # are the same "no counts" fact and both must be accepted;
+                # only some OTHER non-dict value (a list, a string) is
+                # refused. `_recent_failure_count` below is a different
+                # consumer (reporting, not structural verification) and keeps
+                # its own lenient read.
+                if population.get("kind") == "tests":
+                    if not isinstance(counts, dict):
+                        errors.append(f"observed.checks[{i}].population.counts is not an object")
+                elif counts is not None and not isinstance(counts, dict):
+                    errors.append(f"observed.checks[{i}].population.counts is not an object")
     # IDENTITY IS REQUIRED, not merely compared (counter-model review). A terminal
     # record that never captured which checkout and tree it ran against cannot
     # support a claim about either - and `--no-current` waives the COMPARISON
