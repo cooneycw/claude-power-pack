@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1406-nit-store-gitignore-negation-maintenance-burden",
+  "counts": {
+    "accepted": 4,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "8074b203e1769a0e08ba43baf812cbd15fad925c",
+  "implementer": "claude/claude-sonnet-5",
+  "issue": "1406",
+  "passes": 1,
+  "recorded_at": "2026-10-07T07:49:57Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/07/rollout-2026-10-07T07-45-19-01a11552-ee2f-7363-abb3-31dc6c13fe9f.jsonl",
+    "thread_id": "01a11552-ee2f-7363-abb3-31dc6c13fe9f"
+  },
+  "schema": 1,
+  "status": "ran"
+}
