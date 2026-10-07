@@ -67,10 +67,12 @@ def _repo(tmp_path: Path, files: dict[str, str], config: str | None = None) -> P
     return repo
 
 
-def _gate(repo: Path, *, without_yaml: bool = False) -> subprocess.CompletedProcess[str]:
+def _gate(
+    repo: Path, *, without_yaml: bool = False, gate_name: str = "flow_finish"
+) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
     env["PYTHONPATH"] = str(ROOT)
-    argv = ["gate", "flow_finish", "--path", str(repo)]
+    argv = ["gate", gate_name, "--path", str(repo)]
     cmd = [sys.executable, "-c", NO_YAML, *argv] if without_yaml else [sys.executable, "-m", "lib.security", *argv]
     return subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=ROOT)
 
@@ -284,6 +286,75 @@ def test_no_malformed_config_echoes_a_value(tmp_path: Path, line: str) -> None:
     result = _gate(_repo(tmp_path, {"README.md": "clean\n"}, config))
     assert result.returncode == 2, result.stdout + result.stderr
     assert CANARY[4:] not in result.stdout + result.stderr
+
+
+def test_a_secret_suppression_also_clears_the_generic_classifier_on_the_same_value(
+    tmp_path: Path,
+) -> None:
+    """Issue #1405 item (b). Writing `secret: '<value>'` into security.yml makes
+
+    that line match TWO native patterns at once: `AKIA[0-9A-Z]{16}` (id
+    AWS_ACCESS_KEY, suppressed by the declared id) and the generic
+    `(?:secret|...)\\s*[=:]\\s*["']...["']` assignment pattern (id
+    HARDCODED_SECRET - the YAML syntax `secret: '...'` is itself a secret-like
+    assignment). Pre-fix, only the first was exempt: HARDCODED_SECRET is HIGH,
+    which only WARNS on `flow_finish` (so that gate still returned PASS) but
+    BLOCKS on `flow_deploy` (which blocks HIGH too) - a suppression that looked
+    like it worked on the gate most people watch, and silently still blocked
+    the deploy gate on exactly the value it was written to clear.
+    """
+    # Full .gitignore, matching TestGitignoreScanner's own covering pattern, so
+    # the orthogonal GITIGNORE_GAP warnings (also HIGH, also block flow_deploy)
+    # don't mask the one finding this test is about.
+    full_gitignore = ".env\n.env.*\n*.pem\n*.key\nsecrets.*\n*.p12\n.claude/security.yml\n"
+    repo = _repo(tmp_path, {"README.md": "clean\n", ".gitignore": full_gitignore}, EXACT)
+    finish = _gate(repo, gate_name="flow_finish")
+    assert " PASS " in _line(finish)
+    assert "[HARDCODED_SECRET]" not in finish.stdout, "RED pre-fix: HARDCODED_SECRET warned here"
+
+    deploy = _gate(repo, gate_name="flow_deploy")
+    assert " PASS " in _line(deploy), deploy.stdout
+    assert "[HARDCODED_SECRET]" not in deploy.stdout
+    assert ".claude/security.yml" not in deploy.stdout
+
+
+def test_the_value_match_does_not_leak_outside_the_config_file(tmp_path: Path) -> None:
+    """Same declared value, but the finding is in a DIFFERENT file: still blocks
+
+    under every id, regardless of what security.yml declares (issue #1405).
+    The widening in `_is_declared_in_config` is gated on `file_path ==
+    CONFIG_REL`; this is the case that gate must keep refusing.
+    """
+    full_gitignore = ".env\n.env.*\n*.pem\n*.key\nsecrets.*\n*.p12\n.claude/security.yml\n"
+    repo = _repo(
+        tmp_path, {"src/other.py": f'api_key = "{CANARY}"\n', ".gitignore": full_gitignore}, EXACT
+    )
+    result = _gate(repo, gate_name="flow_deploy")
+    assert " FAIL " in _line(result), result.stdout
+    assert "src/other.py" in result.stdout
+    assert "[HARDCODED_SECRET]" in result.stdout, result.stdout
+
+
+def test_the_value_match_is_bound_to_the_declared_value_not_the_whole_file(
+    tmp_path: Path,
+) -> None:
+    """A DIFFERENT, undeclared secret-shaped value also written into
+
+    security.yml - e.g. pasted into a `reason:` - must still be flagged: the
+    widening exempts one declared VALUE, not every finding in that file
+    (issue #1405).
+    """
+    full_gitignore = ".env\n.env.*\n*.pem\n*.key\nsecrets.*\n*.p12\n.claude/security.yml\n"
+    config = EXACT.replace(
+        "reason: planted negative-control fixture",
+        f"reason: api_key = '{OTHER}'",
+    )
+    repo = _repo(tmp_path, {"README.md": "clean\n", ".gitignore": full_gitignore}, config)
+    result = _gate(repo, gate_name="flow_deploy")
+    assert " FAIL " in _line(result), result.stdout
+    assert ".claude/security.yml" in result.stdout
+    assert "[HARDCODED_SECRET]" in result.stdout, result.stdout
+    assert OTHER not in result.stdout + result.stderr
 
 
 def test_the_hint_yaml_survives_an_apostrophe_in_the_path(tmp_path: Path) -> None:

@@ -168,16 +168,22 @@ def _is_declared_in_config(finding: Finding, config: SecurityConfig) -> bool:
     value into `.claude/security.yml`, which the secrets scanner then reports -
     so every `secret:` suppression would create the block it exists to remove.
 
-    NARROW ON PURPOSE: only a finding located IN the config file, of the same id,
-    whose full value fullmatches a declared `secret:`. Any other value in that
-    file - a real key pasted into a `reason:` - still blocks.
+    MATCHED BY VALUE, NOT BY ID (issue #1405): the original `s.id ==
+    finding.id` check meant a suppression declared for one classifier's id
+    (say `AWS_ACCESS_KEY`) did not exempt the SAME declared value when the
+    generic `HARDCODED_SECRET` assignment-pattern classifier also fired on
+    it, leaving a false-red warn on exactly the line the suppression was
+    meant to clear. Dropping the id check widens WITHIN the existing trust
+    boundary only, never past it: the two conditions that stay are what
+    bound the widening - `finding.file_path == CONFIG_REL` (only this one
+    declared-safe file), and the value must still fullmatch a declared
+    `secret:` pattern (a different, undeclared value in that same file still
+    blocks, and the same declared value anywhere else still blocks too).
     """
     if finding.file_path != CONFIG_REL or finding.secret_value is None:
         return False
     return any(
-        s.id == finding.id
-        and s.secret is not None
-        and re.fullmatch(s.secret, finding.secret_value) is not None
+        s.secret is not None and re.fullmatch(s.secret, finding.secret_value) is not None
         for s in config.suppressions
     )
 
