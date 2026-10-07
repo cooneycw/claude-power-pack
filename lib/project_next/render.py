@@ -239,7 +239,12 @@ def render_full(result: RecommendationResult, state: RepositoryState) -> str:
         for worktree in result.worktree_details:
             issue = f"#{worktree.issue_number}" if worktree.issue_number is not None else "—"
             commits = "<br>".join(worktree.recent_commits) or "none"
-            if worktree.dirty:
+            if worktree.dirty is None:
+                # Unknown is never clean (#1398): the git status call itself failed,
+                # a different fact from a confirmed-clean tree.
+                reason = f": {worktree.status_unknown_reason}" if worktree.status_unknown_reason else ""
+                tree = f"unknown (git status failed{reason})"
+            elif worktree.dirty:
                 tree = "modified"
             elif worktree.untracked_only:
                 tree = "untracked only"

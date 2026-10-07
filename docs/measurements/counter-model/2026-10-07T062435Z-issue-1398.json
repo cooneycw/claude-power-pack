@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1398-nit-store-project-next-engine-routing-and-classifi",
+  "counts": {
+    "accepted": 5,
+    "deferred": 2,
+    "rejected": 0
+  },
+  "head": "100ae28c9192592dc98bfbd05def4d4bedb5dba5",
+  "implementer": "claude/claude-sonnet-5",
+  "issue": "1398",
+  "passes": 1,
+  "recorded_at": "2026-10-07T06:24:35Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/07/rollout-2026-10-07T06-16-31-01a11501-a143-76e0-aa02-66f16b8f1b6a.jsonl",
+    "thread_id": "01a11501-a143-76e0-aa02-66f16b8f1b6a"
+  },
+  "schema": 1,
+  "status": "ran"
+}

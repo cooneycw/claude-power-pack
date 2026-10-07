@@ -87,6 +87,47 @@ def _rewrite_manifest(root: Path, **changes: object) -> None:
     path.write_text(json.dumps(data), encoding="utf-8")
 
 
+requires_real_git = pytest.mark.skipif(
+    shutil.which("git") is None, reason="git not available in this environment"
+)
+
+
+def _run_git(root: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True)
+
+
+def _git_sandbox(tmp_path: Path) -> Path:
+    """A `_sandbox()` tree with real git history and a faked `origin/main` ref.
+
+    The --baseline tests below (issue #1398) need real git plumbing - a merge-
+    base lookup - which a plain file tree cannot supply. `origin/main` is a
+    faked local ref rather than a real remote, same idiom as
+    tests/test_gh_pr_merge.py's real-git fixtures: `update-ref` plants it
+    without a clone or network.
+    """
+    root = _sandbox(tmp_path)
+    _run_git(root, "init", "-q", "-b", "main")
+    _run_git(root, "config", "user.email", "c@c")
+    _run_git(root, "config", "user.name", "c")
+    _run_git(root, "config", "commit.gpgsign", "false")
+    _run_git(root, "add", "-A")
+    _run_git(root, "commit", "-q", "-m", "base")
+    _run_git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+    return root
+
+
+def _bump_contract_version(root: Path) -> None:
+    current = json.loads(_manifest(root).read_text(encoding="utf-8"))["contract_version"]
+    major, minor = current.split(".")
+    contract = root / "docs" / "project-next-contract.md"
+    text = contract.read_text(encoding="utf-8")
+    assert f"Contract version `{current}`" in text, "the fixture must carry the version it bumps"
+    contract.write_text(
+        text.replace(f"Contract version `{current}`", f"Contract version `{major}.{int(minor) + 1}`"),
+        encoding="utf-8",
+    )
+
+
 # --- the offline hard gate ---------------------------------------------------
 
 
@@ -201,7 +242,7 @@ def test_root_names_the_case_not_the_real_repository(capsys: pytest.CaptureFixtu
     assert "lib/project_next/rank.py" in out
 
 
-def test_the_shipped_invocation_still_works_as_a_subprocess() -> None:
+def test_the_shipped_invocation_still_works_as_a_subprocess() -> None:  # binary-guard: allow check skips --repin git
     """`make project-next-check` calls this as a program, not as a module.
 
     Every test above drives `main()` directly, which cannot catch an import-time
@@ -408,3 +449,118 @@ def test_an_ancestor_named_pycache_does_not_disable_the_scan(
 
     assert pno.main(["check", "--root", str(root)]) == 1
     assert "rank/__init__.py sits in the package and is pinned by nothing" in capsys.readouterr().out
+
+
+# --- issue #1398: --repin's baseline is git history, not the working tree --
+#
+# Before the fix, `_recorded(root)` read the WORKING TREE's own current
+# manifest - which a branch's first repin already advances to the new version
+# and hashes, so a second repin on the same branch compared the engine against
+# ITSELF and was refused as "N engine module(s) changed while ... still states
+# contract version ..." even though the branch's version genuinely differs
+# from origin/main. The fix compares against the manifest as committed at
+# merge-base(HEAD, origin/main) instead - confirmed red on the pre-fix code
+# before this change was made (git stash; the second `--repin` below exited 1).
+
+
+@requires_real_git
+def test_repin_succeeds_a_second_time_on_the_same_branch(tmp_path: Path) -> None:
+    """The reported bug, fixed: a SECOND repin on one branch, after the first
+
+    repin already committed its own bump, must still succeed - the baseline
+    is origin/main (unmoved), not the branch's own last repin.
+    """
+    root = _git_sandbox(tmp_path)
+    engine = root / "lib" / "project_next" / "rank.py"
+    engine.write_text(engine.read_text(encoding="utf-8") + "# first change\n", encoding="utf-8")
+    _bump_contract_version(root)
+
+    assert pno.main(["--repin", "--root", str(root)]) == 0, "first repin on the branch must succeed"
+    _run_git(root, "add", "-A")
+    _run_git(root, "commit", "-q", "-m", "first repin")
+
+    engine.write_text(engine.read_text(encoding="utf-8") + "# second change\n", encoding="utf-8")
+
+    assert pno.main(["--repin", "--root", str(root)]) == 0, (
+        "a second edit on the same branch, same contract version as the first repin, "
+        "must still succeed - compared against origin/main the version has moved")
+    assert pno.main(["check", "--root", str(root)]) == 0
+
+
+@requires_real_git
+def test_repin_still_refuses_an_engine_change_unbumped_relative_to_the_baseline(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The control-to-keep-red: an engine edit with NO version bump relative
+
+    to origin/main must still be refused, even after an unrelated prior
+    commit on the branch - the merge-base baseline must not accidentally
+    become too permissive.
+    """
+    root = _git_sandbox(tmp_path)
+    (root / "README-branch-work.md").write_text("unrelated branch work\n", encoding="utf-8")
+    _run_git(root, "add", "-A")
+    _run_git(root, "commit", "-q", "-m", "unrelated branch commit")
+
+    engine = root / "lib" / "project_next" / "rank.py"
+    engine.write_text(engine.read_text(encoding="utf-8") + "# unbumped change\n", encoding="utf-8")
+
+    assert pno.main(["--repin", "--root", str(root)]) == 1
+    err = capsys.readouterr().err
+    assert "engine module(s) changed" in err
+    assert "lib/project_next/rank.py" in err
+
+
+@requires_real_git
+def test_repin_refuses_when_origin_main_merge_base_cannot_be_resolved(tmp_path: Path) -> None:
+    """A git repository with no `origin/main` ref at all must REFUSE, not
+
+    silently fall back to a different, less correct comparison - the same
+    "unknown is not agreement" rule `_recorded`'s docstring already states.
+    """
+    root = _sandbox(tmp_path)
+    _run_git(root, "init", "-q", "-b", "main")
+    _run_git(root, "config", "user.email", "c@c")
+    _run_git(root, "config", "user.name", "c")
+    _run_git(root, "config", "commit.gpgsign", "false")
+    _run_git(root, "add", "-A")
+    _run_git(root, "commit", "-q", "-m", "base")
+    # Deliberately no `refs/remotes/origin/main` - this repo was never cloned.
+
+    assert pno.main(["--repin", "--root", str(root)]) == 1
+
+
+@requires_real_git
+def test_repin_baseline_override_lets_a_caller_choose_the_comparison_ref(tmp_path: Path) -> None:
+    """`--baseline <ref>` is the explicit escape hatch for when origin/main
+
+    cannot be resolved (a shallow clone, a detached checkout, CI).
+    """
+    root = _git_sandbox(tmp_path)
+    base_sha = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"], check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    _run_git(root, "update-ref", "-d", "refs/remotes/origin/main")
+
+    engine = root / "lib" / "project_next" / "rank.py"
+    engine.write_text(engine.read_text(encoding="utf-8") + "# change\n", encoding="utf-8")
+    _bump_contract_version(root)
+
+    assert pno.main(["--repin", "--root", str(root), "--baseline", base_sha]) == 0
+
+
+@requires_real_git
+def test_repin_refuses_a_baseline_ref_that_does_not_resolve(tmp_path: Path) -> None:
+    """Counter-model finding: an unresolvable `--baseline` (a typo, a ref
+
+    never fetched) must REFUSE, not silently behave like a legitimate first
+    pin - `_recorded_at_ref` treats every failed `git show` as "absent",
+    which is correct for a real commit with no manifest yet and wrong for a
+    ref that is not a commit at all.
+    """
+    root = _git_sandbox(tmp_path)
+    engine = root / "lib" / "project_next" / "rank.py"
+    engine.write_text(engine.read_text(encoding="utf-8") + "# change\n", encoding="utf-8")
+    _bump_contract_version(root)
+
+    assert pno.main(["--repin", "--root", str(root), "--baseline", "not-a-real-ref"]) == 1

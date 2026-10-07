@@ -1,0 +1,73 @@
+{
+  "_comment": [
+    "Registration for lib/project_next/collect.py (issue #1398, ADR 0008 census",
+    "row 23: `project-next.py` + the vendored engine, consumer `/project:next`,",
+    "class G - a gate that LETS WORK THROUGH, whose JSON output the command",
+    "document declares authoritative, so nothing downstream re-derives it).",
+    "",
+    "WHAT THIS ASKS: a worktree whose `git status --short` call FAILS must be",
+    "reported UNEXAMINED (dirty=None), never read as clean. Before the fix,",
+    "`_parse_worktrees` turned the failure into `status = \"\"`, indistinguishable",
+    "from a worktree that was asked and found clean - and fed the cleanup",
+    "candidate text the LESS cautious, removal-leaning action instead of",
+    "\"Inspect uncommitted changes; do not remove automatically\".",
+    "",
+    "WHY THE INVOCATION IS A CUSTOM SANDBOX, not a direct `{gate}` call: the",
+    "defect needs a REAL git-status failure (not a fixture that bypasses",
+    "collection), and the gate under test is one module inside a larger package",
+    "that scripts/project-next.py's CLI actually runs. Each case's `setup.sh`",
+    "(sourced, so its PATH export survives) builds a real git repository plus a",
+    "worktree whose own `.git` file is removed - a genuine, portable failure -",
+    "and arranges a fake `gh` shim so the CLI needs no network or token. The",
+    "invocation copies the CURRENT checkout (`git archive HEAD`) into a sandbox",
+    "and drops `{gate}` in as `lib/project_next/collect.py` before running the",
+    "real CLI against the fixture - so the anchor substitution (ADR 0008) swaps",
+    "in the OLD module while every other file (classify.py, rank.py, render.py,",
+    "scripts/project-next.py) stays current, exactly mirroring what changed.",
+    "",
+    "DETECTION: the worktree's branch names issue #999, which the fake `gh",
+    "issue list` never returns - an unmapped, off-open-issue worktree, the",
+    "shape where `_dirty_worktrees_off_open_issues` (rank.py) and the cleanup-",
+    "action text diverge between `dirty=None` and `dirty=False`. `scripts/",
+    "project-next.py` exits 0 whenever the inventory is complete REGARDLESS of",
+    "classification, so `good_exit` alone cannot separate the two cases - the",
+    "invocation's own wrapper greps the rendered output for the status-unknown",
+    "phrase and translates its presence into exit 1 (absence stays exit 0),",
+    "which is what lets `detect_signal` and `good_exit` discriminate at all.",
+    "The unmapped worktree ALSO produces a `classification.unmapped_worktrees`",
+    "warning in both cases; that one is not the signal."
+  ],
+  "gate": "lib/project_next/collect.py",
+  "invocation": [
+    "bash", "-c",
+    "W=$(mktemp -d) || exit 9; git archive HEAD | (mkdir -p \"$W/engine\" && tar -x -C \"$W/engine\") || { rm -rf \"$W\"; exit 9; }; cp \"$2\" \"$W/engine/lib/project_next/collect.py\" || { rm -rf \"$W\"; exit 9; }; . \"$1/setup.sh\" \"$W/fixture\" || { rm -rf \"$W\"; exit 9; }; cd \"$W/engine\" || { rm -rf \"$W\"; exit 9; }; OUTPUT=$(python3 scripts/project-next.py \"$W/fixture/repo\" --full); pyrc=$?; echo \"$OUTPUT\"; rm -rf \"$W\"; [ \"$pyrc\" -ne 0 ] && exit \"$pyrc\"; echo \"$OUTPUT\" | grep -q 'status-unknown worktree .* names issue #999' && exit 1; exit 0",
+    "--", "{case}", "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "status-unknown worktree .* names issue #999",
+  "limits": "Covers ONLY the git-status-collection path (_parse_worktrees). It says nothing about the other worktree_delivery re-read (#1257, which already defends in depth against this exact collector behaviour) or about a worktree whose `git log` call fails instead of `git status` - both commands share one try/except in the gate, so a case distinguishing them would need a different injection point than a real broken worktree supplies.",
+  "cases": [
+    {
+      "name": "bad-worktree-status-unreadable",
+      "input": "cases/bad-worktree-status-unreadable",
+      "expect": "BAD",
+      "why": "The worktree's own `.git` file is removed after `git worktree add`, so `git status --short` fails with a real, portable 'not a git repository' error - the gate must report this worktree UNEXAMINED, not clean."
+    },
+    {
+      "name": "good-worktree-clean",
+      "input": "cases/good-worktree-clean",
+      "expect": "GOOD",
+      "why": "The identical unmapped-worktree shape with its `.git` intact - a genuinely clean, examinable worktree must still get the lighter cleanup action and no status-unknown warning."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "44f8f43",
+      "origin": "lib/project_next/collect.py",
+      "path": "anchors/44f8f43-collect.py",
+      "sha256": "d92f2b2fb83a5a03f23940ea2c72b0d2e4f79b4b83b7604b9adc3e0cc74032e4",
+      "why": "The module as it stood immediately before #1398 - the commit the issue's own plan named as the anchor source. `status = \"\"` on a CollectionError, feeding `dirty=bool(tracked)` (False), is the exact behaviour under test; it MISSES the known-bad input (reports no status-unknown warning, and the lighter cleanup action) and AGREES with the current gate on the known-good one."
+    }
+  ]
+}

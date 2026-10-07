@@ -163,7 +163,7 @@ def test_a_marked_inbox_is_never_available_nor_the_next_startable_issue() -> Non
     assert 864 not in result.ranked_available
     assert all(candidate.issue_number != 864 for candidate in result.candidates)
     assert result.next_startable_issue == 900
-    assert "$flow-auto 864" not in render_result(result, state, "compact")
+    assert "/flow:auto 864" not in render_result(result, state, "compact")
 
 
 def test_the_same_inbox_without_the_marker_is_still_ranked_first() -> None:
@@ -246,3 +246,98 @@ def test_depends_on_something_unresolvable_is_still_uncertain(text: str) -> None
     )
 
     assert classify_repository(state).uncertain == (3,)
+
+
+def test_a_status_unknown_worktree_evidence_says_unknown_not_clean() -> None:
+    """Site 5 (classify.py, #1398): the in_flight evidence string for a
+
+    worktree whose status could not be read must say `:unknown`, never fall
+    through to `:clean` the way `':dirty' if worktree.dirty else ':clean'`
+    used to for `dirty=None`.
+    """
+    from lib.project_next.models import Worktree
+
+    state = RepositoryState(
+        repository="example/repo",
+        default_branch="main",
+        collected_at="2026-08-07T13:00:00Z",
+        issues=(Issue(13, "In-flight work", body=""),),
+        worktrees=(Worktree("/repo-issue-13", "issue-13-x", dirty=None, status_unknown_reason="git failed"),),
+    )
+
+    classification = classify_repository(state)
+
+    assert 13 in classification.in_flight
+    assert any(evidence.endswith(":unknown") for evidence in classification.in_flight_evidence[13])
+
+
+def test_a_cross_repo_dependency_is_uncertain_with_a_specific_reason() -> None:
+    """The nit's motivating case (#1398): `cooneycw/skillc#8` is not "an issue
+
+    reference present but not attached to the phrase" - it IS attached, it
+    just names a different repository's issue. The reason must say so.
+    """
+    state = RepositoryState(
+        repository="example/repo",
+        default_branch="main",
+        collected_at="2026-08-07T13:00:00Z",
+        issues=(Issue(6, "Waits on another repo", body="Depends on: other/repo#8, other/repo#9."),),
+    )
+
+    result = classify_repository(state)
+
+    assert result.uncertain == (6,)
+    reasons = " ".join(result.uncertainty[6])
+    assert "other/repo#8" in reasons
+    assert "not checkable from this repo's inventory" in reasons
+    assert "not attached to the phrase" not in reasons
+
+
+def test_a_mixed_local_and_cross_repo_dependency_still_reports_the_external_one() -> None:
+    """Counter-model finding: a satisfied local dependency must not silence a
+
+    DIFFERENT repository's blocker on the same line - `consumed` (from the
+    local #4) used to suppress the external report entirely, which could
+    have let #6 read `available` once #4 closed despite the cross-repo
+    blocker remaining open.
+    """
+    state = RepositoryState(
+        repository="example/repo",
+        default_branch="main",
+        collected_at="2026-08-07T13:00:00Z",
+        issues=(
+            Issue(6, "Waits on both", body="Depends on: #4, other/repo#9."),
+            Issue(4, "Local prerequisite", body="Depends on: None"),
+        ),
+    )
+
+    result = classify_repository(state)
+
+    assert result.available == (4,)
+    assert 6 in result.uncertain
+    reasons = " ".join(result.uncertainty[6])
+    assert "other/repo#9" in reasons
+    assert "not checkable from this repo's inventory" in reasons
+
+
+def test_a_self_repo_qualified_reference_is_a_local_dependency_not_external() -> None:
+    """Counter-model finding: `example/repo#4` naming THIS repository is `#4`,
+
+    not an unresolvable cross-repo blocker - a copy-pasted fully-qualified
+    reference to the issue's own repo must resolve exactly like a bare `#4`.
+    """
+    state = RepositoryState(
+        repository="example/repo",
+        default_branch="main",
+        collected_at="2026-08-07T13:00:00Z",
+        issues=(
+            Issue(6, "Waits on a local issue, fully qualified", body="Depends on: example/repo#4."),
+            Issue(4, "Local prerequisite", body="Depends on: None"),
+        ),
+    )
+
+    result = classify_repository(state)
+
+    assert result.uncertain == ()
+    assert 6 in result.blocked
+    assert result.dependency_map[6] == (4,)

@@ -49,7 +49,7 @@ MANIFEST_PATH = REPO_ROOT / ".claude" / "project-next-ownership.json"
 # subprocess test in tests/test_project_next_contract.py exists.
 sys.path.insert(0, str(REPO_ROOT))
 
-from lib.project_next.classify import _dependencies, _task_issue_index  # noqa: E402
+from lib.project_next.classify import _dependencies, _task_issue_index, strip_code  # noqa: E402
 from lib.project_next.collect import (  # noqa: E402
     CollectionError,
     CommandRunner,
@@ -74,6 +74,12 @@ LIFECYCLE_STATES = frozenset({"active", "graduated", "stale", "retained"})
 GRADUATION_LEDGER = Path(".specify/graduation-ledger.json")
 GRADUATION_LEDGER_VERSION = 1
 DECISION_ID = re.compile(r"\bD\d{3}\b")
+# A spec ledger's own owner-decision rows (issue #1398) - the same KIND of
+# object as a Wayfinder DNNN decision (a named, owner-held gate with a stated
+# blocking effect), in a second registry: ``.specify/specs/*/ledger.md``'s
+# "## A. Owner decisions" table, where each row heads `### QN - <status>`.
+LEDGER_DECISION_ID = re.compile(r"\bQ\d+\b")
+LEDGER_HEADER = re.compile(r"^###\s+(?P<id>Q\d+)\s*-\s*(?P<status>.+?)\s*$", re.MULTILINE)
 WAYFINDER_MAP = Path(".claude") / "wayfinder-map.json"
 # Matched against normalize_label() output, so `wayfinder:map` arrives as `wayfinder-map`.
 WAYFINDER_LABEL_PREFIX = "wayfinder-"
@@ -585,15 +591,66 @@ def read_wayfinder_map(repository: Path) -> tuple[WayfinderMap, dict[str, object
     return WayfinderMap("absent", "", f"checked {checked}"), None
 
 
+@dataclass(frozen=True)
+class LedgerStatus:
+    """One ``.specify/specs/*/ledger.md`` read, and what came of it (#1398).
+
+    ``unreadable`` must NOT be silently treated as "no open decisions" - that
+    is exactly the false-clean a broken ledger would otherwise produce, so a
+    caller that discovers one routes every Q-referencing issue conservatively
+    rather than dropping the ledger from consideration.
+    """
+
+    path: str
+    state: str
+    detail: str = ""
+    pending: dict[str, str] = field(default_factory=dict)
+
+
+def read_ledger_decisions(repository: Path) -> tuple[LedgerStatus, ...]:
+    """Every ``.specify/specs/*/ledger.md``'s owner-decision rows, read once.
+
+    A row heads ``### QN - <status>``; anything not stating RESOLVED is read
+    as a live, PENDING gate - fail toward "still blocking" on an ambiguous
+    status rather than assuming it was decided.
+
+    Fenced code is stripped first (counter-model review): an example inside
+    a ```` ``` ```` block showing ``### Q8 - PENDING`` as sample text is not
+    a real decision, and `strip_code` is the same discipline the dependency-
+    text parser already applies to issue bodies for the identical reason.
+    """
+    results: list[LedgerStatus] = []
+    for path in sorted((repository / ".specify" / "specs").glob("*/ledger.md")):
+        rel = str(path.relative_to(repository))
+        try:
+            text = strip_code(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError) as exc:
+            results.append(LedgerStatus(rel, "unreadable", str(exc)))
+            continue
+        pending = {
+            match.group("id"): match.group("status")
+            for match in LEDGER_HEADER.finditer(text)
+            if "RESOLVED" not in match.group("status").upper()
+        }
+        results.append(LedgerStatus(rel, "read", f"{len(pending)} pending decision(s)", pending))
+    return tuple(results)
+
+
 def planning_routes(
-    repository: Path, state: RepositoryState, payload: dict[str, object] | None = None
+    repository: Path,
+    state: RepositoryState,
+    payload: dict[str, object] | None = None,
+    ledgers: tuple[LedgerStatus, ...] | None = None,
 ) -> tuple[PlanningRoute, ...]:
     """Route map-linked decision tickets and ``wayfinder:*``-labelled issues to planning.
 
     ``payload`` is the map already read by ``read_wayfinder_map``; omitted, it is read here.
+    ``ledgers`` is likewise ``read_ledger_decisions``'s result; omitted, it is read here.
     """
     if payload is None:
         _, payload = read_wayfinder_map(repository)
+    if ledgers is None:
+        ledgers = read_ledger_decisions(repository)
     routes: list[PlanningRoute] = []
     routed: set[int] = set()
     decisions = payload.get("decisions") if payload and payload.get("state") == "awaiting-decisions" else None
@@ -626,6 +683,65 @@ def planning_routes(
                         reason="resolve the linked Wayfinder decision before implementation planning",
                     )
                 )
+    # A spec ledger's QN owner-decision row (#1398) - the same kind of object
+    # as a Wayfinder DNNN decision, in a second registry. An UNREADABLE ledger
+    # must not read as "no open decisions" (the false-clean this issue is
+    # about): every Q-referencing issue is routed conservatively, naming the
+    # parse failure, rather than silently finding zero pending rows in it.
+    for issue in state.issues:
+        if issue.number in routed:
+            continue
+        issue_q_ids = set(LEDGER_DECISION_ID.findall(f"{issue.title}\n{issue.body}"))
+        if not issue_q_ids:
+            continue
+        unreadable = next((ledger for ledger in ledgers if ledger.state == "unreadable"), None)
+        if unreadable is not None:
+            routed.add(issue.number)
+            routes.append(
+                PlanningRoute(
+                    issue_number=issue.number,
+                    artifact=unreadable.path,
+                    action="/project:init",
+                    reason=f"a spec ledger could not be parsed ({unreadable.path}: {unreadable.detail}); "
+                    "resolve manually before implementation planning",
+                )
+            )
+            continue
+        # A `QN` id is LOCAL TO ITS OWN LEDGER (#1398 counter-model review),
+        # never a repository-wide identifier - each spec numbers its owner
+        # decisions from Q1, so two specs' ledgers can both declare a "Q8"
+        # with different statuses. Collecting every (ledger, id) match before
+        # picking one is what lets a genuinely ambiguous id be reported as
+        # such, rather than silently resolved by ledger sort order.
+        by_id: dict[str, list[str]] = {}
+        for ledger in ledgers:
+            for qid in sorted(issue_q_ids & set(ledger.pending)):
+                by_id.setdefault(qid, []).append(ledger.path)
+        if not by_id:
+            continue
+        routed.add(issue.number)
+        ambiguous = {qid: paths for qid, paths in by_id.items() if len(paths) > 1}
+        if ambiguous:
+            qid, paths = sorted(ambiguous.items())[0]
+            routes.append(
+                PlanningRoute(
+                    issue_number=issue.number,
+                    artifact=", ".join(paths),
+                    action="/project:init",
+                    reason=f"{qid} is PENDING in more than one ledger ({', '.join(paths)}) - ambiguous "
+                    "ownership; resolve manually before implementation planning",
+                )
+            )
+            continue
+        qid, paths = sorted(by_id.items())[0]
+        routes.append(
+            PlanningRoute(
+                issue_number=issue.number,
+                artifact=f"{paths[0]}#{qid}",
+                action="/project:init",
+                reason=f"resolve the pending ledger decision {qid} ({paths[0]}) before implementation planning",
+            )
+        )
     # The label is the checkable trigger, not body text: prose DISCUSSING wayfinding
     # would trip a text match, and a seed that says "do not implement" in a sentence
     # still reached flow:auto (#1035).
@@ -1076,7 +1192,10 @@ def _apply_route_rendering(text: str, routes: tuple[PlanningRoute, ...]) -> str:
         if route.issue_number is None:
             continue
         # Anchor the number: routing #87 must never rewrite the command for #876 (#1035).
-        pattern = re.compile(rf"(`?)\$flow-auto {route.issue_number}(?!\d)\1")
+        # The engine's own rendered command is `/flow:auto N` (#1398, was Codex's
+        # leftover `$flow-auto N`); this regex must track that literally, or a
+        # wayfinder-routed issue's command silently stops being overridden.
+        pattern = re.compile(rf"(`?)/flow:auto {route.issue_number}(?!\d)\1")
         replacement = f"\\g<1>{route.action}\\g<1> (Wayfinder planning only)"
         text = pattern.sub(replacement, text)
     return text

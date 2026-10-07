@@ -92,18 +92,28 @@ class PullRequest:
 class Worktree:
     path: str
     branch: str
-    dirty: bool = False
+    #: None means UNEXAMINED - the `git status` call itself failed, which is a
+    #: different fact from a clean tree (#1398). A fixture or --input payload
+    #: that omits `dirty` still defaults to the pre-existing `False`; only an
+    #: explicit `null`/None carries the unknown state through.
+    dirty: bool | None = False
     untracked_only: bool = False
     recent_commits: tuple[str, ...] = ()
+    #: Why `dirty` is None - the collector's warning text, or "" when dirty is
+    #: not None. Carried so a renderer can say WHY the status is unknown
+    #: rather than just that it is (#1398).
+    status_unknown_reason: str = ""
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Worktree:
+        raw_dirty = data.get("dirty", False)
         return cls(
             path=str(data["path"]),
             branch=str(data.get("branch") or ""),
-            dirty=bool(data.get("dirty", False)),
+            dirty=None if raw_dirty is None else bool(raw_dirty),
             untracked_only=bool(data.get("untracked_only", False)),
             recent_commits=_tuple_of_strings(data.get("recent_commits")),
+            status_unknown_reason=str(data.get("status_unknown_reason") or ""),
         )
 
 
@@ -293,11 +303,12 @@ class WorktreeDetail:
     branch: str
     issue_number: int | None
     issue_state: str
-    dirty: bool
+    dirty: bool | None
     untracked_only: bool = False
     recent_commits: tuple[str, ...] = ()
     cleanup_recommended: bool = False
     cleanup_reason: str = ""
+    status_unknown_reason: str = ""
 
 
 @dataclass(frozen=True)

@@ -189,8 +189,126 @@ def test_wayfinder_decision_ticket_routes_to_planning_in_every_mode(tmp_path: Pa
     for mode in ("brief", "compact", "full"):
         rendered = project_next.render_cpp(result, state, mode, extensions)
         assert "/project:init" in rendered
-        assert "$flow-auto 7" not in rendered
+        assert "/flow:auto 7" not in rendered
         assert "never `flow:auto`" in rendered
+
+
+def _ledger(tmp_path: Path, slug: str, *rows: str) -> Path:
+    path = tmp_path / ".specify" / "specs" / slug / "ledger.md"
+    path.parent.mkdir(parents=True)
+    body = "## A. Owner decisions\n\n" + "\n\n".join(rows) + "\n"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+def test_a_pending_ledger_decision_routes_its_issue_to_planning(tmp_path: Path) -> None:
+    """The nit's motivating case (#1398): a spec ledger's own owner-decision
+
+    row is the same kind of object as a Wayfinder DNNN decision - a named,
+    owner-held gate - and now routes the same way, instead of the issue
+    reading as an ordinary, resolvable `uncertain`.
+    """
+    _ledger(tmp_path, "codex-consolidation", "### Q8 - OWNER DECISION - PENDING\n\nchoose the runtime.")
+    state = _state(issues=[{"number": 42, "title": "Child task", "body": "**Blocked on Q8**"}])
+    result = project_next.recommend(state)
+    routes = project_next.planning_routes(tmp_path, state)
+    extensions = project_next.CppExtensions((), (), routes, ())
+
+    assert any(
+        route.issue_number == 42 and route.action == "/project:init" and "Q8" in route.reason
+        for route in routes
+    )
+    for mode in ("brief", "compact", "full"):
+        rendered = project_next.render_cpp(result, state, mode, extensions)
+        assert "/flow:auto 42" not in rendered
+
+
+def test_a_resolved_ledger_decision_does_not_route_its_issue(tmp_path: Path) -> None:
+    """The companion negative: a RESOLVED row names no live gate, so the
+
+    issue it was blocking is ordinary implementation work again.
+    """
+    _ledger(tmp_path, "codex-consolidation", "### Q8 - RESOLVED 2026-09-20, by reversing the presumption")
+    state = _state(issues=[{"number": 42, "title": "Child task", "body": "No longer blocked (Q8 resolved)."}])
+    routes = project_next.planning_routes(tmp_path, state)
+
+    assert not any(route.issue_number == 42 for route in routes)
+
+
+def test_an_unreadable_ledger_routes_every_q_referencing_issue_conservatively(tmp_path: Path) -> None:
+    """An unparseable ledger must NOT read as "no open decisions" - the exact
+
+    false-clean this issue is about. Every issue referencing ANY QN id is
+    routed, naming the parse failure, rather than silently finding zero
+    pending rows in a ledger that could not be read at all.
+    """
+    path = tmp_path / ".specify" / "specs" / "codex-consolidation" / "ledger.md"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"\xff\xfe not valid utf-8")
+    state = _state(issues=[{"number": 42, "title": "Child task", "body": "**Blocked on Q8**"}])
+    routes = project_next.planning_routes(tmp_path, state)
+
+    matching = [route for route in routes if route.issue_number == 42]
+    assert len(matching) == 1
+    assert matching[0].action == "/project:init"
+    assert "could not be parsed" in matching[0].reason
+
+
+def test_the_same_decision_id_pending_in_two_ledgers_is_reported_ambiguous(tmp_path: Path) -> None:
+    """Counter-model finding: `QN` is LOCAL TO ITS OWN LEDGER, not a
+
+    repository-wide identifier - each spec numbers its decisions from Q1, so
+    two specs can both declare a pending "Q8". Before this, sorted discovery
+    order silently picked one ledger; this must be reported as ambiguous
+    instead.
+    """
+    _ledger(tmp_path, "spec-alpha", "### Q8 - OWNER DECISION - PENDING\n\nchoose the runtime.")
+    _ledger(tmp_path, "spec-beta", "### Q8 - OWNER DECISION - PENDING\n\nchoose the storage layer.")
+    state = _state(issues=[{"number": 42, "title": "Child task", "body": "**Blocked on Q8**"}])
+    routes = project_next.planning_routes(tmp_path, state)
+
+    matching = [route for route in routes if route.issue_number == 42]
+    assert len(matching) == 1
+    assert "ambiguous" in matching[0].reason
+    assert "spec-alpha" in matching[0].reason
+    assert "spec-beta" in matching[0].reason
+
+
+def test_a_resolved_q_id_in_one_ledger_does_not_mask_the_same_pending_id_in_another(
+    tmp_path: Path,
+) -> None:
+    """The companion negative: RESOLVED in one ledger and PENDING in another
+
+    is not ambiguous - only the pending ledger blocks, and it is named.
+    """
+    _ledger(tmp_path, "spec-alpha", "### Q8 - RESOLVED 2026-09-20, by reversing the presumption")
+    _ledger(tmp_path, "spec-beta", "### Q8 - OWNER DECISION - PENDING\n\nchoose the storage layer.")
+    state = _state(issues=[{"number": 42, "title": "Child task", "body": "**Blocked on Q8**"}])
+    routes = project_next.planning_routes(tmp_path, state)
+
+    matching = [route for route in routes if route.issue_number == 42]
+    assert len(matching) == 1
+    assert "ambiguous" not in matching[0].reason
+    assert "spec-beta" in matching[0].reason
+
+
+def test_a_fenced_code_example_is_not_read_as_a_live_ledger_decision(tmp_path: Path) -> None:
+    """Counter-model finding: `LEDGER_HEADER` scanned the whole file with no
+
+    fence-awareness, so a markdown EXAMPLE showing `### Q8 - PENDING` as
+    sample text inside a code fence would be misread as a real decision.
+    `strip_code` is the same discipline the dependency-text parser already
+    applies to issue bodies.
+    """
+    _ledger(
+        tmp_path,
+        "codex-consolidation",
+        "Example row shape:\n\n```\n### Q8 - OWNER DECISION - PENDING\n```\n\nNo real decisions yet.",
+    )
+    state = _state(issues=[{"number": 42, "title": "Child task", "body": "**Blocked on Q8**"}])
+    routes = project_next.planning_routes(tmp_path, state)
+
+    assert not any(route.issue_number == 42 for route in routes)
 
 
 def test_graduation_ledger_without_a_version_field_is_rejected_loudly(tmp_path: Path) -> None:
@@ -242,8 +360,8 @@ def test_a_wayfinder_label_never_emits_a_flow_auto_route_and_an_unlabelled_issue
     assert routes[0].artifact == "label:wayfinder:map"
     for mode in ("compact", "full"):
         rendered = project_next.render_cpp(result, state, mode, extensions)
-        assert "$flow-auto 876" not in rendered
-        assert "$flow-auto 900" in rendered
+        assert "/flow:auto 876" not in rendered
+        assert "/flow:auto 900" in rendered
 
 
 def test_the_map_reads_absent_only_when_it_is_absent_and_unreadable_when_it_is_malformed(tmp_path: Path) -> None:
@@ -367,19 +485,19 @@ def test_json_gives_a_labelled_seed_the_planning_route_not_flow_auto(
     payload = json.loads(capsys.readouterr().out)
     commands = {candidate["issue_number"]: candidate["command"] for candidate in payload["candidates"]}
 
-    assert "$flow-auto" not in commands[876]
+    assert "/flow:auto" not in commands[876]
     assert commands[876].startswith("/project:init")
-    assert commands[900] == "$flow-auto 900"
+    assert commands[900] == "/flow:auto 900"
 
 
 def test_routing_one_issue_never_rewrites_a_neighbour_whose_number_it_prefixes() -> None:
     routes = (project_next.PlanningRoute(87, "label:wayfinder:map", "/project:init", "seed"),)
-    text = "→ `$flow-auto 87`\n→ `$flow-auto 876`\n$flow-auto 87"
+    text = "→ `/flow:auto 87`\n→ `/flow:auto 876`\n/flow:auto 87"
 
     rendered = project_next._apply_route_rendering(text, routes)
 
-    assert "`$flow-auto 876`" in rendered
-    assert "$flow-auto 87`" not in rendered
+    assert "`/flow:auto 876`" in rendered
+    assert "/flow:auto 87`" not in rendered
     assert rendered.count("/project:init") == 2
 
 

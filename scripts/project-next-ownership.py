@@ -21,11 +21,14 @@ So: every pinned file's sha256 must match the manifest, the version DERIVED from
 Python module may sit inside the package. Edit the engine and you must re-pin;
 re-pinning without touching the contract document is refused.
 
-Stdlib only, no network, no git - it runs in the uv:python3.11-slim validate
-container, like the gate it replaces.
+`check` is stdlib only, no network, no git - it runs in the uv:python3.11-slim
+validate container, like the gate it replaces. `--repin` now shells out to git
+(issue #1398, see below); that is a developer/session-time operation only -
+CI never passes `--repin` to this script.
 
     project-next-ownership.py check        offline hard gate (`make project-next-check`)
     project-next-ownership.py --repin      recompute pins after a deliberate change
+    project-next-ownership.py --baseline REF   compare --repin against REF, not merge-base(HEAD, origin/main)
     project-next-ownership.py --root DIR   operate on another tree (controls, fixtures)
 """
 
@@ -35,6 +38,7 @@ import argparse
 import hashlib
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -189,7 +193,67 @@ def _recorded(root: Path) -> tuple[str | None, dict[str, str]] | None:
     return data.get("contract_version"), files
 
 
-def _repin(root: Path) -> int:
+def _is_git_repository(root: Path) -> bool:
+    return subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
+        capture_output=True, text=True, check=False,
+    ).returncode == 0
+
+
+def _merge_base_with_origin_main(root: Path) -> str | None:
+    proc = subprocess.run(
+        ["git", "-C", str(root), "merge-base", "HEAD", "origin/main"],
+        capture_output=True, text=True, check=False,
+    )
+    return proc.stdout.strip() if proc.returncode == 0 and proc.stdout.strip() else None
+
+
+def _ref_exists(root: Path, ref: str) -> bool:
+    """Does `ref` resolve to a real commit? (counter-model review, #1398)
+
+    `_recorded_at_ref` treats EVERY failed `git show` as "absent", which is
+    right for a baseline commit that simply has no manifest yet - but
+    without this check first, a bad `--baseline` (a typo, a ref `git fetch`
+    never brought down) resolves the SAME way: no comparison, repin allowed.
+    An invalid ref must REFUSE, not silently behave like a legitimate first
+    pin.
+    """
+    return subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+        capture_output=True, text=True, check=False,
+    ).returncode == 0
+
+
+def _recorded_at_ref(root: Path, ref: str) -> tuple[str, tuple[str | None, dict[str, str]] | None]:
+    """("absent"|"unreadable"|"ok", payload) - the manifest as committed AT `ref`.
+
+    Mirrors `_recorded`'s shape but reads git history rather than the working
+    tree (issue #1398). A branch that already repinned once has a working-tree
+    manifest reflecting its OWN last repin, so comparing the next edit against
+    THAT file compares the engine against itself and refuses every later edit
+    at the same, already-bumped version - "REFUSED: N engine module(s) changed
+    while ... still states contract version ..." on a legitimate second repin.
+    The shared ancestor with origin/main is the one baseline every repin on a
+    branch can be compared against consistently, whether it is the branch's
+    first repin or its fifth.
+    """
+    proc = subprocess.run(
+        ["git", "-C", str(root), "show", f"{ref}:{MANIFEST_REL}"],
+        capture_output=True, text=True, check=False,
+    )
+    if proc.returncode != 0:
+        return "absent", None
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return "unreadable", None
+    files = data.get("files")
+    if not isinstance(files, dict):
+        return "unreadable", None
+    return "ok", (data.get("contract_version"), files)
+
+
+def _repin(root: Path, baseline: str | None = None) -> int:
     manifest_path = root / MANIFEST_REL
     derived = _derived_version(root)
     if derived is None:
@@ -214,20 +278,59 @@ def _repin(root: Path) -> int:
     # caught it - each describes one state. Compare against what was recorded
     # BEFORE this re-pin: if any pinned file's hash moves while the derived
     # version does not, the bump is missing and the re-pin is refused.
-    previous = _recorded(root)
-    if previous is None and (root / MANIFEST_REL).is_file():
-        # A manifest EXISTS and could not be read as a baseline. Skipping the
-        # comparison here was the bug `_recorded`'s own docstring warned about -
-        # "the caller must treat that as unknown rather than as agreement" - and
-        # the caller treated it as agreement. An unreadable baseline is not
-        # evidence that nothing changed.
+    # BASELINE SOURCE (issue #1398): an explicit --baseline, or the merge-base
+    # with origin/main when `root` is a real git repository, falling back to
+    # the working-tree file only for a git-free fixture (what --root exists
+    # for: controls and the tests below, with no branch history to compare
+    # a merge-base against in the first place).
+    ref = baseline
+    if ref is None and _is_git_repository(root):
+        ref = _merge_base_with_origin_main(root)
+        if ref is None:
+            print(
+                "REFUSED: no merge-base of HEAD and origin/main could be resolved, so a "
+                "changed engine cannot be distinguished from an unchanged one. Pass "
+                "--baseline <ref> explicitly.",
+                file=sys.stderr,
+            )
+            return 1
+
+    if ref is not None and not _ref_exists(root, ref):
         print(
-            f"REFUSED: {MANIFEST_REL} exists but no baseline could be read from it, "
-            "so a changed engine cannot be distinguished from an unchanged one.",
+            f"REFUSED: baseline ref {ref!r} does not resolve to a commit, so a changed engine "
+            "cannot be distinguished from an unchanged one.",
             file=sys.stderr,
         )
-        print("  Repair the manifest, or delete it to pin from scratch.", file=sys.stderr)
         return 1
+
+    if ref is not None:
+        state, previous = _recorded_at_ref(root, ref)
+        if state == "unreadable":
+            print(
+                f"REFUSED: {MANIFEST_REL} exists at {ref[:12]} but no baseline could be read "
+                "from it, so a changed engine cannot be distinguished from an unchanged one.",
+                file=sys.stderr,
+            )
+            print(
+                "  Repair the manifest at that revision, or pass --baseline <ref> explicitly.",
+                file=sys.stderr,
+            )
+            return 1
+    else:
+        previous = _recorded(root)
+        if previous is None and (root / MANIFEST_REL).is_file():
+            # A manifest EXISTS and could not be read as a baseline. Skipping the
+            # comparison here was the bug `_recorded`'s own docstring warned about -
+            # "the caller must treat that as unknown rather than as agreement" - and
+            # the caller treated it as agreement. An unreadable baseline is not
+            # evidence that nothing changed.
+            print(
+                f"REFUSED: {MANIFEST_REL} exists but no baseline could be read from it, "
+                "so a changed engine cannot be distinguished from an unchanged one.",
+                file=sys.stderr,
+            )
+            print("  Repair the manifest, or delete it to pin from scratch.", file=sys.stderr)
+            return 1
     if previous is not None:
         prior_version, prior_files = previous
         # An engine module PINNED BY THE CONTRACT but absent from the baseline is
@@ -298,12 +401,16 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Verify CPP's ownership pin of the project-next engine (issue #1069).")
     parser.add_argument("mode", nargs="?", default="check", choices=["check"])
     parser.add_argument("--repin", action="store_true", help="recompute pins after a deliberate engine change")
+    parser.add_argument(
+        "--baseline", default=None,
+        help="compare --repin against this ref instead of merge-base(HEAD, origin/main)",
+    )
     parser.add_argument("--root", default=None, help="operate on another tree (controls, fixtures)")
     args = parser.parse_args(argv)
 
     root = Path(args.root).resolve() if args.root else REPO_ROOT
     if args.repin:
-        return _repin(root)
+        return _repin(root, args.baseline)
 
     findings = _findings(root)
     if findings:

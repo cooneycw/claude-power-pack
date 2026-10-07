@@ -1,18 +1,18 @@
 {
   "_comment": "CPP owns lib/project_next outright (issue #1069). It was vendored from codex-power-pack until then, at upstream commit 1724e7d9; that repository goes private and dormant and is no longer a source of record. Provenance lives in lib/project_next/LICENSE and docs/project-next-provenance.md.",
   "owner": "cooneycw/claude-power-pack",
-  "contract_version": "1.4",
+  "contract_version": "1.5",
   "files": {
-    "docs/project-next-contract.md": "632ae3b21ed8b04607913a89bc682d929037348dd77c07b56b70809ab2119be9",
+    "docs/project-next-contract.md": "1e8e4c19b407e66ff72387ce7d433fe6202dc3367f416e3ca051d8f52b7a102a",
     "lib/project_next/LICENSE": "09fc9c15f0b236d2bce483820f98147b4e8f65a807e927b58ea363f531fe0ab0",
     "lib/project_next/__init__.py": "0df00452c2ea69de59ca4a528eff28b0b79c1f2b3faedbffa7b2f89f558cf988",
-    "lib/project_next/classify.py": "1346815b4461504608c7debb53b9aad00b68ba1302247d9a313f9bd766736481",
+    "lib/project_next/classify.py": "a862b4c8238bedaf34f8d32fc126b92f85b082e953c2a6dd56b90e09f358c3c0",
     "lib/project_next/cli.py": "e084bcbf526acf9ad373c6c843e019fbdb57b19d5a5e43c4a88c323b1e4dea5c",
-    "lib/project_next/collect.py": "d92f2b2fb83a5a03f23940ea2c72b0d2e4f79b4b83b7604b9adc3e0cc74032e4",
+    "lib/project_next/collect.py": "a0711994440d715b9ace5afedc4acaf3234cbc301c0b5a4cf7f2cf74ec791e13",
     "lib/project_next/config.py": "7e816be531930af90fcb89458bf7322298872d03d8bd7ead9cc306577a990265",
-    "lib/project_next/models.py": "7d0672ae3ece6804ae7f1461b2102d3efe8c8d17d05bdb0e1b63a19e28435bbe",
-    "lib/project_next/rank.py": "955ed46970738dd8b5d3106f58f5d697aced059e0358433786c0777cb7847a2c",
-    "lib/project_next/render.py": "9a68ec45650f0ce2f63f6de07145bdd6859c2c49572414c9ce4c1667d0eaeb2a",
+    "lib/project_next/models.py": "18f400ea8a3462d7fea09c92a879eea3d87ad7258d38203925a73f6a43ea5f68",
+    "lib/project_next/rank.py": "3582293acb0bf3b3f7acc1e2cb2a6ca5ee98199e7fa6b9dca05fdd5c11625fb1",
+    "lib/project_next/render.py": "dcd2f5ef8394c94877e172656f1ae80f996d99ae382206ce83e8c42223cb531e",
     "templates/project-next.schema.json": "ed77ea3fd458ddfd2f2f67bd050113df4019176f3ee243c21a9b4bed5216bfe0"
   }
 }

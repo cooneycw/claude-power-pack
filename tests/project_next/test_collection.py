@@ -67,6 +67,70 @@ def test_collector_maps_git_github_and_worktree_state(tmp_path: Path) -> None:
     assert {branch.name for branch in state.branches} == {"main", "issue-1-task"}
 
 
+def test_a_worktree_whose_git_status_call_fails_is_unexamined_not_clean(tmp_path: Path) -> None:
+    """Before the fix, a failed `git status --short` call left `status = ""`,
+
+    indistinguishable from a worktree that was asked and found clean (#1398).
+    `dirty` must be None (unexamined), never False, and the collector's own
+    warning text must survive onto the worktree for a renderer to show.
+    """
+    worktree_output = f"worktree {tmp_path}\nHEAD abc\nbranch refs/heads/main\n\n"
+    outputs = {
+        ("git", "rev-parse", "--show-toplevel"): str(tmp_path),
+        ("gh", "repo", "view"): json.dumps({"nameWithOwner": "example/repo", "defaultBranchRef": {"name": "main"}}),
+        ("gh", "issue", "list"): "[]",
+        ("gh", "pr", "list"): "[]",
+        ("git", "fetch", "origin"): "",
+        ("git", "worktree", "list"): worktree_output,
+        ("git", "branch", "-a"): "main origin/main\n",
+    }
+
+    def runner(command: list[str], cwd: Path) -> str:
+        if tuple(command[:3]) == ("git", "status", "--short"):
+            raise CollectionError("git status --short: fatal: not a git repository")
+        for prefix, output in outputs.items():
+            if tuple(command[: len(prefix)]) == prefix:
+                return output
+        raise AssertionError(command)
+
+    state = collect_repository(tmp_path, runner=runner)
+
+    assert state.worktrees[0].dirty is None
+    assert "not a git repository" in state.worktrees[0].status_unknown_reason
+    assert any("not a git repository" in warning for warning in state.collector_warnings)
+
+
+def test_a_worktree_with_a_readable_clean_status_is_not_unexamined(tmp_path: Path) -> None:
+    """The companion to the above: a worktree whose status WAS readable and
+
+    clean must stay `dirty=False`, not regress to `None` - unexamined and
+    confirmed-clean are different facts and both must render correctly.
+    """
+    worktree_output = f"worktree {tmp_path}\nHEAD abc\nbranch refs/heads/main\n\n"
+    outputs = {
+        ("git", "rev-parse", "--show-toplevel"): str(tmp_path),
+        ("gh", "repo", "view"): json.dumps({"nameWithOwner": "example/repo", "defaultBranchRef": {"name": "main"}}),
+        ("gh", "issue", "list"): "[]",
+        ("gh", "pr", "list"): "[]",
+        ("git", "fetch", "origin"): "",
+        ("git", "worktree", "list"): worktree_output,
+        ("git", "status", "--short"): "",
+        ("git", "log", "--oneline"): "abc current",
+        ("git", "branch", "-a"): "main origin/main\n",
+    }
+
+    def runner(command: list[str], cwd: Path) -> str:
+        for prefix, output in outputs.items():
+            if tuple(command[: len(prefix)]) == prefix:
+                return output
+        raise AssertionError(command)
+
+    state = collect_repository(tmp_path, runner=runner)
+
+    assert state.worktrees[0].dirty is False
+    assert state.worktrees[0].status_unknown_reason == ""
+
+
 def test_collector_marks_truncated_inventory_incomplete(tmp_path: Path) -> None:
     def runner(command: list[str], cwd: Path) -> str:
         if command[:3] == ["git", "rev-parse", "--show-toplevel"]:

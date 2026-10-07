@@ -67,6 +67,15 @@ def _checks_state(rollup: Any) -> str:
     return "unknown"
 
 
+#: NEGATIVE-CONTROL: controls/project-next
+#:     Registered per issue #1398 (ADR 0008 census row 23: `project-next.py` +
+#:     the vendored engine, consumer `/project:next`, class G - a gate that
+#:     lets work THROUGH, whose JSON output the command document declares
+#:     authoritative, so nothing downstream re-derives it). A worktree whose
+#:     `git status` call fails here must read as UNEXAMINED, never as clean -
+#:     the pre-#1398 behaviour, vendored as this control's anchor, did the
+#:     latter and fed a removal-leaning cleanup action for work nothing had
+#:     actually verified was safe to discard.
 def _parse_worktrees(output: str, repository: Path, runner: CommandRunner, warnings: list[str]) -> tuple[Worktree, ...]:
     entries: list[dict[str, str]] = []
     current: dict[str, str] = {}
@@ -83,11 +92,16 @@ def _parse_worktrees(output: str, repository: Path, runner: CommandRunner, warni
     for entry in entries:
         path = Path(entry.get("worktree", repository))
         branch = entry.get("branch", "").removeprefix("refs/heads/")
+        status_unknown_reason = ""
         try:
             status = runner(["git", "status", "--short"], path)
             commits = runner(["git", "log", "--oneline", "-5"], path).splitlines()
         except CollectionError as exc:
+            # UNEXAMINED, not clean (#1398). `status = ""` used to mean both "no
+            # changes" and "could not ask" - indistinguishable from the outside,
+            # and the second one is a worktree whose state nothing has verified.
             warnings.append(str(exc))
+            status_unknown_reason = str(exc)
             status = ""
             commits = []
         entries_changed = [line for line in status.splitlines() if line.strip()]
@@ -98,9 +112,10 @@ def _parse_worktrees(output: str, repository: Path, runner: CommandRunner, warni
             Worktree(
                 path=str(path),
                 branch=branch,
-                dirty=bool(tracked),
+                dirty=None if status_unknown_reason else bool(tracked),
                 untracked_only=bool(entries_changed) and not tracked,
                 recent_commits=tuple(commits),
+                status_unknown_reason=status_unknown_reason,
             )
         )
     return tuple(worktrees)

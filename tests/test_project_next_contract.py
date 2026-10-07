@@ -122,7 +122,7 @@ def test_cpp_entry_point_runs_the_owned_fixture_without_optional_checkout(  # bi
     assert "cpp_extensions" in payload
 
 
-def test_offline_ownership_hash_gate_is_part_of_the_suite() -> None:
+def test_offline_ownership_hash_gate_is_part_of_the_suite() -> None:  # binary-guard: allow check skips --repin git
     """RE-POINTED (#1069): same property, successor gate.
 
     The point was never "the vendor script runs" - it is that the offline hash
