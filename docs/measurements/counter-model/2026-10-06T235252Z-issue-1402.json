@@ -1,0 +1,24 @@
+{
+  "branch": "fix-1402-watch-lineage-and-cwd-robustness",
+  "counts": {
+    "accepted": 1,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "9a09fa49d7338649b90ac8fb66fd22c71b13b6d0",
+  "implementer": "claude/claude-sonnet-5",
+  "issue": "1402",
+  "passes": 1,
+  "recorded_at": "2026-10-06T23:52:52Z",
+  "red_cases": {
+    "already_covered": 7,
+    "proposed": 7
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/06/rollout-2026-10-06T23-51-31-01a113a1-2798-7671-b313-f9ef96aedaf0.jsonl",
+    "thread_id": "01a113a1-2798-7671-b313-f9ef96aedaf0"
+  },
+  "schema": 1,
+  "status": "ran"
+}

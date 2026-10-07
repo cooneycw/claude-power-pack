@@ -529,14 +529,20 @@
 #   watchers  heartbeat        state
 #   --------  ---------------  ------------------------------------------------
 #   >0        within STALE     armed    listening right now, and at least one
-#                                       watcher is SESSION-PARENTED (or its
-#                                       parentage could not be read - see
-#                                       WAKEABILITY below)
+#                                       watcher is CONFIRMED session-parented
+#                                       (see WAKEABILITY below)
 #   >0, none  any              no-wake  polling, but NO watcher has a Claude
 #   session-                            Code session in its ancestry, so
 #   parented                            nothing it notices can wake anyone
 #                                       (#1228). A `supervise` daemon alone
 #                                       reads this way
+#   >0        any         wake-unknown  polling, but whether any watcher is
+#                                       session-parented is UNREADABLE (no
+#                                       socket directory, or the ancestry walk
+#                                       vanished mid-walk) - issue #1402. Never
+#                                       `armed` on a guess (that was the
+#                                       pre-#1402 reading) and never `no-wake`
+#                                       on a guess either; its own state
 #   >0        older            stale    the process exists but has stopped
 #                                       refreshing - hung, or SIGSTOPped. Deaf
 #                                       in practice, but a different repair
@@ -636,9 +642,9 @@
 # recreate the directory whose absence is the evidence the wave ended.
 #
 # `watch --status` detail lines:
-#   FLOW_MAILBOX_WATCH_STATE    armed | no-wake | stale | dead | absent |
-#                               unknown - the FUSED verdict (#801), never the
-#                               raw stamp
+#   FLOW_MAILBOX_WATCH_STATE    armed | no-wake | wake-unknown | stale | dead |
+#                               absent | unknown - the FUSED verdict (#801),
+#                               never the raw stamp
 #   FLOW_MAILBOX_WATCH_AGE      seconds since the last heartbeat, or '-'. Still
 #                               reported for every state, so "died just now" and
 #                               "died an hour ago" stay distinguishable
@@ -1089,11 +1095,12 @@ watch_age() {
   echo "$age"
 }
 
-# armed | no-wake | stale | dead | absent | unknown for <role>, given that
-# role's live watcher count (a non-negative integer, or `unknown`) and, as an
-# optional third argument, how many of those are session-parented (integer or
-# `unknown`, the default - which never produces `no-wake`; issue #1228). See the STATE table in
-# the header for why the heartbeat alone cannot answer this (#801).
+# armed | no-wake | wake-unknown | stale | dead | absent | unknown for <role>,
+# given that role's live watcher count (a non-negative integer, or `unknown`)
+# and, as an optional third argument, how many of those are session-parented
+# (integer or `unknown`, the default - which never produces `no-wake`, and
+# since #1402 never produces `armed` either). See the STATE table in the
+# header for why the heartbeat alone cannot answer this (#801).
 #
 # The count is a PARAMETER rather than something looked up here, so `list` can
 # tally every role from ONE pass over the process table instead of re-walking
@@ -1114,9 +1121,20 @@ watch_state_of() {
     # no Claude Code session in its ancestry - a `supervise` daemon's inner
     # watch - polls, surfaces and refreshes the heartbeat forever while the
     # session it serves hears nothing. Only a CONFIRMED zero session watchers
-    # says so; `unknown` parentage keeps the older reading, never a guess.
+    # says so.
     case "$sess" in
       0) echo no-wake; return ;;
+      # Nit Store / issue #1402: genuinely unknown lineage (no socket
+      # directory to test against, or the ancestry walk vanished mid-walk)
+      # used to fall through to the age check below and read `armed` - the
+      # #1228-era choice was "keep the older reading rather than guess
+      # no-wake", but that older reading IS a guess in the other direction:
+      # it claims wakeability this instrument could not establish. A
+      # watcher that merely polls and cannot be assessed for wakeability is
+      # its own state, never collapsed into either `armed` or a not-armed
+      # state - a reader who sees it must know the instrument looked and
+      # could not tell, not that it looked and found a healthy watch.
+      unknown) echo wake-unknown; return ;;
     esac
     # The stamp then distinguishes a healthy watch from a process that exists
     # but has stopped refreshing it.
@@ -2379,6 +2397,10 @@ case "$VERB" in
           echo "flow-wave-mailbox: role '$ROLE' is being POLLED but cannot be WOKEN - none of its $WCOUNT watcher(s) has a Claude Code session in its ancestry (holders: $WHOLDERS), so mail is noticed by a process no harness listens to (#1228). This is a \`supervise\` daemon, or a watch whose session is gone. From the session that owns this role, arm a watch as a BACKGROUND tool call (run_in_background, never a trailing &):"
           echo "  flow-wave-mailbox.sh watch --role $ROLE --wave $WAVE --timeout 1800 --consume"
           ;;
+        wake-unknown)
+          echo "flow-wave-mailbox: role '$ROLE' is being POLLED by $WCOUNT watcher(s), but whether any of them can WAKE anyone is UNKNOWN - no socket directory to test ancestry against, or the walk vanished mid-walk (issue #1402). Do NOT read this as armed: an unreadable lineage does not establish wakeability either way. If you can arm from a session, do so as a BACKGROUND tool call (run_in_background, never a trailing &):"
+          echo "  flow-wave-mailbox.sh watch --role $ROLE --wave $WAVE --timeout 1800 --consume"
+          ;;
         stale)
           echo "flow-wave-mailbox: a watcher process exists for role '$ROLE' but its heartbeat has not refreshed in ${WAGE}s (poll interval is seconds) - it is hung or stopped, not merely between wakes." >&2
           ;;
@@ -3310,6 +3332,7 @@ EOF
         printf '%-24s %8s %8s  %s\n' ROLE WATCH WATCHERS LAST
         DEAF_ROLES=""
         UNKNOWN_ROLES=""
+        WAKE_UNKNOWN_ROLES=""
         while IFS= read -r wr; do
           [ -n "$wr" ] || continue
           wa="$(watch_age "$wr")"
@@ -3319,6 +3342,7 @@ EOF
           case "$ws" in
             dead|absent|no-wake) DEAF_ROLES="$DEAF_ROLES $wr($ws)" ;;
             unknown)     UNKNOWN_ROLES="$UNKNOWN_ROLES $wr" ;;
+            wake-unknown) WAKE_UNKNOWN_ROLES="$WAKE_UNKNOWN_ROLES $wr" ;;
           esac
           printf '%-24s %8s %8s  %s\n' "$wr" "$ws" "$wc" "$last"
         done <<EOF
@@ -3331,6 +3355,15 @@ EOF
         # nobody is listening, it is the refusal to make either claim.
         if [ -n "$UNKNOWN_ROLES" ]; then
           echo "UNKNOWN: the process table could not be read, so the watch state of role(s):$UNKNOWN_ROLES is UNCHECKED, not clean (#801)."
+        fi
+        # Issue #1402: a THIRD "could not tell" bucket, kept separate from
+        # both DEAF and UNKNOWN - these roles ARE confirmed polling (the
+        # count is known), only their WAKEABILITY is unreadable. Folding this
+        # into DEAF would claim a confirmed deafness this instrument never
+        # established; folding it into armed (the pre-#1402 bug) would claim
+        # the opposite.
+        if [ -n "$WAKE_UNKNOWN_ROLES" ]; then
+          echo "WAKE-UNKNOWN: role(s):$WAKE_UNKNOWN_ROLES ARE being polled, but whether any watcher can wake anyone is UNREADABLE (#1402) - armed cannot be claimed, deaf cannot be claimed."
         fi
         # The route table (issue #814), separate from WATCH on purpose (see
         # the header's ROUTE READINESS section): WATCH says a process is
