@@ -905,3 +905,48 @@ def test_a_rewritten_run_start_is_pinned_as_unknown(tmp_path: Path) -> None:
     out = helper(repo, "session-R", "compliance", "42").stdout
     assert "PLAN_COMPLIANCE: unknown (this run's recorded start" in out, out
     assert "is no longer an ancestor of HEAD" in out
+
+
+@requires_git
+def test_a_commit_log_that_cannot_be_read_is_unknown_never_agreement(tmp_path: Path) -> None:
+    """`log_touched`'s own failure branch (the elif-start path, issue #1399).
+
+    Forced via a `git` shim that fails only `log` - the same technique
+    `test_an_uncomputable_diff_is_unknown_never_agreement` uses to force
+    `changed_since`'s failure, since nothing about ordinary git usage can
+    make `git log <real-ancestor>..HEAD` fail on its own.
+    """
+    repo, _base = make_repo(tmp_path)
+    assert helper(repo, "session-R", "reconcile", "42").returncode == 0
+    assert helper(repo, "session-R", "begin-run", "42").returncode == 0
+    record = repo / "docs" / "flow-runs" / "issue-42.md"
+    with record.open("a") as fh:
+        fh.write("- Approval:          granted\n\n### Section C - the approved plan\n"
+                 "1. `x.txt` - because\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run's record")
+    (repo / "x.txt").write_text("1\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run's work")
+
+    real_git = shutil.which("git")
+    shim_dir = tmp_path / "shim"
+    shim_dir.mkdir()
+    (shim_dir / "git").write_text(
+        "#!/bin/sh\n"
+        # the real invocation is `git -C <path> log ...`, so "log" is never
+        # $1 - scan every argument rather than assuming a position.
+        'for a in "$@"; do\n'
+        '  if [ "$a" = "log" ]; then echo "shim: log refused" >&2; exit 1; fi\n'
+        "done\n"
+        f'exec "{real_git}" "$@"\n'
+    )
+    (shim_dir / "git").chmod(0o755)
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CODE_SESSION_ID"}
+    env["CLAUDE_CODE_SESSION_ID"] = "session-R"
+    env["PATH"] = f"{shim_dir}:{env['PATH']}"
+    proc = subprocess.run(["python3", str(HELPER), "compliance", "42"], cwd=repo,
+                          capture_output=True, text=True, env=env)
+    assert proc.returncode == 4, proc.stdout
+    assert "this run's commit log could not be read" in proc.stdout, proc.stdout
+    assert "PLAN_COMPLIANCE: agreement" not in proc.stdout

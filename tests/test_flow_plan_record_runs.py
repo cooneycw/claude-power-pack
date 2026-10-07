@@ -343,7 +343,13 @@ def _plan_b(repo: Path, session: str) -> None:
 
 @requires_git
 def test_upstream_merged_after_the_run_started_is_not_this_runs_work(repo: Path) -> None:
-    """Pass-3 MEDIUM: run-start alone blamed the run for upstream files merged in later."""
+    """Pass-3 MEDIUM: run-start alone blamed the run for upstream files merged in later.
+
+    The MECHANISM changed under #1399 (first-parent commit walk, not an
+    endpoint-diff intersection with main_base - see log_touched), but the
+    protection this pins must not: required regression, run before and
+    after the #1399 fix.
+    """
     base = git(repo, "rev-parse", "HEAD").strip()
     git(repo, "update-ref", "refs/remotes/origin/main", base)
     reconcile(repo, "session-B")
@@ -365,7 +371,7 @@ def test_upstream_merged_after_the_run_started_is_not_this_runs_work(repo: Path)
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "run B's work")
     out = helper(repo, "session-B", "compliance", "42").stdout
-    assert "excluding files unchanged from the main merge base" in out, out
+    assert "PLAN_COMPLIANCE_BASE: this run's start" in out, out
     assert "docs/unrelated.md" not in out, f"upstream work was blamed on this run:\n{out}"
     assert "PLAN_COMPLIANCE: agreement" in out, out
 
@@ -391,3 +397,97 @@ def test_a_rewritten_run_start_is_unknown_never_a_wider_scope(repo: Path) -> Non
     proc = helper(repo, "session-B", "compliance", "42")
     assert proc.returncode == 4, proc.stdout
     assert "is no longer an ancestor of HEAD" in proc.stdout
+
+
+# ------------------------------------------------------------------ issue #1399: the
+# elif-start branch had zero coverage of its own ordinary case, and the
+# endpoint-diff intersection it used could not see a reverted file's own history
+
+@requires_git
+def test_a_planned_file_touched_on_this_runs_own_start_branch_is_agreement(repo: Path) -> None:
+    """The first PLAIN agreement case for the run_start branch.
+
+    Every other test of this branch exists only to pin a specific bug or
+    boundary (a rewritten start, an upstream merge, the revert cases below) -
+    the ordinary "planned work, no drift" case was never itself demonstrated
+    here, so a red case for one of those bugs could in principle be the only
+    thing keeping this path exercised at all.
+    """
+    reconcile(repo, "session-B")
+    _plan_b(repo, "session-B")                      # Section C names only src/b.py
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run B's record")
+    (repo / "src").mkdir()
+    (repo / "src" / "b.py").write_text("b\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run B's work")
+    out = helper(repo, "session-B", "compliance", "42").stdout
+    assert "PLAN_COMPLIANCE: agreement" in out, out
+
+
+@requires_git
+def test_a_revert_to_mains_content_is_still_this_runs_touch(repo: Path) -> None:
+    """Nit Store #864 comment 5875009399: the endpoint-diff intersection with
+    main_base silently dropped a file this run genuinely touched, whenever
+    its net effect happened to match main's content again.
+
+    Reproduced empirically on 86641e8 before fixing this. ORDER MATTERS:
+    shared.py must exist at main's content BEFORE the "earlier run" edits
+    it, or the later revert reads as a brand-new addition (differs from
+    main_base either way) instead of the genuine revert this case is about -
+    a mistake made and caught while building this case.
+    """
+    (repo / "src").mkdir()
+    (repo / "src" / "shared.py").write_text("original\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "shared.py at main's content")
+    git(repo, "update-ref", "refs/remotes/origin/main", git(repo, "rev-parse", "HEAD").strip())
+    # "an earlier run" edits shared.py BEFORE session-B's run starts.
+    (repo / "src" / "shared.py").write_text("edited-by-earlier-run\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "earlier run edits shared.py")
+    reconcile(repo, "session-B")
+    _plan_b(repo, "session-B")                      # Section C names only src/b.py
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run B's record")
+    # THIS run reverts shared.py back to main's content, and does its own work.
+    (repo / "src" / "shared.py").write_text("original\n")
+    (repo / "src" / "b.py").write_text("b\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run B's work: revert shared.py, add b.py")
+    out = helper(repo, "session-B", "compliance", "42").stdout
+    assert "PLAN_COMPLIANCE: divergence" in out, out
+    assert "TOUCHED BUT NOT PLANNED: src/shared.py" in out, out
+
+
+@requires_git
+def test_an_edit_and_revert_entirely_within_this_runs_own_commits_still_counts(
+    repo: Path,
+) -> None:
+    """A DIFFERENT net-zero than the case above: shared.py is unchanged
+    relative to THIS RUN'S OWN START by the time HEAD is reached, because
+    this run edited it and then reverted it ITSELF - no pre-existing main_base
+    drift at all. The old endpoint-diff-against-run_start could never see
+    this (nothing differs between run_start and HEAD); the new per-commit log
+    union does, because each of this run's own commits touched the file
+    independently. Ruling (#1399): compliance only reports, so over-reporting
+    is the safe direction, and the run genuinely did that work - count it.
+    """
+    (repo / "src").mkdir()
+    (repo / "src" / "shared.py").write_text("v0\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "shared.py exists before this run starts")
+    reconcile(repo, "session-B")
+    _plan_b(repo, "session-B")                      # Section C names only src/b.py
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run B's record")
+    (repo / "src" / "shared.py").write_text("v1\n")  # this run's own edit
+    (repo / "src" / "b.py").write_text("b\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run B's work, first pass")
+    (repo / "src" / "shared.py").write_text("v0\n")  # this run reverts its OWN edit
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run B's work, self-correction back to v0")
+    out = helper(repo, "session-B", "compliance", "42").stdout
+    assert "PLAN_COMPLIANCE: divergence" in out, out
+    assert "TOUCHED BUT NOT PLANNED: src/shared.py" in out, out

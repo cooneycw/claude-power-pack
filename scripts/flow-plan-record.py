@@ -692,6 +692,27 @@ def cmd_compliance(issue: str, base: str | None) -> int:
             compliance_unknown(f"the diff could not be computed ({exc})")
         return {f for f in out.splitlines() if f}
 
+    def log_touched(ref_range: str) -> set[str]:
+        # --first-parent: stay on THIS run's own commit chain, so a commit
+        # reachable only through a merge's SECOND parent (upstream work this
+        # run merged in) is never visited (#1320 pass-3's protection,
+        # restated structurally rather than by diffing two endpoints).
+        # --no-merges: the merge commit itself carries no diff of its own
+        # here. EVERY commit's own file list is counted - a file reverted to
+        # main's content partway through this run's own history still shows
+        # up, because it is this run's own edit regardless of where HEAD nets
+        # out (issue #1399; the endpoint-diff intersection this replaces
+        # could not see that at all).
+        try:
+            out = subprocess.run(
+                ["git", "-C", str(root), "log", "--first-parent", "--no-merges",
+                 "--name-only", "--pretty=format:", ref_range, "--"],
+                capture_output=True, text=True, check=True,
+            ).stdout
+        except (OSError, subprocess.CalledProcessError) as exc:
+            compliance_unknown(f"this run's commit log could not be read ({exc})")
+        return {f for f in out.splitlines() if f}
+
     mb_proc = subprocess.run(["git", "-C", str(root), "merge-base", "HEAD", "origin/main"],
                              capture_output=True, text=True)
     main_base = mb_proc.stdout.strip() if mb_proc.returncode == 0 else ""
@@ -700,10 +721,14 @@ def cmd_compliance(issue: str, base: str | None) -> int:
     if base is not None:
         touched = sorted(changed_since(base))       # an explicitly chosen, broader scope
     elif start:
-        # THIS RUN'S CHANGES ONLY (counter-model review, three passes): a file this
-        # run is answerable for changed SINCE THE RUN STARTED - so a prior run's
-        # committed work is not blamed on it - AND differs from the main merge base -
-        # so upstream work merged in after the start is not blamed on it either.
+        # THIS RUN'S OWN COMMITS ONLY (issue #1399, counter-model review, four
+        # passes): walked by first-parent history rather than diffed between
+        # two endpoints, so upstream work merged in after the start is not
+        # blamed on this run (structurally - see log_touched), and a file this
+        # run edited and later reverted back to main's content is still this
+        # run's touch, not silently cancelled by its own ending state. A prior
+        # run's committed work is excluded because it is outside run_start..HEAD
+        # entirely, not because of anything this computation does.
         run_start = start.group(1)
         if subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", run_start,
                            "HEAD"], capture_output=True).returncode != 0:
@@ -713,15 +738,12 @@ def cmd_compliance(issue: str, base: str | None) -> int:
             compliance_unknown(f"this run's recorded start {run_start[:12]} is no longer an "
                                "ancestor of HEAD (history was rewritten), so this run's own "
                                "changes cannot be separated - pass --base to choose a scope")
-        touched_set_ = changed_since(run_start)
-        if main_base:
-            touched_set_ &= changed_since(main_base)
-            print(f"PLAN_COMPLIANCE_BASE: this run's start ({run_start[:12]}), excluding "
-                  f"files unchanged from the main merge base ({main_base[:12]})")
-        else:
-            print(f"PLAN_COMPLIANCE_BASE: this run's start ({run_start[:12]}); upstream "
-                  "merges NOT excluded (no origin/main to compare with)")
-        touched = sorted(touched_set_)
+        print(f"PLAN_COMPLIANCE_BASE: this run's start ({run_start[:12]}), from its own "
+              "first-parent, non-merge commits only - a file edited then reverted back to "
+              "main's content partway through this run still counts as this run's touch "
+              "(KNOWN LIMITATION: an edit made only inside a merge commit's own conflict "
+              "resolution is not visible to --no-merges and is not counted)")
+        touched = sorted(log_touched(f"{run_start}..HEAD"))
     else:
         if not main_base:
             compliance_unknown("no merge-base of HEAD and origin/main, so there is no base to "
