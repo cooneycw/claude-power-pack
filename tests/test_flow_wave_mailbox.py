@@ -700,7 +700,7 @@ def _watch_rows(proc: subprocess.CompletedProcess[str]) -> dict[str, list[str]]:
             continue
         if not in_table:
             continue
-        if line.startswith(("FLOW_MAILBOX", "DEAF:", "UNKNOWN:")) or not line.strip():
+        if line.startswith(("FLOW_MAILBOX", "NOT LISTENING:", "UNKNOWN:")) or not line.strip():
             break
         parts = line.split()
         if len(parts) >= 3:
@@ -859,7 +859,7 @@ class TestListWatchState:
         try:
             proc = _run(tmp_path, "list", "--wave", WAVE, env_extra=_session_lineage())
             assert _watch_rows(proc)["1"] == ["armed", "1"]
-            assert "DEAF:" not in proc.stdout
+            assert "NOT LISTENING:" not in proc.stdout
         finally:
             watcher.kill()
             watcher.communicate(timeout=10)
@@ -875,7 +875,7 @@ class TestListWatchState:
         proc = _run_at(tmp_path, "1700000010", "list", "--wave", WAVE)
         assert _watch_rows(proc)["1"] == ["dead", "0"]
         assert "10s ago" in proc.stdout  # the age is still reported, not hidden
-        assert "DEAF:" in proc.stdout
+        assert "NOT LISTENING:" in proc.stdout
 
     def test_list_roster_reports_WAKE_UNKNOWN_without_the_word_confirmed(
         self, tmp_path: Path
@@ -964,7 +964,7 @@ class TestListWatchState:
                        FLOW_WAVE_WATCHER_SCAN="none")
         assert _watch_rows(proc)["1"] == ["unknown", "unknown"]
         assert "UNKNOWN:" in proc.stdout
-        assert "DEAF:" not in proc.stdout
+        assert "NOT LISTENING:" not in proc.stdout
 
     @requires_ps
     def test_ps_fallback_lane_agrees_only_where_it_can_verify(self, tmp_path: Path) -> None:
@@ -1776,7 +1776,7 @@ def _routes(proc: subprocess.CompletedProcess[str]) -> dict[str, str]:
         return {}
     out: dict[str, str] = {}
     for line in lines[start:]:
-        if not line.strip() or line.startswith(("DEAF", "UNKNOWN", "UNCONFIRMED", "FLOW_MAILBOX")):
+        if not line.strip() or line.startswith(("NOT LISTENING", "UNKNOWN", "UNCONFIRMED", "FLOW_MAILBOX")):
             break
         parts = line.split()
         if len(parts) >= 2:

@@ -215,6 +215,21 @@
 
 ### Fixed
 
+- **2026-10-07 - `flow-wave-mailbox.sh` retires "DEAF" from its operator-facing
+  roster output** (issue #1403, absorbing Nit Store #864) - the owner asked
+  CPP-wide to retire the disability metaphor in favour of the mechanism it
+  actually describes (cooneycw/kyle#1369: "not listening" in prose,
+  "unlistened" for the state). `list`'s `DEAF: no live watcher that can wake
+  role(s)...` line is now `NOT LISTENING: ...`, and the WAKE-UNKNOWN line's
+  "deaf cannot be claimed" is now "unlistened cannot be claimed". Checked
+  consumers first: no code in either repository parses the literal `DEAF:`
+  token, only prose does, so this is a pure rename with no wire-format
+  implications. `tests/test_flow_wave_mailbox.py`'s five assertions on the
+  literal string, and the one stale `` `DEAF:` `` reference in
+  `docs/scripts.md`, move with it. Narrative prose describing past incidents
+  ("three workers were deaf for 50 minutes") is left alone - it describes
+  what happened, not what the tool prints.
+
 - **2026-09-27 - `/cpp:update` stops leaving stale state unreported** (issue
   #1263) - Step 5b now has a prune half: it lists the dangling helper links
   install-drift already names (a script deleted upstream whose

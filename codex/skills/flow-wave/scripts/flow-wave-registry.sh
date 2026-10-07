@@ -938,6 +938,7 @@ registry_unreadable() {
   ! cat "$REG_FILE" >/dev/null 2>&1
 }
 
+#: NEGATIVE-CONTROL: controls/flow-wave-registry-malformed
 # registry_malformed -> 0 when the registry OPENS fine but is not exactly one
 # JSON object document (issue #1403). Deliberately NOT folded into
 # `registry_unreadable` above: #1014 Part 2 already gave `entry_json` +
