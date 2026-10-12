@@ -1,0 +1,24 @@
+{
+  "branch": "issue-1442-flow-finish-security-gate-is-red-on-main-cpp-s-own",
+  "counts": {
+    "accepted": 1,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "b40639b82c2c3ae7cab60674757aa8c9b7e156ec",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1442",
+  "passes": 2,
+  "recorded_at": "2026-10-12T14:42:10Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 6
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/12/rollout-2026-10-12T10-40-54-01a1308f-377e-7063-82aa-4af3823afb6f.jsonl",
+    "thread_id": "01a1308f-377e-7063-82aa-4af3823afb6f"
+  },
+  "schema": 1,
+  "status": "ran"
+}
