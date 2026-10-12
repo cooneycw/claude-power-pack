@@ -264,6 +264,10 @@ node_modules/
 .claude/settings*.json
 .claude/plans/
 .claude/security.yml
+# ...except THIS repository's own gate config (issue #1442): it carries the exact-value
+# suppression for CPP's planted control key, and an untracked copy leaves main's
+# flow_finish gate red in every clean checkout.
+!.claude/security.yml
 
 # Lease-desk browser sessions (issue #421) - live ledger, pool config, and
 # per-session storage-state files are per-workstation state, never tracked.

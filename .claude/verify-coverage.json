@@ -45,6 +45,11 @@
       "consumer": "tests/test_capability_readiness.py",
       "reason": "reports whether flow, second-opinion and browser QA are usable (not merely installed) for /cpp:status; controls/capability-readiness is its registered negative control"
     },
+    "check-memory-supersession.py": {
+      "class": "tested",
+      "consumer": "tests/test_check_memory_supersession.py",
+      "reason": "reports auto-memories that link to a superseded memory and predate it (#1440); it reads a host's ~/.claude/projects stores, which CI does not have, so make verify cannot run it against a real store; controls/check-memory-supersession is its registered negative control"
+    },
     "check-ignored-additions.sh": {
       "class": "tested",
       "consumer": "tests/test_check_ignored_additions.py",
