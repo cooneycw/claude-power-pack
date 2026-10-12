@@ -27,6 +27,7 @@ import tempfile
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from signal import SIGKILL
 
 import pytest
 
@@ -1224,6 +1225,61 @@ _CONTENDED = frozenset({errno.EAGAIN, errno.EACCES, errno.EWOULDBLOCK})
 _LOCK_BUDGET = 150.0
 _TEST_BUDGET = 300
 
+#: How long the ONE test that dirties the live tree may hold the lock (#1444).
+#: A fifth of the waiter's budget, so the waiter cannot time out while the
+#: holder is inside its bound. The holder checks this ITSELF and fails by name:
+#: before #1444 the only symptom of a holder outgrowing its window was the
+#: waiter's timeout, which blamed the wrong test - and the holder had grown from
+#: ~20s to ~165s, because it ran the WHOLE register three times and the register
+#: doubled (26.2s per run at #1241, 53s at #1444). Scoped to its own control it
+#: holds for a few seconds, measured at ~1s per run.
+_HOLD_BUDGET = _LOCK_BUDGET / 5
+
+#: The control the holder dirties, as `--control` expects it.
+_REAL_CONTROL_REL = str(REAL_CONTROL.relative_to(ROOT))
+
+
+def _run_holding_lock(deadline: float, argv: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run `argv` with only the time left before `deadline` (a monotonic time).
+
+    The holder's bound is ENFORCED HERE, while the lock is held, not measured
+    afterwards (#1444 counter-model review, MEDIUM). Checking the elapsed time
+    after release cannot protect the waiter: a run that stalls past the waiter's
+    150s fails the waiter first, and the blame lands on the wrong test again. A
+    stalled run is killed when the holder's budget is spent, and the failure
+    names the holder, while the lock's context manager still releases.
+    """
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise AssertionError(
+            "test_an_untracked_control_file_refuses_the_green held the live controls "
+            f"tree lock past its own {_HOLD_BUDGET:.0f}s bound (_HOLD_BUDGET) before "
+            "its next harness run could start; this is the test to fix (#1444)"
+        )
+    # ITS OWN PROCESS GROUP, KILLED WHOLE (#1444 counter-model re-review,
+    # MEDIUM). `subprocess.run(timeout=)` kills only the direct child, then
+    # waits for the output pipes to close - and the harness starts gates, so a
+    # stalled grandchild holding the pipe would keep that wait, and the lock,
+    # open past both budgets. Killing the group closes every writer.
+    proc = subprocess.Popen(
+        argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        start_new_session=True,
+    )
+    try:
+        out, err = proc.communicate(timeout=remaining)
+        return subprocess.CompletedProcess(argv, proc.returncode, out, err)
+    except subprocess.TimeoutExpired:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, SIGKILL)
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            proc.communicate(timeout=5)
+        raise AssertionError(
+            "test_an_untracked_control_file_refuses_the_green held the live controls "
+            f"tree lock past its own {_HOLD_BUDGET:.0f}s bound (_HOLD_BUDGET): a harness "
+            f"run was killed after {remaining:.1f}s. Its lock partner waits "
+            f"{_LOCK_BUDGET:.0f}s, so this is the test to fix, not the one that timed out (#1444)"
+        ) from None
+
 
 @contextlib.contextmanager
 def live_controls_tree_exclusive(
@@ -1245,8 +1301,9 @@ def live_controls_tree_exclusive(
 
     WHY A LOCK AND NOT A MARKER (issue #1061). Two tests in this file use the
     REAL tree and one of them DIRTIES it: `test_an_untracked_control_file_
-    refuses_the_green` plants an untracked probe for ~19 seconds because a
-    committed one would be tracked and the case would stop reproducing. Anything
+    refuses_the_green` plants an untracked probe (for at most `_HOLD_BUDGET`,
+    which that test enforces on itself, #1444) because a committed one would be
+    tracked and the case would stop reproducing. Anything
     else scanning the tree in that window sees a control that does not exist in
     a clean clone - which is true, and nothing to do with that scanner's
     subject. `Makefile:155` runs `pytest -n` with no `--dist`, so xdist's
@@ -1284,7 +1341,8 @@ def live_controls_tree_exclusive(
                     raise AssertionError(
                         f"could not take the live controls tree lock within {timeout}s "
                         f"({path}); another test is holding it far longer "
-                        "than its ~20s window, which is a defect in that test, not here"
+                        f"than its {_HOLD_BUDGET:.0f}s bound (_HOLD_BUDGET), which is a "
+                        "defect in that test, not here"
                     ) from None
                 time.sleep(0.2)
         try:
@@ -1406,7 +1464,8 @@ def test_self_registration_is_blind_to_a_verdict_assignment_breakage(tmp_path: P
     blind to a forced-PASS mutation", which is FALSE. The true state was "the
     live tree was dirty and I could not evaluate this". The cause was a sibling
     in this very file - `test_an_untracked_control_file_refuses_the_green`
-    plants an untracked probe in the REAL tree for ~19 seconds, and
+    plants an untracked probe in the REAL tree (now for at most `_HOLD_BUDGET`,
+    #1444), and
     `Makefile:155` runs `pytest -n` with no `--dist`, so xdist's default `load`
     splits same-file tests across workers. Reproduction was 2 of 2 on the full
     suite; the pair alone under `-n 2` passes, so a green from the pair proves
@@ -1425,7 +1484,7 @@ def test_self_registration_is_blind_to_a_verdict_assignment_breakage(tmp_path: P
     mutant = _forced_pass_harness(tmp_path)
     # HELD FOR THE SCAN. Without this the skip below is not a fallback, it is
     # the outcome: measured on the full suite, this test skipped on EVERY run
-    # because the sibling's ~19s dirty window overlaps this ~20s scan. A true
+    # because the sibling's dirty window overlapped this whole-register scan. A true
     # UNRESOLVED beats a false red, but an UNRESOLVED every time is a subject
     # that never gets exercised - a green that did not run.
     with live_controls_tree_exclusive():
@@ -1559,8 +1618,8 @@ def test_a_lock_system_failure_is_not_blamed_on_a_neighbouring_test(monkeypatch)
     """The red case for the errno half (#1061 re-review, LOW).
 
     ENOLCK is the locking system saying it cannot serve the request. Reported as
-    contention it becomes "another test is holding it far longer than its ~20s
-    window" - an accusation against a test that did nothing, with the real errno
+    contention it becomes "another test is holding it far longer than its
+    bound" - an accusation against a test that did nothing, with the real errno
     discarded. It must propagate instead.
     """
     def _enolck(_fd: int, _op: int) -> None:
@@ -1588,7 +1647,7 @@ def test_the_lock_deadline_is_reachable_and_says_who_to_blame(tmp_path: Path) ->
     but on the real, shared path, that first non-blocking acquire can itself
     contend against an UNRELATED test legitimately holding that same lock at
     that moment (`test_an_untracked_control_file_refuses_the_green`, which
-    holds it for ~19s by design). Confirmed reproducible: forcing the
+    holds it for up to `_HOLD_BUDGET` by design). Confirmed reproducible: forcing the
     equivalent interleaving against the real path on `origin/main` made the
     very first `flock` raise `BlockingIOError` instead of succeeding. A
     private, per-test lock file removes that dependency entirely - this test
@@ -1609,6 +1668,43 @@ def test_the_lock_deadline_is_reachable_and_says_who_to_blame(tmp_path: Path) ->
     # and it is genuinely released - the same call now succeeds
     with live_controls_tree_exclusive(timeout=5.0, lock_path=lock_path):
         pass
+
+
+def test_a_stalled_holder_run_is_killed_within_the_hold_budget_and_names_the_holder() -> None:
+    """The red case for the hold bound's ENFORCEMENT (#1444 counter-model review).
+
+    A bound checked only after the lock is released protects nobody: a stalled
+    run would exhaust the waiter's budget first. So `_run_holding_lock` must
+    kill a run that outlives the holder's deadline, quickly, and say whose
+    defect it is. The stall here is a 30s sleep against a deadline 0.5s away;
+    without the timeout this test would sleep the full 30s and then fail on the
+    elapsed-time assertion instead of raising.
+    """
+    stall = [sys.executable, "-c", "import time; time.sleep(30)"]
+    started = time.monotonic()
+    with pytest.raises(AssertionError, match="test_an_untracked_control_file_refuses_the_green held"):
+        _run_holding_lock(started + 0.5, stall)
+    assert time.monotonic() - started < 10, "the stalled run was not killed at the deadline"
+
+    # an already-spent deadline refuses before starting anything
+    with pytest.raises(AssertionError, match="before its next harness run could start"):
+        _run_holding_lock(time.monotonic() - 1, stall)
+
+    # a stalled GRANDCHILD holding the output pipe is killed with its parent.
+    # Killing only the parent left communicate() waiting on the grandchild's
+    # copy of the pipe for its full sleep (re-review, MEDIUM).
+    forks = [sys.executable, "-c",
+             "import subprocess, sys, time\n"
+             "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
+             "time.sleep(30)\n"]
+    started = time.monotonic()
+    with pytest.raises(AssertionError, match="test_an_untracked_control_file_refuses_the_green held"):
+        _run_holding_lock(started + 1.0, forks)
+    assert time.monotonic() - started < 10, "a grandchild kept the holder's pipe, and the lock, open"
+
+    # and a run that fits is returned untouched
+    ok = _run_holding_lock(time.monotonic() + 30, [sys.executable, "-c", "print('fits')"])
+    assert ok.returncode == 0 and ok.stdout.strip() == "fits"
 
 
 def test_pytest_catches_the_breakage_the_self_registration_cannot(tmp_path: Path) -> None:
@@ -1785,20 +1881,37 @@ def test_an_unparseable_adr_reports_UNKNOWN_rather_than_a_bare_numerator(tmp_pat
 
 
 @requires_git
-@pytest.mark.skipif(
-    shutil.which("gitleaks") is None,
-    reason="needs gitleaks: this test requires a GREEN battery in order to refuse it, "
-           "and the secret-scan control cannot run without it",
-)
 @pytest.mark.timeout(_TEST_BUDGET)
 def test_an_untracked_control_file_refuses_the_green() -> None:
-    """The red case for #978, run against the REAL register.
+    """The red case for #978, run against the REAL tree.
 
-    GUARDED, unlike the two above, because the coupling here is INHERENT: the
-    precondition is `before.returncode == 0` - it needs a green battery in order
-    to prove an untracked file refuses one. Narrowing it is not available; the
-    whole battery IS its subject. `tests/conftest.py` names the resulting skip
-    (#926), so the lane is visibly unexercised rather than silently so.
+    SCOPED TO THE CONTROL IT DIRTIES (#1444). Every run passes `--control`
+    for `REAL_CONTROL`, the control the probe is planted in. This test used to
+    run the WHOLE register three times inside the live-tree lock, on the
+    reasoning that it needed a green battery to prove an untracked file refuses
+    one. That made its locked window grow with every registered control: ~20s
+    when written, ~165s by #1444, past the 150s its lock partner waits, so the
+    partner timed out whenever xdist overlapped them. The `--control` selector
+    (added for #970's mutation probe) postdates that reasoning. The refusal is
+    decided per control (a result's TRACKING axis), so the scoped run goes
+    through the same refusal path and needs only THIS control green, not 76.
+
+    What the narrowing gives up, stated rather than implied: this no longer
+    proves a WHOLE-register run refuses. Nothing in the harness branches on the
+    selector after filtering the registrations, but if it ever did, this test
+    would not see it. `make negative-controls` runs the whole register on a
+    clean tree, so it does not exercise the refusal.
+
+    The scoped precondition also removes the old `gitleaks` skip: only the
+    secret-scan control needed gitleaks, and it is no longer in the run. Git is
+    still required, because the precondition asks git whether the probe is
+    tracked, so the CI validate image (no git) still skips it.
+
+    And it now BOUNDS ITS OWN WINDOW: its harness runs share one deadline,
+    `_HOLD_BUDGET` after it takes the lock (`_run_holding_lock`). A run that would
+    overrun is killed and the failure names this test, so growth or a stall reds
+    this test rather than the innocent waiter. The elapsed-time assertion after
+    release stays as a second statement of the same bound.
 
     A control is exercised from the working tree, so an untracked case file
     discriminates correctly and reports PASS while the same commit in a clean
@@ -1810,30 +1923,40 @@ def test_an_untracked_control_file_refuses_the_green() -> None:
     """
     sneaky = REAL_CONTROL / "cases" / "untracked-probe.sh"
     # THE DIRTY WINDOW IS HELD EXCLUSIVELY. This test deliberately makes the
-    # shared live tree not-clean for ~19 seconds, and anything else scanning it
+    # shared live tree not-clean (for at most _HOLD_BUDGET), and anything else scanning it
     # meanwhile reads a true fact about a state this test created - reported
     # against ITS OWN subject, which is wrong (#1061). The restore is inside the
     # lock too: releasing before `restored` is re-measured would hand over a
     # tree this test has not finished putting back.
+    harness = [sys.executable, str(HARNESS), "--root", str(ROOT),
+               "--strict", "--control", _REAL_CONTROL_REL]
     with live_controls_tree_exclusive():
+        held_since = time.monotonic()
+        deadline = held_since + _HOLD_BUDGET
         assert not sneaky.exists(), "fixture would clobber a real file"
-        before = run_harness(ROOT, "--strict")
+        before = _run_holding_lock(deadline, harness)
         assert before.returncode == 0, f"precondition: the tree is clean\n{before.stdout}"
         sneaky.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         try:
-            tracked = subprocess.run(
-                ["git", "-C", str(ROOT), "ls-files", "--error-unmatch", str(sneaky)],
-                capture_output=True, check=False,
+            tracked = _run_holding_lock(
+                deadline, ["git", "-C", str(ROOT), "ls-files", "--error-unmatch", str(sneaky)],
             )
             assert tracked.returncode != 0, "precondition: the probe must be UNTRACKED"
-            after = run_harness(ROOT, "--strict")
+            after = _run_holding_lock(deadline, harness)
             assert after.returncode == 1, f"an untracked control file must refuse the green\n{after.stdout}"
             assert "NEGATIVE_CONTROL_TRACKING: UNTRACKED" in after.stdout, after.stdout
             assert "untracked-probe.sh" in after.stdout, "the offending path must be NAMED"
         finally:
             sneaky.unlink(missing_ok=True)
-        restored = run_harness(ROOT, "--strict")
+        restored = _run_holding_lock(deadline, harness)
         assert restored.returncode == 0, f"the tree must be clean again\n{restored.stdout}"
+        held = time.monotonic() - held_since
+    assert held <= _HOLD_BUDGET, (
+        f"test_an_untracked_control_file_refuses_the_green held the live controls "
+        f"tree lock for {held:.1f}s, past its own {_HOLD_BUDGET:.0f}s bound "
+        f"(_HOLD_BUDGET). Its lock partner waits {_LOCK_BUDGET:.0f}s, so this is the "
+        "test to fix, not the one that timed out (#1444)"
+    )
 
 
 # --------------------------------------------------------------------------- #

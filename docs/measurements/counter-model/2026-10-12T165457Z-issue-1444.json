@@ -1,0 +1,25 @@
+{
+  "branch": "issue-1444-live-controls-lock-holder-now-takes-165s-against-a",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "1c92f224827631cf16bbdb2295ebce9e9c262327",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1444",
+  "passes": 2,
+  "recorded_at": "2026-10-12T16:54:57Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 4
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/12/rollout-2026-10-12T16-53-29-01a13108-9a0b-7ab1-aa80-9204cc109758.jsonl",
+    "thread_id": "01a13108-9a0b-7ab1-aa80-9204cc109758"
+  },
+  "schema": 1,
+  "scope": "diff-only",
+  "status": "ran"
+}
