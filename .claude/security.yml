@@ -1,0 +1,16 @@
+# Security gate configuration (lib/security; issue #1442).
+#
+# CPP plants a fake key as the BAD case of its own security gate's negative
+# control (controls/lib-security-gate, added #1423). Without this entry the
+# flow_finish gate blocks on that fixture for every run in this repository.
+#
+# EXACT VALUE, ONE FILE (issue #1299): a different key in the same file, or this
+# value anywhere else, still blocks - pinned by
+# tests/test_security_gate_suppressions.py::test_the_repository_config_*.
+# The control itself runs the gate with --path <case dir>, so it never reads this
+# file and its fixture stays BAD.
+suppressions:
+  - id: AWS_ACCESS_KEY
+    path: '^controls/lib-security-gate/cases/bad-critical-secret/leaked\.py$'
+    secret: 'AKIAIOSFODNN7EXAMPLE'
+    reason: "planted negative-control fixture (AWS documentation example key, not a real secret)"

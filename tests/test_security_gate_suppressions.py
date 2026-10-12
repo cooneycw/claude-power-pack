@@ -509,3 +509,38 @@ def test_the_hint_yaml_survives_an_apostrophe_in_the_path(tmp_path: Path) -> Non
     import re as _re
 
     assert _re.match(parsed["suppressions"][0]["path"], "tests/o'brien.py")
+
+
+#: The repository's OWN config and the fixture it exists for (issue #1442). These
+#: read the real files, so a suppression widened in `.claude/security.yml` reds here.
+REPO_CONFIG = (ROOT / ".claude" / "security.yml").read_text(encoding="utf-8")
+PLANTED_REL = "controls/lib-security-gate/cases/bad-critical-secret/leaked.py"
+PLANTED_TEXT = (ROOT / PLANTED_REL).read_text(encoding="utf-8")
+
+
+def test_the_repository_config_passes_the_planted_control_fixture(tmp_path: Path) -> None:
+    unsuppressed = _repo(tmp_path / "control", {PLANTED_REL: PLANTED_TEXT})
+    # Precondition: the fixture really is a block without the config.
+    assert _gate(unsuppressed).returncode == 1
+    result = _gate(_repo(tmp_path, {PLANTED_REL: PLANTED_TEXT}, REPO_CONFIG))
+    assert " PASS " in _line(result), result.stdout
+    assert result.returncode == 0
+
+
+def test_the_repository_config_still_blocks_another_key_in_that_file(tmp_path: Path) -> None:
+    files = {PLANTED_REL: PLANTED_TEXT + f'SECOND = "{OTHER}"\n'}
+    result = _gate(_repo(tmp_path, files, REPO_CONFIG))
+    assert " FAIL " in _line(result), result.stdout
+    assert result.returncode == 1
+
+
+def test_the_repository_config_still_blocks_the_planted_value_elsewhere(tmp_path: Path) -> None:
+    files = {"scripts/leaked_again.py": PLANTED_TEXT}
+    result = _gate(_repo(tmp_path, files, REPO_CONFIG))
+    assert " FAIL " in _line(result), result.stdout
+    assert result.returncode == 1
+
+
+def test_the_repository_root_passes_the_finish_gate() -> None:
+    result = _gate(ROOT)
+    assert " PASS " in _line(result), result.stdout
