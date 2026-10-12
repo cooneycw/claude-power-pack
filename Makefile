@@ -4,7 +4,7 @@
 	undeclared-import-audit undeclared-import-audit-selftest \
        oscillation update_docs clean \
        bootstrap-check drift-check deploy setup-woodpecker-cli \
-       codex-init codex-skills codex-skills-check codex-install \
+       codex-init codex-skills codex-skills-check codex-install codex-global-agents codex-global-agents-check \
        eli5-check eli5-drift eli5-revendor \
        project-next-check project-next-repin \
        host-surface-check host-surface-manifest \
@@ -914,6 +914,17 @@ codex-init:
 ## verify-coverage: utility codex-install - installs the checked-in Codex skills to ~/.codex/skills
 codex-install:
 	@python3 scripts/codex-skill-sync.py --install
+
+## Codex's GLOBAL instructions, built from Claude's (issue #1441): ~/.codex/AGENTS.md =
+## ~/.claude/CLAUDE.md verbatim + ~/.codex/AGENTS.local.md. Opt-in; refuses to replace a
+## hand-written file unless ADOPT=1 (exactly 1; ADOPT=0 does not adopt), which backs it up first.
+## verify-coverage: utility codex-global-agents - writes ~/.codex/AGENTS.md from ~/.claude/CLAUDE.md; it issues no verdict
+codex-global-agents:
+	@python3 scripts/codex-global-agents.py --write $(if $(filter 1,$(ADOPT)),--adopt)
+
+## verify-coverage: excluded codex-global-agents-check - compares two HOST files, so its verdict depends on this box; reported by /cpp:status Tier 5, and its logic is gated by tests/test_codex_global_agents.py and controls/codex-global-agents
+codex-global-agents-check:
+	@python3 scripts/codex-global-agents.py --check
 
 ## Vendored eli5-gate core (issue #591)
 ## The canonical home of the /flow:eli5 necessity gate is cooneycw/eli5-gate;

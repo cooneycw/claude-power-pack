@@ -1,0 +1,52 @@
+{
+  "_comment": [
+    "Registration for scripts/codex-global-agents.py --check (issue #1441).",
+    "",
+    "WHY THIS CHECK NEEDS ONE: its verdict reaches the owner through /cpp:status and",
+    "nothing downstream re-derives whether ~/.codex/AGENTS.md still carries",
+    "~/.claude/CLAUDE.md's rules. A blind version prints `current` over a Codex file",
+    "that has silently fallen behind - which is the state #1441 found on the host.",
+    "",
+    "THE CASES ARE SANDBOXED HOMES: each case carries home/.claude/CLAUDE.md and",
+    "home/.codex/AGENTS.md, and the gate is pointed at it with --home, so no case",
+    "reads the machine it runs on.",
+    "",
+    "THE GOOD CASE WAS BUILT BY THE GATE ITSELF (`--write --home`). If the generated",
+    "format changes, rebuild it the same way: a stale good case reds this control,",
+    "which is the correct direction - it would otherwise certify a format nothing",
+    "produces any more."
+  ],
+  "gate": "scripts/codex-global-agents.py",
+  "invocation": ["python3", "{gate}", "--check", "--home", "{case}/home", "--quiet"],
+  "good_exit": 0,
+  "detect_signal": "^CODEX_GLOBAL_AGENTS: (stale|hand-edited|unmanaged|absent|overridden)$",
+  "cases": [
+    {
+      "name": "bad-source-gained-a-rule",
+      "input": "cases/bad-source-gained-a-rule",
+      "expect": "BAD",
+      "why": "CLAUDE.md gained a Negative Control section after Codex's file was built. This is the measured #1441 defect: Codex never received that directive. Must read `stale`."
+    },
+    {
+      "name": "bad-hand-edited",
+      "input": "cases/bad-hand-edited",
+      "expect": "BAD",
+      "why": "A built Codex file with the old contradicting Nit Store sentence appended by hand. A rebuild would silently discard it, so it must read `hand-edited`, not `current`."
+    },
+    {
+      "name": "good-fresh-pair",
+      "input": "cases/good-fresh-pair",
+      "expect": "GOOD",
+      "why": "A pair just built by --write. Separates a working check from one wedged on drift, which the bad cases alone cannot do."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/codex-global-agents.py",
+      "path": "anchors/constructed-presence-only-codex-global-agents.py",
+      "sha256": "ba46b2bb9f9945c7907fd5c310b0dfa1dcfe684153ee70ced119b0cc79f82880"
+    }
+  ]
+}

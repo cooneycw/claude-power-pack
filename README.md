@@ -67,7 +67,7 @@ make verify
 
 `make verify` closes by naming every checker in the repository it did NOT run, with the reason for each - host-dependent checks, network checks, and the control battery. A checker accounted for nowhere fails the gate, so one cannot be added and wired to nothing (#1028).
 
-`.claude/commands/<family>/*.md` is the permanent source of truth. It feeds only the generated Codex harness surface: `scripts/codex-skill-sync.py` emits per-command Codex skills under `codex/skills/` (`make codex-skills`, issue #555), guarded by an explicit `codex-skills-check` step in both CI and `make verify` (#1028). A bundled helper ships with what it actually runs - its sibling scripts and the libraries it imports - so the shipped copy can start. The older flat `codex/prompts/` surface it replaced was retired at the #556 cutover.
+`.claude/commands/<family>/*.md` is the permanent source of truth. It feeds only the generated Codex harness surface: `scripts/codex-skill-sync.py` emits per-command Codex skills under `codex/skills/` (`make codex-skills`, issue #555), guarded by an explicit `codex-skills-check` step in both CI and `make verify` (#1028). A bundled helper ships with what it actually runs - its sibling scripts and the libraries it imports - so the shipped copy can start. The older flat `codex/prompts/` surface it replaced was retired at the #556 cutover. Codex's GLOBAL instructions are a separate, opt-in surface: `make codex-global-agents` builds `~/.codex/AGENTS.md` from `~/.claude/CLAUDE.md` plus the owner's `~/.codex/AGENTS.local.md`, and `/cpp:status` reports when the two have drifted (#1441).
 
 ## Project Structure
 

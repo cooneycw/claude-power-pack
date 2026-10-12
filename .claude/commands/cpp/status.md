@@ -478,6 +478,27 @@ else
   echo "  [ ] OpenAI API key: not configured"
 fi
 
+# Codex's global instructions vs Claude's (issue #1441). Report-only: it never
+# writes. Anything but `current` names its own remedy on the NOTE line above the
+# verdict; relay that line, and never summarise `unknown` or `not-applicable` as
+# "in sync".
+if [ -f "$CPP_DIR/scripts/codex-global-agents.py" ]; then
+  GLOBAL_AGENTS_OUT=$(python3 "$CPP_DIR/scripts/codex-global-agents.py" --check 2>&1)
+  GLOBAL_AGENTS_VERDICT=$(printf '%s\n' "$GLOBAL_AGENTS_OUT" | sed -n 's/^CODEX_GLOBAL_AGENTS: //p')
+  case "$GLOBAL_AGENTS_VERDICT" in
+    current) echo "  [x] ~/.codex/AGENTS.md: current copy of ~/.claude/CLAUDE.md (file freshness, not proof Codex loads it)" ;;
+    not-applicable) echo "  [-] Codex global instructions: no ~/.codex on this host" ;;
+    "") echo "  [?] Codex global instructions: check produced no verdict" ;;
+    *) echo "  [!] Codex global instructions: ${GLOBAL_AGENTS_VERDICT}"
+       printf '%s\n' "$GLOBAL_AGENTS_OUT" | grep -E '^NOTE:' | sed 's/^/      /' ;;
+  esac
+  # Workspace AGENTS.md files are relayed whatever the verdict: they never change
+  # it, and a `current` global file is exactly when they are easiest to miss.
+  printf '%s\n' "$GLOBAL_AGENTS_OUT" | grep -E '^WORKSPACE_AGENTS_MD:' | sed 's/^/      /' || true
+else
+  echo "  [?] Codex global instructions: codex-global-agents.py not in this checkout"
+fi
+
 # Check Codex MCP registrations
 if command -v codex &>/dev/null; then
   CODEX_MCP=$(codex mcp list 2>/dev/null || echo "")
