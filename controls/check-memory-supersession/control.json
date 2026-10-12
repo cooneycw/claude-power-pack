@@ -1,0 +1,56 @@
+{
+  "_comment": [
+    "Registration for scripts/check-memory-supersession.py (issue #1440).",
+    "",
+    "The cases are SYNTHETIC memory stores, not copies of a real one: this",
+    "repository is public and a real auto-memory store holds an operator's",
+    "private working notes. Each case is the same four-memory store - one memory",
+    "carrying the strict `**Superseded YYYY-MM-DD.**` marker, one dependent that",
+    "links to it, one newer dependent, and one unrelated memory that uses the",
+    "word 'superseded' in PROSE - and only the first dependent's `modified` date",
+    "differs between cases. So the verdict can only come from comparing that",
+    "date against the marker, which is what the anchor removes.",
+    "",
+    "No git and no binary beyond python3: the cases are plain files, so this",
+    "control runs identically in CI."
+  ],
+  "gate": "scripts/check-memory-supersession.py",
+  "invocation": ["python3", "{gate}", "--root", "{case}"],
+  "good_exit": 0,
+  "detect_signal": "^MEMORY_SUPERSESSION: stale - ",
+  "unknown_signal": "^MEMORY_SUPERSESSION: (unknown|unreadable) - ",
+  "cases": [
+    {
+      "name": "bad-stale-dependent",
+      "input": "cases/bad-stale-dependent",
+      "expect": "BAD",
+      "expected_exit": 1,
+      "why": "rollout-order.md (modified 2026-02-01) links [[widget-placement]], superseded 2026-03-10. The issue's observed instance: the supersession was recorded in one node and never reached the node that links to it. If this scores GOOD the checker cannot see the propagation gap at all."
+    },
+    {
+      "name": "good-current",
+      "input": "cases/good-current",
+      "expect": "GOOD",
+      "why": "The same store with rollout-order.md modified 2026-03-15, after the supersession. A checker that flags every link to a superseded memory, regardless of date, fails here - and the unrelated memory's prose 'superseded' must not count as a marker."
+    },
+    {
+      "name": "unknown-undated",
+      "input": "cases/unknown-undated",
+      "expect": "UNKNOWN",
+      "expected_exit": 3,
+      "anchor_expect": "clean",
+      "anchor_expect_reason": "The anchor recognises no memory as superseded, so it never reaches the comparison that discovers an undated dependent; it can only answer clean. Deriving the undecidable population requires the marker detection whose removal is the anchor's whole blindness.",
+      "why": "rollout-order.md has no modified date. Whether it predates the supersession cannot be known, and that must read unknown (exit 3), never clean - 15 of 48 memories in the store that motivated #1440 carry no date."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/check-memory-supersession.py",
+      "path": "anchors/constructed-no-marker-check-memory-supersession.py",
+      "sha256": "71e78137237eafac0257f9a738ec5c4d5417023614112cbd277879b6b378be7c",
+      "why": "CONSTRUCTED because the gate is new: the honest 'before' is no checker at all, which cannot be run. This variant is the gate with supersession-marker detection replaced by `return None`, so no memory is ever superseded and all three of this control's cases read clean (not every input: an unclosed frontmatter still reads unknown and a missing root unreadable, because those paths are untouched). It MISSES the known-bad case and AGREES with the gate on the known-good one, which proves the marker detection is what produces the verdict."
+    }
+  ]
+}
