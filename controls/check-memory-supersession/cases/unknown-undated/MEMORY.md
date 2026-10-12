@@ -1,0 +1,4 @@
+- [Widget placement](widget-placement.md) - widgets run in containers now
+- [Rollout order](rollout-order.md) - the order widgets ship in
+- [Release checklist](release-checklist.md) - what a release must carry
+- [Unrelated note](unrelated-note.md) - a fact with no links
