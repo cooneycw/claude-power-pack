@@ -68,16 +68,14 @@ def _sandbox(tmp_path: Path) -> Path:
         dest = root / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / rel, dest)
-    (root / ".claude").mkdir(parents=True)
-    shutil.copy2(
-        ROOT / ".claude" / "project-next-ownership.json",
-        root / ".claude" / "project-next-ownership.json",
-    )
+    # The manifest lives INSIDE the engine package since #1448, so the copytree
+    # above already carried it; there is no separate `.claude/` to create.
+    assert _manifest(root).is_file()
     return root
 
 
 def _manifest(root: Path) -> Path:
-    return root / ".claude" / "project-next-ownership.json"
+    return root / "lib" / "project_next" / "ownership.json"
 
 
 def _rewrite_manifest(root: Path, **changes: object) -> None:
@@ -299,7 +297,7 @@ def test_repin_still_succeeds_when_the_contract_version_moves_with_the_engine(
 
     # Derive the bump from the pinned version: a hardcoded pair silently stops bumping
     # anything once the real contract moves past it (it did, at 1.4 in #1035).
-    current = json.loads((root / ".claude" / "project-next-ownership.json").read_text(encoding="utf-8"))[
+    current = json.loads(_manifest(root).read_text(encoding="utf-8"))[
         "contract_version"
     ]
     major, minor = current.split(".")
@@ -564,3 +562,38 @@ def test_repin_refuses_a_baseline_ref_that_does_not_resolve(tmp_path: Path) -> N
     _bump_contract_version(root)
 
     assert pno.main(["--repin", "--root", str(root), "--baseline", "not-a-real-ref"]) == 1
+
+
+@requires_real_git
+def test_repin_reads_a_baseline_committed_at_the_pre_1448_manifest_path(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The manifest MOVED at #1448, and a baseline older than the move has it at
+    the old path.
+
+    `_recorded_at_ref` reports a path absent at the ref as "absent", and absent
+    means "first pin, nothing to compare" - so without the legacy fallback, any
+    branch whose merge-base predates the move would re-pin an unbumped engine
+    edit with no comparison at all. That is the exact refusal this gate exists
+    for, skipped silently by a file rename.
+    """
+    root = _sandbox(tmp_path)
+    legacy = root / ".claude" / "project-next-ownership.json"
+    legacy.parent.mkdir(parents=True)
+    _manifest(root).rename(legacy)
+    _run_git(root, "init", "-q", "-b", "main")
+    _run_git(root, "config", "user.email", "c@c")
+    _run_git(root, "config", "user.name", "c")
+    _run_git(root, "config", "commit.gpgsign", "false")
+    _run_git(root, "add", "-A")
+    _run_git(root, "commit", "-q", "-m", "base, manifest at the pre-#1448 path")
+    _run_git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+    _run_git(root, "mv", ".claude/project-next-ownership.json", "lib/project_next/ownership.json")
+
+    engine = root / "lib" / "project_next" / "rank.py"
+    engine.write_text(engine.read_text(encoding="utf-8") + "# unbumped change\n", encoding="utf-8")
+
+    assert pno.main(["--repin", "--root", str(root)]) == 1
+    err = capsys.readouterr().err
+    assert "engine module(s) changed" in err
+    assert "lib/project_next/rank.py" in err

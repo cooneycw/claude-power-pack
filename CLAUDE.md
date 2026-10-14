@@ -62,7 +62,7 @@ these rules remain in [commands-reference.md](docs/commands-reference.md) and
 - `lib/creds/` - secret retrieval, injection, UI, and audit support.
 - `lib/cpp_memory/` - fail-open local or federated friction-knowledge ledger.
 - `templates/` - Makefile, workflow, permission, and container templates.
-- `lib/project_next/` - the project-next engine; CPP-owned since #1069, pinned by `.claude/project-next-ownership.json`.
+- `lib/project_next/` - the project-next engine; CPP-owned since #1069, pinned by `lib/project_next/ownership.json` (moved from `.claude/` at #1448 so it ships with `lib/`).
 - `.woodpecker.yml` - repository CI pipeline.
 
 Component contracts and retired-surface history are routed through

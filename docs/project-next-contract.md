@@ -22,7 +22,7 @@ python3 scripts/project-next.py [repository] [--brief|--compact|--full|--json]
 Normal installations expose the same entry point as
 `~/.claude/scripts/project-next.py`. `make project-next-check` verifies the
 package, contract and fixtures against their ownership pins in
-`.claude/project-next-ownership.json`.
+`lib/project_next/ownership.json`.
 
 ## Input contract
 

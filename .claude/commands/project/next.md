@@ -33,7 +33,8 @@ the package is `lib/project_next/`, the contract is
 `~/.claude/scripts/project-next.py`. It is always present with this command, so
 there is no sibling-checkout probe and no prompt-policy fallback.
 
-Read `.claude/project-next-ownership.json` from the CPP checkout and use its
+Read `lib/project_next/ownership.json` (it ships with the engine package, so a
+tree holding only `scripts/` and `lib/` has it too - issue #1448) and use its
 `contract_version` as the runtime pin. The wrapper performs the same check and
 fails loudly if the engine speaks a different version. Never fetch a contract at
 runtime. There is no upstream to drift from: `make project-next-check` verifies

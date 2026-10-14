@@ -54,7 +54,12 @@ from pathlib import Path
 #:     control scored the upstream-fidelity question, which no longer exists.
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-MANIFEST_REL = ".claude/project-next-ownership.json"
+MANIFEST_REL = "lib/project_next/ownership.json"
+#: Where the manifest lived before #1448 moved it next to the engine. Read ONLY as
+#: a --repin baseline at a git ref that predates the move; never at runtime and
+#: never by `check`. Without it such a baseline reads "absent", which `_repin`
+#: treats as a first pin - and an unbumped engine edit would re-pin uncompared.
+LEGACY_MANIFEST_REL = ".claude/project-next-ownership.json"
 PACKAGE_REL = "lib/project_next"
 CONTRACT_REL = "docs/project-next-contract.md"
 CONTRACT_VERSION_RE = re.compile(r"Contract version `(?P<version>[^`]+)`")
@@ -237,11 +242,14 @@ def _recorded_at_ref(root: Path, ref: str) -> tuple[str, tuple[str | None, dict[
     branch can be compared against consistently, whether it is the branch's
     first repin or its fifth.
     """
-    proc = subprocess.run(
-        ["git", "-C", str(root), "show", f"{ref}:{MANIFEST_REL}"],
-        capture_output=True, text=True, check=False,
-    )
-    if proc.returncode != 0:
+    for rel in (MANIFEST_REL, LEGACY_MANIFEST_REL):
+        proc = subprocess.run(
+            ["git", "-C", str(root), "show", f"{ref}:{rel}"],
+            capture_output=True, text=True, check=False,
+        )
+        if proc.returncode == 0:
+            break
+    else:
         return "absent", None
     try:
         data = json.loads(proc.stdout)

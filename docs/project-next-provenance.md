@@ -64,7 +64,7 @@ path itself is the one most likely to be assumed broken and is not.
 | `vendor/project_next/lib/project_next/` | `lib/project_next/` | update a hardcoded FILE path; an import needs nothing |
 | `vendor/project_next/tests/.../fixtures/` | `tests/project_next/fixtures/` | update a hardcoded fixture path |
 | `vendor/project_next/docs/project-next-contract.md` | `docs/project-next-contract.md` | the pointer document that used to sit at this path is superseded by the contract itself |
-| `.claude/project-next-vendor.json` | `.claude/project-next-ownership.json` | update the path; `contract_version` still means what it meant |
+| `.claude/project-next-vendor.json` | `.claude/project-next-ownership.json`, then `lib/project_next/ownership.json` (#1448) | update the path; `contract_version` still means what it meant. #1448 moved it into the engine package so it ships wherever `lib/` does |
 | `vendor/project_next/scripts/project-next.py` | **removed** | it was a 17-line shim that did `import_module("lib.project_next.cli").main`. Replace with `python -c "from lib.project_next.cli import main; main()"`, or use `scripts/project-next.py`, which is the supported entry point |
 | `scripts/project-next-vendor.py` | `scripts/project-next-ownership.py` | different gate, different question - see `docs/scripts.md` |
 | `make project-next-check` | `make project-next-check` | **none** - same target name, new recipe |

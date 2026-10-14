@@ -1,0 +1,25 @@
+{
+  "branch": "issue-1448-project-next-py-reads-its-manifest-from-claude-whi",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "84b0d9bf284bb176a5595f8dd2dedf9d5c177efc",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1448",
+  "passes": 1,
+  "recorded_at": "2026-10-14T09:54:15Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 6
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/14/rollout-2026-10-14T05-52-57-01a139d4-4f4c-7d22-93c1-709a00c8afdd.jsonl",
+    "thread_id": "01a139d4-4f4c-7d22-93c1-709a00c8afdd"
+  },
+  "schema": 1,
+  "scope": "full",
+  "status": "ran"
+}
