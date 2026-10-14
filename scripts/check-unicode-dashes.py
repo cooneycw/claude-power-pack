@@ -22,7 +22,7 @@ exclusion is kept anyway, because two different reasons replaced it and a
 correct outcome must not rest on a reason that has stopped being true:
 
 1. `docs/project-next-contract.md` is pinned by sha256 in
-   `.claude/project-next-ownership.json` and verified by `make
+   `lib/project_next/ownership.json` and verified by `make
    project-next-check`. Editing it to satisfy this gate desynchronizes that pin
    rather than fixing anything - the same mechanical force as before, now
    pointing at CPP's own manifest instead of a vendoring one.

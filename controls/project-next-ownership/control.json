@@ -60,7 +60,7 @@
       "sha": "n/a",
       "origin": "scripts/project-next-ownership.py",
       "path": "anchors/constructed-presence-only-project-next-ownership.py",
-      "sha256": "324580a747c616179a8ee15b2bec1635dda7c0d113f39653b7559b1403340fca",
+      "sha256": "1557523f0d6b31984a22c440ac7a99c76936d7d447bf654610a227d2c0577d3b",
       "why": "CONSTRUCTED, not historical: the ownership gate is new at #1069, so no earlier version of it exists to anchor on and inventing one would be a fiction. This is the plausible weaker check written instead: confirm every pinned path is present and call that owned - 'complete' mistaken for 'correct'. It catches a deleted file and is blind to one edited in place. It MISSES the known-bad input and AGREES with the current gate on the known-good one."
     }
   ]

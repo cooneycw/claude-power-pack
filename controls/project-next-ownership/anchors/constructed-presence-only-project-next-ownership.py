@@ -38,7 +38,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     root = Path(args.root).resolve()
-    manifest_path = root / ".claude" / "project-next-ownership.json"
+    manifest_path = root / "lib" / "project_next" / "ownership.json"
     if not manifest_path.is_file():
         print(f"DRIFT: {manifest_path} is missing - the engine is unpinned.")
         return 1

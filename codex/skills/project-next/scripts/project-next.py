@@ -37,7 +37,13 @@ from pathlib import Path
 from typing import Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-MANIFEST_PATH = REPO_ROOT / ".claude" / "project-next-ownership.json"
+# The pin ships INSIDE the engine package (issue #1448). It used to live at
+# `.claude/project-next-ownership.json`, which only a full CPP checkout has: a
+# kyle container mounts `scripts/` and `lib/` under ~/.claude and nothing else,
+# so the entry point died with [Errno 2] before rendering. Wherever `lib/` goes,
+# this file goes with it. Keep this a single `REPO_ROOT / "..."` expression -
+# codex-skill-sync.py finds bundled data files by exactly that shape.
+MANIFEST_PATH = REPO_ROOT / "lib" / "project_next" / "ownership.json"
 # `.resolve()` first, so this works through a symlinked copy as well as from the
 # checkout: normal installations expose this as ~/.claude/scripts/project-next.py,
 # and sys.path[0] is the directory of the path as INVOKED, not the real one.

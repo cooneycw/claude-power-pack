@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -17,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "tests" / "project_next" / "fixtures"
 NEXT_MD = ROOT / ".claude" / "commands" / "project" / "next.md"
-MANIFEST = ROOT / ".claude" / "project-next-ownership.json"
+MANIFEST = ROOT / "lib" / "project_next" / "ownership.json"
 
 # No sys.path insert: `lib/project_next` is CPP's own package now (issue #1069)
 # and resolves from the repo root like `lib.cicd` or `lib.security`. The insert
@@ -38,7 +39,8 @@ def test_wiring_always_uses_the_owned_engine_and_manifest_pin() -> None:
     # UNCHANGED. The entry point did not move.
     assert "scripts/project-next.py" in text
     # RE-POINTED (#1069): the manifest is an ownership record, not a vendor pin.
-    assert ".claude/project-next-ownership.json" in text
+    # RE-POINTED again (#1448): it moved into the engine package.
+    assert "lib/project_next/ownership.json" in text
     # UNCHANGED, and the most load-bearing line here: the decision comes VERBATIM
     # from the engine. Ownership changed; that invariant did not.
     assert "VERBATIM" in text
@@ -120,6 +122,37 @@ def test_cpp_entry_point_runs_the_owned_fixture_without_optional_checkout(  # bi
     assert payload["decision_policy"] == f"contract v{CONTRACT_VERSION} (project-next engine)"
     assert payload["next_startable_issue"] == 2
     assert "cpp_extensions" in payload
+
+
+def test_entry_point_runs_from_a_tree_holding_only_scripts_and_lib(  # binary-guard: allow --input, no probe
+    tmp_path: Path,
+) -> None:
+    """A kyle container mounts only `scripts/` and `lib/` under ~/.claude (#1448).
+
+    The manifest used to live at `.claude/project-next-ownership.json`, which
+    such a tree does not have, so the entry point died with `[Errno 2]` before it
+    rendered anything. The test above runs from the full checkout, where that
+    file is always present - which is exactly why it never saw this.
+    """
+    tree = tmp_path / "dot-claude"
+    shutil.copytree(ROOT / "scripts", tree / "scripts", symlinks=True)
+    shutil.copytree(ROOT / "lib", tree / "lib", symlinks=True)
+    assert sorted(p.name for p in tree.iterdir()) == ["lib", "scripts"]
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    scenarios = json.loads((FIXTURES / "scenarios.json").read_text(encoding="utf-8"))
+    state_path = tmp_path / "state.json"
+    state_path.write_text(json.dumps(scenarios["active_pr_and_safe_issue"]["state"]), encoding="utf-8")
+
+    completed = subprocess.run(
+        [sys.executable, str(tree / "scripts" / "project-next.py"), str(repo), "--input", str(state_path), "--json"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout)["contract_version"] == CONTRACT_VERSION
 
 
 def test_offline_ownership_hash_gate_is_part_of_the_suite() -> None:  # binary-guard: allow check skips --repin git
