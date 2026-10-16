@@ -1138,6 +1138,12 @@ git merge --no-edit origin/main
        --red-cases-proposed 4 --red-cases-already-covered 3
    ```
 
+   `--passes` is capped at 2, because each pass spends quota. A pass beyond the
+   cap that was explicitly requested (say, by an orchestrator on the final head)
+   is still recorded, with `--passes 3 --extra-pass-reason "<who asked, and why>"`.
+   The writer refuses a third pass without a reason, and a reason without one
+   (issue #1400).
+
    **Stage the receipt immediately, on every status including a skip (issue
    #1030).** `tests/test_counter_model_review.py::test_every_COMMITTED_
    receipt_is_well_formed_AND_TRACKED` requires every receipt on disk to be

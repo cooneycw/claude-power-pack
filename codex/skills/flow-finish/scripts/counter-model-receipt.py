@@ -619,6 +619,8 @@ def build(args: argparse.Namespace) -> dict:
         receipt["skip_reason"] = args.reason
     else:
         receipt["passes"] = args.passes
+        if getattr(args, "extra_pass_reason", None):
+            receipt["extra_passes_reason"] = args.extra_pass_reason
         receipt["counts"] = {k: getattr(args, k) for k in COUNTS}
         receipt["red_cases"] = {
             "proposed": args.red_cases_proposed,
@@ -789,16 +791,30 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
             bad.append(
                 f"{source}: skip_reason {receipt.get('skip_reason')!r} not in {SKIP_REASONS}"
             )
-        for absent in ("counts", "red_cases", "passes"):
+        for absent in ("counts", "red_cases", "passes", "extra_passes_reason"):
             if absent in receipt:
                 bad.append(f"{source}: a skipped run must not carry {absent!r}")
         return bad
 
     passes = receipt.get("passes")
-    if not isinstance(passes, int) or isinstance(passes, bool) or passes < 1 or passes > 2:
+    reason = receipt.get("extra_passes_reason")
+    if not isinstance(passes, int) or isinstance(passes, bool) or passes < 1:
+        bad.append(f"{source}: passes is {passes!r}, expected a positive integer")
+    elif passes > 2 and not (isinstance(reason, str) and reason.strip()):
         # Two passes is the documented cap: each one spends the user's quota,
         # and an unbounded loop is how a review stage becomes a cost centre.
-        bad.append(f"{source}: passes is {passes!r}, expected 1 or 2")
+        # A pass beyond it is recordable only with the reason it was asked for
+        # (issue #1400): refusing it made the receipt under-report a review
+        # that happened and found something (#1320's pass 3).
+        bad.append(
+            f"{source}: passes is {passes}, beyond the cap of 2, and carries no "
+            "'extra_passes_reason' saying why the extra pass was requested"
+        )
+    elif passes <= 2 and "extra_passes_reason" in receipt:
+        bad.append(
+            f"{source}: 'extra_passes_reason' is only for passes beyond the cap of 2 "
+            f"(passes is {passes})"
+        )
 
     counts = receipt.get("counts")
     if not isinstance(counts, dict):
@@ -1274,7 +1290,13 @@ def main() -> int:
              "reviewed the diff, from which to derive the REVIEWING model "
              "(defaults to $CLAUDE_CODE_SESSION_ID when --implementer-exec-log is given)",
     )
-    w.add_argument("--passes", type=int, default=1)
+    w.add_argument("--passes", type=int, default=1,
+                   help="review passes run; beyond 2 requires --extra-pass-reason")
+    w.add_argument(
+        "--extra-pass-reason",
+        help="why a pass beyond the cap of 2 was requested, and by whom (issue "
+             "#1400); required when --passes > 2, refused otherwise",
+    )
     for k in COUNTS:
         w.add_argument(f"--{k}", type=int, default=0)
     w.add_argument("--red-cases-proposed", type=int, default=0)
@@ -1347,6 +1369,14 @@ def main() -> int:
     if (args.cmd == "write" and args.status == "skipped"
             and args.reviewer_exec_log is not None):
         ap.error("--status skipped must not carry --reviewer-exec-log; no review happened")
+    if args.cmd == "write" and args.status == "ran":
+        if args.passes > 2 and not (args.extra_pass_reason or "").strip():
+            ap.error("--passes beyond 2 requires --extra-pass-reason: the cap exists "
+                     "because each pass spends quota, so an extra one says why")
+        if args.passes <= 2 and args.extra_pass_reason:
+            ap.error("--extra-pass-reason is only for --passes beyond 2")
+    if args.cmd == "write" and args.status == "skipped" and args.extra_pass_reason:
+        ap.error("--status skipped must not carry --extra-pass-reason; no review happened")
     if args.cmd == "write" and args.status == "skipped" and args.scope:
         ap.error("--status skipped must not carry --scope; no review happened")
     if args.cmd == "write" and args.status == "skipped" and args.network:
