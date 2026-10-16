@@ -232,3 +232,19 @@ def test_an_unreadable_document_is_unknown_not_clean(tmp_path: Path) -> None:
     assert proc.returncode == 2, proc.stdout + proc.stderr
     assert "could not be read" in proc.stderr and "broken.md" in proc.stderr
     assert "ok -" not in proc.stdout
+
+
+# Counter-model review, pass 2.
+
+@pytest.mark.parametrize("line,target", [
+    ('[dead](missing.md "title (")', "missing.md"),
+    ("[g](my\\_guide.md)", "my_guide.md"),
+    ("[g](a&amp;b.md)", "a&b.md"),
+])
+def test_titles_escapes_and_entities(line: str, target: str) -> None:
+    assert LINKS.links_in(line + "\n") == [(1, target)]
+
+
+def test_a_fence_like_content_line_does_not_close_the_fence() -> None:
+    text = "```\n```python\n[example](gone.md)\n```\n[real](real.md)\n"
+    assert LINKS.links_in(text) == [(5, "real.md")]

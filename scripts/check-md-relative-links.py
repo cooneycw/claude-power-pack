@@ -42,6 +42,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import html
 import re
 import subprocess
 import sys
@@ -76,6 +77,9 @@ EXCLUDED_PREFIXES = (
 
 LINK_START_RE = re.compile(r"(?<!!)\[[^\]\n]*\]\(")
 FENCE_RE = re.compile(r"^\s*(?:>\s*)*(`{3,}|~{3,})")
+#: A CLOSING fence is the marker and nothing else (CommonMark): `\x60\x60\x60python`
+#: inside an open fence is content, not its end.
+CLOSING_FENCE_RE = re.compile(r"^\s*(?:>\s*)*(`{3,}|~{3,})\s*$")
 INLINE_CODE_RE = re.compile(r"(`+)(?:(?!\1).)+?\1")
 SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 
@@ -119,6 +123,8 @@ def _destination(line: str, start: int) -> str | None:
 
     `<...>` runs to its `>`; otherwise parentheses nest and `\\(` escapes, as
     CommonMark has it, so `guide(v2).md` is one destination, not `guide(v2`.
+    An unbracketed destination holds no whitespace, so it ends at the first
+    one: a title after it, balanced or not, is never parsed.
     """
     if line.startswith("<", start):
         end = line.find(">", start + 1)
@@ -130,6 +136,8 @@ def _destination(line: str, start: int) -> str | None:
         if c == "\\":
             i += 2
             continue
+        if c.isspace():
+            return line[start:i]
         if c == "(":
             depth += 1
         elif c == ")":
@@ -150,7 +158,9 @@ def _link_target(raw: str) -> str | None:
     # Strip the literal fragment and query BEFORE decoding: `%23` and `%3F` are
     # part of a file name, not delimiters.
     target = target.split("#", 1)[0].split("?", 1)[0]
-    target = unquote(re.sub(r"\\([()<>])", r"\1", target))
+    # CommonMark: a backslash escapes any ASCII punctuation, and character
+    # references decode (`my\\_guide.md` names `my_guide.md`, `a&amp;b.md` `a&b.md`).
+    target = unquote(html.unescape(re.sub(r"\\([!-/:-@\[-`{-~])", r"\1", target)))
     if not target or target.startswith("/") or SCHEME_RE.match(target):
         return None
     return target
@@ -161,15 +171,15 @@ def links_in(text: str) -> list[tuple[int, str]]:
     found: list[tuple[int, str]] = []
     fence: str | None = None
     for number, line in enumerate(text.splitlines(), start=1):
-        m = FENCE_RE.match(line)
-        if m:
-            marker = m.group(1)
-            if fence is None:
-                fence = marker[0] * len(marker)
-            elif marker.startswith(fence):
+        if fence is None:
+            m = FENCE_RE.match(line)
+            if m:
+                fence = m.group(1)
+                continue
+        else:
+            m = CLOSING_FENCE_RE.match(line)
+            if m and m.group(1).startswith(fence):
                 fence = None
-            continue
-        if fence is not None:
             continue
         code_free = INLINE_CODE_RE.sub("", line)
         for start in LINK_START_RE.finditer(code_free):
