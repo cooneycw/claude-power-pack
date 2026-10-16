@@ -184,3 +184,51 @@ def test_no_git_at_all_is_unavailable_not_unknown(tmp_path: Path) -> None:
 
 def test_the_real_tree_floor_is_the_default() -> None:
     assert LINKS.MIN_TRACKED_MD_FILES == 100
+
+
+# --------------------------------------------------------------------------- #
+# Counter-model review (codex gpt-6.1-sol): destination parsing and an
+# unreadable population.
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize("line,target", [
+    ("[g](docs/guide(v2).md)", "docs/guide(v2).md"),
+    ("[g](<a (b).md>)", "a (b).md"),
+    ("[g](a\\(x\\).md)", "a(x).md"),
+    ("[g](guide%23old.md#frag)", "guide#old.md"),
+    ("[g](what%3F.md?raw=1)", "what?.md"),
+    ('[t](t.md "title (x)")', "t.md"),
+])
+def test_destinations_parse_as_commonmark_does(line: str, target: str) -> None:
+    assert LINKS.links_in(line + "\n") == [(1, target)]
+
+
+@requires_git
+def test_a_live_parenthesised_link_is_not_dead_and_a_dead_one_is(tmp_path: Path) -> None:
+    root = _repo(tmp_path, {"README.md": "[live](guide(v2).md) [dead](gone(v2).md)\n",
+                            "guide(v2).md": "x\n"})
+    proc = _run(root)
+    assert proc.returncode == 1
+    assert "(gone(v2).md) does not exist" in proc.stderr
+    assert "guide(v2)" not in proc.stderr
+
+
+@requires_git
+def test_a_non_ascii_document_name_is_read_not_reported_missing(tmp_path: Path) -> None:
+    root = _repo(tmp_path, {"README.md": "[n](notes-é.md)\n", "notes-é.md": "[back](README.md)\n"})
+    proc = _run(root)
+    assert proc.returncode == 0, proc.stderr
+    assert "2 relative link(s) across 2 tracked .md file(s)" in proc.stdout
+
+
+@requires_git
+def test_an_unreadable_document_is_unknown_not_clean(tmp_path: Path) -> None:
+    """A tracked dangling symlink: listed by git, unreadable on disk. Root-safe,
+    unlike chmod, because CI runs as root."""
+    root = _repo(tmp_path, {"README.md": "[x](x.md)\n", "x.md": "x\n"}, tracked=False)
+    (root / "broken.md").symlink_to(root / "nowhere.md")
+    assert not (root / "broken.md").exists() and (root / "broken.md").is_symlink()
+    proc = _run(root)
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "could not be read" in proc.stderr and "broken.md" in proc.stderr
+    assert "ok -" not in proc.stdout

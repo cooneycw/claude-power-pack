@@ -74,7 +74,7 @@ EXCLUDED_PREFIXES = (
     "tests/",
 )
 
-LINK_RE = re.compile(r"(?<!!)\[[^\]\n]*\]\(([^)\n]+)\)")
+LINK_START_RE = re.compile(r"(?<!!)\[[^\]\n]*\]\(")
 FENCE_RE = re.compile(r"^\s*(?:>\s*)*(`{3,}|~{3,})")
 INLINE_CODE_RE = re.compile(r"(`+)(?:(?!\1).)+?\1")
 SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
@@ -98,7 +98,7 @@ def tracked_md_files(root: Path) -> list[str] | None:
     """
     try:
         proc = subprocess.run(
-            ["git", "ls-files", "--cached", "--others", "--exclude-standard", "--", "*.md"],
+            ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "*.md"],
             cwd=root, capture_output=True, text=True,
         )
     except FileNotFoundError as exc:
@@ -108,19 +108,49 @@ def tracked_md_files(root: Path) -> list[str] | None:
     if proc.returncode != 0:
         return None
     return sorted({
-        line for line in proc.stdout.splitlines()
+        # -z: without it git quotes a non-ASCII path, which then reads as missing.
+        line for line in proc.stdout.split("\0")
         if line and not line.startswith(EXCLUDED_PREFIXES)
     })
+
+
+def _destination(line: str, start: int) -> str | None:
+    """The raw destination of a link whose `(` ends just before `start`.
+
+    `<...>` runs to its `>`; otherwise parentheses nest and `\\(` escapes, as
+    CommonMark has it, so `guide(v2).md` is one destination, not `guide(v2`.
+    """
+    if line.startswith("<", start):
+        end = line.find(">", start + 1)
+        return None if end < 0 else line[start:end + 1]
+    depth = 0
+    i = start
+    while i < len(line):
+        c = line[i]
+        if c == "\\":
+            i += 2
+            continue
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            if depth == 0:
+                return line[start:i]
+            depth -= 1
+        i += 1
+    return None
 
 
 def _link_target(raw: str) -> str | None:
     """The relative file a link names, or None when it names no local file."""
     target = raw.strip()
-    if target.startswith("<") and ">" in target:
-        target = target[1:target.index(">")]
+    if target.startswith("<"):
+        target = target[1:-1] if target.endswith(">") else ""
     else:
         target = target.split(maxsplit=1)[0] if target else ""
-    target = unquote(target).split("#", 1)[0].split("?", 1)[0]
+    # Strip the literal fragment and query BEFORE decoding: `%23` and `%3F` are
+    # part of a file name, not delimiters.
+    target = target.split("#", 1)[0].split("?", 1)[0]
+    target = unquote(re.sub(r"\\([()<>])", r"\1", target))
     if not target or target.startswith("/") or SCHEME_RE.match(target):
         return None
     return target
@@ -141,27 +171,32 @@ def links_in(text: str) -> list[tuple[int, str]]:
             continue
         if fence is not None:
             continue
-        for link in LINK_RE.finditer(INLINE_CODE_RE.sub("", line)):
-            target = _link_target(link.group(1))
+        code_free = INLINE_CODE_RE.sub("", line)
+        for start in LINK_START_RE.finditer(code_free):
+            raw = _destination(code_free, start.end())
+            target = _link_target(raw) if raw is not None else None
             if target is not None:
                 found.append((number, target))
     return found
 
 
-def find_dead_links(root: Path, files: list[str]) -> tuple[list[DeadLink], int]:
+def find_dead_links(root: Path, files: list[str]) -> tuple[list[DeadLink], int, list[str]]:
+    """`(dead links, links examined, documents that could not be read)`."""
     dead: list[DeadLink] = []
     examined = 0
+    unreadable: list[str] = []
     for rel in files:
         path = root / rel
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
+            unreadable.append(rel)
             continue
         for number, target in links_in(text):
             examined += 1
             if not (path.parent / target).exists():
                 dead.append(DeadLink(rel, number, target))
-    return dead, examined
+    return dead, examined, unreadable
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -187,7 +222,15 @@ def main(argv: list[str] | None = None) -> int:
               f"(need >= {args.min_files}); this is not the population the gate is "
               "for, so a clean result would mean nothing.", file=sys.stderr)
         return 2
-    dead, examined = find_dead_links(root, files)
+    dead, examined, unreadable = find_dead_links(root, files)
+    if unreadable:
+        for d in dead:
+            print(f"  {d.path}:{d.line}: ({d.target}) does not exist", file=sys.stderr)
+        print(f"md-relative-links: UNKNOWN - {len(unreadable)} tracked .md file(s) could "
+              "not be read, so their links were not examined:", file=sys.stderr)
+        for rel in unreadable:
+            print(f"  {rel}", file=sys.stderr)
+        return 2
     if not examined:
         print(f"md-relative-links: UNKNOWN - {len(files)} tracked .md file(s) carry no "
               "relative link at all; nothing was checked.", file=sys.stderr)
