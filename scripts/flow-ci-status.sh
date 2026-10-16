@@ -162,6 +162,16 @@ FAILED_STEPS_INCOMPLETE=0
 # pins all three against drift from this number.
 readonly EX_FETCH_FAILED=75
 
+# Exit 75 counts as a FETCH failure only from a step that declares itself a
+# stager by name (`*-stage`: make-stage, jq-stage, git-stage, shellcheck-stage).
+# EX_TEMPFAIL is a general sysexits code - an application test or deploy
+# command may exit 75 after running the changed code, and that is a code
+# failure (counter-model review, #1411). A naming convention, not a list: a
+# new stager joins by its name, and nothing else can.
+is_fetch_failure() {
+    [[ "$2" == "$EX_FETCH_FAILED" && "$1" == *-stage ]]
+}
+
 # WHERE a failure happened, not only which step (issue #1342). A red `clone`
 # step - the checkout that runs before any of the change's code - read exactly
 # like a red test suite, so a worker debugged its own diff for a network blip.
@@ -188,7 +198,7 @@ failure_origin() {
     for (( i = 0; i < n; i++ )); do
         t="${FAILED_STEP_TYPES[$i]:-}"
         ec="${FAILED_STEP_EXIT_CODES[$i]:-}"
-        if [[ "$t" == "clone" || "$ec" == "$EX_FETCH_FAILED" ]]; then
+        if [[ "$t" == "clone" ]] || is_fetch_failure "${FAILED_STEPS[$i]}" "$ec"; then
             precode=$(( precode + 1 ))
         elif [[ -n "$t" ]]; then
             code=$(( code + 1 ))
@@ -223,8 +233,8 @@ emit() {
     if [[ "$STATUS" == "failure" ]]; then
         local i
         for (( i = 0; i < ${#FAILED_STEPS[@]}; i++ )); do
-            if [[ "${FAILED_STEP_TYPES[$i]:-}" == "clone" \
-                || "${FAILED_STEP_EXIT_CODES[$i]:-}" == "$EX_FETCH_FAILED" ]]; then
+            if [[ "${FAILED_STEP_TYPES[$i]:-}" == "clone" ]] \
+                || is_fetch_failure "${FAILED_STEPS[$i]}" "${FAILED_STEP_EXIT_CODES[$i]:-}"; then
                 echo "FLOW_CI_PRECODE_FAILURE: ${FAILED_STEPS[$i]}"
             fi
         done

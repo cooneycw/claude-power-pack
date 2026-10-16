@@ -154,7 +154,10 @@ steps:
       # found genuinely slow ~33s tests sitting next to ones that ran 0.2-2s
       # quiet and 10-120s in CI (a 50-60x stall under load). With this flag the
       # slowest 25 tests' actual times are in the very log that failed, so the
-      # call can be made from it alone.
+      # call can be made from it alone. pytest prints this summary at the END,
+      # so it relies on the run finishing: pyproject's per-test `timeout = 120`
+      # (pytest-timeout) fails a hung test with its stack and lets the run
+      # complete. A run killed by the STEP timeout first prints no durations.
       - PATH="$PWD/.ci-bin:$PATH" uv run pytest -n "$(sh scripts/pytest-workers.sh)" --durations=25
       # NAME THE SUBSUMPTION TESTS, because the full run's summary CANNOT say
       # whether they ran (#1165). Those tests carry a `shutil.which("make")`

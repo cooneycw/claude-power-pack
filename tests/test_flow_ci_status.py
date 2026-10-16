@@ -1173,6 +1173,19 @@ def test_exit_75_and_a_genuine_code_failure_together_are_MIXED(tmp_path):
 
 
 @requires_bash
+def test_exit_75_from_a_step_that_is_not_a_stager_stays_code(tmp_path):
+    """Counter-model review: EX_TEMPFAIL is a general code, so an application
+    command exiting 75 after running the change is a CODE failure. Only a
+    `*-stage` step's 75 is a fetch failure."""
+    result = _api_failure(tmp_path, [
+        {"name": "validate", "type": "commands", "state": "failure", "exit_code": 75},
+    ])
+    m = _markers(result.stdout)
+    assert "FLOW_CI_PRECODE_FAILURE" not in m
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["code"]
+
+
+@requires_bash
 def test_a_MISSING_exit_code_never_defaults_to_precode(tmp_path):
     """Absence of the field (an older API, or a shape that omits it) must stay
     `code` for a `commands`-type step - never read as evidence either way."""
