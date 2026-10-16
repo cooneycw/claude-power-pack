@@ -2642,10 +2642,12 @@ def test_a_reason_without_an_extra_pass_is_refused(tmp_path: Path) -> None:
 def test_an_explicitly_empty_reason_is_refused_not_dropped(tmp_path: Path) -> None:
     """Counter-model review: the guards tested truthiness, so `""` slipped past
     them and was silently dropped instead of refused."""
-    proc = _write_ran(tmp_path, "--passes", "2", "--extra-pass-reason", "")
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    proc = _write_ran(tmp_path / "a", "--passes", "2", "--extra-pass-reason", "")
     assert proc.returncode == CM.EXIT_USAGE
     assert "only for --passes beyond 2" in proc.stderr
-    proc = _write_ran(tmp_path, "--passes", "3", "--extra-pass-reason", "  ")
+    proc = _write_ran(tmp_path / "b", "--passes", "3", "--extra-pass-reason", "  ")
     assert proc.returncode == CM.EXIT_USAGE
     assert "requires --extra-pass-reason" in proc.stderr
 
