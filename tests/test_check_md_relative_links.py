@@ -11,8 +11,6 @@ from pathlib import Path
 
 import pytest
 
-from tests.isolated_env import ISOLATED_PATH
-
 REPO = Path(__file__).resolve().parent.parent
 SCRIPT = REPO / "scripts" / "check-md-relative-links.py"
 
@@ -28,7 +26,7 @@ _spec.loader.exec_module(LINKS)
 def _repo(tmp_path: Path, files: dict[str, str], tracked: bool = True) -> Path:
     root = tmp_path / "repo"
     root.mkdir()
-    env = {**os.environ, "PATH": ISOLATED_PATH}
+    env = dict(os.environ)
     subprocess.run(["git", "init", "-q"], cwd=root, env=env, check=True, capture_output=True)
     for rel, text in files.items():
         path = root / rel
@@ -39,10 +37,9 @@ def _repo(tmp_path: Path, files: dict[str, str], tracked: bool = True) -> Path:
     return root
 
 
-def _run(root: Path, *extra: str, path: str = ISOLATED_PATH) -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, "PATH": path}
+def _run(root: Path, *extra: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["python3", str(SCRIPT), "--root", str(root), "--min-files", "1", *extra],
-                          env=env, capture_output=True, text=True)
+                          capture_output=True, text=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -158,8 +155,7 @@ def test_zero_links_examined_is_unknown(tmp_path: Path) -> None:
 @requires_git
 def test_below_the_membership_floor_is_unknown(tmp_path: Path) -> None:
     root = _repo(tmp_path, {"README.md": "[x](x.md)\n", "x.md": "x\n"})
-    env = {**os.environ, "PATH": ISOLATED_PATH}
-    proc = subprocess.run(["python3", str(SCRIPT), "--root", str(root)], env=env,
+    proc = subprocess.run(["python3", str(SCRIPT), "--root", str(root)],
                           capture_output=True, text=True)
     assert proc.returncode == 2
     assert f"need >= {LINKS.MIN_TRACKED_MD_FILES}" in proc.stderr
