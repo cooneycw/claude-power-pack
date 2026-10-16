@@ -2589,3 +2589,81 @@ def test_network_is_OPTIONAL_but_checked_when_present() -> None:
     assert any("network" in p for p in CM.validate(skipped))
     problems = CM.validate(_delegated_receipt(network="blocked"), "delegated")
     assert any("network" in p for p in problems), problems
+
+
+# --------------------------------------------------------------------------- #
+# A pass beyond the cap of 2 (issue #1400, Nit Store #864 comment 5874968682):
+# recordable with the reason it was requested, refused without one.
+# --------------------------------------------------------------------------- #
+
+_RAN_BASE = {
+    "schema": 1, "recorded_at": "2026-10-16T00:00:00Z", "issue": "1400",
+    "branch": "b", "status": "ran", "reviewer": "codex/x",
+    "implementer": "claude/y",
+    "counts": {"accepted": 1, "rejected": 0, "deferred": 0},
+    "red_cases": {"proposed": 0, "already_covered": 0},
+}
+
+
+def _write_ran(tmp_path: Path, *extra: str) -> subprocess.CompletedProcess:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
+    exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
+    return _write(
+        tmp_path, "--dir", str(tmp_path / "out"), "--issue", "1400", "--branch", "b",
+        "--status", "ran", *extra,
+        *_reviewer_evidence_args(exec_log, sessions_dir),
+        *_implementer_evidence_args(session_id, projects_dir),
+    )
+
+
+def test_a_requested_third_pass_is_recorded_with_its_reason(tmp_path: Path) -> None:
+    """RED before #1400: `passes 3` was refused outright, so #1320's pass 3 and
+    its MEDIUM finding could only live in the PR body."""
+    reason = "orchestrator requested a pass on the final head after a rebase"
+    proc = _write_ran(tmp_path, "--passes", "3", "--extra-pass-reason", reason)
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next((tmp_path / "out").glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["passes"] == 3
+    assert receipt["extra_passes_reason"] == reason
+
+
+def test_a_third_pass_without_a_reason_is_refused(tmp_path: Path) -> None:
+    proc = _write_ran(tmp_path, "--passes", "3")
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "requires --extra-pass-reason" in proc.stderr
+
+
+def test_a_reason_without_an_extra_pass_is_refused(tmp_path: Path) -> None:
+    proc = _write_ran(tmp_path, "--passes", "2", "--extra-pass-reason", "why not")
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "only for --passes beyond 2" in proc.stderr
+
+
+def test_an_explicitly_empty_reason_is_refused_not_dropped(tmp_path: Path) -> None:
+    """Counter-model review: the guards tested truthiness, so `""` slipped past
+    them and was silently dropped instead of refused."""
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    proc = _write_ran(tmp_path / "a", "--passes", "2", "--extra-pass-reason", "")
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "only for --passes beyond 2" in proc.stderr
+    proc = _write_ran(tmp_path / "b", "--passes", "3", "--extra-pass-reason", "  ")
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "requires --extra-pass-reason" in proc.stderr
+
+
+def test_the_schema_enforces_the_cap_and_its_reason_both_ways() -> None:
+    assert CM.validate(dict(_RAN_BASE, passes=2)) == []
+    assert CM.validate(dict(_RAN_BASE, passes=3, extra_passes_reason="asked for")) == []
+    assert any("extra_passes_reason" in p for p in CM.validate(dict(_RAN_BASE, passes=3)))
+    assert any("extra_passes_reason" in p
+               for p in CM.validate(dict(_RAN_BASE, passes=3, extra_passes_reason="  ")))
+    assert any("only for passes beyond" in p
+               for p in CM.validate(dict(_RAN_BASE, passes=1, extra_passes_reason="x")))
+    assert any("positive integer" in p for p in CM.validate(dict(_RAN_BASE, passes=0)))
+    skipped = {
+        "schema": 1, "recorded_at": "2026-10-16T00:00:00Z", "issue": "1400",
+        "branch": "b", "status": "skipped", "reviewer": None, "implementer": "claude/y",
+        "skip_reason": "codex-absent", "extra_passes_reason": "x",
+    }
+    assert any("extra_passes_reason" in p for p in CM.validate(skipped))
