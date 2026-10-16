@@ -541,7 +541,7 @@ Phase (Epic)
 
 Use the `/project:next` command to analyze your repository's issues and get prioritized recommendations for what to work on next.
 
-**Full documentation:** See [ISSUE_DRIVEN_DEVELOPMENT.md](ISSUE_DRIVEN_DEVELOPMENT.md) for the complete methodology guide including:
+**Full documentation:** See [ISSUE_DRIVEN_DEVELOPMENT.md](../../ISSUE_DRIVEN_DEVELOPMENT.md) for the complete methodology guide including:
 - Micro-issue templates
 - Git worktree commands
 - Multi-agent coordination patterns

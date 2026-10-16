@@ -113,6 +113,6 @@ Is the tool used in >80% of sessions?
 ## Resources
 
 - [Progressive Disclosure Guide](PROGRESSIVE_DISCLOSURE_GUIDE.md)
-- [Context-Efficient Tool Architecture](CLAUDE_CODE_BEST_PRACTICES_COMPREHENSIVE.md#context-efficient-tool-architecture)
+- [Context-Efficient Tool Architecture](docs/reference/CLAUDE_CODE_BEST_PRACTICES_FULL.md#context-efficient-tool-architecture)
 - [Anthropic: Advanced Tool Use](https://www.anthropic.com/engineering/advanced-tool-use)
 - [Scott Spence: MCP Context Optimization](https://scottspence.com/posts/optimising-mcp-server-context-usage-in-claude-code)

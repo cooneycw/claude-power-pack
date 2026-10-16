@@ -19,6 +19,7 @@
        tools-version-check toolchain-provenance checkout-readers \
        delegated-core-check delegated-core-write \
        version-consistency-check unicode-dashes-check co-authored-by-trailer-check \
+       md-relative-links-check \
        qa-regression-demo \
        skill-coverage-map-check skill-coverage-snapshot
 
@@ -397,7 +398,7 @@ verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-impor
 	scripts-inventory-check instrument-census-check verify-coverage-check \
 	control-ci-deps-check ci-coverage-check \
 	consolidation-ledger-check host-surface-check cpp-host-writes-check \
-	version-consistency-check unicode-dashes-check co-authored-by-trailer-check \
+	version-consistency-check unicode-dashes-check co-authored-by-trailer-check md-relative-links-check \
 	behavioral-eval-check eli5-check tool-risk-check skill-coverage-map-check
 	@python3 scripts/verify-coverage-check.py --report
 
@@ -769,6 +770,10 @@ version-consistency-check:
 ## verify-coverage: gate unicode-dashes-check - no unicode dashes in the tree; ci: excluded needs-git
 unicode-dashes-check:
 	@python3 scripts/check-unicode-dashes.py
+
+## verify-coverage: gate md-relative-links-check - every relative markdown link in tracked docs resolves; ci: excluded needs-git
+md-relative-links-check:
+	@python3 scripts/check-md-relative-links.py
 
 ## verify-coverage: gate co-authored-by-trailer-check - the Co-Authored-By trailer names a real model; ci: excluded needs-git
 co-authored-by-trailer-check:
