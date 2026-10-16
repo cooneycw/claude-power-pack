@@ -1,0 +1,60 @@
+{
+  "_comment": [
+    "Registration for scripts/check-md-relative-links.py (issue #1413).",
+    "",
+    "WHY THIS GATE NEEDS ONE: it is a prerequisite of `make verify`, a gate that lets",
+    "work THROUGH, and nothing downstream re-derives it. A blind version prints the same",
+    "'ok - N relative link(s) ... resolve' line over a tree whose links have rotted, which",
+    "is exactly the state #1413 found by hand."
+  ],
+  "gate": "scripts/check-md-relative-links.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--root",
+    "{case}",
+    "--min-files",
+    "1"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^md-relative-links: [0-9]+ dead relative link\\(s\\) of [0-9]+",
+  "unknown_signal": "^md-relative-links: UNKNOWN - ",
+  "unavailable_signal": "^md-relative-links: UNAVAILABLE - git is not installed$",
+  "limits": "Covers inline relative markdown links resolving to an existing file, relative to the linking document's own directory, outside fenced blocks and inline code. It says nothing about URLs, #fragments (the heading is never checked), image links, reference-style definitions, or backtick path mentions, none of which the gate examines. The real tree's verdict is the gate's own run under `make verify`. The membership floor is lowered to 1 here because a case tree is small; the real-tree default (100) is pinned by tests/test_check_md_relative_links.py. UNAVAILABLE is declared for a missing git only.",
+  "cases": [
+    {
+      "name": "bad-dead-link",
+      "input": "cases/bad-dead-link",
+      "expect": "BAD",
+      "why": "README.md links to guide.md, which does not exist. The one failure the gate exists for."
+    },
+    {
+      "name": "bad-dead-link-from-subdir",
+      "input": "cases/bad-dead-link-from-subdir",
+      "expect": "BAD",
+      "why": "docs/guide.md links to ../plan.md, which does not exist, while the top-level README's own link is live. Pins resolution relative to the LINKING file's directory, and that a dead link outside the top level is still found - the shape of every link #1413 fixed."
+    },
+    {
+      "name": "good-live-links",
+      "input": "cases/good-live-links",
+      "expect": "GOOD",
+      "why": "Live links in both directions, a #fragment on a live link, a URL, a bare anchor, and a dead target written only inside inline code and a fenced block. Separates a working gate from one wedged at 'fail', and from one that reads examples as links."
+    },
+    {
+      "name": "unknown-no-links",
+      "input": "cases/unknown-no-links",
+      "expect": "UNKNOWN",
+      "why": "A tracked document whose only links are a URL and inline code. Zero relative links examined must not read as 'every link resolves'."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/check-claude-md-links.py",
+      "path": "anchors/constructed-claude-md-only.py",
+      "sha256": "1d74cffe11279da026a428af3ad4f17a7a57557dfc6c9656e167e8d0c3bd907b",
+      "why": "CONSTRUCTED: the coverage before #1413 - relative links checked in CLAUDE.md and nowhere else. No case carries a CLAUDE.md, so it reports GOOD on both BAD cases (blind, as required) and agrees with the gate on the GOOD case."
+    }
+  ]
+}

@@ -81,7 +81,7 @@ recorded, 2 accepted as risks for the owner), 2 rejected with reasons, 1 split.*
 
 The panel above reviewed the PLAN, from a summary. A second, separate review
 read the actual diff: `/flow:auto` Step 6's counter-model stage
-([ADR 0007](../../decisions/0007-counter-model-review.md)), which runs by
+([ADR 0007](../../../docs/decisions/0007-counter-model-review.md)), which runs by
 default and whose rule is the same property - the reviewing model must not be
 the implementing model.
 
