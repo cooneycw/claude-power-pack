@@ -358,7 +358,9 @@ NETWORK_LINE=" Do not run any command that contacts a remote service (gh, git fe
 # read is still readable, so this narrows an open network; it does not close it.
 # approval_policy is pinned to "never" so no host configuration can approve a
 # sandbox-denied command into running outside the sandbox.
-REVIEW_GH_CONFIG=$(mktemp -d /tmp/codex-review-gh.XXXXXX)
+# Fail CLOSED: an empty GH_CONFIG_DIR sends gh back to the owner's own config.
+REVIEW_GH_CONFIG=$(mktemp -d /tmp/codex-review-gh.XXXXXX) && [ -d "$REVIEW_GH_CONFIG" ] || {
+    echo "CODEX_REVIEW: unavailable (could not create an empty gh config directory; refusing to run the reviewer with the caller's credentials)" >&2; exit 3; }
 
 FINDINGS=$(mktemp /tmp/codex-review.XXXXXX.md)
 # STREAM carries the thread id that Step 4 needs to identify the reviewing

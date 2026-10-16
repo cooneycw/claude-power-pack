@@ -86,6 +86,12 @@ if [ -n "$STUB_IN_SANDBOX" ]; then exit "${STUB_CURL_INSIDE_RC:-7}"; fi
 exit "${STUB_CURL_OUTSIDE_RC:-7}"
 """
 
+# A real mktemp, except that `-d` fails when STUB_MKTEMP_DIR_FAILS is set.
+MKTEMP_STUB = """#!/bin/sh
+if [ -n "$STUB_MKTEMP_DIR_FAILS" ] && [ "$1" = -d ]; then exit 1; fi
+PATH=/usr/bin:/bin exec mktemp "$@"
+"""
+
 
 def _block(heading: str, end: str) -> str:
     text = COMMAND.read_text(encoding="utf-8")
@@ -98,7 +104,7 @@ def _block(heading: str, end: str) -> str:
 def _run(tmp_path: Path, **extra: str) -> tuple[subprocess.CompletedProcess[str], str, str]:
     stub_dir = tmp_path / "stub"
     stub_dir.mkdir()
-    for name, body in (("codex", CODEX_STUB), ("curl", CURL_STUB)):
+    for name, body in (("codex", CODEX_STUB), ("curl", CURL_STUB), ("mktemp", MKTEMP_STUB)):
         f = stub_dir / name
         f.write_text(body, encoding="utf-8")
         f.chmod(0o755)
@@ -168,6 +174,16 @@ def test_git_hands_the_reviewer_no_credential(tmp_path: Path) -> None:
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "CREDENTIAL=\n" in seen, seen
     assert "from-helper" not in seen
+
+
+@requires_git
+def test_no_empty_gh_config_dir_means_no_review(tmp_path: Path) -> None:
+    """Counter-model finding: a failed `mktemp -d` left GH_CONFIG_DIR empty, and
+    gh then reads the owner's default config. Refuse instead of running."""
+    proc, args, _ = _run(tmp_path, STUB_MKTEMP_DIR_FAILS="1")
+    assert proc.returncode == 3, proc.stdout + proc.stderr
+    assert "could not create an empty gh config directory" in proc.stderr
+    assert args == "", "codex exec must not run with the caller's credentials"
 
 
 @requires_git
