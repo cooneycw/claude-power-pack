@@ -2639,6 +2639,17 @@ def test_a_reason_without_an_extra_pass_is_refused(tmp_path: Path) -> None:
     assert "only for --passes beyond 2" in proc.stderr
 
 
+def test_an_explicitly_empty_reason_is_refused_not_dropped(tmp_path: Path) -> None:
+    """Counter-model review: the guards tested truthiness, so `""` slipped past
+    them and was silently dropped instead of refused."""
+    proc = _write_ran(tmp_path, "--passes", "2", "--extra-pass-reason", "")
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "only for --passes beyond 2" in proc.stderr
+    proc = _write_ran(tmp_path, "--passes", "3", "--extra-pass-reason", "  ")
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "requires --extra-pass-reason" in proc.stderr
+
+
 def test_the_schema_enforces_the_cap_and_its_reason_both_ways() -> None:
     assert CM.validate(dict(_RAN_BASE, passes=2)) == []
     assert CM.validate(dict(_RAN_BASE, passes=3, extra_passes_reason="asked for")) == []

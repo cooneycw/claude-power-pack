@@ -1373,9 +1373,9 @@ def main() -> int:
         if args.passes > 2 and not (args.extra_pass_reason or "").strip():
             ap.error("--passes beyond 2 requires --extra-pass-reason: the cap exists "
                      "because each pass spends quota, so an extra one says why")
-        if args.passes <= 2 and args.extra_pass_reason:
+        if args.passes <= 2 and args.extra_pass_reason is not None:
             ap.error("--extra-pass-reason is only for --passes beyond 2")
-    if args.cmd == "write" and args.status == "skipped" and args.extra_pass_reason:
+    if args.cmd == "write" and args.status == "skipped" and args.extra_pass_reason is not None:
         ap.error("--status skipped must not carry --extra-pass-reason; no review happened")
     if args.cmd == "write" and args.status == "skipped" and args.scope:
         ap.error("--status skipped must not carry --scope; no review happened")
