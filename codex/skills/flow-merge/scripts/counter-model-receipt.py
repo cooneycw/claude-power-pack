@@ -62,6 +62,8 @@ STATUSES = ("ran", "skipped")
 #: all. Only `ran` receipts may carry it; a skip recorded no review and
 #: therefore read nothing.
 SCOPES = ("full", "diff-only", "unverified")
+# /codex:code_review's pre-run CODEX_REVIEW_NETWORK verdict (issue #1450).
+NETWORKS = ("blocked", "open", "unverified")
 
 #: WHICH WAY ROUND THE TWO MODELS SAT (issue #1383). The default direction -
 #: Claude implements, Codex reviews - is what every receipt before #1383
@@ -604,6 +606,10 @@ def build(args: argparse.Namespace) -> dict:
     # only - a skip recorded no review and therefore read nothing.
     if getattr(args, "scope", None) and args.status == "ran":
         receipt["scope"] = args.scope
+    # OPTIONAL for the same reason (issue #1450): a receipt written before the
+    # network probe existed has none, and absent is not a claim of `blocked`.
+    if getattr(args, "network", None) and args.status == "ran":
+        receipt["network"] = args.network
     # Written ONLY for a delegated run (issue #1383): absent means the default
     # direction, which is what every earlier receipt already means by omission.
     if getattr(args, "direction", DIRECTION_DEFAULT) == DIRECTION_DELEGATED:
@@ -728,6 +734,20 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
             )
         elif scope not in SCOPES:
             bad.append(f"{source}: scope {scope!r} not in {SCOPES}")
+
+    if "network" in receipt:
+        network = receipt["network"]
+        if status == "skipped":
+            bad.append(
+                f"{source}: a skipped run must not carry 'network'; no review happened"
+            )
+        elif delegated:
+            bad.append(
+                f"{source}: a delegated receipt must not carry 'network'; its "
+                "reviewer is a Claude session, which has no sandbox probe"
+            )
+        elif network not in NETWORKS:
+            bad.append(f"{source}: network {network!r} not in {NETWORKS}")
 
     if delegated:
         # A delegated receipt exists BECAUSE a review happened: the supervising
@@ -1226,6 +1246,13 @@ def main() -> int:
              "launch the sandboxed exec process",
     )
     w.add_argument(
+        "--network",
+        choices=NETWORKS,
+        help="/codex:code_review's pre-run CODEX_REVIEW_NETWORK verdict (issue "
+             "#1450), recorded as measured; 'open' and 'unverified' are never "
+             "a network-fenced review",
+    )
+    w.add_argument(
         "--implementer-session-id",
         help="Claude session from which to derive the IMPLEMENTING model "
              "(defaults to $CLAUDE_CODE_SESSION_ID)",
@@ -1301,6 +1328,10 @@ def main() -> int:
                 ap.error("--scope measures a Codex REVIEWER's sandbox access "
                          "(/codex:code_review); the delegated direction's "
                          "reviewer is a Claude session and has no such probe")
+            if args.network:
+                ap.error("--network measures a Codex REVIEWER's network fence "
+                         "(/codex:code_review); the delegated direction's "
+                         "reviewer is a Claude session and has no such probe")
             args.reviewer_session_id = (args.reviewer_session_id
                                         or os.environ.get("CLAUDE_CODE_SESSION_ID"))
             if not args.reviewer_session_id:
@@ -1318,6 +1349,8 @@ def main() -> int:
         ap.error("--status skipped must not carry --reviewer-exec-log; no review happened")
     if args.cmd == "write" and args.status == "skipped" and args.scope:
         ap.error("--status skipped must not carry --scope; no review happened")
+    if args.cmd == "write" and args.status == "skipped" and args.network:
+        ap.error("--status skipped must not carry --network; no review happened")
     if (args.cmd == "write" and args.status == "ran"
             and args.direction != DIRECTION_DELEGATED
             and args.reviewer_exec_log is None):

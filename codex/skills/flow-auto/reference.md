@@ -1126,12 +1126,15 @@ git merge --no-edit origin/main
    `command_execution` item there whose sandboxed exec process could not even
    launch downgrades a claimed `full` to `diff-only`, printing why. A claim
    can only be downgraded, never upgraded, so pass the marker exactly as
-   `/codex:code_review` printed it:
+   `/codex:code_review` printed it. **`--network` carries its
+   `CODEX_REVIEW_NETWORK` marker the same way (issue #1450)**, and is recorded
+   as measured: `open` and `unverified` are never a network-fenced review.
 
    ```bash
    python3 "$CM_RECEIPT" write --dir "$(git rev-parse --show-toplevel)/docs/measurements/counter-model" \
        --issue "$ISSUE_NUM" --branch "$BRANCH" \
        --status ran --reviewer-exec-log "$STREAM" --scope "$CODEX_REVIEW_SCOPE" \
+       --network "$CODEX_REVIEW_NETWORK" \
        --implementer-session-id "$CLAUDE_CODE_SESSION_ID" \
        --passes 2 --accepted 3 --rejected 1 --deferred 0 \
        --red-cases-proposed 4 --red-cases-already-covered 3
