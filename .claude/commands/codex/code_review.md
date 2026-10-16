@@ -8,7 +8,9 @@ allowed-tools: Bash(codex:*), Bash(git:*), Bash(mktemp:*), Bash(cat:*), Bash(rm:
 Have OpenAI Codex review the code changes on the current branch as an
 independent second model, and relay its findings in a structured format a caller
 can act on. Codex runs **read-only**: it reads the diff and - where its sandbox
-can start - the surrounding files; it cannot modify anything. Where the sandbox
+can start - the surrounding files; it cannot modify the tree, `gh` and `git`
+find no GitHub credential, and its network reach is measured rather than promised
+(`CODEX_REVIEW_NETWORK`, issue #1450). Where the sandbox
 cannot start (a container), the review is diff-only and says so
 (`CODEX_REVIEW_SCOPE`, issue #1261). The review is advisory - Claude (or the user) triages
 the findings and decides what to fix.
@@ -257,6 +259,33 @@ call) by reading one tracked file inside it, and emits `CODEX_REVIEW_SCOPE:`:
   same as full. The probe is a PRE-run measurement: it cannot see a read the
   reviewer attempts and is denied mid-run.
 
+**The NETWORK fence is measured too, and the reviewer never holds a GitHub
+credential (issue #1450).** A `--sandbox read-only` reviewer on a host whose
+sandbox started once ran `gh api .../comments --method POST` and posted to an
+issue as the owner. The cause was not confirmed. Three candidates were left: the
+read-only sandbox did not fence the network there, a host configuration let a
+sandbox-denied command be approved to run outside it, or the caller supplied
+`danger-full-access`. So the fix does not rely on any one of them:
+
+- `CODEX_REVIEW_NETWORK:` is measured before the run, against the GitHub API
+  (the endpoint the incident reached). It is `blocked` when a harmless GET
+  fails inside the same read-only sandbox while the same GET succeeds outside
+  it. That is a measurement of one endpoint, not of the sandbox's whole egress
+  policy, so the reviewer is told not to contact remote services on every
+  verdict. It is `open` when the GET succeeds inside, or when there is no
+  sandbox (`danger-full-access`), and `unverified` when there is no `codex
+  sandbox` or `curl`, or nothing is reachable even outside the sandbox. A
+  sandbox that cannot start is `blocked`: the reviewer cannot run any command
+  at all.
+- `-c 'approval_policy="never"'` is pinned, so no host configuration can
+  approve a denied command into running unsandboxed.
+- The reviewer runs with the GitHub token variables unset, an empty
+  `GH_CONFIG_DIR`, and git's credential helpers reset. So `gh` and `git`
+  invoked as usual find no credential, which is the incident's route. A
+  credential the reviewer can READ is not withdrawn: a stored token in the
+  owner's gh config file, an SSH key, an HTTP header in a git config. That is
+  why `open` is reported as `open` and never as read-only.
+
 A caller that knows codex's sandbox cannot start where it runs may supply
 `CODEX_REVIEW_SANDBOX=danger-full-access` as data - the #1285 contract shape
 (Kyle, for the containers it starts). Unset keeps `read-only`. Any other value is
@@ -302,19 +331,54 @@ case "$REVIEW_SCOPE" in
     *) SCOPE_LINE="Opening files in this repository may or may not work here; if a tool call fails, review the diff alone and say where a conclusion would need surrounding code you could not read." ;;
 esac
 
+# Network fence probe (issue #1450). A `--sandbox read-only` reviewer once ran
+# an authenticated `gh api ... --method POST` and commented on an issue as the
+# owner. So measure the fence as the scope is measured: try one harmless GET
+# INSIDE the same sandbox, and a positive control OUTSIDE it, because a probe
+# that fails where nothing is reachable at all has measured nothing.
+NET_PROBE_URL="https://api.github.com/"
+if [ "$REVIEW_SANDBOX" = "danger-full-access" ]; then
+    REVIEW_NETWORK="open"
+elif ! command -v curl >/dev/null 2>&1 || ! codex sandbox --help >/dev/null 2>&1; then
+    REVIEW_NETWORK="unverified"
+elif codex sandbox -c 'sandbox_mode="read-only"' -- curl -sS -o /dev/null --max-time 5 "$NET_PROBE_URL" >/dev/null 2>&1; then
+    REVIEW_NETWORK="open"
+elif curl -sS -o /dev/null --max-time 5 "$NET_PROBE_URL" >/dev/null 2>&1; then
+    REVIEW_NETWORK="blocked"
+else
+    REVIEW_NETWORK="unverified"
+fi
+echo "CODEX_REVIEW_NETWORK: $REVIEW_NETWORK"
+# Said on EVERY verdict: `blocked` measures one endpoint, not the whole egress.
+NETWORK_LINE=" Do not run any command that contacts a remote service (gh, git fetch or push, curl, wget, or similar): this review is read-only and the caller routes every finding itself."
+
+# Withdraw the GitHub credentials gh and git DISCOVER (issue #1450), whatever
+# the fence above measured: no token variables, an EMPTY gh config directory,
+# and git's credential helpers reset. A token stored in a file the reviewer can
+# read is still readable, so this narrows an open network; it does not close it.
+# approval_policy is pinned to "never" so no host configuration can approve a
+# sandbox-denied command into running outside the sandbox.
+# Fail CLOSED: an empty GH_CONFIG_DIR sends gh back to the owner's own config.
+REVIEW_GH_CONFIG=$(mktemp -d /tmp/codex-review-gh.XXXXXX) && [ -d "$REVIEW_GH_CONFIG" ] || {
+    echo "CODEX_REVIEW: unavailable (could not create an empty gh config directory; refusing to run the reviewer with the caller's credentials)" >&2; exit 3; }
+
 FINDINGS=$(mktemp /tmp/codex-review.XXXXXX.md)
 # STREAM carries the thread id that Step 4 needs to identify the reviewing
 # model. Without --json there is no thread id, and the Step-4 lookup silently
 # matches every rollout on the host instead of this run's.
 STREAM=$(mktemp /tmp/codex-review.XXXXXX.jsonl)
 
-cat "$DIFF_FILE" | codex exec \
+cat "$DIFF_FILE" | env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN \
+    GH_CONFIG_DIR="$REVIEW_GH_CONFIG" GIT_TERMINAL_PROMPT=0 \
+    GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= \
+    codex exec \
     --sandbox "$REVIEW_SANDBOX" \
+    -c 'approval_policy="never"' \
     --color never \
     --skip-git-repo-check \
     --json \
     --output-last-message "$FINDINGS" \
-    "You are reviewing a code change as an independent reviewer. The unified diff is provided on stdin. ${SCOPE_LINE} Review intent/context: ${CONTEXT:-none provided}.
+    "You are reviewing a code change as an independent reviewer. The unified diff is provided on stdin. ${SCOPE_LINE} ${NETWORK_LINE} Review intent/context: ${CONTEXT:-none provided}.
 
 Review for: correctness bugs, security issues, missed edge cases, broken or missing tests, and meaningful simplifications. Do NOT restyle working code or comment on formatting.
 
@@ -342,6 +406,7 @@ For each instrument this change adds or modifies (a check, gate, guard, tripwire
 # (`cat | codex`) and the tee makes it three stages; $? is the LAST stage, so a
 # failed review would report success and be relayed as an empty findings report.
 CODEX_EXIT=${PIPESTATUS[1]}
+rm -rf "$REVIEW_GH_CONFIG"
 ```
 
 Deep reviews of large diffs can run for many minutes; for anything non-trivial
@@ -357,7 +422,13 @@ run the command in the background and poll, exactly as documented in
 # FLOW_CI_STATUS / COUNTER_MODEL_REVIEW, and let the caller consume it.
 echo "CODEX_REVIEW_MODEL: ${REVIEW_MODEL:-unknown}"
 echo "CODEX_REVIEW_SCOPE: ${REVIEW_SCOPE:-unverified}"
-echo "===== Codex (${REVIEW_MODEL:-model unread}) code review - scope: ${REVIEW_SCOPE:-unverified} ====="
+echo "CODEX_REVIEW_NETWORK: ${REVIEW_NETWORK:-unverified}"
+case "${REVIEW_NETWORK:-unverified}" in
+    blocked) NETWORK_BANNER="network: blocked" ;;
+    open) NETWORK_BANNER="network: OPEN - not a network-fenced review" ;;
+    *) NETWORK_BANNER="network: unverified - not shown to be fenced" ;;
+esac
+echo "===== Codex (${REVIEW_MODEL:-model unread}) code review - scope: ${REVIEW_SCOPE:-unverified} - ${NETWORK_BANNER} ====="
 cat "$FINDINGS"
 rm -f "$DIFF_FILE" "$FINDINGS" "$STREAM"
 ```
@@ -368,7 +439,11 @@ agree (worth fixing), disagree (with the reason), or defer (real but out of
 scope). Do not apply fixes in this command - it is read-only by design; fixing
 is the caller's decision (`/flow:auto` Step 6 item 1c does exactly that).
 
-State the `CODEX_REVIEW_SCOPE` with the findings. A `diff-only` or `unverified`
+State the `CODEX_REVIEW_SCOPE` and `CODEX_REVIEW_NETWORK` with the findings.
+An `open` or `unverified` network is never described as read-only or
+network-fenced: say which it was, and check the target repository for anything
+the reviewer posted itself (issue #1450). A caller recording a receipt passes
+`--network` exactly as it passes `--scope`. A `diff-only` or `unverified`
 review is still a review, but say which it was: good findings are not evidence
 that the reviewer could read the surrounding code (issue #1261). A caller
 recording a receipt passes this same marker as `--scope` to
@@ -443,10 +518,14 @@ gap to fill.
   when triaging a detector finding in Step 4.
 - Uses the user's **Codex account** (real quota/billing per call). One review
   pass plus at most one re-review is the intended cadence - never loop.
-- Read-only sandbox: safe to run inside a live repo; Codex cannot write or reach
-  the network. The exception is a caller-supplied
+- Read-only sandbox: Codex cannot write to the tree. Whether it can reach the
+  network is MEASURED, not promised: read `CODEX_REVIEW_NETWORK` (issue #1450).
+  Either way `gh` and `git` find no GitHub credential in the reviewer's
+  environment (a token in a file it can read is still readable), and
+  escalation out of the sandbox is pinned off. A caller-supplied
   `CODEX_REVIEW_SANDBOX=danger-full-access` (issue #1261), for a placement where
-  the sandbox cannot start; that run has no mechanical write or network fence. Codex always reaches OpenAI to run the model itself.
+  the sandbox cannot start, has no mechanical write or network fence and always
+  reports `open`. Codex always reaches OpenAI to run the model itself.
 - The findings format above is the contract `/flow:auto` Step 6 item 1c parses,
   via `scripts/counter-model-receipt.py parse`. It keys on the `## Findings`
   heading and, for a clean review, the `None - no defects found.` sentinel - so

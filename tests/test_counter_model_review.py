@@ -2528,3 +2528,64 @@ def test_scope_is_refused_at_the_SCHEMA_LEVEL_on_a_delegated_receipt() -> None:
     problems = CM.validate(delegated, "delegated")
     assert any("scope" in p for p in problems), problems
     assert CM.validate(_delegated_receipt(), "delegated") == []
+
+
+# --------------------------------------------------------------------------- #
+# `--network` (issue #1450): CODEX_REVIEW_NETWORK recorded as measured, refused
+# where no reviewer sandbox exists to measure.
+# --------------------------------------------------------------------------- #
+
+def test_network_is_recorded_on_the_receipt(tmp_path: Path) -> None:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
+    exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
+    out_dir = tmp_path / "out"
+    proc = _write(
+        tmp_path, "--dir", str(out_dir), "--issue", "1450", "--branch", "b",
+        "--status", "ran", "--passes", "1", "--network", "open",
+        *_reviewer_evidence_args(exec_log, sessions_dir),
+        *_implementer_evidence_args(session_id, projects_dir),
+    )
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next(out_dir.glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["network"] == "open"
+
+
+def test_network_is_refused_on_a_skip(tmp_path: Path) -> None:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
+    proc = _write(
+        tmp_path, "--issue", "1450", "--branch", "b", "--status", "skipped",
+        "--reason", "reviewer-unavailable", "--network", "blocked",
+        *_implementer_evidence_args(session_id, projects_dir),
+    )
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "must not carry --network" in proc.stderr
+
+
+def test_network_is_refused_on_the_delegated_lane(tmp_path: Path) -> None:
+    args = _delegated_args(tmp_path, "gpt-a", "opus-b")
+    proc = _write(tmp_path, *args, "--network", "blocked")
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "--network measures a Codex REVIEWER's network fence" in proc.stderr
+
+
+def test_network_is_OPTIONAL_but_checked_when_present() -> None:
+    ran = {
+        "schema": 1, "recorded_at": "2026-10-16T00:00:00Z", "issue": "1450",
+        "branch": "b", "status": "ran", "reviewer": "codex/x",
+        "implementer": "claude/y", "passes": 1,
+        "counts": {"accepted": 0, "rejected": 0, "deferred": 0},
+        "red_cases": {"proposed": 0, "already_covered": 0},
+    }
+    assert CM.validate(dict(ran)) == []
+    for value in ("blocked", "open", "unverified"):
+        assert CM.validate(dict(ran, network=value)) == []
+    assert CM.validate(dict(ran, network="fenced"))
+    skipped = {
+        "schema": 1, "recorded_at": "2026-10-16T00:00:00Z", "issue": "1450",
+        "branch": "b", "status": "skipped", "reviewer": None,
+        "implementer": "claude/y", "skip_reason": "codex-absent",
+        "network": "blocked",
+    }
+    assert any("network" in p for p in CM.validate(skipped))
+    problems = CM.validate(_delegated_receipt(network="blocked"), "delegated")
+    assert any("network" in p for p in problems), problems

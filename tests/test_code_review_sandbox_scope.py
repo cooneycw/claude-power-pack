@@ -80,6 +80,10 @@ def _run(tmp_path: Path, tracked: bool = True, subdir: bool = False, delete_firs
     stub = stub_dir / "codex"
     stub.write_text(STUB, encoding="utf-8")
     stub.chmod(0o755)
+    # The network probe (#1450) calls curl; these tests never reach the network.
+    curl = stub_dir / "curl"
+    curl.write_text("#!/bin/sh\nexit 7\n", encoding="utf-8")
+    curl.chmod(0o755)
     work = tmp_path / "work"
     work.mkdir(exist_ok=True)
     home = tmp_path / "home"
