@@ -41,6 +41,7 @@ STAGERS = {
 
 def _stager(filename: str, module_name: str) -> ModuleType:
     spec = spec_from_file_location(module_name, ROOT / "scripts" / filename)
+    assert spec is not None and spec.loader is not None, filename
     module = module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
