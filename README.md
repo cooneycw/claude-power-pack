@@ -1,6 +1,6 @@
 # Claude Power Pack
 
-**v8.0.0** - A productivity toolkit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that adds workflow automation, MCP servers, security scanning, secrets management, and CI/CD integration - and, from 8.0, a verification discipline: a check whose output is read as evidence ships with a committed input that makes it report the other verdict, and a second model reviews every change by default.
+**v9.0.0** - A productivity toolkit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that adds workflow automation, MCP servers, security scanning, secrets management, and CI/CD integration - with a verification discipline (from 8.0) that 9.0 enforces at the merge boundary: every pull request carries a cross-model review receipt saying what the reviewer could see and reach, and plan records, not memory, carry what was approved.
 
 ## What It Does
 
@@ -146,6 +146,50 @@ The image-build, CVE-scan, SBOM, compose-policy, and runtime-smoke stages were r
 Architecture: Woodpecker server on a dedicated VM, agent on the dev workstation, connected via gRPC over Tailscale. Web UI at `woodpecker.essent-ai.com` via Cloudflare tunnel.
 
 ## Changelog
+
+### v9.0.0 (2026-10-17)
+
+**A major bump, because six changes require action from anyone building on CPP.**
+They are listed, each with the action, in the CHANGELOG's *Breaking* block:
+
+- `.claude/hooks.json` is deleted, and CPP no longer claims to mask tool output (#1206).
+- `/flow:auto_codex` is retired; use `/codex:auto` (#1017).
+- `/flow:auto` commits plan records (`docs/flow-runs/issue-<N>.md`, `.as-read.md`) into your branch (#1080, #1081, #1082, #1320).
+- Every CPP pull request must commit a counter-model receipt, enforced in CI (#1452).
+- `counter-model-receipt.py write --status ran` requires `--scope` (#1461).
+- A receipt write with both `CLAUDE_CODE_SESSION_ID` and `CODEX_THREAD_ID` set must name the implementer (#1453).
+
+**What the counter-model review now records, and how it is measured.** The
+reviewer's network fence is measured rather than promised (`CODEX_REVIEW_NETWORK`,
+#1450, #1458). The credentials an ordinary `gh`, `git` or `ssh` call would discover
+are withdrawn from it, and a credential in the repository's own config is measured
+(`local_credentials`, #1459). A read denied mid-review stops a receipt claiming
+`full` scope (#1461). A Codex, Qwen Code or OpenCode implementer is derived from
+its own session record (#1453, #1454).
+
+**What this release is not, and what is still owed:**
+
+- **Not a live-model test of the Qwen Code and OpenCode lanes.** Their receipt
+  derivation is pinned to real harness output captured against a stub endpoint
+  (#1454). A live-endpoint capture to diff against is owed (Nit Store #864).
+- **Not a check of backtick `path:line` citations.** They stay unchecked by
+  ruling (#1460): of 40 measured, none was rot. Only relative markdown links
+  are gated, now in CI.
+- **Not a backfill of past receipts.** Ten reviewed changes carry none: the
+  reviews for issues #1162, #1165 and #1166, and seven PRs listed on #1452.
+  They are recorded as known gaps, not reconstructed.
+- **Not a security boundary.** The reviewer's withdrawal covers what an ordinary
+  call discovers. A file readable by absolute path, or `~/.ssh` for a direct
+  `ssh`, is not withdrawn. Containers are not a trust boundary.
+- **Not a provider-diversity rule.** "Cross-model" still means a different model
+  id, so Codex `gpt-X` reviewing Codex `gpt-Y` passes. Whether it should mean a
+  different provider is an open question (Nit Store #864).
+- **Not the paused evaluation programme:** #1084, #1367 and #1371, and draft
+  PR #1393 behind skillc #288 (itself blocked by skillc #334, also open), are
+  still open.
+- **Changelog entries for 186 of these PRs are one line each, derived from
+  commit titles.** They are not hand-written prose. 13 test-only fixes are
+  omitted.
 
 ### v8.0.0 (2026-09-15)
 

@@ -2,6 +2,38 @@
 
 ## [Unreleased]
 
+## [9.0.0] - 2026-10-17
+
+### Breaking - consumer action required
+
+1. **`.claude/hooks.json` is deleted and CPP no longer claims to mask tool
+   output** (#1206; PRs #1224, #1230). *Action:* remove any reliance on CPP for
+   masking secrets in tool output, and drop references to `.claude/hooks.json`
+   from installs and settings. Secret handling stays with `/secrets:*` and the
+   deterministic scans.
+2. **`/flow:auto_codex` is retired** (#1017; PR #1038). *Action:* use
+   `/codex:auto` for the Codex-implements lane.
+3. **`/flow:auto` commits plan records into the consumer's branch** (#1080,
+   #1081, #1082, #1320; PRs #1186, #1187, #1188, #1332):
+   `docs/flow-runs/issue-<N>.md` (the approved plan, append-only per run) and
+   `issue-<N>.as-read.md` (the issue body as read). *Action:* expect, review and
+   keep these files in PRs; do not gitignore `docs/flow-runs/`.
+4. **Every CPP pull request must commit a counter-model receipt** (#1452;
+   PR #1463). The required CI context fails a PR whose branch has no receipt,
+   or recorded skip, at a commit reachable from its head. *Action:* commit the
+   receipt `/flow:auto` writes; if no review could run, commit
+   `python3 scripts/counter-model-receipt.py write --status skipped --reason <codex-absent|reviewer-unavailable> --issue <N> --branch <branch> --head "$(git rev-parse HEAD)"`.
+5. **`counter-model-receipt.py write --status ran` requires `--scope`** (#1461;
+   PR #1468). *Action:* pass `/codex:code_review`'s marker:
+   `--scope "$CODEX_REVIEW_SCOPE"`. CI also fails a PR's own `ran` receipt that
+   lacks `scope`.
+6. **A flag-free receipt write with BOTH `CLAUDE_CODE_SESSION_ID` and
+   `CODEX_THREAD_ID` set is refused** (#1453; PR #1467). That is what a codex
+   process launched from a Claude session sees. Such a write used to attribute
+   the work to the Claude session. *Action:* name the implementer:
+   `--implementer-thread-id "$CODEX_THREAD_ID"` if Codex wrote the change, or
+   `--implementer-session-id "$CLAUDE_CODE_SESSION_ID"` if Claude did.
+
 ### Added
 
 - **2026-09-19 - the Codex-consolidation contract: spec, inventory, disposition
@@ -213,6 +245,81 @@
   every dev box and absent from a clean clone, the #964/#953 trap in a third
   location.
 
+#### Backfilled from commit titles (#1278)
+
+One line per merged PR, derived from its commit title - not hand-written prose. Each cites its PR and issue.
+
+- `counter-model`: derive the delegated implementer from Qwen Code and OpenCode runs (PR #1470; #1454).
+- `ci`: enforce counter-model enrolment on every pull request (PR #1463; #1452).
+- `codex`: build Codex global instructions from Claude's, report drift in /cpp:status (PR #1446; #1441).
+- `memory`: check-memory-supersession - stale dependents of a superseded auto-memory (PR #1443; #1440).
+- negative-control discovery reaches lib/ modules and scripts/ subdirectories (PR #1423; #1394).
+- `counter-model`: record CODEX_REVIEW_SCOPE on the receipt; re-measure it, don't trust the pre-run probe (PR #1419).
+- `flow-check`: give NOT_RUN its own report state (PR #1391).
+- map changed CPP skills to current evaluation coverage (PR #1387; #1370).
+- `counter-model`: record a delegated-lane review receipt (PR #1384; #1383).
+- `flow`: adopt skillc's evidenced selective flow-check description (PR #1382; #1380).
+- `flow`: durable execution evidence for /flow:check (PR #1372; #1366).
+- `controls`: optional good_signal, so a warn-exiting good case is judged by what it says; the resume control requires carried/unverified (PR #1354; #1350).
+- `instruments`: check-version-consistency reads uv.lock's own-project version (PR #1351; #1348).
+- `instruments`: toolchain-provenance dates HEAD; flow-ci-status names pre-code failures and a failure origin (PR #1346; #1342).
+- `nit-store`: one resolver for the repository-to-Nit-Store map, verified against GitHub (PR #1338; #1272, #1273).
+- `cpp`: capability readiness for flow, second-opinion and browser QA in /cpp:status (PR #1337; #1290).
+- `controls`: a Makefile target is a registrable negative-control gate - one closed-schema gate parser, typed census subject (PR #1334; #1276).
+- `wave`: residuals gain an append-only amend verb; register/wave docs say when to re-register and that a grant carries its mirrors (PR #1327; #1266).
+- `ci-merge`: report-first remote-branch sweeper that deletes only provably landed branches (PR #1319; #1262).
+- `cicd`: enumerate consumer components, give lock-less Django its runners, and name what root runners do not cover (PR #1310; #1289).
+- `qa`: export a confirmed web-QA bug as a replayable Playwright regression test (PR #1303; #1291).
+- `project-next`: delivery verdict for cleanup-candidate worktrees by blob identity (PR #1275; #1257).
+- `flow-wave`: supervise --registry-required refuses a never-registered wave at launch (PR #1251; #1107).
+- `codex-skills`: --list-mirrors, a non-mutating enumeration of the mirror set (PR #1217; #1151).
+- `gates`: say WHY a gate was not deduplicated, instead of saying nothing (PR #1216; #1192).
+- `host-surface`: close the git route $HOME cannot reach, and refuse when it cannot be verified (PR #1213; #1182).
+- `metrics`: the maintain-loop leading indicator, as a partition rather than a number (PR #1210; #1085).
+- `hooks`: a deterministic floor under the Step 3 approval gate (PR #1205; #1083).
+- `controls`: let a REPORTER demonstrate blindness on the refusal axis (PR #1204; #1085).
+- `install`: verify a bundled helper before installing it (PR #1201; #1185).
+- `controls`: a case may declare that its anchor is blind to the refusal (PR #1196; #1157).
+- `eval`: consume a verified-result artifact and refuse a forged verdict (#1084 half A) (PR #1194; #1084).
+- `flow`: compare the merged diff against the approved plan (PR #1188).
+- `flow`: snapshot the issue body as a bounded, sourced, drift-detectable cache (PR #1187).
+- `flow`: commit the approved plan as a branch artifact (PR #1186).
+- `host-surface`: certify declarations by observation, not by reading (PR #1183; #1150).
+- `gates`: make a skipped counter-model review representable (PR #1181; #1171).
+- `codex`: a thin AGENTS.md that defers to CLAUDE.md, and the bullet that stops saying they are interchangeable (PR #1156; #1071).
+- `project-next`: make CPP the canonical owner of the project-next engine (PR #1144; #1069).
+- `gates`: let a case register a gate's REFUSAL, not just its verdicts (PR #1135; #1129).
+- `gates`: one home for the argument and verdict conventions (PR #1131; #1126).
+- `flow`: derive vantage, and give the contract a consumer that carries it (PR #1130; #959).
+- `instruments`: establish a battery by mutation, not by inspection (PR #1128; #970).
+- `gates`: split UNAVAILABLE from UNSIGNALLED, and let verify consume the control battery (PR #1125; #1117).
+- `gates`: state the coverage RELATION, not two counts, and catch a control CI cannot run (PR #1124; #1036).
+- `gates`: read the bandit LOW band, and make an unread rule class visible (PR #1123; #1114).
+- `deps`: resolve every undeclared import, and gate the question (PR #1122; #1041).
+- `gates`: account for every checker, and make verify say what it skipped (PR #1120; #1028).
+- `gates`: adopt bandit, and replace the inherited skip list rather than copy it (PR #1118; #962).
+- `counter-model`: attribute the 13 landed receipts to the rollouts that produced them (PR #1112; #1048).
+- `gates`: rebuild the slate reconciler as a repository instrument, not a scratchpad tool (PR #1101; #1099).
+- `gates`: distinguish a copied reviewer literal from verified uniformity (PR #1098; #1091).
+- `agents`: give the evidence-deleting idioms a home, and an instrument that can count deletions (PR #1087; #1031).
+- `gates`: derive ADR 0008's census membership from scripts/, with a demonstrated red (PR #1062; #1060).
+- `codex`: derive the counter-model reviewer instead of accepting it (PR #1059; #1048).
+- `verify`: derive the docs/scripts.md population from scripts/ (PR #1024; #1013).
+- `wave`: escalate an unanswered message, and check a diff against its lane (PR #1004; #971, #985).
+
+### Changed
+
+#### Backfilled from commit titles (#1278)
+
+One line per merged PR, derived from its commit title - not hand-written prose. Each cites its PR and issue.
+
+- `flow`: move the plan-record programs out of flow:auto into one tested helper (PR #1252; #1211).
+- `gates`: migrate flow-finish-gate onto gate-lib, and ship the library with it (PR #1195; #1061).
+- `cicd`: stop running gates an aggregate already runs (PR #1164; #1152).
+- `gates`: migrate the four controlled shell gates onto gate-lib (PR #1149; #1127).
+- `ci`: take the 30s lint off the critical path and run the suite in parallel (PR #1093; #1086).
+- `drivers`: vendor one shared lifecycle into codex/qwen/gemma auto.md (PR #1019; #1011).
+
 ### Fixed
 
 - **2026-10-07 - `flow-wave-mailbox.sh` retires "DEAF" from its operator-facing
@@ -399,6 +506,132 @@
   requirement resolves to latest, so this crosses a pytest MINOR - verified by
   the full suite and the negative-control register running under the new pytest.
 
+#### Backfilled from commit titles (#1278)
+
+One line per merged PR, derived from its commit title - not hand-written prose. Each cites its PR and issue.
+
+- `counter-model`: a read denied mid-review breaks a full scope claim; scope is required on new receipts (PR #1468; #1461).
+- `counter-model`: derive a Codex implementer from its own thread, so reviewer-unavailable is recordable (PR #1467; #1453).
+- `codex`: withdraw every credential an ordinary gh/git/ssh call discovers; measure the rest (PR #1466; #1459).
+- `ci`: a stager earns exit 75 only for a transient network fault (PR #1465; #1462).
+- `codex`: CODEX_REVIEW_NETWORK says blocked only when the probe measured a fence (PR #1464; #1458).
+- `counter-model`: record a requested review pass beyond the cap, with its reason; close the #1400 aggregate (PR #1457; #1400).
+- `ci`: pytest durations in validate; a stager's fetch failure reads as pre-code (PR #1456; #1411).
+- `docs`: fix dead citations and gate relative markdown links in tracked docs (PR #1455; #1413).
+- `codex`: measure code_review's network fence and withhold GitHub credentials from the reviewer (PR #1451; #1450).
+- `project-next`: ship the ownership pin inside lib/project_next so a scripts+lib-only tree runs (PR #1449; #1448).
+- `security`: suppress CPP's own planted control key in flow_finish (PR #1445; #1442).
+- codex-skill-sync.py mirror fidelity and over-bundling (PR #1438; #1408).
+- cpp.execution-evidence/v1 schema and test gaps (PR #1437; #1410).
+- check-test-binary-guards.py masking and classification gaps (PR #1435; #1407).
+- `gitignore`: negation maintenance burden (#1406) (PR #1433; #1406).
+- install-drift surfaces skipped skills, unlinked helpers, and the orphan third marker (PR #1432; #1401).
+- `project-next`: engine routing and classification correctness (#1398) (PR #1431; #1398).
+- `flow-plan-record`: directory path matching, self-identity stamp, run-start touched-file computation (PR #1429).
+- flow-driver-capability.sh --needs accumulates, list distinguishes abort from empty (PR #1427; #1397).
+- `mutation-probe`: combinatorial blind spots and closed blocked_by vocabulary (#1396) (PR #1425; #1396).
+- two tests stop sharing real resources that race under xdist (PR #1424; #1420).
+- `cicd`: finish-gate execution correctness and diagnostics (PR #1422).
+- `gh-pr-merge`: cross-repo closing-keyword recognition + base-move message (PR #1421; #1412).
+- `security`: gitleaks allowlist boundary, no-verbose redaction, and suppression docs (PR #1418; #1405).
+- `counter-model`: refuse an ambiguous reviewer rollout match; share one model-derivation implementation (PR #1417).
+- `security`: close three secret-scan false negatives (PR #1416; #1405).
+- `flow-wave`: watch lineage renders its own state when UNKNOWN; cwd and stand-down robustness (PR #1415).
+- `controls`: per-case expected_exit and good_signal close two battery blind spots (#1395) (PR #1414; #1395).
+- axis 1 digests every shipped file, not only SKILL.md (PR #1392; #1390).
+- refresh skill-coverage snapshot for skillc's re-declared flow-check profile (PR #1389; #1370).
+- `cicd`: delegated-run-check reports failure on a 1-of-1 all-failed run (PR #1385; #1379).
+- `cicd`: delegated-run-check.sh reports failure when every attempted tool call failed (PR #1377; #1365).
+- `cicd`: execution-evidence-verify reports unknown, never crashes, on a check missing population (PR #1376; #1373).
+- `makefile`: align behavioral-eval-check's pre-committed flip with #1084's owner ruling (PR #1375; #1084).
+- `cicd`: count xfailed/xpassed separately so a SUCCESS summary never reads "1 failed" (PR #1363; #1362).
+- `deps`: bump urllib3 2.7.0 -> 2.8.0 for CVE-2026-97687/97688/97689 (PR #1361; #1360).
+- `codex-skills`: tell Codex which skills' helpers need network, and name the sandbox in project-next's gh failure (PR #1359; #1357).
+- `security`: secrets scan skips the runner's own .claude/runs state; pip_audit refuses a None export under -O; conftest anchors on REPO_ROOT (PR #1349; #1341).
+- `controls`: the census is its tables, row numbers are unique, retired rows have a home, an excluded control is named not failed, anchors and control.json have closed schemas (PR #1340; #1268).
+- `flow`: a second /flow:auto run is not approved by the first run's record - run identity and append-only per-run records (PR #1332; #1320).
+- `research`: the sweep's RED bucket control is constructed, not a live specimen; the forced-claim prototype's protections are exercised or honestly accepted (PR #1330; #1268).
+- `wave`: a role held on another host is unknown, not stale, so it is never taken over without --force; SAME_OWNER is host-scoped (PR #1329; #1014).
+- `research`: retire sweep.py --self-test; the battery exercises the real closure() dispatch and a token-start interp case (PR #1328; #1277).
+- `flow`: one written home for the 'unknown' third state; the worktree guard separates clean, leak, unknown and not-applicable, and never advises reverting another session's work (PR #1326; #1014).
+- `wave`: the registry's lane delta comes from its own locked transaction; refuse newline paths; --clear-pr; repo-aware re-registration (PR #1325; #1266).
+- `ci-merge`: gh-pr-merge waits to a deadline, reports an expired wait as its own verdict, and re-checks the base immediately before the squash (PR #1324; #1300).
+- `delegated`: delegated-run-check walks any depth, counts unparsed lines, knows collab tool calls, and carries a negative control (PR #1322; #1265).
+- `flow`: plan compliance explains generated manifests and .claude mirrors, never invents a source; an issueless claim names its remedy (PR #1321; #1267).
+- `flow`: Step 3 finds the ELI5 spec at a path an installer guarantees, and stops instead of improvising when none resolves (PR #1318; #1301).
+- `flow`: the finish gate writes its runner JSON through one descriptor, so a late tee cannot re-create it (PR #1316; #1313).
+- `security`: an unreadable security.yml is UNKNOWN, never defaults; suppressions can pin one secret value (PR #1312; #1299).
+- `ci-merge`: CI status and merge helpers say what they measured; an already-merged PR deletes only its merged head (PR #1309; #1262).
+- `cicd`: quoted -c scripts classify as test steps; env assignments are never evidence (PR #1307; #1298).
+- `cpp`: /cpp:status reports when the CPP checkout is behind origin/main; unknown is never up to date (PR #1305; #1282).
+- `counter-model`: receipts carry a re-derivable reviewer, read the turn model, and record one run once (PR #1304; #1269).
+- `delegated`: review and auto lanes report what they actually covered (PR #1302; #1261).
+- `cicd`: is_test_step() ignores directory components of a command (PR #1296; #1294).
+- `secret-scan`: print rule/file/line, never the detected value (PR #1293; #1288).
+- `codex`: /codex:auto takes its sandbox mode from the caller (PR #1286; #1285).
+- `wave`: messaging neither loses nor fabricates state (PR #1284; #1260).
+- `instruments`: negative-control lane W1B - pycache isolation, recipe attribution, review format-mismatch, YAML scalars, binary-guard hops (PR #1283; #1259).
+- `flow`: gates decide before they act, name what failed, and block a worktree's ignored additions (PR #1279; #1258).
+- `eval`: read skillc records v2 in the behavioural-eval consumer, and stop swallowing a crashed gate (PR #1274; #1084).
+- `project-next`: keep inboxes, seeds and closed-issue worktrees off the startable route; read the map from worktrees (PR #1270; #1035).
+- `negative-controls`: leave derived bytecode out of the tracking axis (PR #1249; #1239).
+- `flow-wave`: release clears the lane, and a row describes one piece of work (PR #1248; #1222).
+- `shellcheck`: review the sub-error residual to zero and raise the gate to style (PR #1247; #972).
+- `cicd`: say WHY a test outcome is UNKNOWN, and let only a declaration quiet it (PR #1246; #977).
+- `codex-skills`: make --install safe to observe - swap each skill atomically (PR #1244; #1235).
+- `flow-wave`: make the roster tell "polled" from "wakeable", and stop prescribing supervise (PR #1237; #1228).
+- `lexicon`: a HOLD must state why, and a ruling can name work with no issue (PR #1233; #1189).
+- `flow`: keep the untracked list NUL-delimited through the plan comparison (PR #1231; #1220).
+- `security`: remove the two masking claims #1224 missed (PR #1230; #1206, #1224).
+- `flow`: track the branch's own name, so a bare push can never offer HEAD:main (PR #1229; #1221).
+- `flow`: one unrecordable ruling must not disable the verdict ledger (PR #1223; #1189).
+- `flow`: run the codex re-sync on the DIFF, not on a moved base (S4) (PR #1218).
+- `gh-pr-merge`: scan each keyword source as one text, not line by line (PR #1215; #1191).
+- `flow`: make three FLOW_* contract lines report what happened (PR #1214; #1190).
+- `lexicon`: a checker that could not run is not a checker that looked (PR #1212).
+- `hooks`: make a masking failure announce itself; registration remains unwired (PR #1208; #1206).
+- `controls`: a reporter may omit detect_signal when it declares unknown_signal (PR #1207; #1085).
+- `controls`: isolate the six flow-finish-gate controls from the repository they live in (PR #1203).
+- `gates`: give the consolidation ledger a LIVE axis, so it can see an obligation it has never met (PR #1202; #1075).
+- `gates`: make UNKNOWN the sole verdict when a test file cannot be parsed (PR #1200; #1180).
+- `gates`: one line-numbering rule for waivers and sites (PR #1179; #1110).
+- `cicd`: one declaration reader, not three, and read a rule whole (PR #1177; #1162).
+- `cicd`: settle a resumed run's deferred gates from a fresh derivation (PR #1176; #1166).
+- `cicd`: gate subsumption on a positive, closed makefile grammar (PR #1175; #1165).
+- `budget`: correct the cap's overclaim, give it a single source, and make the caller guard non-vacuous (PR #1174; #1071).
+- `project-next`: make the ownership gate refuse what its docstring claimed, and close the shapes that escaped it (PR #1173; #1069).
+- `cicd`: examine what a python gate imports, and answer the question by running it (PR #1172; #1168).
+- `cicd`: refuse a manifest that cannot be read, and make the import guard call what it names (PR #1170; #1163).
+- `cicd`: let a control reach lib.cicd, by deferring the imports that could not (PR #1169; #1163).
+- `cicd`: restore #621 under subsumption, and stop naming a neighbour's target (PR #1167; #621, #1152).
+- `cicd`: derive gate-ness and plan membership from one declaration (PR #1161; #1155, #1160).
+- `flow`: make the finish gate consume make verify's verdict (PR #1159; #1147).
+- `cpp`: guard the PS1 append, and remove the flag that preserved the defect (PR #1154; #1142).
+- `claude-md`: replace the stale project-next obligation, and put its checker in CI (PR #1148; #1145).
+- `flow`: derive the Codex re-sync trigger from what actually drifted (PR #1141; #1136).
+- `cpp`: stop reporting success for an install that did nothing (PR #1140; #1138).
+- `security`: disposition bandit's MEDIUM+ residual, closing three of eleven (PR #1121; #1113).
+- `counter-model`: derive the implementer from assistant identity, not nested tool arguments (PR #1111; #1109).
+- `docs`: make four always-loaded facts checkable, and fix the two that are wrong (PR #1104; #1037).
+- `codex`: derive the counter-model receipt's implementer instead of hardcoding it (PR #1103; #1047).
+- `flow-wave-registry`: close the pid-recycling identity gap with a start-time witness (PR #1102; #1094).
+- `flow`: stage the counter-model receipt immediately after writing it (PR #1100; #1030).
+- `flow`: stage untracked files for review, add a nit-store step to auto.md, require red cases in the review contract (PR #1097; #1030).
+- `flow-wave-mailbox`: close the orphan-flock gap, fix the relative-$0 daemon, and correct the shutdown-latency docs (PR #1096; #1033).
+- `instruments`: make the executed copy say what it holds (PR #1089; #1029).
+- `delegated`: count a tool error in every harness's shape, not one (PR #1078; #1054).
+- `flow-wave`: a quoted token is a citation, not a transition (PR #1065; #980).
+- `codex`: let a skip receipt say "no review happened" (PR #1055; #1046).
+- `flow-wave`: report a dropped lane, and refuse the verb that causes it (PR #1053; #1026).
+- `flow`: give list's meta axis the 4th argument show/check already pass (PR #1051; #1023).
+- `flow`: scope flow-pr-watch to the named status context, not pipeline number (PR #1050; #975).
+- `codex`: read the reviewer model from the run, never from this document (PR #1049; #1045).
+- `cpp`: report the harness version transition, not npm's exit code (PR #1040; #1022).
+- `flow`: say what establishes vantage, and what cannot (PR #1039; #958).
+- `flow-wave-mailbox`: -ww does not retire the ps lane's conservatism, and the asymmetry is deliberate (PR #1025; #937).
+- `flow`: skip a codex review only when codex cannot run (PR #1018; #1015).
+- `verify`: declare what the gate needs, and wire the oscillation detector (#987, #936) (PR #1008; #936, #987).
+
 ### Removed
 
 - **2026-09-30 - the tracked root `.mcp.json`, so `second-opinion` has one
@@ -471,6 +704,13 @@
     rule has fired on a change its author did not make (the first was #922). The
     ledger is now empty, and its count is still printed on every run so that
     empty never reads as unexamined.
+
+#### Backfilled from commit titles (#1278)
+
+One line per merged PR, derived from its commit title - not hand-written prose. Each cites its PR and issue.
+
+- `security`: stop claiming CPP masks tool output; delete the hooks file (PR #1224; #1206).
+- `flow`: run the committed retirement gate, then retire /flow:auto_codex (PR #1038; #1017).
 
 ## [8.0.0] - 2026-09-15
 
