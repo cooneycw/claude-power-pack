@@ -1,0 +1,27 @@
+{
+  "branch": "issue-1461-counter-model-receipt-1400-bullet-3-only-partly-fi",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "b744d5b8c1056bf7cc567c62d8353cbab443b20f",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1461",
+  "local_credentials": "absent",
+  "network": "unverified",
+  "passes": 2,
+  "recorded_at": "2026-10-17T02:07:57Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 6
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/17/rollout-2026-10-17T02-06-56-01a1479c-bd1a-78c3-ad57-6e601ea35f1c.jsonl",
+    "thread_id": "01a1479c-bd1a-78c3-ad57-6e601ea35f1c"
+  },
+  "schema": 1,
+  "scope": "diff-only",
+  "status": "ran"
+}
