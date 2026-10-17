@@ -349,8 +349,20 @@ def _derive_reviewer_from_exec_log(
     thread_match = re.search(r'"thread_id"\s*:\s*"([^"]*)"', exec_text)
     if thread_match is None or not thread_match.group(1):
         return None, None, f"{role} exec log {exec_log} contains no thread_id"
-    thread_id = thread_match.group(1)
+    return _derive_codex_from_thread(thread_match.group(1), sessions_dir, role)
 
+
+def _derive_codex_from_thread(
+    thread_id: str, sessions_dir: Path, role: str = "reviewer"
+) -> tuple[str | None, dict | None, str | None]:
+    """`codex/<model>` for one Codex thread, read from that thread's own rollout.
+
+    Shared by the reviewer derivation (thread id read from an exec stream) and,
+    since issue #1453, the implementer derivation inside a Codex session (thread
+    id read from `$CODEX_THREAD_ID`, which Codex exports to every command it
+    runs). One implementation, so the two sides cannot disagree about what a
+    rollout says.
+    """
     try:
         matches = sorted(
             path
@@ -621,6 +633,10 @@ def build(args: argparse.Namespace) -> dict:
     if getattr(args, "direction", DIRECTION_DEFAULT) == DIRECTION_DELEGATED:
         receipt["direction"] = DIRECTION_DELEGATED
         receipt["implementer_evidence"] = args.implementer_evidence
+    elif getattr(args, "implementer_evidence", None):
+        # A Codex IMPLEMENTER on the default direction (issue #1453): the thread
+        # and rollout its identity was read from, so a reader can re-derive it.
+        receipt["implementer_evidence"] = args.implementer_evidence
     if args.status == "skipped":
         receipt["skip_reason"] = args.reason
     else:
@@ -801,10 +817,20 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
                 "Claude session; the supervising session is the reviewer"
             )
     elif "implementer_evidence" in receipt:
-        bad.append(
-            f"{source}: 'implementer_evidence' is recorded only on a delegated "
-            "receipt; the default direction derives the implementer from a session"
-        )
+        # On the default direction it is recorded ONLY for a Codex implementer
+        # (issue #1453), whose identity was read from its own thread's rollout.
+        # A Claude implementer is derived from its transcript and carries none.
+        if not (isinstance(implementer, str) and implementer.startswith("codex/")):
+            bad.append(
+                f"{source}: 'implementer_evidence' on the default direction is "
+                "recorded only for a codex/ implementer (issue #1453); a Claude "
+                "implementer is derived from its session transcript"
+            )
+        elif not _names(receipt.get("implementer_evidence"), ("thread_id", "rollout")):
+            bad.append(
+                f"{source}: a codex implementer's implementer_evidence must name a "
+                "non-empty 'thread_id' and 'rollout'"
+            )
 
     if status == "skipped":
         if receipt.get("skip_reason") not in SKIP_REASONS:
@@ -1019,6 +1045,42 @@ def _derive_delegated(args: argparse.Namespace) -> str | None:
     return None
 
 
+def _implementer_source(args: argparse.Namespace) -> tuple[str, str, str | None]:
+    """Which session implemented: `("claude", session_id)` or `("codex", thread_id)`.
+
+    An explicit flag decides. Without one, the environment does - and the
+    environment is often AMBIGUOUS in this fleet (issue #1453, measured): a codex
+    process launched from a Claude session inherits `CLAUDE_CODE_SESSION_ID`
+    and also gets its own `CODEX_THREAD_ID`. Picking either silently would
+    attribute the work to a session that may not have written it, so both set
+    is refused, and the refusal names the exact flag for each side. Neither set
+    is refused too: an identity is derived, never assumed.
+    """
+    if args.implementer_session_id:
+        return "claude", args.implementer_session_id, None
+    if args.implementer_thread_id:
+        return "codex", args.implementer_thread_id, None
+    claude_id = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
+    codex_id = os.environ.get("CODEX_THREAD_ID", "").strip()
+    if claude_id and codex_id:
+        return "", "", (
+            "ambiguous implementer: both CLAUDE_CODE_SESSION_ID and CODEX_THREAD_ID "
+            "are set (a codex process launched from a Claude session sees both). "
+            "Name the session that wrote the change: "
+            '--implementer-thread-id "$CODEX_THREAD_ID" if Codex implemented, or '
+            '--implementer-session-id "$CLAUDE_CODE_SESSION_ID" if Claude did'
+        )
+    if claude_id:
+        return "claude", claude_id, None
+    if codex_id:
+        return "codex", codex_id, None
+    return "", "", (
+        "missing implementer identity; supply --implementer-session-id (a Claude "
+        "session) or --implementer-thread-id (a Codex session), or run where "
+        "CLAUDE_CODE_SESSION_ID or CODEX_THREAD_ID is set"
+    )
+
+
 def cmd_write(args: argparse.Namespace) -> int:
     delegated = getattr(args, "direction", DIRECTION_DEFAULT) == DIRECTION_DELEGATED
     if delegated:
@@ -1073,19 +1135,25 @@ def cmd_write(args: argparse.Namespace) -> int:
         args.reviewer_evidence = None
 
     if not delegated:
-        session_id = args.implementer_session_id or os.environ.get("CLAUDE_CODE_SESSION_ID")
-        if not session_id:
-            print(
-                "counter-model-receipt: missing implementer session id; supply "
-                "--implementer-session-id or set CLAUDE_CODE_SESSION_ID",
-                file=sys.stderr,
-            )
-            return EXIT_INVALID
-        projects_dir = args.claude_projects_dir or _default_claude_projects_dir()
-        implementer, error = _derive_implementer_from_session(session_id, projects_dir)
+        side, ident, error = _implementer_source(args)
         if error is not None:
             print(f"counter-model-receipt: {error}", file=sys.stderr)
             return EXIT_INVALID
+        if side == "codex":
+            sessions_dir = args.codex_sessions_dir or _default_codex_sessions_dir()
+            implementer, evidence, error = _derive_codex_from_thread(
+                ident, sessions_dir, role="implementer"
+            )
+            if error is not None:
+                print(f"counter-model-receipt: implementer thread: {error}", file=sys.stderr)
+                return EXIT_INVALID
+            args.implementer_evidence = evidence
+        else:
+            projects_dir = args.claude_projects_dir or _default_claude_projects_dir()
+            implementer, error = _derive_implementer_from_session(ident, projects_dir)
+            if error is not None:
+                print(f"counter-model-receipt: {error}", file=sys.stderr)
+                return EXIT_INVALID
         args.implementer = implementer
 
     args.head, head_warning = _derive_head(getattr(args, "head", None))
@@ -1296,6 +1364,12 @@ def main() -> int:
              "review could not withdraw, recorded as measured",
     )
     w.add_argument(
+        "--implementer-thread-id",
+        help="a CODEX session's thread id (issue #1453) from which to derive the "
+             "IMPLEMENTING model through its own rollout - inside a Codex session "
+             "pass \"$CODEX_THREAD_ID\". Exclusive with --implementer-session-id",
+    )
+    w.add_argument(
         "--implementer-session-id",
         help="Claude session from which to derive the IMPLEMENTING model "
              "(defaults to $CLAUDE_CODE_SESSION_ID)",
@@ -1369,10 +1443,12 @@ def main() -> int:
             if args.status != "ran":
                 ap.error("--implementer-exec-log records a delegated review that "
                          "happened; it requires --status ran")
-            if args.reviewer_exec_log is not None or args.implementer_session_id:
+            if args.reviewer_exec_log is not None or args.implementer_session_id \
+                    or args.implementer_thread_id:
                 ap.error("--implementer-exec-log (delegated: Codex implements, Claude "
-                         "reviews) cannot be combined with --reviewer-exec-log or "
-                         "--implementer-session-id (the other direction)")
+                         "reviews) cannot be combined with --reviewer-exec-log, "
+                         "--implementer-session-id or --implementer-thread-id (the "
+                         "other direction)")
             if args.scope:
                 ap.error("--scope measures a Codex REVIEWER's sandbox access "
                          "(/codex:code_review); the delegated direction's "
@@ -1394,6 +1470,9 @@ def main() -> int:
             if args.reviewer_session_id:
                 ap.error("--reviewer-session-id is the delegated direction and "
                          "requires --implementer-exec-log")
+    if args.cmd == "write" and args.implementer_session_id and args.implementer_thread_id:
+        ap.error("--implementer-session-id (Claude) and --implementer-thread-id (Codex) "
+                 "name two different implementers; pass the one that wrote the change")
     if args.cmd == "write" and args.status == "skipped" and not args.reason:
         ap.error("--status skipped requires --reason")
     if (args.cmd == "write" and args.status == "skipped"
