@@ -71,13 +71,17 @@ higher, not lower, because the thing being assembled is a closure rather than a 
 from __future__ import annotations
 
 import hashlib
+import http.client
 import io
 import lzma
 import shutil
+import socket
+import ssl
 import subprocess
 import sys
 import tarfile
 import tempfile
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -94,6 +98,43 @@ from pathlib import Path
 #: rather than importing one; `tests/test_ci_stage_exit_codes.py` pins all
 #: three against drift.
 EX_FETCH_FAILED = 75
+
+
+def _transient(exc: BaseException) -> bool:
+    """Is this download failure a TRANSIENT network fault (issue #1462)?
+
+    Only a transient earns EX_FETCH_FAILED, which flow-ci-status reads as
+    pre-code - "retry, do not bisect your change". Everything else is exit 1
+    (code), because the stager lives in the PR's own tree and a 404 or a bug in
+    this file is something the change did.
+
+    `HTTPError` is checked FIRST: it subclasses `URLError`. And a `URLError` is
+    classified on its `.reason`, never on its type: urllib wraps a TLS
+    certificate failure as `URLError(reason=SSLCertVerificationError)`, so
+    "URLError -> transient" would launder TLS - next door to the tampered-
+    channel case kept at 1 - back into a retry.
+    """
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code >= 500 or exc.code == 429
+    if isinstance(exc, urllib.error.URLError):
+        exc = exc.reason if isinstance(exc.reason, BaseException) else None
+        if exc is None:
+            return False
+    if isinstance(exc, ssl.SSLError):
+        return False
+    return isinstance(exc, (socket.gaierror, ConnectionError, TimeoutError,
+                            http.client.IncompleteRead))
+
+
+def _fetch_exit(tag: str, exc: BaseException) -> int:
+    """EX_FETCH_FAILED for a transient, 1 otherwise - and SAY which (#1462)."""
+    if _transient(exc):
+        print(f"{tag}: transient network failure - exit {EX_FETCH_FAILED} (pre-code: retry)",
+              file=sys.stderr)
+        return EX_FETCH_FAILED
+    print(f"{tag}: not a transient network failure - exit 1 (read it as code: a 4xx, "
+          "a TLS verification failure, or a bug in this stager)", file=sys.stderr)
+    return 1
 
 #: (url, sha256 of the archive). Bookworm, amd64 - the distribution the image is
 #: built from, so libc6 and friends are present by construction. HTTPS is required
@@ -326,9 +367,9 @@ def main() -> int:
             # issue #1113) - code, never laundered into precode (#1411).
             print(f"ci-stage-git: {exc}", file=sys.stderr)
             return 1
-        except Exception as exc:  # noqa: BLE001 - the cause is reported, not classified
-            print(f"ci-stage-git: FAILED to download {name}: {exc}", file=sys.stderr)
-            return EX_FETCH_FAILED
+        except Exception as exc:  # noqa: BLE001 - reported, then classified by _transient
+            print(f"ci-stage-git: FAILED to download {name}: {exc!r}", file=sys.stderr)
+            return _fetch_exit("ci-stage-git", exc)
         got = _sha256(blob)
         if got != want:
             print(f"ci-stage-git: {name} sha256 {got} != pinned {want}", file=sys.stderr)

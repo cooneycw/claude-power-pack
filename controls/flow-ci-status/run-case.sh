@@ -37,6 +37,20 @@ case "$exit_code" in
         ;;
 esac
 
+# The failed step's NAME (issue #1462): optional, default `jq-stage`. Since #1411
+# a 75 counts as pre-code only from a `*-stage` step, so a case can name a
+# non-stager step and check that its 75 stays code.
+step_name=jq-stage
+if [ -f "$case_dir/step_name" ]; then
+    step_name=$(cat "$case_dir/step_name")
+    case "$step_name" in
+        ''|*[!A-Za-z0-9_-]*)
+            echo "FLOW_CI_CONTROL: cannot-run - step_name file is not a plain step name: '$step_name'"
+            exit 3
+            ;;
+    esac
+fi
+
 T=$(mktemp -d "${TMPDIR:-/tmp}/flow-ci-status-control.XXXXXX") || { echo "FLOW_CI_CONTROL: cannot-run - no tmpdir"; exit 3; }
 trap 'rm -rf "$T"' EXIT INT TERM
 mkdir "$T/bin"
@@ -65,7 +79,7 @@ JSON
         cat <<JSON
 {"workflows": [{"name": "woodpecker", "children": [
     {"name": "clone", "type": "clone", "state": "success", "exit_code": 0},
-    {"name": "jq-stage", "type": "commands", "state": "failure", "exit_code": $exit_code}
+    {"name": "$step_name", "type": "commands", "state": "failure", "exit_code": $exit_code}
 ]}]}
 JSON
         ;;
