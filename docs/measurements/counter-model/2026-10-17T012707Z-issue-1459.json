@@ -1,0 +1,27 @@
+{
+  "branch": "issue-1459-codex-code-review-credential-withdrawal-misses-ins",
+  "counts": {
+    "accepted": 6,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "05e879aaab521dea9b0d2f25e15f5a20577a4460",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1459",
+  "local_credentials": "absent",
+  "network": "unverified",
+  "passes": 2,
+  "recorded_at": "2026-10-17T01:27:07Z",
+  "red_cases": {
+    "already_covered": 9,
+    "proposed": 10
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/17/rollout-2026-10-17T01-25-23-01a14776-b0d3-72b2-a16a-05c511e2b1be.jsonl",
+    "thread_id": "01a14776-b0d3-72b2-a16a-05c511e2b1be"
+  },
+  "schema": 1,
+  "scope": "diff-only",
+  "status": "ran"
+}

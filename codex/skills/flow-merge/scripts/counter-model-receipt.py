@@ -64,6 +64,8 @@ STATUSES = ("ran", "skipped")
 SCOPES = ("full", "diff-only", "unverified")
 # /codex:code_review's pre-run CODEX_REVIEW_NETWORK verdict (issue #1450).
 NETWORKS = ("blocked", "open", "unverified")
+# /codex:code_review's CODEX_REVIEW_LOCAL_CREDENTIALS verdict (issue #1459).
+LOCAL_CREDENTIALS = ("present", "absent", "unknown")
 
 #: WHICH WAY ROUND THE TWO MODELS SAT (issue #1383). The default direction -
 #: Claude implements, Codex reviews - is what every receipt before #1383
@@ -610,6 +612,10 @@ def build(args: argparse.Namespace) -> dict:
     # network probe existed has none, and absent is not a claim of `blocked`.
     if getattr(args, "network", None) and args.status == "ran":
         receipt["network"] = args.network
+    # OPTIONAL, like `network` (issue #1459): absent says nothing about whether
+    # the repository's own config carried a credential the review could not withdraw.
+    if getattr(args, "local_credentials", None) and args.status == "ran":
+        receipt["local_credentials"] = args.local_credentials
     # Written ONLY for a delegated run (issue #1383): absent means the default
     # direction, which is what every earlier receipt already means by omission.
     if getattr(args, "direction", DIRECTION_DEFAULT) == DIRECTION_DELEGATED:
@@ -750,6 +756,20 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
             )
         elif network not in NETWORKS:
             bad.append(f"{source}: network {network!r} not in {NETWORKS}")
+
+    if "local_credentials" in receipt:
+        local = receipt["local_credentials"]
+        if status == "skipped":
+            bad.append(
+                f"{source}: a skipped run must not carry 'local_credentials'; no review happened"
+            )
+        elif delegated:
+            bad.append(
+                f"{source}: a delegated receipt must not carry 'local_credentials'; its "
+                "reviewer is a Claude session, which /codex:code_review did not launch"
+            )
+        elif local not in LOCAL_CREDENTIALS:
+            bad.append(f"{source}: local_credentials {local!r} not in {LOCAL_CREDENTIALS}")
 
     if delegated:
         # A delegated receipt exists BECAUSE a review happened: the supervising
@@ -1269,6 +1289,13 @@ def main() -> int:
              "a network-fenced review",
     )
     w.add_argument(
+        "--local-credentials",
+        choices=LOCAL_CREDENTIALS,
+        help="/codex:code_review's CODEX_REVIEW_LOCAL_CREDENTIALS verdict (issue "
+             "#1459): a credential in the repository's own config that the "
+             "review could not withdraw, recorded as measured",
+    )
+    w.add_argument(
         "--implementer-session-id",
         help="Claude session from which to derive the IMPLEMENTING model "
              "(defaults to $CLAUDE_CODE_SESSION_ID)",
@@ -1350,6 +1377,9 @@ def main() -> int:
                 ap.error("--scope measures a Codex REVIEWER's sandbox access "
                          "(/codex:code_review); the delegated direction's "
                          "reviewer is a Claude session and has no such probe")
+            if args.local_credentials:
+                ap.error("--local-credentials is measured by /codex:code_review; "
+                         "the delegated direction's reviewer is a Claude session")
             if args.network:
                 ap.error("--network measures a Codex REVIEWER's network fence "
                          "(/codex:code_review); the delegated direction's "
@@ -1379,6 +1409,8 @@ def main() -> int:
         ap.error("--status skipped must not carry --extra-pass-reason; no review happened")
     if args.cmd == "write" and args.status == "skipped" and args.scope:
         ap.error("--status skipped must not carry --scope; no review happened")
+    if args.cmd == "write" and args.status == "skipped" and args.local_credentials:
+        ap.error("--status skipped must not carry --local-credentials; no review happened")
     if args.cmd == "write" and args.status == "skipped" and args.network:
         ap.error("--status skipped must not carry --network; no review happened")
     if (args.cmd == "write" and args.status == "ran"
