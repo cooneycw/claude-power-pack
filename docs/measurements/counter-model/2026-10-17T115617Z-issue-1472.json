@@ -1,0 +1,25 @@
+{
+  "branch": "issue-1472-receipt-tests-inherit-codex-thread-id-and-fail-mak",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "12bb286effbb635733ea0852ff494066cdd72c28",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1472",
+  "passes": 1,
+  "recorded_at": "2026-10-17T11:56:17Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 3
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/17/rollout-2026-10-17T07-55-43-01a149b7-c83e-7ca0-a642-54fd4a87a488.jsonl",
+    "thread_id": "01a149b7-c83e-7ca0-a642-54fd4a87a488"
+  },
+  "schema": 1,
+  "scope": "full",
+  "status": "ran"
+}
