@@ -46,6 +46,12 @@ CODEX_STUB = """#!/bin/sh
 # `exec` records its args and what a reviewer command would be able to use.
 if [ "$1" = sandbox ]; then
     if [ "$2" = --help ]; then [ -n "$STUB_NO_SANDBOX" ] && exit 2; exit 0; fi
+    # Record the invocation BEFORE `--` (#1458): both network probes must match.
+    if [ -n "$STUB_SANDBOX_LOG" ]; then
+        pre=""; for a in "$@"; do [ "$a" = -- ] && break; pre="$pre $a"; done
+        after=""; seen=0; for a in "$@"; do [ "$seen" = 1 ] && { after="$a"; break; }; [ "$a" = -- ] && seen=1; done
+        printf '%s|%s\n' "$after" "$pre" >> "$STUB_SANDBOX_LOG"
+    fi
     [ "${STUB_SANDBOX_RC:-0}" != 0 ] && exit "$STUB_SANDBOX_RC"
     while [ "$#" -gt 0 ] && [ "$1" != -- ]; do shift; done
     [ "$1" = -- ] && shift
@@ -214,20 +220,58 @@ def test_a_sandbox_that_stops_a_reachable_get_reports_blocked(tmp_path: Path) ->
     assert "contacts a remote service" in args
 
 
-@requires_git
-def test_nothing_reachable_anywhere_is_unverified_not_blocked(tmp_path: Path) -> None:
-    """Without the outside control, an offline host would read as a fenced one."""
-    proc, _, _ = _run(tmp_path, STUB_CURL_INSIDE_RC="7", STUB_CURL_OUTSIDE_RC="7")
-    assert "CODEX_REVIEW_NETWORK: unverified" in proc.stdout, proc.stdout + proc.stderr
-    assert "network: unverified - not shown to be fenced" in proc.stdout
+# THE VERDICT TABLE (issue #1458), mirrored from the doc's network-verdict-table.
+# Each row: (STUB_SANDBOX_RC, STUB_CURL_INSIDE_RC, STUB_CURL_OUTSIDE_RC, verdict).
+# `blocked` needs the in-sandbox curl to have RUN and failed with a network-class
+# exit while the outside control succeeds; everything else that is not `open`
+# is `unverified`.
+VERDICT_TABLE = [
+    ("101", "0", "0", "unverified"),   # sandbox did not start (no bubblewrap): the negative control
+    ("101", "7", "0", "unverified"),   # ...whatever curl would have done
+    ("0", "0", "0", "open"),
+    ("0", "6", "0", "blocked"),        # resolve
+    ("0", "7", "0", "blocked"),        # connect
+    ("0", "28", "0", "blocked"),       # timeout
+    ("0", "7", "7", "unverified"),     # nothing reachable even outside
+    ("0", "127", "0", "unverified"),   # curl absent inside the sandbox
+    ("0", "35", "0", "unverified"),    # TLS error, not a fence
+    ("0", "2", "0", "unverified"),     # a CLI usage error after a CLI change
+    ("0", "56", "0", "unverified"),    # recv failure: not in the table's blocked set
+]
+
+#: The exits the table calls network-class. Widening `blocked` must edit this,
+#: the doc table and the code's NET_BLOCKED_RCS together - pinned below.
+BLOCKED_RCS = {"6", "7", "28"}
 
 
 @requires_git
-def test_a_sandbox_that_cannot_start_is_blocked(tmp_path: Path) -> None:
-    """The container case: no reviewer command can run at all."""
-    proc, _, _ = _run(tmp_path, STUB_SANDBOX_RC="101", STUB_CURL_OUTSIDE_RC="0")
-    assert "CODEX_REVIEW_SCOPE: diff-only" in proc.stdout, proc.stdout + proc.stderr
-    assert "CODEX_REVIEW_NETWORK: blocked" in proc.stdout
+@pytest.mark.parametrize("sandbox_rc,inside_rc,outside_rc,verdict", VERDICT_TABLE)
+def test_the_network_verdict_follows_the_table(tmp_path: Path, sandbox_rc: str, inside_rc: str,
+                                               outside_rc: str, verdict: str) -> None:
+    proc, _, _ = _run(tmp_path, STUB_SANDBOX_RC=sandbox_rc, STUB_CURL_INSIDE_RC=inside_rc,
+                      STUB_CURL_OUTSIDE_RC=outside_rc)
+    assert f"CODEX_REVIEW_NETWORK: {verdict}" in proc.stdout, proc.stdout + proc.stderr
+
+
+def test_only_the_tables_network_class_exits_are_blocked() -> None:
+    blocked_rows = {inside for _, inside, outside, v in VERDICT_TABLE if v == "blocked"}
+    assert blocked_rows == BLOCKED_RCS
+    text = COMMAND.read_text(encoding="utf-8")
+    assert 'NET_BLOCKED_RCS="6 7 28"' in text
+    table = text[text.index("<!-- network-verdict-table -->"):text.index("<!-- /network-verdict-table -->")]
+    blocked = [row for row in table.splitlines() if row.rstrip().endswith("| `blocked` |")]
+    assert blocked == ["  | `curl` inside exited 6, 7 or 28 (resolve, connect, timeout) and the same GET outside succeeded | `blocked` |"], blocked
+
+
+@requires_git
+def test_both_sandbox_probes_use_one_invocation(tmp_path: Path) -> None:
+    """Master's constraint on #1458: a start-ok / curl-fail split must not be
+    able to come from a flag difference between the two probes."""
+    log = tmp_path / "sandbox.log"
+    _run(tmp_path, STUB_SANDBOX_LOG=str(log), STUB_CURL_INSIDE_RC="7", STUB_CURL_OUTSIDE_RC="0")
+    calls = dict(line.split("|", 1) for line in log.read_text(encoding="utf-8").splitlines())
+    assert "true" in calls and "curl" in calls, calls
+    assert calls["true"] == calls["curl"], calls
 
 
 @requires_git
