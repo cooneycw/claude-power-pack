@@ -2933,3 +2933,12 @@ def test_every_committed_receipt_still_validates_under_the_cutoff() -> None:
     assert len(receipts) > 200
     bad = [(p.name, CM.validate(json.loads(p.read_text(encoding="utf-8")), p.name)) for p in receipts]
     assert not [b for b in bad if b[1]], [b for b in bad if b[1]][:3]
+
+
+def test_a_denial_inside_a_command_that_exits_zero_still_downgrades(tmp_path: Path) -> None:
+    """Counter-model review: `cat protected/path; echo done` exits 0 because the
+    last command succeeded, yet its output carries the denial."""
+    proc, receipt = _scoped_write(tmp_path, [_cmd(0, "ok\n"),
+                                             _cmd(0, "cat: protected/path: Permission denied\ndone\n")])
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    assert receipt["scope"] == "unverified"

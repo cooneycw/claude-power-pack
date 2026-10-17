@@ -484,7 +484,11 @@ def _mid_run_read_denials(exec_text: str) -> int:
         item = record.get("item")
         if not isinstance(item, dict) or item.get("type") != "command_execution":
             continue
-        if item.get("exit_code") in (0, -1, None):
+        # EXIT 0 IS NOT EXCLUDED (counter-model review): `cat denied; echo done`
+        # prints the denial and exits 0 because its LAST command succeeded. Only
+        # a launch failure (-1, counted by _mid_run_sandbox_failures) or an item
+        # that never finished (None) is skipped here.
+        if item.get("exit_code") in (-1, None):
             continue
         output = item.get("aggregated_output")
         if isinstance(output, str) and any(m in output.lower() for m in READ_DENIAL_MARKERS):
