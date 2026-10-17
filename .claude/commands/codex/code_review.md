@@ -268,15 +268,26 @@ sandbox-denied command be approved to run outside it, or the caller supplied
 `danger-full-access`. So the fix does not rely on any one of them:
 
 - `CODEX_REVIEW_NETWORK:` is measured before the run, against the GitHub API
-  (the endpoint the incident reached). It is `blocked` when a harmless GET
-  fails inside the same read-only sandbox while the same GET succeeds outside
-  it. That is a measurement of one endpoint, not of the sandbox's whole egress
-  policy, so the reviewer is told not to contact remote services on every
-  verdict. It is `open` when the GET succeeds inside, or when there is no
-  sandbox (`danger-full-access`), and `unverified` when there is no `codex
-  sandbox` or `curl`, or nothing is reachable even outside the sandbox. A
-  sandbox that cannot start is `blocked`: the reviewer cannot run any command
-  at all.
+  (the endpoint the incident reached). It is a measurement of one endpoint, not
+  of the sandbox's whole egress policy, so the reviewer is told not to contact
+  remote services on every verdict. **The verdict is this table and nothing
+  else** (issue #1458). `tests/test_code_review_network_fence.py` is driven
+  from it, so widening `blocked` means editing this table where a reviewer sees
+  it. Both sandboxed probes go through one function with identical flags; only
+  the argv after `--` differs.
+
+  <!-- network-verdict-table -->
+  | Probe outcome | `CODEX_REVIEW_NETWORK` |
+  |---|---|
+  | `CODEX_REVIEW_SANDBOX=danger-full-access` (no sandbox at all) | `open` |
+  | no `codex sandbox` subcommand, or no `curl` | `unverified` |
+  | the sandbox did not start (`-- true` failed, e.g. exit 101 with no bubblewrap) | `unverified` |
+  | `curl` inside exited 0 | `open` |
+  | `curl` inside exited 6, 7 or 28 (resolve, connect, timeout) and the same GET outside succeeded | `blocked` |
+  | `curl` inside exited 6, 7 or 28 and the GET outside failed too | `unverified` |
+  | `curl` inside exited anything else (127 absent, 35 TLS, a CLI usage error) | `unverified` |
+  <!-- /network-verdict-table -->
+
 - `-c 'approval_policy="never"'` is pinned, so no host configuration can
   approve a denied command into running unsandboxed.
 - The reviewer runs with the GitHub token variables unset, an empty
@@ -299,7 +310,7 @@ REVIEW_SANDBOX="${CODEX_REVIEW_SANDBOX:-read-only}"
 case "$REVIEW_SANDBOX" in
     read-only) ;;
     danger-full-access) ;;
-    *) echo "CODEX_REVIEW: unavailable (CODEX_REVIEW_SANDBOX='$REVIEW_SANDBOX' is not read-only or danger-full-access; refusing to run)" >&2; exit 3 ;;
+    *) echo "CODEX_REVIEW: unavailable (CODEX_REVIEW_SANDBOX='$REVIEW_SANDBOX' is not read-only or danger-full-access; refusing to run)" >&2; rm -f "$DIFF_FILE"; exit 3 ;;
 esac
 
 # Scope probe (issue #1261). A sandbox that cannot start makes the review
@@ -336,17 +347,34 @@ esac
 # owner. So measure the fence as the scope is measured: try one harmless GET
 # INSIDE the same sandbox, and a positive control OUTSIDE it, because a probe
 # that fails where nothing is reachable at all has measured nothing.
+#
+# `blocked` IS A MEASUREMENT, NEVER A FAILURE TO MEASURE (issue #1458). Only a
+# curl that RAN inside the sandbox and failed with a network-class exit (the
+# table below: 6 resolve, 7 connect, 28 timeout) while the same GET works outside
+# is `blocked`. A sandbox that did not start, a curl absent inside it, a TLS or
+# CLI error: all `unverified`. One function runs BOTH sandboxed probes, so the
+# start probe and the curl probe cannot differ in invocation or flags - a split
+# that came from a flag difference would otherwise read as `blocked`.
 NET_PROBE_URL="https://api.github.com/"
+NET_BLOCKED_RCS="6 7 28"
+net_sandbox() { codex sandbox -c 'sandbox_mode="read-only"' -- "$@"; }
 if [ "$REVIEW_SANDBOX" = "danger-full-access" ]; then
     REVIEW_NETWORK="open"
 elif ! command -v curl >/dev/null 2>&1 || ! codex sandbox --help >/dev/null 2>&1; then
     REVIEW_NETWORK="unverified"
-elif codex sandbox -c 'sandbox_mode="read-only"' -- curl -sS -o /dev/null --max-time 5 "$NET_PROBE_URL" >/dev/null 2>&1; then
-    REVIEW_NETWORK="open"
-elif curl -sS -o /dev/null --max-time 5 "$NET_PROBE_URL" >/dev/null 2>&1; then
-    REVIEW_NETWORK="blocked"
-else
+elif ! net_sandbox true >/dev/null 2>&1; then
     REVIEW_NETWORK="unverified"
+else
+    net_sandbox curl -sS -o /dev/null --max-time 5 "$NET_PROBE_URL" >/dev/null 2>&1
+    NET_RC=$?
+    if [ "$NET_RC" -eq 0 ]; then
+        REVIEW_NETWORK="open"
+    elif case " $NET_BLOCKED_RCS " in *" $NET_RC "*) true ;; *) false ;; esac \
+            && curl -sS -o /dev/null --max-time 5 "$NET_PROBE_URL" >/dev/null 2>&1; then
+        REVIEW_NETWORK="blocked"
+    else
+        REVIEW_NETWORK="unverified"
+    fi
 fi
 echo "CODEX_REVIEW_NETWORK: $REVIEW_NETWORK"
 # Said on EVERY verdict: `blocked` measures one endpoint, not the whole egress.
@@ -360,7 +388,7 @@ NETWORK_LINE=" Do not run any command that contacts a remote service (gh, git fe
 # sandbox-denied command into running outside the sandbox.
 # Fail CLOSED: an empty GH_CONFIG_DIR sends gh back to the owner's own config.
 REVIEW_GH_CONFIG=$(mktemp -d /tmp/codex-review-gh.XXXXXX) && [ -d "$REVIEW_GH_CONFIG" ] || {
-    echo "CODEX_REVIEW: unavailable (could not create an empty gh config directory; refusing to run the reviewer with the caller's credentials)" >&2; exit 3; }
+    echo "CODEX_REVIEW: unavailable (could not create an empty gh config directory; refusing to run the reviewer with the caller's credentials)" >&2; rm -f "$DIFF_FILE"; exit 3; }
 
 FINDINGS=$(mktemp /tmp/codex-review.XXXXXX.md)
 # STREAM carries the thread id that Step 4 needs to identify the reviewing
