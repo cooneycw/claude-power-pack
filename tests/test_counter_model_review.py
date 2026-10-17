@@ -2827,3 +2827,12 @@ def test_codex_implementer_evidence_is_accepted_and_checked_by_the_schema() -> N
     assert CM.validate(dict(base, implementer_evidence={"thread_id": "t", "rollout": "r"})) == []
     assert any("must name a non-empty 'thread_id' and 'rollout'" in p
                for p in CM.validate(dict(base, implementer_evidence={"thread_id": "t"})))
+
+
+def test_a_thread_id_cannot_be_mixed_into_the_delegated_direction(tmp_path: Path) -> None:
+    """Counter-model red case (#1453): --implementer-thread-id names the default
+    direction's implementer and must not ride along with --implementer-exec-log."""
+    proc = _write(tmp_path, *_delegated_args(tmp_path, "gpt-a", "opus-b"),
+                  "--implementer-thread-id", "t")
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "--implementer-thread-id (the other direction)" in proc.stderr
