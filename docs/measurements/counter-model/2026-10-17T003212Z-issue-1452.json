@@ -1,0 +1,26 @@
+{
+  "branch": "issue-1452-counter-model-a-review-that-ran-must-leave-a-recei",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 1
+  },
+  "head": "6da509d8ca6664fb40bb1ff44aeb8feff2c78c45",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1452",
+  "network": "blocked",
+  "passes": 2,
+  "recorded_at": "2026-10-17T00:32:12Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 8
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/17/rollout-2026-10-17T00-26-25-01a14740-b4cd-7770-94c5-35a898c3e7c1.jsonl",
+    "thread_id": "01a14740-b4cd-7770-94c5-35a898c3e7c1"
+  },
+  "schema": 1,
+  "scope": "diff-only",
+  "status": "ran"
+}
