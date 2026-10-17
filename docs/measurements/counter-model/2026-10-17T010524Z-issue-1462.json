@@ -1,0 +1,26 @@
+{
+  "branch": "issue-1462-ci-stage-exit-75-precode-retry-returned-for-any-do",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "bfb521033e7c07a72dc41d87072209c62e33131d",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1462",
+  "network": "unverified",
+  "passes": 1,
+  "recorded_at": "2026-10-17T01:05:24Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 4
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/17/rollout-2026-10-17T01-05-06-01a14764-196f-7751-adde-0e52f809e1ab.jsonl",
+    "thread_id": "01a14764-196f-7751-adde-0e52f809e1ab"
+  },
+  "schema": 1,
+  "scope": "diff-only",
+  "status": "ran"
+}

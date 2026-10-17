@@ -131,3 +131,62 @@ def test_each_stager_documents_the_sysexits_provenance(filename) -> None:
         f"{filename} defines EX_FETCH_FAILED without citing sysexits.h's EX_TEMPFAIL - "
         "the value must read as an established convention, not an invented one"
     )
+
+
+# --------------------------------------------------------------------------- #
+# ONE TABLE, ALL THREE STAGERS (issue #1462). Exit 75 is earned only by a
+# TRANSIENT network fault; a 404, a TLS verification failure or a bug in the
+# stager is something the change did, and reads as code (exit 1).
+# --------------------------------------------------------------------------- #
+
+import http.client  # noqa: E402
+import socket  # noqa: E402
+import ssl  # noqa: E402
+import urllib.error  # noqa: E402
+
+
+def _http(code: int) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError("https://example.invalid/x", code, "status", None, None)  # type: ignore[arg-type]
+
+
+EXIT_TABLE = [
+    ("http-404", lambda: _http(404), 1),
+    ("http-403", lambda: _http(403), 1),
+    ("http-500", lambda: _http(500), 75),
+    ("http-503", lambda: _http(503), 75),
+    ("http-429", lambda: _http(429), 75),
+    ("connection-refused", lambda: urllib.error.URLError(ConnectionRefusedError(111, "refused")), 75),
+    ("dns-failure", lambda: urllib.error.URLError(socket.gaierror(-2, "Name or service not known")), 75),
+    ("timeout", lambda: TimeoutError("timed out"), 75),
+    ("truncated-transfer", lambda: http.client.IncompleteRead(b""), 75),
+    # The WRAPPED shape urllib really raises - master's constraint on #1462: a
+    # classifier that maps URLError -> transient before reading .reason fails here.
+    ("tls-verify-wrapped", lambda: urllib.error.URLError(
+        ssl.SSLCertVerificationError(1, "certificate verify failed")), 1),
+    ("url-reason-is-a-string", lambda: urllib.error.URLError("unknown url type: htps"), 1),
+    ("stager-code-bug", lambda: AttributeError("'NoneType' object has no attribute 'read'"), 1),
+]
+
+
+class _RaisingOpener:
+    def __init__(self, exc: BaseException) -> None:
+        self.exc = exc
+
+    def open(self, *_args, **_kwargs):
+        raise self.exc
+
+
+@pytest.mark.parametrize("filename, module_name", STAGERS.items(), ids=STAGERS.keys())
+@pytest.mark.parametrize("case, make_exc, expected", EXIT_TABLE, ids=[c[0] for c in EXIT_TABLE])
+def test_only_a_transient_earns_exit_75(tmp_path, monkeypatch, filename, module_name,
+                                        case, make_exc, expected) -> None:
+    module = _stager(filename, f"{module_name}_{case.replace('-', '_')}")
+    monkeypatch.chdir(tmp_path)
+    exc = make_exc()
+    if filename == "ci-stage-git.py":
+        def _raise(_url: str) -> bytes:
+            raise exc
+        monkeypatch.setattr(module, "_fetch", _raise)
+    else:
+        monkeypatch.setattr(module, "_HTTPS_ONLY_OPENER", _RaisingOpener(exc))
+    assert module.main() == expected, f"{filename}: {case}"
