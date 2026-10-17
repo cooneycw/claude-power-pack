@@ -856,7 +856,11 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
             )
         evidence = receipt.get("implementer_evidence")
         harness = evidence.get("harness") if isinstance(evidence, dict) else None
-        if harness not in DELEGATED_EVIDENCE_KEYS:
+        if harness is not None and not isinstance(harness, str):
+            # Checked BEFORE the membership test (counter-model review): an
+            # unhashable value would raise instead of being reported.
+            bad.append(f"{source}: implementer_evidence harness {harness!r} is not a string")
+        elif harness not in DELEGATED_EVIDENCE_KEYS:
             bad.append(f"{source}: implementer_evidence harness {harness!r} is not one this "
                        f"writer derives ({', '.join(k for k in DELEGATED_EVIDENCE_KEYS if k)} or Codex)")
         elif not _names(evidence, DELEGATED_EVIDENCE_KEYS[harness]):
@@ -1120,6 +1124,27 @@ def _stream_records(text: str) -> tuple[list[dict], int]:
     return records, damaged
 
 
+def _strict_records(text: str) -> tuple[list[dict] | None, str | None]:
+    """Every non-blank line a JSON object, or a refusal (counter-model review).
+
+    For a PERSISTED record (Qwen Code's transcript), not a stream: no stderr is
+    written into it, so there is nothing to skip, and a damaged line - whatever
+    it starts with - could have been an assistant record naming another model.
+    """
+    records: list[dict] = []
+    for number, line in enumerate(text.split("\n"), start=1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            return None, f"line {number} is not JSON"
+        if not isinstance(record, dict):
+            return None, f"line {number} is not a JSON object"
+        records.append(record)
+    return records, None
+
+
 #: Session identifiers as each harness writes them (measured): Qwen Code a UUID,
 #: OpenCode `ses_` plus an alphanumeric id. Checked BEFORE any lookup, so an id
 #: is never used as a pattern (counter-model review).
@@ -1189,11 +1214,12 @@ def _derive_qwen_code(records: list[dict], projects_dir: Path) -> tuple[str | No
         return None, None, (f"expected one Qwen Code transcript for session {session_id!r} under "
                             f"{projects_dir}, found {len(matches)}")
     try:
-        transcript, bad = _stream_records(matches[0].read_text(encoding="utf-8"))
+        strict, reason = _strict_records(matches[0].read_text(encoding="utf-8"))
     except OSError as exc:
         return None, None, f"cannot read Qwen Code transcript {matches[0]}: {exc}"
-    if bad:
-        return None, None, f"{bad} unparseable line(s) in Qwen Code transcript {matches[0]}"
+    if strict is None:
+        return None, None, f"Qwen Code transcript {matches[0]}: {reason}; refusing to attribute"
+    transcript = strict
     assistants = [r for r in transcript if r.get("type") == "assistant"]
     if not assistants:
         return None, None, f"Qwen Code transcript {matches[0]} holds no assistant record"

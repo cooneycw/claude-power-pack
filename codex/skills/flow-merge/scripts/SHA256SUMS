@@ -7,7 +7,7 @@
 # corruption, a partial edit, and post-build modification. It does NOT
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
-2a937f44dad11e14b27c5711f4874961418418fbca37f92a894af9eb8e425b8f  counter-model-receipt.py
+de2d5e90f9d65cd8a30b9fc9d467a164b753abdafa4ee30d3fb398c32a7578d0  counter-model-receipt.py
 3e32f3465ab02b0b42831507ed82151093416950b755637eb6e14de942cc7ebf  flow-ci-status.sh
 83b0a68caefc010a9907211612e96c1bfb94b35a6cff446939a2306ce95bb2da  flow-finish-gate.sh
 b00aa7f3eb76b8addb05ffa658c09443fe589256e53d0a41a902d47c84d15d1f  flow-worktree-claim.sh

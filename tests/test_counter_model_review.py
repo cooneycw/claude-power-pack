@@ -3153,3 +3153,24 @@ def test_wrong_field_types_are_refused_not_crashed(tmp_path: Path) -> None:
                             "--opencode-db", str(_opencode_db(tmp_path / "o", rows)))
     assert proc.returncode == CM.EXIT_INVALID and "Traceback" not in proc.stderr, proc.stderr
     assert "declares no provider or model" in proc.stderr
+
+
+
+# Counter-model review of #1454, pass 2 (gpt-6.1-sol).
+
+@pytest.mark.parametrize("harness", [[], {}, 7])
+def test_a_non_string_evidence_harness_is_reported_not_raised(harness: object) -> None:
+    receipt = _delegated_receipt(implementer_evidence={"harness": harness, "session_id": "s"})
+    problems = CM.validate(receipt, "delegated")
+    assert any("is not a string" in p for p in problems), problems
+
+
+def test_a_damaged_transcript_line_is_refused_whatever_it_starts_with(tmp_path: Path) -> None:
+    """A transcript holds no stderr, so it is parsed strictly: a damaged record
+    that does not start with `{` might have named another model."""
+    lines = QWEN_TRANSCRIPT.read_text(encoding="utf-8").splitlines()
+    lines.insert(1, '"type":"assistant","model":"other-model"}')
+    text = "\n".join(lines) + "\n"
+    proc = _delegated_write(tmp_path, QWEN_STREAM, "--qwen-projects-dir", str(_qwen_projects(tmp_path, text)))
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "is not JSON; refusing to attribute" in proc.stderr
