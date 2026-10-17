@@ -185,7 +185,8 @@ its own session record (#1453, #1454).
   id, so Codex `gpt-X` reviewing Codex `gpt-Y` passes. Whether it should mean a
   different provider is an open question (Nit Store #864).
 - **Not the paused evaluation programme:** #1084, #1367 and #1371, and draft
-  PR #1393 behind skillc #288, are still open.
+  PR #1393 behind skillc #288 (itself blocked by skillc #334, also open), are
+  still open.
 - **Changelog entries for 186 of these PRs are one line each, derived from
   commit titles.** They are not hand-written prose. 13 test-only fixes are
   omitted.
