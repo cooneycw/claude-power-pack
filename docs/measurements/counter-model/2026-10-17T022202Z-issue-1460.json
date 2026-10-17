@@ -1,0 +1,27 @@
+{
+  "branch": "issue-1460-docs-citation-rot-backtick-path-and-file-line-cita",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "6872d40eac4660fe8bc3ffd48af12e1455cb1e5a",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1460",
+  "local_credentials": "absent",
+  "network": "unverified",
+  "passes": 1,
+  "recorded_at": "2026-10-17T02:22:02Z",
+  "red_cases": {
+    "already_covered": 2,
+    "proposed": 3
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/17/rollout-2026-10-17T02-21-44-01a147aa-454e-7403-a738-3ad2feeadb7d.jsonl",
+    "thread_id": "01a147aa-454e-7403-a738-3ad2feeadb7d"
+  },
+  "schema": 1,
+  "scope": "diff-only",
+  "status": "ran"
+}
