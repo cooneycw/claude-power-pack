@@ -300,15 +300,21 @@ sandbox-denied command be approved to run outside it, or the caller supplied
   `credential.helper` and `http.extraheader` are reset for the repository's own
   config too. There is no SSH agent, `GIT_SSH_COMMAND=false`, and no session bus
   for the gh keyring.
-- **Not withdrawn, so measured.** `CODEX_REVIEW_LOCAL_CREDENTIALS:
+- **Not withdrawn, so measured.** A URL-scoped `http.<url>.extraheader` in the
+  repository's own config is not reached by `http.extraheader=`; each one found
+  is reset key by key and also reported. `CODEX_REVIEW_LOCAL_CREDENTIALS:
   present|absent|unknown` reports a credential embedded in the repository's OWN
-  config: userinfo in a remote URL, a `url.*.insteadOf` whose base carries one,
-  or an `http.*.extraheader`. Withdrawing those would mean editing the caller's
-  repository. The check names KEYS only, never values (an `insteadOf` key embeds
-  its base URL, so it prints as `url.<redacted>.insteadof`). It does not refuse
+  config, local and worktree scope with includes followed: userinfo in a remote
+  URL, a `url.*.insteadOf` whose base carries one, or an `http[.<url>].extraheader`. Withdrawing those would mean editing the caller's
+  repository. The check names KEYS only, never values; a key whose subsection
+  is a URL prints it redacted (`url.<redacted>.insteadof`,
+  `http.<redacted>.extraheader`). It does not refuse
   the review.
 - **Not withdrawn, not measured:** a file the reviewer can read by ABSOLUTE
-  path, such as the owner's real `~/.config/gh/hosts.yml` or `~/.ssh` keys. That
+  path, such as the owner's real `~/.config/gh/hosts.yml`; and the owner's
+  `~/.ssh` keys for a DIRECT `ssh` call, because OpenSSH takes the home
+  directory from the password database rather than `$HOME`.
+  `GIT_SSH_COMMAND=false` stops only git's own ssh transport. That
   is why `open` is reported as `open` and never as read-only.
 
 A caller that knows codex's sandbox cannot start where it runs may supply
@@ -404,7 +410,9 @@ NETWORK_LINE=" Do not run any command that contacts a remote service (gh, git fe
 #   GIT_CONFIG_PARAMETERS resetting credential.helper and http.extraheader,
 #   which reaches the repository's own .git/config too - and carries no `KEY`
 #   in its name, which codex's default shell_environment_policy strips;
-#   no SSH agent, GIT_SSH_COMMAND=false, no session bus (the gh keyring).
+#   no SSH agent, GIT_SSH_COMMAND=false (git's ssh transport), no session bus.
+# A DIRECT ssh call still finds the account's ~/.ssh: OpenSSH reads the home
+# directory from the password database, not $HOME (counter-model review).
 # NOT withdrawn, and so MEASURED below rather than promised away: a credential
 # embedded in the repository's own config, and files the reviewer can read by
 # absolute path. approval_policy is pinned to "never" so no host configuration
@@ -421,21 +429,37 @@ done
 
 # Credentials in the repository's OWN config (issue #1459). They cannot be
 # withdrawn without editing the caller's repository, so they are MEASURED and
-# shown. Only KEY NAMES are ever printed, never values - and a url.*.insteadOf
-# key embeds its base URL, so that key is printed redacted.
+# shown. The population is what git USES: local and worktree scope, with
+# includes followed. Only KEY NAMES are printed, never values - and a key whose
+# subsection is a URL (url.<base>.insteadof, http.<url>.extraheader) embeds that
+# URL, so its subsection is printed redacted. A URL-scoped extraheader is also
+# RESET for the reviewer, key by key: `http.extraheader=` does not reach it.
 REVIEW_LOCAL_CRED_KEYS=""
-if ! REVIEW_LOCAL_CFG=$(git config --local --list 2>/dev/null); then
+REVIEW_HEADER_RESETS=""
+# Outside a repository `git config --list` still succeeds - over GLOBAL config
+# alone - so "is this a repository" is asked first: no repository is unknown.
+if ! git rev-parse --git-dir >/dev/null 2>&1 \
+        || ! REVIEW_LOCAL_CFG=$(git config --list --show-scope --includes 2>/dev/null); then
     REVIEW_LOCAL_CREDS="unknown"
 else
     while IFS= read -r line; do
-        key=${line%%=*}; val=${line#*=}
+        scope=${line%%	*}; rest=${line#*	}
+        case "$scope" in local|worktree) ;; *) continue ;; esac
+        key=${rest%%=*}; val=${rest#*=}
         case "$key" in
             remote.*.url|remote.*.pushurl)
                 case "$val" in http://*@*|https://*@*) REVIEW_LOCAL_CRED_KEYS="$REVIEW_LOCAL_CRED_KEYS $key" ;; esac ;;
             url.*.insteadof)
                 case "$key" in url.http://*@*|url.https://*@*) REVIEW_LOCAL_CRED_KEYS="$REVIEW_LOCAL_CRED_KEYS url.<redacted>.insteadof" ;; esac ;;
-            http.extraheader|http.*.extraheader)
-                [ -n "$val" ] && REVIEW_LOCAL_CRED_KEYS="$REVIEW_LOCAL_CRED_KEYS $key" ;;
+            http.extraheader)
+                [ -n "$val" ] && REVIEW_LOCAL_CRED_KEYS="$REVIEW_LOCAL_CRED_KEYS http.extraheader" ;;
+            http.*.extraheader)
+                [ -n "$val" ] || continue
+                case "$key" in
+                    *"'"*) REVIEW_LOCAL_CRED_KEYS="$REVIEW_LOCAL_CRED_KEYS http.<redacted>.extraheader(NOT-RESET)" ;;
+                    *) REVIEW_LOCAL_CRED_KEYS="$REVIEW_LOCAL_CRED_KEYS http.<redacted>.extraheader"
+                       REVIEW_HEADER_RESETS="$REVIEW_HEADER_RESETS '$key'=''" ;;
+                esac ;;
         esac
     done <<EOF_LOCAL_CFG
 $REVIEW_LOCAL_CFG
@@ -455,7 +479,7 @@ cat "$DIFF_FILE" | env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GIT
     HOME="$REVIEW_HOME" CODEX_HOME="$REVIEW_CODEX_HOME" \
     GH_CONFIG_DIR="$REVIEW_HOME/.config/gh" GIT_TERMINAL_PROMPT=0 \
     GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$REVIEW_HOME/.gitconfig" \
-    GIT_CONFIG_PARAMETERS="'credential.helper'='' 'http.extraheader'=''" \
+    GIT_CONFIG_PARAMETERS="'credential.helper'='' 'http.extraheader'=''$REVIEW_HEADER_RESETS" \
     GIT_SSH_COMMAND=false \
     codex exec \
     --sandbox "$REVIEW_SANDBOX" \

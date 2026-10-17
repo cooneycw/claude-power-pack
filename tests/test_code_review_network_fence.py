@@ -27,10 +27,10 @@ from __future__ import annotations
 
 import http.server
 import os
-import threading
 import re
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 
 import pytest
@@ -130,6 +130,7 @@ def _block(heading: str, end: str) -> str:
 
 
 def _run(tmp_path: Path, local_cfg: tuple[tuple[str, str], ...] = (), repo: bool = True,
+         worktree_cfg: tuple[tuple[str, str], ...] = (),
          **extra: str) -> tuple[subprocess.CompletedProcess[str], str, str]:
     stub_dir = tmp_path / "stub"
     stub_dir.mkdir()
@@ -164,6 +165,9 @@ def _run(tmp_path: Path, local_cfg: tuple[tuple[str, str], ...] = (), repo: bool
                        check=True, capture_output=True)
         for key, value in local_cfg:
             subprocess.run(["git", "config", "--local", "--add", key, value], cwd=work, env=genv,
+                           check=True, capture_output=True)
+        for key, value in worktree_cfg:
+            subprocess.run(["git", "config", "--worktree", "--add", key, value], cwd=work, env=genv,
                            check=True, capture_output=True)
     diff = tmp_path / "d.patch"
     diff.write_text("", encoding="utf-8")
@@ -460,3 +464,55 @@ def test_local_credentials_outside_a_repository_is_unknown(tmp_path: Path) -> No
     proc, _, _ = _run(tmp_path, repo=False)
     assert "CODEX_REVIEW_LOCAL_CREDENTIALS: unknown" in proc.stdout, proc.stdout + proc.stderr
     assert "local credentials: unknown" in proc.stdout
+
+
+# Counter-model review of #1459 (gpt-6.1-sol): URL-scoped headers, keys that
+# embed a secret, and config git really uses (includes, worktree scope).
+
+SCOPED_KEY_SECRET = "SECRET-IN-A-KEY-URL-4a19"
+
+
+@requires_git
+def test_a_url_scoped_extraheader_is_not_sent(tmp_path: Path) -> None:
+    _HeaderRecorder.seen = []
+    server = http.server.HTTPServer(("127.0.0.1", 0), _HeaderRecorder)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{server.server_address[1]}/"
+        proc, _, _ = _run(tmp_path, STUB_HTTP_URL=f"{base}o/r.git",
+                          local_cfg=((f"http.{base}.extraheader", f"Authorization: bearer {LOCAL_HEADER_SECRET}"),))
+    finally:
+        server.shutdown()
+    assert _HeaderRecorder.seen, "git never reached the recorder - this test examined nothing"
+    assert LOCAL_HEADER_SECRET not in "\n".join(_HeaderRecorder.seen), _HeaderRecorder.seen
+    assert "http.<redacted>.extraheader" in proc.stdout, proc.stdout + proc.stderr
+    assert LOCAL_HEADER_SECRET not in proc.stdout + proc.stderr
+
+
+@requires_git
+def test_a_secret_inside_a_config_key_is_never_printed(tmp_path: Path) -> None:
+    proc, _, _ = _run(tmp_path, local_cfg=(
+        (f"http.https://user:{SCOPED_KEY_SECRET}@example.com/.extraheader", "X-Probe: 1"),))
+    out = proc.stdout + proc.stderr
+    assert "CODEX_REVIEW_LOCAL_CREDENTIALS: present" in proc.stdout, out
+    assert SCOPED_KEY_SECRET not in out, "a key embedding a credential was printed verbatim"
+
+
+@requires_git
+def test_an_included_credential_is_measured(tmp_path: Path) -> None:
+    included = tmp_path / "included.gitconfig"
+    included.write_text(f'[remote "inc"]\n\turl = https://x:{LOCAL_URL_SECRET}@github.com/o/r.git\n',
+                        encoding="utf-8")
+    proc, _, _ = _run(tmp_path, local_cfg=(("include.path", str(included)),))
+    out = proc.stdout + proc.stderr
+    assert "CODEX_REVIEW_LOCAL_CREDENTIALS: present (remote.inc.url)" in proc.stdout, out
+    assert LOCAL_URL_SECRET not in out
+
+
+@requires_git
+def test_a_worktree_scoped_credential_is_measured(tmp_path: Path) -> None:
+    proc, _, _ = _run(tmp_path, local_cfg=(("extensions.worktreeConfig", "true"),),
+                      worktree_cfg=(("remote.wt.url", f"https://x:{LOCAL_URL_SECRET}@github.com/o/r.git"),))
+    out = proc.stdout + proc.stderr
+    assert "CODEX_REVIEW_LOCAL_CREDENTIALS: present (remote.wt.url)" in proc.stdout, out
+    assert LOCAL_URL_SECRET not in out
