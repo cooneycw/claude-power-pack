@@ -1,0 +1,25 @@
+{
+  "branch": "issue-1473-plan-compliance-negative-test-skips-because-a-read",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "020349564f87d1bd2b86800f9c8e2814fd239b79",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1473",
+  "passes": 1,
+  "recorded_at": "2026-10-17T12:03:10Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 5
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/17/rollout-2026-10-17T08-02-36-01a149be-14c1-74d1-9d9c-9cc1c40ff52d.jsonl",
+    "thread_id": "01a149be-14c1-74d1-9d9c-9cc1c40ff52d"
+  },
+  "schema": 1,
+  "scope": "full",
+  "status": "ran"
+}

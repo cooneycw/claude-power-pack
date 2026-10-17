@@ -777,9 +777,13 @@ def test_an_unenumerable_worktree_is_unknown_not_agreement(tmp_path: Path) -> No
 def test_a_failed_intent_to_add_is_unknown_not_agreement(tmp_path: Path) -> None:
     """The shell half's second unknown.
 
-    Probes the property rather than an identity: it makes the index unwritable and
-    SKIPS if the add still succeeds, which is true for root or for a filesystem
-    that does not enforce permissions.
+    The failure is a fixture-owned `index.lock`, not a read-only index (#1473).
+    Git never rewrites the index in place: it writes `index.lock` and renames it
+    over `index`, so a 0444 index inside a writable `.git` does not stop
+    `git add -N` and the earlier fixture skipped on every ordinary host. A lock
+    that already exists makes git refuse to take it, deterministically, for any
+    user. Lock-free reads still succeed, so the enumeration before the add is
+    unaffected and the helper reaches the intent-to-add branch itself.
     """
     repo, base = make_repo(tmp_path)
     (repo / "src").mkdir()
@@ -790,20 +794,26 @@ def test_a_failed_intent_to_add_is_unknown_not_agreement(tmp_path: Path) -> None
     git(repo, "commit", "-qm", "work")
     (repo / "src" / "surprise.py").write_text("new\n")
 
-    gitdir = Path(git(repo, "rev-parse", "--git-dir").strip())
-    index = (repo / gitdir / "index") if not gitdir.is_absolute() else gitdir / "index"
-    index.chmod(0o444)
+    lock = Path(git(repo, "rev-parse", "--path-format=absolute",
+                    "--git-path", "index.lock").strip())
+    assert lock.is_relative_to(tmp_path), f"lock {lock} escapes the disposable repo"
+    lock.write_text("")
     try:
+        # The precondition is ASSERTED, never skipped on: if git can still add,
+        # the fixture is broken and that is a red, not an unreachable state.
+        assert lock.exists()
         probe = subprocess.run(["git", "-C", str(repo), "add", "-N", "--", "src/surprise.py"],
                                capture_output=True, text=True)
-        if probe.returncode == 0:
-            pytest.skip("this environment can write a read-only index; the state is unreachable")
+        assert probe.returncode != 0, f"the index lock did not stop git add -N:\n{probe.stderr}"
+        assert "index.lock" in probe.stderr, f"git add -N failed for another reason:\n{probe.stderr}"
         out = run(repo, base)
     finally:
-        index.chmod(0o644)
+        lock.unlink(missing_ok=True)
+    assert not lock.exists()
 
     assert "PLAN_COMPLIANCE: unknown" in out
     assert "files intent-to-add" in out, f"reached a different unknown branch:\n{out}"
+    assert "enumerate untracked files" not in out, f"failed before the intent-to-add:\n{out}"
     assert "PLAN_COMPLIANCE: agreement" not in out
 
 
