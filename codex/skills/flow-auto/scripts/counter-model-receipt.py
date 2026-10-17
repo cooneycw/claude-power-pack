@@ -854,11 +854,19 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
                 f"{source}: a delegated receipt records a review that happened; "
                 f"status {status!r} is not 'ran'"
             )
-        if not _names(receipt.get("implementer_evidence"), ("thread_id", "rollout")):
+        evidence = receipt.get("implementer_evidence")
+        harness = evidence.get("harness") if isinstance(evidence, dict) else None
+        if harness not in DELEGATED_EVIDENCE_KEYS:
+            bad.append(f"{source}: implementer_evidence harness {harness!r} is not one this "
+                       f"writer derives ({', '.join(k for k in DELEGATED_EVIDENCE_KEYS if k)} or Codex)")
+        elif not _names(evidence, DELEGATED_EVIDENCE_KEYS[harness]):
             bad.append(
-                f"{source}: a delegated receipt must carry implementer_evidence "
-                "naming a non-empty 'thread_id' and 'rollout'"
+                f"{source}: a delegated receipt must carry implementer_evidence naming a "
+                "non-empty " + " and ".join(repr(k) for k in DELEGATED_EVIDENCE_KEYS[harness])
             )
+        elif harness and not (isinstance(implementer, str) and implementer.startswith(f"{harness}/")):
+            bad.append(f"{source}: implementer {implementer!r} does not match its evidence's "
+                       f"harness {harness!r}")
         if not _names(receipt.get("reviewer_evidence"), ("session_id",)):
             bad.append(
                 f"{source}: a delegated receipt must carry reviewer_evidence "
@@ -1073,6 +1081,165 @@ def _same_commit(a: object, b: object) -> bool:
     return len(short) >= 7 and full.startswith(short)
 
 
+#: The delegated harnesses whose streams this writer can attribute (issue #1454),
+#: with the evidence keys a receipt must carry for each. Codex records carry no
+#: `harness` key - every delegated receipt before #1454 is Codex.
+DELEGATED_EVIDENCE_KEYS = {
+    None: ("thread_id", "rollout"),
+    "qwen-code": ("harness_version", "session_id", "transcript"),
+    "opencode": ("harness_version", "session_id", "database"),
+}
+
+
+def _stream_records(text: str) -> tuple[list[dict], int]:
+    """`(parseable dict records, unparseable line count)` of a JSONL stream."""
+    records: list[dict] = []
+    bad = 0
+    for line in text.split("\n"):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            bad += 1
+            continue
+        if isinstance(record, dict):
+            records.append(record)
+    return records, bad
+
+
+def _stream_harness(records: list[dict]) -> tuple[str | None, str | None]:
+    """Which harness wrote this stream, read from the stream's OWN shape (#1454).
+
+    Codex: a `thread.started` record with a thread id. Qwen Code: a
+    `system`/`init` record carrying `qwen_code_version`. OpenCode: step/text/tool
+    events carrying a `sessionID`. Exactly one shape must match - a stream that
+    looks like none, or like two, is refused rather than guessed at.
+    """
+    found = set()
+    for r in records:
+        if r.get("type") == "thread.started" and r.get("thread_id"):
+            found.add("codex")
+        elif r.get("type") == "system" and r.get("subtype") == "init" and "qwen_code_version" in r:
+            found.add("qwen-code")
+        elif r.get("sessionID") and r.get("type") in ("step_start", "text", "tool_use", "step_finish"):
+            found.add("opencode")
+    if len(found) == 1:
+        return next(iter(found)), None
+    if not found:
+        return None, ("names no harness this writer recognises (no Codex thread_id, no "
+                      "Qwen Code init, no OpenCode sessionID)")
+    return None, f"carries the shapes of more than one harness ({', '.join(sorted(found))})"
+
+
+def _derive_qwen_code(records: list[dict], projects_dir: Path) -> tuple[str | None, dict | None, str | None]:
+    """`qwen-code/<model>` from a Qwen Code stream-json run and its own transcript.
+
+    Measured on qwen 0.15.10 (fixtures under tests/fixtures/delegated-streams):
+    the stream's `system/init.model` and each assistant record's `model` in the
+    persisted transcript `<projects>/<cwd-slug>/chats/<session_id>.jsonl` name
+    the REQUESTED model - the same basis as Codex `turn_context`. Both must be
+    present, agree with each other, and agree across every assistant record.
+    """
+    inits = [r for r in records if r.get("type") == "system" and r.get("subtype") == "init"]
+    sessions = {r.get("session_id") for r in records if r.get("session_id")}
+    if len(inits) != 1:
+        return None, None, f"expected one Qwen Code init record, found {len(inits)}"
+    if len(sessions) != 1:
+        return None, None, f"expected one Qwen Code session_id, found {len(sessions)}"
+    init = inits[0]
+    session_id = next(iter(sessions))
+    stream_model = init.get("model")
+    version = init.get("qwen_code_version")
+    if not (isinstance(stream_model, str) and stream_model.strip()):
+        return None, None, "the Qwen Code init record declares no model"
+    if not (isinstance(version, str) and version.strip()):
+        return None, None, "the Qwen Code init record declares no qwen_code_version"
+    try:
+        matches = sorted(p for p in projects_dir.glob(f"*/chats/{session_id}.jsonl") if p.is_file())
+    except OSError as exc:
+        return None, None, f"cannot search Qwen Code projects directory {projects_dir}: {exc}"
+    if len(matches) != 1:
+        return None, None, (f"expected one Qwen Code transcript for session {session_id!r} under "
+                            f"{projects_dir}, found {len(matches)}")
+    try:
+        transcript, bad = _stream_records(matches[0].read_text(encoding="utf-8"))
+    except OSError as exc:
+        return None, None, f"cannot read Qwen Code transcript {matches[0]}: {exc}"
+    if bad:
+        return None, None, f"{bad} unparseable line(s) in Qwen Code transcript {matches[0]}"
+    assistants = [r for r in transcript if r.get("type") == "assistant"]
+    models = {r.get("model") for r in assistants}
+    if not assistants:
+        return None, None, f"Qwen Code transcript {matches[0]} holds no assistant record"
+    if any(not (isinstance(m, str) and m.strip()) for m in models):
+        return None, None, f"an assistant record in {matches[0]} declares no model"
+    if len(models) != 1:
+        return None, None, f"assistant records in {matches[0]} disagree ({', '.join(sorted(models))})"
+    model = next(iter(models))
+    if model != stream_model:
+        return None, None, (f"the stream's init model {stream_model!r} disagrees with the "
+                            f"transcript's {model!r}")
+    evidence = {"harness": "qwen-code", "harness_version": version, "session_id": session_id,
+                "transcript": matches[0].relative_to(projects_dir).as_posix()}
+    return f"qwen-code/{model}", evidence, None
+
+
+def _derive_opencode(records: list[dict], db_path: Path) -> tuple[str | None, dict | None, str | None]:
+    """`opencode/<provider>/<model>` from an OpenCode run and its own database.
+
+    Measured on opencode 1.18.32: the `--format json` stream carries NO model,
+    only a `sessionID`; the model is on that session's assistant rows in the
+    SQLite `message` table (`providerID`, `modelID`). The database is opened
+    READ-ONLY, and a schema that is not the one measured is refused: a drifted
+    schema must read as refused, never as a different model.
+    """
+    import sqlite3
+
+    sessions = {r.get("sessionID") for r in records if r.get("sessionID")}
+    if len(sessions) != 1:
+        return None, None, f"expected one OpenCode sessionID in the stream, found {len(sessions)}"
+    session_id = next(iter(sessions))
+    if not db_path.is_file():
+        return None, None, f"no OpenCode database at {db_path}"
+    try:
+        db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            columns = {table: {row[1] for row in db.execute(f"pragma table_info('{table}')")}
+                       for table in ("message", "session")}
+            if not {"session_id", "data"} <= columns["message"] or not {"id", "version"} <= columns["session"]:
+                return None, None, (f"OpenCode database {db_path} does not have the measured schema "
+                                    "(message.session_id/data, session.id/version); refusing rather "
+                                    "than guessing")
+            rows = db.execute("select data from message where session_id = ?", (session_id,)).fetchall()
+            version_row = db.execute("select version from session where id = ?", (session_id,)).fetchone()
+        finally:
+            db.close()
+    except sqlite3.Error as exc:
+        return None, None, f"cannot read OpenCode database {db_path}: {exc}"
+    if not (version_row and isinstance(version_row[0], str) and version_row[0].strip()):
+        return None, None, f"OpenCode session {session_id!r} has no version in {db_path}"
+    pairs = set()
+    for (data,) in rows:
+        try:
+            message = json.loads(data)
+        except (TypeError, ValueError):
+            return None, None, f"an OpenCode message row for {session_id!r} is not JSON"
+        if isinstance(message, dict) and message.get("role") == "assistant":
+            pairs.add((message.get("providerID"), message.get("modelID")))
+    if not pairs:
+        return None, None, f"OpenCode session {session_id!r} has no assistant message in {db_path}"
+    if any(not (isinstance(a, str) and a and isinstance(b, str) and b) for a, b in pairs):
+        return None, None, f"an assistant message in session {session_id!r} declares no provider or model"
+    if len(pairs) != 1:
+        return None, None, (f"assistant messages in session {session_id!r} disagree "
+                            f"({', '.join(sorted('/'.join(pair) for pair in pairs))})")
+    provider, model = next(iter(pairs))
+    evidence = {"harness": "opencode", "harness_version": version_row[0], "session_id": session_id,
+                "database": db_path.name}
+    return f"opencode/{provider}/{model}", evidence, None
+
+
 def _derive_delegated(args: argparse.Namespace) -> str | None:
     """Both identities for a delegated run (issue #1383), or the refusal.
 
@@ -1084,10 +1251,26 @@ def _derive_delegated(args: argparse.Namespace) -> str | None:
     attributed: there is no rollout to read a model from, and a receipt naming
     an implementer nobody can re-derive is worse than none.
     """
-    sessions_dir = args.codex_sessions_dir or _default_codex_sessions_dir()
-    implementer, evidence, error = _derive_reviewer_from_exec_log(
-        args.implementer_exec_log, sessions_dir, role="implementer"
-    )
+    try:
+        stream_text = args.implementer_exec_log.read_text(encoding="utf-8")
+    except OSError as exc:
+        return f"cannot read implementer exec log {args.implementer_exec_log}: {exc}"
+    records, _bad = _stream_records(stream_text)
+    harness, error = _stream_harness(records)
+    if error is not None:
+        return f"implementer exec log {args.implementer_exec_log} {error}"
+    if harness == "qwen-code":
+        projects = args.qwen_projects_dir or Path.home() / ".qwen" / "projects"
+        implementer, evidence, error = _derive_qwen_code(records, projects)
+    elif harness == "opencode":
+        data_home = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+        db_path = args.opencode_db or Path(data_home) / "opencode" / "opencode.db"
+        implementer, evidence, error = _derive_opencode(records, db_path)
+    else:
+        sessions_dir = args.codex_sessions_dir or _default_codex_sessions_dir()
+        implementer, evidence, error = _derive_reviewer_from_exec_log(
+            args.implementer_exec_log, sessions_dir, role="implementer"
+        )
     if error is not None:
         return error
     projects_dir = args.claude_projects_dir or _default_claude_projects_dir()
@@ -1455,6 +1638,18 @@ def main() -> int:
         type=Path,
         help="DELEGATED lane (issue #1383): the delegated model's --json exec "
              "stream, from which to derive the IMPLEMENTING model",
+    )
+    w.add_argument(
+        "--qwen-projects-dir",
+        type=Path,
+        help="DELEGATED lane, Qwen Code (issue #1454): where its transcripts live "
+             "(default ~/.qwen/projects)",
+    )
+    w.add_argument(
+        "--opencode-db",
+        type=Path,
+        help="DELEGATED lane, OpenCode (issue #1454): its SQLite database, opened "
+             "read-only (default $XDG_DATA_HOME/opencode/opencode.db)",
     )
     w.add_argument(
         "--reviewer-session-id",
