@@ -2667,3 +2667,46 @@ def test_the_schema_enforces_the_cap_and_its_reason_both_ways() -> None:
         "skip_reason": "codex-absent", "extra_passes_reason": "x",
     }
     assert any("extra_passes_reason" in p for p in CM.validate(skipped))
+
+
+# --------------------------------------------------------------------------- #
+# `--local-credentials` (issue #1459): CODEX_REVIEW_LOCAL_CREDENTIALS recorded
+# as measured, refused where /codex:code_review did not launch the reviewer.
+# --------------------------------------------------------------------------- #
+
+def test_local_credentials_is_recorded_on_the_receipt(tmp_path: Path) -> None:
+    proc = _write_ran(tmp_path, "--passes", "1", "--local-credentials", "present")
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next((tmp_path / "out").glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["local_credentials"] == "present"
+
+
+def test_local_credentials_is_refused_on_a_skip_and_the_delegated_lane(tmp_path: Path) -> None:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
+    proc = _write(
+        tmp_path, "--issue", "1459", "--branch", "b", "--status", "skipped",
+        "--reason", "reviewer-unavailable", "--local-credentials", "absent",
+        *_implementer_evidence_args(session_id, projects_dir),
+    )
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "must not carry --local-credentials" in proc.stderr
+    (tmp_path / "d").mkdir()
+    proc = _write(tmp_path / "d", *_delegated_args(tmp_path / "d", "gpt-a", "opus-b"),
+                  "--local-credentials", "absent")
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "--local-credentials is measured by /codex:code_review" in proc.stderr
+
+
+def test_local_credentials_is_OPTIONAL_but_checked_when_present() -> None:
+    assert CM.validate(dict(_RAN_BASE, passes=1)) == []
+    for value in ("present", "absent", "unknown"):
+        assert CM.validate(dict(_RAN_BASE, passes=1, local_credentials=value)) == []
+    assert CM.validate(dict(_RAN_BASE, passes=1, local_credentials="maybe"))
+    skipped = {
+        "schema": 1, "recorded_at": "2026-10-17T00:00:00Z", "issue": "1459",
+        "branch": "b", "status": "skipped", "reviewer": None, "implementer": "claude/y",
+        "skip_reason": "codex-absent", "local_credentials": "absent",
+    }
+    assert any("local_credentials" in p for p in CM.validate(skipped))
+    problems = CM.validate(_delegated_receipt(local_credentials="absent"), "delegated")
+    assert any("local_credentials" in p for p in problems), problems

@@ -25,7 +25,9 @@ GREEN sandboxed GET fails, outside works  -> blocked
 
 from __future__ import annotations
 
+import http.server
 import os
+import threading
 import re
 import shutil
 import subprocess
@@ -77,6 +79,19 @@ if [ "$1" = exec ]; then
         # credential machinery against the configured helpers.
         echo "CREDENTIAL=$(printf 'protocol=https\\nhost=github.com\\n\\n' \\
             | git credential fill 2>/dev/null | grep '^password=' || true)"
+        # #1459: what an ordinary git / gh / ssh call would be handed.
+        echo "HOME=$HOME"
+        echo "CODEX_HOME=${CODEX_HOME-<unset>}"
+        [ -e "$HOME/.config/gh/hosts.yml" ] && echo "HOSTS_YML=present" || echo "HOSTS_YML=absent"
+        echo "SSH_AUTH_SOCK=${SSH_AUTH_SOCK-<unset>}"
+        echo "GIT_SSH_COMMAND=${GIT_SSH_COMMAND-<unset>}"
+        echo "GIT_CONFIG_COUNT=${GIT_CONFIG_COUNT-<unset>}"
+        echo "REMOTE_URL=$(git ls-remote --get-url origin 2>/dev/null)"
+        # What git would SEND, not what config lists: `--get-all` shows raw values,
+        # and the empty-value reset is applied when git builds its headers.
+        if [ -n "$STUB_HTTP_URL" ]; then git ls-remote "$STUB_HTTP_URL" >/dev/null 2>&1; fi
+        echo "SAFE_DIRS=$(git config --get-all safe.directory 2>/dev/null | tr '\\n' ',')"
+        git status >/dev/null 2>&1; echo "GIT_STATUS_RC=$?"
     } > "$STUB_ENV"
     cat > /dev/null
     printf '## Findings\\n\\nNone - no defects found.\\n' > "$out"
@@ -99,6 +114,13 @@ PATH=/usr/bin:/bin exec mktemp "$@"
 """
 
 
+GLOBAL_INSTEADOF_SECRET = "SECRET-GLOBAL-INSTEADOF-7f3a"
+GLOBAL_HEADER_SECRET = "SECRET-GLOBAL-HEADER-91c2"
+LOCAL_URL_SECRET = "SECRET-LOCAL-URL-5d8e"
+LOCAL_INSTEADOF_SECRET = "SECRET-LOCAL-INSTEADOF-2b6c"
+LOCAL_HEADER_SECRET = "SECRET-LOCAL-HEADER-e04f"
+
+
 def _block(heading: str, end: str) -> str:
     text = COMMAND.read_text(encoding="utf-8")
     section = text[text.index(heading):text.index(end)]
@@ -107,7 +129,8 @@ def _block(heading: str, end: str) -> str:
     return m.group(1)
 
 
-def _run(tmp_path: Path, **extra: str) -> tuple[subprocess.CompletedProcess[str], str, str]:
+def _run(tmp_path: Path, local_cfg: tuple[tuple[str, str], ...] = (), repo: bool = True,
+         **extra: str) -> tuple[subprocess.CompletedProcess[str], str, str]:
     stub_dir = tmp_path / "stub"
     stub_dir.mkdir()
     for name, body in (("codex", CODEX_STUB), ("curl", CURL_STUB), ("mktemp", MKTEMP_STUB)):
@@ -120,7 +143,12 @@ def _run(tmp_path: Path, **extra: str) -> tuple[subprocess.CompletedProcess[str]
     (home / ".config" / "gh" / "hosts.yml").write_text(
         "github.com:\n    oauth_token: gho_owner\n", encoding="utf-8")
     (home / ".gitconfig").write_text(
-        "[credential]\n\thelper = \"!f() { echo username=owner; echo password=from-helper; }; f\"\n",
+        "[credential]\n\thelper = \"!f() { echo username=owner; echo password=from-helper; }; f\"\n"
+        # #1459: a token in a GLOBAL url rewrite, an auth header, and a trusted dir.
+        f"[url \"https://x-access-token:{GLOBAL_INSTEADOF_SECRET}@github.com/\"]\n"
+        "\tinsteadOf = https://github.com/\n"
+        f"[http]\n\textraheader = Authorization: bearer {GLOBAL_HEADER_SECRET}\n"
+        "[safe]\n\tdirectory = /srv/trusted-by-the-owner\n",
         encoding="utf-8")
     work = tmp_path / "work"
     work.mkdir()
@@ -128,17 +156,24 @@ def _run(tmp_path: Path, **extra: str) -> tuple[subprocess.CompletedProcess[str]
     base = {"HOME": str(home), "PATH": f"{stub_dir}:{ISOLATED_PATH}"}
     genv = {**os.environ, **base, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
             "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"}
-    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=work, env=genv, check=True, capture_output=True)
-    (work / "a.txt").write_text("x\n", encoding="utf-8")
-    subprocess.run(["git", "add", "-A"], cwd=work, env=genv, check=True, capture_output=True)
+    if repo:
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=work, env=genv, check=True, capture_output=True)
+        (work / "a.txt").write_text("x\n", encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=work, env=genv, check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", "https://github.com/o/r.git"], cwd=work, env=genv,
+                       check=True, capture_output=True)
+        for key, value in local_cfg:
+            subprocess.run(["git", "config", "--local", "--add", key, value], cwd=work, env=genv,
+                           check=True, capture_output=True)
     diff = tmp_path / "d.patch"
     diff.write_text("", encoding="utf-8")
     args_file = tmp_path / "args.txt"
     env_file = tmp_path / "env.txt"
     env = {**os.environ, **base, "DIFF_FILE": str(diff), "STUB_ARGS": str(args_file),
            "STUB_ENV": str(env_file), "GH_TOKEN": "ghp_owner", "GITHUB_TOKEN": "ghp_owner2",
-           **extra}
-    for k in ("CODEX_REVIEW_SANDBOX", "GH_CONFIG_DIR", "GIT_CONFIG_COUNT"):
+           "SSH_AUTH_SOCK": "/tmp/owner-agent.sock", **extra}
+    for k in ("CODEX_REVIEW_SANDBOX", "GH_CONFIG_DIR", "GIT_CONFIG_COUNT", "CODEX_HOME",
+              "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_PARAMETERS", "GIT_SSH_COMMAND"):
         if k not in extra:
             env.pop(k, None)
     script = (_block("### Step 3: Run the review", "### Step 4:")
@@ -188,7 +223,7 @@ def test_no_empty_gh_config_dir_means_no_review(tmp_path: Path) -> None:
     gh then reads the owner's default config. Refuse instead of running."""
     proc, args, _ = _run(tmp_path, STUB_MKTEMP_DIR_FAILS="1")
     assert proc.returncode == 3, proc.stdout + proc.stderr
-    assert "could not create an empty gh config directory" in proc.stderr
+    assert "could not create an empty HOME for the reviewer" in proc.stderr
     assert args == "", "codex exec must not run with the caller's credentials"
 
 
@@ -215,7 +250,7 @@ def test_a_sandbox_that_lets_the_get_through_reports_open(tmp_path: Path) -> Non
 def test_a_sandbox_that_stops_a_reachable_get_reports_blocked(tmp_path: Path) -> None:
     proc, args, _ = _run(tmp_path, STUB_CURL_INSIDE_RC="7", STUB_CURL_OUTSIDE_RC="0")
     assert "CODEX_REVIEW_NETWORK: blocked" in proc.stdout, proc.stdout + proc.stderr
-    assert "network: blocked =====" in proc.stdout
+    assert "network: blocked - local credentials:" in proc.stdout
     # `blocked` measures one endpoint, so the instruction stays (codex review).
     assert "contacts a remote service" in args
 
@@ -295,3 +330,133 @@ def test_the_doc_no_longer_promises_an_unmeasured_fence() -> None:
     text = COMMAND.read_text(encoding="utf-8")
     assert "cannot write or reach\n  the network" not in text
     assert "cannot modify anything" not in text
+
+
+# --------------------------------------------------------------------------- #
+# Issue #1459: every path an ORDINARY gh / git / ssh call would use. Each is
+# behavioural - real git, configured the way the owner's would be - rather than
+# an assertion on the env string, whose quoting is where such fixes go wrong.
+# --------------------------------------------------------------------------- #
+
+def _seen(seen: str, key: str) -> str:
+    for line in seen.splitlines():
+        if line.startswith(f"{key}="):
+            return line.split("=", 1)[1]
+    raise AssertionError(f"{key} not recorded:\n{seen}")
+
+
+@requires_git
+def test_a_global_insteadof_token_is_not_handed_to_the_reviewer(tmp_path: Path) -> None:
+    proc, _, seen = _run(tmp_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert _seen(seen, "REMOTE_URL") == "https://github.com/o/r.git", seen
+    assert GLOBAL_INSTEADOF_SECRET not in seen
+
+
+class _HeaderRecorder(http.server.BaseHTTPRequestHandler):
+    seen: list[str] = []
+
+    def do_GET(self) -> None:  # noqa: N802 - the stdlib's name
+        _HeaderRecorder.seen.extend(f"{k}: {v}" for k, v in self.headers.items())
+        self.send_response(404)
+        self.end_headers()
+
+    def log_message(self, *_args) -> None:
+        pass
+
+
+@requires_git
+def test_extraheaders_are_not_sent_global_or_local(tmp_path: Path) -> None:
+    """Behavioural, on the wire: a real `git ls-remote` against a local server
+    that records every header. A local http.extraheader is still LISTED by git
+    config - and is measured as a local credential - but is not SENT."""
+    _HeaderRecorder.seen = []
+    server = http.server.HTTPServer(("127.0.0.1", 0), _HeaderRecorder)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{server.server_address[1]}/o/r.git"
+        proc, _, seen = _run(tmp_path, STUB_HTTP_URL=url,
+                             local_cfg=(("http.extraheader", f"Authorization: bearer {LOCAL_HEADER_SECRET}"),))
+    finally:
+        server.shutdown()
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert _HeaderRecorder.seen, "git never reached the recorder - this test examined nothing"
+    sent = "\n".join(_HeaderRecorder.seen)
+    assert GLOBAL_HEADER_SECRET not in sent and LOCAL_HEADER_SECRET not in sent, sent
+    assert "CODEX_REVIEW_LOCAL_CREDENTIALS: present (http.extraheader)" in proc.stdout
+
+
+@requires_git
+def test_no_ssh_agent_and_ssh_is_disabled(tmp_path: Path) -> None:
+    _, _, seen = _run(tmp_path)
+    assert _seen(seen, "SSH_AUTH_SOCK") == "<unset>", seen
+    assert _seen(seen, "GIT_SSH_COMMAND") == "false", seen
+
+
+@requires_git
+def test_home_is_empty_so_gh_cannot_find_the_owners_config(tmp_path: Path) -> None:
+    """GH_CONFIG_DIR alone was undone by one variable; with HOME empty, gh's
+    default path holds nothing either."""
+    _, _, seen = _run(tmp_path)
+    home = _seen(seen, "HOME")
+    assert home != str(tmp_path / "home"), seen
+    assert _seen(seen, "HOSTS_YML") == "absent", seen
+    assert _seen(seen, "CODEX_HOME") == str(tmp_path / "home" / ".codex"), seen
+    assert not Path(home).exists(), "the reviewer HOME must be removed after the run"
+
+
+@requires_git
+def test_git_still_works_and_safe_directory_survives(tmp_path: Path) -> None:
+    _, _, seen = _run(tmp_path)
+    assert _seen(seen, "GIT_STATUS_RC") == "0", seen
+    assert "/srv/trusted-by-the-owner" in _seen(seen, "SAFE_DIRS"), seen
+
+
+@requires_git
+def test_no_git_critical_variable_is_named_like_a_key(tmp_path: Path) -> None:
+    """codex's default shell_environment_policy strips *KEY* names; a stripped
+    GIT_CONFIG_KEY_0 beside GIT_CONFIG_COUNT=1 breaks every git command."""
+    _, args, seen = _run(tmp_path)
+    assert _seen(seen, "GIT_CONFIG_COUNT") == "<unset>", seen
+
+
+# --------------------------------------------------------------------------- #
+# CODEX_REVIEW_LOCAL_CREDENTIALS: what cannot be withdrawn is measured and shown,
+# by KEY only - never a value (master's addition on #1459).
+# --------------------------------------------------------------------------- #
+
+LOCAL_CRED_TABLE = [
+    ("clean", (), "absent", []),
+    ("token-in-remote-url",
+     (("remote.mirror.url", f"https://x-access-token:{LOCAL_URL_SECRET}@github.com/o/r.git"),),
+     "present", ["remote.mirror.url"]),
+    ("token-in-local-insteadof",
+     ((f"url.https://x-access-token:{LOCAL_INSTEADOF_SECRET}@github.com/.insteadOf", "https://github.com/"),),
+     "present", ["url.<redacted>.insteadof"]),
+    ("local-extraheader",
+     (("http.extraheader", f"Authorization: bearer {LOCAL_HEADER_SECRET}"),),
+     "present", ["http.extraheader"]),
+    ("ssh-remote-is-not-a-credential", (("remote.ssh.url", "git@github.com:o/r.git"),), "absent", []),
+]
+
+
+@requires_git
+@pytest.mark.parametrize("case, cfg, verdict, keys", LOCAL_CRED_TABLE, ids=[c[0] for c in LOCAL_CRED_TABLE])
+def test_local_credentials_are_measured_by_key(tmp_path: Path, case: str, cfg: tuple, verdict: str,
+                                               keys: list[str]) -> None:
+    proc, _, _ = _run(tmp_path, local_cfg=cfg)
+    out = proc.stdout + proc.stderr
+    marker = [line for line in proc.stdout.splitlines() if line.startswith("CODEX_REVIEW_LOCAL_CREDENTIALS:")]
+    assert marker and marker[0].split(": ", 1)[1].startswith(verdict), out
+    for key in keys:
+        assert key in marker[0], marker
+    for secret in (LOCAL_URL_SECRET, LOCAL_INSTEADOF_SECRET, LOCAL_HEADER_SECRET,
+                   GLOBAL_INSTEADOF_SECRET, GLOBAL_HEADER_SECRET):
+        assert secret not in out, f"{case}: a credential VALUE was printed"
+
+
+@requires_git
+def test_local_credentials_outside_a_repository_is_unknown(tmp_path: Path) -> None:
+    proc, _, _ = _run(tmp_path, repo=False)
+    assert "CODEX_REVIEW_LOCAL_CREDENTIALS: unknown" in proc.stdout, proc.stdout + proc.stderr
+    assert "local credentials: unknown" in proc.stdout
