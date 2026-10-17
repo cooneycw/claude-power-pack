@@ -1,0 +1,27 @@
+{
+  "branch": "issue-1454-counter-model-receipt-derive-the-delegated-impleme",
+  "counts": {
+    "accepted": 4,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "7e1dc4917aa06d421f3116d652b0fa38316c1856",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1454",
+  "local_credentials": "absent",
+  "network": "unverified",
+  "passes": 2,
+  "recorded_at": "2026-10-17T03:08:16Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 14
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/17/rollout-2026-10-17T02-52-54-01a147c6-cfd3-7cc0-8c98-0426bc28916e.jsonl",
+    "thread_id": "01a147c6-cfd3-7cc0-8c98-0426bc28916e"
+  },
+  "schema": 1,
+  "scope": "diff-only",
+  "status": "ran"
+}
