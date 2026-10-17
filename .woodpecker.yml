@@ -501,6 +501,20 @@ steps:
   # found it among ten gates a merge relied on without ever running. Shown RED
   # under this digest with a link to a file that does not exist, not merely shown to run: a step that
   # cannot fail in the image is green by absence (#1036).
+  # Does every relative markdown link in tracked docs resolve? (#1413, in CI
+  # since #1460.) `make verify` ran it from #1413 on, but CI excluded it as
+  # needs-git, so a PR adding a dead link merged green. `git-stage` puts a
+  # pinned git in `.ci-bin`. Running on a CLEAN checkout also means a link to a
+  # gitignored file - present on a developer's disk, absent on GitHub - is
+  # caught here, which no local run can see. Shown RED on its own PR's branch
+  # with a deliberately dead link, not merely shown to run (#1460).
+  md-relative-links-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [git-stage]
+    commands:
+      - export PATH="$PWD/.ci-bin:$PATH"
+      - python3 scripts/check-md-relative-links.py
+
   claude-md-links-check:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
     depends_on: [secret-scan]

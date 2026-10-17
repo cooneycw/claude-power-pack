@@ -771,7 +771,7 @@ version-consistency-check:
 unicode-dashes-check:
 	@python3 scripts/check-unicode-dashes.py
 
-## verify-coverage: gate md-relative-links-check - every relative markdown link in tracked docs resolves; ci: excluded needs-git
+## verify-coverage: gate md-relative-links-check - every relative markdown link in tracked docs resolves; ci: runs md-relative-links-check
 md-relative-links-check:
 	@python3 scripts/check-md-relative-links.py
 
