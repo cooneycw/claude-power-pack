@@ -2892,7 +2892,7 @@ def test_a_read_denied_mid_review_downgrades_full(tmp_path: Path, output: str) -
     proc, receipt = _scoped_write(tmp_path, [_cmd(0, "ok\n"), _cmd(1, output)])
     assert proc.returncode == CM.EXIT_OK, proc.stderr
     assert receipt["scope"] == "unverified"
-    assert "DENIED a read" in proc.stderr
+    assert "read access could not be verified" in proc.stderr
 
 
 def test_an_ordinary_non_zero_exit_keeps_full(tmp_path: Path) -> None:
@@ -2942,3 +2942,14 @@ def test_a_denial_inside_a_command_that_exits_zero_still_downgrades(tmp_path: Pa
                                              _cmd(0, "cat: protected/path: Permission denied\ndone\n")])
     assert proc.returncode == CM.EXIT_OK, proc.stderr
     assert receipt["scope"] == "unverified"
+
+
+def test_file_content_that_says_permission_denied_downgrades_but_says_why(tmp_path: Path) -> None:
+    """Counter-model review pass 2 (LOW): a successful `cat` of code containing
+    the phrase is indistinguishable from a refusal. It downgrades - the safe
+    direction - and the note says read access could not be VERIFIED, not that
+    a read was denied."""
+    proc, receipt = _scoped_write(tmp_path, [_cmd(0, 'READ_DENIAL_MARKERS = ("permission denied",)\n')])
+    assert receipt["scope"] == "unverified"
+    assert "may be a refused read or file CONTENT" in proc.stderr
+    assert "were DENIED" not in proc.stderr

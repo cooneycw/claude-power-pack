@@ -1179,8 +1179,11 @@ def cmd_write(args: argparse.Namespace) -> int:
                 print(
                     f"counter-model-receipt: NOTE - downgrading scope 'full' to "
                     f"'unverified': {denials} command(s) in {args.reviewer_exec_log} "
-                    "ran and were DENIED a read (issue #1461), so the reviewer did "
-                    "not see everything the claimed scope says it could",
+                    "printed a read-denial marker ('Permission denied' / 'Operation "
+                    "not permitted'), so read access could not be verified for the "
+                    "whole review (issue #1461). The marker may be a refused read or "
+                    "file CONTENT that contains the phrase; this cannot tell them "
+                    "apart, and downgrades either way",
                     file=sys.stderr,
                 )
                 args.scope = "unverified"
