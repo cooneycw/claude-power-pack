@@ -248,3 +248,27 @@ def test_titles_escapes_and_entities(line: str, target: str) -> None:
 def test_a_fence_like_content_line_does_not_close_the_fence() -> None:
     text = "```\n```python\n[example](gone.md)\n```\n[real](real.md)\n"
     assert LINKS.links_in(text) == [(5, "real.md")]
+
+
+# --------------------------------------------------------------------------- #
+# Issue #1460: the gate runs in CI. `make verify` ran it from #1413 on, but CI
+# excluded it as needs-git, so a dead link merged green.
+# --------------------------------------------------------------------------- #
+
+def test_the_gate_runs_in_ci_with_the_staged_git() -> None:
+    yaml = pytest.importorskip("yaml")
+    pipeline = yaml.safe_load((REPO / ".woodpecker.yml").read_text(encoding="utf-8"))
+    step = pipeline["steps"]["md-relative-links-check"]
+    assert "git-stage" in step["depends_on"]
+    commands = step["commands"]
+    path_at = next(i for i, c in enumerate(commands) if ".ci-bin" in c)
+    gate_at = next(i for i, c in enumerate(commands) if "check-md-relative-links.py" in c)
+    assert path_at < gate_at
+    assert "||" not in commands[gate_at] and ";" not in commands[gate_at]
+    assert "when" not in step, "a dead link must red push AND pull_request pipelines"
+
+
+def test_the_backtick_ruling_is_recorded_beside_the_gate() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert "BACKTICK CITATIONS STAY UNCHECKED - A RULING" in text
+    assert "CONTENT drift" in text

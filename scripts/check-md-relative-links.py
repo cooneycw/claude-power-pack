@@ -16,6 +16,22 @@ backtick span does not say "this file exists here"; a relative link does. A
 check people learn to route around is worse than none, so the link is the
 population this gate enforces.
 
+BACKTICK CITATIONS STAY UNCHECKED - A RULING, NOT AN OVERSIGHT (issue #1460).
+#1413's rot lived in backtick citations (`path`, `path:line`), and this gate
+does not read them. Measured before deciding, on 205 in-scope docs:
+  - 40 line-bound citations (`path.ext:N`). 23 resolve, and none of those
+    points past its file's end. 17 do not resolve, and confirmed rot is 0:
+    7 are paths in ANOTHER repository (skillc), quoted while narrating it; 4
+    narrate a retired tool inside the spec that records its retirement; 3 sit
+    in dated review documents; 3 are bare names of installed or elsewhere files.
+  - the narrowed backtick-path scan of #1413 gave 35 hits, mostly not rot.
+A checker over that population mostly flags cross-repository and historical
+prose, and a check people learn to route around is worse than none. A
+past-end-of-file check would not have caught the case that opened #1413
+either: R11's citation was CONTENT drift - the cited lines moved under it -
+which no existence or bound check sees. So backtick citations are left to
+review, and the measured backlog is held on #1460.
+
 WHAT IT SKIPS, AND WHY:
 - URLs (any `scheme:`), bare `#anchors`, and absolute `/paths` - not relative
   files in this tree. A link's own `#fragment` is stripped; only the file is
