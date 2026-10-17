@@ -114,11 +114,11 @@ PATH=/usr/bin:/bin exec mktemp "$@"
 """
 
 
-GLOBAL_INSTEADOF_SECRET = "SECRET-GLOBAL-INSTEADOF-7f3a"
-GLOBAL_HEADER_SECRET = "SECRET-GLOBAL-HEADER-91c2"
-LOCAL_URL_SECRET = "SECRET-LOCAL-URL-5d8e"
-LOCAL_INSTEADOF_SECRET = "SECRET-LOCAL-INSTEADOF-2b6c"
-LOCAL_HEADER_SECRET = "SECRET-LOCAL-HEADER-e04f"
+GLOBAL_INSTEADOF_MARK = "marker-global-insteadof"
+GLOBAL_HEADER_MARK = "marker-global-header"
+LOCAL_URL_MARK = "marker-local-url"
+LOCAL_INSTEADOF_MARK = "marker-local-insteadof"
+LOCAL_HEADER_MARK = "marker-local-header"
 
 
 def _block(heading: str, end: str) -> str:
@@ -146,9 +146,11 @@ def _run(tmp_path: Path, local_cfg: tuple[tuple[str, str], ...] = (), repo: bool
     (home / ".gitconfig").write_text(
         "[credential]\n\thelper = \"!f() { echo username=owner; echo password=from-helper; }; f\"\n"
         # #1459: a token in a GLOBAL url rewrite, an auth header, and a trusted dir.
-        f"[url \"https://x-access-token:{GLOBAL_INSTEADOF_SECRET}@github.com/\"]\n"
+        # The "credentials" are low-entropy MARKERS: distinct strings to search
+        # output for, deliberately not key-shaped, so the secret scan stays quiet.
+        f"[url \"https://x-access-token:{GLOBAL_INSTEADOF_MARK}@github.com/\"]\n"
         "\tinsteadOf = https://github.com/\n"
-        f"[http]\n\textraheader = Authorization: bearer {GLOBAL_HEADER_SECRET}\n"
+        f"[http]\n\textraheader = Authorization: bearer {GLOBAL_HEADER_MARK}\n"
         "[safe]\n\tdirectory = /srv/trusted-by-the-owner\n",
         encoding="utf-8")
     work = tmp_path / "work"
@@ -354,7 +356,7 @@ def test_a_global_insteadof_token_is_not_handed_to_the_reviewer(tmp_path: Path) 
     proc, _, seen = _run(tmp_path)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert _seen(seen, "REMOTE_URL") == "https://github.com/o/r.git", seen
-    assert GLOBAL_INSTEADOF_SECRET not in seen
+    assert GLOBAL_INSTEADOF_MARK not in seen
 
 
 class _HeaderRecorder(http.server.BaseHTTPRequestHandler):
@@ -380,13 +382,13 @@ def test_extraheaders_are_not_sent_global_or_local(tmp_path: Path) -> None:
     try:
         url = f"http://127.0.0.1:{server.server_address[1]}/o/r.git"
         proc, _, seen = _run(tmp_path, STUB_HTTP_URL=url,
-                             local_cfg=(("http.extraheader", f"Authorization: bearer {LOCAL_HEADER_SECRET}"),))
+                             local_cfg=(("http.extraheader", f"Authorization: bearer {LOCAL_HEADER_MARK}"),))
     finally:
         server.shutdown()
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert _HeaderRecorder.seen, "git never reached the recorder - this test examined nothing"
     sent = "\n".join(_HeaderRecorder.seen)
-    assert GLOBAL_HEADER_SECRET not in sent and LOCAL_HEADER_SECRET not in sent, sent
+    assert GLOBAL_HEADER_MARK not in sent and LOCAL_HEADER_MARK not in sent, sent
     assert "CODEX_REVIEW_LOCAL_CREDENTIALS: present (http.extraheader)" in proc.stdout
 
 
@@ -432,13 +434,13 @@ def test_no_git_critical_variable_is_named_like_a_key(tmp_path: Path) -> None:
 LOCAL_CRED_TABLE = [
     ("clean", (), "absent", []),
     ("token-in-remote-url",
-     (("remote.mirror.url", f"https://x-access-token:{LOCAL_URL_SECRET}@github.com/o/r.git"),),
+     (("remote.mirror.url", f"https://x-access-token:{LOCAL_URL_MARK}@github.com/o/r.git"),),
      "present", ["remote.mirror.url"]),
     ("token-in-local-insteadof",
-     ((f"url.https://x-access-token:{LOCAL_INSTEADOF_SECRET}@github.com/.insteadOf", "https://github.com/"),),
+     ((f"url.https://x-access-token:{LOCAL_INSTEADOF_MARK}@github.com/.insteadOf", "https://github.com/"),),
      "present", ["url.<redacted>.insteadof"]),
     ("local-extraheader",
-     (("http.extraheader", f"Authorization: bearer {LOCAL_HEADER_SECRET}"),),
+     (("http.extraheader", f"Authorization: bearer {LOCAL_HEADER_MARK}"),),
      "present", ["http.extraheader"]),
     ("ssh-remote-is-not-a-credential", (("remote.ssh.url", "git@github.com:o/r.git"),), "absent", []),
 ]
@@ -454,8 +456,8 @@ def test_local_credentials_are_measured_by_key(tmp_path: Path, case: str, cfg: t
     assert marker and marker[0].split(": ", 1)[1].startswith(verdict), out
     for key in keys:
         assert key in marker[0], marker
-    for secret in (LOCAL_URL_SECRET, LOCAL_INSTEADOF_SECRET, LOCAL_HEADER_SECRET,
-                   GLOBAL_INSTEADOF_SECRET, GLOBAL_HEADER_SECRET):
+    for secret in (LOCAL_URL_MARK, LOCAL_INSTEADOF_MARK, LOCAL_HEADER_MARK,
+                   GLOBAL_INSTEADOF_MARK, GLOBAL_HEADER_MARK):
         assert secret not in out, f"{case}: a credential VALUE was printed"
 
 
@@ -469,7 +471,7 @@ def test_local_credentials_outside_a_repository_is_unknown(tmp_path: Path) -> No
 # Counter-model review of #1459 (gpt-6.1-sol): URL-scoped headers, keys that
 # embed a secret, and config git really uses (includes, worktree scope).
 
-SCOPED_KEY_SECRET = "SECRET-IN-A-KEY-URL-4a19"
+SCOPED_KEY_MARK = "marker-in-a-key-url"
 
 
 @requires_git
@@ -480,47 +482,47 @@ def test_a_url_scoped_extraheader_is_not_sent(tmp_path: Path) -> None:
     try:
         base = f"http://127.0.0.1:{server.server_address[1]}/"
         proc, _, _ = _run(tmp_path, STUB_HTTP_URL=f"{base}o/r.git",
-                          local_cfg=((f"http.{base}.extraheader", f"Authorization: bearer {LOCAL_HEADER_SECRET}"),))
+                          local_cfg=((f"http.{base}.extraheader", f"Authorization: bearer {LOCAL_HEADER_MARK}"),))
     finally:
         server.shutdown()
     assert _HeaderRecorder.seen, "git never reached the recorder - this test examined nothing"
-    assert LOCAL_HEADER_SECRET not in "\n".join(_HeaderRecorder.seen), _HeaderRecorder.seen
+    assert LOCAL_HEADER_MARK not in "\n".join(_HeaderRecorder.seen), _HeaderRecorder.seen
     assert "http.<redacted>.extraheader" in proc.stdout, proc.stdout + proc.stderr
-    assert LOCAL_HEADER_SECRET not in proc.stdout + proc.stderr
+    assert LOCAL_HEADER_MARK not in proc.stdout + proc.stderr
 
 
 @requires_git
 def test_a_secret_inside_a_config_key_is_never_printed(tmp_path: Path) -> None:
     proc, _, _ = _run(tmp_path, local_cfg=(
-        (f"http.https://user:{SCOPED_KEY_SECRET}@example.com/.extraheader", "X-Probe: 1"),))
+        (f"http.https://user:{SCOPED_KEY_MARK}@example.com/.extraheader", "X-Probe: 1"),))
     out = proc.stdout + proc.stderr
     assert "CODEX_REVIEW_LOCAL_CREDENTIALS: present" in proc.stdout, out
-    assert SCOPED_KEY_SECRET not in out, "a key embedding a credential was printed verbatim"
+    assert SCOPED_KEY_MARK not in out, "a key embedding a credential was printed verbatim"
 
 
 @requires_git
 def test_an_included_credential_is_measured(tmp_path: Path) -> None:
     included = tmp_path / "included.gitconfig"
-    included.write_text(f'[remote "inc"]\n\turl = https://x:{LOCAL_URL_SECRET}@github.com/o/r.git\n',
+    included.write_text(f'[remote "inc"]\n\turl = https://x:{LOCAL_URL_MARK}@github.com/o/r.git\n',
                         encoding="utf-8")
     proc, _, _ = _run(tmp_path, local_cfg=(("include.path", str(included)),))
     out = proc.stdout + proc.stderr
     assert "CODEX_REVIEW_LOCAL_CREDENTIALS: present (remote.inc.url)" in proc.stdout, out
-    assert LOCAL_URL_SECRET not in out
+    assert LOCAL_URL_MARK not in out
 
 
 @requires_git
 def test_a_worktree_scoped_credential_is_measured(tmp_path: Path) -> None:
     proc, _, _ = _run(tmp_path, local_cfg=(("extensions.worktreeConfig", "true"),),
-                      worktree_cfg=(("remote.wt.url", f"https://x:{LOCAL_URL_SECRET}@github.com/o/r.git"),))
+                      worktree_cfg=(("remote.wt.url", f"https://x:{LOCAL_URL_MARK}@github.com/o/r.git"),))
     out = proc.stdout + proc.stderr
     assert "CODEX_REVIEW_LOCAL_CREDENTIALS: present (remote.wt.url)" in proc.stdout, out
-    assert LOCAL_URL_SECRET not in out
+    assert LOCAL_URL_MARK not in out
 
 
 # Counter-model review of #1459, pass 2 (gpt-6.1-sol).
 
-ASKPASS_SECRET = "SECRET-FROM-ASKPASS-c71d"
+ASKPASS_MARK = "marker-from-askpass"
 
 
 @requires_git
@@ -533,21 +535,21 @@ def test_an_equals_sign_in_a_url_subsection_is_still_measured_and_reset(tmp_path
     try:
         base = f"http://127.0.0.1:{server.server_address[1]}/a=b/"
         proc, _, _ = _run(tmp_path, STUB_HTTP_URL=f"{base}r.git",
-                          local_cfg=((f"http.{base}.extraheader", f"Authorization: bearer {LOCAL_HEADER_SECRET}"),))
+                          local_cfg=((f"http.{base}.extraheader", f"Authorization: bearer {LOCAL_HEADER_MARK}"),))
     finally:
         server.shutdown()
     out = proc.stdout + proc.stderr
     assert "CODEX_REVIEW_LOCAL_CREDENTIALS: present (http.<redacted>.extraheader)" in proc.stdout, out
     assert _HeaderRecorder.seen, "git never reached the recorder - this test examined nothing"
-    assert LOCAL_HEADER_SECRET not in "\n".join(_HeaderRecorder.seen), _HeaderRecorder.seen
-    assert LOCAL_HEADER_SECRET not in out
+    assert LOCAL_HEADER_MARK not in "\n".join(_HeaderRecorder.seen), _HeaderRecorder.seen
+    assert LOCAL_HEADER_MARK not in out
 
 
 @requires_git
 def test_an_inherited_askpass_program_supplies_no_credential(tmp_path: Path) -> None:
     askpass = tmp_path / "owner-askpass"
-    askpass.write_text(f"#!/bin/sh\necho {ASKPASS_SECRET}\n", encoding="utf-8")
+    askpass.write_text(f"#!/bin/sh\necho {ASKPASS_MARK}\n", encoding="utf-8")
     askpass.chmod(0o755)
     _, _, seen = _run(tmp_path, GIT_ASKPASS=str(askpass), SSH_ASKPASS=str(askpass))
-    assert ASKPASS_SECRET not in seen, seen
+    assert ASKPASS_MARK not in seen, seen
     assert _seen(seen, "CREDENTIAL") == "", seen
