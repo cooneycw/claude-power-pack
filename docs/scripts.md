@@ -1333,3 +1333,6 @@ the closure digests the `check-skill-coverage-map` drift check (above) reads
 back. It is excluded from the ADR 0008 bound as a generator (same shape as
 `codex-skill-sync.py --write`): it emits no verdict, and that drift check is
 the re-derivation the bound asks for.
+
+<!-- #1460 live red: a deliberately dead link; reverted in the next commit -->
+[deliberately dead (#1460)](missing-1460.md)
