@@ -86,6 +86,8 @@ if [ "$1" = exec ]; then
         echo "SSH_AUTH_SOCK=${SSH_AUTH_SOCK-<unset>}"
         echo "GIT_SSH_COMMAND=${GIT_SSH_COMMAND-<unset>}"
         echo "GIT_CONFIG_COUNT=${GIT_CONFIG_COUNT-<unset>}"
+        echo "LC_ALL=${LC_ALL-<unset>}"
+        echo "LANG=${LANG-<unset>}"
         echo "REMOTE_URL=$(git ls-remote --get-url origin 2>/dev/null)"
         # What git would SEND, not what config lists: `--get-all` shows raw values,
         # and the empty-value reset is applied when git builds its headers.
@@ -553,3 +555,11 @@ def test_an_inherited_askpass_program_supplies_no_credential(tmp_path: Path) -> 
     _, _, seen = _run(tmp_path, GIT_ASKPASS=str(askpass), SSH_ASKPASS=str(askpass))
     assert ASKPASS_MARK not in seen, seen
     assert _seen(seen, "CREDENTIAL") == "", seen
+
+
+@requires_git
+def test_the_reviewer_runs_in_the_c_locale(tmp_path: Path) -> None:
+    """#1461: a mid-review read denial is recognised by its message, so the
+    reviewer's commands must print it in the C locale's English form."""
+    _, _, seen = _run(tmp_path, LC_ALL="de_DE.UTF-8", LANG="de_DE.UTF-8")
+    assert _seen(seen, "LC_ALL") == "C" and _seen(seen, "LANG") == "C", seen

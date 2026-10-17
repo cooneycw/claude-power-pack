@@ -1132,7 +1132,10 @@ git merge --no-edit origin/main
    `skipped / reviewer-unavailable`.
 
    **`--scope` carries `/codex:code_review`'s `CODEX_REVIEW_SCOPE` marker
-   (issue #1400), and is re-measured, not trusted as printed.** Unlike
+   (issue #1400), and is re-measured, not trusted as printed. It is REQUIRED
+   on a `ran` write since #1461**, and a read DENIED mid-review (a command that
+   ran and printed "Permission denied" or "Operation not permitted") also
+   downgrades a claimed `full`, to `unverified`. Unlike
    `--reviewer`, this flag still exists - a `full`/`diff-only`/`unverified`
    CLAIM is not itself the measurement the way a model name copied from a
    banner would be, because the writer independently re-checks it against

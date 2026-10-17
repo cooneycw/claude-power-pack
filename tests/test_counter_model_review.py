@@ -229,9 +229,27 @@ def test_a_real_multi_severity_review_parses() -> None:
 # The receipt. Item 3: counts queryable across runs, not only in a PR body.
 # --------------------------------------------------------------------------- #
 
+def _with_scope(args: tuple[str, ...]) -> list[str]:
+    """Since #1461 a default-direction `ran` write REQUIRES --scope. Tests about
+    something else get `unverified` - the value that claims nothing - so they
+    keep testing their own subject. The refusal itself is tested with
+    `_NO_SCOPE_INJECTION`, which this helper honours."""
+    out = list(args)
+    if _NO_SCOPE_INJECTION in out:
+        out.remove(_NO_SCOPE_INJECTION)
+        return out
+    pairs = list(zip(out, out[1:]))
+    if ("--status", "ran") in pairs and "--scope" not in out and "--implementer-exec-log" not in out:
+        out += ["--scope", "unverified"]
+    return out
+
+
+_NO_SCOPE_INJECTION = "<no-scope-injection>"
+
+
 def _write(tmp_path: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [sys.executable, str(SCRIPT), "write", "--dir", str(tmp_path), *args],
+        [sys.executable, str(SCRIPT), "write", "--dir", str(tmp_path), *_with_scope(args)],
         capture_output=True, text=True,
     )
 
@@ -790,7 +808,7 @@ def test_projects_override_never_touches_the_real_claude_directory(
     monkeypatch.setattr(Path, "read_text", isolated_read)
     monkeypatch.setattr(sys, "argv", [
         str(SCRIPT), "write", "--dir", str(tmp_path), "--issue", "1047",
-        "--branch", "b", "--status", "ran",
+        "--branch", "b", "--status", "ran", "--scope", "unverified",
         *_reviewer_evidence_args(exec_log, sessions_dir),
         *_implementer_evidence_args(session_id, projects_dir),
     ])
@@ -896,7 +914,7 @@ def test_a_skip_naming_a_reviewer_is_REFUSED_on_a_receipt_ALREADY_ON_DISK(
 
 def test_a_ran_write_without_a_reviewer_is_REFUSED(tmp_path: Path) -> None:
     session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
-    proc = _write(tmp_path, "--issue", "1046", "--branch", "b", "--status", "ran",
+    proc = _write(tmp_path, "--issue", "1046", "--branch", "b", "--status", "ran", "--scope", "unverified",
                   *_implementer_evidence_args(session_id, projects_dir), "--passes", "1")
     assert proc.returncode == CM.EXIT_USAGE, proc.stderr
     assert list(tmp_path.glob("*.json")) == []
@@ -907,7 +925,7 @@ def test_reviewer_is_derived_from_the_matching_rollout(tmp_path: Path) -> None:
     model = "fixture-review-model"
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, model)
     proc = _write(
-        tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran",
+        tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran", "--scope", "unverified",
         *_reviewer_evidence_args(exec_log, sessions_dir),
         *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
     )
@@ -927,7 +945,7 @@ def test_a_missing_or_unreadable_exec_log_is_refused(
     sessions_dir = tmp_path / "sessions"
     sessions_dir.mkdir()
     proc = _write(
-        tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran",
+        tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran", "--scope", "unverified",
         *_reviewer_evidence_args(exec_log, sessions_dir),
         *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
     )
@@ -943,7 +961,7 @@ def test_an_exec_log_without_a_thread_id_is_refused(tmp_path: Path) -> None:
     sessions_dir = tmp_path / "sessions"
     sessions_dir.mkdir()
     proc = _write(
-        tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran",
+        tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran", "--scope", "unverified",
         *_reviewer_evidence_args(exec_log, sessions_dir),
         *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
     )
@@ -965,7 +983,7 @@ def test_an_exec_log_without_a_matching_rollout_is_refused(tmp_path: Path) -> No
         '{"model":"definitely-not-a-model"}\n', encoding="utf-8"
     )
     proc = _write(
-        tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran",
+        tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran", "--scope", "unverified",
         *_reviewer_evidence_args(exec_log, sessions_dir),
         *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
     )
@@ -1002,7 +1020,7 @@ def test_multiple_matching_reviewer_rollouts_are_refused(tmp_path: Path) -> None
         _rollout_text("gpt-5"), encoding="utf-8"
     )
     proc = _write(
-        tmp_path, "--issue", "1400", "--branch", "b", "--status", "ran",
+        tmp_path, "--issue", "1400", "--branch", "b", "--status", "ran", "--scope", "unverified",
         *_reviewer_evidence_args(exec_log, sessions_dir),
         *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
     )
@@ -1017,7 +1035,7 @@ def test_a_matching_rollout_without_a_model_is_refused(tmp_path: Path) -> None:
     rollout = next(sessions_dir.rglob("*.jsonl"))
     rollout.write_text('{"type":"session_meta"}\n', encoding="utf-8")
     proc = _write(
-        tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran",
+        tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran", "--scope", "unverified",
         *_reviewer_evidence_args(exec_log, sessions_dir),
         *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
     )
@@ -1041,7 +1059,7 @@ def test_thread_match_wins_over_a_newer_unrelated_rollout(tmp_path: Path) -> Non
     os.utime(unrelated_rollout, (2, 2))
 
     proc = _write(
-        tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran",
+        tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran", "--scope", "unverified",
         *_reviewer_evidence_args(exec_log, sessions_dir),
         *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
     )
@@ -1204,7 +1222,7 @@ def test_a_DIFFERENT_reviewer_is_accepted(tmp_path: Path) -> None:
     session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
     proc = _write(
-        tmp_path, "--issue", "934", "--branch", "b", "--status", "ran",
+        tmp_path, "--issue", "934", "--branch", "b", "--status", "ran", "--scope", "unverified",
         *_reviewer_evidence_args(exec_log, sessions_dir),
         *_implementer_evidence_args(session_id, projects_dir), "--passes", "2", "--accepted", "3",
         "--rejected", "1", "--red-cases-proposed", "4",
@@ -1223,7 +1241,7 @@ def test_coverage_cannot_exceed_what_was_proposed(tmp_path: Path) -> None:
     session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
     proc = _write(
-        tmp_path, "--issue", "934", "--branch", "b", "--status", "ran",
+        tmp_path, "--issue", "934", "--branch", "b", "--status", "ran", "--scope", "unverified",
         *_reviewer_evidence_args(exec_log, sessions_dir),
         *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
         "--red-cases-proposed", "2", "--red-cases-already-covered", "5",
@@ -1378,7 +1396,7 @@ def test_an_EMPTY_model_identity_is_refused(tmp_path: Path) -> None:
     session_id, projects_dir = _implementer_session_fixture(tmp_path, '')
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
     proc = _write(
-        tmp_path, "--issue", "934", "--branch", "b", "--status", "ran",
+        tmp_path, "--issue", "934", "--branch", "b", "--status", "ran", "--scope", "unverified",
         *_reviewer_evidence_args(exec_log, sessions_dir),
         *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
     )
@@ -1395,7 +1413,7 @@ def test_two_runs_in_the_same_second_both_SURVIVE(tmp_path: Path) -> None:
     session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
     common = [
-        "--issue", "934", "--status", "ran",
+        "--issue", "934", "--status", "ran", "--scope", "unverified",
         *_reviewer_evidence_args(exec_log, sessions_dir),
         *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
         "--at", "2026-09-15T12:00:00Z",
@@ -1422,7 +1440,7 @@ def _ran_receipt(tmp_path: Path, out_dir: Path, *extra: str) -> subprocess.Compl
     return subprocess.run(
         [
             sys.executable, str(SCRIPT), "write", "--dir", str(out_dir),
-            "--issue", "1269", "--status", "ran", "--passes", "1",
+            "--issue", "1269", "--status", "ran", "--scope", "unverified", "--passes", "1",
             *_reviewer_evidence_args(exec_log, sessions_dir),
             *_implementer_evidence_args(session_id, projects_dir), *extra,
         ],
@@ -1530,7 +1548,7 @@ def test_the_reviewer_is_the_TURN_model_not_the_first_model_key(tmp_path: Path) 
     proc = subprocess.run(
         [
             sys.executable, str(SCRIPT), "write", "--dir", str(out_dir),
-            "--issue", "1269", "--branch", "b", "--status", "ran", "--passes", "1",
+            "--issue", "1269", "--branch", "b", "--status", "ran", "--scope", "unverified", "--passes", "1",
             *_reviewer_evidence_args(exec_log, sessions_dir),
             *_implementer_evidence_args(session_id, projects_dir),
         ],
@@ -1555,7 +1573,7 @@ def test_a_rollout_whose_turns_DISAGREE_is_refused(tmp_path: Path) -> None:
     proc = subprocess.run(
         [
             sys.executable, str(SCRIPT), "write", "--dir", str(out_dir),
-            "--issue", "1269", "--branch", "b", "--status", "ran", "--passes", "1",
+            "--issue", "1269", "--branch", "b", "--status", "ran", "--scope", "unverified", "--passes", "1",
             *_reviewer_evidence_args(exec_log, sessions_dir),
             *_implementer_evidence_args(session_id, projects_dir),
         ],
@@ -2147,7 +2165,7 @@ def test_the_two_directions_cannot_be_MIXED(tmp_path: Path, extra: list[str]) ->
 
 
 def test_a_reviewer_session_alone_is_not_a_direction(tmp_path: Path) -> None:
-    proc = _write(tmp_path, "--issue", "1", "--branch", "b", "--status", "ran",
+    proc = _write(tmp_path, "--issue", "1", "--branch", "b", "--status", "ran", "--scope", "unverified",
                   "--reviewer-session-id", "s")
     assert proc.returncode == CM.EXIT_USAGE
     assert "requires --implementer-exec-log" in proc.stderr
@@ -2541,7 +2559,7 @@ def test_network_is_recorded_on_the_receipt(tmp_path: Path) -> None:
     out_dir = tmp_path / "out"
     proc = _write(
         tmp_path, "--dir", str(out_dir), "--issue", "1450", "--branch", "b",
-        "--status", "ran", "--passes", "1", "--network", "open",
+        "--status", "ran", "--scope", "unverified", "--passes", "1", "--network", "open",
         *_reviewer_evidence_args(exec_log, sessions_dir),
         *_implementer_evidence_args(session_id, projects_dir),
     )
@@ -2610,7 +2628,7 @@ def _write_ran(tmp_path: Path, *extra: str) -> subprocess.CompletedProcess:
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
     return _write(
         tmp_path, "--dir", str(tmp_path / "out"), "--issue", "1400", "--branch", "b",
-        "--status", "ran", *extra,
+        "--status", "ran", "--scope", "unverified", *extra,
         *_reviewer_evidence_args(exec_log, sessions_dir),
         *_implementer_evidence_args(session_id, projects_dir),
     )
@@ -2724,7 +2742,7 @@ def _write_env(tmp_path: Path, env_set: dict[str, str], *args: str) -> subproces
            if k not in ("CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID")}
     env.update(env_set)
     return subprocess.run(
-        [sys.executable, str(SCRIPT), "write", "--dir", str(tmp_path / "out"), *args],
+        [sys.executable, str(SCRIPT), "write", "--dir", str(tmp_path / "out"), *_with_scope(args)],
         capture_output=True, text=True, env=env,
     )
 
@@ -2805,7 +2823,7 @@ def test_a_same_model_review_of_a_codex_implementer_cannot_be_recorded_as_ran(tm
                         encoding="utf-8")
     (sessions / "2026" / "09" / "19" / "rollout-rev-thread.jsonl").write_text(
         _rollout_text("gpt-impl"), encoding="utf-8")
-    proc = _write_env(tmp_path, {}, "--issue", "1453", "--branch", "b", "--status", "ran",
+    proc = _write_env(tmp_path, {}, "--issue", "1453", "--branch", "b", "--status", "ran", "--scope", "unverified",
                       "--passes", "1", "--reviewer-exec-log", str(exec_log),
                       "--implementer-thread-id", thread, "--codex-sessions-dir", str(sessions))
     assert proc.returncode == CM.EXIT_INVALID
@@ -2836,3 +2854,102 @@ def test_a_thread_id_cannot_be_mixed_into_the_delegated_direction(tmp_path: Path
                   "--implementer-thread-id", "t")
     assert proc.returncode == CM.EXIT_USAGE
     assert "--implementer-thread-id (the other direction)" in proc.stderr
+
+
+# --------------------------------------------------------------------------- #
+# Issue #1461: a read DENIED mid-review breaks a `full` claim; an ordinary
+# non-zero exit does not. And `scope` is required on new receipts.
+# --------------------------------------------------------------------------- #
+
+def _cmd(exit_code: int, output: str) -> dict:
+    return {"type": "item.completed",
+            "item": {"id": "item_x", "type": "command_execution", "command": "/bin/bash -lc '...'",
+                     "aggregated_output": output, "exit_code": exit_code, "status": "failed"}}
+
+
+def _scoped_write(tmp_path: Path, items: list[dict]) -> tuple[subprocess.CompletedProcess, dict]:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
+    thread_id = "thread-for-counter-model-test"
+    exec_log = _exec_log_with_items(tmp_path, thread_id, items)
+    sessions_dir = tmp_path / "sessions"
+    rollout_dir = sessions_dir / "2026" / "09" / "19"
+    rollout_dir.mkdir(parents=True)
+    (rollout_dir / f"rollout-{thread_id}.jsonl").write_text(_rollout_text("gpt-5.5"), encoding="utf-8")
+    out_dir = tmp_path / "out"
+    proc = _write(tmp_path, "--dir", str(out_dir), "--issue", "1461", "--branch", "b",
+                  "--status", "ran", "--passes", "1", "--scope", "full",
+                  *_reviewer_evidence_args(exec_log, sessions_dir),
+                  *_implementer_evidence_args(session_id, projects_dir))
+    receipt = json.loads(next(out_dir.glob("*.json")).read_text(encoding="utf-8")) if out_dir.is_dir() else {}
+    return proc, receipt
+
+
+@pytest.mark.parametrize("output", ["cat: other/path: Permission denied\n",
+                                    "ls: cannot open directory '/x': Operation not permitted\n"])
+def test_a_read_denied_mid_review_downgrades_full(tmp_path: Path, output: str) -> None:
+    """RED before #1461: only a sandbox that failed to LAUNCH counted, so a
+    refused read left the receipt saying the reviewer saw everything."""
+    proc, receipt = _scoped_write(tmp_path, [_cmd(0, "ok\n"), _cmd(1, output)])
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    assert receipt["scope"] == "unverified"
+    assert "read access could not be verified" in proc.stderr
+
+
+def test_an_ordinary_non_zero_exit_keeps_full(tmp_path: Path) -> None:
+    """A grep with no match streams exactly like a refused cat (exit 1, failed);
+    only a denial's TEXT counts - decided on purpose, not overlooked."""
+    proc, receipt = _scoped_write(tmp_path, [_cmd(0, "ok\n"), _cmd(1, "0\n")])
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    assert receipt["scope"] == "full"
+
+
+def test_a_ran_write_without_scope_is_refused(tmp_path: Path) -> None:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
+    exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
+    proc = _write(tmp_path, _NO_SCOPE_INJECTION, "--issue", "1461", "--branch", "b",
+                  "--status", "ran", "--passes", "1",
+                  *_reviewer_evidence_args(exec_log, sessions_dir),
+                  *_implementer_evidence_args(session_id, projects_dir))
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "--status ran requires --scope" in proc.stderr
+
+
+def test_scope_is_required_by_the_schema_only_from_the_cutoff() -> None:
+    """The cutoff is a compatibility window for the 204 historical receipts, not
+    a security boundary: recorded_at is self-asserted, so the CLI requires
+    --scope on every write regardless of date."""
+    base = dict(_RAN_BASE, passes=1)
+    before = dict(base, recorded_at="2026-10-16T23:59:59Z")
+    after = dict(base, recorded_at=CM.SCOPE_REQUIRED_FROM)
+    assert CM.validate(before) == []
+    assert any("must carry 'scope'" in p for p in CM.validate(after))
+    assert CM.validate(dict(after, scope="diff-only")) == []
+    assert CM.validate(_delegated_receipt(recorded_at=CM.SCOPE_REQUIRED_FROM), "delegated") == []
+
+
+def test_every_committed_receipt_still_validates_under_the_cutoff() -> None:
+    receipts = [p for p in (ROOT / "docs" / "measurements" / "counter-model").glob("*.json")
+                if not p.name.endswith(".evidence.json")]
+    assert len(receipts) > 200
+    bad = [(p.name, CM.validate(json.loads(p.read_text(encoding="utf-8")), p.name)) for p in receipts]
+    assert not [b for b in bad if b[1]], [b for b in bad if b[1]][:3]
+
+
+def test_a_denial_inside_a_command_that_exits_zero_still_downgrades(tmp_path: Path) -> None:
+    """Counter-model review: `cat protected/path; echo done` exits 0 because the
+    last command succeeded, yet its output carries the denial."""
+    proc, receipt = _scoped_write(tmp_path, [_cmd(0, "ok\n"),
+                                             _cmd(0, "cat: protected/path: Permission denied\ndone\n")])
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    assert receipt["scope"] == "unverified"
+
+
+def test_file_content_that_says_permission_denied_downgrades_but_says_why(tmp_path: Path) -> None:
+    """Counter-model review pass 2 (LOW): a successful `cat` of code containing
+    the phrase is indistinguishable from a refusal. It downgrades - the safe
+    direction - and the note says read access could not be VERIFIED, not that
+    a read was denied."""
+    proc, receipt = _scoped_write(tmp_path, [_cmd(0, 'READ_DENIAL_MARKERS = ("permission denied",)\n')])
+    assert receipt["scope"] == "unverified"
+    assert "may be a refused read or file CONTENT" in proc.stderr
+    assert "were DENIED" not in proc.stderr

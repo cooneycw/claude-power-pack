@@ -62,6 +62,19 @@ STATUSES = ("ran", "skipped")
 #: all. Only `ran` receipts may carry it; a skip recorded no review and
 #: therefore read nothing.
 SCOPES = ("full", "diff-only", "unverified")
+#: `scope` is REQUIRED on a default-direction `ran` receipt recorded at or after
+#: this instant (issue #1461). Before it the field was optional, and 204 of the
+#: 214 committed receipts carry none, so they stay valid. This is a COMPATIBILITY
+#: WINDOW, not a security boundary: `recorded_at` is self-asserted, which is why
+#: the CLI requires --scope on every write regardless of date and only
+#: `validate()` - reading historical files - consults this cutoff.
+SCOPE_REQUIRED_FROM = "2026-10-17T00:00:00Z"
+#: Output fragments that mean a command RAN and was DENIED a read (issue #1461).
+#: An ordinary non-zero exit is NOT a denial - a `grep` with no match also exits
+#: 1 and streams exactly like a refused `cat` (measured, codex-cli 0.162.1) - so
+#: only the text separates them. The reviewer runs under LC_ALL=C, so coreutils
+#: and the shell print these in this form.
+READ_DENIAL_MARKERS = ("permission denied", "operation not permitted")
 # /codex:code_review's pre-run CODEX_REVIEW_NETWORK verdict (issue #1450).
 NETWORKS = ("blocked", "open", "unverified")
 # /codex:code_review's CODEX_REVIEW_LOCAL_CREDENTIALS verdict (issue #1459).
@@ -447,6 +460,42 @@ def _mid_run_sandbox_failures(exec_text: str) -> tuple[int, int]:
     return failures, examined
 
 
+def _mid_run_read_denials(exec_text: str) -> int:
+    """Commands that RAN and were denied a read, by their own output (issue #1461).
+
+    `_mid_run_sandbox_failures` sees only a sandbox that could not launch. A
+    claim of `full` is also false when the reviewer's read of some path was
+    REFUSED partway through - a different path, a policy that changed - and that
+    command launched fine and exited 1. Such a denial is counted; an ordinary
+    non-zero exit is not, because it is indistinguishable by exit code from a
+    `grep` that found nothing. A file whose CONTENT says "Permission denied" is a
+    false denial; it downgrades `full`, which errs safe.
+    """
+    denials = 0
+    for line in exec_text.split("\n"):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(record, dict) or record.get("type") != "item.completed":
+            continue
+        item = record.get("item")
+        if not isinstance(item, dict) or item.get("type") != "command_execution":
+            continue
+        # EXIT 0 IS NOT EXCLUDED (counter-model review): `cat denied; echo done`
+        # prints the denial and exits 0 because its LAST command succeeded. Only
+        # a launch failure (-1, counted by _mid_run_sandbox_failures) or an item
+        # that never finished (None) is skipped here.
+        if item.get("exit_code") in (-1, None):
+            continue
+        output = item.get("aggregated_output")
+        if isinstance(output, str) and any(m in output.lower() for m in READ_DENIAL_MARKERS):
+            denials += 1
+    return denials
+
+
 def _default_codex_sessions_dir() -> Path:
     codex_home = os.environ.get("CODEX_HOME")
     if codex_home:
@@ -758,6 +807,15 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
             )
         elif scope not in SCOPES:
             bad.append(f"{source}: scope {scope!r} not in {SCOPES}")
+
+    if (status == "ran" and not delegated and "scope" not in receipt
+            and isinstance(receipt.get("recorded_at"), str)
+            and receipt["recorded_at"] >= SCOPE_REQUIRED_FROM):
+        bad.append(
+            f"{source}: a default-direction ran receipt recorded at or after "
+            f"{SCOPE_REQUIRED_FROM} must carry 'scope' (issue #1461); a receipt "
+            "without it says nothing about what the reviewer could see"
+        )
 
     if "network" in receipt:
         network = receipt["network"]
@@ -1105,6 +1163,7 @@ def cmd_write(args: argparse.Namespace) -> int:
         if getattr(args, "scope", None) == "full":
             exec_text = args.reviewer_exec_log.read_text(encoding="utf-8")
             failures, examined = _mid_run_sandbox_failures(exec_text)
+            denials = _mid_run_read_denials(exec_text)
             if failures:
                 print(
                     f"counter-model-receipt: NOTE - downgrading scope 'full' to "
@@ -1116,6 +1175,18 @@ def cmd_write(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
                 args.scope = "diff-only"
+            elif denials:
+                print(
+                    f"counter-model-receipt: NOTE - downgrading scope 'full' to "
+                    f"'unverified': {denials} command(s) in {args.reviewer_exec_log} "
+                    "printed a read-denial marker ('Permission denied' / 'Operation "
+                    "not permitted'), so read access could not be verified for the "
+                    "whole review (issue #1461). The marker may be a refused read or "
+                    "file CONTENT that contains the phrase; this cannot tell them "
+                    "apart, and downgrades either way",
+                    file=sys.stderr,
+                )
+                args.scope = "unverified"
             elif examined == 0:
                 # A re-measurement with nothing to examine is not a
                 # confirmation: "0 failed of 0 examined" and "0 failed of 10
@@ -1496,6 +1567,11 @@ def main() -> int:
             and args.direction != DIRECTION_DELEGATED
             and args.reviewer_exec_log is None):
         ap.error("--status ran requires --reviewer-exec-log")
+    if (args.cmd == "write" and args.status == "ran"
+            and args.direction != DIRECTION_DELEGATED and not args.scope):
+        ap.error("--status ran requires --scope: pass /codex:code_review's "
+                 "CODEX_REVIEW_SCOPE marker as printed (issue #1461). A receipt "
+                 "without it says nothing about what the reviewer could see.")
     return int(args.func(args))
 
 
