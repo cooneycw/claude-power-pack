@@ -1146,6 +1146,12 @@ git merge --no-edit origin/main
    The writer refuses a third pass without a reason, and a reason without one
    (issue #1400).
 
+   **CI enforces this receipt at the merge boundary (issue #1452).** The
+   `counter-model-enrolment` pull_request step runs `flow-finish-gate.sh
+   --enrolment-only` against the PR's source branch, so a PR whose branch
+   carries no committed receipt, or skip, at a commit reachable from its head
+   cannot merge, however it was opened.
+
    **Stage the receipt immediately, on every status including a skip (issue
    #1030).** `tests/test_counter_model_review.py::test_every_COMMITTED_
    receipt_is_well_formed_AND_TRACKED` requires every receipt on disk to be

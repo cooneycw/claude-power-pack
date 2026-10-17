@@ -41,6 +41,12 @@
 #   flow-finish-gate.sh --plan check --evidence flow-check
 #                                        # /flow:check: also keep a durable
 #                                        # execution record (issue #1366)
+#   flow-finish-gate.sh --enrolment-only [--branch NAME]
+#                                        # ONLY the counter-model enrolment check
+#                                        # (issue #1452): the CI pull_request step
+#                                        # runs this, so a PR that never passed
+#                                        # through this gate is still checked.
+#                                        # Exit: ok=0 fail=1 usage=2 undecidable=5
 #   flow-finish-gate.sh --check-summary  # lib.cicd check --summary (Makefile
 #                                        # completeness, advisory - see the
 #                                        # exit-code table below: it no longer
@@ -226,11 +232,12 @@ unset _fn
 # with the repository's usual 2-means-UNKNOWN. Omitting this line would silently
 # move every usage error from 2 to 64, which no test that does not assert the usage
 # exit specifically would notice.
-gate_map ok=0 fail=1 usage=2 warn=3 skipped=4
+gate_map ok=0 fail=1 usage=2 warn=3 skipped=4 undecidable=5
 
 PLAN="finish"
 MODE="gate"
 EVIDENCE_SKILL=""
+CM_BRANCH_OVERRIDE=""
 RERUN_ENABLED="${FLOW_GATE_RERUN:-1}"
 MAX_RERUN_IDS=25
 # A `while`/`shift` loop rather than the `for arg` + deferred-flag shape it
@@ -258,6 +265,16 @@ while [[ $# -gt 0 ]]; do
             ;;
         --evidence=*) EVIDENCE_SKILL="${1#--evidence=}"; shift ;;
         --check-summary) MODE="check-summary"; shift ;;
+        --enrolment-only) MODE="enrolment"; shift ;;
+        # The branch whose receipts count (issue #1452). CI checks out a detached
+        # SHA, so the gate cannot read the branch from git there; Woodpecker names
+        # the PR's source branch in $CI_COMMIT_SOURCE_BRANCH and the step passes it.
+        --branch)
+            gate_arg_value "$1" "$#" "${2-}"
+            CM_BRANCH_OVERRIDE="$GATE_VALUE"
+            shift 2
+            ;;
+        --branch=*) CM_BRANCH_OVERRIDE="${1#--branch=}"; shift ;;
         --help|-h)
             sed -n '2,90p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
@@ -272,6 +289,10 @@ if [[ -z "$PLAN" ]]; then
     echo "flow-finish-gate: --plan requires a value" >&2
     gate_exit usage
 fi
+if [[ -n "$CM_BRANCH_OVERRIDE" && "$MODE" != "enrolment" ]]; then
+    echo "flow-finish-gate: --branch is only meaningful with --enrolment-only" >&2
+    gate_exit usage
+fi
 if [[ -n "$EVIDENCE_SKILL" ]]; then
     if [[ ! "$EVIDENCE_SKILL" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]]; then
         echo "flow-finish-gate: --evidence takes a skill name like flow-check" >&2
@@ -282,6 +303,7 @@ fi
 
 #: --- Counter-model enrolment (issue #1171) ---------------------------------
 #: NEGATIVE-CONTROL: controls/counter-model-enrolment
+#: NEGATIVE-CONTROL: controls/counter-model-enrolment-ci
 #:
 #: WHAT THIS EXISTS FOR. `counter-model-uniformity-check.py` reads the receipts
 #: that EXIST. A review that never ran writes no receipt and simply shrinks the
@@ -503,6 +525,9 @@ cm_enrolment_evaluate() {
     if [[ -z "$branch" || "$branch" == "HEAD" ]]; then
         branch=""
     fi
+    # A DECLARED branch wins (issue #1452): the CI step is on a detached SHA and
+    # names the PR's source branch itself, which restores the narrowing above.
+    [[ -n "$CM_BRANCH_OVERRIDE" ]] && branch="$CM_BRANCH_OVERRIDE"
 
     # COMPUTED ONCE, WITH AN EXPLICIT BRANCH, because the nested-expansion form is
     # wrong in both directions and the wrong version renders plausibly (#1061).
@@ -653,7 +678,7 @@ fi
 # cannot be allowlisted (#613). The exclusion is the PLAN, not a flag, so the
 # finish plan - the one that leads to a PR - stays enforced. Pinned by the control
 # cases `good-plan-check-not-enforced` and `bad-explicit-plan-finish-no-receipt`.
-if [[ "$PLAN" == "check" ]]; then
+if [[ "$PLAN" == "check" && "$MODE" != "enrolment" ]]; then
     CM_ENROLMENT_STATE=not-applicable
     CM_ENROLMENT_LINE="not-applicable: plan 'check' (/flow:check) produces no PR, so there is nothing to enrol"
 else
@@ -665,6 +690,39 @@ fi
 # something is wrong. A line that appears only on failure is a line no reader
 # learns to look for.
 echo "FLOW_FINISH_GATE_COUNTER_MODEL: $CM_ENROLMENT_LINE"
+
+# --- Enrolment-only mode (issue #1452) --------------------------------------
+# The check above runs only when someone runs THIS gate, and a pull request that
+# never passed through it merged with no receipt and nothing noticed: 7 of the 40
+# merged PRs before #1452. The CI pull_request step runs this mode, so the merge
+# boundary itself carries the check - the same evaluation, not a second copy.
+#
+# UNDECIDABLE IS NOT A PASS HERE. The finish-mode verdict() lets it through
+# because a finish run cannot do better on a shallow clone, and says so. This
+# mode is the step whose whole job is to decide, so it exits with its own code,
+# never ok: a CI step that passed whenever history was missing would be a check
+# that cannot fail in the one place it runs. The step deepens the clone first.
+if [[ "$MODE" == "enrolment" ]]; then
+    case "$CM_ENROLMENT_STATE" in
+        receipt|skipped|not-enrolled)
+            echo "FLOW_FINISH_GATE: ok"
+            gate_exit ok
+            ;;
+        undecidable)
+            echo "flow-finish-gate: the enrolment check could not decide (history is shallow or truncated here). Deepen the clone and re-run; this is not a pass." >&2
+            echo "FLOW_FINISH_GATE: undecidable (counter-model line $CM_ENROLMENT_STATE)"
+            gate_exit undecidable
+            ;;
+        *)
+            echo "flow-finish-gate: this pull request carries no counter-model receipt for its branch at a commit reachable from its head (issue #1452)." >&2
+            echo "  A review that ran: write its receipt (/flow:auto Step 6, item 1d) and commit it." >&2
+            echo "  No review could run: commit an explicit skip, with a reason from the committed set:" >&2
+            echo "    python3 scripts/counter-model-receipt.py write --status skipped --reason <codex-absent|reviewer-unavailable> --issue <N> --branch <branch> --head \"\$(git rev-parse HEAD)\"" >&2
+            echo "FLOW_FINISH_GATE: fail (counter-model line $CM_ENROLMENT_STATE)"
+            gate_exit fail
+            ;;
+    esac
+fi
 
 # --- Primary path: the deterministic runner ---------------------------------
 if [[ "$RUNNER_OK" -eq 1 ]]; then

@@ -9,7 +9,7 @@
 # Verifying arrival needs a key that is not in this bundle.
 77d82c1e8c4b7d4014c76bbfbd64d06ef05503bfde47b72d47bf06407c80fc21  counter-model-receipt.py
 3e32f3465ab02b0b42831507ed82151093416950b755637eb6e14de942cc7ebf  flow-ci-status.sh
-deab55eae681e47f5e3d4692dd94dc597defd1043be409d1dcbc3b8f3489929b  flow-finish-gate.sh
+b11eb671778b05788c8f2f0531610a83cecc5a32743bef986834cb5357f5455f  flow-finish-gate.sh
 b00aa7f3eb76b8addb05ffa658c09443fe589256e53d0a41a902d47c84d15d1f  flow-worktree-claim.sh
 16302cb9f88ce225f2673dc3730667cd9081f8c44f2696b7f5ee732b27555660  friction-log.sh
 4095e524bf802a97f48add745e5c64addfe1055eac67c484b5ad81e5c26b38a8  gate-lib.sh
