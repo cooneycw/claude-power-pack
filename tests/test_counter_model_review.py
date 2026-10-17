@@ -343,7 +343,7 @@ def test_a_missing_implementer_session_id_is_refused(
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", environment_id)
     proc = _write_session_receipt(tmp_path, tmp_path / "projects")
     assert proc.returncode == CM.EXIT_INVALID, proc.stderr
-    assert "missing implementer session id" in proc.stderr
+    assert "missing implementer identity" in proc.stderr
     assert list(tmp_path.glob("*.json")) == []
 
 
@@ -723,7 +723,7 @@ def test_a_skip_without_a_derivable_implementer_is_refused(
     proc = _write_session_receipt(tmp_path, tmp_path / "projects", *args, status="skipped")
     assert proc.returncode == CM.EXIT_INVALID, proc.stderr
     expected = (
-        "missing implementer session id" if missing == "session-id"
+        "missing implementer identity" if missing == "session-id"
         else "no transcript matching session_id"
     )
     assert expected in proc.stderr
@@ -2130,7 +2130,7 @@ def test_a_DEFAULT_direction_receipt_may_not_carry_implementer_evidence() -> Non
                                  reviewer="codex/gpt-fixture",
                                  reviewer_evidence={"thread_id": "t", "rollout": "r"})
     problems = CM.validate(receipt, "default")
-    assert any("only on a delegated receipt" in p for p in problems), problems
+    assert any("recorded only for a codex/ implementer" in p for p in problems), problems
     del receipt["implementer_evidence"]
     assert CM.validate(receipt, "default") == []
 
@@ -2710,3 +2710,129 @@ def test_local_credentials_is_OPTIONAL_but_checked_when_present() -> None:
     assert any("local_credentials" in p for p in CM.validate(skipped))
     problems = CM.validate(_delegated_receipt(local_credentials="absent"), "delegated")
     assert any("local_credentials" in p for p in problems), problems
+
+
+# --------------------------------------------------------------------------- #
+# A CODEX implementer (issue #1453). Inside a Codex session the implementing
+# identity comes from that session's OWN thread (`$CODEX_THREAD_ID`) and rollout
+# - derived, never borrowed or typed in. Each case sets its environment
+# explicitly: the suite itself runs inside sessions that export both variables.
+# --------------------------------------------------------------------------- #
+
+def _write_env(tmp_path: Path, env_set: dict[str, str], *args: str) -> subprocess.CompletedProcess:
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID")}
+    env.update(env_set)
+    return subprocess.run(
+        [sys.executable, str(SCRIPT), "write", "--dir", str(tmp_path / "out"), *args],
+        capture_output=True, text=True, env=env,
+    )
+
+
+def _codex_thread(tmp_path: Path, model: str = "gpt-impl") -> tuple[str, Path]:
+    _, sessions_dir = _reviewer_derivation_fixture(tmp_path, model, thread_id="codex-impl-thread")
+    return "codex-impl-thread", sessions_dir
+
+
+SKIP_ARGS = ["--issue", "1453", "--branch", "b", "--status", "skipped", "--reason", "reviewer-unavailable"]
+
+
+def test_a_codex_implementer_can_record_reviewer_unavailable_by_flag(tmp_path: Path) -> None:
+    """RED before #1453: the writer demanded a Claude session id that a Codex
+    session does not have, so the documented skip could not be recorded."""
+    thread, sessions = _codex_thread(tmp_path)
+    proc = _write_env(tmp_path, {}, *SKIP_ARGS, "--implementer-thread-id", thread,
+                      "--codex-sessions-dir", str(sessions))
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next((tmp_path / "out").glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["implementer"] == "codex/gpt-impl"
+    assert receipt["implementer_evidence"]["thread_id"] == thread
+    assert receipt["implementer_evidence"]["rollout"].endswith(f"{thread}.jsonl")
+    assert CM.validate(receipt) == []
+
+
+def test_a_codex_session_alone_is_resolved_from_CODEX_THREAD_ID(tmp_path: Path) -> None:
+    thread, sessions = _codex_thread(tmp_path)
+    proc = _write_env(tmp_path, {"CODEX_THREAD_ID": thread}, *SKIP_ARGS,
+                      "--codex-sessions-dir", str(sessions))
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next((tmp_path / "out").glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["implementer"] == "codex/gpt-impl"
+
+
+def test_both_session_variables_set_is_refused_naming_the_flags(tmp_path: Path) -> None:
+    """The COMMON case here (master, #1453): a codex child of a Claude session
+    sees both. Neither is picked silently; the refusal names both exact flags."""
+    thread, sessions = _codex_thread(tmp_path)
+    proc = _write_env(tmp_path, {"CODEX_THREAD_ID": thread, "CLAUDE_CODE_SESSION_ID": "some-claude"},
+                      *SKIP_ARGS, "--codex-sessions-dir", str(sessions))
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "ambiguous implementer" in proc.stderr
+    assert '--implementer-thread-id "$CODEX_THREAD_ID"' in proc.stderr
+    assert '--implementer-session-id "$CLAUDE_CODE_SESSION_ID"' in proc.stderr
+    assert not (tmp_path / "out").exists() or not list((tmp_path / "out").glob("*.json"))
+
+
+def test_an_explicit_flag_resolves_the_ambiguity(tmp_path: Path) -> None:
+    thread, sessions = _codex_thread(tmp_path)
+    proc = _write_env(tmp_path, {"CODEX_THREAD_ID": thread, "CLAUDE_CODE_SESSION_ID": "some-claude"},
+                      *SKIP_ARGS, "--implementer-thread-id", thread, "--codex-sessions-dir", str(sessions))
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+
+
+def test_a_codex_thread_with_no_rollout_is_refused(tmp_path: Path) -> None:
+    _, sessions = _codex_thread(tmp_path)
+    proc = _write_env(tmp_path, {}, *SKIP_ARGS, "--implementer-thread-id", "no-such-thread",
+                      "--codex-sessions-dir", str(sessions))
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "no rollout matching thread_id 'no-such-thread'" in proc.stderr
+
+
+def test_both_implementer_flags_is_a_usage_error(tmp_path: Path) -> None:
+    proc = _write_env(tmp_path, {}, *SKIP_ARGS, "--implementer-thread-id", "t",
+                      "--implementer-session-id", "s")
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "name two different implementers" in proc.stderr
+
+
+def test_a_same_model_review_of_a_codex_implementer_cannot_be_recorded_as_ran(tmp_path: Path) -> None:
+    """#864 c6227202040: a same-model subagent review is NOT cross-model. With
+    the implementer and the reviewer both codex/gpt-impl, `ran` is refused; the
+    honest record is skipped / reviewer-unavailable."""
+    thread, sessions = _codex_thread(tmp_path, "gpt-impl")
+    exec_log = tmp_path / "rev.jsonl"
+    exec_log.write_text(json.dumps({"type": "thread.started", "thread_id": "rev-thread"}) + "\n",
+                        encoding="utf-8")
+    (sessions / "2026" / "09" / "19" / "rollout-rev-thread.jsonl").write_text(
+        _rollout_text("gpt-impl"), encoding="utf-8")
+    proc = _write_env(tmp_path, {}, "--issue", "1453", "--branch", "b", "--status", "ran",
+                      "--passes", "1", "--reviewer-exec-log", str(exec_log),
+                      "--implementer-thread-id", thread, "--codex-sessions-dir", str(sessions))
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "reviewer and implementer are the same model" in proc.stderr
+
+
+def test_the_delegated_lane_is_untouched_with_both_variables_set(tmp_path: Path) -> None:
+    """master on #1453: /codex:auto's delegated write passes --implementer-exec-log
+    and never consults the environment, so the ambiguity refusal cannot fire there."""
+    args = _delegated_args(tmp_path, "gpt-a", "opus-b")
+    proc = _write_env(tmp_path, {"CODEX_THREAD_ID": "x", "CLAUDE_CODE_SESSION_ID": "y"}, *args)
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next((tmp_path / "out").glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["direction"] == "delegated" and receipt["implementer"] == "codex/gpt-a"
+
+
+def test_codex_implementer_evidence_is_accepted_and_checked_by_the_schema() -> None:
+    base = dict(_RAN_BASE, passes=1, implementer="codex/gpt-impl", reviewer="claude/opus-x")
+    assert CM.validate(dict(base, implementer_evidence={"thread_id": "t", "rollout": "r"})) == []
+    assert any("must name a non-empty 'thread_id' and 'rollout'" in p
+               for p in CM.validate(dict(base, implementer_evidence={"thread_id": "t"})))
+
+
+def test_a_thread_id_cannot_be_mixed_into_the_delegated_direction(tmp_path: Path) -> None:
+    """Counter-model red case (#1453): --implementer-thread-id names the default
+    direction's implementer and must not ride along with --implementer-exec-log."""
+    proc = _write(tmp_path, *_delegated_args(tmp_path, "gpt-a", "opus-b"),
+                  "--implementer-thread-id", "t")
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "--implementer-thread-id (the other direction)" in proc.stderr

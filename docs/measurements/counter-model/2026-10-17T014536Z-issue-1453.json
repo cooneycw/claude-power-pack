@@ -1,0 +1,27 @@
+{
+  "branch": "issue-1453-counter-model-receipt-a-codex-implementer-cannot-r",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 1
+  },
+  "head": "0ef333e8545d8463a8a66509fd9501109b9c7b0c",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1453",
+  "local_credentials": "absent",
+  "network": "unverified",
+  "passes": 1,
+  "recorded_at": "2026-10-17T01:45:36Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 6
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/17/rollout-2026-10-17T01-45-07-01a14788-bd80-73d0-ac5b-91911059020c.jsonl",
+    "thread_id": "01a14788-bd80-73d0-ac5b-91911059020c"
+  },
+  "schema": 1,
+  "scope": "diff-only",
+  "status": "ran"
+}

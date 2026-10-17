@@ -160,6 +160,20 @@ gate running from a worktree validates against that worktree rather than through
 the stable path's symlink into the primary checkout. Where no copy resolves, the
 verdict is `unknown` and the gate reds: an unvalidatable skip is not a pass.
 
+**In a CODEX session the implementer is that session (issue #1453).** Codex
+exports `CODEX_THREAD_ID` to every command it runs, and the writer derives the
+implementer from that thread's own rollout - the same derivation it uses for a
+Codex reviewer - and records the thread and rollout as `implementer_evidence`.
+Pass it explicitly: `--implementer-thread-id "$CODEX_THREAD_ID"`. Explicitly,
+because a codex process launched from a Claude session sees BOTH
+`CODEX_THREAD_ID` and `CLAUDE_CODE_SESSION_ID`; with neither flag the writer
+refuses that ambiguity and names both flags rather than guessing. The delegated
+lane (`/codex:auto`, `--implementer-exec-log`) never consults the environment.
+**A same-model review is not a counter-model review:** an independent subagent of
+the implementing model cannot be recorded as `ran` (the writer refuses reviewer
+== implementer), so a run with no OTHER model available records
+`skipped / reviewer-unavailable`.
+
 **The match is by ANCESTRY, and ancestry is not identity.** A receipt counts
 when its recorded `head` is HEAD or an ancestor of it, so a review taken earlier
 on this branch still satisfies a later commit - including after the Step-4
