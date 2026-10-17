@@ -3001,3 +3001,80 @@ def test_fallback_runs_verify_only_for_plans_that_declare_it(tmp_path: Path, pla
     else:
         assert got.returncode != 1, out
         assert "make verify" not in out, out
+
+
+# --------------------------------------------------------------------------- #
+# The CI pull_request step (issue #1452). The mode's verdicts are scored by
+# controls/counter-model-enrolment-ci; these pin the step's three load-bearing
+# properties, each of which the mode cannot see from inside.
+# --------------------------------------------------------------------------- #
+
+def _enrolment_step() -> dict:
+    yaml = pytest.importorskip("yaml")
+    pipeline = yaml.safe_load((ROOT / ".woodpecker.yml").read_text(encoding="utf-8"))
+    return pipeline["steps"]["counter-model-enrolment"]
+
+
+def test_ci_enrolment_step_runs_on_pull_requests_only() -> None:
+    """A main push would red every merged PR: squash-merging removes the
+    branch commits, so ancestry answers no for every receipt."""
+    assert _enrolment_step()["when"] == [{"event": "pull_request"}]
+
+
+def test_ci_enrolment_step_deepens_history_before_deciding() -> None:
+    """On the depth-1 clone the mode answers undecidable (exit 5), so a step that
+    skipped the fetch could never pass - and one that tolerated exit 5 could
+    never fail. The fetch must come first, and nothing may swallow the gate's
+    exit."""
+    commands = _enrolment_step()["commands"]
+    fetch = next(i for i, c in enumerate(commands) if "--unshallow" in c)
+    gate = next(i for i, c in enumerate(commands) if "--enrolment-only" in c)
+    assert fetch < gate
+    assert "|| true" not in commands[gate] and ";" not in commands[gate]
+
+
+def test_ci_enrolment_step_names_the_source_branch() -> None:
+    """Without --branch, a detached checkout matches by ancestry alone and a
+    receipt recorded for another branch satisfies this PR."""
+    gate = next(c for c in _enrolment_step()["commands"] if "--enrolment-only" in c)
+    assert '--branch "$CI_COMMIT_SOURCE_BRANCH"' in gate
+
+
+@requires_git
+@requires_bash
+def test_branch_without_enrolment_only_is_a_usage_error(tmp_path: Path) -> None:
+    proc = subprocess.run(["bash", str(SCRIPT), "--branch", "x"], cwd=tmp_path,
+                          capture_output=True, text=True)
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "--branch is only meaningful with --enrolment-only" in proc.stderr
+
+
+@requires_git
+@requires_bash
+@pytest.mark.parametrize("args", [["--enrolment-only", "--branch="], ["--enrolment-only", "--branch", ""]])
+def test_an_empty_branch_is_refused_not_ignored(tmp_path: Path, args: list[str]) -> None:
+    """Counter-model review: an empty override used to be dropped silently, so an
+    unset $CI_COMMIT_SOURCE_BRANCH turned the CI step into ancestry-only."""
+    proc = subprocess.run(["bash", str(SCRIPT), *args], cwd=tmp_path,
+                          capture_output=True, text=True)
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "--branch was given an empty value" in proc.stderr
+
+
+@requires_git
+@requires_bash
+def test_plan_check_does_not_exempt_enrolment_only(tmp_path: Path) -> None:
+    """Counter-model red case: `--plan check` exempts a FINISH run (it produces no
+    PR), but the CI mode is asked about a PR and must still decide."""
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"}
+    subprocess.run(["git", "init", "-q", "-b", "master"], cwd=tmp_path, env=env, check=True)
+    (tmp_path / "docs" / "measurements" / "counter-model").mkdir(parents=True)
+    (tmp_path / "docs" / "measurements" / "counter-model" / ".keep").write_text("", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, env=env, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=tmp_path, env=env, check=True)
+    proc = subprocess.run(
+        ["bash", str(SCRIPT), "--plan", "check", "--enrolment-only", "--branch", "issue-9-pr"],
+        cwd=tmp_path, env=env, capture_output=True, text=True)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "FLOW_FINISH_GATE: fail (counter-model line missing)" in proc.stdout

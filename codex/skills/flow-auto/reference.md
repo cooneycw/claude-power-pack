@@ -1146,6 +1146,12 @@ git merge --no-edit origin/main
    The writer refuses a third pass without a reason, and a reason without one
    (issue #1400).
 
+   **CI enforces this receipt at the merge boundary (issue #1452).** The
+   `counter-model-enrolment` pull_request step runs `flow-finish-gate.sh
+   --enrolment-only` against the PR's source branch, so a PR whose branch
+   carries no committed receipt, or skip, at a commit reachable from its head
+   cannot merge, however it was opened.
+
    **Stage the receipt immediately, on every status including a skip (issue
    #1030).** `tests/test_counter_model_review.py::test_every_COMMITTED_
    receipt_is_well_formed_AND_TRACKED` requires every receipt on disk to be
@@ -1945,7 +1951,7 @@ FLOW_CI_PIPELINE: <number|->
 FLOW_CI_URL: <url|->
 FLOW_CI_WAIT: none | settled | expired (<N>s)
 FLOW_CI_FAILED_STEP: <name>        (repeated, only on failure)
-FLOW_CI_PRECODE_FAILURE: <name>    (repeated, only on failure; a failed `clone`-type step)
+FLOW_CI_PRECODE_FAILURE: <name>    (repeated, only on failure; a failed `clone`-type step, or since #1411 a `*-stage` step exiting 75 - a stager that could not fetch)
 FLOW_CI_FAILURE_ORIGIN: precode | code | mixed | unknown   (only on failure)
 FLOW_CI_STATUS: success | failure | running | pending | not-found | unknown
 ```
@@ -1959,8 +1965,12 @@ Act on `FLOW_CI_STATUS`:
   connect timeout on kyle's push pipelines, say) is a different problem from a
   red `test-unit`, and only the step name distinguishes them.
   Read `FLOW_CI_FAILURE_ORIGIN` before touching the diff (issue #1342):
-  `precode` means the checkout failed before any of the change's code ran -
-  retry or look at the infrastructure, do not bisect your own change. `unknown`
+  `precode` means the failure happened before any of the change's code ran -
+  the checkout (`clone`), or since #1411 a `*-stage` stager that could not
+  fetch its tool (exit 75). Retry or look at the infrastructure, do not bisect
+  your own change. Note `*-stage` is a naming convention honoured in every repo
+  that uses `flow-ci-status.sh`: name a step that way only if exit 75 really
+  means a fetch failure there. `unknown`
   is NOT `code`: the lane could not classify the step, so read the step log.
 - `running` / `pending` -> the wait window expired with the pipeline still
   going. Non-blocking: report that CI was still running and let the user decide

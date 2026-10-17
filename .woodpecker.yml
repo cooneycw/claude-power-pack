@@ -8,6 +8,7 @@
 #              + eli5-vendor-check
 #              + eli5-upstream-drift (advisory)
 #              + tool-risk-drift
+#              + counter-model-enrolment (pull requests only, #1452)
 #
 # The Docker MCP runtime (second-opinion + aws-secrets-agent images, compose
 # policy checks, image CVE/SBOM scans, and the runtime smoke stage) was retired
@@ -729,6 +730,44 @@ steps:
   # whose path runs `python3 -m lib.cicd` with no venv, no network and no
   # pydantic - verified as a whole control under this exact image digest with
   # --network none and a read-only workspace.
+  # COUNTER-MODEL ENROLMENT AT THE MERGE BOUNDARY (issue #1452). The finish gate
+  # asks "is a counter-model review recorded for this branch?" only when someone
+  # runs it, and 7 of the 40 merged PRs before #1452 never did - they merged with
+  # no receipt and nothing noticed. This step asks on every pull request, through
+  # the SAME evaluation (`flow-finish-gate.sh --enrolment-only`), not a copy.
+  #
+  # PR EVENTS ONLY. On a main push the PR's branch commits are gone (CPP squash-
+  # merges), so ancestry answers no for every receipt; the gate documents why a
+  # main-side copy of this check would red every merged PR.
+  #
+  # THE HISTORY FETCH IS LOAD-BEARING. The clone is `--depth=1`, where "no receipt
+  # reachable from HEAD" may be truncation rather than absence; the gate answers
+  # `undecidable` there, and in this mode undecidable exits 5, never 0. So the step
+  # deepens the clone first (the repository is public; no credential is needed).
+  # A fetch that fails reds the step with its own message: retry it, it is not a
+  # finding about the change.
+  #
+  # `--branch` IS LOAD-BEARING TOO. The checkout is a detached SHA, so without it
+  # ancestry alone decides and a receipt recorded for ANOTHER branch would satisfy
+  # this PR - the anchor of controls/counter-model-enrolment-ci is exactly that.
+  counter-model-enrolment:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [git-stage]
+    when:
+      - event: pull_request
+    commands:
+      - export PATH="$PWD/.ci-bin:$PATH"
+      - |
+        if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
+          ok=0
+          for attempt in 1 2 3; do
+            if git fetch --quiet --unshallow origin; then ok=1; break; fi
+            sleep 10
+          done
+          [ "$ok" = 1 ] || { echo "counter-model-enrolment: could not deepen the clone after 3 attempts - a fetch failure, not a finding; retry the pipeline"; exit 1; }
+        fi
+      - bash scripts/flow-finish-gate.sh --enrolment-only --branch "$CI_COMMIT_SOURCE_BRANCH"
+
   negative-controls:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
     depends_on: [secret-scan, shellcheck-stage, jq-stage, make-stage, git-stage]
