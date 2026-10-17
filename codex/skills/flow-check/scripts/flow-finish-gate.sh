@@ -612,6 +612,7 @@ cm_enrolment_evaluate() {
             return
         fi
         CM_ENROLMENT_STATE=receipt
+        CM_ENROLMENT_RECEIPT_FILE="$f"
         CM_ENROLMENT_LINE="receipt: $(basename "$f")$_cm_where"
         return
     done
@@ -714,6 +715,18 @@ echo "FLOW_FINISH_GATE_COUNTER_MODEL: $CM_ENROLMENT_LINE"
 # never ok: a CI step that passed whenever history was missing would be a check
 # that cannot fail in the one place it runs. The step deepens the clone first.
 if [[ "$MODE" == "enrolment" ]]; then
+    # A NEW ran receipt must carry `scope` (issue #1461). The CLI already refuses
+    # to write one without it, and validate() requires it only from a date -
+    # which a hand-built receipt could backdate. Here the receipt is the PR's own,
+    # evaluated whatever date it claims, so the requirement holds at the merge
+    # boundary. Delegated receipts carry none by design.
+    if [[ "$CM_ENROLMENT_STATE" == "receipt" && -n "${CM_ENROLMENT_RECEIPT_FILE:-}" ]] \
+            && [[ "$(cm_field "$CM_ENROLMENT_RECEIPT_FILE" direction)" != "delegated" ]] \
+            && [[ -z "$(cm_field "$CM_ENROLMENT_RECEIPT_FILE" scope)" ]]; then
+        echo "flow-finish-gate: receipt $(basename "$CM_ENROLMENT_RECEIPT_FILE") records a review that ran but carries no 'scope' (issue #1461); write it with --scope \"\$CODEX_REVIEW_SCOPE\"." >&2
+        echo "FLOW_FINISH_GATE: fail (counter-model line receipt-without-scope)"
+        gate_exit fail
+    fi
     case "$CM_ENROLMENT_STATE" in
         receipt|skipped)
             echo "FLOW_FINISH_GATE: ok"

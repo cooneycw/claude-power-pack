@@ -416,6 +416,9 @@ NETWORK_LINE=" Do not run any command that contacts a remote service (gh, git fe
 #   answer git's credential prompt (counter-model review).
 # A DIRECT ssh call still finds the account's ~/.ssh: OpenSSH reads the home
 # directory from the password database, not $HOME (counter-model review).
+# LC_ALL=C and LANG=C (issue #1461): a read DENIED mid-review is recognised in
+# the receipt writer by its message ("Permission denied", "Operation not
+# permitted"), so the reviewer's commands print those in the C locale's form.
 # NOT withdrawn, and so MEASURED below rather than promised away: a credential
 # embedded in the repository's own config, and files the reviewer can read by
 # absolute path. approval_policy is pinned to "never" so no host configuration
@@ -488,7 +491,7 @@ cat "$DIFF_FILE" | env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GIT
     GH_CONFIG_DIR="$REVIEW_HOME/.config/gh" GIT_TERMINAL_PROMPT=0 \
     GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$REVIEW_HOME/.gitconfig" \
     GIT_CONFIG_PARAMETERS="'credential.helper'='' 'http.extraheader'=''$REVIEW_HEADER_RESETS" \
-    GIT_SSH_COMMAND=false \
+    GIT_SSH_COMMAND=false LC_ALL=C LANG=C \
     codex exec \
     --sandbox "$REVIEW_SANDBOX" \
     -c 'approval_policy="never"' \
