@@ -25,6 +25,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -2205,7 +2206,7 @@ def test_a_THREADLESS_implementer_stream_is_refused_not_attributed(tmp_path: Pat
                         encoding="utf-8")
     proc = _write(tmp_path, *args)
     assert proc.returncode == CM.EXIT_INVALID
-    assert "implementer exec log" in proc.stderr and "no thread_id" in proc.stderr
+    assert "implementer exec log" in proc.stderr and "names no harness this writer recognises" in proc.stderr
     assert not list(tmp_path.glob("*.json"))
 
 
@@ -2953,3 +2954,223 @@ def test_file_content_that_says_permission_denied_downgrades_but_says_why(tmp_pa
     assert receipt["scope"] == "unverified"
     assert "may be a refused read or file CONTENT" in proc.stderr
     assert "were DENIED" not in proc.stderr
+
+
+# --------------------------------------------------------------------------- #
+# Issue #1454: the delegated implementer from Qwen Code and OpenCode streams.
+# The fixtures are REAL harness output (qwen 0.15.10, opencode 1.18.32),
+# captured against a stub model endpoint, each with a tool-call turn - see
+# tests/fixtures/delegated-streams/README.md. No live-model run is captured.
+# --------------------------------------------------------------------------- #
+
+STREAMS = ROOT / "tests" / "fixtures" / "delegated-streams"
+QWEN_STREAM = STREAMS / "qwen-code-0.15.10.stream.jsonl"
+QWEN_TRANSCRIPT = STREAMS / "qwen-code-0.15.10.transcript.jsonl"
+OPENCODE_STREAM = STREAMS / "opencode-1.18.32.stream.jsonl"
+OPENCODE_ROWS = STREAMS / "opencode-1.18.32.db-rows.jsonl"
+
+
+def _qwen_projects(tmp_path: Path, transcript_text: str | None = None) -> Path:
+    sid = json.loads(QWEN_STREAM.read_text(encoding="utf-8").splitlines()[0])["session_id"]
+    chats = tmp_path / "qwen-projects" / "-workspace-slug" / "chats"
+    chats.mkdir(parents=True)
+    (chats / f"{sid}.jsonl").write_text(transcript_text if transcript_text is not None
+                                        else QWEN_TRANSCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+    return tmp_path / "qwen-projects"
+
+
+def _opencode_db(tmp_path: Path, rows: list[dict] | None = None, message_columns: str = "id, session_id, data") -> Path:
+    import sqlite3
+
+    if rows is None:
+        rows = [json.loads(line) for line in OPENCODE_ROWS.read_text(encoding="utf-8").splitlines()]
+    db_path = tmp_path / "opencode.db"
+    db = sqlite3.connect(db_path)
+    db.execute("create table session (id text, version text, model text)")
+    db.execute(f"create table message ({message_columns}, time_created integer default 0)")
+    for r in rows:
+        if r["table"] == "session":
+            db.execute("insert into session values (?, ?, ?)", (r["id"], r["version"], r["model"]))
+        elif "data" in message_columns:
+            db.execute("insert into message (id, session_id, data) values (?, ?, ?)",
+                       (r["id"], r["session_id"], r["data"]))
+    db.commit()
+    db.close()
+    return db_path
+
+
+def _delegated_write(tmp_path: Path, stream: Path, *extra: str) -> subprocess.CompletedProcess:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-b")
+    return _write(tmp_path, "--dir", str(tmp_path / "out"), "--issue", "1454", "--branch", "b",
+                  "--status", "ran", "--passes", "1", "--implementer-exec-log", str(stream),
+                  "--reviewer-session-id", session_id, "--claude-projects-dir", str(projects_dir), *extra)
+
+
+def _receipt(tmp_path: Path) -> dict:
+    return json.loads(next((tmp_path / "out").glob("*.json")).read_text(encoding="utf-8"))
+
+
+def test_a_qwen_code_implementer_is_derived_from_its_stream_and_transcript(tmp_path: Path) -> None:
+    """RED before #1454: the writer refused any stream with no Codex thread."""
+    proc = _delegated_write(tmp_path, QWEN_STREAM, "--qwen-projects-dir", str(_qwen_projects(tmp_path)))
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = _receipt(tmp_path)
+    assert receipt["implementer"] == "qwen-code/qwen3-coder:30b"
+    ev = receipt["implementer_evidence"]
+    assert ev["harness"] == "qwen-code" and ev["harness_version"] == "0.15.10"
+    assert ev["transcript"].endswith(".jsonl") and ev["session_id"]
+    assert CM.validate(receipt) == []
+
+
+def test_an_opencode_implementer_is_derived_from_its_stream_and_database(tmp_path: Path) -> None:
+    proc = _delegated_write(tmp_path, OPENCODE_STREAM, "--opencode-db", str(_opencode_db(tmp_path)))
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = _receipt(tmp_path)
+    assert receipt["implementer"] == "opencode/gemma-ollama/gemma4-code"
+    ev = receipt["implementer_evidence"]
+    assert ev["harness"] == "opencode" and ev["harness_version"] == "1.18.32" and ev["database"] == "opencode.db"
+    assert CM.validate(receipt) == []
+
+
+def test_the_captures_include_a_tool_call_turn() -> None:
+    """master's condition on #1454: a text-only turn may skip the framing a real
+    implementation run produces, so each capture holds a tool call."""
+    qwen = QWEN_STREAM.read_text(encoding="utf-8")
+    opencode = OPENCODE_STREAM.read_text(encoding="utf-8")
+    assert '"tool_use"' in qwen and '"tool_result"' in qwen
+    assert '"type":"tool_use"' in opencode.replace(" ", "")
+
+
+def test_a_qwen_transcript_that_disagrees_with_the_stream_is_refused(tmp_path: Path) -> None:
+    text = QWEN_TRANSCRIPT.read_text(encoding="utf-8").replace('"model":"qwen3-coder:30b"', '"model":"other-model"')
+    proc = _delegated_write(tmp_path, QWEN_STREAM, "--qwen-projects-dir", str(_qwen_projects(tmp_path, text)))
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "disagrees with the transcript" in proc.stderr
+
+
+def test_a_missing_qwen_transcript_is_refused(tmp_path: Path) -> None:
+    empty = tmp_path / "empty-projects"
+    empty.mkdir()
+    proc = _delegated_write(tmp_path, QWEN_STREAM, "--qwen-projects-dir", str(empty))
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "expected one Qwen Code transcript" in proc.stderr
+
+
+def test_opencode_assistant_messages_that_disagree_are_refused(tmp_path: Path) -> None:
+    rows = [json.loads(line) for line in OPENCODE_ROWS.read_text(encoding="utf-8").splitlines()]
+    for r in rows:
+        if r["table"] == "message" and '"role":"assistant"' in r["data"]:
+            r["data"] = r["data"].replace('"modelID":"gemma4-code"', '"modelID":"other"', 1)
+            break
+    proc = _delegated_write(tmp_path, OPENCODE_STREAM, "--opencode-db", str(_opencode_db(tmp_path, rows)))
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "disagree" in proc.stderr
+
+
+def test_an_opencode_schema_drift_is_refused_never_guessed(tmp_path: Path) -> None:
+    """master's condition: a schema that is not the measured one reads as REFUSED."""
+    db = _opencode_db(tmp_path, message_columns="id, session_id, payload")
+    proc = _delegated_write(tmp_path, OPENCODE_STREAM, "--opencode-db", str(db))
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "does not have the measured schema" in proc.stderr
+
+
+def test_a_missing_opencode_database_is_refused(tmp_path: Path) -> None:
+    proc = _delegated_write(tmp_path, OPENCODE_STREAM, "--opencode-db", str(tmp_path / "nope.db"))
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "no OpenCode database" in proc.stderr
+
+
+def test_a_stream_with_two_harness_shapes_is_refused(tmp_path: Path) -> None:
+    mixed = tmp_path / "mixed.jsonl"
+    mixed.write_text(QWEN_STREAM.read_text(encoding="utf-8") + OPENCODE_STREAM.read_text(encoding="utf-8"),
+                     encoding="utf-8")
+    proc = _delegated_write(tmp_path, mixed)
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "more than one harness" in proc.stderr
+
+
+def test_delegated_evidence_is_validated_per_harness() -> None:
+    qwen = _delegated_receipt(implementer="qwen-code/m", implementer_evidence={
+        "harness": "qwen-code", "harness_version": "0.15.10", "session_id": "s", "transcript": "x/chats/s.jsonl"})
+    assert CM.validate(qwen, "delegated") == []
+    assert CM.validate(dict(qwen, implementer="opencode/p/m"), "delegated")
+    missing = dict(qwen, implementer_evidence={"harness": "qwen-code", "session_id": "s"})
+    assert any("harness_version" in p for p in CM.validate(missing, "delegated"))
+    unknown = dict(qwen, implementer_evidence={"harness": "aider", "session_id": "s"})
+    assert any("is not one this writer derives" in p for p in CM.validate(unknown, "delegated"))
+
+
+# Counter-model review of #1454 (gpt-6.1-sol).
+
+def test_a_damaged_event_line_is_refused_but_a_stderr_line_is_not(tmp_path: Path) -> None:
+    """The lanes write stderr into the stream (`2>&1`): a plain diagnostic line
+    is skipped. A line that looks like an EVENT but does not parse might have
+    named another session, so it refuses attribution."""
+    projects = _qwen_projects(tmp_path)
+    noisy = tmp_path / "noisy.jsonl"
+    noisy.write_text("[WARN] some harness diagnostic\n" + QWEN_STREAM.read_text(encoding="utf-8"),
+                     encoding="utf-8")
+    proc = _delegated_write(tmp_path, noisy, "--qwen-projects-dir", str(projects))
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    damaged = tmp_path / "damaged.jsonl"
+    damaged.write_text(QWEN_STREAM.read_text(encoding="utf-8") + '{"type":"system","session_id":"x"\n',
+                       encoding="utf-8")
+    (tmp_path / "d").mkdir()
+    proc = _delegated_write(tmp_path / "d", damaged, "--qwen-projects-dir", str(projects))
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "damaged event line" in proc.stderr
+
+
+def test_a_session_id_is_never_a_glob(tmp_path: Path) -> None:
+    projects = _qwen_projects(tmp_path)
+    globbed = tmp_path / "glob.jsonl"
+    globbed.write_text(re.sub(r'"session_id":"[^"]+"', '"session_id":"*"',
+                              QWEN_STREAM.read_text(encoding="utf-8")), encoding="utf-8")
+    proc = _delegated_write(tmp_path, globbed, "--qwen-projects-dir", str(projects))
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "not the measured UUID form" in proc.stderr
+
+
+def test_wrong_field_types_are_refused_not_crashed(tmp_path: Path) -> None:
+    lines = QWEN_TRANSCRIPT.read_text(encoding="utf-8").splitlines()
+    for i, line in enumerate(lines):
+        record = json.loads(line)
+        if record.get("type") == "assistant":
+            record["model"] = {}
+            lines[i] = json.dumps(record)
+            break
+    text = "\n".join(lines) + "\n"
+    proc = _delegated_write(tmp_path, QWEN_STREAM, "--qwen-projects-dir", str(_qwen_projects(tmp_path, text)))
+    assert proc.returncode == CM.EXIT_INVALID and "Traceback" not in proc.stderr, proc.stderr
+    rows = [json.loads(line) for line in OPENCODE_ROWS.read_text(encoding="utf-8").splitlines()]
+    for r in rows:
+        if r["table"] == "message" and '"role":"assistant"' in r["data"]:
+            r["data"] = r["data"].replace('"modelID":"gemma4-code"', '"modelID":[]', 1)
+            break
+    (tmp_path / "o").mkdir()
+    proc = _delegated_write(tmp_path / "o", OPENCODE_STREAM,
+                            "--opencode-db", str(_opencode_db(tmp_path / "o", rows)))
+    assert proc.returncode == CM.EXIT_INVALID and "Traceback" not in proc.stderr, proc.stderr
+    assert "declares no provider or model" in proc.stderr
+
+
+
+# Counter-model review of #1454, pass 2 (gpt-6.1-sol).
+
+@pytest.mark.parametrize("harness", [[], {}, 7])
+def test_a_non_string_evidence_harness_is_reported_not_raised(harness: object) -> None:
+    receipt = _delegated_receipt(implementer_evidence={"harness": harness, "session_id": "s"})
+    problems = CM.validate(receipt, "delegated")
+    assert any("is not a string" in p for p in problems), problems
+
+
+def test_a_damaged_transcript_line_is_refused_whatever_it_starts_with(tmp_path: Path) -> None:
+    """A transcript holds no stderr, so it is parsed strictly: a damaged record
+    that does not start with `{` might have named another model."""
+    lines = QWEN_TRANSCRIPT.read_text(encoding="utf-8").splitlines()
+    lines.insert(1, '"type":"assistant","model":"other-model"}')
+    text = "\n".join(lines) + "\n"
+    proc = _delegated_write(tmp_path, QWEN_STREAM, "--qwen-projects-dir", str(_qwen_projects(tmp_path, text)))
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "is not JSON; refusing to attribute" in proc.stderr

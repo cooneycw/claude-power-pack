@@ -63,13 +63,28 @@ If review finds CRITICAL issues that a re-prompt cannot fix (fundamentally
 wrong approach), STOP and report. Offer to re-prompt Gemma, escalate to
 `/qwen:auto` or `/codex:auto`, or hand off to manual implementation.
 <!-- slot: STEP5_RECEIPT -->
-4. **No counter-model receipt can be written for this lane yet (issue #1383).**
-   The receipt writer derives a delegated implementer only from a Codex exec
-   stream and the rollout its thread names; this lane's stream names no thread,
-   so `--implementer-exec-log` refuses it rather than guessing. Record this
-   review in the PR body instead, and expect `flow-finish-gate.sh` to report the
-   counter-model line `missing` if it is run - never satisfy it with a skip
-   reason or a hand-written receipt.
+4. **Record the review as a counter-model receipt (issues #1383, #1454).** This
+   review IS the cross-model review for this lane - OpenCode implemented, this
+   Claude session reviewed - and the finish gate refuses a PR whose branch
+   carries no receipt. Record it in the DELEGATED direction: the writer derives
+   the implementer from the Step 4 OpenCode stream and its own database (`~/.local/share/opencode/opencode.db`, read-only), and the reviewer
+   from this session's transcript. It refuses rather than guesses when the
+   stream, the record or the schema is not the one it measured. Never record it
+   as a skip, and never as a `/codex:code_review` run. Only in a repository that
+   already keeps receipts:
+
+   ```bash
+   CM_RECEIPT=~/.claude/scripts/counter-model-receipt.py
+   [ -f "$CM_RECEIPT" ] || CM_RECEIPT="${CLAUDE_PLUGIN_ROOT}/scripts/counter-model-receipt.py"
+   if [ -d docs/measurements/counter-model ] && [ -f "$CM_RECEIPT" ]; then
+       python3 "$CM_RECEIPT" write --dir docs/measurements/counter-model \
+           --issue "$ISSUE_NUM" --branch "$(git branch --show-current)" --status ran \
+           --implementer-exec-log "$GEMMA_OUTPUT" \
+           --reviewer-session-id "$CLAUDE_CODE_SESSION_ID" \
+           --accepted <findings fixed> --rejected <n> --deferred <n>
+       git add docs/measurements/counter-model/*.json
+   fi
+   ```
 <!-- slot: FIX_REEXEC -->
 3. **Age the Step-4 verdict before re-delegating (issue #921).** The pass
    Step 4 recorded is a reading with a timestamp, and by now it is usually past
