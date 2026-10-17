@@ -25,6 +25,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -3098,3 +3099,57 @@ def test_delegated_evidence_is_validated_per_harness() -> None:
     assert any("harness_version" in p for p in CM.validate(missing, "delegated"))
     unknown = dict(qwen, implementer_evidence={"harness": "aider", "session_id": "s"})
     assert any("is not one this writer derives" in p for p in CM.validate(unknown, "delegated"))
+
+
+# Counter-model review of #1454 (gpt-6.1-sol).
+
+def test_a_damaged_event_line_is_refused_but_a_stderr_line_is_not(tmp_path: Path) -> None:
+    """The lanes write stderr into the stream (`2>&1`): a plain diagnostic line
+    is skipped. A line that looks like an EVENT but does not parse might have
+    named another session, so it refuses attribution."""
+    projects = _qwen_projects(tmp_path)
+    noisy = tmp_path / "noisy.jsonl"
+    noisy.write_text("[WARN] some harness diagnostic\n" + QWEN_STREAM.read_text(encoding="utf-8"),
+                     encoding="utf-8")
+    proc = _delegated_write(tmp_path, noisy, "--qwen-projects-dir", str(projects))
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    damaged = tmp_path / "damaged.jsonl"
+    damaged.write_text(QWEN_STREAM.read_text(encoding="utf-8") + '{"type":"system","session_id":"x"\n',
+                       encoding="utf-8")
+    (tmp_path / "d").mkdir()
+    proc = _delegated_write(tmp_path / "d", damaged, "--qwen-projects-dir", str(projects))
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "damaged event line" in proc.stderr
+
+
+def test_a_session_id_is_never_a_glob(tmp_path: Path) -> None:
+    projects = _qwen_projects(tmp_path)
+    globbed = tmp_path / "glob.jsonl"
+    globbed.write_text(re.sub(r'"session_id":"[^"]+"', '"session_id":"*"',
+                              QWEN_STREAM.read_text(encoding="utf-8")), encoding="utf-8")
+    proc = _delegated_write(tmp_path, globbed, "--qwen-projects-dir", str(projects))
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "not the measured UUID form" in proc.stderr
+
+
+def test_wrong_field_types_are_refused_not_crashed(tmp_path: Path) -> None:
+    lines = QWEN_TRANSCRIPT.read_text(encoding="utf-8").splitlines()
+    for i, line in enumerate(lines):
+        record = json.loads(line)
+        if record.get("type") == "assistant":
+            record["model"] = {}
+            lines[i] = json.dumps(record)
+            break
+    text = "\n".join(lines) + "\n"
+    proc = _delegated_write(tmp_path, QWEN_STREAM, "--qwen-projects-dir", str(_qwen_projects(tmp_path, text)))
+    assert proc.returncode == CM.EXIT_INVALID and "Traceback" not in proc.stderr, proc.stderr
+    rows = [json.loads(line) for line in OPENCODE_ROWS.read_text(encoding="utf-8").splitlines()]
+    for r in rows:
+        if r["table"] == "message" and '"role":"assistant"' in r["data"]:
+            r["data"] = r["data"].replace('"modelID":"gemma4-code"', '"modelID":[]', 1)
+            break
+    (tmp_path / "o").mkdir()
+    proc = _delegated_write(tmp_path / "o", OPENCODE_STREAM,
+                            "--opencode-db", str(_opencode_db(tmp_path / "o", rows)))
+    assert proc.returncode == CM.EXIT_INVALID and "Traceback" not in proc.stderr, proc.stderr
+    assert "declares no provider or model" in proc.stderr

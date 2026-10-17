@@ -1092,20 +1092,39 @@ DELEGATED_EVIDENCE_KEYS = {
 
 
 def _stream_records(text: str) -> tuple[list[dict], int]:
-    """`(parseable dict records, unparseable line count)` of a JSONL stream."""
+    """`(event records, DAMAGED event line count)` of a JSONL stream (#1454).
+
+    The lanes write the harness's stderr into the same file (`2>&1`), so a line
+    that does not open like an event is a diagnostic and is skipped - stderr often
+    starts with `[` (`[WARN] ...`), so only `{` opens one. A line that DOES open
+    like an event but does not parse to an object is DAMAGED: it might have named another session or harness, so the
+    caller refuses rather than attributing from the records that survived.
+    """
     records: list[dict] = []
-    bad = 0
+    damaged = 0
     for line in text.split("\n"):
-        if not line.strip():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if not stripped.startswith("{"):
             continue
         try:
-            record = json.loads(line)
+            record = json.loads(stripped)
         except ValueError:
-            bad += 1
+            damaged += 1
             continue
         if isinstance(record, dict):
             records.append(record)
-    return records, bad
+        else:
+            damaged += 1
+    return records, damaged
+
+
+#: Session identifiers as each harness writes them (measured): Qwen Code a UUID,
+#: OpenCode `ses_` plus an alphanumeric id. Checked BEFORE any lookup, so an id
+#: is never used as a pattern (counter-model review).
+QWEN_SESSION_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+OPENCODE_SESSION_RE = re.compile(r"ses_[A-Za-z0-9]+")
 
 
 def _stream_harness(records: list[dict]) -> tuple[str | None, str | None]:
@@ -1142,7 +1161,10 @@ def _derive_qwen_code(records: list[dict], projects_dir: Path) -> tuple[str | No
     present, agree with each other, and agree across every assistant record.
     """
     inits = [r for r in records if r.get("type") == "system" and r.get("subtype") == "init"]
-    sessions = {r.get("session_id") for r in records if r.get("session_id")}
+    raw_sessions = [r.get("session_id") for r in records if "session_id" in r]
+    if any(not (isinstance(s, str) and QWEN_SESSION_RE.fullmatch(s)) for s in raw_sessions):
+        return None, None, "a Qwen Code record carries a session_id that is not the measured UUID form"
+    sessions = set(raw_sessions)
     if len(inits) != 1:
         return None, None, f"expected one Qwen Code init record, found {len(inits)}"
     if len(sessions) != 1:
@@ -1156,7 +1178,11 @@ def _derive_qwen_code(records: list[dict], projects_dir: Path) -> tuple[str | No
     if not (isinstance(version, str) and version.strip()):
         return None, None, "the Qwen Code init record declares no qwen_code_version"
     try:
-        matches = sorted(p for p in projects_dir.glob(f"*/chats/{session_id}.jsonl") if p.is_file())
+        # LITERAL lookup, never a glob of the id (counter-model review).
+        matches = sorted(
+            d / "chats" / f"{session_id}.jsonl" for d in projects_dir.iterdir()
+            if (d / "chats" / f"{session_id}.jsonl").is_file()
+        )
     except OSError as exc:
         return None, None, f"cannot search Qwen Code projects directory {projects_dir}: {exc}"
     if len(matches) != 1:
@@ -1169,11 +1195,12 @@ def _derive_qwen_code(records: list[dict], projects_dir: Path) -> tuple[str | No
     if bad:
         return None, None, f"{bad} unparseable line(s) in Qwen Code transcript {matches[0]}"
     assistants = [r for r in transcript if r.get("type") == "assistant"]
-    models = {r.get("model") for r in assistants}
     if not assistants:
         return None, None, f"Qwen Code transcript {matches[0]} holds no assistant record"
-    if any(not (isinstance(m, str) and m.strip()) for m in models):
+    raw_models = [r.get("model") for r in assistants]
+    if any(not (isinstance(m, str) and m.strip()) for m in raw_models):
         return None, None, f"an assistant record in {matches[0]} declares no model"
+    models = set(raw_models)
     if len(models) != 1:
         return None, None, f"assistant records in {matches[0]} disagree ({', '.join(sorted(models))})"
     model = next(iter(models))
@@ -1196,7 +1223,10 @@ def _derive_opencode(records: list[dict], db_path: Path) -> tuple[str | None, di
     """
     import sqlite3
 
-    sessions = {r.get("sessionID") for r in records if r.get("sessionID")}
+    raw_sessions = [r.get("sessionID") for r in records if "sessionID" in r]
+    if any(not (isinstance(s, str) and OPENCODE_SESSION_RE.fullmatch(s)) for s in raw_sessions):
+        return None, None, "an OpenCode record carries a sessionID that is not the measured ses_ form"
+    sessions = set(raw_sessions)
     if len(sessions) != 1:
         return None, None, f"expected one OpenCode sessionID in the stream, found {len(sessions)}"
     session_id = next(iter(sessions))
@@ -1226,7 +1256,11 @@ def _derive_opencode(records: list[dict], db_path: Path) -> tuple[str | None, di
         except (TypeError, ValueError):
             return None, None, f"an OpenCode message row for {session_id!r} is not JSON"
         if isinstance(message, dict) and message.get("role") == "assistant":
-            pairs.add((message.get("providerID"), message.get("modelID")))
+            provider, model_id = message.get("providerID"), message.get("modelID")
+            if not (isinstance(provider, str) and provider and isinstance(model_id, str) and model_id):
+                return None, None, (f"an assistant message in session {session_id!r} declares no "
+                                    "provider or model")
+            pairs.add((provider, model_id))
     if not pairs:
         return None, None, f"OpenCode session {session_id!r} has no assistant message in {db_path}"
     if any(not (isinstance(a, str) and a and isinstance(b, str) and b) for a, b in pairs):
@@ -1255,10 +1289,15 @@ def _derive_delegated(args: argparse.Namespace) -> str | None:
         stream_text = args.implementer_exec_log.read_text(encoding="utf-8")
     except OSError as exc:
         return f"cannot read implementer exec log {args.implementer_exec_log}: {exc}"
-    records, _bad = _stream_records(stream_text)
+    records, damaged = _stream_records(stream_text)
     harness, error = _stream_harness(records)
     if error is not None:
         return f"implementer exec log {args.implementer_exec_log} {error}"
+    if damaged and harness in ("qwen-code", "opencode"):
+        # Refused, not skipped (counter-model review): a damaged event might have
+        # named another session or harness. Codex keeps its own reader below.
+        return (f"implementer exec log {args.implementer_exec_log} has {damaged} damaged "
+                "event line(s); refusing to attribute from the records that survived")
     if harness == "qwen-code":
         projects = args.qwen_projects_dir or Path.home() / ".qwen" / "projects"
         implementer, evidence, error = _derive_qwen_code(records, projects)
