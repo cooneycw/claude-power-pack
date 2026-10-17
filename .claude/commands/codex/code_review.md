@@ -298,8 +298,9 @@ sandbox-denied command be approved to run outside it, or the caller supplied
   is set, and the global git config holds only the caller's `safe.directory`
   entries, so `url.*.insteadOf` tokens and helpers are gone.
   `credential.helper` and `http.extraheader` are reset for the repository's own
-  config too. There is no SSH agent, `GIT_SSH_COMMAND=false`, and no session bus
-  for the gh keyring.
+  config too. There is no SSH agent, `GIT_SSH_COMMAND=false`, no session bus
+  for the gh keyring, and `GIT_ASKPASS=false` with no `SSH_ASKPASS`, so an
+  inherited askpass program cannot answer git's credential prompt.
 - **Not withdrawn, so measured.** A URL-scoped `http.<url>.extraheader` in the
   repository's own config is not reached by `http.extraheader=`; each one found
   is reset key by key and also reported. `CODEX_REVIEW_LOCAL_CREDENTIALS:
@@ -410,7 +411,9 @@ NETWORK_LINE=" Do not run any command that contacts a remote service (gh, git fe
 #   GIT_CONFIG_PARAMETERS resetting credential.helper and http.extraheader,
 #   which reaches the repository's own .git/config too - and carries no `KEY`
 #   in its name, which codex's default shell_environment_policy strips;
-#   no SSH agent, GIT_SSH_COMMAND=false (git's ssh transport), no session bus.
+#   no SSH agent, GIT_SSH_COMMAND=false (git's ssh transport), no session bus;
+#   GIT_ASKPASS=false and no SSH_ASKPASS, so an inherited askpass program cannot
+#   answer git's credential prompt (counter-model review).
 # A DIRECT ssh call still finds the account's ~/.ssh: OpenSSH reads the home
 # directory from the password database, not $HOME (counter-model review).
 # NOT withdrawn, and so MEASURED below rather than promised away: a credential
@@ -436,16 +439,21 @@ done
 # RESET for the reviewer, key by key: `http.extraheader=` does not reach it.
 REVIEW_LOCAL_CRED_KEYS=""
 REVIEW_HEADER_RESETS=""
+# `-z` IS LOAD-BEARING (counter-model review): a subsection may contain `=`
+# (`http.https://host/a=b/.extraheader`), so splitting `key=value` at the first
+# `=` mis-reads the key. `-z` writes `scope\0key\nvalue\0`. The listing holds
+# VALUES, so it goes to a file OUTSIDE the reviewer's HOME, removed at once.
+REVIEW_LOCAL_CFG_FILE=$(mktemp /tmp/codex-review-localcfg.XXXXXX) || REVIEW_LOCAL_CFG_FILE=""
 # Outside a repository `git config --list` still succeeds - over GLOBAL config
 # alone - so "is this a repository" is asked first: no repository is unknown.
-if ! git rev-parse --git-dir >/dev/null 2>&1 \
-        || ! REVIEW_LOCAL_CFG=$(git config --list --show-scope --includes 2>/dev/null); then
+if [ -z "$REVIEW_LOCAL_CFG_FILE" ] || ! git rev-parse --git-dir >/dev/null 2>&1 \
+        || ! git config --list --show-scope --includes -z > "$REVIEW_LOCAL_CFG_FILE" 2>/dev/null; then
     REVIEW_LOCAL_CREDS="unknown"
 else
-    while IFS= read -r line; do
-        scope=${line%%	*}; rest=${line#*	}
+    while IFS= read -r -d '' scope && IFS= read -r -d '' kv; do
         case "$scope" in local|worktree) ;; *) continue ;; esac
-        key=${rest%%=*}; val=${rest#*=}
+        key=${kv%%$'\n'*}
+        case "$kv" in *$'\n'*) val=${kv#*$'\n'} ;; *) val="" ;; esac
         case "$key" in
             remote.*.url|remote.*.pushurl)
                 case "$val" in http://*@*|https://*@*) REVIEW_LOCAL_CRED_KEYS="$REVIEW_LOCAL_CRED_KEYS $key" ;; esac ;;
@@ -461,11 +469,10 @@ else
                        REVIEW_HEADER_RESETS="$REVIEW_HEADER_RESETS '$key'=''" ;;
                 esac ;;
         esac
-    done <<EOF_LOCAL_CFG
-$REVIEW_LOCAL_CFG
-EOF_LOCAL_CFG
+    done < "$REVIEW_LOCAL_CFG_FILE"
     if [ -n "$REVIEW_LOCAL_CRED_KEYS" ]; then REVIEW_LOCAL_CREDS="present"; else REVIEW_LOCAL_CREDS="absent"; fi
 fi
+rm -f "$REVIEW_LOCAL_CFG_FILE"
 echo "CODEX_REVIEW_LOCAL_CREDENTIALS: $REVIEW_LOCAL_CREDS${REVIEW_LOCAL_CRED_KEYS:+ (${REVIEW_LOCAL_CRED_KEYS# })}"
 
 FINDINGS=$(mktemp /tmp/codex-review.XXXXXX.md)
@@ -476,6 +483,7 @@ STREAM=$(mktemp /tmp/codex-review.XXXXXX.jsonl)
 
 cat "$DIFF_FILE" | env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN \
     -u SSH_AUTH_SOCK -u DBUS_SESSION_BUS_ADDRESS -u GIT_CONFIG_COUNT \
+    -u SSH_ASKPASS -u SSH_ASKPASS_REQUIRE GIT_ASKPASS=false \
     HOME="$REVIEW_HOME" CODEX_HOME="$REVIEW_CODEX_HOME" \
     GH_CONFIG_DIR="$REVIEW_HOME/.config/gh" GIT_TERMINAL_PROMPT=0 \
     GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$REVIEW_HOME/.gitconfig" \

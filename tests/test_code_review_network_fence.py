@@ -516,3 +516,38 @@ def test_a_worktree_scoped_credential_is_measured(tmp_path: Path) -> None:
     out = proc.stdout + proc.stderr
     assert "CODEX_REVIEW_LOCAL_CREDENTIALS: present (remote.wt.url)" in proc.stdout, out
     assert LOCAL_URL_SECRET not in out
+
+
+# Counter-model review of #1459, pass 2 (gpt-6.1-sol).
+
+ASKPASS_SECRET = "SECRET-FROM-ASKPASS-c71d"
+
+
+@requires_git
+def test_an_equals_sign_in_a_url_subsection_is_still_measured_and_reset(tmp_path: Path) -> None:
+    """`key=value` split at the first `=` mis-read `http.<url-with-=>.extraheader`,
+    hiding the credential and skipping its reset; `-z` keeps the key whole."""
+    _HeaderRecorder.seen = []
+    server = http.server.HTTPServer(("127.0.0.1", 0), _HeaderRecorder)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{server.server_address[1]}/a=b/"
+        proc, _, _ = _run(tmp_path, STUB_HTTP_URL=f"{base}r.git",
+                          local_cfg=((f"http.{base}.extraheader", f"Authorization: bearer {LOCAL_HEADER_SECRET}"),))
+    finally:
+        server.shutdown()
+    out = proc.stdout + proc.stderr
+    assert "CODEX_REVIEW_LOCAL_CREDENTIALS: present (http.<redacted>.extraheader)" in proc.stdout, out
+    assert _HeaderRecorder.seen, "git never reached the recorder - this test examined nothing"
+    assert LOCAL_HEADER_SECRET not in "\n".join(_HeaderRecorder.seen), _HeaderRecorder.seen
+    assert LOCAL_HEADER_SECRET not in out
+
+
+@requires_git
+def test_an_inherited_askpass_program_supplies_no_credential(tmp_path: Path) -> None:
+    askpass = tmp_path / "owner-askpass"
+    askpass.write_text(f"#!/bin/sh\necho {ASKPASS_SECRET}\n", encoding="utf-8")
+    askpass.chmod(0o755)
+    _, _, seen = _run(tmp_path, GIT_ASKPASS=str(askpass), SSH_ASKPASS=str(askpass))
+    assert ASKPASS_SECRET not in seen, seen
+    assert _seen(seen, "CREDENTIAL") == "", seen
