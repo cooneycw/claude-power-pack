@@ -57,6 +57,19 @@ def _load():
 
 CM = _load()
 
+# The writer derives the implementer from either session variable and refuses
+# when both are set (#1453). Agents export them to every command, so a test
+# that inherited them would assert about whoever launched the suite (#1472).
+IMPLEMENTER_IDENTITY_VARS = ("CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID")
+
+
+@pytest.fixture(autouse=True)
+def _no_ambient_implementer_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test starts with NO implementer identity and installs its own."""
+    for name in IMPLEMENTER_IDENTITY_VARS:
+        monkeypatch.delenv(name, raising=False)
+    assert not any(name in os.environ for name in IMPLEMENTER_IDENTITY_VARS)
+
 
 def _fixture(name: str) -> str:
     path = FIXTURES / name
@@ -762,6 +775,37 @@ def test_implementer_session_id_uses_flag_or_environment(
     assert proc.returncode == CM.EXIT_OK, proc.stderr
     receipt = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
     assert receipt["implementer"] == "claude/claude-sonnet-5"
+
+
+# The five parameterizations #1472 saw fail when launched from Codex, plus the
+# two flag cases beside them.
+LAUNCHER_SENSITIVE_SELECTION = (
+    "missing_implementer_session_id or skip_without_a_derivable_implementer"
+    " or implementer_session_id_uses_flag"
+)
+
+
+@pytest.mark.parametrize("ambient", [
+    {"CODEX_THREAD_ID": "planted-ambient-codex-thread"},
+    {"CLAUDE_CODE_SESSION_ID": "planted-ambient-claude-session"},
+    {"CODEX_THREAD_ID": "planted-ambient-codex-thread",
+     "CLAUDE_CODE_SESSION_ID": "planted-ambient-claude-session"},
+], ids=["codex", "claude", "both"])
+def test_identity_tests_do_not_depend_on_the_launching_agent(ambient: dict[str, str]) -> None:
+    """RED before #1472: under an ambient CODEX_THREAD_ID, 5 of these 7 failed.
+    The autouse fixture cannot be checked from inside its own process, so the
+    selection runs in a child pytest that inherits a planted identity."""
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("PYTEST_ADDOPTS", "PYTEST_XDIST_WORKER", "PYTEST_XDIST_WORKER_COUNT")}
+    env.update(ambient)
+    proc = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-p", "no:xdist",
+         str(Path(__file__).resolve()), "-k", LAUNCHER_SENSITIVE_SELECTION],
+        cwd=ROOT, capture_output=True, text=True, env=env,
+    )
+    # An empty or shrunken selection would pass vacuously; pin the count.
+    assert proc.returncode == 0 and re.search(r"\b7 passed\b", proc.stdout), proc.stdout[-3000:]
+    assert "failed" not in proc.stdout
 
 
 def test_literal_implementer_flag_is_no_longer_accepted(tmp_path: Path) -> None:
