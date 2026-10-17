@@ -3040,9 +3040,22 @@ def test_ci_enrolment_step_names_the_source_branch() -> None:
     assert '--branch "$CI_COMMIT_SOURCE_BRANCH"' in gate
 
 
+@requires_git
 @requires_bash
 def test_branch_without_enrolment_only_is_a_usage_error(tmp_path: Path) -> None:
     proc = subprocess.run(["bash", str(SCRIPT), "--branch", "x"], cwd=tmp_path,
                           capture_output=True, text=True)
     assert proc.returncode == 2, proc.stdout + proc.stderr
     assert "--branch is only meaningful with --enrolment-only" in proc.stderr
+
+
+@requires_git
+@requires_bash
+@pytest.mark.parametrize("args", [["--enrolment-only", "--branch="], ["--enrolment-only", "--branch", ""]])
+def test_an_empty_branch_is_refused_not_ignored(tmp_path: Path, args: list[str]) -> None:
+    """Counter-model review: an empty override used to be dropped silently, so an
+    unset $CI_COMMIT_SOURCE_BRANCH turned the CI step into ancestry-only."""
+    proc = subprocess.run(["bash", str(SCRIPT), *args], cwd=tmp_path,
+                          capture_output=True, text=True)
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "--branch was given an empty value" in proc.stderr

@@ -21,7 +21,7 @@
   "good_exit": 0,
   "detect_signal": "^FLOW_FINISH_GATE: fail \\(counter-model line",
   "unknown_signal": "^FLOW_FINISH_GATE: undecidable",
-  "limits": "Covers the enrolment-only mode on a DETACHED HEAD with a declared --branch, the shape of a CI pull_request checkout: a PR with no receipt for its branch, a reachable receipt recorded for another branch, a receipt at an ancestor, a committed skip, and a depth-1 clone that must refuse rather than pass. It does not cover the CI step's history fetch (pinned by tests/test_flow_finish_gate.py against .woodpecker.yml), nor whether a review covered the final diff - the match is by ancestry, as documented on verdict() in the gate.",
+  "limits": "Covers the enrolment-only mode on a DETACHED HEAD with a declared --branch, the shape of a CI pull_request checkout: a PR with no receipt for its branch, a reachable receipt recorded for another branch, a removed receipts directory, a receipt at an ancestor, a committed skip, and a depth-1 clone that must refuse rather than pass. It does not cover the CI step's history fetch (pinned by tests/test_flow_finish_gate.py against .woodpecker.yml), nor whether a review covered the final diff - the match is by ancestry, as documented on verdict() in the gate.",
   "cases": [
     {
       "name": "bad-pr-without-receipt",
@@ -34,6 +34,12 @@
       "input": "cases/bad-receipt-for-another-branch-reachable",
       "expect": "BAD",
       "why": "The only receipt IS reachable from HEAD by ancestry but names a different branch. On a detached CI checkout ancestry alone would accept it; --branch is what refuses it."
+    },
+    {
+      "name": "bad-receipts-directory-removed",
+      "input": "cases/bad-receipts-directory-removed",
+      "expect": "BAD",
+      "why": "No receipts directory at all - what a PR that deletes it looks like. Finish mode reads that as a non-participating repository and passes; this mode runs only where participation is required, so it must fail (counter-model review pass 2)."
     },
     {
       "name": "good-receipt-at-ancestor",

@@ -46,7 +46,8 @@
 #                                        # (issue #1452): the CI pull_request step
 #                                        # runs this, so a PR that never passed
 #                                        # through this gate is still checked.
-#                                        # Exit: ok=0 fail=1 usage=2 undecidable=5
+#                                        # Exit: ok=0 fail=1 usage=2 undecidable=5;
+#                                        # not-enrolled is a FAIL in this mode
 #   flow-finish-gate.sh --check-summary  # lib.cicd check --summary (Makefile
 #                                        # completeness, advisory - see the
 #                                        # exit-code table below: it no longer
@@ -238,6 +239,7 @@ PLAN="finish"
 MODE="gate"
 EVIDENCE_SKILL=""
 CM_BRANCH_OVERRIDE=""
+CM_BRANCH_GIVEN=0
 RERUN_ENABLED="${FLOW_GATE_RERUN:-1}"
 MAX_RERUN_IDS=25
 # A `while`/`shift` loop rather than the `for arg` + deferred-flag shape it
@@ -272,9 +274,10 @@ while [[ $# -gt 0 ]]; do
         --branch)
             gate_arg_value "$1" "$#" "${2-}"
             CM_BRANCH_OVERRIDE="$GATE_VALUE"
+            CM_BRANCH_GIVEN=1
             shift 2
             ;;
-        --branch=*) CM_BRANCH_OVERRIDE="${1#--branch=}"; shift ;;
+        --branch=*) CM_BRANCH_OVERRIDE="${1#--branch=}"; CM_BRANCH_GIVEN=1; shift ;;
         --help|-h)
             sed -n '2,90p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
@@ -289,7 +292,15 @@ if [[ -z "$PLAN" ]]; then
     echo "flow-finish-gate: --plan requires a value" >&2
     gate_exit usage
 fi
-if [[ -n "$CM_BRANCH_OVERRIDE" && "$MODE" != "enrolment" ]]; then
+# AN EMPTY BRANCH IS REFUSED, NEVER IGNORED (counter-model review, #1452). The
+# override applies only when non-empty, so `--branch ""` - an unset
+# $CI_COMMIT_SOURCE_BRANCH - would silently fall back to ancestry-only matching,
+# which is the weaker check controls/counter-model-enrolment-ci's anchor models.
+if [[ "$CM_BRANCH_GIVEN" -eq 1 && -z "$CM_BRANCH_OVERRIDE" ]]; then
+    echo "flow-finish-gate: --branch was given an empty value; name the branch whose receipts count (an unset \$CI_COMMIT_SOURCE_BRANCH?)" >&2
+    gate_exit usage
+fi
+if [[ "$CM_BRANCH_GIVEN" -eq 1 && "$MODE" != "enrolment" ]]; then
     echo "flow-finish-gate: --branch is only meaningful with --enrolment-only" >&2
     gate_exit usage
 fi
@@ -704,9 +715,18 @@ echo "FLOW_FINISH_GATE_COUNTER_MODEL: $CM_ENROLMENT_LINE"
 # that cannot fail in the one place it runs. The step deepens the clone first.
 if [[ "$MODE" == "enrolment" ]]; then
     case "$CM_ENROLMENT_STATE" in
-        receipt|skipped|not-enrolled)
+        receipt|skipped)
             echo "FLOW_FINISH_GATE: ok"
             gate_exit ok
+            ;;
+        # NOT-ENROLLED IS A FAIL HERE (counter-model review pass 2, #1452). In
+        # finish mode it lets other repositories through, which never ran a
+        # review; this mode is invoked only where participation is REQUIRED, so
+        # a PR that deleted the receipts directory must not pass by having done so.
+        not-enrolled)
+            echo "flow-finish-gate: --enrolment-only found no counter-model receipts directory; this mode runs where participation is required, so its absence is not a pass." >&2
+            echo "FLOW_FINISH_GATE: fail (counter-model line $CM_ENROLMENT_STATE)"
+            gate_exit fail
             ;;
         undecidable)
             echo "flow-finish-gate: the enrolment check could not decide (history is shallow or truncated here). Deepen the clone and re-run; this is not a pass." >&2
