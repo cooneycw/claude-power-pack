@@ -260,7 +260,9 @@ def test_only_the_tables_network_class_exits_are_blocked() -> None:
     assert 'NET_BLOCKED_RCS="6 7 28"' in text
     table = text[text.index("<!-- network-verdict-table -->"):text.index("<!-- /network-verdict-table -->")]
     blocked = [row for row in table.splitlines() if row.rstrip().endswith("| `blocked` |")]
-    assert blocked == ["  | `curl` inside exited 6, 7 or 28 (resolve, connect, timeout) and the same GET outside succeeded | `blocked` |"], blocked
+    expected = ("  | `curl` inside exited 6, 7 or 28 (resolve, connect, timeout) and the same GET"
+                " outside succeeded | `blocked` |")
+    assert blocked == [expected], blocked
 
 
 @requires_git
