@@ -3059,3 +3059,22 @@ def test_an_empty_branch_is_refused_not_ignored(tmp_path: Path, args: list[str])
                           capture_output=True, text=True)
     assert proc.returncode == 2, proc.stdout + proc.stderr
     assert "--branch was given an empty value" in proc.stderr
+
+
+@requires_git
+@requires_bash
+def test_plan_check_does_not_exempt_enrolment_only(tmp_path: Path) -> None:
+    """Counter-model red case: `--plan check` exempts a FINISH run (it produces no
+    PR), but the CI mode is asked about a PR and must still decide."""
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"}
+    subprocess.run(["git", "init", "-q", "-b", "master"], cwd=tmp_path, env=env, check=True)
+    (tmp_path / "docs" / "measurements" / "counter-model").mkdir(parents=True)
+    (tmp_path / "docs" / "measurements" / "counter-model" / ".keep").write_text("", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, env=env, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=tmp_path, env=env, check=True)
+    proc = subprocess.run(
+        ["bash", str(SCRIPT), "--plan", "check", "--enrolment-only", "--branch", "issue-9-pr"],
+        cwd=tmp_path, env=env, capture_output=True, text=True)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "FLOW_FINISH_GATE: fail (counter-model line missing)" in proc.stdout
