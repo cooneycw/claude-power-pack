@@ -102,6 +102,21 @@ class BuildConfig(BaseModel):
     )
 
 
+class ReleaseProbeConfig(BaseModel):
+    """Endpoint reporting the actually-served release identity (issue #1479).
+
+    An empty URL leaves the served identity unreadable when a check is requested.
+    This is distinct from a health endpoint, which only checks whether it answers.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    url: str = ""
+    # Empty means the trimmed body is the identity; otherwise read a JSON field.
+    json_field: str = ""
+    timeout: int = 5
+
+
 class HealthEndpoint(BaseModel):
     """A single health check endpoint."""
 
@@ -205,6 +220,7 @@ class DeployVerificationConfig(BaseModel):
     # When true and no baseline exists, downgrade PROCEED to REVIEW (we deployed
     # blind - nothing to compare against).
     require_baseline: bool = False
+    release_probe: ReleaseProbeConfig = Field(default_factory=ReleaseProbeConfig)
 
 
 class HealthConfig(BaseModel):
