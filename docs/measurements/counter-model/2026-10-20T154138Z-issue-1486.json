@@ -1,0 +1,28 @@
+{
+  "branch": "issue-1486-flow-ci-status-verdicts",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "direction": "delegated",
+  "head": "1836783705be893aba7b78b2d70d5db465a07745",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/20/rollout-2026-10-20T15-23-56-01a159e9-7901-7ae2-92a8-b8bd55ea2578.jsonl",
+    "thread_id": "01a159e9-7901-7ae2-92a8-b8bd55ea2578"
+  },
+  "issue": "1486",
+  "passes": 1,
+  "recorded_at": "2026-10-20T15:41:38Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "claude/claude-sonnet-5",
+  "reviewer_evidence": {
+    "session_id": "687807af-40f7-4b5f-a9f4-e8526c8b2e29"
+  },
+  "schema": 1,
+  "status": "ran"
+}

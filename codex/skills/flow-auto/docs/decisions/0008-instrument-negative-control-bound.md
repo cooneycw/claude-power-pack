@@ -10,7 +10,7 @@
   reserved for it and lands after this one - the numbering gap is deliberate),
   #936 (ADR 0009, the oscillation rule), #834 / [the detector
   contracts](../agents/detector-contracts.md) (the two questions asked of any
-  instrument in a diff), [the glossary](../agents/glossary.md) (the defined
+  instrument in a diff), [the glossary](https://github.com/cooneycw/claude-power-pack/blob/main/docs/agents/glossary.md) (the defined
   terms this ADR attaches the bound to). Provenance:
   `docs/research/harness-strategy-recommendation-2026-09-14.html` section 04
   and the adoption plan `instruments-and-counter-model-adoption-2026-09-14`
@@ -119,7 +119,7 @@ protections, break each one, and record which control failed. It is not a new
 review gate, not a tier, and not a per-run cost - mutation is paid once per
 instrument, not once per run, so #952's per-run rejection criterion does not bite.
 What #970 measured about affordability is in
-[the re-examination](../research/battery-mutation-re-examination-2026-09-20.md);
+[the re-examination](https://github.com/cooneycw/claude-power-pack/blob/main/docs/research/battery-mutation-re-examination-2026-09-20.md);
 it is not assumed here.
 
 `scripts/mutation-probe.py` makes this a command rather than an exhortation.
@@ -145,6 +145,24 @@ Whether the suite as a whole discriminates is a mutation-testing question, and
 answering it per test would spend the entire budget on the population least
 likely to be blind. The suite is counted as ONE instrument below, because its
 exit code is what the finish gate consumes.
+
+### The carve-out does not cover a derived population (issue #1492)
+
+The carve-out does not cover a test that DERIVES its own input population
+from the repository tree (globbing files, enumerating scripts or controls,
+parsing a manifest it did not construct). Such a test must assert that its
+population is non-empty, with an assertion message naming what it
+enumerated, OR carry a committed negative control. The non-empty assertion
+is the default: it costs one line and turns the vacuous pass into a failure.
+A committed control is required only where non-empty is not enough, i.e.
+where a populated but wrongly-extracted set would also pass.
+
+The carve-out's premise is that the surrounding suite catches a unit test's
+failure. A test over an empty derived population cannot fail at all, so
+there is no failure for the suite to catch. The bound's own logic, not a new
+principle, removes the carve-out for that case. (A sweep of the existing
+suite for tests needing this is tracked separately, #1518 - this amendment
+states the rule; it does not itself fix every instance.)
 
 ### The escalation
 
@@ -258,7 +276,7 @@ another repo (the escalation clause); a row can be both.
 | 7 | `worktree-remove.sh` | refusals: exit 4 claimed, 5 occupied, 6 dirty, 7 unpushed | whether a checkout is destroyed; called by `/flow:auto` and the sweep | X |
 | 8 | `flow-worktree-sweep.sh` | five conditions per worktree; `SWEEP_WORKTREE:` | removal of other sessions' checkouts (ADR 0006). Registered control `controls/flow-worktree-sweep` (#1281): one worktree meeting all five conditions must be reported `removable`, and five neighbours that each break one (dirty, a commit beyond the merged head, a process inside, no PR, an open PR) must not - deleting the dirty, unpushed or occupied skip each turns the control BLIND, measured. Its anchor is CONSTRUCTED (the gate with a bare-prefix occupancy match, the collision the gate's own comment records) and misses the known-bad worktree by reading a sibling directory's process as its own. Dry-run only: `--apply` and worktree-remove.sh's refusals are not exercised | X |
 | 9 | `gh-pr-merge.sh` | review-required, deletions, base-moved, negated/incidental close, completeness | whether the squash lands on main | G |
-| 10 | `flow-ci-status.sh` (`controls/flow-ci-status`) | `FLOW_CI_STATUS`; on failure `FLOW_CI_FAILURE_ORIGIN: code\|precode\|mixed\|unknown`, where a failed step is pre-code by its `clone` type or, since #1411, by exit code 75 (`EX_FETCH_FAILED`) from a `*-stage` step (a stager that could not fetch) - an absent exit code is never read as 75 | Step 8 deploy-or-stop | G |
+| 10 | `flow-ci-status.sh` (`controls/flow-ci-status`, `controls/flow-ci-status-cancellation`) | `FLOW_CI_STATUS`; on failure `FLOW_CI_FAILURE_ORIGIN: code\|precode\|canceled\|mixed\|unknown`, where a failed step is pre-code by its `clone` type or, since #1411, by exit code 75 (`EX_FETCH_FAILED`) from a `*-stage` step (a stager that could not fetch) - an absent exit code is never read as 75 | Step 8 deploy-or-stop | G |
 | 11 | `flow-pr-watch.sh` | `FLOW_PR_WATCH` classified verdict, now resolved within the named status context rather than by raw pipeline number (#975) | the wave merge queue, in another session | X |
 | 12 | `flow-driver-capability.sh` | `FLOW_DRIVER_CHECK: fit\|mismatch` | which lane an orchestrator assigns an issue to | X |
 | 13 | `delegated-run-check.sh` | `DELEGATED_RUN_STATUS` | whether a `/codex:*`, `/qwen:*`, `/gemma:*` run is treated as success (#892). Registered control `controls/delegated-run-check` (#1265): a failed tool call nested 8 and 50 levels deep must be COUNTED (`DELEGATED_RUN_TOOL_ERRORS` > 0) and its succeeding twin must not. Its anchor is HISTORICAL (b935d64), whose recursive walks stopped at depth 6 and report 0 on both - the count, not STATUS, is the finding, because a failed call is deliberately not a failed run | G |
@@ -330,7 +348,6 @@ another repo (the escalation clause); a row can be both.
 | 81 | `pytest-parallel-differential.py` | `MEMBERSHIP FLOOR: OK\|VIOLATED`, `OUTCOME DIFFERENTIAL: <n> node(s) changed verdict`, then `VERDICT: no dangerous-direction changes` (0), `BLOCKS - `/`QUARANTINE - ` (1), or `DIFFERENTIAL-UNKNOWN:` (2, and never a pass) | THE ACCEPTANCE DECISION for running the suite in parallel, and nothing downstream re-derives it: once `-n` is in `make test` and in CI, every later green is read as "the same tests passed" on the strength of one comparison made once. Controlled at `controls/pytest-parallel-differential` (#1086) | G |
 | 82 | `flow-wave-mailbox.sh` `supervise`/`__supervise_daemon` | `FLOW_MAILBOX: supervising\|duplicate` (exit 0/4) from the lifetime-flock ownership check | whether a session believes a role already has a live supervisor and skips arming its own, across sessions - a distinct verdict contract from row 15's `watch armed\|deaf` (a different question: not "is a listener running" but "did MY attempt to become one succeed"). Fixed under #1033 to close the fd-inheritance gap that let an orphaned child of a SIGKILLed daemon keep the flock held after its owner no longer existed, so `duplicate` stopped being trustworthy exactly when it mattered most | X |
 | 83 | `counter-model-uniformity-check.py` | `UNIFORMITY-OK:` / `UNIFORMITY-FINDING:` / `UNIFORMITY-UNKNOWN:`, always with `examined=<n> verifiable=<m> distinct=<k>` (exit 0/1/2) | THE OPERATOR deciding the disposition of the 13 landed counter-model receipts (#1048 items 1-2), which will not independently re-derive whether the corpus's reviewer uniformity is a copied literal or a genuine constant. Advisory only - not wired into any gate or CI step in this repository, deliberately: a gating version would block on that same undecided disposition. Controlled at `controls/counter-model-uniformity` (#1091) | X |
-| 84 | `slate-reconcile.py` | `SLATE-OK:` / `SLATE-FINDING: UNACCOUNTED\|PHANTOM\|DUPLICATE #<n> [in <location>]` / `SLATE-UNKNOWN:`, always with `open=<n> claimed=<n> UNACCOUNTED=<n> PHANTOM=<n> DUPLICATE=<n>` (unknown counts printed as `unknown`, never 0) (exit 0/1/2) | AN OPERATOR OR A DIFFERENT SESSION reading a clean verdict as an accounted slate without independently re-deriving membership - the previous version of this check lived only in a session scratchpad and was lost to a resume, so every count reported since could not be verified. Open set is measured (`gh issue list`, or `--open-set-capture` offline); claimed set is a hand-maintained declaration at `docs/slate-lanes.json` (`docs/slate-lanes.md` states plainly it is not a measurement, and names a real granularity limit - it will not catch #1033/#1094, the exact duplicate that motivated it, because that pair is two legitimately different issue numbers, not one number claimed twice). Controlled at `controls/slate-reconcile` (#1099) | X |
 | 85 | `flow-wave-registry.sh` `list --any-live` | `FLOW_WAVE_ANY_LIVE=yes\|no-roles-ended\|no-roles-registered\|undeterminable` (exit 0/1/1/2) | `flow-wave-mailbox.sh`'s `__supervise_daemon`, which acts on `no-roles-ended` by releasing its lifetime flock and exiting - a decision nothing downstream re-derives, since the daemon that made it is gone. A distinct verdict contract from row 16's role-to-address resolution (a different question: not "where do I reach role R" but "is anything in this WAVE still alive at all") and from row 82's per-role supervising/duplicate ownership check (a different question again: not "did MY attempt to become the supervisor succeed" but "is there still anyone left in the wave to supervise"). `undeterminable` is its own case, not folded into `no-roles-registered`, so a registry file that exists but fails to parse cannot be misread as a genuinely empty wave (#1095) | X |
 | 86 | `check-version-consistency.py` | `ok - N location(s) agree`, mismatches, or `UNKNOWN` (exit 2) when derived locations fall below `MIN_LOCATIONS`, `git ls-files` itself fails, or `git` is not on PATH at all (counter-model review, #1037: README/CHANGELOG alone could otherwise clear the floor without ever examining a tracked file; CI pipeline 2128 found the git-absence case uncaught); since #1348 also `uv.lock`'s own-project entry (name + local source), with a missing/unparseable/ambiguous/versionless entry `UNKNOWN`, kept apart from the floor | `make verify` | G |
 | 87 | `check-unicode-dashes.py` | `ok - N tracked .md file(s) clean`, occurrences of U+2014/U+2013 outside fenced blocks (blockquoted fences included), or `UNKNOWN` (exit 2) when the tracked `.md` population falls below its floor, a file cannot be read, or `git` is not on PATH at all | `make verify` | G |
@@ -564,7 +581,7 @@ the answer generalises past bandit:
 
 | population | reason under the bound |
 |---|---|
-| 2,408 test functions, individually | the carve-out: the suite catches an individual test's failure; the suite is row 43 |
+| 2,408 test functions, individually | the carve-out: the suite catches an individual test's failure; the suite is row 43 - EXCEPT a test that derives its own input population from the tree, which the carve-out does not cover (issue #1492, see "The carve-out does not cover a derived population" above) |
 | `hook-permission-census.sh`, `hook-pending-retro.sh`, `friction-log.sh`, `run-delivery-pilots.py`, `lib.cicd status`; the recording operations of `flow-wave-residuals.py` and `playwright-desk.py` | recorders and reporters; nothing decides on their output without reading it, and `delivery-pilots.md` states per instrument what it does not establish. The guarded operations of the two ledgers are rows 19 and 24 |
 | `hook-mask-output.sh`, `secrets-mask.sh` | filters, not verdicts; `CLAUDE.md` states the masking hook "does not authorize reading credentials" - nobody is entitled to rely on it |
 | `install-memory-harness.sh`, `memories-db-setup.sh`, `setup-woodpecker-cli.sh`, `bash-prep.sh`, `codex-skill-sync.py --write`, `eli5-vendor.py --revendor`, `project-next-ownership.py --repin`, `retired-surface-prune.py --prune`, `prompt-context.sh`, `cpp-memory`, `project-init.py`, `c4-mermaid.py`, `skill-coverage-snapshot.py`; the rendering half of `speckit-tasks-to-issues.sh` (its guards are row 25) | installers, generators, ledgers and renderers; the state they produce is re-derived by the drift and parity checks in rows 31-37, 46, 51-52. `cpp-commands-link.sh` WAS LISTED HERE and is now row 97 - see the re-derivation note below. `flow-helpers-install.sh` WAS ALSO LISTED HERE and is now row 105 (#1185): the justification above is exactly what that issue refuted. The drift and parity checks re-derive COPY-MATCHES-SOURCE and never SOURCE-IS-AUTHENTIC, so a tampered bundled helper installed with `FLOW_HELPERS: installed` and a later `--check` certified it `ok` - measured, not argued. Its verdict is now consumed by the decision to install, which nothing downstream re-derives. `skill-coverage-snapshot.py` (#1370) is the one place skillc runs at all in this repository - it writes `docs/measurements/skill-coverage/<skill>.json` and emits no verdict; row 116's closure-digest drift check is exactly the re-derivation this bullet requires, over the one fact that can go stale (whether the snapshot still describes the current closure), so it is excluded here rather than carrying its own control |
@@ -650,6 +667,7 @@ reader counts them (issue #1268).
 |---|---|---|---|
 | 32 | `project-next-vendor.py --upstream` | #1069 | The fail-open advisory against codex-power-pack. CPP now owns the project-next engine outright, so there is no upstream to advise on; the offline sibling survives as row 31, re-pointed at `project-next-ownership.py check`. Retired rather than reclassified. |
 | 45 | `hadolint` | #943 | The CI `dockerfile-lint` step lost its last Dockerfile when #943 retired `mcp-evaluate/`, and `xargs -r` would then have exited 0 having linted nothing. The step was retired with its population; see **Universe and derivation**. |
+| 84 | `slate-reconcile.py` | #1499 | Dormant: zero Makefile or CI wiring ever called it (its only caller was its own test), both `scripts/slate-reconcile.py` and `docs/slate-lanes.json` were last touched 2026-09-19, and the hand-maintained claimed-lanes file had drifted far past the one-PR window it was designed for - a live run against main@78467c98 measured `open=23 claimed=34 UNACCOUNTED=20 PHANTOM=31`, worse than the `open=6 ... PHANTOM=31` snapshot that motivated retiring it. `docs/slate-lanes.json`, `docs/slate-lanes.md`, `controls/slate-reconcile/`, and `tests/test_slate_reconcile.py` retired with it. |
 
 ### What the count says
 
@@ -735,7 +753,7 @@ state it - and does not reach instruments built elsewhere on this host.
 ## Consequences
 
 - `instrument`, `harness` and `counter-model` are defined terms
-  ([glossary](../agents/glossary.md)); issues and ADRs use them rather than
+  ([glossary](https://github.com/cooneycw/claude-power-pack/blob/main/docs/agents/glossary.md)); issues and ADRs use them rather than
   "gate", "check" or "the tooling" when the distinction matters.
 - #924 can scope itself: "every instrument the bound captures" replaces "the
   seven that failed recently", and the register it builds has a denominator

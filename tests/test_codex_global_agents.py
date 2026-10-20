@@ -21,7 +21,9 @@ SOURCE = "# Global directives\n\n## Nit Store\n\n- One finding per comment.\n"
 
 
 def run(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True, check=False)
+    env = os.environ.copy()
+    env.pop("CODEX_HOME", None)
+    return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True, check=False, env=env)
 
 
 def verdict(proc: subprocess.CompletedProcess[str], key: str = "CODEX_GLOBAL_AGENTS") -> str:
@@ -228,3 +230,36 @@ def test_two_adoptions_in_one_second_keep_both_backups(home: Path) -> None:
     second = module.write_backup(target, "second\n")
     assert first != second
     assert (first.read_text(encoding="utf-8"), second.read_text(encoding="utf-8")) == ("first\n", "second\n")
+
+
+def test_relocated_codex_home(home: Path):
+    relocated = home / "relocated"
+    relocated.mkdir()
+    assert relocated != home / ".codex"
+    (relocated / "AGENTS.local.md").write_text("- Relocated addition.\n")
+    args = ("--home", str(home), "--codex-home", str(relocated))
+    proc = run("--write", *args)
+    assert proc.returncode == 0, proc.stderr
+    assert "Relocated addition." in (relocated / "AGENTS.md").read_text()
+    assert not agents(home).exists()
+    proc = run("--check", *args)
+    assert (verdict(proc), proc.returncode) == ("current", 0)
+
+
+def test_codex_home_environment_and_cli_precedence(home: Path, monkeypatch):
+    relocated = home / "environment-codex"
+    relocated.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(relocated))
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "--write", "--home", str(home)],
+        capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert (relocated / "AGENTS.md").is_file()
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "--write", "--home", str(home),
+         "--codex-home", str(home / ".codex")],
+        capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert agents(home).is_file()

@@ -48,6 +48,16 @@
       "name": "good-separator-shift",
       "input": "cases/good-separator-shift",
       "expect": "GOOD"
+    },
+    {
+      "name": "bad-hard-and-unrelated-degrading",
+      "input": "cases/bad-hard-and-unrelated-degrading",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-degrading-only",
+      "input": "cases/good-degrading-only",
+      "expect": "GOOD"
     }
   ],
   "anchors": [
