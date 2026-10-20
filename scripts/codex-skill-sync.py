@@ -54,6 +54,7 @@ import argparse
 import ast
 import contextlib
 import errno
+import functools
 import hashlib
 import importlib.util
 import json
@@ -290,6 +291,22 @@ def _py_list_is_network_argv(node: ast.List) -> bool:
 
 
 #: NEGATIVE-CONTROL: controls/codex-skill-sync-network-detector
+#: CACHED ON CONTENT, NOT ON ANY FILE IDENTITY (issue #1484 item 1). A pure
+#: function of `text` alone - no path, mtime or global state enters its
+#: answer - so the SAME string is the only thing that can hit the cache, and
+#: a different string (a real edit, or a different fixture tree entirely) is
+#: a different key by construction. Many skills bundle the same helper
+#: script; `generate_skill` previously re-parsed and re-walked its AST once
+#: per skill that bundles it.
+#:
+#: BOUNDED, not unbounded: a content-keyed cache holds every distinct file's
+#: full text as a key, so an unbounded one would grow with every distinct
+#: script/lib this process ever bundles. 256 comfortably covers this
+#: repository's real tree (measured: ~20-30 distinct files per
+#: `expected_outputs(FAMILIES)` pass) with headroom for growth; past the
+#: bound, `lru_cache` evicts the least-recently-used entry and recomputes on
+#: a later miss - slower, never wrong.
+@functools.lru_cache(maxsize=256)
 def _py_calls_network(text: str) -> bool:
     try:
         tree = ast.parse(text)
@@ -404,6 +421,8 @@ _NET_SH_CORE = re.compile(
 )
 
 
+#: Cached on content, same reasoning and bound as `_py_calls_network` above.
+@functools.lru_cache(maxsize=256)
 def _sh_calls_network(text: str) -> bool:
     for line in text.splitlines():
         mask = _sh_quote_free_mask(line)
@@ -678,7 +697,22 @@ def _is_type_checking_test(
     return False
 
 
-def _live_import_nodes(text: str) -> list[ast.Import | ast.ImportFrom]:
+#: Cached on content (issue #1484 item 1), same reasoning as
+#: `_py_calls_network` above - pure in `text` alone. `find_bundled_libs` calls
+#: through both callers below for every bundled file of every skill, and many
+#: skills bundle the same handful of scripts and libs - without this, the
+#: same file's AST was parsed and walked once per skill that references it.
+#:
+#: RETURNS A TUPLE, NOT A LIST (counter-model review). A cache hands back the
+#: SAME object to every caller; a mutable return value is one `.append`/
+#: `.sort`/`del` away from silently corrupting every later caller's answer
+#: for that content, in-process - exactly the cross-test contamination class
+#: issue #1484 exists to remove. Both current callers only iterate the
+#: result, so this is currently also provable by inspection, but a tuple
+#: makes it true by construction instead of by audit, which stays true when
+#: a caller is added later.
+@functools.lru_cache(maxsize=256)
+def _live_import_nodes(text: str) -> tuple[ast.Import | ast.ImportFrom, ...]:
     """`Import`/`ImportFrom` statements NOT nested inside `if TYPE_CHECKING:`
     (issue #1408, counter-model review).
 
@@ -703,7 +737,7 @@ def _live_import_nodes(text: str) -> list[ast.Import | ast.ImportFrom]:
     try:
         tree = ast.parse(text)
     except SyntaxError:
-        return []
+        return ()
     live: list[ast.Import | ast.ImportFrom] = []
     checking_names, typing_module_names = _typing_checking_bindings(tree)
 
@@ -739,7 +773,7 @@ def _live_import_nodes(text: str) -> list[ast.Import | ast.ImportFrom]:
                     walk(child, skip)
 
     walk(tree.body, False)
-    return live
+    return tuple(live)
 
 
 def _live_relative_imports(text: str) -> list[ast.ImportFrom]:
@@ -1845,7 +1879,9 @@ def _repo_relative(raw: str) -> str | None:
         return None
 
 
-def mirrors_for(sources: list[str], selected: list[str]) -> tuple[dict[str, list[str]], list[str]]:
+def mirrors_for(
+    sources: list[str], outputs: dict[str, dict[str, str]]
+) -> tuple[dict[str, list[str]], list[str]]:
     """`(source -> its mirror paths, sources that feed no mirror)`.
 
     TWO RULES, BOTH DERIVED FROM `expected_outputs` rather than from a path
@@ -1861,8 +1897,14 @@ def mirrors_for(sources: list[str], selected: list[str]) -> tuple[dict[str, list
         preserves the repo-relative path for `docs/`, `lib/` and `.claude/`
         sources, and `scripts/<name>` is already `scripts/<name>` on both sides,
         so one rule covers every shape rather than four.
+
+    Takes the ALREADY-COMPUTED `expected_outputs` result rather than `selected`
+    and recomputing it (issue #1484 item 1). `run_list_mirrors` builds `outputs`
+    unconditionally for its own `not sources` branch, so recomputing it again
+    here ran the whole (AST-heavy) generator pipeline a second time on every
+    call that passes sources - which is every call this issue's own tests make.
+    Measured: this alone roughly halves one `--list-mirrors <source>` call.
     """
-    outputs = expected_outputs(selected)
     found: dict[str, list[str]] = {}
     unknown: list[str] = []
 
@@ -1969,7 +2011,7 @@ def run_list_mirrors(sources: list[str], selected: list[str]) -> int:
                 print(f"codex/skills/{skill}/{rel}")
         return 0
 
-    found, unknown = mirrors_for(sources, selected)
+    found, unknown = mirrors_for(sources, outputs)
     #: A UNION, not a concatenation (counter-model review). Passing one source
     #: twice printed it twice, and two scripts sharing a skill repeated that
     #: skill's manifest - so the output was not a mirror SET, which is what a
