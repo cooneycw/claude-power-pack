@@ -272,3 +272,13 @@ def test_the_backtick_ruling_is_recorded_beside_the_gate() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
     assert "BACKTICK CITATIONS STAY UNCHECKED - A RULING" in text
     assert "CONTENT drift" in text
+
+
+def test_codex_mirror_graph_red_then_green(tmp_path):
+    skill = tmp_path / "codex" / "skills" / "example"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("[target](target.md#heading)\n")
+    assert not (skill / "target.md").exists()
+    assert LINKS.main(["--root", str(tmp_path), "--min-files", "1", "--codex-skills"]) == 1
+    (skill / "target.md").write_text("# Heading\n")
+    assert LINKS.main(["--root", str(tmp_path), "--min-files", "1", "--codex-skills"]) == 0

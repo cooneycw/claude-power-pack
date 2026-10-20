@@ -7,4 +7,4 @@
 # corruption, a partial edit, and post-build modification. It does NOT
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
-9e66fa9389d9f270763face7e2947a73ae7e7172de8dc7d60bd21ddd2af43f82  playwright-desk.py
+9d15fd7a72dc4cf48a7eab789e9e903ccf714fa6d427aef5b9fdd76dab080aa1  playwright-desk.py
