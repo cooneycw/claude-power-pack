@@ -1,0 +1,28 @@
+{
+  "branch": "issue-1486-flow-pr-watch-verdicts",
+  "counts": {
+    "accepted": 1,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "direction": "delegated",
+  "head": "b961c5f2cb56b11d8252ee0a09d94b7441b0dced",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/20/rollout-2026-10-20T14-55-23-01a159cf-545c-7081-8aef-265f424151a3.jsonl",
+    "thread_id": "01a159cf-545c-7081-8aef-265f424151a3"
+  },
+  "issue": "1486",
+  "passes": 1,
+  "recorded_at": "2026-10-20T15:19:50Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "claude/claude-sonnet-5",
+  "reviewer_evidence": {
+    "session_id": "687807af-40f7-4b5f-a9f4-e8526c8b2e29"
+  },
+  "schema": 1,
+  "status": "ran"
+}

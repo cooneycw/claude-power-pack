@@ -20,6 +20,36 @@
       "name": "bad-unbounded-scrape-must-declare-itself",
       "input": "cases/bad-unbounded-scrape-must-declare-itself",
       "expect": "BAD"
+    },
+    {
+      "name": "unresolved-attribution-reads-unknown",
+      "input": "cases/unresolved-attribution-reads-unknown",
+      "expect": "BAD"
+    },
+    {
+      "name": "single-summary-real-failure",
+      "input": "cases/single-summary-real-failure",
+      "expect": "GOOD"
+    },
+    {
+      "name": "scoped-scrape-does-not-borrow-another-steps-failure",
+      "input": "cases/scoped-scrape-does-not-borrow-another-steps-failure",
+      "expect": "BAD"
+    },
+    {
+      "name": "cancelled-single-step",
+      "input": "cases/cancelled-single-step",
+      "expect": "BAD"
+    },
+    {
+      "name": "ordinary-step-failure",
+      "input": "cases/ordinary-step-failure",
+      "expect": "GOOD"
+    },
+    {
+      "name": "signal-exit-reports-real-status",
+      "input": "cases/signal-exit-reports-real-status",
+      "expect": "BAD"
     }
   ],
   "anchors": [
@@ -30,6 +60,14 @@
       "path": "anchors/historical-pre-1190-flow-pr-watch.sh",
       "sha256": "7779b06f45f33458c22388e9403ef77032f8bed050c04516e6edf8b2809ee616",
       "why": "The watcher as it stood before #1190, vendored from d3f474b. MEASURED against both cases: it emits no FLOW_PR_WATCH_SCRAPE_SCOPE line at all, so it scores GOOD on both and MISSES the killed-run case entirely. It does not merely fail to warn - it presents a failure set scraped from an inconclusive log exactly as it presents one pytest actually summarised, which is the conflation this control exists to keep out."
+    },
+    {
+      "kind": "historical",
+      "sha": "6fa9a4e1b6ae624136c51039638654c6357498df",
+      "origin": "scripts/flow-pr-watch.sh",
+      "path": "anchors/historical-pre-1486-flow-pr-watch.sh",
+      "sha256": "0df497631d63145844d6cbd88beec84d484d1abb48a09d90f3d1f0de18a1b9cf",
+      "why": "Local pre-change source snapshot. Misses unresolved attribution, cross-step borrowing, single-step cancellation and signal exit controls. No history or network access required."
     }
   ]
 }
