@@ -47,7 +47,7 @@
 #
 # Usage:
 #   flow-wave-mailbox.sh send  --to <role> [--from <role>] [--wave W]
-#                              [--body TEXT | --body-file F | < stdin] [--replace]
+#                              [--body TEXT | --body-file F | < stdin] [--replace] [--awaiting-reply]
 #   flow-wave-mailbox.sh read  --role <role> [--wave W] [--all] [--peek]
 #                              [--from <role>] [--out FILE]
 #   flow-wave-mailbox.sh watch --role <role> [--wave W] [--timeout SEC]
@@ -1239,6 +1239,46 @@ boxes_for_role() {
 #      duplicate log line, never a silent drop.
 surfaced_file() { echo "$WAVE_DIR/.supervise-$1.surfaced"; }
 
+# Space-separated epoch seconds, message rev, and notification bit.
+awaiting_reply_file() { echo "$WAVE_DIR/.supervise-$1.awaiting-reply"; }
+
+still_waiting_after() {
+  STILL_WAITING_AFTER="${FLOW_MAILBOX_STILL_WAITING_AFTER-600}"
+  case "$STILL_WAITING_AFTER" in
+    ''|*[!0-9]*) usage_fail "FLOW_MAILBOX_STILL_WAITING_AFTER must be whole seconds" ;;
+  esac
+  # Interpret decimal values, including zero-padded input, as seconds.
+  STILL_WAITING_AFTER=$((10#$STILL_WAITING_AFTER))
+}
+
+check_awaiting_reply() {
+  local marker snapshot started rev notified elapsed tmp
+  marker="$(awaiting_reply_file "$ROLE")"
+  [ -s "$marker" ] || return 0
+  if [ "$INNER_RC" -eq 0 ]; then
+    ( flock -w 10 9 || exit 3; rm -f "$marker" ) 9>"$LOCK_FILE"
+    return
+  fi
+  snapshot="$(cat "$marker")"
+  read -r started rev notified <<< "$snapshot"
+  [ "$notified" = 0 ] || return 0
+  elapsed=$(( $(date +%s) - started ))
+  [ "$elapsed" -ge "$STILL_WAITING_AFTER" ] || return 0
+  # Use normal delivery, without arming another wait. Keep the marker until
+  # incoming mail arrives; a notification is not a reply.
+  FLOW_WAVE_MAILBOX_NO_CREATE=1 bash "$0" send --to orchestrator --from "$ROLE" \
+    --wave "$WAVE" --body "Still waiting for a reply to rev $rev after ${elapsed}s." \
+    >/dev/null 2>&1 8>&- || return 0
+  (
+    flock -w 10 9 || exit 3
+    # A fresh flagged send may have armed a new wait during delivery.
+    [ -f "$marker" ] && [ "$(cat "$marker")" = "$snapshot" ] || exit 0
+    tmp="$(mktemp "$WAVE_DIR/.mawait.XXXXXX")" || exit 3
+    printf '%s %s 1\n' "$started" "$rev" > "$tmp"
+    mv -f "$tmp" "$marker" || { rm -f "$tmp"; exit 3; }
+  ) 9>"$LOCK_FILE"
+}
+
 # The rev this supervisor has already surfaced for one box (0 when unknown).
 surfaced_rev_for() {
   local sfile="$1" base="$2"
@@ -2072,6 +2112,7 @@ case "$VERB" in
 esac
 
 WAVE="default"; ROLE=""; A_TO=""; A_FROM=""; A_BODY=""; A_BODY_FILE=""; A_OUT=""
+AWAITING_REPLY=0
 REPLACE=0; PEEK=0; CONSUME=0; ALL=0; JSON_OUT=0; NO_LEXICON=0; STATUS=0
 SURFACED_STATE=""; REGISTRY_REQUIRED=0
 TIMEOUT="$WATCH_TIMEOUT_DEFAULT"; INTERVAL="$WATCH_INTERVAL_DEFAULT"
@@ -2097,6 +2138,7 @@ while [ "$#" -gt 0 ]; do
     --timeout=*) TIMEOUT="${1#--timeout=}" ;;
     --interval) [ "$#" -ge 2 ] || usage_fail "--interval requires seconds"; INTERVAL="$2"; shift ;;
     --interval=*) INTERVAL="${1#--interval=}" ;;
+    --awaiting-reply) AWAITING_REPLY=1 ;;
     --replace) REPLACE=1 ;;
     --no-lexicon) NO_LEXICON=1 ;;
     --peek) PEEK=1 ;;
@@ -2175,6 +2217,9 @@ case "$VERB" in
       [ -n "$A_FROM" ] || A_FROM="orchestrator"
       valid_name "$A_FROM" || usage_fail "invalid --from role: '$A_FROM'"
       BOX_NAME="outbox-$A_TO.md"
+    fi
+    if [ "$AWAITING_REPLY" -eq 1 ]; then
+      [ "$A_TO" = orchestrator ] && [ "$A_FROM" != orchestrator ] || usage_fail "--awaiting-reply requires a worker sending to orchestrator"
     fi
     BOX="$WAVE_DIR/$BOX_NAME"
 
@@ -2262,6 +2307,11 @@ case "$VERB" in
           "$rev" "$A_FROM" "$A_TO" "$TS" >> "$tmp"
         printf '%s\n' "$BODY" >> "$tmp"
         mv -f "$tmp" "$BOX" || { rm -f "$tmp"; exit 3; }
+        if [ "$AWAITING_REPLY" -eq 1 ]; then
+          tmp="$(mktemp "$WAVE_DIR/.mawait.XXXXXX")" || exit 3
+          printf '%s %s 0\n' "$(date +%s)" "$rev" > "$tmp"
+          mv -f "$tmp" "$(awaiting_reply_file "$A_FROM")" || { rm -f "$tmp"; exit 3; }
+        fi
         echo "$rev"
       ) 9>"$LOCK_FILE"
     )"
@@ -2864,6 +2914,7 @@ EOF
       esac
     fi
 
+    still_waiting_after
     SUP_LOCK="$WAVE_DIR/.supervise-$ROLE.lock"
     SUP_PIDFILE="$WAVE_DIR/.supervise-$ROLE.pid"
     SUP_LOG="$WAVE_DIR/.supervise-$ROLE.log"
@@ -2982,6 +3033,7 @@ EOF
     # This daemon's own record of what it has SURFACED (#867/#873) - never a
     # receipt, and never read by anything that reports on deafness. It exists
     # only so a non-consuming watch does not re-fire on the same mail forever.
+    still_waiting_after
     SUP_SURFACED="$(surfaced_file "$ROLE")"
 
     # Structured, sanitized evidence ONLY - a timestamp and a short event
@@ -3133,6 +3185,8 @@ EOF
       wait "$INNER_PID"
       INNER_RC=$?
       INNER_PID=""
+
+      [ "$INNER_RC" -eq 9 ] || check_awaiting_reply
 
       case "$INNER_RC" in
         0)
