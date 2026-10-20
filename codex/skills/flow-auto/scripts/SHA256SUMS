@@ -7,9 +7,9 @@
 # corruption, a partial edit, and post-build modification. It does NOT
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
-7c2c003e3007dd554c3ffecd56c781417141c31f4e854cf501d2385af6153d08  check-ignored-additions.sh
+ee962d1a9c3006304f64534695198336c35c51b64c2b346a4e25e7ca39487bb8  check-ignored-additions.sh
 43f257169f891098fdc205cb3109b1636c055aeedf7f0a6357ff5f81f317df5d  codex-skill-resync.sh
-3a10c49bd68e239277fe4870a7f31b922a48f34886926caa0ba297f8368709b9  codex-skill-sync.py
+20a4a3b7628a9d1fdb519bd4f6fefacc34c199f8990d593fad58d14d0e226e24  codex-skill-sync.py
 b9134545baf0920f30603ae515b14867f078cdf668c218f24430927eaa407373  counter-model-receipt.py
 10070b93da07f81e3d5bd9d3a434527d231d0abcd8b386ff8e96171f1b5dc92b  counter-model-reviewer-attribution.py
 6a4ea2ba5ae9a62381bd521fa3ae3639fbcbb26aa3b263aa34ede6a6c52773e5  eli5-vendor.py
@@ -18,7 +18,7 @@ b9134545baf0920f30603ae515b14867f078cdf668c218f24430927eaa407373  counter-model-
 83b0a68caefc010a9907211612e96c1bfb94b35a6cff446939a2306ce95bb2da  flow-finish-gate.sh
 cbd85a9e0e08471a9c0be29725c177a09059a58a5604e0543263f2cf55cad6ca  flow-live-driver-guard.sh
 05c5aaf1d28a95d31d9e89eab9c128f33f916a7ed931146492fee7c5a5c1244d  flow-plan-record.py
-58a20357235a02b214e6df3d64072b2e8fee6b52d58185f81875cfbd7c1fd47c  flow-stale-check.sh
+abade59f8afaa71b0a56511d7e4439e5ff8673a8989c81c1bfa0de571bc4e8b0  flow-stale-check.sh
 fa067118095e617c0668a0fa16fd4a3d5c0f0ec99bb95c00611b72671c3421f3  flow-start-resolve.sh
 b00aa7f3eb76b8addb05ffa658c09443fe589256e53d0a41a902d47c84d15d1f  flow-worktree-claim.sh
 d3ee7378cc583ccb8dd8e0a6c9c10e2c958b392e5e0bb973dd5824ac310b4d22  flow-worktree-guard.sh
@@ -29,4 +29,4 @@ f796fca861389ba9deee21ff73c92f2b94646cd7e5be6e4721cc6620d1137def  gh-pr-merge.sh
 673b2314d843cb1bea36ea0fd10669060a62369a276c00e52fcc6c0663a5e837  nit-store-resolve.sh
 0909790cc9e29f072c73acc324d85664fd5aee329ec5bd5cfe326d372cb3efe4  speckit-context.py
 cc7e9fee8358f959310ee38b221825511065c413386f39e5291a78ca33959745  stash-worktree-guard.sh
-3212ba06699c2d1d0300e23519425100e2d21a227cd5296ddea0e4ce9f2e4252  worktree-remove.sh
+a164cc64b3e03c22a736c6830ed1f05252fef0317a718e06b6b27e80eb8af768  worktree-remove.sh

@@ -67,6 +67,7 @@ from pathlib import Path
 from urllib.parse import unquote
 
 #: NEGATIVE-CONTROL: controls/check-md-relative-links
+#: NEGATIVE-CONTROL: controls/check-codex-skill-links
 
 #: Below this many tracked .md files the real repository cannot be what was
 #: scanned (it holds several hundred) - UNKNOWN, not clean. Control cases pass a
@@ -74,8 +75,7 @@ from urllib.parse import unquote
 MIN_TRACKED_MD_FILES = 100
 
 #: Each prefix is text whose links do not resolve from where it sits, by design:
-#: - `codex/skills/`: generated mirrors (`make codex-skills`); their sources are
-#:   checked where they live.
+#: - `codex/skills/`: generated mirrors, checked separately with --codex-skills.
 #: - `templates/`, `.specify/templates/`: rendered into another tree, where
 #:   their relative links resolve.
 #: - `docs/flow-runs/`, `docs/measurements/`: records of a bygone tree.
@@ -231,11 +231,16 @@ def main(argv: list[str] | None = None) -> int:
                         help="repository root (default: the checkout this script lives in)")
     parser.add_argument("--min-files", type=int, default=MIN_TRACKED_MD_FILES,
                         help=f"membership floor (default {MIN_TRACKED_MD_FILES})")
+    parser.add_argument("--codex-skills", action="store_true",
+                        help="check the generated mirror graph, including untracked output")
     args = parser.parse_args(argv)
     root = args.root.resolve()
+    population = "mirror" if args.codex_skills else "tracked"
 
     try:
-        files = tracked_md_files(root)
+        files = (sorted(p.relative_to(root).as_posix()
+                        for p in (root / "codex" / "skills").rglob("*.md"))
+                 if args.codex_skills else tracked_md_files(root))
     except GitUnavailable:
         print("md-relative-links: UNAVAILABLE - git is not installed", file=sys.stderr)
         return 2
@@ -244,7 +249,7 @@ def main(argv: list[str] | None = None) -> int:
               "nothing was examined, which is not a pass.", file=sys.stderr)
         return 2
     if len(files) < args.min_files:
-        print(f"md-relative-links: UNKNOWN - only {len(files)} tracked .md file(s) "
+        print(f"md-relative-links: UNKNOWN - only {len(files)} {population} .md file(s) "
               f"(need >= {args.min_files}); this is not the population the gate is "
               "for, so a clean result would mean nothing.", file=sys.stderr)
         return 2
@@ -252,23 +257,23 @@ def main(argv: list[str] | None = None) -> int:
     if unreadable:
         for d in dead:
             print(f"  {d.path}:{d.line}: ({d.target}) does not exist", file=sys.stderr)
-        print(f"md-relative-links: UNKNOWN - {len(unreadable)} tracked .md file(s) could "
+        print(f"md-relative-links: UNKNOWN - {len(unreadable)} {population} .md file(s) could "
               "not be read, so their links were not examined:", file=sys.stderr)
         for rel in unreadable:
             print(f"  {rel}", file=sys.stderr)
         return 2
     if not examined:
-        print(f"md-relative-links: UNKNOWN - {len(files)} tracked .md file(s) carry no "
+        print(f"md-relative-links: UNKNOWN - {len(files)} {population} .md file(s) carry no "
               "relative link at all; nothing was checked.", file=sys.stderr)
         return 2
     if dead:
         print(f"md-relative-links: {len(dead)} dead relative link(s) of {examined} "
-              f"across {len(files)} tracked .md file(s):", file=sys.stderr)
+              f"across {len(files)} {population} .md file(s):", file=sys.stderr)
         for d in dead:
             print(f"  {d.path}:{d.line}: ({d.target}) does not exist", file=sys.stderr)
         return 1
     print(f"md-relative-links: ok - {examined} relative link(s) across {len(files)} "
-          "tracked .md file(s) resolve (file existence only; URLs, anchors, images "
+          f"{population} .md file(s) resolve (file existence only; URLs, anchors, images "
           "and reference-style links are not examined)")
     return 0
 

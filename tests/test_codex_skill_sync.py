@@ -1717,7 +1717,7 @@ def test_a_command_linking_no_docs_gets_no_docs_dir(tmp_repo_docs):
     assert not (tmp_repo_docs / "codex/skills/flow-plain/docs").exists()
 
 
-def test_real_repo_bundled_docs_byte_identical():
+def test_real_repo_bundled_docs_preserve_content_except_link_rewrites():
     bundled = sorted((ROOT / "codex" / "skills").glob("*/docs/**/*.md"))
     assert bundled, "no bundled docs found; this pin is stale"
     skills = ROOT / "codex" / "skills"
@@ -1729,7 +1729,12 @@ def test_real_repo_bundled_docs_byte_identical():
         skill_docs = skills / path.relative_to(skills).parts[0] / "docs"
         source = ROOT / "docs" / path.relative_to(skill_docs)
         assert source.is_file(), path
-        assert path.read_bytes() == source.read_bytes(), path
+        skill = skill_docs.parent
+        mirrored = {p.relative_to(skill).as_posix() for p in skill.rglob("*") if p.is_file()}
+        expected = codex_skill_sync.rewrite_mirror_links(
+            source.read_text(), source, path.relative_to(skill).as_posix(), mirrored
+        )
+        assert path.read_text() == expected, path
 
 
 def test_real_repo_no_generated_body_publishes_a_source_relative_doc_link():
@@ -2854,3 +2859,53 @@ def test_real_repo_variable_tool_helpers_carry_the_network_bullet(skill_name):
     (flow-start-resolve.sh) - shapes the first two cuts of the detector missed."""
     skill = (ROOT / "codex" / "skills" / skill_name / "SKILL.md").read_text()
     assert "Run these helpers with escalated permissions" in skill
+
+
+def test_description_truncates_at_complete_sentence():
+    first = "Run the orchestrator to register workers."
+    description = first + " Then record the worker state" * 12
+    assert len(description) > codex_skill_sync.DESCRIPTION_MAX
+    assert codex_skill_sync.derive_description({"description": description}, "") == first
+
+
+@pytest.mark.parametrize("length", [149, 150])
+def test_description_at_or_under_budget_is_unchanged(length):
+    description = "x" * length
+    assert codex_skill_sync.derive_description({"description": description}, "") == description
+
+
+def test_description_without_sentence_uses_existing_fallback():
+    description = "worker state " * 30
+    window = description[:codex_skill_sync.DESCRIPTION_MAX]
+    assert not any(mark in window for mark in ".!?")
+    assert codex_skill_sync.derive_description({"description": description}, "") == (
+        window.rsplit(" ", 1)[0].rstrip(" ,;:-") + " ..."
+    )
+
+
+def test_unmirrored_links_route_upstream(tmp_path, monkeypatch):
+    monkeypatch.setattr(codex_skill_sync, "REPO_ROOT", tmp_path)
+    source = tmp_path / "docs" / "agents" / "contract.md"
+    source.parent.mkdir(parents=True)
+    (source.parent / "outside(v2).md").write_text("# Outside\n")
+    text = ('[outside](outside(v2).md#section "Title") [inside](inside.md)\n'
+            '`[example](outside(v2).md)`\n'
+            '```md\n[example](outside(v2).md)\n```\n')
+    result = codex_skill_sync.rewrite_mirror_links(
+        text, source, "docs/agents/contract.md", {"docs/agents/inside.md"}
+    )
+    expected = ('[outside](https://github.com/cooneycw/claude-power-pack/blob/main/'
+                'docs/agents/outside%28v2%29.md#section "Title")')
+    assert expected in result
+    assert "[inside](inside.md)" in result
+    assert '`[example](outside(v2).md)`' in result
+    assert '```md\n[example](outside(v2).md)\n```' in result
+
+
+@pytest.mark.parametrize("punctuation", [".", "!", "?"])
+def test_description_uses_last_sentence_boundary_not_decimal(punctuation):
+    first = "Use version 2.5 to register workers" + punctuation
+    second = " Keep the record current."
+    description = first + second + " Then record more worker state" * 12
+    assert len(description) > codex_skill_sync.DESCRIPTION_MAX
+    assert codex_skill_sync.derive_description({"description": description}, "") == first + second

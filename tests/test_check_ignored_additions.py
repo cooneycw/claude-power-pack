@@ -266,3 +266,171 @@ def test_a_wholly_ignored_directory_is_reported_not_skipped(tmp_path: Path) -> N
     assert result.returncode == 3
     assert "config/" in result.stderr
     assert ".venv" not in result.stderr  # a scratch directory is still dropped
+
+
+def test_gate_scratch_behind_a_directory_rule_is_not_a_false_block(
+    tmp_path: Path,
+) -> None:
+    """Nit Store #864 (comments 5983077287, 6192075101): the finish gate's own
+    scratch output - a `*.log` file behind a blanket directory-ignore rule,
+    the `reports/pytest.log` shape - must not block. Collapsed to the bare
+    directory entry `reports/`, `is_scratch` never sees the `.log` extension
+    and the gate's own output reads as a swallowed addition."""
+    repo = tmp_path / "repo"
+    _init_repo(repo, "reports/\n")
+    wt = tmp_path / "repo-issue-1"
+    _git(repo, "worktree", "add", "-q", "-b", "issue-1-x", str(wt))
+    (wt / "reports").mkdir()
+    (wt / "reports" / "pytest.log").write_text("log output\n", encoding="utf-8")
+
+    result = _run(wt)
+
+    assert result.returncode == 0, result.stderr
+    assert "reports" not in result.stderr
+
+
+def test_a_non_scratch_file_behind_the_same_directory_rule_still_blocks(
+    tmp_path: Path,
+) -> None:
+    """The companion case: a REAL addition sitting in the same ignored
+    directory as gate scratch must still be caught now that files are listed
+    individually rather than collapsed to the directory as a whole."""
+    repo = tmp_path / "repo"
+    _init_repo(repo, "reports/\n")
+    wt = tmp_path / "repo-issue-1"
+    _git(repo, "worktree", "add", "-q", "-b", "issue-1-x", str(wt))
+    (wt / "reports").mkdir()
+    (wt / "reports" / "pytest.log").write_text("log output\n", encoding="utf-8")
+    (wt / "reports" / "summary.json").write_text("{}", encoding="utf-8")
+
+    result = _run(wt)
+
+    assert result.returncode == 3
+    assert "reports/summary.json" in result.stderr
+    assert "reports/pytest.log" not in result.stderr
+
+
+# --- Nit Store #864 (comment 6192075101): repo-declared gate-scratch dirs ----
+#
+# A gate's own ignored output that is NOT a recognized scratch pattern (not a
+# `*.log`, not a name in `_SCRATCH_DIRS`) - the `dashboard-runs/<utc>-<sha>/`
+# shape, holding JSON and verdict files - still blocks without the repo
+# declaring that directory. `is_declared_gate_scratch` is the escape hatch.
+
+
+def _run_with_gate_scratch(
+    repo: Path, gate_scratch_text: str | None, *args: str
+) -> subprocess.CompletedProcess[str]:
+    import os
+
+    env = os.environ.copy()
+    if gate_scratch_text is not None:
+        declared = repo.parent / "gate-scratch.txt"
+        declared.write_text(gate_scratch_text, encoding="utf-8")
+        env["CHECK_IGNORED_ADDITIONS_GATE_SCRATCH"] = str(declared)
+    else:
+        env.pop("CHECK_IGNORED_ADDITIONS_GATE_SCRATCH", None)
+    return subprocess.run(
+        ["bash", str(GUARD), *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+
+def _dashboard_runs_worktree(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    _init_repo(repo, "dashboard-runs/\n")
+    wt = tmp_path / "repo-issue-1"
+    _git(repo, "worktree", "add", "-q", "-b", "issue-1-x", str(wt))
+    run_dir = wt / "dashboard-runs" / "20260101-deadbeef"
+    run_dir.mkdir(parents=True)
+    (run_dir / "verdict.json").write_text("{}", encoding="utf-8")
+    return wt
+
+
+def test_an_undeclared_gate_output_dir_still_blocks(tmp_path: Path) -> None:
+    wt = _dashboard_runs_worktree(tmp_path)
+    result = _run_with_gate_scratch(wt, None)
+    assert result.returncode == 3
+    assert "dashboard-runs/20260101-deadbeef/verdict.json" in result.stderr
+
+
+def test_a_declared_gate_output_dir_is_silent(tmp_path: Path) -> None:
+    wt = _dashboard_runs_worktree(tmp_path)
+    result = _run_with_gate_scratch(wt, "dashboard-runs/\n")
+    assert result.returncode == 0, result.stderr
+    assert without_status(result.stderr) == ""
+
+
+def test_gate_scratch_file_ignores_comments_and_blank_lines(tmp_path: Path) -> None:
+    wt = _dashboard_runs_worktree(tmp_path)
+    result = _run_with_gate_scratch(
+        wt, "# gate output dirs\n\n  dashboard-runs/  # trailing comment\n"
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_expansion_failure_is_not_a_clean_result(tmp_path: Path) -> None:
+    """The same counter-model concern as the top-level inventory: a failure
+    expanding a SURVIVING directory must not read as clean."""
+    import os
+
+    repo = tmp_path / "repo"
+    _init_repo(repo, "config/\n")
+    wt = tmp_path / "repo-issue-1"
+    _git(repo, "worktree", "add", "-q", "-b", "issue-1-x", str(wt))
+    (wt / "config").mkdir()
+    (wt / "config" / "manifest.json").write_text("{}", encoding="utf-8")
+
+    real_git = shutil.which("git")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    shim = bindir / "git"
+    shim.write_text(
+        "#!/usr/bin/env bash\n"
+        'case "$1" in ls-files) exit 128 ;; esac\n'
+        f'exec "{real_git}" "$@"\n'
+    )
+    shim.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}"}
+
+    result = subprocess.run(
+        ["bash", str(GUARD)], cwd=wt, capture_output=True, text=True, env=env
+    )
+    assert result.returncode == 4
+    assert "NOT inspected" in result.stderr
+
+    advisory = subprocess.run(
+        ["bash", str(GUARD), "--advisory"], cwd=wt, capture_output=True, text=True, env=env
+    )
+    assert advisory.returncode == 0
+    assert "NOT inspected" in advisory.stderr
+
+
+def test_expansion_handles_pathspec_metacharacters_in_a_directory_name(
+    tmp_path: Path,
+) -> None:
+    """Codex review of #1491: a directory name containing a pathspec
+    metacharacter must expand as the literal path it is, not as a glob - a
+    bracket class can fail to match the very directory it names, and a `*`
+    can pull in an unrelated sibling. Not reproduced live against this host's
+    git (2.43.0; a bare `:/name` pathspec already matched correctly in manual
+    testing here), so this pins the INTENDED behavior under the `,literal`
+    pathspec the fix applies, as a regression floor rather than a reproduction
+    of the failure mode itself."""
+    repo = tmp_path / "repo"
+    _init_repo(repo, "config\\[1\\]/\nweird\\*dir/\n")
+    wt = tmp_path / "repo-issue-1"
+    _git(repo, "worktree", "add", "-q", "-b", "issue-1-x", str(wt))
+    (wt / "config[1]").mkdir()
+    (wt / "config[1]" / "manifest.json").write_text("{}", encoding="utf-8")
+    (wt / "weird*dir").mkdir()
+    (wt / "weird*dir" / "manifest.json").write_text("{}", encoding="utf-8")
+
+    result = _run(wt)
+
+    assert result.returncode == 3, result.stderr
+    assert "config[1]/manifest.json" in result.stderr
+    assert "weird*dir/manifest.json" in result.stderr
