@@ -1121,3 +1121,40 @@ def test_masked_by_sibling_with_a_combination_reference_keeps_normal_verdict(tmp
     assert result.returncode == 0, result.stdout
     assert "MUTATION-ACCEPTED: controls/toy/control.json::zero-count-refusal" in result.stdout
     assert "not referenced by any" not in result.stdout
+
+
+@pytest.mark.parametrize("malformed", [42, [{"name": "broken", "mutations": 42}]])
+def test_integer_combination_shapes_keep_existing_diagnostics(tmp_path: Path, malformed: Any) -> None:
+    root = _masked_tree(tmp_path, mutations=[INERT_COMMENT], combinations=malformed)
+    spec = json.loads((root / "controls/toy/control.json").read_text())
+    assert spec["combinations"] == malformed
+    result = _probe(root, "--strict")
+    assert result.returncode == 1
+    assert "Traceback" not in result.stderr
+    if isinstance(malformed, int):
+        detail = ("`combinations` must be a list of objects, got int - "
+                  "a malformed manifest is not a weaker instrument, it is an unreadable one")
+        name = "combinations"
+    else:
+        detail = ("combination declares no usable `mutations` list (at least two existing "
+                  "mutation names - a list of one is not a combination)")
+        name = "broken"
+    assert f"MUTATION-INAPPLICABLE: controls/toy/control.json::{name}" in result.stdout
+    assert detail in result.stdout
+    print(result.stdout)
+
+
+def test_uncaught_combination_does_not_prove_sibling_masking(tmp_path: Path) -> None:
+    combo = {
+        "name": "inert-pair", "mutations": [GUARD_A["name"], INERT_COMMENT["name"]],
+        "expect": "uncaught", "why": "the sibling still masks the removed guard",
+        "blocked_by": "masked-by-sibling",
+    }
+    assert combo["expect"] != "caught"
+    assert GUARD_A["blocked_by"] == "masked-by-sibling"
+    root = _masked_tree(tmp_path, mutations=[GUARD_A, INERT_COMMENT], combinations=[combo])
+    result = _probe(root, "--strict")
+    assert result.returncode == 1
+    assert "MUTATION-INAPPLICABLE: controls/toy/control.json::zero-count-refusal" in result.stdout
+    assert "inert-pair' (expect='uncaught')" in result.stdout
+    assert 'not expect: "caught"' in result.stdout

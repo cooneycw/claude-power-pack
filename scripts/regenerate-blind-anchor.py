@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import ast
 import difflib
+import hashlib
 import json
 import re
 import tempfile
@@ -65,7 +66,9 @@ def main() -> int:
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     control = root / "controls" / args.control
-    spec = json.loads((control / "control.json").read_text(encoding="utf-8"))
+    spec_path = control / "control.json"
+    spec_text = spec_path.read_text(encoding="utf-8")
+    spec = json.loads(spec_text)
     anchors = [anchor for anchor in spec["anchors"] if anchor.get("kind") == "constructed"]
     if len(anchors) != 1:
         parser.error("expected exactly one constructed anchor")
@@ -84,6 +87,11 @@ def main() -> int:
         return 1
     if args.write:
         anchor.write_text(regenerated, encoding="utf-8")
+        anchors[0]["sha256"] = hashlib.sha256(anchor.read_bytes()).hexdigest()
+        spec_path.write_text(
+            json.dumps(spec, indent=2) + ("\n" if spec_text.endswith("\n") else ""),
+            encoding="utf-8",
+        )
         print(f"wrote: {anchor.relative_to(root)}")
         return 0
     with tempfile.TemporaryDirectory(prefix="cpp-anchor-regen-") as scratch:

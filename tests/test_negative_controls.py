@@ -5056,6 +5056,11 @@ def test_blind_anchor_regeneration_preserves_prose_and_detects_gate_drift(tmp_pa
     shutil.copyfile(ROOT / "controls/host-surface-observe/anchors" / anchor.name, anchor)
     shutil.copyfile(ROOT / "controls/host-surface-observe/anchors" / anchor.with_suffix(".patch").name,
                     anchor.with_suffix(".patch"))
+    spec_path = control / "control.json"
+    spec_bytes = spec_path.read_bytes()
+    spec = json.loads(spec_bytes)
+    assert spec_bytes == (json.dumps(spec, indent=2) + "\n").encode()
+    assert spec["anchors"][0]["sha256"] == hashlib.sha256(anchor.read_bytes()).hexdigest()
     original = anchor.read_text()
     # A non-transformation change must propagate from the current gate.
     gate.write_text(gate.read_text() + "\n# regeneration freshness canary\n")
@@ -5077,6 +5082,14 @@ def test_blind_anchor_regeneration_preserves_prose_and_detects_gate_drift(tmp_pa
     assert "parents[3]" in regenerated
     assert '"cpp-checkout-freshness.sh"' in regenerated
     assert "key = (str(repo), neutralised)" in regenerated
+    recorded = json.loads(spec_path.read_text())["anchors"][0]["sha256"]
+    assert recorded != spec["anchors"][0]["sha256"]
+    assert recorded == hashlib.sha256(anchor.read_bytes()).hexdigest()
+    print("post-fix write recorded == actual: True")
+    written_spec = spec_path.read_bytes()
+    assert run("--write").returncode == 0
+    assert spec_path.read_bytes() == written_spec
+    assert json.loads(written_spec)["anchors"][0]["sha256"] == recorded
     assert run().returncode == 0
     gate.write_text(gate.read_text().replace("def covered_by(appeared: str,", "def covered_by(appeared: bytes,"))
     refused = run()
