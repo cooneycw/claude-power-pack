@@ -1,0 +1,28 @@
+{
+  "branch": "issue-1479-lib-cicd-verify-keys-release-identity-on-git-head",
+  "counts": {
+    "accepted": 1,
+    "deferred": 2,
+    "rejected": 0
+  },
+  "direction": "delegated",
+  "head": "5689a48122014f6a927ca8a2f38525445900fe59",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/20/rollout-2026-10-20T10-34-25-01a158e0-6ae5-71b2-afd5-1bbf61d80bf8.jsonl",
+    "thread_id": "01a158e0-6ae5-71b2-afd5-1bbf61d80bf8"
+  },
+  "issue": "1479",
+  "passes": 1,
+  "recorded_at": "2026-10-20T10:43:20Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 6
+  },
+  "reviewer": "claude/claude-sonnet-5",
+  "reviewer_evidence": {
+    "session_id": "58cfb59a-7386-495c-960e-2d60890af8da"
+  },
+  "schema": 1,
+  "status": "ran"
+}

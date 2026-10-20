@@ -17,6 +17,7 @@ subprocess, matching health.py). Baseline snapshots persist to
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -24,7 +25,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 
-from .config import CICDConfig, DeployVerificationConfig
+from .config import CICDConfig, DeployVerificationConfig, ReleaseProbeConfig
 from .health import run_health_checks
 from .smoke import run_smoke_tests
 
@@ -158,6 +159,26 @@ class ProbeDiff:
 
 
 @dataclass
+class ReleaseCheck:
+    """Confirmation that the served release is the intended one.
+
+    Status is not_checked (unverified), matched, mismatched, or unreadable.
+    Passing health/smoke probes alone do not establish release identity.
+    """
+
+    status: str = "not_checked"
+    intended: Optional[str] = None
+    served: Optional[str] = None
+
+    @property
+    def matched(self) -> bool:
+        return self.status == "matched"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"status": self.status, "intended": self.intended, "served": self.served}
+
+
+@dataclass
 class DeployVerifyResult:
     """Aggregated verification outcome with an actionable verdict."""
 
@@ -166,6 +187,7 @@ class DeployVerifyResult:
     diffs: list[ProbeDiff]
     snapshot: VerificationSnapshot
     baseline: Optional[VerificationSnapshot] = None
+    release_check: ReleaseCheck = field(default_factory=ReleaseCheck)
 
     @property
     def has_baseline(self) -> bool:
@@ -189,6 +211,7 @@ class DeployVerifyResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "release_check": self.release_check.to_dict(),
             "verdict": self.verdict.value,
             "exit_code": self.exit_code,
             "has_baseline": self.has_baseline,
@@ -330,6 +353,7 @@ def verify_deployment(
     config: Optional[CICDConfig] = None,
     project_root: Optional[str] = None,
     baseline: Optional[VerificationSnapshot] = None,
+    intended_release: Optional[str] = None,
 ) -> DeployVerifyResult:
     """Run post-deploy probes, diff against the baseline, and compute a verdict.
 
@@ -337,6 +361,7 @@ def verify_deployment(
         config: CI/CD config (loaded from project_root if None).
         project_root: Project root for config + baseline loading.
         baseline: Explicit baseline (loaded from disk if None).
+        intended_release: Optional identity to confirm against the served release.
     """
     if config is None:
         config = CICDConfig.load(project_root)
@@ -366,12 +391,32 @@ def verify_deployment(
         )
 
     verdict, reasons = _decide(diffs, current, baseline, vconf)
+    release_check = ReleaseCheck()
+    if intended_release:
+        served = _fetch_served_release(vconf.release_probe)
+        if served is None:
+            release_check = ReleaseCheck(status="unreadable", intended=intended_release)
+        elif served == intended_release:
+            release_check = ReleaseCheck(status="matched", intended=intended_release, served=served)
+        else:
+            release_check = ReleaseCheck(status="mismatched", intended=intended_release, served=served)
+
+        if not release_check.matched:
+            detail = (
+                f"served release {served!r} does not match intended {intended_release!r}"
+                if served is not None
+                else "release probe unreadable - could not confirm the served release"
+            )
+            reasons = [detail, *reasons]
+            if verdict is Verdict.PROCEED:
+                verdict = Verdict.REVIEW
     return DeployVerifyResult(
         verdict=verdict,
         reasons=reasons,
         diffs=diffs,
         snapshot=current,
         baseline=baseline,
+        release_check=release_check,
     )
 
 
@@ -453,3 +498,34 @@ def _git_commit(project_root: Optional[str]) -> str:
 def _now() -> str:
     """ISO timestamp (local), matching state.py."""
     return time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime())
+
+
+def _fetch_served_release(probe: ReleaseProbeConfig) -> Optional[str]:
+    """Fetch served identity, returning None when it cannot be confirmed."""
+    if not probe.url:
+        return None
+    curl_path = shutil.which("curl")
+    if not curl_path:
+        return None
+    try:
+        proc = subprocess.run(
+            [curl_path, "-sf", "--max-time", str(probe.timeout), probe.url],
+            capture_output=True,
+            text=True,
+            timeout=probe.timeout + 2,
+        )
+    except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
+        return None
+    if proc.returncode != 0:
+        return None
+    body = proc.stdout.strip()
+    if not probe.json_field:
+        return body or None
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict) or probe.json_field not in data:
+        return None
+    value = data[probe.json_field]
+    return None if value is None else str(value)

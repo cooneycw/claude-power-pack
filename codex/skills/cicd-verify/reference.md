@@ -98,12 +98,39 @@ PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd
 
 Add `--summary` for a one-line verdict, or `--json` for machine-readable output.
 
+**Health and smoke probes only confirm that *something* answered - not which
+release answered (issue #1479).** A deploy whose restart silently failed,
+leaving the OLD release serving, passes every probe and reads PROCEED by
+default. To also confirm the SERVED release matches the one just deployed,
+configure `health.deploy_verification.release_probe` (below) and pass
+`--release <id>`:
+
+```bash
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify --release "$(git rev-parse --short HEAD)"
+```
+
+This is opt-in: without `--release`, the verdict is unchanged from before
+#1479, and both the human output and `--json` label the release explicitly
+`NOT VERIFIED` / `"status": "not_checked"` rather than implying confirmation
+that was never done. With `--release`, a mismatch or an unreadable
+`release_probe` is never reported PROCEED (it is at least REVIEW, and never
+downgrades an existing ROLLBACK).
+
 ---
 
 ## Step 5: Present the Verdict
 
-The CLI prints a diff table and a verdict. Present it to the user as-is and act
-on the verdict.
+The CLI prints a diff table, a `Release:` line, and a verdict. Present it to
+the user as-is and act on the verdict. The `Release:` line is one of:
+
+- `Release: NOT VERIFIED (no --release given ...)` - no release check was
+  requested; the verdict above says nothing about which release is serving.
+- `Release: intended=<id> served=<id> (MATCH)` - confirmed.
+- `Release: intended=<id> served=<id> (MISMATCH)` - the wrong release is
+  serving; this alone is enough to keep the verdict off PROCEED.
+- `Release: intended=<id> served=(unreadable) (UNREADABLE)` - `--release` was
+  given but the configured `release_probe` could not be read; treated the
+  same as a mismatch, never PROCEED.
 
 ### Verdict meanings
 
@@ -160,7 +187,17 @@ health:
     latency_floor_ms: 100             # ...but only if it is also over 100ms (noise floor)
     on_latency_regression: review     # review | rollback | ignore
     require_baseline: false           # true => no baseline downgrades PROCEED to REVIEW
+    release_probe:                    # optional; required for --release to confirm anything
+      url: https://service/version    # an endpoint reporting the SERVED release
+      json_field: version             # empty => the whole trimmed body is the identity
+      timeout: 5
 ```
+
+`release_probe` is distinct from `health.endpoints`: a health endpoint asks
+"does it answer?"; `release_probe` asks "which release answered?". It is only
+consulted when `--release <id>` is passed - leaving it unconfigured while
+passing `--release` makes the served release read `UNREADABLE`, which is
+still never PROCEED (issue #1479).
 
 ---
 

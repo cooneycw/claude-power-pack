@@ -7,7 +7,10 @@ Health and smoke runners are mocked so no real curl/subprocess/network runs.
 
 from __future__ import annotations
 
-from unittest.mock import patch
+import subprocess
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from lib.cicd.config import CICDConfig, DeployVerificationConfig
 from lib.cicd.models import (
@@ -399,3 +402,139 @@ class TestVerifyCLI:
         payload = _json.loads(capsys.readouterr().out)
         assert payload["verdict"] == "rollback"
         assert payload["exit_code"] == 1
+
+
+    @pytest.mark.parametrize("matched", [False, True], ids=["not_checked", "matched"])
+    def test_release_output(self, tmp_path, capsys, matched):
+        from lib.cicd.cli import main
+
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "cicd.yml").write_text(
+            "health:\n  deploy_verification:\n    release_probe:\n      url: http://service/release\n"
+            if matched else "health: {}\n"
+        )
+        with patch("lib.cicd.verify._git_commit", return_value="abc123"), patch(
+            "lib.cicd.verify.run_health_checks",
+            return_value=HealthCheckResult(checks=[HealthCheckEntry(name="API", kind="endpoint", passed=True)]),
+        ), patch("lib.cicd.verify.run_smoke_tests", return_value=SmokeTestResult()):
+            main(["verify", "--baseline", "--path", str(tmp_path)])
+            assert "(checkout @ abc123)" in capsys.readouterr().out
+            args = ["verify", "--path", str(tmp_path)]
+            if matched:
+                args += ["--release", "R2"]
+                with patch("lib.cicd.verify._fetch_served_release", return_value="R2"):
+                    assert main(args) == 0
+            else:
+                assert main(args) == 0
+        output = capsys.readouterr().out
+        assert "Verdict: PROCEED" in output
+        assert ("NOT VERIFIED" in output) is (not matched)
+        if matched:
+            assert "Release: intended=R2 served=R2 (MATCH)" in output
+
+
+class TestFetchServedRelease:
+    @pytest.mark.parametrize(
+        "url,curl,body,json_field,returncode,error,expected",
+        [
+            ("", "/usr/bin/curl", "R2", "", 0, None, None),
+            ("http://service/release", None, "R2", "", 0, None, None),
+            ("http://service/release", "/usr/bin/curl", " R2\n", "", 0, None, "R2"),
+            ("http://service/release", "/usr/bin/curl", '{"version":"R2","other":1}', "version", 0, None, "R2"),
+            ("http://service/release", "/usr/bin/curl", "R2", "", 22, None, None),
+            ("http://service/release", "/usr/bin/curl", "", "", 0, subprocess.TimeoutExpired("curl", 5), None),
+            ("http://service/release", "/usr/bin/curl", "bad json", "version", 0, None, None),
+            ("http://service/release", "/usr/bin/curl", '{}', "version", 0, None, None),
+            ("http://service/release", "/usr/bin/curl", '', "", 0, OSError("unavailable"), None),
+            ("http://service/release", "/usr/bin/curl", '[]', "version", 0, None, None),
+            ("http://service/release", "/usr/bin/curl", '{"version":null}', "version", 0, None, None),
+            ("http://service/release", "/usr/bin/curl", '  ', "", 0, None, None),
+            (
+                "http://service/release", "/usr/bin/curl", "", "", 0,
+                UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"), None,
+            ),
+        ],
+        ids=[
+            "unconfigured", "curl_missing", "raw", "json", "exit", "timeout",
+            "malformed", "missing_field", "oserror", "non_object", "null", "empty",
+            "undecodable",
+        ],
+    )
+    def test_release_fetch(self, url, curl, body, json_field, returncode, error, expected):
+        from lib.cicd.config import ReleaseProbeConfig
+        from lib.cicd.verify import _fetch_served_release
+
+        with patch("lib.cicd.verify.shutil.which", return_value=curl), patch(
+            "lib.cicd.verify.subprocess.run",
+            return_value=MagicMock(stdout=body, returncode=returncode),
+            side_effect=error,
+        ) as run:
+            assert _fetch_served_release(ReleaseProbeConfig(url=url, json_field=json_field)) == expected
+            if not url or not curl:
+                run.assert_not_called()
+            else:
+                run.assert_called_once_with(
+                    [curl, "-sf", "--max-time", "5", url],
+                    capture_output=True, text=True, timeout=7,
+                )
+
+
+class TestReleaseCheck:
+    @pytest.mark.parametrize(
+        "served,passing,status,verdict",
+        [("R2", True, "matched", Verdict.PROCEED),
+         ("R1", True, "mismatched", Verdict.REVIEW),
+         (None, True, "unreadable", Verdict.REVIEW),
+         ("R1", False, "mismatched", Verdict.ROLLBACK)],
+    )
+    def test_release_decision(self, served, passing, status, verdict):
+        baseline = VerificationSnapshot(probes=[_probe("API", "health", True)])
+        with patch("lib.cicd.verify._git_commit", return_value=""), patch(
+            "lib.cicd.verify.run_health_checks",
+            return_value=HealthCheckResult(checks=[HealthCheckEntry(name="API", kind="endpoint", passed=passing)]),
+        ), patch("lib.cicd.verify.run_smoke_tests", return_value=SmokeTestResult()), patch(
+            "lib.cicd.verify._fetch_served_release", return_value=served,
+        ):
+            result = verify_deployment(config=CICDConfig(), baseline=baseline, intended_release="R2")
+        assert result.verdict is verdict
+        assert result.release_check.status == status
+        assert result.release_check.matched is (status == "matched")
+        assert result.release_check.served == served
+        assert result.to_dict()["release_check"] == {"status": status, "intended": "R2", "served": served}
+        if status == "mismatched":
+            assert "does not match" in result.reasons[0]
+            assert "does not match" in result.summary_line()
+        elif status == "unreadable":
+            assert "unreadable" in result.reasons[0]
+
+    def test_release_default_unchanged(self):
+        baseline = VerificationSnapshot(probes=[_probe("API", "health", True)])
+        with patch("lib.cicd.verify.capture_snapshot", return_value=baseline), patch(
+            "lib.cicd.verify._fetch_served_release",
+        ) as fetch:
+            default = verify_deployment(config=CICDConfig(), baseline=baseline)
+            explicit = verify_deployment(config=CICDConfig(), baseline=baseline, intended_release=None)
+        fetch.assert_not_called()
+        assert (default.verdict, default.reasons) == (explicit.verdict, explicit.reasons)
+        for result in (default, explicit):
+            assert result.release_check.status == "not_checked"
+            assert result.to_dict()["release_check"] == {"status": "not_checked", "intended": None, "served": None}
+
+    def test_release_stale_healthy_process_scenario(self):
+        """Health-only PROCEED holds before and after this fix by design.
+
+        R1 never restarted but still answers health checks. Only the opt-in
+        R2 check identifies the stale release; pre-fix that call raises TypeError.
+        """
+        baseline = VerificationSnapshot(probes=[_probe("API", "health", True)])
+        current = VerificationSnapshot(probes=[_probe("API", "health", True)])
+        assert baseline.all_passed and current.all_passed
+        cfg = CICDConfig()
+        with patch("lib.cicd.verify.capture_snapshot", return_value=current):
+            assert verify_deployment(config=cfg, baseline=baseline).verdict is Verdict.PROCEED
+            # create=True lets the pre-fix run reach the new API's TypeError.
+            with patch("lib.cicd.verify._fetch_served_release", return_value="R1", create=True):
+                result = verify_deployment(config=cfg, baseline=baseline, intended_release="R2")
+        assert result.verdict is Verdict.REVIEW
+        assert result.release_check.served == "R1"
