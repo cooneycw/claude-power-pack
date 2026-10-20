@@ -5043,8 +5043,8 @@ def test_blind_anchor_regeneration_preserves_prose_and_detects_gate_drift(tmp_pa
     """Only the stored blinding and depth adaptation survive regeneration."""
     root = tmp_path
     (root / "scripts").mkdir()
-    tool = root / "scripts/regenerate-blind-anchor.sh"
-    shutil.copyfile(ROOT / "scripts/regenerate-blind-anchor.sh", tool)
+    tool = root / "scripts/regenerate-blind-anchor.py"
+    shutil.copyfile(ROOT / "scripts/regenerate-blind-anchor.py", tool)
     gate = root / "scripts/host-surface-observe.py"
     shutil.copyfile(ROOT / "scripts/host-surface-observe.py", gate)
     control = root / "controls/host-surface-observe"
