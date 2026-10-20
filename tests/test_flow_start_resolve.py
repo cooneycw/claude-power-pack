@@ -49,6 +49,9 @@ FAKE_GH = """#!/usr/bin/env bash
 case "$*" in
   *"issue view"*"--json state"*) printf '%s\\n' "${FAKE_GH_STATE:-OPEN}" ;;
   *"issue view"*"--json title"*) printf '%s\\n' "${FAKE_GH_TITLE:-Fix the frobnicator}" ;;
+  *"issue view"*"--json labels"*)
+    [ "${FAKE_GH_LABELS_FAIL:-0}" = "1" ] && exit 1
+    for label in ${FAKE_GH_LABELS:-}; do printf '%s\\n' "$label"; done ;;
   *"pr list"*)
     # FAKE_GH_PR_MAP="<branch>=<answer> ..." answers per --head branch, so a
     # test can hold one shipped branch and one live one (issue #1258).
@@ -417,6 +420,62 @@ def test_closed_issue_blocks_creation_until_allow_closed(tmp_path: Path):
     c2 = _contract(res2)
     assert c2["WT_CREATED"] == "1"
     assert Path(c2["WT_PATH"]).is_dir()
+
+
+@requires_git
+def test_wayfinder_labelled_issue_is_refused(tmp_path: Path):
+    _, clone = _make_origin_and_clone(tmp_path)
+    res = _run(
+        "42",
+        "--session-cwd",
+        str(clone),
+        cwd=clone,
+        gh=_fake_gh(tmp_path),
+        extra_env={"FAKE_GH_LABELS": "wayfinder:seed"},
+    )
+    assert res.returncode != 0
+    assert "FLOW_START_RESOLVE: error" in res.stdout
+    error = _contract(res)["ERROR"]
+    assert "wayfinder:seed" in error
+    assert "project:init" in error
+    assert not (clone.parent / "clone-repo-issue-42-fix-the-frobnicator").exists()
+
+
+@requires_git
+def test_plain_issue_without_wayfinder_label_still_starts(tmp_path: Path):
+    _, clone = _make_origin_and_clone(tmp_path)
+    res = _run(
+        "42",
+        "--session-cwd",
+        str(clone),
+        cwd=clone,
+        gh=_fake_gh(tmp_path),
+        extra_env={"FAKE_GH_LABELS": "bug"},
+    )
+    assert res.returncode == 0, res.stderr
+    assert "FLOW_START_RESOLVE: ok" in res.stdout
+    c = _contract(res)
+    assert c["LANE"] == "fresh"
+    assert c["WT_CREATED"] == "1"
+    assert Path(c["WT_PATH"]).is_dir()
+
+
+@requires_git
+def test_wayfinder_label_fetch_failure_refuses_rather_than_proceeding(tmp_path: Path):
+    _, clone = _make_origin_and_clone(tmp_path)
+    res = _run(
+        "42",
+        "--session-cwd",
+        str(clone),
+        cwd=clone,
+        gh=_fake_gh(tmp_path),
+        extra_env={"FAKE_GH_LABELS_FAIL": "1"},
+    )
+    assert res.returncode != 0
+    assert "FLOW_START_RESOLVE: error" in res.stdout
+    error = _contract(res)["ERROR"]
+    assert "could not fetch labels" in error
+    assert not (clone.parent / "clone-repo-issue-42-fix-the-frobnicator").exists()
 
 
 # --- resolve: current-branch + resume lanes ----------------------------------
