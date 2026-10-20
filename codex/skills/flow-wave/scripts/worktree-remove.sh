@@ -124,8 +124,6 @@
 #   0  removed (or already absent - stale refs pruned) - the NORMAL
 #      (non---finish-partial-removal) path only
 #   1  usage, path, or repository validation error
-#   2  --finish-partial-removal: VERIFIED, not removed - the `rm -rf`
-#      command was printed for a human to run (#1524)
 #   4  claimed by another live /flow session (#597)
 #   5  in use by a live process (#888, #1032)
 #   6  holds uncommitted work without --allow-dirty (#899)
@@ -137,9 +135,9 @@
 #      success while files survive it (Nit Store #864)
 #  10  --finish-partial-removal without --owner-repo, or --owner-repo without
 #      --finish-partial-removal (#1524)
-#  11  the argument (or, for --finish-partial-removal, its resolved target)
-#      contains a literal newline - refused outright for EVERY invocation,
-#      before normalization, never compared (#1524)
+#  11  the argument, --owner-repo, or (for --finish-partial-removal) the
+#      resolved target contains a literal newline - refused outright for
+#      EVERY invocation, before normalization, never compared (#1524)
 #  12  --owner-repo is not itself a readable git working tree (#1524)
 #  13  --owner-repo's own registry does not positively list the resolved path
 #      as prunable - no record, a record that is not prunable (e.g. locked),
@@ -147,6 +145,13 @@
 #  14  --finish-partial-removal without --allow-dirty - there is no .git
 #      left to verify the directory is clean, so this is required rather
 #      than merely honoured (#1524)
+#  15  --finish-partial-removal: VERIFIED, not removed - the `rm -rf`
+#      command was printed for a human to run (#1524). A distinct, otherwise
+#      unused code on purpose: under `set -euo pipefail` a failing `grep` or
+#      a bash builtin misuse elsewhere in this script also exits 2, and this
+#      path must never be confused with one of those. The
+#      WORKTREE_REMOVE_FINISH_PARTIAL_VERIFIED line on stderr is the thing a
+#      caller should key on, not the bare exit code alone.
 #
 # Examples:
 #   worktree-remove.sh /home/user/Projects/nhl-api-issue-42
@@ -254,7 +259,6 @@ while [[ $# -gt 0 ]]; do
             echo "Exit codes:"
             echo "  0  removed (or already absent - stale refs pruned); normal path only"
             echo "  1  usage, path, or repository validation error"
-            echo "  2  --finish-partial-removal: VERIFIED, not removed - printed instead (#1524)"
             echo "  4  claimed by another live /flow session (#597)"
             echo "  5  in use by a live process (#888, #1032)"
             echo "  6  holds uncommitted work without --allow-dirty (#899)"
@@ -264,12 +268,15 @@ while [[ $# -gt 0 ]]; do
             echo "     checked-out branch name different issues (#1032)"
             echo "  9  a path cannot be deleted (parent directory not writable) (#864)"
             echo " 10  --finish-partial-removal/--owner-repo given without the other (#1524)"
-            echo " 11  a literal newline in the argument (any invocation) or the resolved"
-            echo "     target (--finish-partial-removal) - refused (#1524)"
+            echo " 11  a literal newline in the argument (any invocation), --owner-repo, or"
+            echo "     the resolved target (--finish-partial-removal) - refused (#1524)"
             echo " 12  --owner-repo is not a readable git working tree (#1524)"
             echo " 13  --owner-repo's registry does not positively list the path as"
             echo "     prunable (#1524)"
             echo " 14  --finish-partial-removal without --allow-dirty (#1524)"
+            echo " 15  --finish-partial-removal: VERIFIED, not removed - printed instead (#1524)."
+            echo "     Distinct from 2 on purpose: a failing grep or bash builtin under"
+            echo "     set -euo pipefail also exits 2 elsewhere in this script."
             echo ""
             echo "Examples:"
             echo "  worktree-remove.sh /home/user/Projects/nhl-api-issue-42"
@@ -316,6 +323,17 @@ case "$WORKTREE_PATH" in
         ;;
 esac
 
+# Same guard, same reason, for --owner-repo (pass-4 supplementary review,
+# cnb-orch + Gemini): it feeds its own `git -C "$OWNER_REPO" ...` calls below
+# exactly as WORKTREE_PATH feeds the removal/registry calls above, so a
+# literal newline in it is refused here too, before anything reads it.
+case "$OWNER_REPO" in
+    *$'\n'*)
+        echo -e "${RED}Error: refusing --owner-repo containing a literal newline${NC}" >&2
+        exit 11
+        ;;
+esac
+
 # --finish-partial-removal and --owner-repo are a PAIR, never one without the
 # other (issue #1524): the flag with no named owner would have nothing to
 # confirm ownership against, and a bare --owner-repo on the ordinary path
@@ -329,9 +347,22 @@ if [[ "$FINISH_PARTIAL_REMOVAL" != true && -n "$OWNER_REPO" ]]; then
     exit 10
 fi
 
-# Resolve to absolute path
+# Resolve to absolute path. REFUSE if the parent cannot be entered, for
+# EVERY invocation (pass-4 supplementary review, cnb-orch + Gemini): the old
+# single-expression form silently substituted "" for a `cd` failure, so
+# WORKTREE_PATH became "/$(basename ...)" - an absolute, filesystem-ROOT
+# path unrelated to the argument's actual (missing) parent directory - and
+# the script carried on as if that had been the caller's intent all along.
+# Splitting the `cd` out and checking its own exit status, rather than
+# trusting the combined command substitution's output, is what makes a
+# resolution failure visible instead of silently reinterpreted.
 if [[ "$WORKTREE_PATH" != /* ]]; then
-    WORKTREE_PATH="$(cd "$(dirname "$WORKTREE_PATH")" 2>/dev/null && pwd)/$(basename "$WORKTREE_PATH")"
+    WT_DIR_PART="$(dirname "$WORKTREE_PATH")"
+    WT_REAL_DIR="$(cd -- "$WT_DIR_PART" 2>/dev/null && pwd)" || {
+        echo -e "${RED}Error: could not resolve the directory containing '${WORKTREE_PATH}'${NC}" >&2
+        exit 1
+    }
+    WORKTREE_PATH="$WT_REAL_DIR/$(basename "$WORKTREE_PATH")"
 fi
 
 # Normalize path (remove trailing slash)
@@ -657,10 +688,19 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
 
     # Same occupancy and pre-scan guards as the normal path, run against the
     # resolved path (issue #1524).
+    #
+    # FP_OCC_UNKNOWN (pass-4 supplementary review, cnb-orch + Gemini): an
+    # unreadable /proc still PROCEEDS here, same as the normal path - but
+    # unlike the normal path, this branch's whole output IS a printed
+    # command a human may paste and run without re-reading this script's
+    # stderr. So the same "could not verify" fact is ALSO surfaced on stdout,
+    # directly above the printed `rm -rf`, where it cannot be missed.
+    FP_OCC_UNKNOWN=false
     if [[ "$STEAL" != true ]]; then
         FP_OCC_RC=0
         FP_OCC_OUT="$(occupancy_scan "$FP_WT_REAL")" || FP_OCC_RC=$?
         if [[ "$FP_OCC_RC" -eq 2 ]]; then
+            FP_OCC_UNKNOWN=true
             echo "WORKTREE_REMOVE_OCCUPANCY: unknown" >&2
             echo -e "${YELLOW}Note: no readable /proc - could not check whether a live process is using this path.${NC}" >&2
         elif [[ -n "$FP_OCC_OUT" ]]; then
@@ -715,8 +755,21 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
     # drop before deciding to run it themselves.
     echo "WORKTREE_REMOVE_FINISH_PARTIAL_VERIFIED: ${FP_WT_REAL}" >&2
     echo -e "${GREEN}Verified - this path is confirmed prunable, clean per --allow-dirty/--allow-unpushed, unoccupied, and deletable. Not removed.${NC}"
+    # If occupancy could not be checked (FP_OCC_UNKNOWN), say so directly
+    # above the rm line - on stdout, in the same output a human copies the
+    # command from - rather than only on stderr above (pass-4 supplementary
+    # review, cnb-orch + Gemini).
+    if [[ "$FP_OCC_UNKNOWN" == true ]]; then
+        echo "# WARNING: could not check for live processes using this path (no readable /proc)"
+    fi
     printf 'rm -rf -- %q\n' "$FP_WT_REAL"
-    echo "then review: git -C $(printf '%q' "$OWNER_REPO") worktree prune --dry-run --verbose"
+    # Printed as a COMMENT (leading '#'), not a bare sentence (pass-4
+    # supplementary review): "then review: git -C ..." starts with a shell
+    # keyword-free word but is still not valid shell on its own line, so a
+    # human who copies both printed lines into a shell at once hits a syntax
+    # error on this one. As a comment it is always safe to paste alongside
+    # the rm line above, read or ignored at the human's discretion.
+    printf '# then review: git -C %q worktree prune --dry-run --verbose\n' "$OWNER_REPO"
 
     if [[ -L "$WORKTREE_PATH" ]]; then
         echo -e "${YELLOW}Note: ${WORKTREE_PATH} is a symlink pointing at this target.${NC}" >&2
@@ -724,9 +777,12 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
         echo -e "${YELLOW}worktree and is never removed by this tool.${NC}" >&2
     fi
 
-    # Exit code is distinct from 0 (removed) on purpose: a caller scripting
-    # against this tool must not mistake "verified" for "done".
-    exit 2
+    # Exit code is distinct from 0 (removed) AND from a plain 2 (pass-4
+    # supplementary review): under `set -euo pipefail`, a failing `grep` or a
+    # bash builtin misuse anywhere in this script can itself surface as exit
+    # 2, and that must never be misread as "verified". 15 is otherwise unused
+    # in this script's exit-code table.
+    exit 15
 fi
 
 # Get the main repository path from the worktree's .git file

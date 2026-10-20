@@ -73,10 +73,16 @@ def _git(repo: Path, *args: str) -> str:
     ).stdout
 
 
-def _run_remove(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def _run_remove(
+    cwd: Path, *args: str, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    run_env = os.environ.copy()
+    if env:
+        run_env.update(env)
     return subprocess.run(
         ["bash", str(SCRIPT), *args],
         cwd=cwd,
+        env=run_env,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -429,7 +435,7 @@ def test_an_unrelated_neighbour_repo_is_refused_as_owner(tmp_path: Path) -> None
         main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty", "--allow-unpushed"
     )
 
-    assert res2.returncode == 2, f"stdout={res2.stdout}\nstderr={res2.stderr}"
+    assert res2.returncode == 15, f"stdout={res2.stdout}\nstderr={res2.stderr}"
     assert wt.exists(), "verify-and-print removes nothing itself"
     _run_printed_rm(res2.stdout)
     assert not wt.exists()
@@ -568,7 +574,7 @@ def test_finish_partial_removal_succeeds_with_the_true_owner(tmp_path: Path) -> 
         main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty", "--allow-unpushed"
     )
 
-    assert res.returncode == 2, f"stdout={res.stdout}\nstderr={res.stderr}"
+    assert res.returncode == 15, f"stdout={res.stdout}\nstderr={res.stderr}"
     assert wt.exists(), "verify-and-print removes nothing itself"
     assert f"rm -rf -- {wt}" in res.stdout
     assert f"git -C {main} worktree prune --dry-run --verbose" in res.stdout
@@ -602,7 +608,7 @@ def test_finish_partial_removal_requires_allow_dirty(tmp_path: Path) -> None:
         main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty", "--allow-unpushed"
     )
 
-    assert res2.returncode == 2, f"stdout={res2.stdout}\nstderr={res2.stderr}"
+    assert res2.returncode == 15, f"stdout={res2.stdout}\nstderr={res2.stderr}"
     assert wt.exists(), "verify-and-print removes nothing itself"
     _run_printed_rm(res2.stdout)
     assert not wt.exists()
@@ -691,7 +697,7 @@ def test_a_symlink_to_the_worktree_is_left_dangling_not_deleted(tmp_path: Path) 
         main, str(link), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty", "--allow-unpushed"
     )
 
-    assert res.returncode == 2, f"stdout={res.stdout}\nstderr={res.stderr}"
+    assert res.returncode == 15, f"stdout={res.stdout}\nstderr={res.stderr}"
     assert wt.exists(), "verify-and-print removes nothing itself"
     assert f"rm -rf -- {wt}" in res.stdout, "the printed command names the REAL target, not the symlink"
     assert str(link) not in res.stdout.split("\n")[1], "the symlink itself must never be the rm target"
@@ -743,7 +749,7 @@ def test_a_pushed_commit_does_not_need_allow_unpushed(tmp_path: Path) -> None:
         main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty"
     )
 
-    assert res.returncode == 2, f"stdout={res.stdout}\nstderr={res.stderr}"
+    assert res.returncode == 15, f"stdout={res.stdout}\nstderr={res.stderr}"
     assert wt.exists(), "verify-and-print removes nothing itself"
     _run_printed_rm(res.stdout)
     assert not wt.exists()
@@ -788,3 +794,150 @@ def test_finish_partial_removal_also_rejects_a_relative_trailing_newline_argumen
 
     assert res.returncode == 11, f"stdout={res.stdout}\nstderr={res.stderr}"
     assert wt.exists()
+
+
+# ---------------------------------------------------------------------------
+# Supplementary review (cnb-orch's own read plus an independent Gemini pass,
+# after the pass-3 ceiling): five small fixes to the verify-and-print design
+# itself, none of them a fourth cross-model review pass on the destructive
+# logic (there is none left to review - this flag never deletes anything).
+# ---------------------------------------------------------------------------
+
+
+@requires_git
+def test_normalization_failure_refuses_rather_than_substituting_root(
+    tmp_path: Path,
+) -> None:
+    """Supplementary review finding: the relative-path resolution used to be
+    one combined expression, `"$(cd "$(dirname ...)" 2>/dev/null && pwd)/$(basename ...)"`.
+    When the `cd` fails (the argument's parent directory does not exist),
+    that combined form silently substitutes an EMPTY string for the failed
+    `cd`'s output, producing WORKTREE_PATH = "/<basename>" - an absolute,
+    filesystem-ROOT path with no relation to the argument's real (missing)
+    parent - and the script carried on as though that had been the intent.
+
+    Confirmed directly against the pre-fix script (commit 6f5c20b0): given a
+    real worktree at <tmp>/wt and the relative argument "missing/wt" (whose
+    dirname "missing" does not exist), the old code computed WORKTREE_PATH
+    "/wt", reported it as a missing worktree, searched for a nearby repo to
+    prune, and exited 0 - "succeeding" at an operation that named no real
+    path at all. The fix refuses instead (exit 1, naming the argument) the
+    moment `cd` into the dirname fails."""
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "feature")
+
+    res = _run_remove(tmp_path, "missing/wt")
+
+    assert res.returncode == 1, f"stdout={res.stdout}\nstderr={res.stderr}"
+    assert "missing/wt" in res.stderr
+    assert wt.exists(), "the real sibling worktree must be untouched by a refused argument"
+
+
+@requires_git
+def test_owner_repo_rejects_an_embedded_newline(tmp_path: Path) -> None:
+    """Supplementary review finding: the global newline guard added for
+    pass-3's HIGH only ever inspected WORKTREE_PATH. --owner-repo feeds its
+    own `git -C "$OWNER_REPO" ...` calls exactly the same way, so a literal
+    newline in IT was never rejected at all - only ever implicitly, and not
+    reliably, by whatever happened to come after. Same guard, same exit code
+    (11), now applied to --owner-repo too."""
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "feature")
+    _half_delete(wt)
+
+    res = _run_remove(
+        main,
+        str(wt),
+        "--finish-partial-removal",
+        "--owner-repo",
+        str(main) + "\n",
+        "--allow-dirty",
+        "--allow-unpushed",
+    )
+
+    assert res.returncode == 11, f"stdout={res.stdout}\nstderr={res.stderr}"
+    assert wt.exists()
+
+
+@requires_git
+def test_finish_partial_removal_succeeds_with_exit_15_not_2(tmp_path: Path) -> None:
+    """Supplementary review finding: a plain exit 2 is not distinct enough
+    under `set -euo pipefail` - a failing `grep` or a bash builtin misuse
+    anywhere else in this script can itself surface as exit 2, which a
+    caller could misread as 'verified'. The success/print path now uses 15,
+    an otherwise-unused code in this script's table."""
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "feature")
+    _half_delete(wt)
+
+    res = _run_remove(
+        main, str(wt), "--finish-partial-removal", "--owner-repo", str(main),
+        "--allow-dirty", "--allow-unpushed",
+    )
+
+    assert res.returncode == 15, f"stdout={res.stdout}\nstderr={res.stderr}"
+    assert "WORKTREE_REMOVE_FINISH_PARTIAL_VERIFIED" in res.stderr
+
+
+@requires_git
+def test_the_printed_prune_hint_is_a_comment_not_a_bare_sentence(
+    tmp_path: Path,
+) -> None:
+    """Supplementary review finding: 'then review: git -C ... worktree
+    prune --dry-run --verbose' is not valid shell on its own line - a human
+    who copies BOTH printed lines into a shell at once (the rm line above
+    it, plus this one) hits a syntax error on 'then'. Printed as a '#'
+    comment, both lines can always be pasted together safely."""
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "feature")
+    _half_delete(wt)
+
+    res = _run_remove(
+        main, str(wt), "--finish-partial-removal", "--owner-repo", str(main),
+        "--allow-dirty", "--allow-unpushed",
+    )
+
+    assert res.returncode == 15, f"stdout={res.stdout}\nstderr={res.stderr}"
+    hint_lines = [line for line in res.stdout.splitlines() if "worktree prune" in line]
+    assert len(hint_lines) == 1, res.stdout
+    assert hint_lines[0].startswith("#"), (
+        f"the prune hint must be a '#' comment, not a bare sentence: {hint_lines[0]!r}"
+    )
+    assert str(main) in hint_lines[0]
+
+
+@requires_git
+@requires_proc
+def test_occupancy_unknown_prints_a_warning_on_stdout_above_the_rm_line(
+    tmp_path: Path,
+) -> None:
+    """Supplementary review finding: an unreadable /proc already made this
+    branch PROCEED (same fail-open behaviour as the normal path) and said so
+    on stderr - but this branch's whole job is printing a command a human
+    may paste and run without re-reading stderr at all. The same fact must
+    also appear on stdout, directly above the printed `rm -rf`, where a
+    skimming human cannot miss it."""
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "feature")
+    _half_delete(wt)
+    empty_proc = tmp_path / "empty-proc"
+    empty_proc.mkdir()
+
+    res = _run_remove(
+        main, str(wt), "--finish-partial-removal", "--owner-repo", str(main),
+        "--allow-dirty", "--allow-unpushed",
+        env={"WORKTREE_REMOVE_PROC_ROOT": str(empty_proc)},
+    )
+
+    assert res.returncode == 15, f"stdout={res.stdout}\nstderr={res.stderr}"
+    assert "WORKTREE_REMOVE_OCCUPANCY: unknown" in res.stderr
+    stdout_lines = res.stdout.splitlines()
+    warning_idx = next(
+        (i for i, line in enumerate(stdout_lines) if "WARNING" in line and "live processes" in line),
+        None,
+    )
+    rm_idx = next((i for i, line in enumerate(stdout_lines) if line.startswith("rm -rf")), None)
+    assert warning_idx is not None, f"no stdout WARNING line found:\n{res.stdout}"
+    assert rm_idx is not None, f"no printed rm line found:\n{res.stdout}"
+    assert warning_idx < rm_idx, "the warning must appear ABOVE the rm line, not after it"
+    assert stdout_lines[warning_idx].startswith("#")
