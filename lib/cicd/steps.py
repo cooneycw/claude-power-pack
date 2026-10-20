@@ -309,6 +309,11 @@ class StepDef:
     # It never makes the result clean: the outcome is still not measured, and
     # the runner still logs that. None means nothing was declared.
     unsupported_runner: Optional[str] = None
+    # A recorded decision to exclude this whole step from run-level test
+    # accounting, while retaining labelled per-step counts. Never changes
+    # exit-code verdicts. Opt in per WHOLE STEP: a negative-control battery
+    # must run separately from real suites, or their counts are excluded too.
+    expected_red: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -321,6 +326,8 @@ class StepDef:
         }
         if self.env:
             d["env"] = self.env
+        if self.expected_red:
+            d["expected_red"] = True
         return d
 
 
@@ -476,7 +483,13 @@ class ShellStep:
         # `unknown` is still never graded on: it is recorded so a reader can see
         # the stage is unproven, and the gate's verdict logic collects only
         # `zero`.
-        return StageCoverage(streams=("stdout", "stderr"))
+        return StageCoverage(
+            streams=("stdout", "stderr"),
+            evidence=(
+                "No tool printed a file-count signal on this run; coverage "
+                "cannot be measured from stdout/stderr output"
+            ),
+        )
 
     def should_skip(self, context: dict[str, Any]) -> bool:
         """Check if this step should be skipped."""

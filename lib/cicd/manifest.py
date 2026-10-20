@@ -77,6 +77,7 @@ class StepModel(BaseModel):
     # summary could be parsed" UNKNOWN warning: a recorded, reviewable decision
     # rather than a widened tolerance. See StepDef.unsupported_runner.
     unsupported_runner: Optional[str] = None
+    expected_red: bool = False
 
     model_config = {"extra": "ignore"}
 
@@ -323,6 +324,7 @@ def step_model_to_step_def(step_id: str, model: StepModel) -> Any:
         depends_on=list(model.depends_on),
         env=dict(model.env),
         unsupported_runner=model.unsupported_runner,
+        expected_red=model.expected_red,
     )
 
 

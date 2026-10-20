@@ -318,3 +318,24 @@ class TestWithinStreamRepeatsAreNotCollapsed:
         assert cov is not None
         assert cov.invocations == 1
         assert cov.units == 47
+
+
+def test_unknown_lint_coverage_has_a_reason() -> None:
+    from lib.cicd.steps import ShellStep, StepDef
+
+    step = ShellStep(StepDef(id="lint", command="ruff check ."))
+    coverage = step._parse_coverage(RUFF_CLEAN, "")
+    assert coverage is not None
+    assert coverage.state == UNKNOWN
+    assert coverage.evidence
+    assert "file-count signal" in coverage.evidence
+
+
+def test_unknown_reason_does_not_hide_zero_lint_coverage() -> None:
+    from lib.cicd.steps import ShellStep, StepDef
+
+    step = ShellStep(StepDef(id="lint", command="ruff check ."))
+    coverage = step._parse_coverage(RUFF_CLEAN, RUFF_NO_FILES)
+    assert coverage is not None
+    assert coverage.state == ZERO
+    assert coverage.examined_nothing
