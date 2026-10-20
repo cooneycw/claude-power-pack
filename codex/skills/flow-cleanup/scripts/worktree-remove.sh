@@ -35,6 +35,7 @@
 #
 # Usage:
 #   worktree-remove.sh <worktree-path> [--force] [--delete-branch] [--steal] [--allow-dirty] [--allow-unpushed]
+#   worktree-remove.sh <worktree-path> --finish-partial-removal --owner-repo <path>
 #
 # Options:
 #   --force          Pass --force to git worktree remove; does not override
@@ -47,6 +48,44 @@
 #                    separate dirty-tree judgment that --allow-dirty alone
 #                    does not clear, Nit Store #864)
 #   --allow-unpushed Remove even though commits exist on no remote ref
+#   --finish-partial-removal
+#                    Complete a worktree already left half-deleted (no .git
+#                    file, directory still present). Requires --owner-repo.
+#                    See POSITIVE OWNERSHIP below (issue #1524).
+#   --owner-repo <path>
+#                    The repository whose OWN `git worktree list --porcelain`
+#                    must positively list the target as prunable before
+#                    anything is removed. Required by, and meaningless
+#                    without, --finish-partial-removal.
+#
+# POSITIVE OWNERSHIP, NEVER DISCOVERY (issue #1524). A half-deleted worktree
+# has no .git file, so the normal path below - which derives the main
+# repository FROM the worktree's own .git file - cannot run at all; there is
+# nothing left to read. An earlier version of this flag (#1491, reverted
+# 20e72086) tried to find the owner by searching sibling and ancestor
+# directories for a repo that still lists the path. Three cross-model review
+# passes each found a new variant of the same structural gap: a repo that
+# TRUTHFULLY does not have the path registered answers "not registered"
+# exactly like a repo that was simply never asked, and a proximity search
+# cannot tell those apart. There is no global worktree registry to query, so
+# "nobody nearby admits to owning this" can never mean "nobody owns this" -
+# only "I did not ask the right repo". The redesign removes the search
+# entirely: the caller must NAME the owner with --owner-repo, and that repo's
+# own registry must say so, in git's own words - a `prunable` attribute on
+# the exact matching record - or this script refuses. A read failure (the
+# porcelain call itself fails) is also a refusal, never a silent "proceed
+# because nothing said no".
+#
+# A symlink in the PATH ITSELF is never deleted, only realpath()'d through. If
+# the caller passes a path whose final component is a symlink pointing at the
+# worktree, `rm -rf` on the symlink would remove only the link - the real
+# worktree directory would survive, untouched and unregistered once `worktree
+# prune` drops the administrative entry, as an orphan indistinguishable from
+# the outside from "this was never a worktree". This script resolves the
+# input ONCE via `realpath`, before any comparison, and uses that resolved
+# path for both the registry match and the actual removal. It never rm -rf's
+# the caller's own symlink; if the input was one, it is left dangling and
+# named on stdout so the caller can remove it if they want.
 #
 # Exit codes:
 #   0  removed (or already absent - stale refs pruned)
@@ -60,9 +99,19 @@
 #   9  a path inside the worktree (or its parent directory) cannot be deleted -
 #      refused before anything is removed, rather than letting git report
 #      success while files survive it (Nit Store #864)
+#  10  --finish-partial-removal without --owner-repo, or --owner-repo without
+#      --finish-partial-removal (#1524)
+#  11  the resolved path contains a literal newline - refused outright, never
+#      compared (#1524)
+#  12  --owner-repo is not itself a readable git working tree (#1524)
+#  13  --owner-repo's own registry does not positively list the resolved path
+#      as prunable - no record, a record that is not prunable (e.g. locked),
+#      or the registry could not be read at all (#1524)
 #
 # Examples:
 #   worktree-remove.sh /home/user/Projects/nhl-api-issue-42
+#   worktree-remove.sh /home/user/Projects/half-deleted-issue-9 \
+#       --finish-partial-removal --owner-repo /home/user/Projects/main
 #   worktree-remove.sh ../nhl-api-issue-42 --delete-branch
 #   worktree-remove.sh /home/user/Projects/nhl-api-issue-42 --force --delete-branch
 
@@ -88,6 +137,8 @@ STEAL=false
 # away from being no refusals, which is how #888's guard was lost.
 ALLOW_DIRTY=false
 ALLOW_UNPUSHED=false
+FINISH_PARTIAL_REMOVAL=false
+OWNER_REPO=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -98,6 +149,18 @@ while [[ $# -gt 0 ]]; do
         --delete-branch)
             DELETE_BRANCH=true
             shift
+            ;;
+        --finish-partial-removal)
+            FINISH_PARTIAL_REMOVAL=true
+            shift
+            ;;
+        --owner-repo)
+            if [[ $# -lt 2 ]]; then
+                echo -e "${RED}Error: --owner-repo requires a value${NC}" >&2
+                exit 1
+            fi
+            OWNER_REPO="$2"
+            shift 2
             ;;
         --steal)
             STEAL=true
@@ -132,6 +195,12 @@ while [[ $# -gt 0 ]]; do
             echo "                   judgment, Nit Store #864)"
             echo "  --allow-unpushed Remove even though commits exist on no remote ref"
             echo "                   (issue #899; exit 7 without it)"
+            echo "  --finish-partial-removal"
+            echo "                   Complete a worktree already left half-deleted (no .git"
+            echo "                   file). Requires --owner-repo; refuses by default (#1524)"
+            echo "  --owner-repo <path>"
+            echo "                   The repo whose own registry must positively list the"
+            echo "                   target as prunable. Required by --finish-partial-removal"
             echo ""
             echo "Each refusal has its own override on purpose: one flag that silenced all"
             echo "three would be one flag away from silencing everything."
@@ -146,10 +215,17 @@ while [[ $# -gt 0 ]]; do
             echo "  8  --delete-branch asked for, but the directory name and the"
             echo "     checked-out branch name different issues (#1032)"
             echo "  9  a path cannot be deleted (parent directory not writable) (#864)"
+            echo " 10  --finish-partial-removal/--owner-repo given without the other (#1524)"
+            echo " 11  the resolved path contains a literal newline - refused (#1524)"
+            echo " 12  --owner-repo is not a readable git working tree (#1524)"
+            echo " 13  --owner-repo's registry does not positively list the path as"
+            echo "     prunable (#1524)"
             echo ""
             echo "Examples:"
             echo "  worktree-remove.sh /home/user/Projects/nhl-api-issue-42"
             echo "  worktree-remove.sh ../nhl-api-issue-42 --delete-branch"
+            echo "  worktree-remove.sh /path/to/half-deleted-wt --finish-partial-removal \\"
+            echo "      --owner-repo /path/to/main"
             exit 0
             ;;
         *)
@@ -170,6 +246,19 @@ if [[ -z "$WORKTREE_PATH" ]]; then
     exit 1
 fi
 
+# --finish-partial-removal and --owner-repo are a PAIR, never one without the
+# other (issue #1524): the flag with no named owner would have nothing to
+# confirm ownership against, and a bare --owner-repo on the ordinary path
+# means nothing at all.
+if [[ "$FINISH_PARTIAL_REMOVAL" == true && -z "$OWNER_REPO" ]]; then
+    echo -e "${RED}Error: --finish-partial-removal requires --owner-repo${NC}" >&2
+    exit 10
+fi
+if [[ "$FINISH_PARTIAL_REMOVAL" != true && -n "$OWNER_REPO" ]]; then
+    echo -e "${RED}Error: --owner-repo is only meaningful with --finish-partial-removal${NC}" >&2
+    exit 10
+fi
+
 # Resolve to absolute path
 if [[ "$WORKTREE_PATH" != /* ]]; then
     WORKTREE_PATH="$(cd "$(dirname "$WORKTREE_PATH")" 2>/dev/null && pwd)/$(basename "$WORKTREE_PATH")"
@@ -177,6 +266,92 @@ fi
 
 # Normalize path (remove trailing slash)
 WORKTREE_PATH="${WORKTREE_PATH%/}"
+
+# Resolved ONCE, early, and used for every later comparison and for the
+# actual removal (issue #1524). /proc/<pid>/cwd is fully resolved, so the
+# occupancy scan needs this form too - computing it here rather than at its
+# first use lets --finish-partial-removal share the same resolution the
+# normal path already relied on. `readlink -f` on a path whose final
+# component is a symlink resolves to the REAL target, never the link itself -
+# load-bearing for --finish-partial-removal, which must never `rm -rf` a
+# symlink the caller passed in (see below).
+WT_REAL="$(readlink -f "$WORKTREE_PATH" 2>/dev/null || echo "$WORKTREE_PATH")"
+
+# Hoisted here (originally defined just above their own call sites further
+# down) so --finish-partial-removal's own branch - which runs much earlier,
+# at the "no .git file" check below, before a normal worktree's main
+# repository can even be derived - can call them too. Moving a pure function
+# definition earlier changes nothing about its later call site; bash just
+# needs the definition to have executed before the first call, wherever that
+# call is.
+
+# This script plus its ancestors. /flow:auto invokes us from a shell whose cwd
+# may still be the worktree, so without this the guard trips over its own caller
+# and every removal blocks.
+occupancy_self_pids() {
+    local pid=$$ depth=0 ppid
+    while [[ -n "$pid" && "$pid" != "0" && "$depth" -lt 64 ]]; do
+        printf '%s\n' "$pid"
+        ppid="$(awk '/^PPid:/{print $2}' "/proc/$pid/status" 2>/dev/null || true)"
+        pid="$ppid"
+        depth=$((depth + 1))
+    done
+}
+
+# Prints "<pid> <comm>" per live process whose cwd is at or under $1.
+# Exit 0 = the scan RAN (whether or not it found anything).
+# Exit 2 = the scan could NOT run. That must read as "unknown", never as
+# "clear": a host that cannot look reporting a clean result is exactly the
+# false reassurance this guard exists to remove.
+# WORKTREE_REMOVE_PROC_ROOT is a test seam, not a tuning knob: it exists so the
+# "cannot scan" branch below can be exercised on a host that has a perfectly good
+# /proc. Nothing in normal operation sets it.
+PROC_ROOT="${WORKTREE_REMOVE_PROC_ROOT:-/proc}"
+
+occupancy_scan() {
+    local wt="$1" entry pid cwd comm
+    [[ -r "$PROC_ROOT/self/cwd" ]] || return 2
+    local skip_pids
+    skip_pids=" $(occupancy_self_pids | tr '\n' ' ') "
+    for entry in "$PROC_ROOT"/[0-9]*; do
+        if [[ "$entry" == "$PROC_ROOT/[0-9]*" ]]; then
+            return 2   # a proc tree exposing no process - we learned nothing
+        fi
+        pid="${entry##*/}"
+        case "$skip_pids" in *" $pid "*) continue ;; esac
+        cwd="$(readlink "$entry/cwd" 2>/dev/null)" || continue
+        [[ -n "$cwd" ]] || continue
+        # Exact path, or a genuine child of it. A bare prefix test would make
+        # `<wt>-2` look like it lives inside `<wt>`; on the host where this bug
+        # was found `kyle-issue-1142` is a real prefix of
+        # `kyle-issue-1142-container-spec-superseded`, so that is not a
+        # hypothetical collision.
+        if [[ "$cwd" == "$wt" || "${cwd#"$wt"/}" != "$cwd" ]]; then
+            comm="$(tr -d '\0' < "$entry/comm" 2>/dev/null || echo '?')"
+            printf '%s %s\n' "$pid" "$comm"
+        fi
+    done
+    return 0
+}
+
+# "could not verify", never as a clean scan.
+#
+# The PARENT of the worktree ROOT is checked too: `find` only walks AT OR
+# BELOW root, so emptying every descendant still leaves one more removal -
+# `rmdir` on the root itself - which needs write+execute on a directory
+# outside anything `find` ever saw.
+undeletable_find() {
+    local root="$1" dir rc=0 listing parent
+    listing=$(mktemp "${TMPDIR:-/tmp}/worktree-remove-scan.XXXXXX")
+    find "$root" -type d -print0 2>/dev/null > "$listing" || rc=$?
+    while IFS= read -r -d '' dir; do
+        [[ -r "$dir" && -w "$dir" && -x "$dir" ]] || printf '%s\n' "$dir"
+    done < "$listing"
+    rm -f "$listing"
+    parent="$(dirname "$root")"
+    [[ -w "$parent" && -x "$parent" ]] || printf '%s\n' "$parent"
+    return "$rc"
+}
 
 # Get current working directory
 CWD="$(pwd 2>/dev/null || echo "")"
@@ -227,9 +402,162 @@ fi
 
 # Check if it's actually a worktree (has .git file, not directory)
 if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
-    echo -e "${RED}Error: ${WORKTREE_PATH} is not a git worktree${NC}" >&2
-    echo "(Worktrees have a .git file, not a .git directory)" >&2
-    exit 1
+    if [[ "$FINISH_PARTIAL_REMOVAL" != true ]]; then
+        echo -e "${RED}Error: ${WORKTREE_PATH} is not a git worktree${NC}" >&2
+        echo "(Worktrees have a .git file, not a .git directory)" >&2
+        exit 1
+    fi
+
+    # --finish-partial-removal (issue #1524): POSITIVE OWNERSHIP ONLY, never
+    # discovery. See the header comment above for why - three cross-model
+    # review passes on the earlier discovery-based version each found a new
+    # variant of the same structural gap, and it was removed entirely rather
+    # than patched again.
+
+    # Reject an embedded newline OUTRIGHT, before any comparison is attempted.
+    # A naive line-based parse of the registry (sed/grep) cannot survive a
+    # path whose last byte is a literal newline - command substitution strips
+    # trailing newlines, corrupting the comparison in exactly the direction
+    # that would let a wrong match through. The NUL-delimited parser below is
+    # newline-safe on its own, but this check removes the whole class rather
+    # than relying on that alone (red case 2, issue #1524).
+    case "$WORKTREE_PATH" in
+        *$'\n'*)
+            echo -e "${RED}Error: refusing a path containing a literal newline${NC}" >&2
+            exit 11
+            ;;
+    esac
+
+    if [[ -z "$OWNER_REPO" ]]; then
+        # Already validated above; unreachable, but a defensive refusal costs
+        # nothing and this function must never fall through silently.
+        echo -e "${RED}Error: --owner-repo is required${NC}" >&2
+        exit 10
+    fi
+    if ! git -C "$OWNER_REPO" rev-parse --git-dir >/dev/null 2>&1; then
+        echo -e "${RED}Error: --owner-repo '${OWNER_REPO}' is not a readable git working tree${NC}" >&2
+        exit 12
+    fi
+
+    # WT_REAL was resolved once, early. It is realpath(WORKTREE_PATH) - the
+    # REAL target if WORKTREE_PATH's final component is itself a symlink,
+    # never the symlink path. Everything below compares and removes WT_REAL,
+    # never the raw argument - see the header comment on why a symlink the
+    # caller passed in is never the thing this script deletes.
+    if [[ -z "$WT_REAL" ]]; then
+        echo -e "${RED}Error: could not resolve ${WORKTREE_PATH} to a real path${NC}" >&2
+        exit 12
+    fi
+
+    # Parse `git worktree list --porcelain -z` field by field, NUL-delimited -
+    # never sed/grep/line-based. Measured (issue #1524): each record ends with
+    # an EMPTY field (two consecutive NULs), including the last. A record
+    # matches only when BOTH its `worktree <path>` field equals WT_REAL
+    # EXACTLY and the SAME record carries git's own `prunable` attribute line -
+    # which git emits precisely when a worktree's gitdir file points at a
+    # location that no longer exists (measured directly: a worktree with its
+    # own .git file removed gets `prunable gitdir file points to non-existent
+    # location`; the identical state under `git worktree lock` gets `locked
+    # <reason>` and NO prunable line at all, so a locked half-deleted worktree
+    # is refused by this check with no extra code). A read failure - the
+    # porcelain call itself fails - is a REFUSAL, never a silent "proceed
+    # because nothing said no".
+    PORCELAIN_FILE=$(mktemp "${TMPDIR:-/tmp}/worktree-remove-porcelain.XXXXXX") || {
+        echo -e "${RED}Error: could not create a temp file to read the owner's worktree registry${NC}" >&2
+        exit 13
+    }
+    if ! git -C "$OWNER_REPO" worktree list --porcelain -z > "$PORCELAIN_FILE" 2>/dev/null; then
+        rm -f "$PORCELAIN_FILE"
+        echo -e "${RED}Error: could not read '${OWNER_REPO}' worktree registry${NC}" >&2
+        exit 13
+    fi
+    RECORD_PATH=""
+    RECORD_PRUNABLE=false
+    OWNER_CONFIRMS=false
+    while IFS= read -r -d '' PORCELAIN_FIELD; do
+        if [[ -z "$PORCELAIN_FIELD" ]]; then
+            if [[ "$RECORD_PATH" == "$WT_REAL" && "$RECORD_PRUNABLE" == true ]]; then
+                OWNER_CONFIRMS=true
+            fi
+            RECORD_PATH=""
+            RECORD_PRUNABLE=false
+            continue
+        fi
+        case "$PORCELAIN_FIELD" in
+            "worktree "*) RECORD_PATH="${PORCELAIN_FIELD#worktree }" ;;
+            "prunable"|"prunable "*) RECORD_PRUNABLE=true ;;
+        esac
+    done < "$PORCELAIN_FILE"
+    rm -f "$PORCELAIN_FILE"
+
+    if [[ "$OWNER_CONFIRMS" != true ]]; then
+        echo -e "${RED}Error: '${OWNER_REPO}' does not positively list ${WT_REAL} as prunable${NC}" >&2
+        echo "  Refusing: this script never deletes on the strength of a repo NOT" >&2
+        echo "  naming the path - only on the strength of one naming it, as prunable." >&2
+        echo "  Pass the correct --owner-repo, or check the path with:" >&2
+        echo "    git -C '${OWNER_REPO}' worktree list --porcelain" >&2
+        exit 13
+    fi
+
+    echo "WORKTREE_REMOVE_FINISH_PARTIAL: confirmed by ${OWNER_REPO}" >&2
+
+    # Same occupancy and pre-scan guards as the normal path, run against the
+    # resolved path (issue #1524). The dirty-tree/--allow-dirty check is NOT
+    # run here: it reads `git status` from the worktree's own .git, which is
+    # already gone - there is nothing left to check, and no data this step
+    # could still protect.
+    if [[ "$STEAL" != true ]]; then
+        FP_OCC_RC=0
+        FP_OCC_OUT="$(occupancy_scan "$WT_REAL")" || FP_OCC_RC=$?
+        if [[ "$FP_OCC_RC" -eq 2 ]]; then
+            echo "WORKTREE_REMOVE_OCCUPANCY: unknown" >&2
+            echo -e "${YELLOW}Note: no readable /proc - could not check whether a live process is using this path.${NC}" >&2
+        elif [[ -n "$FP_OCC_OUT" ]]; then
+            echo "WORKTREE_REMOVE_OCCUPANCY: occupied" >&2
+            echo -e "${RED}Error: refusing to remove a path that is in use by a live process${NC}" >&2
+            echo "" >&2
+            echo "  Path: $WT_REAL" >&2
+            echo "  Live processes with their working directory inside it:" >&2
+            printf '    %s\n' "$FP_OCC_OUT" >&2
+            echo "" >&2
+            echo "  --force does not override this; wait for that session, or pass --steal" >&2
+            echo "  if you are certain those processes can be killed." >&2
+            exit 5
+        fi
+    fi
+
+    FP_PRE_SCAN_RC=0
+    FP_PRE_UNDELETABLE="$(undeletable_find "$WT_REAL")" || FP_PRE_SCAN_RC=$?
+    if [[ "$FP_PRE_SCAN_RC" -ne 0 ]]; then
+        echo "WORKTREE_REMOVE_PRESCAN: unknown" >&2
+        echo -e "${RED}Error: the permission scan itself failed - this is not the same as clean${NC}" >&2
+        exit 9
+    fi
+    if [[ -n "$FP_PRE_UNDELETABLE" ]]; then
+        echo "WORKTREE_REMOVE_PRESCAN: undeletable" >&2
+        echo -e "${RED}Error: refusing to remove - some paths cannot be deleted${NC}" >&2
+        printf '    %s\n' "$FP_PRE_UNDELETABLE" >&2
+        exit 9
+    fi
+    echo "WORKTREE_REMOVE_PRESCAN: clear" >&2
+
+    # Remove via the resolved REAL path, never the caller's own symlink
+    # (issue #1524, owner ruling): if WORKTREE_PATH's final component was a
+    # symlink, it is left dangling and named below - it may live in a
+    # different repo or a home directory, and is not part of the worktree
+    # this script owns.
+    echo -e "${BLUE}Removing: ${WT_REAL}${NC}"
+    rm -rf "$WT_REAL"
+    git -C "$OWNER_REPO" worktree prune
+    echo -e "${GREEN}Worktree removed successfully.${NC}"
+
+    if [[ -L "$WORKTREE_PATH" ]]; then
+        echo -e "${YELLOW}Note: ${WORKTREE_PATH} is a symlink that pointed at the removed worktree.${NC}" >&2
+        echo -e "${YELLOW}It is now dangling and was left untouched. Remove it if no longer needed:${NC}" >&2
+        echo "  rm '${WORKTREE_PATH}'" >&2
+    fi
+
+    exit 0
 fi
 
 # Get the main repository path from the worktree's .git file
@@ -443,58 +771,10 @@ fi
 # precisely what every /flow:auto Step 7 passes, so a guard it silences is a
 # guard that never fires where the damage happens. --steal remains the
 # deliberate override.
-
-# /proc/<pid>/cwd is fully resolved, so compare against a resolved path.
-WT_REAL="$(readlink -f "$WORKTREE_PATH" 2>/dev/null || echo "$WORKTREE_PATH")"
-
-# This script plus its ancestors. /flow:auto invokes us from a shell whose cwd
-# may still be the worktree, so without this the guard trips over its own caller
-# and every removal blocks.
-occupancy_self_pids() {
-    local pid=$$ depth=0 ppid
-    while [[ -n "$pid" && "$pid" != "0" && "$depth" -lt 64 ]]; do
-        printf '%s\n' "$pid"
-        ppid="$(awk '/^PPid:/{print $2}' "/proc/$pid/status" 2>/dev/null || true)"
-        pid="$ppid"
-        depth=$((depth + 1))
-    done
-}
-
-# Prints "<pid> <comm>" per live process whose cwd is at or under $1.
-# Exit 0 = the scan RAN (whether or not it found anything).
-# Exit 2 = the scan could NOT run. That must read as "unknown", never as
-# "clear": a host that cannot look reporting a clean result is exactly the
-# false reassurance this guard exists to remove.
-# WORKTREE_REMOVE_PROC_ROOT is a test seam, not a tuning knob: it exists so the
-# "cannot scan" branch below can be exercised on a host that has a perfectly good
-# /proc. Nothing in normal operation sets it.
-PROC_ROOT="${WORKTREE_REMOVE_PROC_ROOT:-/proc}"
-
-occupancy_scan() {
-    local wt="$1" entry pid cwd comm
-    [[ -r "$PROC_ROOT/self/cwd" ]] || return 2
-    local skip_pids
-    skip_pids=" $(occupancy_self_pids | tr '\n' ' ') "
-    for entry in "$PROC_ROOT"/[0-9]*; do
-        if [[ "$entry" == "$PROC_ROOT/[0-9]*" ]]; then
-            return 2   # a proc tree exposing no process - we learned nothing
-        fi
-        pid="${entry##*/}"
-        case "$skip_pids" in *" $pid "*) continue ;; esac
-        cwd="$(readlink "$entry/cwd" 2>/dev/null)" || continue
-        [[ -n "$cwd" ]] || continue
-        # Exact path, or a genuine child of it. A bare prefix test would make
-        # `<wt>-2` look like it lives inside `<wt>`; on the host where this bug
-        # was found `kyle-issue-1142` is a real prefix of
-        # `kyle-issue-1142-container-spec-superseded`, so that is not a
-        # hypothetical collision.
-        if [[ "$cwd" == "$wt" || "${cwd#"$wt"/}" != "$cwd" ]]; then
-            comm="$(tr -d '\0' < "$entry/comm" 2>/dev/null || echo '?')"
-            printf '%s %s\n' "$pid" "$comm"
-        fi
-    done
-    return 0
-}
+#
+# WT_REAL, occupancy_self_pids, PROC_ROOT and occupancy_scan are all defined
+# earlier now (issue #1524), so --finish-partial-removal's own branch can use
+# them too - see the comment there.
 
 if [[ "$CLAIM_OWNED_BY_US" != true && "$STEAL" != true ]]; then
     OCC_RC=0
@@ -763,18 +1043,9 @@ fi
 # BELOW root, so emptying every descendant still leaves one more removal -
 # `rmdir` on the root itself - which needs write+execute on a directory
 # outside anything `find` ever saw.
-undeletable_find() {
-    local root="$1" dir rc=0 listing parent
-    listing=$(mktemp "${TMPDIR:-/tmp}/worktree-remove-scan.XXXXXX")
-    find "$root" -type d -print0 2>/dev/null > "$listing" || rc=$?
-    while IFS= read -r -d '' dir; do
-        [[ -r "$dir" && -w "$dir" && -x "$dir" ]] || printf '%s\n' "$dir"
-    done < "$listing"
-    rm -f "$listing"
-    parent="$(dirname "$root")"
-    [[ -w "$parent" && -x "$parent" ]] || printf '%s\n' "$parent"
-    return "$rc"
-}
+#
+# undeletable_find is defined earlier now (issue #1524), so
+# --finish-partial-removal's own branch can call it too.
 
 PRE_SCAN_RC=0
 PRE_UNDELETABLE="$(undeletable_find "$WORKTREE_PATH")" || PRE_SCAN_RC=$?
