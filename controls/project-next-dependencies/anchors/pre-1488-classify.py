@@ -1,0 +1,384 @@
+"""Deterministic repository-state classification."""
+
+from __future__ import annotations
+
+import re
+from collections import defaultdict
+
+from .models import Classification, Issue, PullRequest, RepositoryState, normalize_label
+
+ISSUE_BRANCH = re.compile(r"(?:^|/)issue-(?P<number>\d+)(?:-|$)", re.IGNORECASE)
+
+# A declaration is only a dependency when a lead-in phrase is immediately followed by a
+# reference. "Strong" phrases assert a blocker outright, so a strong phrase that names no
+# machine-readable target is genuine uncertainty. "Weak" phrases are ordinary English that
+# happens to read like sequencing ("run after the release"), so they only count when a
+# reference actually follows and never raise uncertainty on their own.
+# "Blocker" and "prerequisite" are ordinary nouns, so they only count as a declaration in
+# their field-label form ("**Blockers:** #12"), never mid-sentence ("heavy blocker overlap").
+STRONG_DEPENDENCY_LEAD = re.compile(
+    r"\b(?:depends?\s+(?:on|upon)|depending\s+on|blocked\s+by)\b|\b(?:blockers?|prerequisites?)\b(?=[\s*_]*[:\-])",
+    re.IGNORECASE,
+)
+WEAK_DEPENDENCY_LEAD = re.compile(r"\b(?:requires?|required\s+by|needs|after|follows)\b", re.IGNORECASE)
+# Markdown emphasis and punctuation routinely sit between the phrase and its references,
+# as in "**Depends on:** #367" or "(depends on T004)".
+REFERENCE_CONNECTOR = re.compile(r"[\s:*_>()\[\]]*")
+ISSUE_REFERENCE = re.compile(r"#(?P<start>\d+)(?:\s*[-–—]\s*#?(?P<end>\d+))?")
+# A cross-repo reference (`owner/repo#N`) has no local edge this repo's inventory can
+# check - unlike a bare `#N`, it names a DIFFERENT repository's issue (#1398). Checked
+# before ISSUE_REFERENCE at the same position, so the owner/repo prefix is consumed with
+# it rather than left dangling for ISSUE_REFERENCE to match on the bare `#N` tail alone.
+CROSS_REPO_REFERENCE = re.compile(r"(?P<repo>[\w.-]+/[\w.-]+)#(?P<number>\d+)")
+TASK_REFERENCE = re.compile(r"(?P<task>[A-Z]{1,4}(?:-[A-Z]{1,4})?\d{2,4})\b")
+REFERENCE_SEPARATOR = re.compile(r"[\s,;&/–—-]*(?:and|plus|then)?[\s]*", re.IGNORECASE)
+DANGLING_REFERENCE = re.compile(r"#(?!\d)")
+# "Depends on: None" declares the ABSENCE of a dependency. Read as a phrase with no
+# reference it made every prerequisite-free issue uncertain (#1035).
+# A dash counts only when nothing follows it: "- see #12" is not a negation.
+# "nothing but the owner's ruling" names a prerequisite in prose; a qualifier anywhere in
+# the negation's clause keeps the declaration unresolved.
+NEGATION_QUALIFIER = re.compile(
+    r"\b(?:but|except|excepting|other\s+than|apart\s+from|besides|save|beyond|until|unless|pending)\b",
+    re.IGNORECASE,
+)
+NO_DEPENDENCY = re.compile(r"(?:[-—–]\s*)?(?:none|n/a|nothing|nil)\b|[-—–](?=\s*(?:$|[;.,]))", re.IGNORECASE)
+CODE_FENCE = re.compile(r"^\s*(?:```|~~~)")
+INLINE_CODE = re.compile(r"`[^`\n]*`")
+DECLARED_TASK = re.compile(r"^-\s*\[[ xX]\]\s+(?:\*\*)?(?P<id>[A-Za-z]{1,4}(?:-[A-Za-z]{1,4})?\d{1,4})(?:\*\*)?\b")
+CHECKLIST_ISSUE = re.compile(r"^-\s*\[\s\]\s+.*?#(?P<number>\d+)\b", re.IGNORECASE)
+EXPLICIT_PR_ISSUE = re.compile(
+    r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|issue)\s*:?[\s#]+(?P<number>\d+)\b",
+    re.IGNORECASE,
+)
+# Guards an "#367-#376" style range from expanding into an implausible span.
+MAX_REFERENCE_RANGE = 50
+
+
+def issue_number_from_branch(branch: str) -> int | None:
+    match = ISSUE_BRANCH.search(branch)
+    return int(match.group("number")) if match else None
+
+
+def pull_request_issue_numbers(pr: PullRequest) -> tuple[int, ...]:
+    numbers = set(pr.closing_issue_numbers)
+    branch_issue = issue_number_from_branch(pr.head_ref)
+    if branch_issue is not None:
+        numbers.add(branch_issue)
+    numbers.update(int(match.group("number")) for match in EXPLICIT_PR_ISSUE.finditer(f"{pr.title}\n{pr.body}"))
+    return tuple(sorted(numbers))
+
+
+def strip_code(text: str) -> str:
+    """Drop fenced blocks and inline spans so code never reads as dependency prose."""
+    kept: list[str] = []
+    fenced = False
+    for line in text.splitlines():
+        if CODE_FENCE.match(line):
+            fenced = not fenced
+            continue
+        kept.append("" if fenced else INLINE_CODE.sub(" ", line))
+    return "\n".join(kept)
+
+
+def _skip(pattern: re.Pattern[str], line: str, position: int) -> int:
+    match = pattern.match(line, position)
+    return match.end() if match else position
+
+
+def _reference_list(
+    line: str, position: int, repository: str = ""
+) -> tuple[set[int], set[str], list[str], int]:
+    """Consume a comma/range separated run of issue, task and cross-repo references.
+
+    `consumed` counts only LOCAL (same-repo issue or spec-task) references, never a
+    cross-repo one (#1398): a cross-repo reference names no local edge this inventory
+    can resolve, so a dependency line naming ONLY cross-repo references must still be
+    reported uncertain by the caller rather than read as attached and resolved - the
+    distinction `external` (returned alongside) lets the caller phrase that report
+    specifically, instead of falling into "the blocker names no issue or spec task".
+
+    `repository` (counter-model review) lets `owner/repo#N` naming THIS repository
+    read as the local reference it is - `cooneycw/claude-power-pack#12` is `#12`,
+    not an unresolvable cross-repo blocker, when `repository` is that same name.
+    Compared case-insensitively; an empty `repository` (the caller did not supply
+    one) never matches, so every qualified reference reads as external, as before.
+    """
+    issues: set[int] = set()
+    tasks: set[str] = set()
+    external: list[str] = []
+    consumed = 0
+    while position < len(line):
+        cross_match = CROSS_REPO_REFERENCE.match(line, position)
+        self_match = (
+            cross_match
+            if cross_match and repository and cross_match.group("repo").lower() == repository.lower()
+            else None
+        )
+        issue_match = None if cross_match else ISSUE_REFERENCE.match(line, position)
+        task_match = None if (cross_match or issue_match) else TASK_REFERENCE.match(line, position)
+        if self_match:
+            number = int(self_match.group("number"))
+            issues.add(number)
+            position = self_match.end()
+            consumed += 1
+        elif cross_match:
+            external.append(f"{cross_match.group('repo')}#{cross_match.group('number')}")
+            position = cross_match.end()
+        elif issue_match:
+            start = int(issue_match.group("start"))
+            end = int(issue_match.group("end") or start)
+            span = end - start
+            issues.update(range(start, end + 1) if 0 < span <= MAX_REFERENCE_RANGE else (start,))
+            position = issue_match.end()
+            consumed += 1
+        elif task_match:
+            tasks.add(task_match.group("task").upper())
+            position = task_match.end()
+            consumed += 1
+        else:
+            break
+        position = _skip(REFERENCE_SEPARATOR, line, position)
+    return issues, tasks, external, consumed
+
+
+def _declares_none(line: str, position: int) -> bool:
+    """A negation counts only when its own clause names no reference.
+
+    "Depends on: None within the wave. Related: #861" declares nothing; "Depends on:
+    nothing but #12" is a qualified dependency and must stay unresolved.
+    """
+    match = NO_DEPENDENCY.match(line, position)
+    if not match:
+        return False
+    clause = re.split(r"[.;]", line[match.end() :], maxsplit=1)[0]
+    return not (ISSUE_REFERENCE.search(clause) or TASK_REFERENCE.search(clause) or NEGATION_QUALIFIER.search(clause))
+
+
+def _line_references(line: str, repository: str = "") -> tuple[set[int], set[str], list[str]]:
+    issues: set[int] = set()
+    tasks: set[str] = set()
+    unresolved: list[str] = []
+    for pattern, strong in ((STRONG_DEPENDENCY_LEAD, True), (WEAK_DEPENDENCY_LEAD, False)):
+        for lead in pattern.finditer(line):
+            start = _skip(REFERENCE_CONNECTOR, line, lead.end())
+            found_issues, found_tasks, found_external, consumed = _reference_list(line, start, repository)
+            issues |= found_issues
+            tasks |= found_tasks
+            # A cross-repo reference is uncertain REGARDLESS of a local reference
+            # also present on the same phrase (counter-model review, #1398): a
+            # satisfied local dependency does not resolve a DIFFERENT repository's
+            # issue, so "Depends on #12, other/repo#34" must still name #34 even
+            # though `consumed` (from #12) would otherwise suppress the report.
+            if strong and found_external:
+                unresolved.append(
+                    f"'{lead.group(0).strip()}' declares a dependency but depends on "
+                    f"{', '.join(found_external)}, not checkable from this repo's inventory: {line.strip()}")
+                continue
+            if consumed or not strong or _declares_none(line, start):
+                continue
+            detail = "an issue reference is present but not attached to the phrase"
+            if not ISSUE_REFERENCE.search(line) and not DANGLING_REFERENCE.search(line):
+                detail = "the blocker names no issue or spec task"
+            unresolved.append(f"'{lead.group(0).strip()}' declares a dependency but {detail}: {line.strip()}")
+    return issues, tasks, unresolved
+
+
+def _dependencies(
+    issue: Issue, task_issues: dict[str, set[int]], repository: str = ""
+) -> tuple[set[int], list[str], set[str]]:
+    text = strip_code(f"{issue.title}\n{issue.body}")
+    lines = text.splitlines()
+    declared_tasks = set()
+    for line in lines:
+        match = DECLARED_TASK.match(line.strip())
+        if match:
+            declared_tasks.add(match.group("id").upper())
+
+    dependencies: set[int] = set()
+    referenced_tasks: set[str] = set()
+    uncertainty: list[str] = []
+    for line in lines:
+        found_issues, found_tasks, unresolved = _line_references(line, repository)
+        dependencies |= found_issues
+        referenced_tasks |= found_tasks
+        uncertainty.extend(unresolved)
+
+    for line in lines:
+        match = CHECKLIST_ISSUE.search(line.strip())
+        if match and re.search(r"\b(?:wave|phase|epic|parent)\b", issue.title, re.IGNORECASE):
+            dependencies.add(int(match.group("number")))
+
+    # Task IDs the issue defines itself describe its own internal ordering, not a blocker.
+    unresolved_tasks: set[str] = set()
+    for task in sorted(referenced_tasks - declared_tasks):
+        mapped = task_issues.get(task)
+        if mapped:
+            dependencies |= mapped
+        else:
+            unresolved_tasks.add(task)
+
+    dependencies.discard(issue.number)
+    return dependencies, uncertainty, unresolved_tasks
+
+
+def _task_issue_index(state: RepositoryState) -> dict[str, set[int]]:
+    """Map spec task IDs onto open issues via the Issue Sync ledger, then issue titles."""
+    from_titles: dict[str, set[int]] = defaultdict(set)
+    for issue in state.issues:
+        match = TASK_REFERENCE.match(issue.title.strip())
+        if match and re.match(r"[\s:.·|—-]", issue.title.strip()[match.end() : match.end() + 1] or " "):
+            from_titles[match.group("task").upper()].add(issue.number)
+
+    index: dict[str, set[int]] = defaultdict(set)
+    # A task ID claimed by two open issues identifies nothing, so it stays unresolved.
+    for task, numbers in from_titles.items():
+        if len(numbers) == 1:
+            index[task].update(numbers)
+    for task in state.spec_tasks:
+        if task.issue_numbers and task.mapping_status not in {"stale", "ambiguous"}:
+            index[task.task_id.upper()] = set(task.issue_numbers)
+    return dict(index)
+
+
+def _cycle_members(graph: dict[int, set[int]]) -> set[int]:
+    index = 0
+    indices: dict[int, int] = {}
+    lowlinks: dict[int, int] = {}
+    stack: list[int] = []
+    on_stack: set[int] = set()
+    cycles: set[int] = set()
+
+    def strong_connect(node: int) -> None:
+        nonlocal index
+        indices[node] = index
+        lowlinks[node] = index
+        index += 1
+        stack.append(node)
+        on_stack.add(node)
+
+        for dependency in sorted(graph.get(node, set())):
+            if dependency not in graph:
+                continue
+            if dependency not in indices:
+                strong_connect(dependency)
+                lowlinks[node] = min(lowlinks[node], lowlinks[dependency])
+            elif dependency in on_stack:
+                lowlinks[node] = min(lowlinks[node], indices[dependency])
+
+        if lowlinks[node] != indices[node]:
+            return
+        component: list[int] = []
+        while stack:
+            member = stack.pop()
+            on_stack.remove(member)
+            component.append(member)
+            if member == node:
+                break
+        if len(component) > 1:
+            cycles.update(component)
+
+    for node in sorted(graph):
+        if node not in indices:
+            strong_connect(node)
+    return cycles
+
+
+def classify_repository(state: RepositoryState, non_startable_labels: tuple[str, ...] = ()) -> Classification:
+    issue_numbers = {issue.number for issue in state.issues}
+    markers = frozenset(normalize_label(label) for label in non_startable_labels)
+    marked = {
+        issue.number: tuple(sorted(issue.normalized_labels & markers))
+        for issue in state.issues
+        if issue.normalized_labels & markers
+    }
+    evidence: dict[int, set[str]] = defaultdict(set)
+    unmapped_worktrees: list[str] = []
+
+    for worktree in state.worktrees:
+        number = issue_number_from_branch(worktree.branch)
+        if number in issue_numbers:
+            # Unknown is never clean (#1398): a failed `git status` call must not
+            # read as "clean" in the evidence text either.
+            status = "unknown" if worktree.dirty is None else ("dirty" if worktree.dirty else "clean")
+            evidence[number].add(f"worktree:{worktree.path}:{status}")
+        elif worktree.branch and worktree.branch != state.default_branch:
+            unmapped_worktrees.append(f"{worktree.path} ({worktree.branch})")
+
+    for branch in state.branches:
+        number = issue_number_from_branch(branch.name)
+        if number in issue_numbers:
+            kind = "remote-branch" if branch.remote else "local-branch"
+            evidence[number].add(f"{kind}:{branch.name}")
+
+    for pr in state.pull_requests:
+        for number in pull_request_issue_numbers(pr):
+            if number in issue_numbers:
+                evidence[number].add(f"pr:#{pr.number}")
+
+    task_issues = _task_issue_index(state)
+    dependency_map: dict[int, set[int]] = {}
+    uncertainty: dict[int, list[str]] = defaultdict(list)
+    for issue in state.issues:
+        dependencies, reasons, unresolved_tasks = _dependencies(issue, task_issues, state.repository)
+        dependency_map[issue.number] = dependencies
+        uncertainty[issue.number].extend(reasons)
+        if not state.inventory_complete:
+            unknown = sorted(dependencies - issue_numbers)
+            if unknown:
+                uncertainty[issue.number].append(
+                    "dependency state unavailable for " + ", ".join(f"#{number}" for number in unknown)
+                )
+            # With a complete inventory an unmatched task ID means the work is not an open
+            # issue, which is the same "already satisfied" reading a closed #reference gets.
+            if unresolved_tasks:
+                uncertainty[issue.number].append(
+                    "dependency state unavailable for spec " + ", ".join(sorted(unresolved_tasks))
+                )
+
+    cycles = _cycle_members(dependency_map)
+    blocked_by: dict[int, set[int]] = defaultdict(set)
+    for number in cycles:
+        blocked_by[number].update(dependency_map[number] & cycles)
+
+    changed = True
+    while changed:
+        changed = False
+        for issue_number, dependencies in dependency_map.items():
+            before = set(blocked_by[issue_number])
+            for dependency in dependencies:
+                if dependency in issue_numbers:
+                    blocked_by[issue_number].add(dependency)
+                    blocked_by[issue_number].update(blocked_by.get(dependency, set()))
+            blocked_by[issue_number].discard(issue_number)
+            if blocked_by[issue_number] != before:
+                changed = True
+
+    in_flight = set(evidence)
+    # A marker is decisive where dependency prose is not: someone actively working the
+    # issue still outranks it, but an inbox is never "blocked" or "uncertain" pending
+    # some resolution after which it would become startable.
+    non_startable = set(marked) - in_flight
+    uncertain = {number for number, reasons in uncertainty.items() if reasons} - in_flight - non_startable
+    blocked = {number for number, blockers in blocked_by.items() if blockers} - in_flight - non_startable - uncertain
+    available = issue_numbers - in_flight - non_startable - blocked - uncertain
+
+    partitions = (in_flight, non_startable, blocked, available, uncertain)
+    if set().union(*partitions) != issue_numbers or sum(len(group) for group in partitions) != len(issue_numbers):
+        raise AssertionError("project-next classifications are not disjoint and exhaustive")
+
+    return Classification(
+        in_flight=tuple(sorted(in_flight)),
+        blocked=tuple(sorted(blocked)),
+        available=tuple(sorted(available)),
+        uncertain=tuple(sorted(uncertain)),
+        non_startable=tuple(sorted(non_startable)),
+        non_startable_evidence={
+            number: tuple(f"label:{label}" for label in marked[number]) for number in sorted(non_startable)
+        },
+        dependency_map={number: tuple(sorted(values)) for number, values in sorted(dependency_map.items())},
+        blocked_by={number: tuple(sorted(values)) for number, values in sorted(blocked_by.items()) if values},
+        in_flight_evidence={number: tuple(sorted(values)) for number, values in sorted(evidence.items())},
+        uncertainty={number: tuple(values) for number, values in sorted(uncertainty.items()) if values},
+        unmapped_worktrees=tuple(sorted(unmapped_worktrees)),
+    )

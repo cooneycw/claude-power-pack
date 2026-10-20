@@ -35,13 +35,17 @@
     "phrase and translates its presence into exit 1 (absence stays exit 0),",
     "which is what lets `detect_signal` and `good_exit` discriminate at all.",
     "The unmapped worktree ALSO produces a `classification.unmapped_worktrees`",
-    "warning in both cases; that one is not the signal."
+    "warning in both cases; that one is not the signal.",
+    "The candidate collect.py's merged-Refs-PR read (#1488) constructs RepositoryState with two fields the archived (pre-#1488) models.py does not declare, so the overlay must also replace models.py with the CURRENT one or collect_repository() raises TypeError before reaching worktree collection at all (observed: 'RepositoryState.__init__() got an unexpected keyword argument'). Only models.py is overlaid - not rank.py or ownership.json - so the CLI's own CONTRACT_VERSION-vs-manifest check still compares two archived, mutually consistent values and is not tripped by #1488's unrelated contract bump (see the sibling note above about controls/project-next-worktree-log, which hit that same check via a different overlay shape)."
   ],
   "gate": "lib/project_next/collect.py",
   "invocation": [
-    "bash", "-c",
-    "W=$(mktemp -d) || exit 9; git archive HEAD | (mkdir -p \"$W/engine\" && tar -x -C \"$W/engine\") || { rm -rf \"$W\"; exit 9; }; cp \"$2\" \"$W/engine/lib/project_next/collect.py\" || { rm -rf \"$W\"; exit 9; }; . \"$1/setup.sh\" \"$W/fixture\" || { rm -rf \"$W\"; exit 9; }; cd \"$W/engine\" || { rm -rf \"$W\"; exit 9; }; OUTPUT=$(python3 scripts/project-next.py \"$W/fixture/repo\" --full); pyrc=$?; echo \"$OUTPUT\"; rm -rf \"$W\"; [ \"$pyrc\" -ne 0 ] && exit \"$pyrc\"; echo \"$OUTPUT\" | grep -q 'status-unknown worktree .* names issue #999' && exit 1; exit 0",
-    "--", "{case}", "{gate}"
+    "bash",
+    "-c",
+    "W=$(mktemp -d) || exit 9; git archive HEAD | (mkdir -p \"$W/engine\" && tar -x -C \"$W/engine\") || { rm -rf \"$W\"; exit 9; }; cp \"$2\" \"$W/engine/lib/project_next/collect.py\" || { rm -rf \"$W\"; exit 9; }; cp lib/project_next/models.py \"$W/engine/lib/project_next/models.py\" || { rm -rf \"$W\"; exit 9; }; . \"$1/setup.sh\" \"$W/fixture\" || { rm -rf \"$W\"; exit 9; }; cd \"$W/engine\" || { rm -rf \"$W\"; exit 9; }; OUTPUT=$(python3 scripts/project-next.py \"$W/fixture/repo\" --full); pyrc=$?; echo \"$OUTPUT\"; rm -rf \"$W\"; [ \"$pyrc\" -ne 0 ] && exit \"$pyrc\"; echo \"$OUTPUT\" | grep -q 'status-unknown worktree .* names issue #999' && exit 1; exit 0",
+    "--",
+    "{case}",
+    "{gate}"
   ],
   "good_exit": 0,
   "detect_signal": "status-unknown worktree .* names issue #999",

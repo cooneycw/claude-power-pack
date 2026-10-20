@@ -434,9 +434,9 @@
       "top_issue": 368,
       "next_startable": 368,
       "in_flight": [],
-      "blocked": [371],
+      "blocked": [],
       "available": [368],
-      "uncertain": []
+      "uncertain": [371]
     }
   },
   "unlabeled_backlog": {
