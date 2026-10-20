@@ -5003,3 +5003,82 @@ def test_two_subjects_that_normalize_to_the_same_basename_still_count_as_one_row
     write_census(root, ["scripts/toy-gate.py"])
     out = run_harness(root)
     assert contract(out.stdout, "NEGATIVE_CONTROL_UNIVERSE") == "1", out.stdout
+
+
+@pytest.mark.parametrize("signal_level", [None, "control", "case"])
+def test_multiple_good_cases_warn_additively_without_signals(
+    tmp_path: Path, signal_level: str | None,
+) -> None:
+    cases = [
+        {"name": "bad", "input": "cases/bad", "expect": "BAD"},
+        {"name": "good", "input": "cases/good", "expect": "GOOD"},
+        {"name": "other-good", "input": "cases/other-good", "expect": "GOOD"},
+    ]
+    if signal_level == "case":
+        cases[1]["good_signal"] = r"^toy-gate: ok"
+    root = build_tree(
+        tmp_path, TWO_GOOD_SIGNAL_GATE, anchor_src=ANCHOR_SAYS_EXPECTED,
+        cases=cases, detect_signal=r"^toy-gate: finding",
+        good_signal=r"^toy-gate: ok" if signal_level == "control" else None,
+    )
+    (root / "controls/toy/cases/other-good/tests").mkdir(parents=True)
+    manifest = json.loads((root / "controls/toy/control.json").read_text())
+    assert len([case for case in manifest["cases"] if case["expect"] == "GOOD"]) == 2
+    if signal_level is None:
+        assert "good_signal" not in manifest
+        assert all("good_signal" not in case for case in manifest["cases"])
+    result = _load_harness_module().evaluate(
+        root / "scripts/toy-gate.py", "controls/toy", root, False)
+    warning = (
+        "WARNING: GOOD cases good, other-good share exit code 0 with no control-level "
+        "or per-case good_signal; their clean answers are indistinguishable"
+    )
+    assert result.verdict == "PASS", result.details
+    assert (warning in result.details) == (signal_level is None), result.details
+    assert any(detail.startswith("WARNING:") for detail in result.details) == (signal_level is None)
+    print(f"verdict={result.verdict!r}; details={result.details!r}")
+
+
+def test_blind_anchor_regeneration_preserves_prose_and_detects_gate_drift(tmp_path: Path) -> None:
+    """Only the stored blinding and depth adaptation survive regeneration."""
+    root = tmp_path
+    (root / "scripts").mkdir()
+    tool = root / "scripts/regenerate-blind-anchor.sh"
+    shutil.copyfile(ROOT / "scripts/regenerate-blind-anchor.sh", tool)
+    gate = root / "scripts/host-surface-observe.py"
+    shutil.copyfile(ROOT / "scripts/host-surface-observe.py", gate)
+    control = root / "controls/host-surface-observe"
+    control.mkdir(parents=True)
+    shutil.copyfile(ROOT / "controls/host-surface-observe/control.json", control / "control.json")
+    anchors = control / "anchors"
+    anchors.mkdir()
+    anchor = anchors / "constructed-blind-covered-by.py"
+    shutil.copyfile(ROOT / "controls/host-surface-observe/anchors" / anchor.name, anchor)
+    shutil.copyfile(ROOT / "controls/host-surface-observe/anchors" / anchor.with_suffix(".patch").name,
+                    anchor.with_suffix(".patch"))
+    original = anchor.read_text()
+    # A non-transformation change must propagate from the current gate.
+    gate.write_text(gate.read_text() + "\n# regeneration freshness canary\n")
+    assert "regeneration freshness canary" not in original
+
+    def run(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(tool), "host-surface-observe", *args],
+            capture_output=True, text=True, check=False, timeout=30,
+        )
+
+    drift = run()
+    assert drift.returncode == 1 and "drift:" in drift.stdout and "@@" in drift.stdout
+    assert anchor.read_text() == original
+    assert run("--write").returncode == 0
+    regenerated = anchor.read_text()
+    assert regenerated.split('"""')[1] == original.split('"""')[1]
+    assert "# regeneration freshness canary" in regenerated
+    assert "parents[3]" in regenerated
+    assert '"cpp-checkout-freshness.sh"' in regenerated
+    assert "key = (str(repo), neutralised)" in regenerated
+    assert run().returncode == 0
+    gate.write_text(gate.read_text().replace("def covered_by(appeared: str,", "def covered_by(appeared: bytes,"))
+    refused = run()
+    assert refused.returncode == 1 and "drift:" in refused.stdout and "@@" in refused.stdout
+    assert anchor.read_text() == regenerated

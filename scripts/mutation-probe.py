@@ -719,6 +719,11 @@ def run_manifest(manifest_rel: str, root: Path, new_sandbox: Callable[[], Path],
     #: name -> (find, replace, count), so a combination can apply several
     #: EXISTING mutations together without re-declaring their find/replace
     #: text (issue #1396) - one definition per protection, referenced by name.
+    masked_by_sibling_paired_names: set[str] = set()
+    for raw_combo in (spec.get("combinations") or []):
+        if isinstance(raw_combo, dict):
+            for member_name in (raw_combo.get("mutations") or []):
+                masked_by_sibling_paired_names.add(str(member_name))
     steps_by_name: dict[str, tuple[str, str, int]] = {}
     for entry in mutations:
         name = str(entry.get("name", "?"))
@@ -756,6 +761,17 @@ def run_manifest(manifest_rel: str, root: Path, new_sandbox: Callable[[], Path],
         if blocked_by_error:
             probe.verdict = INAPPLICABLE
             probe.details.append(blocked_by_error)
+            probes.append(probe)
+            continue
+
+        if (entry.get("blocked_by") == BLOCKED_BY_MASKED_BY_SIBLING
+                and name not in masked_by_sibling_paired_names):
+            probe.verdict = INAPPLICABLE
+            probe.details.append(
+                f"masked-by-sibling mutation {name!r} is not referenced by any "
+                "combinations[].mutations entry, so nothing proves the paired "
+                "removal is what makes it unobservable"
+            )
             probes.append(probe)
             continue
 

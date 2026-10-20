@@ -121,6 +121,11 @@ INVOCATIONS: dict[str, list[list[str]]] = {
         ["file-write", "{HOME}/.config/claude-power-pack/secrets/cpp-memories.backend", "local"],
     ],
     "cpp-commands-link.sh": [["--check"], []],
+    #: `--path {HOME}` on purpose: with no --path it measures the checkout that
+    #: holds it and FETCHES its real origin - a network call inside a test run.
+    #: The sandbox is not a git repository, so the run ends at `unknown` having
+    #: written nothing, which is exactly its declaration (`none`).
+    "cpp-checkout-freshness.sh": [["--path", "{HOME}"]],
     "codex-skill-sync.py": [["--install"]],
     "install-memory-harness.sh": [[]],
     "commands-mirror-sync.sh": [[]],
@@ -269,48 +274,7 @@ def declares_unresolved(text: str, check) -> bool:
 
 
 def covered_by(appeared: str, declared: list[tuple[str, str, str]]) -> bool:
-    """Is this appeared path accounted for by some declaration?
-
-    COVERAGE DEPENDS ON THE WRITE VERB, and getting this wrong made every
-    declaration in this change unverifiable (issue #1150, found by the
-    two-sided demonstration rather than by review).
-
-    `write=mkdir` declares that a DIRECTORY NODE is created. It covers exactly
-    that path and nothing beneath it. The first cut let it cover the whole
-    subtree, and the consequence was silent: with `~/.codex` declared, removing
-    the `~/.codex/skills` declaration changed no verdict, so the added
-    declarations could not be shown to matter and the instrument was certifying
-    its own input. The tree says the same thing on its own - `cpp-host-write.sh`
-    declares `~/.claude`, `~/.claude/scripts` AND `~/.claude/settings.json`
-    separately, which is redundant under subtree coverage and necessary under
-    this rule.
-
-    Every other verb - copy, symlink, merge, append, replace, json-merge -
-    writes CONTENT at the path, so what appears beneath it is that surface's
-    content and is covered.
-
-    `<placeholder>` segments match exactly one path segment: `~/.codex/skills/
-    <skill>` means a skill directory, not a subtree spelled literally.
-    """
-    return True  # BLINDED: the comparison this control exists to test
-    ap = appeared.split("/")
-    for dec, verb, _cert in declared:
-        dp = dec.split("/")
-        if verb == "mkdir":
-            if len(ap) != len(dp):
-                continue
-        elif len(ap) < len(dp):
-            continue
-        ok = True
-        for want, got in zip(dp, ap):
-            if want.startswith("<") and want.endswith(">"):
-                continue
-            if want != got:
-                ok = False
-                break
-        if ok:
-            return True
-    return False
+    return True
 
 
 def child_home(env: dict[str, str]) -> tuple[str, str, str]:
@@ -443,7 +407,22 @@ def sanitised_git_env(home: str | os.PathLike[str]) -> dict[str, str]:
     return env
 
 
-_OVERRIDES_CACHE: dict[str, list[tuple[str, str]]] = {}
+#: KEYED ON WHAT THE VALUE IS DERIVED FROM, not on the repo alone (issue #1242).
+#: The cached value is computed from the repo's git configuration AND from
+#: `GIT_EXEC_CONFIG_NEUTRALISED`, so a repo-only key lets a call made under a
+#: DIFFERENT table install its answer as the answer for that repo. That is not
+#: hypothetical: `test_the_canary_FIRES_when_the_neutralisation_IS_REMOVED` empties
+#: the table to prove the sandbox's alarm can fire, reaches this function, and
+#: cached `[]` for the checkout. `monkeypatch` restores the ATTRIBUTE and knows
+#: nothing about this dict, so every later `sandbox_env()` in that process got
+#: `GIT_CONFIG_COUNT=0` - a sandbox neutralising nothing - and whichever test
+#: asserted a neutralisation next failed. Under `pytest -n 4` the grouping varies,
+#: so it surfaced on a rotating innocent test on whatever PR was in flight, and
+#: passed when run alone.
+#:
+#: `_GIT_EXEC_FILTER_RE` is the only other input and nothing patches it; if that
+#: changes, it belongs in this key too.
+_OVERRIDES_CACHE: dict[tuple[str, tuple[tuple[str, str], ...]], list[tuple[str, str]]] = {}
 
 
 def git_exec_config_overrides(repo: Path) -> list[tuple[str, str]]:
@@ -451,10 +430,11 @@ def git_exec_config_overrides(repo: Path) -> list[tuple[str, str]]:
 
     Raises `GitDiscoveryError` when the configuration cannot be read.
     """
-    key = str(repo)
+    neutralised = tuple(sorted(GIT_EXEC_CONFIG_NEUTRALISED.items()))
+    key = (str(repo), neutralised)
     if key in _OVERRIDES_CACHE:
         return list(_OVERRIDES_CACHE[key])
-    overrides = sorted(GIT_EXEC_CONFIG_NEUTRALISED.items())
+    overrides = list(neutralised)
     #: `--null --name-only` instead of parsing `key=value` (counter-model review,
     #: #1182). Git accepts a subsection containing `=`: `[filter "a=b"]` renders
     #: as `filter.a=b.clean=<cmd>`, and splitting on the first `=` yields

@@ -867,7 +867,13 @@ def test_a_combination_the_battery_still_misses_reports_uncaught(tmp_path: Path)
                "and the comment changes nothing observable",
         "blocked_by": "masked-by-sibling",
     }
-    root = _masked_tree(tmp_path, mutations=[GUARD_A, GUARD_B, INERT_COMMENT], combinations=[combo])
+    paired = {
+        "name": "both-guards",
+        "mutations": ["zero-count-refusal", "tool-crash-refusal"],
+        "expect": "caught",
+    }
+    root = _masked_tree(
+        tmp_path, mutations=[GUARD_A, GUARD_B, INERT_COMMENT], combinations=[combo, paired])
     result = _probe(root, "--strict")
     assert ("MUTATION-ACCEPTED: controls/toy/control.json::zero-count-and-inert-together"
             in result.stdout)
@@ -1085,7 +1091,33 @@ def test_a_null_combinations_field_is_treated_as_no_combinations(tmp_path: Path)
     key's absence - the same convention this file already applies to a null
     `mutations` field.
     """
-    root = _masked_tree(tmp_path, mutations=[GUARD_A, GUARD_B], combinations=None)
+    root = _masked_tree(tmp_path, mutations=[INERT_COMMENT], combinations=None)
     result = _probe(root, "--strict")
     assert result.returncode == 0
+    assert "MUTATION-ACCEPTED: controls/toy/control.json::comment-only-change" in result.stdout
+
+
+def test_masked_by_sibling_requires_a_combination_reference(tmp_path: Path) -> None:
+    root = _masked_tree(tmp_path, mutations=[GUARD_A], combinations=None)
+    path = root / "controls/toy/control.json"
+    spec = json.loads(path.read_text())
+    del spec["combinations"]
+    path.write_text(json.dumps(spec))
+    assert "combinations" not in json.loads(path.read_text())
+    assert spec["mutations"][0]["blocked_by"] == "masked-by-sibling"
+    result = _probe(root, "--strict")
+    assert "MUTATION-INAPPLICABLE: controls/toy/control.json::zero-count-refusal" in result.stdout
+    assert ("masked-by-sibling mutation 'zero-count-refusal' is not referenced by any "
+            "combinations[].mutations entry") in result.stdout
+
+
+def test_masked_by_sibling_with_a_combination_reference_keeps_normal_verdict(tmp_path: Path) -> None:
+    combo = {
+        "name": "paired", "mutations": ["zero-count-refusal", "tool-crash-refusal"],
+        "expect": "caught",
+    }
+    root = _masked_tree(tmp_path, mutations=[GUARD_A, GUARD_B], combinations=[combo])
+    result = _probe(root, "--strict")
+    assert result.returncode == 0, result.stdout
     assert "MUTATION-ACCEPTED: controls/toy/control.json::zero-count-refusal" in result.stdout
+    assert "not referenced by any" not in result.stdout
