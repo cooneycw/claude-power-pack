@@ -8,8 +8,8 @@
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
 439d8e012be0936bee854aea7a17894d7ce2e013a2e2b1509950c062a9009d50  flow-driver-capability.sh
-0df497631d63145844d6cbd88beec84d484d1abb48a09d90f3d1f0de18a1b9cf  flow-pr-watch.sh
-abf0ef9f5421bb958f4ccdd973c65c33bc2533c4ce2ab91b5447346add197248  flow-vantage.sh
+05935f75c2a0b78a5d8a6b0529486ea1d844de13c14927710b16dbef7c4c028e  flow-pr-watch.sh
+884634889faafd9a962b2cfc261b1589b6680c1bb76d40624706ece890500a93  flow-vantage.sh
 a9562871ed70557fdca7b5045ea41f0eaa4654cab8863164ad5befa74dc45734  flow-wave-lexicon.sh
 6db6a15aaf6d38036c9facdbf60db7659250d5d6e53cae59b8e4673d2ffe5113  flow-wave-mailbox.sh
 df2871bce4ac8a6ed36ff122a4bd425cd8087dc736d8dd5b18e141ca0d24eff3  flow-wave-plan.py
@@ -20,4 +20,4 @@ b00aa7f3eb76b8addb05ffa658c09443fe589256e53d0a41a902d47c84d15d1f  flow-worktree-
 0909790cc9e29f072c73acc324d85664fd5aee329ec5bd5cfe326d372cb3efe4  speckit-context.py
 4119ea73b9de94ba65070d229bf9fcae75b7cb48107f27309ceebff2d8f084ec  speckit-tasks-to-issues.sh
 23f23e508ac30c492364c5235d5b388ecd17420da5c47600885e0624522ef06c  toolchain-provenance.sh
-3212ba06699c2d1d0300e23519425100e2d21a227cd5296ddea0e4ce9f2e4252  worktree-remove.sh
+a164cc64b3e03c22a736c6830ed1f05252fef0317a718e06b6b27e80eb8af768  worktree-remove.sh

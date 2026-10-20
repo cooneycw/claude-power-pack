@@ -127,7 +127,7 @@
     "flow-ci-status.sh": {
       "class": "tested",
       "consumer": "tests/test_flow_ci_status.py",
-      "reason": "resolves a pipeline for a commit SHA; /flow:auto Step 8 deploys or stops on it"
+      "reason": "resolves a pipeline for a commit SHA; /flow:auto Step 8 deploys or stops on it; controls/flow-ci-status and controls/flow-ci-status-cancellation cover independent verdict defects"
     },
     "flow-driver-capability.sh": {
       "class": "tested",

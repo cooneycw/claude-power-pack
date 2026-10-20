@@ -2164,6 +2164,19 @@ class TestSkippedSuiteReporting:
         assert "completed WITH WARNINGS" in text
         assert "completed successfully" not in text
 
+    def test_unexpected_control_warns_without_changing_success(self, tmp_project: Path):
+        runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
+        result = runner.run("check", step_defs=self._steps(
+            "::cicd-negative-control:BEGIN:BAD:blind::\n"
+            "2 passed in 1.2s\n"
+            "::cicd-negative-control:END:BAD:blind::\n"
+            "3 passed in 1.2s"
+        ))
+        assert result.success
+        assert result.tests["test"]["passed"] == 3
+        assert result.tests["test"]["control_unexpected"] == ["blind"]
+        assert any("did not behave as declared: blind" in w for w in result.warnings)
+
     def test_no_tests_ran_is_also_qualified(self, tmp_project: Path):
         runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
         result = runner.run("check", step_defs=self._steps("== no tests ran in 0.01s =="))
@@ -2199,6 +2212,14 @@ class TestSkippedSuiteReporting:
             # streams that produced the counts are pinned beside them rather
             # than left for a reader to assume.
             "summary_streams": ["stdout"],
+            "control_invocations": 0,
+            "control_passed": 0,
+            "control_failed": 0,
+            "control_skipped": 0,
+            "control_errors": 0,
+            "control_xfailed": 0,
+            "control_xpassed": 0,
+            "control_unexpected": [],
         }
         # Some tests DID run, so this is a real green - no warning, no
         # "WITH WARNINGS" banner, but the counts are visible either way.

@@ -78,7 +78,13 @@ tools-check:
 			printf '  but `make test` and `make negative-controls` run controls that invoke these scanners DIRECTLY, with no such fallback,\n'; \
 			printf '  so controls/shellcheck-gate and controls/secret-scan report UNAVAILABLE there (#1117): unexamined, not clean.\n'; \
 		else \
-			printf '  docker is absent too, so the shellcheck and secret-scan targets cannot run either.\n'; \
+			for t in $$native; do \
+				case $$t in \
+					shellcheck) printf '  docker is absent too, so `make shellcheck` cannot run.\n' ;; \
+					gitleaks) printf '  docker is absent too, so `make secret-scan` cannot run.\n' ;; \
+					jq) printf '  jq has no docker fallback target.\n' ;; \
+				esac; \
+			done; \
 		fi; \
 	fi; \
 	if [ -z "$$missing" ] && [ -z "$$native" ]; then \

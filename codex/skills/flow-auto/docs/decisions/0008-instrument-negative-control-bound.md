@@ -146,6 +146,24 @@ answering it per test would spend the entire budget on the population least
 likely to be blind. The suite is counted as ONE instrument below, because its
 exit code is what the finish gate consumes.
 
+### The carve-out does not cover a derived population (issue #1492)
+
+The carve-out does not cover a test that DERIVES its own input population
+from the repository tree (globbing files, enumerating scripts or controls,
+parsing a manifest it did not construct). Such a test must assert that its
+population is non-empty, with an assertion message naming what it
+enumerated, OR carry a committed negative control. The non-empty assertion
+is the default: it costs one line and turns the vacuous pass into a failure.
+A committed control is required only where non-empty is not enough, i.e.
+where a populated but wrongly-extracted set would also pass.
+
+The carve-out's premise is that the surrounding suite catches a unit test's
+failure. A test over an empty derived population cannot fail at all, so
+there is no failure for the suite to catch. The bound's own logic, not a new
+principle, removes the carve-out for that case. (A sweep of the existing
+suite for tests needing this is tracked separately, #1518 - this amendment
+states the rule; it does not itself fix every instance.)
+
 ### The escalation
 
 A check whose green is read by a **different session or a different repo**
@@ -258,7 +276,7 @@ another repo (the escalation clause); a row can be both.
 | 7 | `worktree-remove.sh` | refusals: exit 4 claimed, 5 occupied, 6 dirty, 7 unpushed | whether a checkout is destroyed; called by `/flow:auto` and the sweep | X |
 | 8 | `flow-worktree-sweep.sh` | five conditions per worktree; `SWEEP_WORKTREE:` | removal of other sessions' checkouts (ADR 0006). Registered control `controls/flow-worktree-sweep` (#1281): one worktree meeting all five conditions must be reported `removable`, and five neighbours that each break one (dirty, a commit beyond the merged head, a process inside, no PR, an open PR) must not - deleting the dirty, unpushed or occupied skip each turns the control BLIND, measured. Its anchor is CONSTRUCTED (the gate with a bare-prefix occupancy match, the collision the gate's own comment records) and misses the known-bad worktree by reading a sibling directory's process as its own. Dry-run only: `--apply` and worktree-remove.sh's refusals are not exercised | X |
 | 9 | `gh-pr-merge.sh` | review-required, deletions, base-moved, negated/incidental close, completeness | whether the squash lands on main | G |
-| 10 | `flow-ci-status.sh` (`controls/flow-ci-status`) | `FLOW_CI_STATUS`; on failure `FLOW_CI_FAILURE_ORIGIN: code\|precode\|mixed\|unknown`, where a failed step is pre-code by its `clone` type or, since #1411, by exit code 75 (`EX_FETCH_FAILED`) from a `*-stage` step (a stager that could not fetch) - an absent exit code is never read as 75 | Step 8 deploy-or-stop | G |
+| 10 | `flow-ci-status.sh` (`controls/flow-ci-status`, `controls/flow-ci-status-cancellation`) | `FLOW_CI_STATUS`; on failure `FLOW_CI_FAILURE_ORIGIN: code\|precode\|canceled\|mixed\|unknown`, where a failed step is pre-code by its `clone` type or, since #1411, by exit code 75 (`EX_FETCH_FAILED`) from a `*-stage` step (a stager that could not fetch) - an absent exit code is never read as 75 | Step 8 deploy-or-stop | G |
 | 11 | `flow-pr-watch.sh` | `FLOW_PR_WATCH` classified verdict, now resolved within the named status context rather than by raw pipeline number (#975) | the wave merge queue, in another session | X |
 | 12 | `flow-driver-capability.sh` | `FLOW_DRIVER_CHECK: fit\|mismatch` | which lane an orchestrator assigns an issue to | X |
 | 13 | `delegated-run-check.sh` | `DELEGATED_RUN_STATUS` | whether a `/codex:*`, `/qwen:*`, `/gemma:*` run is treated as success (#892). Registered control `controls/delegated-run-check` (#1265): a failed tool call nested 8 and 50 levels deep must be COUNTED (`DELEGATED_RUN_TOOL_ERRORS` > 0) and its succeeding twin must not. Its anchor is HISTORICAL (b935d64), whose recursive walks stopped at depth 6 and report 0 on both - the count, not STATUS, is the finding, because a failed call is deliberately not a failed run | G |
@@ -564,7 +582,7 @@ the answer generalises past bandit:
 
 | population | reason under the bound |
 |---|---|
-| 2,408 test functions, individually | the carve-out: the suite catches an individual test's failure; the suite is row 43 |
+| 2,408 test functions, individually | the carve-out: the suite catches an individual test's failure; the suite is row 43 - EXCEPT a test that derives its own input population from the tree, which the carve-out does not cover (issue #1492, see "The carve-out does not cover a derived population" above) |
 | `hook-permission-census.sh`, `hook-pending-retro.sh`, `friction-log.sh`, `run-delivery-pilots.py`, `lib.cicd status`; the recording operations of `flow-wave-residuals.py` and `playwright-desk.py` | recorders and reporters; nothing decides on their output without reading it, and `delivery-pilots.md` states per instrument what it does not establish. The guarded operations of the two ledgers are rows 19 and 24 |
 | `hook-mask-output.sh`, `secrets-mask.sh` | filters, not verdicts; `CLAUDE.md` states the masking hook "does not authorize reading credentials" - nobody is entitled to rely on it |
 | `install-memory-harness.sh`, `memories-db-setup.sh`, `setup-woodpecker-cli.sh`, `bash-prep.sh`, `codex-skill-sync.py --write`, `eli5-vendor.py --revendor`, `project-next-ownership.py --repin`, `retired-surface-prune.py --prune`, `prompt-context.sh`, `cpp-memory`, `project-init.py`, `c4-mermaid.py`, `skill-coverage-snapshot.py`; the rendering half of `speckit-tasks-to-issues.sh` (its guards are row 25) | installers, generators, ledgers and renderers; the state they produce is re-derived by the drift and parity checks in rows 31-37, 46, 51-52. `cpp-commands-link.sh` WAS LISTED HERE and is now row 97 - see the re-derivation note below. `flow-helpers-install.sh` WAS ALSO LISTED HERE and is now row 105 (#1185): the justification above is exactly what that issue refuted. The drift and parity checks re-derive COPY-MATCHES-SOURCE and never SOURCE-IS-AUTHENTIC, so a tampered bundled helper installed with `FLOW_HELPERS: installed` and a later `--check` certified it `ok` - measured, not argued. Its verdict is now consumed by the decision to install, which nothing downstream re-derives. `skill-coverage-snapshot.py` (#1370) is the one place skillc runs at all in this repository - it writes `docs/measurements/skill-coverage/<skill>.json` and emits no verdict; row 116's closure-digest drift check is exactly the re-derivation this bullet requires, over the one fact that can go stale (whether the snapshot still describes the current closure), so it is excluded here rather than carrying its own control |

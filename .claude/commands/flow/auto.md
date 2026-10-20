@@ -620,6 +620,24 @@ RECORD
 `reconcile` first. A record written before #1320 (no run markers) stays valid
 history, and reads as Run 1.
 
+**Adopting found or dirty work (issue #1504).** If, before this point, you
+preserved pre-existing or dirty work in the worktree by committing it
+unmodified as its own commit - a deliberate, manual act, never something this
+step decides for itself - run `declare-salvage` with that commit's sha right
+after `begin-run`:
+
+```bash
+~/.claude/scripts/flow-plan-record.py declare-salvage 42 <sha> --reason "<why>"
+```
+
+Without this, Step 6's compliance check cannot see that commit (it is before
+this run's own `Run-start`) and reports its planned files as untouched even
+though they were genuinely preserved - it does print a report-only note
+pointing at the commit, but the note never changes the verdict. Do NOT run
+this when nothing was deliberately preserved: `declare-salvage` refuses a sha
+that is not an ancestor of HEAD, and the writer must know which commit is a
+genuine preservation, never infer one from history.
+
 Keep Section C as one numbered line per file, in the form ``N. `path` - gist``:
 Step 6 compares the diff against exactly those paths, and a line it cannot parse
 makes that comparison `unknown`. Markdown only - `.gitignore` carries a blanket
