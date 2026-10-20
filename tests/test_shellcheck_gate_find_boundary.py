@@ -40,9 +40,16 @@ pytestmark = pytest.mark.skipif(
     shutil.which("shellcheck") is None, reason="shellcheck is not installed"
 )
 
-#: Only a style-level note (SC2002), so it is caught at the default severity and
-#: at nothing stricter - the severity #972 raised the gate to.
-OFFENDER = "#!/bin/sh\ncat /etc/hostname | wc -l\n"
+#: Only an info-level note (SC2086), so it is caught at the default severity
+#: and at nothing stricter - the severity #972 raised the gate to. NOT SC2002
+#: (issue #1492): ShellCheck 0.11.0 moved SC2002 ("useless cat") behind the
+#: optional `useless-use-of-cat` check, off by default, so the former offender
+#: (`cat f | wc -l`) stopped firing under 0.11.0 and this test went green for
+#: the wrong reason (0 findings where 1 was expected, masked by the test's own
+#: `shutil.which("shellcheck") is None` skip in every container that had never
+#: installed shellcheck at all - CPP #864 comment 6294805627). SC2086 fires
+#: unconditionally in both 0.10.0 (CI's pin) and 0.11.0.
+OFFENDER = "#!/bin/sh\nx=\"placeholder value\"\necho $x\n"
 CLEAN = "#!/bin/sh\nprintf 'ok\\n'\n"
 
 
@@ -82,4 +89,4 @@ def test_the_same_offender_outside_the_boundary_is_caught(tmp_path: Path) -> Non
     result = _gate(root)
     assert "(source=find)" in result.stdout + result.stderr
     assert result.returncode == 1, result.stdout + result.stderr
-    assert "SC2002" in result.stdout
+    assert "SC2086" in result.stdout
