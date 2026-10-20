@@ -745,6 +745,31 @@ if [ -f ".gitignore" ]; then
 fi
 ```
 
+Add `.claude/friction.jsonl` and `.claude/friction/` to the target `.gitignore`
+if not already there (issue #1498). `/flow:auto`'s friction capture
+(`scripts/friction-log.sh`) writes into this project's own `.claude/`, same
+as CPP's own `.gitignore` (:288-289) - without this, friction capture dirties
+the consumer project's working tree. Each entry is checked independently, so
+re-running `/cpp:init` never duplicates a line already present, and a project
+with no `.gitignore` at all is left alone (this step never creates one):
+
+```bash
+if [ -f ".gitignore" ]; then
+  FRICTION_HEADER_WRITTEN=0
+  for pattern in ".claude/friction.jsonl" ".claude/friction/"; do
+    if ! grep -qxF -- "$pattern" .gitignore; then
+      if [ "$FRICTION_HEADER_WRITTEN" -eq 0 ]; then
+        echo "" >> .gitignore
+        echo "# Claude Code friction capture (local, not shared history)" >> .gitignore
+        FRICTION_HEADER_WRITTEN=1
+      fi
+      echo "$pattern" >> .gitignore
+      echo "✓ Added $pattern to .gitignore"
+    fi
+  done
+fi
+```
+
 **Profile JSON Templates:**
 
 - **Cautious**: `{"permissions":{"allow":["Read","Glob","Grep"],"deny":["Bash(rm -rf:*)","Bash(git push --force:*)"]}}`
@@ -1200,15 +1225,38 @@ MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
 # carries local- and project-scope entries (a project's own .mcp.json, even while
 # it awaits approval), and a list grep once skipped this add on every install run
 # from a checkout that shipped one.
+#
+# THREE ANSWERS, NOT TWO (issue #1498, matching /cpp:update step 6b.0): 0
+# registered, 1 absent (no file, or no such key), 3 the config could not be
+# read or has the wrong shape. The old two-way guard treated an unreadable or
+# malformed config the SAME as absent and ran `claude mcp add` anyway - an
+# unreadable config is not evidence that nothing is there.
 USER_JSON="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"
-if ! python3 -c 'import json,sys; sys.exit(0 if "second-opinion" in json.load(open(sys.argv[1])).get("mcpServers", {}) else 1)' "$USER_JSON" 2>/dev/null; then
-  if claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"; then
-    echo "✓ second-opinion MCP registered (streamable-http, user scope)"
-  else
-    echo "✗ second-opinion MCP registration FAILED (see the error above)"
-  fi
-else
+python3 - "$USER_JSON" <<'PY'
+import json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as fh:
+        data = json.load(fh)
+except FileNotFoundError:
+    sys.exit(1)  # only a missing file is an established absence
+except (OSError, ValueError):
+    sys.exit(3)  # permission denied, a directory, bad JSON: unknown
+servers = data.get("mcpServers", {}) if isinstance(data, dict) else None
+if not isinstance(servers, dict):
+    sys.exit(3)
+if "second-opinion" not in servers:
+    sys.exit(1)
+sys.exit(0 if isinstance(servers["second-opinion"], dict) else 3)
+PY
+SO_USER_RC=$?
+if [ "$SO_USER_RC" -eq 0 ]; then
   echo "→ second-opinion MCP already registered at user scope (skipped)"
+elif [ "$SO_USER_RC" -ne 1 ]; then
+  echo "? could not read $USER_JSON (unreadable or not the expected shape) - registered nothing"
+elif claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"; then
+  echo "✓ second-opinion MCP registered (streamable-http, user scope)"
+else
+  echo "✗ second-opinion MCP registration FAILED (see the error above)"
 fi
 
 # Browser automation is the upstream @playwright/mcp server, registered via
