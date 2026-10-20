@@ -1252,15 +1252,24 @@ still_waiting_after() {
 }
 
 check_awaiting_reply() {
-  local marker snapshot started rev notified elapsed tmp
+  local marker snapshot started rev notified floor elapsed tmp box cur_max
   marker="$(awaiting_reply_file "$ROLE")"
   [ -s "$marker" ] || return 0
-  if [ "$INNER_RC" -eq 0 ]; then
+  snapshot="$(cat "$marker")"
+  read -r started rev notified floor <<< "$snapshot"
+  floor="${floor:-0}"
+  # Compare against the role's inbound box directly, never INNER_RC's bare
+  # "something is unacked" signal: --peek doesn't consume, so a role that
+  # already held unacked mail from BEFORE this marker was armed (an earlier
+  # status note nobody acked) makes the very first cycle after the flagged
+  # send surface that OLD mail and look identical to a reply. Only a rev
+  # ABOVE the floor recorded at arm time is genuinely new.
+  box="$WAVE_DIR/outbox-$ROLE.md"
+  cur_max="$(max_rev "$box")"
+  if [ "$cur_max" -gt "$floor" ]; then
     ( flock -w 10 9 || exit 3; rm -f "$marker" ) 9>"$LOCK_FILE"
     return
   fi
-  snapshot="$(cat "$marker")"
-  read -r started rev notified <<< "$snapshot"
   [ "$notified" = 0 ] || return 0
   elapsed=$(( $(date +%s) - started ))
   [ "$elapsed" -ge "$STILL_WAITING_AFTER" ] || return 0
@@ -1274,7 +1283,7 @@ check_awaiting_reply() {
     # A fresh flagged send may have armed a new wait during delivery.
     [ -f "$marker" ] && [ "$(cat "$marker")" = "$snapshot" ] || exit 0
     tmp="$(mktemp "$WAVE_DIR/.mawait.XXXXXX")" || exit 3
-    printf '%s %s 1\n' "$started" "$rev" > "$tmp"
+    printf '%s %s 1 %s\n' "$started" "$rev" "$floor" > "$tmp"
     mv -f "$tmp" "$marker" || { rm -f "$tmp"; exit 3; }
   ) 9>"$LOCK_FILE"
 }
@@ -2308,8 +2317,12 @@ case "$VERB" in
         printf '%s\n' "$BODY" >> "$tmp"
         mv -f "$tmp" "$BOX" || { rm -f "$tmp"; exit 3; }
         if [ "$AWAITING_REPLY" -eq 1 ]; then
+          # The highest rev ALREADY PRESENT in the role's own inbound box at
+          # arm time - a floor. Mail at or below it predates this plan and
+          # must never be read as a reply to it (see check_awaiting_reply).
+          AWAIT_FLOOR="$(max_rev "$WAVE_DIR/outbox-$A_FROM.md")"
           tmp="$(mktemp "$WAVE_DIR/.mawait.XXXXXX")" || exit 3
-          printf '%s %s 0\n' "$(date +%s)" "$rev" > "$tmp"
+          printf '%s %s 0 %s\n' "$(date +%s)" "$rev" "$AWAIT_FLOOR" > "$tmp"
           mv -f "$tmp" "$(awaiting_reply_file "$A_FROM")" || { rm -f "$tmp"; exit 3; }
         fi
         echo "$rev"
