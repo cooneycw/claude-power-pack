@@ -62,12 +62,14 @@ committed snapshot's own provenance instead - `docs/measurements/skill-
 coverage/<skill>.json`'s `reference.source` and `diagnose.profile_dir` - and
 the output says so explicitly, rather than implying a newer reference exists.
 
-Output states (five, not fewer - "not evaluated" (unmapped) and "unknown"
+Output states (six, not fewer - "not evaluated" (unmapped) and "unknown"
 (mapped, undecidable) are different claims with different remedies, #1367
 item 4):
 
     not evaluated       - skill absent from SKILL_FAMILY_MAP; axis work is
                            never even attempted for it
+    pinned              - non-current snapshot retained for its top-level
+                           pinned_for reason, with drift details preserved
     current             - mapped, axis1 current, axis2 current
     stale (content)     - mapped, axis1 stale. AXIS 2 IS STILL COMPUTED AND
                            NAMED - content-staleness dominates the combined
@@ -145,6 +147,7 @@ SNAPSHOT_DIR = Path("docs/measurements/skill-coverage")
 STATES = (
     "not evaluated",
     "current",
+    "pinned",
     "stale (content)",
     "stale (dependency)",
     "unknown",
@@ -247,6 +250,14 @@ def check_skill(skill: str, repo: Path, snapshot_dir: Path) -> dict[str, Any]:
         result["reason"] = f"no vendored snapshot at {snapshot_dir / f'{skill}.json'}"
         return result
 
+    def finish() -> dict[str, Any]:
+        # Label an accepted gap without discarding either axis's evidence.
+        pinned_for = snapshot.get("pinned_for")
+        if isinstance(pinned_for, str) and pinned_for.strip() and result["state"] != "current":
+            result["state"] = "pinned"
+            result["reason"] = f"pinned behind main for {pinned_for}: " + result["reason"]
+        return result
+
     reference = snapshot.get("reference", {})
     result["reference_source"] = reference.get("source", "unknown")
 
@@ -254,14 +265,14 @@ def check_skill(skill: str, repo: Path, snapshot_dir: Path) -> dict[str, Any]:
     if not closure_root.is_dir():
         result["state"] = "unknown"
         result["reason"] = f"{closure_root} is absent from the current checkout"
-        return result
+        return finish()
     skill_md = closure_root / "SKILL.md"
     try:
         description, body = parse_skill_md(skill_md)
     except (OSError, SkillMdError) as exc:
         result["state"] = "unknown"
         result["reason"] = f"could not read {skill_md}: {exc}"
-        return result
+        return finish()
 
     current_description_digest = sha256_text(description)
     current_body_digest = sha256_text(body)
@@ -271,7 +282,7 @@ def check_skill(skill: str, repo: Path, snapshot_dir: Path) -> dict[str, Any]:
     if ref_description_digest is None or ref_body_digest is None:
         result["state"] = "unknown"
         result["reason"] = "snapshot's reference section is missing description_digest/body_digest"
-        return result
+        return finish()
 
     axis1_mismatches = []
     if current_description_digest != ref_description_digest:
@@ -302,7 +313,7 @@ def check_skill(skill: str, repo: Path, snapshot_dir: Path) -> dict[str, Any]:
     if not isinstance(reference_files, dict):
         result["state"] = "unknown"
         result["reason"] = "snapshot's reference section is missing the per-file 'files' map (#1390)"
-        return result
+        return finish()
     current_digests = digest_tree(closure_root)
     file_diffs = _diff_digests(reference_files, current_digests)
     axis1_mismatches.extend(file_diffs)
@@ -379,19 +390,19 @@ def check_skill(skill: str, repo: Path, snapshot_dir: Path) -> dict[str, Any]:
         result["reason"] = (
             f"axis1: stale [{result['axis1']['detail']}]; axis2: {axis2_state} [{axis2_detail}]"
         )
-        return result
+        return finish()
 
     if axis2_state == "unknown":
         result["state"] = "unknown"
         result["reason"] = axis2_detail
-        return result
+        return finish()
     if axis2_state == "stale (dependency)":
         result["state"] = "stale (dependency)"
         result["reason"] = axis2_detail
-        return result
+        return finish()
 
     result["state"] = "current"
-    return result
+    return finish()
 
 
 def audit(repo: Path, snapshot_dir: Path) -> dict[str, dict[str, Any]]:
@@ -429,7 +440,8 @@ def _say(results: dict[str, dict[str, Any]], *, quiet: bool = False) -> int:
             line += f" - {reason}"
         print(line)
     if not quiet:
-        print(f"skill-coverage-map: {len(results)} mapped skill(s) checked; "
+        print(f"skill-coverage-map: {sum(v['family'] is not None for v in results.values())} mapped skill(s) checked; "
+              f"{sum(v['state'] == 'not evaluated' for v in results.values())} unmapped skill(s) not evaluated; "
               f"'not evaluated' is a map-membership fact, never inherited from a mapped sibling")
     return 1 if any_problem else 0
 
@@ -446,6 +458,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="emit the full result as JSON")
     args = parser.parse_args(argv)
     results = audit(args.repo, args.snapshot_dir)
+    for path in sorted((args.repo / "codex" / "skills").glob("*")):
+        if path.is_dir() and path.name not in SKILL_FAMILY_MAP:
+            results[path.name] = {
+                "skill": path.name,
+                "family": None,
+                "state": "not evaluated",
+                "reason": "absent from SKILL_FAMILY_MAP; axis work was never attempted",
+            }
     code = _say(results, quiet=args.json)
     if args.json:
         print(json.dumps(results, indent=2))

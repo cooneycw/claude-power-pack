@@ -32,6 +32,9 @@ def test_health_smoke_example() -> None:
     assert set(data) == {"health"}
     config = _parse_health_yaml(uncommented)
 
+    assert config.health.deploy_verification.enabled is True
+    assert config.health.deploy_verification.baseline_file == ".claude/deploy-baseline.json"
+    assert config.health.deploy_verification.on_latency_regression == "review"
     assert len(config.health.endpoints) > 0
     assert len(config.health.processes) > 0
     assert len(config.health.smoke_tests) > 0

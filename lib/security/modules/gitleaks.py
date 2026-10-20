@@ -10,6 +10,8 @@ run must not leave a summary that reads as clean.
 from __future__ import annotations
 
 import json
+import os
+import re
 import shutil
 import subprocess
 
@@ -58,7 +60,37 @@ def scan(project_root: str, include_history: bool = False) -> ScanResult:
     # gitleaks returns exit code 1 when findings exist, 0 when clean
     if proc.returncode == 0:
         label = "code and git history" if include_history else "working tree"
-        result.passed.append(f"No secrets found by gitleaks ({label})")
+        # JSON reports contain findings, not coverage. Git scans log their
+        # commit count; directory scans need a conservative input census.
+        counts = re.findall(r"\b(\d+) (commits?|files?) scanned\b", proc.stderr)
+        if counts:
+            count = int(counts[-1][0])
+            unit = counts[-1][1].rstrip("s") + "s scanned"
+        elif include_history:
+            result.errors.append("UNKNOWN: gitleaks reported no scanned commit count")
+            return result
+        else:
+            try:
+                count = 0
+
+                def walk_error(error: OSError) -> None:
+                    raise error
+
+                for directory, dirs, files in os.walk(project_root, onerror=walk_error):
+                    dirs[:] = [d for d in dirs if d != ".git"]
+                    for name in files:
+                        path = os.path.join(directory, name)
+                        if (not os.path.islink(path) and os.path.isfile(path)
+                                and os.path.getsize(path) > 0):
+                            count += 1
+                unit = "files handed to gitleaks"
+            except OSError:
+                result.errors.append("UNKNOWN: could not count files handed to gitleaks")
+                return result
+        if count == 0:
+            result.errors.append(f"UNKNOWN: gitleaks scanned zero units ({label}; 0 {unit})")
+            return result
+        result.passed.append(f"No secrets found by gitleaks ({label}; {count} {unit})")
         return result
 
     # 1 is "findings exist"; anything else is gitleaks failing, and an empty

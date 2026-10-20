@@ -2373,3 +2373,24 @@ def test_uses_an_installed_script():
     subprocess.run([sys.executable, str(EXTERNAL)], check=False)
 """
     assert _repo(repo, test) == []
+
+
+def test_unrelated_degrading_preflight_does_not_cancel_hard_requirement(tmp_path: Path) -> None:
+    body = (
+        "command -v jq >/dev/null 2>&1 || exit 1\n"
+        "optional() {\n"
+        "    command -v jq >/dev/null 2>&1 || return 0\n"
+        "}\n"
+        "jq --version\n"
+    )
+    assert body.count("command -v jq") == 2
+    findings = _repo(tmp_path, SCRIPT_PREAMBLE + RUNS_THING, script=body)
+    assert len(findings) == 1
+    assert findings[0].binaries == ("jq",)
+
+
+def test_competing_top_level_preflights_remain_unresolved() -> None:
+    lines = ["command -v jq || exit 1", "command -v jq || return 0"]
+    degrades, _, hard = checker._preflight_declarations(lines)
+    assert "jq" in degrades
+    assert "jq" not in hard

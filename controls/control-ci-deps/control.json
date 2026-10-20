@@ -125,6 +125,11 @@
       "input": "cases/bad-wrapper-own-need-not-provided",
       "expect": "BAD",
       "why": "The gate needs only curl, genuinely staged and genuinely claimed provided. The WRAPPER itself independently hard-requires jq for its own bootstrap, never staged or claimed. jq must still be reported as needed - pinning the ADDITIVE wrapper walk itself (counter-model review, pass 2): removing `binaries_in_script(wrapper_path)` from requirements() leaves this case passing by accident, since nothing else in the fixture surfaces jq. None of the other four cases exercises this - each of their toy wrappers needs nothing independently of what it stages for the gate."
+    },
+    {
+      "name": "bad-python-literal-binary",
+      "input": "cases/bad-python-literal-binary",
+      "expect": "BAD"
     }
   ],
   "anchors": [
