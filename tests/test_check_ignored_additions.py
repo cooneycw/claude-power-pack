@@ -407,3 +407,30 @@ def test_expansion_failure_is_not_a_clean_result(tmp_path: Path) -> None:
     )
     assert advisory.returncode == 0
     assert "NOT inspected" in advisory.stderr
+
+
+def test_expansion_handles_pathspec_metacharacters_in_a_directory_name(
+    tmp_path: Path,
+) -> None:
+    """Codex review of #1491: a directory name containing a pathspec
+    metacharacter must expand as the literal path it is, not as a glob - a
+    bracket class can fail to match the very directory it names, and a `*`
+    can pull in an unrelated sibling. Not reproduced live against this host's
+    git (2.43.0; a bare `:/name` pathspec already matched correctly in manual
+    testing here), so this pins the INTENDED behavior under the `,literal`
+    pathspec the fix applies, as a regression floor rather than a reproduction
+    of the failure mode itself."""
+    repo = tmp_path / "repo"
+    _init_repo(repo, "config\\[1\\]/\nweird\\*dir/\n")
+    wt = tmp_path / "repo-issue-1"
+    _git(repo, "worktree", "add", "-q", "-b", "issue-1-x", str(wt))
+    (wt / "config[1]").mkdir()
+    (wt / "config[1]" / "manifest.json").write_text("{}", encoding="utf-8")
+    (wt / "weird*dir").mkdir()
+    (wt / "weird*dir" / "manifest.json").write_text("{}", encoding="utf-8")
+
+    result = _run(wt)
+
+    assert result.returncode == 3, result.stderr
+    assert "config[1]/manifest.json" in result.stderr
+    assert "weird*dir/manifest.json" in result.stderr

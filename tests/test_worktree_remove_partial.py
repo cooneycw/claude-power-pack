@@ -322,3 +322,90 @@ def test_allow_dirty_does_not_defeat_a_live_claim(
         f"stdout={res.stdout}\nstderr={res.stderr}"
     )
     assert wt.exists()
+
+
+@requires_git
+def test_finish_partial_removal_checks_every_candidate_repo_not_just_the_first(
+    tmp_path: Path,
+) -> None:
+    """Codex review of #1491: a neighbouring repo that happens to sort before
+    the TRUE owner must not be read as proof nobody owns this worktree.
+
+    `a-repo` sorts alphabetically before `main`, which is the worktree's real
+    owner and still has it registered. The old single-candidate check asked
+    only `a-repo` (truthfully: no), read that as "not registered anywhere",
+    and would have rm -rf'd a worktree `main` still lists as live.
+    """
+    a_repo = tmp_path / "a-repo"
+    a_repo.mkdir()
+    _git(a_repo, "init", "-q", "-b", "main")
+    (a_repo / "base.txt").write_text("base\n")
+    _git(a_repo, "add", "-A")
+    _git(a_repo, "commit", "-qm", "base")
+
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "feature")
+    (wt / ".git").unlink()
+
+    assert tmp_path / "a-repo" < wt, "a-repo must sort before the target for this case to be meaningful"
+
+    res = _run_remove(main, str(wt), "--finish-partial-removal")
+
+    assert res.returncode == 1, res.stderr
+    assert "still lists this as a live worktree" in res.stderr
+    assert wt.exists()
+    assert "feature" in _git(main, "worktree", "list")
+
+
+@requires_git
+@requires_non_root
+def test_prescan_refuses_on_an_unreadable_directory_not_just_unwritable(
+    tmp_path: Path,
+) -> None:
+    """Codex review of #1491: a 0300 (write+execute, no READ) directory passed
+    a write/execute-only check, but `find` cannot enumerate what is inside it
+    either - the scan silently stopped exactly where it should have reported,
+    and an incomplete walk must not read as a clean one."""
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "feature")
+    blocked = wt / "blocked"
+    blocked.mkdir()
+    (blocked / "inner").mkdir()
+    (blocked / "inner" / "file.txt").write_text("data\n")
+    blocked.chmod(0o300)
+    try:
+        res = _run_remove(main, str(wt), "--force", "--allow-dirty")
+
+        assert res.returncode == 9, (
+            f"expected the pre-scan refusal (exit 9), got {res.returncode}\n"
+            f"stdout={res.stdout}\nstderr={res.stderr}"
+        )
+        assert "not the same as clean" in res.stderr or str(blocked) in res.stderr
+        assert (wt / ".git").is_file()
+    finally:
+        blocked.chmod(0o755)
+
+
+@requires_git
+@requires_non_root
+def test_prescan_checks_the_worktree_roots_own_parent(tmp_path: Path) -> None:
+    """Codex review of #1491: emptying every descendant still leaves one more
+    removal - rmdir on the worktree ROOT itself - which needs write+execute
+    on a directory `find "$root" ...` never walks, because it is OUTSIDE the
+    root. A non-writable parent must refuse exactly like an internal one."""
+    main = _repo(tmp_path)
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    wt = _add_worktree(main, parent / "wt", "feature")
+    parent.chmod(0o500)
+    try:
+        res = _run_remove(main, str(wt), "--force", "--allow-dirty")
+
+        assert res.returncode == 9, (
+            f"expected the pre-scan refusal (exit 9), got {res.returncode}\n"
+            f"stdout={res.stdout}\nstderr={res.stderr}"
+        )
+        assert str(parent) in res.stderr
+        assert (wt / ".git").is_file()
+    finally:
+        parent.chmod(0o755)

@@ -225,12 +225,22 @@ fi
 # Expand ONE collapsed directory - and only it, via a pathspec scoped to it -
 # into its individual ignored files. `--full-name` plus the `:/` magic
 # pathspec prefix root-anchor the read and its output regardless of the
-# caller's cwd, matching what `status --porcelain` paths already are. A
-# failure here is read exactly like the top-level inventory failing: NOT
-# inspected is not the same fact as clean, so it is never silently skipped.
+# caller's cwd, matching what `status --porcelain` paths already are.
+# `,literal` is load-bearing (Codex review, #864): without it, a directory
+# name containing a pathspec metacharacter (`config[1]/`, `weird*dir/`) is
+# compiled as a glob rather than matched as the literal path it is - a
+# character class can fail to match the very directory it names (an ignored
+# non-scratch file inside it then goes unreported), and a `*` can match
+# siblings the scan was never meant to walk. Neither was reproduced live on
+# this host's git (2.43.0; a bare `:/name` pathspec happened to still match
+# the literal directory in manual testing), but `,literal` is the documented,
+# zero-cost way to stop relying on that and name exactly the one directory
+# intended. A failure here is read exactly like the top-level inventory
+# failing: NOT inspected is not the same fact as clean, so it is never
+# silently skipped.
 expand_dir() {
   if ! git ls-files --other --ignored --exclude-standard --full-name -z \
-          -- ":/$1" > "$_expansion" 2>/dev/null; then
+          -- ":(top,literal)$1" > "$_expansion" 2>/dev/null; then
     echo "[flow] check-ignored-additions: 'git ls-files' failed expanding '$1' - NOT inspected, this is not a clean result." >&2
     if [ "$MODE" = blocking ]; then
       exit 4

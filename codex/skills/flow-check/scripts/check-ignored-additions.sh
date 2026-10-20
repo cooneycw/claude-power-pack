@@ -9,24 +9,42 @@
 # until someone notices the file never got committed. This guard makes that
 # loud instead of silent.
 #
-# Strategy: `git ls-files --other --ignored --exclude-standard` lists every
-# ignored file INDIVIDUALLY, never collapsed to its containing directory the
-# way `git status --ignored=matching` reports a directory-ignore rule as the
-# one entry `dir/` (Nit Store #864, comments 5983077287 and 6192075101). That
-# collapse cut both ways: a non-scratch file inside a wholly-ignored directory
-# went uninspected (the directory name alone is not in the scratch list), and
-# - the opposite failure - a gate's OWN scratch output (e.g. `reports/pytest.log`
-# behind a blanket `reports/` rule) blocked on the bare directory name, because
-# `is_scratch` matches file extensions like `*.log` against the full path and
-# never sees one once it is collapsed to `reports/`. Listing files individually
-# lets both checks below see the actual path. We then drop the usual
-# scratch/build noise by scanning each path component against a known set of
-# cache/venv/build dir names, plus a few scratch file patterns. We also drop a
-# short allow-list of files that are git-ignored BY DESIGN (env-only,
-# per-machine runtime state that can never be an intended source addition) so
-# the guard stops crying wolf on them every run (issue #504). What remains is
-# an ignored file sitting in a tracked source area - the trap - which we warn
-# about. Near-zero false positives against normal venv/cache noise.
+# Strategy: `git status --ignored=matching` lists every TOP-LEVEL ignored
+# path, but collapses a whole directory a `.gitignore` directory rule covers
+# to the one entry `dir/` rather than its files. That collapse cut both ways
+# (Nit Store #864, comments 5983077287 and 6192075101): a non-scratch file
+# inside a wholly-ignored directory went uninspected (the directory name alone
+# is not in the scratch list), and - the opposite failure - a gate's OWN
+# scratch output (e.g. `reports/pytest.log` behind a blanket `reports/` rule)
+# blocked on the bare directory name, because `is_scratch` matches a file
+# extension like `*.log` against the full path and never sees one once it is
+# collapsed to `reports/`.
+#
+# We do NOT fix this by listing every ignored file individually up front
+# (`git ls-files --others --ignored --exclude-standard`, no `--directory`):
+# measured at 50k files behind one ignored directory (a synthetic venv-sized
+# tree), that call itself stays under 0.2s, but the bash classification loop
+# below does not - 3.4s total, against ~0.01s for the collapsed form - because
+# a repo's REAL noise (.venv, node_modules, .mypy_cache) is exactly what this
+# guard exists to walk past, not into. So a directory entry is expanded only
+# when it has already survived the three cheap checks below AT THE DIRECTORY
+# LEVEL - scratch-by-name, intentional-ignore, and a repo-declared gate-scratch
+# prefix - which is what drops .venv/node_modules/etc. without ever reading a
+# file inside them. Only a directory nobody has vouched for by name gets
+# expanded, and only that one directory's files, via a git call scoped to it.
+#
+# The scratch check drops the usual scratch/build noise by scanning each path
+# component against a known set of cache/venv/build dir names, plus a few
+# scratch file patterns. The intentional-ignore check drops a short allow-list
+# of files that are git-ignored BY DESIGN (env-only, per-machine runtime state
+# that can never be an intended source addition) so the guard stops crying
+# wolf on them every run (issue #504). The gate-scratch check drops paths a
+# REPO declares are its own gate output (issue #864) - this script cannot know
+# every consumer's output directory name, so the consumer names it instead,
+# the same shape as `_INTENTIONAL_IGNORE_DIRS` but populated from a file this
+# script does not own. What remains is an ignored file sitting in a tracked
+# source area - the trap - which we warn about. Near-zero false positives
+# against normal venv/cache noise.
 #
 # Usage:
 #   check-ignored-additions.sh [--strict | --advisory]
@@ -48,6 +66,14 @@
 #               "In a linked worktree" is a proxy for "this run wrote it", not
 #               proof - so the message names the cost rather than asserting
 #               intent, and --advisory is the override.
+#
+# A repo can declare its own gate-output directories so this guard never flags
+# them, without editing this script (issue #864): one root-relative path
+# PREFIX per line (e.g. `dashboard-runs/`) in `.claude/gate-scratch.txt` (or
+# the file named by $CHECK_IGNORED_ADDITIONS_GATE_SCRATCH); `#` comments and
+# blank lines are ignored, matching the `--baseline` file convention in
+# flow-pr-watch.sh. An undeclared gate-output directory still blocks - this
+# script cannot know a consumer's output path on its own.
 #
 # Exit codes: 0 clean (or advisory), 2 usage, 3 findings while blocking,
 # 4 the ignored-file inventory could NOT be read while blocking - never 0,
@@ -149,31 +175,105 @@ is_intentional_ignore() {
   return 1
 }
 
+# Repo-declared gate-output prefixes (issue #864): unlike _INTENTIONAL_IGNORE_DIRS
+# above, this script does not own the list - a consuming repo's own gate writes
+# ignored scratch under a path only IT knows (`dashboard-runs/<utc>-<sha>/` is
+# kyle's; `reports/` is skillc's), so the repo declares it rather than this
+# script trying to enumerate every consumer. One root-relative path PREFIX per
+# line, `#` comments and blank lines ignored - the same shape `flow-pr-watch.sh`
+# uses for its `--baseline` file. Declaring nothing changes nothing: an empty or
+# absent file is the same as today, every path still judged by scratch/intentional
+# alone.
+GATE_SCRATCH_FILE="${CHECK_IGNORED_ADDITIONS_GATE_SCRATCH:-.claude/gate-scratch.txt}"
+_DECLARED_GATE_SCRATCH=()
+if [ -f "$GATE_SCRATCH_FILE" ]; then
+  while IFS= read -r _gs_line || [ -n "$_gs_line" ]; do
+    _gs_line="${_gs_line%%#*}"
+    # Trim leading/trailing whitespace without a subshell.
+    _gs_line="${_gs_line#"${_gs_line%%[![:space:]]*}"}"
+    _gs_line="${_gs_line%"${_gs_line##*[![:space:]]}"}"
+    [ -n "$_gs_line" ] && _DECLARED_GATE_SCRATCH+=("$_gs_line")
+  done < "$GATE_SCRATCH_FILE"
+fi
+
+is_declared_gate_scratch() {
+  local d
+  for d in "${_DECLARED_GATE_SCRATCH[@]:-}"; do
+    [ -n "$d" ] || continue
+    case "$1" in "$d"*) return 0 ;; esac
+  done
+  return 1
+}
+
 # Read the inventory into a file FIRST and check that git answered (counter-
 # model review): a process substitution discards the exit status, so an
 # unreadable index produced no entries and the same exit 0 as a clean tree.
-#
-# `ls-files`, not `status`: individually-listed ignored files, never collapsed
-# to a containing directory (see the strategy note above, #864). `--full-name`
-# plus the `:/` magic pathspec make the paths root-relative regardless of the
-# caller's cwd, matching what `is_intentional_ignore` and the rest of this
-# script already assume `status --porcelain` gave them for free.
+# `status --ignored=matching`, not `ls-files`: collapsed is the CHEAP read
+# (see the strategy note above, #864) - expansion happens below, and only for
+# a directory entry that survives the name-based filters.
 _inventory=$(mktemp "${TMPDIR:-/tmp}/check-ignored-additions.XXXXXX")
-trap 'printf "CHECK_IGNORED_ADDITIONS_EXIT=%d\n" "$?" >&2; rm -f "$_inventory"' EXIT
-if ! git ls-files --other --ignored --exclude-standard --full-name -z -- ':/' \
-        > "$_inventory" 2>/dev/null; then
-  echo "[flow] check-ignored-additions: 'git ls-files' failed, so the ignored files were NOT inspected - this is not a clean result." >&2
+_expansion=$(mktemp "${TMPDIR:-/tmp}/check-ignored-additions.XXXXXX")
+trap 'printf "CHECK_IGNORED_ADDITIONS_EXIT=%d\n" "$?" >&2; rm -f "$_inventory" "$_expansion"' EXIT
+if ! git status --ignored=matching --porcelain -z > "$_inventory" 2>/dev/null; then
+  echo "[flow] check-ignored-additions: 'git status' failed, so the ignored files were NOT inspected - this is not a clean result." >&2
   if [ "$MODE" = blocking ]; then
     exit 4
   fi
   exit 0
 fi
 
+# Expand ONE collapsed directory - and only it, via a pathspec scoped to it -
+# into its individual ignored files. `--full-name` plus the `:/` magic
+# pathspec prefix root-anchor the read and its output regardless of the
+# caller's cwd, matching what `status --porcelain` paths already are.
+# `,literal` is load-bearing (Codex review, #864): without it, a directory
+# name containing a pathspec metacharacter (`config[1]/`, `weird*dir/`) is
+# compiled as a glob rather than matched as the literal path it is - a
+# character class can fail to match the very directory it names (an ignored
+# non-scratch file inside it then goes unreported), and a `*` can match
+# siblings the scan was never meant to walk. Neither was reproduced live on
+# this host's git (2.43.0; a bare `:/name` pathspec happened to still match
+# the literal directory in manual testing), but `,literal` is the documented,
+# zero-cost way to stop relying on that and name exactly the one directory
+# intended. A failure here is read exactly like the top-level inventory
+# failing: NOT inspected is not the same fact as clean, so it is never
+# silently skipped.
+expand_dir() {
+  if ! git ls-files --other --ignored --exclude-standard --full-name -z \
+          -- ":(top,literal)$1" > "$_expansion" 2>/dev/null; then
+    echo "[flow] check-ignored-additions: 'git ls-files' failed expanding '$1' - NOT inspected, this is not a clean result." >&2
+    if [ "$MODE" = blocking ]; then
+      exit 4
+    fi
+    exit 0
+  fi
+}
+
 suspicious=()
-while IFS= read -r -d '' path; do
+while IFS= read -r -d '' entry; do
+  # porcelain -z format: 2-char status, a space, then the path.
+  status="${entry:0:2}"
+  path="${entry:3}"
+  [ "$status" = "!!" ] || continue
   is_scratch "$path" && continue
   is_intentional_ignore "$path" && continue
-  suspicious+=("$path")
+  is_declared_gate_scratch "$path" && continue
+  case "$path" in
+    */)
+      # A directory nobody has vouched for by name: expand IT, and only it,
+      # so the files actually inside decide - not the directory's own name.
+      expand_dir "$path"
+      while IFS= read -r -d '' subpath; do
+        is_scratch "$subpath" && continue
+        is_intentional_ignore "$subpath" && continue
+        is_declared_gate_scratch "$subpath" && continue
+        suspicious+=("$subpath")
+      done < "$_expansion"
+      ;;
+    *)
+      suspicious+=("$path")
+      ;;
+  esac
 done < "$_inventory"
 
 if [ "${#suspicious[@]}" -eq 0 ]; then

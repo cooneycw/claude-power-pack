@@ -7,7 +7,7 @@
 # corruption, a partial edit, and post-build modification. It does NOT
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
-6fbd7f48f20da10b8a2fcc2060e86a6d82fa4634175851f2df426d23ab406a0c  check-ignored-additions.sh
+ee962d1a9c3006304f64534695198336c35c51b64c2b346a4e25e7ca39487bb8  check-ignored-additions.sh
 43f257169f891098fdc205cb3109b1636c055aeedf7f0a6357ff5f81f317df5d  codex-skill-resync.sh
 3a10c49bd68e239277fe4870a7f31b922a48f34886926caa0ba297f8368709b9  codex-skill-sync.py
 de2d5e90f9d65cd8a30b9fc9d467a164b753abdafa4ee30d3fb398c32a7578d0  counter-model-receipt.py
@@ -29,4 +29,4 @@ f796fca861389ba9deee21ff73c92f2b94646cd7e5be6e4721cc6620d1137def  gh-pr-merge.sh
 673b2314d843cb1bea36ea0fd10669060a62369a276c00e52fcc6c0663a5e837  nit-store-resolve.sh
 0909790cc9e29f072c73acc324d85664fd5aee329ec5bd5cfe326d372cb3efe4  speckit-context.py
 cc7e9fee8358f959310ee38b221825511065c413386f39e5291a78ca33959745  stash-worktree-guard.sh
-9f4428c21ce082d3345d89421aaffb8eda6d8c8edbf22c93f6e83299bfd84e68  worktree-remove.sh
+321f6aab2d937975fcf5318e3aa1aa3df64170910665be68c247a7bdbad76817  worktree-remove.sh

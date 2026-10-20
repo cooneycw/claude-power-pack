@@ -231,17 +231,59 @@ find_main_repo_near() {
     return 1
 }
 
+# Every repo that COULD be the owner (Codex review, #864): unlike
+# find_main_repo_near's first-match shortcut (fine for the prune-on-missing-
+# directory convenience below, where checking the wrong repo just no-ops),
+# the half-deleted recovery below is deciding whether to rm -rf a path, so it
+# must not stop at the first sibling or ancestor that happens to have a .git -
+# a repo named `a-repo` sorting before the actual owner `main` would otherwise
+# be asked "do you have this worktree?", answer no (truthfully - it was never
+# its worktree), and the recovery would read that as "nobody has it".
+find_all_candidate_main_repos() {
+    local target="$1" parent ancestor
+    for parent in "$(dirname "$target")"/*; do
+        [[ -d "$parent/.git" ]] && printf '%s\n' "$parent"
+    done
+    ancestor="$(dirname "$target")"
+    while [[ "$ancestor" != "/" && -n "$ancestor" ]]; do
+        [[ -d "$ancestor/.git" ]] && printf '%s\n' "$ancestor"
+        ancestor="$(dirname "$ancestor")"
+    done
+}
+
 # Every path cannot be deleted without write+execute on its PARENT directory -
 # that permission governs unlink/rmdir, not the entry's own mode. `git worktree
 # remove` can report SUCCESS (exit 0) while such a path survives it (observed
 # with a read-only parent dir), and once it does, git has already forgotten the
 # worktree - nothing short of this pre-scan tells the two apart before damage is
 # done (Nit Store #864, comment 5983011277).
+#
+# READ is checked too, not just write+execute (Codex review, #864): a
+# directory with write+execute but no read (mode 0300) passes a write/execute-
+# only test, but `find` cannot enumerate what is inside it either - so the
+# scan silently stopped at exactly the directory that should have been
+# reported, and an incomplete walk read as "nothing wrong". Flagging that
+# directory itself catches it without needing to see past it. `find`'s own
+# exit status is also captured (into a file first, per this repo's own
+# counter-model-reviewed idiom in check-ignored-additions.sh - a process
+# substitution discards it) so a `find` that fails outright is read as
+# "could not verify", never as a clean scan.
+#
+# The PARENT of the worktree ROOT is checked too: `find` only walks AT OR
+# BELOW root, so emptying every descendant still leaves one more removal -
+# `rmdir` on the root itself - which needs write+execute on a directory
+# outside anything `find` ever saw.
 undeletable_find() {
-    local root="$1" dir
+    local root="$1" dir rc=0 listing parent
+    listing=$(mktemp "${TMPDIR:-/tmp}/worktree-remove-scan.XXXXXX")
+    find "$root" -type d -print0 2>/dev/null > "$listing" || rc=$?
     while IFS= read -r -d '' dir; do
-        [[ -w "$dir" && -x "$dir" ]] || printf '%s\n' "$dir"
-    done < <(find "$root" -type d -print0 2>/dev/null)
+        [[ -r "$dir" && -w "$dir" && -x "$dir" ]] || printf '%s\n' "$dir"
+    done < "$listing"
+    rm -f "$listing"
+    parent="$(dirname "$root")"
+    [[ -w "$parent" && -x "$parent" ]] || printf '%s\n' "$parent"
+    return "$rc"
 }
 
 # Check if worktree exists
@@ -280,29 +322,51 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
 
     echo -e "${YELLOW}No .git file here - treating as a half-deleted worktree (--finish-partial-removal).${NC}" >&2
 
-    if FMR_MAIN_REPO="$(find_main_repo_near "$WORKTREE_PATH")"; then
-        WT_RESOLVED="$(readlink -f "$WORKTREE_PATH" 2>/dev/null || echo "$WORKTREE_PATH")"
-        if git -C "$FMR_MAIN_REPO" worktree list --porcelain 2>/dev/null \
-                | sed -n 's/^worktree //p' | grep -Fxq "$WT_RESOLVED"; then
-            # git still believes this is a live worktree - a hand-deleted .git
-            # file, not the silent-partial-failure case this flag exists for.
-            # Blindly rm -rf-ing tracked, still-registered content is a
-            # different and worse mistake, so this stays refused.
-            echo -e "${RED}Error: git still lists this as a live worktree${NC}" >&2
-            echo "  ($FMR_MAIN_REPO still has it registered), so its .git file going" >&2
-            echo "  missing is not the partial-removal case --finish-partial-removal" >&2
-            echo "  covers. Investigate before deleting anything by hand." >&2
-            exit 1
-        fi
+    WT_RESOLVED="$(readlink -f "$WORKTREE_PATH" 2>/dev/null || echo "$WORKTREE_PATH")"
+    FMR_CANDIDATES="$(find_all_candidate_main_repos "$WORKTREE_PATH")"
+    FMR_FIRST_REPO=""
+    if [[ -n "$FMR_CANDIDATES" ]]; then
+        while IFS= read -r FMR_CANDIDATE; do
+            [[ -n "$FMR_CANDIDATE" ]] || continue
+            [[ -n "$FMR_FIRST_REPO" ]] || FMR_FIRST_REPO="$FMR_CANDIDATE"
+            if ! FMR_LIST="$(git -C "$FMR_CANDIDATE" worktree list --porcelain 2>&1)"; then
+                # A candidate's own registry could not be read: this cannot
+                # tell "not registered" from "could not ask", so it is read as
+                # the former only on purpose for a failure, never silently.
+                echo -e "${RED}Error: could not read '$FMR_CANDIDATE''s worktree registry${NC}" >&2
+                echo "  ($FMR_LIST)" >&2
+                echo "  so whether it still owns this worktree is unresolved - not the" >&2
+                echo "  same as 'not registered'. Investigate before deleting anything." >&2
+                exit 1
+            fi
+            if printf '%s\n' "$FMR_LIST" | sed -n 's/^worktree //p' | grep -Fxq "$WT_RESOLVED"; then
+                # git still believes this is a live worktree - a hand-deleted
+                # .git file, not the silent-partial-failure case this flag
+                # exists for. Blindly rm -rf-ing tracked, still-registered
+                # content is a different and worse mistake, so this refuses.
+                echo -e "${RED}Error: git still lists this as a live worktree${NC}" >&2
+                echo "  ($FMR_CANDIDATE still has it registered), so its .git file going" >&2
+                echo "  missing is not the partial-removal case --finish-partial-removal" >&2
+                echo "  covers. Investigate before deleting anything by hand." >&2
+                exit 1
+            fi
+        done <<< "$FMR_CANDIDATES"
     fi
 
-    FMR_UNDELETABLE="$(undeletable_find "$WORKTREE_PATH")"
+    FMR_SCAN_RC=0
+    FMR_UNDELETABLE="$(undeletable_find "$WORKTREE_PATH")" || FMR_SCAN_RC=$?
+    if [[ "$FMR_SCAN_RC" -ne 0 ]]; then
+        echo "WORKTREE_REMOVE_PRESCAN: unknown" >&2
+        echo -e "${RED}Error: the permission scan itself failed - this is not the same as clean${NC}" >&2
+        echo "  Re-run once the directory tree can be read." >&2
+        exit 9
+    fi
     if [[ -n "$FMR_UNDELETABLE" ]]; then
         echo "WORKTREE_REMOVE_PRESCAN: undeletable" >&2
         echo -e "${RED}Error: refusing to finish - some paths still cannot be deleted${NC}" >&2
         echo "" >&2
-        echo "  The following director{y,ies} lack write/execute permission, so nothing" >&2
-        echo "  inside them can be unlinked:" >&2
+        echo "  The following director{y,ies} lack read, write or execute permission, so" >&2
+        echo "  nothing inside them can be unlinked:" >&2
         printf '    %s\n' "$FMR_UNDELETABLE" >&2
         echo "" >&2
         echo "  Fix permissions (e.g. chmod -R u+w) and re-run." >&2
@@ -310,7 +374,7 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
     fi
 
     rm -rf "$WORKTREE_PATH"
-    [[ -n "${FMR_MAIN_REPO:-}" ]] && git -C "$FMR_MAIN_REPO" worktree prune
+    [[ -n "$FMR_FIRST_REPO" ]] && git -C "$FMR_FIRST_REPO" worktree prune
     echo -e "${GREEN}Finished removing the half-deleted worktree: ${WORKTREE_PATH}${NC}"
     echo -e "${YELLOW}Note: no .git file meant no branch could be identified - delete the branch${NC}" >&2
     echo -e "${YELLOW}by hand if --delete-branch was intended.${NC}" >&2
@@ -829,13 +893,20 @@ fi
 # deleting anything (#864). Without this, git can report success while such a
 # path survives it, leaving exactly the half-deleted, no-.git-file state that
 # --finish-partial-removal above exists to recover from.
-PRE_UNDELETABLE="$(undeletable_find "$WORKTREE_PATH")"
+PRE_SCAN_RC=0
+PRE_UNDELETABLE="$(undeletable_find "$WORKTREE_PATH")" || PRE_SCAN_RC=$?
+if [[ "$PRE_SCAN_RC" -ne 0 ]]; then
+    echo "WORKTREE_REMOVE_PRESCAN: unknown" >&2
+    echo -e "${RED}Error: the permission scan itself failed - this is not the same as clean${NC}" >&2
+    echo "  Re-run once the directory tree can be read." >&2
+    exit 9
+fi
 if [[ -n "$PRE_UNDELETABLE" ]]; then
     echo "WORKTREE_REMOVE_PRESCAN: undeletable" >&2
     echo -e "${RED}Error: refusing to remove - some paths cannot be deleted${NC}" >&2
     echo "" >&2
-    echo "  The following director{y,ies} lack write/execute permission, so git" >&2
-    echo "  cannot remove entries inside them. Removing anyway risks a half-deleted" >&2
+    echo "  The following director{y,ies} lack read, write or execute permission, so" >&2
+    echo "  git cannot remove entries inside them. Removing anyway risks a half-deleted" >&2
     echo "  worktree with no .git file (git can report success regardless):" >&2
     printf '    %s\n' "$PRE_UNDELETABLE" >&2
     echo "" >&2

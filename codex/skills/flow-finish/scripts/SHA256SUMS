@@ -7,7 +7,7 @@
 # corruption, a partial edit, and post-build modification. It does NOT
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
-6fbd7f48f20da10b8a2fcc2060e86a6d82fa4634175851f2df426d23ab406a0c  check-ignored-additions.sh
+ee962d1a9c3006304f64534695198336c35c51b64c2b346a4e25e7ca39487bb8  check-ignored-additions.sh
 43f257169f891098fdc205cb3109b1636c055aeedf7f0a6357ff5f81f317df5d  codex-skill-resync.sh
 3a10c49bd68e239277fe4870a7f31b922a48f34886926caa0ba297f8368709b9  codex-skill-sync.py
 de2d5e90f9d65cd8a30b9fc9d467a164b753abdafa4ee30d3fb398c32a7578d0  counter-model-receipt.py
