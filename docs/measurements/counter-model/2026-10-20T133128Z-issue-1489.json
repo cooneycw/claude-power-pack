@@ -1,0 +1,28 @@
+{
+  "branch": "issue-1489-nit-store-gh-pr-merge-silently-retries-a-protectio",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "direction": "delegated",
+  "head": "f385e24e60c2550bfcdd6df10f55b9a8cb95fcda",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/20/rollout-2026-10-20T13-26-58-01a1597e-63e6-7e93-a791-b223849dcc52.jsonl",
+    "thread_id": "01a1597e-63e6-7e93-a791-b223849dcc52"
+  },
+  "issue": "1489",
+  "passes": 1,
+  "recorded_at": "2026-10-20T13:31:28Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "claude/claude-sonnet-5",
+  "reviewer_evidence": {
+    "session_id": "abef1128-d5b5-4cc2-ac9a-b5e37cb9ec9b"
+  },
+  "schema": 1,
+  "status": "ran"
+}
