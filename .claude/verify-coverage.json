@@ -335,11 +335,6 @@
       "class": "not-a-checker",
       "reason": "masks secret values in output; it issues no verdict"
     },
-    "slate-reconcile.py": {
-      "class": "tested",
-      "consumer": "tests/test_slate_reconcile.py",
-      "reason": "reconciles the slate against its claimed files"
-    },
     "speckit-context.py": {
       "class": "tested",
       "consumer": "tests/test_speckit_context.py",

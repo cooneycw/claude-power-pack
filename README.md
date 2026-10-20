@@ -147,6 +147,15 @@ Architecture: Woodpecker server on a dedicated VM, agent on the dev workstation,
 
 ## Changelog
 
+**What a version number means here (Nit Store #864, absorbed into #1499):**
+each heading below is a MILESTONE recorded against rolling `main`, not a git
+tag or a GitHub release - the only tag this repository has ever cut is
+`v1.1.0`, and no release has been published. Cutting an actual tagged release
+is a separate, standing operator checkpoint tracked at
+[#1278](https://github.com/cooneycw/claude-power-pack/issues/1278); until
+that happens, "v9.0.0" names a point in this Changelog and in `pyproject.toml`,
+not a commit you can fetch by tag.
+
 ### v9.0.0 (2026-10-17)
 
 **A major bump, because six changes require action from anyone building on CPP.**

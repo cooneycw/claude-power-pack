@@ -394,6 +394,46 @@ the source-adjacent cache is never read under pytest. Its control is
 restore, and treat a mutation whose precondition assertion failed as a run that
 did not happen, never as a result.
 
+## 8. A pathspec that matches nothing is a silent "no changes", not an error
+
+`git diff <ref> -- <path>` for a `<path>` that does not match any changed
+file returns EMPTY output with exit 0 - the same bytes and exit code as "this
+path genuinely has no changes between the two trees". Verified directly:
+
+```
+$ git diff origin/main -- this-path-does-not-exist.txt
+$ echo $?
+0
+```
+
+Nothing distinguishes "I checked and there is nothing there" from "the path I
+named cannot ever match anything" (a typo, a since-renamed file, a path built
+from a variable that resolved wrong). A verification step built on this - "did
+commit X touch file Y" - reads a bad path the same way it reads a true
+negative, and the silent case is the dangerous one: it reports a CLEAN result
+for a check that never actually ran against the file it claims to have
+checked.
+
+**This is NOT `gh pr diff <n> -- <path>`**, despite how the hazard is sometimes
+named (Nit Store #864, absorbed into #1499) - `gh pr diff` (CLI 2.102.0)
+accepts no path argument at all:
+
+```
+$ gh pr diff 1516 -- nonexistent-path-xyz.txt
+accepts at most 1 arg(s), received 2
+$ echo $?
+1
+```
+
+That is a loud usage error, not a silent empty success, so the original
+concern does not reproduce against the command it names. The mechanism it was
+pointing at is real under plain `git diff`, and under anything built on it
+(`gh pr view --json files` plus a manual name match, a wrapper script that
+shells out to `git diff -- <path>`, and so on). Prefer the unfiltered form
+(`git diff <ref>` or `gh pr diff <n>` with no path) and grep the output
+yourself, or use `gh pr view --json files` and check the path is actually
+listed before trusting an empty diff as "no changes here".
+
 ## Related
 
 - [the detector contracts](detector-contracts.md) - the two questions asked of any

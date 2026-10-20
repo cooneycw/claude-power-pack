@@ -22,6 +22,18 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Tier
+      description: "How much document this needs (docs/agents/issue-contract.md). Tier 1 (surgical): 1-3 files, single concern, no spec. Tier 2 (considered): 4-10 files, new model or endpoint, a spec only if uncertainty or coordination warrants one. Tier 3 (architectural): new subsystem, security boundary, or multi-issue effort, with an authoritative spec under .specify/specs/."
+      options:
+        - "Tier 1 (surgical)"
+        - "Tier 2 (considered)"
+        - "Tier 3 (architectural)"
+    validations:
+      required: true
+
   - type: input
     id: title
     attributes:

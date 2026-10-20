@@ -325,11 +325,20 @@ def test_an_absent_artifact_is_not_rendered_as_a_pass(tmp_path: Path) -> None:
     verdict, detail = mod.evaluate(tmp_path)
     assert verdict == "absent"
     assert mod.VERDICTS[verdict] != 0, "nothing to look at was rendered as clean"
-    for blocker in ("half B", "skillc #8", "#9", "#10"):
+    for blocker in ("half B", "#1084"):
         assert blocker in detail, (
             f"the absent line does not name its SPECIFIC blocker {blocker!r}, so a "
             f"reader cannot check whether it still stands: {detail!r}"
         )
+    # Nit Store #864 / #1499: skillc #8/#9/#10 are all CLOSED now, so citing them
+    # as the blocker is stale even though ABSENT itself is still the correct
+    # verdict (no verified-result artifact exists yet). The note must route to
+    # CPP #1084 - the still-open issue owning the producer obligation - instead
+    # of naming issues a reader would have to re-check in another repository.
+    assert "skillc #8" not in detail, (
+        "the absent line still cites closed skillc sub-issues as the current "
+        f"blocker instead of routing to CPP #1084: {detail!r}"
+    )
 
 
 def test_a_newer_envelope_is_refused_rather_than_read_on_a_guess(tmp_path: Path) -> None:

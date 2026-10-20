@@ -984,6 +984,21 @@ git commit -m "type(scope): Description (${ISSUE_REF})"
 git merge --no-edit origin/main
 ```
 
+**Never collapse AFTER the counter-model receipt (item 1 below) has been
+written for this branch's current commits (Nit Store #864).** A receipt
+records `--head <sha>`, and `scripts/flow-finish-gate.sh`'s enrolment check
+accepts only that exact commit or a descendant of it
+(`git merge-base --is-ancestor`). `git reset --soft` + a new `git commit`
+replaces the receipted commit with a different SHA that is not a descendant of
+it - the receipt still exists on disk, but it no longer describes anything in
+this branch's history, and the finish gate then fails with "counter-model line
+missing" even though a real review happened. If you must collapse after the
+receipt is written, re-run the review and write a fresh receipt against the
+collapsed commit; do not reuse the old one. Picking up a moved base with
+`git merge` instead of a collapse-then-reset avoids this entirely, since a
+merge commit keeps the receipted commit as an ancestor (see the "Prefer NO
+collapse" note above).
+
 1. **Counter-model review** - a second model reads the branch, BEFORE the
    quality gates below (issue #934,
    [ADR 0007](../../../docs/decisions/0007-counter-model-review.md)).
