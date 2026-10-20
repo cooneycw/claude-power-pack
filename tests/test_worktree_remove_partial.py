@@ -339,6 +339,15 @@ def _half_delete(wt: Path) -> None:
     (wt / ".git").unlink()
 
 
+def _run_printed_rm(stdout: str) -> None:
+    """--finish-partial-removal PRINTS the verified command rather than
+    running it (issue #1524, post pass-3). Extract the `rm -rf -- ...` line
+    and actually execute it, so tests prove the PRINTED command is correct
+    and runnable, not merely that something plausible-looking was printed."""
+    rm_line = next(line for line in stdout.splitlines() if line.startswith("rm -rf -- "))
+    subprocess.run(["bash", "-c", rm_line], check=True)
+
+
 # Reuses the `occupant` fixture already defined above (line ~163) for the
 # normal-path occupancy tests - same shape, no need for a second one.
 
@@ -420,7 +429,9 @@ def test_an_unrelated_neighbour_repo_is_refused_as_owner(tmp_path: Path) -> None
         main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty", "--allow-unpushed"
     )
 
-    assert res2.returncode == 0, f"stdout={res2.stdout}\nstderr={res2.stderr}"
+    assert res2.returncode == 2, f"stdout={res2.stdout}\nstderr={res2.stderr}"
+    assert wt.exists(), "verify-and-print removes nothing itself"
+    _run_printed_rm(res2.stdout)
     assert not wt.exists()
 
 
@@ -546,6 +557,9 @@ def test_prescan_refuses_an_undeletable_path_in_finish_partial_removal(tmp_path:
 
 @requires_git
 def test_finish_partial_removal_succeeds_with_the_true_owner(tmp_path: Path) -> None:
+    """Verify-and-print, not auto-remove (issue #1524, owner decision after
+    pass 3): a confirmed-ownership pass prints the exact rm -rf command
+    rather than removing anything itself."""
     main = _repo(tmp_path)
     wt = _add_worktree(main, tmp_path / "wt", "feature")
     _half_delete(wt)
@@ -554,10 +568,15 @@ def test_finish_partial_removal_succeeds_with_the_true_owner(tmp_path: Path) -> 
         main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty", "--allow-unpushed"
     )
 
-    assert res.returncode == 0, f"stdout={res.stdout}\nstderr={res.stderr}"
+    assert res.returncode == 2, f"stdout={res.stdout}\nstderr={res.stderr}"
+    assert wt.exists(), "verify-and-print removes nothing itself"
+    assert f"rm -rf -- {wt}" in res.stdout
+    assert f"git -C {main} worktree prune --dry-run --verbose" in res.stdout
+    _run_printed_rm(res.stdout)
     assert not wt.exists()
-    # The admin registration is actually pruned, not just the directory removed.
-    assert "feature" not in _git(main, "worktree", "list")
+    # The admin registration is NOT pruned by this tool - the printed
+    # command is a dry-run hint for the human to review, never run for them.
+    assert "feature" in _git(main, "worktree", "list")
 
 
 @requires_git
@@ -583,7 +602,9 @@ def test_finish_partial_removal_requires_allow_dirty(tmp_path: Path) -> None:
         main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty", "--allow-unpushed"
     )
 
-    assert res2.returncode == 0, f"stdout={res2.stdout}\nstderr={res2.stderr}"
+    assert res2.returncode == 2, f"stdout={res2.stdout}\nstderr={res2.stderr}"
+    assert wt.exists(), "verify-and-print removes nothing itself"
+    _run_printed_rm(res2.stdout)
     assert not wt.exists()
 
 
@@ -656,9 +677,10 @@ def test_a_symlink_to_the_worktree_is_left_dangling_not_deleted(tmp_path: Path) 
     the link, leaving the real directory behind as an orphan once `worktree
     prune` drops the registration - the opposite hazard from the one this
     flag exists to fix. The fix resolves the input via realpath ONCE, early,
-    and removes THAT, never the caller's own symlink - which is not part of
-    the worktree and may live anywhere (a different repo, a home directory).
-    The symlink is left dangling and named so the caller can clean it up."""
+    and PRINTS a command naming THAT, never the caller's own symlink - which
+    is not part of the worktree and may live anywhere (a different repo, a
+    home directory). The printed rm names the real directory; the symlink is
+    warned about but never itself touched by this tool."""
     main = _repo(tmp_path)
     wt = _add_worktree(main, tmp_path / "wt", "feature")
     _half_delete(wt)
@@ -669,13 +691,19 @@ def test_a_symlink_to_the_worktree_is_left_dangling_not_deleted(tmp_path: Path) 
         main, str(link), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty", "--allow-unpushed"
     )
 
-    assert res.returncode == 0, f"stdout={res.stdout}\nstderr={res.stderr}"
-    assert not wt.exists(), "the real worktree directory must be gone"
-    assert "feature" not in _git(main, "worktree", "list")
-    # The symlink itself survives, now dangling - never deleted, and named.
+    assert res.returncode == 2, f"stdout={res.stdout}\nstderr={res.stderr}"
+    assert wt.exists(), "verify-and-print removes nothing itself"
+    assert f"rm -rf -- {wt}" in res.stdout, "the printed command names the REAL target, not the symlink"
+    assert str(link) not in res.stdout.split("\n")[1], "the symlink itself must never be the rm target"
+    assert str(link) in res.stderr and "dangling" in res.stderr
+
+    _run_printed_rm(res.stdout)
+
+    assert not wt.exists(), "the real worktree directory is gone once the printed command runs"
+    # The symlink itself survives, now genuinely dangling - never deleted by
+    # this tool, only by the printed command the human chose to run.
     assert link.is_symlink(), "the caller's own symlink must not be deleted"
     assert not link.exists(), "but it is now dangling, since its target is gone"
-    assert str(link) in res.stderr and "dangling" in res.stderr
 
 
 @requires_git
@@ -715,5 +743,48 @@ def test_a_pushed_commit_does_not_need_allow_unpushed(tmp_path: Path) -> None:
         main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty"
     )
 
-    assert res.returncode == 0, f"stdout={res.stdout}\nstderr={res.stderr}"
+    assert res.returncode == 2, f"stdout={res.stdout}\nstderr={res.stderr}"
+    assert wt.exists(), "verify-and-print removes nothing itself"
+    _run_printed_rm(res.stdout)
     assert not wt.exists()
+
+
+@requires_git
+def test_normal_path_rejects_a_relative_trailing_newline_argument(tmp_path: Path) -> None:
+    """Codex cross-model review (#1524, pass 3, HIGH): the relative-path
+    normalization two lines below "Worktree path is required" - shared by
+    BOTH removal paths, written long before this issue - silently strips a
+    trailing newline from a RELATIVE argument via `basename` plus command
+    substitution. A real worktree, never half-deleted, exercises the NORMAL
+    path with exactly that hazard: a relative "wt" + a literal trailing
+    newline must be refused before normalization ever runs, globally, not
+    only inside --finish-partial-removal."""
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "feature")
+
+    # cwd is tmp_path (wt's own parent), so "wt" is the correct RELATIVE
+    # spelling of a real, sibling-of-main worktree - not main's cwd, which
+    # would resolve "wt" to a path that never existed in the first place.
+    res = _run_remove(tmp_path, "wt" + "\n")
+
+    assert res.returncode == 11, f"stdout={res.stdout}\nstderr={res.stderr}"
+    assert wt.exists(), "a worktree the script never even identified must be untouched"
+
+
+@requires_git
+def test_finish_partial_removal_also_rejects_a_relative_trailing_newline_argument(
+    tmp_path: Path,
+) -> None:
+    """Same guard, same global location, exercised through
+    --finish-partial-removal's own entry point."""
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "feature")
+    _half_delete(wt)
+
+    res = _run_remove(
+        tmp_path, "wt" + "\n", "--finish-partial-removal", "--owner-repo", str(main),
+        "--allow-dirty", "--allow-unpushed",
+    )
+
+    assert res.returncode == 11, f"stdout={res.stdout}\nstderr={res.stderr}"
+    assert wt.exists()
