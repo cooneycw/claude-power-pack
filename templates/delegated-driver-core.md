@@ -229,7 +229,7 @@ names an orchestrator - SEND the Step 2 report to that orchestrator before
 waiting, through the mailbox the assignment came from. For a `/flow:wave` role:
 
 ```bash
-~/.claude/scripts/flow-wave-mailbox.sh send --to orchestrator --from <your-role> --wave <wave> --body-file <step-2-report-file>
+~/.claude/scripts/flow-wave-mailbox.sh send --to orchestrator --from <your-role> --wave <wave> --body-file <step-2-report-file> --awaiting-reply
 ```
 
 Then wait for the reply exactly as you would for a typed one; its verdict is the

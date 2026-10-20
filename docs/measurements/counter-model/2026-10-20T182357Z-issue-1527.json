@@ -1,0 +1,28 @@
+{
+  "branch": "issue-1527-delegated-driver-a-true-automated-still-waiting-si",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "direction": "delegated",
+  "head": "cc4f4a32c0e0e4a91846b5aa6ce7df99f078b902",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/20/rollout-2026-10-20T18-13-48-01a15a84-ff13-7923-b5d7-70fdc9a67411.jsonl",
+    "thread_id": "01a15a84-ff13-7923-b5d7-70fdc9a67411"
+  },
+  "issue": "1527",
+  "passes": 1,
+  "recorded_at": "2026-10-20T18:23:57Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "claude/claude-sonnet-5",
+  "reviewer_evidence": {
+    "session_id": "34597d21-bdc1-435f-90c2-514c9dfe403d"
+  },
+  "schema": 1,
+  "status": "ran"
+}
