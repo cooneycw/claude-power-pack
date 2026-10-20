@@ -1081,3 +1081,90 @@ def test_a_commit_log_that_cannot_be_read_is_unknown_never_agreement(tmp_path: P
     assert proc.returncode == 4, proc.stdout
     assert "this run's commit log could not be read" in proc.stdout, proc.stdout
     assert "PLAN_COMPLIANCE: agreement" not in proc.stdout
+
+
+@requires_git
+@pytest.mark.parametrize(('item', 'files', 'expected'), [
+    ('1. `scripts/public-candidate/README.md`', ['scripts/public-candidate/README.md'], 'PLAN_COMPLIANCE: agreement'),
+    ('1. `a.py`, `b.py` - description', ['a.py', 'b.py'], 'PLAN_COMPLIANCE: agreement'),
+    ('1. `a.py`, `b.py` - description', ['a.py'], 'PLANNED BUT NOT TOUCHED: b.py'),
+    ('1. utterly broken prose', ['a.py'], 'item(s) could not be parsed'),
+    ('1. `a.py` trailing garbage', ['a.py'], 'item(s) could not be parsed'),
+    ('1. `a.py`, `broken - description', ['a.py'], 'item(s) could not be parsed'),
+    ('1. `a.py`,\n   `b.py` - description', ['a.py', 'b.py'], 'TOUCHED BUT NOT PLANNED: b.py'),
+])
+def test_revision_section_c(tmp_path: Path, item: str, files: list[str], expected: str) -> None:
+    repo, base = make_repo(tmp_path)
+    write_plan(repo, 'a.py')
+    record = repo / 'docs/flow-runs/issue-42.md'
+    record.write_text('## Section C - approved plan\n' + item + '\nScope: files\n')
+    for name in files:
+        path = repo / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('changed\n')
+    stamp_baseline(repo)
+    out = run(repo, base)
+    assert expected in out, out
+
+
+@requires_git
+@pytest.mark.parametrize('planned_source', [True, False])
+def test_revision_history_rename(tmp_path: Path, planned_source: bool) -> None:
+    repo, _base = make_repo(tmp_path)
+    (repo / 'old.py').write_text('content\n' * 40)
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-qm', 'source')
+    start_run(repo, 'rename-session', *(['old.py', 'new.py'] if planned_source else ['new.py']))
+    git(repo, 'mv', 'old.py', 'new.py')
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-qm', 'rename')
+    out = helper(repo, 'rename-session', 'compliance', '42').stdout
+    if planned_source:
+        assert 'PLAN_COMPLIANCE: agreement' in out, out
+    else:
+        assert 'TOUCHED BUT NOT PLANNED: old.py' in out, out
+
+
+@requires_git
+@pytest.mark.parametrize('declaration', ['valid', 'missing', 'invalid', 'unrelated', 'unreadable'])
+def test_revision_salvage(tmp_path: Path, declaration: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo, _base = make_repo(tmp_path)
+    (repo / 'saved.py').write_text('preserved\n')
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-qm', 'preserve first')
+    salvage = git(repo, 'rev-parse', 'HEAD').strip()
+    if declaration == 'invalid':
+        salvage = '0' * 40
+    elif declaration == 'unrelated':
+        # A real commit object with no parents, never added to this branch.
+        tree = git(repo, 'rev-parse', 'HEAD^{tree}').strip()
+        salvage = git(repo, 'commit-tree', tree, '-m', 'unrelated').strip()
+    if declaration in ('invalid', 'unrelated'):
+        probe = subprocess.run(['git', '-C', str(repo), 'merge-base', '--is-ancestor', salvage, 'HEAD'],
+                               capture_output=True)
+        assert probe.returncode != 0
+    start_run(repo, 'salvage-session', 'saved.py')
+    if declaration != 'missing':
+        record = repo / 'docs/flow-runs/issue-42.md'
+        record.write_text(record.read_text().replace('- Approval:', f'- Salvage: {salvage}\n- Approval:'))
+    if declaration == 'unreadable':
+        bindir = tmp_path / 'bin'
+        bindir.mkdir()
+        shim = bindir / 'git'
+        shim.write_text('#!/bin/sh\nfor a in "$@"; do\n'
+                        '  if [ "$a" = "show" ]; then exit 1; fi\ndone\n'
+                        f'exec "{shutil.which("git")}" "$@"\n')
+        shim.chmod(0o755)
+        monkeypatch.setenv('PATH', str(bindir) + os.pathsep + os.environ['PATH'])
+    out = helper(repo, 'salvage-session', 'compliance', '42').stdout
+    if declaration == 'valid':
+        assert 'PLAN_COMPLIANCE: agreement' in out, out
+        assert salvage[:12] in out
+    elif declaration == 'unreadable':
+        assert 'salvage file list could not be read' in out, out
+    elif declaration == 'missing':
+        assert 'PLANNED BUT NOT TOUCHED: saved.py' in out, out
+    else:
+        assert 'PLAN_COMPLIANCE: unknown (declared salvage' in out, out
+        assert salvage in out, out
+        assert 'not a commit' in out or 'not an ancestor' in out, out
