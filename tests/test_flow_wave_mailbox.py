@@ -2103,6 +2103,55 @@ class TestSupervise:
         """
         return kill_supervise_daemon(pid)
 
+    @pytest.mark.parametrize("mode", ["waiting", "reply", "ordinary", "backlog"])
+    def test_still_waiting_signal(self, tmp_path: Path, mode: str) -> None:
+        wave = unique_wave()
+        marker = tmp_path / "mb" / wave / ".supervise-1.awaiting-reply"
+        inbox = tmp_path / "mb" / wave / "inbox-1.md"
+        if mode == "backlog":
+            # Unacked mail that predates the flagged send - a status note or
+            # assignment the role never acked. A --peek watch never consumes,
+            # so this stays unacked straight through the daemon's first cycle.
+            backlog = _run(tmp_path, "send", "--wave", wave, "--to", "1", "--body", "earlier note")
+            assert backlog.returncode == 0, backlog.stderr
+        flagged = () if mode == "ordinary" else ("--awaiting-reply",)
+        sent = _run(
+            tmp_path, "send", "--wave", wave, "--to", "orchestrator",
+            "--from", "1", "--body", "Step 2 plan", *flagged,
+        )
+        assert sent.returncode == 0, sent.stderr
+        assert marker.exists() == (mode != "ordinary")
+        if mode == "waiting":
+            original = marker.read_text()
+            update = _run(
+                tmp_path, "send", "--wave", wave, "--to", "orchestrator",
+                "--from", "1", "--body", "status update",
+            )
+            assert update.returncode == 0, update.stderr
+            assert marker.read_text() == original
+        launched = self._launch(
+            tmp_path, wave=wave, timeout="1", interval="1",
+            extra_env={"FLOW_MAILBOX_STILL_WAITING_AFTER": "5" if mode == "reply" else "2"},
+        )
+        assert launched.returncode == 0, launched.stderr
+        pid = _daemon_pid(tmp_path, wave, "1")
+        notifies = mode in ("waiting", "backlog")
+        try:
+            if mode == "reply":
+                reply = _run(tmp_path, "send", "--wave", wave, "--to", "1", "--body", "approved")
+                assert reply.returncode == 0, reply.stderr
+                assert _wait_for(lambda: not marker.exists(), timeout=4)
+            if notifies:
+                assert _wait_for(lambda: "Still waiting" in inbox.read_text(), timeout=15)
+                assert marker.exists()
+            # Several more real daemon cycles catch repeated notifications.
+            time.sleep(7)
+            assert _pid_alive(pid)
+            assert inbox.read_text().count("Still waiting") == notifies
+            assert marker.exists() == notifies
+        finally:
+            self._kill_daemon(pid)
+
     def test_supervise_returns_promptly_with_its_own_verdict_line(
         self, tmp_path: Path
     ) -> None:

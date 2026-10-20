@@ -4280,6 +4280,7 @@ def test_anchor_diagnostics_name_the_anchor_its_kind_and_the_case(tmp_path: Path
 def test_every_real_control_stays_inside_the_closed_schema() -> None:
     """R4's condition, kept true: turning the refusal on must not red a real control."""
     spec = importlib.util.spec_from_file_location("cnc_schema", HARNESS)
+    assert spec is not None and spec.loader is not None, f"could not load spec from {HARNESS}"
     module = importlib.util.module_from_spec(spec)
     sys.modules["cnc_schema"] = module
     spec.loader.exec_module(module)
@@ -5003,3 +5004,38 @@ def test_two_subjects_that_normalize_to_the_same_basename_still_count_as_one_row
     write_census(root, ["scripts/toy-gate.py"])
     out = run_harness(root)
     assert contract(out.stdout, "NEGATIVE_CONTROL_UNIVERSE") == "1", out.stdout
+
+
+@pytest.mark.parametrize("signal_level", [None, "control", "case"])
+def test_multiple_good_cases_warn_additively_without_signals(
+    tmp_path: Path, signal_level: str | None,
+) -> None:
+    cases = [
+        {"name": "bad", "input": "cases/bad", "expect": "BAD"},
+        {"name": "good", "input": "cases/good", "expect": "GOOD"},
+        {"name": "other-good", "input": "cases/other-good", "expect": "GOOD"},
+    ]
+    if signal_level == "case":
+        cases[1]["good_signal"] = r"^toy-gate: ok"
+    root = build_tree(
+        tmp_path, TWO_GOOD_SIGNAL_GATE, anchor_src=ANCHOR_SAYS_EXPECTED,
+        cases=cases, detect_signal=r"^toy-gate: finding",
+        good_signal=r"^toy-gate: ok" if signal_level == "control" else None,
+    )
+    (root / "controls/toy/cases/other-good/tests").mkdir(parents=True)
+    manifest = json.loads((root / "controls/toy/control.json").read_text())
+    assert len([case for case in manifest["cases"] if case["expect"] == "GOOD"]) == 2
+    if signal_level is None:
+        assert "good_signal" not in manifest
+        assert all("good_signal" not in case for case in manifest["cases"])
+    result = _load_harness_module().evaluate(
+        root / "scripts/toy-gate.py", "controls/toy", root, False)
+    warning = (
+        "WARNING: GOOD cases good, other-good share exit code 0 with no control-level "
+        "or per-case good_signal; their clean answers are indistinguishable"
+    )
+    assert result.verdict == "PASS", result.details
+    assert (warning in result.details) == (signal_level is None), result.details
+    assert any(detail.startswith("WARNING:") for detail in result.details) == (signal_level is None)
+    print(f"verdict={result.verdict!r}; details={result.details!r}")
+

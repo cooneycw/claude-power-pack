@@ -54,7 +54,9 @@ import argparse
 import ast
 import contextlib
 import errno
+import functools
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -62,6 +64,7 @@ import shutil
 import sys
 from collections.abc import Iterator
 from pathlib import Path
+from urllib.parse import quote
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SOURCE_ROOT = REPO_ROOT / ".claude" / "commands"
@@ -288,6 +291,22 @@ def _py_list_is_network_argv(node: ast.List) -> bool:
 
 
 #: NEGATIVE-CONTROL: controls/codex-skill-sync-network-detector
+#: CACHED ON CONTENT, NOT ON ANY FILE IDENTITY (issue #1484 item 1). A pure
+#: function of `text` alone - no path, mtime or global state enters its
+#: answer - so the SAME string is the only thing that can hit the cache, and
+#: a different string (a real edit, or a different fixture tree entirely) is
+#: a different key by construction. Many skills bundle the same helper
+#: script; `generate_skill` previously re-parsed and re-walked its AST once
+#: per skill that bundles it.
+#:
+#: BOUNDED, not unbounded: a content-keyed cache holds every distinct file's
+#: full text as a key, so an unbounded one would grow with every distinct
+#: script/lib this process ever bundles. 256 comfortably covers this
+#: repository's real tree (measured: ~20-30 distinct files per
+#: `expected_outputs(FAMILIES)` pass) with headroom for growth; past the
+#: bound, `lru_cache` evicts the least-recently-used entry and recomputes on
+#: a later miss - slower, never wrong.
+@functools.lru_cache(maxsize=256)
 def _py_calls_network(text: str) -> bool:
     try:
         tree = ast.parse(text)
@@ -402,6 +421,8 @@ _NET_SH_CORE = re.compile(
 )
 
 
+#: Cached on content, same reasoning and bound as `_py_calls_network` above.
+@functools.lru_cache(maxsize=256)
 def _sh_calls_network(text: str) -> bool:
     for line in text.splitlines():
         mask = _sh_quote_free_mask(line)
@@ -509,7 +530,11 @@ def derive_description(meta: dict[str, str], body: str, *, skill_name: str | Non
             desc = title or para
         desc = " ".join(desc.split())
     if len(desc) > DESCRIPTION_MAX and skill_name not in DESCRIPTION_MAX_EXEMPT:
-        desc = desc[:DESCRIPTION_MAX].rsplit(" ", 1)[0].rstrip(" ,;:-") + " ..."
+        boundaries = list(re.finditer(r"[.!?](?=\s|$)", desc[:DESCRIPTION_MAX]))
+        if boundaries:
+            desc = desc[:boundaries[-1].end()]
+        else:
+            desc = desc[:DESCRIPTION_MAX].rsplit(" ", 1)[0].rstrip(" ,;:-") + " ..."
     return desc
 
 
@@ -672,7 +697,22 @@ def _is_type_checking_test(
     return False
 
 
-def _live_import_nodes(text: str) -> list[ast.Import | ast.ImportFrom]:
+#: Cached on content (issue #1484 item 1), same reasoning as
+#: `_py_calls_network` above - pure in `text` alone. `find_bundled_libs` calls
+#: through both callers below for every bundled file of every skill, and many
+#: skills bundle the same handful of scripts and libs - without this, the
+#: same file's AST was parsed and walked once per skill that references it.
+#:
+#: RETURNS A TUPLE, NOT A LIST (counter-model review). A cache hands back the
+#: SAME object to every caller; a mutable return value is one `.append`/
+#: `.sort`/`del` away from silently corrupting every later caller's answer
+#: for that content, in-process - exactly the cross-test contamination class
+#: issue #1484 exists to remove. Both current callers only iterate the
+#: result, so this is currently also provable by inspection, but a tuple
+#: makes it true by construction instead of by audit, which stays true when
+#: a caller is added later.
+@functools.lru_cache(maxsize=256)
+def _live_import_nodes(text: str) -> tuple[ast.Import | ast.ImportFrom, ...]:
     """`Import`/`ImportFrom` statements NOT nested inside `if TYPE_CHECKING:`
     (issue #1408, counter-model review).
 
@@ -697,7 +737,7 @@ def _live_import_nodes(text: str) -> list[ast.Import | ast.ImportFrom]:
     try:
         tree = ast.parse(text)
     except SyntaxError:
-        return []
+        return ()
     live: list[ast.Import | ast.ImportFrom] = []
     checking_names, typing_module_names = _typing_checking_bindings(tree)
 
@@ -733,7 +773,7 @@ def _live_import_nodes(text: str) -> list[ast.Import | ast.ImportFrom]:
                     walk(child, skip)
 
     walk(tree.body, False)
-    return live
+    return tuple(live)
 
 
 def _live_relative_imports(text: str) -> list[ast.ImportFrom]:
@@ -1442,6 +1482,75 @@ def provenance_note(files: dict[str, str]) -> str | None:
     return "".join(lines)
 
 
+#: Keyed by the checker's RESOLVED path, never a fixed name (issue #1494
+#: review fix). `codex-skill-sync.py` itself gets dynamically re-loaded under a
+#: fresh module object by `_load_bundler` (e.g. from a test fixture's own copy
+#: under a different root), and each such copy's `__file__` names a DIFFERENT
+#: sibling `check-md-relative-links.py`. A single `sys.modules["cpp_md_relative_links"]`
+#: slot would let whichever copy loads first - real repo or a test fixture
+#: missing that sibling file entirely - poison every later caller in the same
+#: process, real or fixture, with its own (possibly broken) parser.
+_LINK_PARSER_CACHE: dict[Path, object] = {}
+
+
+def rewrite_mirror_links(text: str, source: Path, output: str, mirrored: set[str]) -> str:
+    """Keep links that work in the bundle; route other repository links upstream.
+
+    Use the checker's Markdown parser so code examples, titles, escaped paths,
+    and nested parentheses have the same meaning in generation and validation.
+    """
+    checker_path = Path(__file__).resolve().with_name("check-md-relative-links.py")
+    parser = _LINK_PARSER_CACHE.get(checker_path)
+    if parser is None:
+        # The unique name must be registered in sys.modules BEFORE exec_module
+        # runs, not after: the checker defines `@dataclass(frozen=True) class
+        # DeadLink`, and dataclasses resolves a string-annotated field's type
+        # via `sys.modules[cls.__module__]` while the class body executes - a
+        # module not yet registered at that point fails with
+        # "'NoneType' object has no attribute '__dict__'" (caught in review:
+        # the fixed name this used to share was ALSO registered too late in
+        # an earlier draft of this fix, and broke every caller, not only the
+        # one that triggered the collision this cache exists to prevent).
+        unique_name = f"cpp_md_relative_links_{hashlib.sha256(bytes(checker_path)).hexdigest()[:12]}"
+        spec = importlib.util.spec_from_file_location(unique_name, checker_path)
+        assert spec is not None and spec.loader is not None
+        parser = importlib.util.module_from_spec(spec)
+        sys.modules[unique_name] = parser
+        spec.loader.exec_module(parser)
+        _LINK_PARSER_CACHE[checker_path] = parser
+    lines = text.splitlines(keepends=True)
+    eligible = {number for number, _ in parser.links_in(text)}
+    for number in eligible:
+        line = lines[number - 1]
+        # Preserve offsets while masking inline code spans.
+        masked = parser.INLINE_CODE_RE.sub(lambda m: " " * len(m.group()), line)
+        edits = []
+        for match in parser.LINK_START_RE.finditer(masked):
+            raw = parser._destination(line, match.end())
+            target = parser._link_target(raw) if raw is not None else None
+            if target is None:
+                continue
+            mirror_target = os.path.normpath(str(Path(output).parent / target))
+            if mirror_target in mirrored:
+                continue
+            resolved = (source.parent / target).resolve()
+            if not resolved.exists():
+                continue
+            try:
+                relative = resolved.relative_to(REPO_ROOT.resolve())
+            except ValueError:
+                continue
+            fragment = raw.strip("<>").partition("#")[2]
+            url = "https://github.com/cooneycw/claude-power-pack/blob/main/" + quote(relative.as_posix())
+            if fragment:
+                url += "#" + fragment
+            edits.append((match.end(), match.end() + len(raw), url))
+        for start, end, url in reversed(edits):
+            line = line[:start] + url + line[end:]
+        lines[number - 1] = line
+    return "".join(lines)
+
+
 def generate_skill(
     source_file: Path, family: str, names: dict[tuple[str, str], str]
 ) -> dict[str, str]:
@@ -1528,9 +1637,18 @@ def generate_skill(
     for rel, source in find_bundled_data(scripts).items():
         files[rel] = source.read_text()
     for doc in docs:
-        # Bundled verbatim, at the same relative path, so sibling links between
-        # bundled docs keep resolving without rewriting their contents.
+        # Preserve source layout so links between bundled docs stay relative.
+        # Links out of the bundle are rewritten after all members are known.
         files[f"docs/{doc}"] = (DOCS_ROOT / doc).read_text()
+    mirrored = set(files)
+    for rel in list(files):
+        if not rel.endswith(".md"):
+            continue
+        if rel in ("SKILL.md", "reference.md"):
+            source = source_file
+        else:
+            source = REPO_ROOT / rel
+        files[rel] = rewrite_mirror_links(files[rel], source, rel, mirrored)
     manifest = scripts_manifest(files)
     if manifest is not None:
         files[f"scripts/{MANIFEST_NAME}"] = manifest
@@ -1761,7 +1879,9 @@ def _repo_relative(raw: str) -> str | None:
         return None
 
 
-def mirrors_for(sources: list[str], selected: list[str]) -> tuple[dict[str, list[str]], list[str]]:
+def mirrors_for(
+    sources: list[str], outputs: dict[str, dict[str, str]]
+) -> tuple[dict[str, list[str]], list[str]]:
     """`(source -> its mirror paths, sources that feed no mirror)`.
 
     TWO RULES, BOTH DERIVED FROM `expected_outputs` rather than from a path
@@ -1777,8 +1897,14 @@ def mirrors_for(sources: list[str], selected: list[str]) -> tuple[dict[str, list
         preserves the repo-relative path for `docs/`, `lib/` and `.claude/`
         sources, and `scripts/<name>` is already `scripts/<name>` on both sides,
         so one rule covers every shape rather than four.
+
+    Takes the ALREADY-COMPUTED `expected_outputs` result rather than `selected`
+    and recomputing it (issue #1484 item 1). `run_list_mirrors` builds `outputs`
+    unconditionally for its own `not sources` branch, so recomputing it again
+    here ran the whole (AST-heavy) generator pipeline a second time on every
+    call that passes sources - which is every call this issue's own tests make.
+    Measured: this alone roughly halves one `--list-mirrors <source>` call.
     """
-    outputs = expected_outputs(selected)
     found: dict[str, list[str]] = {}
     unknown: list[str] = []
 
@@ -1885,7 +2011,7 @@ def run_list_mirrors(sources: list[str], selected: list[str]) -> int:
                 print(f"codex/skills/{skill}/{rel}")
         return 0
 
-    found, unknown = mirrors_for(sources, selected)
+    found, unknown = mirrors_for(sources, outputs)
     #: A UNION, not a concatenation (counter-model review). Passing one source
     #: twice printed it twice, and two scripts sharing a skill repeated that
     #: skill's manifest - so the output was not a mirror SET, which is what a

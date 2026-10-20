@@ -405,6 +405,7 @@ verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-impor
 	control-ci-deps-check ci-coverage-check \
 	consolidation-ledger-check host-surface-check cpp-host-writes-check \
 	version-consistency-check unicode-dashes-check co-authored-by-trailer-check md-relative-links-check \
+	codex-skill-links-check \
 	behavioral-eval-check eli5-check tool-risk-check skill-coverage-map-check
 	@python3 scripts/verify-coverage-check.py --report
 
@@ -781,6 +782,10 @@ unicode-dashes-check:
 md-relative-links-check:
 	@python3 scripts/check-md-relative-links.py
 
+## verify-coverage: gate codex-skill-links-check - every relative markdown link in the generated codex/skills/ mirrors resolves FROM THE MIRROR location (issue #1494); ci: runs codex-skill-links-check
+codex-skill-links-check:
+	@python3 scripts/check-md-relative-links.py --codex-skills
+
 ## verify-coverage: gate co-authored-by-trailer-check - the Co-Authored-By trailer names a real model; ci: excluded needs-git
 co-authored-by-trailer-check:
 	@python3 scripts/check-co-authored-by-trailer.py
@@ -1038,6 +1043,25 @@ install-drift-check:
 ## verify-coverage: utility install-drift-list - lists the installed helpers; it issues no verdict
 install-drift-list:
 	@scripts/install-drift.sh --list
+
+## Blind-anchor regeneration (issue #1492). A constructed anchor is the gate's
+## own code with ONE intentional blinding plus whatever path/environment
+## adaptation its location under controls/<name>/anchors/ requires - a
+## mechanical "copy the gate" regeneration drops the adaptation silently
+## (#1182's incident). The stored `.patch` beside each regenerated anchor
+## holds ONLY that intentional transformation; this target applies it fresh
+## to the gate's CURRENT code, so the regenerated anchor also resyncs any
+## unrelated drift the gate has picked up since - which is the point, not a
+## side effect. Manual, by design: a human names which control and decides
+## whether to --write, so this is never run automatically.
+
+## verify-coverage: excluded regenerate-blind-anchor-check - reports whether a control's committed anchor still matches its gate + stored patch; a human decides whether to regenerate, never run automatically
+regenerate-blind-anchor-check:
+	@python3 scripts/regenerate-blind-anchor.py $(CONTROL)
+
+## verify-coverage: utility regenerate-blind-anchor - regenerates one control's anchor from its gate + stored patch; it issues no verdict
+regenerate-blind-anchor:
+	@python3 scripts/regenerate-blind-anchor.py $(CONTROL) --write
 
 ## Common-memory harness (issue #433): links scripts/cpp-memory onto PATH and
 ## installs the hand-authored Codex /cpp-memory prompt. Idempotent. Wired into

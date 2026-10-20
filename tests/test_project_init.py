@@ -349,6 +349,7 @@ def test_original_placeholder_and_branch_mutations_are_detected(framework: str, 
 
 
 def test_checked_in_templates_match_the_standalone_catalog() -> None:
+    assert project_init.TEMPLATE_CATALOG, "TEMPLATE_CATALOG is empty - this guard would pass vacuously"
     catalog_paths = set()
     for template in project_init.TEMPLATE_CATALOG:
         path = TEMPLATE_ROOT / template.framework / template.template_path
@@ -360,6 +361,7 @@ def test_checked_in_templates_match_the_standalone_catalog() -> None:
         for path in TEMPLATE_ROOT.rglob("*")
         if path.is_file() and ".ruff_cache" not in path.relative_to(TEMPLATE_ROOT).parts
     }
+    assert disk_paths, f"no files found under {TEMPLATE_ROOT} - this guard would pass vacuously"
     assert disk_paths == catalog_paths
 
 

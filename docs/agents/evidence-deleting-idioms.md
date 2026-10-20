@@ -394,6 +394,54 @@ the source-adjacent cache is never read under pytest. Its control is
 restore, and treat a mutation whose precondition assertion failed as a run that
 did not happen, never as a result.
 
+## 8. A pathspec that matches nothing is a silent "no changes", not an error
+
+`git diff <ref> -- <path>` for a `<path>` that does not match any changed
+file returns EMPTY output with exit 0 - the same bytes and exit code as "this
+path genuinely has no changes between the two trees". Verified directly:
+
+```
+$ git diff origin/main -- this-path-does-not-exist.txt
+$ echo $?
+0
+```
+
+Nothing distinguishes "I checked and there is nothing there" from "the path I
+named cannot ever match anything" (a typo, a since-renamed file, a path built
+from a variable that resolved wrong). A verification step built on this - "did
+commit X touch file Y" - reads a bad path the same way it reads a true
+negative, and the silent case is the dangerous one: it reports a CLEAN result
+for a check that never actually ran against the file it claims to have
+checked.
+
+**This is NOT `gh pr diff <n> -- <path>`**, despite how the hazard is sometimes
+named (Nit Store #864, absorbed into #1499) - `gh pr diff` (CLI 2.102.0)
+accepts no path argument at all:
+
+```
+$ gh pr diff 1516 -- nonexistent-path-xyz.txt
+accepts at most 1 arg(s), received 2
+$ echo $?
+1
+```
+
+That is a loud usage error, not a silent empty success, so the original
+concern does not reproduce against the command it names. The mechanism it was
+pointing at is real under plain `git diff`, and under anything built on it
+(`gh pr view --json files` plus a manual name match, a wrapper script that
+shells out to `git diff -- <path>`, and so on).
+
+**Grepping an unfiltered diff is an inspection aid, not the fix.** Fetching
+`git diff <ref>` or `gh pr diff <n>` with no path and grepping the result for
+the path you care about still cannot tell "this path is unchanged" from "this
+path was never in either tree" - both produce zero matches, which is the same
+ambiguity one level up. Establishing that a path's absence means "no changes"
+requires independently confirming the path EXISTS and is a real member of the
+trees being compared first - `gh pr view --json files` and check the path is
+actually listed among the PR's changed files, or `git cat-file -e <ref>:<path>`
+against at least one side - before reading an empty match as a verified
+negative rather than an unresolved one.
+
 ## Related
 
 - [the detector contracts](detector-contracts.md) - the two questions asked of any

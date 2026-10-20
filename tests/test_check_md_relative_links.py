@@ -272,3 +272,56 @@ def test_the_backtick_ruling_is_recorded_beside_the_gate() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
     assert "BACKTICK CITATIONS STAY UNCHECKED - A RULING" in text
     assert "CONTENT drift" in text
+
+
+def test_multiline_nested_text_and_html_links() -> None:
+    assert LINKS.links_in('[some [nested]\ntext](missing.md)\n<a href="other.md">x</a>\n') == [
+        (1, "missing.md"), (3, "other.md")]
+
+
+def test_comments_and_indented_code_are_not_links() -> None:
+    text = ('<!-- [x](missing.md)\n<a href="missing.md">x</a> -->\n'
+            '    [x](missing.md)\n\t<a href="missing.md">x</a>\n'
+            '[live](live.md)\n')
+    assert LINKS.links_in(text) == [(5, "live.md")]
+
+
+def test_existing_target_outside_root_is_reported(tmp_path: Path) -> None:
+    outside = tmp_path / "outside.md"
+    outside.write_text("exists")
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "README.md").write_text("[escape](../outside.md)")
+    assert outside.exists()
+    dead, examined, unreadable = LINKS.find_dead_links(root, ["README.md"])
+    assert examined == 1 and not unreadable
+    assert len(dead) == 1 and dead[0].reason == "escapes repository root"
+
+
+def test_symlink_target_outside_root_is_reported(tmp_path: Path) -> None:
+    outside = tmp_path / "outside.md"
+    outside.write_text("exists")
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "escape.md").symlink_to(outside)
+    (root / "README.md").write_text("[escape](escape.md)")
+    assert (root / "escape.md").exists()
+    dead, _, _ = LINKS.find_dead_links(root, ["README.md"])
+    assert len(dead) == 1 and dead[0].reason == "escapes repository root"
+
+
+def test_indentation_does_not_turn_paragraph_continuations_into_code() -> None:
+    assert LINKS.links_in('- [ ] Read the\n      [guide](guide.md).\n') == [(2, 'guide.md')]
+    assert LINKS.links_in('Read the\n    [guide](guide.md).\n') == [(2, 'guide.md')]
+    assert LINKS.links_in('- item\n\n    [guide](guide.md)\n') == [(3, 'guide.md')]
+    assert LINKS.links_in('- item\n\n      [code](missing.md)\n') == []
+
+
+def test_codex_mirror_graph_red_then_green(tmp_path):
+    skill = tmp_path / "codex" / "skills" / "example"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("[target](target.md#heading)\n")
+    assert not (skill / "target.md").exists()
+    assert LINKS.main(["--root", str(tmp_path), "--min-files", "1", "--codex-skills"]) == 1
+    (skill / "target.md").write_text("# Heading\n")
+    assert LINKS.main(["--root", str(tmp_path), "--min-files", "1", "--codex-skills"]) == 0

@@ -719,6 +719,24 @@ def run_manifest(manifest_rel: str, root: Path, new_sandbox: Callable[[], Path],
     #: name -> (find, replace, count), so a combination can apply several
     #: EXISTING mutations together without re-declaring their find/replace
     #: text (issue #1396) - one definition per protection, referenced by name.
+    masked_by_sibling_paired_names: set[str] = set()
+    nonqualifying_pairs: dict[str, list[str]] = {}
+    raw_combinations = spec.get("combinations")
+    if isinstance(raw_combinations, list):
+        for raw_combo in raw_combinations:
+            if not isinstance(raw_combo, dict):
+                continue
+            members = raw_combo.get("mutations")
+            if not isinstance(members, list):
+                continue
+            for member_name in members:
+                if not isinstance(member_name, str):
+                    continue
+                if raw_combo.get("expect") == "caught":
+                    masked_by_sibling_paired_names.add(member_name)
+                else:
+                    nonqualifying_pairs.setdefault(member_name, []).append(
+                        f"{raw_combo.get('name', '?')!r} (expect={raw_combo.get('expect')!r})")
     steps_by_name: dict[str, tuple[str, str, int]] = {}
     for entry in mutations:
         name = str(entry.get("name", "?"))
@@ -756,6 +774,21 @@ def run_manifest(manifest_rel: str, root: Path, new_sandbox: Callable[[], Path],
         if blocked_by_error:
             probe.verdict = INAPPLICABLE
             probe.details.append(blocked_by_error)
+            probes.append(probe)
+            continue
+
+        if (entry.get("blocked_by") == BLOCKED_BY_MASKED_BY_SIBLING
+                and name not in masked_by_sibling_paired_names):
+            probe.verdict = INAPPLICABLE
+            probe.details.append(
+                f"masked-by-sibling mutation {name!r} is not referenced by any "
+                'combinations[].mutations entry declaring expect: "caught", so nothing proves the paired '
+                "removal is what makes it unobservable"
+            )
+            if name in nonqualifying_pairs:
+                probe.details.append(
+                    "referencing combinations do not qualify (not expect: \"caught\"): "
+                    + ", ".join(nonqualifying_pairs[name]))
             probes.append(probe)
             continue
 

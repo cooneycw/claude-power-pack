@@ -229,13 +229,36 @@ names an orchestrator - SEND the Step 2 report to that orchestrator before
 waiting, through the mailbox the assignment came from. For a `/flow:wave` role:
 
 ```bash
-~/.claude/scripts/flow-wave-mailbox.sh send --to orchestrator --from <your-role> --wave <wave> --body-file <step-2-report-file>
+~/.claude/scripts/flow-wave-mailbox.sh send --to orchestrator --from <your-role> --wave <wave> --body-file <step-2-report-file> --awaiting-reply
 ```
 
 Then wait for the reply exactly as you would for a typed one; its verdict is the
 approve/revise/abandon above. This routes the gate, it does not bypass it: the
 orchestrator approves the plan it was sent, after the plan exists. A standalone
 session with a human at the terminal keeps the printed prompt.
+
+**Send a still-waiting check-in if the reply takes a while (Nit Store #864,
+absorbed into #1499).** A worker waiting at a mailed plan with no reply looks
+identical to one thinking between tool calls - no process, no commits, no
+dirty paths - so an orchestrator with its own backlog cannot tell "still
+reviewing" from "never saw it arrive". If you have sent the Step 2 report and
+have not heard back after roughly 10-15 minutes of this session's own elapsed
+time, send one short follow-up naming what you are waiting on:
+
+```bash
+~/.claude/scripts/flow-wave-mailbox.sh send --to orchestrator --from <your-role> --wave <wave> --kind message --body "Still waiting on Step 3 approval for <issue/role>, sent at <time>."
+```
+
+Then keep waiting for the real verdict; this is a visibility check-in, not a
+timeout that proceeds on its own - nothing here grants approval, and the gate
+below still has no bypass. **This is a documented habit for the session to
+follow, not an automated timer**: nothing in this template or the mailbox
+scripts currently tracks elapsed wall-clock time or fires this message on its
+own, so it only helps if the session itself notices the wait and chooses to
+send it. A true automated still-waiting signal - a background check that
+fires without the waiting session having to remember to - needs runtime
+machinery this template does not have; that gap is tracked as a follow-up
+rather than built here.
 
 {{STEP3_EXTRA}}
 **The gate has no bypass (issue #784).** No flag, trailer, marker, environment

@@ -45,6 +45,26 @@
       "input": "cases/unknown-no-links",
       "expect": "UNKNOWN",
       "why": "A tracked document whose only links are a URL and inline code. Zero relative links examined must not read as 'every link resolves'."
+    },
+    {
+      "name": "bad-multiline-bracket-link",
+      "input": "cases/bad-multiline-bracket-link",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-html-link",
+      "input": "cases/bad-html-link",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-comment-and-indented-code",
+      "input": "cases/good-comment-and-indented-code",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-escaping-link",
+      "input": "cases/bad-escaping-link",
+      "expect": "BAD"
     }
   ],
   "anchors": [

@@ -1,0 +1,28 @@
+{
+  "branch": "issue-1496-nit-store-skill-coverage-map-is-stale-on-main-and",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "direction": "delegated",
+  "head": "6406e3a712f68490bd365eb0e157805e96a5170d",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/20/rollout-2026-10-20T17-21-08-01a15a54-c889-7750-a8d8-2ce09fd14d0d.jsonl",
+    "thread_id": "01a15a54-c889-7750-a8d8-2ce09fd14d0d"
+  },
+  "issue": "1496",
+  "passes": 1,
+  "recorded_at": "2026-10-20T17:24:31Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "claude/claude-sonnet-5",
+  "reviewer_evidence": {
+    "session_id": "34597d21-bdc1-435f-90c2-514c9dfe403d"
+  },
+  "schema": 1,
+  "status": "ran"
+}
