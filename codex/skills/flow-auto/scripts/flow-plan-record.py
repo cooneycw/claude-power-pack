@@ -496,6 +496,7 @@ def cmd_approve(issue: str) -> int:
                 " The digest above covers the FULL body, so drift beyond this point is still\n"
                 " DETECTED; it just cannot be LOCALISED from this copy.]\n"
             )
+        parts.append("\n<!-- end of body -->\n")
         write_run_part(out, run_id, "".join(parts))
         print(f"AS_READ: snapshot written to {snapshot_rel(issue)}")
 
@@ -526,9 +527,8 @@ def write_run_part(out: pathlib.Path, run_id: str | None, part: str) -> None:
             sec for _n, rid, sec in runs if rid != run_id)
     else:
         kept = existing                  # a legacy snapshot is history: kept whole
-    if kept and not kept.endswith("\n"):
-        kept += "\n"
-    out.write_text(kept + ("\n" if kept else "") + part)
+    kept = kept.rstrip("\n")
+    out.write_text((kept + "\n\n" if kept else "") + part)
 
 
 # ---------------------------------------------------------------- drift (#1081)
@@ -580,7 +580,10 @@ def cmd_drift(issue: str, live_file: str | None) -> int:
 
     print("ISSUE_DRIFT: drift - the issue body changed since this run read it.")
     halves = body_split.split(text, 1)
-    stored = unescape_markers(halves[1]) if len(halves) == 2 else ""
+    stored = halves[1] if len(halves) == 2 else ""
+    # Remove only the final framing marker; identical issue prose is preserved.
+    stored = re.sub(r"\n<!-- end of body -->\n+\Z", "", stored)
+    stored = unescape_markers(stored)
     stored = re.sub(r"\n\[TRUNCATED at .*?\]\n", "", stored, flags=re.S)
     was_truncated = "[TRUNCATED at " in text
     # Compare LIKE WITH LIKE: the stored copy is a PREFIX of a truncated body.
@@ -635,6 +638,34 @@ def compliance_unknown(why: str) -> NoReturn:
     raise Verdict(UNKNOWN)
 
 
+def parse_plan_paths(line: str) -> list[str]:
+    """Single physical line only; continuation paths remain unplanned if touched."""
+    match = re.match(r"^\s*\d+\.\s+", line)
+    if not match:
+        return []
+    remainder = line[match.end():]
+    quoted = False
+    separator = None
+    for i, char in enumerate(remainder):
+        if char == "`":
+            quoted = not quoted
+        elif char in "-–" and not quoted and i and remainder[i - 1].isspace():
+            separator = i
+            break
+    segment = remainder[:separator].strip() if separator is not None else remainder.strip()
+    if not segment or segment.count("`") % 2:
+        return []
+    paths = re.findall(r"`([^`]+)`", segment)
+    if paths:
+        # Allow commas between quoted paths, including a trailing wrapping comma,
+        # but never accept unseparated prose after a bare quoted path.
+        residue = re.sub(r"`[^`]+`", "", segment)
+        return paths if re.fullmatch(r"[\s,]*", residue) else []
+    if "`" in segment:
+        return []
+    return [segment] if separator is not None and re.fullmatch(r"\S+", segment) else []
+
+
 def cmd_compliance(issue: str, base: str | None) -> int:
     """Compare the diff's FILE SET against Section C. Reports; never blocks."""
     print(f"FLOW_PLAN_RECORD_SELF: {self_stamp()}")
@@ -679,9 +710,11 @@ def cmd_compliance(issue: str, base: str | None) -> int:
             break
         if not re.match(r"^\s*\d+\.\s", line):
             continue
-        m = re.match(r"^\s*\d+\.\s+`([^`]+)`\s*[-–]", line) \
-            or re.match(r"^\s*\d+\.\s+(\S+)\s*[-–]", line)
-        (planned.append(m.group(1)) if m else unparsed.append(line.strip()))
+        paths = parse_plan_paths(line)
+        if paths:
+            planned.extend(paths)
+        else:
+            unparsed.append(line.strip())
     if unparsed:
         compliance_unknown(f"{len(unparsed)} Section C item(s) could not be parsed, so the "
                            f"approved file list is incomplete: {unparsed[:3]}")
@@ -719,7 +752,7 @@ def cmd_compliance(issue: str, base: str | None) -> int:
         # made in THIS run's own commit is still this run's commit, not
         # reachable from exclude_ref, and stays counted.
         cmd = ["git", "-C", str(root), "log", "--first-parent", "--no-merges",
-               "--name-only", "--pretty=format:", ref_range]
+               "--no-renames", "--name-only", "--pretty=format:", ref_range]
         if exclude_ref is not None:
             cmd += ["--not", exclude_ref]
         cmd.append("--")
@@ -823,6 +856,24 @@ def cmd_compliance(issue: str, base: str | None) -> int:
             compliance_unknown("no merge-base of HEAD and origin/main, so there is no base to "
                                "diff against")
         touched = sorted(changed_since(main_base))
+
+    salvage = re.search(r"^- Salvage:\s+([0-9a-f]{40})\s*$", text, re.M)
+    if salvage:
+        sha = salvage.group(1)
+        if subprocess.run(["git", "-C", str(root), "cat-file", "-e", f"{sha}^{{commit}}"],
+                          capture_output=True).returncode != 0:
+            compliance_unknown(f"declared salvage {sha} is not a commit")
+        if subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", sha,
+                           "HEAD"], capture_output=True).returncode != 0:
+            compliance_unknown(f"declared salvage {sha} is not an ancestor of HEAD")
+        try:
+            files = git("show", "--no-renames", "--name-only", "--pretty=format:", sha,
+                        "--", cwd=root)
+        except (OSError, subprocess.CalledProcessError) as exc:
+            compliance_unknown(f"salvage file list could not be read for {sha}: {exc}")
+        touched = sorted(set(touched) | set(files.splitlines()))
+        print(f"PLAN_COMPLIANCE_BASE: salvage {sha[:12]} unioned in to count preserved "
+              "work committed before run-start")
 
     # EXACT paths, not prefixes: a neighbour of either input is not excluded.
     excluded_exact = {record_rel(issue), snapshot_rel(issue)}
@@ -950,14 +1001,17 @@ def cmd_head_check(issue: str, head: str | None) -> int:
     rec = record_rel(issue)
     if head is None:
         try:
-            proc = subprocess.run(["gh", "pr", "view", "--json", "headRefOid", "--jq",
-                                   ".headRefOid"], capture_output=True, text=True)
-            head = proc.stdout.strip() if proc.returncode == 0 else ""
+            branch = subprocess.run(["git", "branch", "--show-current"],
+                                    capture_output=True, text=True).stdout.strip()
+            proc = subprocess.run(["gh", "pr", "list", "--head", branch, "--state", "open",
+                                   "--json", "headRefOid", "--jq", ".[0].headRefOid"],
+                                  capture_output=True, text=True) if branch else None
+            head = proc.stdout.strip() if proc is not None and proc.returncode == 0 else ""
         except OSError:                  # `gh` absent: could not look, not absent
             head = ""
         if not head:
-            print("FLOW_PLAN_RECORD: unverified - could not read the PR head. The record is "
-                  "UNVERIFIED, not absent.")
+            print("FLOW_PLAN_RECORD: unverified - no open PR found (or the branch could not be "
+                  "resolved). The record is UNVERIFIED, not absent.")
             return UNKNOWN
         subprocess.run(["git", "fetch", "-q", "origin", head], capture_output=True)
     if subprocess.run(["git", "cat-file", "-e", f"{head}^{{commit}}"],

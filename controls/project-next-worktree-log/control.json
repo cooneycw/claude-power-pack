@@ -1,0 +1,75 @@
+{
+  "_comment": [
+    "Registration for lib/project_next/collect.py's `_parse_worktrees`",
+    "git-log sub-check (issue #1488, ADR 0008 census row 23 - same instrument",
+    "as controls/project-next, independently blind sub-check, registered",
+    "separately rather than as a new case there).",
+    "",
+    "WHAT THIS ASKS: a worktree whose `git status --short` call SUCCEEDS and",
+    "reports a real tracked change, but whose `git log --oneline -5` call",
+    "FAILS, must still report `dirty=True` - the already-successful status",
+    "read must survive an unrelated log failure. Before #1488, `_parse_worktrees`",
+    "wrapped both calls in ONE try/except, so the log failure's `except` reset",
+    "`status` too, turning a KNOWN-dirty worktree into `dirty=None` (unexamined)",
+    "and discarding evidence the gate already had.",
+    "",
+    "WHY A SEPARATE CONTROL, not a new case on controls/project-next: that",
+    "control's own `limits` field named this exact gap, and a new case there",
+    "was the first attempt (#1488 review) - but its shared anchor set requires",
+    "EVERY registered anchor to miss EVERY case (ADR 0008's INERT verdict), and",
+    "the pre-#1488 anchor correctly CATCHES the OLDER #1398 case",
+    "(bad-worktree-status-unreadable, a real `git status` failure) since that",
+    "fix predates and is unrelated to #1488's. Sharing the anchor set made the",
+    "control INERT for that case - not because anything regressed, but because",
+    "the two sub-checks are independently blind (fixing #1488 does not touch",
+    "#1398's behavior, and vice versa), which is exactly the Nit Store",
+    "convention's trigger for separate registrations.",
+    "",
+    "WHY NO GIT-ARCHIVE SANDBOX: controls/project-next's invocation runs the",
+    "full `scripts/project-next.py` CLI, which checks the engine's",
+    "CONTRACT_VERSION against lib/project_next/ownership.json's pinned value -",
+    "a check `_parse_worktrees` itself never touches. Overlaying only `{gate}`",
+    "onto an archived pre-#1488 tree desyncs that pin from `rank.py`'s current",
+    "CONTRACT_VERSION and the CLI refuses before reaching worktree collection",
+    "at all (measured: 'engine speaks v1.6, manifest pins v1.5', UNSIGNALLED).",
+    "This control instead loads `{gate}` directly as a fake submodule of the",
+    "real, already-on-sys.path `lib.project_next` package (the same technique",
+    "controls/project-next-dependencies uses), so its relative imports resolve",
+    "to the repository's current `models.py`/`config.py` rather than an",
+    "archived pre-fix pair, and the CLI (and its version pin) is never invoked."
+  ],
+  "gate": "lib/project_next/collect.py",
+  "invocation": [
+    "python3",
+    "controls/project-next-worktree-log/check.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^known-dirty worktree .* names issue #999",
+  "limits": "Covers ONLY the log-only failure path of _parse_worktrees, via a deterministic injected CommandRunner - not a real corrupted git repository, and not the status-failure path (controls/project-next covers that with a real broken worktree).",
+  "cases": [
+    {
+      "name": "bad-log-unreadable",
+      "input": "cases/bad-log-unreadable",
+      "expect": "BAD",
+      "why": "Status succeeds and reports a tracked change; only `git log` raises. A known-dirty worktree must retain its dirty evidence rather than reading as unexamined."
+    },
+    {
+      "name": "good-log-readable",
+      "input": "cases/good-log-readable",
+      "expect": "GOOD",
+      "why": "Both status and log succeed cleanly; a genuinely clean worktree must not be flagged."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "f385e24",
+      "origin": "lib/project_next/collect.py",
+      "path": "anchors/pre-1488-collect.py",
+      "sha256": "a0711994440d715b9ace5afedc4acaf3234cbc301c0b5a4cf7f2cf74ec791e13",
+      "why": "The module as it stood immediately before #1488 (one try/except covering both status and log). On the known-bad input, its except resets status too, losing the already-successful dirty read (dirty=None, MISSES the known-bad input). On the known-good input it agrees with the current gate (dirty=False)."
+    }
+  ]
+}

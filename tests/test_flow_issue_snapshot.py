@@ -387,3 +387,55 @@ def test_every_unresolved_branch_has_a_case_that_PINS_IT() -> None:
         "asserting only 'unresolved' could pass through them:\n  "
         + "\n  ".join(unpinned)
     )
+
+
+@requires_git
+def test_revision_snapshot_terminator_and_drift(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    body = b'original\n<!-- end of body -->\n\n'
+    snap = snapshot(repo, body)
+    subprocess.run(['git', '-C', str(repo), 'add', '-N', SNAP_REL], check=True)
+    check = subprocess.run(['git', '-C', str(repo), 'diff', '--check'], capture_output=True, text=True)
+    assert check.returncode == 0, check.stdout
+    assert snap.read_text().endswith('\n<!-- end of body -->\n')
+    live = tmp_path / 'live.md'
+    live.write_bytes(body.replace(b'original', b'changed'))
+    out = verdict(repo, live)
+    assert 'ISSUE_DRIFT: drift' in out
+    assert '-<!-- end of body -->' not in out, out
+    # A following run adds separator newlines to the selected historical section.
+    snap.write_text(snap.read_text() + '\n')
+    assert '-<!-- end of body -->' not in verdict(repo, live)
+    snap.write_text(snap.read_text().removesuffix('\n'))
+    # Historical snapshots have no terminator and still compare their full digest.
+    snap.write_text(snap.read_text().removesuffix('\n<!-- end of body -->\n'))
+    live.write_bytes(body)
+    assert 'ISSUE_DRIFT: clean' in verdict(repo, live)
+    snapshot(repo, b'old body\n\n')
+    live.write_bytes(b'new body\n\n')
+    out = verdict(repo, live)
+    assert 'ISSUE_DRIFT: drift' in out
+    assert '<!-- end of body -->' not in out, out
+
+
+def test_revision_reapproval_bytes(tmp_path: Path) -> None:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location('flow_record', HELPER)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"could not load {HELPER}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    snap = tmp_path / 'snapshot.md'
+    first_id, second_id = 'a' * 32, 'b' * 32
+    first = f'<!-- flow-run n=1 id={first_id} -->\nfirst body\n<!-- end of body -->\n'
+    second = f'<!-- flow-run n=2 id={second_id} -->\nsecond body\n<!-- end of body -->\n'
+    module.write_run_part(snap, first_id, first)
+    module.write_run_part(snap, second_id, second)
+    twice = snap.read_bytes()
+    module.write_run_part(snap, second_id, second)
+    third = snap.read_bytes()
+    assert third == twice, f'reapproval grew from {len(twice)} to {len(third)} bytes'
+    module.write_run_part(snap, second_id, second)
+    assert snap.read_bytes() == twice
+    assert third.startswith(first.encode() + b'\n'), 'first run content changed'
