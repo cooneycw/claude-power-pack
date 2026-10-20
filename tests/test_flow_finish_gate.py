@@ -3078,3 +3078,58 @@ def test_plan_check_does_not_exempt_enrolment_only(tmp_path: Path) -> None:
         cwd=tmp_path, env=env, capture_output=True, text=True)
     assert proc.returncode == 1, proc.stdout + proc.stderr
     assert "FLOW_FINISH_GATE: fail (counter-model line missing)" in proc.stdout
+
+
+@requires_bash
+@requires_git
+@pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3 on PATH")
+@pytest.mark.parametrize("case", ["good-fail-fix-resume", "bad-makefile-changed-between-runs"])
+@pytest.mark.parametrize("state_count", [0, 1, 2])
+def test_resume_stub_requires_exactly_one_state_file(
+    tmp_path: Path, case: str, state_count: int,
+) -> None:
+    """Hardening: fresh case runs do not currently produce ambiguous state.
+
+    A scratch phase-one driver plants state files just before the real stub
+    reads them. Two files must refuse; one must reach the resume.
+    """
+    source = ROOT / "controls/flow-finish-gate-resume/cases" / case
+    scratch = tmp_path / "case"
+    shutil.copytree(source, scratch)
+    # A controlled git shim selects the non-repository state location even if
+    # the pytest temporary directory happens to sit below a checkout.
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    git = bindir / "git"
+    git.write_text("#!/bin/sh\nexit 1\n")
+    git.chmod(0o755)
+    phase_one = scratch / "phase_one.py"
+    phase_one.write_text(
+        "from pathlib import Path\n"
+        "import sys\n"
+        "state = Path('.claude/runs')\n"
+        "state.mkdir(parents=True, exist_ok=True)\n"
+        f"for index in range({state_count}):\n"
+        "    (state / f'{index}.json').write_text('{\"status\": \"not-run\"}')\n"
+        "print('phase-driver-ran')\n"
+        "sys.exit(1)\n"
+    )
+    assert not (scratch / ".phase1-done").exists()
+    assert not list(scratch.glob(".claude/runs/*.json"))
+    result = subprocess.run(
+        ["bash", str(scratch / "bin/uv"), "--project", str(ROOT), "python3", str(phase_one)],
+        cwd=scratch, env=dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}"),
+        capture_output=True, text=True, check=False, timeout=30,
+    )
+    assert len(list(scratch.glob(".claude/runs/*.json"))) == state_count
+    if state_count == 2:
+        assert result.returncode == 9, result.stderr
+        assert "holds 2 state\n  files; this case cannot tell which one phase 1 produced." in result.stderr
+    elif state_count == 0:
+        assert result.returncode == 9, result.stderr
+        assert "*.json state file, so phase 2 would be a FRESH run, not a resume." in result.stderr
+    else:
+        assert result.returncode == 1, result.stderr
+        assert "precondition ok" in result.stderr
+        assert "PHASE 2" in result.stderr
+        assert "PRECONDITION FAILED" not in result.stderr

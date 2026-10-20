@@ -868,7 +868,13 @@ def test_a_combination_the_battery_still_misses_reports_uncaught(tmp_path: Path)
                "and the comment changes nothing observable",
         "blocked_by": "masked-by-sibling",
     }
-    root = _masked_tree(tmp_path, mutations=[GUARD_A, GUARD_B, INERT_COMMENT], combinations=[combo])
+    paired = {
+        "name": "both-guards",
+        "mutations": ["zero-count-refusal", "tool-crash-refusal"],
+        "expect": "caught",
+    }
+    root = _masked_tree(
+        tmp_path, mutations=[GUARD_A, GUARD_B, INERT_COMMENT], combinations=[combo, paired])
     result = _probe(root, "--strict")
     assert ("MUTATION-ACCEPTED: controls/toy/control.json::zero-count-and-inert-together"
             in result.stdout)
@@ -1086,7 +1092,70 @@ def test_a_null_combinations_field_is_treated_as_no_combinations(tmp_path: Path)
     key's absence - the same convention this file already applies to a null
     `mutations` field.
     """
-    root = _masked_tree(tmp_path, mutations=[GUARD_A, GUARD_B], combinations=None)
+    root = _masked_tree(tmp_path, mutations=[INERT_COMMENT], combinations=None)
     result = _probe(root, "--strict")
     assert result.returncode == 0
+    assert "MUTATION-ACCEPTED: controls/toy/control.json::comment-only-change" in result.stdout
+
+
+def test_masked_by_sibling_requires_a_combination_reference(tmp_path: Path) -> None:
+    root = _masked_tree(tmp_path, mutations=[GUARD_A], combinations=None)
+    path = root / "controls/toy/control.json"
+    spec = json.loads(path.read_text())
+    del spec["combinations"]
+    path.write_text(json.dumps(spec))
+    assert "combinations" not in json.loads(path.read_text())
+    assert spec["mutations"][0]["blocked_by"] == "masked-by-sibling"
+    result = _probe(root, "--strict")
+    assert "MUTATION-INAPPLICABLE: controls/toy/control.json::zero-count-refusal" in result.stdout
+    assert ("masked-by-sibling mutation 'zero-count-refusal' is not referenced by any "
+            "combinations[].mutations entry") in result.stdout
+
+
+def test_masked_by_sibling_with_a_combination_reference_keeps_normal_verdict(tmp_path: Path) -> None:
+    combo = {
+        "name": "paired", "mutations": ["zero-count-refusal", "tool-crash-refusal"],
+        "expect": "caught",
+    }
+    root = _masked_tree(tmp_path, mutations=[GUARD_A, GUARD_B], combinations=[combo])
+    result = _probe(root, "--strict")
+    assert result.returncode == 0, result.stdout
     assert "MUTATION-ACCEPTED: controls/toy/control.json::zero-count-refusal" in result.stdout
+    assert "not referenced by any" not in result.stdout
+
+
+@pytest.mark.parametrize("malformed", [42, [{"name": "broken", "mutations": 42}]])
+def test_integer_combination_shapes_keep_existing_diagnostics(tmp_path: Path, malformed: Any) -> None:
+    root = _masked_tree(tmp_path, mutations=[INERT_COMMENT], combinations=malformed)
+    spec = json.loads((root / "controls/toy/control.json").read_text())
+    assert spec["combinations"] == malformed
+    result = _probe(root, "--strict")
+    assert result.returncode == 1
+    assert "Traceback" not in result.stderr
+    if isinstance(malformed, int):
+        detail = ("`combinations` must be a list of objects, got int - "
+                  "a malformed manifest is not a weaker instrument, it is an unreadable one")
+        name = "combinations"
+    else:
+        detail = ("combination declares no usable `mutations` list (at least two existing "
+                  "mutation names - a list of one is not a combination)")
+        name = "broken"
+    assert f"MUTATION-INAPPLICABLE: controls/toy/control.json::{name}" in result.stdout
+    assert detail in result.stdout
+    print(result.stdout)
+
+
+def test_uncaught_combination_does_not_prove_sibling_masking(tmp_path: Path) -> None:
+    combo = {
+        "name": "inert-pair", "mutations": [GUARD_A["name"], INERT_COMMENT["name"]],
+        "expect": "uncaught", "why": "the sibling still masks the removed guard",
+        "blocked_by": "masked-by-sibling",
+    }
+    assert combo["expect"] != "caught"
+    assert GUARD_A["blocked_by"] == "masked-by-sibling"
+    root = _masked_tree(tmp_path, mutations=[GUARD_A, INERT_COMMENT], combinations=[combo])
+    result = _probe(root, "--strict")
+    assert result.returncode == 1
+    assert "MUTATION-INAPPLICABLE: controls/toy/control.json::zero-count-refusal" in result.stdout
+    assert "inert-pair' (expect='uncaught')" in result.stdout
+    assert 'not expect: "caught"' in result.stdout

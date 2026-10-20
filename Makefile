@@ -1044,6 +1044,25 @@ install-drift-check:
 install-drift-list:
 	@scripts/install-drift.sh --list
 
+## Blind-anchor regeneration (issue #1492). A constructed anchor is the gate's
+## own code with ONE intentional blinding plus whatever path/environment
+## adaptation its location under controls/<name>/anchors/ requires - a
+## mechanical "copy the gate" regeneration drops the adaptation silently
+## (#1182's incident). The stored `.patch` beside each regenerated anchor
+## holds ONLY that intentional transformation; this target applies it fresh
+## to the gate's CURRENT code, so the regenerated anchor also resyncs any
+## unrelated drift the gate has picked up since - which is the point, not a
+## side effect. Manual, by design: a human names which control and decides
+## whether to --write, so this is never run automatically.
+
+## verify-coverage: excluded regenerate-blind-anchor-check - reports whether a control's committed anchor still matches its gate + stored patch; a human decides whether to regenerate, never run automatically
+regenerate-blind-anchor-check:
+	@python3 scripts/regenerate-blind-anchor.py $(CONTROL)
+
+## verify-coverage: utility regenerate-blind-anchor - regenerates one control's anchor from its gate + stored patch; it issues no verdict
+regenerate-blind-anchor:
+	@python3 scripts/regenerate-blind-anchor.py $(CONTROL) --write
+
 ## Common-memory harness (issue #433): links scripts/cpp-memory onto PATH and
 ## installs the hand-authored Codex /cpp-memory prompt. Idempotent. Wired into
 ## /cpp:init Tier 5 and /cpp:update Step 7.9 (issue #575) - before that it was
