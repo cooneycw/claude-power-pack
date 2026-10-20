@@ -1515,6 +1515,37 @@ When presenting the final drift table, reclassify any systemd finding from that
 script as `LEGACY SYSTEMD`, `LEGACY DEPRECATED`, or `ORPHANED LEGACY`. Do not
 report systemd as `CONFLICT`, `FAILED SYSTEMD`, or `STALE SERVICE`.
 
+#### 6b.1: Friction Capture .gitignore (issue #1498)
+
+`/cpp:init` adds `.claude/friction.jsonl` and `.claude/friction/` to the
+target `.gitignore` (same step as `settings.local.json`), but a project
+initialised BEFORE that fix only gets it through `/cpp:update`. This step did
+not exist in `/cpp:update` at all until now - add it, idempotent exactly like
+`/cpp:init`'s own version:
+
+```bash
+# /flow:auto's friction capture (scripts/friction-log.sh) writes into this
+# project's own .claude/, same as CPP's own .gitignore (:288-289) - without
+# this, friction capture dirties the consumer project's working tree. Each
+# entry is checked independently so a re-run never duplicates a line already
+# present, and a project with no .gitignore at all is left alone (this step
+# never creates one).
+if [ -f ".gitignore" ]; then
+  FRICTION_HEADER_WRITTEN=0
+  for pattern in ".claude/friction.jsonl" ".claude/friction/"; do
+    if ! grep -qxF -- "$pattern" .gitignore; then
+      if [ "$FRICTION_HEADER_WRITTEN" -eq 0 ]; then
+        echo "" >> .gitignore
+        echo "# Claude Code friction capture (local, not shared history)" >> .gitignore
+        FRICTION_HEADER_WRITTEN=1
+      fi
+      echo "$pattern" >> .gitignore
+      echo "✓ Added $pattern to .gitignore"
+    fi
+  done
+fi
+```
+
 ### 6c: Detect Orphaned Docker MCP Servers
 
 Systemd orphans are only half the picture: when a server is retired from CPP, a

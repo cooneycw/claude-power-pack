@@ -204,10 +204,18 @@ class DeployVerifyResult:
     def summary_line(self) -> str:
         base = f"Deploy verdict: {self.verdict.value.upper()}"
         if self.reasons:
-            return f"{base} - {self.reasons[0]}"
-        if self.snapshot.total == 0:
-            return f"{base} - no probes configured"
-        return f"{base} - {self.snapshot.passed}/{self.snapshot.total} probes passed"
+            base = f"{base} - {self.reasons[0]}"
+        elif self.snapshot.total == 0:
+            base = f"{base} - no probes configured"
+        else:
+            base = f"{base} - {self.snapshot.passed}/{self.snapshot.total} probes passed"
+        rc = self.release_check
+        if rc.intended is not None:
+            if rc.status == "matched":
+                base += f" | release: matched ({rc.served})"
+            elif rc.status == "not_checked":
+                base += f" | release: not checked (no release_probe configured for {rc.intended})"
+        return base
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -392,7 +400,9 @@ def verify_deployment(
 
     verdict, reasons = _decide(diffs, current, baseline, vconf)
     release_check = ReleaseCheck()
-    if intended_release:
+    if intended_release and not vconf.release_probe.url:
+        release_check = ReleaseCheck(status="not_checked", intended=intended_release)
+    elif intended_release:
         served = _fetch_served_release(vconf.release_probe)
         if served is None:
             release_check = ReleaseCheck(status="unreadable", intended=intended_release)
@@ -497,7 +507,7 @@ def _git_commit(project_root: Optional[str]) -> str:
         )
         if proc.returncode == 0:
             return proc.stdout.strip()
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
         pass
     return ""
 
