@@ -49,8 +49,8 @@ as `AGENTS.md.pre-cpp-<UTC timestamp>` beside it. It never creates `~/.codex`.
 
 ## What the check does NOT establish
 
-That Codex READS the file, or obeys it. It checks `~/.codex`, not a relocated
-`CODEX_HOME`. Both are properties of another program.
+That Codex READS the file, or obeys it. It checks the selected Codex home, including a relocated `CODEX_HOME`.
+Whether Codex reads or obeys it is a property of another program.
 On 2026-10-12 a phrase probe (#1441) showed Codex 0.162.1 loading
 `~/.codex/AGENTS.md` in every directory tried; this script does not re-measure it.
 
@@ -164,11 +164,11 @@ def classify(target_text: str, expected: str) -> str:
     return "current" if target_text == expected else "stale"
 
 
-def paths(home: Path) -> tuple[Path, Path, Path]:
+def paths(home: Path, codex_home: Path) -> tuple[Path, Path, Path]:
     return (
         home / ".claude" / "CLAUDE.md",
-        home / ".codex" / "AGENTS.md",
-        home / ".codex" / "AGENTS.local.md",
+        codex_home / "AGENTS.md",
+        codex_home / "AGENTS.local.md",
     )
 
 
@@ -181,8 +181,8 @@ def workspace_agents(home: Path, projects: Path) -> list[Path]:
     return found
 
 
-def check(home: Path, projects: Path, quiet: bool) -> int:
-    source_path, target, extras_path = paths(home)
+def check(home: Path, projects: Path, quiet: bool, codex_home: Path) -> int:
+    source_path, target, extras_path = paths(home, codex_home)
     source = read_text(source_path)
     if not quiet:
         for found in workspace_agents(home, projects):
@@ -267,8 +267,8 @@ def write_backup(target: Path, text: str) -> Path:
     raise FileExistsError(f"no free backup name for {target}")
 
 
-def write(home: Path, adopt: bool) -> int:
-    source_path, target, extras_path = paths(home)
+def write(home: Path, adopt: bool, codex_home: Path) -> int:
+    source_path, target, extras_path = paths(home, codex_home)
     source = read_text(source_path)
     if source is None:
         print(f"NOTE: cannot read {source_path}; nothing written.")
@@ -319,14 +319,18 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--write", action="store_true", help="build ~/.codex/AGENTS.md")
     parser.add_argument("--adopt", action="store_true", help="with --write: back up and replace a hand-written file")
     parser.add_argument("--home", type=Path, default=Path.home(), help="home directory to act on (tests)")
+    parser.add_argument("--codex-home", type=Path, help="Codex directory (default: CODEX_HOME or HOME/.codex)")
     parser.add_argument("--projects", type=Path, default=None, help="projects directory (default: HOME/Projects)")
     parser.add_argument("--quiet", action="store_true", help="--check: print only the verdict line")
     args = parser.parse_args(argv)
     if args.adopt and not args.write:
         parser.error("--adopt only applies with --write")
+    codex_home = args.codex_home
+    if codex_home is None:
+        codex_home = Path(os.environ["CODEX_HOME"]) if "CODEX_HOME" in os.environ else args.home / ".codex"
     if args.write:
-        return write(args.home, args.adopt)
-    return check(args.home, args.projects or args.home / "Projects", args.quiet)
+        return write(args.home, args.adopt, codex_home)
+    return check(args.home, args.projects or args.home / "Projects", args.quiet, codex_home)
 
 
 if __name__ == "__main__":

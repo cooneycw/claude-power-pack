@@ -984,6 +984,21 @@ git commit -m "type(scope): Description (${ISSUE_REF})"
 git merge --no-edit origin/main
 ```
 
+**Never collapse AFTER the counter-model receipt (item 1 below) has been
+written for this branch's current commits (Nit Store #864).** A receipt
+records `--head <sha>`, and `scripts/flow-finish-gate.sh`'s enrolment check
+accepts only that exact commit or a descendant of it
+(`git merge-base --is-ancestor`). `git reset --soft` + a new `git commit`
+replaces the receipted commit with a different SHA that is not a descendant of
+it - the receipt still exists on disk, but it no longer describes anything in
+this branch's history, and the finish gate then fails with "counter-model line
+missing" even though a real review happened. If you must collapse after the
+receipt is written, re-run the review and write a fresh receipt against the
+collapsed commit; do not reuse the old one. Picking up a moved base with
+`git merge` instead of a collapse-then-reset avoids this entirely, since a
+merge commit keeps the receipted commit as an ancestor (see the "Prefer NO
+collapse" note above).
+
 1. **Counter-model review** - a second model reads the branch, BEFORE the
    quality gates below (issue #934,
    [ADR 0007](../../../docs/decisions/0007-counter-model-review.md)).
@@ -1050,7 +1065,29 @@ git merge --no-edit origin/main
    inability to run codex. The reversal trigger that would bring it back is
    committed beside `SKIP_REASONS` in `scripts/counter-model-receipt.py`.
 
-   **1b. Run the review.** Invoke `/codex:code_review` with that BASE and
+   **No eligible reviewer in a Codex lane (issue #1494).** `/codex:code_review`
+   ships no Codex-callable skill at all - `codex/skills/` has no `review` or
+   `codex` entry - and even if it did, invoking it from a session where
+   `$CODEX_THREAD_ID` is set would be this session reviewing its own diff: the
+   same defect "a same-model review is not a counter-model review" (1d, below)
+   already refuses to record. `/second-opinion-start` exists as a Codex skill
+   and genuinely reaches a non-Codex model, but its output is free-form MCP
+   prose, not the `COUNTER_MODEL_REVIEW:` marker shape `$CM_RECEIPT parse`
+   requires - wiring it into this receipt pipeline is a separate, larger change
+   than naming the reviewer step honestly (tracked as issue #1513; out of
+   scope here). So: when `$CODEX_THREAD_ID` is set, skip straight to 1d with
+   `reviewer-unavailable` and do not attempt 1b.
+
+   **The skip receipt is not the whole story.** `reviewer-unavailable` means no
+   reviewer feeds this automated pipeline - it does not mean no review ran.
+   Run `/second-opinion-start` (or another non-Codex review you have available)
+   yourself, and if it ran, state its reviewer and verdict in the PR body
+   alongside the skip, naming both. Until #1513 lands, the receipt alone
+   would read as "no review happened" when one did; the PR body is where that
+   gets corrected.
+
+   **1b. Run the review** (Claude sessions only - a Codex lane takes the skip
+   above). Invoke `/codex:code_review` with that BASE and
    `CONTEXT` = `"issue #<N>: <issue title>"`, and **capture the transcript to a
    file** - the receipt in 1d is derived from it, not from memory.
 

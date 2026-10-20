@@ -49,13 +49,19 @@ deploy:
       description: "Deploy to staging"
       requires_confirmation: false
 
+# -------------------------------------------------------------------
+# Deploy Verification (used by /cicd:verify, /flow:deploy, /flow:auto)
+# -------------------------------------------------------------------
+# Capture the health.endpoints / health.smoke_tests below as a baseline
+# BEFORE a deploy, re-run them AFTER, diff the two, and emit an actionable
+# verdict: proceed / review / rollback. Catches a deploy that made things
+# worse than before - which raw health/smoke checks cannot.
+#
 # <cicd-example:health-start>
 # # -------------------------------------------------------------------
 # # Health Checks and Smoke Tests (used by /cicd:health and /cicd:smoke)
 # # -------------------------------------------------------------------
 # # Endpoints, processes, and smoke tests all live under one health: key.
-# # The Deploy Verification health: example below is a separate block;
-# # do not merge it here (a known, separately tracked quirk).
 # health:
 #   endpoints:
 #     - url: http://localhost:8000/health
@@ -75,17 +81,6 @@ deploy:
 #       expected_exit: 0
 #       expected_output: '"status":"ok"'
 #       timeout: 10
-# <cicd-example:health-end>
-
-# -------------------------------------------------------------------
-# Deploy Verification (used by /cicd:verify, /flow:deploy, /flow:auto)
-# -------------------------------------------------------------------
-# Capture the health.endpoints / health.smoke_tests above as a baseline
-# BEFORE a deploy, re-run them AFTER, diff the two, and emit an actionable
-# verdict: proceed / review / rollback. Catches a deploy that made things
-# worse than before - which raw health/smoke checks cannot.
-#
-# health:
 #   deploy_verification:
 #     enabled: true                     # let /flow:deploy + /flow:auto auto-capture/verify
 #     baseline_file: .claude/deploy-baseline.json
@@ -93,6 +88,7 @@ deploy:
 #     latency_floor_ms: 100             # ...but only if it is also over 100ms (noise floor)
 #     on_latency_regression: review     # review | rollback | ignore
 #     require_baseline: false           # true => no baseline downgrades PROCEED to REVIEW
+# <cicd-example:health-end>
 
 # -------------------------------------------------------------------
 # Pipeline Configuration (used by /cicd:pipeline)

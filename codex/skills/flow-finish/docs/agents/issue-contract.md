@@ -84,6 +84,22 @@ them.** A copied spec becomes a second, drifting description of the same
 requirement - the same failure the
 [knowledge lifecycle](knowledge-lifecycle.md) prevents after delivery.
 
+**Declare the tier as a line in the issue, not only as an inferred shape
+(Nit Store #864, absorbed into #1499).** `#934` proposed binding counter-model
+review to tier and was closed by binding it to run-by-default instead - but
+the underlying gap outlives that one proposal: with no machine-readable tier
+signal anywhere, NO future acceptance criterion that wants to bind something
+to tier (a gate, a routing rule, a reviewer's scope) can be verified rather
+than eyeballed. An issue created or triaged by an agent session states its
+tier as a literal contract line, `Tier: 1` / `Tier: 2` / `Tier: 3`, near the
+top of the body - the same way `speckit-context`'s cache block states its own
+provenance. A human-filed issue through `.github/ISSUE_TEMPLATE/feature-request.yml`
+declares it through that template's own Tier field. Neither mechanism is a
+GitHub label: a label is a repository-wide, outward-facing object this
+document does not create or delete, and an issue's tier is a property of its
+own body, re-derivable by reading the issue the same way every other
+distinction here is.
+
 **The one exception is a machine-generated cache, and it is narrow.** An issue
 created by `scripts/speckit-tasks-to-issues.sh` carries a `speckit-context` block:
 a bounded extract of the task's declared context, produced by

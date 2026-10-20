@@ -1,0 +1,62 @@
+{
+  "_comment": [
+    "Registration for scripts/check-md-relative-links.py's --codex-skills mode",
+    "(issue #1494). Separate registration from controls/check-md-relative-links:",
+    "that control's population is tracked .md files EXCLUDING codex/skills/; this",
+    "one's population is the codex/skills/ mirror tree, resolved from the",
+    "MIRROR's own location. Disabling either exclusion does not make the other",
+    "control's anchor blind, so one anchor could not honestly demonstrate",
+    "blindness to both.",
+    "",
+    "WHY THIS GATE NEEDS ONE: it is a prerequisite of `make verify`, a gate that",
+    "lets work THROUGH, and nothing downstream re-derives it. Before this mode",
+    "existed, codex/skills/ was excluded outright - a mirror link to something",
+    "never mirrored (e.g. a source-only doc or a different skill's reference.md)",
+    "rotted invisibly, which is exactly what #1494 found by hand in four places."
+  ],
+  "gate": "scripts/check-md-relative-links.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--root",
+    "{case}",
+    "--min-files",
+    "1",
+    "--codex-skills"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^md-relative-links: [0-9]+ dead relative link\\(s\\) of [0-9]+",
+  "unknown_signal": "^md-relative-links: UNKNOWN - ",
+  "unavailable_signal": "^md-relative-links: UNAVAILABLE - git is not installed$",
+  "limits": "Covers inline relative markdown links resolving to an existing file, relative to the MIRROR file's own directory - not the source document's. It says nothing about URLs, #fragments, image links, reference-style definitions, or backtick path mentions, none of which the gate examines; a link already rewritten to an absolute GitHub URL at copy time (codex-skill-sync.py's rewrite_mirror_links) is a URL and is also out of scope here by design - it is checked for existence against the real repository at rewrite time, not re-checked here. The membership floor is lowered to 1 here because a case tree is small; the real tree's default (100) is pinned by tests/test_check_md_relative_links.py. UNAVAILABLE is declared for a missing git only, and does not apply to this mode at all (it walks the filesystem directly, never `git ls-files`) - the signal is kept identical to the sibling control's for one shared harness reading, not because this mode can produce it.",
+  "cases": [
+    {
+      "name": "bad-dead-mirror-link",
+      "input": "cases/bad-dead-mirror-link",
+      "expect": "BAD",
+      "why": "codex/skills/example/SKILL.md links to guide.md, which the mirror never carries. The one failure this mode exists for - a link relative-correct nowhere, mirrored or source."
+    },
+    {
+      "name": "good-live-mirror-links",
+      "input": "cases/good-live-mirror-links",
+      "expect": "GOOD",
+      "why": "codex/skills/example/SKILL.md links to guide.md, which IS mirrored alongside it; also an absolute GitHub URL (out of scope, not a relative link), a #fragment on a live link, and a dead target written only inside inline code and a fenced block. Separates a working gate from one wedged at fail, and from one that reads examples as links."
+    },
+    {
+      "name": "unknown-no-links",
+      "input": "cases/unknown-no-links",
+      "expect": "UNKNOWN",
+      "why": "A mirrored document whose only links are a URL and inline code. Zero relative links examined must not read as every link resolves."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/check-md-relative-links.py (default mode, before #1494)",
+      "path": "anchors/constructed-tracked-docs-only.py",
+      "sha256": "ad4caf75427f6decdbacd96b11c6fa1bfa1e72c2f9492054787bb73b35197f32",
+      "why": "CONSTRUCTED: the coverage before #1494 - the default mode's own EXCLUDED_PREFIXES exclusion of codex/skills/ entirely, reproduced standalone. Each case carries a harmless top-level README.md outside codex/skills/ so the anchor's own population is not always empty: it AGREES with the gate on the GOOD case (both GOOD, via that README.md) and on the UNKNOWN case, but MISSES the dead mirror link in the BAD case (reports GOOD, blind, as required) because that link lives entirely inside the excluded codex/skills/ tree."
+    }
+  ]
+}
