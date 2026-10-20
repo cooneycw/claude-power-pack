@@ -429,10 +429,18 @@ That is a loud usage error, not a silent empty success, so the original
 concern does not reproduce against the command it names. The mechanism it was
 pointing at is real under plain `git diff`, and under anything built on it
 (`gh pr view --json files` plus a manual name match, a wrapper script that
-shells out to `git diff -- <path>`, and so on). Prefer the unfiltered form
-(`git diff <ref>` or `gh pr diff <n>` with no path) and grep the output
-yourself, or use `gh pr view --json files` and check the path is actually
-listed before trusting an empty diff as "no changes here".
+shells out to `git diff -- <path>`, and so on).
+
+**Grepping an unfiltered diff is an inspection aid, not the fix.** Fetching
+`git diff <ref>` or `gh pr diff <n>` with no path and grepping the result for
+the path you care about still cannot tell "this path is unchanged" from "this
+path was never in either tree" - both produce zero matches, which is the same
+ambiguity one level up. Establishing that a path's absence means "no changes"
+requires independently confirming the path EXISTS and is a real member of the
+trees being compared first - `gh pr view --json files` and check the path is
+actually listed among the PR's changed files, or `git cat-file -e <ref>:<path>`
+against at least one side - before reading an empty match as a verified
+negative rather than an unresolved one.
 
 ## Related
 
