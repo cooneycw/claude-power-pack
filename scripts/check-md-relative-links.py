@@ -4,7 +4,8 @@
 Issue #1413. Citations rotted in documents nothing checked: CLAUDE.md's own
 pointers are gated by `check-claude-md-links.py`, and every other document was
 not. This gate covers the citation shape that is unambiguous - an inline
-markdown link `[text](relative/path)` - across every tracked `.md` file.
+markdown link `[text](relative/path)` or HTML anchor href - across every
+tracked `.md` file.
 
 WHY LINKS AND NOT BACKTICK PATHS. The first attempt (#1413's parked branch)
 scanned backtick spans that look like repository paths. Over its narrowest
@@ -36,7 +37,8 @@ WHAT IT SKIPS, AND WHY:
 - URLs (any `scheme:`), bare `#anchors`, and absolute `/paths` - not relative
   files in this tree. A link's own `#fragment` is stripped; only the file is
   checked, never the heading.
-- Links inside fenced code blocks and inline code spans - examples, not links.
+- Links inside fenced/indented code, inline code spans and HTML comments -
+  examples, not links.
 - Image links `![...](...)`, and reference-style definitions `[id]: path` -
   out of scope; the limit is stated, not hidden.
 - `EXCLUDED_PREFIXES` below: generated or copied text whose links resolve from
@@ -48,7 +50,8 @@ not ignored, so a new document is checked before it is committed). Fewer files
 than `--min-files`, or zero links examined, is UNKNOWN (exit 2) - a scan over
 nothing is not a clean scan.
 
-Exit codes: 0 every examined link resolves, 1 a dead link, 2 UNKNOWN.
+Exit codes: 0 every examined link resolves inside the root, 1 a dead or escaping
+link, 2 UNKNOWN.
 
 Usage:
     python3 scripts/check-md-relative-links.py
@@ -91,7 +94,9 @@ EXCLUDED_PREFIXES = (
     "tests/",
 )
 
-LINK_START_RE = re.compile(r"(?<!!)\[[^\]\n]*\]\(")
+LINK_START_RE = re.compile(r"(?<!!)\[(?:[^\[\]]|\[[^\]]*\])*\]\(")
+HTML_LINK_RE = re.compile(r'''<a\b[^>]*?\s+href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))''', re.I)
+COMMENT_RE = re.compile(r"<!--.*?(?:-->|\Z)", re.S)
 FENCE_RE = re.compile(r"^\s*(?:>\s*)*(`{3,}|~{3,})")
 #: A CLOSING fence is the marker and nothing else (CommonMark): `\x60\x60\x60python`
 #: inside an open fence is content, not its end.
@@ -105,6 +110,7 @@ class DeadLink:
     path: str
     line: int
     target: str
+    reason: str = "does not exist"
 
 
 class GitUnavailable(Exception):
@@ -185,24 +191,56 @@ def _link_target(raw: str) -> str | None:
 def links_in(text: str) -> list[tuple[int, str]]:
     """`(line number, target)` for every relative link outside code."""
     found: list[tuple[int, str]] = []
+    # Mask instead of deleting so multi-line matches retain source line numbers.
+    def mask(match: re.Match[str]) -> str:
+        return re.sub(r"[^\n]", " ", match.group())
+
+    text = COMMENT_RE.sub(mask, text)
     fence: str | None = None
-    for number, line in enumerate(text.splitlines(), start=1):
+    visible: list[str] = []
+    paragraph_open = False
+    list_indent = 0
+    for line in text.splitlines(keepends=True):
+        hidden = False
         if fence is None:
             m = FENCE_RE.match(line)
             if m:
                 fence = m.group(1)
-                continue
+                paragraph_open = False
+                hidden = True
+            else:
+                expanded = line.expandtabs(4)
+                indent = len(expanded) - len(expanded.lstrip())
+                if expanded.strip() and indent < list_indent:
+                    list_indent = 0
+                # Indented code cannot interrupt a paragraph. In a list the
+                # marker's content indentation is additional to the four
+                # spaces needed for a code block.
+                hidden = indent >= list_indent + 4 and not paragraph_open
+                marker = re.match(r"^( {0,3})(?:[-+*]|[0-9]{1,9}[.)])( +)", expanded)
+                if marker and not hidden:
+                    list_indent = marker.end()
+                paragraph_open = bool(expanded.strip()) and not hidden
         else:
             m = CLOSING_FENCE_RE.match(line)
             if m and m.group(1).startswith(fence):
                 fence = None
-            continue
-        code_free = INLINE_CODE_RE.sub("", line)
-        for start in LINK_START_RE.finditer(code_free):
-            raw = _destination(code_free, start.end())
-            target = _link_target(raw) if raw is not None else None
-            if target is not None:
-                found.append((number, target))
+            hidden = True
+            paragraph_open = False
+        visible.append(re.sub(r"[^\n]", " ", line) if hidden else line)
+    code_free = INLINE_CODE_RE.sub(mask, "".join(visible))
+    for start in LINK_START_RE.finditer(code_free):
+        raw = _destination(code_free, start.end())
+        target = _link_target(raw) if raw is not None else None
+        if target is not None:
+            found.append((code_free.count("\n", 0, start.start()) + 1, target))
+    for match in HTML_LINK_RE.finditer(code_free):
+        raw = next(value for value in match.groups() if value is not None)
+        # HTML href values can contain spaces without Markdown angle brackets.
+        target = _link_target("<" + raw + ">")
+        if target is not None:
+            found.append((code_free.count("\n", 0, match.start()) + 1, target))
+    found.sort(key=lambda item: item[0])
     return found
 
 
@@ -220,7 +258,10 @@ def find_dead_links(root: Path, files: list[str]) -> tuple[list[DeadLink], int, 
             continue
         for number, target in links_in(text):
             examined += 1
-            if not (path.parent / target).exists():
+            resolved = (path.parent / target).resolve()
+            if not resolved.is_relative_to(root.resolve()):
+                dead.append(DeadLink(rel, number, target, "escapes repository root"))
+            elif not resolved.exists():
                 dead.append(DeadLink(rel, number, target))
     return dead, examined, unreadable
 
@@ -251,7 +292,7 @@ def main(argv: list[str] | None = None) -> int:
     dead, examined, unreadable = find_dead_links(root, files)
     if unreadable:
         for d in dead:
-            print(f"  {d.path}:{d.line}: ({d.target}) does not exist", file=sys.stderr)
+            print(f"  {d.path}:{d.line}: ({d.target}) {d.reason}", file=sys.stderr)
         print(f"md-relative-links: UNKNOWN - {len(unreadable)} tracked .md file(s) could "
               "not be read, so their links were not examined:", file=sys.stderr)
         for rel in unreadable:
@@ -265,7 +306,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"md-relative-links: {len(dead)} dead relative link(s) of {examined} "
               f"across {len(files)} tracked .md file(s):", file=sys.stderr)
         for d in dead:
-            print(f"  {d.path}:{d.line}: ({d.target}) does not exist", file=sys.stderr)
+            print(f"  {d.path}:{d.line}: ({d.target}) {d.reason}", file=sys.stderr)
         return 1
     print(f"md-relative-links: ok - {examined} relative link(s) across {len(files)} "
           "tracked .md file(s) resolve (file existence only; URLs, anchors, images "

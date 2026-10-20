@@ -907,12 +907,15 @@ def _preflight_declarations(lines: list[str]) -> tuple[set[str], set[str], set[s
       followed by ``curl ... 2>/dev/null`` is not "softly" optional - the
       preflight has already exited if curl were absent, so the redirect is
       ordinary error-handling for a binary known present, not evidence the
-      script survives without it. Excludes any binary also in ``degrades``,
+      script survives without it. Excludes binaries with a competing top-level
+      degrading preflight,
       so a script with one exiting AND one degrading preflight for the same
-      binary - a contradiction this scan does not try to adjudicate - is not
-      silently resolved in either direction.
+      binary on indistinguishable top-level paths is not
+      silently resolved in either direction. A separate nested degrading
+      preflight cannot cancel an unconditional top-level requirement.
     """
     degrades: set[str] = set()
+    top_level_degrades: set[str] = set()
     top_level: set[str] = set()
     nested: set[str] = set()
     for index, line in enumerate(lines):
@@ -920,6 +923,11 @@ def _preflight_declarations(lines: list[str]) -> tuple[set[str], set[str], set[s
             binary = match.group("bin")
             if not EXIT_RE.search(_failure_branch(lines, index)):
                 degrades.add(binary)
+                prefix = line[:match.start()].strip()
+                if line == line.lstrip() and (
+                    not prefix or CONDITION_OPENER_RE.match(prefix)
+                ):
+                    top_level_degrades.add(binary)
             elif (
                 line[: match.start()].strip()
                 and not CONDITION_OPENER_RE.match(line[: match.start()].strip())
@@ -929,7 +937,7 @@ def _preflight_declarations(lines: list[str]) -> tuple[set[str], set[str], set[s
                 nested.add(binary)
             else:
                 top_level.add(binary)
-    return degrades, nested - top_level, top_level - degrades
+    return degrades, nested - top_level, top_level - top_level_degrades
 
 
 def _is_case_label(line: str, col: int, bin_len: int) -> bool:
