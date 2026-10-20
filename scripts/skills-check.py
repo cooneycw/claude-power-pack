@@ -267,6 +267,26 @@ def _add(report: Report, code: str, path: Path, detail: str) -> None:
     report.findings.append(Finding(code, path, detail))
 
 
+def _validate_metadata(report: Report, skill_path: Path, metadata: dict[str, object]) -> None:
+    """Bound CPP's metadata convention to provenance and source.
+
+    The Agent Skills spec defines flat string-to-string metadata. CPP's one
+    nesting exception is metadata.provenance: structured fields such as class
+    avoid inventing a delimiter convention. metadata.source, the other key
+    specifically read here, remains a flat string. Flattening this convention
+    would require rewriting every skill's frontmatter and the installer code
+    that reads metadata.source, a migration beyond this change's scope.
+    """
+    values = metadata.get("metadata")
+    if isinstance(values, dict):
+        for key, value in values.items():
+            if key != "provenance" and isinstance(value, dict):
+                _add(
+                    report, "INVALID_METADATA", skill_path,
+                    f"metadata.{key} must be a flat string; only metadata.provenance may be a mapping",
+                )
+
+
 def _validate_provenance(
     report: Report,
     skill_path: Path,
@@ -540,6 +560,7 @@ def _validate_package(
             names[normalized] = skill_path
 
     _validate_trigger_reachability(report, skill_path, metadata)
+    _validate_metadata(report, skill_path, metadata)
     _validate_provenance(report, skill_path, metadata)
     _validate_references(report, skill_dir, skill_path, body)
 
