@@ -991,6 +991,14 @@ class DeterministicRunner:
                     outcome_dict["expected_red"] = True
                 else:
                     tests[step.id] = outcome_dict
+            # Advisory only; process verdict and expected_red accounting remain
+            # independent of disagreements derived from control output.
+            if outcome is not None and outcome.control_unexpected:
+                warnings.append(
+                    f"{step.id}: {len(outcome.control_unexpected)} negative-control "
+                    "invocation(s) did not behave as declared: "
+                    f"{', '.join(outcome.control_unexpected)}"
+                )
             qualifier = f" ({outcome.summary()})" if outcome else ""
 
             # A non-test gate's exit code says the tool did not error, not that

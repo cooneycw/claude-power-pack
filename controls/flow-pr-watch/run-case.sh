@@ -18,6 +18,18 @@ set -u
 case_dir="$1"
 gate="$2"
 
+case "$(basename "$case_dir")" in
+  unresolved-attribution-reads-unknown)
+    [ "$(grep -c '^=== short test summary info ===$' "$case_dir/log.txt")" -eq 2 ] || exit 3
+    grep -q '^FAILED .*::' "$case_dir/log.txt" || exit 3 ;;
+  scoped-scrape-does-not-borrow-another-steps-failure)
+    ! grep -q 'short test summary info' "$case_dir/log-36.txt" || exit 3
+    grep -q '^FAILED .*::' "$case_dir/log-39.txt" || exit 3 ;;
+  cancelled-single-step)
+    [ "$(wc -l < "$case_dir/ps.txt")" -eq 1 ] || exit 3
+    grep -q '|36|Canceled$' "$case_dir/ps.txt" || exit 3 ;;
+esac
+
 T=$(mktemp -d) || { echo "FLOW_PR_WATCH_CONTROL: unavailable - no tmpdir" >&2; exit 3; }
 trap 'rm -rf "$T"' EXIT
 
@@ -31,14 +43,25 @@ cp "$case_dir/baseline.txt" "$T/baseline" || exit 3
 printf '%s\n' "$HEAD_SHA" > "$T/heads"
 printf '%s|%s|FAILURE\n' "$PR_CTX" "$URL" > "$T/rollup"
 printf '%s|failure|%s|pull_request\n' "$PIPE" "$HEAD_SHA" > "$T/ls"
-printf 'validate|failure|2026-09-21T19:29:21Z\n' > "$T/ps"
+printf 'validate|failure|2026-09-21T19:29:21Z|36|\n' > "$T/ps"
+
+[ ! -f "$case_dir/ps.txt" ] || cp "$case_dir/ps.txt" "$T/ps"
+[ ! -f "$case_dir/ls.txt" ] || cp "$case_dir/ls.txt" "$T/ls"
+cp "$case_dir"/log-*.txt "$T/" 2>/dev/null || :
 
 cat > "$T/gh" <<GH
 #!/usr/bin/env bash
 for arg in "\$@"; do
   case "\$arg" in
     nameWithOwner) echo "o/r"; exit 0 ;;
-    headRefOid)    cat "$T/heads"; exit 0 ;;
+    headRefOid)
+      if [ -f "$case_dir/superseded.txt" ] && [ -f "$T/head-read" ]; then
+        cat "$case_dir/superseded.txt"
+      else
+        cat "$T/heads"
+        touch "$T/head-read"
+      fi
+      exit 0 ;;
     statusCheckRollup)
       with_context=0
       for f in "\$@"; do case "\$f" in *'.context // .name'*) with_context=1 ;; esac; done
@@ -66,11 +89,36 @@ case "\${2:-}" in
     fi
     exit 0 ;;
   ps)  cat "$T/ps";  exit 0 ;;
-  log) cat "$T/log"; exit 0 ;;
+  log)
+    if [ -f "$T/log-\${6:-}.txt" ]; then
+      cat "$T/log-\${6}.txt"
+    else
+      cat "$T/log"
+    fi
+    exit 0 ;;
 esac
 exit 1
 WP
 chmod +x "$T/gh" "$T/wpcli"
+
+if [ "$(basename "$case_dir")" = signal-exit-reports-real-status ]; then
+    # Signal after the watcher installs its traps, while its CLI stub blocks.
+    printf '#!/bin/sh\n: > "%s/ready"\nsleep 1\n' "$T" > "$T/gh"
+    chmod +x "$T/gh"
+    env FLOW_PR_WATCH_GH="$T/gh" bash "$gate" 42 --repo o/r >"$T/out" 2>"$T/err" &
+    watcher=$!
+    while [ ! -f "$T/ready" ]; do sleep 0.01; done
+    kill -TERM "$watcher"
+    wait "$watcher"
+    status=$?
+    cat "$T/err"
+    if [ "$status" -eq 143 ] && [ "$(grep -c '^FLOW_PR_WATCH_EXIT=' "$T/err")" -eq 1 ] && grep -qx 'FLOW_PR_WATCH_EXIT=143' "$T/err"; then
+        echo 'FLOW_PR_WATCH_CONTROL: finding - signal status reported exactly once'
+        exit 1
+    fi
+    echo 'FLOW_PR_WATCH_CONTROL: missed - signal status contract absent'
+    exit 0
+fi
 
 out=$(env FLOW_PR_WATCH_GH="$T/gh" \
           FLOW_PR_WATCH_WPCLI="$T/wpcli" \
@@ -86,6 +134,34 @@ case "$status" in
      printf '%s\n' "$out" >&2; exit 3 ;;
 esac
 
+case "$(basename "$case_dir")" in
+  unresolved-attribution-reads-unknown|scoped-scrape-does-not-borrow-another-steps-failure) expected=unknown ;;
+  cancelled-single-step) expected=cancelled ;;
+  single-summary-real-failure|ordinary-step-failure) expected=red ;;
+  *) expected="" ;;
+esac
+if [ -n "$expected" ]; then
+    printf '%s\n' "$out"
+    matched=1
+    printf '%s\n' "$out" | grep -qx "FLOW_PR_WATCH: $expected" || matched=0
+    if [ "$(basename "$case_dir")" = scoped-scrape-does-not-borrow-another-steps-failure ]; then
+        printf '%s\n' "$out" | grep -qx 'FLOW_PR_WATCH_FAILED=-' || matched=0
+        printf '%s\n' "$out" | grep -qx 'FLOW_PR_WATCH_SCRAPE_SCOPE=whole-log' || matched=0
+    fi
+    if [ "$matched" -eq 1 ]; then
+        case "$expected" in
+          red) echo 'FLOW_PR_WATCH_CONTROL: ok - real failure retained'; exit 0 ;;
+          *) echo 'FLOW_PR_WATCH_CONTROL: finding - verdict defect detected'; exit 1 ;;
+        esac
+    fi
+    if [ "$expected" = red ]; then
+        echo 'FLOW_PR_WATCH_CONTROL: finding - real failure lost'
+        exit 1
+    fi
+    echo 'FLOW_PR_WATCH_CONTROL: missed - verdict contract absent' 
+    exit 0
+fi
+
 # THE FINDING IS THE WATCHER'S OWN CAVEAT, not its red/green verdict.
 #
 # The subject here is whether the watcher declares the REGION its failure set
@@ -98,10 +174,23 @@ esac
 # red-keyed case could ever show it missing something. What it cannot do, at
 # all, is say that its own scrape was unbounded - and a control has to be able
 # to catch the gate REGRESSING to that silence.
-if printf '%s\n' "$out" | grep -q '^FLOW_PR_WATCH_SCRAPE_SCOPE=whole-log$'; then
+#
+# #1486 ADDS a second requirement to this SAME case, checked together rather
+# than as a separate case: an unbounded scrape must also stop short of a
+# red/flake VERDICT, now reading `unknown`. Checking SCRAPE_SCOPE alone made
+# the historical-pre-1486 anchor INERT here - #1190's fix already declares
+# SCRAPE_SCOPE=whole-log for this exact fixture, so an anchor taken from
+# right before #1486 still prints that line and "catches" the case, proving
+# nothing about #1486's own change. Measured directly: the pre-1486 anchor
+# reports `FLOW_PR_WATCH: red` on this fixture; the fixed gate reports
+# `unknown`. Requiring both is what makes this case discriminate the fix it
+# is meant to prove, not only the one #1190 already proved.
+if printf '%s\n' "$out" | grep -q '^FLOW_PR_WATCH_SCRAPE_SCOPE=whole-log$' \
+   && printf '%s\n' "$out" | grep -qx 'FLOW_PR_WATCH: unknown'; then
     printf '%s\n' "$out"
-    echo "FLOW_PR_WATCH_CONTROL: finding - the failure set is UNBOUNDED and says so"
+    echo "FLOW_PR_WATCH_CONTROL: finding - the failure set is UNBOUNDED and says so, and the verdict is unknown"
     exit 1
 fi
 printf '%s\n' "$out"
+echo 'FLOW_PR_WATCH_CONTROL: ok - bounded scrape'
 exit 0
