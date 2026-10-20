@@ -128,7 +128,7 @@
 #     This marker NEVER changes the exit code - the merge landed either way, and
 #     `/flow:auto` Step 7's "0 means proceed" contract is deliberately intact.
 #
-# Usage:  gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] [--wait-ci[=SECS]] <pr-number> <branch-name>
+# Usage:  gh-pr-merge.sh [--admin] [--allow-admin-retry] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] [--wait-ci[=SECS]] <pr-number> <branch-name>
 #           --admin  force `gh pr merge --admin` from the first attempt - the
 #                    conscious, HUMAN-TYPED branch-protection override (issues
 #                    #517/#579). It skips the required-check wait AND the review
@@ -345,6 +345,7 @@ trap 'printf "GH_PR_MERGE_EXIT=%d\n" "$?" >&2' EXIT
 # Parse optional per-invocation flags from anywhere in the argv, keeping the two
 # positional args (pr-number, branch-name) backward-compatible for every caller.
 ADMIN_OPT_IN=0
+ALLOW_ADMIN_RETRY=0
 ALLOW_NEGATED_CLOSE=0
 ALLOW_INCIDENTAL_CLOSE=0
 ALLOW_BASE_MOVE=0
@@ -355,6 +356,10 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --admin)
             ADMIN_OPT_IN=1
+            shift
+            ;;
+        --allow-admin-retry)
+            ALLOW_ADMIN_RETRY=1
             shift
             ;;
         --allow-negated-close)
@@ -391,7 +396,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -*)
             echo "gh-pr-merge.sh: unknown option '$1'" >&2
-            echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] [--wait-ci[=SECS]] <pr-number> <branch-name>" >&2
+            echo "Usage: gh-pr-merge.sh [--admin] [--allow-admin-retry] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] [--wait-ci[=SECS]] <pr-number> <branch-name>" >&2
             exit 2
             ;;
         *)
@@ -405,7 +410,7 @@ PR_NUMBER="${POSITIONAL[0]:-}"
 BRANCH="${POSITIONAL[1]:-}"
 
 if [[ -z "$PR_NUMBER" || -z "$BRANCH" ]]; then
-    echo "Usage: gh-pr-merge.sh [--admin] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] [--wait-ci[=SECS]] <pr-number> <branch-name>" >&2
+    echo "Usage: gh-pr-merge.sh [--admin] [--allow-admin-retry] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] [--wait-ci[=SECS]] <pr-number> <branch-name>" >&2
     exit 2
 fi
 
@@ -1949,7 +1954,8 @@ run_squash ${BASE_FLAGS+"${BASE_FLAGS[@]}"}
 
 # Branch-protection auto-retry (issue #517): if the squash was rejected by branch
 # protection, the caller did not already force --admin, and the actor is a repo
-# admin, retry once with --admin. Any non-protection failure, or a non-admin
+# admin, retry once with --admin only with --allow-admin-retry (issue #1489).
+# Any non-protection failure, or a non-admin
 # actor, is left to the MERGED-state check below - never an --admin override.
 #
 # One protection family is deliberately EXCLUDED (issue #577): a required STATUS
@@ -1966,10 +1972,17 @@ elif [[ $merge_exit -ne 0 && $ADMIN_OPT_IN -eq 0 ]] && is_review_block; then
     # clean stop - NEVER the #517 --admin auto-retry.
     review_stop "review-blocked at squash time"
 elif [[ $merge_exit -ne 0 && $ADMIN_OPT_IN -eq 0 ]] && is_protection_block && is_repo_admin; then
-    echo "note: PR #$PR_NUMBER was blocked by an administrative branch-protection rule" \
-         "(not a required check, not a required review) and the actor is a repo admin -" \
-         "retrying the squash once with --admin (issue #517, narrowed by #577/#579)." >&2
-    run_squash --admin ${BASE_FLAGS+"${BASE_FLAGS[@]}"}
+    if (( ALLOW_ADMIN_RETRY )); then
+        echo "note: PR #$PR_NUMBER was blocked by an administrative branch-protection rule" \
+             "(not a required check, not a required review) and the actor is a repo admin -" \
+             "retrying the squash once with --admin (issue #517, narrowed by #577/#579/#1489)." >&2
+        run_squash --admin ${BASE_FLAGS+"${BASE_FLAGS[@]}"}
+    else
+        echo "note: PR #$PR_NUMBER was blocked by an administrative branch-protection rule;" \
+             "no admin retry was requested. Pass --admin or --allow-admin-retry to retry" \
+             "with --admin, or obtain the reviews/checks branch protection requires" \
+             "(issue #1489 narrowing #517)." >&2
+    fi
 fi
 
 # Trust the PR state over the exit code: a non-zero from a local post-merge step

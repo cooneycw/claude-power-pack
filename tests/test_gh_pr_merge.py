@@ -1069,23 +1069,41 @@ ADMIN_PROTECTION_BLOCKED = (
 )
 
 
-def test_administrative_block_admin_still_retries_with_admin(tmp_path: Path):
+def test_administrative_block_retries_with_admin_when_opted_in(tmp_path: Path):
     # The #517 residual survives #579's narrowing: an ADMINISTRATIVE protection
     # block (no review, no required check being bypassed) still gets the single
-    # admin-gated --admin retry.
+    # admin-gated --admin retry when explicitly opted in (#1489).
     stubs = _make_stubs(
         tmp_path,
         pr_state="MERGED",
         viewer_permission="ADMIN",
         merge_outcomes=[(1, ADMIN_PROTECTION_BLOCKED), (0, "")],
     )
-    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-517-fix")
+    result = _run(_linked_worktree(tmp_path), stubs, "--allow-admin-retry", "42", "issue-517-fix")
     assert result.returncode == 0, result.stderr
     assert "merged" in result.stdout
     merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
     assert len(merge_calls) == 2, merge_calls
     assert "--admin" not in merge_calls[0], "first attempt must not force --admin"
     assert "--admin" in merge_calls[1], "administrative-block retry must add --admin"
+
+
+def test_administrative_block_without_opt_in_does_not_retry(tmp_path: Path):
+    # Issue #1489: administrative protection never grants implicit admin opt-in.
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        viewer_permission="ADMIN",
+        merge_outcomes=[(1, ADMIN_PROTECTION_BLOCKED)],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-517-fix")
+    assert result.returncode != 0
+    assert "did not merge" in result.stderr
+    assert "merged" not in result.stdout
+    calls = _calls(stubs)
+    merge_calls = [c for c in calls if c.startswith("gh pr merge")]
+    assert len(merge_calls) == 1, merge_calls
+    assert all("--admin" not in c for c in calls), calls
 
 
 def test_administrative_block_non_admin_does_not_retry(tmp_path: Path):
@@ -2385,7 +2403,7 @@ def test_tested_tree_trailer_survives_admin_retry(tmp_path: Path):
         pr_title="fix(flow): add tested-tree trailer",
         pr_body="Summary.",
     )
-    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-716-fix")
+    result = _run(_linked_worktree(tmp_path), stubs, "--allow-admin-retry", "42", "issue-716-fix")
     assert result.returncode == 0, result.stderr
     argvs = _merge_argvs(tmp_path)
     assert len(argvs) == 2, argvs
@@ -2522,7 +2540,7 @@ def test_admin_retry_keeps_subject_and_body(tmp_path: Path):
         pr_title="feat(flow): explicit squash subject",
         pr_body=MULTILINE_BODY,
     )
-    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-655-fix")
+    result = _run(_linked_worktree(tmp_path), stubs, "--allow-admin-retry", "42", "issue-655-fix")
     assert result.returncode == 0, result.stderr
     argvs = _merge_argvs(tmp_path)
     assert len(argvs) == 2, argvs
