@@ -316,7 +316,7 @@ def test_live_run_against_main_is_state_agnostic(capsys: pytest.CaptureFixture[s
     stale together - the live test's own prior scenario, now pinned
     immutably instead of live)."""
     result = mod.check_skill("flow-check", ROOT, ROOT / "docs" / "measurements" / "skill-coverage")
-    assert result["state"] in mod.STATES, f"{result['state']!r} is not one of the five declared states"
+    assert result["state"] in mod.STATES, f"{result['state']!r} is not one of the six declared states"
     assert "axis1" in result and "status" in result["axis1"], "axis 1 must always be computed and named"
     assert "axis2" in result and "status" in result["axis2"], (
         "axis 2 must always be computed and named, even when axis 1 already decided `state`"

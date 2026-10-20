@@ -147,6 +147,7 @@ SNAPSHOT_DIR = Path("docs/measurements/skill-coverage")
 STATES = (
     "not evaluated",
     "current",
+    "pinned",
     "stale (content)",
     "stale (dependency)",
     "unknown",
