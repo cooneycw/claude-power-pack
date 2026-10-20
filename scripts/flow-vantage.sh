@@ -115,6 +115,7 @@
 #     row above, measured identical on both sides). It is nit-stored against
 #     #864 rather than folded in here, where an unmeasured third signal would
 #     arrive with no stamp behind it.
+#     cooneycw/claude-power-pack#1517 tracks a real peer-reachability probe or measured third signal.
 #
 #     KYLE'S FLEET IS NOT IN THAT CONFIGURATION, which is why the narrow answer
 #     is correct for the population this ships to: the container measured on

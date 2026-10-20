@@ -825,21 +825,21 @@ if [ "$MODE" = "json" ]; then
         "$CHECKOUT" "$([ -d "$MKT" ] && echo true || echo false)"
     separator=""
     for family in "${FAMILIES[@]}"; do
-        printf '%s"%s"' "$separator" "$family"
+        printf '%s"%s"' "$separator" "$(json_escape "$family")"
         separator=,
     done
     printf '],"helpers_current":%s,"helpers_stale":%s,"stale_helpers":[' \
         "$HELPERS_CURRENT" "$HELPERS_STALE"
     separator=""
     for helper in "${STALE_HELPERS[@]}"; do
-        printf '%s"%s"' "$separator" "$helper"
+        printf '%s"%s"' "$separator" "$(json_escape "$helper")"
         separator=,
     done
     printf '],"helpers_missing":%s,"helpers_missing_checked":%s,"missing_helpers":[' \
         "$HELPERS_MISSING" "$([ "$HELPERS_MISSING_CHECKED" -eq 1 ] && echo true || echo false)"
     separator=""
     for helper in "${MISSING_HELPERS[@]}"; do
-        printf '%s"%s"' "$separator" "$helper"
+        printf '%s"%s"' "$separator" "$(json_escape "$helper")"
         separator=,
     done
     # The orphan axis reaches the MACHINE surface too. An axis reported to a
@@ -848,13 +848,13 @@ if [ "$MODE" = "json" ]; then
     printf '],"helpers_orphaned":%s,"orphaned_helpers":[' "$HELPERS_ORPHANED"
     separator=""
     for helper in "${ORPHANED_HELPERS[@]}"; do
-        printf '%s"%s"' "$separator" "$helper"
+        printf '%s"%s"' "$separator" "$(json_escape "$helper")"
         separator=,
     done
     printf '],"helpers_unlinked":%s,"unlinked_helpers":[' "$HELPERS_UNLINKED"
     separator=""
     for helper in "${UNLINKED_HELPERS[@]}"; do
-        printf '%s"%s"' "$separator" "$helper"
+        printf '%s"%s"' "$separator" "$(json_escape "$helper")"
         separator=,
     done
     printf '],"split":%s,"codex_skills_checked":%s,"codex_skills_current":%s,' \
@@ -864,13 +864,13 @@ if [ "$MODE" = "json" ]; then
     printf '"codex_skills_stale":%s,"stale_codex_skills":[' "$CODEX_SKILLS_STALE"
     separator=""
     for skill in "${STALE_CODEX_SKILLS[@]}"; do
-        printf '%s"%s"' "$separator" "$skill"
+        printf '%s"%s"' "$separator" "$(json_escape "$skill")"
         separator=,
     done
     printf '],"codex_skills_orphaned":%s,"orphaned_codex_skills":[' "$CODEX_SKILLS_ORPHANED"
     separator=""
     for skill in "${ORPHANED_CODEX_SKILLS[@]}"; do
-        printf '%s"%s"' "$separator" "$skill"
+        printf '%s"%s"' "$separator" "$(json_escape "$skill")"
         separator=,
     done
     printf '],"claude_skills_root":%s,"claude_skills_checked":%s,' \
@@ -881,7 +881,7 @@ if [ "$MODE" = "json" ]; then
         "$([ "$CLAUDE_SKILLS_SKIPPED" = "?" ] && echo null || echo "$CLAUDE_SKILLS_SKIPPED")"
     separator=""
     for skill in "${STALE_CLAUDE_SKILLS[@]}"; do
-        printf '%s"%s"' "$separator" "$skill"
+        printf '%s"%s"' "$separator" "$(json_escape "$skill")"
         separator=,
     done
     printf '],"toolchain_provenance":"%s","toolchain_behind":%s,' \
