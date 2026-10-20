@@ -87,5 +87,14 @@
    "count": 1,
    "expect": "caught"
   }
+ ],
+ "combinations": [
+  {
+   "name": "map-required-and-unmapped-verdict-together",
+   "protection": "removing both the map-required guard and the unmapped-verdict refusal together must still fail",
+   "mutations": ["map-required", "unmapped-verdict"],
+   "expect": "caught",
+   "why": "map-required alone is masked (see that entry's own why): with the guard disabled, gate_emit/gate_exit still reach _gate_code_for, which finds no code for an empty map and returns failure, so _gate_refuse fires through the SEPARATE 'not in the declared map' path and bad-no-map is still refused. MEASURED (both mutations applied together, via the register's own `sh gate-lib.sh --check <case>` invocation): cases/bad-no-map, which gate_emit's PROBE ok before any gate_map call and expects BAD, now exits 0 with 'GATE_LIB: ok - the probe completed under sh and bash' - a false clean pass on a BAD case. check-negative-controls reports that as BLIND and the battery goes red, so this combination is CAUGHT: the pair is real, load-bearing redundancy (map-required's guard and the unmapped-verdict refusal each independently stop this case; only removing both exposes it), not an unproven assertion in a why field (issue #1492)."
+  }
  ]
 }
