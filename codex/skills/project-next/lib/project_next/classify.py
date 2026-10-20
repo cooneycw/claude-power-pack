@@ -86,10 +86,10 @@ def _skip(pattern: re.Pattern[str], line: str, position: int) -> int:
     return match.end() if match else position
 
 
-def _reference_list(
-    line: str, position: int, repository: str = ""
-) -> tuple[set[int], set[str], list[str], int]:
+def _reference_list(line: str, position: int, repository: str = "") -> tuple[set[int], set[str], list[str], int, int]:
     """Consume a comma/range separated run of issue, task and cross-repo references.
+
+    The final return value is the position where contiguous parsing stopped.
 
     `consumed` counts only LOCAL (same-repo issue or spec-task) references, never a
     cross-repo one (#1398): a cross-repo reference names no local edge this inventory
@@ -139,7 +139,7 @@ def _reference_list(
         else:
             break
         position = _skip(REFERENCE_SEPARATOR, line, position)
-    return issues, tasks, external, consumed
+    return issues, tasks, external, consumed, position
 
 
 def _declares_none(line: str, position: int) -> bool:
@@ -155,6 +155,8 @@ def _declares_none(line: str, position: int) -> bool:
     return not (ISSUE_REFERENCE.search(clause) or TASK_REFERENCE.search(clause) or NEGATION_QUALIFIER.search(clause))
 
 
+#: NEGATIVE-CONTROL: controls/project-next-dependencies
+# ADR 0008 row 23: dependency declarations must retain later references.
 def _line_references(line: str, repository: str = "") -> tuple[set[int], set[str], list[str]]:
     issues: set[int] = set()
     tasks: set[str] = set()
@@ -162,7 +164,20 @@ def _line_references(line: str, repository: str = "") -> tuple[set[int], set[str
     for pattern, strong in ((STRONG_DEPENDENCY_LEAD, True), (WEAK_DEPENDENCY_LEAD, False)):
         for lead in pattern.finditer(line):
             start = _skip(REFERENCE_CONNECTOR, line, lead.end())
-            found_issues, found_tasks, found_external, consumed = _reference_list(line, start, repository)
+            found_issues, found_tasks, found_external, consumed, stopped = _reference_list(line, start, repository)
+            # Prefer recall on declared dependency lines: prose may qualify a later
+            # reference, so retain the edge AND ask a human to resolve its meaning.
+            if consumed or (strong and not _declares_none(line, start)):
+                remainder = line[stopped:]
+                trailing = list(re.finditer(rf"{CROSS_REPO_REFERENCE.pattern}|{ISSUE_REFERENCE.pattern}", remainder))
+                for match in trailing:
+                    extra, _, external, _, _ = _reference_list(match.group(0), 0, repository)
+                    found_issues |= extra
+                    found_external.extend(external)
+                if trailing:
+                    unresolved.append(
+                        f"dependency references outside the contiguous list require review: {line.strip()}"
+                    )
             issues |= found_issues
             tasks |= found_tasks
             # A cross-repo reference is uncertain REGARDLESS of a local reference
@@ -173,7 +188,8 @@ def _line_references(line: str, repository: str = "") -> tuple[set[int], set[str
             if strong and found_external:
                 unresolved.append(
                     f"'{lead.group(0).strip()}' declares a dependency but depends on "
-                    f"{', '.join(found_external)}, not checkable from this repo's inventory: {line.strip()}")
+                    f"{', '.join(found_external)}, not checkable from this repo's inventory: {line.strip()}"
+                )
                 continue
             if consumed or not strong or _declares_none(line, start):
                 continue
@@ -323,6 +339,12 @@ def classify_repository(state: RepositoryState, non_startable_labels: tuple[str,
         dependencies, reasons, unresolved_tasks = _dependencies(issue, task_issues, state.repository)
         dependency_map[issue.number] = dependencies
         uncertainty[issue.number].extend(reasons)
+        if issue.number in state.merged_refs_issue_numbers:
+            uncertainty[issue.number].append(
+                "merged Refs PRs indicate partially delivered work; review remaining scope"
+            )
+        if not state.merged_pr_history_complete:
+            uncertainty[issue.number].append("merged PR history unavailable or truncated; partial delivery unknown")
         if not state.inventory_complete:
             unknown = sorted(dependencies - issue_numbers)
             if unknown:

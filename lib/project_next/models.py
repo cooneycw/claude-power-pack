@@ -203,6 +203,8 @@ class RepositoryState:
     inventory_complete: bool = True
     collector_warnings: tuple[str, ...] = ()
     collector_errors: tuple[str, ...] = ()
+    merged_refs_issue_numbers: tuple[int, ...] = ()
+    merged_pr_history_complete: bool = True
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RepositoryState:
@@ -216,6 +218,8 @@ class RepositoryState:
             branches=tuple(Branch.from_dict(item) for item in data.get("branches", ())),
             spec_tasks=tuple(SpecTask.from_dict(item) for item in data.get("spec_tasks", ())),
             spec_features=tuple(SpecFeature.from_dict(item) for item in data.get("spec_features", ())),
+            merged_refs_issue_numbers=_tuple_of_ints(data.get("merged_refs_issue_numbers")),
+            merged_pr_history_complete=bool(data.get("merged_pr_history_complete", True)),
             gate_status=str(data.get("gate_status") or "unknown"),
             inventory_complete=bool(data.get("inventory_complete", True)),
             collector_warnings=_tuple_of_strings(data.get("collector_warnings")),

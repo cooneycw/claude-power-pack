@@ -12,7 +12,7 @@ repository has been private and dormant since 2026-09-22 (#1076), and
 
 ## Version and entry points
 
-Contract version `1.5` accepts a structured `RepositoryState` and emits a
+Contract version `1.6` accepts a structured `RepositoryState` and emits a
 structured `RecommendationResult`. Run it from a CPP checkout with:
 
 ```bash
@@ -182,7 +182,7 @@ synchronized or a specification group complete.
 Missing mappings produce `sync_spec`; stale or ambiguous identities produce
 `resolve_spec_mapping`. Neither state is silently treated as completed work.
 
-All modes name the `1.5` contract. Missing prerequisites and incomplete state
+All modes name the `1.6` contract. Missing prerequisites and incomplete state
 are explicit failure states; they never become a confident recommendation.
 
 Renderers cap long collector output: warnings list the first five entries and
@@ -190,6 +190,22 @@ per-issue uncertainty lists the first two reasons, each truncated. `--json`
 always carries the complete lists.
 
 ## Compatibility notes
+
+`1.6` (#1488) retains later issue references on dependency lines and reports
+uncertainty when prose interrupts the contiguous reference list. This favors
+recall over precision: qualifications such as "unlike #5" or "see #7" may add
+edges, but the line also requires human review. Explicit cross-repository
+references still name external dependencies rather than local issues.
+
+Repository inputs add `merged_refs_issue_numbers` and
+`merged_pr_history_complete` (defaults: empty and true for saved inputs).
+Live collection reads one bulk merged-PR page with `--limit 200` and a
+30-second timeout. Open issues referenced by merged `Refs #N` PRs are
+uncertain because their remaining scope needs review. A failed, timed-out,
+or full-page read leaves merged history incomplete and issues uncertain
+rather than available. A failed worktree history read preserves a successful
+dirty-status read.
+
 
 `1.4` keeps every `1.3` field and adds the `non_startable` partition with its
 `non_startable_evidence`, the `non_startable` backlog tier, the

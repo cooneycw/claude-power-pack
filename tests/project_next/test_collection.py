@@ -82,6 +82,7 @@ def test_a_worktree_whose_git_status_call_fails_is_unexamined_not_clean(tmp_path
         ("gh", "pr", "list"): "[]",
         ("git", "fetch", "origin"): "",
         ("git", "worktree", "list"): worktree_output,
+        ("git", "log", "--oneline"): "",
         ("git", "branch", "-a"): "main origin/main\n",
     }
 
@@ -250,3 +251,63 @@ def test_spec_inventory_reports_file_readiness_and_partial_sync(tmp_path: Path) 
     assert (readiness.mapped_tasks, readiness.total_tasks) == (1, 2)
     assert readiness.mapping_status == "partial"
     assert readiness.recommended_action == "sync remaining tasks to issues"
+
+
+@pytest.mark.parametrize("history", ["refs", "failed", "timeout", "truncated", "malformed", "clean"])
+def test_merged_refs_history_is_uncertain_and_fails_closed(tmp_path: Path, history: str) -> None:
+    import subprocess
+
+    from lib.project_next.classify import classify_repository
+
+    merged_calls = []
+
+    def runner(command: list[str], cwd: Path) -> str:
+        if command[:3] == ["git", "rev-parse", "--show-toplevel"]:
+            return str(tmp_path)
+        if command[:3] == ["gh", "repo", "view"]:
+            return json.dumps({"nameWithOwner": "example/repo"})
+        if command[:3] == ["gh", "issue", "list"]:
+            return json.dumps([{"number": 28, "title": "Umbrella"}])
+        if command[:3] == ["gh", "pr", "list"]:
+            if command[4] == "open":
+                return "[]"
+            merged_calls.append(command)
+            if history == "failed":
+                raise CollectionError("merged history unavailable")
+            if history == "timeout":
+                raise subprocess.TimeoutExpired(command, 30)
+            if history == "truncated":
+                return json.dumps([{"number": n, "title": "Unrelated"} for n in range(200)])
+            if history == "malformed":
+                return "{}"
+            if history == "clean":
+                return "[]"
+            return json.dumps([{"number": 41, "title": "Part one", "body": "Refs #28"}])
+        if command[0] == "git":
+            return ""
+        raise AssertionError(command)
+
+    state = collect_repository(tmp_path, runner=runner)
+    result = classify_repository(state)
+    assert result.uncertain == (() if history == "clean" else (28,))
+    assert len(merged_calls) == 1
+    assert merged_calls[0][merged_calls[0].index("--limit") + 1] == "200"
+    assert result.in_flight == ()
+
+
+def test_git_log_failure_preserves_known_dirty_status(tmp_path: Path) -> None:
+    from lib.project_next.collect import _parse_worktrees
+
+    def runner(command: list[str], cwd: Path) -> str:
+        if command[1] == "status":
+            return " M tracked.py\n"
+        assert command[1] == "log"
+        raise CollectionError("git log: unreadable history")
+
+    assert runner(["git", "status", "--short"], tmp_path).startswith(" M")
+    warnings: list[str] = []
+    result = _parse_worktrees(f"worktree {tmp_path}\nbranch refs/heads/issue-28\n", tmp_path, runner, warnings)
+    assert result[0].dirty is True
+    assert result[0].status_unknown_reason == ""
+    assert result[0].recent_commits == ()
+    assert warnings == ["git log: unreadable history"]

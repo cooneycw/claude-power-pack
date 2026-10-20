@@ -1,0 +1,35 @@
+{
+  "gate": "lib/project_next/classify.py",
+  "invocation": [
+    "python3",
+    "controls/project-next-dependencies/check.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^DEPENDENCY-UNKNOWN:",
+  "limits": "Row 23 dependency prose sub-check only. No live GitHub inventory or worktree collection. Retains later local references and flags their meaning uncertain; cross-repository edges remain external.",
+  "cases": [
+    {
+      "name": "bad-prose",
+      "input": "cases/bad-prose",
+      "expect": "BAD",
+      "why": "Later references after free prose must never read as fully resolved."
+    },
+    {
+      "name": "good-list",
+      "input": "cases/good-list",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "f385e24",
+      "origin": "lib/project_next/classify.py",
+      "path": "anchors/pre-1488-classify.py",
+      "sha256": "a862b4c8238bedaf34f8d32fc126b92f85b082e953c2a6dd56b90e09f358c3c0",
+      "why": "Pre-1488 classifier drops #26 and #12 and reports the declaration resolved."
+    }
+  ]
+}

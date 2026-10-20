@@ -25,7 +25,8 @@ class CollectionError(RuntimeError):
 
 
 def subprocess_runner(command: list[str], cwd: Path) -> str:
-    completed = subprocess.run(command, cwd=cwd, capture_output=True, text=True, check=False)
+    timeout = 30 if command[:5] == ["gh", "pr", "list", "--state", "merged"] else None
+    completed = subprocess.run(command, cwd=cwd, capture_output=True, text=True, check=False, timeout=timeout)
     if completed.returncode:
         message = (completed.stderr or completed.stdout or "command failed").strip().splitlines()[0]
         raise CollectionError(f"{' '.join(command[:3])}: {message}")
@@ -76,6 +77,13 @@ def _checks_state(rollup: Any) -> str:
 #:     the pre-#1398 behaviour, vendored as this control's anchor, did the
 #:     latter and fed a removal-leaning cleanup action for work nothing had
 #:     actually verified was safe to discard.
+#: NEGATIVE-CONTROL: controls/project-next-worktree-log
+#:     Registered per issue #1488 (same instrument, row 23 - an independently
+#:     blind sub-check, registered separately rather than as a new case on the
+#:     control above: a log-only failure must not discard an already-
+#:     successful status read, and the two sub-checks' anchors do not agree
+#:     on each other's known-bad input, so one shared anchor set cannot prove
+#:     both).
 def _parse_worktrees(output: str, repository: Path, runner: CommandRunner, warnings: list[str]) -> tuple[Worktree, ...]:
     entries: list[dict[str, str]] = []
     current: dict[str, str] = {}
@@ -95,7 +103,6 @@ def _parse_worktrees(output: str, repository: Path, runner: CommandRunner, warni
         status_unknown_reason = ""
         try:
             status = runner(["git", "status", "--short"], path)
-            commits = runner(["git", "log", "--oneline", "-5"], path).splitlines()
         except CollectionError as exc:
             # UNEXAMINED, not clean (#1398). `status = ""` used to mean both "no
             # changes" and "could not ask" - indistinguishable from the outside,
@@ -103,6 +110,10 @@ def _parse_worktrees(output: str, repository: Path, runner: CommandRunner, warni
             warnings.append(str(exc))
             status_unknown_reason = str(exc)
             status = ""
+        try:
+            commits = runner(["git", "log", "--oneline", "-5"], path).splitlines()
+        except CollectionError as exc:
+            warnings.append(str(exc))
             commits = []
         entries_changed = [line for line in status.splitlines() if line.strip()]
         # A stray untracked file is not work in progress, so it must not outrank a real
@@ -389,6 +400,32 @@ def collect_repository(
         complete = False
         pull_requests = ()
 
+    # One bounded bulk read. A full page cannot establish absence of older Refs.
+    merged_refs: set[int] = set()
+    merged_history_complete = True
+    try:
+        merged_prs = _json(
+            runner(
+                ["gh", "pr", "list", "--state", "merged", "--limit", "200", "--json", "number,title,body"],
+                repository,
+            )
+        )
+        if not isinstance(merged_prs, list):
+            raise CollectionError("merged PR history is not a JSON list")
+        if len(merged_prs) >= 200:
+            merged_history_complete = False
+            warnings.append("merged PR history truncated at 200; partial delivery unknown")
+        for item in merged_prs:
+            for line in f"{item.get('title') or ''}\n{item.get('body') or ''}".splitlines():
+                # Refs is the repository's non-closing delivery convention.
+                for match in re.finditer(r"\bRefs\s*:?\s*((?:#\d+[\s,;]*(?:and\s*)?)+)", line, re.IGNORECASE):
+                    merged_refs.update(int(ref.group("number")) for ref in ISSUE_REF.finditer(match.group(1)))
+    except (CollectionError, subprocess.TimeoutExpired, KeyError, TypeError, AttributeError) as exc:
+        merged_history_complete = False
+        errors.append(f"merged PR history unavailable: {exc}")
+    if not merged_history_complete:
+        complete = False
+
     try:
         runner(["git", "fetch", "origin", "--quiet"], repository)
     except CollectionError as exc:
@@ -420,6 +457,8 @@ def collect_repository(
         collected_at=datetime.now(timezone.utc).isoformat(),
         issues=issues,
         pull_requests=pull_requests,
+        merged_refs_issue_numbers=tuple(sorted(merged_refs & {issue.number for issue in issues})),
+        merged_pr_history_complete=merged_history_complete,
         worktrees=worktrees,
         branches=branches,
         spec_tasks=spec_tasks,
