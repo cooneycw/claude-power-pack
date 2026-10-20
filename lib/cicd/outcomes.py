@@ -69,6 +69,16 @@ class SuiteOutcome:
     # look" (#952).
     summary_streams: tuple[str, ...] = ()
 
+    # Fenced evidence is labelled separately from the real suite.
+    control_invocations: int = 0
+    control_passed: int = 0
+    control_failed: int = 0
+    control_skipped: int = 0
+    control_errors: int = 0
+    control_xfailed: int = 0
+    control_xpassed: int = 0
+    control_unexpected: tuple[str, ...] = ()
+
     @property
     def executed(self) -> int:
         """Tests that actually ran (passed + failed + errored + xfail/xpass).
@@ -116,6 +126,14 @@ class SuiteOutcome:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "control_invocations": self.control_invocations,
+            "control_passed": self.control_passed,
+            "control_failed": self.control_failed,
+            "control_skipped": self.control_skipped,
+            "control_errors": self.control_errors,
+            "control_xfailed": self.control_xfailed,
+            "control_xpassed": self.control_xpassed,
+            "control_unexpected": list(self.control_unexpected),
             "passed": self.passed,
             "failed": self.failed,
             "skipped": self.skipped,
@@ -203,11 +221,72 @@ def parse_failed_node_ids(text: str) -> list[str]:
     return ids
 
 
+# Only whole-line named pairs opt into control accounting. This is framing,
+# not authentication: producers must reserve these exact protocol lines.
+_CONTROL_MARKER = re.compile(
+    r"^::cicd-negative-control:(BEGIN|END):(BAD|GOOD):([^:\r\n]+)::[^\S\r\n]*$",
+    re.MULTILINE,
+)
+
+
+@dataclass(frozen=True)
+class ControlSegment:
+    """A declaration with independently parsed evidence of its behaviour."""
+
+    name: str
+    declared_verdict: str
+    outcome: Optional[SuiteOutcome]
+    unexpected: bool
+
+
+def _derive_unexpected(verdict: str, outcome: Optional[SuiteOutcome]) -> bool:
+    """Do not trust a closed fence as proof that the harness checked its child.
+
+    Unknown output warns too: an unreadable summary cannot establish that a
+    control behaved correctly, regardless of the harness's own exit status.
+    """
+    if outcome is None:
+        return True
+    if verdict == "BAD":
+        return outcome.failed == 0 and outcome.errors == 0
+    return outcome.failed > 0 or outcome.errors > 0
+
+
+def _extract_control_segments(text: str) -> tuple[str, list[ControlSegment]]:
+    """Strip balanced pairs, handing any ambiguous remainder back untouched.
+
+    The next marker must close the same name and verdict. Missing ends,
+    nesting and mismatches stop extraction: continuing past them could label
+    real failures inside a malformed fence. Ordinary control vocabulary and
+    isolated markers cannot opt output into this protocol.
+    """
+    pieces: list[str] = []
+    segments: list[ControlSegment] = []
+    cursor = 0
+    markers = iter(_CONTROL_MARKER.finditer(text))
+    for begin in markers:
+        if begin[1] != "BEGIN":
+            continue
+        end = next(markers, None)
+        if (end is None or end[1] != "END"
+                or end[2] != begin[2] or end[3] != begin[3]):
+            break
+        outcome = parse_suite_outcome(text[begin.end():end.start()])
+        segments.append(ControlSegment(
+            begin[3], begin[2], outcome, _derive_unexpected(begin[2], outcome),
+        ))
+        pieces.append(text[cursor:begin.start()])
+        cursor = end.end()
+    pieces.append(text[cursor:])
+    return "".join(pieces), segments
+
+
 def parse_suite_outcome(text: str, stream: str = "") -> Optional[SuiteOutcome]:
     """Parse a test runner's summary out of captured step output.
 
-    Returns None when no recognizable summary is present - the caller then
-    reports exactly what it reported before this module existed.
+    Returns None when neither a recognizable summary nor a balanced control
+    segment is present. Control-only output retains its labelled evidence,
+    even when its summary is unknown, without inventing a real-suite run.
 
     Every top-level summary is aggregated, not just the last one. This used
     to keep the last, reasoning that a target running several suites should
@@ -223,6 +302,7 @@ def parse_suite_outcome(text: str, stream: str = "") -> Optional[SuiteOutcome]:
     """
     if not text:
         return None
+    text, controls = _extract_control_segments(text)
     lines = text.splitlines()
     # Each parser scans independently; per line the last recognized summary
     # wins, which preserves the previous precedence for a single summary.
@@ -256,9 +336,21 @@ def parse_suite_outcome(text: str, stream: str = "") -> Optional[SuiteOutcome]:
         outcome for idx, (outcome, included) in enumerate(candidates)
         if included or idx == len(candidates) - 1
     ]
-    if not parsed:
+    if not parsed and not controls:
         return None
-    outcome = _aggregate(parsed)
+    # Control-only evidence must remain visible without inventing a real run.
+    outcome = _aggregate(parsed) if parsed else SuiteOutcome(invocations=0)
+    outcome = replace(
+        outcome,
+        control_invocations=len(controls),
+        control_passed=sum(c.outcome.passed for c in controls if c.outcome is not None),
+        control_failed=sum(c.outcome.failed for c in controls if c.outcome is not None),
+        control_skipped=sum(c.outcome.skipped for c in controls if c.outcome is not None),
+        control_errors=sum(c.outcome.errors for c in controls if c.outcome is not None),
+        control_xfailed=sum(c.outcome.xfailed for c in controls if c.outcome is not None),
+        control_xpassed=sum(c.outcome.xpassed for c in controls if c.outcome is not None),
+        control_unexpected=tuple(c.name for c in controls if c.unexpected),
+    )
     # Attribution happens here rather than inside `_aggregate` because this is
     # the only layer that knows which stream the text came from; everything
     # `_aggregate` sees is already from one stream.
@@ -274,6 +366,14 @@ def _aggregate(outcomes: list[SuiteOutcome]) -> SuiteOutcome:
     """
     frameworks = {outcome.framework for outcome in outcomes}
     return SuiteOutcome(
+        control_invocations=sum(outcome.control_invocations for outcome in outcomes),
+        control_passed=sum(outcome.control_passed for outcome in outcomes),
+        control_failed=sum(outcome.control_failed for outcome in outcomes),
+        control_skipped=sum(outcome.control_skipped for outcome in outcomes),
+        control_errors=sum(outcome.control_errors for outcome in outcomes),
+        control_xfailed=sum(outcome.control_xfailed for outcome in outcomes),
+        control_xpassed=sum(outcome.control_xpassed for outcome in outcomes),
+        control_unexpected=tuple(n for o in outcomes for n in o.control_unexpected),
         passed=sum(outcome.passed for outcome in outcomes),
         failed=sum(outcome.failed for outcome in outcomes),
         skipped=sum(outcome.skipped for outcome in outcomes),
@@ -328,6 +428,14 @@ def merge_stream_outcomes(
 
     frameworks = {outcome.framework for outcome in present}
     return SuiteOutcome(
+        control_invocations=sum(outcome.control_invocations for outcome in present),
+        control_passed=sum(outcome.control_passed for outcome in present),
+        control_failed=sum(outcome.control_failed for outcome in present),
+        control_skipped=sum(outcome.control_skipped for outcome in present),
+        control_errors=sum(outcome.control_errors for outcome in present),
+        control_xfailed=sum(outcome.control_xfailed for outcome in present),
+        control_xpassed=sum(outcome.control_xpassed for outcome in present),
+        control_unexpected=tuple(n for o in present for n in o.control_unexpected),
         passed=sum(outcome.passed for outcome in present),
         failed=sum(outcome.failed for outcome in present),
         skipped=sum(outcome.skipped for outcome in present),

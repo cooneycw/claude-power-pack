@@ -1,0 +1,11 @@
+{
+  "branch": "issue-1490-nit-store-flow-auto-cuts-a-worktree-on-a-wayfinder",
+  "head": "fc2b42dc8e9f88fe8bb8b8cfb21643aa81bb9a38",
+  "implementer": "claude/claude-sonnet-5",
+  "issue": "1490",
+  "recorded_at": "2026-10-20T15:40:59Z",
+  "reviewer": null,
+  "schema": 1,
+  "skip_reason": "reviewer-unavailable",
+  "status": "skipped"
+}

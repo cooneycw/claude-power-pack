@@ -108,6 +108,9 @@
 #                           --allow-closed)
 #     FLOW_START_RESOLVE: ok
 #   On a hard error: ERROR=<reason> then `FLOW_START_RESOLVE: error`, exit 1.
+#   Hard errors include a failed label fetch or any normalized wayfinder-*
+#   label (charting tickets route through /project:init; remove the label for
+#   implementation work). Refused before branch/worktree/claim work.
 #
 # Verify mode (run from INSIDE the entered worktree - the Step-1 gate):
 #   flow-start-resolve.sh --verify <ISSUE> [EXPECTED_BRANCH]
@@ -465,6 +468,21 @@ ISSUE_STATE=$(cd "$TARGET_REPO" && "$GH" issue view "$ISSUE_NUM" --json state --
 [ -n "${ISSUE_STATE:-}" ] || fail "could not fetch issue #$ISSUE_NUM via gh in $TARGET_REPO (not found, or gh unauthenticated)"
 ISSUE_TITLE=$(cd "$TARGET_REPO" && "$GH" issue view "$ISSUE_NUM" --json title --jq .title 2>/dev/null | tr '\n\t' '  ' | sed 's/[[:space:]]*$//') || true
 [ -n "${ISSUE_TITLE:-}" ] || ISSUE_TITLE="(no title)"
+
+# Match project-next's normalize_label() and WAYFINDER_LABEL_PREFIX, including
+# future labels: fold case, collapse whitespace/:/_ runs, trim edge hyphens.
+ISSUE_LABELS=$(cd "$TARGET_REPO" && "$GH" issue view "$ISSUE_NUM" --json labels --jq '.labels[].name' 2>/dev/null)
+LABELS_RC=$?
+[ "$LABELS_RC" -eq 0 ] || fail "could not fetch labels for issue #$ISSUE_NUM via gh in $TARGET_REPO (not found, or gh unauthenticated)"
+while IFS= read -r LABEL; do
+  NORMALIZED_LABEL=$(printf '%s' "${LABEL,,}" | sed -E 's#[[:space:]:/_]+#-#g; s/^-+//; s/-+$//') ||
+    fail "could not read labels for issue #$ISSUE_NUM in $TARGET_REPO"
+  case "$NORMALIZED_LABEL" in
+    wayfinder-*)
+      fail "issue #$ISSUE_NUM carries the Wayfinder label '$LABEL' - this is a charting/planning ticket, routed through /project:init rather than /flow:auto (same wayfinder:* rule as project-next). If this really is implementation work, remove the wayfinder label from the issue, then re-run."
+      ;;
+  esac
+done <<< "$ISSUE_LABELS"
 
 CREATE_OK=1
 CONFIRM_REQUIRED=0

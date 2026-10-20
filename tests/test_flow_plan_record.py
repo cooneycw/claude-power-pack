@@ -447,3 +447,35 @@ def test_head_check_without_gh_is_UNVERIFIED_not_a_crash(tmp_path: Path) -> None
     assert proc.returncode == 4, proc.stdout + proc.stderr
     assert "FLOW_PLAN_RECORD: unverified" in proc.stdout
     assert "Traceback" not in proc.stderr
+
+
+@requires_git
+@pytest.mark.parametrize('open_pr', [False, True])
+def test_revision_open_pr_lookup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, open_pr: bool) -> None:
+    repo = make_repo(tmp_path)
+    closed = git(repo, 'rev-parse', 'HEAD').strip()
+    rec = repo / RECORD_REL
+    rec.parent.mkdir(parents=True)
+    rec.write_text('approved\n')
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-qm', 'open PR record')
+    opened = git(repo, 'rev-parse', 'HEAD').strip()
+    assert closed != opened
+    bindir = tmp_path / 'bin'
+    bindir.mkdir()
+    shim = bindir / 'gh'
+    shim.write_text('#!/bin/sh\n'
+                    f'if [ "$2" = "view" ]; then echo {closed}; exit 0; fi\n'
+                    '[ "$2" = "list" ] || exit 1\n'
+                    '[ "$3 $4 $5 $6" = "--head main --state open" ] || exit 1\n'
+                    + (f'echo {opened}\n' if open_pr else 'exit 0\n'))
+    shim.chmod(0o755)
+    import os
+    monkeypatch.setenv('PATH', str(bindir) + os.pathsep + os.environ['PATH'])
+    proc = helper(repo, 'head-check', '42')
+    if open_pr:
+        assert proc.returncode == 0, proc.stdout
+    else:
+        assert proc.returncode == 4, proc.stdout
+        assert 'no open PR' in proc.stdout, proc.stdout
+        assert 'UNVERIFIED, not absent' in proc.stdout
