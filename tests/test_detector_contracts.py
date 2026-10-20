@@ -57,6 +57,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_negative_controls import live_controls_tree_exclusive
+
 REPO = Path(__file__).resolve().parents[1]
 CANONICAL = Path("docs/agents/detector-contracts.md")
 # Roots scanned for review surfaces. `.claude/commands/` holds them today;
@@ -130,6 +132,12 @@ INDEXED_INSTANCES = (
 
 
 def discover_review_surfaces(*roots: Path) -> list[Path]:
+    """Serialize readers with the real-root probe, including during collection."""
+    with live_controls_tree_exclusive():
+        return _discover_review_surfaces(*roots)
+
+
+def _discover_review_surfaces(*roots: Path) -> list[Path]:
     """Every document under `roots` that instructs a reader to review a change."""
     found = []
     for root in roots:
@@ -178,20 +186,22 @@ def test_discovery_reaches_the_real_root_a_new_surface_would_appear_in(root: Pat
     ACTUAL scanned root and asserts discovery returns it - proving the check runs
     where a new review surface would appear, not merely that it can match text.
     """
-    assert root.is_dir(), f"{root.relative_to(REPO)} is no longer a real directory"
-    # PER PROCESS (issue #1271): the probe lands in the SHARED live tree, so a
-    # fixed name made two concurrent same-worktree runs collide on
-    # `exist_ok=False` - one run's probe failing the other's test.
-    probe = root / f"_detector_contract_probe_{os.getpid()}_" / "probe.md"
-    probe.parent.mkdir(parents=True, exist_ok=False)
-    try:
-        probe.write_text("# probe\n\n2. **Review for:**\n   - Correctness\n", encoding="utf-8")
-        assert probe in discover_review_surfaces(*SCANNED_ROOTS), (
-            f"a review surface added under {root.relative_to(REPO)} would not be discovered"
-        )
-    finally:
-        probe.unlink(missing_ok=True)
-        probe.parent.rmdir()
+    # Readers take the same lock; use the unlocked scan while holding it here.
+    with live_controls_tree_exclusive():
+        assert root.is_dir(), f"{root.relative_to(REPO)} is no longer a real directory"
+        # PER PROCESS (issue #1271): the probe lands in the SHARED live tree, so a
+        # fixed name made two concurrent same-worktree runs collide on
+        # `exist_ok=False` - one run's probe failing the other's test.
+        probe = root / f"_detector_contract_probe_{os.getpid()}_" / "probe.md"
+        probe.parent.mkdir(parents=True, exist_ok=False)
+        try:
+            probe.write_text("# probe\n\n2. **Review for:**\n   - Correctness\n", encoding="utf-8")
+            assert probe in _discover_review_surfaces(*SCANNED_ROOTS), (
+                f"a review surface added under {root.relative_to(REPO)} would not be discovered"
+            )
+        finally:
+            probe.unlink(missing_ok=True)
+            probe.parent.rmdir()
 
 
 def test_discovery_is_not_vacuous() -> None:
