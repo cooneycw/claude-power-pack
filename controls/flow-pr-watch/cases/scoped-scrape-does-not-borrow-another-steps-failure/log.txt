@@ -1,0 +1,3 @@
+=== short test summary info ===
+FAILED tests/test_real.py::test_failure - AssertionError
+=== 1 failed, 2 passed ===
