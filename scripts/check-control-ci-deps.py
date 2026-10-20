@@ -898,6 +898,45 @@ def registered_controls(root: Path) -> tuple[list[Path] | None, str]:
     return directories, f"discovered via {BATTERY_GATE_REL}"
 
 
+def python_binary_requirements(gate: Path) -> tuple[set[str], int]:
+    """Literal argv requirements and the number of dynamic calls left unread.
+
+    This is syntax only: aliases, shell strings and call-path reachability are
+    not inferred. Python source is never passed to the shell scanner.
+    """
+    tree = ast.parse(gate.read_text(encoding="utf-8"))
+    needed: set[str] = set()
+    dynamic = 0
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        owner = node.func.value
+        if not isinstance(owner, ast.Name):
+            continue
+        method = node.func.attr
+        if not (
+            owner.id == "subprocess"
+            and method in {"run", "call", "check_call", "check_output", "Popen"}
+            or owner.id == "os" and (method.startswith("exec") or method == "system")
+        ):
+            continue
+        # execv* takes the executable path first and argv second; execl*
+        # takes variadic arguments and therefore has no literal argv container.
+        argv_index = 1 if owner.id == "os" and method.startswith("exec") else 0
+        argv = node.args[argv_index] if len(node.args) > argv_index else next(
+            (kw.value for kw in node.keywords if kw.arg in {"args", "argv"}), None
+        )
+        if isinstance(argv, (ast.List, ast.Tuple)) and all(
+            isinstance(item, ast.Constant) and isinstance(item.value, str)
+            for item in argv.elts
+        ):
+            if argv.elts:
+                needed.add(Path(argv.elts[0].value).name)
+        else:
+            dynamic += 1
+    return needed, dynamic
+
+
 def requirements(root: Path, control_dir: Path, binary_gate) -> tuple[set[str], list[str]]:
     """`(binaries, notes)` this control needs - the examined surfaces."""
     needed: set[str] = set()
@@ -962,6 +1001,12 @@ def requirements(root: Path, control_dir: Path, binary_gate) -> tuple[set[str], 
     # flow-wave-registry.sh) is unaffected.
     if effective in {"sh", "bash"} and gate.suffix != ".py":
         needed |= set(binary_gate.binaries_in_script(gate))
+
+    if gate.suffix == ".py":
+        try:
+            needed |= python_binary_requirements(gate)[0]
+        except (OSError, SyntaxError) as exc:
+            notes.append(f"Python binary requirements unreadable: {exc}")
 
     # A WRAPPER's OWN needs are ADDED to the gate's, never substituted for
     # them (issue #1407 fallout, orchestrator ruling - NOT "walk the wrapper
@@ -1493,6 +1538,22 @@ def run_check(root: Path) -> int:
     # that states its population numerically cannot be read as covering more
     # than it examined, and a zero here means "looked and found none" rather
     # than "did not look" (issue #1168).
+    py_gates = set()
+    for control_dir in registered:
+        try:
+            spec = json.loads((control_dir / "control.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        declared, _ = _gate_file(spec)
+        if declared and (root / declared).suffix == ".py" and (root / declared).is_file():
+            py_gates.add(root / declared)
+    dynamic = 0
+    for gate in py_gates:
+        try:
+            dynamic += python_binary_requirements(gate)[1]
+        except (OSError, SyntaxError):
+            pass  # requirements() has already emitted a finding for this gate.
+    print(f"CI_DEPS_PY_DYNAMIC_ARGV_SKIPPED: {dynamic}")
     print(f"CI_DEPS_PY_GATES_WALKED: {py_stats['walked']}")
     print(f"CI_DEPS_PY_IMPORTS_RESOLVED: {py_stats['resolved']}")
     print(f"CI_DEPS_PY_DEFERRED_UNFOLLOWED: {py_stats['deferred']}")
@@ -1511,7 +1572,7 @@ def run_check(root: Path) -> int:
         "battery's CI step provides. Examined: the invocation command, the gate's shebang "
         "interpreter WHEN THE GATE IS RUN DIRECTLY, a shell gate's hard-required binaries, and "
         f"since #1168 the MODULE-LEVEL imports of {py_stats['walked']} python gate(s) - "
-        "NOT what a Python gate shells out to, nor what a case fixture needs, nor "
+        "literal argv in Python subprocess/os calls, but NOT dynamic argv, case fixture needs, or "
         f"{py_stats['deferred']} import(s) deferred inside a function, which are conditional on "
         "a call path this reader cannot decide.\n"
         "control-ci-deps: THIS IS NECESSARY, NOT SUFFICIENT. A green here means no examined "
