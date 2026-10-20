@@ -2228,7 +2228,9 @@ case "$VERB" in
       BOX_NAME="outbox-$A_TO.md"
     fi
     if [ "$AWAITING_REPLY" -eq 1 ]; then
-      [ "$A_TO" = orchestrator ] && [ "$A_FROM" != orchestrator ] || usage_fail "--awaiting-reply requires a worker sending to orchestrator"
+      if [ "$A_TO" != orchestrator ] || [ "$A_FROM" = orchestrator ]; then
+        usage_fail "--awaiting-reply requires a worker sending to orchestrator"
+      fi
     fi
     BOX="$WAVE_DIR/$BOX_NAME"
 
