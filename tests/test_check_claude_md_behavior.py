@@ -157,10 +157,15 @@ def _distribution_repo(
         scripts = root / "scripts"
         scripts.mkdir(exist_ok=True)
         # The REAL bundler, so `is_managed` is the same predicate that writes the files.
-        real = Path(__file__).parents[1] / "scripts" / "codex-skill-sync.py"
-        (scripts / "codex-skill-sync.py").write_text(
-            real.read_text(encoding="utf-8"), encoding="utf-8"
-        )
+        # Its sibling check-md-relative-links.py comes along too (#1494): the
+        # bundler's `rewrite_mirror_links` loads it by path relative to wherever
+        # the bundler itself was loaded from, so a fixture claiming to carry the
+        # real bundler needs this real dependency beside it, not just the one file.
+        real_dir = Path(__file__).parents[1] / "scripts"
+        for name in ("codex-skill-sync.py", "check-md-relative-links.py"):
+            (scripts / name).write_text(
+                (real_dir / name).read_text(encoding="utf-8"), encoding="utf-8"
+            )
     return skill
 
 

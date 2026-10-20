@@ -1448,22 +1448,42 @@ def provenance_note(files: dict[str, str]) -> str | None:
     return "".join(lines)
 
 
+#: Keyed by the checker's RESOLVED path, never a fixed name (issue #1494
+#: review fix). `codex-skill-sync.py` itself gets dynamically re-loaded under a
+#: fresh module object by `_load_bundler` (e.g. from a test fixture's own copy
+#: under a different root), and each such copy's `__file__` names a DIFFERENT
+#: sibling `check-md-relative-links.py`. A single `sys.modules["cpp_md_relative_links"]`
+#: slot would let whichever copy loads first - real repo or a test fixture
+#: missing that sibling file entirely - poison every later caller in the same
+#: process, real or fixture, with its own (possibly broken) parser.
+_LINK_PARSER_CACHE: dict[Path, object] = {}
+
+
 def rewrite_mirror_links(text: str, source: Path, output: str, mirrored: set[str]) -> str:
     """Keep links that work in the bundle; route other repository links upstream.
 
     Use the checker's Markdown parser so code examples, titles, escaped paths,
     and nested parentheses have the same meaning in generation and validation.
     """
-    module_name = "cpp_md_relative_links"
-    if module_name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(
-            module_name, Path(__file__).with_name("check-md-relative-links.py")
-        )
+    checker_path = Path(__file__).resolve().with_name("check-md-relative-links.py")
+    parser = _LINK_PARSER_CACHE.get(checker_path)
+    if parser is None:
+        # The unique name must be registered in sys.modules BEFORE exec_module
+        # runs, not after: the checker defines `@dataclass(frozen=True) class
+        # DeadLink`, and dataclasses resolves a string-annotated field's type
+        # via `sys.modules[cls.__module__]` while the class body executes - a
+        # module not yet registered at that point fails with
+        # "'NoneType' object has no attribute '__dict__'" (caught in review:
+        # the fixed name this used to share was ALSO registered too late in
+        # an earlier draft of this fix, and broke every caller, not only the
+        # one that triggered the collision this cache exists to prevent).
+        unique_name = f"cpp_md_relative_links_{hashlib.sha256(bytes(checker_path)).hexdigest()[:12]}"
+        spec = importlib.util.spec_from_file_location(unique_name, checker_path)
         assert spec is not None and spec.loader is not None
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = module
-        spec.loader.exec_module(module)
-    parser = sys.modules[module_name]
+        parser = importlib.util.module_from_spec(spec)
+        sys.modules[unique_name] = parser
+        spec.loader.exec_module(parser)
+        _LINK_PARSER_CACHE[checker_path] = parser
     lines = text.splitlines(keepends=True)
     eligible = {number for number, _ in parser.links_in(text)}
     for number in eligible:

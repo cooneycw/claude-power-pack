@@ -50,7 +50,7 @@ def _git(*args: str, cwd: Path, env: dict[str, str]) -> subprocess.CompletedProc
     )
 
 
-def _env(home: Path) -> dict[str, str]:
+def _env(home: Path) -> dict[str, str]:  # negative-fixture: allow PATH is isolation, not an absence
     return {
         "HOME": str(home), "PATH": ISOLATED_PATH,
         "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",

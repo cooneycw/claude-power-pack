@@ -94,8 +94,8 @@ class TestContinuationLines:
         root = Path(__file__).resolve().parent.parent
         targets = {t.name: t for t in parse_makefile(root)}
         deps = targets["verify"].dependencies
-        assert len(deps) == 35, (
-            f"expected 35 prerequisites, got {len(deps)}: {deps}. If the "
+        assert len(deps) == 36, (
+            f"expected 36 prerequisites, got {len(deps)}: {deps}. If the "
             f"Makefile changed, update the number; if it did not, the "
             f"declaration reader changed and two registered gates derive "
             f"their population from it"
