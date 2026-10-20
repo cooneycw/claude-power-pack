@@ -122,7 +122,16 @@ def _canonical_source(path: Path, root: Path) -> Path | None:
 
 
 def is_verified_generated_doc(path: Path, root: Path, is_managed) -> bool:
-    """True only for a byte-identical copy of a real canonical doc in a managed skill."""
+    """True for a real canonical doc in a managed skill, copy or rewrite (#1494).
+
+    Byte-identical was the whole test until #1494: `codex-skill-sync.py` now
+    rewrites a bundled doc's relative links that point outside the mirror to
+    absolute GitHub URLs, so a correctly-generated copy legitimately differs
+    from its source. The expected text is computed with the bundler's OWN
+    `rewrite_mirror_links`, never a second definition of the transform here -
+    a copy of that logic could drift from what the generator actually does
+    and this check would then verify against the wrong answer.
+    """
     if is_managed is None:
         return False
     source = _canonical_source(path, root)
@@ -131,10 +140,28 @@ def is_verified_generated_doc(path: Path, root: Path, is_managed) -> bool:
     skill_dir = root.joinpath(*SKILLS_ROOT, path.relative_to(root.joinpath(*SKILLS_ROOT)).parts[0])
     if not is_managed(skill_dir):
         return False
+    bundler = _load_bundler(root)
+    if bundler is None or not hasattr(bundler, "rewrite_mirror_links"):
+        return False
     try:
-        return path.read_bytes() == source.read_bytes()
+        source_text = source.read_text(encoding="utf-8")
+        actual_text = path.read_text(encoding="utf-8")
     except OSError:
         return False
+    mirrored = {
+        p.relative_to(skill_dir).as_posix()
+        for p in skill_dir.rglob("*") if p.is_file()
+    }
+    output_rel = path.relative_to(skill_dir).as_posix()
+    try:
+        expected_text = bundler.rewrite_mirror_links(source_text, source, output_rel, mirrored)
+    except Exception:
+        # Fail CLOSED: `rewrite_mirror_links` needs its own sibling
+        # check-md-relative-links.py beside whichever codex-skill-sync.py was
+        # loaded (real repo or a test fixture's copy). Missing it is a setup
+        # defect, never evidence that this copy is a verified distribution.
+        return False
+    return actual_text == expected_text
 
 
 def is_verified_provenance_note(path: Path, root: Path, is_managed, provenance_name: str | None) -> bool:

@@ -258,7 +258,7 @@ consider, not a quota of objections to fill.
 
 This is the INITIAL approval point. What happens when implementation later surfaces
 evidence the review did not anticipate is Step 4's revision path in
-[auto.md](auto.md). That path adds no blanket gate for ordinary implementation
+[auto.md](https://github.com/cooneycw/claude-power-pack/blob/main/.claude/commands/flow/auto.md). That path adds no blanket gate for ordinary implementation
 choices - those never return here - but it does NOT remove the existing route for a
 consequential change: altering promised behaviour or crossing a deliberate boundary
 still needs agreement from the authority that already holds it.
