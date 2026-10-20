@@ -1,6 +1,6 @@
 {
   "skill": "flow-check",
-  "pinned_for": "behind main pending #1497 (lib/cicd verify.py/cli.py)",
+  "pinned_for": "axis 1 reference awaits a new skillc evaluation pin (#1532)",
   "reference": {
     "description_digest": "sha256:55531e9c8e5c083130cb4edcb03a88cbc43698286ce4d89c0120540ebbc04be6",
     "body_digest": "sha256:4b63bf3f537d2e23e61cc4e276f3fe16b0a1a9cfa1d22caf325c791250fc71ff",
