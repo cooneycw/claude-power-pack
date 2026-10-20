@@ -726,3 +726,20 @@ def test_every_real_skill_loads_identically_in_a_real_yaml_parser() -> None:
         ours, _ = skills_check.parse_frontmatter(text)
         block = text.split("---\n", 2)[1]
         assert yaml.safe_load(block) == ours, path
+
+
+def test_nested_metadata_outside_provenance_is_reported(tmp_path):
+    skill = _write_skill(tmp_path)
+    text = skill.read_text().replace("metadata:\n", "metadata:\n  foo:\n    bar: value\n", 1)
+    skill.write_text(text)
+    metadata, _ = skills_check.parse_frontmatter(text)
+    assert isinstance(metadata["metadata"]["foo"], dict)
+    report = skills_check.check_repository(tmp_path, tmp_path / "no-managed-installs")
+    assert _codes(report) == ["INVALID_METADATA"]
+    assert "metadata.foo" in report.findings[0].detail
+
+
+def test_provenance_mapping_and_flat_source_are_accepted(tmp_path):
+    _write_skill(tmp_path, source="claude-power-pack/.claude/skills/sample/SKILL.md")
+    report = skills_check.check_repository(tmp_path, tmp_path / "no-managed-installs")
+    assert report.ok, report.findings
