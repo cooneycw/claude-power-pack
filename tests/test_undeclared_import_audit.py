@@ -391,6 +391,7 @@ def test_the_gate_never_reads_the_ambient_environment() -> None:
             imported |= {a.name for a in node.names}
         elif isinstance(node, ast.ImportFrom) and node.module:
             imported.add(node.module)
+    assert imported, "the gate's source has no imports at all - parsing broke, this guard would pass vacuously"
     assert not (imported & forbidden), f"the gate must not read installed distributions: {imported & forbidden}"
 
     calls = {
@@ -398,6 +399,7 @@ def test_the_gate_never_reads_the_ambient_environment() -> None:
         for node in ast.walk(tree_)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
     }
+    assert calls, "the gate's source has no attribute calls at all - parsing broke, this guard would pass vacuously"
     assert "packages_distributions" not in calls
     assert "distributions" not in calls
 

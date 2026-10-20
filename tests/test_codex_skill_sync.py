@@ -1170,6 +1170,7 @@ def test_generation_is_deterministic(tmp_repo):
     codex_skill_sync.main(["--write"])
     out = tmp_repo / "codex" / "skills"
     first = {f.as_posix(): f.read_text() for f in out.rglob("*") if f.is_file()}
+    assert first, "the first --write generated no files - this guard would pass vacuously"
     codex_skill_sync.main(["--write"])
     second = {f.as_posix(): f.read_text() for f in out.rglob("*") if f.is_file()}
     assert first == second
@@ -1242,6 +1243,7 @@ def test_install_is_idempotent(tmp_repo, tmp_home):
     codex_skill_sync.main(["--write"])
     codex_skill_sync.main(["--install"])
     before = sorted(p.name for p in tmp_home.iterdir())
+    assert before, "the first --install put nothing in tmp_home - this guard would pass vacuously"
     codex_skill_sync.main(["--install"])
     assert sorted(p.name for p in tmp_home.iterdir()) == before
 
@@ -1556,7 +1558,9 @@ def test_staging_is_a_sibling_and_is_cleaned_including_a_crash_leftover(tmp_repo
 
     assert codex_skill_sync.main(["--install"]) == 0
     assert not staging.exists()
-    assert not any(p.name.startswith((".cpp", "new-", "old-")) for p in tmp_home.iterdir())
+    installed = list(tmp_home.iterdir())
+    assert installed, "install put nothing in tmp_home - this guard would pass vacuously"
+    assert not any(p.name.startswith((".cpp", "new-", "old-")) for p in installed)
 
 
 def test_nothing_is_deleted_in_place_inside_the_install_tree(tmp_repo, tmp_home, monkeypatch):

@@ -1126,3 +1126,27 @@ def test_a_compound_command_hiding_a_second_invocation_is_unknown(tmp_path: Path
     out = run(root)
     assert "UNKNOWN - not clean" in out.stdout, out.stdout
     assert out.returncode == 1, out.stdout
+
+
+def test_python_literal_binary_requirements_and_dynamic_count(tmp_path: Path) -> None:
+    gate = tmp_path / "gate.py"
+    gate.write_text('''import os
+import subprocess
+# subprocess.run(["fake-comment"])
+prose = 'subprocess.run(["fake-prose"])'
+subprocess.run(["jq", "--version"])
+subprocess.call(("git", "status"))
+subprocess.check_call(args=["make"])
+subprocess.check_output(["sh"])
+subprocess.Popen(["bash"])
+os.execvp("jq", ["jq", "--version"])
+os.execve("/bin/sh", ("sh",), {})
+os.system("jq --version")
+subprocess.run(argv)
+subprocess.run(["jq", variable])
+subprocess.run(f"jq {value}")
+subprocess.run(*args)
+''')
+    needed, skipped = _load_gate().python_binary_requirements(gate)
+    assert needed == {"jq", "git", "make", "sh", "bash"}
+    assert skipped == 5
