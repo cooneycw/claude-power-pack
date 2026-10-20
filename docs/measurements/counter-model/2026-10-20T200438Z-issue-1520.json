@@ -1,0 +1,27 @@
+{
+  "branch": "issue-1520-sticky-bit-prescan",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "8a7f3aa2",
+  "implementer": "claude/claude-sonnet-5",
+  "issue": "1520",
+  "local_credentials": "absent",
+  "network": "unverified",
+  "passes": 1,
+  "recorded_at": "2026-10-20T20:04:38Z",
+  "red_cases": {
+    "already_covered": 2,
+    "proposed": 6
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/20/rollout-2026-10-20T19-53-03-01a15adf-df2d-75c0-8e5e-be07cc75ed5d.jsonl",
+    "thread_id": "01a15adf-df2d-75c0-8e5e-be07cc75ed5d"
+  },
+  "schema": 1,
+  "scope": "diff-only",
+  "status": "ran"
+}
