@@ -984,6 +984,17 @@ def _make_sticky_dir(wt: Path, *, sticky: bool) -> Path:
     return sdir
 
 
+def _foreign_uid() -> str:
+    """A uid guaranteed to differ from this process's real euid, so a
+    `_shim_id` value never accidentally equals the real owner of a fixture's
+    files (Codex review of #1520: a runner whose real euid happened to be
+    1001 would make every "foreign" case below pass for the wrong reason -
+    directory and file owners would match the "shimmed" caller because it
+    would not be shimmed to anything different at all)."""
+    real = os.geteuid() if hasattr(os, "geteuid") else -1
+    return "1001" if real != 1001 else "1002"
+
+
 @requires_git
 @requires_non_root
 @requires_stat
@@ -1004,7 +1015,7 @@ def test_prescan_refuses_a_sticky_dir_containing_a_foreign_owned_file(
     main = _repo(tmp_path)
     wt = _add_worktree(main, tmp_path / "wt", "feature")
     sticky = _make_sticky_dir(wt, sticky=True)
-    env = _shim_id(tmp_path, "1001")
+    env = _shim_id(tmp_path, _foreign_uid())
 
     res = _run_remove(main, str(wt), "--force", "--allow-dirty", env=env)
 
@@ -1030,7 +1041,7 @@ def test_prescan_ignores_sticky_bit_without_a_foreign_owner_mismatch(
     main = _repo(tmp_path)
     wt = _add_worktree(main, tmp_path / "wt", "feature")
     _make_sticky_dir(wt, sticky=False)
-    env = _shim_id(tmp_path, "1001")
+    env = _shim_id(tmp_path, _foreign_uid())
 
     res = _run_remove(main, str(wt), "--allow-dirty", env=env)
 
@@ -1096,3 +1107,53 @@ def test_sticky_dir_is_safe_predicate() -> None:
     assert _predicate(dir_owner="5000", entry_owner="6000", caller_uid="0")
     # Nobody matches: the sticky restriction applies.
     assert not _predicate(dir_owner="5000", entry_owner="6000", caller_uid="7000")
+
+
+@requires_git
+@requires_non_root
+@requires_stat
+def test_prescan_refuses_a_sticky_foreign_owned_parent(tmp_path: Path) -> None:
+    """Codex review of #1520: the worktree ROOT's own parent is checked
+    separately from the `find "$root" ...` walk (issue #1491, since `find`
+    never walks above root), and that check was rwx-only. It must be
+    sticky-aware too, exactly like every directory `find` does walk - a
+    sticky parent the caller does not own can refuse removal of the
+    worktree directory itself even where the caller has full rwx on the
+    parent."""
+    main = _repo(tmp_path)
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    parent.chmod(0o1777)
+    wt = _add_worktree(main, parent / "wt", "feature")
+    env = _shim_id(tmp_path, _foreign_uid())
+
+    res = _run_remove(main, str(wt), "--force", "--allow-dirty", env=env)
+
+    assert res.returncode == 9, (
+        f"expected the pre-scan refusal (exit 9), got {res.returncode}\n"
+        f"stdout={res.stdout}\nstderr={res.stderr}"
+    )
+    assert str(wt) in res.stderr, res.stderr
+    assert (wt / ".git").is_file()
+
+
+@requires_git
+@requires_non_root
+@requires_stat
+def test_prescan_ignores_a_sticky_parent_the_caller_owns(tmp_path: Path) -> None:
+    """A sticky parent is not itself a refusal - only one the caller does not
+    own, that also does not own the worktree root. With no `id` shim, the
+    caller's real uid owns both, so this must stay clear."""
+    main = _repo(tmp_path)
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    parent.chmod(0o1777)
+    wt = _add_worktree(main, parent / "wt", "feature")
+
+    res = _run_remove(main, str(wt), "--allow-dirty")
+
+    assert res.returncode == 0, (
+        f"a sticky parent the caller owns must stay clear:\n"
+        f"stdout={res.stdout}\nstderr={res.stderr}"
+    )
+    assert not wt.exists()
