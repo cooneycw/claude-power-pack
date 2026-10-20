@@ -943,6 +943,37 @@ class TestRerunFailedTests:
         assert (tmp_project / "counter").read_text() == "x"
         assert result.reruns == []
 
+    def test_composite_failure_is_not_rerun(self, tmp_project: Path) -> None:
+        step = StepDef(
+            id="test",
+            command=(
+                "printf x >> counter; "
+                "printf '=== test session starts ===\\n'; "
+                "printf '=== 3 passed in 0.01s ===\\n'; "
+                "printf '=== test session starts ===\\n'; "
+                "printf '=== 1 failed in 0.01s ===\\n'; "
+                "printf 'FAILED tests/a.py::t1 - AssertionError\\n'; exit 1"
+            ),
+        )
+        baseline = DeterministicRunner(
+            project_root=tmp_project, output=StringIO(), rerun_failed=False
+        ).run("check", step_defs=[step])
+        assert not baseline.success
+        (tmp_project / "counter").unlink()
+        log = StringIO()
+        result = DeterministicRunner(
+            project_root=tmp_project, output=log, rerun_failed=True
+        ).run("check", step_defs=[step])
+        assert not result.success
+        assert result.failed_step == baseline.failed_step == "test"
+        assert result.tests == baseline.tests
+        assert result.tests["test"]["invocations"] == 2
+        assert result.tests["test"]["failed_ids"] == ["tests/a.py::t1"]
+        assert (tmp_project / "counter").read_text() == "x"
+        assert result.reruns == []
+        assert "composite step; declining to retry only part of it" in log.getvalue()
+        assert "#1485 narrowing #769" in log.getvalue()
+
     def test_more_than_cap_is_not_rerun(self, tmp_project: Path) -> None:
         failed_lines = "\\n".join(
             f"FAILED tests/a.py::test_{idx} - AssertionError"
@@ -1540,15 +1571,13 @@ class TestBothStreamsReachTheRunnerDecisions:
     nothing at all - it is not a regression test for this defect.
     """
 
-    def test_failures_on_stderr_are_retried_despite_a_passing_stdout_summary(
+    def test_failures_on_stderr_stand_when_composite_retry_is_declined(
         self, tmp_project: Path
     ) -> None:
-        """THE #939 red case at the decision it breaks: retry eligibility.
+        """Both streams still count (#939); two summaries decline retry (#1485).
 
-        runner.py gates the #769 targeted re-run on
-        `outcome.failed + outcome.errors > 0`. Pre-fix the outcome was the
-        stdout summary alone - 3 passed, 0 failed - so this step failed, had a
-        readable failing id on stderr, and was never re-run.
+        The counts cannot distinguish two invocations from an echoed summary,
+        so #1485's single-invocation rule conservatively retains the failure.
         """
         step = StepDef(
             id="test",
@@ -1566,12 +1595,9 @@ class TestBothStreamsReachTheRunnerDecisions:
         ).run("check", step_defs=[step])
 
         assert not result.success
-        assert result.reruns, (
-            "the failing id was readable on stderr and the step was eligible "
-            "for the #769 re-run; pre-fix the stdout summary hid it and "
-            "result.reruns was empty"
-        )
-        assert result.reruns[0]["ids"] == ["tests/a.py::t1"]
+        assert result.reruns == []
+        assert "composite step; declining" in log.getvalue()
+        assert result.tests["test"]["failed_ids"] == ["tests/a.py::t1"]
         assert result.tests["test"]["failed"] == 1
         assert result.tests["test"]["passed"] == 3
         assert result.tests["test"]["summary_streams"] == ["stdout", "stderr"]
@@ -1688,10 +1714,13 @@ class TestBothStreamsReachTheRunnerDecisions:
             id="test",
             command=(
                 "if [ -f rerun-marker ]; then "
+                "printf '=== test session starts ===\\n'; "
                 "printf '=== 1 passed in 13.41s ===\\n'; "
+                "printf '=== test session starts ===\\n'; "
                 "printf '2 deselected in 0.00s\\n'; "
                 "exit 5; "
                 "else : > rerun-marker; "
+                "printf '=== test session starts ===\\n'; "
                 "printf '=== 1 failed in 0.01s ===\\n'; "
                 "printf 'FAILED tests/a.py::t1 - AssertionError\\n'; "
                 "exit 1; fi"
@@ -2094,6 +2123,8 @@ class TestManifestCarriesTheDeclaration:
 
         step = step_model_to_step_def("test", StepModel(command="make test"))
         assert step.unsupported_runner is None
+        assert step.expected_red is False
+        assert "expected_red" not in step.to_dict()
 
     def test_an_empty_declaration_is_refused(self) -> None:
         from pydantic import ValidationError
@@ -2205,7 +2236,8 @@ class TestSkippedSuiteReporting:
         result = runner.run(
             "check",
             step_defs=self._steps(
-                "== no tests ran in 0.01s ==\n== 102 passed in 5.00s =="
+                "=== test session starts ===\n== no tests ran in 0.01s ==\n"
+                "=== test session starts ===\n== 102 passed in 5.00s =="
             ),
         )
 
@@ -4893,3 +4925,37 @@ class TestScopedMypy:
         )
         assert (tmp_path / "uv.args").read_text() == "[run mypy]"
 
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_expected_red_retains_counts_without_changing_verdict(
+    tmp_project: Path, exit_code: int
+) -> None:
+    steps = [
+        StepDef(id="test", command="printf '3 passed in 0.01s\\n'"),
+        StepDef(
+            id="negative_test",
+            command=f"printf '7 failed in 0.01s\\n'; exit {exit_code}",
+            expected_red=True,
+        ),
+    ]
+    result = DeterministicRunner(
+        project_root=tmp_project, output=StringIO()
+    ).run("check", step_defs=steps)
+    assert result.success is (exit_code == 0)
+    assert result.tests["test"]["passed"] == 3
+    assert result.tests["test"]["failed"] == 0
+    assert "negative_test" not in result.tests
+    detail = next(d for d in result.step_details if d["id"] == "negative_test")
+    assert detail["tests"]["failed"] == 7
+    assert detail["tests"]["expected_red"] is True
+
+
+def test_expected_red_manifest_round_trip() -> None:
+    from lib.cicd.manifest import StepModel, step_model_to_step_def
+
+    step = step_model_to_step_def(
+        "test", StepModel(command="make negative-controls", expected_red=True)
+    )
+    assert step.expected_red is True
+    assert step.to_dict()["expected_red"] is True

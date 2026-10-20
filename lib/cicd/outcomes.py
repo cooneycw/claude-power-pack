@@ -156,7 +156,11 @@ _JEST_COUNT = re.compile(r"(\d+)\s+(passed|failed|skipped|todo|pending)\b")
 # are itemized.
 _UNITTEST_RAN = re.compile(r"^Ran (\d+) tests? in ")
 _UNITTEST_VERDICT = re.compile(r"^(OK|FAILED)\b(?:\s*\((?P<detail>[^)]*)\))?")
-_UNITTEST_DETAIL = re.compile(r"(failures|errors|skipped|expected failures)=(\d+)")
+_UNITTEST_DETAIL = re.compile(
+    r"(failures|errors|skipped|expected failures|unexpected successes)=(\d+)"
+)
+
+_PYTEST_SESSION_START = re.compile(r"^=+\s*test session starts\s*=+\s*$")
 
 # Pytest's short-summary ids make a first-attempt flake nameable and countable
 # in the #769 report. They are NOT the selection mechanism: ``--last-failed``
@@ -205,7 +209,7 @@ def parse_suite_outcome(text: str, stream: str = "") -> Optional[SuiteOutcome]:
     Returns None when no recognizable summary is present - the caller then
     reports exactly what it reported before this module existed.
 
-    EVERY recognized summary is aggregated, not just the last one. This used
+    Every top-level summary is aggregated, not just the last one. This used
     to keep the last, reasoning that a target running several suites should
     report its final one "rather than an early partial" - which is right for a
     partial or a re-run of a subset, and wrong for two DISJOINT suites, a
@@ -222,18 +226,36 @@ def parse_suite_outcome(text: str, stream: str = "") -> Optional[SuiteOutcome]:
     lines = text.splitlines()
     # Each parser scans independently; per line the last recognized summary
     # wins, which preserves the previous precedence for a single summary.
-    parsed: list[SuiteOutcome] = []
+    # FAILURES, short-summary and test-header banners are reproduced byte-for-byte
+    # by nested sessions. Pair the fixed, once-per-session start marker with
+    # each pytest tail instead, so those ambiguous banners cannot change depth.
+    candidates: list[tuple[SuiteOutcome, bool]] = []
+    depth = 0
     for idx, line in enumerate(lines):
+        if _PYTEST_SESSION_START.match(line):
+            depth += 1
+            continue
+        pytest_outcome = _parse_pytest_line(line)
+        pytest_depth = depth
+        if pytest_outcome is not None:
+            depth = max(0, depth - 1)
         found: Optional[SuiteOutcome] = None
         for candidate in (
-            _parse_pytest_line(line),
+            pytest_outcome,
             _parse_jest_line(line),
             _parse_unittest_line(line, lines, idx),
         ):
             if candidate is not None:
                 found = candidate
         if found is not None:
-            parsed.append(found)
+            candidates.append((found, found is not pytest_outcome or pytest_depth == 1))
+    # Fail open: the final candidate survives missing or unbalanced start markers.
+    # Under -s/--capture=no, or when an inner run suppresses its start banner,
+    # nesting is invisible: its tail can be counted at depth 1 or by this fallback.
+    parsed = [
+        outcome for idx, (outcome, included) in enumerate(candidates)
+        if included or idx == len(candidates) - 1
+    ]
     if not parsed:
         return None
     outcome = _aggregate(parsed)
@@ -443,13 +465,15 @@ def _parse_unittest_line(line: str, lines: list[str], idx: int) -> Optional[Suit
     )
     failed = detail.get("failures", 0)
     xfailed = detail.get("expected failures", 0)
+    xpassed = detail.get("unexpected successes", 0)
     errors = detail.get("errors", 0)
     skipped = detail.get("skipped", 0)
     return SuiteOutcome(
-        passed=max(total - failed - xfailed - errors - skipped, 0),
+        passed=max(total - failed - xfailed - xpassed - errors - skipped, 0),
         failed=failed,
         skipped=skipped,
         errors=errors,
         xfailed=xfailed,
+        xpassed=xpassed,
         framework="unittest",
     )
