@@ -9,17 +9,24 @@
 # until someone notices the file never got committed. This guard makes that
 # loud instead of silent.
 #
-# Strategy: `git status --ignored=matching` lists every ignored file
-# individually (it does NOT collapse whole ignored directories the way the
-# default mode does, so a file in a brand-new all-ignored directory is still
-# seen). We then drop the usual scratch/build noise by scanning each path
-# component against a known set of cache/venv/build dir names, plus a few
-# scratch file patterns. We also drop a short allow-list of files that are
-# git-ignored BY DESIGN (env-only, per-machine runtime state that can never be
-# an intended source addition) so the guard stops crying wolf on them every run
-# (issue #504). What remains is an ignored file sitting in a tracked source
-# area - the trap - which we warn about. Near-zero false positives against
-# normal venv/cache noise.
+# Strategy: `git ls-files --other --ignored --exclude-standard` lists every
+# ignored file INDIVIDUALLY, never collapsed to its containing directory the
+# way `git status --ignored=matching` reports a directory-ignore rule as the
+# one entry `dir/` (Nit Store #864, comments 5983077287 and 6192075101). That
+# collapse cut both ways: a non-scratch file inside a wholly-ignored directory
+# went uninspected (the directory name alone is not in the scratch list), and
+# - the opposite failure - a gate's OWN scratch output (e.g. `reports/pytest.log`
+# behind a blanket `reports/` rule) blocked on the bare directory name, because
+# `is_scratch` matches file extensions like `*.log` against the full path and
+# never sees one once it is collapsed to `reports/`. Listing files individually
+# lets both checks below see the actual path. We then drop the usual
+# scratch/build noise by scanning each path component against a known set of
+# cache/venv/build dir names, plus a few scratch file patterns. We also drop a
+# short allow-list of files that are git-ignored BY DESIGN (env-only,
+# per-machine runtime state that can never be an intended source addition) so
+# the guard stops crying wolf on them every run (issue #504). What remains is
+# an ignored file sitting in a tracked source area - the trap - which we warn
+# about. Near-zero false positives against normal venv/cache noise.
 #
 # Usage:
 #   check-ignored-additions.sh [--strict | --advisory]
@@ -145,10 +152,17 @@ is_intentional_ignore() {
 # Read the inventory into a file FIRST and check that git answered (counter-
 # model review): a process substitution discards the exit status, so an
 # unreadable index produced no entries and the same exit 0 as a clean tree.
+#
+# `ls-files`, not `status`: individually-listed ignored files, never collapsed
+# to a containing directory (see the strategy note above, #864). `--full-name`
+# plus the `:/` magic pathspec make the paths root-relative regardless of the
+# caller's cwd, matching what `is_intentional_ignore` and the rest of this
+# script already assume `status --porcelain` gave them for free.
 _inventory=$(mktemp "${TMPDIR:-/tmp}/check-ignored-additions.XXXXXX")
 trap 'printf "CHECK_IGNORED_ADDITIONS_EXIT=%d\n" "$?" >&2; rm -f "$_inventory"' EXIT
-if ! git status --ignored=matching --porcelain -z > "$_inventory" 2>/dev/null; then
-  echo "[flow] check-ignored-additions: 'git status' failed, so the ignored files were NOT inspected - this is not a clean result." >&2
+if ! git ls-files --other --ignored --exclude-standard --full-name -z -- ':/' \
+        > "$_inventory" 2>/dev/null; then
+  echo "[flow] check-ignored-additions: 'git ls-files' failed, so the ignored files were NOT inspected - this is not a clean result." >&2
   if [ "$MODE" = blocking ]; then
     exit 4
   fi
@@ -156,17 +170,7 @@ if ! git status --ignored=matching --porcelain -z > "$_inventory" 2>/dev/null; t
 fi
 
 suspicious=()
-while IFS= read -r -d '' entry; do
-  # porcelain -z format: 2-char status, a space, then the path.
-  status="${entry:0:2}"
-  path="${entry:3}"
-  [ "$status" = "!!" ] || continue
-  # A DIRECTORY entry is NOT skipped (counter-model review, #1258). git lists
-  # a directory ignored by a directory rule (`config/`) as the one entry
-  # `config/`, never its files - so skipping it meant `config/manifest.json`
-  # was never inspected and the verdict read clean. Scratch and by-design
-  # directories are still dropped by the two filters below; anything else is
-  # reported by the directory name, which is all git will say about it.
+while IFS= read -r -d '' path; do
   is_scratch "$path" && continue
   is_intentional_ignore "$path" && continue
   suspicious+=("$path")

@@ -34,7 +34,7 @@
 # override it; --steal does.
 #
 # Usage:
-#   worktree-remove.sh <worktree-path> [--force] [--delete-branch] [--steal] [--allow-dirty] [--allow-unpushed]
+#   worktree-remove.sh <worktree-path> [--force] [--delete-branch] [--steal] [--allow-dirty] [--allow-unpushed] [--finish-partial-removal]
 #
 # Options:
 #   --force          Pass --force to git worktree remove; does not override
@@ -44,6 +44,19 @@
 #                    or when it is in use by a live process (#888, #1032)
 #   --allow-dirty    Remove even though uncommitted work would be destroyed
 #   --allow-unpushed Remove even though commits exist on no remote ref
+#   --finish-partial-removal
+#                    Complete a HALF-DELETED worktree: a directory with no
+#                    `.git` file left behind by a `git worktree remove` that
+#                    could not unlink every path (Nit Store #864, comment
+#                    5983011277). `git worktree remove` can report success
+#                    while files survive it - observed with a read-only parent
+#                    directory - and once it does, git has already forgotten
+#                    the worktree, so a plain re-run only hits "not a git
+#                    worktree" below with no path forward but a manual `rm -rf`.
+#                    This flag is the explicit, named opt-in that finishing the
+#                    job requires (same shape as every other override here):
+#                    without it, a directory with no `.git` file is refused,
+#                    exactly as before.
 #
 # Exit codes:
 #   0  removed (or already absent - stale refs pruned)
@@ -54,6 +67,8 @@
 #   7  holds commits on no remote ref without --allow-unpushed (#899)
 #   8  --delete-branch asked for, but the directory name and the checked-out
 #      branch name different issues (#1032)
+#   9  a path inside the worktree cannot be deleted (its parent directory is
+#      not writable) - refused before deleting anything else (#864)
 #
 # Examples:
 #   worktree-remove.sh /home/user/Projects/nhl-api-issue-42
@@ -82,6 +97,7 @@ STEAL=false
 # away from being no refusals, which is how #888's guard was lost.
 ALLOW_DIRTY=false
 ALLOW_UNPUSHED=false
+FINISH_PARTIAL_REMOVAL=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -105,8 +121,12 @@ while [[ $# -gt 0 ]]; do
             ALLOW_UNPUSHED=true
             shift
             ;;
+        --finish-partial-removal)
+            FINISH_PARTIAL_REMOVAL=true
+            shift
+            ;;
         -h|--help)
-            echo "Usage: worktree-remove.sh <worktree-path> [--force] [--delete-branch] [--steal] [--allow-dirty] [--allow-unpushed]"
+            echo "Usage: worktree-remove.sh <worktree-path> [--force] [--delete-branch] [--steal] [--allow-dirty] [--allow-unpushed] [--finish-partial-removal]"
             echo ""
             echo "Safely remove git worktrees. If you're currently inside the worktree"
             echo "being removed, the script automatically changes to the main repository"
@@ -124,6 +144,11 @@ while [[ $# -gt 0 ]]; do
             echo "                   (issue #899; exit 6 without it)"
             echo "  --allow-unpushed Remove even though commits exist on no remote ref"
             echo "                   (issue #899; exit 7 without it)"
+            echo "  --finish-partial-removal"
+            echo "                   Complete a HALF-DELETED worktree (no .git file left"
+            echo "                   behind by an earlier removal that could not unlink"
+            echo "                   every path). Exit 9 without it if anything still"
+            echo "                   cannot be deleted (#864)."
             echo ""
             echo "Each refusal has its own override on purpose: one flag that silenced all"
             echo "three would be one flag away from silencing everything."
@@ -137,6 +162,7 @@ while [[ $# -gt 0 ]]; do
             echo "  7  holds commits on no remote ref without --allow-unpushed (#899)"
             echo "  8  --delete-branch asked for, but the directory name and the"
             echo "     checked-out branch name different issues (#1032)"
+            echo "  9  a path cannot be deleted (parent directory not writable) (#864)"
             echo ""
             echo "Examples:"
             echo "  worktree-remove.sh /home/user/Projects/nhl-api-issue-42"
@@ -157,7 +183,7 @@ done
 
 if [[ -z "$WORKTREE_PATH" ]]; then
     echo -e "${RED}Error: Worktree path is required${NC}" >&2
-    echo "Usage: worktree-remove.sh <worktree-path> [--force] [--delete-branch] [--steal] [--allow-dirty] [--allow-unpushed]"
+    echo "Usage: worktree-remove.sh <worktree-path> [--force] [--delete-branch] [--steal] [--allow-dirty] [--allow-unpushed] [--finish-partial-removal]"
     exit 1
 fi
 
@@ -179,35 +205,51 @@ if [[ -n "$CWD" && ( "$CWD" == "$WORKTREE_PATH" || "${CWD#"$WORKTREE_PATH"/}" !=
     INSIDE_WORKTREE=true
 fi
 
+# Find the main repo NEAR a path (a directory whose .git is a real directory,
+# not a worktree's .git file) without relying on that path's own .git file,
+# which is exactly what is missing in both callers below. Two layouts to cover:
+#   1. Legacy sibling worktrees:  ../repo-issue-N  (main repo is a sibling)
+#   2. Native worktrees:          .claude/worktrees/<name>  (main repo is an ancestor)
+find_main_repo_near() {
+    local target="$1" parent ancestor
+    # (1) Scan siblings of the path.
+    for parent in "$(dirname "$target")"/*; do
+        if [[ -d "$parent/.git" ]]; then
+            printf '%s\n' "$parent"
+            return 0
+        fi
+    done
+    # (2) Walk up ancestors (covers .claude/worktrees/<name> nested under the repo).
+    ancestor="$(dirname "$target")"
+    while [[ "$ancestor" != "/" && -n "$ancestor" ]]; do
+        if [[ -d "$ancestor/.git" ]]; then
+            printf '%s\n' "$ancestor"
+            return 0
+        fi
+        ancestor="$(dirname "$ancestor")"
+    done
+    return 1
+}
+
+# Every path cannot be deleted without write+execute on its PARENT directory -
+# that permission governs unlink/rmdir, not the entry's own mode. `git worktree
+# remove` can report SUCCESS (exit 0) while such a path survives it (observed
+# with a read-only parent dir), and once it does, git has already forgotten the
+# worktree - nothing short of this pre-scan tells the two apart before damage is
+# done (Nit Store #864, comment 5983011277).
+undeletable_find() {
+    local root="$1" dir
+    while IFS= read -r -d '' dir; do
+        [[ -w "$dir" && -x "$dir" ]] || printf '%s\n' "$dir"
+    done < <(find "$root" -type d -print0 2>/dev/null)
+}
+
 # Check if worktree exists
 if [[ ! -d "$WORKTREE_PATH" ]]; then
     echo -e "${YELLOW}Warning: Worktree directory does not exist: ${WORKTREE_PATH}${NC}"
     echo "It may have already been removed. Running 'git worktree prune'..."
 
-    # Find the main repo (a directory whose .git is a real directory, not a
-    # worktree's .git file). Two layouts to cover:
-    #   1. Legacy sibling worktrees:  ../repo-issue-N  (main repo is a sibling)
-    #   2. Native worktrees:          .claude/worktrees/<name>  (main repo is an ancestor)
-    PRUNE_REPO=""
-    # (1) Scan siblings of the worktree path.
-    for parent in "$(dirname "$WORKTREE_PATH")"/*; do
-        if [[ -d "$parent/.git" ]]; then
-            PRUNE_REPO="$parent"
-            break
-        fi
-    done
-    # (2) Walk up ancestors (covers .claude/worktrees/<name> nested under the repo).
-    if [[ -z "$PRUNE_REPO" ]]; then
-        ancestor="$(dirname "$WORKTREE_PATH")"
-        while [[ "$ancestor" != "/" && -n "$ancestor" ]]; do
-            if [[ -d "$ancestor/.git" ]]; then
-                PRUNE_REPO="$ancestor"
-                break
-            fi
-            ancestor="$(dirname "$ancestor")"
-        done
-    fi
-    if [[ -n "$PRUNE_REPO" ]]; then
+    if PRUNE_REPO="$(find_main_repo_near "$WORKTREE_PATH")"; then
         git -C "$PRUNE_REPO" worktree prune
         echo -e "${GREEN}Pruned stale worktree references.${NC}"
     else
@@ -218,9 +260,61 @@ fi
 
 # Check if it's actually a worktree (has .git file, not directory)
 if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
-    echo -e "${RED}Error: ${WORKTREE_PATH} is not a git worktree${NC}" >&2
-    echo "(Worktrees have a .git file, not a .git directory)" >&2
-    exit 1
+    # A HALF-DELETED worktree reads identically to a directory that was never
+    # one: `git worktree remove` forgets the worktree from its own registry the
+    # moment it reports success, even when it leaves files behind, so there is
+    # no breadcrumb here to tell the two apart (measured: `.git/worktrees/<name>`
+    # is gone too). That ambiguity is exactly why this is a REQUIRED, NAMED
+    # flag rather than an auto-detected recovery - the same shape as every other
+    # override in this script (issue #899's "own override" rule) - and it is
+    # refused by default below just as it always has been.
+    if [[ "$FINISH_PARTIAL_REMOVAL" != true ]]; then
+        echo -e "${RED}Error: ${WORKTREE_PATH} is not a git worktree${NC}" >&2
+        echo "(Worktrees have a .git file, not a .git directory)" >&2
+        echo "" >&2
+        echo "  If this is a HALF-DELETED worktree left behind by an earlier removal" >&2
+        echo "  that could not delete every path, re-run with --finish-partial-removal" >&2
+        echo "  (#864) instead of a manual 'rm -rf'." >&2
+        exit 1
+    fi
+
+    echo -e "${YELLOW}No .git file here - treating as a half-deleted worktree (--finish-partial-removal).${NC}" >&2
+
+    if FMR_MAIN_REPO="$(find_main_repo_near "$WORKTREE_PATH")"; then
+        WT_RESOLVED="$(readlink -f "$WORKTREE_PATH" 2>/dev/null || echo "$WORKTREE_PATH")"
+        if git -C "$FMR_MAIN_REPO" worktree list --porcelain 2>/dev/null \
+                | sed -n 's/^worktree //p' | grep -Fxq "$WT_RESOLVED"; then
+            # git still believes this is a live worktree - a hand-deleted .git
+            # file, not the silent-partial-failure case this flag exists for.
+            # Blindly rm -rf-ing tracked, still-registered content is a
+            # different and worse mistake, so this stays refused.
+            echo -e "${RED}Error: git still lists this as a live worktree${NC}" >&2
+            echo "  ($FMR_MAIN_REPO still has it registered), so its .git file going" >&2
+            echo "  missing is not the partial-removal case --finish-partial-removal" >&2
+            echo "  covers. Investigate before deleting anything by hand." >&2
+            exit 1
+        fi
+    fi
+
+    FMR_UNDELETABLE="$(undeletable_find "$WORKTREE_PATH")"
+    if [[ -n "$FMR_UNDELETABLE" ]]; then
+        echo "WORKTREE_REMOVE_PRESCAN: undeletable" >&2
+        echo -e "${RED}Error: refusing to finish - some paths still cannot be deleted${NC}" >&2
+        echo "" >&2
+        echo "  The following director{y,ies} lack write/execute permission, so nothing" >&2
+        echo "  inside them can be unlinked:" >&2
+        printf '    %s\n' "$FMR_UNDELETABLE" >&2
+        echo "" >&2
+        echo "  Fix permissions (e.g. chmod -R u+w) and re-run." >&2
+        exit 9
+    fi
+
+    rm -rf "$WORKTREE_PATH"
+    [[ -n "${FMR_MAIN_REPO:-}" ]] && git -C "$FMR_MAIN_REPO" worktree prune
+    echo -e "${GREEN}Finished removing the half-deleted worktree: ${WORKTREE_PATH}${NC}"
+    echo -e "${YELLOW}Note: no .git file meant no branch could be identified - delete the branch${NC}" >&2
+    echo -e "${YELLOW}by hand if --delete-branch was intended.${NC}" >&2
+    exit 0
 fi
 
 # Get the main repository path from the worktree's .git file
@@ -582,6 +676,14 @@ else
     # measured. Same membership floor the UNPUSHED states already observe:
     # never-checked and checked-and-empty are different facts.
     echo "WORKTREE_REMOVE_DIRTY: overridden" >&2
+    # `--allow-dirty` clears only THIS helper's own refusal (#899); `git
+    # worktree remove` makes its OWN, separate judgment about a dirty tree and
+    # still refuses without `--force` (exit 128, undocumented) - so without
+    # this, `--allow-dirty` alone silenced nothing and the removal failed
+    # anyway (Nit Store #864, comment 6155393127). The two flags are asking the
+    # same question of two different gatekeepers; granting one grants the
+    # other, rather than making the caller discover and pass both.
+    FORCE="--force"
 fi
 
 # Did the merge helper record THIS commit as landed? (issue #916)
@@ -722,6 +824,25 @@ if [[ "$ATTRIBUTION_MISMATCH" == true && "$DELETE_BRANCH" == true && "$STEAL" !=
     echo "  --steal does, if you have confirmed which issue you mean." >&2
     exit 8
 fi
+
+# Pre-scan for paths `git worktree remove` cannot delete, and refuse before
+# deleting anything (#864). Without this, git can report success while such a
+# path survives it, leaving exactly the half-deleted, no-.git-file state that
+# --finish-partial-removal above exists to recover from.
+PRE_UNDELETABLE="$(undeletable_find "$WORKTREE_PATH")"
+if [[ -n "$PRE_UNDELETABLE" ]]; then
+    echo "WORKTREE_REMOVE_PRESCAN: undeletable" >&2
+    echo -e "${RED}Error: refusing to remove - some paths cannot be deleted${NC}" >&2
+    echo "" >&2
+    echo "  The following director{y,ies} lack write/execute permission, so git" >&2
+    echo "  cannot remove entries inside them. Removing anyway risks a half-deleted" >&2
+    echo "  worktree with no .git file (git can report success regardless):" >&2
+    printf '    %s\n' "$PRE_UNDELETABLE" >&2
+    echo "" >&2
+    echo "  Fix permissions (e.g. chmod -R u+w) and re-run." >&2
+    exit 9
+fi
+echo "WORKTREE_REMOVE_PRESCAN: clear" >&2
 
 echo -e "${BLUE}Removing worktree: ${WORKTREE_PATH}${NC}"
 if [[ "${CLAIM_STATE:-unknown}" == foreign ]]; then

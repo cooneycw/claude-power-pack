@@ -9,4 +9,4 @@
 # Verifying arrival needs a key that is not in this bundle.
 b00aa7f3eb76b8addb05ffa658c09443fe589256e53d0a41a902d47c84d15d1f  flow-worktree-claim.sh
 9b963b0186ff8d92f4eb65b3414b1347cd7f4f230f5b02923c363a4ae7192c32  flow-worktree-sweep.sh
-3212ba06699c2d1d0300e23519425100e2d21a227cd5296ddea0e4ce9f2e4252  worktree-remove.sh
+9f4428c21ce082d3345d89421aaffb8eda6d8c8edbf22c93f6e83299bfd84e68  worktree-remove.sh
