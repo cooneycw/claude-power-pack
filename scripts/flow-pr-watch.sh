@@ -87,8 +87,8 @@
 #                   BAD case with pytest's own summary header and totals is
 #                   byte-for-byte a second run, so more than one region is
 #                   UNRESOLVED - not "the first" or "the last", both of which
-#                   lose a real failure somewhere. The verdict is unchanged; the
-#                   warning is that these ids must not be baselined blind.
+#                   lose a real failure somewhere. Unresolved attribution reports unknown;
+#                   these ids must not be baselined blind.
 #   FLOW_PR_WATCH_SUMMARY_FAILED=<count|->  pytest's OWN failure count, read
 #                   from its summary line independently of the scrape, so the
 #                   two can be seen to disagree. `-` when there is no summary.
@@ -122,6 +122,16 @@
 set -uo pipefail
 
 # Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+# Invoked only via the `trap` calls below; shellcheck cannot see that.
+# shellcheck disable=SC2317,SC2329
+signal_exit() {
+    trap - EXIT
+    printf 'FLOW_PR_WATCH_EXIT=%d\n' "$1" >&2
+    exit "$1"
+}
+trap 'signal_exit 143' TERM
+trap 'signal_exit 130' INT
+trap 'signal_exit 129' HUP
 trap 'printf "FLOW_PR_WATCH_EXIT=%d\n" "$?" >&2' EXIT
 
 PR_NUMBER=""
@@ -306,12 +316,12 @@ wp_status_of() { # wp_status_of <pipeline-number> -> "<status>" or empty
     return 1
 }
 
-wp_steps() { # -> "<name>|<state>|<stopped>" lines
-    "$WPCLI_BIN" pipeline ps --format '{{ .step.Name }}|{{ .step.State }}|{{ .step.Stopped }}
+wp_steps() { # -> "<name>|<state>|<stopped>|<PID>|<error>" lines
+    "$WPCLI_BIN" pipeline ps --format '{{ .step.Name }}|{{ .step.State }}|{{ .step.Stopped }}|{{ .step.PID }}|{{ .step.Error }}
 ' "$REPO" "$1" 2>/dev/null
 }
 
-wp_log() { "$WPCLI_BIN" pipeline log show "$REPO" "$1" 2>/dev/null; }
+wp_log() { "$WPCLI_BIN" pipeline log show "$REPO" "$1" "$2" 2>/dev/null; }
 
 # Map the named GH status context to Woodpecker's own `.Event`
 # vocabulary, so the woodpecker-cli lane (which has no context field)
@@ -467,11 +477,24 @@ if [[ "$PIPELINE" == "-" ]]; then
 fi
 
 STEP_ROWS="$(wp_steps "$PIPELINE")"
-LOG="$(wp_log "$PIPELINE")"
+ALL_LOG=""
+ALL_FAILED_IDS=()
+UNRESOLVED=0
+UNRESOLVED_ATTRIBUTION=""
+UNBOUNDED=0
+TOTAL_FAILED=0
+COUNT_SEEN=0
+CANCELED_STEP=0
+HAS_SUMMARY=0
+while IFS='|' read -r name state _ pid error; do
+    case "${state,,}" in failure|error|killed) ;; *) continue ;; esac
+    [[ "$error" == "Canceled" ]] && CANCELED_STEP=1
+    LOG=""
+    [[ -n "$pid" ]] && LOG="$(wp_log "$PIPELINE" "$pid")"
+    ALL_LOG+="$LOG"$'\n'
 
 # A pytest run that reached its own conclusion prints a summary. Its ABSENCE is
 # half the cancellation signature: a killed run's log stops mid-suite.
-HAS_SUMMARY=0
 if grep -qE 'short test summary info|^=+ .*(passed|failed|error)' <<<"$LOG"; then
     HAS_SUMMARY=1
 fi
@@ -615,7 +638,32 @@ mapfile -t FAILED_IDS < <(awk '
     }
 ' <<<"$SCRAPE_INPUT")
 [[ "${#FAILED_IDS[@]}" -eq 1 && -z "${FAILED_IDS[0]}" ]] && FAILED_IDS=()
-[[ "${#FAILED_IDS[@]}" -gt 0 ]] && HAS_SUMMARY=1
+
+    ALL_FAILED_IDS+=("${FAILED_IDS[@]}")
+    if [[ "$ATTRIBUTION" == unresolved* ]]; then
+        UNRESOLVED=1
+        UNRESOLVED_ATTRIBUTION="$ATTRIBUTION"
+    fi
+    if [[ "$HAS_SUMMARY_REGION" -eq 0 ]]; then
+        UNBOUNDED=1
+        UNRESOLVED=1
+        UNRESOLVED_ATTRIBUTION="$ATTRIBUTION"
+    fi
+    if [[ "$SUMMARY_FAILED" != "-" ]]; then
+        COUNT_SEEN=1
+        TOTAL_FAILED=$((TOTAL_FAILED + SUMMARY_FAILED))
+    fi
+done <<<"$STEP_ROWS"
+LOG="$ALL_LOG"
+SUMMARY_FAILED="-"
+[[ "$COUNT_SEEN" -eq 1 ]] && SUMMARY_FAILED="$TOTAL_FAILED"
+SCRAPE_SCOPE="summary"
+[[ "$UNBOUNDED" -eq 1 ]] && SCRAPE_SCOPE="whole-log"
+if [[ "$UNRESOLVED" -eq 1 ]]; then
+    ATTRIBUTION="${UNRESOLVED_ATTRIBUTION:-unresolved (failed step without summary)}"
+fi
+# Preserve the union when the same id occurs in multiple failed steps.
+mapfile -t FAILED_IDS < <(printf '%s\n' "${ALL_FAILED_IDS[@]}" | awk 'NF && !seen[$0]++')
 
 # The other half of the signature: every stopped step shares ONE stop timestamp,
 # because the server killed them together rather than each finishing on its own.
@@ -630,21 +678,34 @@ fi
 # `cancelled` requires supersession AND the kill signature - never either alone.
 if [[ "$SUPERSEDED" -eq 1 ]]; then
     if [[ "${STATE,,}" == "killed" || "${STATE,,}" == "cancelled" ]] \
+       || [[ "$CANCELED_STEP" -eq 1 ]] \
        || [[ "$SIMULTANEOUS_STOP" -eq 1 && "$HAS_SUMMARY" -eq 0 ]] \
        || [[ "$(outcome_of "${STATE:-}")" == "pending" ]]; then
         VERDICT="cancelled"
         SUPERSEDED_LABEL="${SUPERSEDED_BY}"
         [[ "$SUPERSEDED_LABEL" == "-" ]] && SUPERSEDED_LABEL="a newer push"
-        echo "flow-pr-watch: pipeline #$PIPELINE was superseded by $SUPERSEDED_LABEL and shows the kill signature (state '${STATE:-unknown}', simultaneous-stop=$SIMULTANEOUS_STOP, pytest-summary=$HAS_SUMMARY)." >&2
+        echo "flow-pr-watch: pipeline #$PIPELINE was superseded by $SUPERSEDED_LABEL and shows the kill signature (canceled-step=$CANCELED_STEP, state '${STATE:-unknown}', simultaneous-stop=$SIMULTANEOUS_STOP, pytest-summary=$HAS_SUMMARY)." >&2
         emit
     fi
-    echo "flow-pr-watch: pipeline #$PIPELINE was superseded, but its log carries a real pytest summary - classifying on the failures, not on the supersession." >&2
+    if [[ "$HAS_SUMMARY" -eq 1 ]]; then
+        echo "flow-pr-watch: pipeline #$PIPELINE was superseded, but its log carries a real pytest summary - classifying on the failures, not on the supersession." >&2
+    else
+        echo "flow-pr-watch: pipeline #$PIPELINE was superseded, but its log carries no pytest summary - classifying on the failures, not on the supersession." >&2
+    fi
+fi
+
+if [[ "$UNRESOLVED" -eq 1 ]]; then
+    VERDICT="unknown"
+    while IFS='|' read -r name state _ pid error; do
+        case "$state" in failure|error|killed) echo "flow-pr-watch: failed step: $name" >&2 ;; esac
+    done <<<"$STEP_ROWS"
+    emit
 fi
 
 if [[ "${#FAILED_IDS[@]}" -eq 0 ]]; then
     VERDICT="red"
     echo "flow-pr-watch: pipeline #$PIPELINE is red but its log names no failed test (a non-pytest step, or a truncated log)." >&2
-    while IFS='|' read -r name state _; do
+    while IFS='|' read -r name state _ pid error; do
         case "$state" in
             failure|error|killed) [[ -n "$name" ]] && echo "flow-pr-watch: failed step: $name" >&2 ;;
         esac
