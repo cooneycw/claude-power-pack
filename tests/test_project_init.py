@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -176,8 +179,16 @@ edition = "2021"
     },
 }
 
-# Gate condition 1: this literal, named map is the complete and only set of
-# generated files allowed to differ from the pre-fix fixture.
+# Paths corrected for bugs #1477/#1478, rather than placeholder substitutions.
+CORRECTED_CONTENT_EXCEPTIONS: dict[str, set[str]] = {
+    "python": {"pyproject.toml"},
+    "node": set(),
+    "go": set(),
+    "rust": set(),
+}
+
+# Gate condition 1: these named maps enumerate the generated files allowed
+# to differ from the pre-fix fixture, by placeholder substitution or bug fix.
 PLACEHOLDER_CONTENT_EXCEPTIONS: dict[str, set[str]] = {
     "python": {"src/sample_app/__init__.py", "tests/test_placeholder.py"},
     "node": {"src/index.ts"},
@@ -282,6 +293,13 @@ def test_scaffold_characterization_has_only_enumerated_content_and_command_fixes
             assert "$PROJECT_NAME" not in actual_files[path]
             assert "$PKG_NAME" not in actual_files[path]
             assert RESOLVED_VALUE_BY_EXCEPTION[framework][path] in actual_files[path]
+        elif path in CORRECTED_CONTENT_EXCEPTIONS[framework]:
+            assert path == "pyproject.toml"
+            corrected = old_content.replace(
+                'build-backend = "hatchling.backends"', 'build-backend = "hatchling.build"'
+            ).replace("[project.optional-dependencies]", "[dependency-groups]")
+            corrected = corrected.replace('    "ruff>=0.4",\n', '    "ruff>=0.4",\n    "mypy>=1.10",\n')
+            assert actual_files[path] == corrected
         else:
             assert actual_files[path] == old_content
 
@@ -555,3 +573,65 @@ def test_ordinal_or_unknown_completed_step_name_is_refused(tmp_path: Path) -> No
 
     with pytest.raises(project_init.CheckpointError, match="completed_steps mismatch"):
         project_init.apply(init_plan, checkpoint_path, RecordingExecutor(), resume=True)
+
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="uv not on PATH")
+@pytest.mark.skipif(shutil.which("make") is None, reason="make not on PATH")
+@pytest.mark.skipif(shutil.which("git") is None, reason="git not on PATH")
+def test_generated_python_project_really_builds_lints_tests_and_typechecks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Needs network for real uv packages; regression for #1477 and #1478 together.
+    from lib.cicd.makefile import generate_makefile
+
+    monkeypatch.setenv("GIT_AUTHOR_NAME", "Project Init Test")
+    monkeypatch.setenv("GIT_AUTHOR_EMAIL", "project-init@example.com")
+    monkeypatch.setenv("GIT_COMMITTER_NAME", "Project Init Test")
+    monkeypatch.setenv("GIT_COMMITTER_EMAIL", "project-init@example.com")
+    target_dir = tmp_path / "demo-proj"
+    assert project_init.main(
+        [
+            str(SCRIPT),
+            "--project-name",
+            "demo-proj",
+            "--framework",
+            "python",
+            "--target-dir",
+            str(target_dir),
+        ]
+    ) == 0
+    makefile = generate_makefile(target_dir, template_dir=ROOT / "templates" / "makefiles")
+    (target_dir / "Makefile").write_text(makefile, encoding="utf-8")
+    # Scrub this repo's own venv so a nested `uv run` (lint/test/typecheck
+    # below) cannot fall back to ITS ruff/pytest/mypy via a leaked PATH entry
+    # inherited from the `uv run pytest` invocation running this very test -
+    # that would pass regardless of whether the generated project declares
+    # its own dev tools correctly, which is the one thing this test exists to
+    # check.
+    clean_env = dict(os.environ)
+    outer_venv = clean_env.pop("VIRTUAL_ENV", None)
+    if outer_venv:
+        outer_bin = str(Path(outer_venv) / "bin")
+        clean_env["PATH"] = ":".join(
+            part for part in clean_env.get("PATH", "").split(":") if part != outer_bin
+        )
+    # Negative fixture precondition: stripping the outer venv only closes ONE
+    # leak path. If ruff/pytest/mypy are reachable some other way on this
+    # PATH (a global install, a user pip --user bin), the generated project's
+    # `uv run` could still find them regardless of whether the template
+    # declares its own dev tools - the one thing this test exists to check.
+    for tool in ("ruff", "pytest", "mypy"):
+        assert shutil.which(tool, path=clean_env.get("PATH")) is None, (
+            f"negative fixture precondition: {tool!r} must not be reachable via "
+            "the scrubbed PATH, or this test cannot tell the generated "
+            "project's own declared tools from one leaking in ambiently"
+        )
+    result = subprocess.run(
+        ["make", "lint", "test", "typecheck"],
+        cwd=target_dir,
+        capture_output=True,
+        text=True,
+        env=clean_env,
+    )
+    assert result.returncode == 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
