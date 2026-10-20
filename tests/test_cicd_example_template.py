@@ -7,6 +7,10 @@ import yaml
 from lib.cicd.config import CICDConfig
 
 
+def _parse_health_yaml(text: str) -> CICDConfig:
+    return CICDConfig.model_validate(yaml.safe_load(text))
+
+
 def test_health_smoke_example() -> None:
     template = (Path(__file__).parents[1] / "templates" / "cicd.yml.example").read_text()
     start_marker = "# <cicd-example:health-start>"
@@ -26,7 +30,7 @@ def test_health_smoke_example() -> None:
     data = yaml.safe_load(uncommented)
     assert isinstance(data, dict)
     assert set(data) == {"health"}
-    config = CICDConfig.model_validate(data)
+    config = _parse_health_yaml(uncommented)
 
     assert len(config.health.endpoints) > 0
     assert len(config.health.processes) > 0
@@ -35,3 +39,23 @@ def test_health_smoke_example() -> None:
     assert config.health.smoke_tests[0].command == "curl -sf http://localhost:8000/health"
     assert config.health.processes[0].port == 8000
     assert config.health.processes[1].systemd_user_unit == "my-worker.service"
+
+
+def test_pre_fix_schema_silently_drops_probes() -> None:
+    old_schema = """
+health:
+  url: https://your-app.com/health
+  timeout: 30
+  expected_status: 200
+  expected_body: '"status":"ok"'
+smoke:
+  tests:
+    - name: "Homepage loads"
+      url: https://your-app.com/
+      expected_status: 200
+"""
+
+    config = _parse_health_yaml(old_schema)
+
+    assert len(config.health.endpoints) == 0
+    assert len(config.health.smoke_tests) == 0
