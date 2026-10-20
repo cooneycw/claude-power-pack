@@ -10,7 +10,7 @@
   reserved for it and lands after this one - the numbering gap is deliberate),
   #936 (ADR 0009, the oscillation rule), #834 / [the detector
   contracts](../agents/detector-contracts.md) (the two questions asked of any
-  instrument in a diff), [the glossary](../agents/glossary.md) (the defined
+  instrument in a diff), [the glossary](https://github.com/cooneycw/claude-power-pack/blob/main/docs/agents/glossary.md) (the defined
   terms this ADR attaches the bound to). Provenance:
   `docs/research/harness-strategy-recommendation-2026-09-14.html` section 04
   and the adoption plan `instruments-and-counter-model-adoption-2026-09-14`
@@ -119,7 +119,7 @@ protections, break each one, and record which control failed. It is not a new
 review gate, not a tier, and not a per-run cost - mutation is paid once per
 instrument, not once per run, so #952's per-run rejection criterion does not bite.
 What #970 measured about affordability is in
-[the re-examination](../research/battery-mutation-re-examination-2026-09-20.md);
+[the re-examination](https://github.com/cooneycw/claude-power-pack/blob/main/docs/research/battery-mutation-re-examination-2026-09-20.md);
 it is not assumed here.
 
 `scripts/mutation-probe.py` makes this a command rather than an exhortation.
@@ -735,7 +735,7 @@ state it - and does not reach instruments built elsewhere on this host.
 ## Consequences
 
 - `instrument`, `harness` and `counter-model` are defined terms
-  ([glossary](../agents/glossary.md)); issues and ADRs use them rather than
+  ([glossary](https://github.com/cooneycw/claude-power-pack/blob/main/docs/agents/glossary.md)); issues and ADRs use them rather than
   "gate", "check" or "the tooling" when the distinction matters.
 - #924 can scope itself: "every instrument the bound captures" replaces "the
   seven that failed recently", and the register it builds has a denominator

@@ -1034,7 +1034,29 @@ git merge --no-edit origin/main
    inability to run codex. The reversal trigger that would bring it back is
    committed beside `SKIP_REASONS` in `scripts/counter-model-receipt.py`.
 
-   **1b. Run the review.** Invoke `/codex:code_review` with that BASE and
+   **No eligible reviewer in a Codex lane (issue #1494).** `/codex:code_review`
+   ships no Codex-callable skill at all - `codex/skills/` has no `review` or
+   `codex` entry - and even if it did, invoking it from a session where
+   `$CODEX_THREAD_ID` is set would be this session reviewing its own diff: the
+   same defect "a same-model review is not a counter-model review" (1d, below)
+   already refuses to record. `/second-opinion-start` exists as a Codex skill
+   and genuinely reaches a non-Codex model, but its output is free-form MCP
+   prose, not the `COUNTER_MODEL_REVIEW:` marker shape `$CM_RECEIPT parse`
+   requires - wiring it into this receipt pipeline is a separate, larger change
+   than naming the reviewer step honestly (tracked as issue #1513; out of
+   scope here). So: when `$CODEX_THREAD_ID` is set, skip straight to 1d with
+   `reviewer-unavailable` and do not attempt 1b.
+
+   **The skip receipt is not the whole story.** `reviewer-unavailable` means no
+   reviewer feeds this automated pipeline - it does not mean no review ran.
+   Run `/second-opinion-start` (or another non-Codex review you have available)
+   yourself, and if it ran, state its reviewer and verdict in the PR body
+   alongside the skip, naming both. Until #1513 lands, the receipt alone
+   would read as "no review happened" when one did; the PR body is where that
+   gets corrected.
+
+   **1b. Run the review** (Claude sessions only - a Codex lane takes the skip
+   above). Invoke `/codex:code_review` with that BASE and
    `CONTEXT` = `"issue #<N>: <issue title>"`, and **capture the transcript to a
    file** - the receipt in 1d is derived from it, not from memory.
 

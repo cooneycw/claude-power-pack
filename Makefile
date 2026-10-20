@@ -399,6 +399,7 @@ verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-impor
 	control-ci-deps-check ci-coverage-check \
 	consolidation-ledger-check host-surface-check cpp-host-writes-check \
 	version-consistency-check unicode-dashes-check co-authored-by-trailer-check md-relative-links-check \
+	codex-skill-links-check \
 	behavioral-eval-check eli5-check tool-risk-check skill-coverage-map-check
 	@python3 scripts/verify-coverage-check.py --report
 
@@ -774,6 +775,10 @@ unicode-dashes-check:
 ## verify-coverage: gate md-relative-links-check - every relative markdown link in tracked docs resolves; ci: runs md-relative-links-check
 md-relative-links-check:
 	@python3 scripts/check-md-relative-links.py
+
+## verify-coverage: gate codex-skill-links-check - every relative markdown link in the generated codex/skills/ mirrors resolves FROM THE MIRROR location (issue #1494); ci: runs codex-skill-links-check
+codex-skill-links-check:
+	@python3 scripts/check-md-relative-links.py --codex-skills
 
 ## verify-coverage: gate co-authored-by-trailer-check - the Co-Authored-By trailer names a real model; ci: excluded needs-git
 co-authored-by-trailer-check:

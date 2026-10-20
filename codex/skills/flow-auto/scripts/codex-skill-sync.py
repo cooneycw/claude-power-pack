@@ -55,6 +55,7 @@ import ast
 import contextlib
 import errno
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -62,6 +63,7 @@ import shutil
 import sys
 from collections.abc import Iterator
 from pathlib import Path
+from urllib.parse import quote
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SOURCE_ROOT = REPO_ROOT / ".claude" / "commands"
@@ -509,7 +511,11 @@ def derive_description(meta: dict[str, str], body: str, *, skill_name: str | Non
             desc = title or para
         desc = " ".join(desc.split())
     if len(desc) > DESCRIPTION_MAX and skill_name not in DESCRIPTION_MAX_EXEMPT:
-        desc = desc[:DESCRIPTION_MAX].rsplit(" ", 1)[0].rstrip(" ,;:-") + " ..."
+        boundaries = list(re.finditer(r"[.!?](?=\s|$)", desc[:DESCRIPTION_MAX]))
+        if boundaries:
+            desc = desc[:boundaries[-1].end()]
+        else:
+            desc = desc[:DESCRIPTION_MAX].rsplit(" ", 1)[0].rstrip(" ,;:-") + " ..."
     return desc
 
 
@@ -1442,6 +1448,55 @@ def provenance_note(files: dict[str, str]) -> str | None:
     return "".join(lines)
 
 
+def rewrite_mirror_links(text: str, source: Path, output: str, mirrored: set[str]) -> str:
+    """Keep links that work in the bundle; route other repository links upstream.
+
+    Use the checker's Markdown parser so code examples, titles, escaped paths,
+    and nested parentheses have the same meaning in generation and validation.
+    """
+    module_name = "cpp_md_relative_links"
+    if module_name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(
+            module_name, Path(__file__).with_name("check-md-relative-links.py")
+        )
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+    parser = sys.modules[module_name]
+    lines = text.splitlines(keepends=True)
+    eligible = {number for number, _ in parser.links_in(text)}
+    for number in eligible:
+        line = lines[number - 1]
+        # Preserve offsets while masking inline code spans.
+        masked = parser.INLINE_CODE_RE.sub(lambda m: " " * len(m.group()), line)
+        edits = []
+        for match in parser.LINK_START_RE.finditer(masked):
+            raw = parser._destination(line, match.end())
+            target = parser._link_target(raw) if raw is not None else None
+            if target is None:
+                continue
+            mirror_target = os.path.normpath(str(Path(output).parent / target))
+            if mirror_target in mirrored:
+                continue
+            resolved = (source.parent / target).resolve()
+            if not resolved.exists():
+                continue
+            try:
+                relative = resolved.relative_to(REPO_ROOT.resolve())
+            except ValueError:
+                continue
+            fragment = raw.strip("<>").partition("#")[2]
+            url = "https://github.com/cooneycw/claude-power-pack/blob/main/" + quote(relative.as_posix())
+            if fragment:
+                url += "#" + fragment
+            edits.append((match.end(), match.end() + len(raw), url))
+        for start, end, url in reversed(edits):
+            line = line[:start] + url + line[end:]
+        lines[number - 1] = line
+    return "".join(lines)
+
+
 def generate_skill(
     source_file: Path, family: str, names: dict[tuple[str, str], str]
 ) -> dict[str, str]:
@@ -1528,9 +1583,18 @@ def generate_skill(
     for rel, source in find_bundled_data(scripts).items():
         files[rel] = source.read_text()
     for doc in docs:
-        # Bundled verbatim, at the same relative path, so sibling links between
-        # bundled docs keep resolving without rewriting their contents.
+        # Preserve source layout so links between bundled docs stay relative.
+        # Links out of the bundle are rewritten after all members are known.
         files[f"docs/{doc}"] = (DOCS_ROOT / doc).read_text()
+    mirrored = set(files)
+    for rel in list(files):
+        if not rel.endswith(".md"):
+            continue
+        if rel in ("SKILL.md", "reference.md"):
+            source = source_file
+        else:
+            source = REPO_ROOT / rel
+        files[rel] = rewrite_mirror_links(files[rel], source, rel, mirrored)
     manifest = scripts_manifest(files)
     if manifest is not None:
         files[f"scripts/{MANIFEST_NAME}"] = manifest

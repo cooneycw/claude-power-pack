@@ -80,7 +80,7 @@ What was wrong, why it mattered, what is better now.
 motivation before mechanics, every technical term glossed on first use, and the
 bar that *"someone who has never seen this codebase should finish Section A
 understanding what is wrong today and what will be better afterward."* See
-[`flow/eli5.md`](../../.claude/commands/flow/eli5.md), Section A.
+[`flow/eli5.md`](https://github.com/cooneycw/claude-power-pack/blob/main/.claude/commands/flow/eli5.md), Section A.
 
 There is exactly one plain-language standard in this repository and it is that
 one. This section applies it at the other end of the run; it does not create a
