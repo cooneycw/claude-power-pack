@@ -503,8 +503,19 @@ class TestReleaseCheck:
         assert result.release_check.served == served
         assert result.to_dict()["release_check"] == {"status": status, "intended": "R2", "served": served}
         if status == "mismatched":
-            assert "does not match" in result.reasons[0]
-            assert "does not match" in result.summary_line()
+            if verdict is Verdict.REVIEW:
+                # The release check is what raised PROCEED to REVIEW - it IS
+                # the headline reason.
+                assert "does not match" in result.reasons[0]
+                assert "does not match" in result.summary_line()
+            else:
+                # A real probe regression already drove this to ROLLBACK - that
+                # stays the headline (reasons[0], and --summary's line), and the
+                # release mismatch is a secondary note, not buried behind it but
+                # not burying it either.
+                assert "does not match" not in result.reasons[0]
+                assert "does not match" not in result.summary_line()
+                assert "does not match" in result.reasons[-1]
         elif status == "unreadable":
             assert "unreadable" in result.reasons[0]
 

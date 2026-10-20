@@ -407,9 +407,16 @@ def verify_deployment(
                 if served is not None
                 else "release probe unreadable - could not confirm the served release"
             )
-            reasons = [detail, *reasons]
             if verdict is Verdict.PROCEED:
+                # The release check is what raised the verdict - it is the headline reason.
+                reasons = [detail, *reasons]
                 verdict = Verdict.REVIEW
+            else:
+                # _decide() already produced a ROLLBACK/REVIEW reason from a real
+                # probe regression - keep that as reasons[0] (and --summary's
+                # headline) and add the release mismatch as a secondary note,
+                # rather than burying the actual regression behind it.
+                reasons = [*reasons, detail]
     return DeployVerifyResult(
         verdict=verdict,
         reasons=reasons,
