@@ -187,6 +187,15 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     os.environ[name] = str(dest)
 
 
+@pytest.fixture(autouse=True)
+def isolate_flow_wave_lineage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep host sockets and session hooks out of tests unless explicitly supplied."""
+    missing = tmp_path / "no-flow-wave-session"
+    assert not missing.exists(), "precondition: the default lineage path does not exist"
+    monkeypatch.setenv("FLOW_WAVE_SOCK_DIR", str(missing))
+    monkeypatch.setenv("FLOW_WAVE_SESSION_PIDS", str(missing))
+
+
 @pytest.fixture
 def tmp_project(tmp_path: Path) -> Path:
     """Create a minimal project directory with .gitignore."""

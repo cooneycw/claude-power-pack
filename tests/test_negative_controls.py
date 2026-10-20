@@ -4280,6 +4280,7 @@ def test_anchor_diagnostics_name_the_anchor_its_kind_and_the_case(tmp_path: Path
 def test_every_real_control_stays_inside_the_closed_schema() -> None:
     """R4's condition, kept true: turning the refusal on must not red a real control."""
     spec = importlib.util.spec_from_file_location("cnc_schema", HARNESS)
+    assert spec is not None and spec.loader is not None, f"could not load spec from {HARNESS}"
     module = importlib.util.module_from_spec(spec)
     sys.modules["cnc_schema"] = module
     spec.loader.exec_module(module)
