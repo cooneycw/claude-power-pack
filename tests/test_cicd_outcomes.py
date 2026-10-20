@@ -896,10 +896,23 @@ def test_unittest_unexpected_successes_are_xpassed() -> None:
 
 class TestControlFences:
     def test_bad_nested_tail_is_labelled(self) -> None:
+        """Behavioural red case (orchestrator review of PR #1511).
+
+        Each summary carries its own `test session starts` banner, matching
+        a REAL disjoint top-level invocation (issue #838's own shape, the
+        one `_aggregate` already sums) - not a textually-bare tail with no
+        banner at all, which pre-fix main's fail-open "last candidate wins"
+        fallback already happens to under-count for an unrelated reason.
+        Pre-fix main SUMS both as top-level invocations: `failed=5, passed=12`
+        - the exact skillc-reported shape (a real suite's 0 contaminated by a
+        control's count). Post-fix: `failed=0, passed=10, control_failed=5`.
+        """
         text = (
             '::cicd-negative-control:BEGIN:BAD:probe::\n'
+            '================ test session starts =================\n'
             '5 failed, 2 passed in 1.2s\n'
             '::cicd-negative-control:END:BAD:probe::\n'
+            '================ test session starts =================\n'
             '10 passed in 2.0s\n'
         )
         assert '5 failed' in text
@@ -907,6 +920,8 @@ class TestControlFences:
         assert outcome is not None
         assert outcome.failed == 0
         assert outcome.passed == 10
+        assert outcome.invocations == 1
+        assert outcome.control_invocations == 1
         assert outcome.control_failed == 5
         assert outcome.control_passed == 2
         assert outcome.control_unexpected == ()
