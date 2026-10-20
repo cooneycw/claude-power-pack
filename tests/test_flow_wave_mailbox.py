@@ -2405,8 +2405,8 @@ class TestSupervise:
         fixture, per the issue's own framing: release, then confirm the
         daemon is STILL alive shortly after (the latency genuinely exists,
         so a documentation fix claiming instant shutdown would be wrong),
-        and confirm it is gone within one timeout of release plus a small
-        margin (the corrected bound actually holds)."""
+        and separately bound release detection under CPU contention and the
+        prompt exit once the daemon has recorded that detection (#1483)."""
         registry = ROOT / "scripts" / "flow-wave-registry.sh"
         env = os.environ.copy()
         env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "mb")
@@ -2442,9 +2442,17 @@ class TestSupervise:
                 "shutdown-on-release is bounded by one --timeout, not instant - "
                 "this pins that the latency is real, not merely documented"
             )
-            # The bound: gone within one timeout of release, plus a margin.
-            assert _wait_for(lambda: not _pid_alive(pid), timeout=8), (
-                "the daemon must still shut down within one --timeout of release"
+            # Issue #1483: release-to-log max 9.433s (p95 8.511s), 20 samples
+            # under concurrent TestSupervise -n 4 on a 2-core cgroup. Round
+            # max up to 9.5s + 5.5s scheduling margin = 15s detection ceiling.
+            assert _wait_for(
+                lambda: "role released - shutting down" in
+                _supervise_log(tmp_path, WAVE, "1").read_text(),
+                timeout=15,
+            ), "the daemon never recorded that it noticed the role release"
+            # Once detection is logged, only log_event and exit remain.
+            assert _wait_for(lambda: not _pid_alive(pid), timeout=3), (
+                "the daemon must exit promptly after noticing the role release"
             )
         finally:
             if _pid_alive(pid):
