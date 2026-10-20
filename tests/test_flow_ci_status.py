@@ -1214,6 +1214,8 @@ def _typed_wpcli(
     name_type: list[str] | None,
     type_exit: int = 0,
     state_exit: int = 0,
+    name_error: list[str] | None = None,
+    error_exit: int = 0,
 ) -> Path:
     """A woodpecker-cli whose `ps` answers per FORMAT: the name|state call, and
     the separate name|type call. `name_type=None` makes the type call FAIL, the
@@ -1235,6 +1237,10 @@ def _typed_wpcli(
         "ps)",
         'if [[ "$*" == *".step.Type"* ]]; then',
         *type_branch,
+        "fi",
+        'if [[ "$*" == *".step.Error"* ]]; then',
+        *(["cat <<'ROWS'", *name_error, "ROWS", f"exit {error_exit}"]
+          if name_error is not None else ["exit 1"]),
         "fi",
         "cat <<'ROWS'",
         *name_state,
@@ -1350,3 +1356,54 @@ def test_a_name_state_call_that_PRINTS_then_FAILS_keeps_names_and_says_unknown(t
     assert m["FLOW_CI_FAILED_STEP"] == ["clone"], "the names that arrived are kept"
     assert m["FLOW_CI_PRECODE_FAILURE"] == ["clone"]
     assert m["FLOW_CI_FAILURE_ORIGIN"] == ["unknown"]
+
+
+@requires_bash
+@pytest.mark.parametrize("error,expected", [
+    ("Canceled", "canceled"), (None, "code"), ("", "code"),
+    ("canceled", "code"), ("Canceled by user", "code"),
+])
+def test_api_cancellation_requires_exact_provider_marker(tmp_path, error, expected):
+    step = {"name": "validate", "type": "commands", "state": "failure", "exit_code": 126}
+    if error is not None:
+        step["error"] = error
+    result = _api_failure(tmp_path, [step])
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_STATUS"] == ["failure"]
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == [expected]
+    assert "FLOW_CI_PRECODE_FAILURE" not in m
+
+
+@requires_bash
+@pytest.mark.parametrize("sibling,expected", [
+    ({"type": "commands"}, "mixed"), ({"type": "clone"}, "mixed"),
+    ({"error": "Canceled"}, "canceled"), ({}, "unknown"),
+])
+def test_api_cancellation_aggregate(tmp_path, sibling, expected):
+    steps = [
+        {"name": "validate", "type": "commands", "state": "failure",
+         "exit_code": 126, "error": "Canceled"},
+        {"name": "other", "state": "failure", **sibling},
+    ]
+    assert _markers(_api_failure(tmp_path, steps).stdout)["FLOW_CI_FAILURE_ORIGIN"] == [expected]
+
+
+@requires_bash
+@pytest.mark.parametrize("errors,error_exit,expected", [
+    (["validate|Canceled"], 0, "canceled"),
+    (["validate|Canceled", "validate|Canceled"], 0, "canceled"),
+    (["other|Canceled"], 0, "code"),
+    (["validate|Canceled", "validate|"], 0, "code"),
+    (["validate|", "validate|Canceled"], 0, "code"),
+    (["validate|Canceled"], 1, "code"),
+    (None, 0, "code"),
+])
+def test_cli_cancellation_is_separate_and_joined_without_borrowing(
+    tmp_path, errors, error_exit, expected,
+):
+    wpcli = _typed_wpcli(tmp_path, ["validate|failure"], ["validate|commands"],
+                         name_error=errors, error_exit=error_exit)
+    m = _cli_run(tmp_path, wpcli)
+    assert m["FLOW_CI_FAILED_STEP"] == ["validate"]
+    assert m["FLOW_CI_STATUS"] == ["failure"]
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == [expected]
