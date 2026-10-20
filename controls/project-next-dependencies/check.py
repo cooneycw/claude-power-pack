@@ -1,4 +1,10 @@
-"""Run the candidate classifier against a dependency declaration."""
+"""Run the candidate classifier against a dependency declaration.
+
+BAD means "a reference sits outside the contiguous parse and the line must
+not read as resolved" - never a specific dependency tuple, so this covers
+both a trailing `#N` (the original #1488 case) and a trailing spec-task ID
+(absorbed per orchestrator review, same fail-open shape) with one check.
+"""
 
 import importlib.util
 import json
@@ -13,15 +19,17 @@ spec = importlib.util.spec_from_file_location("lib.project_next.control_candidat
 assert spec and spec.loader
 candidate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(candidate)
-body = json.loads((case / "issue.json").read_text())["body"]
-if "experiment" in body:
-    assert "#26 or #12" in body
+fixture = json.loads((case / "issue.json").read_text())
+body = fixture["body"]
+precondition = fixture.get("precondition")
+if precondition is not None:
+    assert precondition in body, f"negative-fixture precondition failed: {precondition!r} not in {body!r}"
 state = RepositoryState(
     repository="example/control", default_branch="main", collected_at="", issues=(Issue(28, "Experiment", body),)
 )
 result = candidate.classify_repository(state)
 print("dependencies:", result.dependency_map[28])
-if 28 in result.uncertain and result.dependency_map[28] == (8, 12, 26):
+if 28 in result.uncertain:
     print("DEPENDENCY-UNKNOWN:", *result.uncertainty[28])
     raise SystemExit(1)
 print("DEPENDENCY-RESOLVED")

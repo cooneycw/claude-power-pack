@@ -14,7 +14,13 @@
       "name": "bad-prose",
       "input": "cases/bad-prose",
       "expect": "BAD",
-      "why": "Later references after free prose must never read as fully resolved."
+      "why": "A trailing #N reference after free prose must never read as fully resolved."
+    },
+    {
+      "name": "bad-task-prose",
+      "input": "cases/bad-task-prose",
+      "expect": "BAD",
+      "why": "A trailing spec-task ID after free prose is the same fail-open shape as a trailing #N (absorbed into #1488 per orchestrator review) and must also never read as fully resolved."
     },
     {
       "name": "good-list",

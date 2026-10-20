@@ -354,3 +354,21 @@ def test_dependency_references_after_prose_are_retained_and_uncertain() -> None:
     result = classify_repository(state)
     assert result.dependency_map[28] == (8, 12, 26)
     assert result.uncertain == (28,)
+
+
+def test_a_trailing_task_reference_after_prose_is_not_read_as_resolved() -> None:
+    """A trailing spec-task ID is the same fail-open shape as a trailing #N (#1488 review).
+
+    `"Depends on: #8 and then T012"` must not read as fully resolved just
+    because `#8` was consumed by the contiguous parse - `T012` sits outside
+    that run exactly as `#26`/`#12` did in the sibling test above, and the
+    pre-#1488 parser dropped it the same way.
+    """
+    body = "Depends on: #8 and then T012"
+    assert "and then T012" in body
+    state = RepositoryState(
+        repository="example/repo", default_branch="main", collected_at="", issues=(Issue(28, "Experiment", body),)
+    )
+    result = classify_repository(state)
+    assert result.dependency_map[28] == (8,)
+    assert result.uncertain == (28,)

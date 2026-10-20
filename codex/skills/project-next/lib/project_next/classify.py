@@ -169,10 +169,16 @@ def _line_references(line: str, repository: str = "") -> tuple[set[int], set[str
             # reference, so retain the edge AND ask a human to resolve its meaning.
             if consumed or (strong and not _declares_none(line, start)):
                 remainder = line[stopped:]
-                trailing = list(re.finditer(rf"{CROSS_REPO_REFERENCE.pattern}|{ISSUE_REFERENCE.pattern}", remainder))
+                trailing = list(
+                    re.finditer(
+                        rf"{CROSS_REPO_REFERENCE.pattern}|{ISSUE_REFERENCE.pattern}|{TASK_REFERENCE.pattern}",
+                        remainder,
+                    )
+                )
                 for match in trailing:
-                    extra, _, external, _, _ = _reference_list(match.group(0), 0, repository)
-                    found_issues |= extra
+                    extra_issues, extra_tasks, external, _, _ = _reference_list(match.group(0), 0, repository)
+                    found_issues |= extra_issues
+                    found_tasks |= extra_tasks
                     found_external.extend(external)
                 if trailing:
                     unresolved.append(
