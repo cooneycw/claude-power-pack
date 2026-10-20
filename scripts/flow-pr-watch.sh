@@ -122,6 +122,8 @@
 set -uo pipefail
 
 # Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+# Invoked only via the `trap` calls below; shellcheck cannot see that.
+# shellcheck disable=SC2317,SC2329
 signal_exit() {
     trap - EXIT
     printf 'FLOW_PR_WATCH_EXIT=%d\n' "$1" >&2
@@ -484,7 +486,7 @@ TOTAL_FAILED=0
 COUNT_SEEN=0
 CANCELED_STEP=0
 HAS_SUMMARY=0
-while IFS='|' read -r name state stopped pid error; do
+while IFS='|' read -r name state _ pid error; do
     case "${state,,}" in failure|error|killed) ;; *) continue ;; esac
     [[ "$error" == "Canceled" ]] && CANCELED_STEP=1
     LOG=""
@@ -694,7 +696,7 @@ fi
 
 if [[ "$UNRESOLVED" -eq 1 ]]; then
     VERDICT="unknown"
-    while IFS='|' read -r name state stopped pid error; do
+    while IFS='|' read -r name state _ pid error; do
         case "$state" in failure|error|killed) echo "flow-pr-watch: failed step: $name" >&2 ;; esac
     done <<<"$STEP_ROWS"
     emit
@@ -703,7 +705,7 @@ fi
 if [[ "${#FAILED_IDS[@]}" -eq 0 ]]; then
     VERDICT="red"
     echo "flow-pr-watch: pipeline #$PIPELINE is red but its log names no failed test (a non-pytest step, or a truncated log)." >&2
-    while IFS='|' read -r name state stopped pid error; do
+    while IFS='|' read -r name state _ pid error; do
         case "$state" in
             failure|error|killed) [[ -n "$name" ]] && echo "flow-pr-watch: failed step: $name" >&2 ;;
         esac
