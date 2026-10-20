@@ -1,0 +1,28 @@
+{
+  "branch": "issue-1476-cicd-yml-example-documents-a-health-smoke-schema-l",
+  "counts": {
+    "accepted": 1,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "direction": "delegated",
+  "head": "4780294f00a26d0f4ce46ed2e7f702f5634c2e5c",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/20/rollout-2026-10-20T10-44-28-01a158e9-a0b5-70b2-b0a9-cc867c76ec10.jsonl",
+    "thread_id": "01a158e9-a0b5-70b2-b0a9-cc867c76ec10"
+  },
+  "issue": "1476",
+  "passes": 2,
+  "recorded_at": "2026-10-20T10:46:48Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "claude/claude-sonnet-5",
+  "reviewer_evidence": {
+    "session_id": "cc0663bc-5a6c-47dd-b03d-a988b14aa8cb"
+  },
+  "schema": 1,
+  "status": "ran"
+}
