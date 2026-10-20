@@ -269,3 +269,115 @@ def test_the_real_repo_bundled_docs_are_recognised_as_distribution(tmp_path) -> 
     ]
 
     assert not unverified, "shipped copies not recognised as distribution: " + ", ".join(unverified)
+
+
+# --- is_verified_generated_doc widened from byte-identical to link-rewrite-aware
+# (#1494 review). A tolerant comparison is exactly how this instrument could
+# stop distinguishing a hand-edited mirror from a faithful one, so its own
+# discriminating power needs a direct case: a mirror that differs by something
+# OTHER than the known rewrite must still fail, even though a mirror that
+# differs ONLY by the rewrite must pass.
+
+
+def _link_rewrite_repo(root: Path, *, with_prose_edit: bool) -> Path:
+    """One managed skill bundling a canonical doc whose one link is rewritten.
+
+    `with_prose_edit=False`: the bundled copy is EXACTLY what
+    `rewrite_mirror_links` would produce - the positive case.
+    `with_prose_edit=True`: the bundled copy also carries one changed prose
+    line elsewhere, link untouched - the negative case this test exists for.
+    """
+    (root / "CLAUDE.md").write_text("Read docs on demand.", encoding="utf-8")
+    _write_fixture(root)
+    (root / "docs").mkdir(exist_ok=True)
+    (root / "docs" / "other.md").write_text("# Other\n\nUpstream-only target.\n", encoding="utf-8")
+    source_rel = root / "docs" / "agents"
+    source_rel.mkdir(parents=True, exist_ok=True)
+    source_text = (
+        "# Widened check\n\n"
+        "See [other](../other.md) for background.\n\n"
+        "A rule a behavioural test can see.\n"
+    )
+    (source_rel / "widened-check.md").write_text(source_text, encoding="utf-8")
+
+    scripts = root / "scripts"
+    scripts.mkdir(exist_ok=True)
+    real_dir = Path(__file__).parents[1] / "scripts"
+    for name in ("codex-skill-sync.py", "check-md-relative-links.py"):
+        (scripts / name).write_text((real_dir / name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    skill = root / "codex" / "skills" / "flow-auto"
+    skill_docs = skill / "docs" / "agents"
+    skill_docs.mkdir(parents=True, exist_ok=True)
+    (skill / "SKILL.md").write_text(GENERATED_MARKER + "\n\nBody.\n", encoding="utf-8")
+
+    bundler = behavior._load_bundler(root)
+    assert bundler is not None
+    mirrored = {"SKILL.md", "docs/agents/widened-check.md"}
+    rewritten = bundler.rewrite_mirror_links(
+        source_text, source_rel / "widened-check.md", "docs/agents/widened-check.md", mirrored
+    )
+    assert "(../other.md)" not in rewritten and "https://github.com" in rewritten, (
+        "fixture's link was not rewritten; test proves nothing"
+    )
+    if with_prose_edit:
+        rewritten = rewritten.replace(
+            "A rule a behavioural test can see.", "A DIFFERENT rule, never generated this way."
+        )
+    (skill_docs / "widened-check.md").write_text(rewritten, encoding="utf-8")
+    return skill
+
+
+def test_a_link_only_rewrite_is_still_a_verified_copy(tmp_path: Path) -> None:
+    """The positive case: the ONLY difference from source is the known rewrite."""
+    skill = _link_rewrite_repo(tmp_path, with_prose_edit=False)
+    bundler = behavior._load_bundler(tmp_path)
+    assert bundler is not None
+
+    assert behavior.is_verified_generated_doc(
+        skill / "docs" / "agents" / "widened-check.md", tmp_path, bundler.is_managed
+    )
+
+
+def test_a_rewrite_plus_an_unrelated_edit_is_not_a_verified_copy(tmp_path: Path) -> None:
+    """The negative case this check exists to still catch (#1494 review).
+
+    Paired with the test above: tolerating the rewrite must not also tolerate
+    an unrelated hand edit riding along with it.
+    """
+    skill = _link_rewrite_repo(tmp_path, with_prose_edit=True)
+    bundler = behavior._load_bundler(tmp_path)
+    assert bundler is not None
+
+    assert not behavior.is_verified_generated_doc(
+        skill / "docs" / "agents" / "widened-check.md", tmp_path, bundler.is_managed
+    )
+
+
+def test_the_negative_case_reds_a_deliberately_blind_variant(tmp_path: Path) -> None:
+    """Proves the check above is a real discriminator, not a tautology.
+
+    A "verified" predicate that only confirms the path is managed and a
+    source exists - never reading either file's content - would pass the
+    hand-edited mirror too. The real check must disagree with it.
+    """
+    skill = _link_rewrite_repo(tmp_path, with_prose_edit=True)
+    bundler = behavior._load_bundler(tmp_path)
+    assert bundler is not None
+    path = skill / "docs" / "agents" / "widened-check.md"
+
+    def blind_is_verified(path: Path, root: Path, is_managed) -> bool:
+        source = behavior._canonical_source(path, root)
+        skill_dir = root.joinpath(
+            *behavior.SKILLS_ROOT, path.relative_to(root.joinpath(*behavior.SKILLS_ROOT)).parts[0]
+        )
+        return source is not None and source.is_file() and is_managed(skill_dir)
+
+    assert blind_is_verified(path, tmp_path, bundler.is_managed), (
+        "the blind variant must agree the fixture LOOKS verifiable, or it isn't "
+        "exercising the same inputs as the real check"
+    )
+    assert not behavior.is_verified_generated_doc(path, tmp_path, bundler.is_managed), (
+        "the real check must red where the blind variant cannot - otherwise "
+        "widening it to tolerate link rewrites cost its discriminating power"
+    )
