@@ -2717,7 +2717,8 @@ def test_an_explicitly_empty_reason_is_refused_not_dropped(tmp_path: Path) -> No
 
 def test_the_schema_enforces_the_cap_and_its_reason_both_ways() -> None:
     assert CM.validate(dict(_RAN_BASE, passes=2)) == []
-    assert CM.validate(dict(_RAN_BASE, passes=3, extra_passes_reason="asked for")) == []
+    assert CM.validate(dict(_RAN_BASE, schema=CM.SCHEMA_EXTRA_PASSES,
+                            passes=3, extra_passes_reason="asked for")) == []
     assert any("extra_passes_reason" in p for p in CM.validate(dict(_RAN_BASE, passes=3)))
     assert any("extra_passes_reason" in p
                for p in CM.validate(dict(_RAN_BASE, passes=3, extra_passes_reason="  ")))
@@ -3218,3 +3219,67 @@ def test_a_damaged_transcript_line_is_refused_whatever_it_starts_with(tmp_path: 
     proc = _delegated_write(tmp_path, QWEN_STREAM, "--qwen-projects-dir", str(_qwen_projects(tmp_path, text)))
     assert proc.returncode == CM.EXIT_INVALID
     assert "is not JSON; refusing to attribute" in proc.stderr
+
+
+# Issue #1495: bound the review loop and version the extra-pass field.
+def test_1495_cli_ceiling_cannot_be_overridden_by_a_reason(tmp_path: Path) -> None:
+    proc = _write_ran(tmp_path, "--passes", "4", "--extra-pass-reason", "requested")
+    assert proc.returncode == CM.EXIT_USAGE, proc.stderr
+    assert "3" in proc.stderr and "review loop" in proc.stderr
+    assert not list((tmp_path / "out").glob("*.json"))
+
+
+def test_1495_validate_ceiling_cannot_be_overridden_by_a_reason() -> None:
+    receipt = dict(_RAN_BASE, passes=4, extra_passes_reason="x")
+    passes, reason = receipt["passes"], receipt["extra_passes_reason"]
+    assert isinstance(passes, int) and passes > 3
+    assert isinstance(reason, str) and reason.strip()
+    problems = CM.validate(receipt)
+    assert any("ceiling of 3" in p for p in problems), problems
+    assert CM.validate(dict(receipt, schema=2, passes=3)) == []
+
+
+def test_1495_writer_strips_reason(tmp_path: Path) -> None:
+    proc = _write_ran(tmp_path, "--passes", "3", "--extra-pass-reason", "  padded  ")
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next((tmp_path / "out").glob("*.json")).read_text())
+    assert receipt["extra_passes_reason"] == "padded"
+
+
+@pytest.mark.parametrize("passes", [1, 2, 3])
+def test_1495_writer_selects_schema(tmp_path: Path, passes: int) -> None:
+    extra = ("--extra-pass-reason", "requested") if passes == 3 else ()
+    proc = _write_ran(tmp_path, "--passes", str(passes), *extra)
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next((tmp_path / "out").glob("*.json")).read_text())
+    assert receipt["schema"] == (2 if passes == 3 else CM.SCHEMA)
+    if passes == 3:
+        assert receipt["schema"] == CM.SCHEMA_EXTRA_PASSES
+
+
+@pytest.mark.parametrize("seen,expected", [(1, 2), (2, 1)])
+def test_1495_validate_explains_schema_mismatch(seen: int, expected: int) -> None:
+    receipt = dict(_RAN_BASE, schema=seen, passes=2)
+    if seen == 1:
+        receipt.update(passes=3, extra_passes_reason="requested")
+    assert ("extra_passes_reason" in receipt) == (seen == 1)
+    problems = CM.validate(receipt)
+    assert any(f"schema is {seen}, expected {expected}" in p
+               and "extra_passes_reason" in p for p in problems), problems
+    if seen == 1:
+        assert any("re-write" in p and "schema 2" in p for p in problems), problems
+
+
+def test_1495_uniformity_counts_schema_two_receipts(tmp_path: Path) -> None:
+    receipts = tmp_path / "receipts"
+    receipts.mkdir()
+    receipt = dict(_RAN_BASE, schema=2, passes=3, extra_passes_reason="requested")
+    assert receipt["status"] == "ran" and receipt["schema"] == 2
+    (receipts / "extra-pass.json").write_text(json.dumps(receipt), encoding="utf-8")
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "scripts/counter-model-uniformity-check.py"),
+         "--receipts-dir", str(receipts)],
+        capture_output=True, text=True, check=False, timeout=30,
+    )
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "examined=1 verifiable=0 distinct=1" in proc.stdout
