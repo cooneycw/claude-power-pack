@@ -35,7 +35,7 @@
 #
 # Usage:
 #   worktree-remove.sh <worktree-path> [--force] [--delete-branch] [--steal] [--allow-dirty] [--allow-unpushed]
-#   worktree-remove.sh <worktree-path> --finish-partial-removal --owner-repo <path>
+#   worktree-remove.sh <worktree-path> --finish-partial-removal --owner-repo <path> --allow-dirty
 #
 # Options:
 #   --force          Pass --force to git worktree remove; does not override
@@ -50,8 +50,10 @@
 #   --allow-unpushed Remove even though commits exist on no remote ref
 #   --finish-partial-removal
 #                    Complete a worktree already left half-deleted (no .git
-#                    file, directory still present). Requires --owner-repo.
-#                    See POSITIVE OWNERSHIP below (issue #1524).
+#                    file, directory still present). Requires --owner-repo
+#                    AND --allow-dirty (there is no .git left to ask whether
+#                    the directory is clean, so this path cannot be trusted
+#                    by default - see POSITIVE OWNERSHIP below, issue #1524).
 #   --owner-repo <path>
 #                    The repository whose OWN `git worktree list --porcelain`
 #                    must positively list the target as prunable before
@@ -107,6 +109,9 @@
 #  13  --owner-repo's own registry does not positively list the resolved path
 #      as prunable - no record, a record that is not prunable (e.g. locked),
 #      or the registry could not be read at all (#1524)
+#  14  --finish-partial-removal without --allow-dirty - there is no .git
+#      left to verify the directory is clean, so this is required rather
+#      than merely honoured (#1524)
 #
 # Examples:
 #   worktree-remove.sh /home/user/Projects/nhl-api-issue-42
@@ -197,7 +202,8 @@ while [[ $# -gt 0 ]]; do
             echo "                   (issue #899; exit 7 without it)"
             echo "  --finish-partial-removal"
             echo "                   Complete a worktree already left half-deleted (no .git"
-            echo "                   file). Requires --owner-repo; refuses by default (#1524)"
+            echo "                   file). Requires --owner-repo AND --allow-dirty - there is"
+            echo "                   no .git left to verify the directory is clean (#1524)"
             echo "  --owner-repo <path>"
             echo "                   The repo whose own registry must positively list the"
             echo "                   target as prunable. Required by --finish-partial-removal"
@@ -220,12 +226,13 @@ while [[ $# -gt 0 ]]; do
             echo " 12  --owner-repo is not a readable git working tree (#1524)"
             echo " 13  --owner-repo's registry does not positively list the path as"
             echo "     prunable (#1524)"
+            echo " 14  --finish-partial-removal without --allow-dirty (#1524)"
             echo ""
             echo "Examples:"
             echo "  worktree-remove.sh /home/user/Projects/nhl-api-issue-42"
             echo "  worktree-remove.sh ../nhl-api-issue-42 --delete-branch"
             echo "  worktree-remove.sh /path/to/half-deleted-wt --finish-partial-removal \\"
-            echo "      --owner-repo /path/to/main"
+            echo "      --owner-repo /path/to/main --allow-dirty"
             exit 0
             ;;
         *)
@@ -449,6 +456,21 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
         exit 12
     fi
 
+    # Codex cross-model review (issue #1524, pass 1, HIGH): `readlink -f`
+    # STRIPS a trailing newline from its own OUTPUT. The newline check above
+    # inspects WORKTREE_PATH, the raw argument - but WT_REAL, not
+    # WORKTREE_PATH, is what gets compared against the registry and actually
+    # removed. A newline-free symlink whose TARGET ends in a newline would
+    # resolve to a newline-STRIPPED WT_REAL, silently matching a DIFFERENT
+    # registered path than the one the caller named. Check WT_REAL too -
+    # this is the value the rest of the function trusts.
+    case "$WT_REAL" in
+        *$'\n'*)
+            echo -e "${RED}Error: refusing a resolved path containing a literal newline${NC}" >&2
+            exit 11
+            ;;
+    esac
+
     # Parse `git worktree list --porcelain -z` field by field, NUL-delimited -
     # never sed/grep/line-based. Measured (issue #1524): each record ends with
     # an EMPTY field (two consecutive NULs), including the last. A record
@@ -501,11 +523,29 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
 
     echo "WORKTREE_REMOVE_FINISH_PARTIAL: confirmed by ${OWNER_REPO}" >&2
 
+    # Codex cross-model review (issue #1524, pass 1, HIGH): the ORIGINAL
+    # version of this branch ran no dirty-tree check at all, reasoning that
+    # `git status` needs the worktree's own .git, which is already gone -
+    # "nothing left to check". That reasoning proved too much: removing
+    # `.git` does not remove the FILES. A worktree with real uncommitted
+    # edits or untracked work sitting in it is still full of exactly that
+    # content, and this branch would delete it unconditionally - the state
+    # cannot be verified clean, which is the opposite of permission to treat
+    # it as clean. --allow-dirty is now REQUIRED for --finish-partial-removal,
+    # not merely honoured: there is no `git status` to ask, so the caller
+    # must affirmatively accept that whatever is on disk may be destroyed,
+    # exactly as the explicit-override convention above requires for every
+    # other data-loss path.
+    if [[ "$ALLOW_DIRTY" != true ]]; then
+        echo -e "${RED}Error: --finish-partial-removal cannot verify this path is clean${NC}" >&2
+        echo "  There is no .git file left to ask - the directory may still hold" >&2
+        echo "  uncommitted or untracked work. Pass --allow-dirty to confirm you accept" >&2
+        echo "  that whatever is on disk may be destroyed." >&2
+        exit 14
+    fi
+
     # Same occupancy and pre-scan guards as the normal path, run against the
-    # resolved path (issue #1524). The dirty-tree/--allow-dirty check is NOT
-    # run here: it reads `git status` from the worktree's own .git, which is
-    # already gone - there is nothing left to check, and no data this step
-    # could still protect.
+    # resolved path (issue #1524).
     if [[ "$STEAL" != true ]]; then
         FP_OCC_RC=0
         FP_OCC_OUT="$(occupancy_scan "$WT_REAL")" || FP_OCC_RC=$?

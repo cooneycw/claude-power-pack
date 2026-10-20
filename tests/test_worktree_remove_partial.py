@@ -416,7 +416,9 @@ def test_an_unrelated_neighbour_repo_is_refused_as_owner(tmp_path: Path) -> None
     assert res.returncode == 13, f"stdout={res.stdout}\nstderr={res.stderr}"
     assert wt.exists(), "the neighbour's refusal must not have deleted anything"
 
-    res2 = _run_remove(main, str(wt), "--finish-partial-removal", "--owner-repo", str(main))
+    res2 = _run_remove(
+        main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty"
+    )
 
     assert res2.returncode == 0, f"stdout={res2.stdout}\nstderr={res2.stderr}"
     assert not wt.exists()
@@ -515,7 +517,9 @@ def test_occupancy_refuses_a_live_process_in_the_half_deleted_path(
     _half_delete(wt)
     occupant(wt)
 
-    res = _run_remove(main, str(wt), "--finish-partial-removal", "--owner-repo", str(main))
+    res = _run_remove(
+        main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty"
+    )
 
     assert res.returncode == 5, f"stdout={res.stdout}\nstderr={res.stderr}"
     assert wt.exists()
@@ -529,7 +533,9 @@ def test_prescan_refuses_an_undeletable_path_in_finish_partial_removal(tmp_path:
     locked = _make_locked_dir(wt)
     _half_delete(wt)
     try:
-        res = _run_remove(main, str(wt), "--finish-partial-removal", "--owner-repo", str(main))
+        res = _run_remove(
+            main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty"
+        )
 
         assert res.returncode == 9, f"stdout={res.stdout}\nstderr={res.stderr}"
         assert str(locked) in res.stderr
@@ -544,12 +550,64 @@ def test_finish_partial_removal_succeeds_with_the_true_owner(tmp_path: Path) -> 
     wt = _add_worktree(main, tmp_path / "wt", "feature")
     _half_delete(wt)
 
-    res = _run_remove(main, str(wt), "--finish-partial-removal", "--owner-repo", str(main))
+    res = _run_remove(
+        main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty"
+    )
 
     assert res.returncode == 0, f"stdout={res.stdout}\nstderr={res.stderr}"
     assert not wt.exists()
     # The admin registration is actually pruned, not just the directory removed.
     assert "feature" not in _git(main, "worktree", "list")
+
+
+@requires_git
+def test_finish_partial_removal_requires_allow_dirty(tmp_path: Path) -> None:
+    """Codex cross-model review (#1524, pass 1, HIGH): removing .git does not
+    remove the FILES - a worktree with real uncommitted or untracked work is
+    still full of exactly that content, and there is no `git status` left to
+    verify it is clean. --allow-dirty is REQUIRED here, not merely honoured,
+    because the state it normally overrides cannot be checked at all."""
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "feature")
+    (wt / "uncommitted.txt").write_text("real work that was never pushed\n")
+    _half_delete(wt)
+
+    res = _run_remove(main, str(wt), "--finish-partial-removal", "--owner-repo", str(main))
+
+    assert res.returncode == 14, f"stdout={res.stdout}\nstderr={res.stderr}"
+    assert "cannot verify this path is clean" in res.stderr
+    assert wt.exists()
+    assert (wt / "uncommitted.txt").is_file()
+
+    res2 = _run_remove(
+        main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty"
+    )
+
+    assert res2.returncode == 0, f"stdout={res2.stdout}\nstderr={res2.stderr}"
+    assert not wt.exists()
+
+
+@requires_git
+def test_newline_guard_also_covers_the_resolved_symlink_target(tmp_path: Path) -> None:
+    """Codex cross-model review (#1524, pass 1, HIGH): `readlink -f` STRIPS a
+    trailing newline from its own output. The newline guard on WORKTREE_PATH
+    alone would miss a newline-free symlink whose TARGET ends in a newline -
+    WT_REAL would silently become the newline-stripped form, which could
+    collide with a DIFFERENT registered path. WT_REAL is checked too now."""
+    main = _repo(tmp_path)
+    wt_with_newline = tmp_path / "wt-with-a\nnewline"
+    wt_with_newline.mkdir()
+    _git(main, "worktree", "add", "-q", str(wt_with_newline), "-b", "feature")
+    _half_delete(wt_with_newline)
+    link = tmp_path / "link-no-newline"
+    link.symlink_to(wt_with_newline)
+
+    res = _run_remove(
+        main, str(link), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty"
+    )
+
+    assert res.returncode == 11, f"stdout={res.stdout}\nstderr={res.stderr}"
+    assert wt_with_newline.exists()
 
 
 @requires_git
@@ -567,7 +625,9 @@ def test_a_symlink_to_the_worktree_is_left_dangling_not_deleted(tmp_path: Path) 
     link = tmp_path / "wt-link"
     link.symlink_to(wt)
 
-    res = _run_remove(main, str(link), "--finish-partial-removal", "--owner-repo", str(main))
+    res = _run_remove(
+        main, str(link), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty"
+    )
 
     assert res.returncode == 0, f"stdout={res.stdout}\nstderr={res.stderr}"
     assert not wt.exists(), "the real worktree directory must be gone"
