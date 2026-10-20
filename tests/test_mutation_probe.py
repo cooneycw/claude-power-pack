@@ -523,6 +523,7 @@ def test_every_file_of_the_probes_control_is_tracked() -> None:
     tracked = set(subprocess.run(
         ["git", "-C", str(ROOT), "ls-files", "controls/mutation-probe"],
         capture_output=True, text=True, check=False).stdout.split())
+    assert on_disk, "controls/mutation-probe has no files on disk - this guard would pass vacuously"
     assert on_disk - tracked == set()
 
 
