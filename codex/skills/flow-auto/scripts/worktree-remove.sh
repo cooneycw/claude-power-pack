@@ -53,7 +53,11 @@
 #                    file, directory still present). Requires --owner-repo
 #                    AND --allow-dirty (there is no .git left to ask whether
 #                    the directory is clean, so this path cannot be trusted
-#                    by default - see POSITIVE OWNERSHIP below, issue #1524).
+#                    by default). ALSO requires --allow-unpushed, but only
+#                    when the owner's own objects/remote refs show the
+#                    worktree's HEAD is actually unreachable from a remote -
+#                    unlike dirtiness, this IS verifiable even with no .git
+#                    file. See POSITIVE OWNERSHIP below, issue #1524.
 #   --owner-repo <path>
 #                    The repository whose OWN `git worktree list --porcelain`
 #                    must positively list the target as prunable before
@@ -203,7 +207,9 @@ while [[ $# -gt 0 ]]; do
             echo "  --finish-partial-removal"
             echo "                   Complete a worktree already left half-deleted (no .git"
             echo "                   file). Requires --owner-repo AND --allow-dirty - there is"
-            echo "                   no .git left to verify the directory is clean (#1524)"
+            echo "                   no .git left to verify the directory is clean. Also needs"
+            echo "                   --allow-unpushed, but only if the owner's own refs show"
+            echo "                   HEAD is actually unreachable from a remote (#1524)"
             echo "  --owner-repo <path>"
             echo "                   The repo whose own registry must positively list the"
             echo "                   target as prunable. Required by --finish-partial-removal"
@@ -217,7 +223,8 @@ while [[ $# -gt 0 ]]; do
             echo "  4  claimed by another live /flow session (#597)"
             echo "  5  in use by a live process (#888, #1032)"
             echo "  6  holds uncommitted work without --allow-dirty (#899)"
-            echo "  7  holds commits on no remote ref without --allow-unpushed (#899)"
+            echo "  7  holds commits on no remote ref without --allow-unpushed (#899); for"
+            echo "     --finish-partial-removal this is checked via the owner's own refs"
             echo "  8  --delete-branch asked for, but the directory name and the"
             echo "     checked-out branch name different issues (#1032)"
             echo "  9  a path cannot be deleted (parent directory not writable) (#864)"
@@ -446,25 +453,39 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
         exit 12
     fi
 
-    # WT_REAL was resolved once, early. It is realpath(WORKTREE_PATH) - the
-    # REAL target if WORKTREE_PATH's final component is itself a symlink,
-    # never the symlink path. Everything below compares and removes WT_REAL,
-    # never the raw argument - see the header comment on why a symlink the
-    # caller passed in is never the thing this script deletes.
-    if [[ -z "$WT_REAL" ]]; then
+    # Codex cross-model review (issue #1524, pass 2, HIGH): the shared WT_REAL
+    # above is plain command substitution, which strips ALL trailing newlines
+    # from its OWN captured output - so a pass-1 fix that checked "$WT_REAL"
+    # for an embedded newline could never see one in the trailing position,
+    # because bash had already removed it before the check ran. Verified
+    # directly: a symlink to a directory named "target\n" resolves through
+    # that form to WT_REAL with no trailing \n at all.
+    #
+    # Resolved AGAIN here, robustly, for THIS branch only (never touching the
+    # shared WT_REAL the normal path above already relies on). Capture with a
+    # non-newline sentinel appended in the SAME command substitution, so
+    # nothing trailing gets stripped; then peel the sentinel and exactly the
+    # ONE newline `readlink -f` itself always appends as its own line
+    # terminator - whatever newline remains after that is part of the real
+    # resolved path, not readlink's formatting. A readlink FAILURE is a hard
+    # refusal: never fall back to the raw, unresolved argument the way the
+    # shared WT_REAL computation does for the normal path.
+    if ! readlink -f "$WORKTREE_PATH" >/dev/null 2>&1; then
+        echo -e "${RED}Error: could not resolve ${WORKTREE_PATH} to a real path${NC}" >&2
+        exit 12
+    fi
+    FP_WT_REAL="$(readlink -f "$WORKTREE_PATH"; printf 'x')"
+    FP_WT_REAL="${FP_WT_REAL%x}"
+    FP_WT_REAL="${FP_WT_REAL%$'\n'}"
+    if [[ -z "$FP_WT_REAL" ]]; then
         echo -e "${RED}Error: could not resolve ${WORKTREE_PATH} to a real path${NC}" >&2
         exit 12
     fi
 
-    # Codex cross-model review (issue #1524, pass 1, HIGH): `readlink -f`
-    # STRIPS a trailing newline from its own OUTPUT. The newline check above
-    # inspects WORKTREE_PATH, the raw argument - but WT_REAL, not
-    # WORKTREE_PATH, is what gets compared against the registry and actually
-    # removed. A newline-free symlink whose TARGET ends in a newline would
-    # resolve to a newline-STRIPPED WT_REAL, silently matching a DIFFERENT
-    # registered path than the one the caller named. Check WT_REAL too -
-    # this is the value the rest of the function trusts.
-    case "$WT_REAL" in
+    # The newline check above inspects WORKTREE_PATH, the raw argument -
+    # check the robustly-resolved FP_WT_REAL too, which is what actually gets
+    # compared against the registry and removed.
+    case "$FP_WT_REAL" in
         *$'\n'*)
             echo -e "${RED}Error: refusing a resolved path containing a literal newline${NC}" >&2
             exit 11
@@ -474,7 +495,7 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
     # Parse `git worktree list --porcelain -z` field by field, NUL-delimited -
     # never sed/grep/line-based. Measured (issue #1524): each record ends with
     # an EMPTY field (two consecutive NULs), including the last. A record
-    # matches only when BOTH its `worktree <path>` field equals WT_REAL
+    # matches only when BOTH its `worktree <path>` field equals FP_WT_REAL
     # EXACTLY and the SAME record carries git's own `prunable` attribute line -
     # which git emits precisely when a worktree's gitdir file points at a
     # location that no longer exists (measured directly: a worktree with its
@@ -483,7 +504,9 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
     # <reason>` and NO prunable line at all, so a locked half-deleted worktree
     # is refused by this check with no extra code). A read failure - the
     # porcelain call itself fails - is a REFUSAL, never a silent "proceed
-    # because nothing said no".
+    # because nothing said no". The matching record's HEAD sha is also
+    # captured (issue #1524, pass 2 HIGH), so the unpushed-commit check below
+    # can ask the owner's own objects/remote refs about it.
     PORCELAIN_FILE=$(mktemp "${TMPDIR:-/tmp}/worktree-remove-porcelain.XXXXXX") || {
         echo -e "${RED}Error: could not create a temp file to read the owner's worktree registry${NC}" >&2
         exit 13
@@ -494,26 +517,31 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
         exit 13
     fi
     RECORD_PATH=""
+    RECORD_HEAD=""
     RECORD_PRUNABLE=false
     OWNER_CONFIRMS=false
+    MATCHED_HEAD=""
     while IFS= read -r -d '' PORCELAIN_FIELD; do
         if [[ -z "$PORCELAIN_FIELD" ]]; then
-            if [[ "$RECORD_PATH" == "$WT_REAL" && "$RECORD_PRUNABLE" == true ]]; then
+            if [[ "$RECORD_PATH" == "$FP_WT_REAL" && "$RECORD_PRUNABLE" == true ]]; then
                 OWNER_CONFIRMS=true
+                MATCHED_HEAD="$RECORD_HEAD"
             fi
             RECORD_PATH=""
+            RECORD_HEAD=""
             RECORD_PRUNABLE=false
             continue
         fi
         case "$PORCELAIN_FIELD" in
             "worktree "*) RECORD_PATH="${PORCELAIN_FIELD#worktree }" ;;
+            "HEAD "*) RECORD_HEAD="${PORCELAIN_FIELD#HEAD }" ;;
             "prunable"|"prunable "*) RECORD_PRUNABLE=true ;;
         esac
     done < "$PORCELAIN_FILE"
     rm -f "$PORCELAIN_FILE"
 
     if [[ "$OWNER_CONFIRMS" != true ]]; then
-        echo -e "${RED}Error: '${OWNER_REPO}' does not positively list ${WT_REAL} as prunable${NC}" >&2
+        echo -e "${RED}Error: '${OWNER_REPO}' does not positively list ${FP_WT_REAL} as prunable${NC}" >&2
         echo "  Refusing: this script never deletes on the strength of a repo NOT" >&2
         echo "  naming the path - only on the strength of one naming it, as prunable." >&2
         echo "  Pass the correct --owner-repo, or check the path with:" >&2
@@ -535,7 +563,8 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
     # not merely honoured: there is no `git status` to ask, so the caller
     # must affirmatively accept that whatever is on disk may be destroyed,
     # exactly as the explicit-override convention above requires for every
-    # other data-loss path.
+    # other data-loss path. Checked FIRST, same order as the normal path
+    # below (dirty, then unpushed).
     if [[ "$ALLOW_DIRTY" != true ]]; then
         echo -e "${RED}Error: --finish-partial-removal cannot verify this path is clean${NC}" >&2
         echo "  There is no .git file left to ask - the directory may still hold" >&2
@@ -544,11 +573,43 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
         exit 14
     fi
 
+    # Codex cross-model review (issue #1524, pass 2, HIGH): unlike the dirty-
+    # tree check above, unpushed commits ARE verifiable here, because the
+    # owner's own objects and remote-tracking refs are intact even though the
+    # worktree's own .git is gone - the matched porcelain record's HEAD sha,
+    # captured above, is exactly the commit (or ancestor chain) that would be
+    # lost. Reachable from ANY remote-tracking ref in the owner means safe;
+    # unreachable, or the check itself failing to run, both mean refuse -
+    # "unknown" is not "pushed", same as every other read failure in this
+    # branch. #899's own override (--allow-unpushed) applies, same message
+    # shape as the normal path's equivalent refusal.
+    if [[ "$ALLOW_UNPUSHED" != true ]]; then
+        if [[ -z "$MATCHED_HEAD" ]]; then
+            echo -e "${RED}Error: could not determine the worktree's HEAD commit to check${NC}" >&2
+            echo "  whether it is pushed; refusing rather than assuming it is." >&2
+            exit 7
+        fi
+        FP_REMOTE_CONTAINS_RC=0
+        FP_REMOTE_CONTAINS="$(git -C "$OWNER_REPO" branch -r --contains "$MATCHED_HEAD" 2>/dev/null)" \
+            || FP_REMOTE_CONTAINS_RC=$?
+        if [[ "$FP_REMOTE_CONTAINS_RC" -ne 0 || -z "$FP_REMOTE_CONTAINS" ]]; then
+            echo "WORKTREE_REMOVE_UNPUSHED: refused" >&2
+            echo -e "${RED}Error: refusing to remove a worktree holding commits that are on no remote${NC}" >&2
+            echo "" >&2
+            echo "  HEAD: $MATCHED_HEAD" >&2
+            echo "  These commits exist nowhere else (issue #899). Push the branch, or pass" >&2
+            echo "  --allow-unpushed if you are certain the commits are unwanted. A failed" >&2
+            echo "  check of the owner's remote refs also refuses - unknown is not pushed." >&2
+            exit 7
+        fi
+        echo "WORKTREE_REMOVE_UNPUSHED: pushed" >&2
+    fi
+
     # Same occupancy and pre-scan guards as the normal path, run against the
     # resolved path (issue #1524).
     if [[ "$STEAL" != true ]]; then
         FP_OCC_RC=0
-        FP_OCC_OUT="$(occupancy_scan "$WT_REAL")" || FP_OCC_RC=$?
+        FP_OCC_OUT="$(occupancy_scan "$FP_WT_REAL")" || FP_OCC_RC=$?
         if [[ "$FP_OCC_RC" -eq 2 ]]; then
             echo "WORKTREE_REMOVE_OCCUPANCY: unknown" >&2
             echo -e "${YELLOW}Note: no readable /proc - could not check whether a live process is using this path.${NC}" >&2
@@ -556,7 +617,7 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
             echo "WORKTREE_REMOVE_OCCUPANCY: occupied" >&2
             echo -e "${RED}Error: refusing to remove a path that is in use by a live process${NC}" >&2
             echo "" >&2
-            echo "  Path: $WT_REAL" >&2
+            echo "  Path: $FP_WT_REAL" >&2
             echo "  Live processes with their working directory inside it:" >&2
             printf '    %s\n' "$FP_OCC_OUT" >&2
             echo "" >&2
@@ -567,7 +628,7 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
     fi
 
     FP_PRE_SCAN_RC=0
-    FP_PRE_UNDELETABLE="$(undeletable_find "$WT_REAL")" || FP_PRE_SCAN_RC=$?
+    FP_PRE_UNDELETABLE="$(undeletable_find "$FP_WT_REAL")" || FP_PRE_SCAN_RC=$?
     if [[ "$FP_PRE_SCAN_RC" -ne 0 ]]; then
         echo "WORKTREE_REMOVE_PRESCAN: unknown" >&2
         echo -e "${RED}Error: the permission scan itself failed - this is not the same as clean${NC}" >&2
@@ -586,8 +647,8 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
     # symlink, it is left dangling and named below - it may live in a
     # different repo or a home directory, and is not part of the worktree
     # this script owns.
-    echo -e "${BLUE}Removing: ${WT_REAL}${NC}"
-    rm -rf "$WT_REAL"
+    echo -e "${BLUE}Removing: ${FP_WT_REAL}${NC}"
+    rm -rf "$FP_WT_REAL"
     git -C "$OWNER_REPO" worktree prune
     echo -e "${GREEN}Worktree removed successfully.${NC}"
 

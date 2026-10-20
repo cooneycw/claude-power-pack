@@ -417,7 +417,7 @@ def test_an_unrelated_neighbour_repo_is_refused_as_owner(tmp_path: Path) -> None
     assert wt.exists(), "the neighbour's refusal must not have deleted anything"
 
     res2 = _run_remove(
-        main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty"
+        main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty", "--allow-unpushed"
     )
 
     assert res2.returncode == 0, f"stdout={res2.stdout}\nstderr={res2.stderr}"
@@ -518,7 +518,7 @@ def test_occupancy_refuses_a_live_process_in_the_half_deleted_path(
     occupant(wt)
 
     res = _run_remove(
-        main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty"
+        main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty", "--allow-unpushed"
     )
 
     assert res.returncode == 5, f"stdout={res.stdout}\nstderr={res.stderr}"
@@ -534,7 +534,7 @@ def test_prescan_refuses_an_undeletable_path_in_finish_partial_removal(tmp_path:
     _half_delete(wt)
     try:
         res = _run_remove(
-            main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty"
+            main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty", "--allow-unpushed"
         )
 
         assert res.returncode == 9, f"stdout={res.stdout}\nstderr={res.stderr}"
@@ -551,7 +551,7 @@ def test_finish_partial_removal_succeeds_with_the_true_owner(tmp_path: Path) -> 
     _half_delete(wt)
 
     res = _run_remove(
-        main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty"
+        main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty", "--allow-unpushed"
     )
 
     assert res.returncode == 0, f"stdout={res.stdout}\nstderr={res.stderr}"
@@ -580,7 +580,7 @@ def test_finish_partial_removal_requires_allow_dirty(tmp_path: Path) -> None:
     assert (wt / "uncommitted.txt").is_file()
 
     res2 = _run_remove(
-        main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty"
+        main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty", "--allow-unpushed"
     )
 
     assert res2.returncode == 0, f"stdout={res2.stdout}\nstderr={res2.stderr}"
@@ -603,11 +603,51 @@ def test_newline_guard_also_covers_the_resolved_symlink_target(tmp_path: Path) -
     link.symlink_to(wt_with_newline)
 
     res = _run_remove(
-        main, str(link), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty"
+        main, str(link), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty", "--allow-unpushed"
     )
 
     assert res.returncode == 11, f"stdout={res.stdout}\nstderr={res.stderr}"
     assert wt_with_newline.exists()
+
+
+@requires_git
+def test_a_newline_free_symlink_to_a_trailing_newline_target_cannot_collide(
+    tmp_path: Path,
+) -> None:
+    """Codex cross-model review (#1524, pass 2, HIGH): plain command
+    substitution (`WT_REAL="$(readlink -f ...)"`) strips a TRAILING newline
+    from its own captured output - verified directly in a scratch dir before
+    this fix, where it resolved to a byte-for-byte newline-free path. The
+    pass-1 fix checked that already-stripped WT_REAL, so it could never see
+    a newline in exactly this position. The exploit this closes: a SEPARATE,
+    newline-free worktree happens to be registered at the stripped form of
+    the trailing-newline target's path, so a naive resolution would silently
+    match and delete the WRONG one. The fix (robust FP_WT_REAL, preserving
+    the real trailing byte) must refuse outright - neither worktree touched -
+    rather than letting the collision reach the registry comparison at all.
+    """
+    main = _repo(tmp_path)
+    collider = tmp_path / "collider"
+    collider.mkdir()
+    _git(main, "worktree", "add", "-q", str(collider), "-b", "collider-branch")
+    _half_delete(collider)
+
+    real_target = tmp_path / ("collider" + "\n")
+    real_target.mkdir()
+    _git(main, "worktree", "add", "-q", str(real_target), "-b", "real-branch")
+    _half_delete(real_target)
+
+    link = tmp_path / "newline-free-link"
+    link.symlink_to(real_target)
+
+    res = _run_remove(
+        main, str(link), "--finish-partial-removal", "--owner-repo", str(main),
+        "--allow-dirty", "--allow-unpushed",
+    )
+
+    assert res.returncode == 11, f"stdout={res.stdout}\nstderr={res.stderr}"
+    assert collider.exists(), "the OTHER, newline-free worktree must never be touched"
+    assert real_target.exists(), "the actual target must also survive - refused outright"
 
 
 @requires_git
@@ -626,7 +666,7 @@ def test_a_symlink_to_the_worktree_is_left_dangling_not_deleted(tmp_path: Path) 
     link.symlink_to(wt)
 
     res = _run_remove(
-        main, str(link), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty"
+        main, str(link), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty", "--allow-unpushed"
     )
 
     assert res.returncode == 0, f"stdout={res.stdout}\nstderr={res.stderr}"
@@ -636,3 +676,44 @@ def test_a_symlink_to_the_worktree_is_left_dangling_not_deleted(tmp_path: Path) 
     assert link.is_symlink(), "the caller's own symlink must not be deleted"
     assert not link.exists(), "but it is now dangling, since its target is gone"
     assert str(link) in res.stderr and "dangling" in res.stderr
+
+
+@requires_git
+def test_unpushed_commit_is_refused_without_allow_unpushed(tmp_path: Path) -> None:
+    """Codex cross-model review (#1524, pass 2, HIGH): unlike dirtiness,
+    unpushed-ness IS verifiable from the owner's own objects and remote-
+    tracking refs, via the matched porcelain record's HEAD sha. No remote at
+    all means nothing is pushed - must refuse, same #899 shape as the normal
+    removal path's existing --allow-unpushed gate."""
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "feature")
+    _half_delete(wt)
+
+    res = _run_remove(
+        main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty"
+    )
+
+    assert res.returncode == 7, f"stdout={res.stdout}\nstderr={res.stderr}"
+    assert "commits that are on no remote" in res.stderr
+    assert wt.exists()
+
+
+@requires_git
+def test_a_pushed_commit_does_not_need_allow_unpushed(tmp_path: Path) -> None:
+    """The positive case for the same check: a commit reachable from ANY
+    remote-tracking ref in the owner is verifiably safe, so --allow-unpushed
+    is not required at all."""
+    main = _repo(tmp_path)
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+    _git(main, "remote", "add", "origin", str(remote))
+    wt = _add_worktree(main, tmp_path / "wt", "feature")
+    _git(wt, "push", "-q", "origin", "feature")
+    _half_delete(wt)
+
+    res = _run_remove(
+        main, str(wt), "--finish-partial-removal", "--owner-repo", str(main), "--allow-dirty"
+    )
+
+    assert res.returncode == 0, f"stdout={res.stdout}\nstderr={res.stderr}"
+    assert not wt.exists()
