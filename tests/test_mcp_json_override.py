@@ -208,11 +208,12 @@ exit 0
 def _run_3c(
     tmp_path: Path,
     *,
-    user_servers: dict,
+    user_servers: dict | None = None,
     add_exit: int = 0,
     url: str | None = None,
     home_servers: dict | None = None,
     project_servers: dict | None = None,
+    raw_config: str | None = None,
 ) -> tuple[str, list[str]]:
     # CPP_DIR is a fixture checkout, never ROOT: the scope check reads the
     # project's .mcp.json, and the repository ships none (issue #1256), so a
@@ -229,7 +230,10 @@ def _run_3c(
     stub.chmod(0o755)
     cfg = tmp_path / "cfg"
     cfg.mkdir()
-    (cfg / ".claude.json").write_text(json.dumps({"mcpServers": user_servers}))
+    if raw_config is not None:
+        (cfg / ".claude.json").write_text(raw_config)
+    elif user_servers is not None:
+        (cfg / ".claude.json").write_text(json.dumps({"mcpServers": user_servers}))
     if home_servers is not None:
         # the default profile, which CLAUDE_CONFIG_DIR makes inactive
         (tmp_path / ".claude.json").write_text(json.dumps({"mcpServers": home_servers}))
@@ -282,6 +286,22 @@ def test_init_reports_a_failed_registration_as_failed(tmp_path: Path) -> None:
     assert adds, out
     assert "registration FAILED" in out
     assert "✓ second-opinion MCP registered" not in out
+
+
+# An unreadable or wrongly shaped config is not an established absence
+# (issue #1498, porting the #1256 counter-model finding already fixed in
+# /cpp:update's step 6b.0 to /cpp:init's matching step 3c): it must register
+# nothing and say so, rather than treating "could not read" as "nothing there".
+@_needs_shell
+@pytest.mark.parametrize(
+    "raw",
+    ['{"mcpServers": ', '{"mcpServers": ["second-opinion"]}', '["second-opinion"]',
+     '{"mcpServers": {"second-opinion": "x"}}'],
+)
+def test_init_registers_nothing_when_the_user_config_is_unreadable(tmp_path: Path, raw: str) -> None:
+    out, adds = _run_3c(tmp_path, raw_config=raw)
+    assert adds == [], out
+    assert "could not read" in out and "registered nothing" in out, out
 
 
 _STDIO = {"second-opinion": {"type": "stdio", "command": "/fixture/server", "args": ["--stdio"]}}
