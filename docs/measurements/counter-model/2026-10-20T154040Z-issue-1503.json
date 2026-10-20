@@ -1,0 +1,28 @@
+{
+  "branch": "issue-1503-finish-gate-label-negative-control-invocations-wit",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "direction": "delegated",
+  "head": "1682776360421135cd697cad616a2751c5a0b8a8",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/20/rollout-2026-10-20T15-12-38-01a159df-1fc5-7220-b540-ec39291d12b1.jsonl",
+    "thread_id": "01a159df-1fc5-7220-b540-ec39291d12b1"
+  },
+  "issue": "1503",
+  "passes": 1,
+  "recorded_at": "2026-10-20T15:40:40Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "claude/claude-sonnet-5",
+  "reviewer_evidence": {
+    "session_id": "8dab84d1-9ef7-4e19-8eed-be9b44b05999"
+  },
+  "schema": 1,
+  "status": "ran"
+}
