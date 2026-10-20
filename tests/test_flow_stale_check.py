@@ -453,3 +453,37 @@ def test_a_failed_rev_list_reads_unknown_never_current(tmp_path: Path):
     )
     assert result.returncode == 0, result.stderr  # advisory: never blocks
     assert _verdict(result.stdout) == "unknown", result.stdout + result.stderr
+
+
+@requires_git
+def test_a_failed_diff_reads_unknown_never_moved_clean(tmp_path: Path):
+    """Nit Store #864 (comment 5856725641): a failed `git diff` must not read
+    as `moved-clean`.
+
+    `main` has really moved and `feature` has NOT touched anything upstream
+    changed, so without the failure the honest verdict would be `moved-clean`.
+    A git whose `diff` fails (everything else passes through) must not produce
+    that same verdict for a different reason: both diff calls feed `2>/dev/null`
+    command substitutions whose own exit status was never checked, so a failure
+    reads as an empty diff - indistinguishable from "nothing collided" - and the
+    collision this check exists to catch is silently hidden instead of reported
+    as unknown.
+    """
+    repo = _make_repo(tmp_path)
+    _advance_main(repo, "shared.txt", "s-upstream\n")
+    real_git = shutil.which("git")
+    wrapper = tmp_path / "git-no-diff"
+    wrapper.write_text(
+        "#!/usr/bin/env bash\n"
+        'for a in "$@"; do [ "$a" = diff ] && { echo "fatal: simulated" >&2; exit 128; }; done\n'
+        f'exec "{real_git}" "$@"\n'
+    )
+    wrapper.chmod(0o755)
+    env = os.environ.copy()
+    env["FLOW_STALE_GIT"] = str(wrapper)
+    result = subprocess.run(
+        ["bash", str(SCRIPT), "main", "--no-fetch"], cwd=repo, env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr  # advisory: never blocks
+    assert _verdict(result.stdout) == "unknown", result.stdout + result.stderr

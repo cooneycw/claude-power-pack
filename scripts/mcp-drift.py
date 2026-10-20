@@ -1256,9 +1256,9 @@ def scope_check(claude_json: Path, project_dir: Path, env: dict[str, str]) -> tu
             if "project" in scopes:
                 # `remove -s project` rewrites the TRACKED .mcp.json, which changes
                 # the repository for everyone, not this host.
-                lines.append(f"  to drop the project entry on this host only, add \"{name}\" to "
+                lines.append(f"  to drop the project entry in this directory only, add \"{name}\" to "
                              f"projects[\"{project_dir.resolve()}\"].disabledMcpjsonServers "
-                             "in ~/.claude.json")
+                             "in ~/.claude.json; this does not cover other worktrees of the same repository")
         elif name in unreadable_names or scope_unreadable:
             # A definition (or a whole scope) could not be read, so one endpoint
             # among the READABLE ones says nothing about consistency.

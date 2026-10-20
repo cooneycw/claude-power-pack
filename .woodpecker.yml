@@ -515,6 +515,17 @@ steps:
       - export PATH="$PWD/.ci-bin:$PATH"
       - python3 scripts/check-md-relative-links.py
 
+  # Does every relative markdown link in the GENERATED codex/skills/ mirrors
+  # resolve from the mirror's own location? (#1494.) The check above excludes
+  # codex/skills/ by design - its links are checked here instead, against the
+  # mirror tree rather than the source tree, since a link relative-correct at
+  # its source location can still be dead once copied to a different depth.
+  codex-skill-links-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [git-stage]
+    commands:
+      - python3 scripts/check-md-relative-links.py --codex-skills
+
   claude-md-links-check:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
     depends_on: [secret-scan]
