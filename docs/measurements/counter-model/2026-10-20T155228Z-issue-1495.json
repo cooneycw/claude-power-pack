@@ -1,0 +1,28 @@
+{
+  "branch": "issue-1495-nit-store-counter-model-receipt-unbounded-pass-cou",
+  "counts": {
+    "accepted": 1,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "direction": "delegated",
+  "head": "9405b2a65a165fdf3fe6618a43642f6908141ba9",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/20/rollout-2026-10-20T15-10-24-01a159dd-16c4-7e50-bfa1-758fb4471077.jsonl",
+    "thread_id": "01a159dd-16c4-7e50-bfa1-758fb4471077"
+  },
+  "issue": "1495",
+  "passes": 1,
+  "recorded_at": "2026-10-20T15:52:28Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "claude/claude-sonnet-5",
+  "reviewer_evidence": {
+    "session_id": "b59948b7-5490-4c43-a143-4bbb09d93189"
+  },
+  "schema": 1,
+  "status": "ran"
+}
