@@ -1,0 +1,27 @@
+{
+  "branch": "issue-1484-nit-store-suite-isolation-slow-timeout-prone-tests",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "b139a25e0d0d835e75a8a914405b62d4bd68db9c",
+  "implementer": "claude/claude-sonnet-5",
+  "issue": "1484",
+  "local_credentials": "absent",
+  "network": "unverified",
+  "passes": 1,
+  "recorded_at": "2026-10-20T18:55:02Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 3
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/20/rollout-2026-10-20T18-54-21-01a15aaa-1f0b-7103-bf84-2383e28a38c1.jsonl",
+    "thread_id": "01a15aaa-1f0b-7103-bf84-2383e28a38c1"
+  },
+  "schema": 1,
+  "scope": "unverified",
+  "status": "ran"
+}
