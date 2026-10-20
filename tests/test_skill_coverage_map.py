@@ -484,3 +484,45 @@ def test_json_mode_emits_only_json_on_stdout(tmp_path: Path, capsys: pytest.Capt
     out = capsys.readouterr().out
     parsed = json.loads(out)  # must not raise "Extra data" - the whole point of the fix
     assert parsed["flow-check"]["state"] == "current"
+
+
+def test_main_reports_unmapped_skill(tmp_path: Path, capsys) -> None:
+    repo, snapshot_dir, _ = _base_fixture(tmp_path)
+    unmapped = repo / "codex" / "skills" / "unmapped"
+    unmapped.mkdir()
+    assert unmapped.is_dir()
+    assert unmapped.name not in mod.SKILL_FAMILY_MAP
+    code = mod.main(["--repo", str(repo), "--snapshot-dir", str(snapshot_dir), "--json"])
+    results = json.loads(capsys.readouterr().out)
+    assert results["unmapped"] == {
+        "skill": "unmapped", "family": None, "state": "not evaluated",
+        "reason": "absent from SKILL_FAMILY_MAP; axis work was never attempted",
+    }
+    assert code == 1
+
+
+@pytest.mark.parametrize("pinned_for", ["upstream evaluation refresh", None])
+def test_snapshot_pin_preserves_drift_details(tmp_path: Path, pinned_for: str | None) -> None:
+    repo, snapshot_dir, _ = _base_fixture(tmp_path)
+    path = snapshot_dir / "flow-check.json"
+    snapshot = json.loads(path.read_text())
+    if pinned_for is not None:
+        snapshot["pinned_for"] = pinned_for
+        path.write_text(json.dumps(snapshot))
+    else:
+        assert "pinned_for" not in snapshot
+    _write_skill(repo, "flow-check", "Changed description.", BASE_BODY)
+    skill_md = repo / "codex" / "skills" / "flow-check" / "SKILL.md"
+    assert mod.digest_tree(skill_md.parent) != snapshot["reference"]["files"]
+    result = mod.check_skill("flow-check", repo, snapshot_dir)
+    assert result["state"] == ("pinned" if pinned_for else "stale (content)")
+    assert "description_digest differs" in result["reason"]
+    assert "SKILL.md (content changed)" in result["reason"]
+    assert "Re-run scripts/skill-coverage-snapshot.py and commit a fresh snapshot." in result["reason"]
+    if pinned_for:
+        assert result["reason"].startswith(f"pinned behind main for {pinned_for}: ")
+    else:
+        assert result["reason"] == (
+            f"axis1: stale [{result['axis1']['detail']}]; axis2: unknown [{result['axis2']['detail']}]"
+        )
+    assert mod._say({"flow-check": result}, quiet=True) == 1
