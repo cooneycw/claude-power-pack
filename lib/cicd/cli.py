@@ -357,8 +357,20 @@ def _print_snapshot_table(snapshot, title: str) -> None:
         status = "PASS" if probe.passed else "FAIL"
         print(f"| {probe.name} | {probe.kind} | {status} | {probe.detail} | {probe.elapsed_ms:.0f}ms |")
     print()
-    commit_suffix = f" @ {snapshot.commit}" if snapshot.commit else ""
+    commit_suffix = f" (checkout @ {snapshot.commit})" if snapshot.commit else ""
     print(f"Captured: {snapshot.passed}/{snapshot.total} probes passed{commit_suffix}")
+
+
+def _print_release_check(result) -> None:
+    """Report whether the served release identity was confirmed."""
+    rc = result.release_check
+    if rc.status == "not_checked":
+        print("Release: NOT VERIFIED (no --release given - probe results do not confirm which release is serving)")
+    else:
+        served_display = rc.served if rc.served is not None else "(unreadable)"
+        match_word = {"matched": "MATCH", "mismatched": "MISMATCH", "unreadable": "UNREADABLE"}[rc.status]
+        print(f"Release: intended={rc.intended} served={served_display} ({match_word})")
+    print()
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
@@ -387,7 +399,9 @@ def cmd_verify(args: argparse.Namespace) -> int:
         return 0
 
     # Default: verify post-deploy against the baseline.
-    result = verify_deployment(config=config, project_root=args.path)
+    result = verify_deployment(
+        config=config, project_root=args.path, intended_release=args.release or None,
+    )
 
     if args.json:
         print(json.dumps(result.to_dict(), indent=2))
@@ -404,6 +418,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
         print("  Add health.endpoints / health.smoke_tests to .claude/cicd.yml,")
         print("  then capture a baseline before deploy: python -m lib.cicd verify --baseline")
         print()
+        _print_release_check(result)
         print(f"Verdict: {result.verdict.value.upper()}")
         return result.exit_code
 
@@ -420,6 +435,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
         print(f"| {diff.name} | {diff.kind} | {base} | {now} | {diff.classification} | {diff.detail} |")
 
     print()
+    _print_release_check(result)
     verdict_marker = {
         Verdict.PROCEED: "PROCEED",
         Verdict.REVIEW: "REVIEW",
@@ -922,6 +938,15 @@ def create_parser() -> argparse.ArgumentParser:
         "-b",
         action="store_true",
         help="Capture and save the pre-deploy baseline instead of verifying",
+    )
+    verify_parser.add_argument(
+        "--release",
+        default="",
+        help=(
+            "Intended release identity to confirm against the configured "
+            "release_probe; a mismatch or an unreadable probe is never "
+            "reported PROCEED (issue #1479)"
+        ),
     )
     verify_parser.add_argument(
         "--summary",
