@@ -243,13 +243,18 @@ POPULATION_NOTE = (
 #: ABSENT names its blocker SPECIFICALLY, so a reader in three months can check
 #: whether it still stands. "when a producer exists" would be unfalsifiable by the
 #: person reading it, and that is how a permanently-absent line becomes furniture.
+#: Nit Store #864 (absorbed into #1499, 2026-10-20): the previous wording named
+#: skillc #8/#9/#10 as the blocker; all three are now CLOSED, but no model trial
+#: has actually run and no verified-result artifact exists, so ABSENT is still
+#: the correct verdict - only the upstream citation was stale. Route to CPP #1084
+#: (the open issue that owns the current producer obligation) instead of naming
+#: closed sub-issues that would need re-updating every time skillc's own
+#: tracking issues close.
 ABSENT_NOTE = (
     "no verified-result artifact and no bundle subdirectory holding one. Nothing "
-    "produces either yet: the behavioural case is CPP #1084 half B, which lives in "
-    "skillc. skillc #5 (the first goal and a grader proven to discriminate) landed "
-    "2026-09-26; no model trial has run, because the runner and independent grading "
-    "are skillc #8, #9 and #10. Check those three before assuming this line is "
-    "still expected."
+    "produces either yet: the behavioural case is CPP #1084 half B, which lives "
+    "in skillc. No model trial has run. Check CPP #1084 for the current producer "
+    "obligation before assuming this line is still expected."
 )
 
 
