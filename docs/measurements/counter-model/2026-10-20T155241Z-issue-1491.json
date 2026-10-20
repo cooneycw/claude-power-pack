@@ -1,0 +1,27 @@
+{
+  "branch": "issue-1491-worktree-helpers",
+  "counts": {
+    "accepted": 4,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "678aef9b9d516cb50a4c9065fd25cb9d68d84d47",
+  "implementer": "claude/claude-sonnet-5",
+  "issue": "1491",
+  "local_credentials": "absent",
+  "network": "unverified",
+  "passes": 1,
+  "recorded_at": "2026-10-20T15:52:41Z",
+  "red_cases": {
+    "already_covered": 7,
+    "proposed": 9
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/20/rollout-2026-10-20T15-43-08-01a159fb-0f3c-7043-8e7a-590775fcf7a7.jsonl",
+    "thread_id": "01a159fb-0f3c-7043-8e7a-590775fcf7a7"
+  },
+  "schema": 1,
+  "scope": "diff-only",
+  "status": "ran"
+}
