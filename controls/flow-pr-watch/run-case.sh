@@ -174,9 +174,21 @@ fi
 # red-keyed case could ever show it missing something. What it cannot do, at
 # all, is say that its own scrape was unbounded - and a control has to be able
 # to catch the gate REGRESSING to that silence.
-if printf '%s\n' "$out" | grep -q '^FLOW_PR_WATCH_SCRAPE_SCOPE=whole-log$'; then
+#
+# #1486 ADDS a second requirement to this SAME case, checked together rather
+# than as a separate case: an unbounded scrape must also stop short of a
+# red/flake VERDICT, now reading `unknown`. Checking SCRAPE_SCOPE alone made
+# the historical-pre-1486 anchor INERT here - #1190's fix already declares
+# SCRAPE_SCOPE=whole-log for this exact fixture, so an anchor taken from
+# right before #1486 still prints that line and "catches" the case, proving
+# nothing about #1486's own change. Measured directly: the pre-1486 anchor
+# reports `FLOW_PR_WATCH: red` on this fixture; the fixed gate reports
+# `unknown`. Requiring both is what makes this case discriminate the fix it
+# is meant to prove, not only the one #1190 already proved.
+if printf '%s\n' "$out" | grep -q '^FLOW_PR_WATCH_SCRAPE_SCOPE=whole-log$' \
+   && printf '%s\n' "$out" | grep -qx 'FLOW_PR_WATCH: unknown'; then
     printf '%s\n' "$out"
-    echo "FLOW_PR_WATCH_CONTROL: finding - the failure set is UNBOUNDED and says so"
+    echo "FLOW_PR_WATCH_CONTROL: finding - the failure set is UNBOUNDED and says so, and the verdict is unknown"
     exit 1
 fi
 printf '%s\n' "$out"
