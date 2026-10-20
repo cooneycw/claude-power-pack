@@ -369,6 +369,91 @@ def cmd_begin_run(issue: str) -> int:
     return OK
 
 
+_SALVAGE_LINE_RE = re.compile(r"^- Salvage:\s+([0-9a-f]{40})\s*$", re.M)
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def cmd_declare_salvage(issue: str, sha: str, reason: str | None) -> int:
+    """Declare a deliberate preserve-first commit so compliance counts its files.
+
+    A MANUAL, one-off act (issue #1504, skillc#354): nothing in /flow:auto may
+    call this on its own, because nothing can tell a genuine salvage from a
+    commit that merely predates run_start for some other reason. Only a human
+    (or an orchestrator acting on a human's instruction) who made the
+    preserving commit knows it was deliberate.
+    """
+    if not reason or not reason.strip():
+        print("FLOW_PLAN_RECORD: error - --reason is required; say why this commit "
+              "predates run-start.")
+        return USAGE
+    # The reason is written as a raw line in the plan record. A newline or
+    # other control character would let it inject its OWN header line - for
+    # example a second "- Salvage: <sha>" the caller never declared - and
+    # bypass every guard below. Refused before anything else runs.
+    if _CONTROL_CHAR_RE.search(reason):
+        print("FLOW_PLAN_RECORD: error - --reason must not contain a newline, carriage "
+              "return, or other control character (it would inject its own record line).")
+        return USAGE
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        print(f"FLOW_PLAN_RECORD: error - {sha!r} is not a 40-hex-character commit sha.")
+        return USAGE
+    root = toplevel()
+    if subprocess.run(["git", "-C", str(root), "cat-file", "-e", f"{sha}^{{commit}}"],
+                      capture_output=True).returncode != 0:
+        print(f"FLOW_PLAN_RECORD: error - {sha} is not a commit in this repository.")
+        return ERROR
+    if subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", sha, "HEAD"],
+                      capture_output=True).returncode != 0:
+        print(f"FLOW_PLAN_RECORD: error - {sha} is not an ancestor of HEAD, so it cannot be "
+              "this branch's own preserved work.")
+        return ERROR
+    run_id = current_run_id(issue)
+    if run_id is None or run_id == MALFORMED_RUN:
+        print("FLOW_PLAN_RECORD: error - this worktree has no usable run identity. Run "
+              f"`flow-plan-record.py reconcile {issue}` (Step 1) first.")
+        return ERROR
+    rec = root / record_rel(issue)
+    if not rec.is_file():
+        print(f"FLOW_PLAN_RECORD: error - no plan record at {record_rel(issue)}. Run "
+              "`begin-run` first.")
+        return ERROR
+    text = rec.read_text()
+    runs = split_runs(text)
+    for i, (n, rid, section) in enumerate(runs):
+        if rid != run_id:
+            continue
+        existing = _SALVAGE_LINE_RE.search(section)
+        if existing:
+            if existing.group(1) == sha:
+                print(f"FLOW_PLAN_RECORD: salvage {sha[:12]} already declared for run "
+                      f"{run_id} (idempotent)")
+                return OK
+            print(f"FLOW_PLAN_RECORD: error - run {run_id} already declares a different "
+                  f"salvage ({existing.group(1)[:12]}); refusing to silently replace it.")
+            return ERROR
+        new_lines = f"- Salvage:           {sha}\n- Salvage-Reason:    {reason}\n"
+
+        # A function replacement, never a string one: a string repl re-interprets
+        # backslashes in new_lines (e.g. a literal "\1" in --reason) as its own
+        # backreference syntax, corrupting the insertion for a reason containing one.
+        def insert_after_run_start(m: re.Match[str]) -> str:
+            return m.group(0) + new_lines
+
+        new_section, count = re.subn(r"^- Run-start:.*\n", insert_after_run_start,
+                                     section, count=1, flags=re.M)
+        if count == 0:
+            print(f"FLOW_PLAN_RECORD: error - run {run_id}'s section has no Run-start line "
+                  "to anchor after.")
+            return ERROR
+        runs[i] = (n, rid, new_section)
+        rec.write_text(pre_marker_prefix(text) + "".join(sec for _n, _rid, sec in runs))
+        print(f"FLOW_PLAN_RECORD: declared salvage {sha[:12]} for run {run_id}")
+        return OK
+    print(f"FLOW_PLAN_RECORD: error - this run ({run_id}) has no section in "
+          f"{record_rel(issue)}; run `begin-run` first.")
+    return ERROR
+
+
 # ---------------------------------------------------------------- read-issue (#1081)
 
 def store_base(issue: str) -> pathlib.Path:
@@ -762,6 +847,31 @@ def cmd_compliance(issue: str, base: str | None) -> int:
             compliance_unknown(f"this run's commit log could not be read ({exc})")
         return {f for f in out.splitlines() if f}
 
+    def pre_run_start_changes(main_base: str, run_start: str) -> dict[str, list[str]] | None:
+        """Files changed in main_base..run_start, mapped to the commit(s) that touched them.
+
+        Report-only (issue #1504): names an UNDECLARED pre-run_start change next
+        to its PLANNED BUT NOT TOUCHED line, so a real one is pointed at rather
+        than silently unioned. Returns None on failure - the caller must say so
+        rather than let an unreadable log read as "nothing changed before start"
+        (the same blind-zero hazard issue #621 exists to catch elsewhere).
+        """
+        cmd = ["git", "-C", str(root), "log", "--first-parent", "--no-merges", "--no-renames",
+              "--name-only", "--pretty=format:>>%H", f"{main_base}..{run_start}", "--"]
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, check=True).stdout
+        except (OSError, subprocess.CalledProcessError):
+            return None
+        mapping: dict[str, list[str]] = {}
+        current_sha = ""
+        for line in out.splitlines():
+            if line.startswith(">>"):
+                current_sha = line[2:]
+                continue
+            if line and current_sha:
+                mapping.setdefault(line, []).append(current_sha)
+        return mapping
+
     mb_proc = subprocess.run(["git", "-C", str(root), "merge-base", "HEAD", "origin/main"],
                              capture_output=True, text=True)
     main_base = mb_proc.stdout.strip() if mb_proc.returncode == 0 else ""
@@ -857,6 +967,11 @@ def cmd_compliance(issue: str, base: str | None) -> int:
                                "diff against")
         touched = sorted(changed_since(main_base))
 
+    # Only the run-start-anchored scope has a "before this run's start" window
+    # to report on (issue #1504) - `--base` and the bare-main_base fallback
+    # have no run-of-its-own anchor to measure "before" against.
+    run_start_for_note = run_start if (base is None and start is not None) else None
+
     salvage = re.search(r"^- Salvage:\s+([0-9a-f]{40})\s*$", text, re.M)
     if salvage:
         sha = salvage.group(1)
@@ -939,8 +1054,39 @@ def cmd_compliance(issue: str, base: str | None) -> int:
         print("PLAN_COMPLIANCE: divergence - the change and its approved plan disagree.")
         for f in unplanned:
             print(f"  TOUCHED BUT NOT PLANNED: {f}")
+        # Report-only (issue #1504): never changes `code`/the exit, only adds
+        # information next to an untouched path that genuinely changed before
+        # this run's own start. Computed once per call, not once per path.
+        pre_start_map: dict[str, list[str]] | None = None
+        pre_start_unavailable_reason = ""
+        if untouched and run_start_for_note and main_base:
+            pre_start_map = pre_run_start_changes(main_base, run_start_for_note)
+            if pre_start_map is None:
+                pre_start_unavailable_reason = (
+                    f"could not read the commit log between {main_base[:12]} and "
+                    f"{run_start_for_note[:12]}")
         for f in untouched:
             print(f"  PLANNED BUT NOT TOUCHED: {f}")
+            if pre_start_map is not None:
+                if f.endswith("/"):
+                    # A planned DIRECTORY has no single key of its own in the
+                    # map (git never emits a bare directory path) - collect
+                    # every file the window touched UNDER this prefix, same
+                    # rule `is_untouched` already uses for the opposite
+                    # direction, so a sibling directory never matches.
+                    shas = sorted({sha for path, shas_for in pre_start_map.items()
+                                  if path.startswith(f) for sha in shas_for})
+                else:
+                    shas = pre_start_map.get(f) or []
+                if shas:
+                    short = ", ".join(s[:12] for s in shas)
+                    print(f"    (changed before this run's start, in {short}; declare with "
+                          "declare-salvage if deliberate)")
+            elif pre_start_unavailable_reason:
+                # Absence of the note must never read as "nothing changed before
+                # start" - that is exactly the blind-zero failure this exists to
+                # avoid, so an unreadable log says so instead of staying silent.
+                print(f"    (pre-start note unavailable: {pre_start_unavailable_reason})")
         for f in unresolved_mirrors:
             print(f"  MIRROR WHOSE SOURCE COULD NOT BE DERIVED: {f}")
         print("This is a FINDING, not a block. A substituted approach is supposed to")
@@ -1059,6 +1205,10 @@ def main(argv: list[str]) -> int:
     p = sub.add_parser("head-check")
     p.add_argument("issue")
     p.add_argument("--head")
+    p = sub.add_parser("declare-salvage")
+    p.add_argument("issue")
+    p.add_argument("sha")
+    p.add_argument("--reason", required=True)
     args = ap.parse_args(argv[1:])
     if not re.fullmatch(r"[0-9]+", args.issue):
         print(f"FLOW_PLAN_RECORD: error - ISSUE must be a number, got {args.issue!r}")
@@ -1083,6 +1233,8 @@ def main(argv: list[str]) -> int:
             return cmd_drift(args.issue, args.live_file)
         if args.cmd == "compliance":
             return cmd_compliance(args.issue, args.base)
+        if args.cmd == "declare-salvage":
+            return cmd_declare_salvage(args.issue, args.sha, args.reason)
         return cmd_head_check(args.issue, args.head)
     except Verdict as v:
         return v.code
