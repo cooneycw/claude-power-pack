@@ -9,7 +9,7 @@
 # Verifying arrival needs a key that is not in this bundle.
 ee962d1a9c3006304f64534695198336c35c51b64c2b346a4e25e7ca39487bb8  check-ignored-additions.sh
 43f257169f891098fdc205cb3109b1636c055aeedf7f0a6357ff5f81f317df5d  codex-skill-resync.sh
-b19e3a29ce4d4a88322007a60dc01f480c4098fa53adc9e36bec88d04543716a  codex-skill-sync.py
+20a4a3b7628a9d1fdb519bd4f6fefacc34c199f8990d593fad58d14d0e226e24  codex-skill-sync.py
 b9134545baf0920f30603ae515b14867f078cdf668c218f24430927eaa407373  counter-model-receipt.py
 10070b93da07f81e3d5bd9d3a434527d231d0abcd8b386ff8e96171f1b5dc92b  counter-model-reviewer-attribution.py
 6a4ea2ba5ae9a62381bd521fa3ae3639fbcbb26aa3b263aa34ede6a6c52773e5  eli5-vendor.py
@@ -29,4 +29,4 @@ f796fca861389ba9deee21ff73c92f2b94646cd7e5be6e4721cc6620d1137def  gh-pr-merge.sh
 673b2314d843cb1bea36ea0fd10669060a62369a276c00e52fcc6c0663a5e837  nit-store-resolve.sh
 0909790cc9e29f072c73acc324d85664fd5aee329ec5bd5cfe326d372cb3efe4  speckit-context.py
 cc7e9fee8358f959310ee38b221825511065c413386f39e5291a78ca33959745  stash-worktree-guard.sh
-14a278b8e7aee61a2386887e5d1ea4b77bff5ed35f1cd3178b98ebec6afce482  worktree-remove.sh
+d30efc83139f77f620a55638f9f29620c0d879622195df1d96620d0141c6734f  worktree-remove.sh

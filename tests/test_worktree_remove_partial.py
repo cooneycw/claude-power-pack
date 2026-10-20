@@ -941,3 +941,158 @@ def test_occupancy_unknown_prints_a_warning_on_stdout_above_the_rm_line(
     assert rm_idx is not None, f"no printed rm line found:\n{res.stdout}"
     assert warning_idx < rm_idx, "the warning must appear ABOVE the rm line, not after it"
     assert stdout_lines[warning_idx].startswith("#")
+
+
+# --------------------------------------------------------------------------- #
+# Issue #1520: sticky-bit directories restrict unlink to the entry's owner,
+# the directory's owner, or root - regardless of the directory's own rwx bits.
+# This single-UID container cannot create a file owned by a different REAL
+# uid, so the caller's own identity is shimmed instead: a fake `id` on PATH
+# makes the script's internal `id -u` report a uid that differs from every
+# real file's actual owner, which makes every real file "foreign" to the
+# shimmed caller without needing a second real user on the host.
+# --------------------------------------------------------------------------- #
+
+requires_stat = pytest.mark.skipif(
+    shutil.which("stat") is None, reason="requires GNU stat (owner-uid lookup)"
+)
+
+
+def _shim_id(tmp_path: Path, uid: str) -> dict[str, str]:
+    """PATH-shimmed `id` reporting a fixed `id -u` value, so the pre-scan's
+    notion of "the caller" can be set without a real second uid on this host."""
+    bin_dir = tmp_path / "idbin"
+    bin_dir.mkdir()
+    real_id = shutil.which("id") or "/usr/bin/id"
+    stub = bin_dir / "id"
+    stub.write_text(
+        "#!/bin/bash\n"
+        f'if [[ "$1" == "-u" ]]; then echo {uid}; exit 0; fi\n'
+        f'exec {real_id} "$@"\n'
+    )
+    stub.chmod(0o755)
+    env = os.environ.copy()
+    env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+    return env
+
+
+def _make_sticky_dir(wt: Path, *, sticky: bool) -> Path:
+    sdir = wt / "sticky"
+    sdir.mkdir()
+    (sdir / "file.txt").write_text("data\n")
+    sdir.chmod(0o1777 if sticky else 0o777)
+    return sdir
+
+
+@requires_git
+@requires_non_root
+@requires_stat
+def test_prescan_refuses_a_sticky_dir_containing_a_foreign_owned_file(
+    tmp_path: Path,
+) -> None:
+    """issue #1520: a sticky directory (mode +t) where the caller has full
+    rwx can still contain a file the caller cannot actually unlink - POSIX
+    restricts that to the file's own owner, the directory's owner, or root.
+    The rwx-only pre-scan reports this tree "clear"; it must now refuse it
+    (exit 9, naming the file) exactly like the rwx gap it is a sibling of.
+
+    This is the committed red/green case for the gap: confirmed failing
+    (reports clear, exit 0) against the pre-#1520 script at origin/main
+    bf674917 before this fix - see the PR body for the recorded command and
+    output, since this container cannot reproduce the real kernel refusal to
+    make that a second automated case."""
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "feature")
+    sticky = _make_sticky_dir(wt, sticky=True)
+    env = _shim_id(tmp_path, "1001")
+
+    res = _run_remove(main, str(wt), "--force", "--allow-dirty", env=env)
+
+    assert res.returncode == 9, (
+        f"expected the pre-scan refusal (exit 9), got {res.returncode}\n"
+        f"stdout={res.stdout}\nstderr={res.stderr}"
+    )
+    assert str(sticky / "file.txt") in res.stderr, res.stderr
+    assert (wt / ".git").is_file()
+
+
+@requires_git
+@requires_non_root
+@requires_stat
+def test_prescan_ignores_sticky_bit_without_a_foreign_owner_mismatch(
+    tmp_path: Path,
+) -> None:
+    """cnb-orch review of #1520: the same tree and the same shimmed-foreign
+    caller, but WITHOUT the sticky bit, must stay clear - the caller's write
+    bit on a non-sticky directory governs regardless of who owns the file
+    inside it. This is what stops the fix from refusing every worktree that
+    merely contains a file owned by someone else."""
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "feature")
+    _make_sticky_dir(wt, sticky=False)
+    env = _shim_id(tmp_path, "1001")
+
+    res = _run_remove(main, str(wt), "--allow-dirty", env=env)
+
+    assert res.returncode == 0, (
+        f"a non-sticky directory must stay clear regardless of file owner:\n"
+        f"stdout={res.stdout}\nstderr={res.stderr}"
+    )
+    assert not wt.exists()
+
+
+@requires_git
+@requires_non_root
+@requires_stat
+def test_prescan_ignores_a_sticky_dir_when_the_caller_owns_the_file(
+    tmp_path: Path,
+) -> None:
+    """A sticky directory is not itself a refusal - only a sticky directory
+    containing a FOREIGN-owned entry is. With no `id` shim, the script's real
+    caller uid matches the real owner of every file this test creates, so the
+    sticky directory must stay clear."""
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "feature")
+    _make_sticky_dir(wt, sticky=True)
+
+    res = _run_remove(main, str(wt), "--allow-dirty")
+
+    assert res.returncode == 0, (
+        f"a sticky dir the caller owns every file in must stay clear:\n"
+        f"stdout={res.stdout}\nstderr={res.stderr}"
+    )
+    assert not wt.exists()
+
+
+def _predicate(dir_owner: str, entry_owner: str, caller_uid: str) -> bool:
+    """Call the SHIPPED sticky_dir_is_safe function directly (extracted by
+    sourcing only that function out of scripts/worktree-remove.sh), rather
+    than a parallel reimplementation - cnb-orch review of #1520: a test
+    exercising a copy of the predicate stays green even when the real one is
+    wrong. This covers the exemption branches a single-UID container cannot
+    build with real differently-owned files: a sticky directory the CALLER
+    owns (regardless of who owns the entry inside it), and root, which this
+    container's test process is never run as."""
+    extract = "sed -n '/^sticky_dir_is_safe() {/,/^}/p' " + str(SCRIPT)
+    script = f"source <({extract}); sticky_dir_is_safe \"$1\" \"$2\" \"$3\""
+    res = subprocess.run(
+        ["bash", "-c", script, "--", dir_owner, entry_owner, caller_uid],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=10,
+    )
+    return res.returncode == 0
+
+
+@requires_git
+def test_sticky_dir_is_safe_predicate() -> None:
+    # Directory owner matches the caller: the directory owner may unlink
+    # anything inside it, whoever owns the individual entry.
+    assert _predicate(dir_owner="5000", entry_owner="6000", caller_uid="5000")
+    # Entry owner matches the caller: the file's own owner may always unlink it.
+    assert _predicate(dir_owner="5000", entry_owner="6000", caller_uid="6000")
+    # Root (uid 0) may unlink anything, even when neither owner matches.
+    assert _predicate(dir_owner="5000", entry_owner="6000", caller_uid="0")
+    # Nobody matches: the sticky restriction applies.
+    assert not _predicate(dir_owner="5000", entry_owner="6000", caller_uid="7000")
