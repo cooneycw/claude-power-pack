@@ -1,0 +1,28 @@
+{
+  "branch": "issue-1493-flow-check-lane-gitleaks",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "direction": "delegated",
+  "head": "0c93dd95db22c1fb15be0de76d003572925ff895",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/20/rollout-2026-10-20T16-55-39-01a15a3d-730d-7a33-8f68-63eaf74c4d2c.jsonl",
+    "thread_id": "01a15a3d-730d-7a33-8f68-63eaf74c4d2c"
+  },
+  "issue": "1493",
+  "passes": 1,
+  "recorded_at": "2026-10-20T17:17:10Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "claude/claude-sonnet-5",
+  "reviewer_evidence": {
+    "session_id": "687807af-40f7-4b5f-a9f4-e8526c8b2e29"
+  },
+  "schema": 1,
+  "status": "ran"
+}

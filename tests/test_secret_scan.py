@@ -474,3 +474,11 @@ def test_a_failing_assertion_on_a_detection_reports_where_not_what(
     assert "findings=1" in report
     leaked = token in report
     assert not leaked, "the synthetic value appeared in the pytest failure report"
+
+
+@requires_gitleaks
+def test_empty_target_is_unchecked(tmp_path: Path) -> None:
+    assert not list(tmp_path.iterdir()), "negative fixture must have no scannable files"
+    proc = _gate_raw(tmp_path)
+    assert proc.returncode == 3
+    assert "secret-scan-control: UNKNOWN - zero scannable files; unchecked, not clean" in proc.stderr

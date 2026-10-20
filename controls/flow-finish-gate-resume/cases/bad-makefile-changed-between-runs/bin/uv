@@ -82,12 +82,19 @@ if [[ ! -f .phase1-done ]]; then
         echo "  run, not a resume." >&2
         exit 9
     fi
-    state=$(ls "$state_dir"/*.json | head -1)
-    if [[ -z "$state" ]]; then
+    shopt -s nullglob
+    state_files=("$state_dir"/*.json)
+    if [[ ${#state_files[@]} -eq 0 ]]; then
         echo "uv-stub: PRECONDITION FAILED - $state_dir exists but holds no" >&2
         echo "  *.json state file, so phase 2 would be a FRESH run, not a resume." >&2
         exit 9
     fi
+    if [[ ${#state_files[@]} -gt 1 ]]; then
+        echo "uv-stub: PRECONDITION FAILED - $state_dir holds ${#state_files[@]} state" >&2
+        echo "  files; this case cannot tell which one phase 1 produced." >&2
+        exit 9
+    fi
+    state="${state_files[0]}"
     if ! grep -q '"status": "not-run"' "$state"; then
         echo "uv-stub: PRECONDITION FAILED - phase 1 recorded no not-run gate." >&2
         echo "  Nothing was deferred, so the resume has nothing to settle and" >&2

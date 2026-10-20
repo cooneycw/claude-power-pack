@@ -220,7 +220,8 @@ Status symbols:
 
 ### Final Message
 
-Based on results:
+Based on results (evaluate the zero-check branch first):
+- **No checks run (`CHECKS_RUN == 0`):** "No checks ran; this is unchecked, not a clean pass. Run the aggregate (`make lint test typecheck`) before relying on this report."
 - **All pass:** "Ready for `/flow-finish`."
 - **Warnings only:** "Warnings found but non-blocking. Review before `/flow-finish`."
 - **Failures:** "Failing checks must be fixed before `/flow-finish`."
