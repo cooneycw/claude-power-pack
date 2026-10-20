@@ -34,6 +34,7 @@ from lib.cicd.verify import (
     VerificationSnapshot,
     _classify,
     _decide,
+    _git_commit,
     capture_snapshot,
     load_baseline,
     save_baseline,
@@ -55,6 +56,12 @@ def _diff(cls: str, base: bool | None, now: bool, name: str = "API", kind: str =
         baseline_ms=None if base is None else 10.0,
         current_ms=10.0,
     )
+
+
+def _release_config() -> CICDConfig:
+    return CICDConfig.model_validate({
+        "health": {"deploy_verification": {"release_probe": {"url": "http://service/release"}}},
+    })
 
 
 class TestProbeResult:
@@ -266,6 +273,14 @@ class TestBaselinePersistence:
 
 
 class TestCaptureSnapshot:
+    def test_undecodable_git_commit(self):
+        error = UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+        with patch("lib.cicd.verify.subprocess.run", side_effect=error), patch(
+            "lib.cicd.verify.run_health_checks", return_value=HealthCheckResult(),
+        ), patch("lib.cicd.verify.run_smoke_tests", return_value=SmokeTestResult()):
+            assert _git_commit(None) == ""
+            assert capture_snapshot(config=CICDConfig()).commit == ""
+
     @patch("lib.cicd.verify._git_commit", return_value="abc123")
     @patch("lib.cicd.verify.run_smoke_tests")
     @patch("lib.cicd.verify.run_health_checks")
@@ -434,6 +449,19 @@ class TestVerifyCLI:
             assert "Release: intended=R2 served=R2 (MATCH)" in output
 
 
+    def test_release_output_unconfigured_with_intent(self, tmp_path, capsys):
+        from lib.cicd.cli import main
+
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "cicd.yml").write_text("health: {}\n")
+        snapshot = VerificationSnapshot(probes=[_probe("API", "health", True)])
+        with patch("lib.cicd.verify.capture_snapshot", return_value=snapshot):
+            assert main(["verify", "--release", "R2", "--path", str(tmp_path)]) == 0
+        output = capsys.readouterr().out
+        assert "--release R2 given, but no release_probe is configured in .claude/cicd.yml" in output
+        assert "no --release given" not in output
+
+
 class TestFetchServedRelease:
     @pytest.mark.parametrize(
         "url,curl,body,json_field,returncode,error,expected",
@@ -481,6 +509,24 @@ class TestFetchServedRelease:
 
 
 class TestReleaseCheck:
+    def test_release_unconfigured_with_intent(self):
+        config = CICDConfig()
+        snapshot = VerificationSnapshot(probes=[_probe("API", "health", True)])
+        assert not config.health.deploy_verification.release_probe.url
+        assert snapshot.all_passed
+        with patch("lib.cicd.verify.capture_snapshot", return_value=snapshot), patch(
+            "lib.cicd.verify._fetch_served_release",
+        ) as fetch:
+            result = verify_deployment(config=config, baseline=snapshot, intended_release="R2")
+        fetch.assert_not_called()
+        assert result.verdict is Verdict.PROCEED
+        assert result.release_check.status == "not_checked"
+        assert result.release_check.intended == "R2"
+        assert not result.release_check.matched
+        assert result.to_dict()["release_check"] == {
+            "status": "not_checked", "intended": "R2", "served": None,
+        }
+
     @pytest.mark.parametrize(
         "served,passing,status,verdict",
         [("R2", True, "matched", Verdict.PROCEED),
@@ -496,7 +542,7 @@ class TestReleaseCheck:
         ), patch("lib.cicd.verify.run_smoke_tests", return_value=SmokeTestResult()), patch(
             "lib.cicd.verify._fetch_served_release", return_value=served,
         ):
-            result = verify_deployment(config=CICDConfig(), baseline=baseline, intended_release="R2")
+            result = verify_deployment(config=_release_config(), baseline=baseline, intended_release="R2")
         assert result.verdict is verdict
         assert result.release_check.status == status
         assert result.release_check.matched is (status == "matched")
@@ -536,16 +582,32 @@ class TestReleaseCheck:
         """Health-only PROCEED holds before and after this fix by design.
 
         R1 never restarted but still answers health checks. Only the opt-in
-        R2 check identifies the stale release; pre-fix that call raises TypeError.
+        R2 check identifies the stale release.
         """
         baseline = VerificationSnapshot(probes=[_probe("API", "health", True)])
         current = VerificationSnapshot(probes=[_probe("API", "health", True)])
         assert baseline.all_passed and current.all_passed
-        cfg = CICDConfig()
+        cfg = _release_config()
         with patch("lib.cicd.verify.capture_snapshot", return_value=current):
             assert verify_deployment(config=cfg, baseline=baseline).verdict is Verdict.PROCEED
-            # create=True lets the pre-fix run reach the new API's TypeError.
-            with patch("lib.cicd.verify._fetch_served_release", return_value="R1", create=True):
+            with patch("lib.cicd.verify._fetch_served_release", return_value="R1"):
                 result = verify_deployment(config=cfg, baseline=baseline, intended_release="R2")
         assert result.verdict is Verdict.REVIEW
         assert result.release_check.served == "R1"
+
+
+    def test_release_summary_outputs_distinct(self):
+        snapshot = VerificationSnapshot(probes=[_probe("API", "health", True)])
+        summaries = []
+        for config, served in [(_release_config(), "R2"), (CICDConfig(), None), (_release_config(), "R1")]:
+            with patch("lib.cicd.verify.capture_snapshot", return_value=snapshot), patch(
+                "lib.cicd.verify._fetch_served_release", return_value=served,
+            ):
+                result = verify_deployment(config=config, baseline=snapshot, intended_release="R2")
+            summaries.append(result.summary_line())
+        assert summaries == [
+            "Deploy verdict: PROCEED - 1/1 probes passed | release: matched (R2)",
+            "Deploy verdict: PROCEED - 1/1 probes passed | release: not checked (no release_probe configured for R2)",
+            "Deploy verdict: REVIEW - served release 'R1' does not match intended 'R2'",
+        ]
+        assert len(set(summaries)) == 3

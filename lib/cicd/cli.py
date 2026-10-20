@@ -365,7 +365,13 @@ def _print_release_check(result) -> None:
     """Report whether the served release identity was confirmed."""
     rc = result.release_check
     if rc.status == "not_checked":
-        print("Release: NOT VERIFIED (no --release given - probe results do not confirm which release is serving)")
+        if rc.intended is None:
+            print("Release: NOT VERIFIED (no --release given - probe results do not confirm which release is serving)")
+        else:
+            print(
+                f"Release: NOT VERIFIED (--release {rc.intended} given, "
+                "but no release_probe is configured in .claude/cicd.yml)"
+            )
     else:
         served_display = rc.served if rc.served is not None else "(unreadable)"
         match_word = {"matched": "MATCH", "mismatched": "MISMATCH", "unreadable": "UNREADABLE"}[rc.status]
