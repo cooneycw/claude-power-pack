@@ -1,0 +1,28 @@
+{
+  "branch": "issue-1487-nit-store-flow-plan-record-parsing-and-compliance",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "direction": "delegated",
+  "head": "808c34ba446230efd05db811bdb73df19d2f99f8",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/20/rollout-2026-10-20T14-21-20-01a159b0-2a3a-77c2-a352-102e95ce7eef.jsonl",
+    "thread_id": "01a159b0-2a3a-77c2-a352-102e95ce7eef"
+  },
+  "issue": "1487",
+  "passes": 1,
+  "recorded_at": "2026-10-20T14:27:18Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "claude/claude-sonnet-5",
+  "reviewer_evidence": {
+    "session_id": "abef1128-d5b5-4cc2-ac9a-b5e37cb9ec9b"
+  },
+  "schema": 1,
+  "status": "ran"
+}
