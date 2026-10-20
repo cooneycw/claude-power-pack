@@ -81,14 +81,17 @@ def _run_remove(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _repo(tmp_path: Path) -> Path:
-    main = tmp_path / "main"
-    main.mkdir()
+def _repo_at(main: Path) -> Path:
+    main.mkdir(parents=True, exist_ok=True)
     _git(main, "init", "-q", "-b", "main")
     (main / "base.txt").write_text("base\n")
     _git(main, "add", "-A")
     _git(main, "commit", "-qm", "base")
     return main
+
+
+def _repo(tmp_path: Path) -> Path:
+    return _repo_at(tmp_path / "main")
 
 
 def _add_worktree(main: Path, path: Path, branch: str) -> Path:
@@ -409,3 +412,114 @@ def test_prescan_checks_the_worktree_roots_own_parent(tmp_path: Path) -> None:
         assert (wt / ".git").is_file()
     finally:
         parent.chmod(0o755)
+
+
+def _force_half_delete(main: Path, wt: Path) -> Path:
+    """Produce a REAL half-deleted worktree the way git itself does: a forced
+    removal that cannot unlink a locked subdirectory. Returns the locked dir
+    (still 0555) for the caller to `chmod(0o755)` once done."""
+    locked = _make_locked_dir(wt)
+    forced = subprocess.run(
+        ["git", "-C", str(main), "worktree", "remove", "--force", str(wt)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert forced.returncode != 0, "setup must leave a half-deleted worktree"
+    assert not (wt / ".git").exists()
+    return locked
+
+
+@requires_git
+@requires_non_root
+@requires_proc
+def test_finish_partial_removal_checks_occupancy_before_deleting(
+    tmp_path: Path, occupant
+) -> None:
+    """Codex review (pass 2) of #1491: the recovery path used to `exit` long
+    before the script's #888 live-occupancy check was ever reached, so a live
+    process sitting in a half-deleted worktree was never protected - unlike
+    every other removal path in this script."""
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "feature")
+    locked = _force_half_delete(main, wt)
+    locked.chmod(0o755)
+    occupant(wt)
+
+    res = _run_remove(main, str(wt), "--finish-partial-removal")
+
+    assert res.returncode == 5, (
+        f"expected the #888 occupancy refusal (exit 5), got {res.returncode}\n"
+        f"stdout={res.stdout}\nstderr={res.stderr}"
+    )
+    assert wt.exists()
+
+
+@requires_git
+def test_finish_partial_removal_refuses_an_unresolvable_owner(
+    tmp_path: Path,
+) -> None:
+    """Codex review (pass 2) of #1491: an EMPTY candidate-repo set used to be
+    read as "nothing owns this" and the recovery proceeded. A worktree at an
+    arbitrary path (neither a sibling nor a descendant of its owner) has no
+    discoverable candidate at all, so this must refuse rather than guess -
+    and --owner-repo must let the caller name the real one."""
+    repos = tmp_path / "repos"
+    repos.mkdir()
+    main = _repo_at(repos / "main")
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    wt = _add_worktree(main, scratch / "wt", "feature")
+    (wt / ".git").unlink()
+
+    no_owner = _run_remove(main, str(wt), "--finish-partial-removal")
+    assert no_owner.returncode == 1, no_owner.stderr
+    assert "--owner-repo" in no_owner.stderr
+    assert wt.exists()
+
+    named_owner = _run_remove(
+        main, str(wt), "--finish-partial-removal", "--owner-repo", str(main)
+    )
+    assert named_owner.returncode == 1, named_owner.stderr
+    assert "still lists this as a live worktree" in named_owner.stderr
+    assert wt.exists()
+
+
+@requires_git
+def test_finish_partial_removal_refuses_a_registered_path_containing_a_newline(
+    tmp_path: Path,
+) -> None:
+    """Codex review (pass 2) of #1491: switched the registration-matching read
+    from the OLD line-based `sed -n 's/^worktree //p'` parse of plain
+    `git worktree list --porcelain` to NUL-delimited `-z` output, since a path
+    containing an embedded newline is itself a record delimiter the old parser
+    relied on - measured directly, this host's git 2.43.0 neither quotes nor
+    escapes it, so the old parse genuinely split the "worktree <path>" line in
+    two.
+
+    This pins the FIXED behavior (refuses correctly); it is NOT a
+    discriminating red/green case for the old parser. A tab does not
+    reproduce the claimed defect at all (measured: this git's plain porcelain
+    neither quotes nor splits a tab). An embedded newline DOES split the old
+    parser's line-based read, but the resulting truncated prefix then
+    coincidentally reappears as one of grep's own split alternatives when
+    `$WT_RESOLVED` - itself containing the same embedded newline - is passed
+    to `grep -F` as a single multi-line pattern argument (GNU grep treats each
+    line of a multi-line `-F` pattern as a separate alternative), so the old
+    code still happened to refuse correctly on this exact input. The `-z`
+    parse is applied anyway as the structurally correct fix - a NUL byte
+    cannot appear in a path at all, so no delimiter collision is possible -
+    but no input was found that makes the OLD code visibly wrong here."""
+    main = _repo(tmp_path)
+    wt_dir = tmp_path / "w\nt"
+    wt = _add_worktree(main, wt_dir, "feature")
+    (wt / ".git").unlink()
+
+    assert "feature" in _git(main, "worktree", "list")
+
+    res = _run_remove(main, str(wt), "--finish-partial-removal")
+
+    assert res.returncode == 1, res.stderr
+    assert "still lists this as a live worktree" in res.stderr
+    assert wt.exists()
+    assert "feature" in _git(main, "worktree", "list")
