@@ -107,5 +107,12 @@ for f in "$ROOT"/*; do
     [ "$a_sum" = "$b_sum" ] || die "relocated copy differs from the committed fixture: $b"
 done
 
+# Empty directories (and the zero-byte marker used to preserve the fixture)
+# provide no content to examine. Refuse rather than asserting a clean scan.
+if [ -z "$(find "$WORK" -type f ! -path '*/.git/*' -size +0c -print)" ]; then
+    echo "secret-scan-control: UNKNOWN - zero scannable files; unchecked, not clean" >&2
+    exit 3
+fi
+
 gitleaks detect --source "$WORK" --config "$CONFIG" --no-git --redact \
     --report-format template --report-template "$TEMPLATE" --report-path -

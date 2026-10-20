@@ -9,6 +9,7 @@ installed on the host.
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 from unittest.mock import Mock
@@ -103,10 +104,13 @@ def test_clean_scan_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(gitleaks, "is_available", lambda: True)
     monkeypatch.setattr(gitleaks.subprocess, "run", Mock(return_value=_completed("[]", 0)))
 
+    (tmp_path / "app.py").write_text("print(123)\n")
     result = gitleaks.scan(str(tmp_path))
 
     assert result.errors == []
-    assert result.passed
+    assert result.passed == [
+        "No secrets found by gitleaks (working tree; 1 files handed to gitleaks)"
+    ]
 
 
 def test_leak_yields_masked_finding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -121,3 +125,40 @@ def test_leak_yields_masked_finding(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert result.errors == []
     assert [f.id for f in result.findings] == ["GITLEAKS_AWS-KEY"]
     assert result.findings[0].raw_match == "AKIA****"
+
+
+def test_empty_target_is_unknown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert not list(tmp_path.iterdir()), "negative fixture must contain no files"
+    monkeypatch.setattr(gitleaks, "is_available", lambda: True)
+    monkeypatch.setattr(gitleaks.subprocess, "run", Mock(return_value=_completed("[]", 0)))
+    assert _is_unknown(gitleaks.scan(str(tmp_path)))
+
+
+@pytest.mark.parametrize("count", [0, 3])
+def test_reported_commit_count_is_authoritative(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, count: int,
+) -> None:
+    (tmp_path / "app.py").write_text("print(123)\n")
+    monkeypatch.setattr(gitleaks, "is_available", lambda: True)
+    monkeypatch.setattr(gitleaks.subprocess, "run", Mock(
+        return_value=_completed("[]", 0, f"INF {count} commits scanned.")))
+    result = gitleaks.scan(str(tmp_path), include_history=True)
+    if count == 0:
+        assert _is_unknown(result)
+    else:
+        assert result.passed == [
+            "No secrets found by gitleaks (code and git history; 3 commits scanned)"
+        ]
+
+
+@pytest.mark.skipif(shutil.which("gitleaks") is None, reason="needs real gitleaks")
+def test_real_populated_target_passes_with_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.undo()  # Restore the real subprocess only for this guarded integration test.
+    (tmp_path / "app.py").write_text("print(123)\n")
+    result = gitleaks.scan(str(tmp_path))
+    assert result.errors == []
+    assert result.passed == [
+        "No secrets found by gitleaks (working tree; 1 files handed to gitleaks)"
+    ]
