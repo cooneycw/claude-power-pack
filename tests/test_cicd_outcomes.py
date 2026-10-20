@@ -892,3 +892,149 @@ def test_unittest_unexpected_successes_are_xpassed() -> None:
     assert result.xfailed == 1
     assert result.xpassed == 1
     assert result.passed == 0
+
+
+class TestControlFences:
+    def test_bad_nested_tail_is_labelled(self) -> None:
+        """Behavioural red case (orchestrator review of PR #1511).
+
+        Each summary carries its own `test session starts` banner, matching
+        a REAL disjoint top-level invocation (issue #838's own shape, the
+        one `_aggregate` already sums) - not a textually-bare tail with no
+        banner at all, which pre-fix main's fail-open "last candidate wins"
+        fallback already happens to under-count for an unrelated reason.
+        Pre-fix main SUMS both as top-level invocations: `failed=5, passed=12`
+        - the exact skillc-reported shape (a real suite's 0 contaminated by a
+        control's count). Post-fix: `failed=0, passed=10, control_failed=5`.
+        """
+        text = (
+            '::cicd-negative-control:BEGIN:BAD:probe::\n'
+            '================ test session starts =================\n'
+            '5 failed, 2 passed in 1.2s\n'
+            '::cicd-negative-control:END:BAD:probe::\n'
+            '================ test session starts =================\n'
+            '10 passed in 2.0s\n'
+        )
+        assert '5 failed' in text
+        outcome = parse_suite_outcome(text)
+        assert outcome is not None
+        assert outcome.failed == 0
+        assert outcome.passed == 10
+        assert outcome.invocations == 1
+        assert outcome.control_invocations == 1
+        assert outcome.control_failed == 5
+        assert outcome.control_passed == 2
+        assert outcome.control_unexpected == ()
+
+    def test_real_failure_beside_control_survives(self) -> None:
+        text = ('::cicd-negative-control:BEGIN:BAD:probe::\n'
+                '5 failed in 1.2s\n'
+                '::cicd-negative-control:END:BAD:probe::\n'
+                '1 failed, 3 passed in 2.0s\n')
+        assert '1 failed, 3 passed' in text
+        outcome = parse_suite_outcome(text)
+        assert outcome is not None
+        assert outcome.failed == 1
+        assert outcome.control_failed == 5
+
+    def test_bad_unexpected_pass_is_derived(self) -> None:
+        outcome = parse_suite_outcome(
+            '::cicd-negative-control:BEGIN:BAD:blind::\n'
+            '2 passed in 1.2s\n'
+            '::cicd-negative-control:END:BAD:blind::\n'
+        )
+        assert outcome is not None
+        assert outcome.control_unexpected == ('blind',)
+        assert outcome.invocations == 0
+
+    def test_unterminated_begin_is_untouched(self) -> None:
+        text = '::cicd-negative-control:BEGIN:BAD:probe::\n5 failed in 1.2s\n'
+        assert ':END:' not in text
+        outcome = parse_suite_outcome(text)
+        assert outcome is not None
+        assert outcome.failed == 5
+        assert outcome.control_invocations == 0
+
+    def test_ordinary_control_vocabulary_is_not_a_fence(self) -> None:
+        outcome = parse_suite_outcome('controls/probe printed this\n5 failed in 1.2s\n')
+        assert outcome is not None
+        assert outcome.failed == 5
+        assert outcome.control_invocations == 0
+
+    def test_control_counts_are_visible_in_json(self) -> None:
+        outcome = parse_suite_outcome(
+            '::cicd-negative-control:BEGIN:BAD:probe::\n'
+            '5 failed, 2 passed, 3 skipped, 1 error, 2 xfailed, 1 xpassed in 1.2s\n'
+            '::cicd-negative-control:END:BAD:probe::\n'
+        )
+        assert outcome is not None
+        report = outcome.to_dict()
+        for field, count in {'invocations': 1, 'failed': 5, 'passed': 2,
+                             'skipped': 3, 'errors': 1, 'xfailed': 2, 'xpassed': 1}.items():
+            assert report[f'control_{field}'] == count
+        assert report['control_unexpected'] == []
+        assert outcome.failed == 0
+
+    @pytest.mark.parametrize('marker', [
+        '::cicd-negative-control:BEGIN:BAD:inner::',
+        '::cicd-negative-control:END:BAD:other::',
+        '::cicd-negative-control:END:GOOD:probe::',
+    ])
+    def test_nested_or_mismatched_fences_are_untouched(self, marker: str) -> None:
+        text = ('::cicd-negative-control:BEGIN:BAD:probe::\n' + marker + '\n'
+                '5 failed in 1.2s\n::cicd-negative-control:END:BAD:probe::\n')
+        assert marker != '::cicd-negative-control:END:BAD:probe::'
+        outcome = parse_suite_outcome(text)
+        assert outcome is not None
+        assert outcome.failed == 5
+        assert outcome.control_invocations == 0
+
+    @pytest.mark.parametrize(('verdict', 'body', 'unexpected'), [
+        ('GOOD', '1 failed in 1.2s', ('probe',)),
+        ('GOOD', '1 error in 1.2s', ('probe',)),
+        ('GOOD', '2 passed in 1.2s', ()),
+        ('BAD', '1 error in 1.2s', ()),
+        ('BAD', 'unreadable output', ('probe',)),
+        ('GOOD', 'unreadable output', ('probe',)),
+    ])
+    def test_segment_verdict_is_derived(self, verdict: str, body: str,
+                                       unexpected: tuple[str, ...]) -> None:
+        outcome = parse_suite_outcome(
+            f'::cicd-negative-control:BEGIN:{verdict}:probe::\n{body}\n'
+            f'::cicd-negative-control:END:{verdict}:probe::\n'
+        )
+        assert outcome is not None
+        assert outcome.control_unexpected == unexpected
+
+    def test_multiple_controls_merge_across_streams(self) -> None:
+        text = (
+            '::cicd-negative-control:BEGIN:BAD:bad::\n1 failed in 1.2s\n'
+            '::cicd-negative-control:END:BAD:bad::\n'
+            '::cicd-negative-control:BEGIN:GOOD:good::\n2 failed in 1.2s\n'
+            '::cicd-negative-control:END:GOOD:good::\n'
+            '3 passed in 1.2s\n'
+        )
+        outcome = merge_stream_outcomes([
+            parse_suite_outcome(text, stream='stdout'),
+            parse_suite_outcome(text, stream='stderr'),
+        ])
+        assert outcome is not None
+        assert outcome.control_invocations == 4
+        assert outcome.control_failed == 6
+        assert outcome.control_unexpected == ('good', 'good')
+        assert outcome.passed == 6
+        assert outcome.failed == 0
+        assert outcome.summary_streams == ('stdout', 'stderr')
+
+    @pytest.mark.parametrize('exit_code', [0, 1])
+    def test_unexpected_control_does_not_change_exit_verdict(self, exit_code: int) -> None:
+        command = (
+            "printf '%s\\n' '::cicd-negative-control:BEGIN:BAD:blind::' "
+            "'2 passed in 1.2s' '::cicd-negative-control:END:BAD:blind::'; "
+            f'exit {exit_code}'
+        )
+        step = ShellStep(StepDef(id='test', command=command))
+        result = step.execute({'project_root': '/tmp'})
+        assert result.success == (exit_code == 0)
+        assert result.tests is not None
+        assert result.tests.control_unexpected == ('blind',)
