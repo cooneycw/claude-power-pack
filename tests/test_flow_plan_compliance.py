@@ -1168,3 +1168,207 @@ def test_revision_salvage(tmp_path: Path, declaration: str, monkeypatch: pytest.
         assert 'PLAN_COMPLIANCE: unknown (declared salvage' in out, out
         assert salvage in out, out
         assert 'not a commit' in out or 'not an ancestor' in out, out
+
+
+# ------------------------------------------------------------------ issue #1504: declare-salvage
+
+def _git_shim(tmp_path: Path, fail_on: str) -> Path:
+    """A PATH-prepended `git` that fails only when `fail_on` appears in argv."""
+    bindir = tmp_path / 'bin'
+    bindir.mkdir(exist_ok=True)
+    shim = bindir / 'git'
+    shim.write_text('#!/bin/sh\nfor a in "$@"; do\n'
+                    f'  if [ "$a" = "{fail_on}" ]; then exit 1; fi\ndone\n'
+                    f'exec "{shutil.which("git")}" "$@"\n')
+    shim.chmod(0o755)
+    return bindir
+
+
+@requires_git
+def test_revision_salvage_is_run_scoped(tmp_path: Path) -> None:
+    """A Salvage line declared in one run must never apply to a later run (#1504) -
+    pins that #1487's reader (select_run's per-run text) is already scoped this way."""
+    repo, _base = make_repo(tmp_path)
+    (repo / 'saved.py').write_text('preserved\n')
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-qm', 'preserve first')
+    salvage = git(repo, 'rev-parse', 'HEAD').strip()
+    start_run(repo, 'session-A', 'saved.py')
+    record = repo / 'docs/flow-runs/issue-42.md'
+    record.write_text(record.read_text().replace('- Approval:', f'- Salvage: {salvage}\n- Approval:'))
+    out1 = helper(repo, 'session-A', 'compliance', '42').stdout
+    assert 'PLAN_COMPLIANCE: agreement' in out1, out1
+    (repo / 'other.py').write_text('x\n')
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-qm', "run A's own commit")
+    start_run(repo, 'session-B', 'saved.py')
+    out2 = helper(repo, 'session-B', 'compliance', '42').stdout
+    assert 'PLANNED BUT NOT TOUCHED: saved.py' in out2, out2
+    assert 'PLAN_COMPLIANCE: agreement' not in out2, out2
+
+
+@requires_git
+def test_revision_declare_salvage_success_and_idempotence(tmp_path: Path) -> None:
+    repo, _base = make_repo(tmp_path)
+    (repo / 'saved.py').write_text('preserved\n')
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-qm', 'preserve first')
+    sha = git(repo, 'rev-parse', 'HEAD').strip()
+    assert helper(repo, 'session-A', 'reconcile', '42').returncode == 0
+    assert helper(repo, 'session-A', 'begin-run', '42').returncode == 0
+    first = helper(repo, 'session-A', 'declare-salvage', '42', sha, '--reason', 'manual preserve')
+    assert first.returncode == 0, first.stdout + first.stderr
+    assert sha[:12] in first.stdout
+    record = (repo / 'docs/flow-runs/issue-42.md').read_text()
+    assert f'- Salvage:           {sha}\n' in record
+    assert '- Salvage-Reason:    manual preserve\n' in record
+    before = (repo / 'docs/flow-runs/issue-42.md').read_bytes()
+    second = helper(repo, 'session-A', 'declare-salvage', '42', sha, '--reason', 'manual preserve')
+    assert second.returncode == 0, second.stdout + second.stderr
+    assert 'already declared' in second.stdout
+    assert (repo / 'docs/flow-runs/issue-42.md').read_bytes() == before
+
+
+@requires_git
+def test_revision_declare_salvage_refuses_a_different_sha(tmp_path: Path) -> None:
+    repo, _base = make_repo(tmp_path)
+    git(repo, 'commit', '--allow-empty', '-qm', 'c1')
+    sha1 = git(repo, 'rev-parse', 'HEAD').strip()
+    git(repo, 'commit', '--allow-empty', '-qm', 'c2')
+    sha2 = git(repo, 'rev-parse', 'HEAD').strip()
+    assert helper(repo, 'session-A', 'reconcile', '42').returncode == 0
+    assert helper(repo, 'session-A', 'begin-run', '42').returncode == 0
+    assert helper(repo, 'session-A', 'declare-salvage', '42', sha1, '--reason', 'r1').returncode == 0
+    before = (repo / 'docs/flow-runs/issue-42.md').read_bytes()
+    proc = helper(repo, 'session-A', 'declare-salvage', '42', sha2, '--reason', 'r2')
+    assert proc.returncode != 0, proc.stdout
+    assert 'refusing to silently replace' in proc.stdout
+    assert (repo / 'docs/flow-runs/issue-42.md').read_bytes() == before
+
+
+@requires_git
+def test_revision_declare_salvage_refuses_newline_injection(tmp_path: Path) -> None:
+    repo, _base = make_repo(tmp_path)
+    git(repo, 'commit', '--allow-empty', '-qm', 'c1')
+    sha = git(repo, 'rev-parse', 'HEAD').strip()
+    injected = git(repo, 'rev-parse', 'HEAD').strip()
+    assert helper(repo, 'session-A', 'reconcile', '42').returncode == 0
+    assert helper(repo, 'session-A', 'begin-run', '42').returncode == 0
+    before = (repo / 'docs/flow-runs/issue-42.md').read_bytes()
+    reason = f'looks fine\n- Salvage: {injected}'
+    proc = helper(repo, 'session-A', 'declare-salvage', '42', sha, '--reason', reason)
+    assert proc.returncode == 2, proc.stdout
+    assert 'control character' in proc.stdout
+    assert (repo / 'docs/flow-runs/issue-42.md').read_bytes() == before
+
+
+@requires_git
+@pytest.mark.parametrize(('setup', 'expected'), [
+    ('missing_reason', 'reason'),
+    ('bad_sha', 'hex-character'),
+    ('not_a_commit', 'is not a commit'),
+    ('not_ancestor', 'is not an ancestor'),
+    ('no_run', 'no usable run identity'),
+])
+def test_revision_declare_salvage_refusals(tmp_path: Path, setup: str, expected: str) -> None:
+    repo, _base = make_repo(tmp_path)
+    git(repo, 'commit', '--allow-empty', '-qm', 'c1')
+    sha = git(repo, 'rev-parse', 'HEAD').strip()
+    if setup != 'no_run':
+        assert helper(repo, 'session-A', 'reconcile', '42').returncode == 0
+        assert helper(repo, 'session-A', 'begin-run', '42').returncode == 0
+    args = ['declare-salvage', '42']
+    if setup == 'bad_sha':
+        args += ['not-a-sha', '--reason', 'r']
+    elif setup == 'not_a_commit':
+        args += ['0' * 40, '--reason', 'r']
+    elif setup == 'not_ancestor':
+        tree = git(repo, 'rev-parse', 'HEAD^{tree}').strip()
+        unrelated = git(repo, 'commit-tree', tree, '-m', 'unrelated').strip()
+        args += [unrelated, '--reason', 'r']
+    elif setup == 'missing_reason':
+        args += [sha]
+    else:
+        args += [sha, '--reason', 'r']
+    proc = helper(repo, 'session-A' if setup != 'no_run' else '', *args)
+    assert proc.returncode != 0, proc.stdout + proc.stderr
+    assert expected in (proc.stdout + proc.stderr)
+
+
+@requires_git
+def test_revision_salvage_fixes_the_reported_shape(tmp_path: Path) -> None:
+    """skillc#354 / PR #425's own shape: a dirty worktree committed unmodified as
+    the branch's FIRST commit, before the plan record existed."""
+    repo, base = make_repo(tmp_path)
+    git(repo, "update-ref", "refs/remotes/origin/main", base)
+    files = [f'f{i}.py' for i in range(5)]
+    for f in files:
+        (repo / f).write_text('x\n')
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-qm', 'preserve dirty worktree, pre-plan')
+    sha = git(repo, 'rev-parse', 'HEAD').strip()
+    start_run(repo, 'session-A', *files)
+    undeclared = helper(repo, 'session-A', 'compliance', '42').stdout
+    assert undeclared.count('PLANNED BUT NOT TOUCHED') == 5, undeclared
+    assert 'declare-salvage if deliberate' in undeclared, undeclared
+    assert 'PLAN_COMPLIANCE: divergence' in undeclared, undeclared
+
+    decl = helper(repo, 'session-A', 'declare-salvage', '42', sha, '--reason', 'preserve dirty worktree')
+    assert decl.returncode == 0, decl.stdout + decl.stderr
+    declared = helper(repo, 'session-A', 'compliance', '42').stdout
+    assert 'PLAN_COMPLIANCE: agreement' in declared, declared
+
+
+@requires_git
+def test_revision_pre_start_note_unavailable_is_not_silent(tmp_path: Path) -> None:
+    repo, base = make_repo(tmp_path)
+    git(repo, "update-ref", "refs/remotes/origin/main", base)
+    (repo / 'saved.py').write_text('x\n')
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-qm', 'preserve first')
+    start_run(repo, 'session-A', 'saved.py')
+    bindir = _git_shim(tmp_path, '--pretty=format:>>%H')
+    env = {k: v for k, v in os.environ.items() if k != 'CLAUDE_CODE_SESSION_ID'}
+    env['CLAUDE_CODE_SESSION_ID'] = 'session-A'
+    env['PATH'] = str(bindir) + os.pathsep + env['PATH']
+    proc = subprocess.run(['python3', str(HELPER), 'compliance', '42'], cwd=repo,
+                          capture_output=True, text=True, env=env)
+    assert 'pre-start note unavailable' in proc.stdout, proc.stdout
+    assert 'PLANNED BUT NOT TOUCHED: saved.py' in proc.stdout, proc.stdout
+
+
+@requires_git
+def test_revision_no_salvage_no_pre_start_change_is_quiet(tmp_path: Path) -> None:
+    """Baseline (#1504): nothing declared and nothing changed before run_start ->
+    no Salvage line, no report-only note."""
+    repo, _base = make_repo(tmp_path)
+    start_run(repo, 'session-A', 'src/a.py')
+    (repo / 'src').mkdir()
+    (repo / 'src' / 'a.py').write_text('a\n')
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-qm', 'this run touches its own planned file')
+    out = helper(repo, 'session-A', 'compliance', '42').stdout
+    assert 'PLAN_COMPLIANCE: agreement' in out, out
+    assert 'Salvage' not in (repo / 'docs/flow-runs/issue-42.md').read_text()
+    assert 'declare-salvage' not in out
+
+
+@requires_git
+def test_revision_pre_start_note_matches_a_planned_directory(tmp_path: Path) -> None:
+    """Codex review finding: a planned DIRECTORY has no exact key in the pre-start
+    map (git never emits a bare directory path), so the note must match by
+    prefix - and a similarly-named sibling directory must not match."""
+    repo, base = make_repo(tmp_path)
+    git(repo, "update-ref", "refs/remotes/origin/main", base)
+    (repo / 'src').mkdir()
+    (repo / 'src' / 'app.py').write_text('x\n')
+    (repo / 'src-neighbour').mkdir()
+    (repo / 'src-neighbour' / 'app.py').write_text('y\n')
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-qm', 'preserve first')
+    sha = git(repo, 'rev-parse', 'HEAD').strip()
+    start_run(repo, 'session-A', 'src/')
+    out = helper(repo, 'session-A', 'compliance', '42').stdout
+    assert 'PLANNED BUT NOT TOUCHED: src/' in out, out
+    assert f'changed before this run\'s start, in {sha[:12]}' in out, out
+    assert 'src-neighbour' not in out, out
