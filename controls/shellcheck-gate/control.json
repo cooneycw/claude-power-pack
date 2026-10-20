@@ -37,7 +37,7 @@
       "name": "bad-note-severity",
       "input": "cases/bad-note-severity",
       "expect": "BAD",
-      "why": "Added by issue #972, which raised the gate's default severity from error to style after reviewing the sub-error residual to zero. The file's ONLY finding is SC2002, a style-level note. Every earlier BAD case offends at error severity, so none of them could tell the raised default from the old one: revert the default to error and the whole register stayed green. This case is what reddens. MEASURED both ways: the gate at error, and the vendored anchor, report it clean; the gate at style reports the finding."
+      "why": "Added by issue #972, which raised the gate's default severity from error to style after reviewing the sub-error residual to zero. The file's ONLY finding is SC2086, an info-level note (below error, caught by --severity=style). Every earlier BAD case offends at error severity, so none of them could tell the raised default from the old one: revert the default to error and the whole register stayed green. This case is what reddens. MEASURED both ways: the gate at error, and the vendored anchor, report it clean; the gate at style reports the finding. The offender was SC2002 until issue #1492, which replaced it with SC2086 after finding SC2002's check moved behind an optional ShellCheck flag in 0.11.0 and going BLIND under that version - SC2086 fires unconditionally in both 0.10.0 (CI's pin) and 0.11.0."
     },
     {
       "name": "unknown-zero-matched",
