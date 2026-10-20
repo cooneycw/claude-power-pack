@@ -202,8 +202,10 @@ class TestPytestParsing:
         """
         text = "\n".join(
             [
+                "=== test session starts ===",
                 "=== 10 passed in 1.00s ===",
                 "running the second suite",
+                "=== test session starts ===",
                 "=== 4 passed, 2 skipped in 2.00s ===",
             ]
         )
@@ -595,7 +597,8 @@ class TestBothStreamsAreMerged:
         on stdout plus one on stderr is three.
         """
         outcome = self._step()._parse_tests(
-            "=== 1 passed in 1.0s ===\n=== 2 passed in 1.0s ===",
+            "=== test session starts ===\n=== 1 passed in 1.0s ===\n"
+            "=== test session starts ===\n=== 2 passed in 1.0s ===",
             "=== 3 passed in 1.0s ===",
         )
         assert outcome is not None
@@ -684,14 +687,18 @@ class TestMultipleInvocationsInOneStep:
     """
 
     TWO_SUITES = """Running non-Playwright tests...
+=== test session starts ===
 ============ 4051 passed, 1 skipped, 954 warnings in 284.73s (0:04:44) ============
 Running Playwright tests...
+=== test session starts ===
 ============ 102 passed, 1 xpassed in 156.66s (0:02:36) ============
 """
 
     ONE_INVOCATION_RAN_NOTHING = """Running non-Playwright tests...
+=== test session starts ===
 ============ no tests ran in 0.31s ============
 Running Playwright tests...
+=== test session starts ===
 ============ 102 passed in 156.66s ============
 """
 
@@ -764,7 +771,9 @@ class TestVerdictIsIndependentOfCounts:
 
     TWO_SUITES = (
         "printf '%s\\n' "
+        "'=== test session starts ===' "
         "'==== 4051 passed in 284.73s ====' "
+        "'=== test session starts ===' "
         "'==== 102 passed in 156.66s ===='; exit "
     )
 
@@ -786,3 +795,100 @@ class TestVerdictIsIndependentOfCounts:
         assert not result.success
         assert result.tests is not None
         assert result.tests.passed == 4153
+
+
+class TestNestedSessionSummaries:
+    def test_1a_nested_failure_is_excluded(self) -> None:
+        text = """================ test session starts =================
+collected 1 item
+tests/test_outer.py .
+---------------------------- Captured stdout call -----------------------------
+================ test session starts =================
+collected 8 items
+inner/test_example.py FFFFF...
+================ 5 failed, 3 passed in 0.02s =================
+================ 1 passed in 0.01s =================
+"""
+        result = parse_suite_outcome(text)
+        assert result is not None
+        assert result.passed == 1 and result.failed == 0
+
+    def test_1b_outer_failure_is_retained(self) -> None:
+        text = """================ test session starts =================
+================================ FAILURES =================================
+______________________________ test_outer ______________________________
+---------------------------- Captured stdout call -----------------------------
+================ test session starts =================
+inner/test_example.py ...
+================ 3 passed in 0.01s =================
+================ short test summary info =================
+FAILED tests/test_outer.py::test_outer - AssertionError
+================ 1 failed, 2 passed in 0.03s =================
+"""
+        result = parse_suite_outcome(text)
+        assert result is not None
+        assert result.failed == 1 and result.passed == 2
+        assert result.invocations == 1
+
+    def test_1c_last_candidate_without_exit_is_retained(self) -> None:
+        text = """---------------------------- Captured stdout call -----------------------------
+output without a closing section marker
+================ 7 failed in 1.20s =================
+"""
+        result = parse_suite_outcome(text)
+        assert result is not None
+        assert result.failed == 7
+
+    def test_last_candidate_at_unbalanced_nested_depth_is_retained(self) -> None:
+        text = """================ test session starts =================
+================ test session starts =================
+================ 7 passed in 1.20s =================
+"""
+        result = parse_suite_outcome(text)
+        assert result is not None
+        assert result.passed == 7
+        assert result.invocations == 1
+
+    def test_1d_disjoint_top_level_failures_are_summed(self) -> None:
+        text = """================ test session starts =================
+================ 103 passed in 2.1s =================
+Running second suite...
+================ test session starts =================
+================ 4 passed, 1 failed in 0.5s =================
+"""
+        result = parse_suite_outcome(text)
+        assert result is not None
+        assert result.passed == 107 and result.failed == 1
+        assert result.invocations == 2
+
+    def test_a_nested_session_with_its_own_failures_banners_does_not_inflate_the_outer_count(self) -> None:
+        text = """================ test session starts =================
+collected 1 item
+tests/test_outer.py .
+---------------------------- Captured stdout call -----------------------------
+================ test session starts =================
+collected 1 item
+inner/test_example.py F
+================================ FAILURES =================================
+______________________________ test_inner ______________________________
+E   AssertionError
+================ short test summary info =================
+FAILED inner/test_example.py::test_inner - AssertionError
+================ 1 failed in 0.02s =================
+================ 1 passed in 0.03s =================
+"""
+        assert "FAILURES" in text and "short test summary info" in text
+        result = parse_suite_outcome(text)
+        assert result is not None
+        assert result.passed == 1 and result.failed == 0
+        assert result.invocations == 1
+
+
+def test_unittest_unexpected_successes_are_xpassed() -> None:
+    result = parse_suite_outcome(
+        "Ran 2 tests in 0.01s\nOK (expected failures=1, unexpected successes=1)\n"
+    )
+    assert result is not None
+    assert result.xfailed == 1
+    assert result.xpassed == 1
+    assert result.passed == 0

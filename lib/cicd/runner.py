@@ -987,7 +987,10 @@ class DeterministicRunner:
             outcome = result.tests
             outcome_dict = outcome.to_dict() if outcome else None
             if outcome_dict is not None:
-                tests[step.id] = outcome_dict
+                if step_def.expected_red:
+                    outcome_dict["expected_red"] = True
+                else:
+                    tests[step.id] = outcome_dict
             qualifier = f" ({outcome.summary()})" if outcome else ""
 
             # A non-test gate's exit code says the tool did not error, not that
@@ -1056,7 +1059,7 @@ class DeterministicRunner:
                         f"{cover.invocations} INVOCATIONS EXAMINED NOTHING"
                         f"{qualifier}"
                     )
-                elif outcome is not None and outcome.nothing_ran:
+                elif outcome is not None and not step_def.expected_red and outcome.nothing_ran:
                     warnings.append(
                         f"{step.id}: exited 0 but executed NO tests ({outcome.summary()}) "
                         "- this gate proved nothing about the change (issue #621)"
@@ -1065,7 +1068,7 @@ class DeterministicRunner:
                         f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
                         f"SUCCESS - NO TESTS RAN{qualifier}"
                     )
-                elif outcome is not None and outcome.any_invocation_empty:
+                elif outcome is not None and not step_def.expected_red and outcome.any_invocation_empty:
                     # The same hole as above, hidden by an aggregate (kyle
                     # issue #838). A step running the runner more than once -
                     # `make test` invoking pytest for two disjoint suites -
@@ -1264,6 +1267,20 @@ class DeterministicRunner:
                         f"    stdout (tail): {_tail_lines(result.output)}\n"
                         f"    stderr (tail): {_tail_lines(result.error)}"
                     )
+                if (
+                    self.rerun_failed
+                    and not timed_out
+                    and step.is_test_step()
+                    and outcome is not None
+                    and outcome.framework == "pytest"
+                    and outcome.failed + outcome.errors > 0
+                    and outcome.invocations > 1
+                ):
+                    self._log(
+                        f"  {step.id}: composite step; declining to retry only "
+                        "part of it (issue #1485 narrowing #769); "
+                        "the original failure stands"
+                    )
                 failed_ids: list[str] = []
                 if (
                     self.rerun_failed
@@ -1272,6 +1289,7 @@ class DeterministicRunner:
                     and outcome is not None
                     and outcome.framework == "pytest"
                     and outcome.failed + outcome.errors > 0
+                    and outcome.invocations == 1
                 ):
                     failed_ids = _failed_ids_from_both_streams(
                         result.output, result.error
