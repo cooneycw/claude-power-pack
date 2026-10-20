@@ -1851,6 +1851,14 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
             return res
         case_good_signal[name] = compiled_case_good
 
+    good_names = [case["name"] for case in cases if case.get("expect") == GOOD]
+    if len(good_names) >= 2 and good_sig is None and not case_good_signal:
+        res.details.append(
+            f"WARNING: GOOD cases {', '.join(good_names)} share exit code {good_exit} "
+            "with no control-level or per-case good_signal; their clean answers "
+            "are indistinguishable"
+        )
+
     # A one-sided control tests nothing, so it may not reach PASS. This was only
     # DOCUMENTED before, and the code required a non-empty list: a GOOD-only
     # control passed against a gate that was genuinely blind, and a BAD-only one

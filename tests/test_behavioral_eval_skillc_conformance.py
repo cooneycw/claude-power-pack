@@ -214,6 +214,7 @@ def test_every_fixture_on_disk_is_classified_exactly_once() -> None:
         for case in gb.iterdir() if case.is_dir()
     )
     classified = sorted({*GOOD_CASES, *FLAGGED_BAD_CASES, *OUT_OF_SUBSET_BAD_CASES})
+    assert on_disk, "no fixture directories found under skillc-conformance/ - this guard would pass vacuously"
     assert on_disk == classified, (
         f"on disk but unclassified: {sorted(set(on_disk) - set(classified))}; "
         f"classified but missing on disk: {sorted(set(classified) - set(on_disk))}"

@@ -113,7 +113,7 @@ def _run(
     starttimes: str | None = None,
     now: str = "1700000000",
     cwd: Path | None = None,
-    extra_env: dict[str, str] | None = None,
+    extra_env: dict[str, str | None] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     # `live` (issue #1094): most existing callers never passed it at
     # `register` time - only on a LATER `get`/`list` call meant to pin
@@ -157,8 +157,19 @@ def _run(
     # #1026: the merge-strict shelf life is configurable, so a test has to be
     # able to set FLOW_WAVE_MERGE_STRICT_TTL - including to a MALFORMED value,
     # which is the case that proved the guard could fail open.
+    #
+    # A `None` value DELETES the key instead of setting it (issue #1484): a
+    # test asserting on genuinely-ABSENT lineage env vars (e.g. an autouse
+    # conftest fixture now pins FLOW_WAVE_SESSION_PIDS ambiently) needs a way
+    # to restore true absence, which plain `dict.update` cannot express -
+    # `env[k] = None` would set the subprocess's env var to the literal
+    # string "None", the opposite of what a test asking for this means.
     if extra_env:
-        env.update(extra_env)
+        for key, value in extra_env.items():
+            if value is None:
+                env.pop(key, None)
+            else:
+                env[key] = value
     # `cwd` defaults to None (inherit pytest's own cwd, as before every #891
     # call site below started passing it) so every existing call is unaffected.
     # #891 needs it to prove the registry answers the SAME way regardless of
@@ -2965,6 +2976,11 @@ class TestWatchColumn:
         env.update({"FLOW_WAVE_REGISTRY_DIR": str(tmp_path / "reg")})
         env.pop("FLOW_WAVE_MAILBOX_DIR", None)
         env.pop("FLOW_WAVE_NOW", None)
+        # Genuinely ABSENT, not merely unset-by-this-test: the autouse
+        # conftest fixture (issue #1484) pins this ambiently for isolation,
+        # but this test's whole point is the lineage being UNREADABLE, which
+        # needs the var truly missing, not pointing at a tmp path.
+        env.pop("FLOW_WAVE_SESSION_PIDS", None)
         env["FLOW_WAVE_SOCK_DIR"] = str(tmp_path / "no-such-socket-dir")
         assert not (tmp_path / "no-such-socket-dir").exists()  # precondition
         out = subprocess.run(
@@ -2980,7 +2996,12 @@ class TestWatchColumn:
             while not wf.exists() and time.time() < deadline:
                 time.sleep(0.05)
             assert wf.exists(), "orphan watch never armed"  # precondition
-            unknown_env = {"FLOW_WAVE_SOCK_DIR": str(tmp_path / "no-such-socket-dir")}
+            unknown_env: dict[str, str | None] = {
+                "FLOW_WAVE_SOCK_DIR": str(tmp_path / "no-such-socket-dir"),
+                # Same absence requirement as the launch env above - a `None`
+                # here DELETES the key (see `_run`'s extra_env handling).
+                "FLOW_WAVE_SESSION_PIDS": None,
+            }
             p = _run(tmp_path, "list", "--wave", "cpp", live=SELF_PID, extra_env=unknown_env)
             row = _row(p, "worker-H")
             assert "watch=WAKE-UNKNOWN(1 watchers, session unreadable)" in row, row

@@ -21,6 +21,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "cpp-host-write.sh"
 
@@ -38,6 +40,7 @@ CONTENT = (
 def _append(home: Path, *extra: str) -> subprocess.CompletedProcess[str]:
     """Run one bashrc-append against a sandboxed $HOME. Never the real one."""
     env = os.environ.copy()
+    env.pop("CPP_DEFER_SURFACES", None)
     env.update({"HOME": str(home), "USER": "tester"})
     return subprocess.run(
         ["bash", str(HELPER), "bashrc-append", MARKER, "-", *extra],
@@ -145,3 +148,17 @@ def test_the_helper_no_longer_accepts_no_guard(tmp_path: Path) -> None:
         f"({bashrc.count('export PS1=')} exports); result={result.returncode}, "
         f"second={second.returncode}"
     )
+
+
+def test_append_ignores_ambient_deferred_surfaces(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A host's deferred bashrc must not disable this suite's sandbox append."""
+    monkeypatch.setenv("CPP_DEFER_SURFACES", "~/.bashrc")
+    home = tmp_path / "home"
+    home.mkdir()
+
+    result = _append(home)
+
+    assert result.returncode == 0, result.stderr
+    assert (home / ".bashrc").read_text() == CONTENT

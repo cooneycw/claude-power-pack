@@ -1,0 +1,28 @@
+{
+  "branch": "issue-1484-suite-isolation-a",
+  "counts": {
+    "accepted": 1,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "direction": "delegated",
+  "head": "d36d9ac9a0160faa59f409ba0ab878bb3f1ad871",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/20/rollout-2026-10-20T17-23-29-01a15a56-efe0-7721-89d1-92f897e9abed.jsonl",
+    "thread_id": "01a15a56-efe0-7721-89d1-92f897e9abed"
+  },
+  "issue": "1484",
+  "passes": 1,
+  "recorded_at": "2026-10-20T17:57:23Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "claude/claude-sonnet-5",
+  "reviewer_evidence": {
+    "session_id": "687807af-40f7-4b5f-a9f4-e8526c8b2e29"
+  },
+  "schema": 1,
+  "status": "ran"
+}
