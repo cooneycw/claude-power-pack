@@ -47,6 +47,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 SCHEMA = 1
+# A receipt using extra_passes_reason declares this instead (issue #1495).
+# No committed receipt uses that field yet, so no existing file needs a shim.
+SCHEMA_EXTRA_PASSES = 2
+# The committed corpus tops out at 2 passes. The only historical extra-pass
+# request was #1320, exactly pass 3 (fc87b5b8 / PR #1457); nothing above 3
+# has ever been requested in the repository's review history.
+PASSES_HARD_CEILING = 3
 RECEIPT_DIR = Path("docs/measurements/counter-model")
 
 EXIT_OK = 0
@@ -691,7 +698,8 @@ def build(args: argparse.Namespace) -> dict:
     else:
         receipt["passes"] = args.passes
         if getattr(args, "extra_pass_reason", None):
-            receipt["extra_passes_reason"] = args.extra_pass_reason
+            receipt["extra_passes_reason"] = args.extra_pass_reason.strip()
+            receipt["schema"] = SCHEMA_EXTRA_PASSES
         receipt["counts"] = {k: getattr(args, k) for k in COUNTS}
         receipt["red_cases"] = {
             "proposed": args.red_cases_proposed,
@@ -713,8 +721,19 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
             return None
         return receipt[key]
 
-    if receipt.get("schema") != SCHEMA:
-        bad.append(f"{source}: schema is {receipt.get('schema')!r}, expected {SCHEMA}")
+    has_extra_reason = "extra_passes_reason" in receipt
+    expected_schema = SCHEMA_EXTRA_PASSES if has_extra_reason else SCHEMA
+    if receipt.get("schema") != expected_schema:
+        why = (
+            "this receipt carries 'extra_passes_reason', which schema 1 does not "
+            "describe; re-write this receipt with the current counter-model-receipt.py "
+            "to pick up schema 2"
+            if has_extra_reason else
+            "this receipt has no 'extra_passes_reason', so it should declare schema 1"
+        )
+        bad.append(
+            f"{source}: schema is {receipt.get('schema')!r}, expected {expected_schema}: {why}"
+        )
     need("recorded_at", str)
     need("branch", str)
     if not isinstance(receipt.get("issue"), (int, str)):
@@ -916,6 +935,12 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
     reason = receipt.get("extra_passes_reason")
     if not isinstance(passes, int) or isinstance(passes, bool) or passes < 1:
         bad.append(f"{source}: passes is {passes!r}, expected a positive integer")
+    elif passes > PASSES_HARD_CEILING:
+        bad.append(
+            f"{source}: passes is {passes}, beyond the hard ceiling of {PASSES_HARD_CEILING}; "
+            "#1320's pass 3 is the only extra-pass precedent in this repository's "
+            "review history; escalate the review loop rather than record another pass"
+        )
     elif passes > 2 and not (isinstance(reason, str) and reason.strip()):
         # Two passes is the documented cap: each one spends the user's quota,
         # and an unbounded loop is how a review stage becomes a cost centre.
@@ -1810,6 +1835,11 @@ def main() -> int:
             and args.reviewer_exec_log is not None):
         ap.error("--status skipped must not carry --reviewer-exec-log; no review happened")
     if args.cmd == "write" and args.status == "ran":
+        if args.passes > PASSES_HARD_CEILING:
+            ap.error(f"--passes beyond the hard ceiling of {PASSES_HARD_CEILING} has no "
+                     "precedent in this repository's review history (#1320 is the only "
+                     "ever-requested extra pass, and it was pass 3); something is wrong "
+                     "with the review loop itself - escalate rather than record another pass")
         if args.passes > 2 and not (args.extra_pass_reason or "").strip():
             ap.error("--passes beyond 2 requires --extra-pass-reason: the cap exists "
                      "because each pass spends quota, so an extra one says why")

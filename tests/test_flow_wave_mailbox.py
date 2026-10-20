@@ -63,6 +63,26 @@ ROOT = Path(__file__).resolve().parents[1]
 MAILBOX = ROOT / "scripts" / "flow-wave-mailbox.sh"
 REGISTRY = ROOT / "scripts" / "flow-wave-registry.sh"
 
+# Refs #1506: these ceilings are NOT "measured max plus margin" - say so
+# plainly, because the honest derivation differs from #1501's. 20 direct
+# subprocess samples per path were taken while the full tests/ suite (7905
+# items, pytest -n 4) ran concurrently: owner-kill-to-event max 1.233249s
+# (watch) / 4.736162s (supervise), nearest-rank p95 0.837985s / 2.856626s.
+# The ONE real failure this fix answers to exceeded the OLD bound (>10s for
+# watch), and these 20 samples never got anywhere near that - the sampled
+# tail does not reach the failure's own magnitude, so there is no honest
+# "max observed, plus a margin" number to report here.
+# What IS true: a larger ceiling on this half costs nothing on the pass
+# path (the log line it waits for ends the wait the moment it appears, so
+# a healthy run is unaffected by how high the ceiling is set), and the one
+# event this must survive is a report of ">10s". 27s and 30s give at least
+# 2.5x that single data point, not a percentile of these particular
+# samples. Only the SEPARATE, tight 3s exit-after-event bound below is
+# actually backed by measurement: observed event-to-exit maxima were
+# 0.010280s (watch) and 0.000089s (supervise), so 3s (the same bound
+# #1501 used for the release path) is already generous on its own terms.
+OWNER_GONE_DETECTION_TIMEOUT = {"watch": 27, "supervise": 30}
+
 # Drives a real `bash` subprocess; the CI validate container may not ship one,
 # so skip there (CPP core directive, same shape as the other flow suites).
 requires_bash = pytest.mark.skipif(
@@ -4651,8 +4671,12 @@ class TestWakeability:
                 lambda: "State:\tZ" in Path(f"/proc/{session.pid}/status").read_text(),
                 timeout=10,
             ), "precondition: the stand-in session is not a zombie"
-            assert _wait_for(lambda: not _pid_not_zombie(daemon), timeout=20), (
-                f"daemon {daemon} outlived its arming session:\n{log.read_text()}"
+            assert _wait_for(
+                lambda: "daemon exiting: owner-gone" in log.read_text(),
+                timeout=OWNER_GONE_DETECTION_TIMEOUT["supervise"],
+            ), f"daemon never detected its dead arming session:\n{log.read_text()}"
+            assert _wait_for(lambda: not _pid_not_zombie(daemon), timeout=3), (
+                f"daemon {daemon} did not exit promptly after owner-gone:\n{log.read_text()}"
             )
             assert "owner-gone" in log.read_text()
             session.wait(timeout=10)
@@ -4818,13 +4842,14 @@ class TestIssue1260MessagingNeitherLosesNorFabricatesState:
         wave = unique_wave()
         env = _wake_env(tmp_path, None)
         pidfile = tmp_path / "watch.pid"
+        log = tmp_path / "watch.log"
         session = subprocess.Popen(
             [
                 "bash", "-c",
                 'export FLOW_WAVE_SESSION_PIDS=$$; '
                 'bash "$0" watch --role r1 --wave "$1" --timeout 60 --interval 1 --consume '
-                '</dev/null >/dev/null 2>&1 & echo $! > "$2"; exec sleep 120',
-                str(MAILBOX), wave, str(pidfile),
+                '</dev/null >"$3" 2>&1 & echo $! > "$2"; exec sleep 120',
+                str(MAILBOX), wave, str(pidfile), str(log),
             ],
             env=env, cwd=str(tmp_path),
         )
@@ -4837,8 +4862,12 @@ class TestIssue1260MessagingNeitherLosesNorFabricatesState:
             assert _pid_not_zombie(watch), "watch exited while its session was alive"
             session.kill()
             session.wait(timeout=10)
-            assert _wait_for(lambda: not _pid_not_zombie(watch), timeout=10), (
-                "watch outlived its arming session"
+            assert _wait_for(
+                lambda: "exiting - its arming session" in log.read_text(),
+                timeout=OWNER_GONE_DETECTION_TIMEOUT["watch"],
+            ), f"watch never detected its dead arming session:\n{log.read_text()}"
+            assert _wait_for(lambda: not _pid_not_zombie(watch), timeout=3), (
+                "watch did not exit promptly after owner-gone"
             )
         finally:
             if session.poll() is None:

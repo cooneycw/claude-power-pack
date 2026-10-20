@@ -1,0 +1,8 @@
+{
+  "name": "validate",
+  "pid": 36,
+  "state": "failure",
+  "error": "Canceled",
+  "exit_code": 126,
+  "type": "commands"
+}
