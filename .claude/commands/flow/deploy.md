@@ -271,7 +271,7 @@ If `CPP_DIR` is found and `.claude/cicd.yml` exists:
 
    ```bash
    echo "Running deploy verification..."
-   PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify
+   PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify --release "$(git rev-parse --short HEAD)"
    VERIFY_EXIT=$?
    ```
 
@@ -297,7 +297,7 @@ If `CPP_DIR` is found and `.claude/cicd.yml` exists:
    ```bash
    HEALTH_PASS=$( [ "$HEALTH_EXIT" -eq 0 ] && echo "pass" || echo "fail" )
    SMOKE_PASS=$( [ "$SMOKE_EXIT" -eq 0 ] && echo "pass" || echo "fail" )
-   VERDICT=$( PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify --summary 2>/dev/null | grep -oiE 'proceed|review|rollback' | head -1 | tr 'A-Z' 'a-z' )
+   VERDICT=$( PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify --release "$(git rev-parse --short HEAD)" --summary 2>/dev/null | grep -oiE 'proceed|review|rollback' | head -1 | tr 'A-Z' 'a-z' )
    echo "$(date -Iseconds) | ${TARGET} | $(git rev-parse --short HEAD) | $(git branch --show-current) | $DEPLOY_EXIT | health:${HEALTH_PASS} | smoke:${SMOKE_PASS} | verify:${VERDICT:-none}" >> .claude/deploy.log
    ```
 
