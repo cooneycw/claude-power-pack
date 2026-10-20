@@ -460,6 +460,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--state-dir", help="Directory for per-session storage-state files")
     parser.add_argument("--json", action="store_true", help="Emit the raw JSON result object")
 
+    parent_parser = argparse.ArgumentParser(add_help=False)
+    parent_parser.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
+                               help="Emit the raw JSON result object")
+
     sub = parser.add_subparsers(dest="command", required=True)
     for verb, help_text in (
         ("create", "Lease a free desk for a new named session"),
@@ -468,15 +472,17 @@ def _build_parser() -> argparse.ArgumentParser:
         ("list", "List sessions and pool occupancy"),
         ("pool", "Show pool configuration and occupancy"),
     ):
-        sp = sub.add_parser(verb, help=help_text)
+        sp = sub.add_parser(verb, help=help_text, parents=[parent_parser])
         if verb in ("create", "resume", "save"):
             sp.add_argument("name", help="Session name")
 
-    sp_close = sub.add_parser("close", help="Release a session's desk (keep state unless --discard)")
+    sp_close = sub.add_parser(
+        "close", parents=[parent_parser], help="Release a session's desk (keep state unless --discard)")
     sp_close.add_argument("name", help="Session name")
     sp_close.add_argument("--discard", action="store_true", help="Also delete the state file and forget the session")
 
-    sp_cleanup = sub.add_parser("cleanup", help="Release desks of sessions idle beyond the timeout")
+    sp_cleanup = sub.add_parser(
+        "cleanup", parents=[parent_parser], help="Release desks of sessions idle beyond the timeout")
     sp_cleanup.add_argument("--idle-seconds", type=int, default=None, help="Override idle threshold (seconds)")
     return parser
 

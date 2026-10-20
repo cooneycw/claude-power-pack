@@ -622,6 +622,24 @@ RECORD
 `reconcile` first. A record written before #1320 (no run markers) stays valid
 history, and reads as Run 1.
 
+**Adopting found or dirty work (issue #1504).** If, before this point, you
+preserved pre-existing or dirty work in the worktree by committing it
+unmodified as its own commit - a deliberate, manual act, never something this
+step decides for itself - run `declare-salvage` with that commit's sha right
+after `begin-run`:
+
+```bash
+scripts/flow-plan-record.py declare-salvage 42 <sha> --reason "<why>"
+```
+
+Without this, Step 6's compliance check cannot see that commit (it is before
+this run's own `Run-start`) and reports its planned files as untouched even
+though they were genuinely preserved - it does print a report-only note
+pointing at the commit, but the note never changes the verdict. Do NOT run
+this when nothing was deliberately preserved: `declare-salvage` refuses a sha
+that is not an ancestor of HEAD, and the writer must know which commit is a
+genuine preservation, never infer one from history.
+
 Keep Section C as one numbered line per file, in the form ``N. `path` - gist``:
 Step 6 compares the diff against exactly those paths, and a line it cannot parse
 makes that comparison `unknown`. Markdown only - `.gitignore` carries a blanket
@@ -1034,7 +1052,29 @@ git merge --no-edit origin/main
    inability to run codex. The reversal trigger that would bring it back is
    committed beside `SKIP_REASONS` in `scripts/counter-model-receipt.py`.
 
-   **1b. Run the review.** Invoke `/codex:code_review` with that BASE and
+   **No eligible reviewer in a Codex lane (issue #1494).** `/codex:code_review`
+   ships no Codex-callable skill at all - `codex/skills/` has no `review` or
+   `codex` entry - and even if it did, invoking it from a session where
+   `$CODEX_THREAD_ID` is set would be this session reviewing its own diff: the
+   same defect "a same-model review is not a counter-model review" (1d, below)
+   already refuses to record. `/second-opinion-start` exists as a Codex skill
+   and genuinely reaches a non-Codex model, but its output is free-form MCP
+   prose, not the `COUNTER_MODEL_REVIEW:` marker shape `$CM_RECEIPT parse`
+   requires - wiring it into this receipt pipeline is a separate, larger change
+   than naming the reviewer step honestly (tracked as issue #1513; out of
+   scope here). So: when `$CODEX_THREAD_ID` is set, skip straight to 1d with
+   `reviewer-unavailable` and do not attempt 1b.
+
+   **The skip receipt is not the whole story.** `reviewer-unavailable` means no
+   reviewer feeds this automated pipeline - it does not mean no review ran.
+   Run `/second-opinion-start` (or another non-Codex review you have available)
+   yourself, and if it ran, state its reviewer and verdict in the PR body
+   alongside the skip, naming both. Until #1513 lands, the receipt alone
+   would read as "no review happened" when one did; the PR body is where that
+   gets corrected.
+
+   **1b. Run the review** (Claude sessions only - a Codex lane takes the skip
+   above). Invoke `/codex:code_review` with that BASE and
    `CONTEXT` = `"issue #<N>: <issue title>"`, and **capture the transcript to a
    file** - the receipt in 1d is derived from it, not from memory.
 

@@ -201,8 +201,23 @@ fi
 # `git diff A...B` == `git diff $(git merge-base A B) B`, so:
 #   HEAD...BASE  -> files changed on the BASE side since we diverged (upstream).
 #   BASE...HEAD  -> files this branch changed since we diverged (my commits).
-upstream_changed=$(git_ diff --name-only "HEAD...${BASE_REF}" 2>/dev/null | sed '/^$/d' | sort -u)
-my_committed=$(git_ diff --name-only "${BASE_REF}...HEAD" 2>/dev/null)
+# A FAILED DIFF IS NOT AN EMPTY ONE (Nit Store #864, comment 5856725641). Both
+# calls used to feed a `2>/dev/null` command substitution with no exit-status
+# check, so a failing `git diff` read as "nothing changed" - indistinguishable
+# from a real empty diff - and fell through to `moved-clean`, hiding exactly
+# the collision this check exists to surface. Same shape as the rev-list fix
+# above (issue #1271): check the exit status before trusting the output.
+if ! upstream_changed_raw=$(git_ diff --name-only "HEAD...${BASE_REF}" 2>/dev/null); then
+    echo "flow-stale-check: 'git diff HEAD...${BASE_REF}' failed - cannot tell what changed upstream." >&2
+    verdict unknown
+    exit 0
+fi
+upstream_changed=$(printf '%s\n' "$upstream_changed_raw" | sed '/^$/d' | sort -u)
+if ! my_committed=$(git_ diff --name-only "${BASE_REF}...HEAD" 2>/dev/null); then
+    echo "flow-stale-check: 'git diff ${BASE_REF}...HEAD' failed - cannot tell what this branch touched." >&2
+    verdict unknown
+    exit 0
+fi
 # Anything dirty in the work tree counts as "touched" too (staged/unstaged/new).
 # Strip the 2-char status + space; for renames "old -> new" keep the new path.
 my_worktree=$(git_ status --porcelain 2>/dev/null | sed 's/^...//' | sed 's/.* -> //')

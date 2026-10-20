@@ -1,0 +1,36 @@
+{
+  "gate": "scripts/flow-ci-status.sh",
+  "invocation": [
+    "sh",
+    "controls/flow-ci-status-cancellation/run-case.sh",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_CI_CANCELLATION_CONTROL: canceled$",
+  "ci_deps_provided_by_invocation": [
+    "curl"
+  ],
+  "limits": "Checks HTTP cancellation classification using the verified pipeline 3196 validate step shape: commands, failure, exit 126, error Canceled. The identical shape without error must remain code. Pipeline status must remain failure. Does not establish transport behavior, CLI behavior, or aggregate classification. Anchor is a local pre-change source snapshot; no network was used.",
+  "cases": [
+    {
+      "name": "bad-canceled",
+      "input": "cases/bad-canceled",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-code",
+      "input": "cases/good-code",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "9405b2a65a165fdf3fe6618a43642f6908141ba9",
+      "origin": "scripts/flow-ci-status.sh",
+      "path": "anchors/pre-1486-flow-ci-status.sh",
+      "sha256": "3e32f3465ab02b0b42831507ed82151093416950b755637eb6e14de942cc7ebf"
+    }
+  ]
+}

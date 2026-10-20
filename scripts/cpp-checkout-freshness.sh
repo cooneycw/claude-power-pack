@@ -132,7 +132,7 @@ UPSTREAM="origin/$BRANCH"
 # branch of that name before the remote-tracking ref this run fetched.
 UPSTREAM_REF="refs/remotes/origin/$BRANCH"
 
-if ! git -C "$CHECKOUT" remote get-url origin >/dev/null 2>&1; then
+if ! ORIGIN_URL="$(git -C "$CHECKOUT" remote get-url origin 2>/dev/null)"; then
     unknown "no 'origin' remote"
 fi
 
@@ -140,7 +140,7 @@ fi
 # that wants credentials must fail, not wait on a prompt nobody will answer.
 # Bounded twice: `timeout` where it exists, and git's own low-speed abort for
 # HTTP(S) remotes, which holds where `timeout` does not (macOS without
-# coreutils). An SSH remote on a host with no `timeout` is NOT bounded.
+# coreutils). SSH gets connection/keepalive bounds below unless overridden.
 TIMEOUT_CMD=()
 if command -v timeout >/dev/null 2>&1; then
     TIMEOUT_CMD=(timeout "$FETCH_TIMEOUT")
@@ -148,11 +148,26 @@ fi
 # `${arr[@]+"${arr[@]}"}`, never a bare `"${arr[@]}"`: under `set -u`, bash
 # before 4.4 (macOS's /bin/bash is 3.2) treats an EMPTY array as unbound, so on
 # exactly the host with no `timeout` every fetch died and read `unknown`.
-FETCH_ERR="$(GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true ${TIMEOUT_CMD[@]+"${TIMEOUT_CMD[@]}"} \
+SSH_FETCH_COMMAND=""
+if [ "${#TIMEOUT_CMD[@]}" -eq 0 ] && \
+    [[ "$ORIGIN_URL" == ssh://* || "$ORIGIN_URL" =~ ^[^/@:]+@[^/:]+:.+ ]] && \
+    [ "${GIT_SSH_COMMAND+x}" != x ] && \
+    ! git -C "$CHECKOUT" config --get core.sshCommand >/dev/null 2>&1; then
+    SSH_FETCH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=$FETCH_TIMEOUT -o ServerAliveInterval=$FETCH_TIMEOUT"
+fi
+if [ -n "$SSH_FETCH_COMMAND" ]; then
+    FETCH_ERR="$(GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true GIT_SSH_COMMAND="$SSH_FETCH_COMMAND" \
+        git -C "$CHECKOUT" -c http.lowSpeedLimit=1 -c "http.lowSpeedTime=$FETCH_TIMEOUT" \
+        fetch --quiet origin \
+        "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" 2>&1)"
+    FETCH_STATUS=$?
+else
+    FETCH_ERR="$(GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true ${TIMEOUT_CMD[@]+"${TIMEOUT_CMD[@]}"} \
     git -C "$CHECKOUT" -c http.lowSpeedLimit=1 -c "http.lowSpeedTime=$FETCH_TIMEOUT" \
     fetch --quiet origin \
     "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" 2>&1)"
-FETCH_STATUS=$?
+    FETCH_STATUS=$?
+fi
 if [ "$FETCH_STATUS" -ne 0 ]; then
     COMMON_DIR="$(git -C "$CHECKOUT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
     if [ -n "$COMMON_DIR" ] && { [ ! -w "$COMMON_DIR" ] || [ ! -w "$COMMON_DIR/refs" ]; }; then

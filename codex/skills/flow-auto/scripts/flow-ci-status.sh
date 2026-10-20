@@ -150,6 +150,8 @@ FAILED_STEP_TYPES=()
 # never treated as the fetch-failure code, and never treated as evidence of
 # anything else either.
 FAILED_STEP_EXIT_CODES=()
+# Provider cancellation marker, index-aligned with FAILED_STEPS.
+FAILED_STEP_ERRORS=()
 # Set when the failed-step enumeration itself failed part-way: the names that
 # arrived are still reported, but an origin over a partial list is not one.
 FAILED_STEPS_INCOMPLETE=0
@@ -189,16 +191,21 @@ is_fetch_failure() {
 # failure" on every lane that cannot classify at all - GitHub Actions, whose
 # checkout is a step inside a job, or a CLI whose template gave no type. Those
 # report `unknown`, which is a different answer from `code`. A step with NO
-# type and NO exit code is unknown for the same reason; a step with a type but
+# type, NO exit code and NO cancellation marker is unknown; a step with a type but
 # no exit code (the common case - only a fetch failure sets this convention)
 # is classified by type alone, exactly as before.
+# Cancellation takes precedence over type/exit code. Only a homogeneous known
+# category gets its own origin; known combinations are mixed, missing evidence
+# remains unknown. The origin line alone surfaces cancellation.
 failure_origin() {
-    local i n="${#FAILED_STEPS[@]}" precode=0 code=0 t ec
+    local i n="${#FAILED_STEPS[@]}" precode=0 code=0 canceled=0 t ec
     if [[ "$n" -eq 0 || "$FAILED_STEPS_INCOMPLETE" -eq 1 ]]; then echo "unknown"; return; fi
     for (( i = 0; i < n; i++ )); do
         t="${FAILED_STEP_TYPES[$i]:-}"
         ec="${FAILED_STEP_EXIT_CODES[$i]:-}"
-        if [[ "$t" == "clone" ]] || is_fetch_failure "${FAILED_STEPS[$i]}" "$ec"; then
+        if [[ "${FAILED_STEP_ERRORS[$i]:-}" == "Canceled" ]]; then
+            canceled=$(( canceled + 1 ))
+        elif [[ "$t" == "clone" ]] || is_fetch_failure "${FAILED_STEPS[$i]}" "$ec"; then
             precode=$(( precode + 1 ))
         elif [[ -n "$t" ]]; then
             code=$(( code + 1 ))
@@ -206,12 +213,15 @@ failure_origin() {
             echo "unknown"; return
         fi
     done
-    if [[ "$code" -eq 0 ]]; then echo "precode"
-    elif [[ "$precode" -eq 0 ]]; then echo "code"
+    if [[ "$canceled" -eq "$n" ]]; then echo "canceled"
+    elif [[ "$precode" -eq "$n" ]]; then echo "precode"
+    elif [[ "$code" -eq "$n" ]]; then echo "code"
     else echo "mixed"
     fi
 }
 
+#: NEGATIVE-CONTROL: controls/flow-ci-status-cancellation
+#: Provider Canceled errors are distinct from code failures (issue #1486).
 #: NEGATIVE-CONTROL: controls/flow-ci-status
 #: ADR 0008 row 10, class G: FLOW_CI_STATUS decides Step 8's deploy-or-stop,
 #: and nothing re-derives it (issue #1411). The control answers this script's
@@ -233,6 +243,7 @@ emit() {
     if [[ "$STATUS" == "failure" ]]; then
         local i
         for (( i = 0; i < ${#FAILED_STEPS[@]}; i++ )); do
+            [[ "${FAILED_STEP_ERRORS[$i]:-}" == "Canceled" ]] && continue
             if [[ "${FAILED_STEP_TYPES[$i]:-}" == "clone" ]] \
                 || is_fetch_failure "${FAILED_STEPS[$i]}" "${FAILED_STEP_EXIT_CODES[$i]:-}"; then
                 echo "FLOW_CI_PRECODE_FAILURE: ${FAILED_STEPS[$i]}"
@@ -437,21 +448,22 @@ if [[ "$HAVE_JQ" -eq 1 && -n "$WP_TOKEN" && -n "$WP_SERVER" ]]; then
         # Name the failed steps: pipeline colour cannot tell a red test suite
         # from a red deploy step, and Step 8 needs that distinction.
         if [[ "$STATUS" == "failure" && "$PIPELINE" != "-" ]]; then
-            # Name, TYPE and EXIT CODE from the one response (issues #1342,
+            # Name, TYPE, EXIT CODE and ERROR from the one response (issues #1342,
             # #1411). A step with no `type` or `exit_code` field records an
             # empty value, which classifies as unknown (type) or simply
             # uninvolved (exit code - absence is never read as the
             # fetch-failure code). `|`, not a tab: a tab is IFS WHITESPACE,
             # which collapses an empty field and shifts the rest silently
             # (#698/#700).
-            while IFS='|' read -r step step_type step_exit_code; do
+            while IFS='|' read -r step step_type step_exit_code step_error; do
                 if [[ -n "$step" ]]; then
                     FAILED_STEPS+=("$step")
                     FAILED_STEP_TYPES+=("$step_type")
                     FAILED_STEP_EXIT_CODES+=("$step_exit_code")
+                    FAILED_STEP_ERRORS+=("$step_error")
                 fi
             done < <(wp_api "/api/repos/$REPO_ID/pipelines/$PIPELINE" \
-                | jq -r '[.workflows[]?.children[]? | select(.state=="failure" or .state=="error" or .state=="killed") | "\(.name)|\(.type // "")|\(.exit_code // "")"] | .[]' 2>/dev/null)
+                | jq -r '[.workflows[]?.children[]? | select(.state=="failure" or .state=="error" or .state=="killed") | "\(.name)|\(.type // "")|\(.exit_code // "")|\(.error // "")"] | .[]' 2>/dev/null)
         fi
         emit
     fi
@@ -561,6 +573,26 @@ if command -v "$WPCLI_BIN" >/dev/null 2>&1; then
                     fi
                 done <<<"$WPCLI_TYPE_ROWS"
                 FAILED_STEP_TYPES+=("$found_type")
+            done
+            # Error is isolated from names and types too: a failed or partial
+            # template response must not erase names or lend cancellation to
+            # another workflow's identically named step.
+            if ! WPCLI_ERROR_ROWS="$("$WPCLI_BIN" pipeline ps --format '{{ .step.Name }}|{{ .step.Error }}
+' "$REPO" "$PIPELINE" 2>/dev/null)"; then
+                WPCLI_ERROR_ROWS=""
+            fi
+            for step in ${FAILED_STEPS+"${FAILED_STEPS[@]}"}; do
+                found_error=""
+                seen=0
+                while IFS='|' read -r row_step row_error; do
+                    [[ "$row_step" == "$step" ]] || continue
+                    if [[ "$seen" -eq 0 ]]; then
+                        found_error="$row_error"; seen=1
+                    elif [[ "$row_error" != "$found_error" ]]; then
+                        found_error=""; break
+                    fi
+                done <<<"$WPCLI_ERROR_ROWS"
+                FAILED_STEP_ERRORS+=("$found_error")
             done
         fi
         emit
