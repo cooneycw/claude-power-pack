@@ -1,0 +1,28 @@
+{
+  "branch": "issue-1477-project-init-python-template-declares-nonexistent",
+  "counts": {
+    "accepted": 1,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "direction": "delegated",
+  "head": "41a1a128d5a577313a0cc3f4bb1a34544eafff14",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/20/rollout-2026-10-20T10-33-21-01a158df-7418-7f30-aef0-eddc5cdd668d.jsonl",
+    "thread_id": "01a158df-7418-7f30-aef0-eddc5cdd668d"
+  },
+  "issue": "1477",
+  "passes": 1,
+  "recorded_at": "2026-10-20T11:21:51Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "claude/claude-sonnet-5",
+  "reviewer_evidence": {
+    "session_id": "63ad478b-a628-4e00-bd52-51df45bb806d"
+  },
+  "schema": 1,
+  "status": "ran"
+}
