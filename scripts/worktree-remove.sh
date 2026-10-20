@@ -43,6 +43,9 @@
 #   --steal          Remove even when another live session claims it (#597),
 #                    or when it is in use by a live process (#888, #1032)
 #   --allow-dirty    Remove even though uncommitted work would be destroyed
+#                    (implies --force: git worktree remove makes its own
+#                    separate dirty-tree judgment that --allow-dirty alone
+#                    does not clear, Nit Store #864)
 #   --allow-unpushed Remove even though commits exist on no remote ref
 #
 # Exit codes:
@@ -54,6 +57,9 @@
 #   7  holds commits on no remote ref without --allow-unpushed (#899)
 #   8  --delete-branch asked for, but the directory name and the checked-out
 #      branch name different issues (#1032)
+#   9  a path inside the worktree (or its parent directory) cannot be deleted -
+#      refused before anything is removed, rather than letting git report
+#      success while files survive it (Nit Store #864)
 #
 # Examples:
 #   worktree-remove.sh /home/user/Projects/nhl-api-issue-42
@@ -121,7 +127,9 @@ while [[ $# -gt 0 ]]; do
             echo "  --steal          Remove even when another live /flow session claims it"
             echo "                   (issue #597; without it a live claim is a hard stop)"
             echo "  --allow-dirty    Remove even though uncommitted work would be destroyed"
-            echo "                   (issue #899; exit 6 without it)"
+            echo "                   (issue #899; exit 6 without it; implies --force, since"
+            echo "                   git worktree remove makes its own separate dirty-tree"
+            echo "                   judgment, Nit Store #864)"
             echo "  --allow-unpushed Remove even though commits exist on no remote ref"
             echo "                   (issue #899; exit 7 without it)"
             echo ""
@@ -137,6 +145,7 @@ while [[ $# -gt 0 ]]; do
             echo "  7  holds commits on no remote ref without --allow-unpushed (#899)"
             echo "  8  --delete-branch asked for, but the directory name and the"
             echo "     checked-out branch name different issues (#1032)"
+            echo "  9  a path cannot be deleted (parent directory not writable) (#864)"
             echo ""
             echo "Examples:"
             echo "  worktree-remove.sh /home/user/Projects/nhl-api-issue-42"
@@ -582,6 +591,14 @@ else
     # measured. Same membership floor the UNPUSHED states already observe:
     # never-checked and checked-and-empty are different facts.
     echo "WORKTREE_REMOVE_DIRTY: overridden" >&2
+    # `--allow-dirty` clears only THIS helper's own refusal (#899); `git
+    # worktree remove` makes its OWN, separate judgment about a dirty tree and
+    # still refuses without `--force` (exit 128, undocumented) - so without
+    # this, `--allow-dirty` alone silenced nothing and the removal failed
+    # anyway (Nit Store #864, comment 6155393127). The two flags are asking the
+    # same question of two different gatekeepers; granting one grants the
+    # other, rather than making the caller discover and pass both.
+    FORCE="--force"
 fi
 
 # Did the merge helper record THIS commit as landed? (issue #916)
@@ -722,6 +739,64 @@ if [[ "$ATTRIBUTION_MISMATCH" == true && "$DELETE_BRANCH" == true && "$STEAL" !=
     echo "  --steal does, if you have confirmed which issue you mean." >&2
     exit 8
 fi
+
+# Every path cannot be deleted without write+execute on its PARENT directory -
+# that permission governs unlink/rmdir, not the entry's own mode. `git worktree
+# remove` can report SUCCESS (exit 0) while such a path survives it (observed
+# with a read-only parent dir), and once it does, git has already forgotten the
+# worktree, leaving a directory with no `.git` file that this script would then
+# refuse on a retry as "not a git worktree" (Nit Store #864, comment
+# 5983011277). This pre-scan refuses BEFORE deleting anything instead.
+#
+# READ is checked too, not just write+execute (Codex review, #864): a
+# directory with write+execute but no read (mode 0300) passes a write/execute-
+# only test, but `find` cannot enumerate what is inside it either - so the
+# scan silently stopped at exactly the directory that should have been
+# reported, and an incomplete walk read as "nothing wrong". Flagging that
+# directory itself catches it without needing to see past it. `find`'s own
+# exit status is also captured (into a file first, per this repo's own
+# counter-model-reviewed idiom in check-ignored-additions.sh - a process
+# substitution discards it) so a `find` that fails outright is read as
+# "could not verify", never as a clean scan.
+#
+# The PARENT of the worktree ROOT is checked too: `find` only walks AT OR
+# BELOW root, so emptying every descendant still leaves one more removal -
+# `rmdir` on the root itself - which needs write+execute on a directory
+# outside anything `find` ever saw.
+undeletable_find() {
+    local root="$1" dir rc=0 listing parent
+    listing=$(mktemp "${TMPDIR:-/tmp}/worktree-remove-scan.XXXXXX")
+    find "$root" -type d -print0 2>/dev/null > "$listing" || rc=$?
+    while IFS= read -r -d '' dir; do
+        [[ -r "$dir" && -w "$dir" && -x "$dir" ]] || printf '%s\n' "$dir"
+    done < "$listing"
+    rm -f "$listing"
+    parent="$(dirname "$root")"
+    [[ -w "$parent" && -x "$parent" ]] || printf '%s\n' "$parent"
+    return "$rc"
+}
+
+PRE_SCAN_RC=0
+PRE_UNDELETABLE="$(undeletable_find "$WORKTREE_PATH")" || PRE_SCAN_RC=$?
+if [[ "$PRE_SCAN_RC" -ne 0 ]]; then
+    echo "WORKTREE_REMOVE_PRESCAN: unknown" >&2
+    echo -e "${RED}Error: the permission scan itself failed - this is not the same as clean${NC}" >&2
+    echo "  Re-run once the directory tree can be read." >&2
+    exit 9
+fi
+if [[ -n "$PRE_UNDELETABLE" ]]; then
+    echo "WORKTREE_REMOVE_PRESCAN: undeletable" >&2
+    echo -e "${RED}Error: refusing to remove - some paths cannot be deleted${NC}" >&2
+    echo "" >&2
+    echo "  The following director{y,ies} lack read, write or execute permission, so" >&2
+    echo "  git cannot remove entries inside them. Removing anyway risks a half-deleted" >&2
+    echo "  worktree with no .git file (git can report success regardless):" >&2
+    printf '    %s\n' "$PRE_UNDELETABLE" >&2
+    echo "" >&2
+    echo "  Fix permissions (e.g. chmod -R u+w) and re-run." >&2
+    exit 9
+fi
+echo "WORKTREE_REMOVE_PRESCAN: clear" >&2
 
 echo -e "${BLUE}Removing worktree: ${WORKTREE_PATH}${NC}"
 if [[ "${CLAIM_STATE:-unknown}" == foreign ]]; then

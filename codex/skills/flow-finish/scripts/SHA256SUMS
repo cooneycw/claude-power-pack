@@ -7,13 +7,13 @@
 # corruption, a partial edit, and post-build modification. It does NOT
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
-7c2c003e3007dd554c3ffecd56c781417141c31f4e854cf501d2385af6153d08  check-ignored-additions.sh
+ee962d1a9c3006304f64534695198336c35c51b64c2b346a4e25e7ca39487bb8  check-ignored-additions.sh
 43f257169f891098fdc205cb3109b1636c055aeedf7f0a6357ff5f81f317df5d  codex-skill-resync.sh
-3a10c49bd68e239277fe4870a7f31b922a48f34886926caa0ba297f8368709b9  codex-skill-sync.py
+20a4a3b7628a9d1fdb519bd4f6fefacc34c199f8990d593fad58d14d0e226e24  codex-skill-sync.py
 b9134545baf0920f30603ae515b14867f078cdf668c218f24430927eaa407373  counter-model-receipt.py
 6a4ea2ba5ae9a62381bd521fa3ae3639fbcbb26aa3b263aa34ede6a6c52773e5  eli5-vendor.py
 83b0a68caefc010a9907211612e96c1bfb94b35a6cff446939a2306ce95bb2da  flow-finish-gate.sh
-58a20357235a02b214e6df3d64072b2e8fee6b52d58185f81875cfbd7c1fd47c  flow-stale-check.sh
+abade59f8afaa71b0a56511d7e4439e5ff8673a8989c81c1bfa0de571bc4e8b0  flow-stale-check.sh
 4095e524bf802a97f48add745e5c64addfe1055eac67c484b5ad81e5c26b38a8  gate-lib.sh
 bc4d29bd303fef14c188442d4c4aa68fc9ce5a6465a79b61d89a9eb4e9610c6f  knowledge-graduation-check.py
 673b2314d843cb1bea36ea0fd10669060a62369a276c00e52fcc6c0663a5e837  nit-store-resolve.sh

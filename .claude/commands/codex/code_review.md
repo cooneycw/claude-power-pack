@@ -116,6 +116,13 @@ BASE="${BASE:-origin/$(git remote show origin 2>/dev/null | grep -oP 'HEAD branc
 git fetch origin --quiet || true
 
 DIFF_FILE=$(mktemp /tmp/codex-review-diff.XXXXXX.patch)
+# Four refusal paths below (no common ancestor, no diff vs BASE, an unreadable
+# or disallowed sandbox mode, a HOME that cannot be created) used to `exit 3`
+# without removing $DIFF_FILE - only the two LATER refusals in the next block
+# did (issue #1494). A trap covers every exit from THIS point in this shell,
+# including ones added later, rather than four hand-matched `rm -f` calls that
+# the next refusal added here would silently miss again.
+trap 'rm -f "$DIFF_FILE"' EXIT
 # MERGE BASE, not the moving tip (issue #927, nit-stored S1). `$BASE` is
 # refreshed by the `git fetch` two lines up, so it is the tip AT REVIEW TIME,
 # not the point this branch was cut. Two-dot `git diff origin/main` therefore
@@ -216,6 +223,11 @@ fi
 git diff --stat "$MERGE_BASE"
 wc -l "$DIFF_FILE"
 echo "Untracked files included in this diff: $UNTRACKED_COUNT (a count higher than expected means files nobody intended to include are about to be reviewed)"
+# Reached the end without an early exit: $DIFF_FILE must survive into the
+# later blocks that read and remove it themselves (line ~487, ~560+6).
+# Disarm the trap - it exists to catch an EARLY exit in THIS block, never
+# the ordinary end of it.
+trap - EXIT
 ```
 
 **An empty diff is still handed to the reviewer (issue #1015).** This used to
@@ -568,6 +580,14 @@ is the caller's decision (`/flow:auto` Step 6 item 1c does exactly that).
 
 State the `CODEX_REVIEW_SCOPE`, `CODEX_REVIEW_NETWORK` and
 `CODEX_REVIEW_LOCAL_CREDENTIALS` with the findings.
+**Label `CODEX_REVIEW_NETWORK` as a sandbox-probe proxy, not a direct
+measurement of the review itself (issue #1494).** The probe above runs through
+`codex sandbox`; the reviewer that actually produced the findings runs through
+`codex exec` (Step 3). The two invocation paths are not asserted to apply
+identical network fencing, so this verdict characterizes the PROBE's
+reachability, which stands in for the reviewer's rather than measuring it
+directly - say so when relaying the verdict, the same way `diff-only` is
+relayed as "cannot open files" rather than "a lesser review."
 An `open` or `unverified` network is never described as read-only or
 network-fenced: say which it was, and check the target repository for anything
 the reviewer posted itself (issue #1450). A caller recording a receipt passes

@@ -8,10 +8,10 @@
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
 b9134545baf0920f30603ae515b14867f078cdf668c218f24430927eaa407373  counter-model-receipt.py
-3e32f3465ab02b0b42831507ed82151093416950b755637eb6e14de942cc7ebf  flow-ci-status.sh
+71a3d705fd222e4eb44425c87460111fcba49d95d8e5689555d31601e55862ac  flow-ci-status.sh
 83b0a68caefc010a9907211612e96c1bfb94b35a6cff446939a2306ce95bb2da  flow-finish-gate.sh
 b00aa7f3eb76b8addb05ffa658c09443fe589256e53d0a41a902d47c84d15d1f  flow-worktree-claim.sh
 16302cb9f88ce225f2673dc3730667cd9081f8c44f2696b7f5ee732b27555660  friction-log.sh
 4095e524bf802a97f48add745e5c64addfe1055eac67c484b5ad81e5c26b38a8  gate-lib.sh
 f796fca861389ba9deee21ff73c92f2b94646cd7e5be6e4721cc6620d1137def  gh-pr-merge.sh
-3212ba06699c2d1d0300e23519425100e2d21a227cd5296ddea0e4ce9f2e4252  worktree-remove.sh
+a164cc64b3e03c22a736c6830ed1f05252fef0317a718e06b6b27e80eb8af768  worktree-remove.sh
