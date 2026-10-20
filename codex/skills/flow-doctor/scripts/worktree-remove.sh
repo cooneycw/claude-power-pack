@@ -441,16 +441,82 @@ occupancy_scan() {
 # BELOW root, so emptying every descendant still leaves one more removal -
 # `rmdir` on the root itself - which needs write+execute on a directory
 # outside anything `find` ever saw.
+#
+# A STICKY-BIT directory (mode +t, like /tmp) restricts unlink/rename of each
+# entry inside it to that entry's own owner, the directory's owner, or a
+# privileged (root) process - regardless of the directory's own rwx bits
+# (issue #1520, follow-up to #1491/Nit Store #864). So a sticky directory
+# where the caller has full rwx can still contain a file the caller cannot
+# actually delete; the rwx check above cannot see this at all. sticky_dir_is_safe
+# is the exemption decision in isolation (no filesystem or subprocess calls),
+# and the loop below calls that SAME function - not a parallel reimplementation -
+# so a regression in the predicate's body is visible to both the integration-
+# level pre-scan tests and the direct unit tests in
+# tests/test_worktree_remove_partial.py (cnb-orch review of #1520: a test
+# exercising a separately-written copy would stay green while the shipped
+# predicate is wrong).
+sticky_dir_is_safe() {
+    local dir_owner="$1" entry_owner="$2" caller_uid="$3"
+    [[ "$caller_uid" == 0 || "$dir_owner" == "$caller_uid" || "$entry_owner" == "$caller_uid" ]]
+}
+
+# Whether CALLER_UID can unlink ENTRY out of CONTAINING_DIR, given
+# CONTAINING_DIR is sticky. Prints ENTRY and returns 1 (unsafe) when it
+# cannot; returns 0 (safe, nothing printed) when it can, including when
+# CONTAINING_DIR is not sticky at all - the sticky restriction is the only
+# thing this function enforces, so a non-sticky directory is always safe as
+# far as this check is concerned, and the caller's OWN rwx check governs it
+# instead (undeletable_find's existing per-directory and per-parent checks).
+# A failed ownership lookup prints ENTRY too (fail closed, matching the rest
+# of this scan): "could not verify" must never read as "clear". Shared by
+# undeletable_find's per-directory entry loop and the worktree root's own
+# parent (Codex review of #1520: the parent is rwx-checked separately below,
+# and sticky-bit coverage must reach it too, not only the descendants `find`
+# walks).
+sticky_entry_check() {
+    local containing_dir="$1" entry="$2" caller_uid="$3" dir_owner entry_owner
+    [[ -k "$containing_dir" ]] || return 0
+    dir_owner="$(stat -c %u "$containing_dir" 2>/dev/null)" || dir_owner=""
+    entry_owner="$(stat -c %u "$entry" 2>/dev/null)" || entry_owner=""
+    if [[ -z "$dir_owner" || -z "$entry_owner" ]]; then
+        printf '%s\n' "$entry"
+        return 1
+    fi
+    sticky_dir_is_safe "$dir_owner" "$entry_owner" "$caller_uid" && return 0
+    printf '%s\n' "$entry"
+    return 1
+}
+
 undeletable_find() {
-    local root="$1" dir rc=0 listing parent
+    local root="$1" dir rc=0 listing parent caller_uid entries entry
+    caller_uid="$(id -u)"
     listing=$(mktemp "${TMPDIR:-/tmp}/worktree-remove-scan.XXXXXX")
     find "$root" -type d -print0 2>/dev/null > "$listing" || rc=$?
     while IFS= read -r -d '' dir; do
-        [[ -r "$dir" && -w "$dir" && -x "$dir" ]] || printf '%s\n' "$dir"
+        if [[ ! ( -r "$dir" && -w "$dir" && -x "$dir" ) ]]; then
+            printf '%s\n' "$dir"
+            continue
+        fi
+        [[ -k "$dir" ]] || continue
+        entries=$(mktemp "${TMPDIR:-/tmp}/worktree-remove-scan.XXXXXX")
+        if ! find "$dir" -mindepth 1 -maxdepth 1 -print0 2>/dev/null > "$entries"; then
+            rc=1
+            printf '%s\n' "$dir"
+            rm -f "$entries"
+            continue
+        fi
+        while IFS= read -r -d '' entry; do
+            sticky_entry_check "$dir" "$entry" "$caller_uid" || true
+        done < "$entries"
+        rm -f "$entries"
     done < "$listing"
     rm -f "$listing"
     parent="$(dirname "$root")"
-    [[ -w "$parent" && -x "$parent" ]] || printf '%s\n' "$parent"
+    if [[ -w "$parent" && -x "$parent" ]]; then
+        sticky_entry_check "$parent" "$root" "$caller_uid" || true
+    else
+        printf '%s\n' "$parent"
+    fi
     return "$rc"
 }
 
@@ -1269,8 +1335,9 @@ fi
 # `rmdir` on the root itself - which needs write+execute on a directory
 # outside anything `find` ever saw.
 #
-# undeletable_find is defined earlier now (issue #1524), so
-# --finish-partial-removal's own branch can call it too.
+# undeletable_find (and its sticky-bit-aware sticky_dir_is_safe helper,
+# issue #1520) are defined earlier now (issue #1524), so
+# --finish-partial-removal's own branch can call them too.
 
 PRE_SCAN_RC=0
 PRE_UNDELETABLE="$(undeletable_find "$WORKTREE_PATH")" || PRE_SCAN_RC=$?
