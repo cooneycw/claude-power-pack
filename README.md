@@ -1,6 +1,6 @@
 # Claude Power Pack
 
-**v9.0.0** - A productivity toolkit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that adds workflow automation, MCP servers, security scanning, secrets management, and CI/CD integration - with a verification discipline (from 8.0) that 9.0 enforces at the merge boundary: every pull request carries a cross-model review receipt saying what the reviewer could see and reach, and plan records, not memory, carry what was approved.
+**v10.0.0** - A productivity toolkit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that adds workflow automation, MCP servers, security scanning, secrets management, and CI/CD integration - with a verification discipline (from 8.0) enforced at the merge boundary (9.0), and in 10.0 a sweep of the helpers that read a non-answer as an answer, plus a merge helper that no longer escalates to `--admin` unless it is asked to.
 
 ## What It Does
 
@@ -153,8 +153,44 @@ tag or a GitHub release - the only tag this repository has ever cut is
 `v1.1.0`, and no release has been published. Cutting an actual tagged release
 is a separate, standing operator checkpoint tracked at
 [#1278](https://github.com/cooneycw/claude-power-pack/issues/1278); until
-that happens, "v9.0.0" names a point in this Changelog and in `pyproject.toml`,
+that happens, "v10.0.0" names a point in this Changelog and in `pyproject.toml`,
 not a commit you can fetch by tag.
+
+### v10.0.0 (2026-10-21)
+
+**A major bump, for one change that requires action from anyone building on CPP.**
+It is in the CHANGELOG's *Breaking* block with the action:
+
+- `gh-pr-merge.sh`, and so `/flow:merge`, no longer retries a protection-blocked
+  merge with `--admin` just because the actor is an admin. Pass
+  `--allow-admin-retry` or `--admin` to ask for it (#1489).
+
+**What else changed.** Almost all of 10.0 is the 2026-10-20 Nit Store sweep
+(#1483-#1499): 34 commits, 25 of them fixes, mostly to tools that reported a
+non-answer as an answer. The finish gate stops counting a nested pytest summary,
+or a deliberate negative control, as a real failure (#1485, #1503). `flow-ci-status`
+stops blaming a cancelled step on the change, and reports it as `canceled` (#1486).
+`/flow:check` stops calling a run with zero checks ready (#1493). `/project:next`
+stops dropping dependencies after the first word of a `Depends on:` line (#1488).
+`worktree-remove.sh` refuses before it can half-delete a worktree, and for one
+already left that way it verifies ownership through `--owner-repo` and prints
+the cleanup commands instead of running them (#1491, #1520, #1524). `/flow:auto` refuses to start on
+a charting issue, or on an issue whose labels it could not read (#1490).
+`/flow:deploy` now checks the served release, without turning a repository that
+never configured a release probe into REVIEW (#1497). The Python template from
+`/project:init` builds again (#1477, #1478).
+
+**What this release is not, and what is still owed:**
+
+- **Not a tag or a GitHub release.** Like 9.0, this is a version bump on `main`.
+  Cutting a tag is a separate operator decision (#1278).
+- **Not a complete contract update for `canceled`.** The script emits it, but
+  `/flow:auto`'s Step 8 contract block and `docs/scripts.md` still list four
+  values. That is recorded in the Nit Store (#864), not fixed here.
+- **Not a change to `/flow:merge`'s own call site.** It still passes no admin
+  flag. That is the point of #1489: an admin override is the caller's decision.
+- **Not the paused evaluation programme:** #1084, #1367 and #1371, and draft
+  PR #1393, are unchanged since 9.0.
 
 ### v9.0.0 (2026-10-17)
 

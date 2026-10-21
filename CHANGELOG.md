@@ -2,6 +2,176 @@
 
 ## [Unreleased]
 
+## [10.0.0] - 2026-10-21
+
+The Nit Store correctness sweep: 34 commits since 9.0.0 (`0203495..7a8941f9`;
+fix 25, test 4, feat 2, docs 2, perf 1), almost all absorbed from Nit Store
+#864 into issues #1483-#1499 on 2026-10-20. Most of them make a tool stop
+reporting a non-answer as an answer. One makes a helper stop escalating
+privilege without being asked, and that one is why this is a major bump.
+
+### Breaking - consumer action required
+
+1. **`gh-pr-merge.sh` - and so `/flow:merge` - no longer retries a
+   protection-blocked squash with `--admin` on its own** (#1489; PR #1500).
+   It used to retry whenever the actor happened to be a repository admin,
+   though the caller never asked for `--admin` and had no way to forbid it.
+   Without an opt-in, an administrative protection block is now a failed
+   merge (non-zero exit, "did not merge"), and `--admin` is never invoked.
+   *Action:* if you relied on the automatic retry, pass `--allow-admin-retry`
+   (retry with `--admin` only when the protection rule blocks), or `--admin`
+   (admin from the first attempt). `/flow:merge`'s own call site passes
+   neither, deliberately, so a run that wants the old behaviour has to ask for it.
+
+### Added
+
+- **`flow-plan-record.py declare-salvage <issue> <sha> --reason <text>`**
+  (#1504; PR #1514) - the writer side of #1487's `- Salvage: <sha>` line. It
+  writes the declaration into the current run's section only, refuses a
+  missing or control-character reason, and refuses a sha that is not a commit
+  or not an ancestor of HEAD. `/flow:auto` documents when to use it: work
+  preserved as a commit before `begin-run`.
+- **An automated still-waiting signal for the Step 3 approval wait** (#1527;
+  PR #1536) - `flow-wave-mailbox.sh send --awaiting-reply` arms a per-role
+  marker, and the supervise loop sends one still-waiting notification after
+  `FLOW_MAILBOX_STILL_WAITING_AFTER` (default 600 s) with no reply. A send
+  without the flag never arms or clears anything.
+- **`lib.cicd verify --release <id>`** (#1479; PR #1481) - an opt-in check
+  that the served release, read from `health.deploy_verification.release_probe`,
+  is the intended one, rather than keying identity on the local git HEAD. A
+  mismatch or an unreadable probe is never PROCEED, and a real probe
+  regression keeps `reasons[0]`.
+- **`scripts/regenerate-blind-anchor.py`** (#1492; PR #1531) - regenerates a
+  constructed negative-control anchor from its gate's current code plus a
+  stored `.patch` of only the intentional blinding. Includes the
+  `regenerate-blind-anchor(-check)` Make targets.
+- **Negative-control fences inside a gate step** (#1503; PR #1511) - a harness
+  wrapping a deliberately red invocation in `::cicd-negative-control:BEGIN/END::`
+  markers keeps its counts out of run-level `failed`.
+
+### Changed
+
+- **`/flow:deploy` always passes `--release`** (#1497; PR #1530). A repository
+  with no `release_probe` configured gets `release_check: not_checked`, and
+  the verdict is unchanged. A probe that IS configured and fails stays
+  `unreadable`, which gives REVIEW. `verify --summary` now says which of the
+  two it was.
+- **`flow-start-resolve.sh` refuses to start on a `wayfinder:*`-labelled
+  issue, and refuses when it cannot read the issue's labels** (#1490;
+  PR #1510). Before this, a failed label fetch read as "no labels, proceed".
+  It now stops the run before any worktree, branch or claim is created. A
+  consumer with flaky `gh` access will see Step 1 refuse where it used to
+  continue. There is no override flag.
+- **`FLOW_CI_FAILURE_ORIGIN` can now be `canceled`** (#1486; PR #1512). A
+  step that Woodpecker cancelled or superseded used to be blamed on the
+  change as `code`. All-canceled steps now report `canceled`, and a mix
+  reports `mixed`. The value is additive, so a parser should treat any value
+  it does not recognise as non-code. The `/flow:auto` Step 8 contract block and
+  `docs/scripts.md` still list four values (Nit Store #864, comment 6308466945).
+- **`flow-pr-watch.sh` verdicts** (#1486; PR #1509) - an unresolved
+  attribution is now `unknown` rather than red or flake. The failure-id scrape
+  reads each failed step's own log. `Error=Canceled` counts as a cancellation
+  signal. A watcher killed by a signal no longer prints exit 0.
+- **`worktree-remove.sh --allow-dirty` now implies `--force`** (#1491;
+  PR #1516). It used to clear only the helper's own dirty refusal, and then
+  `git worktree remove` refused separately. The #888 occupancy and #597
+  live-claim guards are unaffected.
+- **`counter-model-receipt.py` hard-caps review passes at 3 and versions the
+  field** (#1495; PR #1515). The cap applies even with a reason. A receipt
+  carrying `extra_passes_reason` is schema 2, and the reason is stripped
+  before storage. No committed receipt is affected.
+- **`skills-check.py` refuses nested `metadata.*` other than
+  `metadata.provenance`** (#1496; PR #1535). This applies to CPP's own skills
+  only. `check-skill-coverage-map.py` reports unmapped skills as "not
+  evaluated" and adds a `pinned` state.
+- **The issue contract asks for a `Tier: 1|2|3` line** in agent-authored
+  issues (#1499; PR #1533), and the feature-request template carries a
+  required Tier dropdown. It is a documented convention for CPP's own issues:
+  no checker or gate refuses an issue without one. README and `docs/` now say version headings are
+  milestones on rolling `main`, not tags.
+- **ADR 0008's unit-test carve-out is amended** (#1492, #1518; PRs #1522,
+  #1534). A test that derives its own input population must assert the
+  population is non-empty, or carry a control. Seven such tests were guarded.
+
+### Fixed
+
+- `/flow:merge` - see Breaking (#1489; PR #1500).
+- **`check-version-consistency.py` no longer scans `docs/flow-runs/`** (#1278,
+  found cutting this release). Its "Current version:" phrase scan read every
+  tracked `.md` file, including the append-only plan record that the v9.0.0 cut
+  wrote, which quotes the version that run planned. So the release after any
+  such record failed `make verify`, with every real version site already in
+  agreement. The exclusion is exactly `docs/flow-runs/`, beside `vendor/`. A
+  stale `CLAUDE.md` still fails, and both verdicts are committed as tests.
+- **`worktree-remove.sh` no longer half-deletes a worktree** (#1491, #1520,
+  #1524; PRs #1516, #1539, #1540). A pre-scan refuses before anything is
+  deleted when a path cannot be unlinked, including a sticky-bit directory
+  holding another user's file. For a tree already left half-removed,
+  `--finish-partial-removal --owner-repo <path> --allow-dirty` verifies every
+  precondition: the named repository must positively list the path as
+  prunable, and an unpushed-work check runs against the owner's remote refs.
+  It then PRINTS the `rm -rf` and `worktree prune` commands for the operator
+  to run, and exits 15 ("verified, not removed"). It deletes nothing itself:
+  automatic completion was descoped after three review passes (PR #1539).
+- **`check-ignored-additions.sh` no longer blocks on a gate's own scratch
+  output** behind a directory-wide ignore rule (#1491; PR #1516). A repository
+  can declare its own output prefixes in `.claude/gate-scratch.txt`.
+  `flow-stale-check.sh` reports `unknown` when `git diff` fails, instead of
+  `moved-clean`.
+- **The finish gate's test accounting** (#1485; PR #1502) - a nested pytester
+  summary no longer inflates the counts. unittest's unexpected successes map
+  to `xpassed`. The #769 failed-id rerun declines on a multi-invocation step.
+  A new per-step `expected_red` flag is opt-in.
+- **`flow-plan-record.py`** (#1487; PR #1507) - fixes false DIVERGENCE/UNKNOWN
+  for a bare backticked path, renamed files (`--no-renames`), a multi-path
+  Section C item, PR resolution and snapshot idempotence.
+- **`/project:next` dependency parsing** (#1488; PR #1505) - it keeps every
+  `#N` on a `Depends on:` line, not only the first contiguous run, and flags
+  the line uncertain when it had to look further. An issue with delivered work
+  in a merged `Refs` PR is marked uncertain, failing closed when that read
+  fails. A failed `git log` no longer discards a known-dirty worktree status.
+- **`/project:init` Python template** (#1477, #1478; PR #1482) - the build
+  backend is `hatchling.build`, not the nonexistent `hatchling.backends`, and
+  ruff/pytest/mypy move to `[dependency-groups] dev`, which `uv run` installs.
+  Every scaffolded Python project failed `uv sync` before this.
+- **`cicd.yml.example`** (#1476; PR #1480) - the health and smoke schema now
+  matches what `lib/cicd/config.py` reads.
+- **Checkers that reported green over an empty or unexamined population**
+  (#1493; PRs #1523, #1529). `check-control-ci-deps.py` derives the tool
+  dependencies of a `.py` gate's subprocess calls. `check-test-binary-guards.py`
+  stops a degrading preflight from cancelling an unconditional one. The link
+  checks cover more files. `/flow:check` no longer says "Ready for
+  /flow:finish" when zero checks ran. The gitleaks scan count is reported.
+  The lane-serveability value set is pinned.
+- **Codex surface** (#1494; PR #1525) - `/flow:auto` names a real reviewer
+  step on a Codex lane instead of a same-model review. `/codex:code_review` no
+  longer leaks its diff temp file on refusal paths. Also fixed: description
+  truncation, dead mirror links and `CODEX_HOME` handling.
+- **Install and host tooling** (#1498; PRs #1521, #1528).
+  `playwright-desk.py <verb> --json` works after the subcommand.
+  `cpp-checkout-freshness.sh` bounds an SSH fetch on a host with no `timeout`.
+  `install-drift.sh` escapes its JSON. `/cpp:init`'s second-opinion
+  registration check is three-way, so an unreadable `~/.claude.json` no longer
+  reads as absent. `/cpp:init` and `/cpp:update` git-ignore
+  `.claude/friction.jsonl` and `.claude/friction/` in consumer projects.
+- **Negative-control harness** (#1492; PR #1531) - a warning when two GOOD
+  cases share an exit code with no distinguishing signal, resume exact-match,
+  and mutation-probe pairing.
+- **Test isolation and flakes** (#1483, #1484, #1472, #1473; PRs #1501, #1537,
+  #1538, #1474, #1475, #1519). Receipt tests no longer inherit
+  `CODEX_THREAD_ID`. The CPU-load-sensitive `flow-wave-mailbox` waits are
+  split and made event-driven. `codex-skill-sync.py --list-mirrors` caches its
+  AST analysis, fixing a 120 s timeout risk. The intent-to-add negative test
+  uses a fixture-owned `index.lock`.
+
+### Removed
+
+- **`scripts/slate-reconcile.py`**, `docs/slate-lanes.json`,
+  `docs/slate-lanes.md` and `controls/slate-reconcile/` (#1499; PR #1533).
+  Retired under ADR 0008's procedure (census row 84): no Makefile or CI target
+  ever called it, and its hand-kept lane file had drifted to `UNACCOUNTED=20
+  PHANTOM=31`.
+
 ## [9.0.0] - 2026-10-17
 
 ### Breaking - consumer action required

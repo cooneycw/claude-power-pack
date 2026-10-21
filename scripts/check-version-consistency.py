@@ -70,6 +70,13 @@ own "Current version:" line states ITS version, not CPP's, and comparing it
 to CPP's `pyproject.toml` would fail a clean tree over a neighbour's content
 (Codex review, issue #1037).
 
+`docs/flow-runs/**` is excluded for the same kind of reason: a plan record
+quotes the version a PAST run planned to write ("CLAUDE.md - Current version:
+9.0.0."), and #1320 makes it append-only, so it can never be brought up to
+date. Scanning it failed the release after the one that wrote it - the v10.0.0
+cut (#1278) measured exit 1 naming `docs/flow-runs/issue-1278.md` at 9.0.0 with
+every real site already at 10.0.0.
+
 Usage:
     python3 scripts/check-version-consistency.py
     python3 scripts/check-version-consistency.py --root DIR
@@ -105,7 +112,7 @@ class Location:
 
 
 def _tracked_md_files(root: Path) -> list[str] | None:
-    """Tracked `.md` files, excluding a neighbour's vendored content.
+    """Tracked `.md` files, excluding vendored content and historical plan records.
 
     Returns ``None`` when `git ls-files` itself fails - distinguishable from
     a successful run finding zero files, so a broken enumeration cannot be
@@ -126,7 +133,7 @@ def _tracked_md_files(root: Path) -> list[str] | None:
         return None
     return [
         line for line in proc.stdout.splitlines()
-        if line and not line.startswith("vendor/")
+        if line and not line.startswith(("vendor/", "docs/flow-runs/"))
     ]
 
 

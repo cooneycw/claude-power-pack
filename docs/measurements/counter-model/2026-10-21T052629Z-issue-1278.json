@@ -1,0 +1,27 @@
+{
+  "branch": "issue-1278-evergreen-cut-a-cpp-release-version-changelog-read",
+  "counts": {
+    "accepted": 1,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "dc4bb6f48f54203d2822258b0882fa3a095439a9",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1278",
+  "local_credentials": "absent",
+  "network": "unverified",
+  "passes": 2,
+  "recorded_at": "2026-10-21T05:26:29Z",
+  "red_cases": {
+    "already_covered": 2,
+    "proposed": 3
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/21/rollout-2026-10-21T05-08-47-01a15cdc-a8de-79b1-bafe-98baab9413a4.jsonl",
+    "thread_id": "01a15cdc-a8de-79b1-bafe-98baab9413a4"
+  },
+  "schema": 1,
+  "scope": "diff-only",
+  "status": "ran"
+}
