@@ -201,6 +201,45 @@ def test_a_vendored_readme_version_is_excluded(tmp_path: Path) -> None:
 
 
 @requires_git
+def test_a_flow_run_record_quoting_a_past_version_is_excluded(tmp_path: Path) -> None:
+    """#1278 v10.0.0 cut: Run 1's append-only plan record for the v9.0.0
+    release quotes "CLAUDE.md - Current version: 9.0.0." as the plan it
+    approved. That is a past run's plan, not a claim about CPP's version now,
+    and #1320 forbids editing it - so scanning it failed the very next
+    release (exit 1 naming docs/flow-runs/issue-1278.md at 9.0.0, measured
+    against pyproject 10.0.0) with every real site already agreeing."""
+    repo = _build_repo(tmp_path, claude_version="8.0.0")
+    record = repo / "docs" / "flow-runs" / "issue-1.md"
+    record.parent.mkdir(parents=True)
+    record.write_text(
+        "## Run 1\n\n5. `CLAUDE.md` - Current version: 7.5.0.\n", encoding="utf-8"
+    )
+    _committed(repo)
+
+    proc = _run(repo)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+@requires_git
+def test_a_stale_claude_md_still_fails_beside_an_excluded_flow_run_record(
+    tmp_path: Path,
+) -> None:
+    """The other verdict for the exclusion above: excluding docs/flow-runs/
+    must not blind the scan to a real site. A stale CLAUDE.md, with a flow-run
+    record present, is still exit 1 and still names CLAUDE.md."""
+    repo = _build_repo(tmp_path, claude_version="7.5.0")
+    record = repo / "docs" / "flow-runs" / "issue-1.md"
+    record.parent.mkdir(parents=True)
+    record.write_text("5. `CLAUDE.md` - Current version: 7.5.0.\n", encoding="utf-8")
+    _committed(repo)
+
+    proc = _run(repo)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "CLAUDE.md" in proc.stderr
+    assert "docs/flow-runs" not in proc.stderr
+
+
+@requires_git
 def test_the_real_repo_is_currently_consistent() -> None:
     """Regression-test EXECUTION against the live tree, not a committed case.
 
