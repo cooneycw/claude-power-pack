@@ -106,9 +106,13 @@ privilege without being asked, and that one is why this is a major bump.
 - **`worktree-remove.sh` no longer half-deletes a worktree** (#1491, #1520,
   #1524; PRs #1516, #1539, #1540). A pre-scan refuses before anything is
   deleted when a path cannot be unlinked, including a sticky-bit directory
-  holding another user's file. `--finish-partial-removal` completes a tree
-  already left half-removed. It requires `--allow-dirty` (exit 14), confirms
-  ownership positively, and verifies and prints what it removed.
+  holding another user's file. For a tree already left half-removed,
+  `--finish-partial-removal --owner-repo <path> --allow-dirty` verifies every
+  precondition: the named repository must positively list the path as
+  prunable, and an unpushed-work check runs against the owner's remote refs.
+  It then PRINTS the `rm -rf` and `worktree prune` commands for the operator
+  to run, and exits 15 ("verified, not removed"). It deletes nothing itself:
+  automatic completion was descoped after three review passes (PR #1539).
 - **`check-ignored-additions.sh` no longer blocks on a gate's own scratch
   output** behind a directory-wide ignore rule (#1491; PR #1516). A repository
   can declare its own output prefixes in `.claude/gate-scratch.txt`.

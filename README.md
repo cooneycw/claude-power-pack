@@ -172,8 +172,9 @@ or a deliberate negative control, as a real failure (#1485, #1503). `flow-ci-sta
 stops blaming a cancelled step on the change, and reports it as `canceled` (#1486).
 `/flow:check` stops calling a run with zero checks ready (#1493). `/project:next`
 stops dropping dependencies after the first word of a `Depends on:` line (#1488).
-`worktree-remove.sh` refuses before it can half-delete a worktree, and can finish
-one already left that way (#1491, #1520, #1524). `/flow:auto` refuses to start on
+`worktree-remove.sh` refuses before it can half-delete a worktree, and for one
+already left that way it verifies ownership through `--owner-repo` and prints
+the cleanup commands instead of running them (#1491, #1520, #1524). `/flow:auto` refuses to start on
 a charting issue, or on an issue whose labels it could not read (#1490).
 `/flow:deploy` now checks the served release, without turning a repository that
 never configured a release probe into REVIEW (#1497). The Python template from
