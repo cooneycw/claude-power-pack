@@ -84,9 +84,10 @@ privilege without being asked, and that one is why this is a major bump.
   `metadata.provenance`** (#1496; PR #1535). This applies to CPP's own skills
   only. `check-skill-coverage-map.py` reports unmapped skills as "not
   evaluated" and adds a `pinned` state.
-- **The issue contract requires a `Tier: 1|2|3` line** for agent-authored
+- **The issue contract asks for a `Tier: 1|2|3` line** in agent-authored
   issues (#1499; PR #1533), and the feature-request template carries a
-  required Tier dropdown. README and `docs/` now say version headings are
+  required Tier dropdown. It is a documented convention for CPP's own issues:
+  no checker or gate refuses an issue without one. README and `docs/` now say version headings are
   milestones on rolling `main`, not tags.
 - **ADR 0008's unit-test carve-out is amended** (#1492, #1518; PRs #1522,
   #1534). A test that derives its own input population must assert the

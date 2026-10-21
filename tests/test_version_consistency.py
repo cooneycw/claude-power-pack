@@ -240,6 +240,24 @@ def test_a_stale_claude_md_still_fails_beside_an_excluded_flow_run_record(
 
 
 @requires_git
+def test_the_exclusion_is_exactly_docs_flow_runs_not_a_sibling_prefix(
+    tmp_path: Path,
+) -> None:
+    """The exclusion is the DIRECTORY `docs/flow-runs/`, not every path that
+    begins with those characters: a stale phrase in `docs/flow-runs-extra/`
+    is a real site and still fails (counter-model red case, #1278)."""
+    repo = _build_repo(tmp_path, claude_version="8.0.0")
+    sibling = repo / "docs" / "flow-runs-extra" / "issue-1.md"
+    sibling.parent.mkdir(parents=True)
+    sibling.write_text("Current version: 7.5.0\n", encoding="utf-8")
+    _committed(repo)
+
+    proc = _run(repo)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "docs/flow-runs-extra/issue-1.md" in proc.stderr
+
+
+@requires_git
 def test_the_real_repo_is_currently_consistent() -> None:
     """Regression-test EXECUTION against the live tree, not a committed case.
 
