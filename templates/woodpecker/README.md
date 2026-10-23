@@ -33,6 +33,7 @@ python3 bootstrap-secrets.py --secret-name my-woodpecker-secret --region us-east
 docker compose -f docker-compose.server.yml up -d
 
 # 4. On each executor host, create agent.env (WOODPECKER_SERVER + WOODPECKER_AGENT_SECRET):
+#    and .env (WOODPECKER_HOSTNAME + WOODPECKER_AGENT_LABELS, e.g. host=<name>) - compose refuses without them:
 docker compose -f docker-compose.agent.yml up -d
 ```
 
