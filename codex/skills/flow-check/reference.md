@@ -58,7 +58,11 @@ an allowlist rule, issue #613):
 `${CLAUDE_PLUGIN_ROOT}/scripts/flow-finish-gate.sh`, else the CPP-checkout copy.
 Exit 2 with `unknown argument: --evidence` means the installed helper predates
 #1366: re-run without `--evidence flow-check` and report that no record was
-written.)
+written.) With no `FLOW_FINISH_GATE:` verdict line from any copy, the gate did
+not run (issue #1547): report three **DID-NOT-RUN** rows, never SKIP rows. SKIP
+is the gate's own `skipped` verdict, which it printed; a run that printed no
+verdict (127, 126 `Not a directory`, a usage error) examined nothing and said
+nothing, and the report must not make the two read alike.
 
 The `check` plan is exempt from the counter-model enrolment `/flow-finish`
 enforces - `/flow-check` produces no PR (issue #1366, the same reason as Step 5's
@@ -120,7 +124,7 @@ the flow regardless of what it exits (issue #1027 gave `ok`/`warn`/`skipped`
 their own exit codes - 0/3/4 - so it no longer always exits 0; count by the
 printed word below, not by treating any exit as failure). Invoke it BARE
 (#581 discipline; on exit 127 the helper is not installed - suggest
-`/flow-repair` and count the check as SKIP):
+`/flow-repair` and count the check as DID-NOT-RUN, never SKIP - see below):
 
 ```bash
 "${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-finish-gate.sh --check-summary
@@ -137,6 +141,9 @@ printed word below, not by treating any exit as failure). Invoke it BARE
   (issue #769) - the ids are on the `RERUN_PASSED:` line above the marker;
   proceed, but report them and never call the run a clean pass.
 - `FLOW_FINISH_GATE: skipped` (exit 4) - `lib/cicd` or Makefile unavailable: count a SKIP.
+- no `FLOW_FINISH_GATE:` verdict line (exit 127, 126 `Not a directory`, a usage
+  error, anything) - the check did not run (issue #1547): count a **DID-NOT-RUN**,
+  never a SKIP, which is the gate's own printed verdict.
 
 ### Step 5b: Guard Against Silently-Ignored New Files (advisory)
 

@@ -89,7 +89,9 @@ block):
 ```
 
 On `FLOW_FINISH_GATE: fail` (exit 1): **STOP** - the quality gate failed on
-the post-merge tree. Fix, commit, then re-run `/flow:merge`. On `ok` (or
+the post-merge tree. Fix, commit, then re-run `/flow:merge`. With no
+`FLOW_FINISH_GATE:` verdict line, the gate did not run: **STOP**, whatever the
+exit code - never read it as `skipped`, never merge on it (issue #1547). On `ok` (or
 `skipped` / `warn`, each with a warning - `warn` means a test step exited 0
 having executed no tests, issue #621: report its counts, do not call it "tests
 passed"; `warn` also means a test failed on the first attempt and PASSED when

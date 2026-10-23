@@ -1,0 +1,27 @@
+{
+  "branch": "issue-1547-codex-flow-auto-step-6-an-unset-cpp-skill-dir-exit",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "f857754d2c49c157ab25dd671a68e5ecd935f85f",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1547",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 2,
+  "recorded_at": "2026-10-23T13:30:57Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 6
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/23/rollout-2026-10-23T09-28-13-01a168f2-a151-7763-a551-14e78207c532.jsonl",
+    "thread_id": "01a168f2-a151-7763-a551-14e78207c532"
+  },
+  "schema": 1,
+  "scope": "full",
+  "status": "ran"
+}

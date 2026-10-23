@@ -120,6 +120,15 @@ the inline shape prompts on every run. Invoke it BARE (#581 discipline):
 #590), else the CPP-checkout copy; either may prompt once - tell the user to
 run **`/flow-repair`** to restore the prompt-free lane.)
 
+**A run with no `FLOW_FINISH_GATE:` verdict line did not run the gate: **STOP**
+(issue #1547).** The trigger is the verdict LINE, never the exit code: 127
+(not installed), 126 (`Not a directory` - in a generated Codex skill, an unset
+`CPP_SKILL_DIR`), 2 (a usage error) or anything else, a run that printed only
+the `FLOW_FINISH_GATE_EXIT=` trailer, or nothing at all, gave no verdict. Work
+the fallback chain above; if no copy prints a verdict line, STOP and report
+that the gate did not run. It is NOT `skipped` - that is a verdict the gate
+PRINTED - and the run never creates the PR on it.
+
 The helper ends with a machine-readable marker. Each verdict now has its OWN
 exit code (issue #1027) - `ok`, `warn` and `skipped` used to share exit 0, so a
 caller reading only `$?` could not tell "passed cleanly" from "passed but
@@ -211,6 +220,8 @@ covered the final diff belongs to #1082.
   marker, report the failed step, and **stop**. Do not proceed to PR creation.
 - `FLOW_FINISH_GATE: skipped` (exit 4): no runner AND no Makefile gate targets
   at all - this gate did NOT run and proved nothing; warn the user, then continue.
+- no `FLOW_FINISH_GATE:` verdict line at all: the gate did not run - **STOP**
+  (above). Never read it as `skipped`.
 - `FLOW_FINISH_GATE: warn (skipped gates: verify)` is the ORDINARY verdict in a
   repository with no `verify:` target (issue #1147) - #628's existing rule
   applied to a new gate, not a new policy. It does not stop the flow.
@@ -298,6 +309,7 @@ BARE (#581 discipline):
   ```
 - `FLOW_FINISH_GATE: ok` (exit 0) - report briefly - `"Makefile check: OK (6/6 targets present)"`
 - `FLOW_FINISH_GATE: skipped` (exit 4) - `lib/cicd` unavailable or no Makefile: skip silently (Step 2 already handles the no-Makefile case)
+- no `FLOW_FINISH_GATE:` verdict line - the check did not run (issue #1547): say so in one line, never "OK" and never a silent skip. Still non-blocking.
 
 **This step never blocks the flow** - it is purely informational, regardless of exit code (issue #1027 gave `ok`/`warn`/`skipped` distinct codes; read the word, not the exit status, here).
 
