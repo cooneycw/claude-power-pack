@@ -1,6 +1,13 @@
 # Woodpecker CI - Agent (runs on each local VM)
 # Connects to Woodpecker Server via Tailscale IP
 # Requires: WOODPECKER_AGENT_SECRET and WOODPECKER_SERVER in agent.env
+# Requires: WOODPECKER_HOSTNAME and WOODPECKER_AGENT_LABELS in .env beside this
+#   file (gitignored), e.g. WOODPECKER_HOSTNAME=proxVMkyle19 and
+#   WOODPECKER_AGENT_LABELS=host=kyle19. `compose up` refuses without them, rather
+#   than registering the agent under its container id.
+#
+# Kept in step with what bootstrap-agent-host.sh generates for a dedicated CI
+# host; tests/test_woodpecker_agent_compose.py fails if they drift (#1551).
 
 services:
   woodpecker-agent:
@@ -8,7 +15,13 @@ services:
     container_name: woodpecker-agent
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      # Persists the server-assigned agent id across restarts; without it
+      # every restart registers a brand-new agent on the server.
+      - ./agent-config:/etc/woodpecker
     env_file: agent.env
     environment:
       - WOODPECKER_MAX_WORKFLOWS=2
+      - WOODPECKER_AGENT_LABELS=${WOODPECKER_AGENT_LABELS:?set WOODPECKER_AGENT_LABELS in .env, e.g. host=kyle19}
+      - WOODPECKER_HOSTNAME=${WOODPECKER_HOSTNAME:?set WOODPECKER_HOSTNAME in .env so the server lists this agent by name}
+      - WOODPECKER_BACKEND=docker
     restart: unless-stopped

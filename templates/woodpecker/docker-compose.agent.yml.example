@@ -8,9 +8,16 @@
 #   1. Create agent.env with:
 #        WOODPECKER_SERVER=your-server-host:9001
 #        WOODPECKER_AGENT_SECRET=<same secret as the server>
-#   2. docker compose -f docker-compose.agent.yml up -d
+#   2. Create .env (beside this file, gitignored) with:
+#        WOODPECKER_HOSTNAME=<this host's name>
+#        WOODPECKER_AGENT_LABELS=host=<this host's name>
+#      `compose up` refuses without them rather than registering the agent
+#      under its container id.
+#   3. docker compose -f docker-compose.agent.yml up -d
 #
 # The Docker socket mount lets the agent run pipeline steps as containers.
+# The ./agent-config mount persists the agent id the server assigns; without
+# it every restart registers a brand-new agent on the server.
 # Docs: https://woodpecker-ci.org/docs/administration/agent-config
 
 services:
@@ -19,7 +26,11 @@ services:
     container_name: woodpecker-agent
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./agent-config:/etc/woodpecker
     env_file: agent.env   # WOODPECKER_SERVER, WOODPECKER_AGENT_SECRET
     environment:
       - WOODPECKER_MAX_WORKFLOWS=2   # concurrent workflows per agent
+      - WOODPECKER_AGENT_LABELS=${WOODPECKER_AGENT_LABELS:?set WOODPECKER_AGENT_LABELS in .env}
+      - WOODPECKER_HOSTNAME=${WOODPECKER_HOSTNAME:?set WOODPECKER_HOSTNAME in .env}
+      - WOODPECKER_BACKEND=docker
     restart: unless-stopped
