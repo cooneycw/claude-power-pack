@@ -32,6 +32,7 @@ import errno
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -3175,4 +3176,151 @@ def test_a_cpp_checkout_exception_does_not_exempt_another_helper_on_its_line(tmp
                         (("qa/test.md", "resync.sh", "{ref}", "test exception"),))
     rendered = _render_fenced(tmp_repo, "scripts/resync.sh && scripts/helper.sh --check")
     assert rendered == 'scripts/resync.sh && "${CPP_SKILL_DIR:-/dev/null}"/scripts/helper.sh --check', rendered
+
+
+# ---------------------------------------------------------------------------
+# Issue #1547: a finish-gate run that prints NO verdict line did not run the
+# gate. Since #1542 an unset CPP_SKILL_DIR makes the call exit 126 with no
+# output, and a usage error exits 2 with only the `_EXIT=` trailer; the 127-only
+# fallback sentence fired on neither, and the nearest verdict - `skipped` -
+# says "proceed". These tests pin INSTRUCTION TEXT: that every place the gate
+# runs says what a missing verdict line means. Whether an agent obeys it is
+# skillc's measurement, not this test's claim.
+# ---------------------------------------------------------------------------
+
+#: The ONE trigger phrase every gate site and the bullet carry (orchestrator
+#: condition, #1547): the verdict LINE, never the exit code alone.
+NO_VERDICT_PHRASE = "no `FLOW_FINISH_GATE:` verdict line"
+
+#: Where the gate is run, by skill: how many invocations each generated skill
+#: carries. A change to this population is a test failure, never a silent one.
+GATE_SITES = {"flow-auto": 2, "flow-finish": 2, "flow-merge": 1, "flow-check": 2}
+REPORT_ONLY_ARGS = ("--check-summary", "--plan check")
+
+
+def _gate_invocations(text: str) -> list[tuple[int, str]]:
+    lines, in_fence, found = text.split("\n"), False, []
+    for i, line in enumerate(lines):
+        if line.strip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence and "scripts/flow-finish-gate.sh" in line and not line.strip().startswith("#"):
+            found.append((i, line))
+    return found
+
+
+def _gate_section_problems(text: str, label: str) -> list[str]:
+    import re
+
+    lines = text.split("\n")
+    problems = []
+    for i, line in _gate_invocations(text):
+        # Whitespace-collapsed: a line wrap inside the phrase is formatting,
+        # not drift - the WORDS must be identical at every site.
+        window = re.sub(r"\s+", " ", "\n".join(lines[i:i + 30]))
+        if NO_VERDICT_PHRASE not in window:
+            problems.append(f"{label}:{i + 1}: no `{NO_VERDICT_PHRASE}` rule beside `{line.strip()}`")
+            continue
+        report_only = any(arg in line for arg in REPORT_ONLY_ARGS)
+        # THE ACTION IS READ FROM THE RULE'S OWN CLAUSE, never from anywhere in
+        # the window (counter-model review, #1547): a neighbouring
+        # "On fail: **STOP**" must not stand in for a missing-verdict rule that
+        # says "proceed", and a report-only rule must name its own did-not-run
+        # report. A clause runs from the phrase to the end of its sentence.
+        clauses = [re.split(r"(?<=[.!?])\s", chunk, maxsplit=1)[0][:220]
+                   for chunk in window.split(NO_VERDICT_PHRASE)[1:]]
+        def safe(clause: str) -> bool:
+            if "did not run" not in clause or "proceed" in clause or "count a SKIP" in clause:
+                return False
+            if report_only:
+                return "DID-NOT-RUN" in clause or "say so" in clause
+            return "**STOP**" in clause
+        if not any(safe(c) for c in clauses):
+            kind = "a did-not-run report" if report_only else "a **STOP**"
+            problems.append(f"{label}:{i + 1}: no `{NO_VERDICT_PHRASE}` clause that says "
+                            f"it did not run and requires {kind}")
+    return problems
+
+
+def test_every_generated_gate_run_says_a_missing_verdict_line_means_it_did_not_run():
+    # BOTH generated files: a short command's body is embedded in SKILL.md
+    # itself, and a gate call there would be invisible to a reference.md-only
+    # scan while the asserted population stayed the same (counter-model review).
+    counts, problems = {}, []
+    for skill in sorted(p for p in SKILLS_ROOT.iterdir() if p.is_dir()):
+        for doc in ("SKILL.md", "reference.md"):
+            path = skill / doc
+            if not path.is_file():
+                continue
+            text = path.read_text(encoding="utf-8")
+            n = len(_gate_invocations(text))
+            if n:
+                counts[skill.name] = counts.get(skill.name, 0) + n
+                problems += _gate_section_problems(text, f"{skill.name}/{doc}")
+    assert counts == GATE_SITES, f"the finish-gate call sites changed: {counts}"
+    assert problems == [], "\n".join(problems)
+
+
+def test_the_gate_section_check_flags_an_unguarded_invocation():
+    # The scan's own red: a fenced gate call with no rule beside it, and a
+    # report-only call whose text still counts a launch failure as SKIP.
+    unguarded = "# X\n\n```bash\n\"${CPP_SKILL_DIR:-/dev/null}\"/scripts/flow-finish-gate.sh\n```\n\nOn fail, stop.\n"
+    assert _gate_section_problems(unguarded, "fixture"), "an unguarded gate call read as covered"
+    guarded = unguarded.replace(
+        "On fail, stop.",
+        f"With {NO_VERDICT_PHRASE}, the gate did not run: **STOP**.")
+    assert _gate_section_problems(guarded, "fixture") == []
+    # The reviewer's two reds: the action must sit in the rule's own clause.
+    borrowed_stop = unguarded.replace(
+        "On fail, stop.",
+        f"With {NO_VERDICT_PHRASE}, the gate did not run: proceed. On `FLOW_FINISH_GATE: fail`: **STOP**.")
+    assert _gate_section_problems(borrowed_stop, "fixture"), "a neighbouring STOP covered a 'proceed' rule"
+    report_skip = unguarded.replace("flow-finish-gate.sh\n", "flow-finish-gate.sh --check-summary\n").replace(
+        "On fail, stop.", f"With {NO_VERDICT_PHRASE}, the check did not run: count a SKIP.")
+    assert _gate_section_problems(report_skip, "fixture"), "a report-only rule that counts a SKIP passed"
+
+
+def test_no_flow_check_text_still_counts_a_launch_failure_as_skip():
+    # Counter-model review, #1547: an older sentence told the check-summary run
+    # to "count the check as SKIP" on exit 127 - and the bullet now extends
+    # every exit-127 sentence to 126, so it would have re-misclassified the
+    # exact failure this issue is about.
+    for path in (ROOT / ".claude" / "commands" / "flow" / "check.md",
+                 SKILLS_ROOT / "flow-check" / "reference.md"):
+        text = re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
+        assert "count the check as SKIP" not in text, path
+
+
+def test_every_claude_source_gate_run_carries_the_same_rule():
+    problems = []
+    for rel in ("flow/auto.md", "flow/finish.md", "flow/merge.md", "flow/check.md"):
+        text = (ROOT / ".claude" / "commands" / rel).read_text(encoding="utf-8")
+        assert _gate_invocations(text), f"precondition: {rel} runs the gate"
+        problems += _gate_section_problems(text, rel)
+    assert problems == [], "\n".join(problems)
+
+
+def test_the_bundled_helpers_bullet_names_126_and_the_no_verdict_stop():
+    bullet = codex_skill_sync.BUNDLED_SCRIPTS_BULLET
+    assert NO_VERDICT_PHRASE in bullet, bullet
+    assert "126" in bullet and "STOP" in bullet and "skipped" in bullet, bullet
+    rendered = [s for s in SKILLS_ROOT.iterdir() if s.is_dir() and (s / "SKILL.md").is_file()
+                and "Helper scripts are bundled under" in (s / "SKILL.md").read_text(encoding="utf-8")]
+    assert len(rendered) > 10, "precondition: the bullet is rendered somewhere"
+    missing = [s.name for s in rendered if NO_VERDICT_PHRASE not in (s / "SKILL.md").read_text(encoding="utf-8")]
+    assert missing == [], missing
+
+
+def test_a_launch_failure_and_a_usage_error_print_no_verdict_line(tmp_path: Path):
+    # The premise the rule is keyed on: neither failure prints a verdict line,
+    # and one of them is not exit 127 - so an exit-code rule would miss it.
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    unset, _ = _run_in_target(tmp_path / "a", _flow_auto_gate_command(), skill_dir=None)
+    usage, _ = _run_in_target(tmp_path / "b", _flow_auto_gate_command(),
+                              skill_dir=str(SKILLS_ROOT / "flow-auto"))
+    for result in (unset, usage):
+        assert "FLOW_FINISH_GATE:" not in result.stdout + result.stderr, result
+    assert unset.returncode in (126, 127) and usage.returncode == 2
+    assert "FLOW_FINISH_GATE_EXIT=2" in usage.stderr, usage.stderr
 

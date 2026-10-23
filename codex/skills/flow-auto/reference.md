@@ -1310,6 +1310,15 @@ collapse" note above).
    plugin, #590), else the CPP-checkout copy; either may prompt once - tell the
    user to run **`/flow-repair`** to restore the prompt-free lane.)
 
+   **A run with no `FLOW_FINISH_GATE:` verdict line did not run the gate: **STOP**
+   (issue #1547).** The trigger is the verdict LINE, never the exit code: 127
+   (not installed), 126 (`Not a directory` - in a generated Codex skill, an unset
+   `CPP_SKILL_DIR`), 2 (a usage error) or anything else, a run that printed only
+   the `FLOW_FINISH_GATE_EXIT=` trailer, or nothing at all, gave no verdict. Work
+   the fallback chain above; if no copy prints a verdict line, STOP and report
+   that the gate did not run. It is NOT `skipped` - that is a verdict the gate
+   PRINTED - and the run never commits, pushes or merges on it.
+
    The helper ends with a machine-readable marker. Each verdict now has its OWN
    exit code (issue #1027) - `ok`, `warn` and `skipped` used to share exit 0,
    so a caller reading only `$?` could not tell "passed cleanly" from "passed
@@ -1346,6 +1355,8 @@ collapse" note above).
    - `FLOW_FINISH_GATE: skipped` (exit 4): no runner AND no Makefile gate
      targets at all - this gate did NOT run and proved nothing; warn the user,
      then proceed.
+   - no `FLOW_FINISH_GATE:` verdict line at all: the gate did not run -
+     **STOP** (above). Never read it as `skipped`.
    - `FLOW_FINISH_GATE: warn (skipped gates: verify)` is the ORDINARY verdict in
      a repository with no `verify:` target (issue #1147), and it is #628's
      existing rule applied to a new gate rather than a new policy: a gate that
@@ -1618,7 +1629,9 @@ fill this step.
    ```
 
    On `FLOW_FINISH_GATE: fail` (exit 1): **STOP** - the quality gate failed on
-   the post-merge tree. Fix, commit, then re-run `/flow-merge`. On `ok` (or
+   the post-merge tree. Fix, commit, then re-run `/flow-merge`. With no
+   `FLOW_FINISH_GATE:` verdict line, the gate did not run: **STOP** as at Step 6,
+   whatever the exit code (issue #1547). On `ok` (or
    `skipped` / `warn`, each with a warning - `warn` means a test step exited 0
    having executed no tests, issue #621: report its counts, do not call it
    "tests passed"), push the merge so the PR reflects the post-merge
