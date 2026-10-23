@@ -213,6 +213,13 @@ tests/fixtures/qa_regression/consumer/playwright-report/
 # question, and the answer would be a summarised ledger rather than un-ignoring
 # these.
 !docs/measurements/counter-model/*.json
+# The flow-check evaluation-enrollment decision record (issue #1371, ADR 0011) -
+# tracked despite *.json above because the record IS the decision:
+# check-eval-enrollment.py reads it on every CI run, and an untracked record reads
+# `unknown - no enrollment record` in a clean clone. Named by FILE, not by
+# directory: a second family earns its own line and its own ADR, never a widened
+# negation.
+!docs/measurements/eval-enrollment/flow-check.json
 # The /flow:check execution-evidence pilot artifact (issue #1366) - tracked despite
 # *.json above because the issue asks for ONE real record a reader can be shown.
 # Named by FILE, not by directory: live records belong in the git directory

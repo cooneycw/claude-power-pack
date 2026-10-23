@@ -21,7 +21,7 @@
        version-consistency-check unicode-dashes-check co-authored-by-trailer-check \
        md-relative-links-check \
        qa-regression-demo \
-       skill-coverage-map-check skill-coverage-snapshot
+       skill-coverage-map-check skill-coverage-snapshot eval-enrollment-check
 
 ## `make` with no target ran `lint` because lint was the first target. Adding
 ## tools-check above it silently made THAT the default - bare `make` would print
@@ -406,7 +406,7 @@ verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-impor
 	consolidation-ledger-check host-surface-check cpp-host-writes-check \
 	version-consistency-check unicode-dashes-check co-authored-by-trailer-check md-relative-links-check \
 	codex-skill-links-check \
-	behavioral-eval-check eli5-check tool-risk-check skill-coverage-map-check
+	behavioral-eval-check eli5-check tool-risk-check skill-coverage-map-check eval-enrollment-check
 	@python3 scripts/verify-coverage-check.py --report
 
 ## ACCOUNT FOR EVERY CHECKER, AND SAY WHAT THIS GATE SKIPPED (issue #1028)
@@ -837,6 +837,18 @@ behavioral-eval-check:
 ## verify-coverage: gate skill-coverage-map-check - two-axis staleness over SKILL_FAMILY_MAP, read from a vendored snapshot; advisory, see comment above; ci: runs skill-coverage-map-check
 skill-coverage-map-check:
 	@python3 scripts/check-skill-coverage-map.py --advisory
+
+## Reads the CPP evaluation-enrollment decision record for flow-check (#1371,
+## ADR 0011): ADVISORY, because skillc #288's evidence is single-arm and #1084's
+## flip needs two arms. Every state it prints says advisory or names why the
+## record cannot be read; none is behavioural assurance. --advisory, not
+## `|| true`: a printed verdict maps to 0 while a crash still fails. Without
+## --advisory each state has its own exit code (current 0, unknown 2,
+## stale-content 3, stale-aged 4, failing 5, fixture 6), so a future gate can tell
+## them apart. Reads JSON and the codex/skills tree only - no git, no network.
+## verify-coverage: gate eval-enrollment-check - reads the flow-check evaluation-enrollment decision record and reports its advisory state; never blocking, refuses a threshold or an unproven blocking decision (#1371, ADR 0011); ci: runs eval-enrollment-check
+eval-enrollment-check:
+	@python3 scripts/check-eval-enrollment.py --advisory
 
 ## Regenerates a vendored skill-coverage snapshot (#1370) - the ONLY place
 ## skillc runs from this repository, and never in CI: the script itself

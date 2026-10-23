@@ -1,0 +1,39 @@
+{
+  "_comment": "Issue #1371. Registers the content-staleness detector inside check-eval-enrollment.py: the sub-check that must notice when flow-check's shipped closure is no longer the content the enrollment evidence was taken on, and therefore refuse to keep printing 'advisory - evidence current' over a skill that moved. The other states (failing, fixture, unknown, aged, the threshold and blocking refusals) are plain field reads and are pinned by tests/test_eval_enrollment.py, each run red on a mutant.",
+  "gate": "scripts/check-eval-enrollment.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--repo",
+    "{case}/repo",
+    "--record",
+    "{case}/repo/docs/measurements/eval-enrollment/flow-check.json",
+    "--today",
+    "2026-11-01"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^eval-enrollment: \\S+ \\([^)]+\\): advisory - STALE \\(content\\)",
+  "limits": "WHAT THIS ESTABLISHES: that the consumer notices a changed skill closure and says the evidence no longer applies, rather than reusing a 'current' reading. The bad case changes one bundled script AFTER the record's closure digest was taken; the good case leaves the closure as recorded. Both records are copies of the committed flow-check decision with only the digest and the cpp_revision label replaced, and --today is fixed inside review_by so aging cannot mask or produce the verdict.\n\nWHAT THIS DOES NOT ESTABLISH: anything about whether flow-check is behaviourally sound - the consumer never claims that, and neither does this control. Nothing about the aged, failing, fixture or unknown states, or the threshold and blocking refusals: those are tests, not this control. Nothing about the real record's digest staying current - a flow-check change makes the real record read STALE (content), which is the correct reading.",
+  "cases": [
+    {
+      "name": "good-current",
+      "input": "cases/good-current",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-content-drift-not-detected",
+      "input": "cases/bad-content-drift-not-detected",
+      "expect": "BAD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/check-eval-enrollment.py",
+      "path": "anchors/content-check-disabled.py",
+      "sha256": "f675d35ec2fe9edfb93d47c6228364c0699a02a1c6e8e3db57e525acb0e4ff22",
+      "why": "CONSTRUCTED rather than historical: this consumer is new in the same change that registers this control, so no pre-fix commit exists to vendor. The anchor is the real consumer with exactly one edit - `content_stale` hardcoded False - which is the failure mode this control exists for: the evidence silently keeps reading 'current' after the skill it was taken on has changed. On bad-content-drift-not-detected the anchor prints 'advisory - evidence current' and exits 0 instead of STALE (content)/exit 3; on good-current it agrees with the real consumer, so the miss is isolated to the disabled comparison."
+    }
+  ]
+}
