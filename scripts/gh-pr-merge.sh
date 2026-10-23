@@ -128,7 +128,7 @@
 #     This marker NEVER changes the exit code - the merge landed either way, and
 #     `/flow:auto` Step 7's "0 means proceed" contract is deliberately intact.
 #
-# Usage:  gh-pr-merge.sh [--admin] [--allow-admin-retry] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] [--wait-ci[=SECS]] <pr-number> <branch-name>
+# Usage:  gh-pr-merge.sh [--admin] [--allow-admin-retry] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] [--wait-ci[=SECS]] [--match-head-commit <sha>] <pr-number> <branch-name>
 #           --admin  force `gh pr merge --admin` from the first attempt - the
 #                    conscious, HUMAN-TYPED branch-protection override (issues
 #                    #517/#579). It skips the required-check wait AND the review
@@ -149,6 +149,22 @@
 #           --allow-base-move  consciously bypass the issue #767 clean stop when
 #                    the base advances during the required-check wait; the moved
 #                    tips and an override-consumed audit line are still printed.
+#           --match-head-commit <sha>  (or =<sha>; full 40-hex) PIN the squash
+#                    to the PR head the caller verified (issue #1543). Passed to
+#                    EVERY `gh pr merge` this helper makes - the first squash,
+#                    the #502 retries and the #517 admin retry - so GitHub
+#                    refuses server-side if the head moved. The helper also
+#                    re-reads the head BEFORE the required-check wait (so the
+#                    checks it waits on belong to the pinned sha) and again
+#                    immediately before the squash. A mismatch at either read,
+#                    or GitHub's own "Head branch was modified" refusal, is a
+#                    CLEAN STOP, exit 11, PR untouched: never retried and never
+#                    escalated to --admin, because a different head is a
+#                    different change, not a race to win. Marker:
+#                    `GH_PR_MERGE_HEAD_PIN: 0|<pinned> -> <actual>|skipped|-`.
+#                    Before #1543 a caller who needed this pin had to bypass the
+#                    helper with a plain `gh pr merge`, and so lost every
+#                    close-keyword guard: that is how skillc#513 was closed.
 # Deletion surfacing + post-merge completeness (issue #657):
 #   A collapse onto a moved base (`git reset --soft origin/main` + commit, the
 #   #655-thread workaround) silently records the DELETION of everything the
@@ -351,6 +367,8 @@ ALLOW_INCIDENTAL_CLOSE=0
 ALLOW_BASE_MOVE=0
 ALLOW_LOCAL_DIVERGENCE=0
 WAIT_CI_SECS=""
+MATCH_HEAD_COMMIT=""
+MATCH_HEAD_SET=0
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -390,13 +408,27 @@ while [[ $# -gt 0 ]]; do
             [[ "$WAIT_CI_SECS" =~ ^[0-9]+$ ]] || { echo "gh-pr-merge.sh: --wait-ci needs seconds" >&2; exit 2; }
             shift
             ;;
+        --match-head-commit)
+            # Takes the next argument, unlike bare --wait-ci: the sha is
+            # required, and the 40-hex check below refuses a PR number or a
+            # branch name that a missing sha would otherwise swallow.
+            MATCH_HEAD_COMMIT="${2-}"
+            MATCH_HEAD_SET=1
+            shift
+            [[ $# -gt 0 ]] && shift
+            ;;
+        --match-head-commit=*)
+            MATCH_HEAD_COMMIT="${1#*=}"
+            MATCH_HEAD_SET=1
+            shift
+            ;;
         --)
             shift
             while [[ $# -gt 0 ]]; do POSITIONAL+=("$1"); shift; done
             ;;
         -*)
             echo "gh-pr-merge.sh: unknown option '$1'" >&2
-            echo "Usage: gh-pr-merge.sh [--admin] [--allow-admin-retry] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] [--wait-ci[=SECS]] <pr-number> <branch-name>" >&2
+            echo "Usage: gh-pr-merge.sh [--admin] [--allow-admin-retry] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] [--wait-ci[=SECS]] [--match-head-commit <sha>] <pr-number> <branch-name>" >&2
             exit 2
             ;;
         *)
@@ -409,8 +441,16 @@ done
 PR_NUMBER="${POSITIONAL[0]:-}"
 BRANCH="${POSITIONAL[1]:-}"
 
+# A full sha only (issue #1543): GitHub's expectedHeadOid is a full object id,
+# and an abbreviation that gh forwarded would fail server-side as an opaque
+# merge error instead of a usage error here.
+if (( MATCH_HEAD_SET )) && [[ ! "$MATCH_HEAD_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "gh-pr-merge.sh: --match-head-commit needs a full 40-character lowercase hex sha (got '${MATCH_HEAD_COMMIT}')" >&2
+    exit 2
+fi
+
 if [[ -z "$PR_NUMBER" || -z "$BRANCH" ]]; then
-    echo "Usage: gh-pr-merge.sh [--admin] [--allow-admin-retry] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] [--wait-ci[=SECS]] <pr-number> <branch-name>" >&2
+    echo "Usage: gh-pr-merge.sh [--admin] [--allow-admin-retry] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] [--wait-ci[=SECS]] [--match-head-commit <sha>] <pr-number> <branch-name>" >&2
     exit 2
 fi
 
@@ -1701,6 +1741,48 @@ _report_base_advance() {
     echo "        git merge origin/$base_branch" >&2
 }
 
+# HEAD PIN (issue #1543). With --match-head-commit, the PR head on GitHub must
+# still be the sha the caller verified. Read at TWO moments: before the
+# required-check wait, because check_states reads the rollup of the PR's
+# CURRENT head - so the checks the wait accepts belong to the pinned sha only if
+# the head is the pinned sha when the wait starts - and again immediately before
+# the squash. GitHub's own expectedHeadOid check (the flag is also passed to
+# every `gh pr merge`) closes the last instant between that read and the squash.
+# An unreadable head is `skipped`, never `0`: it fails open to the server-side
+# pin, never to "matched". Runs on the --admin path too - an admin override is
+# about protection, not about which commit lands.
+head_pin_check() {
+    local moment="$1" pr_head actual
+    if (( MATCH_HEAD_SET == 0 )); then
+        echo "GH_PR_MERGE_HEAD_PIN: -"
+        return 0
+    fi
+    pr_head=$("$GH_BIN" pr view "$PR_NUMBER" --json headRefName,headRefOid \
+        --jq '.headRefName + " " + .headRefOid' 2>/dev/null) || pr_head=""
+    actual="${pr_head##* }"
+    if [[ ! "$actual" =~ ^[0-9a-f]{40}$ ]]; then
+        echo "GH_PR_MERGE_HEAD_PIN: skipped"
+        echo "note: PR #$PR_NUMBER head unreadable $moment - relying on GitHub's server-side --match-head-commit check (issue #1543)." >&2
+        return 0
+    fi
+    if [[ "$actual" == "$MATCH_HEAD_COMMIT" ]]; then
+        echo "GH_PR_MERGE_HEAD_PIN: 0"
+        return 0
+    fi
+    echo "GH_PR_MERGE_HEAD_PIN: $MATCH_HEAD_COMMIT -> $actual"
+    head_pin_stop "PR #$PR_NUMBER's head is $actual $moment, not the pinned $MATCH_HEAD_COMMIT"
+}
+
+head_pin_stop() {
+    echo "CLEAN STOP: $1 - not merging (issue #1543)." >&2
+    echo "  A different head is a different change: the commit that was verified is not the one that would land." >&2
+    echo "  The PR is left open and untouched. This is never retried and never escalated to --admin." >&2
+    echo "  Re-verify the current head (CI, review), then re-run with --match-head-commit <that sha>." >&2
+    exit 11
+}
+
+head_pin_check "before the required-check wait"
+
 # An explicit --admin is a conscious owner override of protection, so it also
 # skips the wait, the queue wait that precedes it, and the base-move guard around
 # them (issues #717/#767); without it, required checks must be green before the
@@ -1873,6 +1955,16 @@ run_squash() {
         merge_exit=$?
         cat "$errfile" >&2
         LAST_MERGE_ERR=$(cat "$errfile")
+        # GitHub refused the pinned squash: the head moved past the pin
+        # (issue #1543). Checked HERE, after EVERY attempt - the first squash,
+        # a #502 retry and the #517 admin retry alike - and before any retry
+        # classification, so a head rejection is never retried, never reaches
+        # the admin retry, and always ends as the exit-11 clean stop.
+        if [[ $merge_exit -ne 0 ]] && grep -qi 'head branch was modified' "$errfile"; then
+            rm -f "$errfile"
+            echo "GH_PR_MERGE_HEAD_PIN: server-rejected"
+            head_pin_stop "GitHub refused the squash because PR #$PR_NUMBER's head moved past the pinned ${MATCH_HEAD_COMMIT:-head}"
+        fi
         if [[ $merge_exit -eq 0 ]] || ! grep -q "Base branch was modified" "$errfile"; then
             break
         fi
@@ -1950,7 +2042,15 @@ if (( ADMIN_OPT_IN == 0 )) && ! base_contained_now "immediately before the squas
     exit 6
 fi
 
+# Carried in BASE_FLAGS so the first squash, every #502 retry and the #517
+# admin retry all pin the same head (issue #1543).
+(( MATCH_HEAD_SET )) && BASE_FLAGS+=(--match-head-commit "$MATCH_HEAD_COMMIT")
+head_pin_check "immediately before the squash"
+
 run_squash ${BASE_FLAGS+"${BASE_FLAGS[@]}"}
+
+# A head rejection never gets here: run_squash ends it as exit 11 itself
+# (issue #1543), so the protection-retry chain below cannot see one.
 
 # Branch-protection auto-retry (issue #517): if the squash was rejected by branch
 # protection, the caller did not already force --admin, and the actor is a repo

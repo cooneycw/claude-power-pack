@@ -141,6 +141,7 @@ caller's (or orchestrator's) decision; the helper never does it.
 
 Then merge the PR:
 
+<!-- merge-helper-resolution -->
 ```bash
 PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
 
@@ -152,19 +153,33 @@ PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
 # --delete-branch in a linked worktree, deletes the remote branch itself, and
 # verifies the PR reached MERGED before reporting failure. Local worktree/branch
 # cleanup stays in Step 5 below (git path, issue #627).
-if [[ -x scripts/gh-pr-merge.sh ]]; then
-    scripts/gh-pr-merge.sh "$PR_NUMBER" "$BRANCH"
+#
+# There is NO raw-merge fallback (issue #1543). Resolve the helper in the usual
+# order - stable path, plugin copy, CPP checkout - and REFUSE when none exists.
+# The old fallback was a plain `gh pr merge --squash`, which skips every guard
+# the helper runs: the close-keyword guards (#726, #794), the base checks
+# (#767, #810, #1300), the review handoff (#579), local divergence (#1262) and
+# the head pin. skillc#513 was closed by exactly that path, from a PR body that
+# said "Refs, not Closes: #513".
+PIN_SHA=<pr-head-sha>   # the SAME literal the flow-ci-status.sh wait above was given; PIN_SHA= only for an unpinned merge
+GH_PR_MERGE=scripts/gh-pr-merge.sh
+[ -x "$GH_PR_MERGE" ] || GH_PR_MERGE="${CLAUDE_PLUGIN_ROOT:-/nonexistent}/scripts/gh-pr-merge.sh"
+if [ ! -x "$GH_PR_MERGE" ]; then
+    for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+        if [ -x "$dir/scripts/gh-pr-merge.sh" ] && [ -f "$dir/CLAUDE.md" ]; then
+            GH_PR_MERGE="$dir/scripts/gh-pr-merge.sh"
+            break
+        fi
+    done
+fi
+if [ -x "$GH_PR_MERGE" ]; then
+    "$GH_PR_MERGE" ${PIN_SHA:+--match-head-commit "$PIN_SHA"} "$PR_NUMBER" "$BRANCH"
     MERGE_RC=$?
 else
-    # Inline fallback (helper not installed): same linked-worktree guard.
-    if [[ -f ".git" ]]; then
-        gh pr merge "$PR_NUMBER" --squash
-        git push origin --delete "$BRANCH" >/dev/null 2>&1 || true
-    else
-        gh pr merge "$PR_NUMBER" --squash --delete-branch
-    fi
-    [[ "$(gh pr view "$PR_NUMBER" --json state --jq '.state' 2>/dev/null)" == "MERGED" ]]
-    MERGE_RC=$?
+    echo "REFUSING: gh-pr-merge.sh is not installed; not merging PR #$PR_NUMBER with a plain 'gh pr merge'." >&2
+    echo "  A raw merge skips every guard the helper runs, including the close-keyword guards (issue #1543)." >&2
+    echo "  Install the helper with /flow-repair, then re-run /flow-merge." >&2
+    MERGE_RC=12
 fi
 ```
 
@@ -207,6 +222,18 @@ fi
   green and re-run `/flow-merge`. A `MERGE_RC` of 6 with
   `GH_PR_MERGE_BASE_AT_SQUASH: <sha>` means the base moved just before the
   squash - the ordinary exit-6 remedy applies.
+- **`MERGE_RC` = 11 is a CLEAN STOP (issue #1543):** the merge was pinned with
+  `--match-head-commit <sha>` and the PR's head on GitHub is no longer that
+  sha - at the helper's own re-read or in GitHub's server-side refusal. A
+  different head is a different change. Leave everything intact; never retry
+  it and never escalate to `--admin`. Re-verify the current head (CI, review)
+  and re-run with the new sha. Pin a merge by passing
+  `--match-head-commit <the sha CI verified>` to the helper.
+- **`MERGE_RC` = 12 is the MISSING-HELPER REFUSAL (issue #1543), and the helper
+  never emits it:** no copy of `gh-pr-merge.sh` resolved, so nothing was merged.
+  This is not a handoff like 3: run **`/flow-repair`**, then re-run
+  `/flow-merge`. Never finish the merge by hand with `gh pr merge`, because that
+  is the unguarded path this refusal exists to close.
 - **`MERGE_RC` = 8 means the incidental-close guard's own self-check failed
   (issue #794):** this is a BROKEN CHECK, not a clean scan of the PR, and must
   never be read as "no hazard found" - report it and investigate the guard

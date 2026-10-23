@@ -1,0 +1,27 @@
+{
+  "branch": "issue-1543-flow-auto-flow-merge-inline-merge-fallback-skips-e",
+  "counts": {
+    "accepted": 4,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "b318a14b9e7935f2c50c0940144a5ff0ff9389ed",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1543",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 2,
+  "recorded_at": "2026-10-23T11:52:26Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 8
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/23/rollout-2026-10-23T07-48-50-01a16897-a25b-7a33-b76a-267c8b0b0cb0.jsonl",
+    "thread_id": "01a16897-a25b-7a33-b76a-267c8b0b0cb0"
+  },
+  "schema": 1,
+  "scope": "full",
+  "status": "ran"
+}
