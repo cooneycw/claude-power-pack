@@ -1,0 +1,27 @@
+{
+  "branch": "issue-1542-generated-codex-skills-call-bundled-helpers-by-a-c",
+  "counts": {
+    "accepted": 5,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "ff0bbdf9cbeb421129e8ef3d25135725c87d60aa",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1542",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 2,
+  "recorded_at": "2026-10-23T12:49:09Z",
+  "red_cases": {
+    "already_covered": 7,
+    "proposed": 8
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/23/rollout-2026-10-23T08-44-28-01a168ca-9127-7f90-b048-e07950488eae.jsonl",
+    "thread_id": "01a168ca-9127-7f90-b048-e07950488eae"
+  },
+  "schema": 1,
+  "scope": "full",
+  "status": "ran"
+}

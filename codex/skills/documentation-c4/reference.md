@@ -129,7 +129,7 @@ If `LEVEL` was supplied, include only that level's objects in `levels`.
 Run the renderer (pass an ISO timestamp so the manifest/index are reproducible):
 
 ```bash
-python3 scripts/c4-mermaid.py \
+python3 "${CPP_SKILL_DIR:-/dev/null}"/scripts/c4-mermaid.py \
   --model "$DOCS_DIR/c4-model.json" \
   --out "$DOCS_DIR" \
   --project "<Project Name>" \

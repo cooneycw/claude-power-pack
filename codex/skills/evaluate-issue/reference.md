@@ -383,7 +383,7 @@ Evaluation Summary:
 
 Next steps:
   1. Review generated specs in .specify/specs/{feature-name}/
-  2. Run ./scripts/speckit-tasks-to-issues.sh to create GitHub issues
+  2. Run "${CPP_SKILL_DIR:-/dev/null}"/scripts/speckit-tasks-to-issues.sh to create GitHub issues
   3. Use /flow-start <issue> to begin implementation
 ```
 

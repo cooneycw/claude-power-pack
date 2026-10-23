@@ -86,7 +86,7 @@ Collect signals from all available sources (union, then de-duplicate):
    measurement-shape scanner over it (issue #666, the detection half of the #659
    ref-scoped-reads core directive):
    ```bash
-   python3 scripts/measurement-shape-scan.py path/to/transcript.md
+   python3 "${CPP_SKILL_DIR:-/dev/null}"/scripts/measurement-shape-scan.py path/to/transcript.md
    ```
    Each `warn` finding (a `git diff|show|log ... -- <relative>` read with no
    `-C` anchor - the cwd-drift trap whose empty diff reads as "no changes") is a
