@@ -56,6 +56,7 @@ def bootstrap_expectations(script: str) -> tuple[set[str], set[str], set[str]]:
     volumes: set[str] = set()
     required: set[str] = set()
     optional: set[str] = set()
+    service = None
     section = None
     conditional = False
     for raw in m.group("body").splitlines():
@@ -66,9 +67,17 @@ def bootstrap_expectations(script: str) -> tuple[set[str], set[str], set[str]]:
             continue
         if not line or line.startswith("#"):
             continue
-        key = re.match(r"^(\w+):\s*$", line)
-        if key:
-            section = key.group(1)
+        indent = len(raw) - len(raw.lstrip(" "))
+        key = re.match(r"^([\w.-]+):", line)
+        if key and indent <= 2:
+            # Top-level keys and service names; only woodpecker-agent counts.
+            service = key.group(1) if indent == 2 else None
+            section = None
+            continue
+        if service != "woodpecker-agent":
+            continue
+        if key and indent == 4:
+            section = key.group(1) if line.endswith(":") else None
             continue
         item = re.match(r"^- (\S+)", line)
         if item and section == "volumes":
@@ -78,8 +87,6 @@ def bootstrap_expectations(script: str) -> tuple[set[str], set[str], set[str]]:
             (optional if conditional else required).add(name)
             if conditional and line.endswith("}"):
                 conditional = False
-        elif not raw.startswith("      "):
-            section = None
     return volumes, required, optional
 
 
@@ -133,3 +140,22 @@ def test_a_volume_added_only_to_the_bootstrap_is_reported():
     assert script != BOOTSTRAP.read_text()
     for target in TARGETS:
         assert drift(script, target.read_text()) == ["volume ./extra:/extra"]
+
+
+def test_a_sibling_service_in_the_heredoc_is_not_attributed_to_the_agent():
+    """A neighbour's volumes and env keys are not agent drift (counter-model review)."""
+    sibling = (
+        "  telemetry:\n"
+        "    image: example/telemetry\n"
+        "    volumes:\n"
+        "      - ./telemetry:/data\n"
+        "    environment:\n"
+        "      - TELEMETRY_ENABLED=1\n"
+    )
+    script = BOOTSTRAP.read_text().replace("    restart: unless-stopped\nEOF\n",
+                                           "    restart: unless-stopped\n" + sibling + "EOF\n")
+    assert script != BOOTSTRAP.read_text()
+    vols, required, _ = bootstrap_expectations(script)
+    assert "./telemetry:/data" not in vols and "TELEMETRY_ENABLED" not in required
+    for target in TARGETS:
+        assert drift(script, target.read_text()) == []
