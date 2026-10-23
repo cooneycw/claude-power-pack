@@ -33,8 +33,8 @@ here**. Before #783 that was true but written down nowhere an orchestrator could
 read before assigning; it was discovered when a worker refused.
 
 ```bash
-scripts/flow-driver-capability.sh list          # the whole matrix
-scripts/flow-driver-capability.sh show flow:auto
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-driver-capability.sh list          # the whole matrix
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-driver-capability.sh show flow:auto
 ```
 
 In a `/flow-wave`, register with `--driver flow:auto` so the roster records which
@@ -80,7 +80,7 @@ append a record via the fail-open capture helper (it never blocks the flow):
 - a **manual intervention / correction** the user had to make
 
 ```bash
-scripts/friction-log.sh --class <gate-failure|red-output|manual-intervention> \
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/friction-log.sh --class <gate-failure|red-output|manual-intervention> \
   --signal "<what happened>" --fix "<proposed fix, if obvious>" \
   --scope <local|portable> --run "flow:auto #$ISSUE_NUM" --step "<N/9 Name>" --outcome "<retried|worked-around|corrected>"
 ```
@@ -138,8 +138,8 @@ result. This rule applies to every flow helper in this file (see also Steps 4,
 number (and project, when `/flow-auto` was given a PROJECT arg):
 
 ```bash
-scripts/flow-start-resolve.sh 42 --session-cwd /home/user/Projects/my-repo
-scripts/flow-start-resolve.sh 42 my-project --session-cwd /home/user/Projects/my-repo
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-start-resolve.sh 42 --session-cwd /home/user/Projects/my-repo
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-start-resolve.sh 42 my-project --session-cwd /home/user/Projects/my-repo
 ```
 
 **Pass `--session-cwd` (issue #592).** The helper cannot observe the Claude
@@ -252,7 +252,7 @@ Before proceeding to Step 2, from INSIDE the worktree, run bare (literal
 values from the 1a contract):
 
 ```bash
-scripts/flow-start-resolve.sh --verify 42 issue-42-fix-login
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-start-resolve.sh --verify 42 issue-42-fix-login
 ```
 
 This enforces the moat every later step relies on: it fails
@@ -297,8 +297,8 @@ Run both, bare, on EVERY lane including `current-branch` and `resume`, before
 Step 2:
 
 ```bash
-scripts/flow-plan-record.py reconcile 42
-scripts/flow-plan-record.py read-issue 42
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-plan-record.py reconcile 42
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-plan-record.py read-issue 42
 ```
 
 - `reconcile` leaves the record at `docs/flow-runs/issue-<N>.md` as exactly the
@@ -364,15 +364,17 @@ Working from the worktree, analyze the issue and codebase to form an implementat
        echo "STOP: could not fetch issue #$ISSUE_NUM; not checking context against an empty body."
        exit 1
    fi
-   scripts/speckit-context.py check --body-file "$BODY_FILE" --root .
+   "${CPP_SKILL_DIR:-/dev/null}"/scripts/speckit-context.py check --body-file "$BODY_FILE" --root .
    ```
 
-   Helper resolution: `scripts/speckit-context.py` is the stable path
+   Helper resolution: `"${CPP_SKILL_DIR:-/dev/null}"/scripts/speckit-context.py` is the stable path
    (`/flow-repair` installs it). On exit 127 fall back to
    `${CLAUDE_PLUGIN_ROOT}/scripts/speckit-context.py`, else the CPP-checkout copy.
    Running inside a generated Codex skill, use the copy bundled in that skill's own
    `scripts/` directory - never a `scripts/` directory in the target project, which
-   has no reason to contain CPP tooling.
+   has no reason to contain CPP tooling. The generated skill renders it as
+   `${CPP_SKILL_DIR:-/dev/null}/scripts/<name>`, with `CPP_SKILL_DIR` the directory
+   holding that skill's `SKILL.md` (issue #1542).
 
    Act on `SPECKIT_CONTEXT_STATE`:
    - `current` - the cache matches its source. Read the **Reference source** named in
@@ -534,7 +536,7 @@ the #614 rule); the emitted `FLOW_LIVE_DRIVER_PATH:` line must name the run's
 worktree:
 
 ```bash
-scripts/flow-live-driver-guard.sh /path/to/worktree
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-live-driver-guard.sh /path/to/worktree
 ```
 
 - `FLOW_LIVE_DRIVER: clear` - proceed.
@@ -543,7 +545,7 @@ scripts/flow-live-driver-guard.sh /path/to/worktree
   ask the user before editing: another session is mid-implementation in this
   checkout. Editing now means two drivers fighting over one tree.
 - Confirm the claim is still ours if anything looks off:
-  `scripts/flow-worktree-claim.sh check .` - `FLOW_CLAIM: self` is the
+  `"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-worktree-claim.sh check .` - `FLOW_CLAIM: self` is the
   healthy answer; `held` means someone took the checkout over.
 
 **Early stale-base check (issue #473) - run BEFORE editing.** A sibling PR that
@@ -558,7 +560,7 @@ is DECLARED, never inferred from the Bash cwd, which drifts on any earlier
 #592 rule); the emitted `FLOW_STALE_PATH:` line must name the run's worktree:
 
 ```bash
-scripts/flow-stale-check.sh origin/main /path/to/worktree
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-stale-check.sh origin/main /path/to/worktree
 ```
 
 (Exit 127 - helper family not installed: fall back to
@@ -599,7 +601,7 @@ head-check all read only this run's section, so a prior run's approval does not
 approve this run's plan:
 
 ```bash
-scripts/flow-plan-record.py begin-run 42
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-plan-record.py begin-run 42
 cat >> "docs/flow-runs/issue-42.md" <<'RECORD'
 - Issue:             #42
 - Base SHA:          <SHA this plan was formed against>
@@ -629,7 +631,7 @@ step decides for itself - run `declare-salvage` with that commit's sha right
 after `begin-run`:
 
 ```bash
-scripts/flow-plan-record.py declare-salvage 42 <sha> --reason "<why>"
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-plan-record.py declare-salvage 42 <sha> --reason "<why>"
 ```
 
 Without this, Step 6's compliance check cannot see that commit (it is before
@@ -657,7 +659,7 @@ plan (issue #1267). For a generated `codex/skills/**` mirror, name its SOURCE
 the approval baseline (issues #1081, #1082):
 
 ```bash
-scripts/flow-plan-record.py approve 42
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-plan-record.py approve 42
 ```
 
 - exit 0 - `docs/flow-runs/issue-42.as-read.md` is written (the body as read,
@@ -687,7 +689,7 @@ but is written to the wrong tree. So, for every edit in this step:
   and did NOT leak into main. The guard makes the leak check verifiable -
   invoked with `--strict`, which BLOCKS on a leak signature (issue #576):
   ```bash
-  scripts/flow-worktree-guard.sh --strict
+  "${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-worktree-guard.sh --strict
   ```
   **Exit 3 is a STOP.** A leak means your edits are landing in the wrong tree, so
   every further edit compounds the damage and the worktree the rest of the flow
@@ -838,7 +840,7 @@ literal argument (declared, not inferred - issue #614) and check the emitted
 `FLOW_STALE_PATH:` names this run's worktree:
 
 ```bash
-scripts/flow-stale-check.sh origin/main /path/to/worktree
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-stale-check.sh origin/main /path/to/worktree
 ```
 
 ```bash
@@ -1029,7 +1031,7 @@ collapse" note above).
    order as every other flow helper (#581/#590):
 
    ```bash
-   CM_RECEIPT=scripts/counter-model-receipt.py
+   CM_RECEIPT="${CPP_SKILL_DIR:-/dev/null}"/scripts/counter-model-receipt.py
    [ -f "$CM_RECEIPT" ] || CM_RECEIPT="${CLAUDE_PLUGIN_ROOT}/scripts/counter-model-receipt.py"
    [ -f "$CM_RECEIPT" ] || CM_RECEIPT="$CPP_DIR/scripts/counter-model-receipt.py"
    [ -f "$CM_RECEIPT" ] || { echo "NOTE: counter-model-receipt.py not installed - \
@@ -1300,7 +1302,7 @@ collapse" note above).
    every merge re-gate. Invoke it BARE (#581 discipline):
 
    ```bash
-   scripts/flow-finish-gate.sh
+   "${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-finish-gate.sh
    ```
 
    (Exit 127 - helper not installed: fall back to
@@ -1357,7 +1359,7 @@ collapse" note above).
    no error, and a clean clone then lacks it). Invoke bare at the stable path
    (#581 discipline; on exit 127 skip it):
    ```bash
-   scripts/check-ignored-additions.sh
+   "${CPP_SKILL_DIR:-/dev/null}"/scripts/check-ignored-additions.sh
    ```
    **Exit 3 is a STOP** - in a linked worktree (every flow run) it blocks: the
    worktree was created clean from a tracked tree, so a non-scratch ignored file
@@ -1372,7 +1374,7 @@ collapse" note above).
    later by whoever works there next, and the commit about to be made here is
    missing that work). Invoke bare with `--strict` (#581 discipline):
    ```bash
-   scripts/flow-worktree-guard.sh --strict
+   "${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-worktree-guard.sh --strict
    ```
    **Exit 3 is a STOP** - do not commit. It reports a leak SIGNATURE, not proof of
    who wrote main's dirt (issue #1014): first read `git -C <main> diff -- <path>`
@@ -1416,7 +1418,7 @@ collapse" note above).
 
 6. **Check whether the issue moved under this run** (issue #1081):
    ```bash
-   scripts/flow-plan-record.py drift 42
+   "${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-plan-record.py drift 42
    ```
    - `ISSUE_DRIFT: clean` (exit 0) - the body digest is unchanged since Step 1.
    - `ISSUE_DRIFT: drift` (exit 3) - the body changed; the helper prints a diff of
@@ -1429,7 +1431,7 @@ collapse" note above).
 7. **Compare the diff against the approved plan** (issue #1082). It REPORTS; it
    never blocks:
    ```bash
-   scripts/flow-plan-record.py compliance 42
+   "${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-plan-record.py compliance 42
    ```
    The helper marks untracked files intent-to-add itself, so new files are
    compared; the base defaults to `git merge-base HEAD origin/main` (`--base <ref>`
@@ -1448,7 +1450,7 @@ collapse" note above).
 8. **Confirm the plan record reached the PR** (issue #1080). Skip this only when
    the run wrote no record (a `No longer needed` verdict has none):
    ```bash
-   scripts/flow-plan-record.py head-check 42
+   "${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-plan-record.py head-check 42
    ```
    - `FLOW_PLAN_RECORD: present` (exit 0) - proceed.
    - `FLOW_PLAN_RECORD: absent` (exit 1) - **STOP.** The record is not at the PR
@@ -1484,7 +1486,7 @@ nowhere to go.
 Resolve the repository's nit store with the shared resolver, bare:
 
 ```bash
-scripts/nit-store-resolve.sh
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/nit-store-resolve.sh
 ```
 
 It is the ONLY copy of the repository-to-issue map (#1272, #1273). It reads the
@@ -1612,7 +1614,7 @@ fill this step.
    ```
 
    ```bash
-   scripts/flow-finish-gate.sh
+   "${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-finish-gate.sh
    ```
 
    On `FLOW_FINISH_GATE: fail` (exit 1): **STOP** - the quality gate failed on
@@ -1638,7 +1640,7 @@ fill this step.
    a sibling merge can land is seconds rather than the whole CI run:
 
    ```bash
-   scripts/flow-ci-status.sh <pr-head-sha> --path /path/to/worktree --strict-event --wait 1800
+   "${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-ci-status.sh <pr-head-sha> --path /path/to/worktree --strict-event --wait 1800
    ```
 
    (`flow-ci-status.sh` derives the required lane from branch protection since
@@ -1670,7 +1672,7 @@ fill this step.
    `ExitWorktree` path is unaffected.
 
    ```bash
-   scripts/gh-pr-merge.sh 78 issue-42-fix-login
+   "${CPP_SKILL_DIR:-/dev/null}"/scripts/gh-pr-merge.sh 78 issue-42-fix-login
    ```
 
    If the stable path is missing (exit 127), resolve the plugin copy, then the
@@ -1686,7 +1688,7 @@ fill this step.
    PR_NUMBER=<literal>
    BRANCH=<literal>
    PIN_SHA=<pr-head-sha>   # the SAME literal the flow-ci-status.sh wait above was given; PIN_SHA= only for an unpinned merge
-   GH_PR_MERGE=scripts/gh-pr-merge.sh
+   GH_PR_MERGE="${CPP_SKILL_DIR:-/dev/null}"/scripts/gh-pr-merge.sh
    [ -x "$GH_PR_MERGE" ] || GH_PR_MERGE="${CLAUDE_PLUGIN_ROOT:-/nonexistent}/scripts/gh-pr-merge.sh"
    if [ ! -x "$GH_PR_MERGE" ]; then
        for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
@@ -1814,7 +1816,7 @@ fill this step.
    blocks):
 
    ```bash
-   scripts/flow-worktree-claim.sh release /path/to/worktree
+   "${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-worktree-claim.sh release /path/to/worktree
    ```
 
    It only releases a claim owned by THIS session (or an abandoned one); a
@@ -1840,7 +1842,7 @@ fill this step.
    main repo), invoke the removal helper BARE with the literal path (#581
    discipline):
    ```bash
-   scripts/worktree-remove.sh /path/to/worktree --force --delete-branch
+   "${CPP_SKILL_DIR:-/dev/null}"/scripts/worktree-remove.sh /path/to/worktree --force --delete-branch
    ```
    The helper checks the #597 claim before removing and **exits 4** when the
    worktree is claimed by another LIVE session, printing the owner. That is a
@@ -1927,8 +1929,8 @@ CLEANUP_REFUSED_MARKER="$CLEANUP_REFUSED_DIR/$(basename "$WORKTREE_PATH")"
 mkdir -p "$CLEANUP_REFUSED_DIR"
 rm -f "$CLEANUP_REFUSED_MARKER"   # only THIS worktree's entry; a sibling's survives
 cleanup_refused=0
-if [[ -x scripts/worktree-remove.sh ]]; then
-    scripts/worktree-remove.sh "$WORKTREE_PATH" --force --delete-branch
+if [[ -x "${CPP_SKILL_DIR:-/dev/null}"/scripts/worktree-remove.sh ]]; then
+    "${CPP_SKILL_DIR:-/dev/null}"/scripts/worktree-remove.sh "$WORKTREE_PATH" --force --delete-branch
 else
     # Refuse - and make the refusal LEGIBLE (issue #973). Three echoes to
     # stderr are not a channel the closing report consumes, so a refusal that
@@ -2032,7 +2034,7 @@ steps. Invoke it BARE with the literal SHA and checkout path (#581 discipline;
 the checkout is DECLARED, never inferred from the Bash cwd - the #614 rule):
 
 ```bash
-scripts/flow-ci-status.sh <merge-sha> --path /path/to/main/repo --wait
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-ci-status.sh <merge-sha> --path /path/to/main/repo --wait
 ```
 
 Do NOT hand-roll this with `curl`, `gh run list`, or - worst of all - a grep over

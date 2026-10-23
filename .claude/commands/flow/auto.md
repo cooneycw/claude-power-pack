@@ -370,7 +370,9 @@ Working from the worktree, analyze the issue and codebase to form an implementat
    `${CLAUDE_PLUGIN_ROOT}/scripts/speckit-context.py`, else the CPP-checkout copy.
    Running inside a generated Codex skill, use the copy bundled in that skill's own
    `scripts/` directory - never a `scripts/` directory in the target project, which
-   has no reason to contain CPP tooling.
+   has no reason to contain CPP tooling. The generated skill renders it as
+   `${CPP_SKILL_DIR:-/dev/null}/scripts/<name>`, with `CPP_SKILL_DIR` the directory
+   holding that skill's `SKILL.md` (issue #1542).
 
    Act on `SPECKIT_CONTEXT_STATE`:
    - `current` - the cache matches its source. Read the **Reference source** named in

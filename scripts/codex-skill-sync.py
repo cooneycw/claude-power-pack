@@ -194,10 +194,21 @@ ADAPTATIONS: list[tuple[tuple[str, ...], str]] = [
 ]
 
 BUNDLED_SCRIPTS_BULLET = (
-    "Helper scripts referenced as `scripts/<name>` are bundled under"
-    " `scripts/` in this skill directory (byte-identical copies from the"
-    " claude-power-pack checkout); some expect sibling repo resources, so"
-    " prefer a full checkout when one is available."
+    "Helper scripts are bundled under `scripts/` in this skill directory"
+    " (byte-identical copies from the claude-power-pack checkout). Commands run"
+    " them as `\"${CPP_SKILL_DIR:-/dev/null}\"/scripts/<name>`: `CPP_SKILL_DIR` is"
+    " the absolute directory containing THIS SKILL.md - the location the skills"
+    " catalog gives, with any alias such as `r0` expanded. A shell resolves a"
+    " bare `scripts/<name>` against your working directory (the target"
+    " project), never this skill, so substitute that directory, or set it in"
+    " the same command (`CPP_SKILL_DIR=/abs/skill/dir; ...`) - each command is"
+    " a fresh shell. \"Not a directory\" on `/dev/null/scripts/<name>` (exit 126,"
+    " or 127 in some shells) means `CPP_SKILL_DIR` is unset: set it and re-run;"
+    " never run the target project's own `scripts/<name>` in its place. A bare"
+    " `scripts/<name>` inside a command is a CPP-checkout operation that the"
+    " text says so about; in prose, `scripts/<name>` NAMES the bundled helper."
+    " Some helpers expect sibling repo resources, so prefer a full checkout"
+    " when one is available."
 )
 
 BUNDLED_DOCS_BULLET = (
@@ -554,43 +565,244 @@ def detect_adaptations(body: str) -> list[str]:
     ]
 
 
+#: THE SKILL-ANCHORED FORM every bundled-helper invocation is rendered in
+#: (issue #1542). `scripts/<name>` was rendered instead until #1542, on the
+#: theory that it reads as "skill-dir-relative, since the helper is bundled at
+#: that same relative path". It does not. A shell resolves a relative path
+#: against the agent's WORKING DIRECTORY, which in a Codex session is the TARGET
+#: worktree, never the skill. So `scripts/flow-finish-gate.sh` either 127s
+#: there or - measured on ff0bbdf9 - runs the target's OWN file of that name
+#: as the quality gate and reports it green.
+#:
+#: What Codex actually provides, measured on codex-cli 0.164.0 (2026-10-23):
+#: the system prompt gives the model each SKILL.md's absolute location (an
+#: alias such as `r0` with its root, e.g. `r0` = `/home/u/.codex/skills`) and
+#: tells it to "Resolve relative paths against the directory containing a
+#: filesystem-backed SKILL.md". The SHELL gets nothing: a live `codex exec`
+#: exported no skill-directory variable and not even CODEX_HOME, with pwd =
+#: the target. Skills also load from several roots (.agents/skills up to the
+#: repo root, ~/.agents/skills, /etc/codex/skills, ~/.codex/skills), so no
+#: fixed path is right either. The MODEL is the only party that knows the
+#: directory, so the rendered form makes it say so, as `CPP_SKILL_DIR`.
+#:
+#: UNSET FAILS CLOSED, and not by luck (orchestrator condition, #1542). The
+#: default is `/dev/null`, a character device: `/dev/null/scripts/<name>` is
+#: ENOTDIR on every host, and a container runtime mounts /dev itself, so no
+#: image a project controls can turn it into a directory holding a decoy. An
+#: absolute directory default (`/nonexistent`, or a bare `$CPP_SKILL_DIR`
+#: giving `/scripts`) is a path an image CAN create. Unset, a command reads
+#: "Not a directory" (bash exit 126) and never runs anything; a `[ -x ... ]`
+#: resolution chain reads false and falls through to its own refusal.
+SKILL_DIR_REF = "${CPP_SKILL_DIR:-/dev/null}"
+
+
+def _shell_quote_context(line_before: str) -> str:
+    """The shell quoting in force where `line_before` ends: `single`, `double`
+    or `none`. A `$(...)` opens a fresh unquoted context even inside `"..."`,
+    and a backslash escapes the next character outside single quotes. Counting
+    double quotes alone got both of those wrong (counter-model review, #1542).
+    """
+    stack: list[str] = []
+    i = 0
+    while i < len(line_before):
+        c = line_before[i]
+        top = stack[-1] if stack else ""
+        if top == "single":
+            if c == "'":
+                stack.pop()
+        elif c == "\\":
+            i += 1
+        elif c == "'" and top != "double":
+            stack.append("single")
+        elif c == '"':
+            if top == "double":
+                stack.pop()
+            else:
+                stack.append("double")
+        elif c == "$" and line_before[i + 1:i + 2] == "(":
+            stack.append("subst")
+            i += 1
+        elif c == ")" and top == "subst":
+            stack.pop()
+        i += 1
+    top = stack[-1] if stack else ""
+    return top if top in ("single", "double") else "none"
+
+
+def _anchored_ref(name: str, line_before: str) -> str:
+    """The skill-anchored form of `scripts/<name>`, quoted for the context it
+    lands in (counter-model review, #1542). Unquoted, a skill directory
+    containing a space splits the path and the shell runs whatever exists at
+    the truncated prefix, so the expansion is double-quoted - except inside an
+    open `"..."`, where an added quote would CLOSE that string and leave the
+    expansion bare, and inside `'...'`, where nothing expands at all, so the
+    single-quoted string is closed around it and reopened.
+    """
+    context = _shell_quote_context(line_before)
+    if context == "double":
+        return f"{SKILL_DIR_REF}/scripts/{name}"
+    if context == "single":
+        return f"'\"{SKILL_DIR_REF}\"'/scripts/{name}"
+    return f'"{SKILL_DIR_REF}"/scripts/{name}'
+
+
+#: A path ARGUMENT, not an invocation: the value of an option (`--files X`,
+#: `--granted=X`) or an item in a comma list. `flow-register`'s lane example
+#: passes `--files scripts/flow-wave-registry.sh,...` - the repository file a
+#: worker is editing - and anchoring it into the skill would make the lane name
+#: the installed helper instead (counter-model review, #1542).
+_PATH_ARGUMENT_CONTEXT = re.compile(r"(?:--[\w-]+[ =]['\"]?|,)$")
+
 #: `~/.claude/scripts/<name>` - the convenience-install absolute path a command
-#: document invokes a helper by (issue #1408, Nit Store #864). The RELATIVE
-#: form `scripts/<name>` already reads correctly unchanged in both the CPP
-#: checkout (repo-root-relative) and a generated skill (skill-dir-relative,
-#: since the helper is bundled at that same relative path) - which is exactly
-#: why `_SCRIPT_REF` needs no rewrite at all for that shape. The absolute form
-#: has no such luck: `~/.claude/scripts/` names a path that exists only on a
-#: host with the convenience install, never inside a generated skill, so it
-#: must become the relative form before anything downstream can see it as a
-#: dependency - it previously became nothing, and the Codex entry point hit
-#: exit 127.
+#: document invokes a helper by (issue #1408, Nit Store #864). It names a path
+#: that exists only on a host with the Claude-side install, so in a generated
+#: skill it is rendered in the skill-anchored form above.
 _ABS_CLAUDE_SCRIPT_REF = re.compile(r"~/\.claude/scripts/([A-Za-z0-9._-]+\.(?:sh|py))\b")
 
 
 #: NEGATIVE-CONTROL: controls/codex-skill-sync-remap
 def rewrite_absolute_script_refs(body: str) -> tuple[str, list[str]]:
-    """Rewrite `~/.claude/scripts/<name>` to `scripts/<name>` when `<name>` is
-    a real checkout script (so `find_bundled_scripts` bundles it exactly as it
-    already does for a relative reference - no second bundling path).
+    """Rewrite `~/.claude/scripts/<name>` to `${CPP_SKILL_DIR:-/dev/null}/scripts/<name>`
+    when `<name>` is a real checkout script. The rendered form still ends in
+    `scripts/<name>`, so `find_bundled_scripts` bundles it exactly as it does
+    any other reference - one bundling path, not two.
 
     Returns `(new_body, unremapped)`: `unremapped` names any `<name>` that is
     NOT a real checkout script, left untouched in the body rather than
-    rewritten to a relative path that would resolve to nothing bundled - a
-    typo'd or genuinely host-only name must be named as a gap, not silently
-    pointed at a file this generator never ships.
+    rewritten to a path that would resolve to nothing bundled - a typo'd or
+    genuinely host-only name must be named as a gap, not silently pointed at a
+    file this generator never ships.
     """
     unremapped: list[str] = []
 
     def repl(match: re.Match[str]) -> str:
         name = match.group(1)
         if (SCRIPTS_ROOT / name).is_file():
-            return f"scripts/{name}"
+            line_start = body.rfind("\n", 0, match.start()) + 1
+            return _anchored_ref(name, body[line_start:match.start()])
         unremapped.append(name)
         return match.group(0)
 
     new_body = _ABS_CLAUDE_SCRIPT_REF.sub(repl, body)
     return new_body, sorted(set(unremapped))
+
+
+#: A RELATIVE `scripts/<name>` that is not already anchored: the preceding
+#: character is not part of a path or a variable (`$CPP_DIR/scripts/x`,
+#: `"$dir/scripts/x"`, an already-rendered `.../dev/null}/scripts/x`). An
+#: explicit `./scripts/x` is relative to the working directory too, and is
+#: matched with its `./` (counter-model review, #1542).
+_BARE_RELATIVE_SCRIPT_REF = re.compile(r"(?<![\w/.~$}{:-])(?:\./)?scripts/([A-Za-z0-9._-]+\.(?:sh|py))\b")
+
+#: The relative `scripts/<name>` invocations that STAY cwd-relative in a
+#: generated skill, because their own source says they run against the CPP
+#: checkout (orchestrator condition, #1542). Everything else inside a code fence
+#: that names a real checkout script is rendered skill-anchored. DATA, not a
+#: comment: `tests/test_codex_skill_sync.py` fails when an entry stops matching
+#: a fenced line of its source, so an exception cannot outlive what it excused.
+#: Each entry: (source path, a substring of the fenced line, the source sentence
+#: that makes it CPP-only). Prose citations that only NAME a helper are out of
+#: scope - the SKILL.md bullet states the naming rule for them.
+#: Stored as (source, helper, line context with `{ref}` standing for the
+#: reference, the source sentence that makes it CPP-only). The reference is
+#: never spelled out here: this script is itself reachable from /cpp:update, and
+#: host-surface-check.py derives its population by reading every helper
+#: reference in reachable scripts, so a literal one in this TABLE would read as
+#: an invocation BY this script.
+CPP_CHECKOUT_RELATIVE_REFS: tuple[tuple[str, str, str, str], ...] = (
+    ("cpp/update.md", "mcp-drift.py", "{ref}", "the block opens `cd \"$CPP_DIR\"`"),
+    ("cpp/update.md", "friction-log.sh", "{ref}) writes into this", "a comment inside a CPP_DIR block"),
+    ("cpp/update.md", "commands-mirror-sync.sh", "{ref} --check", "/cpp:update operates on the checkout"),
+    ("cpp/update.md", "codex-skill-sync.py", "{ref} --install", "/cpp:update operates on the checkout"),
+    ("cpp/update.md", "install-memory-harness.sh", "{ref} ||", "/cpp:update operates on the checkout"),
+    ("cpp/update.md", "retired-surface-prune.py", "{ref} --check", "/cpp:update operates on the checkout"),
+    ("cpp/update.md", "install-drift.sh", "{ref} || true", "/cpp:update operates on the checkout"),
+    ("cpp/init.md", "cpp-commands-link.sh", "{ref}", "init links families from the checkout"),
+    ("cpp/init.md", "memories-db-setup.sh", "{ref} (idempotent)", "an echo naming a checkout script"),
+    ("flow/auto.md", "codex-skill-resync.sh", "{ref}", "`[ -x ]` KEEPS THIS CPP-ONLY"),
+    ("flow/finish.md", "codex-skill-resync.sh", "{ref}", "`[ -x ]` KEEPS THIS CPP-ONLY"),
+    ("flow/repair.md", "flow-helpers-install.sh", "{ref}", "**1. CPP checkout** - a source of truth, preferred"),
+    (
+        "flow/register.md",
+        "flow-wave-registry.sh",
+        "--granted '{ref}",
+        "lane path DATA in the CPP repo, not an invocation",
+    ),
+    ("flow/register.md", "flow-wave-registry.sh", "out of {ref},", "a PUSHBACK example naming a CPP repo path"),
+    ("flow/register.md", "flow-vantage.sh", "or {ref} in a CPP checkout", "or {ref} in a CPP checkout"),
+    (
+        "project/init.md",
+        "project-init.py",
+        "checkout with {ref} not found",
+        "an echo naming the claude-power-pack checkout",
+    ),
+)
+
+
+def _exception_needle(helper: str, context: str) -> str:
+    """The fenced-line substring an exception matches: its context with the
+    reference filled in (assembled here, never stored - see the table)."""
+    return context.replace("{ref}", "scripts" + "/" + helper)
+
+
+def is_cpp_checkout_ref(source_rel: str, line: str, name: str) -> bool:
+    """Whether THIS reference - `scripts/<name>` on `line` of `source_rel` - is
+    a listed CPP-checkout operation. Per reference, not per line: an exception
+    for `scripts/codex-skill-resync.sh` must not exempt a different helper that
+    shares its line (counter-model review, #1542)."""
+    return any(
+        src == source_rel and helper == name and _exception_needle(helper, context) in line
+        for src, helper, context, _reason in CPP_CHECKOUT_RELATIVE_REFS
+    )
+
+
+def rewrite_fenced_relative_script_refs(body: str, source_rel: str) -> str:
+    """Render fenced relative `scripts/<name>` invocations skill-anchored (#1542).
+
+    Only inside code fences, and only for real checkout scripts: those are the
+    lines someone RUNS. A line on the CPP-checkout exception list is left
+    cwd-relative, because its source says it runs against the checkout.
+    """
+    out: list[str] = []
+    in_fence = False
+    for line in body.split("\n"):
+        if line.strip().startswith("```"):
+            in_fence = not in_fence
+            out.append(line)
+            continue
+        if in_fence:
+            def anchor(m: re.Match[str], line: str = line) -> str:
+                before = line[:m.start()]
+                name = m.group(1)
+                if (not (SCRIPTS_ROOT / name).is_file()
+                        or _PATH_ARGUMENT_CONTEXT.search(before)
+                        or is_cpp_checkout_ref(source_rel, line, name)):
+                    return m.group(0)
+                return _anchored_ref(name, before)
+
+            line = _BARE_RELATIVE_SCRIPT_REF.sub(anchor, line)
+        out.append(line)
+    return "\n".join(out)
+
+
+def stale_cpp_checkout_exceptions() -> list[tuple[str, str, str, str]]:
+    """Exception entries that no longer match any fenced line of their source."""
+    stale = []
+    for entry in CPP_CHECKOUT_RELATIVE_REFS:
+        src, helper, context, _reason = entry
+        needle = _exception_needle(helper, context)
+        path = SOURCE_ROOT / src
+        fenced = []
+        in_fence = False
+        for line in (path.read_text().split("\n") if path.is_file() else []):
+            if line.strip().startswith("```"):
+                in_fence = not in_fence
+                continue
+            if in_fence:
+                fenced.append(line)
+        if not any(needle in line for line in fenced):
+            stale.append(entry)
+    return stale
 
 
 def unremapped_script_bullet(names: list[str]) -> str:
@@ -1562,6 +1774,10 @@ def generate_skill(
     # `scripts/<name>` reference, which is the ONLY shape that detector reads -
     # one bundling path, not two.
     body, unremapped_scripts = rewrite_absolute_script_refs(body)
+    body = rewrite_fenced_relative_script_refs(
+        body, source_file.relative_to(SOURCE_ROOT).as_posix()
+        if source_file.is_relative_to(SOURCE_ROOT) else source_file.name
+    )
     # Rewrite doc links BEFORE deriving the description: the description is cut
     # from the opening paragraphs, so a later rewrite leaves the broken
     # source-relative path advertised in the skill's own frontmatter.

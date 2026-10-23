@@ -27,7 +27,7 @@ the package is `lib/project_next/`, the contract is
 `tests/project_next/fixtures/`. It was vendored from codex-power-pack until
 #1069 and is not vendored from anywhere now. The executable CPP entry point is
 `scripts/project-next.py`; normal installations expose it as
-`scripts/project-next.py`. It is always present with this command, so
+`"${CPP_SKILL_DIR:-/dev/null}"/scripts/project-next.py`. It is always present with this command, so
 there is no sibling-checkout probe and no prompt-policy fallback.
 
 Read `lib/project_next/ownership.json` (it ships with the engine package, so a
@@ -72,7 +72,7 @@ Map the requested mode to exactly one of `--brief`, `--compact`, or `--full`,
 then run:
 
 ```bash
-python3 scripts/project-next.py "$TARGET" <mode>
+python3 "${CPP_SKILL_DIR:-/dev/null}"/scripts/project-next.py "$TARGET" <mode>
 ```
 
 Return that report without independently collecting issues or rebuilding its

@@ -18,7 +18,7 @@ bare first (fail-open; it releases only a claim owned by this session or an
 abandoned one):
 
 ```bash
-scripts/flow-worktree-claim.sh release /path/to/worktree
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-worktree-claim.sh release /path/to/worktree
 ```
 
 `worktree-remove.sh` does this itself, and **exits 4** rather than removing a
@@ -87,7 +87,7 @@ BARE as a separate call (#581 discipline - never fold it back into a compound
 block):
 
 ```bash
-scripts/flow-finish-gate.sh
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-finish-gate.sh
 ```
 
 On `FLOW_FINISH_GATE: fail` (exit 1): **STOP** - the quality gate failed on
@@ -131,7 +131,7 @@ is a backstop, not this decision.
 REQUIRED lane, then merge in the same breath:
 
 ```bash
-scripts/flow-ci-status.sh <pr-head-sha> --path "$(git rev-parse --show-toplevel)" --strict-event --wait 1800
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-ci-status.sh <pr-head-sha> --path "$(git rev-parse --show-toplevel)" --strict-event --wait 1800
 ```
 
 On `FLOW_CI_STATUS: success`, run the merge below at once - or pass
@@ -162,7 +162,7 @@ PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
 # the head pin. skillc#513 was closed by exactly that path, from a PR body that
 # said "Refs, not Closes: #513".
 PIN_SHA=<pr-head-sha>   # the SAME literal the flow-ci-status.sh wait above was given; PIN_SHA= only for an unpinned merge
-GH_PR_MERGE=scripts/gh-pr-merge.sh
+GH_PR_MERGE="${CPP_SKILL_DIR:-/dev/null}"/scripts/gh-pr-merge.sh
 [ -x "$GH_PR_MERGE" ] || GH_PR_MERGE="${CLAUDE_PLUGIN_ROOT:-/nonexistent}/scripts/gh-pr-merge.sh"
 if [ ! -x "$GH_PR_MERGE" ]; then
     for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
@@ -298,8 +298,8 @@ CLEANUP_REFUSED_MARKER="$CLEANUP_REFUSED_DIR/$(basename "$WORKTREE_PATH")"
 mkdir -p "$CLEANUP_REFUSED_DIR"
 rm -f "$CLEANUP_REFUSED_MARKER"   # only THIS worktree's entry; a sibling's survives
 cleanup_refused=0
-if [[ -x scripts/worktree-remove.sh ]]; then
-    scripts/worktree-remove.sh "$WORKTREE_PATH" --force --delete-branch
+if [[ -x "${CPP_SKILL_DIR:-/dev/null}"/scripts/worktree-remove.sh ]]; then
+    "${CPP_SKILL_DIR:-/dev/null}"/scripts/worktree-remove.sh "$WORKTREE_PATH" --force --delete-branch
 else
     # Refuse - and make the refusal LEGIBLE (issue #973). Three echoes to
     # stderr are not a channel the closing report consumes, so a refusal that
@@ -470,7 +470,7 @@ permission prompt, a gate failure/retry, red output you worked around, or a manu
 correction, record it immediately via the fail-open helper (it never blocks):
 
 ```bash
-scripts/friction-log.sh --class <permission-prompt|gate-failure|red-output|manual-intervention> \
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/friction-log.sh --class <permission-prompt|gate-failure|red-output|manual-intervention> \
   --signal "<what happened>" --run "flow:merge" --step "<N/9 Name>" --outcome "<...>"
 ```
 

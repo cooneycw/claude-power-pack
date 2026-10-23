@@ -55,7 +55,7 @@ first:
 
 - Register this session as the wave's orchestrator:
   ```bash
-  scripts/flow-wave-registry.sh register orchestrator --wave <WAVE> --repo <TARGET_REPO>
+  "${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-registry.sh register orchestrator --wave <WAVE> --repo <TARGET_REPO>
   ```
 - Each worker runs `/flow-register <role> --wave <WAVE>` - before or after the
   orchestrator exists. A worker that registers first reports
@@ -79,7 +79,7 @@ Then, on FIRST CONTACT in either direction, verify the observed address:
 On each hello (or reply), reconcile the observed `from=`:
 
 ```bash
-scripts/flow-wave-registry.sh verify <role> --wave <WAVE> --from <observed-address>
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-registry.sh verify <role> --wave <WAVE> --from <observed-address>
 ```
 
 Pass the `from=` value verbatim - it is an OPAQUE transport-stamped token, not a
@@ -101,7 +101,7 @@ never by `ListAgents` display names, which do not map to roles and mutate
 mid-session. Check the roster with:
 
 ```bash
-scripts/flow-wave-registry.sh list --wave <WAVE>
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-registry.sh list --wave <WAVE>
 ```
 
 ## Setup: the wave policy (consume #699, do not reimplement)
@@ -112,7 +112,7 @@ worker's `/clear` - the one thing the registry exists to survive. It is now
 declared data the registry inherits to every role:
 
 ```bash
-scripts/flow-wave-registry.sh policy set --wave <WAVE> \
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-registry.sh policy set --wave <WAVE> \
   --repo <TARGET_REPO> \
   --driver flow:auto \
   --authority implement \
@@ -234,7 +234,7 @@ instead of waiting for the next time somebody looks. Launch it as a **background
 tool call** - the Bash tool's `run_in_background: true`, never a trailing `&`:
 
 ```bash
-scripts/flow-wave-mailbox.sh watch --role orchestrator --wave <WAVE> --timeout 1800 --consume
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-mailbox.sh watch --role orchestrator --wave <WAVE> --timeout 1800 --consume
 ```
 
 **Why a session-owned background call, and not `supervise` (issue #1228).** The
@@ -278,7 +278,7 @@ it and re-arm.
 Verify with the counts, never the state word alone:
 
 ```bash
-scripts/flow-wave-mailbox.sh watch --status --role orchestrator --wave <WAVE>
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-mailbox.sh watch --status --role orchestrator --wave <WAVE>
 ```
 
 `FLOW_MAILBOX_WATCHER_COUNT=0` means nothing is polling, whatever the
@@ -302,7 +302,7 @@ wave brief, each ASSIGNMENT, each gate VERDICT with its conditions, and each
 re-plan notice that changes a worker's lane.
 
 ```bash
-scripts/flow-wave-mailbox.sh send --to <role> --wave <WAVE> --body-file <file>
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-mailbox.sh send --to <role> --wave <WAVE> --body-file <file>
 ```
 
 Sends append, so an assignment already waiting is never overwritten by the
@@ -393,7 +393,7 @@ exactly what a considered one prints. Two mechanisms make a token load-bearing:
 2. **A gate verdict is RECORDED by parsing it, never by hand:**
 
    ```bash
-   scripts/flow-wave-lexicon.sh record --wave <WAVE> --body-file <verdict-file>
+   "${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-lexicon.sh record --wave <WAVE> --body-file <verdict-file>
    ```
 
    This derives the #645 ledger entry from the token - ruling, `holds_behind`,
@@ -451,7 +451,7 @@ ruling and issues a new one cannot use.)
 Validate a draft before sending it (`validate` is read-only):
 
 ```bash
-scripts/flow-wave-lexicon.sh validate --body-file <file>
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-lexicon.sh validate --body-file <file>
 ```
 
 **What the lexicon must NOT cover: the reasoning.** The highest-value messages in
@@ -481,7 +481,7 @@ the escape when a prose line happens to open with a reserved word.
   if ! gh issue view "$N" --json body --jq .body > "$CUR"; then
       echo "STOP: could not fetch issue #$N; nothing was changed."
       status=1
-  elif scripts/speckit-context.py refresh --body-file "$CUR" \
+  elif "${CPP_SKILL_DIR:-/dev/null}"/scripts/speckit-context.py refresh --body-file "$CUR" \
            --tasks .specify/specs/<feature>/tasks.md --task T001 \
            --feature .specify/specs/<feature>/tasks.md --root . > "$NEW"; then
       gh issue edit "$N" --body-file "$NEW" || status=$?
@@ -525,7 +525,7 @@ Loop until every wave issue is merged or explicitly parked.
 
 ```bash
 gh issue list --state all --json number,title,body,state --limit 200 > /tmp/<scratch>/wave-issues.json
-scripts/flow-wave-plan.py /tmp/<scratch>/wave-issues.json --in-flight <N,N or ''> --verdicts "$XDG_RUNTIME_DIR/cc-flow-wave/<WAVE>/verdicts.json"
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-plan.py /tmp/<scratch>/wave-issues.json --in-flight <N,N or ''> --verdicts "$XDG_RUNTIME_DIR/cc-flow-wave/<WAVE>/verdicts.json"
 ```
 
 Pass `--in-flight` with the currently ASSIGNED issues (assignment state is
@@ -642,10 +642,10 @@ For each idle registered worker, pick the next startable issue subject to:
   Judge the fit explicitly when it is not obvious:
 
   ```bash
-  scripts/flow-driver-capability.sh check gemma:auto --needs web
+  "${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-driver-capability.sh check gemma:auto --needs web
   # FLOW_DRIVER_CHECK: mismatch   (exit 1, naming the need and why)
 
-  scripts/flow-driver-capability.sh check codex:auto --needs implementation,meta
+  "${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-driver-capability.sh check codex:auto --needs implementation,meta
   # FLOW_DRIVER_CHECK: mismatch   (a CPP-meta issue cannot run on a fenced lane)
   ```
 
@@ -724,7 +724,7 @@ enforces their state transitions. A worker or reviewer must not run
 `gh issue create` for a residual during an active wave. Record it instead:
 
 ```bash
-scripts/flow-wave-residuals.py record --wave <WAVE> \
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-residuals.py record --wave <WAVE> \
   --root-issue <ROOT_ISSUE> --source-issue <SOURCE_ISSUE> \
   --classification <current-issue-failure|active-pr-defect|pre-existing-oos|emergency|speculative|duplicate> \
   --consequence <TEXT> --evidence <TEXT> --generation <N> \
@@ -831,7 +831,7 @@ blocks until the pipeline is terminal and then exits, so the harness re-invokes
 you with the verdict, exactly like the mailbox watch:
 
 ```bash
-scripts/flow-pr-watch.sh <PR> --repo <owner/name> --baseline <wave-flake-baseline>
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-pr-watch.sh <PR> --repo <owner/name> --baseline <wave-flake-baseline>
 ```
 
 It returns one of `green` / `cancelled` / `flake` / `red`, because the three
@@ -861,7 +861,7 @@ checks, revalidate each recorded consequence and its reproducible evidence
 against that exact tree. Then freeze the ledger at the tested commit:
 
 ```bash
-scripts/flow-wave-residuals.py close --wave <WAVE> --at-commit <FINAL_SHA>
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-residuals.py close --wave <WAVE> --at-commit <FINAL_SHA>
 ```
 
 `close` is idempotent. Re-closing at a later final-tree commit revalidates the
@@ -871,7 +871,7 @@ final-tree evidence still reproduces. The human making the decision runs one
 promotion command for the one candidate they choose:
 
 ```bash
-scripts/flow-wave-residuals.py promote --wave <WAVE> \
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-residuals.py promote --wave <WAVE> \
   --candidate-id <ID> --approved-by <HUMAN_IDENTITY>
 ```
 
@@ -885,7 +885,7 @@ Every close summary takes its original seed count from the orchestrator, since
 the offline tool has no GitHub access:
 
 ```bash
-scripts/flow-wave-residuals.py metrics --wave <WAVE> --seed-count <N>
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-residuals.py metrics --wave <WAVE> --seed-count <N>
 ```
 
 Report all six returned fields: `seed_count`, `recorded`, `duplicates`,
@@ -903,8 +903,8 @@ acts on it: after one wave on cooneycw/kyle, 33 worktrees and 3.1G, 25 of them
 holding merged branches.
 
 ```bash
-scripts/flow-worktree-sweep.sh --repo "$MAIN_REPO"          # report
-scripts/flow-worktree-sweep.sh --repo "$MAIN_REPO" --apply  # remove
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-worktree-sweep.sh --repo "$MAIN_REPO"          # report
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-worktree-sweep.sh --repo "$MAIN_REPO" --apply  # remove
 ```
 
 Report the `FLOW_WORKTREE_SWEEP_COUNTS:` line in the wave close summary. Three

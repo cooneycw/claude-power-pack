@@ -6,5 +6,5 @@ description: fixture command
 Invoke it bare:
 
 ```bash
-~/.claude/scripts/flow-finish-gate.sh --check-summary
+~/.claude/scripts/flow-finish-gate.sh --no-such-flag
 ```

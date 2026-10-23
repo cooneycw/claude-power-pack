@@ -1053,15 +1053,18 @@ UNCONTROLLED_HELPER_PATHS = (Path("/opt/claude-power-pack/scripts/gh-pr-merge.sh
 
 
 def _run_merge_block(tmp_path: Path, rel: str, pr_body: str, *,
-                     helper_rc: int | None = None, pin: str = ""):
+                     helper_rc: int | None = None, pin: str = "",
+                     skill_dir_set: bool = True, cwd_decoy: bool = False):
     """Execute a surface's REAL merge block.
 
     With ``helper_rc`` None no helper is installed anywhere: HOME is empty,
     CLAUDE_PLUGIN_ROOT is unset and the cwd is a scratch dir, so every
     resolution step misses. With an int, a stub helper exiting that code is
     planted at the block's STABLE path - `~/.claude/scripts/` in a Claude
-    source, cwd-relative `scripts/` in a generated mirror (the #1408 rewrite,
-    #1542's subject) - and logs its argv. `gh` and `jq` are stubs on PATH;
+    source, `$CPP_SKILL_DIR/scripts/` in a generated mirror (#1542) - and logs
+    its argv. ``skill_dir_set`` False leaves CPP_SKILL_DIR unset in a mirror;
+    ``cwd_decoy`` plants a logging DECOY `scripts/gh-pr-merge.sh` in the cwd,
+    the target project's own file a cwd-relative path would have run. `gh` and `jq` are stubs on PATH;
     `gh` answers a PR whose body is ``pr_body`` and whose state stays OPEN, so
     the old fallback's MERGED check cannot pass either.
     """
@@ -1075,7 +1078,7 @@ def _run_merge_block(tmp_path: Path, rel: str, pr_body: str, *,
         if "~/.claude/scripts/gh-pr-merge.sh" in block:
             stable = home / ".claude" / "scripts"
         else:
-            stable = work / "scripts"
+            stable = tmp_path / "skill" / "scripts"
         stable.mkdir(parents=True)
         _write_stub(stable / "gh-pr-merge.sh",
                     f'printf "%s\\n" "$*" >> "{helper_log}"\nexit {helper_rc}\n')
@@ -1111,6 +1114,13 @@ def _run_merge_block(tmp_path: Path, rel: str, pr_body: str, *,
         "HOME": str(home),
         "PATH": f"{bindir}:/usr/bin:/bin",
     }
+    if skill_dir_set and "CPP_SKILL_DIR" in block:
+        env["CPP_SKILL_DIR"] = str(tmp_path / "skill")
+    decoy_log = tmp_path / "decoy.log"
+    if cwd_decoy:
+        (work / "scripts").mkdir()
+        _write_stub(work / "scripts" / "gh-pr-merge.sh",
+                    f'echo DECOY >> "{decoy_log}"\nexit 0\n')
     # PATH is REPLACED so the host's real gh cannot answer: assert the block's
     # `gh` is the logging stub, or a "zero merge calls" result proves nothing.
     assert shutil.which("gh", path=env["PATH"]) == str(bindir / "gh"), "fixture must resolve gh to the stub"
@@ -1120,6 +1130,8 @@ def _run_merge_block(tmp_path: Path, rel: str, pr_body: str, *,
     )
     calls = log.read_text().splitlines() if log.exists() else []
     helper_calls = helper_log.read_text().splitlines() if helper_log.exists() else []
+    if cwd_decoy:
+        helper_calls.append(f"DECOY-RAN={decoy_log.exists()}")
     return result, calls, helper_calls
 
 
@@ -1158,6 +1170,23 @@ def test_merge_block_unpinned_passes_no_pin_flag(tmp_path: Path, rel: str):
     result, _, helper_calls = _run_merge_block(tmp_path, rel, "Closes #513", helper_rc=0)
     assert helper_calls == ["42 issue-1543-fix"], (helper_calls, result.stderr)
     assert "MERGE_RC=0" in result.stdout
+
+
+MIRROR_SURFACES = tuple(s for s in MERGE_SURFACES if s.startswith("codex/skills/"))
+
+
+@pytest.mark.parametrize("rel", MIRROR_SURFACES)
+def test_mirror_merge_block_never_runs_the_targets_own_helper(tmp_path: Path, rel: str):
+    # #1542: before it, a mirror resolved the helper as cwd-relative
+    # `scripts/gh-pr-merge.sh`, so a target project shipping its own file of
+    # that name had IT run as the merge helper. With CPP_SKILL_DIR unset the
+    # skill-anchored path is ENOTDIR, the chain falls through, and the block
+    # refuses (MERGE_RC 12) - the decoy never runs.
+    result, calls, helper_calls = _run_merge_block(
+        tmp_path, rel, "Closes #513", skill_dir_set=False, cwd_decoy=True)
+    assert helper_calls == ["DECOY-RAN=False"], (helper_calls, result.stderr)
+    assert f"MERGE_RC={MISSING_HELPER_RC}" in result.stdout, result.stdout + result.stderr
+    assert [c for c in calls if c.startswith("gh pr merge")] == []
 
 
 def test_missing_helper_refusal_code_is_not_a_helper_exit_code():

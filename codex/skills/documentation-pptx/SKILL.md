@@ -9,7 +9,7 @@ description: "Create a PowerPoint presentation with optional diagrams"
 Generated from a Claude Code command. Where the procedure references these Claude-only surfaces, adapt as follows:
 
 - MCP tools: use the MCP servers configured in `~/.codex/config.toml`, or fall back to the referenced repo scripts and CLI entry points.
-- Helper scripts referenced as `scripts/<name>` are bundled under `scripts/` in this skill directory (byte-identical copies from the claude-power-pack checkout); some expect sibling repo resources, so prefer a full checkout when one is available.
+- Helper scripts are bundled under `scripts/` in this skill directory (byte-identical copies from the claude-power-pack checkout). Commands run them as `"${CPP_SKILL_DIR:-/dev/null}"/scripts/<name>`: `CPP_SKILL_DIR` is the absolute directory containing THIS SKILL.md - the location the skills catalog gives, with any alias such as `r0` expanded. A shell resolves a bare `scripts/<name>` against your working directory (the target project), never this skill, so substitute that directory, or set it in the same command (`CPP_SKILL_DIR=/abs/skill/dir; ...`) - each command is a fresh shell. "Not a directory" on `/dev/null/scripts/<name>` (exit 126, or 127 in some shells) means `CPP_SKILL_DIR` is unset: set it and re-run; never run the target project's own `scripts/<name>` in its place. A bare `scripts/<name>` inside a command is a CPP-checkout operation that the text says so about; in prose, `scripts/<name>` NAMES the bundled helper. Some helpers expect sibling repo resources, so prefer a full checkout when one is available.
 
 # PowerPoint Creation
 

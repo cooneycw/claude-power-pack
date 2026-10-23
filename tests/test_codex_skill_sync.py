@@ -2338,10 +2338,11 @@ def test_a_missing_provenance_note_fails_check(tmp_repo):
 
 # ---------------------------------------------------------------------------
 # Issue #1408 bullet 4: `~/.claude/scripts/<name>` (the convenience-install
-# absolute path) is remapped to the skill-relative `scripts/<name>` when
-# `<name>` is a real checkout script, so find_bundled_scripts bundles it
-# exactly as it already does for a relative reference - never a second
-# bundling path.
+# absolute path) is remapped when `<name>` is a real checkout script, so
+# find_bundled_scripts bundles it exactly as it already does for a relative
+# reference - never a second bundling path. Since #1542 the remapped form is
+# skill-ANCHORED (`${CPP_SKILL_DIR:-/dev/null}/scripts/<name>`), not the bare
+# `scripts/<name>` a shell resolves against the target worktree.
 # ---------------------------------------------------------------------------
 
 
@@ -2356,7 +2357,7 @@ def test_an_absolute_claude_scripts_path_is_remapped_and_bundled(tmp_repo):
     )
     body = files["SKILL.md"]
     assert "~/.claude/scripts/helper.sh" not in body, body
-    assert "scripts/helper.sh" in body, body
+    assert '"${CPP_SKILL_DIR:-/dev/null}"/scripts/helper.sh --check' in body, body
     assert "scripts/helper.sh" in files, "the remapped script must be bundled"
 
 
@@ -2909,3 +2910,269 @@ def test_description_uses_last_sentence_boundary_not_decimal(punctuation):
     description = first + second + " Then record more worker state" * 12
     assert len(description) > codex_skill_sync.DESCRIPTION_MAX
     assert codex_skill_sync.derive_description({"description": description}, "") == first + second
+
+
+# ---------------------------------------------------------------------------
+# Issue #1542: a generated skill's helper invocations resolve to the SKILL's
+# bundled copy, never to a file in the target worktree. A shell resolves a
+# bare `scripts/<name>` against the working directory - in a Codex session the
+# target project - so before #1542 the generated Step-6 gate call either
+# exited 127 there or ran the target's OWN `scripts/flow-finish-gate.sh` as
+# the quality gate and reported it green.
+# ---------------------------------------------------------------------------
+
+SKILLS_ROOT = ROOT / "codex" / "skills"
+GATE_LINE_RE = r"^\s*(\S*scripts/flow-finish-gate\.sh)\s*$"
+
+
+def _flow_auto_gate_command() -> str:
+    """The REAL generated Step-6 gate invocation, read from the committed mirror."""
+    import re
+
+    text = (SKILLS_ROOT / "flow-auto" / "reference.md").read_text(encoding="utf-8")
+    hits = re.findall(GATE_LINE_RE, text, re.M)
+    assert hits, "flow-auto's mirror carries no bare gate invocation line"
+    return hits[0]
+
+
+def _run_in_target(tmp_path: Path, command: str, *, skill_dir: str | None,
+                   decoy: bool = False) -> tuple[subprocess.CompletedProcess[str], Path]:
+    """Run ``command`` from a scratch TARGET worktree on an empty HOME.
+
+    No `~/.claude/scripts` exists, and the target has no `scripts/` unless
+    ``decoy`` plants a logging `scripts/flow-finish-gate.sh` - the target
+    project's own file of that name, which must never run.
+    """
+    home = tmp_path / "home"
+    target = tmp_path / "target"
+    home.mkdir()
+    target.mkdir()
+    decoy_log = tmp_path / "decoy.log"
+    if decoy:
+        (target / "scripts").mkdir()
+        gate = target / "scripts" / "flow-finish-gate.sh"
+        gate.write_text(f'#!/bin/sh\necho DECOY >> "{decoy_log}"\nexit 0\n')
+        gate.chmod(0o755)
+    assert not (home / ".claude" / "scripts").exists(), "precondition: no Claude-side install"
+    env = {"HOME": str(home), "PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+    if skill_dir is not None:
+        env["CPP_SKILL_DIR"] = skill_dir
+    result = subprocess.run(
+        ["bash", "-c", command + " --no-such-flag"], cwd=target, env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False,
+    )
+    return result, decoy_log
+
+
+def test_generated_gate_call_reaches_the_bundled_gate_from_a_scratch_target(tmp_path: Path):
+    # Red (1). On ff0bbdf9 the mirror line is bare `scripts/flow-finish-gate.sh`
+    # and this exits 127 "No such file or directory".
+    result, _ = _run_in_target(tmp_path, _flow_auto_gate_command(),
+                               skill_dir=str(SKILLS_ROOT / "flow-auto"))
+    assert result.returncode == 2, (result.returncode, result.stderr)
+    assert "flow-finish-gate: unknown argument: --no-such-flag" in result.stderr, result.stderr
+
+
+@pytest.mark.parametrize("skill_dir_set", [True, False])
+def test_generated_gate_call_never_runs_the_targets_own_gate(tmp_path: Path, skill_dir_set: bool):
+    # Red (2). On ff0bbdf9 the bare call ran the target's decoy gate and exited
+    # 0 - a green from the wrong instrument. Set or unset, the decoy never runs.
+    result, decoy_log = _run_in_target(
+        tmp_path, _flow_auto_gate_command(),
+        skill_dir=str(SKILLS_ROOT / "flow-auto") if skill_dir_set else None, decoy=True)
+    assert not decoy_log.exists(), "the target's own scripts/flow-finish-gate.sh ran"
+    assert result.returncode != 0, result.stderr
+
+
+def test_unset_skill_dir_fails_closed_on_dev_null_not_an_absolute_directory(tmp_path: Path):
+    # Orchestrator condition 1: unset must not depend on the host lacking
+    # /scripts. The default is /dev/null - a character device - so the path is
+    # ENOTDIR everywhere; a bare `$CPP_SKILL_DIR` would have meant `/scripts`.
+    assert codex_skill_sync.SKILL_DIR_REF == "${CPP_SKILL_DIR:-/dev/null}"
+    expanded = subprocess.run(
+        ["bash", "-c", f'printf %s "{codex_skill_sync.SKILL_DIR_REF}/scripts/x.sh"'],
+        env={"PATH": os.environ.get("PATH", "/usr/bin:/bin")},
+        stdout=subprocess.PIPE, text=True, check=True,
+    ).stdout
+    assert expanded == "/dev/null/scripts/x.sh", expanded
+    result, _ = _run_in_target(tmp_path, _flow_auto_gate_command(), skill_dir=None)
+    assert "Not a directory" in result.stderr, result.stderr
+    assert result.returncode in (126, 127), result.returncode
+
+
+def test_every_cpp_checkout_exception_still_matches_its_source():
+    # Condition 3: the cwd-relative exceptions are DATA. One that stops matching
+    # has outlived what it excused and must be re-derived, never kept.
+    assert codex_skill_sync.stale_cpp_checkout_exceptions() == []
+
+
+def _fenced_lines(text: str) -> list[str]:
+    lines, in_fence = [], False
+    for line in text.split("\n"):
+        if line.strip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            lines.append(line)
+    return lines
+
+
+def test_every_bare_fenced_helper_call_in_a_mirror_is_a_listed_cpp_checkout_exception():
+    # Condition 3, enforced on the OUTPUT: inside a code fence of any generated
+    # skill, a bare `scripts/<name>` naming a real checkout script survives only
+    # on a line its source lists as a CPP-checkout operation.
+    # An INDEPENDENT pattern, not the generator's own: a scan sharing the
+    # rewrite's regex inherits its blind spots (counter-model review, #1542 -
+    # `./scripts/<name>` was missed by both at once). A cwd-relative reference
+    # starts a shell word: after whitespace, an operator or an opening quote.
+    import re
+
+    bare = re.compile(r"""(?:^|[\s;&|(`'"])(?:\./)?scripts/([A-Za-z0-9._-]+\.(?:sh|py))\b""")
+    offenders = []
+    for skill in sorted(p for p in SKILLS_ROOT.iterdir() if p.is_dir()):
+        family, _, stem = skill.name.partition("-")
+        source_rel = f"{family}/{stem}.md"
+        for doc in ("SKILL.md", "reference.md"):
+            path = skill / doc
+            if not path.is_file():
+                continue
+            for line in _fenced_lines(path.read_text(encoding="utf-8")):
+                for m in bare.finditer(line):
+                    name = m.group(1)
+                    if not (ROOT / "scripts" / name).is_file():
+                        continue
+                    if re.search(r"(?:--[\w-]+[ =]|,)['\"]?(?:\./)?$", line[:m.start(1) - len("scripts/")]):
+                        continue  # a path ARGUMENT (lane data), not an invocation
+                    if codex_skill_sync.is_cpp_checkout_ref(source_rel, line, name):
+                        continue
+                    offenders.append(f"{skill.name}/{doc}: {line.strip()}")
+    assert offenders == [], "\n".join(offenders)
+
+
+def unbundled_anchored_refs(skills_root: Path) -> list[str]:
+    """Every rendered `${CPP_SKILL_DIR:-/dev/null}/scripts/<name>` whose <name>
+    is NOT bundled in that same skill's scripts/ - a 127 inside the skill dir."""
+    import re
+
+    anchored = re.compile(re.escape(codex_skill_sync.SKILL_DIR_REF) + r"\"?/scripts/([A-Za-z0-9._-]+\.(?:sh|py))")
+    missing = []
+    for skill in sorted(p for p in skills_root.iterdir() if p.is_dir()):
+        for doc in ("SKILL.md", "reference.md"):
+            path = skill / doc
+            if path.is_file():
+                for name in set(anchored.findall(path.read_text(encoding="utf-8"))):
+                    if not (skill / "scripts" / name).is_file():
+                        missing.append(f"{skill.name}: scripts/{name}")
+    return sorted(missing)
+
+
+def test_every_anchored_helper_reference_is_bundled_in_the_same_skill():
+    # Orchestrator's added condition: a rewrite to an unbundled path is a 127
+    # in the skill dir instead of the cwd. Scan every generated mirror.
+    total = sum(
+        (skill / doc).read_text(encoding="utf-8").count(codex_skill_sync.SKILL_DIR_REF)
+        for skill in SKILLS_ROOT.iterdir() if skill.is_dir()
+        for doc in ("SKILL.md", "reference.md") if (skill / doc).is_file()
+    )
+    assert total > 100, f"the scan read only {total} anchored references - nothing to check"
+    assert unbundled_anchored_refs(SKILLS_ROOT) == []
+
+
+def test_the_bundling_scan_goes_red_when_a_bundled_copy_is_deleted(tmp_path: Path):
+    # The deletion mutant for the scan above: copy one real skill, delete one
+    # helper its body runs, and the scan must name exactly that helper.
+    shutil.copytree(SKILLS_ROOT / "flow-wave", tmp_path / "flow-wave")
+    victim = tmp_path / "flow-wave" / "scripts" / "flow-wave-residuals.py"
+    assert victim.is_file(), "precondition: the helper is bundled before deletion"
+    victim.unlink()
+    assert unbundled_anchored_refs(tmp_path) == ["flow-wave: scripts/flow-wave-residuals.py"]
+
+
+def test_a_skill_dir_containing_a_space_still_reaches_the_bundled_gate(tmp_path: Path):
+    # Counter-model review, #1542: an unquoted expansion split an install path
+    # with a space and ran whatever existed at the truncated prefix.
+    skill = tmp_path / "My Skills" / "flow-auto"
+    shutil.copytree(SKILLS_ROOT / "flow-auto", skill)
+    result, _ = _run_in_target(tmp_path, _flow_auto_gate_command(), skill_dir=str(skill))
+    assert result.returncode == 2, (result.returncode, result.stderr)
+    assert "flow-finish-gate: unknown argument" in result.stderr, result.stderr
+
+
+def test_a_path_argument_is_not_anchored_but_the_invocation_on_its_line_is(tmp_repo):
+    # Counter-model review, #1542: `--files scripts/x` declares a REPOSITORY
+    # file for a lane; anchoring it would make the lane name the installed copy.
+    src = tmp_repo / ".claude" / "commands" / "qa"
+    (src / "test.md").write_text(
+        "---\ndescription: QA test\n---\n# QA Test\n\n```bash\n"
+        "scripts/helper.sh register --files scripts/helper.sh,tests/t.py --granted=scripts/helper.sh\n"
+        "```\n"
+    )
+    body = codex_skill_sync.generate_skill(
+        src / "test.md", "qa", codex_skill_sync.generated_names(["flow", "qa"]),
+    )["SKILL.md"]
+    line = next(ln for ln in body.splitlines() if "register --files" in ln)
+    assert line == ('"${CPP_SKILL_DIR:-/dev/null}"/scripts/helper.sh register '
+                    "--files scripts/helper.sh,tests/t.py --granted=scripts/helper.sh"), line
+
+
+def test_the_real_flow_register_lane_example_keeps_its_repository_paths():
+    text = (SKILLS_ROOT / "flow-register" / "reference.md").read_text(encoding="utf-8")
+    line = next(ln for ln in text.splitlines() if "register 1 --wave cpp --cwd" in ln)
+    assert line.strip().startswith('"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-registry.sh register'), line
+    assert "--files scripts/flow-wave-registry.sh," in line, line
+
+
+def _render_fenced(tmp_repo, line: str) -> str:
+    src = tmp_repo / ".claude" / "commands" / "qa"
+    (src / "test.md").write_text(
+        f"---\ndescription: QA test\n---\n# QA Test\n\n```bash\n{line}\n```\n"
+    )
+    body = codex_skill_sync.generate_skill(
+        src / "test.md", "qa", codex_skill_sync.generated_names(["flow", "qa"]),
+    )["SKILL.md"]
+    return next(ln for ln in body.splitlines() if "helper.sh" in ln and "```" not in ln
+                and not ln.startswith("-"))
+
+
+@pytest.mark.parametrize("source_line", [
+    "'scripts/helper.sh' --no-such-flag",
+    'out="$(scripts/helper.sh --no-such-flag)"; echo "$out"',
+    "./scripts/helper.sh --no-such-flag",
+    "scripts/helper.sh --no-such-flag",
+])
+def test_rendered_invocation_runs_the_bundled_copy_from_a_dir_with_a_space(tmp_repo, tmp_path, source_line):
+    # Counter-model review, #1542: quoting is decided by the shell context the
+    # reference lands in (single quotes, `$(...)` inside double quotes), and an
+    # explicit `./scripts/x` is cwd-relative too. Each rendered line must reach
+    # the skill's copy from a scratch cwd when the skill dir has a space in it.
+    (tmp_repo / "scripts" / "helper.sh").write_text("#!/bin/sh\necho BUNDLED-RAN\n")
+    rendered = _render_fenced(tmp_repo, source_line)
+    skill = tmp_path / "My Skills" / "qa-test"
+    (skill / "scripts").mkdir(parents=True)
+    helper = skill / "scripts" / "helper.sh"
+    helper.write_text("#!/bin/sh\necho BUNDLED-RAN\n")
+    helper.chmod(0o755)
+    target = tmp_path / "target"
+    (target / "scripts").mkdir(parents=True)
+    decoy = target / "scripts" / "helper.sh"
+    decoy.write_text("#!/bin/sh\necho DECOY-RAN\n")
+    decoy.chmod(0o755)
+    result = subprocess.run(
+        ["bash", "-c", rendered], cwd=target,
+        env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "CPP_SKILL_DIR": str(skill)},
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False,
+    )
+    assert "BUNDLED-RAN" in result.stdout, (rendered, result.stdout, result.stderr)
+    assert "DECOY-RAN" not in result.stdout, rendered
+
+
+def test_a_cpp_checkout_exception_does_not_exempt_another_helper_on_its_line(tmp_repo, monkeypatch):
+    # Counter-model review, #1542: exceptions apply per REFERENCE. An exempt
+    # checkout operation sharing a line with a bundled-helper call leaves only
+    # itself relative.
+    (tmp_repo / "scripts" / "resync.sh").write_text("#!/bin/sh\n")
+    monkeypatch.setattr(codex_skill_sync, "CPP_CHECKOUT_RELATIVE_REFS",
+                        (("qa/test.md", "resync.sh", "{ref}", "test exception"),))
+    rendered = _render_fenced(tmp_repo, "scripts/resync.sh && scripts/helper.sh --check")
+    assert rendered == 'scripts/resync.sh && "${CPP_SKILL_DIR:-/dev/null}"/scripts/helper.sh --check', rendered
+
