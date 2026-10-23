@@ -77,12 +77,9 @@ REFUSING_SURFACES = (
 # closed PR. This is the difference between an audited exclusion and a silent
 # one.
 JUSTIFIED_EXCLUSIONS = (
-    (
-        Path(".claude/commands/flow/merge.md"),
-        "# Inline fallback (helper not installed): same linked-worktree guard.",
-        "This fallback is for gh-pr-merge.sh, not worktree removal. It runs "
-        "`gh pr merge` and `git push origin --delete` and touches no local work.",
-    ),
+    # The merge.md "Inline fallback (helper not installed)" exclusion is gone
+    # with the fallback itself: #1543 replaced that raw `gh pr merge` with a
+    # refusal, so there is no longer anything here to excuse.
     (
         Path(".claude/commands/flow/merge.md"),
         'git branch -D "$BRANCH" 2>/dev/null || true',

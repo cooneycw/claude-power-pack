@@ -124,6 +124,10 @@ def _make_stubs(
     #: which is how every pre-#916 test keeps its byte-identical behaviour.
     pr_head_oid: str = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
     pr_head_ref_name: str = "issue-916-fix",
+    #: Issue #1543. A SEQUENCE of PR-head oids, one per headRefOid read, the
+    #: last repeating - so a head can match at one read and differ at a later
+    #: one. None keeps the constant ``pr_head_oid`` every test before #1543 uses.
+    pr_head_oid_seq: list[str] | None = None,
     #: What `git rev-parse --verify --quiet refs/heads/<branch>` answers: the
     #: LOCAL tip. Deliberately a different oid from ``pr_head_oid`` so that a
     #: helper recording the local tip is caught recording the WRONG commit,
@@ -269,6 +273,9 @@ def _make_stubs(
     call_log = tmp_path / "calls.log"
 
     # Persist the mergeability sequence + a counter the gh stub advances per poll.
+    head_seq_file = tmp_path / "head_seq"
+    head_ctr_file = tmp_path / "head_ctr"
+    head_seq_file.write_text("\n".join(pr_head_oid_seq or [pr_head_oid]) + "\n")
     seq_file = tmp_path / "mergeable_seq"
     ctr_file = tmp_path / "mergeable_ctr"
     vals = [mergeable] if isinstance(mergeable, str) else list(mergeable)
@@ -447,7 +454,12 @@ def _make_stubs(
         + '  elif [[ "$*" == *headRefOid* ]]; then\n'
         # Issue #916: `.headRefName + " " + .headRefOid` as the helper's --jq
         # renders it. An empty oid models an unreadable head.
-        f'    echo "{pr_head_ref_name} {pr_head_oid}"\n'
+        f'    hctr=$(cat "{head_ctr_file}" 2>/dev/null || echo 0)\n'
+        f'    mapfile -t heads < "{head_seq_file}"\n'
+        "    hidx=$hctr\n"
+        "    if (( hidx >= ${#heads[@]} )); then hidx=$(( ${#heads[@]} - 1 )); fi\n"
+        f'    echo "{pr_head_ref_name} ${{heads[$hidx]}}"\n'
+        f'    echo $(( hctr + 1 )) > "{head_ctr_file}"\n'
         '  elif [[ "$*" == *mergeCommit* ]]; then\n'
         f'    echo "{merge_commit}"\n'
         '  elif [[ "$*" == *"--json files"* ]]; then\n'
@@ -979,15 +991,319 @@ def test_other_merge_failure_does_not_retry(tmp_path: Path):
     assert len(merge_calls) == 1, merge_calls
 
 
+#: Every surface that documents the merge step, Claude sources and their
+#: generated Codex mirrors alike (issue #1543): a mirror that kept the old
+#: fallback would be the same silent close in a Codex lane.
+MERGE_SURFACES = (
+    ".claude/commands/flow/auto.md",
+    ".claude/commands/flow/merge.md",
+    "codex/skills/flow-auto/reference.md",
+    "codex/skills/flow-merge/reference.md",
+)
+
+#: The MERGE_RC a surface sets when no copy of the helper resolves (#1543).
+#: Distinct from every exit code the helper itself emits - see
+#: test_missing_helper_refusal_code_is_not_a_helper_exit_code.
+MISSING_HELPER_RC = 12
+
+FALLBACK_MARKER = "<!-- merge-helper-resolution -->"
+
+
+def _merge_block(rel: str) -> str:
+    """The bash fence that follows the merge-helper resolution marker."""
+    text = (ROOT / rel).read_text(encoding="utf-8")
+    assert FALLBACK_MARKER in text, f"{rel} has no {FALLBACK_MARKER} merge block"
+    after = text.split(FALLBACK_MARKER, 1)[1]
+    match = re.search(r"```bash\n(.*?)\n\s*```", after, re.S)
+    assert match, f"{rel}: no bash fence after {FALLBACK_MARKER}"
+    return match.group(1)
+
+
 def test_flow_commands_wire_the_helper():
-    # Both merge surfaces must call the guard (helper preferred, inline fallback),
-    # not the raw `gh pr merge --squash --delete-branch` that trips #461.
-    for rel in (".claude/commands/flow/auto.md", ".claude/commands/flow/merge.md"):
+    # Both merge surfaces, and both generated mirrors, must merge ONLY through
+    # the helper. Before #1543 the missing-helper branch was a plain
+    # `gh pr merge --squash`, which skips every close-keyword guard (#726,
+    # #794) and every base, review and head guard with them: skillc#513 was
+    # closed by a PR body that said "Refs, not Closes: #513".
+    for rel in MERGE_SURFACES:
         text = (ROOT / rel).read_text(encoding="utf-8")
         assert "gh-pr-merge.sh" in text, f"{rel} must reference the merge helper"
-        # The inline fallback keeps the linked-worktree guard even without the helper.
-        assert "git push origin --delete" in text, f"{rel} missing remote-branch delete fallback"
-        assert "MERGED" in text, f"{rel} must verify PR state, not just the exit code"
+        block = _merge_block(rel)
+        raw = [ln for ln in block.splitlines()
+               if re.match(r"\s*gh\s+pr\s+merge\b", ln)]
+        assert raw == [], f"{rel}: the merge block still runs a raw merge: {raw}"
+        assert re.search(r"/flow[:-]repair", block), f"{rel}: refusal must name /flow:repair"
+        assert f"MERGE_RC={MISSING_HELPER_RC}" in block, (
+            f"{rel}: a missing helper must set MERGE_RC={MISSING_HELPER_RC}"
+        )
+        assert "--match-head-commit" in text, f"{rel} must document the head pin"
+        # The pin is the CALLER's literal - the same <pr-head-sha> the CI wait
+        # was given - never a value the block assigns itself: a block that set
+        # PIN_SHA="" would drop every pin while the forwarding test, which
+        # substitutes this placeholder, still passed (counter-model review).
+        pins = re.findall(r"^\s*PIN_SHA=(.*?)(?:\s+#.*)?$", block, re.M)
+        assert pins == ["<pr-head-sha>"], f"{rel}: PIN_SHA must be the caller's literal: {pins}"
+        assert re.search(r"\b11\b.*CLEAN STOP|exit 11", text), f"{rel} must document exit 11"
+
+
+#: Candidate helper locations the merge block probes that a test cannot
+#: redirect: absolute paths outside the fixture. Every other candidate resolves
+#: under the fixture's HOME or cwd.
+UNCONTROLLED_HELPER_PATHS = (Path("/opt/claude-power-pack/scripts/gh-pr-merge.sh"),)
+
+
+def _run_merge_block(tmp_path: Path, rel: str, pr_body: str, *,
+                     helper_rc: int | None = None, pin: str = ""):
+    """Execute a surface's REAL merge block.
+
+    With ``helper_rc`` None no helper is installed anywhere: HOME is empty,
+    CLAUDE_PLUGIN_ROOT is unset and the cwd is a scratch dir, so every
+    resolution step misses. With an int, a stub helper exiting that code is
+    planted at the block's STABLE path - `~/.claude/scripts/` in a Claude
+    source, cwd-relative `scripts/` in a generated mirror (the #1408 rewrite,
+    #1542's subject) - and logs its argv. `gh` and `jq` are stubs on PATH;
+    `gh` answers a PR whose body is ``pr_body`` and whose state stays OPEN, so
+    the old fallback's MERGED check cannot pass either.
+    """
+    home = tmp_path / "home"
+    home.mkdir()
+    work = tmp_path / "work"
+    work.mkdir()
+    block = _merge_block(rel)
+    helper_log = tmp_path / "helper-argv.log"
+    if helper_rc is not None:
+        if "~/.claude/scripts/gh-pr-merge.sh" in block:
+            stable = home / ".claude" / "scripts"
+        else:
+            stable = work / "scripts"
+        stable.mkdir(parents=True)
+        _write_stub(stable / "gh-pr-merge.sh",
+                    f'printf "%s\\n" "$*" >> "{helper_log}"\nexit {helper_rc}\n')
+    else:
+        # The NEGATIVE condition this fixture constructs - no helper anywhere -
+        # must hold before it is exercised: a real install at a path the
+        # fixture cannot redirect would turn the refusal case into a run of
+        # the real helper (counter-model review, #1543).
+        live = [str(c) for c in UNCONTROLLED_HELPER_PATHS if os.access(c, os.X_OK)]
+        assert live == [], f"precondition: a real helper is installed at {live}"
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    log = tmp_path / "gh-calls.log"
+    (tmp_path / "body.txt").write_text(pr_body)
+    _write_stub(
+        bindir / "gh",
+        f'echo "gh $*" >> "{log}"\n'
+        'if [[ "$1 $2" == "pr view" && "$*" == *body* ]]; then cat "'
+        + str(tmp_path / "body.txt") + '"; exit 0; fi\n'
+        'if [[ "$1 $2" == "pr view" ]]; then echo OPEN; exit 0; fi\n'
+        "exit 0\n",
+    )
+    _write_stub(bindir / "jq", "echo 42\n")
+    block = (block.replace("PR_NUMBER=<literal>", "PR_NUMBER=42")
+             .replace("BRANCH=<literal>", "BRANCH=issue-1543-fix")).replace("PIN_SHA=<pr-head-sha>", f'PIN_SHA="{pin}"')
+    script = (
+        'PR_JSON=\'{"number": 42}\'\n'
+        "BRANCH=issue-1543-fix\n"
+        + block
+        + '\necho "MERGE_RC=${MERGE_RC:-$?}"\n'
+    )
+    env = {
+        "HOME": str(home),
+        "PATH": f"{bindir}:/usr/bin:/bin",
+    }
+    # PATH is REPLACED so the host's real gh cannot answer: assert the block's
+    # `gh` is the logging stub, or a "zero merge calls" result proves nothing.
+    assert shutil.which("gh", path=env["PATH"]) == str(bindir / "gh"), "fixture must resolve gh to the stub"
+    result = subprocess.run(
+        ["bash", "-c", script], cwd=work, env=env, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+    )
+    calls = log.read_text().splitlines() if log.exists() else []
+    helper_calls = helper_log.read_text().splitlines() if helper_log.exists() else []
+    return result, calls, helper_calls
+
+
+@pytest.mark.parametrize("rel", MERGE_SURFACES)
+def test_missing_helper_refuses_skillc_515_body_before_any_squash(tmp_path: Path, rel: str):
+    # The skillc#515 shape: GitHub read "Closes: #513" inside a disclaimer and
+    # closed #513 two seconds after the squash (#1543). With no helper
+    # resolvable the merge block must REFUSE - zero `gh pr merge` calls - and
+    # say so with the distinct refusal code, never merge unguarded.
+    body = "That is why this says Refs, not Closes: #513 stays open."
+    result, calls, _ = _run_merge_block(tmp_path, rel, body)
+    merges = [c for c in calls if c.startswith("gh pr merge")]
+    assert merges == [], f"{rel}: merged with no helper: {merges}\n{result.stderr}"
+    assert f"MERGE_RC={MISSING_HELPER_RC}" in result.stdout, result.stdout + result.stderr
+    assert re.search(r"/flow[:-]repair", result.stderr), result.stderr
+
+
+@pytest.mark.parametrize("rel", MERGE_SURFACES)
+def test_merge_block_runs_the_resolved_helper_with_the_pin(tmp_path: Path, rel: str):
+    # The positive control for the refusal above: the SAME block, with a helper
+    # at its stable path, invokes that helper - and forwards the pinned sha the
+    # CI wait verified, so resolving through this block never drops the pin
+    # (counter-model review, #1543). The stub exits 5, so MERGE_RC must carry
+    # the helper's own verdict, never the refusal code.
+    pin = "0123456789abcdef0123456789abcdef01234567"
+    result, calls, helper_calls = _run_merge_block(
+        tmp_path, rel, "Closes #513", helper_rc=5, pin=pin)
+    assert helper_calls == [f"--match-head-commit {pin} 42 issue-1543-fix"], (
+        helper_calls, result.stderr)
+    assert "MERGE_RC=5" in result.stdout, result.stdout + result.stderr
+    assert [c for c in calls if c.startswith("gh pr merge")] == []
+
+
+@pytest.mark.parametrize("rel", MERGE_SURFACES)
+def test_merge_block_unpinned_passes_no_pin_flag(tmp_path: Path, rel: str):
+    result, _, helper_calls = _run_merge_block(tmp_path, rel, "Closes #513", helper_rc=0)
+    assert helper_calls == ["42 issue-1543-fix"], (helper_calls, result.stderr)
+    assert "MERGE_RC=0" in result.stdout
+
+
+def test_missing_helper_refusal_code_is_not_a_helper_exit_code():
+    # The refusal must never read as one of the helper's own verdicts - above
+    # all not as exit 3, the review HANDOFF (orchestrator condition, #1543).
+    text = SCRIPT.read_text(encoding="utf-8")
+    helper_codes = {int(c) for c in re.findall(r"\bexit (\d+)\b", text)}
+    assert 3 in helper_codes and 11 in helper_codes, helper_codes  # the scan reads real codes
+    assert MISSING_HELPER_RC not in helper_codes, helper_codes
+    assert MISSING_HELPER_RC != 127
+
+
+def test_skillc_515_body_through_the_helper_is_a_clean_stop(tmp_path: Path):
+    # The other half of #1543's evidence: the helper itself refuses that body.
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        pr_title="feat: calibration preflight (Refs #513)",
+        pr_body="That is why this says Refs, not Closes: #513 stays open.",
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1543-fix")
+    assert result.returncode == 5, result.stderr
+    assert [c for c in _calls(stubs) if c.startswith("gh pr merge")] == []
+
+
+PINNED = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"  # the stub's default PR head
+
+
+def test_match_head_commit_is_passed_to_the_squash(tmp_path: Path):
+    stubs = _make_stubs(tmp_path, merge_exit=0, pr_state="MERGED")
+    result = _run(_linked_worktree(tmp_path), stubs,
+                  "--match-head-commit", PINNED, "42", "issue-1543-fix")
+    assert result.returncode == 0, result.stderr
+    merges = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert len(merges) == 1, merges
+    assert f"--match-head-commit {PINNED}" in merges[0]
+    assert "GH_PR_MERGE_HEAD_PIN: 0" in result.stdout
+
+
+def test_match_head_commit_equals_form_and_admin_retry_carry_the_pin(tmp_path: Path):
+    # Every `gh pr merge` the helper makes carries the pin - including the
+    # #517 admin retry, which goes through the same BASE_FLAGS.
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        viewer_permission="ADMIN",
+        merge_outcomes=[(1, "failed: protected branch rule"), (0, "")],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "--allow-admin-retry",
+                  f"--match-head-commit={PINNED}", "42", "issue-1543-fix")
+    merges = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert len(merges) == 2, (merges, result.stderr)
+    assert "--admin" in merges[1]
+    assert all(f"--match-head-commit {PINNED}" in m for m in merges), merges
+
+
+def test_head_moved_after_ci_refuses_the_squash(tmp_path: Path):
+    # The #1543 comment's red: the PR head is no longer the commit CI verified.
+    # Before the pin existed this merged; now it is CLEAN STOP exit 11, with no
+    # squash attempted.
+    stubs = _make_stubs(tmp_path, merge_exit=0, pr_state="MERGED")
+    verified = "0123456789abcdef0123456789abcdef01234567"
+    result = _run(_linked_worktree(tmp_path), stubs,
+                  "--match-head-commit", verified, "42", "issue-1543-fix")
+    assert result.returncode == 11, result.stderr
+    assert "CLEAN STOP" in result.stderr
+    assert f"GH_PR_MERGE_HEAD_PIN: {verified} -> {PINNED}" in result.stdout
+    assert [c for c in _calls(stubs) if c.startswith("gh pr merge")] == []
+
+
+def test_server_side_head_rejection_is_never_retried_or_escalated(tmp_path: Path):
+    # The head moved in the last instant, after the helper's own re-read:
+    # GitHub refuses the pinned squash. One attempt, no #502 retry, and no
+    # #517 --admin retry even for an admin who allowed one.
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        viewer_permission="ADMIN",
+        merge_outcomes=[(1, "GraphQL: Head branch was modified. Review and try the merge again. (mergePullRequest)")],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "--allow-admin-retry",
+                  "--match-head-commit", PINNED, "42", "issue-1543-fix")
+    merges = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert len(merges) == 1, merges
+    assert "--admin" not in merges[0]
+    assert result.returncode == 11, result.stderr
+
+
+def test_head_rejection_on_the_admin_retry_is_exit_11(tmp_path: Path):
+    # The first squash hits an administrative protection rule, the allowed
+    # admin retry then meets a moved head. That must still end as the exit-11
+    # clean stop, not a generic exit 1 (counter-model review, #1543).
+    stubs = _make_stubs(
+        tmp_path,
+        pr_state="OPEN",
+        viewer_permission="ADMIN",
+        merge_outcomes=[
+            (1, "failed: protected branch rule"),
+            (1, "GraphQL: Head branch was modified. Review and try the merge again. (mergePullRequest)"),
+        ],
+    )
+    result = _run(_linked_worktree(tmp_path), stubs, "--allow-admin-retry",
+                  "--match-head-commit", PINNED, "42", "issue-1543-fix")
+    merges = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert len(merges) == 2 and "--admin" in merges[1], merges
+    assert result.returncode == 11, result.stderr
+    assert "GH_PR_MERGE_HEAD_PIN: server-rejected" in result.stdout
+
+
+def test_head_matching_at_the_wait_but_moved_before_the_squash_refuses(tmp_path: Path):
+    # The pre-squash read is a SECOND, independent check: the head is the
+    # pinned sha when the check wait starts and has moved by the squash.
+    moved = "fedcba9876543210fedcba9876543210fedcba98"
+    # Three reads before the move: the #1262 local-divergence check reads the
+    # head first, then the pre-wait pin check. If that count ever changes,
+    # the marker assertion below fails loudly - it cannot pass by accident.
+    stubs = _make_stubs(tmp_path, merge_exit=0, pr_state="MERGED",
+                        pr_head_oid_seq=[PINNED, PINNED, moved])
+    result = _run(_linked_worktree(tmp_path), stubs,
+                  "--match-head-commit", PINNED, "42", "issue-1543-fix")
+    pins = [ln for ln in result.stdout.splitlines() if ln.startswith("GH_PR_MERGE_HEAD_PIN:")]
+    assert pins == ["GH_PR_MERGE_HEAD_PIN: 0", f"GH_PR_MERGE_HEAD_PIN: {PINNED} -> {moved}"], (
+        pins, result.stderr)
+    assert result.returncode == 11, result.stderr
+    assert [c for c in _calls(stubs) if c.startswith("gh pr merge")] == []
+
+
+def test_unreadable_head_is_skipped_never_matched(tmp_path: Path):
+    # An unreadable head fails open to the server-side pin, and says so: the
+    # marker is `skipped`, never `0`, and the flag still reaches the squash.
+    stubs = _make_stubs(tmp_path, merge_exit=0, pr_state="MERGED", pr_head_oid="")
+    result = _run(_linked_worktree(tmp_path), stubs,
+                  "--match-head-commit", PINNED, "42", "issue-1543-fix")
+    assert "GH_PR_MERGE_HEAD_PIN: 0" not in result.stdout
+    assert "GH_PR_MERGE_HEAD_PIN: skipped" in result.stdout
+    merges = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
+    assert len(merges) == 1 and f"--match-head-commit {PINNED}" in merges[0], merges
+
+
+@pytest.mark.parametrize("bad", ["", "abc123", "Z" * 40, PINNED + "0"])
+def test_match_head_commit_rejects_a_malformed_sha(tmp_path: Path, bad: str):
+    stubs = _make_stubs(tmp_path, merge_exit=0, pr_state="MERGED")
+    result = _run(_linked_worktree(tmp_path), stubs,
+                  f"--match-head-commit={bad}", "42", "issue-1543-fix")
+    assert result.returncode == 2, result.stderr
+    assert [c for c in _calls(stubs) if c.startswith("gh pr merge")] == []
 
 
 # The stderr GitHub returns when branch protection blocks a merge (issue #517):

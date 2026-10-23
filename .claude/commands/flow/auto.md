@@ -1643,7 +1643,12 @@ fill this step.
    #1262; read `FLOW_CI_EVENT`. `--strict-event` makes that lane a FILTER for
    this recipe: a green pipeline on the other lane must not end the wait, so an
    absent required-lane pipeline stays `not-found` and the wait continues.) On
-   `success`, invoke the merge helper at once.
+   `success`, invoke the merge helper at once, PINNED to the sha that wait
+   was keyed on (issue #1543): pass `--match-head-commit <pr-head-sha>`, so a
+   push that lands between the green and the squash is refused (exit 11)
+   instead of merged unverified. The pin rides on the helper, never on a plain
+   `gh pr merge --match-head-commit`. Going around the helper to get the pin
+   is how skillc#513 lost every close-keyword guard.
    Alternatively pass `--wait-ci[=SECS]` to the helper itself, which makes its
    required-check wait a deadline instead of the default 60 x 10s. The helper
    re-reads the base immediately before squashing either way. Updating the
@@ -1666,20 +1671,52 @@ fill this step.
    ~/.claude/scripts/gh-pr-merge.sh 78 issue-42-fix-login
    ```
 
-   If the helper is not installed (exit 127), use the inline fallback - same
-   linked-worktree guard:
+   If the stable path is missing (exit 127), resolve the plugin copy, then the
+   CPP-checkout copy, the same order as every other flow helper. If none
+   exists, **REFUSE**. There is no raw-merge fallback (issue #1543). The block
+   this replaced was a plain `gh pr merge --squash`. It skipped every guard
+   the helper runs: the close-keyword guards (#726, #794), the base checks
+   (#767, #810, #1300), the review handoff (#579), local divergence (#1262)
+   and the head pin. That is the path that closed skillc#513 from a PR body
+   saying "Refs, not Closes: #513".
+   <!-- merge-helper-resolution -->
    ```bash
    PR_NUMBER=<literal>
    BRANCH=<literal>
-   if [[ -f ".git" ]]; then
-       gh pr merge "$PR_NUMBER" --squash
-       git push origin --delete "$BRANCH" >/dev/null 2>&1 || true
-   else
-       gh pr merge "$PR_NUMBER" --squash --delete-branch
+   PIN_SHA=<pr-head-sha>   # the SAME literal the flow-ci-status.sh wait above was given; PIN_SHA= only for an unpinned merge
+   GH_PR_MERGE=~/.claude/scripts/gh-pr-merge.sh
+   [ -x "$GH_PR_MERGE" ] || GH_PR_MERGE="${CLAUDE_PLUGIN_ROOT:-/nonexistent}/scripts/gh-pr-merge.sh"
+   if [ ! -x "$GH_PR_MERGE" ]; then
+       for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+           if [ -x "$dir/scripts/gh-pr-merge.sh" ] && [ -f "$dir/CLAUDE.md" ]; then
+               GH_PR_MERGE="$dir/scripts/gh-pr-merge.sh"
+               break
+           fi
+       done
    fi
-   # Trust PR state over the local exit code.
-   [[ "$(gh pr view "$PR_NUMBER" --json state --jq '.state' 2>/dev/null)" == "MERGED" ]]
+   if [ -x "$GH_PR_MERGE" ]; then
+       "$GH_PR_MERGE" ${PIN_SHA:+--match-head-commit "$PIN_SHA"} "$PR_NUMBER" "$BRANCH"
+       MERGE_RC=$?
+   else
+       echo "REFUSING: gh-pr-merge.sh is not installed; not merging PR #$PR_NUMBER with a plain 'gh pr merge'." >&2
+       echo "  A raw merge skips every guard the helper runs, including the close-keyword guards (issue #1543)." >&2
+       echo "  Install the helper with /flow:repair, then resume Step 7." >&2
+       MERGE_RC=12
+   fi
    ```
+   - **`MERGE_RC` 12 is the MISSING-HELPER REFUSAL (issue #1543), and the
+     helper never emits it.** Nothing was merged. It is not a handoff like exit
+     3, and never a failure to work around. **STOP** and report that
+     `/flow:repair` must run. Never finish the merge by hand with
+     `gh pr merge`, because that is the unguarded path this refusal closes.
+   - **Helper exit 11 is also a CLEAN STOP (issue #1543):** the merge was pinned
+     with `--match-head-commit <sha>` and the PR's head on GitHub is no longer
+     that sha - at the helper's re-read before the check wait, at its re-read
+     just before the squash, or in GitHub's server-side refusal
+     (`GH_PR_MERGE_HEAD_PIN:` names which, and both shas). The PR is left open
+     and untouched. A different head is a different change: it is **never
+     retried and never escalated to `--admin`**. Re-verify the current head
+     (CI, review) and re-run with its sha.
    - **Helper exit 3 is a FIRST-CLASS CLEAN STOP, not a failure (issue #579):**
      the PR awaits a required human review (`reviewDecision: REVIEW_REQUIRED` or
      `CHANGES_REQUESTED`). The branch is already synced and re-gated (step 1
