@@ -1,0 +1,27 @@
+{
+  "branch": "issue-1532-refresh-flow-check-coverage-reference-after-a-new",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "652c01185bc73adf18df49f5b9d1d5ad77a038c7",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1532",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 1,
+  "recorded_at": "2026-10-23T15:28:21Z",
+  "red_cases": {
+    "already_covered": 1,
+    "proposed": 2
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/23/rollout-2026-10-23T11-27-11-01a1695f-88a8-7a22-ad74-a6fda5383191.jsonl",
+    "thread_id": "01a1695f-88a8-7a22-ad74-a6fda5383191"
+  },
+  "schema": 1,
+  "scope": "full",
+  "status": "ran"
+}
