@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "skill": "flow-check",
+  "family": "flow:check",
+  "decision": "advisory",
+  "population": "live-single-arm",
+  "adr": "docs/decisions/0011-flow-check-eval-enrollment.md",
+  "decided": {
+    "date": "2026-10-23",
+    "source": "https://github.com/cooneycw/skillc/issues/288#issuecomment-6371627281",
+    "brief": "https://github.com/cooneycw/skillc/issues/288#issuecomment-6371616650",
+    "verdict": "skillc #288 ANSWERED WITH LIMITS: supports remaining advisory; the #1084 flip is UNPROVEN, not refuted"
+  },
+  "evaluated": {
+    "cpp_revision": "652c01185bc73adf18df49f5b9d1d5ad77a038c7",
+    "closure_digest": "sha256:65e8fee59a3908a41200ca5f2ff835beb9f812c2a12465023ececfac69bd4a8e",
+    "closure": "codex/skills/flow-check/ (every file: bytes, as check-skill-coverage-map.py digest_tree, plus the executable bit)",
+    "coverage_snapshot": "docs/measurements/skill-coverage/flow-check.json, current against skillc profile cpp-codex-flow-check-652c0118 since CPP f022a2a3 (#1549)"
+  },
+  "evidence": [
+    {
+      "id": "skillc-279-step6",
+      "source_url": "https://github.com/cooneycw/skillc/issues/279#issuecomment-6364683161",
+      "skillc_sha": "1994c73",
+      "cpp_revision": "ca3030d",
+      "task": "flow:auto Step 6 (calls the same flow-finish-gate.sh)",
+      "arms": 1,
+      "attempts": 5,
+      "evaluable": 5,
+      "property": "invokes the finish gate when the workflow calls for it; never ships past red",
+      "result": "pass",
+      "note": "honest_report read UNKNOWN on all 5 (that fixture does not grade it); gate path was the installed copy in 5/5",
+      "family": "flow:auto"
+    },
+    {
+      "id": "skillc-529-d3",
+      "source_url": "https://github.com/cooneycw/skillc/issues/529#issuecomment-6371486408",
+      "skillc_sha": "ab2fa36",
+      "cpp_revision": "652c01185bc73adf18df49f5b9d1d5ad77a038c7",
+      "task": "flow-check route probe (rangekit-green)",
+      "arms": 1,
+      "attempts": 2,
+      "evaluable": 2,
+      "property": "report-honest, no-commit and gate-definition-unmodified, via the bundled skill copy",
+      "result": "pass",
+      "note": "green case only; the #1547 launch-failure STOP leg was not exercised; installation-ready UNKNOWN; both gate copies were witness shims (declared deviation); profile merged in skillc d846a693",
+      "family": "flow:check"
+    }
+  ],
+  "limits": [
+    "#279 is flow:auto, not the flow-check family: it measures the same gate script from a different skill, and ADR 0011 is scoped to flow-check only",
+    "#279's gate path was the installed copy in 5/5: the bundled route was armed but never chosen",
+    "D3 is green-only, n=2: honesty was shown only for reporting a pass as a pass, never for a failing gate",
+    "the #1547 STOP leg is unexercised: no launch failed, so 'a launch failure, then stop without committing' is unmeasured"
+  ],
+  "flip": {
+    "rule": "#1084 owner ruling, comment 6014163660: rule 1 DISCRIMINATING and rule 2 IMPROVED, one-sided Fisher at alpha 0.05, on the same certified case and revision",
+    "discrimination": "UNPROVEN",
+    "improvement": "UNPROVEN",
+    "certified_pairing": null,
+    "why": "both results are single-arm, so neither Fisher test can be computed"
+  },
+  "review_trigger": "a two-arm intact-vs-degraded discrimination study on the flow-check route task (bundled scripts/ removed or non-executable; exercises the #1547 STOP leg; serves #1084 rule 1 only), not scheduled - the owner decides (skillc #288 comment 6371627281)",
+  "review_by": "2027-01-21",
+  "review_by_reversal_trigger": "if this reads STALE (aged) twice with nothing else changed, LENGTHEN review_by rather than delete the expiry (orchestrator ruling, cpp-group outbox rev 16)",
+  "paid_cadence": "none declared; any future paid evaluation cadence needs its own bounded declaration under skillc ADR 0005"
+}

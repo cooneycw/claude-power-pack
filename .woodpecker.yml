@@ -356,6 +356,18 @@ steps:
     commands:
       - python3 scripts/check-skill-coverage-map.py --advisory
 
+  # Reads the flow-check evaluation-enrollment decision record (#1371, ADR 0011).
+  # ADVISORY by ADR 0011's own decision - every state it prints says advisory or
+  # names why the record cannot be read, and none is behavioural assurance.
+  # --advisory maps only a PRINTED verdict to 0, so a crash still fails. Reads
+  # JSON and the codex/skills tree only - no git, no network - so it runs in
+  # this image.
+  eval-enrollment-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/check-eval-enrollment.py --advisory
+
   # The QA regression export, demonstrated end to end (issue #1291). This is the
   # load-bearing run: `validate` has no node and no browsers, so there the Python
   # tests can check what the export WRITES but never whether the written test

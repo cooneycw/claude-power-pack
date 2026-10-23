@@ -1,0 +1,27 @@
+{
+  "branch": "issue-1371-decide-and-implement-evidence-based-enrollment-for",
+  "counts": {
+    "accepted": 4,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "f022a2a31371279b67c9508cfe4fe7599c4f8d3f",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1371",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 2,
+  "recorded_at": "2026-10-23T18:29:48Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 8
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/23/rollout-2026-10-23T14-27-06-01a16a04-40ee-7700-9aa7-31ef9f19983b.jsonl",
+    "thread_id": "01a16a04-40ee-7700-9aa7-31ef9f19983b"
+  },
+  "schema": 1,
+  "scope": "full",
+  "status": "ran"
+}
