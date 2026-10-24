@@ -1,0 +1,83 @@
+{
+ "version": 2,
+ "kind": "trial-ledger",
+ "producer": "controller",
+ "experiment_id": "level3-fixture-live-f157965a",
+ "created": "2026-10-23T17:59:41.819068Z",
+ "trials": [
+  {
+   "trial_id": "t1-live_rangekit-green_1",
+   "case": {
+    "id": "flow-check-route",
+    "revision": "1"
+   },
+   "grader": {
+    "id": "flow-check-route",
+    "revision": "1",
+    "digest": "sha256:27784c611795ed20417f82b5561f304fe14ae6eee3cfa7ab9db0f6c588f4ae49"
+   },
+   "subject": {
+    "digest": "sha256:0ac23bca751765d53497ec23acd14588b4c9a7fff232ef44a22b40b24a5ffd50"
+   },
+   "client": {
+    "name": "codex",
+    "version": "0.157.1"
+   },
+   "image": {
+    "digest": "sha256:5951394b5b8be69be2eb9e6082bb69f89417a5478a9588aa0bf1b64585e87f51"
+   },
+   "config": {
+    "digest": "sha256:2699e3938966de39db74d5dfc878e08ace42731a7d90960c934da385c15685d6"
+   },
+   "attempts": [
+    {
+     "attempt_id": "a-a59b3bcee76f"
+    }
+   ],
+   "skill_digests": [
+    {
+     "path": ".codex/skills/flow-check/SKILL.md",
+     "body_digest": "sha256:e870f5c9ff13f993f094e060d5a47d2c9e9df141b38b4c9dac345719eacf7e12",
+     "description_digest": "sha256:55531e9c8e5c083130cb4edcb03a88cbc43698286ce4d89c0120540ebbc04be6"
+    }
+   ]
+  },
+  {
+   "trial_id": "t2-live_rangekit-green_2",
+   "case": {
+    "id": "flow-check-route",
+    "revision": "1"
+   },
+   "grader": {
+    "id": "flow-check-route",
+    "revision": "1",
+    "digest": "sha256:27784c611795ed20417f82b5561f304fe14ae6eee3cfa7ab9db0f6c588f4ae49"
+   },
+   "subject": {
+    "digest": "sha256:0ac23bca751765d53497ec23acd14588b4c9a7fff232ef44a22b40b24a5ffd50"
+   },
+   "client": {
+    "name": "codex",
+    "version": "0.157.1"
+   },
+   "image": {
+    "digest": "sha256:5951394b5b8be69be2eb9e6082bb69f89417a5478a9588aa0bf1b64585e87f51"
+   },
+   "config": {
+    "digest": "sha256:d271a98cdfd84a3cf4096767e63877cb425da0f240fee1cdad70c0bf39558fff"
+   },
+   "attempts": [
+    {
+     "attempt_id": "a-89a2ab5de3cb"
+    }
+   ],
+   "skill_digests": [
+    {
+     "path": ".codex/skills/flow-check/SKILL.md",
+     "body_digest": "sha256:e870f5c9ff13f993f094e060d5a47d2c9e9df141b38b4c9dac345719eacf7e12",
+     "description_digest": "sha256:55531e9c8e5c083130cb4edcb03a88cbc43698286ce4d89c0120540ebbc04be6"
+    }
+   ]
+  }
+ ]
+}

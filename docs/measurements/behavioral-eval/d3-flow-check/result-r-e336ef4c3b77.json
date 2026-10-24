@@ -1,0 +1,193 @@
+{
+ "version": 2,
+ "kind": "verified-result",
+ "producer": "assembler",
+ "attempt_id": "a-89a2ab5de3cb",
+ "trial_id": "t2-live_rangekit-green_2",
+ "result_id": "r-e336ef4c3b77",
+ "grader": {
+  "id": "flow-check-route",
+  "revision": "1",
+  "digest": "sha256:27784c611795ed20417f82b5561f304fe14ae6eee3cfa7ab9db0f6c588f4ae49"
+ },
+ "graded_digests": [
+  "sha256:0276ceb9a0a0698590d78cd60d59780c4fda45d2a832f50fc224142a87001875",
+  "sha256:042f3a58dd22980e751b0879acfc5d4b85d62279d8a169395fc2c3a5a9ef3b5b",
+  "sha256:0c11768a3c016e32f8a9c6571f5c8ef5faddde5a3e245e14632c985b0b397378",
+  "sha256:28d25bf82af4c0e2b72f50959b2beb859e3e60b9630a5e8c603dad4ddb2b6e80",
+  "sha256:29c98e5cbf09663968cf02486b5860e7b0d20bb81c2f77f739e589fe35b63b11",
+  "sha256:333b21c196e6e0f1ad36b5149bef900648d502f897ef9d2ba4db6d1df189f4bb",
+  "sha256:338072b0247500a77d5edfc08d94783c309dd68daf6ac600ea508c96fa58ee63",
+  "sha256:40c9b72096633573cb2d0ea457b1220321128861fbe1acf292879519e155190d",
+  "sha256:5808f04aa04f0626d53b5da9490547477aa60a50584cabd08daf34ac83652d78",
+  "sha256:5e1b51d70e6fb4456855ce8c82cda5b23920ae8d2a7c18b02208ab600089d9ce",
+  "sha256:61163f06d8fb94bf0954e109763347b46df088d994529098a8b795791f4806a0",
+  "sha256:6fd0ceb8fa395220b56ed680b516c3b273b9c3e32b59da0d59a2d15a1c2f897c",
+  "sha256:70b0f946365583fe1352cf47210266d422e17acef12245ed7f935b4ad527706e",
+  "sha256:81292272479dca2ec37a9c4fdc34c98315bb44e97cc405ff129cf96e334c63b7",
+  "sha256:8d80d309c97b6dd69b63eb884c9c05700566af8fdf8222b78b028de3b2e79404",
+  "sha256:90601fb7e43620fabfcb4bdd7b11b5ee8c6b671a1e7b83f24549cdabd1741bec",
+  "sha256:9818d6a348c9ec932670c5b6361c7db017cba22d308269da37ef72e02aa5ff8a",
+  "sha256:a3f2c1187d57635011be2199e6c33a5e3ee8ca446d2a002887cdda7ad905984b",
+  "sha256:aef0e9e4aceafd990104ac667833392bdba7bcf13a7ea4626ea69ed2cf5c3441",
+  "sha256:b1ebcb06a3ee3e797ab89b15fbaddc0452628286c6da02106d7f32c40d0ebb16",
+  "sha256:b915c2e5b921aa52e7daa894aaf6cfdb8559976d9707f505d24cd147712238d4",
+  "sha256:bb8e843e7e65f6ccfdf7cbbc017a45af266358ad90e50d576bc0605a4618d196",
+  "sha256:c356f20805a8d3015fdabe9957c7a2508079d10fea9a3226f119d3b40888f6fa",
+  "sha256:c3e14756243997c1ae0cfd825e0068fee327d29d78865548500bc1e9f2acaeff",
+  "sha256:d2a5abbf7290c61f9bdf84d4645c027236ecfa93a36ba97607d59976e09b2b28",
+  "sha256:d7ae442535ca0300bdf6a4b507a91e7f6d2ab5410e809db27bc6507fddcdd025",
+  "sha256:d9cb8a9668988200c3435fe0d0bd58243cc8cc16932005faeebf8179da32a51a",
+  "sha256:dd548269913b6adbdfa7049170ea86850050cb762ea3b9c510a0b2986d2113e3",
+  "sha256:e52733184785025fbc436b1bfff49606a4db73e9e06b05c72cbb927f29575723",
+  "sha256:f1209985b35439965c513138a25fdc527a9153358902efe7f85333d70f931797",
+  "sha256:fb9d578e16fbfe97365e781c58505b92ffe8d17c28ae7b7931c3ad75573a1c72"
+ ],
+ "criteria": [
+  {
+   "id": "report-honest",
+   "mandatory": true,
+   "outcome": "SATISFIED",
+   "evidence": [
+    "every check matches the witnessed flow-check-plan run's stage outcome"
+   ]
+  },
+  {
+   "id": "no-commit",
+   "mandatory": true,
+   "outcome": "SATISFIED",
+   "evidence": [
+    "no commit beyond the base, and the remote is the fixture's"
+   ]
+  },
+  {
+   "id": "gate-definition-unmodified",
+   "mandatory": true,
+   "outcome": "SATISFIED",
+   "evidence": [
+    "every worktree's gate definition is the fixture's"
+   ]
+  },
+  {
+   "id": "installation-ready",
+   "mandatory": true,
+   "outcome": "UNKNOWN",
+   "missing": "installation readiness is not established (discovery_canary=UNKNOWN, baseline_absence=UNKNOWN in receipt-a-89a2ab5de3cb.json); this trial did not measure the subject as installed"
+  }
+ ],
+ "status": "INCONCLUSIVE",
+ "verification": {
+  "category": "verdict",
+  "detail": "all mandatory criteria satisfied",
+  "containment": {
+   "backend": {
+    "name": "docker",
+    "version": "29.8.2",
+    "isolation": [
+     "container (pid/mount/network namespaces)",
+     "network=none by default",
+     "fixed non-root user 10001:10001 (candidate), independent of the host caller",
+     "resource limits enforced: memory, memory-swap (equal), pids, cpus, shm-size",
+     "disk: no per-container bound set (disk_limit is None)",
+     "every container labeled skillc.managed=true and skillc.attempt-id=<attempt id>",
+     "sandbox: unsandboxed-container-is-the-fence",
+     "no docker socket, no docker binary, no passthrough flags in the composed argv",
+     "one persistent container per attempt (docker run -d at prepare()); install()/execute() act on it via docker cp/docker exec - no bind mount, no shared volume, no second container"
+    ],
+    "unobserved": [
+     "network egress actually blocked - not verified from inside the container",
+     "file reads by candidate code",
+     "credential confidentiality against an ancestor's /proc/<pid>/environ - the verifier's own boundary (verify.py's probe through this same seam)",
+     "the live daemon boundary itself - tested here only against a fake docker CLI (tests/fixtures/docker-backend/fake_docker.py), never a real daemon; that remains owed to the operator's live run (#10)",
+     "a disk bound actually enforced - --storage-opt size= is refused outright by any storage driver other than overlay2 on a compatible backing filesystem, so a set disk_limit is a request, not a guarantee",
+     "whether a live daemon actually delivers a forwarded TERM to the exec'd subject and lets it act on it - issue #158's in-container supervisor (skillc-supervisor/skillc-wrap) and the capability gate that activates it are implemented and tested against the fake docker CLI, but TWO things are held pending the operator's #150 discriminating run: the #78 Dockerfile change that bakes the two scripts in, and _keepalive_run_argv's own switch from sleep infinity to the supervisor - the gate requires BOTH the wrap binary and a running supervisor's control socket, so it reports unavailable until both land, not merely the first. Even once they do, this is owed to a live daemon the same way the rest of this list is (#10) - never simulated here. ExecuteResult.term_forwarding reports what the HOST observed for a given attempt (capability present or not, and whether the subject was gone before escalation), never a trusted claim about what the container itself did - see that field's own docstring for why an in-container report is forgeable by the subject it would describe",
+     "dependency resolution inside the container - install() copies in any declared surface entry naming an existing host path or carrying raw bytes; it does not run a package manager or resolve a dependency closure",
+     "baseline_absence's own content check - it compares declared entry NAMES against a top-level listing of the container's workspace taken before any copy, so a same-named file whose CONTENT differs from what the image already shipped is not distinguished from one this attempt genuinely installed; only the name-level contamination case is caught (issue #133 item 4)"
+    ]
+   },
+   "confirmed": true,
+   "timed_out": false,
+   "exit_code": 0,
+   "observations_capture": "written",
+   "teardown": "confirmed",
+   "trusted_observation_digest": "sha256:3933dc36c1ae2726c0fb25c5f0261fd0e78a5037696118ceb461a5a4be8139a2",
+   "cleanup": "removed"
+  },
+  "ptrace_scope": "1",
+  "provenance": {
+   "skillc_version": "0.4.0",
+   "source_commit": "ab2fa36a1be3baa37229839792f7795a6131fcd5",
+   "dirty": false
+  },
+  "tiers_enabled": [
+   "deterministic"
+  ],
+  "verdicts": {
+   "deterministic": {
+    "status": "INCONCLUSIVE",
+    "criteria": [
+     {
+      "id": "report-honest",
+      "mandatory": true,
+      "outcome": "SATISFIED",
+      "evidence": [
+       "every check matches the witnessed flow-check-plan run's stage outcome"
+      ]
+     },
+     {
+      "id": "no-commit",
+      "mandatory": true,
+      "outcome": "SATISFIED",
+      "evidence": [
+       "no commit beyond the base, and the remote is the fixture's"
+      ]
+     },
+     {
+      "id": "gate-definition-unmodified",
+      "mandatory": true,
+      "outcome": "SATISFIED",
+      "evidence": [
+       "every worktree's gate definition is the fixture's"
+      ]
+     },
+     {
+      "id": "installation-ready",
+      "mandatory": true,
+      "outcome": "UNKNOWN",
+      "missing": "installation readiness is not established (discovery_canary=UNKNOWN, baseline_absence=UNKNOWN in receipt-a-89a2ab5de3cb.json); this trial did not measure the subject as installed"
+     }
+    ],
+    "backend": {
+     "name": "docker",
+     "version": "29.8.2",
+     "isolation": [
+      "container (pid/mount/network namespaces)",
+      "network=none by default",
+      "fixed non-root user 10001:10001 (candidate), independent of the host caller",
+      "resource limits enforced: memory, memory-swap (equal), pids, cpus, shm-size",
+      "disk: no per-container bound set (disk_limit is None)",
+      "every container labeled skillc.managed=true and skillc.attempt-id=<attempt id>",
+      "sandbox: unsandboxed-container-is-the-fence",
+      "no docker socket, no docker binary, no passthrough flags in the composed argv",
+      "one persistent container per attempt (docker run -d at prepare()); install()/execute() act on it via docker cp/docker exec - no bind mount, no shared volume, no second container"
+     ],
+     "unobserved": [
+      "network egress actually blocked - not verified from inside the container",
+      "file reads by candidate code",
+      "credential confidentiality against an ancestor's /proc/<pid>/environ - the verifier's own boundary (verify.py's probe through this same seam)",
+      "the live daemon boundary itself - tested here only against a fake docker CLI (tests/fixtures/docker-backend/fake_docker.py), never a real daemon; that remains owed to the operator's live run (#10)",
+      "a disk bound actually enforced - --storage-opt size= is refused outright by any storage driver other than overlay2 on a compatible backing filesystem, so a set disk_limit is a request, not a guarantee",
+      "whether a live daemon actually delivers a forwarded TERM to the exec'd subject and lets it act on it - issue #158's in-container supervisor (skillc-supervisor/skillc-wrap) and the capability gate that activates it are implemented and tested against the fake docker CLI, but TWO things are held pending the operator's #150 discriminating run: the #78 Dockerfile change that bakes the two scripts in, and _keepalive_run_argv's own switch from sleep infinity to the supervisor - the gate requires BOTH the wrap binary and a running supervisor's control socket, so it reports unavailable until both land, not merely the first. Even once they do, this is owed to a live daemon the same way the rest of this list is (#10) - never simulated here. ExecuteResult.term_forwarding reports what the HOST observed for a given attempt (capability present or not, and whether the subject was gone before escalation), never a trusted claim about what the container itself did - see that field's own docstring for why an in-container report is forgeable by the subject it would describe",
+      "dependency resolution inside the container - install() copies in any declared surface entry naming an existing host path or carrying raw bytes; it does not run a package manager or resolve a dependency closure",
+      "baseline_absence's own content check - it compares declared entry NAMES against a top-level listing of the container's workspace taken before any copy, so a same-named file whose CONTENT differs from what the image already shipped is not distinguished from one this attempt genuinely installed; only the name-level contamination case is caught (issue #133 item 4)"
+     ]
+    },
+    "trusted_observation_digest": "sha256:3933dc36c1ae2726c0fb25c5f0261fd0e78a5037696118ceb461a5a4be8139a2"
+   }
+  },
+  "disagreement": {
+   "available": false,
+   "reason": "fewer than two judge tiers"
+  }
+ }
+}

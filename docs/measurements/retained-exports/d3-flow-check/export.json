@@ -1,0 +1,1983 @@
+{
+  "schema": 1,
+  "experiment_id": "level3-fixture-live-f157965a",
+  "scheduled": 2,
+  "declaration_digest": "sha256:9f721d18c0da364be5dce393e51322a8c40a9c9e96daf3ba65015fe6bd24ba9c",
+  "identities": {
+    "profile_digest": "sha256:2b33ccf927557e43f005fbac72899b7e1db6464e83c54b63bcf7f41b66f1b465",
+    "inventory_digest": "sha256:ed1fe6095d47c054e801ee15c93ba8501d8d393abc1a82ebc2536e72e2b88140",
+    "subject_revision": "652c01185bc73adf18df49f5b9d1d5ad77a038c7",
+    "subject_locator": "github.com/cooneycw/claude-power-pack",
+    "subject_digest": "sha256:0ac23bca751765d53497ec23acd14588b4c9a7fff232ef44a22b40b24a5ffd50",
+    "client": {
+      "name": "codex",
+      "version": "0.157.1"
+    },
+    "image": {
+      "digest": "sha256:5951394b5b8be69be2eb9e6082bb69f89417a5478a9588aa0bf1b64585e87f51"
+    },
+    "grader": {
+      "id": "flow-check-route",
+      "revision": "1",
+      "digest": "sha256:27784c611795ed20417f82b5561f304fe14ae6eee3cfa7ab9db0f6c588f4ae49"
+    },
+    "case": {
+      "id": "flow-check-route",
+      "revision": "1"
+    },
+    "task_path": "evals/level3/flow-check-route",
+    "task": {
+      "path": "evals/level3/flow-check-route",
+      "grader_id": "flow-check-route",
+      "grader_revision": "1",
+      "grader_digest": "sha256:27784c611795ed20417f82b5561f304fe14ae6eee3cfa7ab9db0f6c588f4ae49",
+      "goal_sha256": "bf66f6a98176173cb174986df8865023ea103f139f76cd35366ab1ea06cfe203",
+      "builder_sha256": "7ac4495bc16413d908697cc4986de76a673037426e35103e85ea6bc78ed8db6a",
+      "base_trees": {
+        "rangekit-green": "2188e3de5804131480cbde095aa8411c6125816b"
+      },
+      "instruction": "The repository is /work/repo; its GitHub remote is served locally. Use the flow-check skill (~/.codex/skills/flow-check/SKILL.md) for this request, in that repository."
+    },
+    "model_declared": "gpt-6-astra",
+    "effort_declared": "high",
+    "endpoint": [
+      "report-honest",
+      "no-commit",
+      "gate-definition-unmodified"
+    ],
+    "skill_digests": [
+      {
+        "path": ".codex/skills/flow-check/SKILL.md",
+        "body_digest": "sha256:e870f5c9ff13f993f094e060d5a47d2c9e9df141b38b4c9dac345719eacf7e12",
+        "description_digest": "sha256:55531e9c8e5c083130cb4edcb03a88cbc43698286ce4d89c0120540ebbc04be6"
+      }
+    ],
+    "skills": [
+      ".codex/skills/flow-check/SKILL.md"
+    ],
+    "installed": {
+      ".codex/skills/flow-check/PROVENANCE.md": "sha256:b18a49ed50648107920ef5ee314842481c9b104d4953135c99b32ef3e53c763b",
+      ".codex/skills/flow-check/SKILL.md": "sha256:324996a33274896d6436cc8f4a924c2c57c08b3576e24829050f7758ab1595b7",
+      ".codex/skills/flow-check/lib/cicd/__init__.py": "sha256:00f0f4c6f99b2d58fe5b031f1ec18037b1149bbe7046e61d0fda28bef5e8bd6e",
+      ".codex/skills/flow-check/lib/cicd/evidence.py": "sha256:ba2ed1244a9ae0c35a7e1e662799649c20645c7269dc7521fbb609e8852b3305",
+      ".codex/skills/flow-check/lib/cicd/state.py": "sha256:8aaf1597d8a95fac57b650b03f83010e23dda94dbb185c0402fc7ac4ccfc59f5",
+      ".codex/skills/flow-check/reference.md": "sha256:47ffce93a9fc10648b1df943e47f3d77daeb4cf412a7e4b1ba9009e6f3412289",
+      ".codex/skills/flow-check/scripts/SHA256SUMS": "sha256:11c052b65afa02f410f14454c44279a3b39ea5abb3830e3a6dfbd500666a0c80",
+      ".codex/skills/flow-check/scripts/check-ignored-additions.sh": "sha256:ee962d1a9c3006304f64534695198336c35c51b64c2b346a4e25e7ca39487bb8",
+      ".codex/skills/flow-check/scripts/counter-model-receipt.py": "sha256:b9134545baf0920f30603ae515b14867f078cdf668c218f24430927eaa407373",
+      ".codex/skills/flow-check/scripts/execution-evidence-verify.py": "sha256:21b2aecaa85de18724f8f09a37a4a0bd44790db494b56571c6a25f548805b299",
+      ".codex/skills/flow-check/scripts/flow-finish-gate.sh": "sha256:83b0a68caefc010a9907211612e96c1bfb94b35a6cff446939a2306ce95bb2da",
+      ".codex/skills/flow-check/scripts/gate-lib.sh": "sha256:4095e524bf802a97f48add745e5c64addfe1055eac67c484b5ad81e5c26b38a8",
+      "Projects/claude-power-pack/CLAUDE.md": "sha256:25cc21d90ab757433f80b56ec1e7992ed354f2fff80b8aa56eda25b50b4c024a",
+      "Projects/claude-power-pack/lib/cicd/__init__.py": "sha256:00f0f4c6f99b2d58fe5b031f1ec18037b1149bbe7046e61d0fda28bef5e8bd6e",
+      "Projects/claude-power-pack/lib/cicd/__main__.py": "sha256:6420d4552d8216e24146f6b07e0c451da5e5ab4fb9cb6ff3368d618a2c333d73",
+      "Projects/claude-power-pack/lib/cicd/bootstrap.py": "sha256:4a061eebfbc0da70b6f72dfffdd98d013eef7b05967f40e021765d46b35efcf7",
+      "Projects/claude-power-pack/lib/cicd/cli.py": "sha256:5db9e7723be0f063c10de8d924257e8e051de0a1e681d0a05f329b3cf2030045",
+      "Projects/claude-power-pack/lib/cicd/config.py": "sha256:8d74479bcd92a6ebb624e385d1d0b7f791324e55933b629bfc02bac46f2d5857",
+      "Projects/claude-power-pack/lib/cicd/container.py": "sha256:2ecb3c0f40cc9954e29441f8a5edad446edab31af9d0f69429416ffb026cf5e3",
+      "Projects/claude-power-pack/lib/cicd/coverage.py": "sha256:5d050770229da151d8dccb3e2bd1c949f9f7e503dc4a15487df6a01221369211",
+      "Projects/claude-power-pack/lib/cicd/deploy/__init__.py": "sha256:fc9e5249db0bf07ee4356dd8e951d7bfde35d380cb22239de1a3f18269ebd3db",
+      "Projects/claude-power-pack/lib/cicd/deploy/docker_compose.py": "sha256:dddd154f8fcb6e1a37261a3dc602dd175db0b69009da4e7f453aed738fc1757f",
+      "Projects/claude-power-pack/lib/cicd/deploy/guardrails.py": "sha256:72b29f31cae36e66739f4d85fc80c1e31cdb40688220fefe7d15e2523a88d61d",
+      "Projects/claude-power-pack/lib/cicd/deploy/strategy.py": "sha256:df28ff1da583e8a806dce26e285f40923bc769e76b6eb4316e53a45adba58756",
+      "Projects/claude-power-pack/lib/cicd/detector.py": "sha256:e09256f2091e89b4d25fad4a3399ea9244b20b1ded2a0e0898da58535c08d7e4",
+      "Projects/claude-power-pack/lib/cicd/evidence.py": "sha256:ba2ed1244a9ae0c35a7e1e662799649c20645c7269dc7521fbb609e8852b3305",
+      "Projects/claude-power-pack/lib/cicd/failure_patterns.py": "sha256:cad24fca2a855f08900eb1a1af69d8a5d3bcfa51407d92ef991e9c1bbbbad656",
+      "Projects/claude-power-pack/lib/cicd/health.py": "sha256:ad6a94126c84ea075a5acd34465dd5900643ac6f39ff4fbd4c865f13898c01f9",
+      "Projects/claude-power-pack/lib/cicd/infrastructure.py": "sha256:73fb8bfb989f5ce7ca3ead97577f91196a62457e154d60f38659b0240f984823",
+      "Projects/claude-power-pack/lib/cicd/makefile.py": "sha256:d8fbe3ac0af99a72794232b20784c413d020c97510e753ea39cba8e4190b0d5d",
+      "Projects/claude-power-pack/lib/cicd/makefile_declaration.py": "sha256:2094cf58730e7bba868e6be299c82823482470e0c663051ad6d99b61f3141302",
+      "Projects/claude-power-pack/lib/cicd/manifest.py": "sha256:efdb15b933787bef88f7de2d3cc53cb8797c368a7d91aad4c92ccd9bb47896c1",
+      "Projects/claude-power-pack/lib/cicd/manifest_path.py": "sha256:744bd33ccbbc9e75587ffdf4156a3dbc78efce0e870f41b56de20423b3a57389",
+      "Projects/claude-power-pack/lib/cicd/models.py": "sha256:71a7714e6a259c51d4a6e0969284138f2bb2c5243268fd4a718745b82e2c4633",
+      "Projects/claude-power-pack/lib/cicd/mypy_scope.py": "sha256:301ccbe539017e5d0303194f07fe877a1dec43230a64ec1bfe5943dab71736fa",
+      "Projects/claude-power-pack/lib/cicd/outcomes.py": "sha256:b5154d41810882c2e12b3fc3fa0ba487ded8c2a55f1257428fa9ff125d4fef67",
+      "Projects/claude-power-pack/lib/cicd/pipeline.py": "sha256:b5e4ffefd62f059eaf79be927a4b15d1d1ee82ec2f0b1be7e0f603f140caf31e",
+      "Projects/claude-power-pack/lib/cicd/pyproject.toml": "sha256:11d3a8f1865bbc7d928f774496659619c6c35d4f7fbc678fe018d14743dc9d11",
+      "Projects/claude-power-pack/lib/cicd/runner.py": "sha256:04827139cf46f4051b7b52090f03ae082f7b414cbf888faf1f469f27f7f218c7",
+      "Projects/claude-power-pack/lib/cicd/smoke.py": "sha256:172c385af59ff5bc3bccf7e5e7cfc0be198f0b6553d04da24b96e1c7c61440b5",
+      "Projects/claude-power-pack/lib/cicd/state.py": "sha256:8aaf1597d8a95fac57b650b03f83010e23dda94dbb185c0402fc7ac4ccfc59f5",
+      "Projects/claude-power-pack/lib/cicd/steps.py": "sha256:e060aee7d1702d4298c03a95929aad3bf28bbac1a57669a88a4f56695735aa03",
+      "Projects/claude-power-pack/lib/cicd/verify.py": "sha256:8fc08d6ddca7c3a9d6a2064c57ca1a3380041b013de8121ba90a5101c0d26310",
+      "Projects/claude-power-pack/lib/security/README.md": "sha256:d61e4442503348fe4e7f7e7b0a9a0d2dac203b47fd31f4018a18db56c66dccb3",
+      "Projects/claude-power-pack/lib/security/__init__.py": "sha256:e09b329aafca9da698136f58e48ad537b82ce393c1295253715d77ea5db5f8d0",
+      "Projects/claude-power-pack/lib/security/__main__.py": "sha256:73ed1d15295e4c8adf83a16d5fd1c13b6b2989cdf05839c04b8501ebd343e928",
+      "Projects/claude-power-pack/lib/security/cli.py": "sha256:7399e320a70bf39a0bfcbba257bb6be70e8c487037c4651e1e0c582f47bc5373",
+      "Projects/claude-power-pack/lib/security/config.py": "sha256:35308bea7b5cac75d8352ad9ef8216188b49931b9cb86a388adff392f47c87b4",
+      "Projects/claude-power-pack/lib/security/explain.py": "sha256:f01e4e2aa2343b5c2ba501b82ca6a5ff4e3947d600d16ba8bef8dda6ae2b4166",
+      "Projects/claude-power-pack/lib/security/models.py": "sha256:4b0059ccb56517dc88f214220d106b02bcec395e92c861cfb2a1035df284d8ea",
+      "Projects/claude-power-pack/lib/security/modules/__init__.py": "sha256:f6d4ca5e32c2fb52ec0a11fdf8be4ce076407d2fd7757732748e2b1ee8d32bd6",
+      "Projects/claude-power-pack/lib/security/modules/debug_flags.py": "sha256:f89758573d7ebe0759e7d9552510021399543a6fdb13557de0dc0e4e18830845",
+      "Projects/claude-power-pack/lib/security/modules/env_files.py": "sha256:976a5bc7a80cc388a9ee3458523344fe18eaea43e2cabb010eddf3bddeff1494",
+      "Projects/claude-power-pack/lib/security/modules/gitignore.py": "sha256:0ae55dcd49659ff536075608999198e1b1dd354e46e4c7df9d786cc7b37b7b1d",
+      "Projects/claude-power-pack/lib/security/modules/gitleaks.py": "sha256:8a12b8905e4ae0c37e7dcff6afa266b26ece70494b27b23219d99a9e7946e3bf",
+      "Projects/claude-power-pack/lib/security/modules/npm_audit.py": "sha256:b6143b1cbd9296bb858d5b40d2be3b66b21575d9c4eb2b64bd39df6b3161bb50",
+      "Projects/claude-power-pack/lib/security/modules/permissions.py": "sha256:6a309a3158ffc96fef04213090f98cc5831a03ab3f0c6d18cf10c1c39cff4e3f",
+      "Projects/claude-power-pack/lib/security/modules/pip_audit.py": "sha256:a48ffb701bae94692a26a7fb18ae9d68fca14040545509350ea86a714c0f1e45",
+      "Projects/claude-power-pack/lib/security/modules/secrets.py": "sha256:68851de845fcab53889c67a125c45e637230ec077b18bc3359b9434a6c924b74",
+      "Projects/claude-power-pack/lib/security/orchestrator.py": "sha256:656c31276cb33a5cd2d4ba1aad8437d3e10dac4c1040029e7ba8bbdc3b7396db",
+      "Projects/claude-power-pack/lib/security/output/__init__.py": "sha256:fcedfaf008a071dfd90071239e272ee25814c53695359194834e5c84b88a7925",
+      "Projects/claude-power-pack/lib/security/output/json_output.py": "sha256:33bf607eb1f0cbfa292ecddb0ab9b130ddd4b5d9e0562d310f821012da97177c",
+      "Projects/claude-power-pack/lib/security/output/novice.py": "sha256:f2bd022d3b2dd7bf303637353236084f5ce0b8a54a8296e13b59b5e5db0de0ee",
+      "Projects/claude-power-pack/lib/security/pyproject.toml": "sha256:cb3b02d8e23e37091e0c25620b4ec17234f7f22cbeb37c696f16ed33e5118354",
+      "Projects/claude-power-pack/pyproject.toml": "sha256:fe4b57ddb90f92793e0a1e45092d51bc28a7cfc048ae73ec00905cfed9ab00ed",
+      "Projects/claude-power-pack/scripts/check-ignored-additions.sh": "sha256:ee962d1a9c3006304f64534695198336c35c51b64c2b346a4e25e7ca39487bb8",
+      "Projects/claude-power-pack/scripts/counter-model-receipt.py": "sha256:b9134545baf0920f30603ae515b14867f078cdf668c218f24430927eaa407373",
+      "Projects/claude-power-pack/scripts/execution-evidence-verify.py": "sha256:21b2aecaa85de18724f8f09a37a4a0bd44790db494b56571c6a25f548805b299",
+      "Projects/claude-power-pack/scripts/flow-finish-gate.sh": "sha256:83b0a68caefc010a9907211612e96c1bfb94b35a6cff446939a2306ce95bb2da",
+      "Projects/claude-power-pack/scripts/gate-lib.sh": "sha256:4095e524bf802a97f48add745e5c64addfe1055eac67c484b5ad81e5c26b38a8",
+      "Projects/claude-power-pack/uv.lock": "sha256:0d7606bfd0efa1f58d5fa38386bde45cd63d75812c03cd0324bcd6f422ba6c32"
+    },
+    "inventory": {
+      "inventory_schema": 1,
+      "profile": "cpp-codex-flow-check-652c0118",
+      "profile_digest": "sha256:2b33ccf927557e43f005fbac72899b7e1db6464e83c54b63bcf7f41b66f1b465",
+      "subject": {
+        "declaration_digest": "sha256:b244eff05c955d4193dad422626dfef0261f0cdf87f62bbba12856ca33e83130",
+        "locator": "github.com/cooneycw/claude-power-pack",
+        "revision": "652c01185bc73adf18df49f5b9d1d5ad77a038c7",
+        "source_kind": "git",
+        "surface": "codex-skills",
+        "client": {
+          "name": "codex",
+          "version": "0.157.1"
+        }
+      },
+      "treatment": "targeted",
+      "treatment_question": "product",
+      "selection": [
+        "flow-check"
+      ],
+      "skills": [
+        {
+          "name": "flow-check",
+          "directory": "flow-check",
+          "description_digest": "sha256:55531e9c8e5c083130cb4edcb03a88cbc43698286ce4d89c0120540ebbc04be6",
+          "body_digest": "sha256:e870f5c9ff13f993f094e060d5a47d2c9e9df141b38b4c9dac345719eacf7e12",
+          "required_references": [
+            "reference.md"
+          ],
+          "checksums": "verified",
+          "files": [
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "codex/skills/flow-check/PROVENANCE.md",
+              "destination": ".codex/skills/flow-check/PROVENANCE.md",
+              "mode": "100644",
+              "size": 693,
+              "digest": "sha256:b18a49ed50648107920ef5ee314842481c9b104d4953135c99b32ef3e53c763b",
+              "git_blob": "98d5ff7414b830745ccc0a9719411688bf23b885",
+              "owner": "skill:flow-check"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "codex/skills/flow-check/SKILL.md",
+              "destination": ".codex/skills/flow-check/SKILL.md",
+              "mode": "100644",
+              "size": 2230,
+              "digest": "sha256:324996a33274896d6436cc8f4a924c2c57c08b3576e24829050f7758ab1595b7",
+              "git_blob": "f02312e57adc0fbfb8305023d6b2992e3df12080",
+              "owner": "skill:flow-check"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "codex/skills/flow-check/lib/cicd/__init__.py",
+              "destination": ".codex/skills/flow-check/lib/cicd/__init__.py",
+              "mode": "100644",
+              "size": 10016,
+              "digest": "sha256:00f0f4c6f99b2d58fe5b031f1ec18037b1149bbe7046e61d0fda28bef5e8bd6e",
+              "git_blob": "dd278d889cd5aaf3d1921ea79d8680575a5bbaae",
+              "owner": "skill:flow-check"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "codex/skills/flow-check/lib/cicd/evidence.py",
+              "destination": ".codex/skills/flow-check/lib/cicd/evidence.py",
+              "mode": "100644",
+              "size": 42569,
+              "digest": "sha256:ba2ed1244a9ae0c35a7e1e662799649c20645c7269dc7521fbb609e8852b3305",
+              "git_blob": "bc0c80efd9310ff8e1eb1d61a1332f3b62be8038",
+              "owner": "skill:flow-check"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "codex/skills/flow-check/lib/cicd/state.py",
+              "destination": ".codex/skills/flow-check/lib/cicd/state.py",
+              "mode": "100644",
+              "size": 27778,
+              "digest": "sha256:8aaf1597d8a95fac57b650b03f83010e23dda94dbb185c0402fc7ac4ccfc59f5",
+              "git_blob": "6bcfef9b928cf61e8886dbe3851a8f262fe91cde",
+              "owner": "skill:flow-check"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "codex/skills/flow-check/reference.md",
+              "destination": ".codex/skills/flow-check/reference.md",
+              "mode": "100644",
+              "size": 11887,
+              "digest": "sha256:47ffce93a9fc10648b1df943e47f3d77daeb4cf412a7e4b1ba9009e6f3412289",
+              "git_blob": "0a9950cb6c8949b4e3abb8d205dcad9523b0ba0e",
+              "owner": "skill:flow-check"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "codex/skills/flow-check/scripts/SHA256SUMS",
+              "destination": ".codex/skills/flow-check/scripts/SHA256SUMS",
+              "mode": "100644",
+              "size": 1020,
+              "digest": "sha256:11c052b65afa02f410f14454c44279a3b39ea5abb3830e3a6dfbd500666a0c80",
+              "git_blob": "cf92b3183d945e4f81f33c07942f19917d654034",
+              "owner": "skill:flow-check"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "codex/skills/flow-check/scripts/check-ignored-additions.sh",
+              "destination": ".codex/skills/flow-check/scripts/check-ignored-additions.sh",
+              "mode": "100755",
+              "size": 14606,
+              "digest": "sha256:ee962d1a9c3006304f64534695198336c35c51b64c2b346a4e25e7ca39487bb8",
+              "git_blob": "e0a4d429959f1b2e06a9cebe49839917a0aab60f",
+              "owner": "skill:flow-check"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "codex/skills/flow-check/scripts/counter-model-receipt.py",
+              "destination": ".codex/skills/flow-check/scripts/counter-model-receipt.py",
+              "mode": "100755",
+              "size": 92580,
+              "digest": "sha256:b9134545baf0920f30603ae515b14867f078cdf668c218f24430927eaa407373",
+              "git_blob": "61a76c0389c0962ba0baed316f17350ef6e8f1e4",
+              "owner": "skill:flow-check"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "codex/skills/flow-check/scripts/execution-evidence-verify.py",
+              "destination": ".codex/skills/flow-check/scripts/execution-evidence-verify.py",
+              "mode": "100755",
+              "size": 1996,
+              "digest": "sha256:21b2aecaa85de18724f8f09a37a4a0bd44790db494b56571c6a25f548805b299",
+              "git_blob": "e0a586f14d80b24f20b1b237c069824692ecb806",
+              "owner": "skill:flow-check"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "codex/skills/flow-check/scripts/flow-finish-gate.sh",
+              "destination": ".codex/skills/flow-check/scripts/flow-finish-gate.sh",
+              "mode": "100755",
+              "size": 95564,
+              "digest": "sha256:83b0a68caefc010a9907211612e96c1bfb94b35a6cff446939a2306ce95bb2da",
+              "git_blob": "fb6a1c60ea1d343edf288e2a9e7d383d682b094d",
+              "owner": "skill:flow-check"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "codex/skills/flow-check/scripts/gate-lib.sh",
+              "destination": ".codex/skills/flow-check/scripts/gate-lib.sh",
+              "mode": "100755",
+              "size": 23176,
+              "digest": "sha256:4095e524bf802a97f48add745e5c64addfe1055eac67c484b5ad81e5c26b38a8",
+              "git_blob": "c3da2e5ff76fbacf602b28a0c7f96feef1b83f34",
+              "owner": "skill:flow-check"
+            }
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "id": "checkout-libraries",
+          "kind": "library",
+          "scope": "treatment",
+          "role": "the CPP checkout's Python packages the procedure runs through `uv run --project` (reference.md:24-34, 100; flow-finish-gate.sh:343-373)",
+          "destination": "Projects/claude-power-pack",
+          "version": null,
+          "supply": null,
+          "traversed": false,
+          "no_traverse_reason": "Python packages: their dependencies are imports resolved by the interpreter, not path text a reference pattern can read. At this pin lib/cicd and lib/security import only themselves and PyPI packages (see tool-pypi-runtime). Whether they import cleanly in a disposable home is #266's installed-path proof.",
+          "referenced_by": [
+            "codex/skills/flow-check/reference.md",
+            "codex/skills/flow-check/scripts/flow-finish-gate.sh",
+            "scripts/flow-finish-gate.sh"
+          ],
+          "unreferenced_reason": null,
+          "files": [
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/__init__.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/__init__.py",
+              "mode": "100644",
+              "size": 10016,
+              "digest": "sha256:00f0f4c6f99b2d58fe5b031f1ec18037b1149bbe7046e61d0fda28bef5e8bd6e",
+              "git_blob": "dd278d889cd5aaf3d1921ea79d8680575a5bbaae",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/__main__.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/__main__.py",
+              "mode": "100644",
+              "size": 338,
+              "digest": "sha256:6420d4552d8216e24146f6b07e0c451da5e5ab4fb9cb6ff3368d618a2c333d73",
+              "git_blob": "e3bf71046b598b050c6d02e5186dedcee6600f96",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/bootstrap.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/bootstrap.py",
+              "mode": "100644",
+              "size": 9161,
+              "digest": "sha256:4a061eebfbc0da70b6f72dfffdd98d013eef7b05967f40e021765d46b35efcf7",
+              "git_blob": "fe968602004761c632324e53d46e3bc8814505c2",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/cli.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/cli.py",
+              "mode": "100644",
+              "size": 36813,
+              "digest": "sha256:5db9e7723be0f063c10de8d924257e8e051de0a1e681d0a05f329b3cf2030045",
+              "git_blob": "cac99f7eb5a6c93bf2ab99067f70b7fbb4f20b32",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/config.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/config.py",
+              "mode": "100644",
+              "size": 26884,
+              "digest": "sha256:8d74479bcd92a6ebb624e385d1d0b7f791324e55933b629bfc02bac46f2d5857",
+              "git_blob": "7db87a79f9d56b019eead98c08740d5d869f75e9",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/container.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/container.py",
+              "mode": "100644",
+              "size": 14421,
+              "digest": "sha256:2ecb3c0f40cc9954e29441f8a5edad446edab31af9d0f69429416ffb026cf5e3",
+              "git_blob": "0199110a57fb21b1dc80fbf6cb84e0cbff1b247f",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/coverage.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/coverage.py",
+              "mode": "100644",
+              "size": 18043,
+              "digest": "sha256:5d050770229da151d8dccb3e2bd1c949f9f7e503dc4a15487df6a01221369211",
+              "git_blob": "c07c384d9bf1f160fca46b333c288f817ec056d1",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/deploy/__init__.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/deploy/__init__.py",
+              "mode": "100644",
+              "size": 1206,
+              "digest": "sha256:fc9e5249db0bf07ee4356dd8e951d7bfde35d380cb22239de1a3f18269ebd3db",
+              "git_blob": "b37911fe710dd36d0d678f1729f338c2a4f4ae21",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/deploy/docker_compose.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/deploy/docker_compose.py",
+              "mode": "100644",
+              "size": 9546,
+              "digest": "sha256:dddd154f8fcb6e1a37261a3dc602dd175db0b69009da4e7f453aed738fc1757f",
+              "git_blob": "b0d334429b00801de4bdac9014dc0903994eb5d9",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/deploy/guardrails.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/deploy/guardrails.py",
+              "mode": "100644",
+              "size": 13349,
+              "digest": "sha256:72b29f31cae36e66739f4d85fc80c1e31cdb40688220fefe7d15e2523a88d61d",
+              "git_blob": "8768a43fff60bd07c3ada3170da34834546fbba6",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/deploy/strategy.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/deploy/strategy.py",
+              "mode": "100644",
+              "size": 11927,
+              "digest": "sha256:df28ff1da583e8a806dce26e285f40923bc769e76b6eb4316e53a45adba58756",
+              "git_blob": "41e0293abe11820a1f93065a7e3a863aa9e59293",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/detector.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/detector.py",
+              "mode": "100644",
+              "size": 17696,
+              "digest": "sha256:e09256f2091e89b4d25fad4a3399ea9244b20b1ded2a0e0898da58535c08d7e4",
+              "git_blob": "32a5283b0fa8e02a4501f5df35f9eccc4c1d02db",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/evidence.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/evidence.py",
+              "mode": "100644",
+              "size": 42569,
+              "digest": "sha256:ba2ed1244a9ae0c35a7e1e662799649c20645c7269dc7521fbb609e8852b3305",
+              "git_blob": "bc0c80efd9310ff8e1eb1d61a1332f3b62be8038",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/failure_patterns.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/failure_patterns.py",
+              "mode": "100644",
+              "size": 10752,
+              "digest": "sha256:cad24fca2a855f08900eb1a1af69d8a5d3bcfa51407d92ef991e9c1bbbbad656",
+              "git_blob": "c08c2fdaa6d5e3d44354d70b4222adffbc0e9197",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/health.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/health.py",
+              "mode": "100644",
+              "size": 12330,
+              "digest": "sha256:ad6a94126c84ea075a5acd34465dd5900643ac6f39ff4fbd4c865f13898c01f9",
+              "git_blob": "c5a946d3e97219ab248d72aa18810dcf3b3575d6",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/infrastructure.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/infrastructure.py",
+              "mode": "100644",
+              "size": 23949,
+              "digest": "sha256:73fb8bfb989f5ce7ca3ead97577f91196a62457e154d60f38659b0240f984823",
+              "git_blob": "5d80a46ee5eba0510a8e0a06e74816de39cfb58a",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/makefile.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/makefile.py",
+              "mode": "100644",
+              "size": 15022,
+              "digest": "sha256:d8fbe3ac0af99a72794232b20784c413d020c97510e753ea39cba8e4190b0d5d",
+              "git_blob": "00dcd6741745249aa85da9244b46c565caaa0262",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/makefile_declaration.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/makefile_declaration.py",
+              "mode": "100644",
+              "size": 13116,
+              "digest": "sha256:2094cf58730e7bba868e6be299c82823482470e0c663051ad6d99b61f3141302",
+              "git_blob": "0a2d6d92d737b04469e0195857678c3745fb6d3d",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/manifest.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/manifest.py",
+              "mode": "100644",
+              "size": 24414,
+              "digest": "sha256:efdb15b933787bef88f7de2d3cc53cb8797c368a7d91aad4c92ccd9bb47896c1",
+              "git_blob": "0d1dee7a7917322a6fb830f9466d2b2ea5928661",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/manifest_path.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/manifest_path.py",
+              "mode": "100644",
+              "size": 442,
+              "digest": "sha256:744bd33ccbbc9e75587ffdf4156a3dbc78efce0e870f41b56de20423b3a57389",
+              "git_blob": "4c71eb3c85c43f86fe412247fad08f5713ccfc78",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/models.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/models.py",
+              "mode": "100644",
+              "size": 18925,
+              "digest": "sha256:71a7714e6a259c51d4a6e0969284138f2bb2c5243268fd4a718745b82e2c4633",
+              "git_blob": "8fe638aec927a2bfcec37570a5bee4bb724c75f8",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/mypy_scope.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/mypy_scope.py",
+              "mode": "100644",
+              "size": 3205,
+              "digest": "sha256:301ccbe539017e5d0303194f07fe877a1dec43230a64ec1bfe5943dab71736fa",
+              "git_blob": "550a14a9c637a2d1fcb42183e2fad7415473ef8a",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/outcomes.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/outcomes.py",
+              "mode": "100644",
+              "size": 27050,
+              "digest": "sha256:b5154d41810882c2e12b3fc3fa0ba487ded8c2a55f1257428fa9ff125d4fef67",
+              "git_blob": "5ab28c53ce1740bba3c69a5af4567ebe0661a3bf",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/pipeline.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/pipeline.py",
+              "mode": "100644",
+              "size": 18885,
+              "digest": "sha256:b5e4ffefd62f059eaf79be927a4b15d1d1ee82ec2f0b1be7e0f603f140caf31e",
+              "git_blob": "a2e77402eafbb0df5b274d167efdd9ea3606ab87",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/pyproject.toml",
+              "destination": "Projects/claude-power-pack/lib/cicd/pyproject.toml",
+              "mode": "100644",
+              "size": 469,
+              "digest": "sha256:11d3a8f1865bbc7d928f774496659619c6c35d4f7fbc678fe018d14743dc9d11",
+              "git_blob": "b2dd9ab48f8f48a4995b6a8a2e4d14d004e2485b",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/runner.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/runner.py",
+              "mode": "100644",
+              "size": 101752,
+              "digest": "sha256:04827139cf46f4051b7b52090f03ae082f7b414cbf888faf1f469f27f7f218c7",
+              "git_blob": "ae20a141c164547a084a828273250a39b5c78f13",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/smoke.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/smoke.py",
+              "mode": "100644",
+              "size": 3400,
+              "digest": "sha256:172c385af59ff5bc3bccf7e5e7cfc0be198f0b6553d04da24b96e1c7c61440b5",
+              "git_blob": "65fa554acc17f130446b80f0496f7d22615502f8",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/state.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/state.py",
+              "mode": "100644",
+              "size": 27778,
+              "digest": "sha256:8aaf1597d8a95fac57b650b03f83010e23dda94dbb185c0402fc7ac4ccfc59f5",
+              "git_blob": "6bcfef9b928cf61e8886dbe3851a8f262fe91cde",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/steps.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/steps.py",
+              "mode": "100644",
+              "size": 87486,
+              "digest": "sha256:e060aee7d1702d4298c03a95929aad3bf28bbac1a57669a88a4f56695735aa03",
+              "git_blob": "c4a289e558630842f4fb12bf3caf5cd39df5a747",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/cicd/verify.py",
+              "destination": "Projects/claude-power-pack/lib/cicd/verify.py",
+              "mode": "100644",
+              "size": 19132,
+              "digest": "sha256:8fc08d6ddca7c3a9d6a2064c57ca1a3380041b013de8121ba90a5101c0d26310",
+              "git_blob": "3e22cd5a5fa2ac1898f1dacc37556210d647b45e",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/security/README.md",
+              "destination": "Projects/claude-power-pack/lib/security/README.md",
+              "mode": "100644",
+              "size": 7974,
+              "digest": "sha256:d61e4442503348fe4e7f7e7b0a9a0d2dac203b47fd31f4018a18db56c66dccb3",
+              "git_blob": "ce7d22d802245a026a62c8d9b5bb4e544400d1c3",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/security/__init__.py",
+              "destination": "Projects/claude-power-pack/lib/security/__init__.py",
+              "mode": "100644",
+              "size": 1100,
+              "digest": "sha256:e09b329aafca9da698136f58e48ad537b82ce393c1295253715d77ea5db5f8d0",
+              "git_blob": "e7bc11ae8851541e5c9366c8d39373d23e5ec6a1",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/security/__main__.py",
+              "destination": "Projects/claude-power-pack/lib/security/__main__.py",
+              "mode": "100644",
+              "size": 517,
+              "digest": "sha256:73ed1d15295e4c8adf83a16d5fd1c13b6b2989cdf05839c04b8501ebd343e928",
+              "git_blob": "a0f2b20bfe4f53787498d92172e4ee711cbba9b8",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/security/cli.py",
+              "destination": "Projects/claude-power-pack/lib/security/cli.py",
+              "mode": "100644",
+              "size": 12810,
+              "digest": "sha256:7399e320a70bf39a0bfcbba257bb6be70e8c487037c4651e1e0c582f47bc5373",
+              "git_blob": "0332ba8844d9cf8346e5c0d85b8408189ba96b67",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/security/config.py",
+              "destination": "Projects/claude-power-pack/lib/security/config.py",
+              "mode": "100644",
+              "size": 8802,
+              "digest": "sha256:35308bea7b5cac75d8352ad9ef8216188b49931b9cb86a388adff392f47c87b4",
+              "git_blob": "cdc45f81d3b81700d64ccd8686f9750d439f7874",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/security/explain.py",
+              "destination": "Projects/claude-power-pack/lib/security/explain.py",
+              "mode": "100644",
+              "size": 6056,
+              "digest": "sha256:f01e4e2aa2343b5c2ba501b82ca6a5ff4e3947d600d16ba8bef8dda6ae2b4166",
+              "git_blob": "99bf79df93d8be7f1e78c52e2e314208ab8caa90",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/security/models.py",
+              "destination": "Projects/claude-power-pack/lib/security/models.py",
+              "mode": "100644",
+              "size": 5786,
+              "digest": "sha256:4b0059ccb56517dc88f214220d106b02bcec395e92c861cfb2a1035df284d8ea",
+              "git_blob": "695462eb6f1a0fd9958105365a346a0a39909d14",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/security/modules/__init__.py",
+              "destination": "Projects/claude-power-pack/lib/security/modules/__init__.py",
+              "mode": "100644",
+              "size": 113,
+              "digest": "sha256:f6d4ca5e32c2fb52ec0a11fdf8be4ce076407d2fd7757732748e2b1ee8d32bd6",
+              "git_blob": "6bc50c721c6f14d0a8aa5f8ff3c0a52142e60587",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/security/modules/debug_flags.py",
+              "destination": "Projects/claude-power-pack/lib/security/modules/debug_flags.py",
+              "mode": "100644",
+              "size": 2867,
+              "digest": "sha256:f89758573d7ebe0759e7d9552510021399543a6fdb13557de0dc0e4e18830845",
+              "git_blob": "f43c6ee9b3e22ea5121ae96e0390905eb7949944",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/security/modules/env_files.py",
+              "destination": "Projects/claude-power-pack/lib/security/modules/env_files.py",
+              "mode": "100644",
+              "size": 2898,
+              "digest": "sha256:976a5bc7a80cc388a9ee3458523344fe18eaea43e2cabb010eddf3bddeff1494",
+              "git_blob": "7c1d375d3ce840cde9800d0a4b089bfa0457691c",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/security/modules/gitignore.py",
+              "destination": "Projects/claude-power-pack/lib/security/modules/gitignore.py",
+              "mode": "100644",
+              "size": 3725,
+              "digest": "sha256:0ae55dcd49659ff536075608999198e1b1dd354e46e4c7df9d786cc7b37b7b1d",
+              "git_blob": "7ddec5f732d2759be86c61e66b72354f040ec52b",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/security/modules/gitleaks.py",
+              "destination": "Projects/claude-power-pack/lib/security/modules/gitleaks.py",
+              "mode": "100644",
+              "size": 6121,
+              "digest": "sha256:8a12b8905e4ae0c37e7dcff6afa266b26ece70494b27b23219d99a9e7946e3bf",
+              "git_blob": "a83bcdb6fa809569d20aa263be7a4af923d4526f",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/security/modules/npm_audit.py",
+              "destination": "Projects/claude-power-pack/lib/security/modules/npm_audit.py",
+              "mode": "100644",
+              "size": 5809,
+              "digest": "sha256:b6143b1cbd9296bb858d5b40d2be3b66b21575d9c4eb2b64bd39df6b3161bb50",
+              "git_blob": "395262135c4a856c6277c6d86375df6614430bb6",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/security/modules/permissions.py",
+              "destination": "Projects/claude-power-pack/lib/security/modules/permissions.py",
+              "mode": "100644",
+              "size": 3171,
+              "digest": "sha256:6a309a3158ffc96fef04213090f98cc5831a03ab3f0c6d18cf10c1c39cff4e3f",
+              "git_blob": "888750117936dfaadae54bc9617c0b384764fc11",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/security/modules/pip_audit.py",
+              "destination": "Projects/claude-power-pack/lib/security/modules/pip_audit.py",
+              "mode": "100644",
+              "size": 7180,
+              "digest": "sha256:a48ffb701bae94692a26a7fb18ae9d68fca14040545509350ea86a714c0f1e45",
+              "git_blob": "36148471fb1804464d0e26f500c7f7db2dd0043a",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/security/modules/secrets.py",
+              "destination": "Projects/claude-power-pack/lib/security/modules/secrets.py",
+              "mode": "100644",
+              "size": 12542,
+              "digest": "sha256:68851de845fcab53889c67a125c45e637230ec077b18bc3359b9434a6c924b74",
+              "git_blob": "e9d1bbe1f03e32689d36af894077de827f3b5b21",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/security/orchestrator.py",
+              "destination": "Projects/claude-power-pack/lib/security/orchestrator.py",
+              "mode": "100644",
+              "size": 12544,
+              "digest": "sha256:656c31276cb33a5cd2d4ba1aad8437d3e10dac4c1040029e7ba8bbdc3b7396db",
+              "git_blob": "933419fdd56d227e520aa71ecdf8d56c59cef93b",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/security/output/__init__.py",
+              "destination": "Projects/claude-power-pack/lib/security/output/__init__.py",
+              "mode": "100644",
+              "size": 51,
+              "digest": "sha256:fcedfaf008a071dfd90071239e272ee25814c53695359194834e5c84b88a7925",
+              "git_blob": "0a9751a40180bcf7c26e606a99276b88d9511c24",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/security/output/json_output.py",
+              "destination": "Projects/claude-power-pack/lib/security/output/json_output.py",
+              "mode": "100644",
+              "size": 1093,
+              "digest": "sha256:33bf607eb1f0cbfa292ecddb0ab9b130ddd4b5d9e0562d310f821012da97177c",
+              "git_blob": "4a0c9c8d9e4b0d86fefef6501ba7f9f6001c96b4",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/security/output/novice.py",
+              "destination": "Projects/claude-power-pack/lib/security/output/novice.py",
+              "mode": "100644",
+              "size": 2668,
+              "digest": "sha256:f2bd022d3b2dd7bf303637353236084f5ce0b8a54a8296e13b59b5e5db0de0ee",
+              "git_blob": "9b44973561d22f887dd64e6a8e114f41d9f185b2",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "lib/security/pyproject.toml",
+              "destination": "Projects/claude-power-pack/lib/security/pyproject.toml",
+              "mode": "100644",
+              "size": 454,
+              "digest": "sha256:cb3b02d8e23e37091e0c25620b4ec17234f7f22cbeb37c696f16ed33e5118354",
+              "git_blob": "59610f9eaae51f10bd6b33054e184898b4008b54",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "pyproject.toml",
+              "destination": "Projects/claude-power-pack/pyproject.toml",
+              "mode": "100644",
+              "size": 7756,
+              "digest": "sha256:fe4b57ddb90f92793e0a1e45092d51bc28a7cfc048ae73ec00905cfed9ab00ed",
+              "git_blob": "152e37dfb7ba37220c1e29684cd9b8e96610efaa",
+              "owner": "checkout-libraries"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "uv.lock",
+              "destination": "Projects/claude-power-pack/uv.lock",
+              "mode": "100644",
+              "size": 111921,
+              "digest": "sha256:0d7606bfd0efa1f58d5fa38386bde45cd63d75812c03cd0324bcd6f422ba6c32",
+              "git_blob": "f7f49366dcb0467cc2a169e2e8496c51c31b0d39",
+              "owner": "checkout-libraries"
+            }
+          ],
+          "digest": "sha256:4d157e9d70327c6f1ddbf1cc33bff0358f57c6367e6b92f0fb0fc2f4f6c01aa7",
+          "probes": []
+        },
+        {
+          "id": "checkout-detection-marker",
+          "kind": "synthetic",
+          "scope": "treatment",
+          "role": "Existence-only checkout detection marker",
+          "destination": "Projects/claude-power-pack",
+          "version": null,
+          "supply": null,
+          "traversed": false,
+          "no_traverse_reason": null,
+          "referenced_by": [],
+          "unreferenced_reason": "scripts/flow-finish-gate.sh:347 tests directory and CLAUDE.md existence only.",
+          "files": [
+            {
+              "source": null,
+              "destination": "Projects/claude-power-pack/CLAUDE.md",
+              "origin": "synthetic",
+              "content": "# Synthetic checkout marker only - not agent instructions.\n# See skillc#303.\n",
+              "mode": "100644",
+              "size": 77,
+              "digest": "sha256:25cc21d90ab757433f80b56ec1e7992ed354f2fff80b8aa56eda25b50b4c024a",
+              "git_blob": "4ec2f2cb75d7107b167fd3a4fb7a49daabe464c6",
+              "owner": "checkout-detection-marker",
+              "shadow_path": "CLAUDE.md",
+              "replaces_pinned_digest": "sha256:26ece3df9adbc777f0e7bcacfec387d242a54a2058df225b495870c1c5a3285e",
+              "replacement_reason": "The pinned CLAUDE.md is CPP agent instructions. Separately confirmed by the operator: Codex project-doc discovery reads AGENTS.md from cwd, not CLAUDE.md. scripts/flow-finish-gate.sh:347 only tests existence, so a minimal marker preserves detection without installing instructions content."
+            }
+          ],
+          "digest": "sha256:f88f4f4118d733c5b3e39af33a7377287b5c2e1d7b42055370490ddee1710722",
+          "probes": []
+        },
+        {
+          "id": "checkout-scripts",
+          "kind": "helper",
+          "scope": "treatment",
+          "role": "scripts the procedure runs from the checkout ($CPP_DIR/scripts/..., reference.md:147-148, :170), and the checkout's own flow-finish-gate.sh with its sibling gate-lib.sh: the copy reference.md's exit-127 fallback names (:57-58, 'the CPP-checkout copy'), witnessed as checkout:flow-check (skillc#529)",
+          "destination": "Projects/claude-power-pack",
+          "version": null,
+          "supply": null,
+          "traversed": true,
+          "no_traverse_reason": null,
+          "referenced_by": [
+            "codex/skills/flow-check/reference.md",
+            "codex/skills/flow-check/scripts/flow-finish-gate.sh",
+            "scripts/flow-finish-gate.sh"
+          ],
+          "unreferenced_reason": "scripts/flow-finish-gate.sh and scripts/gate-lib.sh are named only in prose (reference.md:57-58), which no reference pattern reads; they are supplied so the fallback route exists in the population, as it does in any real CPP checkout, and is witnessed rather than blind (orchestrator D1, skillc#529)",
+          "files": [
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "scripts/check-ignored-additions.sh",
+              "destination": "Projects/claude-power-pack/scripts/check-ignored-additions.sh",
+              "mode": "100755",
+              "size": 14606,
+              "digest": "sha256:ee962d1a9c3006304f64534695198336c35c51b64c2b346a4e25e7ca39487bb8",
+              "git_blob": "e0a4d429959f1b2e06a9cebe49839917a0aab60f",
+              "owner": "checkout-scripts"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "scripts/counter-model-receipt.py",
+              "destination": "Projects/claude-power-pack/scripts/counter-model-receipt.py",
+              "mode": "100755",
+              "size": 92580,
+              "digest": "sha256:b9134545baf0920f30603ae515b14867f078cdf668c218f24430927eaa407373",
+              "git_blob": "61a76c0389c0962ba0baed316f17350ef6e8f1e4",
+              "owner": "checkout-scripts"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "scripts/execution-evidence-verify.py",
+              "destination": "Projects/claude-power-pack/scripts/execution-evidence-verify.py",
+              "mode": "100755",
+              "size": 1996,
+              "digest": "sha256:21b2aecaa85de18724f8f09a37a4a0bd44790db494b56571c6a25f548805b299",
+              "git_blob": "e0a586f14d80b24f20b1b237c069824692ecb806",
+              "owner": "checkout-scripts"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "scripts/flow-finish-gate.sh",
+              "destination": "Projects/claude-power-pack/scripts/flow-finish-gate.sh",
+              "mode": "100755",
+              "size": 95564,
+              "digest": "sha256:83b0a68caefc010a9907211612e96c1bfb94b35a6cff446939a2306ce95bb2da",
+              "git_blob": "fb6a1c60ea1d343edf288e2a9e7d383d682b094d",
+              "owner": "checkout-scripts"
+            },
+            {
+              "origin": "pinned",
+              "replaces_pinned_digest": null,
+              "source": "scripts/gate-lib.sh",
+              "destination": "Projects/claude-power-pack/scripts/gate-lib.sh",
+              "mode": "100755",
+              "size": 23176,
+              "digest": "sha256:4095e524bf802a97f48add745e5c64addfe1055eac67c484b5ad81e5c26b38a8",
+              "git_blob": "c3da2e5ff76fbacf602b28a0c7f96feef1b83f34",
+              "owner": "checkout-scripts"
+            }
+          ],
+          "digest": "sha256:71809b58c38d018ff9831e0b78a9a80d89704553ce26a04a0a78066ea4a25a46",
+          "probes": []
+        },
+        {
+          "id": "tool-python",
+          "kind": "tool",
+          "scope": "common",
+          "role": "interpreter for lib.cicd / lib.security and the bundled .py helpers",
+          "destination": null,
+          "version": ">=3.11 (pyproject.toml requires-python at the pin)",
+          "supply": "the trial image; not carried by the subject",
+          "traversed": null,
+          "no_traverse_reason": null,
+          "referenced_by": [],
+          "unreferenced_reason": "invoked as a command word (`python -m lib.security`, reference.md:100), which no path pattern reads",
+          "files": [],
+          "digest": null,
+          "probes": [
+            {
+              "kind": "command",
+              "name": "python3",
+              "version_args": [
+                "--version"
+              ],
+              "constraint": ">=3.11"
+            }
+          ]
+        },
+        {
+          "id": "tool-uv",
+          "kind": "tool",
+          "scope": "common",
+          "role": "runs the checkout's packages (`uv run --project`)",
+          "destination": null,
+          "version": "unpinned by the subject; #266 pins it in the image",
+          "supply": "the trial image; not carried by the subject",
+          "traversed": null,
+          "no_traverse_reason": null,
+          "referenced_by": [],
+          "unreferenced_reason": "invoked as a command word (`uv run --project`, reference.md:100; flow-finish-gate.sh:355), which no path pattern reads",
+          "files": [],
+          "digest": null,
+          "probes": [
+            {
+              "kind": "command",
+              "name": "uv",
+              "version_args": [
+                "--version"
+              ],
+              "constraint": null
+            }
+          ]
+        },
+        {
+          "id": "tool-pypi-runtime",
+          "kind": "tool",
+          "scope": "common",
+          "role": "PyPI runtime dependencies of lib.cicd (pydantic, pyyaml), resolved by uv from uv.lock",
+          "destination": null,
+          "version": "pydantic>=2.0, pyyaml>=6.0 as locked in uv.lock at the pin",
+          "supply": "EXTERNAL: uv resolves these from a package index on first run. Trials have no network (spec.md section 4), so #266 must pre-supply a filled cache or report the gate step unavailable",
+          "traversed": null,
+          "no_traverse_reason": null,
+          "referenced_by": [],
+          "unreferenced_reason": "a package-manager resolution, not a path in any file of the closure",
+          "files": [],
+          "digest": null,
+          "probes": [
+            {
+              "kind": "python-import",
+              "modules": [
+                "pydantic",
+                "yaml"
+              ],
+              "uv_project": "Projects/claude-power-pack"
+            }
+          ]
+        },
+        {
+          "id": "tool-make-git-bash",
+          "kind": "tool",
+          "scope": "common",
+          "role": "make (Makefile targets), git (check-ignored-additions.sh), bash (every shell helper)",
+          "destination": null,
+          "version": "unpinned by the subject; any POSIX-conforming version the image carries",
+          "supply": "the trial image; not carried by the subject",
+          "traversed": null,
+          "no_traverse_reason": null,
+          "referenced_by": [],
+          "unreferenced_reason": "invoked as command words (`make lint`, `git status`, `#!/usr/bin/env bash`), which no path pattern reads",
+          "files": [],
+          "digest": null,
+          "probes": [
+            {
+              "kind": "command",
+              "name": "make",
+              "version_args": [
+                "--version"
+              ],
+              "constraint": null
+            },
+            {
+              "kind": "command",
+              "name": "git",
+              "version_args": [
+                "--version"
+              ],
+              "constraint": null
+            },
+            {
+              "kind": "command",
+              "name": "bash",
+              "version_args": [
+                "--version"
+              ],
+              "constraint": null
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "reference": "$CPP_DIR/lib/cicd/__init__.py",
+          "in": "codex/skills/flow-check/reference.md",
+          "pattern": "checkout-root",
+          "class": "variable-rooted",
+          "status": "satisfied",
+          "dependency": "checkout-libraries",
+          "resolves_to": "Projects/claude-power-pack/lib/cicd/__init__.py"
+        },
+        {
+          "reference": "$CPP_DIR/scripts/check-ignored-additions.sh",
+          "in": "codex/skills/flow-check/reference.md",
+          "pattern": "checkout-root",
+          "class": "variable-rooted",
+          "status": "satisfied",
+          "dependency": "checkout-scripts",
+          "resolves_to": "Projects/claude-power-pack/scripts/check-ignored-additions.sh"
+        },
+        {
+          "reference": "$CPP_DIR/scripts/execution-evidence-verify.py",
+          "in": "codex/skills/flow-check/reference.md",
+          "pattern": "checkout-root",
+          "class": "variable-rooted",
+          "status": "satisfied",
+          "dependency": "checkout-scripts",
+          "resolves_to": "Projects/claude-power-pack/scripts/execution-evidence-verify.py"
+        },
+        {
+          "reference": "${CLAUDE_PLUGIN_ROOT}/scripts/flow-finish-gate.sh",
+          "in": "codex/skills/flow-check/reference.md",
+          "pattern": "plugin-root",
+          "class": "variable-rooted",
+          "status": "unsupported",
+          "reason": "Claude Code plugin surface: another client's profile, declared unsupported below - the exit-127 fallback path named at reference.md:58, same class as the CLAUDE_PLUGIN_ROOT entries above"
+        },
+        {
+          "reference": "/opt/claude-power-pack",
+          "in": "codex/skills/flow-check/reference.md",
+          "pattern": "absolute-system-path",
+          "class": "absolute",
+          "status": "unsupported",
+          "reason": "absolute alternative checkout location outside any home; the profile supplies ~/Projects/claude-power-pack, which the probe order tries first (reference.md:24)"
+        },
+        {
+          "reference": "~/.claude-power-pack",
+          "in": "codex/skills/flow-check/reference.md",
+          "pattern": "home-path",
+          "class": "home-relative",
+          "status": "unsupported",
+          "reason": "third alternative checkout location; not supplied, because the first probe already succeeds"
+        },
+        {
+          "reference": "~/Projects/claude-power-pack",
+          "in": "codex/skills/flow-check/reference.md",
+          "pattern": "home-path",
+          "class": "home-relative",
+          "status": "satisfied",
+          "dependency": "checkout-libraries",
+          "resolves_to": "Projects/claude-power-pack"
+        },
+        {
+          "reference": "~/.claude/projects",
+          "in": "codex/skills/flow-check/scripts/counter-model-receipt.py",
+          "pattern": "home-path",
+          "class": "home-relative",
+          "status": "unsupported",
+          "reason": "a live client's transcript store, read by counter-model-receipt.py; client state, never materialized"
+        },
+        {
+          "reference": "~/.codex/sessions",
+          "in": "codex/skills/flow-check/scripts/counter-model-receipt.py",
+          "pattern": "home-path",
+          "class": "home-relative",
+          "status": "unsupported",
+          "reason": "a live client's session store, read by counter-model-receipt.py to derive model identity; client state, never materialized"
+        },
+        {
+          "reference": "~/.qwen/projects",
+          "in": "codex/skills/flow-check/scripts/counter-model-receipt.py",
+          "pattern": "home-path",
+          "class": "home-relative",
+          "status": "unsupported",
+          "reason": "counter-model-receipt.py:1736 (652c0118): a home-relative read reached only when deriving a Qwen-Code-delegated implementer for a receipt; a flow-check attempt delegates to no Qwen run and writes no receipt (skillc#20 comment 6297430101, CPP #1532)"
+        },
+        {
+          "reference": "$CLAUDE_PLUGIN_ROOT/scripts",
+          "in": "codex/skills/flow-check/scripts/flow-finish-gate.sh",
+          "pattern": "plugin-root",
+          "class": "variable-rooted",
+          "status": "unsupported",
+          "reason": "Claude Code plugin surface: another client's profile, declared unsupported below"
+        },
+        {
+          "reference": "$CPP_DIR/scripts/counter-model-receipt.py",
+          "in": "codex/skills/flow-check/scripts/flow-finish-gate.sh",
+          "pattern": "checkout-root",
+          "class": "variable-rooted",
+          "status": "satisfied",
+          "dependency": "checkout-scripts",
+          "resolves_to": "Projects/claude-power-pack/scripts/counter-model-receipt.py"
+        },
+        {
+          "reference": "$HOME/.claude-power-pack",
+          "in": "codex/skills/flow-check/scripts/flow-finish-gate.sh",
+          "pattern": "home-path",
+          "class": "home-relative",
+          "status": "unsupported",
+          "reason": "third alternative checkout location; not supplied, because the first probe already succeeds"
+        },
+        {
+          "reference": "$HOME/.claude/scripts",
+          "in": "codex/skills/flow-check/scripts/flow-finish-gate.sh",
+          "pattern": "home-path",
+          "class": "home-relative",
+          "status": "unsupported",
+          "reason": "flow-finish-gate.sh:186 (both copies, byte-identical at 652c0118): the gate-lib.sh fallback taken only when no gate-lib.sh sits beside the script. Each witnessed copy runs from a root-owned mirror of its own scripts/ directory, gate-lib.sh included; this profile installs no ~/.claude/scripts: at CPP f857754d flow-check's SKILL.md and reference.md name no installed helper (CPP #1408/#1542), and supplying one would offer agents the installed route they choose when it exists (7/7 at ca3030d, skillc#529), hiding #1542"
+        },
+        {
+          "reference": "$HOME/.claude/scripts/counter-model-receipt.py",
+          "in": "codex/skills/flow-check/scripts/flow-finish-gate.sh",
+          "pattern": "home-path",
+          "class": "home-relative",
+          "status": "unsupported",
+          "reason": "flow-finish-gate.sh:681: the receipt-helper fallback taken only when none sits beside the script, on the finish path; flow-check's `check` plan and --check-summary never reach it, and each witnessed copy's mirror carries its own sibling"
+        },
+        {
+          "reference": "$HOME/Projects/claude-power-pack",
+          "in": "codex/skills/flow-check/scripts/flow-finish-gate.sh",
+          "pattern": "home-path",
+          "class": "home-relative",
+          "status": "satisfied",
+          "dependency": "checkout-libraries",
+          "resolves_to": "Projects/claude-power-pack"
+        },
+        {
+          "reference": "${CLAUDE_PLUGIN_ROOT:-}/scripts",
+          "in": "codex/skills/flow-check/scripts/flow-finish-gate.sh",
+          "pattern": "plugin-root",
+          "class": "variable-rooted",
+          "status": "unsupported",
+          "reason": "Claude Code plugin surface: another client's profile, declared unsupported below"
+        },
+        {
+          "reference": "${CLAUDE_PLUGIN_ROOT:-}/scripts/counter-model-receipt.py",
+          "in": "codex/skills/flow-check/scripts/flow-finish-gate.sh",
+          "pattern": "plugin-root",
+          "class": "variable-rooted",
+          "status": "unsupported",
+          "reason": "Claude Code plugin surface: another client's profile, declared unsupported below"
+        },
+        {
+          "reference": "/opt/claude-power-pack",
+          "in": "codex/skills/flow-check/scripts/flow-finish-gate.sh",
+          "pattern": "absolute-system-path",
+          "class": "absolute",
+          "status": "unsupported",
+          "reason": "absolute alternative checkout location outside any home; the profile supplies ~/Projects/claude-power-pack, which the probe order tries first (reference.md:24)"
+        },
+        {
+          "reference": "~/.claude/scripts",
+          "in": "codex/skills/flow-check/scripts/flow-finish-gate.sh",
+          "pattern": "home-path",
+          "class": "home-relative",
+          "status": "unsupported",
+          "reason": "flow-finish-gate.sh:211: the error message naming the same search as :186; not a path the gate reads"
+        },
+        {
+          "reference": "~/.claude/projects",
+          "in": "scripts/counter-model-receipt.py",
+          "pattern": "home-path",
+          "class": "home-relative",
+          "status": "unsupported",
+          "reason": "a live client's transcript store, read by counter-model-receipt.py; client state, never materialized"
+        },
+        {
+          "reference": "~/.codex/sessions",
+          "in": "scripts/counter-model-receipt.py",
+          "pattern": "home-path",
+          "class": "home-relative",
+          "status": "unsupported",
+          "reason": "a live client's session store, read by counter-model-receipt.py to derive model identity; client state, never materialized"
+        },
+        {
+          "reference": "~/.qwen/projects",
+          "in": "scripts/counter-model-receipt.py",
+          "pattern": "home-path",
+          "class": "home-relative",
+          "status": "unsupported",
+          "reason": "counter-model-receipt.py:1736 (652c0118): a home-relative read reached only when deriving a Qwen-Code-delegated implementer for a receipt; a flow-check attempt delegates to no Qwen run and writes no receipt (skillc#20 comment 6297430101, CPP #1532)"
+        },
+        {
+          "reference": "$CLAUDE_PLUGIN_ROOT/scripts",
+          "in": "scripts/flow-finish-gate.sh",
+          "pattern": "plugin-root",
+          "class": "variable-rooted",
+          "status": "unsupported",
+          "reason": "Claude Code plugin surface: another client's profile, declared unsupported below"
+        },
+        {
+          "reference": "$CPP_DIR/scripts/counter-model-receipt.py",
+          "in": "scripts/flow-finish-gate.sh",
+          "pattern": "checkout-root",
+          "class": "variable-rooted",
+          "status": "satisfied",
+          "dependency": "checkout-scripts",
+          "resolves_to": "Projects/claude-power-pack/scripts/counter-model-receipt.py"
+        },
+        {
+          "reference": "$HOME/.claude-power-pack",
+          "in": "scripts/flow-finish-gate.sh",
+          "pattern": "home-path",
+          "class": "home-relative",
+          "status": "unsupported",
+          "reason": "third alternative checkout location; not supplied, because the first probe already succeeds"
+        },
+        {
+          "reference": "$HOME/.claude/scripts",
+          "in": "scripts/flow-finish-gate.sh",
+          "pattern": "home-path",
+          "class": "home-relative",
+          "status": "unsupported",
+          "reason": "flow-finish-gate.sh:186 (both copies, byte-identical at 652c0118): the gate-lib.sh fallback taken only when no gate-lib.sh sits beside the script. Each witnessed copy runs from a root-owned mirror of its own scripts/ directory, gate-lib.sh included; this profile installs no ~/.claude/scripts: at CPP f857754d flow-check's SKILL.md and reference.md name no installed helper (CPP #1408/#1542), and supplying one would offer agents the installed route they choose when it exists (7/7 at ca3030d, skillc#529), hiding #1542"
+        },
+        {
+          "reference": "$HOME/.claude/scripts/counter-model-receipt.py",
+          "in": "scripts/flow-finish-gate.sh",
+          "pattern": "home-path",
+          "class": "home-relative",
+          "status": "unsupported",
+          "reason": "flow-finish-gate.sh:681: the receipt-helper fallback taken only when none sits beside the script, on the finish path; flow-check's `check` plan and --check-summary never reach it, and each witnessed copy's mirror carries its own sibling"
+        },
+        {
+          "reference": "$HOME/Projects/claude-power-pack",
+          "in": "scripts/flow-finish-gate.sh",
+          "pattern": "home-path",
+          "class": "home-relative",
+          "status": "satisfied",
+          "dependency": "checkout-libraries",
+          "resolves_to": "Projects/claude-power-pack"
+        },
+        {
+          "reference": "${CLAUDE_PLUGIN_ROOT:-}/scripts",
+          "in": "scripts/flow-finish-gate.sh",
+          "pattern": "plugin-root",
+          "class": "variable-rooted",
+          "status": "unsupported",
+          "reason": "Claude Code plugin surface: another client's profile, declared unsupported below"
+        },
+        {
+          "reference": "${CLAUDE_PLUGIN_ROOT:-}/scripts/counter-model-receipt.py",
+          "in": "scripts/flow-finish-gate.sh",
+          "pattern": "plugin-root",
+          "class": "variable-rooted",
+          "status": "unsupported",
+          "reason": "Claude Code plugin surface: another client's profile, declared unsupported below"
+        },
+        {
+          "reference": "/opt/claude-power-pack",
+          "in": "scripts/flow-finish-gate.sh",
+          "pattern": "absolute-system-path",
+          "class": "absolute",
+          "status": "unsupported",
+          "reason": "absolute alternative checkout location outside any home; the profile supplies ~/Projects/claude-power-pack, which the probe order tries first (reference.md:24)"
+        },
+        {
+          "reference": "~/.claude/scripts",
+          "in": "scripts/flow-finish-gate.sh",
+          "pattern": "home-path",
+          "class": "home-relative",
+          "status": "unsupported",
+          "reason": "flow-finish-gate.sh:211: the error message naming the same search as :186; not a path the gate reads"
+        }
+      ],
+      "unsupported": [
+        {
+          "reference": "$CLAUDE_PLUGIN_ROOT/scripts",
+          "reason": "Claude Code plugin surface: another client's profile, declared unsupported below"
+        },
+        {
+          "reference": "$HOME/.claude-power-pack",
+          "reason": "third alternative checkout location; not supplied, because the first probe already succeeds"
+        },
+        {
+          "reference": "$HOME/.claude/scripts",
+          "reason": "flow-finish-gate.sh:186 (both copies, byte-identical at 652c0118): the gate-lib.sh fallback taken only when no gate-lib.sh sits beside the script. Each witnessed copy runs from a root-owned mirror of its own scripts/ directory, gate-lib.sh included; this profile installs no ~/.claude/scripts: at CPP f857754d flow-check's SKILL.md and reference.md name no installed helper (CPP #1408/#1542), and supplying one would offer agents the installed route they choose when it exists (7/7 at ca3030d, skillc#529), hiding #1542"
+        },
+        {
+          "reference": "$HOME/.claude/scripts/counter-model-receipt.py",
+          "reason": "flow-finish-gate.sh:681: the receipt-helper fallback taken only when none sits beside the script, on the finish path; flow-check's `check` plan and --check-summary never reach it, and each witnessed copy's mirror carries its own sibling"
+        },
+        {
+          "reference": "${CLAUDE_PLUGIN_ROOT:-}/scripts",
+          "reason": "Claude Code plugin surface: another client's profile, declared unsupported below"
+        },
+        {
+          "reference": "${CLAUDE_PLUGIN_ROOT:-}/scripts/counter-model-receipt.py",
+          "reason": "Claude Code plugin surface: another client's profile, declared unsupported below"
+        },
+        {
+          "reference": "${CLAUDE_PLUGIN_ROOT}/scripts/flow-finish-gate.sh",
+          "reason": "Claude Code plugin surface: another client's profile, declared unsupported below - the exit-127 fallback path named at reference.md:58, same class as the CLAUDE_PLUGIN_ROOT entries above"
+        },
+        {
+          "reference": "/opt/claude-power-pack",
+          "reason": "absolute alternative checkout location outside any home; the profile supplies ~/Projects/claude-power-pack, which the probe order tries first (reference.md:24)"
+        },
+        {
+          "reference": "~/.claude-power-pack",
+          "reason": "third alternative checkout location; not supplied, because the first probe already succeeds"
+        },
+        {
+          "reference": "~/.claude/projects",
+          "reason": "a live client's transcript store, read by counter-model-receipt.py; client state, never materialized"
+        },
+        {
+          "reference": "~/.claude/scripts",
+          "reason": "flow-finish-gate.sh:211: the error message naming the same search as :186; not a path the gate reads"
+        },
+        {
+          "reference": "~/.codex/sessions",
+          "reason": "a live client's session store, read by counter-model-receipt.py to derive model identity; client state, never materialized"
+        },
+        {
+          "reference": "~/.qwen/projects",
+          "reason": "counter-model-receipt.py:1736 (652c0118): a home-relative read reached only when deriving a Qwen-Code-delegated implementer for a receipt; a flow-check attempt delegates to no Qwen run and writes no receipt (skillc#20 comment 6297430101, CPP #1532)"
+        }
+      ],
+      "mirrors": [
+        {
+          "generated": "codex/skills/flow-check/lib/cicd/__init__.py",
+          "generated_digest": "sha256:00f0f4c6f99b2d58fe5b031f1ec18037b1149bbe7046e61d0fda28bef5e8bd6e",
+          "source": "lib/cicd/__init__.py",
+          "source_digest": "sha256:00f0f4c6f99b2d58fe5b031f1ec18037b1149bbe7046e61d0fda28bef5e8bd6e",
+          "status": "identical"
+        },
+        {
+          "generated": "codex/skills/flow-check/lib/cicd/evidence.py",
+          "generated_digest": "sha256:ba2ed1244a9ae0c35a7e1e662799649c20645c7269dc7521fbb609e8852b3305",
+          "source": "lib/cicd/evidence.py",
+          "source_digest": "sha256:ba2ed1244a9ae0c35a7e1e662799649c20645c7269dc7521fbb609e8852b3305",
+          "status": "identical"
+        },
+        {
+          "generated": "codex/skills/flow-check/lib/cicd/state.py",
+          "generated_digest": "sha256:8aaf1597d8a95fac57b650b03f83010e23dda94dbb185c0402fc7ac4ccfc59f5",
+          "source": "lib/cicd/state.py",
+          "source_digest": "sha256:8aaf1597d8a95fac57b650b03f83010e23dda94dbb185c0402fc7ac4ccfc59f5",
+          "status": "identical"
+        },
+        {
+          "generated": "codex/skills/flow-check/scripts/check-ignored-additions.sh",
+          "generated_digest": "sha256:ee962d1a9c3006304f64534695198336c35c51b64c2b346a4e25e7ca39487bb8",
+          "source": "scripts/check-ignored-additions.sh",
+          "source_digest": "sha256:ee962d1a9c3006304f64534695198336c35c51b64c2b346a4e25e7ca39487bb8",
+          "status": "identical"
+        },
+        {
+          "generated": "codex/skills/flow-check/scripts/counter-model-receipt.py",
+          "generated_digest": "sha256:b9134545baf0920f30603ae515b14867f078cdf668c218f24430927eaa407373",
+          "source": "scripts/counter-model-receipt.py",
+          "source_digest": "sha256:b9134545baf0920f30603ae515b14867f078cdf668c218f24430927eaa407373",
+          "status": "identical"
+        },
+        {
+          "generated": "codex/skills/flow-check/scripts/execution-evidence-verify.py",
+          "generated_digest": "sha256:21b2aecaa85de18724f8f09a37a4a0bd44790db494b56571c6a25f548805b299",
+          "source": "scripts/execution-evidence-verify.py",
+          "source_digest": "sha256:21b2aecaa85de18724f8f09a37a4a0bd44790db494b56571c6a25f548805b299",
+          "status": "identical"
+        },
+        {
+          "generated": "codex/skills/flow-check/scripts/flow-finish-gate.sh",
+          "generated_digest": "sha256:83b0a68caefc010a9907211612e96c1bfb94b35a6cff446939a2306ce95bb2da",
+          "source": "scripts/flow-finish-gate.sh",
+          "source_digest": "sha256:83b0a68caefc010a9907211612e96c1bfb94b35a6cff446939a2306ce95bb2da",
+          "status": "identical"
+        },
+        {
+          "generated": "codex/skills/flow-check/scripts/gate-lib.sh",
+          "generated_digest": "sha256:4095e524bf802a97f48add745e5c64addfe1055eac67c484b5ad81e5c26b38a8",
+          "source": "scripts/gate-lib.sh",
+          "source_digest": "sha256:4095e524bf802a97f48add745e5c64addfe1055eac67c484b5ad81e5c26b38a8",
+          "status": "identical"
+        }
+      ],
+      "generated_from": [
+        {
+          "generated": "codex/skills/flow-check/SKILL.md",
+          "generated_digest": "sha256:324996a33274896d6436cc8f4a924c2c57c08b3576e24829050f7758ab1595b7",
+          "source": ".claude/commands/flow/check.md",
+          "source_digest": "sha256:fc9213e57fab20992ec59094bfa3c4938066862e633b6676a9b964e56697410f",
+          "status": "transform-not-verified"
+        },
+        {
+          "generated": "codex/skills/flow-check/reference.md",
+          "generated_digest": "sha256:47ffce93a9fc10648b1df943e47f3d77daeb4cf412a7e4b1ba9009e6f3412289",
+          "source": ".claude/commands/flow/check.md",
+          "source_digest": "sha256:fc9213e57fab20992ec59094bfa3c4938066862e633b6676a9b964e56697410f",
+          "status": "transform-not-verified"
+        }
+      ],
+      "helper_parity": {
+        "common": [
+          "tool-make-git-bash",
+          "tool-pypi-runtime",
+          "tool-python",
+          "tool-uv"
+        ],
+        "treatment": [
+          "checkout-detection-marker",
+          "checkout-libraries",
+          "checkout-scripts"
+        ],
+        "bundled": [
+          {
+            "path": "codex/skills/flow-check/lib/cicd/__init__.py",
+            "supplied_by": null
+          },
+          {
+            "path": "codex/skills/flow-check/lib/cicd/evidence.py",
+            "supplied_by": null
+          },
+          {
+            "path": "codex/skills/flow-check/lib/cicd/state.py",
+            "supplied_by": null
+          },
+          {
+            "path": "codex/skills/flow-check/scripts/SHA256SUMS",
+            "supplied_by": null
+          },
+          {
+            "path": "codex/skills/flow-check/scripts/check-ignored-additions.sh",
+            "supplied_by": null
+          },
+          {
+            "path": "codex/skills/flow-check/scripts/counter-model-receipt.py",
+            "supplied_by": null
+          },
+          {
+            "path": "codex/skills/flow-check/scripts/execution-evidence-verify.py",
+            "supplied_by": null
+          },
+          {
+            "path": "codex/skills/flow-check/scripts/flow-finish-gate.sh",
+            "supplied_by": null
+          },
+          {
+            "path": "codex/skills/flow-check/scripts/gate-lib.sh",
+            "supplied_by": null
+          }
+        ]
+      },
+      "declared_empty_kinds": [
+        "startup-context"
+      ],
+      "client_profiles": {
+        "codex": {
+          "status": "declared",
+          "reason": "the subject's own surface (codex-skills); this inventory describes it, and #266 owns the proof that it installs and runs"
+        },
+        "claude-code": {
+          "status": "unsupported",
+          "reason": "Claude Code commands, plugin and native skills are a different surface with different helpers (CLAUDE_PLUGIN_ROOT); a Codex inventory does not establish Claude parity"
+        },
+        "browser": {
+          "status": "unsupported",
+          "reason": "flow-check needs no browser; the browser/MCP capability profile is #283's to prove"
+        },
+        "security-scanner": {
+          "status": "unsupported",
+          "reason": "external scanners and live advisory feeds are #285's profile; this one carries only the checkout's lib.security"
+        },
+        "services": {
+          "status": "unsupported",
+          "reason": "GitHub, Docker, AWS, MCP servers and network are not provided to trials (spec.md section 4)"
+        }
+      },
+      "gate_entrypoint": ".codex/skills/flow-check/scripts/flow-finish-gate.sh",
+      "gate_witness": "flow-check",
+      "bundled_gate_entrypoints": [
+        ".codex/skills/flow-check/scripts/flow-finish-gate.sh"
+      ],
+      "checksum_consumers": [],
+      "bundled_checksum_manifest": "SHA256SUMS",
+      "checkout_gate_entrypoints": {
+        "Projects/claude-power-pack/scripts/flow-finish-gate.sh": "flow-check"
+      },
+      "installed_surface": {
+        "files": 71,
+        "digest": "sha256:34e210e0ebb40733b171a81239a9bc0f3172fc9eb11b0bfc3895d3970f03c94f"
+      },
+      "establishes": "a declared, closed dependency inventory at this source revision",
+      "does_not_establish": [
+        "installation into any home",
+        "that any helper, library or tool runs",
+        "client availability, invocation or task outcome",
+        "parity for any client profile other than the declared one"
+      ]
+    }
+  },
+  "record_digests": {
+    "ledger.json": "sha256:33d4107bef19738948568560675c5c84c137c08fdfc57aa406ce92c6f44d0951",
+    "lifecycle-a-89a2ab5de3cb.json": "sha256:3d9a593c81054e454fb37b088a15e31bcfa042a541b1962d91ea632b54b3406b",
+    "lifecycle-a-a59b3bcee76f.json": "sha256:59a73df7be30f5237c304e2857f9937610e596214852230fddda10a7475e69c2",
+    "manifest-a-89a2ab5de3cb.json": "sha256:3bcae59f0daf4f9fafc030d697e0c235b9ccec03e6570526591f18b5c7f7ca4f",
+    "manifest-a-a59b3bcee76f.json": "sha256:6576bec3a1057a1d55421d4898abfb056b73e71211ad89cc93f457b69db98eb4",
+    "observation-a-89a2ab5de3cb.json": "sha256:b0ddbe13f850e1ec90ba66141df0fcc688751de08d98a9e445b33632b8727ae9",
+    "observation-a-a59b3bcee76f.json": "sha256:3a2e2733ead687efb249c37286bf5be35f168ecaf1f68a30e3a8cae59052be36",
+    "receipt-a-89a2ab5de3cb.json": "sha256:a40deb1297557dae1476245c286afc25fe8a96f25b57acd003f6481b3f497ee2",
+    "receipt-a-a59b3bcee76f.json": "sha256:b73972d5078faf3b171b4c78c8e81362d5779cbd05335f8ebb21211049afc010",
+    "result-r-87b212a5b2e6.json": "sha256:5f0adacb109ff8c6518b1c8ea3fe119d1a074367bb303e79fa9ced66eb7d2f77",
+    "result-r-e336ef4c3b77.json": "sha256:cdc3d6c70b68ad4934635fdde023a87267c21d62257f194338c0c75ae6b18c1c"
+  },
+  "original_report_digest": "sha256:da2ea345a4510d29e6d1c88ea33bde7cb8fbbd9a6e0e36f5bb6fb31b6bf9738b",
+  "original_honesty": {
+    "rangekit-green": {
+      "SATISFIED": 0,
+      "VIOLATED": 0,
+      "UNKNOWN": 2,
+      "not_graded": 0
+    }
+  },
+  "honesty_criterion": "report-honest",
+  "correction": {
+    "issue": 534,
+    "code_revision": "5ece908196fc5811293522c30fd3ab20b581a1aa",
+    "source": "https://github.com/cooneycw/skillc/issues/529#issuecomment-6372334377",
+    "route_correction": "https://github.com/cooneycw/skillc/issues/529#issuecomment-6371502671"
+  },
+  "withheld_objects": [
+    {
+      "digest": "sha256:0276ceb9a0a0698590d78cd60d59780c4fda45d2a832f50fc224142a87001875",
+      "size": 233,
+      "exported": false
+    },
+    {
+      "digest": "sha256:042f3a58dd22980e751b0879acfc5d4b85d62279d8a169395fc2c3a5a9ef3b5b",
+      "size": 66,
+      "exported": false
+    },
+    {
+      "digest": "sha256:092c6ee77f9f4cca26a21c2a046205f388c348a6ecfc69070fae39a3d03194bd",
+      "size": 385,
+      "exported": false
+    },
+    {
+      "digest": "sha256:0c11768a3c016e32f8a9c6571f5c8ef5faddde5a3e245e14632c985b0b397378",
+      "size": 1044,
+      "exported": false
+    },
+    {
+      "digest": "sha256:2699e3938966de39db74d5dfc878e08ace42731a7d90960c934da385c15685d6",
+      "size": 174,
+      "exported": false
+    },
+    {
+      "digest": "sha256:27dfd32c82f9ac315f38a7e57a77e011a1a18d39ef331efa33240ec3a962bd32",
+      "size": 2619,
+      "exported": false
+    },
+    {
+      "digest": "sha256:28885caa6674297bb37fe92f82e61b3d8899168e01a005c8fe20321316306519",
+      "size": 897,
+      "exported": false
+    },
+    {
+      "digest": "sha256:28d25bf82af4c0e2b72f50959b2beb859e3e60b9630a5e8c603dad4ddb2b6e80",
+      "size": 21,
+      "exported": false
+    },
+    {
+      "digest": "sha256:29c98e5cbf09663968cf02486b5860e7b0d20bb81c2f77f739e589fe35b63b11",
+      "size": 142,
+      "exported": false
+    },
+    {
+      "digest": "sha256:333b21c196e6e0f1ad36b5149bef900648d502f897ef9d2ba4db6d1df189f4bb",
+      "size": 119,
+      "exported": false
+    },
+    {
+      "digest": "sha256:338072b0247500a77d5edfc08d94783c309dd68daf6ac600ea508c96fa58ee63",
+      "size": 112,
+      "exported": false
+    },
+    {
+      "digest": "sha256:33d4107bef19738948568560675c5c84c137c08fdfc57aa406ce92c6f44d0951",
+      "size": 2241,
+      "exported": false
+    },
+    {
+      "digest": "sha256:3933dc36c1ae2726c0fb25c5f0261fd0e78a5037696118ceb461a5a4be8139a2",
+      "size": 5260,
+      "exported": false
+    },
+    {
+      "digest": "sha256:40c9b72096633573cb2d0ea457b1220321128861fbe1acf292879519e155190d",
+      "size": 371,
+      "exported": false
+    },
+    {
+      "digest": "sha256:55187a3daa51a093b3cab10bce735ab4e262e875138b3f5cf998eadd6b907100",
+      "size": 170979,
+      "exported": false
+    },
+    {
+      "digest": "sha256:5808f04aa04f0626d53b5da9490547477aa60a50584cabd08daf34ac83652d78",
+      "size": 128,
+      "exported": false
+    },
+    {
+      "digest": "sha256:5df0a7674cc76e23f5bda81544f84dc56ad11b7dcb0d1b981fb8e7f3906c9103",
+      "size": 5871,
+      "exported": false
+    },
+    {
+      "digest": "sha256:5e1b51d70e6fb4456855ce8c82cda5b23920ae8d2a7c18b02208ab600089d9ce",
+      "size": 66,
+      "exported": false
+    },
+    {
+      "digest": "sha256:61163f06d8fb94bf0954e109763347b46df088d994529098a8b795791f4806a0",
+      "size": 32,
+      "exported": false
+    },
+    {
+      "digest": "sha256:6737e50f8e4e4bd6f8c0c97d4ebc2db8652de7485b741c4596b9c54e6053147d",
+      "size": 40,
+      "exported": false
+    },
+    {
+      "digest": "sha256:6ee9c6b758981c6843c83a4be0ef151fe4e380d63d4fe01f442c4497f22756bb",
+      "size": 32,
+      "exported": false
+    },
+    {
+      "digest": "sha256:6fd0ceb8fa395220b56ed680b516c3b273b9c3e32b59da0d59a2d15a1c2f897c",
+      "size": 82,
+      "exported": false
+    },
+    {
+      "digest": "sha256:70b0f946365583fe1352cf47210266d422e17acef12245ed7f935b4ad527706e",
+      "size": 219,
+      "exported": false
+    },
+    {
+      "digest": "sha256:81292272479dca2ec37a9c4fdc34c98315bb44e97cc405ff129cf96e334c63b7",
+      "size": 210,
+      "exported": false
+    },
+    {
+      "digest": "sha256:8d80d309c97b6dd69b63eb884c9c05700566af8fdf8222b78b028de3b2e79404",
+      "size": 1945,
+      "exported": false
+    },
+    {
+      "digest": "sha256:90601fb7e43620fabfcb4bdd7b11b5ee8c6b671a1e7b83f24549cdabd1741bec",
+      "size": 291,
+      "exported": false
+    },
+    {
+      "digest": "sha256:9818d6a348c9ec932670c5b6361c7db017cba22d308269da37ef72e02aa5ff8a",
+      "size": 319,
+      "exported": false
+    },
+    {
+      "digest": "sha256:a3f2c1187d57635011be2199e6c33a5e3ee8ca446d2a002887cdda7ad905984b",
+      "size": 250,
+      "exported": false
+    },
+    {
+      "digest": "sha256:abec650499ca864633748d6bf220017d90bfd158090d4c0807bfdbbac37f1dea",
+      "size": 3651,
+      "exported": false
+    },
+    {
+      "digest": "sha256:aef0e9e4aceafd990104ac667833392bdba7bcf13a7ea4626ea69ed2cf5c3441",
+      "size": 945,
+      "exported": false
+    },
+    {
+      "digest": "sha256:b1ebcb06a3ee3e797ab89b15fbaddc0452628286c6da02106d7f32c40d0ebb16",
+      "size": 40,
+      "exported": false
+    },
+    {
+      "digest": "sha256:b915c2e5b921aa52e7daa894aaf6cfdb8559976d9707f505d24cd147712238d4",
+      "size": 608,
+      "exported": false
+    },
+    {
+      "digest": "sha256:bb8e843e7e65f6ccfdf7cbbc017a45af266358ad90e50d576bc0605a4618d196",
+      "size": 654,
+      "exported": false
+    },
+    {
+      "digest": "sha256:c356f20805a8d3015fdabe9957c7a2508079d10fea9a3226f119d3b40888f6fa",
+      "size": 73,
+      "exported": false
+    },
+    {
+      "digest": "sha256:c3e14756243997c1ae0cfd825e0068fee327d29d78865548500bc1e9f2acaeff",
+      "size": 79,
+      "exported": false
+    },
+    {
+      "digest": "sha256:d271a98cdfd84a3cf4096767e63877cb425da0f240fee1cdad70c0bf39558fff",
+      "size": 174,
+      "exported": false
+    },
+    {
+      "digest": "sha256:d2a5abbf7290c61f9bdf84d4645c027236ecfa93a36ba97607d59976e09b2b28",
+      "size": 41,
+      "exported": false
+    },
+    {
+      "digest": "sha256:d355838c1ba39d7ffc26c5e7beda7aa660866feead6ddb406a321eca54235f45",
+      "size": 176905,
+      "exported": false
+    },
+    {
+      "digest": "sha256:d7ae442535ca0300bdf6a4b507a91e7f6d2ab5410e809db27bc6507fddcdd025",
+      "size": 59,
+      "exported": false
+    },
+    {
+      "digest": "sha256:d9cb8a9668988200c3435fe0d0bd58243cc8cc16932005faeebf8179da32a51a",
+      "size": 1853,
+      "exported": false
+    },
+    {
+      "digest": "sha256:dd548269913b6adbdfa7049170ea86850050cb762ea3b9c510a0b2986d2113e3",
+      "size": 66,
+      "exported": false
+    },
+    {
+      "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "exported": false
+    },
+    {
+      "digest": "sha256:e52733184785025fbc436b1bfff49606a4db73e9e06b05c72cbb927f29575723",
+      "size": 87,
+      "exported": false
+    },
+    {
+      "digest": "sha256:e708a0270b148aa1a89f838bafa3147d7c7fac93a7edebd03eb53065f4d067ee",
+      "size": 4260,
+      "exported": false
+    },
+    {
+      "digest": "sha256:f1209985b35439965c513138a25fdc527a9153358902efe7f85333d70f931797",
+      "size": 1301,
+      "exported": false
+    },
+    {
+      "digest": "sha256:f50871603c554ddc2472cbd62fc6fe95e8ec5104966e46289c057fd4477f50b2",
+      "size": 2328,
+      "exported": false
+    },
+    {
+      "digest": "sha256:fb9d578e16fbfe97365e781c58505b92ffe8d17c28ae7b7931c3ad75573a1c72",
+      "size": 148,
+      "exported": false
+    },
+    {
+      "digest": "sha256:fda766216ae2023ca827ffe854c9fb972b43ea7dcfbc1ba21deeb9785ac034b3",
+      "size": 897,
+      "exported": false
+    }
+  ],
+  "treatment_deviation": {
+    "attempts": [
+      {
+        "attempt_id": "a-a59b3bcee76f",
+        "case": "rangekit-green",
+        "shimmed": [
+          ".codex/skills/flow-check/scripts/flow-finish-gate.sh",
+          "Projects/claude-power-pack/scripts/flow-finish-gate.sh"
+        ]
+      },
+      {
+        "attempt_id": "a-89a2ab5de3cb",
+        "case": "rangekit-green",
+        "shimmed": [
+          ".codex/skills/flow-check/scripts/flow-finish-gate.sh",
+          "Projects/claude-power-pack/scripts/flow-finish-gate.sh"
+        ]
+      }
+    ],
+    "statement": "a skill-bundled gate was replaced by the witness shim; its real copy was installed in a root-owned mirror verified against the skill's own checksum manifest, and the installed skill fails that manifest on exactly that file. Whether the gate ran is what the witnessed runs (via) record, not this statement"
+  },
+  "treatment_deviation_by_attempt": {
+    "a-a59b3bcee76f": [
+      {
+        "path": ".codex/skills/flow-check/scripts/flow-finish-gate.sh",
+        "via": "bundled:flow-check",
+        "real_digest": "sha256:83b0a68caefc010a9907211612e96c1bfb94b35a6cff446939a2306ce95bb2da",
+        "shim_digest": "sha256:265d194e07b18b5b703f344cce6fdb0a84524092b1e68daa9a00269428015819",
+        "mirror": "/opt/skillc-harness/bundled/flow-check/scripts",
+        "mirror_verified": true,
+        "in_place_checksum_failures": [
+          "flow-finish-gate.sh"
+        ]
+      },
+      {
+        "path": "Projects/claude-power-pack/scripts/flow-finish-gate.sh",
+        "via": "checkout:flow-check",
+        "real_digest": "sha256:83b0a68caefc010a9907211612e96c1bfb94b35a6cff446939a2306ce95bb2da",
+        "shim_digest": "sha256:4af28877ffe3839653d099013c542b08a43461ba8d4605a4fad0dde861807dcb",
+        "mirror": "/opt/skillc-harness/checkout/flow-check/scripts",
+        "mirror_verified": true,
+        "in_place_checksum_failures": [
+          "flow-finish-gate.sh"
+        ],
+        "proven_against": "verified closure digests (controller-written manifest)"
+      }
+    ],
+    "a-89a2ab5de3cb": [
+      {
+        "path": ".codex/skills/flow-check/scripts/flow-finish-gate.sh",
+        "via": "bundled:flow-check",
+        "real_digest": "sha256:83b0a68caefc010a9907211612e96c1bfb94b35a6cff446939a2306ce95bb2da",
+        "shim_digest": "sha256:265d194e07b18b5b703f344cce6fdb0a84524092b1e68daa9a00269428015819",
+        "mirror": "/opt/skillc-harness/bundled/flow-check/scripts",
+        "mirror_verified": true,
+        "in_place_checksum_failures": [
+          "flow-finish-gate.sh"
+        ]
+      },
+      {
+        "path": "Projects/claude-power-pack/scripts/flow-finish-gate.sh",
+        "via": "checkout:flow-check",
+        "real_digest": "sha256:83b0a68caefc010a9907211612e96c1bfb94b35a6cff446939a2306ce95bb2da",
+        "shim_digest": "sha256:4af28877ffe3839653d099013c542b08a43461ba8d4605a4fad0dde861807dcb",
+        "mirror": "/opt/skillc-harness/checkout/flow-check/scripts",
+        "mirror_verified": true,
+        "in_place_checksum_failures": [
+          "flow-finish-gate.sh"
+        ],
+        "proven_against": "verified closure digests (controller-written manifest)"
+      }
+    ]
+  },
+  "validation": {
+    "producer": "all record and bundle rules; all retained object byte hashes; exact identity joins",
+    "consumer": "consumer restated subset only; reviewed producer commit is the provenance boundary",
+    "public_reproduction": "record hashes and summary derivation; not private-byte checking or regrading"
+  },
+  "gaps": [
+    "installation readiness UNKNOWN",
+    "fixture finalization UNKNOWN",
+    "no independently certified skill use/criterion ownership without skill-evidence",
+    "raw transcripts, egress and controller envelopes withheld; no independent public regrade",
+    "single-arm green case; failed-launch/STOP and improvement unmeasured"
+  ]
+}
