@@ -41,7 +41,7 @@ disagrees - never silently.
 
 WHAT A GREEN FROM THIS GATE MEANS, AND IT IS NARROWER THAN ITS NEIGHBOURS. It
 means the CONSUMER read an artifact correctly. It says nothing whatever about any
-behavioural case discriminating - there is no case yet. Its output sits in
+behavioural case discriminating or improving another population. Its output sits in
 `make verify` beside gates that DO carry behavioural meaning, and a reader
 skimming cannot tell them apart, so every verdict this gate prints names the
 population it examined and says plainly when that population is a fixture.
@@ -86,9 +86,10 @@ THE BUNDLE LAYOUT, DECIDED BY #1369 (owner ruling, 2026-10-06): one bundle per
 IMMEDIATE SUBDIRECTORY of the directory this gate reads - never a flat glob of
 every `*.json` the directory holds. A flat glob cannot tell two runs' records
 apart, and skillc's own bundle rules assume exactly one trial ledger; conflating
-two runs' files would violate that the moment a second bundle ever lands. Today
-`docs/measurements/behavioral-eval/` is a 404, so there is no migration (nothing
-produces a bundle yet - the runner is still skillc #8). `evaluate()` treats the
+two runs' files would violate that the moment a second bundle ever lands.
+CPP #1554 places the real retained D3 flow-check bundle in
+`docs/measurements/behavioral-eval/d3-flow-check/`; producer metadata stays outside
+this candidate tree. `evaluate()` treats the
 directory it is given AND each of its immediate subdirectories as independent
 candidate populations, in sorted order, stopping at the first one that is not
 clean - this is also how a lone verified-result with nothing beside it keeps
@@ -159,7 +160,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from lib.cicd import evidence as _evidence  # noqa: E402
 
-#: Where a producer would write its artifacts. Nothing writes here yet; see ABSENT.
+#: Reviewed producer bundles, including the retained D3 handoff from #1554.
 #: #1369: one bundle per IMMEDIATE SUBDIRECTORY of this directory - see the
 #: module docstring's "THE BUNDLE LAYOUT" paragraph.
 DEFAULT_DIR = Path("docs/measurements/behavioral-eval")
@@ -240,23 +241,14 @@ POPULATION_NOTE = (
     "nothing about one discriminating."
 )
 
-#: ABSENT names its blocker SPECIFICALLY, so a reader in three months can check
-#: whether it still stands. "when a producer exists" would be unfalsifiable by the
-#: person reading it, and that is how a permanently-absent line becomes furniture.
-#: Nit Store #864 (absorbed into #1499, 2026-10-20): the previous wording named
-#: skillc #8/#9/#10 as the blocker; all three are now CLOSED, but no model trial
-#: has actually run and no verified-result artifact exists, so ABSENT is still
-#: the correct verdict - only the upstream citation was stale. Route to CPP #1084
-#: (the open issue that owns the current producer obligation) instead of naming
-#: closed sub-issues that would need re-updating every time skillc's own
-#: tracking issues close.
+#: Absence describes only the requested input directory. Real retained evidence
+#: exists elsewhere; an empty directory cannot establish that no trial has run.
 ABSENT_NOTE = (
-    "no verified-result artifact and no bundle subdirectory holding one. Nothing "
-    "produces either yet: the behavioural case is CPP #1084 half B, which lives "
-    "in skillc. No model trial has run. Check CPP #1084 for the current producer "
-    "obligation before assuming this line is still expected."
+    "no verified-result artifact and no bundle subdirectory holding one in the "
+    "requested directory. The reviewed D3 handoff is documented in "
+    "docs/measurements/behavioral-eval/README.md (CPP #1554); CPP #1084 half B "
+    "lives in skillc. This absence says nothing about trials outside this input."
 )
-
 
 #: argparse exits 2 on a usage error, which is this gate's `absent` code - so a
 #: mistyped flag would have been indistinguishable from "no artifact was found".
@@ -538,7 +530,9 @@ def _validate_bundle(by_kind: dict[str, list[tuple[Path, dict]]]) -> list[str]:
     no attempt/result ID is planned or used twice (unique-ids, records.md:
     891-898); every planned attempt has an attempt-lifecycle record, so it
     cannot silently drop out (attempt-accounting's minimal half, records.md:
-    900-903); every attempt-bound record cites an attempt the ledger actually
+    900-903); a captured lifecycle requires its manifest and a result, and
+    a graded result requires its manifest (#1554 required-record presence);
+    every attempt-bound record cites an attempt the ledger actually
     issued, under the trial the ledger actually planned it under - a record
     naming a different trial is a cross-trial record (ledger-binding,
     records.md:862, 863-864); a result names the trial's planned grader (a
@@ -661,6 +655,25 @@ def _validate_bundle(by_kind: dict[str, list[tuple[Path, dict]]]) -> list[str]:
                 f"(records.md:862, ledger-binding)"
             )
 
+    # Required-record presence only (#1554). A captured attempt still owes
+    # grading when its result is missing; another attempt's PASS or an earlier
+    # INCONCLUSIVE must not hide that dropout. Other lifecycle consistency and
+    # receipt/agent-observation clauses remain outside this restated subset.
+    for _path, lifecycle in by_kind.get(ATTEMPT_LIFECYCLE, []):
+        aid = lifecycle.get("attempt_id")
+        if not isinstance(aid, str) or aid not in planned:
+            continue
+        if lifecycle.get("disposition") == "captured":
+            if aid not in manifests_by_attempt:
+                findings.append(f"captured attempt {aid!r} has no artifact-manifest record")
+            if aid not in results_by_attempt:
+                findings.append(f"captured attempt {aid!r} has no verified-result record; grading still owed")
+    for path, result in by_kind.get(KIND, []):
+        aid = result.get("attempt_id")
+        if (isinstance(aid, str) and aid in planned
+                and result.get("run_state") is None and aid not in manifests_by_attempt):
+            findings.append(f"{path.name}: graded attempt {aid!r} has no artifact-manifest record")
+
     # ledger-binding (records.md:863-864): every attempt-bound record names
     # the trial the ledger actually planned that attempt under - a record
     # naming any other trial is a cross-trial record. Pulled into the
@@ -721,7 +734,7 @@ def _validate_bundle(by_kind: dict[str, list[tuple[Path, dict]]]) -> list[str]:
             )
         have = captured_digests.get(aid)
         if have is None:
-            continue  # no manifest at all is attempt-accounting's finding, not this one
+            continue  # required-record presence above diagnoses the missing manifest
         graded_digests = rec.get("graded_digests")
         for digest in graded_digests if isinstance(graded_digests, list) else []:
             if isinstance(digest, str) and digest not in have:
@@ -936,10 +949,15 @@ def _evaluate_bundle_results(pop_dir: Path, by_kind: dict[str, list[tuple[Path, 
     results = by_kind.get(KIND, [])
     if not results:
         return "bundle-invalid", f"{pop_dir.name}: bundle has no verified-result record to read"
-    for path, _rec in results:
-        verdict = _judge_result(path)
-        if verdict is not None:
-            return verdict
+    judgments = [_judge_result(path) for path, _rec in results]
+    # Read every result before interpreting the first non-PASS outcome. An
+    # early honest UNKNOWN cannot conceal a later unreadable/forged record.
+    for judgment in judgments:
+        if judgment is not None and judgment[0] in {"unreadable", "forged"}:
+            return judgment
+    for judgment in judgments:
+        if judgment is not None:
+            return judgment
     names = ", ".join(path.name for path, _rec in results)
     return "pass", (
         f"{pop_dir.name}: bundle valid against the restated subset; {len(results)} "
@@ -958,7 +976,29 @@ def _evaluate_population(pop_dir: Path) -> tuple[str, str]:
     if not ledgers:
         return _evaluate_lone_results(pop_dir)
 
-    note = _producer_reported_note(by_kind)
+    planned: set[str] = set()
+    for _path, ledger in ledgers:
+        trials = ledger.get("trials")
+        for trial in trials if isinstance(trials, list) else []:
+            if not isinstance(trial, dict):
+                continue
+            attempts = trial.get("attempts")
+            for attempt in attempts if isinstance(attempts, list) else []:
+                if isinstance(attempt, dict) and isinstance(attempt.get("attempt_id"), str):
+                    planned.add(attempt["attempt_id"])
+    retained = {
+        rec.get("attempt_id") for _path, rec in by_kind.get(ATTEMPT_LIFECYCLE, [])
+        if isinstance(rec.get("attempt_id"), str)
+    }
+    result_attempts = {
+        rec.get("attempt_id") for _path, rec in by_kind.get(KIND, [])
+        if isinstance(rec.get("attempt_id"), str)
+    }
+    note = (
+        f"; population: {len(planned)} planned attempt(s), {len(retained)} retained "
+        f"lifecycle attempt(s), {len(result_attempts)} result-bearing attempt(s), "
+        f"{len(by_kind.get(KIND, []))} result record(s)"
+    ) + _producer_reported_note(by_kind)
     if skipped:
         return "bundle-invalid", f"{pop_dir.name}: {skipped[0]}" + note
     findings = _validate_bundle(by_kind)
@@ -967,11 +1007,13 @@ def _evaluate_population(pop_dir: Path) -> tuple[str, str]:
             f"{pop_dir.name}: bundle fails its own structural rules, restated from skillc "
             f"records.md at 2202603 ({len(findings)} finding(s)); first: {findings[0]}"
         ) + note
+    verdict, detail = _evaluate_bundle_results(pop_dir, by_kind)
+    if verdict in {"unreadable", "forged", "bundle-invalid"}:
+        return verdict, detail + note
     evidence_verdict = _evaluate_skill_evidence(pop_dir, by_kind)
     if evidence_verdict is not None:
         verdict, detail = evidence_verdict
         return verdict, detail + note
-    verdict, detail = _evaluate_bundle_results(pop_dir, by_kind)
     return verdict, detail + note
 
 

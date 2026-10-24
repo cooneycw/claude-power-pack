@@ -1037,26 +1037,35 @@ B, which lives in skillc (owner ruling) and never in this repository.
 
 **Its green is narrower than its neighbours' and it says so on every verdict.** A
 pass here means a reader read an artifact correctly. It establishes nothing about
-a behavioural case discriminating, because there is no behavioural case. The
+a behavioural case discriminating or improving another population. The
 output sits in `make verify` beside gates whose greens do carry behavioural
 meaning, and a reader skimming cannot tell them apart, so each verdict names the
 population it examined and states when that population is a fixture.
 
-**`absent` is a verdict, not a pass, and it is the repository's actual state.**
-Nothing produces one of these artifacts today, so the gate reports `absent` on
-every real run. It names its blocker specifically - CPP #1084 half B, waiting on
-skillc #8, #9 and #10 (skillc #5 landed 2026-09-26 and was named here until then)
-- so a reader in three months can check whether the blocker still stands rather
-than treating the line as furniture.
+**The default population includes the real retained D3 handoff (#1554).**
+Its 11 original records describe two attempts with overall INCONCLUSIVE results:
+three task criteria SATISFIED and mandatory installation-ready UNKNOWN in each.
+The separately declared primary endpoint excludes readiness and reports PASS;
+it does not replace those overall results. See
+[the handoff record](measurements/behavioral-eval/README.md) for producer custody,
+correction lineage and limits. `absent` describes only the requested directory,
+never whether any model trial has run elsewhere.
 
-**Advisory, and the condition that would change that is pre-committed.** It
-reports and never fails the build, because a hard prerequisite would red `main`
-permanently for the honest reason that nothing produces its input. Per
-[ADR 0009](decisions/0009-oscillation-control.md) the trigger is named rather than
-deferred to a later judgement: it becomes a blocking prerequisite when
-`docs/measurements/behavioral-eval/` contains at least one artifact recorded by a
-real behavioural case - that is, when half B lands and produces one. Until then
-there is nothing for blocking to protect, and after it there is.
+**Advisory remains the enrollment decision.** The existing #1084 / ADR 0011
+policy requires coherent real evidence plus a recorded enrollment decision;
+arrival alone does not make the gate blocking. `--advisory` maps a printed
+verdict to success while preserving crashes and usage errors as failures.
+
+**Required-record completeness precedes interpretation.** Every captured
+lifecycle requires its own manifest and result, and every graded result requires
+a manifest. All planned attempts receive these joins before any early
+INCONCLUSIVE or PASS interpretation. Every result is checked for unreadable or
+forged content before the first historical outcome is selected. Legitimate
+not-run, unavailable and inconclusive lifecycle states need no result. This
+extends CPP's stated subset, not the full producer validator: private object
+bytes, source authentication, other lifecycle consistency and receipt stand-in
+rules remain outside this reader. Metadata lives outside candidate record
+directories; source hashes bind a reviewed copy without authenticating a forger.
 
 **`status` is DERIVED, not read - and that is the whole of what this consumer
 does.** skillc's `verified-result` contract makes `status` a derived field and
@@ -1093,7 +1102,7 @@ confident wrong answer rather than noise:
   Membership is now type-checked first.
 
 Exit codes: `pass` 0, `failure` 1, `absent` 2, `unreadable` 3, `forged` 4,
-`inconclusive` 5; a usage error is 64. Exactly one verdict maps to 0, which is
+`inconclusive` 5, `bundle-invalid` 6 and `evidence-unverified` 7; a usage error is 64. Exactly one verdict maps to 0, which is
 `gate-lib.sh`'s rule - "an unknowable answer is never rendered as a clean one" in
 exit codes. gate-lib enforces that for shell gates; this one is Python, so the
 rule is restated in the gate and tested, rather than inherited by resemblance.
@@ -1116,10 +1125,11 @@ to import: producer authority (only `assembler`; `producer: subject` is `forged`
 identifier shape, grader identity, `graded_digests` unless a run state is
 declared, evidence on every established outcome, `missing` on every `UNKNOWN`, a
 reason on a declared run state, a digest on any `raw` reference, and a boolean
-`version` refused. It does NOT apply skillc's BUNDLE rules (ledger-binding,
-unique-ids, attempt-accounting, lineage), which need the ledger and manifest
-beside the result, and every verdict says so: "checked alone - NOT against any
-ledger".
+`version` refused. Without a declared ledger it does NOT apply skillc's BUNDLE rules
+(ledger-binding, unique-ids, attempt-accounting, lineage), and its verdict says
+"checked alone - NOT against any ledger". A bundle with a ledger receives the
+stated subset, including the required-record presence clauses above, never the
+full producer rule set.
 
 Two committed cases are REAL grader output rather than hand-written:
 `good-skillc-graded-pass` and `bad-skillc-graded-failure` wrap skillc's own

@@ -1,0 +1,356 @@
+{
+  "schema": 1,
+  "population": "separate trial views; never pooled",
+  "trials": [
+    {
+      "identity": {
+        "trial_id": "t1-live_rangekit-green_1",
+        "case": {
+          "id": "flow-check-route",
+          "revision": "1"
+        },
+        "grader": {
+          "id": "flow-check-route",
+          "revision": "1",
+          "digest": "sha256:27784c611795ed20417f82b5561f304fe14ae6eee3cfa7ab9db0f6c588f4ae49"
+        },
+        "client": {
+          "name": "codex",
+          "version": "0.157.1"
+        },
+        "image": {
+          "digest": "sha256:5951394b5b8be69be2eb9e6082bb69f89417a5478a9588aa0bf1b64585e87f51"
+        },
+        "config": {
+          "digest": "sha256:2699e3938966de39db74d5dfc878e08ace42731a7d90960c934da385c15685d6"
+        }
+      },
+      "source_ledger_digest": "sha256:33d4107bef19738948568560675c5c84c137c08fdfc57aa406ce92c6f44d0951",
+      "source_records": {
+        "lifecycle-a-a59b3bcee76f.json": "sha256:59a73df7be30f5237c304e2857f9937610e596214852230fddda10a7475e69c2",
+        "manifest-a-a59b3bcee76f.json": "sha256:6576bec3a1057a1d55421d4898abfb056b73e71211ad89cc93f457b69db98eb4",
+        "observation-a-a59b3bcee76f.json": "sha256:3a2e2733ead687efb249c37286bf5be35f168ecaf1f68a30e3a8cae59052be36",
+        "receipt-a-a59b3bcee76f.json": "sha256:b73972d5078faf3b171b4c78c8e81362d5779cbd05335f8ebb21211049afc010",
+        "result-r-87b212a5b2e6.json": "sha256:5f0adacb109ff8c6518b1c8ea3fe119d1a074367bb303e79fa9ced66eb7d2f77"
+      },
+      "coverage": {
+        "inventory": "declared",
+        "profile_digest": "sha256:2b33ccf927557e43f005fbac72899b7e1db6464e83c54b63bcf7f41b66f1b465",
+        "subject_digest": "sha256:0ac23bca751765d53497ec23acd14588b4c9a7fff232ef44a22b40b24a5ffd50",
+        "declared_skills": [
+          ".codex/skills/flow-check/SKILL.md"
+        ],
+        "rows": [
+          {
+            "skill_path": ".codex/skills/flow-check/SKILL.md",
+            "skill_version": "sha256:324996a33274896d6436cc8f4a924c2c57c08b3576e24829050f7758ab1595b7",
+            "client_name": "codex",
+            "client_version": "0.157.1",
+            "case_id": "flow-check-route",
+            "arm": "unspecified",
+            "scheduled": 1,
+            "evaluable": 0,
+            "outcomes": {
+              "PASS": 0,
+              "FAIL": 0,
+              "NOT_RUN": 0,
+              "UNAVAILABLE": 0,
+              "UNKNOWN": 1
+            },
+            "coverage_flags": {
+              "missing-transcript": 0,
+              "unmatched-invocation": 0
+            },
+            "reconciliation_counts": {
+              "absent": 0,
+              "unmatched": 0,
+              "matched": 0,
+              "contradicting": 0
+            },
+            "criteria": [],
+            "execution_observed": {
+              "CONFIRMED": 0,
+              "NOT_CONFIRMED": 0,
+              "UNKNOWN": 0
+            },
+            "read_observed": {
+              "CONFIRMED": 0,
+              "NOT_CONFIRMED": 0,
+              "UNKNOWN": 0
+            },
+            "lineage": null,
+            "parent_path": null,
+            "reliability": {
+              "all_k": "not_declared",
+              "pass_at_k": "not_declared",
+              "clopper_pearson": [
+                "insufficient",
+                "insufficient"
+              ],
+              "wilson_score": [
+                "insufficient",
+                "insufficient"
+              ]
+            },
+            "convenience": {
+              "phase_wall_times": [
+                {
+                  "from_event": "captured",
+                  "to_event": "cleaned",
+                  "seconds": 2.601519,
+                  "attempts": 1
+                },
+                {
+                  "from_event": "dispatched",
+                  "to_event": "started",
+                  "seconds": 0.000141,
+                  "attempts": 1
+                },
+                {
+                  "from_event": "planned",
+                  "to_event": "dispatched",
+                  "seconds": 16.383858,
+                  "attempts": 1
+                },
+                {
+                  "from_event": "started",
+                  "to_event": "stopped",
+                  "seconds": 55.591134,
+                  "attempts": 1
+                },
+                {
+                  "from_event": "stop-confirmed",
+                  "to_event": "captured",
+                  "seconds": 2.940451,
+                  "attempts": 1
+                },
+                {
+                  "from_event": "stopped",
+                  "to_event": "stop-confirmed",
+                  "seconds": 0.000147,
+                  "attempts": 1
+                }
+              ],
+              "per_attempt": {
+                "a-a59b3bcee76f": [
+                  {
+                    "from_event": "planned",
+                    "to_event": "dispatched",
+                    "seconds": 16.383858
+                  },
+                  {
+                    "from_event": "dispatched",
+                    "to_event": "started",
+                    "seconds": 0.000141
+                  },
+                  {
+                    "from_event": "started",
+                    "to_event": "stopped",
+                    "seconds": 55.591134
+                  },
+                  {
+                    "from_event": "stopped",
+                    "to_event": "stop-confirmed",
+                    "seconds": 0.000147
+                  },
+                  {
+                    "from_event": "stop-confirmed",
+                    "to_event": "captured",
+                    "seconds": 2.940451
+                  },
+                  {
+                    "from_event": "captured",
+                    "to_event": "cleaned",
+                    "seconds": 2.601519
+                  }
+                ]
+              },
+              "instruction_length": "not_captured",
+              "clarification_correction_turns": "not_captured",
+              "approvals": "not_captured",
+              "tokens": "UNKNOWN"
+            },
+            "evidence": []
+          }
+        ],
+        "case_pairs": [],
+        "task_clusters": []
+      }
+    },
+    {
+      "identity": {
+        "trial_id": "t2-live_rangekit-green_2",
+        "case": {
+          "id": "flow-check-route",
+          "revision": "1"
+        },
+        "grader": {
+          "id": "flow-check-route",
+          "revision": "1",
+          "digest": "sha256:27784c611795ed20417f82b5561f304fe14ae6eee3cfa7ab9db0f6c588f4ae49"
+        },
+        "client": {
+          "name": "codex",
+          "version": "0.157.1"
+        },
+        "image": {
+          "digest": "sha256:5951394b5b8be69be2eb9e6082bb69f89417a5478a9588aa0bf1b64585e87f51"
+        },
+        "config": {
+          "digest": "sha256:d271a98cdfd84a3cf4096767e63877cb425da0f240fee1cdad70c0bf39558fff"
+        }
+      },
+      "source_ledger_digest": "sha256:33d4107bef19738948568560675c5c84c137c08fdfc57aa406ce92c6f44d0951",
+      "source_records": {
+        "lifecycle-a-89a2ab5de3cb.json": "sha256:3d9a593c81054e454fb37b088a15e31bcfa042a541b1962d91ea632b54b3406b",
+        "manifest-a-89a2ab5de3cb.json": "sha256:3bcae59f0daf4f9fafc030d697e0c235b9ccec03e6570526591f18b5c7f7ca4f",
+        "observation-a-89a2ab5de3cb.json": "sha256:b0ddbe13f850e1ec90ba66141df0fcc688751de08d98a9e445b33632b8727ae9",
+        "receipt-a-89a2ab5de3cb.json": "sha256:a40deb1297557dae1476245c286afc25fe8a96f25b57acd003f6481b3f497ee2",
+        "result-r-e336ef4c3b77.json": "sha256:cdc3d6c70b68ad4934635fdde023a87267c21d62257f194338c0c75ae6b18c1c"
+      },
+      "coverage": {
+        "inventory": "declared",
+        "profile_digest": "sha256:2b33ccf927557e43f005fbac72899b7e1db6464e83c54b63bcf7f41b66f1b465",
+        "subject_digest": "sha256:0ac23bca751765d53497ec23acd14588b4c9a7fff232ef44a22b40b24a5ffd50",
+        "declared_skills": [
+          ".codex/skills/flow-check/SKILL.md"
+        ],
+        "rows": [
+          {
+            "skill_path": ".codex/skills/flow-check/SKILL.md",
+            "skill_version": "sha256:324996a33274896d6436cc8f4a924c2c57c08b3576e24829050f7758ab1595b7",
+            "client_name": "codex",
+            "client_version": "0.157.1",
+            "case_id": "flow-check-route",
+            "arm": "unspecified",
+            "scheduled": 1,
+            "evaluable": 0,
+            "outcomes": {
+              "PASS": 0,
+              "FAIL": 0,
+              "NOT_RUN": 0,
+              "UNAVAILABLE": 0,
+              "UNKNOWN": 1
+            },
+            "coverage_flags": {
+              "missing-transcript": 0,
+              "unmatched-invocation": 0
+            },
+            "reconciliation_counts": {
+              "absent": 0,
+              "unmatched": 0,
+              "matched": 0,
+              "contradicting": 0
+            },
+            "criteria": [],
+            "execution_observed": {
+              "CONFIRMED": 0,
+              "NOT_CONFIRMED": 0,
+              "UNKNOWN": 0
+            },
+            "read_observed": {
+              "CONFIRMED": 0,
+              "NOT_CONFIRMED": 0,
+              "UNKNOWN": 0
+            },
+            "lineage": null,
+            "parent_path": null,
+            "reliability": {
+              "all_k": "not_declared",
+              "pass_at_k": "not_declared",
+              "clopper_pearson": [
+                "insufficient",
+                "insufficient"
+              ],
+              "wilson_score": [
+                "insufficient",
+                "insufficient"
+              ]
+            },
+            "convenience": {
+              "phase_wall_times": [
+                {
+                  "from_event": "captured",
+                  "to_event": "cleaned",
+                  "seconds": 2.266573,
+                  "attempts": 1
+                },
+                {
+                  "from_event": "dispatched",
+                  "to_event": "started",
+                  "seconds": 0.000123,
+                  "attempts": 1
+                },
+                {
+                  "from_event": "planned",
+                  "to_event": "dispatched",
+                  "seconds": 121.731505,
+                  "attempts": 1
+                },
+                {
+                  "from_event": "started",
+                  "to_event": "stopped",
+                  "seconds": 64.91507,
+                  "attempts": 1
+                },
+                {
+                  "from_event": "stop-confirmed",
+                  "to_event": "captured",
+                  "seconds": 0.761683,
+                  "attempts": 1
+                },
+                {
+                  "from_event": "stopped",
+                  "to_event": "stop-confirmed",
+                  "seconds": 0.000127,
+                  "attempts": 1
+                }
+              ],
+              "per_attempt": {
+                "a-89a2ab5de3cb": [
+                  {
+                    "from_event": "planned",
+                    "to_event": "dispatched",
+                    "seconds": 121.731505
+                  },
+                  {
+                    "from_event": "dispatched",
+                    "to_event": "started",
+                    "seconds": 0.000123
+                  },
+                  {
+                    "from_event": "started",
+                    "to_event": "stopped",
+                    "seconds": 64.91507
+                  },
+                  {
+                    "from_event": "stopped",
+                    "to_event": "stop-confirmed",
+                    "seconds": 0.000127
+                  },
+                  {
+                    "from_event": "stop-confirmed",
+                    "to_event": "captured",
+                    "seconds": 0.761683
+                  },
+                  {
+                    "from_event": "captured",
+                    "to_event": "cleaned",
+                    "seconds": 2.266573
+                  }
+                ]
+              },
+              "instruction_length": "not_captured",
+              "clarification_correction_turns": "not_captured",
+              "approvals": "not_captured",
+              "tokens": "UNKNOWN"
+            },
+            "evidence": []
+          }
+        ],
+        "case_pairs": [],
+        "task_clusters": []
+      }
+    }
+  ]
+}

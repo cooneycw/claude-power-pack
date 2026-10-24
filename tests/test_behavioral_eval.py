@@ -330,15 +330,11 @@ def test_an_absent_artifact_is_not_rendered_as_a_pass(tmp_path: Path) -> None:
             f"the absent line does not name its SPECIFIC blocker {blocker!r}, so a "
             f"reader cannot check whether it still stands: {detail!r}"
         )
-    # Nit Store #864 / #1499: skillc #8/#9/#10 are all CLOSED now, so citing them
-    # as the blocker is stale even though ABSENT itself is still the correct
-    # verdict (no verified-result artifact exists yet). The note must route to
-    # CPP #1084 - the still-open issue owning the producer obligation - instead
-    # of naming issues a reader would have to re-check in another repository.
-    assert "skillc #8" not in detail, (
-        "the absent line still cites closed skillc sub-issues as the current "
-        f"blocker instead of routing to CPP #1084: {detail!r}"
-    )
+    assert "requested directory" in detail
+    assert "No model trial has run" not in detail
+    assert "Nothing produces" not in detail
+    assert "skillc #8" not in detail
+
 
 
 def test_a_newer_envelope_is_refused_rather_than_read_on_a_guess(tmp_path: Path) -> None:
@@ -742,6 +738,71 @@ def _write(directory: Path, **named: dict) -> None:
         (directory / f"{name}.json").write_text(json.dumps(record))
 
 
+@pytest.mark.parametrize("missing", ["manifest", "result"])
+@pytest.mark.parametrize("remaining_status", ["PASS", "INCONCLUSIVE"])
+def test_captured_attempt_cannot_disappear_behind_another_result(
+    tmp_path: Path, missing: str, remaining_status: str,
+) -> None:
+    first = _result("att-1", result_id="r-1")
+    if remaining_status == "INCONCLUSIVE":
+        first.update(status="INCONCLUSIVE", criteria=[_crit("c1", True, "UNKNOWN")])
+    records = dict(
+        ledger=_ledger([{"attempt_id": "att-1"}, {"attempt_id": "att-2"}]),
+        lifecycle_1=_lifecycle("att-1"), lifecycle_2=_lifecycle("att-2"),
+        manifest_1=_manifest("att-1"), manifest_2=_manifest("att-2"),
+        result_1=first, result_2=_result("att-2", result_id="r-2"),
+    )
+    del records[f"{missing}_2"]
+    _write(tmp_path, **records)
+    assert not (tmp_path / f"{missing}_2.json").exists()
+    verdict, detail = mod.evaluate(tmp_path)
+    assert verdict == "bundle-invalid", detail
+    assert "att-2" in detail
+    assert "manifest" in detail if missing == "manifest" else "result" in detail
+
+
+@pytest.mark.parametrize("disposition", ["not-run", "unavailable", "inconclusive"])
+def test_noncaptured_attempt_needs_no_manifest_or_result(
+    tmp_path: Path, disposition: str,
+) -> None:
+    lifecycle = _lifecycle("att-2")
+    lifecycle.update(disposition=disposition, reason="no captured output")
+    _write(tmp_path,
+           ledger=_ledger([{"attempt_id": "att-1"}, {"attempt_id": "att-2"}]),
+           lifecycle_1=_lifecycle("att-1"), lifecycle_2=lifecycle,
+           manifest_1=_manifest("att-1"), result_1=_result("att-1"))
+    assert mod.evaluate(tmp_path)[0] == "pass"
+
+
+@pytest.mark.parametrize("run_state", ["NOT_RUN", "UNAVAILABLE"])
+def test_declared_nonrun_result_needs_no_manifest(tmp_path: Path, run_state: str) -> None:
+    lifecycle = _lifecycle("att-1")
+    lifecycle.update(disposition=run_state.lower().replace("_", "-"), reason="not run")
+    _write(tmp_path, ledger=_ledger([{"attempt_id": "att-1"}]), lifecycle=lifecycle,
+           result=_v2(run_state, [], attempt_id="att-1", trial_id="t-1",
+                      run_state=run_state, reason="not run", graded_digests=[]))
+    assert mod.evaluate(tmp_path)[0] == "inconclusive"
+
+
+def test_early_unknown_cannot_hide_a_later_forged_result(tmp_path: Path) -> None:
+    unknown = _result("att-1", result_id="r-1")
+    unknown.update(status="INCONCLUSIVE", criteria=[_crit("c1", True, "UNKNOWN")])
+    forged = _result("att-2", result_id="r-2")
+    forged["criteria"] = [_crit("c1", True, "VIOLATED")]
+    assert mod.derive_status(forged["criteria"], None) == "FAIL"
+    assert forged["status"] == "PASS"
+    _write(tmp_path,
+           ledger=_ledger([{"attempt_id": "att-1"}, {"attempt_id": "att-2"}]),
+           lifecycle_1=_lifecycle("att-1"), lifecycle_2=_lifecycle("att-2"),
+           manifest_1=_manifest("att-1"), manifest_2=_manifest("att-2"),
+           result_1=unknown, result_2=forged)
+    assert mod.evaluate(tmp_path)[0] == "forged"
+    forged["status"] = "FAIL"
+    (tmp_path / "result_2.json").write_text(json.dumps(forged))
+    # A legitimate later failure preserves the existing first-outcome policy.
+    assert mod.evaluate(tmp_path)[0] == "inconclusive"
+
+
 @pytest.mark.parametrize(("case", "expect_verdict", "needle"), [
     ("good-fresh-bundle", "pass", "bundle valid against the restated subset"),
     ("good-bundle-skill-evidence-matched", "pass", "bundle valid against the restated subset"),
@@ -809,7 +870,7 @@ def test_a_bundle_with_no_verified_result_is_refused(tmp_path: Path) -> None:
            lifecycle=_lifecycle("att-1"), manifest=_manifest("att-1"))
     verdict, detail = mod.evaluate(tmp_path)
     assert verdict == "bundle-invalid"
-    assert "no verified-result record to read" in detail
+    assert "no verified-result record" in detail
 
 
 def test_a_regrade_for_a_different_attempt_than_its_original_is_refused(tmp_path: Path) -> None:

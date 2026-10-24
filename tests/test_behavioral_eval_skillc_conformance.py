@@ -88,7 +88,9 @@ GOOD_CASES = (
 #: skillc-labelled BAD cases CPP's restated subset actually reaches.
 #: `_validate_bundle` must report at least one finding on every one.
 FLAGGED_BAD_CASES = (
+    "attempt-accounting/bad/graded-without-manifest",
     "attempt-accounting/bad/no-lifecycle",
+    "attempt-accounting/bad/unaccounted-attempt",
     "ledger-binding/bad/altered-artifact",
     "ledger-binding/bad/cross-trial",
     "ledger-binding/bad/skill-evidence-altered-artifact",
@@ -113,8 +115,6 @@ OUT_OF_SUBSET_BAD_CASES: dict[str, str] = {
         "disposition-vs-declared-run_state consistency is not restated",
     "attempt-accounting/bad/graded-but-not-captured":
         "disposition-vs-graded consistency is not restated",
-    "attempt-accounting/bad/graded-without-manifest":
-        "'graded requires a manifest' is not restated",
     "attempt-accounting/bad/graded-without-receipt":
         "'graded requires a receipt' is not restated",
     "attempt-accounting/bad/manifest-but-not-captured":
@@ -127,8 +127,6 @@ OUT_OF_SUBSET_BAD_CASES: dict[str, str] = {
         "the agent-observation receipt stand-in (#139) is not restated",
     "attempt-accounting/bad/stand-in-without-observation":
         "the agent-observation receipt stand-in (#139) is not restated",
-    "attempt-accounting/bad/unaccounted-attempt":
-        "disposition-vs-capture-state consistency for an attempt is not restated",
     "ledger-binding/bad/pilot-report-missing-attempt":
         "pilot-report accounting is not restated",
     "ledger-binding/bad/skill-evidence-duplicate-invocation-mislabeled":

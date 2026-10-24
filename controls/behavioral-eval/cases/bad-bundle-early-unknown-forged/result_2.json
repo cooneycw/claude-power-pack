@@ -1,0 +1,1 @@
+{"version": 2, "kind": "verified-result", "producer": "assembler", "attempt_id": "att-2", "trial_id": "t-1", "result_id": "r-2", "grader": {"id": "g", "revision": "1"}, "graded_digests": ["sha256:aa"], "status": "PASS", "criteria": [{"id": "c1", "mandatory": true, "outcome": "VIOLATED", "evidence": ["test evidence for c1"]}]}

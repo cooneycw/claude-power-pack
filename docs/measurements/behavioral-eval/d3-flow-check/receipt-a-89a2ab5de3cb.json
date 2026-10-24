@@ -1,0 +1,326 @@
+{
+ "version": 2,
+ "kind": "installation-receipt",
+ "producer": "subject-adapter",
+ "checked_by": "controller",
+ "attempt_id": "a-89a2ab5de3cb",
+ "trial_id": "t2-live_rangekit-green_2",
+ "subject": {
+  "locator": "github.com/cooneycw/claude-power-pack",
+  "revision": "snapshot:sha256:0ac23bca751765d53497ec23acd14588b4c9a7fff232ef44a22b40b24a5ffd50",
+  "digest": "sha256:0ac23bca751765d53497ec23acd14588b4c9a7fff232ef44a22b40b24a5ffd50"
+ },
+ "adapter": {
+  "name": "codex",
+  "version": "0.157.1"
+ },
+ "client": {
+  "name": "codex",
+  "version": "0.157.1"
+ },
+ "surface": "codex-skills",
+ "treatment": "agent-trial-discovery-listing",
+ "layers": [],
+ "dependencies": [],
+ "allowed_writes": [],
+ "installed": [
+  {
+   "path": ".codex/skills/flow-check/PROVENANCE.md",
+   "digest": "sha256:b18a49ed50648107920ef5ee314842481c9b104d4953135c99b32ef3e53c763b"
+  },
+  {
+   "path": ".codex/skills/flow-check/SKILL.md",
+   "digest": "sha256:324996a33274896d6436cc8f4a924c2c57c08b3576e24829050f7758ab1595b7"
+  },
+  {
+   "path": ".codex/skills/flow-check/lib/cicd/__init__.py",
+   "digest": "sha256:00f0f4c6f99b2d58fe5b031f1ec18037b1149bbe7046e61d0fda28bef5e8bd6e"
+  },
+  {
+   "path": ".codex/skills/flow-check/lib/cicd/evidence.py",
+   "digest": "sha256:ba2ed1244a9ae0c35a7e1e662799649c20645c7269dc7521fbb609e8852b3305"
+  },
+  {
+   "path": ".codex/skills/flow-check/lib/cicd/state.py",
+   "digest": "sha256:8aaf1597d8a95fac57b650b03f83010e23dda94dbb185c0402fc7ac4ccfc59f5"
+  },
+  {
+   "path": ".codex/skills/flow-check/reference.md",
+   "digest": "sha256:47ffce93a9fc10648b1df943e47f3d77daeb4cf412a7e4b1ba9009e6f3412289"
+  },
+  {
+   "path": ".codex/skills/flow-check/scripts/SHA256SUMS",
+   "digest": "sha256:11c052b65afa02f410f14454c44279a3b39ea5abb3830e3a6dfbd500666a0c80"
+  },
+  {
+   "path": ".codex/skills/flow-check/scripts/check-ignored-additions.sh",
+   "digest": "sha256:ee962d1a9c3006304f64534695198336c35c51b64c2b346a4e25e7ca39487bb8"
+  },
+  {
+   "path": ".codex/skills/flow-check/scripts/counter-model-receipt.py",
+   "digest": "sha256:b9134545baf0920f30603ae515b14867f078cdf668c218f24430927eaa407373"
+  },
+  {
+   "path": ".codex/skills/flow-check/scripts/execution-evidence-verify.py",
+   "digest": "sha256:21b2aecaa85de18724f8f09a37a4a0bd44790db494b56571c6a25f548805b299"
+  },
+  {
+   "path": ".codex/skills/flow-check/scripts/flow-finish-gate.sh",
+   "digest": "sha256:83b0a68caefc010a9907211612e96c1bfb94b35a6cff446939a2306ce95bb2da"
+  },
+  {
+   "path": ".codex/skills/flow-check/scripts/gate-lib.sh",
+   "digest": "sha256:4095e524bf802a97f48add745e5c64addfe1055eac67c484b5ad81e5c26b38a8"
+  },
+  {
+   "path": "Projects/claude-power-pack/CLAUDE.md",
+   "digest": "sha256:25cc21d90ab757433f80b56ec1e7992ed354f2fff80b8aa56eda25b50b4c024a"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/__init__.py",
+   "digest": "sha256:00f0f4c6f99b2d58fe5b031f1ec18037b1149bbe7046e61d0fda28bef5e8bd6e"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/__main__.py",
+   "digest": "sha256:6420d4552d8216e24146f6b07e0c451da5e5ab4fb9cb6ff3368d618a2c333d73"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/bootstrap.py",
+   "digest": "sha256:4a061eebfbc0da70b6f72dfffdd98d013eef7b05967f40e021765d46b35efcf7"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/cli.py",
+   "digest": "sha256:5db9e7723be0f063c10de8d924257e8e051de0a1e681d0a05f329b3cf2030045"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/config.py",
+   "digest": "sha256:8d74479bcd92a6ebb624e385d1d0b7f791324e55933b629bfc02bac46f2d5857"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/container.py",
+   "digest": "sha256:2ecb3c0f40cc9954e29441f8a5edad446edab31af9d0f69429416ffb026cf5e3"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/coverage.py",
+   "digest": "sha256:5d050770229da151d8dccb3e2bd1c949f9f7e503dc4a15487df6a01221369211"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/deploy/__init__.py",
+   "digest": "sha256:fc9e5249db0bf07ee4356dd8e951d7bfde35d380cb22239de1a3f18269ebd3db"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/deploy/docker_compose.py",
+   "digest": "sha256:dddd154f8fcb6e1a37261a3dc602dd175db0b69009da4e7f453aed738fc1757f"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/deploy/guardrails.py",
+   "digest": "sha256:72b29f31cae36e66739f4d85fc80c1e31cdb40688220fefe7d15e2523a88d61d"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/deploy/strategy.py",
+   "digest": "sha256:df28ff1da583e8a806dce26e285f40923bc769e76b6eb4316e53a45adba58756"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/detector.py",
+   "digest": "sha256:e09256f2091e89b4d25fad4a3399ea9244b20b1ded2a0e0898da58535c08d7e4"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/evidence.py",
+   "digest": "sha256:ba2ed1244a9ae0c35a7e1e662799649c20645c7269dc7521fbb609e8852b3305"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/failure_patterns.py",
+   "digest": "sha256:cad24fca2a855f08900eb1a1af69d8a5d3bcfa51407d92ef991e9c1bbbbad656"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/health.py",
+   "digest": "sha256:ad6a94126c84ea075a5acd34465dd5900643ac6f39ff4fbd4c865f13898c01f9"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/infrastructure.py",
+   "digest": "sha256:73fb8bfb989f5ce7ca3ead97577f91196a62457e154d60f38659b0240f984823"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/makefile.py",
+   "digest": "sha256:d8fbe3ac0af99a72794232b20784c413d020c97510e753ea39cba8e4190b0d5d"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/makefile_declaration.py",
+   "digest": "sha256:2094cf58730e7bba868e6be299c82823482470e0c663051ad6d99b61f3141302"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/manifest.py",
+   "digest": "sha256:efdb15b933787bef88f7de2d3cc53cb8797c368a7d91aad4c92ccd9bb47896c1"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/manifest_path.py",
+   "digest": "sha256:744bd33ccbbc9e75587ffdf4156a3dbc78efce0e870f41b56de20423b3a57389"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/models.py",
+   "digest": "sha256:71a7714e6a259c51d4a6e0969284138f2bb2c5243268fd4a718745b82e2c4633"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/mypy_scope.py",
+   "digest": "sha256:301ccbe539017e5d0303194f07fe877a1dec43230a64ec1bfe5943dab71736fa"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/outcomes.py",
+   "digest": "sha256:b5154d41810882c2e12b3fc3fa0ba487ded8c2a55f1257428fa9ff125d4fef67"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/pipeline.py",
+   "digest": "sha256:b5e4ffefd62f059eaf79be927a4b15d1d1ee82ec2f0b1be7e0f603f140caf31e"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/pyproject.toml",
+   "digest": "sha256:11d3a8f1865bbc7d928f774496659619c6c35d4f7fbc678fe018d14743dc9d11"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/runner.py",
+   "digest": "sha256:04827139cf46f4051b7b52090f03ae082f7b414cbf888faf1f469f27f7f218c7"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/smoke.py",
+   "digest": "sha256:172c385af59ff5bc3bccf7e5e7cfc0be198f0b6553d04da24b96e1c7c61440b5"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/state.py",
+   "digest": "sha256:8aaf1597d8a95fac57b650b03f83010e23dda94dbb185c0402fc7ac4ccfc59f5"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/steps.py",
+   "digest": "sha256:e060aee7d1702d4298c03a95929aad3bf28bbac1a57669a88a4f56695735aa03"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/cicd/verify.py",
+   "digest": "sha256:8fc08d6ddca7c3a9d6a2064c57ca1a3380041b013de8121ba90a5101c0d26310"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/security/README.md",
+   "digest": "sha256:d61e4442503348fe4e7f7e7b0a9a0d2dac203b47fd31f4018a18db56c66dccb3"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/security/__init__.py",
+   "digest": "sha256:e09b329aafca9da698136f58e48ad537b82ce393c1295253715d77ea5db5f8d0"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/security/__main__.py",
+   "digest": "sha256:73ed1d15295e4c8adf83a16d5fd1c13b6b2989cdf05839c04b8501ebd343e928"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/security/cli.py",
+   "digest": "sha256:7399e320a70bf39a0bfcbba257bb6be70e8c487037c4651e1e0c582f47bc5373"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/security/config.py",
+   "digest": "sha256:35308bea7b5cac75d8352ad9ef8216188b49931b9cb86a388adff392f47c87b4"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/security/explain.py",
+   "digest": "sha256:f01e4e2aa2343b5c2ba501b82ca6a5ff4e3947d600d16ba8bef8dda6ae2b4166"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/security/models.py",
+   "digest": "sha256:4b0059ccb56517dc88f214220d106b02bcec395e92c861cfb2a1035df284d8ea"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/security/modules/__init__.py",
+   "digest": "sha256:f6d4ca5e32c2fb52ec0a11fdf8be4ce076407d2fd7757732748e2b1ee8d32bd6"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/security/modules/debug_flags.py",
+   "digest": "sha256:f89758573d7ebe0759e7d9552510021399543a6fdb13557de0dc0e4e18830845"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/security/modules/env_files.py",
+   "digest": "sha256:976a5bc7a80cc388a9ee3458523344fe18eaea43e2cabb010eddf3bddeff1494"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/security/modules/gitignore.py",
+   "digest": "sha256:0ae55dcd49659ff536075608999198e1b1dd354e46e4c7df9d786cc7b37b7b1d"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/security/modules/gitleaks.py",
+   "digest": "sha256:8a12b8905e4ae0c37e7dcff6afa266b26ece70494b27b23219d99a9e7946e3bf"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/security/modules/npm_audit.py",
+   "digest": "sha256:b6143b1cbd9296bb858d5b40d2be3b66b21575d9c4eb2b64bd39df6b3161bb50"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/security/modules/permissions.py",
+   "digest": "sha256:6a309a3158ffc96fef04213090f98cc5831a03ab3f0c6d18cf10c1c39cff4e3f"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/security/modules/pip_audit.py",
+   "digest": "sha256:a48ffb701bae94692a26a7fb18ae9d68fca14040545509350ea86a714c0f1e45"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/security/modules/secrets.py",
+   "digest": "sha256:68851de845fcab53889c67a125c45e637230ec077b18bc3359b9434a6c924b74"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/security/orchestrator.py",
+   "digest": "sha256:656c31276cb33a5cd2d4ba1aad8437d3e10dac4c1040029e7ba8bbdc3b7396db"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/security/output/__init__.py",
+   "digest": "sha256:fcedfaf008a071dfd90071239e272ee25814c53695359194834e5c84b88a7925"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/security/output/json_output.py",
+   "digest": "sha256:33bf607eb1f0cbfa292ecddb0ab9b130ddd4b5d9e0562d310f821012da97177c"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/security/output/novice.py",
+   "digest": "sha256:f2bd022d3b2dd7bf303637353236084f5ce0b8a54a8296e13b59b5e5db0de0ee"
+  },
+  {
+   "path": "Projects/claude-power-pack/lib/security/pyproject.toml",
+   "digest": "sha256:cb3b02d8e23e37091e0c25620b4ec17234f7f22cbeb37c696f16ed33e5118354"
+  },
+  {
+   "path": "Projects/claude-power-pack/pyproject.toml",
+   "digest": "sha256:fe4b57ddb90f92793e0a1e45092d51bc28a7cfc048ae73ec00905cfed9ab00ed"
+  },
+  {
+   "path": "Projects/claude-power-pack/scripts/check-ignored-additions.sh",
+   "digest": "sha256:ee962d1a9c3006304f64534695198336c35c51b64c2b346a4e25e7ca39487bb8"
+  },
+  {
+   "path": "Projects/claude-power-pack/scripts/counter-model-receipt.py",
+   "digest": "sha256:b9134545baf0920f30603ae515b14867f078cdf668c218f24430927eaa407373"
+  },
+  {
+   "path": "Projects/claude-power-pack/scripts/execution-evidence-verify.py",
+   "digest": "sha256:21b2aecaa85de18724f8f09a37a4a0bd44790db494b56571c6a25f548805b299"
+  },
+  {
+   "path": "Projects/claude-power-pack/scripts/flow-finish-gate.sh",
+   "digest": "sha256:83b0a68caefc010a9907211612e96c1bfb94b35a6cff446939a2306ce95bb2da"
+  },
+  {
+   "path": "Projects/claude-power-pack/scripts/gate-lib.sh",
+   "digest": "sha256:4095e524bf802a97f48add745e5c64addfe1055eac67c484b5ad81e5c26b38a8"
+  },
+  {
+   "path": "Projects/claude-power-pack/uv.lock",
+   "digest": "sha256:0d7606bfd0efa1f58d5fa38386bde45cd63d75812c03cd0324bcd6f422ba6c32"
+  }
+ ],
+ "readiness": {
+  "discovery_canary": "UNKNOWN",
+  "baseline_absence": "UNKNOWN",
+  "discovery_canary_detail": "no observations file was exported",
+  "baseline_absence_detail": "no observations file was exported",
+  "evidence": "this delivered tree, delivered by the same method, into a fresh container of the same image digest, was discovered by the client's model-free listing",
+  "cache_key": {
+   "image_digest": "sha256:5951394b5b8be69be2eb9e6082bb69f89417a5478a9588aa0bf1b64585e87f51",
+   "tree_digest": "sha256:0ac23bca751765d53497ec23acd14588b4c9a7fff232ef44a22b40b24a5ffd50"
+  }
+ },
+ "image": {
+  "digest": "sha256:5951394b5b8be69be2eb9e6082bb69f89417a5478a9588aa0bf1b64585e87f51"
+ }
+}

@@ -1,0 +1,60 @@
+{
+  "skill": "flow-check",
+  "reference": {
+    "description_digest": "sha256:55531e9c8e5c083130cb4edcb03a88cbc43698286ce4d89c0120540ebbc04be6",
+    "body_digest": "sha256:e870f5c9ff13f993f094e060d5a47d2c9e9df141b38b4c9dac345719eacf7e12",
+    "files": {
+      "PROVENANCE.md": "sha256:b18a49ed50648107920ef5ee314842481c9b104d4953135c99b32ef3e53c763b",
+      "SKILL.md": "sha256:324996a33274896d6436cc8f4a924c2c57c08b3576e24829050f7758ab1595b7",
+      "lib/cicd/__init__.py": "sha256:00f0f4c6f99b2d58fe5b031f1ec18037b1149bbe7046e61d0fda28bef5e8bd6e",
+      "lib/cicd/evidence.py": "sha256:ba2ed1244a9ae0c35a7e1e662799649c20645c7269dc7521fbb609e8852b3305",
+      "lib/cicd/state.py": "sha256:8aaf1597d8a95fac57b650b03f83010e23dda94dbb185c0402fc7ac4ccfc59f5",
+      "reference.md": "sha256:47ffce93a9fc10648b1df943e47f3d77daeb4cf412a7e4b1ba9009e6f3412289",
+      "scripts/SHA256SUMS": "sha256:11c052b65afa02f410f14454c44279a3b39ea5abb3830e3a6dfbd500666a0c80",
+      "scripts/check-ignored-additions.sh": "sha256:ee962d1a9c3006304f64534695198336c35c51b64c2b346a4e25e7ca39487bb8",
+      "scripts/counter-model-receipt.py": "sha256:b9134545baf0920f30603ae515b14867f078cdf668c218f24430927eaa407373",
+      "scripts/execution-evidence-verify.py": "sha256:21b2aecaa85de18724f8f09a37a4a0bd44790db494b56571c6a25f548805b299",
+      "scripts/flow-finish-gate.sh": "sha256:83b0a68caefc010a9907211612e96c1bfb94b35a6cff446939a2306ce95bb2da",
+      "scripts/gate-lib.sh": "sha256:4095e524bf802a97f48add745e5c64addfe1055eac67c484b5ad81e5c26b38a8"
+    },
+    "source": "skillc evals/subjects/cpp-codex-flow-check-652c0118/evidence/inventory.json (profile pinned at 652c01185bc73adf18df49f5b9d1d5ad77a038c7; see check-skill-coverage-map.py's module docstring)"
+  },
+  "diagnose": {
+    "skillc_commit": "d846a693d2e513c001dcd2f69ab39d19ce68be27",
+    "profile_dir": "cpp-codex-flow-check-652c0118",
+    "cpp_revision_snapshot": "652c01185bc73adf18df49f5b9d1d5ad77a038c7",
+    "recorded_at": "2026-10-23T15:26:33Z",
+    "result": {
+      "diagnostic_schema": 1,
+      "profile": "cpp-codex-flow-check-652c0118",
+      "revision": "652c01185bc73adf18df49f5b9d1d5ad77a038c7",
+      "selection": [
+        "flow-check"
+      ],
+      "structural": [],
+      "complete": true,
+      "skills": {
+        "flow-check": {
+          "status": "intact",
+          "problems": []
+        }
+      },
+      "problems": [],
+      "problem_count": 0
+    },
+    "closure_digests": {
+      "PROVENANCE.md": "sha256:b18a49ed50648107920ef5ee314842481c9b104d4953135c99b32ef3e53c763b",
+      "SKILL.md": "sha256:324996a33274896d6436cc8f4a924c2c57c08b3576e24829050f7758ab1595b7",
+      "lib/cicd/__init__.py": "sha256:00f0f4c6f99b2d58fe5b031f1ec18037b1149bbe7046e61d0fda28bef5e8bd6e",
+      "lib/cicd/evidence.py": "sha256:ba2ed1244a9ae0c35a7e1e662799649c20645c7269dc7521fbb609e8852b3305",
+      "lib/cicd/state.py": "sha256:8aaf1597d8a95fac57b650b03f83010e23dda94dbb185c0402fc7ac4ccfc59f5",
+      "reference.md": "sha256:47ffce93a9fc10648b1df943e47f3d77daeb4cf412a7e4b1ba9009e6f3412289",
+      "scripts/SHA256SUMS": "sha256:11c052b65afa02f410f14454c44279a3b39ea5abb3830e3a6dfbd500666a0c80",
+      "scripts/check-ignored-additions.sh": "sha256:ee962d1a9c3006304f64534695198336c35c51b64c2b346a4e25e7ca39487bb8",
+      "scripts/counter-model-receipt.py": "sha256:b9134545baf0920f30603ae515b14867f078cdf668c218f24430927eaa407373",
+      "scripts/execution-evidence-verify.py": "sha256:21b2aecaa85de18724f8f09a37a4a0bd44790db494b56571c6a25f548805b299",
+      "scripts/flow-finish-gate.sh": "sha256:83b0a68caefc010a9907211612e96c1bfb94b35a6cff446939a2306ce95bb2da",
+      "scripts/gate-lib.sh": "sha256:4095e524bf802a97f48add745e5c64addfe1055eac67c484b5ad81e5c26b38a8"
+    }
+  }
+}
