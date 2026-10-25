@@ -1,0 +1,31 @@
+{
+  "branch": "fix/1506-deterministic-mailbox-fixtures",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "70d794b0cf0946ccad8dba1a6849328d7746572c",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/25/rollout-2026-10-25T18-18-21-01a17448-f63f-7ef0-ae87-d75ec3e637d0.jsonl",
+    "thread_id": "01a17448-f63f-7ef0-ae87-d75ec3e637d0"
+  },
+  "issue": "1506",
+  "local_credentials": "absent",
+  "network": "unverified",
+  "passes": 1,
+  "recorded_at": "2026-10-25T22:21:53Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 5
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/25/rollout-2026-10-25T22-18-38-01a17524-f57a-7212-a7e9-5a1f5b3ec384.jsonl",
+    "thread_id": "01a17524-f57a-7212-a7e9-5a1f5b3ec384"
+  },
+  "schema": 1,
+  "scope": "diff-only",
+  "status": "ran"
+}
