@@ -197,6 +197,18 @@ def test_close_archive_collision_never_overwrites(tmp_path: Path) -> None:
     assert (tmp_path / "archive-1" / "registry-entry.json").exists()
 
 
+def test_close_policy_only_wave_without_directory(tmp_path: Path) -> None:
+    env = {"FLOW_WAVE_MAILBOX_DIR": str(tmp_path / "boxes")}
+    assert _run(tmp_path, "policy", "set", "--wave", WAVE, "--gate", "review", extra_env=env).returncode == 0
+    assert not (tmp_path / "boxes" / WAVE).exists()
+    result = _close(tmp_path, env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "FLOW_WAVE_BYTES_FREED=0" in result.stdout
+    entry = json.loads((tmp_path / "archive" / "registry-entry.json").read_text())
+    assert entry["policy"]["gate"] == "review"
+    assert WAVE not in json.loads((tmp_path / "reg" / "registry.json").read_text())
+
+
 def test_send_during_close_waits_then_fails_cleanly(tmp_path: Path) -> None:
     """A send queued behind the archive lock cannot report a lost delivery."""
     wave, env = _seed(tmp_path)
