@@ -348,7 +348,10 @@ def test_close_serializes_activity_after_final_comparison(tmp_path: Path, activi
             assert ready.exists(), "close never reached final content comparison"
             if activity == "ledger":
                 argv = ["bash", str(REGISTRY.with_name("flow-wave-lexicon.sh")), "record", "--wave", WAVE,
-                        "--body", "GATE: GRANTED #1562 - late ruling"]
+                        "--body", "GATE: GO #1562 late ruling"]
+                valid = subprocess.run([argv[0], argv[1], "validate", "--body", argv[-1]],
+                                       capture_output=True, text=True, check=False)
+                assert valid.returncode == 0, valid.stdout + valid.stderr
             else:
                 argv = ["bash", str(MAILBOX), "watch", "--wave", WAVE, "--role", "worker",
                         "--consume", "--timeout", "30", "--interval", "1"]

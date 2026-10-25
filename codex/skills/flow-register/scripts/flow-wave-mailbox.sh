@@ -53,6 +53,10 @@
 #   flow-wave-mailbox.sh watch --role <role> [--wave W] [--timeout SEC]
 #                              [--interval SEC] (--peek | --consume)
 #   flow-wave-mailbox.sh watch --status --role <role> [--wave W]
+#   flow-wave-mailbox.sh watch --status --all [--wave W]
+#          Whole-wave process enumeration, independent of registrations and
+#          heartbeat/box files. Returns the watcher count (or unknown) and
+#          every observed holder as role=<name>,pid=<pid> for wave retirement.
 #   flow-wave-mailbox.sh ack   --role <role> [--wave W] [--from <role> | --box NAME]
 #                              (--revs R[,R...] | --all-unacked) [--answered-elsewhere]
 #   flow-wave-mailbox.sh supervise --role <role> [--wave W] [--timeout SEC]
@@ -2418,6 +2422,19 @@ case "$VERB" in
     ;;
 
   watch)
+    # Whole-wave retirement query: enumerate processes independently of role
+    # registrations, box files and heartbeat stamps, including an absent wave.
+    if [ "$STATUS" -eq 1 ] && [ "$ALL" -eq 1 ]; then
+      WCOUNT=unknown; WHOLDERS=-
+      if WRAW="$(watcher_roles_live "$WAVE")"; then
+        WCOUNT="$(printf '%s\n' "$WRAW" | awk 'NF { n++ } END { print n + 0 }')"
+        WHOLDERS="$(printf '%s\n' "$WRAW" | awk 'NF { printf "%srole=%s,pid=%s", sep, $1, $2; sep=";" }')"
+      fi
+      echo "FLOW_MAILBOX_WATCHER_COUNT=$WCOUNT"
+      echo "FLOW_MAILBOX_WATCHER_HOLDERS=${WHOLDERS:--}"
+      emit status
+      exit 0
+    fi
     [ -n "$ROLE" ] || usage_fail "watch requires --role <role>"
     valid_name "$ROLE" || usage_fail "invalid role: '$ROLE'"
 
@@ -2569,7 +2586,21 @@ case "$VERB" in
     while :; do
       # Stamp BEFORE the check, so an arm that fires on its very first poll -
       # mail already waiting - still leaves the trace #778 exists to leave.
-      watch_stamp "$ROLE"
+      if [ "$FIRST_POLL" -eq 1 ]; then
+        # Arming shares close's mailbox lock. A watch queued behind retirement
+        # must not stamp or consume the directory that close just removed.
+        { exec 7>>"$LOCK_FILE"; } || { emit absent; exit 9; }
+        flock -w 10 7 || { emit error; exit 3; }
+        if [ "$(path_state "$WAVE_DIR")" != present ] || [ ! -d "$WAVE_DIR" ]; then
+          emit absent
+          exit 9
+        fi
+        watch_stamp "$ROLE"
+        flock -u 7
+        exec 7>&-
+      else
+        watch_stamp "$ROLE"
+      fi
       if [ -n "$SURFACED_STATE" ]; then
         UNREAD="$(unread_above_for_role "$ROLE" "$SURFACED_STATE")"
       else

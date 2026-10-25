@@ -2289,6 +2289,19 @@ close_refuse() {
   exit 1
 }
 
+# Only ENOENT proves absence; a denied traversal must never skip archival.
+close_path_state() {
+  local err
+  if err="$(LC_ALL=C stat -c %F -- "$1" 2>&1 >/dev/null)"; then
+    echo present
+  else
+    case "$err" in
+      *": No such file or directory") echo absent ;;
+      *) echo unknown ;;
+    esac
+  fi
+}
+
 close_holders() {
   local r e state status count holders bad=0 watching=0 roles
   # Reuse the poller's verdict, but inspect each role too: its current
@@ -2309,8 +2322,18 @@ close_holders() {
     esac
   done
   # Include box readers and heartbeat holders even if they never registered.
-  # watch --status is read-only. With a missing directory it cannot report a
-  # watcher count; a retained role therefore reads unknown, never a proven zero.
+  # First inspect the entire process population, even when no roles or files
+  # exist. Missing heartbeats and registrations cannot conceal a holder.
+  status="$(bash "$SELF_DIR/flow-wave-mailbox.sh" watch --status --all --wave "$WAVE" 2>/dev/null)" || status=""
+  count="$(printf '%s\n' "$status" | sed -n 's/^FLOW_MAILBOX_WATCHER_COUNT=//p')"
+  holders="$(printf '%s\n' "$status" | sed -n 's/^FLOW_MAILBOX_WATCHER_HOLDERS=//p')"
+  case "$count" in
+    0) : ;;
+    ''|*[!0-9]*) echo "flow-wave-registry: whole-wave watcher holders unknown (${holders:--})" >&2; bad=1 ;;
+    *) echo "flow-wave-registry: whole-wave watcher holders: $holders" >&2; watching=1 ;;
+  esac
+  # Per-role status remains a separate read-back. An absent directory does not
+  # prevent process enumeration; an unenumerable table is always unknown.
   local path name
   for path in "$C_WAVE_DIR"/.watch-* "$C_WAVE_DIR"/outbox-*.md "$C_WAVE_DIR"/inbox-*.md; do
     [ -e "$path" ] || continue
@@ -2348,9 +2371,12 @@ close_wave() {
       (.roles == null or (.roles | type == "object")))' >/dev/null 2>&1 || close_refuse "missing or malformed wave registry entry"
   C_ENTRY="$(printf '%s' "$reg" | jq -c --arg w "$WAVE" '.[$w]')" || close_refuse "cannot snapshot registry entry"
   C_WAVE_DIR="${FLOW_WAVE_MAILBOX_DIR:-$REG_DIR}/$WAVE"
+  C_DIR_STATE="$(close_path_state "$C_WAVE_DIR")"
+  [ "$C_DIR_STATE" != unknown ] || close_refuse "wave directory state is unknown (inaccessible path)"
   [ ! -L "$C_WAVE_DIR" ] || close_refuse "wave directory is a symbolic link"
-  if [ -e "$C_WAVE_DIR" ] && [ ! -d "$C_WAVE_DIR" ]; then
-    close_refuse "wave path is not a directory"
+  if [ "$C_DIR_STATE" = present ] &&
+     { [ ! -d "$C_WAVE_DIR" ] || [ ! -r "$C_WAVE_DIR" ] || [ ! -x "$C_WAVE_DIR" ]; }; then
+    close_refuse "wave path is not an inspectable directory"
   fi
   close_holders
   C_ARCHIVE="${ARCHIVE_DIR:-$HOME/.claude/flow-wave-archive/$WAVE-$(date +%F)}"
@@ -2386,10 +2412,10 @@ close_wave() {
     emit dry-run
     return 0
   fi
-  # Lock order: registry.lock, then .mailbox.lock. Mailbox send and ack take
-  # only .mailbox.lock; their critical sections never mutate the registry, so
-  # there is no inverse acquisition. This prevents writes between the content
-  # comparison and removal. Watch status takes neither lock and stays read-only.
+  # Lock order: registry.lock, .mailbox.lock, verdicts.json.lock. Send, ack and
+  # watcher arming take only the mailbox lock; ledger record takes only the
+  # ledger lock. None acquires the registry lock, so there is no inverse order.
+  # Watch status takes none of these locks and stays read-only.
   if [ -d "$C_WAVE_DIR" ]; then
     if [ -L "$C_WAVE_DIR/.mailbox.lock" ] ||
        { [ -e "$C_WAVE_DIR/.mailbox.lock" ] && [ ! -f "$C_WAVE_DIR/.mailbox.lock" ]; }; then
@@ -2397,6 +2423,12 @@ close_wave() {
     fi
     { exec 8>>"$C_WAVE_DIR/.mailbox.lock"; } || close_refuse "cannot open mailbox lock"
     flock -w 10 8 || close_refuse "cannot lock mailbox"
+    if [ -L "$C_WAVE_DIR/verdicts.json.lock" ] ||
+       { [ -e "$C_WAVE_DIR/verdicts.json.lock" ] && [ ! -f "$C_WAVE_DIR/verdicts.json.lock" ]; }; then
+      close_refuse "ledger lock is not a regular file"
+    fi
+    { exec 7>>"$C_WAVE_DIR/verdicts.json.lock"; } || close_refuse "cannot open ledger lock"
+    flock -w 10 7 || close_refuse "cannot lock verdict ledger"
   fi
   parent="${C_ARCHIVE%/*}"
   mkdir -p -- "$parent" || close_refuse "cannot create archive parent"
