@@ -16,6 +16,7 @@ Usage:
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -29,7 +30,7 @@ from typing import Any, Optional, TextIO
 
 from .coverage import SCOPE_COMPONENT, ZERO
 from .outcomes import classify_unparsed, parse_failed_node_ids
-from .state import RunState, StepStatus, compute_tree_signature
+from .state import ResumeStateEvidence, RunState, StepStatus, compute_tree_signature
 from .steps import (
     # GATE_STEP_IDS is deliberately NOT imported here any more (#1155). The
     # runner had one consumer of the global union - the #628 skipped-gate
@@ -423,6 +424,7 @@ class RunResult:
     # Full per-step detail, captured BEFORE the success cleanup removes the
     # state file so a green run can report it at all.
     step_details: list[dict[str, Any]] = field(default_factory=list)
+    resume_state_evidence: Optional[dict[str, Any]] = None
     # Step ids that skip_if-skipped this run (issue #628). A skipped GATE step
     # means the gate verified nothing about the change, so flow-finish-gate.sh
     # reads this to report `warn` and NAME the skipped gates rather than flatten
@@ -503,6 +505,15 @@ class RunResult:
         if self.timed_out_step:
             d["timed_out_step"] = self.timed_out_step
             d["timed_out_after"] = self.timed_out_after
+        if self.step_details:
+            d["step_details"] = copy.deepcopy(self.step_details)
+        carried = [entry["id"] for entry in self.step_details
+                   if entry.get("carried_from_previous_run")]
+        if carried:
+            d["carried_from_previous_run"] = carried
+            d["tree_verified"] = self.tree_verified
+        if self.resume_state_evidence is not None:
+            d["resume_state_evidence"] = copy.deepcopy(self.resume_state_evidence)
         return d
 
 
@@ -526,6 +537,10 @@ class DeterministicRunner:
         self.project_root = project_root or Path(".")
         self.output = output or sys.stderr
         self.rerun_failed = rerun_failed
+        self._resume_evidence = ResumeStateEvidence()
+        self._last_state: Optional[RunState] = None
+        self._executed_from: Optional[int] = None
+        self._settled_here: set[int] = set()
 
     def _resolve_deferred(
         self,
@@ -613,8 +628,13 @@ class DeterministicRunner:
         discards the stale state and starts fresh so every step actually
         runs against the current tree.
         """
-        # Check for existing failed run to resume
-        existing = RunState.find_latest(plan_name, self.project_root)
+        # One evidence collector per invocation, including failures before _execute.
+        self._resume_evidence = ResumeStateEvidence(plan_name)
+        self._last_state = None
+        self._executed_from = None
+        self._settled_here = set()
+        existing = RunState.find_latest(plan_name, self.project_root, evidence=self._resume_evidence)
+        self._last_state = existing
         current_sig: Optional[str] = None
         if existing:
             current_sig = compute_tree_signature(self.project_root)
@@ -629,8 +649,11 @@ class DeterministicRunner:
                     "(issue #804) - starting fresh so every step re-runs "
                     "against the current tree."
                 )
+                # Inspected and rejected state never supplied this invocation's results.
+                self._resume_evidence.no_selected_input()
                 existing.discard(self.project_root)
                 existing = None
+                self._last_state = None
             else:
                 # Verified only when BOTH signatures were available and equal.
                 # Either side being None means "can't tell" - resume anyway
@@ -648,7 +671,8 @@ class DeterministicRunner:
 
         # Create new run state
         step_ids = [s.id for s in step_defs]
-        state = RunState.create(plan_name, step_ids)
+        state = RunState.create(plan_name, step_ids, evidence=self._resume_evidence)
+        self._last_state = state
         # Reuse the signature already computed above when a stale run was
         # just discarded, rather than shelling out to git a second time.
         state.tree_signature = current_sig if current_sig is not None else compute_tree_signature(
@@ -666,9 +690,19 @@ class DeterministicRunner:
 
     def resume(self, run_id: str) -> RunResult:
         """Resume a specific failed run by ID."""
-        state = RunState.load(run_id, self.project_root)
+        self._resume_evidence = ResumeStateEvidence()
+        self._last_state = None
+        self._executed_from = None
+        self._settled_here = set()
+        state = RunState.load(run_id, self.project_root, evidence=self._resume_evidence)
+        self._last_state = state
         if state.status != "failed":
+            details = state.summary(executed_from=len(state.step_records))["steps"]
+            for entry in details:
+                entry["executed_in_this_run"] = False
             return RunResult(
+                step_details=copy.deepcopy(details),
+                resume_state_evidence=state.resume_state_evidence(),
                 success=state.status == "success",
                 run_id=run_id,
                 plan_name=state.plan_name,
@@ -799,7 +833,7 @@ class DeterministicRunner:
         self._last_state = state
         # Always defined: a fresh run settles nothing backwards, and a summary
         # that reached for a missing attribute would fail on the common path.
-        self._settled_here: set[int] = set()
+        self._settled_here = set()
         tests: dict[str, dict[str, Any]] = {}
         coverage: dict[str, dict[str, Any]] = {}
         warnings: list[str] = []
@@ -1585,6 +1619,7 @@ class DeterministicRunner:
                 state.save(self.project_root)
 
                 return RunResult(
+                    resume_state_evidence=state.resume_state_evidence(),
                     success=False,
                     run_id=state.run_id,
                     plan_name=state.plan_name,
@@ -1604,10 +1639,10 @@ class DeterministicRunner:
                     # the `not-run (verify failed at prerequisite lint)` rows
                     # are exactly what a reader needs THERE. A reader told only
                     # "verify failed" has 29 prerequisites to search.
-                    step_details=state.summary(
+                    step_details=copy.deepcopy(state.summary(
                         executed_from=executed_from,
                         settled_in_this_run=self._settled_here,
-                    )["steps"],
+                    )["steps"]),
                     failed_step=step.id,
                     # ONLY WHEN IT NAMES SOMETHING ELSE. make prints the same
                     # `*** [Makefile:N: lint]` line whether lint failed as an
@@ -1783,8 +1818,9 @@ class DeterministicRunner:
         state.cleanup(self.project_root)
 
         return RunResult(
+            resume_state_evidence=state.resume_state_evidence(),
             success=True,
-            step_details=success_details,
+            step_details=copy.deepcopy(success_details),
             carried_from_previous_run=success_carried,
             tree_verified=tree_verified,
             run_id=state.run_id,
@@ -1805,6 +1841,64 @@ class DeterministicRunner:
     def _log(self, message: str) -> None:
         """Log a message to stderr (not captured by JSON output)."""
         print(message, file=self.output, flush=True)
+
+
+
+def _emit_state_error(runner: DeterministicRunner, error: Exception, json_output: bool) -> bool:
+    """Only an exact original tracked state error gets a safe JSON failure.
+
+    This is not a result or stage-success certificate. Unknown populations and
+    run identities are omitted; exception text and host paths are never copied.
+    Direct engine/no-json calls and untracked same-class errors still raise.
+    """
+    evidence = runner._resume_evidence
+    if (not json_output or evidence.error is not error
+            or evidence.error_operation not in {"load", "select", "save", "cleanup"}):
+        return False
+    document: dict[str, Any] = {
+        "success": False, "error": "runner-state-unavailable",
+        "state_operation": evidence.error_operation,
+        "resume_state_evidence": evidence.snapshot(),
+    }
+    state = getattr(runner, "_last_state", None)
+    if state is not None:
+        # Optional diagnostics cannot replace an already classified ORIGINAL
+        # state failure. They are a bounded structural projection, not arbitrary
+        # persisted tests/coverage/reasons that may have caused serialization to
+        # fail. Omit the whole list when unavailable; never invent an empty or
+        # partial diagnostic population. Normal result details are unchanged.
+        try:
+            if len(state.step_records) > 256:
+                raise ValueError("stage diagnostics exceed the safe envelope bound")
+            frontier = getattr(runner, "_executed_from", None)
+            rows = state.summary(executed_from=frontier,
+                                 settled_in_this_run=getattr(runner, "_settled_here", set()))["steps"]
+            if not isinstance(rows, list) or len(rows) > 256:
+                raise ValueError("stage diagnostics are unavailable")
+            details = []
+            statuses = {status.value for status in StepStatus}
+            for row in rows:
+                if (not isinstance(row, dict) or not isinstance(row.get("id"), str)
+                        or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", row["id"]) is None
+                        or row.get("status") not in statuses):
+                    raise ValueError("stage diagnostics are not safe structural facts")
+                entry = {"id": row["id"], "status": row["status"]}
+                for flag in ("executed_in_this_run", "carried_from_previous_run"):
+                    if flag in row:
+                        if not isinstance(row[flag], bool):
+                            raise ValueError("stage diagnostic flags are unavailable")
+                        entry[flag] = row[flag]
+                if frontier is None:
+                    entry["executed_in_this_run"] = False
+                details.append(entry)
+        except Exception:
+            # This guard is inside the exact-identity failure branch only.
+            # Other engine/step exceptions still escape above, unchanged.
+            pass
+        else:
+            document["step_details"] = details
+    print(json.dumps(document, indent=2))
+    return True
 
 
 def run_plan(
@@ -1830,48 +1924,19 @@ def run_plan(
     # the JSON on stdout - parsed by flow-finish-gate.sh - is unchanged.
     from .evidence import run_with_evidence
 
-    result = run_with_evidence(runner, plan_name, root)
+    try:
+        result = run_with_evidence(runner, plan_name, root)
+    except Exception as error:
+        if _emit_state_error(runner, error, json_output):
+            return 1
+        raise
 
     if json_output:
         # Structured output for LLM consumption
         output = result.to_dict()
 
-        # Include step details from state. Emitted on SUCCESS as well as
-        # failure (issue #838 follow-up): the carried-over marking added below
-        # matters most on a GREEN resumed run, which is exactly the case the
-        # old `if not result.success` guard excluded. A resumed success that
-        # cannot show which of its steps actually ran this time is the report
-        # that misleads - a failure is already being read carefully.
-        if result.step_details:
-            # Success path: captured before cleanup removed the state file.
-            output["step_details"] = result.step_details
-        else:
-            # Failure path: the state file survives, so read it back and mark
-            # carried-over steps the same way.
-            try:
-                state = RunState.load(result.run_id, root)
-                executed_from = getattr(runner, "_executed_from", None)
-                output["step_details"] = state.summary(
-                    executed_from=executed_from
-                )["steps"]
-            except FileNotFoundError:
-                pass
-        carried = [
-            entry["id"]
-            for entry in output.get("step_details", [])
-            if entry.get("carried_from_previous_run")
-        ]
-        if carried:
-            output["carried_from_previous_run"] = carried
-            # Only meaningful alongside a non-empty carry (issue #804):
-            # whether the carry was backed by a tree_signature match
-            # (RunResult.tree_verified) or merely assumed, as it was before
-            # this field existed. flow-finish-gate.sh warns on carried-but-
-            # unverified and stays quiet on carried-and-verified - the
-            # distinction between "the mechanism proved this is safe" and
-            # "we don't know, so we're telling you".
-            output["tree_verified"] = result.tree_verified
-
+        # All terminal facts come from the in-memory result. Never reopen
+        # mutable state to reconstruct an empty/no-op invocation's stage report.
         print(json.dumps(output, indent=2))
 
     return 0 if result.success else 1
@@ -1889,7 +1954,12 @@ def resume_run(
     rerun_failed = rerun_failed or os.environ.get("CPP_GATE_RERUN_FAILED") == "1"
     runner = DeterministicRunner(project_root=root, rerun_failed=rerun_failed)
 
-    result = runner.resume(run_id)
+    try:
+        result = runner.resume(run_id)
+    except Exception as error:
+        if _emit_state_error(runner, error, json_output):
+            return 1
+        raise
 
     if json_output:
         print(json.dumps(result.to_dict(), indent=2))
