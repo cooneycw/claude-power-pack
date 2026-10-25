@@ -252,6 +252,48 @@ def test_close_lock_open_failure_reports_refusal(tmp_path: Path) -> None:
     _preserved(tmp_path, wave)
 
 
+@pytest.mark.parametrize("fault", ["lock-permission", "unknown-path"])
+def test_watch_arm_unknown_is_error_not_wave_gone(tmp_path: Path, fault: str) -> None:
+    wave, env = _seed(tmp_path)
+    lock = wave / ".mailbox.lock"
+    lock.touch()
+    assert wave.is_dir()
+    if fault == "lock-permission":
+        if os.geteuid() == 0:
+            pytest.skip("root can open mode-000 lock files")
+        lock.chmod(0)
+        with pytest.raises(PermissionError):
+            lock.open("a")
+    else:
+        stub = tmp_path / "bin"
+        stub.mkdir()
+        real = shutil.which("stat")
+        assert real
+        wrapper = stub / "stat"
+        wrapper.write_text(
+            f"#!{sys.executable}\nimport os, sys\n"
+            f"if sys.argv[-1] == {str(wave)!r}:\n"
+            f"    sys.stderr.write('stat: cannot stat {str(wave)}: Permission denied\\n')\n"
+            "    sys.exit(1)\n"
+            f"os.execv({real!r}, [{real!r}, *sys.argv[1:]])\n"
+        )
+        wrapper.chmod(0o755)
+        env["PATH"] = f"{stub}:{os.environ['PATH']}"
+        assert subprocess.run([str(wrapper), str(wave)], capture_output=True, check=False).returncode == 1
+    try:
+        result = subprocess.run(
+            ["bash", str(MAILBOX), "watch", "--wave", WAVE, "--role", "worker", "--consume", "--timeout", "0"],
+            env={**os.environ, **env}, capture_output=True, text=True, check=False,
+        )
+    finally:
+        lock.chmod(0o600)
+    assert wave.is_dir()
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert "FLOW_MAILBOX: error" in result.stdout
+    assert "FLOW_MAILBOX: absent" not in result.stdout
+    assert "worker" in result.stderr and str(wave) in result.stderr
+
+
 def test_close_empty_population_with_unknown_scan_refuses(tmp_path: Path) -> None:
     env = {"FLOW_WAVE_MAILBOX_DIR": str(tmp_path / "boxes"), "FLOW_WAVE_WATCHER_SCAN": "none"}
     assert _run(tmp_path, "policy", "set", "--wave", WAVE, "--gate", "review", extra_env=env).returncode == 0
