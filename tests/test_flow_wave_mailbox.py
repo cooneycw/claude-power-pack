@@ -2550,6 +2550,39 @@ class TestSupervise:
         finally:
             self._kill_daemon(pid)
 
+    @pytest.mark.skipif(shutil.which("jq") is None, reason="requires jq (registry)")
+    def test_unknown_owner_keeps_supervising(self, tmp_path: Path) -> None:
+        registry = ROOT / "scripts" / "flow-wave-registry.sh"
+        env = {
+            **os.environ,
+            "FLOW_WAVE_REGISTRY_DIR": str(tmp_path / "mb"),
+            "CLAUDE_PID": "4242",
+            "FLOW_WAVE_LIVE_PIDS": "4242",
+            "FLOW_WAVE_PID_STARTTIMES": "4242=witness",
+        }
+        registered = subprocess.run(
+            ["bash", str(registry), "register", "1", "--wave", WAVE],
+            env=env, capture_output=True, text=True, check=False, timeout=15,
+        )
+        assert registered.returncode == 0, registered.stderr
+        env.update(FLOW_WAVE_UNKNOWN_PIDS="4242", FLOW_WAVE_LIVE_PIDS="none")
+        owner = subprocess.run(
+            ["bash", str(registry), "get", "1", "--wave", WAVE],
+            env=env, capture_output=True, text=True, check=False, timeout=15,
+        )
+        assert "FLOW_WAVE_LIVENESS=unknown" in owner.stdout
+        launched = self._launch(tmp_path, timeout="30", extra_env=env)
+        assert launched.returncode == 0, launched.stderr
+        pid = _daemon_pid(tmp_path, WAVE, "1")
+        try:
+            # A watch can only start AFTER the aggregate shutdown check.
+            assert _wait_for(lambda: _inner_watch(pid) is not None, timeout=15), (
+                _supervise_log(tmp_path, WAVE, "1").read_text()
+            )
+            assert _pid_alive(pid)
+        finally:
+            self._kill_daemon(pid)
+
     @pytest.mark.skipif(
         shutil.which("jq") is None, reason="requires jq (flow-wave-registry.sh)"
     )
