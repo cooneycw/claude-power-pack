@@ -96,7 +96,8 @@ loud and warrants investigation. `filled` is not a lesser grade than `verified`.
 Ack each worker with the wave brief: its lane, stop-at-Step-3 (never
 `--yes`), the ledger format, and the structural-pushback rule verbatim.
 
-Address workers ONLY by the address the registry holds, via `SendMessage` -
+Address workers ONLY by the address the registry holds, through the session's
+available transport (`SendMessage` for Claude; the native route below for Codex) -
 never by `ListAgents` display names, which do not map to roles and mutate
 mid-session. Check the roster with:
 
@@ -161,6 +162,21 @@ reports such a role as UNKNOWN rather than clean (`FLOW_WAVE_OVERLAP_UNSCOPED`),
 so read that line before treating a quiet roster as a clear one.
 
 ## Setup: the delivery lane (consume #676, do not reimplement)
+
+**Select the actual transport first (#1560).** Follow register.md's "Select the
+delivery transport first" procedure. For native Codex, persist each hello/brief,
+assignment, verdict and replan in the durable mailbox, notify the registry-held
+thread with an available native tool, then require that intended worker to read
+and acknowledge the matching wave/role/revision/assignment identity. Check the
+reply's actual transport source; send acceptance and aggregate `route=confirmed`
+do not establish this join. Set a finite wait budget and attempt limit before
+each handoff; missing tools or expired confirmation means pending/unavailable,
+with a preserved record and explicit orchestrator/user relay, not another watcher
+or indefinite polling. These are operator checks, not automated runtime enforcement.
+
+The historical observations, socket/container discovery and shell watcher
+instructions below describe the Claude lane. They do not establish Codex native
+availability or idle wake. A native route never changes the shell `watch=` verdict.
 
 The roster says WHERE a worker is. It does not deliver, and on 2026-08-11 that
 gap cost ~2h: a written assignment sat undelivered while both sessions correctly
@@ -227,7 +243,7 @@ The lesson of 2026-08-11 is not the routing verdict, which expired. It is that
 this document stated a harness behaviour with no version attached, so nothing
 could tell the next reader it had gone stale. Stamp what you write here.
 
-**Arm a watch THIS SESSION OWNS over the inbox at setup, before the first
+**Claude Code: arm a watch THIS SESSION OWNS over the inbox at setup, before the first
 assignment (issues #676, #814, #1228).** One call covers every `inbox-*.md` in
 the wave, so a hello, a status report, or a worker's pushback wakes this session
 instead of waiting for the next time somebody looks. Launch it as a **background
@@ -284,19 +300,20 @@ Verify with the counts, never the state word alone:
 `FLOW_MAILBOX_WATCHER_COUNT=0` means nothing is polling, whatever the
 heartbeat age says; the state reads `dead` in that case and `unknown` when the
 count could not be read. `FLOW_MAILBOX_SESSION_WATCHERS=0` with a nonzero count
-means processes are polling and none can wake anyone - the state reads
-`no-wake` (#1228). None of these is a reason to stand down. This answers "can a
-process that wakes this session hear the box", not "is anything getting
-through" - `flow-wave-registry.sh list`'s separate `route=` column (issue #814)
-answers the second, from acknowledgement evidence rather than the process
+means processes are polling without qualifying Claude session ancestry - the state reads
+`no-wake` (#1228). None of these is a reason to stand down. These are shell
+observations, not native delivery measurements. The separate `route=` column
+(issue #814) summarizes acknowledgement history rather than the process
 table: `route=UNCONFIRMED` means no ack has landed in over
 `FLOW_WAVE_ROUTE_UNCONFIRMED_SECS` (default 900s) even though something may
 well be polling. A worker can be `watch=armed route=UNCONFIRMED` at the same
 time - that combination IS the signal, not a contradiction to explain away.
 `armed` checks that a session owns a watcher, not that it is the session
-REGISTERED for that role.
+REGISTERED for that role. Neither column proves that intended worker read a
+particular assignment; use the matching reply check for native delivery.
 
-**Route these four over the lane whenever `SendMessage` cannot reach a worker**
+**Persist these four over the lane for native handoffs, and whenever Claude
+`SendMessage` cannot reach a worker**
 (all of them failed to reach one in the reference run): the registration ack +
 wave brief, each ASSIGNMENT, each gate VERDICT with its conditions, and each
 re-plan notice that changes a worker's lane.
@@ -321,11 +338,11 @@ supervisor no longer acknowledges, so unread mail is the ordinary resting
 state of anything the worker has not yet acked, and a nonzero `UNREAD` is no
 longer evidence about the watch at all. Read the two columns instead:
 
-- `watch=DEAD`/`ABSENT`/`stale` - nothing is listening. The worker must re-arm
+- Claude `watch=DEAD`/`ABSENT`/`stale` - no qualifying shell listener. The worker must re-arm
   its own background watch; that is the old diagnosis and it still applies
   when the column says so.
-- `watch=NO-WAKE` - something is polling, and nothing that polls can wake the
-  worker (#1228): typically a `supervise` daemon, or a watch whose session is
+- Claude `watch=NO-WAKE` - something is polling without qualifying Claude
+  session ancestry (#1228): typically a `supervise` daemon, or a watch whose session is
   gone. Starting another daemon will not help. The worker must arm a
   session-owned background watch - which the daemon no longer blocks - and
   anyone who owns the daemon should stop it.
@@ -333,6 +350,10 @@ longer evidence about the watch at all. Read the two columns instead:
   surfacing, and the agent behind it still has not acknowledged anything. That
   is #814's residual gap showing, not a dead watch, and arming another watcher
   will not touch it. Ask the worker directly.
+
+For native Codex, none of those shell states decides delivery. Missing tools or
+an absent, stale or wrong-worker reply leaves the exact assignment unconfirmed;
+follow the bounded native escalation instead. A supervisor's ack is insufficient.
 
 ## Setup: the transition lexicon (consume #701, do not reimplement)
 
@@ -668,7 +689,8 @@ For each idle registered worker, pick the next startable issue subject to:
   heard of reports `unknown` and exits 0 - the routing question is then simply
   unanswered, and the judgment is yours.
 - **An assignment is not assigned until it is DELIVERED.** Send it by the
-  preference order (`SendMessage`, else the mailbox), and treat the worker's
+  applicable transport procedure (native handoff above, or Claude's preference
+  order), and treat the intended worker's matching
   acknowledgement - not your own send - as the transition to in-flight. An
   issue marked assigned in your ledger whose box still shows `UNREAD` is the
   2026-08-11 failure reproducing: the plan looks healthy from both ends while
@@ -826,9 +848,13 @@ workers were caught behind at least once in the reference run.
 position starts its next pipeline, and until #788 nothing watched the result: on
 the `kyle-completion` wave (2026-09-05) the owner spotted a red pipeline on a
 cleared PR before the orchestrator did, and the clearance stood unrevised over a
-red. Arm the watch as a BACKGROUND call the moment you issue the clearance - it
+red. In Claude Code, arm the watch as a BACKGROUND call when you issue clearance - it
 blocks until the pipeline is terminal and then exits, so the harness re-invokes
 you with the verdict, exactly like the mailbox watch:
+
+Native sessions cannot infer that wake behavior from this shell helper. Retain
+the clearance, use their available bounded notification/read route, and explicitly
+read the actual CI result before treating a clearance as a completed merge.
 
 ```bash
 "${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-pr-watch.sh <PR> --repo <owner/name> --baseline <wave-flake-baseline>
@@ -955,9 +981,10 @@ teardown is a sweep rather than a step on the merge path.
   lane (#676).** A worker that registered, stood by, and re-reported
   "registered" on every wake is behaving CORRECTLY - it has no way to learn an
   assignment exists. Before diagnosing a worker as stuck, check
-  `flow-wave-mailbox.sh list --wave <WAVE>`: unread mail means delivery
-  happened and the watch is not armed; an empty box means the assignment was
-  never sent, however finished it looks in your own ledger. Two hours were lost
+  `flow-wave-mailbox.sh list --wave <WAVE>`: unread mail means a stored record
+  lacks an ack, not that the worker received it or a watch failed. An empty box
+  does not prove no assignment was sent; inspect that record's history and matching
+  reply over the actual transport. Two hours were lost
   on 2026-08-11 reading this exact state as "both sessions healthy".
 - **Read the `watch=` column on every sweep (#778) - it is the fastest of these
   checks and the only one that is one look.** The rule above is correct and was
@@ -974,9 +1001,10 @@ teardown is a sweep rather than a step on the merge path.
   was `[live, verified] brief=current` and deaf for over an hour; its six-issue
   assignment was delivered and never read, your ledger said assigned, its
   roster entry said free, and the only tell was a cursor at 0 spotted by
-  accident. Treat `watch=ABSENT`, `watch=DEAD` or `watch=UNKNOWN` on a role you
-  are about to assign as a BLOCKER: tell it to arm the watch before you send,
-  because nothing you send will wake it.
+  accident. For the Claude shell lane, treat `watch=ABSENT`, `watch=DEAD` or
+  `watch=UNKNOWN` as a BLOCKER requiring its own watcher before assignment.
+  For native Codex, use the bounded native handoff; those shell states do not
+  decide availability. No matching intended-worker reply means unconfirmed.
 - **`DEAD` is the state the roster used to render as `armed` (#801), and the
   reason a heartbeat age is not evidence.** The watch is ONE-SHOT: it delivers
   one message and exits. Its heartbeat stamp keeps looking fresh for the whole
@@ -994,10 +1022,11 @@ teardown is a sweep rather than a step on the merge path.
 - **A clearance is not a merge, and nothing watches the run it starts (#788).**
   Issuing the clearance is where attention ends, but the pipeline it triggers is
   where the answer arrives - minutes later, on a PR you have stopped looking at.
-  On 2026-09-05 the owner found the red before the orchestrator did. Arm
-  `flow-pr-watch.sh` as a background call on every clearance (step 4 above) and
+  On 2026-09-05 the owner found the red before the orchestrator did. In Claude
+  Code, arm `flow-pr-watch.sh` as a background call on every clearance (step 4 above) and
   treat its `cancelled` / `flake` / `red` verdict as the trigger to revise the
-  clearance. Do not triage a red by hand and do not retry it blind: re-pushing a
+  clearance. Native sessions use the bounded route and explicitly read the
+  actual CI result as described above. Do not retry a red blind: re-pushing a
   cancelled run lengthens the queue, retrying a real failure until it passes
   hides a defect, and blaming a declared flake on the PR stalls a clean merge.
 - **The orchestrator is the unreliable component.** Verify before ruling,
