@@ -298,3 +298,18 @@ The original run, two reviews, refusal and full-failure evidence are retained.
 Root directed a read-only archive/handoff proposal for CC to actually materialize
 and deliver under its own model evidence; no archive/new run/extra review has
 yet executed.
+
+All35 remaining make verify prerequisite targets completed separately with EXIT0
+after the bounded correction. This includes shellcheck, Bandit and its controls,
+binary/negative-fixture checks, negative controls, generated parity, inventories,
+coverage and enrollment. Log SHA256:b522a831940abce788ffadb0578dbebf64b1ce16230d4e5e1f22de389cbf077c.
+The original full run still exited2, while five affected cases, lint/types and
+these remaining gates pass after the correction. No replacement aggregate
+make verify EXIT0 is claimed. Enrollment reports stale behavioral evidence as
+an advisory, not new behavioral assurance; old profiles/pins remain unchanged.
+
+The corrected product source is committed atd33d1bc7495e593863783a04c3010b68a12aa354.
+Root and CC received a read-only archive/handoff plan and per-file Git blob/hash
+manifest; no move, rename, claim transfer, new run or third review has executed.
+The original worker source/history, actual failed writer and failed full run
+remain preserved for the fresh CC delivery rather than attributed retroactively.
