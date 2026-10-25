@@ -257,3 +257,13 @@ This appended execution evidence preserves the approved plan bytes above and
 changes its digest honestly; it does not change Section C's scope. Original
 read-only analysis and the new run's actual clean probe/standalone begin/approve
 remain in the original trace. No old run's missing probe was reconstructed.
+
+### Root source review of committed producer
+
+Root reviewed producer commit6204d3fa4bee1bdd850d0a1b080b639f8cc4d106 and cleared
+the exact-error-only bounded diagnostic projection, sticky rejection of unsafe
+original logical ids, and preserved direct/no-json/untracked error behavior.
+Root independently reported seven load/save identity controls and five final-
+presence/diagnostic cases passing. This is source-review evidence, not full
+verification or merge clearance. Current-base reconciliation, a truthful receipt,
+full verification and exact-head required CI remain separate requirements.
