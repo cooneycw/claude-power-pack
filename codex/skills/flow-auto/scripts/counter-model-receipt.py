@@ -832,7 +832,8 @@ def _flow_scope_model(
         if record.get("type") == "turn_context":
             payload = record.get("payload")
             model = payload.get("model") if isinstance(payload, dict) else None
-            _flow_need(isinstance(model, str) and bool(model.strip()), "undeclared original model turn")
+            if not isinstance(model, str) or not model.strip():
+                raise FlowScopeRefused("undeclared original model turn")
             models.append((number, model.strip()))
     run = args.implementer_flow_run
     issue, branch = str(args.issue), args.branch
@@ -953,7 +954,8 @@ def _flow_scope_model(
         if hashlib.sha256(prefix.rstrip("\n").encode()).hexdigest() == digest[0]:
             approved = prefix
             break
-    _flow_need(approved is not None, "approved plan prefix differs from Git head")
+    if approved is None:
+        raise FlowScopeRefused("approved plan prefix differs from Git head")
     marker = re.findall(rf"<!-- flow-run n=([0-9]+) id={run} -->", approved)
     _flow_need(len(marker) == 1, "approved plan has missing or overlapping run identity")
     section = approved.split(f"id={run} -->", 1)[1]

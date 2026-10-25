@@ -347,3 +347,38 @@ no traceback, no receipt. It is a negative control, not a newly failing regressi
 The unchanged checker passes (221 files,5838 tests,1332 guarded,114 explicit
 exemptions including10 pre-existing); all142 binary-guard tests now pass.
 Root reviews this test-only delta before the full four-worker rerun.
+
+
+### Staged local verification completed
+
+The rerun at2f9fa304 passed all8220 pytest cases with1 skip in342.05s, then the
+aggregate command stopped on2 mypy narrowing errors. It did not exit0. The skip
+was the explicitly unstaged .ci-bin toolchain case. At the two flagged sites,
+_flow_need invalid-value calls became equivalent explicit if-invalid/raise guards,
+with identical conditions, FlowScopeRefused messages and acceptance/refusal logic.
+Normal4 mirrors and SHA files were regenerated. Root independently read and
+cleared this exact source delta; no third counter-review or redundant full-suite
+rerun was performed for the equivalent guards.
+
+Whole typecheck subsequently passed383 files. All75 affected writer/audit controls
+passed in6.91s; final lint passed. Every remaining verify prerequisite was then run
+explicitly from the Makefile list (excluding the already completed tools/lint/test/
+typecheck phases), followed by the final coverage report: exit0. Log:
+/tmp/cpp-1557-remaining-verify.log. This is staged completion, not a claim either
+original make verify command exited0. Required remote CI still runs the final
+committed tree in full.
+
+Remaining gates included shellcheck, bandit/import audits, all84 registered
+negative controls with discriminating anchors, budgets/links, generated skills,
+instrument/census/CI coverage, host-write policy, version/Unicode/trailer checks,
+behavioral/eli5/tool-risk checks and advisory skill coverage/enrollment readers.
+All74 generated skills are in checkout sync; no installed host copy was changed.
+The actual captured-prefix receipt audit and unchanged enrollment gate pass.
+Lane check:19 touched paths,0 extra/ungranted/contested paths; working diff clean.
+
+Limits remain explicit: host jq1.7 differs from pinned CI1.7.1; the final coverage
+report names runtime, host, network and CI-only checks not executed locally.
+Flow-check advisory closure currentness is stale after the helper changed, and its
+runtime axis is unknown. No historical snapshot was rewritten or currentness/
+readiness claimed. Required exact-head CI and root/current-base clearance precede
+merge; host installation/deployment remains unauthorized.
