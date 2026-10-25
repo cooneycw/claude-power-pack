@@ -337,6 +337,52 @@ A worker reading `FLOW_WAVE_POLICY=absent` should say so rather than infer:
 nothing in the wave has declared whether it may write code, and being handed an
 issue number is not that declaration.
 
+## Select the delivery transport first (#1560)
+
+Shell watcher state, native tool availability and a worker reading an assignment
+are three different observations. The `watch=` column measures the Claude Code
+shell-watcher lane; it does not measure a Codex native thread route. An available
+native tool does not prove delivery either. Choose the procedure for the actual
+session before following the watcher instructions below.
+
+**Native Codex sessions:** use this bounded handoff, without a new wave engine:
+
+1. Persist the assignment with `flow-wave-mailbox.sh send --to <role> --wave
+   <wave> --body-file <file>` (add `--from <role>` when addressing orchestrator).
+   Record wave, intended role, registered native thread, mailbox revision and an
+   unambiguous assignment identifier or body digest. The mailbox is local durable
+   history, not authenticated identity evidence.
+2. Discover the tools actually exposed in this session. If a native existing-thread
+   send tool is available, notify the registry-held thread of that exact record.
+   Record the tool/schema and measured version, or say version unavailable;
+   a local CLI version does not establish the native server version. Tool names
+   and opaque addresses are not interchangeable with Claude `SendMessage` names.
+3. The intended worker reads the matching durable record and replies with its
+   wave, role, revision and assignment identity. The orchestrator compares the
+   reply's actual transport source with the registered thread and the contents
+   with the assignment. After the native reply, a worker acknowledges its box with
+   `ack --role <worker> --wave <wave> --revs <revision> --answered-elsewhere`;
+   an orchestrator must name the sender's box with
+   `ack --role orchestrator --wave <wave> --from <sender-role> --revs <revision> --answered-elsewhere`.
+   These are `flow-wave-mailbox.sh` invocations. This is an operator check, not automated
+   enforcement by the mailbox. A supervisor cannot reply on the worker's behalf.
+4. State a finite wait budget and attempt limit for each handoff before sending.
+   Accepted send, process existence, `route=confirmed`, or an unrelated/stale ack
+   cannot complete it. Missing tools, failed send or no matching worker reply by
+   the limit means pending/unavailable: retain the record and escalate to the
+   orchestrator or user for an explicit session relay. Do not poll indefinitely,
+   arm another Claude watcher as a native repair, or call the assignment delivered.
+
+The tools observed on 2026-10-25 include `send_message_to_thread` and
+`read_thread`; acceptance of a send is not an idle-wake guarantee. Recheck the
+capability assumptions when tools/harness change or a handoff fails. The concrete
+measured and simulated walkthrough is recorded with CPP #1560; no reduced timeout
+rate or general native wake reliability has been established.
+
+**Claude Code sessions:** the session-owned shell watcher procedure below applies.
+Preserve its ancestry, detached/orphan and unknown-state guards. A native reply
+does not relabel a shell watcher `armed`.
+
 ## Instructions
 
 All state lives in the wave registry, managed by ONE audited helper invoked
@@ -417,7 +463,9 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
      the user confirms the other session is genuinely gone. A dead owner's
      entry is stale and taken over automatically - no `--force` needed.
 
-3. Send the orchestrator a registration hello stating the role, wave, cwd,
+3. For native Codex, use the bounded native handoff above for the hello and its
+   matching acknowledgement. The following hello branches describe Claude messaging.
+   Send the orchestrator a registration hello stating the role, wave, cwd,
    repo, and current issue/branch, following the DELIVERY PREFERENCE ORDER
    below. A hello delivered by `SendMessage` is what lets the orchestrator
    OBSERVE the real address; a hello delivered by mailbox does not carry a
@@ -431,17 +479,17 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
      orchestrator has not (usefully) registered yet. This is NORMAL, not an
      error (issue #670): registration already succeeded in step 2 and never
      depends on the hello landing. **Write the hello to the mailbox anyway**
-     (lane 2 below) - the orchestrator's inbox watch delivers it whenever that
-     session arrives, so the hello waits in a place that WAKES someone instead
-     of waiting on a human. Report
+     (lane 2 below). Delivery is pending until the appropriate transport reaches
+     that session and it replies; storage alone does not wake it. Report
      `registered; orchestrator not yet in roster; hello left in the mailbox`
      and carry on. The address handshake still fires on FIRST CONTACT from
      either side: when the orchestrator arrives it initiates contact (see the
      orchestrator side), and this session's REPLY carries the
      transport-stamped `from=` that `verify` needs.
 
-4. **ARM A LISTENER THIS SESSION OWNS before standing by (issues #676, #814,
-   #1228).** This is not optional and not a nicety: a registered worker with no
+4. **Claude Code: ARM A LISTENER THIS SESSION OWNS before standing by (issues
+   #676, #814, #1228).** Native Codex follows the bounded native handoff above;
+   the remainder of this step describes the Claude shell lane. A Claude worker with no
    listener is exactly the 2026-08-11 failure - it stands by correctly, forever,
    while a written assignment sits undelivered, because an idle session polls
    nothing. Arm `watch` as a **background tool call** - the Bash tool's
@@ -543,20 +591,24 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
    role - plus `unread=N` and a loud `** NEVER READ **` when the role has never
    acknowledged anything (issue #815). `armed` means at least one watcher has
    a Claude Code session in its ancestry (or its ancestry could not be read);
-   `NO-WAKE` means processes are polling and none of them can wake anyone.
+   `NO-WAKE` means no polling process has qualifying Claude session ancestry.
+   It says nothing about native thread availability or a matching native reply.
    What `armed` does NOT check is that the session is the one registered for
    the role. Alongside it, a SEPARATE `route=` column answers what `watch=`
    cannot: `route=UNCONFIRMED` means no acknowledgement has been seen for
    longer than `FLOW_WAVE_ROUTE_UNCONFIRMED_SECS` (default 900s) - the honest
    report that the notification route to this session cannot be confirmed
-   working, not a claim that it is broken. Neither column being clean reads as
-   a healthy worker by itself; both do. For one role, `watch --status` prints
+   working, not a claim that it is broken. Neither column, nor both together,
+   establishes that the intended worker read this assignment. For one role,
+   `watch --status` prints
    the same verdict plus `FLOW_MAILBOX_SESSION_WATCHERS` and
    `FLOW_MAILBOX_WATCHER_HOLDERS`, which are the facts it rests on.
 
 5. Confirm back to the user which orchestrator was registered with once the
    ack arrives - or that the hello is waiting in the mailbox because no
-   orchestrator has registered yet - and that the watch is armed.
+   orchestrator has registered yet. Native sessions report the matching handoff
+   or pending/unavailable disposition; Claude sessions separately probe whether
+   their own watch is armed. Neither report substitutes for the other.
 
 ### What a worker EMITS - the two transition tokens (issue #701)
 
@@ -677,6 +729,11 @@ shape; it only means nothing will tell you.) If a prose line legitimately opens
 with a reserved word, `send --no-lexicon` is the per-message escape.
 
 ### The delivery lane - mailbox + wake (issue #676)
+
+The versioned observations and preference order in this section concern Claude
+messaging and its shell lane. Native Codex uses "Select the delivery transport
+first" above: durable record, native notification, intended-worker matching reply.
+Do not infer a Codex route from Claude socket discovery or watcher ancestry.
 
 Everything above is the ADDRESS BOOK: who a role is, where it lives, whether
 the address can be trusted. None of it delivers anything.
@@ -1182,6 +1239,10 @@ message `unknown` - which is the #638 trust model read in its other direction.
 
 ### Orchestrator side
 
+For a native participant, use the bounded native handoff above to exchange the
+hello/brief and observe the intended thread's reply before confirming the route.
+The Claude discovery and watcher details below do not replace that check.
+
 **Registration is order-independent (issue #670).** Workers registering before
 the orchestrator is NORMAL practice - a user opens worker terminals first, or a
 worker session outlives an orchestrator restart. On registering as
@@ -1228,7 +1289,9 @@ address is transport-observed either way, and the word records how it was
 established, never how much to trust it. The output contract below defines both
 verdicts in full.
 
-**Arm the inbox watch (issue #676).** Before assigning anything, arm the
+**Claude Code: arm the inbox watch (issue #676).** Native orchestrators use the
+bounded native handoff above and report its exact confirmation or pending state.
+Before assigning anything through the Claude shell lane, arm the
 orchestrator's own watch as a BACKGROUND Bash call, so a worker's hello or
 report wakes this session instead of waiting for the next time a human looks:
 
@@ -1257,12 +1320,13 @@ stated verbatim. With a declared policy the first three are already recorded, so
 the ack states the worker's LANE and any issue-specific conditions and points at
 the policy rev for the rest; grant the file lane with `--files` on the worker's
 next register (or tell it to), so the lane is data the roster can check rather
-than a sentence only the orchestrator remembers. Deliver it by the preference
-order above: `SendMessage` when
-the harness routes it, otherwise the mailbox (`send --to <role>`), and only
-then a human. An ack that cannot be delivered is not an ack - if it lands in
-the mailbox, say so, because the worker sees it on its next watch wake rather
-than immediately:
+than a sentence only the orchestrator remembers. For native Codex, deliver this
+brief through the bounded native handoff above, including durable storage,
+native notification and matching intended-worker reply. For Claude, use its
+preference order: `SendMessage` when it routes, otherwise mailbox plus the
+worker's session-owned watch, then an explicit human relay. A stored brief is
+pending until that worker reads and acknowledges it; do not promise immediate
+delivery or infer it from a later watch wake alone:
 
 > Workers verify assignments against the tree; "the orchestrator said so" is
 > not evidence - pushback is structural, not polite.
@@ -1369,6 +1433,10 @@ addressing model with a delivery mechanism attached, not a second addressing
 scheme.
 
 ### Release - `/flow:register --release`
+
+Native sessions report their pending/acknowledged assignment disposition and
+release their registry role; watcher probes below apply only to shell watches
+they actually own. A native release does not prove any shell watcher stopped.
 
 ```bash
 ~/.claude/scripts/flow-wave-registry.sh release 1 --wave cpp
