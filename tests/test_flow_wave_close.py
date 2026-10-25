@@ -62,7 +62,8 @@ def test_close_live_role_refuses_and_names_role(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("force", [False, True])
-def test_close_consuming_watcher_refuses(tmp_path: Path, force: bool) -> None:
+@pytest.mark.parametrize("registered", [False, True])
+def test_close_consuming_watcher_refuses(tmp_path: Path, force: bool, registered: bool) -> None:
     wave, env = _seed(tmp_path)
     watcher = subprocess.Popen(
         ["bash", str(MAILBOX), "watch", "--role", "worker", "--wave", WAVE,
@@ -87,6 +88,15 @@ def test_close_consuming_watcher_refuses(tmp_path: Path, force: bool) -> None:
         # Freeze the heartbeat: the watcher guard must refuse even when no
         # changing audit file lets archive verification catch a blind guard.
         os.killpg(watcher.pid, signal.SIGSTOP)
+        if not registered:
+            registry = tmp_path / "reg" / "registry.json"
+            data = json.loads(registry.read_text())
+            data[WAVE]["roles"] = {}
+            registry.write_text(json.dumps(data))
+            for name in ("inbox-worker.md", "outbox-worker.md", ".watch-worker"):
+                (wave / name).unlink(missing_ok=True)
+            assert not list(wave.glob(".watch-*"))
+            assert not data[WAVE]["roles"]
         result = _close(tmp_path, env, *(["--force"] if force else []))
         _preserved(tmp_path, wave)
         assert result.returncode != 0
@@ -240,6 +250,134 @@ def test_close_lock_open_failure_reports_refusal(tmp_path: Path) -> None:
     assert result.returncode != 0
     assert "FLOW_WAVE: refused" in result.stdout
     _preserved(tmp_path, wave)
+
+
+def test_close_empty_population_with_unknown_scan_refuses(tmp_path: Path) -> None:
+    env = {"FLOW_WAVE_MAILBOX_DIR": str(tmp_path / "boxes"), "FLOW_WAVE_WATCHER_SCAN": "none"}
+    assert _run(tmp_path, "policy", "set", "--wave", WAVE, "--gate", "review", extra_env=env).returncode == 0
+    assert not (tmp_path / "boxes" / WAVE).exists()
+    result = _close(tmp_path, env)
+    assert WAVE in json.loads((tmp_path / "reg" / "registry.json").read_text())
+    assert result.returncode != 0
+    assert "FLOW_WAVE: refused" in result.stdout
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can traverse mode-000 directories")
+@pytest.mark.parametrize("force", [False, True])
+def test_close_inaccessible_parent_preserves_registry(tmp_path: Path, force: bool) -> None:
+    parent = tmp_path / "locked"
+    wave = parent / WAVE
+    wave.mkdir(parents=True)
+    (wave / "verdicts.json").write_text("audit verdicts.json\n")
+    env = {"FLOW_WAVE_MAILBOX_DIR": str(parent)}
+    assert _run(tmp_path, "policy", "set", "--wave", WAVE, "--gate", "review", extra_env=env).returncode == 0
+    parent.chmod(0)
+    try:
+        with pytest.raises(PermissionError):
+            wave.stat()
+        result = _close(tmp_path, env, *(["--force"] if force else []))
+    finally:
+        parent.chmod(0o700)
+    _preserved(tmp_path, wave)
+    assert result.returncode != 0
+    assert "FLOW_WAVE: refused" in result.stdout
+
+
+@pytest.mark.parametrize("corruption", ["mailbox", "registry-entry"])
+def test_close_detects_corrupt_archive_bytes(tmp_path: Path, corruption: str) -> None:
+    wave, env = _seed(tmp_path)
+    stub = tmp_path / "bin"
+    stub.mkdir()
+    tool = "cp" if corruption == "mailbox" else "jq"
+    real = shutil.which(tool)
+    assert real
+    wrapper = stub / tool
+    if corruption == "mailbox":
+        body = (
+            f"subprocess.run([{real!r}, *sys.argv[1:]], check=True)\n"
+            "(pathlib.Path(sys.argv[-1]) / 'outbox-worker.md').write_text('corrupt')\n"
+        )
+    else:
+        body = (
+            "if sys.argv[-1].endswith('/registry-entry.json'):\n"
+            "    pathlib.Path(sys.argv[-1]).write_text('{}')\n"
+            f"os.execv({real!r}, [{real!r}, *sys.argv[1:]])\n"
+        )
+    wrapper.write_text(f"#!{sys.executable}\nimport os, pathlib, subprocess, sys\n" + body)
+    wrapper.chmod(0o755)
+    env["PATH"] = f"{stub}:{os.environ['PATH']}"
+    result = _close(tmp_path, env)
+    _preserved(tmp_path, wave)
+    assert result.returncode != 0
+    assert "FLOW_WAVE: refused" in result.stdout
+    bad = tmp_path / "archive" / ("outbox-worker.md" if corruption == "mailbox" else "registry-entry.json")
+    assert bad.read_text() == ("corrupt" if corruption == "mailbox" else "{}")
+
+
+@pytest.mark.parametrize("activity", ["ledger", "watch"])
+def test_close_serializes_activity_after_final_comparison(tmp_path: Path, activity: str) -> None:
+    wave, env = _seed(tmp_path)
+    (wave / "verdicts.json").write_text("[]\n")
+    stub = tmp_path / "bin"
+    stub.mkdir()
+    ready, release = tmp_path / "compared", tmp_path / "release"
+    real = shutil.which("diff")
+    assert real
+    wrapper = stub / "diff"
+    wrapper.write_text(
+        f"#!{sys.executable}\nimport pathlib, subprocess, sys, time\n"
+        f"rc = subprocess.run([{real!r}, *sys.argv[1:]]).returncode\n"
+        "if '--exclude=registry-entry.json' in sys.argv:\n"
+        f"    pathlib.Path({str(ready)!r}).touch()\n"
+        "    deadline = time.monotonic() + 30\n"
+        f"    while not pathlib.Path({str(release)!r}).exists():\n"
+        "        if time.monotonic() > deadline: sys.exit(97)\n"
+        "        time.sleep(0.05)\n"
+        "sys.exit(rc)\n"
+    )
+    wrapper.chmod(0o755)
+    env["PATH"] = f"{stub}:{os.environ['PATH']}"
+    producer = None
+    armed = False
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        closing = pool.submit(_close, tmp_path, env)
+        try:
+            deadline = time.monotonic() + 15
+            while not ready.exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            assert ready.exists(), "close never reached final content comparison"
+            if activity == "ledger":
+                argv = ["bash", str(REGISTRY.with_name("flow-wave-lexicon.sh")), "record", "--wave", WAVE,
+                        "--body", "GATE: GRANTED #1562 - late ruling"]
+            else:
+                argv = ["bash", str(MAILBOX), "watch", "--wave", WAVE, "--role", "worker",
+                        "--consume", "--timeout", "30", "--interval", "1"]
+            producer = subprocess.Popen(argv, env={**os.environ, **env}, start_new_session=True,
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            deadline = time.monotonic() + 2
+            while producer.poll() is None and time.monotonic() < deadline:
+                if (wave / ".watch-worker").exists():
+                    armed = True
+                    break
+                time.sleep(0.05)
+        finally:
+            release.touch()
+        result = closing.result(timeout=20)
+        assert producer is not None
+        try:
+            stdout, stderr = producer.communicate(timeout=3)
+        except subprocess.TimeoutExpired:
+            os.killpg(producer.pid, signal.SIGKILL)
+            stdout, stderr = producer.communicate(timeout=5)
+    assert result.returncode == 0, result.stdout + result.stderr
+    if activity == "watch":
+        assert not armed, "watch armed after verification and close deleted its directory"
+        assert producer.returncode == 9, stdout + stderr
+    elif producer.returncode == 0:
+        entries = json.loads((tmp_path / "archive" / "verdicts.json").read_text())
+        assert any(e["issue"] == 1562 for e in entries), "successful ledger write was deleted without archival"
+    else:
+        assert "FLOW_LEXICON: error" in stdout
 
 
 def test_send_during_close_waits_then_fails_cleanly(tmp_path: Path) -> None:
