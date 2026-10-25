@@ -313,3 +313,7 @@ Root and CC received a read-only archive/handoff plan and per-file Git blob/hash
 manifest; no move, rename, claim transfer, new run or third review has executed.
 The original worker source/history, actual failed writer and failed full run
 remain preserved for the fresh CC delivery rather than attributed retroactively.
+
+Count correction: the explicitly executed remaining prerequisite list contains34
+targets, not35. The count above was a reporting error; the retained command list
+and EXIT0 result are unchanged, and no target was omitted or rerun.
