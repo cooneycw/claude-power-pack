@@ -577,6 +577,81 @@ def test_ordinal_or_unknown_completed_step_name_is_refused(tmp_path: Path) -> No
         project_init.apply(init_plan, checkpoint_path, RecordingExecutor(), resume=True)
 
 
+def _generated_project_env(inherited: dict[str, str]) -> dict[str, str]:
+    """Remove inherited venv tools while keeping ambient tools observable."""
+    clean_env = dict(inherited)
+    clean_env.pop("VIRTUAL_ENV", None)
+    path_parts = []
+    for part in inherited.get("PATH", "").split(os.pathsep):
+        directory = Path(part)
+        # A finish runner and its worktree can each prepend a different venv.
+        # Resolve aliases too: neither spelling may leak the runner's tools.
+        if any(
+            candidate.name in {"bin", "Scripts"}
+            and (candidate.parent / "pyvenv.cfg").is_file()
+            for candidate in (directory, directory.resolve())
+        ):
+            continue
+        path_parts.append(part)
+    clean_env["PATH"] = os.pathsep.join(path_parts)
+    for tool in ("ruff", "pytest", "mypy"):
+        assert shutil.which(tool, path=clean_env["PATH"]) is None, (
+            f"negative fixture precondition: {tool!r} must not be reachable via "
+            "the scrubbed PATH, or this test cannot tell the generated "
+            "project's own declared tools from one leaking in ambiently; "
+            f"resolved={shutil.which(tool, path=clean_env['PATH'])!r}; "
+            f"scrubbed PATH={clean_env['PATH']!r}"
+        )
+    return clean_env
+
+
+def test_generated_project_env_removes_nested_venvs_and_bin_alias(tmp_path: Path) -> None:
+    shared = tmp_path / "shared"
+    owned = tmp_path / "owned"
+    for venv in (shared, owned):
+        (venv / "bin").mkdir(parents=True)
+        (venv / "pyvenv.cfg").write_text("home = fixture\n", encoding="utf-8")
+        for tool in ("ruff", "pytest", "mypy"):
+            executable = venv / "bin" / tool
+            executable.write_text("fixture", encoding="utf-8")
+            executable.chmod(0o755)
+    alias = tmp_path / "shared-tools"
+    alias.symlink_to(shared / "bin", target_is_directory=True)
+    system_bin = tmp_path / "system-bin"
+    system_bin.mkdir()
+    for tool in ("uv", "make", "git"):
+        executable = system_bin / tool
+        executable.write_text("fixture", encoding="utf-8")
+        executable.chmod(0o755)
+    inherited = {
+        "VIRTUAL_ENV": str(owned),
+        "PATH": os.pathsep.join(map(str, (owned / "bin", shared / "bin", alias, system_bin))),
+    }
+    assert shutil.which("ruff", path=inherited["PATH"]) == str(owned / "bin" / "ruff")
+    clean_env = _generated_project_env(inherited)
+    assert "VIRTUAL_ENV" not in clean_env
+    assert inherited["VIRTUAL_ENV"] == str(owned)
+    assert clean_env["PATH"] == str(system_bin)
+    assert all(shutil.which(tool, path=clean_env["PATH"]) is None for tool in ("ruff", "pytest", "mypy"))
+    for tool in ("uv", "make", "git"):
+        assert shutil.which(tool, path=clean_env["PATH"]) == str(system_bin / tool)
+
+
+@pytest.mark.parametrize("tool", ("ruff", "pytest", "mypy"))
+def test_generated_project_env_rejects_ambient_tool(tmp_path: Path, tool: str) -> None:
+    ambient_bin = tmp_path / "ambient-bin"
+    ambient_bin.mkdir()
+    executable = ambient_bin / tool
+    executable.write_text("fixture", encoding="utf-8")
+    executable.chmod(0o755)
+    inherited = {"PATH": str(ambient_bin)}
+    assert shutil.which(tool, path=inherited["PATH"]) == str(executable)
+    with pytest.raises(AssertionError, match="negative fixture precondition") as failure:
+        _generated_project_env(inherited)
+    assert str(executable) in str(failure.value)
+    assert f"scrubbed PATH={str(ambient_bin)!r}" in str(failure.value)
+
+
 @pytest.mark.skipif(shutil.which("uv") is None, reason="uv not on PATH")
 @pytest.mark.skipif(shutil.which("make") is None, reason="make not on PATH")
 @pytest.mark.skipif(shutil.which("git") is None, reason="git not on PATH")
@@ -605,30 +680,9 @@ def test_generated_python_project_really_builds_lints_tests_and_typechecks(
     ) == 0
     makefile = generate_makefile(target_dir, template_dir=ROOT / "templates" / "makefiles")
     (target_dir / "Makefile").write_text(makefile, encoding="utf-8")
-    # Scrub this repo's own venv so a nested `uv run` (lint/test/typecheck
-    # below) cannot fall back to ITS ruff/pytest/mypy via a leaked PATH entry
-    # inherited from the `uv run pytest` invocation running this very test -
-    # that would pass regardless of whether the generated project declares
-    # its own dev tools correctly, which is the one thing this test exists to
-    # check.
-    clean_env = dict(os.environ)
-    outer_venv = clean_env.pop("VIRTUAL_ENV", None)
-    if outer_venv:
-        outer_bin = str(Path(outer_venv) / "bin")
-        clean_env["PATH"] = ":".join(
-            part for part in clean_env.get("PATH", "").split(":") if part != outer_bin
-        )
-    # Negative fixture precondition: stripping the outer venv only closes ONE
-    # leak path. If ruff/pytest/mypy are reachable some other way on this
-    # PATH (a global install, a user pip --user bin), the generated project's
-    # `uv run` could still find them regardless of whether the template
-    # declares its own dev tools - the one thing this test exists to check.
-    for tool in ("ruff", "pytest", "mypy"):
-        assert shutil.which(tool, path=clean_env.get("PATH")) is None, (
-            f"negative fixture precondition: {tool!r} must not be reachable via "
-            "the scrubbed PATH, or this test cannot tell the generated "
-            "project's own declared tools from one leaking in ambiently"
-        )
+    # The generated project must supply its own declared tools even when
+    # a shared finish runner and this worktree both contribute venvs to PATH.
+    clean_env = _generated_project_env(dict(os.environ))
     result = subprocess.run(
         ["make", "lint", "test", "typecheck"],
         cwd=target_dir,
