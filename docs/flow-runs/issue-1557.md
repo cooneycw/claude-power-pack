@@ -374,7 +374,9 @@ instrument/census/CI coverage, host-write policy, version/Unicode/trailer checks
 behavioral/eli5/tool-risk checks and advisory skill coverage/enrollment readers.
 All74 generated skills are in checkout sync; no installed host copy was changed.
 The actual captured-prefix receipt audit and unchanged enrollment gate pass.
-Lane check:19 touched paths,0 extra/ungranted/contested paths; working diff clean.
+Lane check:19 touched paths,0 extra/contested paths; working diff clean. The
+optional --granted comparison was not requested and reports ungranted as unknown;
+the exact declared file lane matches the root assignment.
 
 Limits remain explicit: host jq1.7 differs from pinned CI1.7.1; the final coverage
 report names runtime, host, network and CI-only checks not executed locally.
