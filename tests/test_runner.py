@@ -23,7 +23,7 @@ from lib.cicd.runner import (
     _project_python_floor,
     run_plan,
 )
-from lib.cicd.state import RunState, StepRecord, compute_tree_signature
+from lib.cicd.state import RunState, StepRecord, StepStatus, compute_tree_signature
 from lib.cicd.steps import (
     _CPP_ROOT,
     BUILTIN_PLANS,
@@ -4980,3 +4980,241 @@ def test_expected_red_manifest_round_trip() -> None:
     )
     assert step.expected_red is True
     assert step.to_dict()["expected_red"] is True
+
+
+class TestRunnerResumeEvidence:
+    @pytest.fixture(autouse=True)
+    def isolated_runner(self, tmp_project, monkeypatch):
+        from lib.cicd import runner as module
+        from lib.cicd import state as state_module
+        from lib.cicd.steps import StepResult
+        self.module = module
+        self.calls = []
+        self.fail_second = True
+        self.steps = [StepDef(id=name, command="in-process-only", gate=True)
+                      for name in ("stage-a", "stage-b")]
+        monkeypatch.delenv("CPP_EXECUTION_EVIDENCE", raising=False)
+        monkeypatch.setattr(state_module, "runner_state_dir", lambda root: root / ".state")
+        monkeypatch.setattr(module, "compute_tree_signature", lambda root: "same-tree")
+        monkeypatch.setattr(module, "_build_step_env", lambda *args, **kwargs: {})
+        monkeypatch.setattr(module, "subsumed_gate_ids", lambda *args, **kwargs: ({}, []))
+        monkeypatch.setattr(module, "get_plan_steps", lambda *args, **kwargs: self.steps)
+
+        def execute(step, context):
+            self.calls.append(step.id)
+            failed = self.fail_second and step.id == "stage-b"
+            return StepResult(status=StepStatus.FAILED if failed else StepStatus.SUCCESS,
+                              exit_code=1 if failed else 0, output="actual-" + step.id)
+
+        monkeypatch.setattr(ShellStep, "execute", execute)
+
+    @staticmethod
+    def evidence(result):
+        value = result.to_dict().get("resume_state_evidence")
+        assert isinstance(value, dict), "real runner result lacks v1 resume evidence"
+        return value
+
+    def test_resume_state_failed_then_auto_resumed_json_uses_selected_buffer(self, tmp_project):
+        import hashlib
+        first = DeterministicRunner(tmp_project, output=StringIO()).run("check", self.steps)
+        assert not first.success
+        path = tmp_project / ".state" / (first.run_id + ".json")
+        original = path.read_bytes()
+        first_meta = self.evidence(first)
+        assert first_meta["consumed"]["status"] == "none"
+        assert first_meta["generated"]["sha256"] == "sha256:" + hashlib.sha256(original).hexdigest()
+        self.fail_second = False
+        self.calls.clear()
+        second = DeterministicRunner(tmp_project, output=StringIO()).run("check", self.steps)
+        assert second.success and self.calls == ["stage-b"]
+        observed = self.evidence(second)
+        assert observed["consumed"]["sha256"] == "sha256:" + hashlib.sha256(original).hexdigest()
+        assert observed["generated"]["status"] == "written"
+        assert observed["final_state"]["status"] == "absent"
+        details = {x["id"]: x for x in second.to_dict()["step_details"]}
+        assert details["stage-a"]["carried_from_previous_run"] is True
+        assert details["stage-b"].get("executed_in_this_run") is not False
+
+    def test_resume_state_discarded_candidate_is_not_selected(self, tmp_project, monkeypatch):
+        first = DeterministicRunner(tmp_project, output=StringIO()).run("check", self.steps)
+        assert not first.success
+        monkeypatch.setattr(self.module, "compute_tree_signature", lambda root: "changed-tree")
+        self.fail_second = False
+        self.calls.clear()
+        second = DeterministicRunner(tmp_project, output=StringIO()).run("check", self.steps)
+        assert second.success and second.run_id != first.run_id
+        assert self.calls == ["stage-a", "stage-b"]
+        assert self.evidence(second)["consumed"]["status"] == "none"
+
+    def test_resume_state_noop_resume_has_no_generation_or_fresh_stages(self, tmp_project):
+        state = RunState.create("check", ["stage-a", "stage-b"])
+        for index in range(2):
+            state.mark_step_success(index)
+        state.mark_complete()
+        state.save(tmp_project)
+        result = DeterministicRunner(tmp_project, output=StringIO()).resume(state.run_id)
+        assert result.success and self.calls == []
+        observed = self.evidence(result)
+        assert observed["consumed"]["status"] == "loaded"
+        assert observed["generated"]["status"] == "none"
+        assert all(x["executed_in_this_run"] is False for x in result.to_dict()["step_details"])
+
+    def test_resume_state_post_cleanup_file_cannot_reconstruct_cli_stages(
+            self, tmp_project, monkeypatch, capsys):
+        import json
+        self.steps = []
+        cleanup = RunState.cleanup
+
+        def substitute(state, root=None):
+            cleanup(state, root)
+            data = state.to_dict()
+            data["step_records"] = [StepRecord(step_id="forged", status=StepStatus.FAILED).to_dict()]
+            path = tmp_project / ".state" / (state.run_id + ".json")
+            path.write_text(json.dumps(data))
+            assert b"forged" in path.read_bytes()
+
+        monkeypatch.setattr(RunState, "cleanup", substitute)
+        assert self.module.run_plan("check", str(tmp_project)) == 0
+        document = json.loads(capsys.readouterr().out)
+        assert "forged" not in json.dumps(document)
+        assert document["resume_state_evidence"]["final_state"]["status"] == "present"
+
+    def test_resume_state_json_corrupt_explicit_input_is_safe_failure(self, tmp_project, capsys):
+        import json
+        directory = tmp_project / ".state"
+        directory.mkdir()
+        path = directory / "check-corrupt.json"
+        path.write_text("not JSON: private content")
+        assert not path.read_text().startswith("{")
+        assert self.module.resume_run("check-corrupt", str(tmp_project)) == 1
+        output = capsys.readouterr().out
+        document = json.loads(output)
+        assert document["success"] is False
+        assert document["resume_state_evidence"]["consumed"]["status"] == "unreadable"
+        assert "private content" not in output and str(tmp_project) not in output
+        assert "steps_total" not in document  # unknown population is not invented zero
+
+    @pytest.mark.parametrize("json_mode", [False, True])
+    def test_resume_state_save_error_identity_and_json_boundary(
+            self, tmp_project, monkeypatch, capsys, json_mode):
+        import json
+        error = OSError("private state failure")
+
+        def failed_write(*args, **kwargs):
+            raise error
+
+        monkeypatch.setattr(Path, "write_bytes", failed_write)
+        monkeypatch.setattr(Path, "write_text", failed_write)
+        if not json_mode:
+            with pytest.raises(OSError) as caught:
+                self.module.run_plan("check", str(tmp_project), json_output=False)
+            assert caught.value is error
+            assert capsys.readouterr().out == ""
+        else:
+            assert self.module.run_plan("check", str(tmp_project)) == 1
+            output = capsys.readouterr().out
+            data = json.loads(output)
+            assert data["success"] is False
+            assert data["resume_state_evidence"]["generated"]["status"] == "unreadable"
+            assert "private state failure" not in output and str(tmp_project) not in output
+
+    @pytest.mark.parametrize("error_type", [OSError, ValueError, TypeError])
+    def test_resume_state_same_class_untracked_step_error_is_not_swallowed(
+            self, tmp_project, monkeypatch, capsys, error_type):
+        error = error_type("unrelated step failure")
+
+        def explode(step, context):
+            raise error
+
+        monkeypatch.setattr(ShellStep, "execute", explode)
+        with pytest.raises(error_type) as caught:
+            self.module.run_plan("check", str(tmp_project))
+        assert caught.value is error
+        assert capsys.readouterr().out == ""
+
+    def test_resume_state_different_same_class_error_is_not_the_tracked_one(
+            self, tmp_project, monkeypatch, capsys):
+        active = []
+        original_run = DeterministicRunner.run
+        first, second = OSError("same private message"), OSError("same private message")
+        assert first is not second and type(first) is type(second) and first.args == second.args
+
+        def remember(runner, *args, **kwargs):
+            active.append(runner)
+            return original_run(runner, *args, **kwargs)
+
+        def execute(step, context):
+            state = active[-1]._last_state
+            assert state is not None
+            with monkeypatch.context() as fault:
+                def fail_write(*args, **kwargs):
+                    raise first
+                fault.setattr(Path, "write_bytes", fail_write)
+                with pytest.raises(OSError) as caught:
+                    state.save(tmp_project)
+                assert caught.value is first and active[-1]._resume_evidence.error is first
+            raise second
+
+        monkeypatch.setattr(DeterministicRunner, "run", remember)
+        monkeypatch.setattr(ShellStep, "execute", execute)
+        with pytest.raises(OSError) as caught:
+            self.module.run_plan("check", str(tmp_project))
+        assert caught.value is second
+        assert capsys.readouterr().out == ""
+
+    def test_resume_state_cleanup_failure_is_not_an_inherited_success(
+            self, tmp_project, monkeypatch, capsys):
+        import json
+        self.fail_second = False
+        unlink = Path.unlink
+        error = OSError("private cleanup error")
+
+        def refuse(path, *args, **kwargs):
+            if path.parent.name == ".state":
+                raise error
+            return unlink(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "unlink", refuse)
+        assert self.module.run_plan("check", str(tmp_project)) == 1
+        raw = capsys.readouterr().out
+        data = json.loads(raw)
+        assert data["success"] is False and data["state_operation"] == "cleanup"
+        assert data["resume_state_evidence"]["final_state"]["status"] == "unreadable"
+        assert all(row["status"] == "success" for row in data["step_details"])
+        assert "private cleanup" not in raw
+
+    @pytest.mark.parametrize("diagnostic", ["unserializable", "broken-summary", "unsafe-row", "oversize"])
+    def test_resume_state_serialization_failure_keeps_minimal_json_safe(
+            self, tmp_project, monkeypatch, capsys, diagnostic):
+        import json
+        save = RunState.save
+
+        def corrupt_stage(state, *args, **kwargs):
+            state.step_records[0].tests = {"private-value": object()}
+            if diagnostic == "unsafe-row":
+                state.step_records[0].step_id = "unsafe/diagnostic"
+            if diagnostic == "oversize":
+                state.step_records.extend(StepRecord(step_id="extra-" + str(i)) for i in range(300))
+                assert len(state.step_records) > 256
+            with pytest.raises(TypeError):
+                json.dumps(state.to_dict())  # planted unserializable state is real
+            return save(state, *args, **kwargs)
+
+        monkeypatch.setattr(RunState, "save", corrupt_stage)
+        if diagnostic == "broken-summary":
+            def broken(*args, **kwargs):
+                raise RuntimeError("private diagnostic error")
+            monkeypatch.setattr(RunState, "summary", broken)
+        assert self.module.run_plan("check", str(tmp_project)) == 1
+        raw = capsys.readouterr().out
+        data = json.loads(raw)
+        assert data["success"] is False and data["error"] == "runner-state-unavailable"
+        assert data["resume_state_evidence"]["generated"]["reason"] == "serialization-failed"
+        if diagnostic == "unserializable":
+            assert data["step_details"]
+            assert all(set(row) <= {"id", "status", "executed_in_this_run", "carried_from_previous_run"}
+                       for row in data["step_details"])
+        else:
+            assert "step_details" not in data  # unavailable is not an empty/partial population
+        assert "private-value" not in raw and "private diagnostic error" not in raw
+        assert "unsafe/diagnostic" not in raw and str(tmp_project) not in raw

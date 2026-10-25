@@ -317,3 +317,57 @@ remain preserved for the fresh CC delivery rather than attributed retroactively.
 Count correction: the explicitly executed remaining prerequisite list contains34
 targets, not35. The count above was a reporting error; the retained command list
 and EXIT0 result are unchanged, and no target was omitted or rerun.
+
+<!-- flow-run n=2 id=886d477a500142cca5eafc7d198fa6e3 -->
+## Run 2
+
+- Run-id:            886d477a500142cca5eafc7d198fa6e3
+- Run-start:         85dc3366816eca0189723188b804dcc150c8d744
+
+- Issue:             #1555
+- Base SHA:          2cacaf7a9989891c1abe5cc918ae82285a7110d2
+- Necessity verdict: Still needed
+- Approval:          granted
+- Approver:          wave orchestrator, gate-1555-fresh-delivery.md, exact fresh run/base
+- Recorded at:       2026-10-25T01:20:50.343861+00:00
+
+### Section B evidence
+
+Current main lacks the producer metadata; the exact archive blob contains it.
+Receipt prerequisite #1558 and retained D3 consumer #1556 are merged. Fresh
+creation base is 2cacaf7a9989891c1abe5cc918ae82285a7110d2; Run-start 85dc3366
+is only the two-history preservation commit, not the source base. New minted
+run 886d477a500142cca5eafc7d198fa6e3 follows actual standalone creation/empty
+initial probe. BB archive312565a4 and original authorship, two reviews, unsupported
+creation/writer refusal and failed full gate remain historical, not CC approval.
+No duplicate producer delivery is merged; #536B remains dependent and queued.
+
+### Section C - the approved plan
+
+1. `lib/cicd/state.py` - Exact archived producer collector: selected-byte input, complete-write output, safe final presence, bounds and transient-only evidence; ordinary state schema/choice unchanged. Frozen bytes: 37021; SHA256 `9d194dcb58129a70395c89d908f86da2c44ce392e0442c1663ad67a8afa55d81`; Git blob `ab1e7a9500bd3545b1e4a5d125bd5516eb402ddf`.
+2. `lib/cicd/runner.py` - Exact archived result/JSON implementation including d33d1bc7 explicit None-discard B110 correction; terminal memory facts, no-op distinction and original-exception identity retained. Frozen bytes: 105415; SHA256 `dfcc2459f611015d5ad2532837dc2c093b951feb2b189392d71bdaa3c07d632c`; Git blob `c4e405399f4c183e6be529e560c33b425e948f97`.
+3. `tests/test_runner_state.py` - Exact archived real load/save/logical-id/swap/failure/cleanup/bounds controls and precondition assertions. Frozen bytes: 31197; SHA256 `f70f72d59442170983f4ee05bed2905108188d640d3314d051021d05f4ad11a2`; Git blob `1ed43e2a709af5bb3c1d9c4b6455e444b12d4169`.
+4. `tests/test_runner.py` - Exact archived normal/resume/no-op/state-error/diagnostic-safety and unrelated-exception controls. Frozen bytes: 238164; SHA256 `9c808e82732122ba5c70693e542640eddf1a465486eaaee84ce56e6264d61d41`; Git blob `cf7872c9f2bb0dff8019cc53d58dbec2a6b81a0d`.
+5. `tests/fixtures/cicd-resume-state/cases.json` - Exact archived normative producer and consuming-boundary wire/stream cases; no claim that CPP implements the future consumer validator. Frozen bytes: 10700; SHA256 `905e044f583e89e35186f0077445df002b3216a609b38405133c71df91b127d8`; Git blob `5bf77cb0da53c8ac65396e411740bc67eeaf8ff4`.
+6. `docs/cicd-resume-state-protocol.md` - Exact archived v1 contract, safe bounds, privacy, state-error diagnostics and explicit consumer/trust limits. Frozen bytes: 7872; SHA256 `7662bb4ded0bae4839757af6c63c813b4747eaaa50bed2ac642d481f37b78a5b`; Git blob `fd075f11437e4a702929bb2e5da0e7b574d7539e`.
+7. `codex/skills/flow-check/lib/cicd/state.py` - Exact archived generated mirror, reproduced by normal make codex-skills and read in reciprocal review; no hand editing. Frozen bytes: 37021; SHA256 `9d194dcb58129a70395c89d908f86da2c44ce392e0442c1663ad67a8afa55d81`; Git blob `ab1e7a9500bd3545b1e4a5d125bd5516eb402ddf`.
+8. `CHANGELOG.md` - reapply only the reviewed #1555 Unreleased Added entry from /tmp/BB-1555-changelog-feature.patch; preserve every current-base entry. Do not use whole-file archive replacement, even though the current eight-path base comparison is unchanged.
+
+Automatic workflow paths: preserve the existing Run 1 section and append this
+new run to docs/flow-runs/issue-1555.md; current as-read may update normally while
+its original exact Git object remains in archive and preservation commit. One
+actual new counter-model receipt is a routine workflow output; add its exact
+emitted path to the registered lane immediately. No other source, allowlist,
+helper, receipt schema, installer, actor, runtime or consumer path is in scope.
+
+
+### Approved execution conditions
+
+GATE: GO-WITH-CONDITIONS #1555
+- Root approves CC concrete ELI5-CC-1555-fresh-Step3.md at fresh creation base 2cacaf7a9989891c1abe5cc918ae82285a7110d2 and new run 886d477a500142cca5eafc7d198fa6e3. Root independently verified clean status, current origin/main, history-only preservation commit 85dc3366816eca0189723188b804dcc150c8d744, exact equality of both imported history blobs to archive312565a4, and no intervening changes to the eight product paths from eac62c9c to 2cacaf7a.
+- Proceed with actual begin-run, append the concrete approved Section C and these conditions, normal approval/stamp, then materialize the seven exact frozen blobs from the preserved archive and only the bounded CHANGELOG feature hunk. Verify sizes, hashes and modes; normal mirror generation may touch only the granted state mirror. Preserve upstream entries and all original BB authorship, approved history, failed full verification and receipt refusal. No product or helper expansion.
+- Root explicitly requests ONE new independent review of the actual CC delivery head and generated output. Reason: this is a genuine fresh delivery requiring its own verifiable whole-thread provenance after the original aggregate creation command could not be attributed safely. This is the THIRD review across issue1555: two historical BB reviews plus one CC review. No fourth review without a new explicit root ruling. New receipt must record only the actual one CC pass/head/counts/stream; history and PR separately state all three. Default actual whole-thread identity only; no scoped-run fallback, transcript filtering or fabricated model claim. Do not pass extra-pass-reason with passes1.
+- Focused producer/integration checks, normal generation/parity/light gates and actual new receipt audit/enrollment are required. Use explicit current FLOW_GATE_CPP_DIR for receipt-related gates. Register the emitted receipt path immediately. Stop for unexpected review issue, changed archive/base, extra generated path, hash or identity ambiguity.
+- Preserve original make verify EXIT2 with 8263 passed, one failed, one skip. Equivalent None-discard B110 repair plus five affected checks, lint/type and 34 remaining prerequisites are staged local verification, never aggregate PASS. Do not repeat the local 8k suite solely for equivalent correction, metadata or disjoint1556 integration. New semantic/integration concerns justify new checks. Full required remote CI and all required gates must pass on final combined head; root lineage/source review and exact-head current-base clearance precede merge. No bypass.
+- Preserve BB archive claim/history/worktree and frozen557/private evidence. No live trials, API judge experiments, host installation, runtime build, receipt parser relaxation or consumer edits. Skillc536B remains queued for both1555 and562 merges plus final closure reconciliation and its own fresh root gate.
+

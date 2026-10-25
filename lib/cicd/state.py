@@ -3,14 +3,18 @@
 Persists step execution state to JSON files (see `runner_state_dir()`: inside
 the target repository's git directory since issue #1409, `.claude/runs/`
 when git is unavailable) so that failed runs can be resumed from the last
-successful step.
+successful step. Exact-buffer producer metadata is documented in
+``docs/cicd-resume-state-protocol.md``; it is not a cache-admission certificate.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import shutil
+import stat
 import subprocess
 import tempfile
 import time
@@ -271,6 +275,116 @@ def _duration_seconds(started: Optional[str], finished: Optional[str]) -> Option
     return round((ended - began).total_seconds(), 2)
 
 
+RESUME_STATE_MAX_BYTES = 64 * 1024 * 1024
+_RESUME_PLAN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
+_RESUME_FILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
+_STATE_ERRORS = (OSError, UnicodeError, ValueError, KeyError, TypeError)
+
+
+def _no_identity(status: str, reason: str) -> dict[str, Any]:
+    return {"status": status, "file": None, "sha256": None, "bytes": None, "reason": reason}
+
+
+class ResumeStateEvidence:
+    """One invocation's exact I/O facts, never persisted state or writer authentication.
+
+    The private exception reference identifies an ORIGINAL state-operation error
+    at the JSON CLI boundary. It is never serialized or used for same-class
+    exception matching. Actual stream validation belongs to the consumer.
+    """
+
+    def __init__(self, plan: Optional[str] = None):
+        self.plan = plan
+        self.consumed = _no_identity("unreadable", "not-observed")
+        self.generated = _no_identity("none", "no-save")
+        self.final_state: dict[str, Any] = {"status": "unreadable", "reason": "not-observed"}
+        self.target: Optional[Path] = None
+        self.logical_id: Any = None
+        self.error: Optional[Exception] = None
+        self.error_operation: Optional[str] = None
+        self._cleanup_failed = False
+        self._logical_unreadable = False
+
+    def no_selected_input(self) -> None:
+        self.consumed = _no_identity("none", "no-selected-state")
+        self.target = None
+        self.logical_id = None
+        self._logical_unreadable = False
+        self.final_state = {"status": "unreadable", "reason": "not-observed"}
+
+    def clear_error(self) -> None:
+        self.error = None
+        self.error_operation = None
+
+    @staticmethod
+    def logical_leaf(logical_id: Any, path: Path) -> bool:
+        # Validate the ORIGINAL id, not its basename. A normal filesystem path
+        # may be absolute, but a run id may not redirect outside its state dir.
+        return (isinstance(logical_id, str)
+                and _RESUME_FILE.fullmatch(logical_id + ".json") is not None
+                and logical_id + ".json" == path.name)
+
+    def identity(self, status: str, path: Path, raw: bytes,
+                 logical_id: Any = None) -> dict[str, Any]:
+        if not self.logical_leaf(logical_id, path):
+            return _no_identity("unreadable", "unsafe-logical-id")
+        if len(raw) > RESUME_STATE_MAX_BYTES:
+            return _no_identity("unreadable", "size-limit")
+        return {"status": status, "file": path.name,
+                "sha256": "sha256:" + hashlib.sha256(raw).hexdigest(),
+                "bytes": len(raw), "reason": None}
+
+    def selected(self, state: RunState, path: Path, raw: bytes, logical_id: Any) -> None:
+        self.plan = state.plan_name
+        self.target = path
+        self.logical_id = state.run_id
+        self.consumed = self.identity("loaded", path, raw, logical_id)
+        if (not self.logical_leaf(logical_id, path)
+                or not self.logical_leaf(state.run_id, path)):
+            self._logical_unreadable = True
+            self.consumed = _no_identity("unreadable", "unsafe-logical-id")
+        state._resume_evidence = self
+        self.observe_remaining()
+
+    def failed(self, error: Exception, operation: str, reason: str, slot: str) -> None:
+        self.error = error
+        self.error_operation = operation
+        if slot == "consumed":
+            self.consumed = _no_identity("unreadable", reason)
+        elif slot == "generated":
+            self.generated = _no_identity("unreadable", reason)
+        else:
+            self._cleanup_failed = True
+            self.final_state = {"status": "unreadable", "reason": reason}
+
+    def observe_remaining(self) -> None:
+        if self._cleanup_failed or self.target is None:
+            return
+        try:
+            info = self.target.lstat()
+        except FileNotFoundError:
+            self.final_state = {"status": "absent", "reason": None}
+        except (OSError, ValueError):
+            self.final_state = {"status": "unreadable", "reason": "presence-unreadable"}
+        else:
+            self.final_state = ({"status": "present", "reason": None} if stat.S_ISREG(info.st_mode)
+                                else {"status": "unreadable", "reason": "presence-unreadable"})
+
+    def snapshot(self) -> dict[str, Any]:
+        self.observe_remaining()
+        plan = self.plan if isinstance(self.plan, str) and _RESUME_PLAN.fullmatch(self.plan) else None
+        consumed, generated, final = dict(self.consumed), dict(self.generated), dict(self.final_state)
+        if (self._logical_unreadable or (self.target is not None
+                and not self.logical_leaf(self.logical_id, self.target))):
+            final = {"status": "unreadable", "reason": "unsafe-logical-id"}
+        if self.plan is not None and plan is None:
+            consumed = _no_identity("unreadable", "unsafe-logical-id")
+            generated = _no_identity("unreadable", "unsafe-logical-id")
+            final = {"status": "unreadable", "reason": "unsafe-logical-id"}
+        return {"version": 1, "family": "cpp-run-state", "plan": plan,
+                "consumed": consumed, "generated": generated, "final_state": final}
+
+
 @dataclass
 class RunState:
     """Persistent state for a runner execution.
@@ -297,18 +411,27 @@ class RunState:
     # (no git, not a repo); either way the caller must treat it as
     # unverifiable and fall back to the pre-#804 unconditional resume.
     tree_signature: Optional[str] = None
+    _resume_evidence: Optional[ResumeStateEvidence] = field(default=None, init=False, repr=False, compare=False)
 
     @classmethod
-    def create(cls, plan_name: str, step_ids: list[str]) -> RunState:
+    def create(cls, plan_name: str, step_ids: list[str], *,
+               evidence: Optional[ResumeStateEvidence] = None) -> RunState:
         """Create a new run state with pending steps."""
         run_id = f"{plan_name}-{uuid.uuid4().hex[:8]}"
         records = [StepRecord(step_id=sid) for sid in step_ids]
-        return cls(
-            run_id=run_id,
-            plan_name=plan_name,
-            step_records=records,
-            started_at=_now(),
-        )
+        state = cls(run_id=run_id, plan_name=plan_name, step_records=records, started_at=_now())
+        state._resume_evidence = evidence or ResumeStateEvidence(plan_name)
+        if evidence is None:
+            state._resume_evidence.no_selected_input()
+        return state
+
+    def _resume_tracker(self) -> ResumeStateEvidence:
+        if self._resume_evidence is None:
+            self._resume_evidence = ResumeStateEvidence(self.plan_name)
+        return self._resume_evidence
+
+    def resume_state_evidence(self) -> dict[str, Any]:
+        return self._resume_tracker().snapshot()
 
     @property
     def state_dir(self) -> Path:
@@ -319,20 +442,54 @@ class RunState:
         return self.state_dir / f"{self.run_id}.json"
 
     def save(self, project_root: Optional[Path] = None) -> Path:
-        """Persist state to JSON file."""
-        root = project_root or Path(".")
-        state_dir = runner_state_dir(root)
-        state_dir.mkdir(parents=True, exist_ok=True)
-        state_file = state_dir / f"{self.run_id}.json"
-        state_file.write_text(json.dumps(self.to_dict(), indent=2))
+        """Persist the exact serialized byte buffer; a partial write is an error."""
+        evidence = self._resume_tracker()
+        evidence.plan = self.plan_name
+        evidence.logical_id = self.run_id
+        evidence.clear_error()
+        evidence._cleanup_failed = False
+        evidence.target = None
+        evidence.final_state = {"status": "unreadable", "reason": "not-observed"}
+        evidence.generated = _no_identity("unreadable", "write-failed")
+        reason = "write-failed"
+        try:
+            root = project_root or Path(".")
+            state_dir = runner_state_dir(root)
+            state_file = state_dir / f"{self.run_id}.json"
+            evidence.target = state_file
+            if not evidence.logical_leaf(self.run_id, state_file):
+                evidence._logical_unreadable = True
+            state_dir.mkdir(parents=True, exist_ok=True)
+            reason = "serialization-failed"
+            raw = json.dumps(self.to_dict(), indent=2).encode("utf-8")
+            reason = "write-failed"
+            written = state_file.write_bytes(raw)
+            if written != len(raw):
+                reason = "short-write"
+                raise OSError("incomplete resume state write")
+        except _STATE_ERRORS as error:
+            evidence.failed(error, "save", reason, "generated")
+            raise
+        evidence.generated = evidence.identity("written", state_file, raw, self.run_id)
+        evidence.observe_remaining()
         return state_file
 
     def cleanup(self, project_root: Optional[Path] = None) -> None:
-        """Remove state file on successful completion."""
-        root = project_root or Path(".")
-        state_file = runner_state_dir(root) / f"{self.run_id}.json"
-        if state_file.exists():
-            state_file.unlink()
+        """Remove successful state without claiming a surviving cache."""
+        evidence = self._resume_tracker()
+        evidence.logical_id = self.run_id
+        evidence.clear_error()
+        try:
+            root = project_root or Path(".")
+            state_file = runner_state_dir(root) / f"{self.run_id}.json"
+            evidence.target = state_file
+            if state_file.exists():
+                state_file.unlink()
+        except _STATE_ERRORS as error:
+            evidence.failed(error, "cleanup", "cleanup-failed", "final")
+            raise
+        evidence._cleanup_failed = False
+        evidence.observe_remaining()
 
     def discard(self, project_root: Optional[Path] = None) -> None:
         """Remove state file because it was invalidated, not because it succeeded.
@@ -488,30 +645,66 @@ class RunState:
         return cls(step_records=records, **data)
 
     @classmethod
-    def load(cls, run_id: str, project_root: Optional[Path] = None) -> RunState:
-        """Load state from a JSON file."""
-        root = project_root or Path(".")
-        state_file = runner_state_dir(root) / f"{run_id}.json"
-        if not state_file.exists():
-            raise FileNotFoundError(f"No run state found: {state_file}")
-        data = json.loads(state_file.read_text())
-        return cls.from_dict(data)
+    def load(cls, run_id: str, project_root: Optional[Path] = None, *,
+             evidence: Optional[ResumeStateEvidence] = None) -> RunState:
+        """Parse the exact buffer whose identity is retained; preserve original errors."""
+        observed = evidence or ResumeStateEvidence()
+        observed.logical_id = run_id
+        observed.clear_error()
+        reason = "input-unreadable"
+        try:
+            root = project_root or Path(".")
+            state_file = runner_state_dir(root) / f"{run_id}.json"
+            observed.target = state_file
+            if not observed.logical_leaf(run_id, state_file):
+                observed._logical_unreadable = True
+            if not state_file.exists():
+                raise FileNotFoundError(f"No run state found: {state_file}")
+            raw = state_file.read_bytes()
+            reason = "parse-failed"
+            state = cls.from_dict(json.loads(raw.decode("utf-8")))
+        except _STATE_ERRORS as error:
+            observed.failed(error, "load", reason, "consumed")
+            raise
+        observed.selected(state, state_file, raw, run_id)
+        return state
 
     @classmethod
-    def find_latest(cls, plan_name: str, project_root: Optional[Path] = None) -> Optional[RunState]:
-        """Find the most recent run state for a plan (if any failed runs exist)."""
-        root = project_root or Path(".")
-        state_dir = runner_state_dir(root)
-        if not state_dir.exists():
-            return None
-        candidates = sorted(state_dir.glob(f"{plan_name}-*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    def find_latest(cls, plan_name: str, project_root: Optional[Path] = None, *,
+                    evidence: Optional[ResumeStateEvidence] = None) -> Optional[RunState]:
+        """Select the same failed candidate as before, retaining its actual buffer."""
+        observed = evidence or ResumeStateEvidence(plan_name)
+        observed.plan = plan_name
+        observed.clear_error()
+        observed.no_selected_input()
+        try:
+            root = project_root or Path(".")
+            state_dir = runner_state_dir(root)
+            if not state_dir.exists():
+                return None
+            candidates = sorted(state_dir.glob(f"{plan_name}-*.json"),
+                                key=lambda path: path.stat().st_mtime, reverse=True)
+        except _STATE_ERRORS as error:
+            observed.failed(error, "select", "selection-unreadable", "consumed")
+            raise
+        unreadable = False
         for path in candidates:
             try:
-                state = cls.from_dict(json.loads(path.read_text()))
-                if state.status == "failed":
-                    return state
+                raw = path.read_bytes()
+                state = cls.from_dict(json.loads(raw.decode("utf-8")))
             except (json.JSONDecodeError, KeyError, TypeError):
+                # Preserve the existing skip decision, but not a false clean scan.
+                unreadable = True
                 continue
+            except _STATE_ERRORS as error:
+                observed.target = path
+                observed.failed(error, "select", "input-unreadable", "consumed")
+                raise
+            if state.status == "failed":
+                observed.selected(state, path, raw, path.stem)
+                return state
+        if unreadable:
+            observed.consumed = _no_identity("unreadable", "selection-unreadable")
         return None
 
     def summary(
