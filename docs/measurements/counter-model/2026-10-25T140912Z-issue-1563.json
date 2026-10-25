@@ -1,0 +1,31 @@
+{
+  "branch": "fix/1563-claim-session-mismatch",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "d4163f45a7ffe4f173b49d3d7ff43e26fdde01d2",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/25/rollout-2026-10-25T13-10-02-01a1732e-b0d6-79d0-bd6e-9b3f3d1adabf.jsonl",
+    "thread_id": "01a1732e-b0d6-79d0-bd6e-9b3f3d1adabf"
+  },
+  "issue": "1563",
+  "local_credentials": "absent",
+  "network": "unverified",
+  "passes": 1,
+  "recorded_at": "2026-10-25T14:09:12Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 3
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/25/rollout-2026-10-25T14-08-23-01a17364-1ef6-74e3-a331-6c1efbcf4456.jsonl",
+    "thread_id": "01a17364-1ef6-74e3-a331-6c1efbcf4456"
+  },
+  "schema": 1,
+  "scope": "diff-only",
+  "status": "ran"
+}
