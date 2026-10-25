@@ -1,0 +1,31 @@
+{
+  "branch": "fix/1564-unknown-wave-liveness",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "a4084ab09eaad5868f8182c394732386105b5760",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/25/rollout-2026-10-25T18-17-27-01a17448-244c-7603-bd11-27122510f7ba.jsonl",
+    "thread_id": "01a17448-244c-7603-bd11-27122510f7ba"
+  },
+  "issue": "1564",
+  "local_credentials": "absent",
+  "network": "unverified",
+  "passes": 1,
+  "recorded_at": "2026-10-25T18:30:13Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 3
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/25/rollout-2026-10-25T18-29-38-01a17453-4ace-7432-a7a2-9c3ba6847ffa.jsonl",
+    "thread_id": "01a17453-4ace-7432-a7a2-9c3ba6847ffa"
+  },
+  "schema": 1,
+  "scope": "unverified",
+  "status": "ran"
+}

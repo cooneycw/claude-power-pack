@@ -3849,10 +3849,11 @@ case "$VERB" in
     # discipline #1026's `claimed=unknown` vs `claimed=0` review applied to
     # the reconciler.
     #
-    # `undeterminable` (never a shutdown signal) covers a registry file that
-    # is readable but not valid JSON, so a corrupt file cannot be
-    # misread as "genuinely empty" and drive a live wave's daemon to
-    # self-terminate - only a version of "zero roles" that jq itself
+    # `undeterminable` (never a shutdown signal) also covers an unknown
+    # owner when none is proven live (#1564): unobservable is not ended.
+    # It also covers a readable registry file that is not valid JSON, so a
+    # corrupt file cannot be misread as "genuinely empty" and drive a live
+    # wave's daemon to self-terminate - only a version of "zero roles" that jq itself
     # affirmatively computed counts as `no-roles-registered`.
     #
     # "jq exited 0" is not "jq read an object" (counter-model review, #1107).
@@ -3876,13 +3877,21 @@ case "$VERB" in
         echo "FLOW_WAVE_ANY_LIVE=undeterminable"
         exit 2
       fi
+      ANY_UNKNOWN=0
       for r in $ROLES; do
         e="$(printf '%s' "$REG" | jq -c --arg w "$WAVE" --arg r "$r" '.[$w].roles[$r]')"
-        if [ "$(liveness_of "$e")" = "live" ]; then
-          echo "FLOW_WAVE_ANY_LIVE=yes"
-          exit 0
-        fi
+        case "$(liveness_of "$e")" in
+          live)
+            echo "FLOW_WAVE_ANY_LIVE=yes"
+            exit 0 ;;
+          unknown) ANY_UNKNOWN=1 ;;
+        esac
       done
+      # Keep looking after an unknown: a later live role still proves yes.
+      if [ "$ANY_UNKNOWN" -eq 1 ]; then
+        echo "FLOW_WAVE_ANY_LIVE=undeterminable"
+        exit 2
+      fi
       if [ -z "$ROLES" ]; then
         echo "FLOW_WAVE_ANY_LIVE=no-roles-registered"
       else

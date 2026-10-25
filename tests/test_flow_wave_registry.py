@@ -1024,6 +1024,27 @@ class TestAnyLive:
         assert p.returncode == 0
         assert _detail(p, "FLOW_WAVE_ANY_LIVE") == "yes"
 
+    @pytest.mark.parametrize("other_live", [False, True])
+    @pytest.mark.parametrize("unknown_role", ["a", "z"])
+    def test_unknown_owner_is_not_proven_ended(
+        self, tmp_path: Path, other_live: bool, unknown_role: str
+    ) -> None:
+        # Both iteration orders matter: unknown must not hide a later live role.
+        other_role = "z" if unknown_role == "a" else "a"
+        for role, pid in ((unknown_role, "4242"), (other_role, "4343")):
+            registered = _run(tmp_path, "register", role, pid=pid, live="4242:4343")
+            assert registered.returncode == 0, registered.stderr
+        live = "4343" if other_live else "none"
+        owner = _run(tmp_path, "get", unknown_role, live=live, unknown="4242")
+        assert _detail(owner, "FLOW_WAVE_LIVENESS") == "unknown"
+        other = _run(tmp_path, "get", other_role, live=live, unknown="4242")
+        assert _detail(other, "FLOW_WAVE_LIVENESS") == ("live" if other_live else "stale")
+        result = _run(tmp_path, "list", "--any-live", live=live, unknown="4242")
+        assert _detail(result, "FLOW_WAVE_ANY_LIVE") == (
+            "yes" if other_live else "undeterminable"
+        ), result.stdout
+        assert result.returncode == (0 if other_live else 2)
+
     def test_every_registered_role_ended_reads_no_roles_ended(self, tmp_path: Path) -> None:
         _run(tmp_path, "register", "1", "--socket", "uds:/tmp/a.sock", pid="1", live="1")
         p = _run(tmp_path, "list", "--any-live", live="none")
