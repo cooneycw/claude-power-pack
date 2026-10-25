@@ -577,7 +577,7 @@ def test_ordinal_or_unknown_completed_step_name_is_refused(tmp_path: Path) -> No
         project_init.apply(init_plan, checkpoint_path, RecordingExecutor(), resume=True)
 
 
-def _generated_project_env(inherited: dict[str, str]) -> dict[str, str]:
+def _generated_project_env(inherited: dict[str, str], tools_dir: Path) -> dict[str, str]:
     """Remove inherited venv tools while keeping ambient tools observable."""
     clean_env = dict(inherited)
     clean_env.pop("VIRTUAL_ENV", None)
@@ -594,6 +594,15 @@ def _generated_project_env(inherited: dict[str, str]) -> dict[str, str]:
             continue
         path_parts.append(part)
     clean_env["PATH"] = os.pathsep.join(path_parts)
+    # A required runner may itself be installed in a removed venv. Expose
+    # only that executable through a fresh fixture directory, not its peers.
+    for tool in ("uv", "make", "git"):
+        original = shutil.which(tool, path=inherited.get("PATH"))
+        if original and shutil.which(tool, path=clean_env["PATH"]) is None:
+            tools_dir.mkdir(exist_ok=True)
+            (tools_dir / tool).symlink_to(Path(original).resolve())
+    if tools_dir.is_dir():
+        clean_env["PATH"] = os.pathsep.join((str(tools_dir), clean_env["PATH"]))
     for tool in ("ruff", "pytest", "mypy"):
         assert shutil.which(tool, path=clean_env["PATH"]) is None, (
             f"negative fixture precondition: {tool!r} must not be reachable via "
@@ -628,13 +637,31 @@ def test_generated_project_env_removes_nested_venvs_and_bin_alias(tmp_path: Path
         "PATH": os.pathsep.join(map(str, (owned / "bin", shared / "bin", alias, system_bin))),
     }
     assert shutil.which("ruff", path=inherited["PATH"]) == str(owned / "bin" / "ruff")
-    clean_env = _generated_project_env(inherited)
+    clean_env = _generated_project_env(inherited, tmp_path / "required-tools")
     assert "VIRTUAL_ENV" not in clean_env
     assert inherited["VIRTUAL_ENV"] == str(owned)
     assert clean_env["PATH"] == str(system_bin)
     assert all(shutil.which(tool, path=clean_env["PATH"]) is None for tool in ("ruff", "pytest", "mypy"))
     for tool in ("uv", "make", "git"):
         assert shutil.which(tool, path=clean_env["PATH"]) == str(system_bin / tool)
+
+
+def test_generated_project_env_preserves_uv_from_removed_venv(tmp_path: Path) -> None:
+    shared = tmp_path / "shared"
+    (shared / "bin").mkdir(parents=True)
+    (shared / "pyvenv.cfg").write_text("home = fixture\n", encoding="utf-8")
+    for tool in ("uv", "ruff"):
+        executable = shared / "bin" / tool
+        executable.write_text("fixture", encoding="utf-8")
+        executable.chmod(0o755)
+    inherited = {"PATH": str(shared / "bin")}
+    assert shutil.which("uv", path=inherited["PATH"]) == str(shared / "bin" / "uv")
+    assert shutil.which("ruff", path=inherited["PATH"]) == str(shared / "bin" / "ruff")
+    tools_dir = tmp_path / "required-tools"
+    clean_env = _generated_project_env(inherited, tools_dir)
+    assert shutil.which("uv", path=clean_env["PATH"]) == str(tools_dir / "uv")
+    assert (tools_dir / "uv").resolve() == shared / "bin" / "uv"
+    assert shutil.which("ruff", path=clean_env["PATH"]) is None
 
 
 @pytest.mark.parametrize("tool", ("ruff", "pytest", "mypy"))
@@ -647,7 +674,7 @@ def test_generated_project_env_rejects_ambient_tool(tmp_path: Path, tool: str) -
     inherited = {"PATH": str(ambient_bin)}
     assert shutil.which(tool, path=inherited["PATH"]) == str(executable)
     with pytest.raises(AssertionError, match="negative fixture precondition") as failure:
-        _generated_project_env(inherited)
+        _generated_project_env(inherited, tmp_path / "required-tools")
     assert str(executable) in str(failure.value)
     assert f"scrubbed PATH={str(ambient_bin)!r}" in str(failure.value)
 
@@ -682,7 +709,7 @@ def test_generated_python_project_really_builds_lints_tests_and_typechecks(
     (target_dir / "Makefile").write_text(makefile, encoding="utf-8")
     # The generated project must supply its own declared tools even when
     # a shared finish runner and this worktree both contribute venvs to PATH.
-    clean_env = _generated_project_env(dict(os.environ))
+    clean_env = _generated_project_env(dict(os.environ), tmp_path / "required-tools")
     result = subprocess.run(
         ["make", "lint", "test", "typecheck"],
         cwd=target_dir,
