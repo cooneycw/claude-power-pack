@@ -313,13 +313,15 @@ classify() {
   fi
   # A known different session cannot be ours, even when one Codex app-server
   # hosts both sessions under the same pid/start witness (#1563). PID fallback
-  # is only for absent session identity (including the writer's '-' sentinel).
+  # is only for absent OWNER identity (including the writer's '-' sentinel).
+  # A caller with no session id cannot adopt a known owner's claim: the writer
+  # records that same caller env var, so missing caller identity is not proof
+  # of ownership. Such a claim must go through the normal liveness check.
   # It must also reject a recycled pid: the witness has to agree before a bare
   # pid match may claim ownership. Left unguarded this was worse, because
   # `self` ALSO makes worktree-remove.sh skip its independent occupancy check -
   # so a false `self` removes a guard rather than merely misreporting a state.
-  if { [ -z "$SELF_SESSION" ] || [ "$SELF_SESSION" = - ] ||
-       [ -z "$O_SESSION" ] || [ "$O_SESSION" = - ]; } &&
+  if { [ -z "$O_SESSION" ] || [ "$O_SESSION" = - ]; } &&
      [ "$O_HOST" = "$SELF_HOST" ] && [ "$O_PID" = "$SELF_PID" ]; then
     if [ "$(witness_state "$O_PID" "$O_START")" != mismatched ]; then
       STATE=self; return 0

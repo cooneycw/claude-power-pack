@@ -604,8 +604,9 @@ def test_our_own_live_claim_is_still_self(tmp_path: Path, repo: tuple[Path, Path
 
 @requires_git
 @pytest.mark.parametrize("action", ["check", "release", "remove"])
+@pytest.mark.parametrize("caller_session", [SELF_SESSION, "", "-"])
 def test_shared_pid_different_session_keeps_claim(
-    tmp_path: Path, repo: tuple[Path, Path], action: str,
+    tmp_path: Path, repo: tuple[Path, Path], action: str, caller_session: str,
 ) -> None:
     """A Codex app-server's process witness cannot identify its owning thread."""
     main, wt = repo
@@ -614,13 +615,13 @@ def test_shared_pid_different_session_keeps_claim(
     # Pin the discriminating input: identical process, positively different session.
     reason = _git(main, "worktree", "list", "--porcelain").stdout
     assert f"session={OTHER_SESSION}" in reason
-    assert OTHER_SESSION != SELF_SESSION
+    assert OTHER_SESSION != caller_session
     assert f"pid={SELF_PID}" in reason and f"start={MATCHING_START}" in reason
 
     args = (str(wt), "--force") if action == "remove" else (action, str(wt))
     result = _run(
         REMOVE if action == "remove" else CLAIM, *args,
-        live=SELF_PID, proc_root=proc,
+        session=caller_session, live=SELF_PID, proc_root=proc,
     )
     if action == "remove":
         assert result.returncode == 4, result.stdout + result.stderr
@@ -633,17 +634,23 @@ def test_shared_pid_different_session_keeps_claim(
     assert f"session={OTHER_SESSION}" in _git(main, "worktree", "list", "--porcelain").stdout
 
     if action == "release":
-        overridden = _run(CLAIM, "release", str(wt), "--force", live=SELF_PID, proc_root=proc)
+        overridden = _run(
+            CLAIM, "release", str(wt), "--force",
+            session=caller_session, live=SELF_PID, proc_root=proc,
+        )
         assert _verdict(overridden) == "free", overridden.stdout
     elif action == "remove":
-        overridden = _run(REMOVE, str(wt), "--steal", "--force", live=SELF_PID, proc_root=proc)
+        overridden = _run(
+            REMOVE, str(wt), "--steal", "--force",
+            session=caller_session, live=SELF_PID, proc_root=proc,
+        )
         assert overridden.returncode == 0, overridden.stdout + overridden.stderr
         assert not wt.exists()
 
 
 @requires_git
 @pytest.mark.parametrize("owner_session,caller_session", [
-    ("", SELF_SESSION), ("-", SELF_SESSION), (OTHER_SESSION, ""), (OTHER_SESSION, "-"),
+    ("", SELF_SESSION), ("-", SELF_SESSION), ("", ""), ("-", ""),
 ])
 def test_shared_pid_without_session_identity_remains_self(
     tmp_path: Path, repo: tuple[Path, Path], owner_session: str, caller_session: str,
