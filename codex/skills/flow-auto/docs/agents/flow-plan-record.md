@@ -66,15 +66,29 @@ record were MERGED by `compliance` into one planned set, and that appending the
 second plan tripped the first run's stability check.
 
 **A run is one driving session in one worktree.** `reconcile` writes
-`flow-plan-run-<N>` into the PER-WORKTREE git dir (`run_id`, `session`,
-`minted_at`) and prints `FLOW_PLAN_RUN: minted <id>` or `kept (same session)`:
+`flow-plan-run-<N>` into the PER-WORKTREE git dir and prints
+`FLOW_PLAN_RUN: minted <id>` or `kept (same session)`:
 
 - the same `CLAUDE_CODE_SESSION_ID` keeps the id: a resume, a compaction, a
   kyle respawn via `claude --resume` (which preserves the session id). An
-  approved run is not re-gated;
+  approved run is not re-gated. Its file retains the original `run_id`,
+  `session`, `minted_at` format byte for byte. A non-empty Claude session takes
+  precedence even when `CODEX_THREAD_ID` is also set;
+- otherwise a non-empty `CODEX_THREAD_ID` identifies a native Codex session
+  (#1567). Its file contains `run_id`, `harness=codex`, `codex_thread`, and
+  `minted_at`, with no Claude `session` field. The same thread keeps the run
+  across `reconcile`, `begin-run`, and subsequent reconciles;
 - a different session mints a new id, and that run needs its own approval;
-- an UNSET or EMPTY session ALWAYS mints: an unknown identity never inherits
-  an approval.
+- equal id strings from different harnesses never continue one another's runs.
+  A file with no harness marker is a legacy Claude file. There is no PID
+  fallback: one Codex app-server process can host many threads;
+- when both identity variables are unset or empty, every reconcile mints and
+  prints `FLOW_PLAN_RUN_REASON: no session identity`: an unknown identity never
+  inherits an approval.
+
+`step3-record-guard.sh` reads only `run_id` from this file; it does not interpret
+either harness's session fields. Its approval selection therefore stays keyed
+to this worktree's run id with both formats.
 
 **The record and the snapshot are append-only.** Each run's part begins with a
 marker line, `<!-- flow-run n=<n> id=<id> -->`, followed by `## Run <n>`.

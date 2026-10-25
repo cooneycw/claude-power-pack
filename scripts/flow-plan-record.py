@@ -252,29 +252,49 @@ def section_digest(section: str) -> str:
     return hashlib.sha256(section.rstrip("\n").encode("utf-8")).hexdigest()
 
 
+def run_identity() -> tuple[str, str]:
+    """Claude takes precedence; native Codex uses its own thread namespace."""
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    if session:
+        return "claude", session
+    thread = os.environ.get("CODEX_THREAD_ID", "")
+    return ("codex", thread) if thread else ("", "")
+
+
+def same_run_owner(state: dict[str, str] | None) -> bool:
+    harness, identity = run_identity()
+    if not identity or not state:
+        return False
+    # Legacy files belong to Claude. Equal strings across harnesses are never
+    # the same owner, and a shared app-server PID says nothing about a thread.
+    stored_harness = state.get("harness", "claude")
+    if stored_harness != harness:
+        return False
+    field = "codex_thread" if stored_harness == "codex" else "session"
+    return state.get(field, "") == identity
+
+
 def continuing_run(issue: str) -> bool:
     """True when THIS session already owns this worktree's run (a resume)."""
-    session = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
-    state = read_run_state(issue)
-    return bool(session and state and state.get("session", "") == session)
+    return same_run_owner(read_run_state(issue))
 
 
 def ensure_run(issue: str) -> tuple[str, bool]:
     """Keep this worktree's run id for the SAME session, or mint a new one.
 
-    Keyed on CLAUDE_CODE_SESSION_ID (orchestrator ruling, #1320): a resume or a
-    compaction - including a kyle respawn via `claude --resume`, which preserves
-    the session id - keeps the run and is not re-gated. A different session is a
-    different run and needs its own approval. An UNSET or EMPTY session always
-    mints: an unknown identity must never inherit an approval.
+    Claude uses CLAUDE_CODE_SESSION_ID, native Codex uses CODEX_THREAD_ID
+    (#1567). A resume or compaction keeps the same harness/session's run;
+    another owner needs its own approval. Absent identity always mints.
     """
-    session = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    harness, identity = run_identity()
     state = read_run_state(issue)
-    if session and state and state.get("session", "") == session:
+    if state and same_run_owner(state):
         return state["run_id"], False
     run_id = uuid.uuid4().hex
+    owner = (f"harness=codex\ncodex_thread={identity}\n" if harness == "codex"
+             else f"session={identity}\n")
     run_state_path(issue).write_text(
-        f"run_id={run_id}\nsession={session}\nminted_at={now()}\n")
+        f"run_id={run_id}\n{owner}minted_at={now()}\n")
     return run_id, True
 
 
@@ -337,6 +357,9 @@ def announce_run(issue: str) -> int:
     run_id, minted = ensure_run(issue)
     verb = "minted" if minted else "kept (same session)"
     print(f"FLOW_PLAN_RUN: {verb} {run_id}")
+    if not run_identity()[1]:
+        print("FLOW_PLAN_RUN_REASON: no session identity "
+              "(CLAUDE_CODE_SESSION_ID and CODEX_THREAD_ID are unset or empty)")
     return OK
 
 
