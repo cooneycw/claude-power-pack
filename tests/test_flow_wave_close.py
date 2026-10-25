@@ -115,8 +115,12 @@ def test_close_archive_verification_failure_preserves_source(tmp_path: Path) -> 
     assert "injected-archive-verification-failure" in result.stderr
 
 
-def test_close_archives_all_state_and_preserves_other_wave(tmp_path: Path) -> None:
+@pytest.mark.parametrize("colocated", [False, True])
+def test_close_archives_all_state_and_preserves_other_wave(tmp_path: Path, colocated: bool) -> None:
     wave, env = _seed(tmp_path)
+    if colocated:
+        wave = Path(shutil.move(str(wave), tmp_path / "reg" / WAVE))
+        env["FLOW_WAVE_MAILBOX_DIR"] = str(tmp_path / "reg")
     assert _run(tmp_path, "register", "other", "--wave", "remaining").returncode == 0
     before = json.loads((tmp_path / "reg" / "registry.json").read_text())
     expected = {p.relative_to(wave): p.read_bytes() for p in wave.rglob("*") if p.is_file()}

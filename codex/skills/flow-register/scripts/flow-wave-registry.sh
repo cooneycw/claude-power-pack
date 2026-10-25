@@ -2309,7 +2309,8 @@ close_holders() {
     esac
   done
   # Include box readers and heartbeat holders even if they never registered.
-  # watch --status is read-only; an absent directory is a confirmed zero.
+  # watch --status is read-only. With a missing directory it cannot report a
+  # watcher count; a retained role therefore reads unknown, never a proven zero.
   local path name
   for path in "$C_WAVE_DIR"/.watch-* "$C_WAVE_DIR"/outbox-*.md "$C_WAVE_DIR"/inbox-*.md; do
     [ -e "$path" ] || continue
@@ -2354,9 +2355,16 @@ close_wave() {
   close_holders
   C_ARCHIVE="${ARCHIVE_DIR:-$HOME/.claude/flow-wave-archive/$WAVE-$(date +%F)}"
   C_ARCHIVE="$(realpath -m -- "$C_ARCHIVE")" || close_refuse "cannot resolve archive path"
-  local source registry_path
+  local source registry_path home_path
   source="$(realpath -m -- "$C_WAVE_DIR")" || close_refuse "cannot resolve wave path"
   registry_path="$(realpath -m -- "$REG_DIR")" || close_refuse "cannot resolve registry path"
+  home_path="$(realpath -m -- "$HOME")" || close_refuse "cannot resolve home path"
+  [ "$source" != / ] || close_refuse "wave directory cannot be the filesystem root"
+  # A bad mailbox-root override must never turn removal of one wave into
+  # removal of the shared registry or the user's home. Normal wave directories
+  # are children of REG_DIR and remain valid; only the reverse overlap refuses.
+  case "$registry_path/" in "$source/"*) close_refuse "wave directory contains the shared registry" ;; esac
+  case "$home_path/" in "$source/"*) close_refuse "wave directory contains the user's home" ;; esac
   case "$C_ARCHIVE/" in "$source/"*|"$registry_path/") close_refuse "archive must be outside the wave directory and cannot replace the registry directory" ;; esac
   if [ -e "$C_WAVE_DIR/registry-entry.json" ] || [ -L "$C_WAVE_DIR/registry-entry.json" ]; then
     close_refuse "wave already contains reserved registry-entry.json"
@@ -2552,9 +2560,10 @@ case "$VERB" in
     else
       [ -d "$REG_DIR" ] || close_refuse "registry directory does not exist"
       (
+        { exec 9>"$LOCK_FILE"; } || close_refuse "cannot open registry lock"
         flock -w 10 9 || close_refuse "cannot lock registry"
         close_wave
-      ) 9>"$LOCK_FILE"
+      )
     fi
     exit $?
     ;;

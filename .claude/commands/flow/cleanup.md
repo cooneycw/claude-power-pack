@@ -222,6 +222,9 @@ verdicts and policy history), adds `registry-entry.json`, verifies the archive,
 then removes the registry key under its lock and the wave directory. Existing
 archives are never overwritten. Keep `--force` out of cleanup: a refusal is a
 reason to stop, and a confirmed watcher cannot be forced even manually.
+If roles remain registered but their wave directory is absent, the watcher
+count is unknown and close refuses; a manual `--force` decision belongs to the
+user, and cleanup never makes it.
 Report `FLOW_WAVE_ARCHIVE` and `FLOW_WAVE_BYTES_FREED` for each closed wave.
 
 ### Step 7: Summary Output
