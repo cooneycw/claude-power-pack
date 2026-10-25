@@ -1,0 +1,31 @@
+{
+  "branch": "fix/1544-nested-venv-fixture-path",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "22a002181e19c7805d2735291f497e4918c83636",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/25/rollout-2026-10-25T18-18-21-01a17448-f63f-7ef0-ae87-d75ec3e637d0.jsonl",
+    "thread_id": "01a17448-f63f-7ef0-ae87-d75ec3e637d0"
+  },
+  "issue": "1544",
+  "local_credentials": "absent",
+  "network": "unverified",
+  "passes": 2,
+  "recorded_at": "2026-10-25T21:28:20Z",
+  "red_cases": {
+    "already_covered": 4,
+    "proposed": 4
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/25/rollout-2026-10-25T21-22-25-01a174f1-7de8-7e73-90eb-9afbfc5f1528.jsonl",
+    "thread_id": "01a174f1-7de8-7e73-90eb-9afbfc5f1528"
+  },
+  "schema": 1,
+  "scope": "diff-only",
+  "status": "ran"
+}
