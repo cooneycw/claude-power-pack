@@ -2,7 +2,7 @@
 
 # Flow: Cleanup - Prune Stale Worktrees and Branches
 
-Retire worktrees whose work has landed, remove orphaned worktree references, delete local branches already merged to main, and prune stale remote tracking branches.
+Retire worktrees whose work has landed, remove orphaned worktree references, delete local branches already merged to main, prune stale remote tracking branches, and offer to archive finished waves.
 
 Worktrees are visible siblings created outside the repo on the git lane (issue
 #627: `<parent>/<repo>-<branch>`, or `$FLOW_WORKTREE_BASE` when set). `git
@@ -183,7 +183,45 @@ degrade to one.
 
 Report how many remote tracking branches were pruned.
 
-### Step 6: Summary Output
+### Step 6: Offer to Archive Finished Waves (issue #1562)
+
+Read the wave keys from the shared registry at
+`${FLOW_WAVE_REGISTRY_DIR:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/cc-flow-wave}/registry.json`
+using `jq -r 'keys[]'`. If it is absent, report no registered waves; if it
+cannot be read or parsed, report that wave cleanup is unexamined.
+
+For each wave, run:
+
+```bash
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-registry.sh list --wave "$WAVE" --any-live
+```
+
+This query exits 1 for `no-roles-ended` and `no-roles-registered`; those are
+candidate states, not command errors. Skip `yes` and `undeterminable`, and name
+them in the report. For each candidate, preview separately:
+
+```bash
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-registry.sh close --wave "$WAVE" --dry-run
+```
+
+The preview checks each role and watcher, including unknown holders, and
+reports the proposed archive path and bytes. If it refuses, report every holder
+it names and leave the wave alone. Present successful previews to the user and
+offer close **per wave**. Never auto-close, including when cleanup runs after
+`/flow-merge`. Only after the user selects a wave, run:
+
+```bash
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-registry.sh close --wave "$WAVE"
+```
+
+The helper copies the whole wave directory (mailboxes, acknowledgements,
+verdicts and policy history), adds `registry-entry.json`, verifies the archive,
+then removes the registry key under its lock and the wave directory. Existing
+archives are never overwritten. Keep `--force` out of cleanup: a refusal is a
+reason to stop, and a confirmed watcher cannot be forced even manually.
+Report `FLOW_WAVE_ARCHIVE` and `FLOW_WAVE_BYTES_FREED` for each closed wave.
+
+### Step 7: Summary Output
 
 ```markdown
 ## Flow Cleanup - {repo}
@@ -198,6 +236,10 @@ Report how many remote tracking branches were pruned.
 
 ### Remote Tracking Branches
   {N} stale remote references pruned (or "Already clean")
+
+### Wave Archives
+  {wave}: {archive path}, {bytes freed} (or "Offered; not selected")
+  {wave}: refused/skipped, {holders or reason}
 
 ### Current State
   {M} worktrees active
@@ -217,9 +259,9 @@ Report how many remote tracking branches were pruned.
 ## Notes
 
 - Safe to run multiple times (fully idempotent)
-- Step 2 removes worktrees; every other step removes only references and
-  branches. It is the only step that can delete uncommitted work, which is why it
-  is a dry run unless `--apply` is passed and why it never passes `--force`
+- Step 2 removes worktrees and is a dry run unless `--apply` is passed; it never
+  passes `--force`. Step 6 removes wave state only after a verified archive and
+  the user's per-wave selection. Other steps remove references and branches.
 - Only deletes `issue-*` pattern branches in the squash-merge detection path (other branches require `--merged` confirmation)
 - Use `git branch -d` (safe delete) for merged branches, `git branch -D` (force) only for branches whose remote was deleted
 - Run automatically after `/flow-merge` or manually anytime

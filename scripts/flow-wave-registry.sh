@@ -91,6 +91,16 @@
 #                         other lanes and the diff)
 #   flow-wave-registry.sh verify  <role> --from <uds:...> [--wave W]
 #   flow-wave-registry.sh release <role> [--wave W] [--force]
+#   flow-wave-registry.sh close --wave W [--archive DIR] [--dry-run] [--force]
+#             Archive and verify the complete wave directory and registry entry
+#             before removing either. Default archive: ~/.claude/flow-wave-archive/
+#             <wave>-<YYYY-MM-DD> (an existing destination is never overwritten).
+#             Refuse live/unknown roles and unknown watcher counts unless forced.
+#             A confirmed watcher ALWAYS refuses, including with --force; stop it
+#             first. --dry-run checks holders and reports the proposed archive
+#             and bytes without writing anything. Requires an explicit --wave.
+#             Emits FLOW_WAVE: closed|refused (dry-run for a preview),
+#             FLOW_WAVE_ARCHIVE and FLOW_WAVE_BYTES_FREED (0 on refusal).
 #   flow-wave-registry.sh self-address
 #
 #   register  Record this session as <role>. Self-derives the socket when
@@ -2268,13 +2278,156 @@ cross_wave_notes() {
   done
 }
 
+# Wave close keeps the registry lock across inspection, archival and deletion.
+# Do not use with_lock for just the final delete: a registration between the
+# snapshot and that delete would otherwise be removed without being archived.
+close_refuse() {
+  echo "flow-wave-registry: close refused - $*" >&2
+  echo "FLOW_WAVE_ARCHIVE=${C_ARCHIVE:--}"
+  echo "FLOW_WAVE_BYTES_FREED=0"
+  emit refused
+  exit 1
+}
+
+close_holders() {
+  local r e state status count holders bad=0 watching=0 roles
+  # Reuse the poller's verdict, but inspect each role too: its current
+  # no-roles-ended answer alone does not rule out an UNKNOWN owner.
+  local any
+  any="$(bash "$0" list --wave "$WAVE" --any-live 2>/dev/null)" || true
+  case "$any" in
+    FLOW_WAVE_ANY_LIVE=no-roles-ended|FLOW_WAVE_ANY_LIVE=no-roles-registered) : ;;
+    *) echo "flow-wave-registry: wave '$WAVE' liveness: ${any:-undeterminable}" >&2; bad=1 ;;
+  esac
+  roles="$(printf '%s' "$C_ENTRY" | jq -r '(.roles // {}) | keys[]')" || close_refuse "cannot enumerate roles"
+  for r in $roles; do
+    e="$(printf '%s' "$C_ENTRY" | jq -c --arg r "$r" '.roles[$r]')"
+    state="$(liveness_of "$e")"
+    case "$state" in
+      stale|released) : ;;
+      *) echo "flow-wave-registry: holder role '$r': $state (pid $(printf '%s' "$e" | jq -r '.pid // "unknown"'))" >&2; bad=1 ;;
+    esac
+  done
+  # Include box readers and heartbeat holders even if they never registered.
+  # watch --status is read-only; an absent directory is a confirmed zero.
+  local path name
+  for path in "$C_WAVE_DIR"/.watch-* "$C_WAVE_DIR"/outbox-*.md "$C_WAVE_DIR"/inbox-*.md; do
+    [ -e "$path" ] || continue
+    name="${path##*/}"
+    case "$name" in
+      .watch-*) roles="$roles ${name#.watch-}" ;;
+      outbox-*.md) name="${name#outbox-}"; roles="$roles ${name%.md}" ;;
+      inbox-*.md) roles="$roles orchestrator" ;;
+    esac
+  done
+  roles="$(printf '%s\n' "$roles" | tr ' ' '\n' | sort -u)"
+  for r in $roles; do
+    status="$(bash "$SELF_DIR/flow-wave-mailbox.sh" watch --status --role "$r" --wave "$WAVE" 2>/dev/null)" || status=""
+    count="$(printf '%s\n' "$status" | sed -n 's/^FLOW_MAILBOX_WATCHER_COUNT=//p')"
+    holders="$(printf '%s\n' "$status" | sed -n 's/^FLOW_MAILBOX_WATCHER_HOLDERS=//p')"
+    case "$count" in
+      0) : ;;
+      ''|*[!0-9]*) echo "flow-wave-registry: watcher holder role '$r': unknown (${holders:--})" >&2; bad=1 ;;
+      *) echo "flow-wave-registry: watcher holder role '$r': count=$count holders=${holders:--}" >&2; watching=1 ;;
+    esac
+  done
+  [ "$watching" -eq 0 ] || close_refuse "stop every confirmed watcher before closing (even with --force)"
+  if [ "$bad" -ne 0 ]; then
+    [ "$FORCE" -eq 1 ] || close_refuse "live or undeterminable holders remain"
+    echo "flow-wave-registry: --force overrides the named live/unknown holders above" >&2
+  fi
+}
+
+close_wave() {
+  local reg bytes parent candidate suffix tmp
+  reg="$(read_registry)"
+  printf '%s' "$reg" | jq -e -s --arg w "$WAVE" '
+    length == 1 and (.[0] | type == "object") and
+    (.[0][$w] | type == "object" and
+      (.roles == null or (.roles | type == "object")))' >/dev/null 2>&1 || close_refuse "missing or malformed wave registry entry"
+  C_ENTRY="$(printf '%s' "$reg" | jq -c --arg w "$WAVE" '.[$w]')" || close_refuse "cannot snapshot registry entry"
+  C_WAVE_DIR="${FLOW_WAVE_MAILBOX_DIR:-$REG_DIR}/$WAVE"
+  [ ! -L "$C_WAVE_DIR" ] || close_refuse "wave directory is a symbolic link"
+  if [ -e "$C_WAVE_DIR" ] && [ ! -d "$C_WAVE_DIR" ]; then
+    close_refuse "wave path is not a directory"
+  fi
+  close_holders
+  C_ARCHIVE="${ARCHIVE_DIR:-$HOME/.claude/flow-wave-archive/$WAVE-$(date +%F)}"
+  C_ARCHIVE="$(realpath -m -- "$C_ARCHIVE")" || close_refuse "cannot resolve archive path"
+  local source registry_path
+  source="$(realpath -m -- "$C_WAVE_DIR")" || close_refuse "cannot resolve wave path"
+  registry_path="$(realpath -m -- "$REG_DIR")" || close_refuse "cannot resolve registry path"
+  case "$C_ARCHIVE/" in "$source/"*|"$registry_path/") close_refuse "archive must be outside the wave directory and cannot replace the registry directory" ;; esac
+  if [ -e "$C_WAVE_DIR/registry-entry.json" ] || [ -L "$C_WAVE_DIR/registry-entry.json" ]; then
+    close_refuse "wave already contains reserved registry-entry.json"
+  fi
+  bytes=0
+  if [ -d "$C_WAVE_DIR" ]; then
+    bytes="$(du -sb -- "$C_WAVE_DIR")" || close_refuse "cannot measure wave directory"
+    bytes="${bytes%%[[:space:]]*}"
+  fi
+  candidate="$C_ARCHIVE"; suffix=0
+  while [ -e "$candidate" ] || [ -L "$candidate" ]; do
+    suffix=$((suffix + 1)); candidate="$C_ARCHIVE-$suffix"
+  done
+  C_ARCHIVE="$candidate"
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "flow-wave-registry: would archive '$C_WAVE_DIR' and its registry entry, verify, then remove both"
+    echo "FLOW_WAVE_ARCHIVE=$C_ARCHIVE"
+    echo "FLOW_WAVE_BYTES_FREED=$bytes"
+    emit dry-run
+    return 0
+  fi
+  # Lock order: registry.lock, then .mailbox.lock. Mailbox send and ack take
+  # only .mailbox.lock; their critical sections never mutate the registry, so
+  # there is no inverse acquisition. This prevents writes between the content
+  # comparison and removal. Watch status takes neither lock and stays read-only.
+  if [ -d "$C_WAVE_DIR" ]; then
+    if [ -L "$C_WAVE_DIR/.mailbox.lock" ] ||
+       { [ -e "$C_WAVE_DIR/.mailbox.lock" ] && [ ! -f "$C_WAVE_DIR/.mailbox.lock" ]; }; then
+      close_refuse "mailbox lock is not a regular file"
+    fi
+    { exec 8>>"$C_WAVE_DIR/.mailbox.lock"; } || close_refuse "cannot open mailbox lock"
+    flock -w 10 8 || close_refuse "cannot lock mailbox"
+  fi
+  parent="${C_ARCHIVE%/*}"
+  mkdir -p -- "$parent" || close_refuse "cannot create archive parent"
+  # Atomic reservation avoids racing another closer and never copies into an
+  # existing archive. Failed archives remain available for diagnosis.
+  while ! (umask 077; mkdir -- "$C_ARCHIVE") 2>/dev/null; do
+    [ -e "$C_ARCHIVE" ] || [ -L "$C_ARCHIVE" ] || close_refuse "cannot reserve archive directory"
+    suffix=$((suffix + 1)); C_ARCHIVE="$candidate-$suffix"
+  done
+  if [ -d "$C_WAVE_DIR" ]; then
+    cp -a -- "$C_WAVE_DIR/." "$C_ARCHIVE/" || close_refuse "archive copy failed; source and registry retained"
+    diff -r -- "$C_WAVE_DIR" "$C_ARCHIVE" || close_refuse "archive verification failed; source and registry retained"
+  fi
+  (umask 077; printf '%s\n' "$C_ENTRY" > "$C_ARCHIVE/registry-entry.json") || close_refuse "cannot archive registry entry"
+  jq -e -s --argjson entry "$C_ENTRY" 'length == 1 and .[0] == $entry' "$C_ARCHIVE/registry-entry.json" >/dev/null 2>&1 || close_refuse "registry entry round-trip failed"
+  # Recheck after copying: a watcher armed during archival is never forced.
+  close_holders
+  if [ -d "$C_WAVE_DIR" ]; then
+    diff -r --exclude=registry-entry.json -- "$C_WAVE_DIR" "$C_ARCHIVE" || close_refuse "archive changed during verification; source and registry retained"
+  fi
+  tmp="$(mktemp "$REG_DIR/.registry.XXXXXX")" || close_refuse "cannot create registry candidate"
+  if ! jq --arg w "$WAVE" 'del(.[$w])' "$REG_FILE" > "$tmp" ||
+     ! chmod 600 "$tmp" || ! mv -f -- "$tmp" "$REG_FILE"; then
+    rm -f -- "$tmp"
+    close_refuse "registry update failed; wave directory retained"
+  fi
+  rm -rf -- "$C_WAVE_DIR" || close_refuse "archive verified and key removed, but directory removal failed"
+  echo "FLOW_WAVE_ARCHIVE=$C_ARCHIVE"
+  echo "FLOW_WAVE_BYTES_FREED=$bytes"
+  emit closed
+}
+
 # ---- argument parsing -------------------------------------------------------
 VERB="${1:-}"
-[ -n "$VERB" ] || usage_fail "usage: flow-wave-registry.sh register|policy|list|get|verify|release|lane-check|self-address ..."
+[ -n "$VERB" ] || usage_fail "usage: flow-wave-registry.sh register|policy|list|get|verify|release|close|lane-check|self-address ..."
 shift
 
 case "$VERB" in
-  register | list | get | verify | release | self-address | policy | lane-check) : ;;
+  register | list | get | verify | release | close | self-address | policy | lane-check) : ;;
   --help | -h)
     # Print the whole comment header rather than a hand-counted line range: the
     # old fixed `2,96p` silently truncated the moment the header grew, so --help
@@ -2286,6 +2439,7 @@ case "$VERB" in
 esac
 
 ROLE=""; WAVE="default"; WAVE_EXPLICIT=0; FORCE=0; JSON_OUT=0; ANY_LIVE_ONLY=0
+ARCHIVE_DIR=""; DRY_RUN=0
 A_CWD=""; A_REPO=""; A_ISSUE=""; A_BRANCH=""; A_SOCKET=""; A_FROM=""
 # Role-level facts (#699). Each is unset-by-default and only written when given,
 # so a re-register that omits one never blanks what a fuller one recorded.
@@ -2310,6 +2464,9 @@ while [ "$#" -gt 0 ]; do
     --wave) [ "$#" -ge 2 ] || usage_fail "--wave requires a name"; WAVE="$2"; WAVE_EXPLICIT=1; shift ;;
     --wave=*) WAVE="${1#--wave=}"; WAVE_EXPLICIT=1 ;;
     --force) FORCE=1 ;;
+    --archive) [ "$#" -ge 2 ] || usage_fail "--archive requires a directory"; ARCHIVE_DIR="$2"; shift ;;
+    --archive=*) ARCHIVE_DIR="${1#--archive=}" ;;
+    --dry-run) DRY_RUN=1 ;;
     --json) JSON_OUT=1 ;;
     --any-live) ANY_LIVE_ONLY=1 ;;
     --cwd) [ "$#" -ge 2 ] || usage_fail "--cwd requires a path"; A_CWD="$2"; shift ;;
@@ -2375,6 +2532,7 @@ E_LIVE=""; E_BASIS=""; E_VERIFIED=""; E_MISMATCH=""; E_SOURCE=""; E_REASON=""; E
 # from a file it could not open. `list --any-live` keeps its own vocabulary:
 # `undeterminable`, which the supervise daemon already reads as "keep going".
 if [ "$VERB" != "self-address" ] && registry_unreadable; then
+  [ "$VERB" != "close" ] || close_refuse "registry is unreadable; contents unknown"
   if [ "$VERB" = "list" ] && [ "$ANY_LIVE_ONLY" -eq 1 ]; then
     echo "FLOW_WAVE_ANY_LIVE=undeterminable"
     exit 2
@@ -2385,6 +2543,21 @@ if [ "$VERB" != "self-address" ] && registry_unreadable; then
 fi
 
 case "$VERB" in
+  close)
+    [ "$WAVE_EXPLICIT" -eq 1 ] || close_refuse "an explicit --wave is required"
+    case "$WAVE" in ''|.*|*[!A-Za-z0-9_.-]*) close_refuse "invalid wave name" ;; esac
+    [ -z "$ROLE" ] || close_refuse "close takes no role argument"
+    if [ "$DRY_RUN" -eq 1 ]; then
+      close_wave
+    else
+      [ -d "$REG_DIR" ] || close_refuse "registry directory does not exist"
+      (
+        flock -w 10 9 || close_refuse "cannot lock registry"
+        close_wave
+      ) 9>"$LOCK_FILE"
+    fi
+    exit $?
+    ;;
   self-address)
     derive_self_address
     printf '%s\n' "$DERIVED_ADDR"

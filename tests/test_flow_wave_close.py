@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import shutil
 import signal
 import subprocess
+import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -58,7 +61,8 @@ def test_close_live_role_refuses_and_names_role(tmp_path: Path) -> None:
     _preserved(tmp_path, wave)
 
 
-def test_close_consuming_watcher_refuses(tmp_path: Path) -> None:
+@pytest.mark.parametrize("force", [False, True])
+def test_close_consuming_watcher_refuses(tmp_path: Path, force: bool) -> None:
     wave, env = _seed(tmp_path)
     watcher = subprocess.Popen(
         ["bash", str(MAILBOX), "watch", "--role", "worker", "--wave", WAVE,
@@ -80,7 +84,11 @@ def test_close_consuming_watcher_refuses(tmp_path: Path) -> None:
             time.sleep(0.1)
         assert watcher.poll() is None, watcher.communicate()
         assert "FLOW_MAILBOX_WATCHER_COUNT=1\n" in status, status
-        result = _close(tmp_path, env)
+        # Freeze the heartbeat: the watcher guard must refuse even when no
+        # changing audit file lets archive verification catch a blind guard.
+        os.killpg(watcher.pid, signal.SIGSTOP)
+        result = _close(tmp_path, env, *(["--force"] if force else []))
+        _preserved(tmp_path, wave)
         assert result.returncode != 0
         assert "FLOW_WAVE: refused" in result.stdout
         assert "worker" in result.stdout + result.stderr
@@ -101,10 +109,10 @@ def test_close_archive_verification_failure_preserves_source(tmp_path: Path) -> 
     env["PATH"] = f"{stub}:{os.environ['PATH']}"
     assert subprocess.run([str(diff)], capture_output=True, check=False).returncode == 1
     result = _close(tmp_path, env)
+    _preserved(tmp_path, wave)
     assert result.returncode != 0
     assert "FLOW_WAVE: refused" in result.stdout
     assert "injected-archive-verification-failure" in result.stderr
-    _preserved(tmp_path, wave)
 
 
 def test_close_archives_all_state_and_preserves_other_wave(tmp_path: Path) -> None:
@@ -128,3 +136,132 @@ def test_close_archives_all_state_and_preserves_other_wave(tmp_path: Path) -> No
     assert (tmp_path / "reg" / "registry.json").stat().st_mode & 0o777 == 0o600
     remaining = _run(tmp_path, "list", "--wave", "remaining", "--any-live", live=SELF_PID)
     assert "FLOW_WAVE_ANY_LIVE=yes" in remaining.stdout
+
+
+def test_close_unknown_role_refuses(tmp_path: Path) -> None:
+    wave, env = _seed(tmp_path)
+    result = _run(tmp_path, "close", "--wave", WAVE, unknown=SELF_PID, extra_env=env)
+    assert result.returncode != 0
+    assert "FLOW_WAVE: refused" in result.stdout
+    assert "worker': unknown" in result.stderr
+    _preserved(tmp_path, wave)
+
+
+def test_close_unknown_watcher_refuses(tmp_path: Path) -> None:
+    wave, env = _seed(tmp_path)
+    env["FLOW_WAVE_WATCHER_SCAN"] = "none"
+    status = subprocess.run(
+        ["bash", str(MAILBOX), "watch", "--status", "--role", "worker", "--wave", WAVE],
+        env={**os.environ, **env}, capture_output=True, text=True, check=False,
+    )
+    assert "FLOW_MAILBOX_WATCHER_COUNT=unknown" in status.stdout
+    result = _close(tmp_path, env)
+    assert result.returncode != 0
+    assert "FLOW_WAVE: refused" in result.stdout
+    assert "watcher holder role 'worker': unknown" in result.stderr
+    _preserved(tmp_path, wave)
+
+
+def test_close_force_names_overridden_live_role(tmp_path: Path) -> None:
+    wave, env = _seed(tmp_path)
+    result = _run(tmp_path, "close", "--wave", WAVE, "--archive", str(tmp_path / "archive"),
+                  "--force", live=SELF_PID, extra_env=env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "worker': live" in result.stderr
+    assert "--force overrides" in result.stderr
+    assert not wave.exists()
+
+
+def test_close_dry_run_touches_nothing(tmp_path: Path) -> None:
+    wave, env = _seed(tmp_path)
+    before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+    result = _close(tmp_path, env, "--dry-run")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "FLOW_WAVE: dry-run" in result.stdout
+    assert "would archive" in result.stdout
+    assert before == {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+    assert not (tmp_path / "archive").exists()
+    _preserved(tmp_path, wave)
+
+
+def test_close_archive_collision_never_overwrites(tmp_path: Path) -> None:
+    _, env = _seed(tmp_path)
+    archive = tmp_path / "archive"
+    archive.mkdir()
+    marker = archive / "old-audit"
+    marker.write_text("keep me")
+    result = _close(tmp_path, env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert marker.read_text() == "keep me"
+    assert f"FLOW_WAVE_ARCHIVE={archive}-1" in result.stdout
+    assert (tmp_path / "archive-1" / "registry-entry.json").exists()
+
+
+def test_send_during_close_waits_then_fails_cleanly(tmp_path: Path) -> None:
+    """A send queued behind the archive lock cannot report a lost delivery."""
+    wave, env = _seed(tmp_path)
+    stub = tmp_path / "bin"
+    stub.mkdir()
+    ready, release, sending = (tmp_path / name for name in ("copy-ready", "copy-release", "send-lock"))
+    real_cp, real_flock = shutil.which("cp"), shutil.which("flock")
+    assert real_cp and real_flock
+    cp = stub / "cp"
+    cp.write_text(
+        f"#!{sys.executable}\n"
+        "import pathlib, os, sys, time\n"
+        f"pathlib.Path({str(ready)!r}).touch()\n"
+        "deadline = time.monotonic() + 30\n"
+        f"while not pathlib.Path({str(release)!r}).exists():\n"
+        "    if time.monotonic() > deadline: sys.exit(97)\n"
+        "    time.sleep(0.05)\n"
+        f"os.execv({real_cp!r}, [{real_cp!r}, *sys.argv[1:]])\n"
+    )
+    flock = stub / "flock"
+    flock.write_text(
+        f"#!{sys.executable}\n"
+        "import os, pathlib, sys\n"
+        "if 'CPP_SEND_LOCK' in os.environ: pathlib.Path(os.environ['CPP_SEND_LOCK']).touch()\n"
+        f"os.execv({real_flock!r}, [{real_flock!r}, *sys.argv[1:]])\n"
+    )
+    cp.chmod(0o755)
+    flock.chmod(0o755)
+    env["PATH"] = f"{stub}:{os.environ['PATH']}"
+    sender = None
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        closing = pool.submit(_close, tmp_path, env)
+        try:
+            deadline = time.monotonic() + 15
+            while not ready.exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            assert ready.exists(), "close never reached its archive copy"
+            with (wave / ".mailbox.lock").open() as lock:
+                with pytest.raises(BlockingIOError):
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            sender = subprocess.Popen(
+                ["bash", str(MAILBOX), "send", "--wave", WAVE, "--to", "worker",
+                 "--body", "racing-message", "--no-lexicon"],
+                env={**os.environ, **env, "CPP_SEND_LOCK": str(sending)},
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            deadline = time.monotonic() + 10
+            while not sending.exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            assert sending.exists(), "send never attempted the mailbox lock"
+            assert sender.poll() is None, "send should be blocked by close"
+        finally:
+            release.touch()
+            if sender is not None:
+                try:
+                    stdout, stderr = sender.communicate(timeout=20)
+                except subprocess.TimeoutExpired:
+                    sender.kill()
+                    sender.communicate(timeout=5)
+                    raise
+        result = closing.result(timeout=20)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert sender is not None
+    assert sender.returncode == 3, stdout + stderr
+    assert "FLOW_MAILBOX: error" in stdout
+    assert "FLOW_MAILBOX: sent" not in stdout
+    assert not wave.exists()
+    assert (tmp_path / "archive" / "outbox-worker.md").read_text() == "audit outbox-worker.md\n"
