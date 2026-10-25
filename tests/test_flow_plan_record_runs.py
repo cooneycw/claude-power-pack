@@ -15,10 +15,12 @@ Orchestrator rulings pinned here:
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 import shutil
 import subprocess
+import uuid
 from pathlib import Path
 
 import pytest
@@ -29,6 +31,13 @@ GUARD = ROOT / "scripts" / "step3-record-guard.sh"
 
 requires_git = pytest.mark.skipif(shutil.which("git") is None, reason="requires git")
 requires_bash = pytest.mark.skipif(shutil.which("bash") is None, reason="requires bash")
+
+
+@pytest.fixture(autouse=True)
+def isolated_session_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Never let the test runner's real Claude/Codex session own a fixture run."""
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    monkeypatch.delenv("CODEX_THREAD_ID", raising=False)
 
 
 def git(repo: Path, *args: str) -> str:
@@ -85,6 +94,100 @@ def guard(repo: Path) -> subprocess.CompletedProcess:
 
 
 # ------------------------------------------------------------------ what is a run
+
+@requires_git
+@requires_bash
+def test_native_codex_reconcile_begin_run_reconcile_keeps_identity(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CODEX_THREAD_ID", "thread-A")
+    assert "FLOW_PLAN_RUN: minted" in reconcile(repo, None)
+    first = run_id(repo)
+    assert "FLOW_PLAN_RUN: kept (same session)" in reconcile(repo, None)
+    approve_run(repo, None)
+    assert guard(repo).returncode == 0, "the run_id reader accepts the Codex-owned approval"
+    record = repo / "docs" / "flow-runs" / "issue-42.md"
+    before = record.read_bytes()
+    assert "FLOW_PLAN_RUN: kept (same session)" in reconcile(repo, None)
+    assert run_id(repo) == first
+    assert record.read_bytes() == before, "resume must preserve its uncommitted approval"
+    assert guard(repo).returncode == 0
+    state = (Path(git(repo, "rev-parse", "--absolute-git-dir").strip()) / "flow-plan-run-42").read_text()
+    assert "harness=codex\n" in state and "codex_thread=thread-A\n" in state
+    assert "session=" not in state, "a Codex id is never a Claude session"
+
+
+@requires_git
+def test_native_codex_different_thread_mints(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CODEX_THREAD_ID", "thread-A")
+    reconcile(repo, None)
+    first = run_id(repo)
+    monkeypatch.setenv("CODEX_THREAD_ID", "thread-B")
+    assert "FLOW_PLAN_RUN: minted" in reconcile(repo, None)
+    assert run_id(repo) != first
+
+
+@requires_git
+@pytest.mark.parametrize("first_harness", ["claude", "codex"])
+def test_equal_ids_never_continue_across_harnesses(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, first_harness: str,
+) -> None:
+    same_id = "equal-id-different-harness"
+    if first_harness == "codex":
+        monkeypatch.setenv("CODEX_THREAD_ID", same_id)
+    reconcile(repo, same_id if first_harness == "claude" else None)
+    first = run_id(repo)
+    # Identical strings are deliberate: only harness provenance separates these owners.
+    if first_harness == "claude":
+        monkeypatch.setenv("CODEX_THREAD_ID", same_id)
+    else:
+        monkeypatch.delenv("CODEX_THREAD_ID")
+    out = reconcile(repo, None if first_harness == "claude" else same_id)
+    assert "FLOW_PLAN_RUN: minted" in out
+    assert run_id(repo) != first
+
+
+@requires_git
+@pytest.mark.parametrize("identity", [None, ""], ids=["unset", "empty"])
+def test_no_harness_identity_mints_with_named_reason(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, identity: str | None,
+) -> None:
+    if identity is not None:
+        monkeypatch.setenv("CODEX_THREAD_ID", identity)
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", identity)
+    reconcile(repo, identity)
+    first = run_id(repo)
+    out = reconcile(repo, identity)
+    assert "FLOW_PLAN_RUN: minted" in out
+    assert run_id(repo) != first
+    assert "FLOW_PLAN_RUN_REASON: no session identity" in out
+
+
+@pytest.mark.parametrize("codex_thread", [None, "ignored-codex-thread"])
+def test_claude_run_bytes_and_decisions_match_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture,
+    codex_thread: str | None,
+) -> None:
+    """Pinned from cbb415d8: Claude wins even when a Codex id is also present."""
+    spec = importlib.util.spec_from_file_location("plan_record_identity_control", HELPER)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-A")
+    if codex_thread is not None:
+        monkeypatch.setenv("CODEX_THREAD_ID", codex_thread)
+    path = tmp_path / "flow-plan-run-42"
+    monkeypatch.setattr(module, "run_state_path", lambda _issue: path)
+    monkeypatch.setattr(module, "now", lambda: "2026-10-25T00:00:00Z")
+    monkeypatch.setattr(module.uuid, "uuid4", lambda: uuid.UUID("0123456789abcdef0123456789abcdef"))
+    fixture = ROOT / "tests" / "fixtures" / "flow-plan-record-claude"
+    assert module.announce_run("42") == 0
+    before = path.read_bytes()
+    assert before == fixture.with_suffix(".run").read_bytes()
+    assert module.announce_run("42") == 0
+    assert path.read_bytes() == before
+    assert capsys.readouterr().out == fixture.with_suffix(".decision").read_text()
+
 
 @requires_git
 def test_the_same_session_keeps_its_run(repo: Path) -> None:

@@ -1,0 +1,2 @@
+FLOW_PLAN_RUN: minted 0123456789abcdef0123456789abcdef
+FLOW_PLAN_RUN: kept (same session) 0123456789abcdef0123456789abcdef

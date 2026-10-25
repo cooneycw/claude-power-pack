@@ -38,6 +38,13 @@ HELPER = REPO / "scripts" / "flow-plan-record.py"
 RECORD_REL = "docs/flow-runs/issue-42.md"
 
 
+@pytest.fixture(autouse=True)
+def isolated_session_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These dead-run fixtures must not inherit the driving agent's identity."""
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    monkeypatch.delenv("CODEX_THREAD_ID", raising=False)
+
+
 def helper(repo: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["python3", str(HELPER), *args], cwd=repo,
                           capture_output=True, text=True)
