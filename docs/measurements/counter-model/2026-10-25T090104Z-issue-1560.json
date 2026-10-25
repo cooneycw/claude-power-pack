@@ -1,0 +1,31 @@
+{
+  "branch": "issue-1560-scope-register-wave-wake-guidance-to-the-actual-co",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "8c93fa1d952929b94bf4b4aa2d38a6a29765064b",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/24/rollout-2026-10-24T17-39-48-01a16fdb-0b9d-7133-83ae-fd9718f95524.jsonl",
+    "thread_id": "01a16fdb-0b9d-7133-83ae-fd9718f95524"
+  },
+  "issue": "1560",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 1,
+  "recorded_at": "2026-10-25T09:01:04Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 5
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/25/rollout-2026-10-25T04-58-00-01a17247-f4e5-7710-863a-5d7c6ab6424a.jsonl",
+    "thread_id": "01a17247-f4e5-7710-863a-5d7c6ab6424a"
+  },
+  "schema": 1,
+  "scope": "unverified",
+  "status": "ran"
+}
