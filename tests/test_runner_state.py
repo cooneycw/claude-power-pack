@@ -1,5 +1,7 @@
 """Tests for CI/CD runner state persistence."""
 
+import hashlib
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -365,3 +367,326 @@ class TestComputeTreeSignature:
         _git_repo(tmp_project)
         monkeypatch.setattr(shutil, "which", lambda _cmd: None)
         assert compute_tree_signature(tmp_project) is None
+
+
+class TestResumeStateEvidence:
+    @pytest.fixture(autouse=True)
+    def isolated_state(self, tmp_project, monkeypatch):
+        from lib.cicd import state as module
+        monkeypatch.setattr(module, "runner_state_dir", lambda root: root / ".state")
+
+    @staticmethod
+    def evidence(state):
+        getter = getattr(state, "resume_state_evidence", None)
+        value = getter() if getter else None
+        assert isinstance(value, dict), "real state path has no v1 resume evidence"
+        return value
+
+    def test_resume_state_exact_save_load_and_persisted_schema(self, tmp_project):
+        state = RunState.create("check", ["stage-a"])
+        before = state.to_dict()
+        path = state.save(tmp_project)
+        raw = path.read_bytes()
+        saved = self.evidence(state)
+        assert saved["version"] == 1 and saved["family"] == "cpp-run-state"
+        assert saved["consumed"]["status"] == "none"
+        assert saved["generated"] == {"status": "written", "file": path.name,
+            "sha256": "sha256:" + hashlib.sha256(raw).hexdigest(), "bytes": len(raw), "reason": None}
+        assert json.loads(raw) == before == state.to_dict()
+        loaded = RunState.load(state.run_id, tmp_project)
+        observed = self.evidence(loaded)
+        assert observed["consumed"] == {**saved["generated"], "status": "loaded"}
+        assert observed["generated"]["status"] == "none"
+        assert loaded.to_dict() == before
+        loaded.save(tmp_project)
+        assert path.read_bytes() == raw  # unchanged bytes are still a real save
+        assert self.evidence(loaded)["generated"]["status"] == "written"
+        loaded.cleanup(tmp_project)
+        assert self.evidence(loaded)["final_state"]["status"] == "absent"
+
+    def test_resume_state_post_load_swap_cannot_rewrite_consumed_bytes(self, tmp_project, monkeypatch):
+        state = RunState.create("check", ["stage-a"])
+        path = state.save(tmp_project)
+        original = path.read_bytes()
+        replacement = original.replace(b'"pending"', b'"failed"')
+        assert original != replacement
+        read_bytes, read_text, write_bytes = Path.read_bytes, Path.read_text, Path.write_bytes
+        reads = []
+
+        def swap_bytes(candidate):
+            raw = read_bytes(candidate)
+            if candidate == path:
+                reads.append("bytes")
+                write_bytes(path, replacement)
+                assert read_bytes(path) == replacement
+            return raw
+
+        def swap_text(candidate, *args, **kwargs):
+            text = read_text(candidate, *args, **kwargs)
+            if candidate == path:
+                reads.append("text")
+                write_bytes(path, replacement)
+                assert read_bytes(path) == replacement
+            return text
+
+        monkeypatch.setattr(Path, "read_bytes", swap_bytes)
+        monkeypatch.setattr(Path, "read_text", swap_text)
+        loaded = RunState.load(state.run_id, tmp_project)
+        assert len(reads) == 1 and loaded.step_records[0].status == StepStatus.PENDING
+        observed = self.evidence(loaded)
+        assert observed["consumed"]["sha256"] == "sha256:" + hashlib.sha256(original).hexdigest()
+        assert observed["consumed"]["bytes"] == len(original)
+        assert len(reads) == 1  # evidence is never a later filesystem reread
+
+    def test_resume_state_post_save_swap_cannot_rewrite_generated_bytes(self, tmp_project, monkeypatch):
+        state = RunState.create("check", ["stage-a"])
+        original = json.dumps(state.to_dict(), indent=2).encode()
+        replacement = b"untrusted replacement after the write"
+        assert replacement != original
+        write_bytes, write_text = Path.write_bytes, Path.write_text
+        captured = []
+
+        def swap_bytes(path, raw):
+            written = write_bytes(path, raw)
+            captured.append(raw)
+            write_bytes(path, replacement)
+            assert path.read_bytes() == replacement
+            return written
+
+        def swap_text(path, text, *args, **kwargs):
+            written = write_text(path, text, *args, **kwargs)
+            captured.append(text.encode())
+            write_bytes(path, replacement)
+            assert path.read_bytes() == replacement
+            return written
+
+        monkeypatch.setattr(Path, "write_bytes", swap_bytes)
+        monkeypatch.setattr(Path, "write_text", swap_text)
+        state.save(tmp_project)
+        assert captured == [original]
+        observed = self.evidence(state)
+        assert observed["generated"]["sha256"] == "sha256:" + hashlib.sha256(original).hexdigest()
+        assert observed["generated"]["bytes"] == len(original)
+
+    @pytest.mark.parametrize("fault", ["raise", "short"])
+    def test_resume_state_later_failed_save_invalidates_prior_success(self, tmp_project, monkeypatch, fault):
+        state = RunState.create("check", ["stage-a"])
+        path = state.save(tmp_project)
+        assert path.is_file()
+        error = OSError("private state error must not enter protocol")
+        write_bytes, write_text = Path.write_bytes, Path.write_text
+
+        def broken_bytes(target, raw):
+            if fault == "raise":
+                raise error
+            partial = raw[:len(raw) // 2]
+            write_bytes(target, partial)
+            assert target.read_bytes() == partial and partial != raw
+            return len(partial)
+
+        def broken_text(target, text, *args, **kwargs):
+            if fault == "raise":
+                raise error
+            partial = text[:len(text) // 2]
+            write_text(target, partial, *args, **kwargs)
+            assert target.read_text() == partial and partial != text
+            return len(partial)
+
+        monkeypatch.setattr(Path, "write_bytes", broken_bytes)
+        monkeypatch.setattr(Path, "write_text", broken_text)
+        with pytest.raises(OSError) as caught:
+            state.save(tmp_project)
+        if fault == "raise":
+            assert caught.value is error
+        observed = self.evidence(state)
+        assert observed["generated"]["status"] == "unreadable"
+        assert observed["generated"]["sha256"] is None and observed["generated"]["bytes"] is None
+        assert "private state error" not in json.dumps(observed)
+
+    def test_resume_state_unknown_selection_is_not_no_input(self, tmp_project):
+        from lib.cicd import state as module
+        tracker = module.ResumeStateEvidence("check")
+        directory = tmp_project / ".state"
+        directory.mkdir()
+        path = directory / "check-bad.json"
+        path.write_bytes(b"not JSON")
+        assert path.read_bytes() == b"not JSON"
+        assert RunState.find_latest("check", tmp_project, evidence=tracker) is None
+        assert tracker.snapshot()["consumed"]["status"] == "unreadable"
+        path.unlink()
+        clean = module.ResumeStateEvidence("check")
+        assert RunState.find_latest("check", tmp_project, evidence=clean) is None
+        assert clean.snapshot()["consumed"]["status"] == "none"
+
+    def test_resume_state_auto_selects_the_actual_failed_buffer(self, tmp_project):
+        state = RunState.create("check", ["stage-a"])
+        state.mark_step_failed(0, 1)
+        path = state.save(tmp_project)
+        raw = path.read_bytes()
+        found = RunState.find_latest("check", tmp_project)
+        assert found is not None
+        observed = self.evidence(found)
+        assert observed["consumed"]["sha256"] == "sha256:" + hashlib.sha256(raw).hexdigest()
+        assert observed["generated"]["status"] == "none"
+
+    def test_resume_state_bounds_change_evidence_not_io(self, tmp_project, monkeypatch):
+        from lib.cicd import state as module
+        state = RunState.create("check", ["stage-a"])
+        path = state.save(tmp_project)
+        assert len(path.read_bytes()) > 32
+        assert module.RESUME_STATE_MAX_BYTES == 67108864
+        monkeypatch.setattr(module, "RESUME_STATE_MAX_BYTES", 32)
+        loaded = RunState.load(state.run_id, tmp_project)
+        assert loaded.to_dict() == state.to_dict()
+        assert self.evidence(loaded)["consumed"]["status"] == "unreadable"
+        loaded.save(tmp_project)
+        assert self.evidence(loaded)["generated"]["reason"] == "size-limit"
+
+    @pytest.mark.parametrize("case", json.loads(
+        (Path(__file__).parent / "fixtures/cicd-resume-state/cases.json").read_text()
+    )["producer_inputs"], ids=lambda case: case["id"])
+    def test_resume_state_fixture_inputs_through_actual_save(self, tmp_project, case):
+        state = RunState.create(case["plan"], ["stage-a"])
+        if "run_id" in case:
+            state.run_id = case["run_id"]
+        path = state.save(tmp_project)
+        assert path.is_file() and state.plan_name == case["plan"]
+        observed = self.evidence(state)
+        assert observed["plan"] == case["wire_plan"]
+        assert observed["generated"]["status"] == case["generated"]
+        if case["wire_plan"] is None:
+            assert case["plan"] not in json.dumps(observed)
+
+    def test_resume_state_invalid_path_cannot_replace_the_original_error(self, tmp_project):
+        state = RunState.create("invalid\x00plan", ["stage-a"])
+        with pytest.raises(ValueError) as caught:
+            state.save(tmp_project)
+        assert "null" in str(caught.value).lower()
+        observed = self.evidence(state)
+        assert observed["plan"] is None
+        assert observed["generated"]["status"] == "unreadable"
+
+    def test_resume_state_no_selection_does_not_claim_empty_directory(self, tmp_project):
+        from lib.cicd import state as module
+        state = RunState.create("check", ["stage-a"])
+        state.mark_complete()
+        path = state.save(tmp_project)
+        assert path.exists() and state.status == "success"
+        tracker = module.ResumeStateEvidence("check")
+        assert RunState.find_latest("check", tmp_project, evidence=tracker) is None
+        assert path.exists()
+        assert tracker.snapshot()["consumed"]["status"] == "none"
+        assert tracker.snapshot()["final_state"]["status"] == "unreadable"
+
+    def test_resume_state_same_bytes_in_neighbor_do_not_prove_ownership(self, tmp_project):
+        state = RunState.create("check", ["stage-a"])
+        first = state.save(tmp_project)
+        neighbor = tmp_project / "neighbor"
+        second = neighbor / ".state" / first.name
+        second.parent.mkdir(parents=True)
+        second.write_bytes(first.read_bytes())
+        assert first.read_bytes() == second.read_bytes() and first != second
+        one = self.evidence(RunState.load(state.run_id, tmp_project))
+        two = self.evidence(RunState.load(state.run_id, neighbor))
+        assert one == two
+        assert set(one) == {"version", "family", "plan", "consumed", "generated", "final_state"}
+        # No identity here binds an attempt/repository/source. Consumers supply it.
+
+    def test_resume_state_serialization_error_is_same_object_and_not_prior_success(
+            self, tmp_project):
+        state = RunState.create("check", ["stage-a"])
+        state.save(tmp_project)
+        state.step_records[0].output = object()
+        assert not isinstance(state.step_records[0].output, str)
+        with pytest.raises(TypeError) as caught:
+            state.save(tmp_project)
+        assert state._resume_tracker().error is caught.value
+        observed = self.evidence(state)
+        assert observed["generated"]["reason"] == "serialization-failed"
+        assert observed["generated"]["sha256"] is None
+
+    def test_resume_state_failed_final_observation_is_not_absence(self, tmp_project, monkeypatch):
+        state = RunState.create("check", ["stage-a"])
+        path = state.save(tmp_project)
+        lstat = Path.lstat
+
+        def unreadable(candidate, *args, **kwargs):
+            if candidate == path:
+                raise PermissionError("private observation failure")
+            return lstat(candidate, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "lstat", unreadable)
+        observed = self.evidence(state)
+        assert observed["final_state"] == {"status": "unreadable", "reason": "presence-unreadable"}
+        assert observed["generated"]["status"] == "written"
+        assert "private observation" not in json.dumps(observed)
+
+    @pytest.mark.parametrize("operation", ["load", "save"])
+    @pytest.mark.parametrize("kind", ["parent", "absolute", "embedded"])
+    def test_resume_state_unsafe_logical_id_is_not_laundered_by_basename(
+            self, tmp_project, operation, kind):
+        state = RunState.create("check", ["stage-a"])
+        if kind == "parent":
+            state.run_id = "../foreign"
+        elif kind == "absolute":
+            state.run_id = str(tmp_project / "absolute-owned")
+        else:
+            state.run_id = "sub/foreign"
+            (tmp_project / ".state" / "sub").mkdir(parents=True)
+        expected = (tmp_project / ".state" / (state.run_id + ".json")).resolve()
+        assert expected.is_relative_to(tmp_project)  # every actual write is fixture-owned
+        path = state.save(tmp_project)
+        assert path.resolve() == expected and path.is_file()
+        observed_state = RunState.load(state.run_id, tmp_project) if operation == "load" else state
+        assert observed_state.run_id == state.run_id  # existing I/O/parse choice is unchanged
+        observed = self.evidence(observed_state)
+        identity = observed["consumed" if operation == "load" else "generated"]
+        assert identity["status"] == "unreadable" and identity["reason"] == "unsafe-logical-id"
+        assert identity["file"] is None and identity["sha256"] is None
+        assert state.run_id not in json.dumps(observed)
+
+    def test_resume_state_safe_logical_id_allows_absolute_filesystem_location(self, tmp_project):
+        assert tmp_project.is_absolute()
+        state = RunState.create("check", ["stage-a"])
+        path = state.save(tmp_project)
+        assert path.is_absolute()
+        observed = self.evidence(RunState.load(state.run_id, tmp_project))
+        assert observed["consumed"]["status"] == "loaded"
+        assert observed["consumed"]["file"] == path.name
+        assert str(tmp_project) not in json.dumps(observed)
+
+    def test_resume_state_direct_load_keeps_original_exception_identity(self, tmp_project, monkeypatch):
+        from lib.cicd import state as module
+        state = RunState.create("check", ["stage-a"])
+        path = state.save(tmp_project)
+        assert path.is_file()
+        original_read = Path.read_bytes
+        error = OSError("private load error")
+
+        def denied(candidate):
+            if candidate == path:
+                raise error
+            return original_read(candidate)
+
+        tracker = module.ResumeStateEvidence("check")
+        monkeypatch.setattr(Path, "read_bytes", denied)
+        with pytest.raises(OSError) as caught:
+            RunState.load(state.run_id, tmp_project, evidence=tracker)
+        assert caught.value is error and tracker.error is error
+        observed = tracker.snapshot()
+        assert observed["consumed"]["status"] == "unreadable"
+        assert "private load error" not in json.dumps(observed)
+
+    def test_resume_state_rejected_requested_id_cannot_publish_innocent_final_presence(self, tmp_project):
+        state = RunState.create("check", ["stage-a"])
+        state.run_id = "foreign"
+        path = state.save(tmp_project)
+        outside_state = tmp_project / "foreign.json"
+        outside_state.write_bytes(path.read_bytes())
+        requested = "../foreign"
+        assert (tmp_project / ".state" / (requested + ".json")).resolve() == outside_state
+        loaded = RunState.load(requested, tmp_project)
+        assert loaded.run_id == "foreign"
+        observed = self.evidence(loaded)
+        assert observed["consumed"]["status"] == "unreadable"
+        assert observed["final_state"] == {"status": "unreadable", "reason": "unsafe-logical-id"}

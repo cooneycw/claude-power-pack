@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Emit bounded exact consumed/generated resume-state identities and in-memory terminal stage facts; JSON mode reports only exact tracked state-operation failures safely (#1555).
+
 ## [10.0.0] - 2026-10-21
 
 The Nit Store correctness sweep: 34 commits since 9.0.0 (`0203495..7a8941f9`;

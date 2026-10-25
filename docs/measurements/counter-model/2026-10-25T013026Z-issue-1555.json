@@ -1,0 +1,31 @@
+{
+  "branch": "issue-1555-report-exact-consumed-and-generated-resume-state-i",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "93da3f0d46c66e53e58f3a32859880b8def50316",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/24/rollout-2026-10-24T17-39-48-01a16fdb-0b9d-7133-83ae-fd9718f95524.jsonl",
+    "thread_id": "01a16fdb-0b9d-7133-83ae-fd9718f95524"
+  },
+  "issue": "1555",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 1,
+  "recorded_at": "2026-10-25T01:30:26Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 48
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/24/rollout-2026-10-24T21-25-38-01a170a9-cce9-7900-8020-b9cd9f3c89d7.jsonl",
+    "thread_id": "01a170a9-cce9-7900-8020-b9cd9f3c89d7"
+  },
+  "schema": 1,
+  "scope": "full",
+  "status": "ran"
+}

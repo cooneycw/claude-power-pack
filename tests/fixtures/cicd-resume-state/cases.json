@@ -1,0 +1,311 @@
+{
+  "producer_inputs": [
+    {
+      "id": "ordinary-plan",
+      "plan": "check",
+      "wire_plan": "check",
+      "generated": "written"
+    },
+    {
+      "id": "unsafe-plan",
+      "plan": "unsafe plan",
+      "wire_plan": null,
+      "generated": "unreadable"
+    },
+    {
+      "id": "max-plan",
+      "plan": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "wire_plan": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "generated": "written"
+    },
+    {
+      "id": "oversize-plan",
+      "plan": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "wire_plan": null,
+      "generated": "unreadable"
+    },
+    {
+      "id": "max-logical-leaf",
+      "plan": "check",
+      "run_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "wire_plan": "check",
+      "generated": "written"
+    },
+    {
+      "id": "oversize-logical-leaf",
+      "plan": "check",
+      "run_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "wire_plan": "check",
+      "generated": "unreadable"
+    }
+  ],
+  "wire_cases": [
+    {
+      "id": "fresh-no-io",
+      "shape": "supported",
+      "evidence": {
+        "version": 1,
+        "family": "cpp-run-state",
+        "plan": "check",
+        "consumed": {
+          "status": "none",
+          "file": null,
+          "sha256": null,
+          "bytes": null,
+          "reason": "no-selected-state"
+        },
+        "generated": {
+          "status": "none",
+          "file": null,
+          "sha256": null,
+          "bytes": null,
+          "reason": "no-save"
+        },
+        "final_state": {
+          "status": "unreadable",
+          "reason": "not-observed"
+        }
+      }
+    },
+    {
+      "id": "selected-no-save",
+      "shape": "supported",
+      "evidence": {
+        "version": 1,
+        "family": "cpp-run-state",
+        "plan": "check",
+        "consumed": {
+          "status": "loaded",
+          "file": "check-ab12cd34.json",
+          "sha256": "sha256:f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d",
+          "bytes": 7,
+          "reason": null
+        },
+        "generated": {
+          "status": "none",
+          "file": null,
+          "sha256": null,
+          "bytes": null,
+          "reason": "no-save"
+        },
+        "final_state": {
+          "status": "present",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "saved-then-cleaned",
+      "shape": "supported",
+      "evidence": {
+        "version": 1,
+        "family": "cpp-run-state",
+        "plan": "check",
+        "consumed": {
+          "status": "loaded",
+          "file": "check-ab12cd34.json",
+          "sha256": "sha256:f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d",
+          "bytes": 7,
+          "reason": null
+        },
+        "generated": {
+          "status": "written",
+          "file": "check-ab12cd34.json",
+          "sha256": "sha256:f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d",
+          "bytes": 7,
+          "reason": null
+        },
+        "final_state": {
+          "status": "absent",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "unknown-version",
+      "shape": "unsupported",
+      "evidence": {
+        "version": 2,
+        "family": "cpp-run-state",
+        "plan": "check",
+        "consumed": {
+          "status": "loaded",
+          "file": "check-ab12cd34.json",
+          "sha256": "sha256:f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d",
+          "bytes": 7,
+          "reason": null
+        },
+        "generated": {
+          "status": "none",
+          "file": null,
+          "sha256": null,
+          "bytes": null,
+          "reason": "no-save"
+        },
+        "final_state": {
+          "status": "present",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "bool-size",
+      "shape": "unsupported",
+      "evidence": {
+        "version": 1,
+        "family": "cpp-run-state",
+        "plan": "check",
+        "consumed": {
+          "status": "loaded",
+          "file": "check-ab12cd34.json",
+          "sha256": "sha256:f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d",
+          "bytes": true,
+          "reason": null
+        },
+        "generated": {
+          "status": "none",
+          "file": null,
+          "sha256": null,
+          "bytes": null,
+          "reason": "no-save"
+        },
+        "final_state": {
+          "status": "present",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "size-limit",
+      "shape": "unsupported",
+      "evidence": {
+        "version": 1,
+        "family": "cpp-run-state",
+        "plan": "check",
+        "consumed": {
+          "status": "loaded",
+          "file": "check-ab12cd34.json",
+          "sha256": "sha256:f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d",
+          "bytes": 67108865,
+          "reason": null
+        },
+        "generated": {
+          "status": "none",
+          "file": null,
+          "sha256": null,
+          "bytes": null,
+          "reason": "no-save"
+        },
+        "final_state": {
+          "status": "present",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "unsafe-file",
+      "shape": "unsupported",
+      "evidence": {
+        "version": 1,
+        "family": "cpp-run-state",
+        "plan": "check",
+        "consumed": {
+          "status": "loaded",
+          "file": "../escape.json",
+          "sha256": "sha256:f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d",
+          "bytes": 7,
+          "reason": null
+        },
+        "generated": {
+          "status": "none",
+          "file": null,
+          "sha256": null,
+          "bytes": null,
+          "reason": "no-save"
+        },
+        "final_state": {
+          "status": "present",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "loaded-without-hash",
+      "shape": "unsupported",
+      "evidence": {
+        "version": 1,
+        "family": "cpp-run-state",
+        "plan": "check",
+        "consumed": {
+          "status": "loaded",
+          "file": "check-ab12cd34.json",
+          "sha256": null,
+          "bytes": 7,
+          "reason": null
+        },
+        "generated": {
+          "status": "none",
+          "file": null,
+          "sha256": null,
+          "bytes": null,
+          "reason": "no-save"
+        },
+        "final_state": {
+          "status": "present",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "unknown-field",
+      "shape": "unsupported",
+      "evidence": {
+        "version": 1,
+        "family": "cpp-run-state",
+        "plan": "check",
+        "consumed": {
+          "status": "loaded",
+          "file": "check-ab12cd34.json",
+          "sha256": "sha256:f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d",
+          "bytes": 7,
+          "reason": null
+        },
+        "generated": {
+          "status": "none",
+          "file": null,
+          "sha256": null,
+          "bytes": null,
+          "reason": "no-save"
+        },
+        "final_state": {
+          "status": "present",
+          "reason": null
+        },
+        "unrecognized": true
+      }
+    }
+  ],
+  "stream_cases": [
+    {
+      "id": "missing-metadata",
+      "shape": "unsupported",
+      "stdout": "{\"success\": true, \"plan\": \"check\", \"step_details\": []}"
+    },
+    {
+      "id": "duplicate-metadata-key",
+      "shape": "unsupported",
+      "metadata_json": "{\"version\":1,\"version\":1,\"family\":\"cpp-run-state\",\"plan\":\"check\",\"consumed\":{\"status\":\"loaded\",\"file\":\"check-ab12cd34.json\",\"sha256\":\"sha256:f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d\",\"bytes\":7,\"reason\":null},\"generated\":{\"status\":\"none\",\"file\":null,\"sha256\":null,\"bytes\":null,\"reason\":\"no-save\"},\"final_state\":{\"status\":\"present\",\"reason\":null}}"
+    },
+    {
+      "id": "duplicate-document",
+      "shape": "unsupported",
+      "stdout": "{\n  \"success\": true,\n  \"plan\": \"check\",\n  \"step_details\": [\n    {\n      \"id\": \"stage-a\",\n      \"status\": \"success\"\n    }\n  ],\n  \"resume_state_evidence\": {\n    \"version\": 1,\n    \"family\": \"cpp-run-state\",\n    \"plan\": \"check\",\n    \"consumed\": {\n      \"status\": \"loaded\",\n      \"file\": \"check-ab12cd34.json\",\n      \"sha256\": \"sha256:f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d\",\n      \"bytes\": 7,\n      \"reason\": null\n    },\n    \"generated\": {\n      \"status\": \"none\",\n      \"file\": null,\n      \"sha256\": null,\n      \"bytes\": null,\n      \"reason\": \"no-save\"\n    },\n    \"final_state\": {\n      \"status\": \"present\",\n      \"reason\": null\n    }\n  }\n}\n{\n  \"success\": true,\n  \"plan\": \"check\",\n  \"step_details\": [\n    {\n      \"id\": \"stage-a\",\n      \"status\": \"success\"\n    }\n  ],\n  \"resume_state_evidence\": {\n    \"version\": 1,\n    \"family\": \"cpp-run-state\",\n    \"plan\": \"check\",\n    \"consumed\": {\n      \"status\": \"loaded\",\n      \"file\": \"check-ab12cd34.json\",\n      \"sha256\": \"sha256:f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d\",\n      \"bytes\": 7,\n      \"reason\": null\n    },\n    \"generated\": {\n      \"status\": \"none\",\n      \"file\": null,\n      \"sha256\": null,\n      \"bytes\": null,\n      \"reason\": \"no-save\"\n    },\n    \"final_state\": {\n      \"status\": \"present\",\n      \"reason\": null\n    }\n  }\n}\nFLOW_FINISH_GATE: ok\n"
+    },
+    {
+      "id": "incomplete-output",
+      "shape": "unsupported",
+      "stdout": "{\n  \"success\": true,\n  \"plan\": \"check\",\n  \"step_details\": [\n    {\n      \"id\": \"stage-a\",\n      \"status\": \"success\"\n    }\n  ],\n  \"resume_state_evidence\": {\n    \"version\": 1,\n    \"family\": \"cpp-run-state\",\n    \"plan\": \"check\",\n    \"consumed\": {\n      \"status\": \"loaded\",\n      \"file\": \"check-ab12cd34.json\",\n      \"sha256\": \"sha256:f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d\",\n      \"bytes\": 7,\n      \"reason\": null\n    },\n    \"generated\": {\n      \"status\": \"none\",\n      \"file\": null,\n      \"sha256\": null,\n      \"bytes\": null,\n      \"reason\": \"no-save\"\n    },\n    \"final_state\": {\n      \"status\": \"present\",\n      \"reason\": null\n    }\n  }\n}\nFLOW_FINISH_GATE: ok\n",
+      "stdout_incomplete": true
+    }
+  ]
+}
