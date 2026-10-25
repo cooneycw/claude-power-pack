@@ -14,6 +14,7 @@ and a non-daemon argv must each survive it.
 from __future__ import annotations
 
 import os
+import shutil
 import signal
 import subprocess
 import time
@@ -1697,6 +1698,7 @@ def test_this_process_carries_its_own_marker() -> None:
 
 
 @requires_proc
+@pytest.mark.skipif(shutil.which("flock") is None, reason="watch arming requires flock")
 def test_a_real_supervise_daemon_inherits_the_marker_through_setsid(tmp_path: Path) -> None:
     """The end-to-end premise: the marker survives the detach.
 

@@ -7,6 +7,12 @@
 # corruption, a partial edit, and post-build modification. It does NOT
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
+439d8e012be0936bee854aea7a17894d7ce2e013a2e2b1509950c062a9009d50  flow-driver-capability.sh
+884634889faafd9a962b2cfc261b1589b6680c1bb76d40624706ece890500a93  flow-vantage.sh
+a9562871ed70557fdca7b5045ea41f0eaa4654cab8863164ad5befa74dc45734  flow-wave-lexicon.sh
+6dbd93b3bbf4293c2e7d89c1077667399d7c532854b937d823c84f68eac4e383  flow-wave-mailbox.sh
+d0a2c3f3b628280b43aaa9039b3c952aa168aeb78eb4d687c18ef4c3a0732147  flow-wave-registry.sh
 28ee4b87e67d8fc715fa480806023077d80cf6bab4c16906fd29471d30510281  flow-worktree-claim.sh
 9b963b0186ff8d92f4eb65b3414b1347cd7f4f230f5b02923c363a4ae7192c32  flow-worktree-sweep.sh
+23f23e508ac30c492364c5235d5b388ecd17420da5c47600885e0624522ef06c  toolchain-provenance.sh
 30ebbd9dc11a27591c8fa6437544e1a82c2b09d6da59050fbddb533754638ec6  worktree-remove.sh

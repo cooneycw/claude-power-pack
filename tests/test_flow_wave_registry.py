@@ -82,8 +82,8 @@ REGISTRY = ROOT / "scripts" / "flow-wave-registry.sh"
 # Drives real `bash` + `jq` subprocesses; the CI validate container may ship
 # neither, so skip there (same shape as the other flow helper suites).
 requires_tools = pytest.mark.skipif(
-    shutil.which("bash") is None or shutil.which("jq") is None,
-    reason="requires bash and jq on PATH",
+    shutil.which("bash") is None or shutil.which("jq") is None or shutil.which("flock") is None,
+    reason="requires bash, jq and flock on PATH",
 )
 
 # The #687 claim-reconciliation suite also drives real `git worktree` locks, so
@@ -2798,8 +2798,8 @@ MAILBOX = ROOT / "scripts" / "flow-wave-mailbox.sh"
 # The #778 join drives the sibling mailbox helper as a real subprocess, so it
 # carries the same guard the rest of the suite does.
 requires_mailbox = pytest.mark.skipif(
-    shutil.which("bash") is None or shutil.which("jq") is None,
-    reason="requires bash and jq on PATH",
+    shutil.which("bash") is None or shutil.which("jq") is None or shutil.which("flock") is None,
+    reason="requires bash, jq and flock on PATH",
 )
 
 

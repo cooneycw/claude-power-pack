@@ -1,0 +1,31 @@
+{
+  "branch": "feat/1562-wave-close",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "db935dd2be78d7a3ef23d7fa6ae99425d01910e4",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/25/rollout-2026-10-25T12-31-20-01a1730b-449d-7f81-9446-ab5cbedf18f6.jsonl",
+    "thread_id": "01a1730b-449d-7f81-9446-ab5cbedf18f6"
+  },
+  "issue": "1562",
+  "local_credentials": "absent",
+  "network": "unverified",
+  "passes": 1,
+  "recorded_at": "2026-10-25T13:51:50Z",
+  "red_cases": {
+    "already_covered": 1,
+    "proposed": 10
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/25/rollout-2026-10-25T13-36-18-01a17346-bd48-7230-869b-f6b6e3b1638d.jsonl",
+    "thread_id": "01a17346-bd48-7230-869b-f6b6e3b1638d"
+  },
+  "schema": 1,
+  "scope": "unverified",
+  "status": "ran"
+}

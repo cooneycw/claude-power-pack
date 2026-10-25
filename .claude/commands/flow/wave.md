@@ -952,6 +952,37 @@ Run it *before* any `git fetch --prune`, and see
 [ADR 0006](../../../docs/decisions/0006-worktree-teardown-ownership.md) for why
 teardown is a sweep rather than a step on the merge path.
 
+### Archive and close the wave (#1562)
+
+After the ledger and residuals are recorded, ask workers to release their roles
+and stop their mailbox watchers. Release the orchestrator role last with
+`flow-wave-registry.sh release orchestrator --wave "$WAVE"`, and stop its
+watcher too. Preview retirement:
+
+```bash
+~/.claude/scripts/flow-wave-registry.sh close --wave "$WAVE" --dry-run
+```
+
+Resolve every named live or unknown role and watcher before proceeding. Do not
+use `--force` as routine cleanup; a confirmed watcher always refuses, including
+with force. Show the proposed archive path and bytes in the final wave summary
+and obtain the user's selection to close this wave (or use an already explicit
+instruction to close it). Then run:
+
+```bash
+~/.claude/scripts/flow-wave-registry.sh close --wave "$WAVE"
+```
+
+The default archive is `~/.claude/flow-wave-archive/<wave>-<YYYY-MM-DD>/`, with
+a non-colliding suffix when needed; `--archive DIR` selects another destination.
+The helper archives the complete wave directory and `registry-entry.json`,
+verifies them, removes only this wave's registry key under the registry lock,
+then removes the runtime directory. A copy or verification failure retains the
+directory and registry entry; report the refusal and preserve the diagnostic
+archive. In the final summary, record `FLOW_WAVE: closed`, `FLOW_WAVE_ARCHIVE`
+and `FLOW_WAVE_BYTES_FREED`, or the refusal and outstanding holders. A finished
+issue ledger alone does not mean its runtime wave has been closed.
+
 ## Hazards (confront, do not assume away)
 
 - **One CI agent serializes the wave.** N workers produce N queued Woodpecker
