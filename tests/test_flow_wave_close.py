@@ -209,13 +209,15 @@ def test_close_policy_only_wave_without_directory(tmp_path: Path) -> None:
     assert WAVE not in json.loads((tmp_path / "reg" / "registry.json").read_text())
 
 
-def test_close_refuses_wave_directory_containing_registry(tmp_path: Path) -> None:
-    env = {"FLOW_WAVE_MAILBOX_DIR": str(tmp_path)}
-    assert _run(tmp_path, "policy", "set", "--wave", "reg", "--gate", "review").returncode == 0
-    assert _run(tmp_path, "policy", "set", "--wave", "remaining", "--gate", "review").returncode == 0
-    registry = tmp_path / "reg" / "registry.json"
+@pytest.mark.parametrize("nested", [False, True])
+def test_close_refuses_wave_directory_containing_registry(tmp_path: Path, nested: bool) -> None:
+    reg_dir = tmp_path / "reg" / "nested" if nested else tmp_path / "reg"
+    env = {"FLOW_WAVE_MAILBOX_DIR": str(tmp_path), "FLOW_WAVE_REGISTRY_DIR": str(reg_dir)}
+    assert _run(tmp_path, "policy", "set", "--wave", "reg", "--gate", "review", extra_env=env).returncode == 0
+    assert _run(tmp_path, "policy", "set", "--wave", "remaining", "--gate", "review", extra_env=env).returncode == 0
+    registry = reg_dir / "registry.json"
     before = registry.read_bytes()
-    assert (tmp_path / "reg").resolve() == registry.parent.resolve()
+    assert (tmp_path / "reg").resolve() in (registry.parent.resolve(), *registry.parent.resolve().parents)
     result = _run(tmp_path, "close", "--wave", "reg", "--archive", str(tmp_path / "archive"), extra_env=env)
     assert registry.exists(), "close must not delete the shared registry directory"
     assert registry.read_bytes() == before
