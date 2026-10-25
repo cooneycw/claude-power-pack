@@ -209,6 +209,33 @@ def test_close_policy_only_wave_without_directory(tmp_path: Path) -> None:
     assert WAVE not in json.loads((tmp_path / "reg" / "registry.json").read_text())
 
 
+def test_close_refuses_wave_directory_containing_registry(tmp_path: Path) -> None:
+    env = {"FLOW_WAVE_MAILBOX_DIR": str(tmp_path)}
+    assert _run(tmp_path, "policy", "set", "--wave", "reg", "--gate", "review").returncode == 0
+    assert _run(tmp_path, "policy", "set", "--wave", "remaining", "--gate", "review").returncode == 0
+    registry = tmp_path / "reg" / "registry.json"
+    before = registry.read_bytes()
+    assert (tmp_path / "reg").resolve() == registry.parent.resolve()
+    result = _run(tmp_path, "close", "--wave", "reg", "--archive", str(tmp_path / "archive"), extra_env=env)
+    assert registry.exists(), "close must not delete the shared registry directory"
+    assert registry.read_bytes() == before
+    assert result.returncode != 0
+    assert "FLOW_WAVE: refused" in result.stdout
+    assert not (tmp_path / "archive").exists()
+
+
+def test_close_lock_open_failure_reports_refusal(tmp_path: Path) -> None:
+    wave, env = _seed(tmp_path)
+    lock = tmp_path / "reg" / "registry.lock"
+    lock.unlink()
+    lock.mkdir()
+    assert lock.is_dir(), "registry lock must be impossible to open as a file"
+    result = _close(tmp_path, env)
+    assert result.returncode != 0
+    assert "FLOW_WAVE: refused" in result.stdout
+    _preserved(tmp_path, wave)
+
+
 def test_send_during_close_waits_then_fails_cleanly(tmp_path: Path) -> None:
     """A send queued behind the archive lock cannot report a lost delivery."""
     wave, env = _seed(tmp_path)
