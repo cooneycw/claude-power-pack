@@ -3330,7 +3330,7 @@ def test_1495_uniformity_counts_schema_two_receipts(tmp_path: Path) -> None:
     assert "examined=1 verifiable=0 distinct=1" in proc.stdout
 
 
-# #1557: safe native-flow original streams through the real writer CLI.
+# #1557: safe synthetic rollout streams through the real writer CLI.
 def _fresh_flow_receipt_fixture(
     tmp_path: Path, case: str = "fresh", *, real_worktree: bool = False
 ) -> tuple[Path, list[str], Path]:
@@ -3601,8 +3601,18 @@ def _fresh_flow_receipt_fixture(
         else:
             (neighbor / "f.txt").write_text("dirty neighbor\n")
         script = f"GIT_DIR={neighbor}/.git GIT_WORK_TREE={neighbor} git status --short"
-        executed = subprocess.run(["/bin/bash", "-lc", script], cwd=repo, capture_output=True, text=True, check=False)
-        assert executed.returncode == 0
+        # This is a synthetic -lc event envelope. Obtain its Git output directly
+        # with the parent PATH, including staged CI Git; do not claim that the
+        # recorded login-shell command itself ran. The literal attack remains
+        # unchanged, and target/neighbor twins prove which tree the output reads.
+        target_probe = subprocess.run(["git", "status", "--short"], cwd=repo, capture_output=True, text=True)
+        assert target_probe.returncode == 0, target_probe.stderr
+        probe_environment = dict(os.environ, GIT_DIR=str(neighbor / ".git"), GIT_WORK_TREE=str(neighbor))
+        executed = subprocess.run(["git", "status", "--short"], cwd=repo, env=probe_environment,
+                                  capture_output=True, text=True)
+        assert executed.returncode == 0, executed.stderr
+        assert target_probe.stdout.strip() == ("M f.txt" if case == "clean-neighbor-probe" else "")
+        assert executed.stdout.strip() == ("" if case == "clean-neighbor-probe" else "M f.txt")
         item(clean)["command"][2] = script
         item(clean)["aggregated_output"] = executed.stdout
     elif case == "bounded-sequence":

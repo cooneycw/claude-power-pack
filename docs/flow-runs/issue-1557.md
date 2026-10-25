@@ -384,3 +384,35 @@ Flow-check advisory closure currentness is stale after the helper changed, and i
 runtime axis is unknown. No historical snapshot was rewritten or currentness/
 readiness claimed. Required exact-head CI and root/current-base clearance precede
 merge; host installation/deployment remains unauthorized.
+
+
+### Required CI3345 failure and fixture-only correction
+
+Required exact-head CI on e80940b0 failed in validate:2 failed,8121 passed,
+98 skipped in194.25s. The only failures were clean-neighbor-probe and
+dirty-neighbor-probe. Actual raw stderr for both was `/bin/bash: line 1: git:
+command not found`, exit127 before the parser assertion; root retained the raw
+log at /tmp/cpp-1558-ci3345-raw.log. Merge clearance was suspended.
+
+The CI image has no global Git and stages .ci-bin/git on the parent PATH. The
+fixture's physical login shell discarded that path. The exact pinned validate
+image (sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36)
+with the real ci-stage-git.py reproduced both failures before the correction:
+2 failed,280 deselected. Logs: /tmp/cpp-1557-ci-image-red.log.
+
+Only the two fixture cases changed. Their recorded literal GIT_DIR/GIT_WORK_TREE
+probe text remains identical; the event envelope is explicitly synthetic. Real
+Git runs directly with parent PATH and explicit environment overrides, with plain
+target and redirected neighbor twins asserting their opposite clean/dirty states.
+No claim is made that the recorded login-shell command itself executed. Parser
+refusal must still name unsupported environment overrides. Production parser,
+command grammar, accepted assertions and generated mirrors are unchanged.
+
+In the same pinned image and staged-only-Git setup, both cases now pass:
+2 passed,280 deselected in0.51s; /tmp/cpp-1557-ci-image-green.log. Whole typecheck
+still passes383 files. Root reviewed the test-seam-only correction; no additional
+counter-review or full local8k rerun was needed. Full affected file/binary-guard
+checks and fresh required CI precede renewed merge clearance.
+
+Affected receipt file plus all binary-guard self-tests:424 passed in28.32s after
+the fixture correction. No controls were skipped or acceptance assertions relaxed.
