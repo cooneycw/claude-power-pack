@@ -583,7 +583,7 @@ def _generated_project_env(inherited: dict[str, str], tools_dir: Path) -> dict[s
     clean_env.pop("VIRTUAL_ENV", None)
     path_parts = []
     for part in inherited.get("PATH", "").split(os.pathsep):
-        directory = Path(part)
+        directory = Path(part or os.curdir).absolute()
         # A finish runner and its worktree can each prepend a different venv.
         # Resolve aliases too: neither spelling may leak the runner's tools.
         if any(
@@ -592,17 +592,18 @@ def _generated_project_env(inherited: dict[str, str], tools_dir: Path) -> dict[s
             for candidate in (directory, directory.resolve())
         ):
             continue
-        path_parts.append(part)
-    clean_env["PATH"] = os.pathsep.join(path_parts)
+        path_parts.append(str(directory))
+    # Explicit empty entries retain the parent cwd; removing every entry
+    # must instead leave an empty fixture directory, never implicit cwd.
+    tools_dir = tools_dir.absolute()
+    tools_dir.mkdir()
+    clean_env["PATH"] = os.pathsep.join((str(tools_dir), *path_parts))
     # A required runner may itself be installed in a removed venv. Expose
     # only that executable through a fresh fixture directory, not its peers.
     for tool in ("uv", "make", "git"):
         original = shutil.which(tool, path=inherited.get("PATH"))
         if original and shutil.which(tool, path=clean_env["PATH"]) is None:
-            tools_dir.mkdir(exist_ok=True)
             (tools_dir / tool).symlink_to(Path(original).resolve())
-    if tools_dir.is_dir():
-        clean_env["PATH"] = os.pathsep.join((str(tools_dir), clean_env["PATH"]))
     for tool in ("ruff", "pytest", "mypy"):
         assert shutil.which(tool, path=clean_env["PATH"]) is None, (
             f"negative fixture precondition: {tool!r} must not be reachable via "
@@ -640,28 +641,70 @@ def test_generated_project_env_removes_nested_venvs_and_bin_alias(tmp_path: Path
     clean_env = _generated_project_env(inherited, tmp_path / "required-tools")
     assert "VIRTUAL_ENV" not in clean_env
     assert inherited["VIRTUAL_ENV"] == str(owned)
-    assert clean_env["PATH"] == str(system_bin)
+    assert clean_env["PATH"] == os.pathsep.join((str(tmp_path / "required-tools"), str(system_bin)))
     assert all(shutil.which(tool, path=clean_env["PATH"]) is None for tool in ("ruff", "pytest", "mypy"))
     for tool in ("uv", "make", "git"):
         assert shutil.which(tool, path=clean_env["PATH"]) == str(system_bin / tool)
 
 
-def test_generated_project_env_preserves_uv_from_removed_venv(tmp_path: Path) -> None:
+@pytest.mark.parametrize("required_tool", ("uv", "make", "git"))
+def test_generated_project_env_preserves_runner_from_removed_venv(
+    tmp_path: Path, required_tool: str,
+) -> None:
     shared = tmp_path / "shared"
     (shared / "bin").mkdir(parents=True)
     (shared / "pyvenv.cfg").write_text("home = fixture\n", encoding="utf-8")
-    for tool in ("uv", "ruff"):
+    for tool in (required_tool, "ruff"):
         executable = shared / "bin" / tool
         executable.write_text("fixture", encoding="utf-8")
         executable.chmod(0o755)
     inherited = {"PATH": str(shared / "bin")}
-    assert shutil.which("uv", path=inherited["PATH"]) == str(shared / "bin" / "uv")
+    assert shutil.which(required_tool, path=inherited["PATH"]) == str(shared / "bin" / required_tool)
     assert shutil.which("ruff", path=inherited["PATH"]) == str(shared / "bin" / "ruff")
     tools_dir = tmp_path / "required-tools"
     clean_env = _generated_project_env(inherited, tools_dir)
-    assert shutil.which("uv", path=clean_env["PATH"]) == str(tools_dir / "uv")
-    assert (tools_dir / "uv").resolve() == shared / "bin" / "uv"
+    assert shutil.which(required_tool, path=clean_env["PATH"]) == str(tools_dir / required_tool)
+    assert (tools_dir / required_tool).resolve() == shared / "bin" / required_tool
     assert shutil.which("ruff", path=clean_env["PATH"]) is None
+
+
+@pytest.mark.parametrize("path_entry", ("tools", ""))
+def test_generated_project_env_keeps_relative_lookup_stable_after_chdir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path_entry: str,
+) -> None:
+    runner = tmp_path / "runner"
+    (runner / path_entry).mkdir(parents=True)
+    target = tmp_path / "generated"
+    target.mkdir()
+    executable = runner / path_entry / "make"
+    executable.write_text("fixture", encoding="utf-8")
+    executable.chmod(0o755)
+    monkeypatch.chdir(runner)
+    inherited = {"PATH": path_entry}
+    assert shutil.which("make", path=path_entry or ".") == f"{path_entry or '.'}/make"
+    clean_env = _generated_project_env(inherited, tmp_path / "required-tools")
+    before = shutil.which("make", path=clean_env["PATH"])
+    monkeypatch.chdir(target)
+    assert shutil.which("make", path=clean_env["PATH"]) == before == str(executable)
+
+
+def test_generated_project_env_does_not_add_cwd_when_all_entries_removed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    shared = tmp_path / "shared"
+    (shared / "bin").mkdir(parents=True)
+    (shared / "pyvenv.cfg").write_text("home = fixture\n", encoding="utf-8")
+    ambient = tmp_path / "mypy"
+    ambient.write_text("fixture", encoding="utf-8")
+    ambient.chmod(0o755)
+    monkeypatch.chdir(tmp_path)
+    inherited = {"PATH": str(shared / "bin")}
+    assert shutil.which("mypy", path=inherited["PATH"]) is None
+    assert shutil.which("mypy", path=".") == "./mypy"
+    tools_dir = tmp_path / "required-tools"
+    clean_env = _generated_project_env(inherited, tools_dir)
+    assert clean_env["PATH"] == str(tools_dir)
+    assert shutil.which("mypy", path=clean_env["PATH"]) is None
 
 
 @pytest.mark.parametrize("tool", ("ruff", "pytest", "mypy"))
@@ -676,7 +719,8 @@ def test_generated_project_env_rejects_ambient_tool(tmp_path: Path, tool: str) -
     with pytest.raises(AssertionError, match="negative fixture precondition") as failure:
         _generated_project_env(inherited, tmp_path / "required-tools")
     assert str(executable) in str(failure.value)
-    assert f"scrubbed PATH={str(ambient_bin)!r}" in str(failure.value)
+    expected_path = os.pathsep.join((str(tmp_path / "required-tools"), str(ambient_bin)))
+    assert f"scrubbed PATH={expected_path!r}" in str(failure.value)
 
 
 @pytest.mark.skipif(shutil.which("uv") is None, reason="uv not on PATH")
