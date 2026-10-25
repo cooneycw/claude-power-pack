@@ -162,3 +162,38 @@ Approved gate: /run/user/1000/cc-flow-wave/skillc-complete/gate-1554.md; all-att
 - Full negative-control battery: 84 registered controls discriminate, including all 30 behavioral-eval cases with exact exit assertions for the new required-record/forgery cases and a blind anchor. Binary/fixture guards, docs/links/mirrors/coverage gates and other verify prerequisites pass. The closing report explicitly names host-only, CI-only, runtime and otherwise unexamined instruments; this does not claim they ran locally. Host jq is 1.7 versus CI pin 1.7.1, reported by tools-check; exact-head CI remains required.
 - Default production reader reports INCONCLUSIVE with two planned, retained and result-bearing attempts. The explicit immutable historical freshness CLI reports mapped flow-check current and 73 unmapped skills not evaluated; immutable enrollment reports ADVISORY current, NOT behavioral assurance. Historical/current registry scope and broader unexamined dependencies remain explicit.
 - Fresh origin/main remains fb5883897; no base drift. Lane check: all 34 changed paths inside grant, no contested/ungranted/extra paths. Issue-body drift is clean. Plan helper findings are the explicitly approved CLI control directory and two historical reference additions, plus appended run evidence; original approved Section C is unchanged. Exact-head full CI and separate root merge clearance remain.
+
+
+### Actual receipt after merged1557 dependency
+
+CPP PR1558 merged at eac62c9c6b1e6281b00bd422c862a28f44bf0dd0 after exact-head
+required CI3346 succeeded. The retained clean helper bytes equal that merged Git
+blob9e6a2d0dabdca04f0f7569d997ea0233b5c4f5f8 (SHA256
+8e426660c2f9c435a8f7650292e0be7c82a7ed1d57b7a4c2fd29f441731f5904).
+It generated docs/measurements/counter-model/2026-10-25T005259Z-issue-1554.json
+from the ORIGINAL full implementation thread and original completed final review
+stream, while this worktree was still at the actual reviewed consumer head
+2b8b20c86a71c378ec3130075a885d16f33b7c42. The reviewed-head field was not relabeled
+after integrating a newer base. The original mixed-thread refusal and CI3344
+missing-receipt failure remain historical facts; they were not bypassed or converted
+to a fake skip.
+
+Actual receipt: implementer codex/gpt-6.1-sol; reviewer codex/gpt-6-astra;2 completed
+passes,2 accepted,0 rejected/deferred. Reviewer scope full, network blocked, local
+credentials absent. Initial cleanliness measured-clean from the original probe;
+approval_execution unverified as required by schema3. Production captured-prefix
+audit passed. Git plan/observed stamp joins attest model scope, not authenticated
+workflow approval or complete off-thread authorship.
+
+Red counts use the same explicit report-entry unit as1557:7+7=14 proposals,8 fully
+covered at first proposal, not after-fix credit. Pass1 covered entries1,2,4,7;
+pass2 entries1,3,5,6. Omit the two copy/hash categories (pass1 entry5 andpass2 entry4):
+intact hash/identity assertions exist, but complete pre-proposal mutation execution
+was not retained. Also omit partial later-unreadable twins and the actual reviewer-
+found freshness/neighbor couplings. No tests are added now to earn retroactive credit.
+Root accepted this conservative mapping.
+
+The receipt is committed before current-base integration. The final consumer code
+must remain unchanged apart from this receipt/evidence and reviewed upstream1557.
+Targeted reader/handoff/enrollment checks and full exact-head CI follow; prior
+1556 merge authorization is suspended until fresh root clearance.
