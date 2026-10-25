@@ -1,0 +1,1 @@
+{"version": 2, "kind": "artifact-manifest", "producer": "controller", "attempt_id": "att-2", "trial_id": "t-1", "artifacts": [{"path": "out.txt", "type": "file", "size": 1, "digest": "sha256:aa"}]}

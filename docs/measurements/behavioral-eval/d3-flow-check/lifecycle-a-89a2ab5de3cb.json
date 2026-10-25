@@ -1,0 +1,47 @@
+{
+ "version": 2,
+ "kind": "attempt-lifecycle",
+ "producer": "controller",
+ "attempt_id": "a-89a2ab5de3cb",
+ "trial_id": "t2-live_rangekit-green_2",
+ "disposition": "captured",
+ "stop": {
+  "reason": "exited",
+  "confirmed": true,
+  "exit_code": 0
+ },
+ "events": [
+  {
+   "event": "planned",
+   "at": "2026-10-23T17:59:41.885139Z"
+  },
+  {
+   "event": "dispatched",
+   "at": "2026-10-23T18:01:43.616644Z"
+  },
+  {
+   "event": "started",
+   "at": "2026-10-23T18:01:43.616767Z"
+  },
+  {
+   "event": "stopped",
+   "at": "2026-10-23T18:02:48.531837Z"
+  },
+  {
+   "event": "stop-confirmed",
+   "at": "2026-10-23T18:02:48.531964Z"
+  },
+  {
+   "event": "captured",
+   "at": "2026-10-23T18:02:49.293647Z"
+  },
+  {
+   "event": "cleaned",
+   "at": "2026-10-23T18:02:51.560220Z"
+  }
+ ],
+ "cleanup": {
+  "status": "removed",
+  "failures": []
+ }
+}

@@ -1,0 +1,281 @@
+{
+ "version": 2,
+ "kind": "artifact-manifest",
+ "producer": "controller",
+ "attempt_id": "a-a59b3bcee76f",
+ "trial_id": "t1-live_rangekit-green_1",
+ "captured": "2026-10-23T18:00:56.736504Z",
+ "artifacts": [
+  {
+   "path": ".skillc-canary",
+   "type": "file",
+   "size": 32,
+   "digest": "sha256:6ee9c6b758981c6843c83a4be0ef151fe4e380d63d4fe01f442c4497f22756bb",
+   "mode": "-"
+  },
+  {
+   "path": ".skillc-canary-result",
+   "type": "file",
+   "size": 40,
+   "digest": "sha256:6737e50f8e4e4bd6f8c0c97d4ebc2db8652de7485b741c4596b9c54e6053147d",
+   "mode": "-"
+  },
+  {
+   "path": "repo/CONTRIBUTING.md",
+   "type": "file",
+   "size": 319,
+   "digest": "sha256:9818d6a348c9ec932670c5b6361c7db017cba22d308269da37ef72e02aa5ff8a",
+   "mode": "-"
+  },
+  {
+   "path": "repo/ISSUE.md",
+   "type": "file",
+   "size": 371,
+   "digest": "sha256:40c9b72096633573cb2d0ea457b1220321128861fbe1acf292879519e155190d",
+   "mode": "-"
+  },
+  {
+   "path": "repo/Makefile",
+   "type": "file",
+   "size": 119,
+   "digest": "sha256:333b21c196e6e0f1ad36b5149bef900648d502f897ef9d2ba4db6d1df189f4bb",
+   "mode": "-"
+  },
+  {
+   "path": "repo/pyproject.toml",
+   "type": "file",
+   "size": 73,
+   "digest": "sha256:c356f20805a8d3015fdabe9957c7a2508079d10fea9a3226f119d3b40888f6fa",
+   "mode": "-"
+  },
+  {
+   "path": "repo/report.json",
+   "type": "file",
+   "size": 385,
+   "digest": "sha256:092c6ee77f9f4cca26a21c2a046205f388c348a6ecfc69070fae39a3d03194bd",
+   "mode": "-"
+  },
+  {
+   "path": "repo/tests/test_windows.py",
+   "type": "file",
+   "size": 148,
+   "digest": "sha256:fb9d578e16fbfe97365e781c58505b92ffe8d17c28ae7b7931c3ad75573a1c72",
+   "mode": "-"
+  },
+  {
+   "path": "repo/rangekit/__init__.py",
+   "type": "file",
+   "size": 66,
+   "digest": "sha256:042f3a58dd22980e751b0879acfc5d4b85d62279d8a169395fc2c3a5a9ef3b5b",
+   "mode": "-"
+  },
+  {
+   "path": "repo/rangekit/windows.py",
+   "type": "file",
+   "size": 291,
+   "digest": "sha256:90601fb7e43620fabfcb4bdd7b11b5ee8c6b671a1e7b83f24549cdabd1741bec",
+   "mode": "-"
+  },
+  {
+   "path": "repo/ci/check.py",
+   "type": "file",
+   "size": 1945,
+   "digest": "sha256:8d80d309c97b6dd69b63eb884c9c05700566af8fdf8222b78b028de3b2e79404",
+   "mode": "-"
+  },
+  {
+   "path": "repo/ci/lint.py",
+   "type": "file",
+   "size": 1044,
+   "digest": "sha256:0c11768a3c016e32f8a9c6571f5c8ef5faddde5a3e245e14632c985b0b397378",
+   "mode": "-"
+  },
+  {
+   "path": "repo/ci/typecheck.py",
+   "type": "file",
+   "size": 1301,
+   "digest": "sha256:f1209985b35439965c513138a25fdc527a9153358902efe7f85333d70f931797",
+   "mode": "-"
+  },
+  {
+   "path": ".remote/widget.git/HEAD",
+   "type": "file",
+   "size": 21,
+   "digest": "sha256:28d25bf82af4c0e2b72f50959b2beb859e3e60b9630a5e8c603dad4ddb2b6e80",
+   "mode": "-"
+  },
+  {
+   "path": ".remote/widget.git/config",
+   "type": "file",
+   "size": 66,
+   "digest": "sha256:dd548269913b6adbdfa7049170ea86850050cb762ea3b9c510a0b2986d2113e3",
+   "mode": "-"
+  },
+  {
+   "path": ".remote/widget.git/refs/heads/main",
+   "type": "file",
+   "size": 41,
+   "digest": "sha256:d2a5abbf7290c61f9bdf84d4645c027236ecfa93a36ba97607d59976e09b2b28",
+   "mode": "-"
+  },
+  {
+   "path": ".remote/widget.git/objects/de/4d12f5c1a4534986086ad738f97e46de284f37",
+   "type": "file",
+   "size": 142,
+   "digest": "sha256:29c98e5cbf09663968cf02486b5860e7b0d20bb81c2f77f739e589fe35b63b11",
+   "mode": "-"
+  },
+  {
+   "path": ".remote/widget.git/objects/d5/7738fb6c8a3eac49cf0649fc46ab723564028d",
+   "type": "file",
+   "size": 66,
+   "digest": "sha256:5e1b51d70e6fb4456855ce8c82cda5b23920ae8d2a7c18b02208ab600089d9ce",
+   "mode": "-"
+  },
+  {
+   "path": ".remote/widget.git/objects/c5/8b1e70597ce4ce69c525b8249347516da71a58",
+   "type": "file",
+   "size": 210,
+   "digest": "sha256:81292272479dca2ec37a9c4fdc34c98315bb44e97cc405ff129cf96e334c63b7",
+   "mode": "-"
+  },
+  {
+   "path": ".remote/widget.git/objects/8c/3227f3d8e4f6a87cf147b8b398a8a158a12437",
+   "type": "file",
+   "size": 59,
+   "digest": "sha256:d7ae442535ca0300bdf6a4b507a91e7f6d2ab5410e809db27bc6507fddcdd025",
+   "mode": "-"
+  },
+  {
+   "path": ".remote/widget.git/objects/72/03917587c25b2f09e5c07ed98c170d36658149",
+   "type": "file",
+   "size": 112,
+   "digest": "sha256:338072b0247500a77d5edfc08d94783c309dd68daf6ac600ea508c96fa58ee63",
+   "mode": "-"
+  },
+  {
+   "path": ".remote/widget.git/objects/6e/6fcada518f24cc7f591e781794ddaaa59ab102",
+   "type": "file",
+   "size": 87,
+   "digest": "sha256:e52733184785025fbc436b1bfff49606a4db73e9e06b05c72cbb927f29575723",
+   "mode": "-"
+  },
+  {
+   "path": ".remote/widget.git/objects/5d/c5bc80b63224989cb25576cd2e794b23afa39f",
+   "type": "file",
+   "size": 608,
+   "digest": "sha256:b915c2e5b921aa52e7daa894aaf6cfdb8559976d9707f505d24cd147712238d4",
+   "mode": "-"
+  },
+  {
+   "path": ".remote/widget.git/objects/48/f82f69321be112ae4f242a1202137df2e6bb00",
+   "type": "file",
+   "size": 128,
+   "digest": "sha256:5808f04aa04f0626d53b5da9490547477aa60a50584cabd08daf34ac83652d78",
+   "mode": "-"
+  },
+  {
+   "path": ".remote/widget.git/objects/31/5e69d583dff9aa1cf10f1b3604136234c31db8",
+   "type": "file",
+   "size": 654,
+   "digest": "sha256:bb8e843e7e65f6ccfdf7cbbc017a45af266358ad90e50d576bc0605a4618d196",
+   "mode": "-"
+  },
+  {
+   "path": ".remote/widget.git/objects/28/0cf1af1102770e856bd4d58dffb264d0dff8d5",
+   "type": "file",
+   "size": 219,
+   "digest": "sha256:70b0f946365583fe1352cf47210266d422e17acef12245ed7f935b4ad527706e",
+   "mode": "-"
+  },
+  {
+   "path": ".remote/widget.git/objects/21/88e3de5804131480cbde095aa8411c6125816b",
+   "type": "file",
+   "size": 250,
+   "digest": "sha256:a3f2c1187d57635011be2199e6c33a5e3ee8ca446d2a002887cdda7ad905984b",
+   "mode": "-"
+  },
+  {
+   "path": ".remote/widget.git/objects/21/d515db371ce2ad13784a2b47bb5c15f52c556f",
+   "type": "file",
+   "size": 79,
+   "digest": "sha256:c3e14756243997c1ae0cfd825e0068fee327d29d78865548500bc1e9f2acaeff",
+   "mode": "-"
+  },
+  {
+   "path": ".remote/widget.git/objects/1c/66ee68aad70088df2adc64e3222a989c713f49",
+   "type": "file",
+   "size": 945,
+   "digest": "sha256:aef0e9e4aceafd990104ac667833392bdba7bcf13a7ea4626ea69ed2cf5c3441",
+   "mode": "-"
+  },
+  {
+   "path": ".remote/widget.git/objects/18/8c29b2f92dfb4c1e072978786186671bee827b",
+   "type": "file",
+   "size": 233,
+   "digest": "sha256:0276ceb9a0a0698590d78cd60d59780c4fda45d2a832f50fc224142a87001875",
+   "mode": "-"
+  },
+  {
+   "path": ".remote/widget.git/objects/15/86a105afad7e99208879cd6b66e6b5d39abf54",
+   "type": "file",
+   "size": 82,
+   "digest": "sha256:6fd0ceb8fa395220b56ed680b516c3b273b9c3e32b59da0d59a2d15a1c2f897c",
+   "mode": "-"
+  }
+ ],
+ "exclusions": [
+  {
+   "path": "repo/.git/",
+   "reason": "a credential or VCS directory; never exported"
+  }
+ ],
+ "observations": [
+  {
+   "stream": "client-events",
+   "origin": "client-reported",
+   "coverage": "complete",
+   "attempt_id": "a-a59b3bcee76f",
+   "ref": "objects/e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "size": 0
+  },
+  {
+   "stream": "client-stderr",
+   "origin": "client-reported",
+   "coverage": "complete",
+   "attempt_id": "a-a59b3bcee76f",
+   "ref": "objects/e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "size": 0
+  },
+  {
+   "stream": "egress-proxy-log",
+   "origin": "observed",
+   "coverage": "complete",
+   "attempt_id": "a-a59b3bcee76f",
+   "ref": "objects/f50871603c554ddc2472cbd62fc6fe95e8ec5104966e46289c057fd4477f50b2",
+   "digest": "sha256:f50871603c554ddc2472cbd62fc6fe95e8ec5104966e46289c057fd4477f50b2",
+   "size": 2328
+  },
+  {
+   "stream": "client-transcript",
+   "origin": "client-reported",
+   "attempt_id": "a-a59b3bcee76f",
+   "coverage": "complete",
+   "ref": "objects/55187a3daa51a093b3cab10bce735ab4e262e875138b3f5cf998eadd6b907100",
+   "digest": "sha256:55187a3daa51a093b3cab10bce735ab4e262e875138b3f5cf998eadd6b907100",
+   "size": 170979
+  },
+  {
+   "stream": "process-lifecycle",
+   "origin": "observed",
+   "coverage": "complete",
+   "attempt_id": "a-a59b3bcee76f",
+   "ref": "objects/28885caa6674297bb37fe92f82e61b3d8899168e01a005c8fe20321316306519",
+   "digest": "sha256:28885caa6674297bb37fe92f82e61b3d8899168e01a005c8fe20321316306519",
+   "size": 897
+  }
+ ],
+ "capture_failures": []
+}

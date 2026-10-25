@@ -1,0 +1,1 @@
+CPP #1554 constructed two-attempt negative control. The first result honestly derives INCONCLUSIVE; the later result declares PASS over a mandatory VIOLATED criterion. The reader must inspect both and report forged before interpreting historical outcomes. The unit test repairs the later status to FAIL as its legitimate multi-result twin. No model was run for this fixture.
