@@ -318,3 +318,32 @@ The production audit re-derived the captured source prefix successfully.
 Root independently ran74 focused controls, including default refusal, forged
 approval flag, second-review fixes and cleanup audit, and cleared final source.
 Full make verify will run with explicit PYTEST_WORKERS=4 in the granted slot.
+
+
+### Full gate failure and bounded test dependency accounting
+
+First full make verify at f0e07808 failed:4 failed,8215 passed,1 skipped in341.19s.
+All4 were tests/test_test_binary_guards.py: real tree clean, revision widening,
+timeout widening and report/gate consistency. The new scoped Git dependency made
+the unchanged static one-hop checker charge104 legacy CLI test defs with Git.
+This was a real gate failure, not a baseline flake. The full log is retained at
+/tmp/cpp-1557-make-verify.log.
+
+A local OSError-to-refusal catch was tried and reverted: callers already turn
+missing Git into a clean scoped refusal, and the checker correctly treats a
+re-raised failure as still requiring Git. No missing-Git regression red is claimed.
+Production helper bytes and generated mirrors remain unchanged by this gate fix.
+
+The existing per-def binary-guard allow mechanism now names only104 legacy defs
+that never select --implementer-flow-run; optional Git tracking tolerates absence.
+Actual PATH-empty execution:196 passed,86 explicit Git-dependent skips. Exact
+JUnit/collection comparison proved all130 parametrized cases under those104 defs
+passed, with0 skipped/xfail/failure cases. The mapping is retained at
+/tmp/cpp-1557-no-git-exception-proof.json. Scoped tests keep @requires_git and no
+module skip or checker/source exemption was added. A separate test sets up its
+fixture with Git then launches the real scoped writer with PATH empty: refusal,
+no traceback, no receipt. It is a negative control, not a newly failing regression.
+
+The unchanged checker passes (221 files,5838 tests,1332 guarded,114 explicit
+exemptions including10 pre-existing); all142 binary-guard tests now pass.
+Root reviews this test-only delta before the full four-worker rerun.
