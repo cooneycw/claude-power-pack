@@ -1867,6 +1867,7 @@ def _emit_state_error(runner: DeterministicRunner, error: Exception, json_output
         # persisted tests/coverage/reasons that may have caused serialization to
         # fail. Omit the whole list when unavailable; never invent an empty or
         # partial diagnostic population. Normal result details are unchanged.
+        details: Optional[list[dict[str, Any]]] = None
         try:
             if len(state.step_records) > 256:
                 raise ValueError("stage diagnostics exceed the safe envelope bound")
@@ -1894,8 +1895,8 @@ def _emit_state_error(runner: DeterministicRunner, error: Exception, json_output
         except Exception:
             # This guard is inside the exact-identity failure branch only.
             # Other engine/step exceptions still escape above, unchanged.
-            pass
-        else:
+            details = None
+        if details is not None:
             document["step_details"] = details
     print(json.dumps(document, indent=2))
     return True

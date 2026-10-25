@@ -267,3 +267,34 @@ Root independently reported seven load/save identity controls and five final-
 presence/diagnostic cases passing. This is source-review evidence, not full
 verification or merge clearance. Current-base reconciliation, a truthful receipt,
 full verification and exact-head required CI remain separate requirements.
+
+### Current-base full verification and bounded correction
+
+Merged reviewed CPP1558 main eac62c9c6b1e6281b00bd422c862a28f44bf0dd0 cleanly
+at2a603f2f98f7bc7736afc6ecc76c192b87fa731f; approved product/test/protocol/mirror
+bytes were unchanged. PYTEST_WORKERS=4 make verify exited2:8,263 passed,1 failed,
+1 skipped in343.57s. The failure was
+tests/test_bandit_audit.py::test_the_repositorys_own_tree_passes_the_gate: the
+optional diagnostics except/pass introduced an undispositioned B110 class.
+The full run is a failure, not a fabricated aggregate pass. Raw log SHA256:
+04565a4864ebf6799a3a5f7f7b15112b73f2cfe08d1b0b04d62c4fe32327fe53.
+
+Root approved only the equivalent diagnostic-discard correction: initialize an
+optional details value, set None on unavailable/unsafe diagnostics, and emit only
+when not None. No allowlist, nosec, checker or generated-source change. The actual
+repository Bandit test was red in the original full run and passes after the fix;
+the four existing diagnostic cases are preservation controls, not new regressions.
+All five affected cases pass, lint passes and mypy passes383 source files. The
+remaining make verify prerequisites are running separately; no claim is made
+that the original aggregate exited0, and the full suite is not repeated for this
+semantically equivalent projection correction.
+
+The actual merged-helper receipt writer exited1 for this original run:
+unsupported creation sequence. The original command had a leading read-only
+handoff cat before redirected worktree creation. Its output cannot be promoted
+to an independently measured helper exit by relaxing the parser. No receipt,
+skip, anchor, original clean probe or old approval was fabricated or restamped.
+The original run, two reviews, refusal and full-failure evidence are retained.
+Root directed a read-only archive/handoff proposal for CC to actually materialize
+and deliver under its own model evidence; no archive/new run/extra review has
+yet executed.
