@@ -86,7 +86,8 @@ OWNER_GONE_DETECTION_TIMEOUT = {"watch": 27, "supervise": 30}
 # Drives a real `bash` subprocess; the CI validate container may not ship one,
 # so skip there (CPP core directive, same shape as the other flow suites).
 requires_bash = pytest.mark.skipif(
-    shutil.which("bash") is None, reason="requires bash on PATH"
+    shutil.which("bash") is None or shutil.which("flock") is None,
+    reason="requires bash and flock on PATH (watch arming serializes retirement)",
 )
 
 # The no-/proc watcher lane shells out to `ps`, which the CI validate container
@@ -3846,12 +3847,14 @@ def test_an_empty_process_table_is_still_a_confident_zero(tmp_path: Path) -> Non
 # --------------------------------------------------------------------------- #
 
 
+@requires_bash
 def test_an_ordinary_ack_records_no_channel(tmp_path: Path) -> None:
     _run(tmp_path, "send", "--to", "w1", "--from", "orchestrator", "--wave", "zz", "--body", "x")
     _run(tmp_path, "ack", "--role", "w1", "--wave", "zz", "--revs", "1")
     assert not (tmp_path / "mb" / "zz" / ".ackob-outbox-w1.md").exists()
 
 
+@requires_bash
 def test_answered_elsewhere_records_the_channel(tmp_path: Path) -> None:
     """Half one of #971, and the reason half two is safe.
 
@@ -3868,6 +3871,7 @@ def test_answered_elsewhere_records_the_channel(tmp_path: Path) -> None:
     assert rec.exists() and rec.read_text(encoding="utf-8").strip() == "1"
 
 
+@requires_bash
 def test_escalate_does_not_fire_when_nothing_was_sent(tmp_path: Path) -> None:
     out = _run(tmp_path, "escalate", "--role", "w1", "--wave", "zz")
     assert "FLOW_MAILBOX_ESCALATE=none" in out.stdout, out.stdout
@@ -3877,6 +3881,7 @@ def test_escalate_does_not_fire_when_nothing_was_sent(tmp_path: Path) -> None:
     assert "FLOW_MAILBOX_ESCALATE_EXAMINED=0" in out.stdout, out.stdout
 
 
+@requires_bash
 def test_escalate_does_not_fire_inside_the_bound(tmp_path: Path) -> None:
     _run(tmp_path, "send", "--to", "orchestrator", "--from", "w1", "--wave", "zz", "--body", "recent")
     out = _run(tmp_path, "escalate", "--role", "w1", "--wave", "zz")
@@ -3884,6 +3889,7 @@ def test_escalate_does_not_fire_inside_the_bound(tmp_path: Path) -> None:
     assert "FLOW_MAILBOX_ESCALATE_EXAMINED=1" in out.stdout, out.stdout
 
 
+@requires_bash
 def test_escalate_does_not_fire_when_acknowledged(tmp_path: Path) -> None:
     """Aged well past the bound, but answered. Silence ALONE never escalates."""
     _run(tmp_path, "send", "--to", "orchestrator", "--from", "w1", "--wave", "zz", "--body", "x")
@@ -3893,6 +3899,7 @@ def test_escalate_does_not_fire_when_acknowledged(tmp_path: Path) -> None:
     assert "FLOW_MAILBOX_ESCALATE_EXAMINED=1" in out.stdout, out.stdout
 
 
+@requires_bash
 def test_escalate_fires_once_then_refuses_the_same_rev(tmp_path: Path) -> None:
     """The firing case, and the guard that keeps it from becoming a timer.
 
@@ -4039,6 +4046,7 @@ def test_an_ack_landing_during_the_claim_cancels_the_escalation(tmp_path: Path) 
     assert "FLOW_MAILBOX_ESCALATE=acked" in out, (out, err)
 
 
+@requires_bash
 def test_escalate_refuses_to_guess_an_unresolvable_target(tmp_path: Path) -> None:
     """A send to a plausible neighbour succeeds against the WRONG session.
 

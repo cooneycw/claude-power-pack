@@ -2589,11 +2589,32 @@ case "$VERB" in
       if [ "$FIRST_POLL" -eq 1 ]; then
         # Arming shares close's mailbox lock. A watch queued behind retirement
         # must not stamp or consume the directory that close just removed.
-        { exec 7>>"$LOCK_FILE"; } || { emit absent; exit 9; }
-        flock -w 10 7 || { emit error; exit 3; }
-        if [ "$(path_state "$WAVE_DIR")" != present ] || [ ! -d "$WAVE_DIR" ]; then
+        E_ROLE="$ROLE"
+        if ! { exec 7>>"$LOCK_FILE"; }; then
+          if [ "$(path_state "$WAVE_DIR")" = absent ]; then
+            echo "flow-wave-mailbox: wave '$WAVE' at $WAVE_DIR disappeared before watch '$ROLE' could arm." >&2
+            emit absent
+            exit 9
+          fi
+          echo "flow-wave-mailbox: cannot open $LOCK_FILE for watch '$ROLE'; wave state is not confirmed absent." >&2
+          emit error
+          exit 3
+        fi
+        flock -w 10 7 || {
+          echo "flow-wave-mailbox: cannot acquire $LOCK_FILE for watch '$ROLE'." >&2
+          emit error
+          exit 3
+        }
+        ARM_DIR_STATE="$(path_state "$WAVE_DIR")"
+        if [ "$ARM_DIR_STATE" = absent ]; then
+          echo "flow-wave-mailbox: wave '$WAVE' at $WAVE_DIR disappeared before watch '$ROLE' could arm." >&2
           emit absent
           exit 9
+        fi
+        if [ "$ARM_DIR_STATE" != present ] || [ ! -d "$WAVE_DIR" ]; then
+          echo "flow-wave-mailbox: cannot inspect $WAVE_DIR for watch '$ROLE'; wave state is unknown." >&2
+          emit error
+          exit 3
         fi
         watch_stamp "$ROLE"
         flock -u 7
