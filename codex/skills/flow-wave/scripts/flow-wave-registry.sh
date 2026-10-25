@@ -2378,8 +2378,10 @@ close_wave() {
     emit dry-run
     return 0
   fi
-  # Serialize with mailbox sends/acks too, so their writes cannot land between
-  # the content comparison and directory removal. Watch status stays read-only.
+  # Lock order: registry.lock, then .mailbox.lock. Mailbox send and ack take
+  # only .mailbox.lock; their critical sections never mutate the registry, so
+  # there is no inverse acquisition. This prevents writes between the content
+  # comparison and removal. Watch status takes neither lock and stays read-only.
   if [ -d "$C_WAVE_DIR" ]; then
     if [ -L "$C_WAVE_DIR/.mailbox.lock" ] ||
        { [ -e "$C_WAVE_DIR/.mailbox.lock" ] && [ ! -f "$C_WAVE_DIR/.mailbox.lock" ]; }; then
