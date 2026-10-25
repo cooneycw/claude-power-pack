@@ -1,0 +1,59 @@
+{
+  "branch": "issue-1557-attribute-mixed-model-threads-to-verified-implemen",
+  "counts": {
+    "accepted": 5,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "249a4f8f41e77bde11e97f17c0ef70a1e83d7ce1",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "flow_scope": {
+      "approval_execution": "unverified",
+      "approval_sha256": "47a595d6600b25bd6f6be3465c3bb6f3ea48ce1062db6c33c936faf33509f6f1",
+      "approved_plan_sha256": "da197f2749e610f4c4bed8fc93ebabb5f6366d178ea559f7a71e521877ef22fa",
+      "base": "fb5883897cf37ef62de44b5879748f9bb2423cf2",
+      "branch": "issue-1557-attribute-mixed-model-threads-to-verified-implemen",
+      "clean_probe_sha256": "f5db9c7b49365e7014c4491ebfaf82e4a63821b55b03d2f368f5b0a283aa962a",
+      "creation_line": 2936,
+      "creation_sha256": "e9eaf32b7fc9f90e122e0c71a3189976ba5a06d3a1778d0326e94ee0fc5964e2",
+      "excluded_prefix_models": [
+        "gpt-6-astra",
+        "gpt-6.1-sol"
+      ],
+      "excluded_prefix_records": 404,
+      "head": "249a4f8f41e77bde11e97f17c0ef70a1e83d7ce1",
+      "included_model_contexts": 3,
+      "initial_cleanliness": "measured-clean",
+      "issue": "1557",
+      "kind": "fresh-flow-run",
+      "originating_turn_id": "01a16fcd-d994-7161-9b8f-f255f1e2bc73",
+      "rollout_bytes": 13415749,
+      "rollout_sha256": "c5e465e695a6d9746dbb2286776b82e7aafe7e1f153ef4494e10cb1aeaadb767",
+      "run_id": "af476536136d4620ba2a4717ca6c955e",
+      "snapshot_records": 4259,
+      "start_execution_id": "exec-7fec8527-f067-4124-9578-55a83427b0cd",
+      "start_line": 405,
+      "version": 1
+    },
+    "rollout": "2026/10/24/rollout-2026-10-24T17-12-15-01a16fc1-d163-7310-89d8-1955b4eb7e7e.jsonl",
+    "thread_id": "01a16fc1-d163-7310-89d8-1955b4eb7e7e"
+  },
+  "issue": "1557",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 2,
+  "recorded_at": "2026-10-25T00:04:02Z",
+  "red_cases": {
+    "already_covered": 11,
+    "proposed": 18
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/24/rollout-2026-10-24T19-58-12-01a17059-bf4a-78e3-9113-8c9dfd32d393.jsonl",
+    "thread_id": "01a17059-bf4a-78e3-9113-8c9dfd32d393"
+  },
+  "schema": 3,
+  "scope": "unverified",
+  "status": "ran"
+}
