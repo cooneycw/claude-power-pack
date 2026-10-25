@@ -215,7 +215,12 @@ def test_a_severity_word_that_is_not_a_finding_stays_UNPARSEABLE(text: str) -> N
     assert CM.parse_review(text)[0] == CM.PARSE_UNPARSEABLE
 
 
-def test_parse_exits_non_zero_on_a_format_mismatch() -> None:
+# Per-def "unscoped" exceptions below are legacy CLI cases that never select
+# --implementer-flow-run. Existing optional Git tracking tolerates absence. Every
+# parametrized case for these named defs passed in #1557 with PATH empty (130
+# cases across 104 defs); scoped flows retain explicit @requires_git guards. This is not a
+# module exemption, and new tests do not inherit it.
+def test_parse_exits_non_zero_on_a_format_mismatch() -> None:  # binary-guard: allow unscoped
     """A caller that forgets to read the verdict must still stop."""
     proc = subprocess.run(
         [sys.executable, str(SCRIPT), "parse", str(FIXTURES / "bullet-shape.review.md")],
@@ -351,7 +356,7 @@ def _write_session_receipt(
     )
 
 
-def test_implementer_is_derived_from_the_matching_session(tmp_path: Path) -> None:
+def test_implementer_is_derived_from_the_matching_session(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     model = "claude-sonnet-5"
     session_id, projects_dir = _implementer_session_fixture(tmp_path, model)
     # A suffix match (as used for Codex rollouts) must not match this decoy.
@@ -367,7 +372,7 @@ def test_implementer_is_derived_from_the_matching_session(tmp_path: Path) -> Non
 
 
 @pytest.mark.parametrize("environment_id", [None, ""])
-def test_a_missing_implementer_session_id_is_refused(
+def test_a_missing_implementer_session_id_is_refused(  # binary-guard: allow unscoped
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, environment_id: str | None
 ) -> None:
     monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
@@ -379,7 +384,7 @@ def test_a_missing_implementer_session_id_is_refused(
     assert list(tmp_path.glob("*.json")) == []
 
 
-def test_an_implementer_session_without_a_matching_transcript_is_refused(
+def test_an_implementer_session_without_a_matching_transcript_is_refused(  # binary-guard: allow unscoped
     tmp_path: Path,
 ) -> None:
     session_id, projects_dir = _implementer_session_fixture(tmp_path, "claude-opus-5")
@@ -394,7 +399,7 @@ def test_an_implementer_session_without_a_matching_transcript_is_refused(
     assert list(tmp_path.glob("*.json")) == []
 
 
-def test_multiple_matching_implementer_transcripts_are_refused(tmp_path: Path) -> None:
+def test_multiple_matching_implementer_transcripts_are_refused(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     session_id, projects_dir = _implementer_session_fixture(tmp_path, "claude-opus-5")
     other_project = projects_dir / "another-project"
     other_project.mkdir()
@@ -410,7 +415,9 @@ def test_multiple_matching_implementer_transcripts_are_refused(tmp_path: Path) -
 
 
 @pytest.mark.parametrize("model", ["<synthetic>", "<future-session-placeholder>", "   "])
-def test_non_real_implementer_model_shapes_are_refused(tmp_path: Path, model: str) -> None:
+def test_non_real_implementer_model_shapes_are_refused(  # binary-guard: allow unscoped
+    tmp_path: Path, model: str,
+) -> None:
     # <future-session-placeholder> is deliberately novel, not denylisted in source.
     session_id, projects_dir = _implementer_session_fixture(tmp_path, model)
     proc = _write_session_receipt(
@@ -421,7 +428,9 @@ def test_non_real_implementer_model_shapes_are_refused(tmp_path: Path, model: st
     assert list(tmp_path.glob("*.json")) == []
 
 
-def test_an_implementer_transcript_without_model_entries_is_refused(tmp_path: Path) -> None:
+def test_an_implementer_transcript_without_model_entries_is_refused(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
     session_id, projects_dir = _implementer_session_fixture(tmp_path, "discarded")
     next(projects_dir.rglob("*.jsonl")).write_text(
         '{"type":"user","message":"hello"}\n', encoding="utf-8"
@@ -434,7 +443,7 @@ def test_an_implementer_transcript_without_model_entries_is_refused(tmp_path: Pa
     assert list(tmp_path.glob("*.json")) == []
 
 
-def test_the_latest_real_implementer_model_wins(tmp_path: Path) -> None:
+def test_the_latest_real_implementer_model_wins(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """A genuine mid-session model switch is preserved; sentinels do not erase it.
 
     PRESERVATION, NOT REGRESSION: this passes on both sides of #1109 and is not
@@ -513,7 +522,7 @@ def _overwrite_transcript(projects_dir: Path, *records: object) -> Path:
     return transcript
 
 
-def test_a_nested_tool_argument_cannot_supply_the_implementer(tmp_path: Path) -> None:
+def test_a_nested_tool_argument_cannot_supply_the_implementer(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """The headline defect, through the PUBLIC writer.
 
     Pre-#1109 this recorded `claude/tool-request-model`: the name of a model the
@@ -529,7 +538,7 @@ def test_a_nested_tool_argument_cannot_supply_the_implementer(tmp_path: Path) ->
     assert receipt["implementer"] == "claude/claude-sonnet-5"
 
 
-def test_an_assistant_message_without_a_model_refuses_to_write(tmp_path: Path) -> None:
+def test_an_assistant_message_without_a_model_refuses_to_write(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """Absence must read as absence, not as the nearest available string.
 
     The sharpest half of the defect: deleting the real identity changed NOTHING
@@ -548,7 +557,7 @@ def test_an_assistant_message_without_a_model_refuses_to_write(tmp_path: Path) -
     assert list(tmp_path.glob("*.json")) == []
 
 
-def test_a_non_assistant_record_cannot_supply_the_implementer(tmp_path: Path) -> None:
+def test_a_non_assistant_record_cannot_supply_the_implementer(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """Eligibility is the record's TYPE, not the presence of a model key.
 
     Both decoys sit AFTER the real assistant turn, so a last-match-wins scan
@@ -569,7 +578,7 @@ def test_a_non_assistant_record_cannot_supply_the_implementer(tmp_path: Path) ->
     assert receipt["implementer"] == "claude/claude-opus-5"
 
 
-def test_a_truncated_record_cannot_fabricate_an_implementer(tmp_path: Path) -> None:
+def test_a_truncated_record_cannot_fabricate_an_implementer(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """Malformed input is COUNTED and refused, never pattern-matched.
 
     A transcript truncated mid-write is an ordinary accident, and pre-#1109 it
@@ -625,7 +634,7 @@ def test_the_extractor_answers_the_issue_1109_specimens_directly(tmp_path: Path)
     [chr(0x85), chr(0x2028), chr(0x2029), "\v", "\f",
      chr(0x1C), chr(0x1D), chr(0x1E)],
 )
-def test_message_content_cannot_decide_the_identity(
+def test_message_content_cannot_decide_the_identity(  # binary-guard: allow unscoped
     tmp_path: Path, separator: str
 ) -> None:
     """A separator character inside message TEXT must not move the verdict.
@@ -685,7 +694,7 @@ def test_message_content_cannot_decide_the_identity(
         ),
     ],
 )
-def test_the_refusal_census_separates_empty_from_sentinel_only(
+def test_the_refusal_census_separates_empty_from_sentinel_only(  # binary-guard: allow unscoped
     tmp_path: Path, records: tuple, census: str
 ) -> None:
     """Two empty results that mean different things must not print alike.
@@ -714,7 +723,7 @@ def test_the_refusal_census_separates_empty_from_sentinel_only(
         "a message that is not an object",
     ],
 )
-def test_a_non_string_declared_model_is_not_an_identity(
+def test_a_non_string_declared_model_is_not_an_identity(  # binary-guard: allow unscoped
     tmp_path: Path, message: object
 ) -> None:
     """PRESERVATION of the refusal path under shapes the old scan never saw.
@@ -733,7 +742,9 @@ def test_a_non_string_declared_model_is_not_an_identity(
     assert list(tmp_path.glob("*.json")) == []
 
 
-def test_a_skip_derives_its_implementer_and_keeps_a_null_reviewer(tmp_path: Path) -> None:
+def test_a_skip_derives_its_implementer_and_keeps_a_null_reviewer(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
     session_id, projects_dir = _implementer_session_fixture(tmp_path, "claude-sonnet-5")
     proc = _write_session_receipt(
         tmp_path, projects_dir, "--implementer-session-id", session_id, status="skipped"
@@ -746,7 +757,7 @@ def test_a_skip_derives_its_implementer_and_keeps_a_null_reviewer(tmp_path: Path
 
 
 @pytest.mark.parametrize("missing", ["session-id", "transcript"])
-def test_a_skip_without_a_derivable_implementer_is_refused(
+def test_a_skip_without_a_derivable_implementer_is_refused(  # binary-guard: allow unscoped
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, missing: str
 ) -> None:
     # #1046 accepted skips with a literal identity; #1047 deliberately fails closed.
@@ -763,7 +774,7 @@ def test_a_skip_without_a_derivable_implementer_is_refused(
 
 
 @pytest.mark.parametrize("flag", [None, "", "explicit-session"])
-def test_implementer_session_id_uses_flag_or_environment(
+def test_implementer_session_id_uses_flag_or_environment(  # binary-guard: allow unscoped
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flag: str | None
 ) -> None:
     session_id, projects_dir = _implementer_session_fixture(
@@ -808,7 +819,7 @@ def test_identity_tests_do_not_depend_on_the_launching_agent(ambient: dict[str, 
     assert "failed" not in proc.stdout
 
 
-def test_literal_implementer_flag_is_no_longer_accepted(tmp_path: Path) -> None:
+def test_literal_implementer_flag_is_no_longer_accepted(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     proc = _write_session_receipt(tmp_path, tmp_path / "projects", "--implementer", "claude/opus-5")
     assert proc.returncode == CM.EXIT_USAGE, proc.stderr
     assert "unrecognized arguments: --implementer" in proc.stderr
@@ -863,7 +874,7 @@ def test_projects_override_never_touches_the_real_claude_directory(
     assert receipt["implementer"] == "claude/claude-sonnet-5"
 
 
-def test_a_SKIP_is_recorded_not_omitted(tmp_path: Path) -> None:
+def test_a_SKIP_is_recorded_not_omitted(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """The orchestrator's condition E, and the issue's whole premise.
 
     A skip with a receipt is a state. A skip without one is indistinguishable
@@ -882,7 +893,7 @@ def test_a_SKIP_is_recorded_not_omitted(tmp_path: Path) -> None:
     assert receipt["skip_reason"] == "reviewer-unavailable"
 
 
-def test_a_skip_must_say_WHICH_skip(tmp_path: Path) -> None:
+def test_a_skip_must_say_WHICH_skip(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """"Not installed" and "invoked, returned nothing usable" say different
     things about whether the stage works. A free-text reason would let them
     share a bucket.
@@ -896,7 +907,7 @@ def test_a_skip_must_say_WHICH_skip(tmp_path: Path) -> None:
     assert list(tmp_path.glob("*.json")) == []
 
 
-def test_codex_absent_is_a_DISTINCT_skip_reason(tmp_path: Path) -> None:
+def test_codex_absent_is_a_DISTINCT_skip_reason(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """#1015's green half: the reason the probe exists to record is accepted."""
     session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     proc = _write(tmp_path, "--issue", "1015", "--branch", "b", "--status", "skipped",
@@ -909,7 +920,7 @@ def test_codex_absent_is_a_DISTINCT_skip_reason(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("reason", ["codex-absent", "reviewer-unavailable"])
-def test_a_skip_without_a_reviewer_records_an_explicit_null(
+def test_a_skip_without_a_reviewer_records_an_explicit_null(  # binary-guard: allow unscoped
     tmp_path: Path, reason: str
 ) -> None:
     session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
@@ -920,7 +931,7 @@ def test_a_skip_without_a_reviewer_records_an_explicit_null(
     assert receipt["reviewer"] is None
 
 
-def test_a_skip_naming_a_reviewer_is_REFUSED_at_the_write_path(tmp_path: Path) -> None:
+def test_a_skip_naming_a_reviewer_is_REFUSED_at_the_write_path(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     proc = _write(tmp_path, "--issue", "1046", "--branch", "b", "--status", "skipped",
                   "--reason", "reviewer-unavailable",
@@ -930,7 +941,7 @@ def test_a_skip_naming_a_reviewer_is_REFUSED_at_the_write_path(tmp_path: Path) -
     assert list(tmp_path.glob("*.json")) == []
 
 
-def test_a_skip_naming_a_reviewer_is_REFUSED_on_a_receipt_ALREADY_ON_DISK(
+def test_a_skip_naming_a_reviewer_is_REFUSED_on_a_receipt_ALREADY_ON_DISK(  # binary-guard: allow unscoped
     tmp_path: Path,
 ) -> None:
     session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
@@ -957,7 +968,7 @@ def test_a_skip_naming_a_reviewer_is_REFUSED_on_a_receipt_ALREADY_ON_DISK(
     assert "must not carry a reviewer" in (proc.stdout + proc.stderr)
 
 
-def test_a_ran_write_without_a_reviewer_is_REFUSED(tmp_path: Path) -> None:
+def test_a_ran_write_without_a_reviewer_is_REFUSED(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     proc = _write(tmp_path, "--issue", "1046", "--branch", "b", "--status", "ran", "--scope", "unverified",
                   *_implementer_evidence_args(session_id, projects_dir), "--passes", "1")
@@ -965,7 +976,7 @@ def test_a_ran_write_without_a_reviewer_is_REFUSED(tmp_path: Path) -> None:
     assert list(tmp_path.glob("*.json")) == []
 
 
-def test_reviewer_is_derived_from_the_matching_rollout(tmp_path: Path) -> None:
+def test_reviewer_is_derived_from_the_matching_rollout(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     model = "fixture-review-model"
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, model)
@@ -980,7 +991,7 @@ def test_reviewer_is_derived_from_the_matching_rollout(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("exec_log_kind", ["missing", "unreadable"])
-def test_a_missing_or_unreadable_exec_log_is_refused(
+def test_a_missing_or_unreadable_exec_log_is_refused(  # binary-guard: allow unscoped
     tmp_path: Path, exec_log_kind: str
 ) -> None:
     session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
@@ -999,7 +1010,7 @@ def test_a_missing_or_unreadable_exec_log_is_refused(
     assert list(tmp_path.glob("*.json")) == []
 
 
-def test_an_exec_log_without_a_thread_id_is_refused(tmp_path: Path) -> None:
+def test_an_exec_log_without_a_thread_id_is_refused(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     exec_log = tmp_path / "reviewer-exec.jsonl"
     exec_log.write_text('{"type":"item.completed"}\n', encoding="utf-8")
@@ -1015,7 +1026,7 @@ def test_an_exec_log_without_a_thread_id_is_refused(tmp_path: Path) -> None:
     assert list(tmp_path.glob("*.json")) == []
 
 
-def test_an_exec_log_without_a_matching_rollout_is_refused(tmp_path: Path) -> None:
+def test_an_exec_log_without_a_matching_rollout_is_refused(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     exec_log = tmp_path / "reviewer-exec.jsonl"
     exec_log.write_text(
@@ -1037,7 +1048,7 @@ def test_an_exec_log_without_a_matching_rollout_is_refused(tmp_path: Path) -> No
     assert list(tmp_path.glob("*.json")) == []
 
 
-def test_multiple_matching_reviewer_rollouts_are_refused(tmp_path: Path) -> None:
+def test_multiple_matching_reviewer_rollouts_are_refused(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """The reviewer side of issue #1400's Nit Store finding (comment
     5867878307): `_derive_reviewer_from_exec_log` used to collect every
     rollout file ending in the thread id and silently take `matches[0]`,
@@ -1074,7 +1085,7 @@ def test_multiple_matching_reviewer_rollouts_are_refused(tmp_path: Path) -> None
     assert list(tmp_path.glob("*.json")) == []
 
 
-def test_a_matching_rollout_without_a_model_is_refused(tmp_path: Path) -> None:
+def test_a_matching_rollout_without_a_model_is_refused(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "discarded")
     rollout = next(sessions_dir.rglob("*.jsonl"))
@@ -1089,7 +1100,7 @@ def test_a_matching_rollout_without_a_model_is_refused(tmp_path: Path) -> None:
     assert list(tmp_path.glob("*.json")) == []
 
 
-def test_thread_match_wins_over_a_newer_unrelated_rollout(tmp_path: Path) -> None:
+def test_thread_match_wins_over_a_newer_unrelated_rollout(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     thread_id = "wanted-thread"
     exec_log, sessions_dir = _reviewer_derivation_fixture(
@@ -1115,7 +1126,9 @@ def test_thread_match_wins_over_a_newer_unrelated_rollout(tmp_path: Path) -> Non
 
 
 @pytest.mark.parametrize("removed", ["no-diff", "explicit-opt-out"])
-def test_a_removed_reason_is_REFUSED_at_the_write_path(tmp_path: Path, removed: str) -> None:
+def test_a_removed_reason_is_REFUSED_at_the_write_path(  # binary-guard: allow unscoped
+    tmp_path: Path, removed: str,
+) -> None:
     """#1015's red half at the CLI: the reasons that left the set cannot re-enter
     through the front door."""
     session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
@@ -1127,7 +1140,7 @@ def test_a_removed_reason_is_REFUSED_at_the_write_path(tmp_path: Path, removed: 
 
 
 @pytest.mark.parametrize("removed", ["no-diff", "explicit-opt-out"])
-def test_a_removed_reason_is_REFUSED_on_a_receipt_ALREADY_ON_DISK(
+def test_a_removed_reason_is_REFUSED_on_a_receipt_ALREADY_ON_DISK(  # binary-guard: allow unscoped
     tmp_path: Path, removed: str
 ) -> None:
     """The load-bearing case, and the reason the two above are not enough.
@@ -1262,7 +1275,7 @@ def test_the_PROPERTY_is_enforced_not_just_documented() -> None:
     assert any("must not be the implementing model" in p for p in problems), problems
 
 
-def test_a_DIFFERENT_reviewer_is_accepted(tmp_path: Path) -> None:
+def test_a_DIFFERENT_reviewer_is_accepted(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """The green half: the check must reject the violation and nothing else."""
     session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
@@ -1279,7 +1292,7 @@ def test_a_DIFFERENT_reviewer_is_accepted(tmp_path: Path) -> None:
     assert receipt["red_cases"] == {"proposed": 4, "already_covered": 3}
 
 
-def test_coverage_cannot_exceed_what_was_proposed(tmp_path: Path) -> None:
+def test_coverage_cannot_exceed_what_was_proposed(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """The diversity number is already_covered / proposed, and it is the only
     thing that can tell an excellent reviewer from an uncritical author. A ratio
     above 1 corrupts that silently rather than loudly."""
@@ -1295,7 +1308,7 @@ def test_coverage_cannot_exceed_what_was_proposed(tmp_path: Path) -> None:
     assert "exceeds proposed" in proc.stderr
 
 
-def test_an_EMPTY_receipt_directory_is_unknown_not_ok(tmp_path: Path) -> None:
+def test_an_EMPTY_receipt_directory_is_unknown_not_ok(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """"No receipts" and "no receipts with problems" are different facts.
 
     Conflating them is how 0 of 170 went unnoticed for two months.
@@ -1432,7 +1445,7 @@ def test_a_fenced_FINDING_example_is_still_not_a_finding() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_an_EMPTY_model_identity_is_refused(tmp_path: Path) -> None:
+def test_an_EMPTY_model_identity_is_refused(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """Only the empty-implementer half remains after reviewer derivation.
 
     An empty reviewer can no longer be supplied as free text; failed reviewer
@@ -1450,7 +1463,7 @@ def test_an_EMPTY_model_identity_is_refused(tmp_path: Path) -> None:
     assert list(tmp_path.glob("*.json")) == []
 
 
-def test_two_runs_in_the_same_second_both_SURVIVE(tmp_path: Path) -> None:
+def test_two_runs_in_the_same_second_both_SURVIVE(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """The filename carried a second-resolution timestamp and the issue, and the
     write was not exclusive: two runs for one issue inside the same second both
     "succeeded" and left ONE file. A lost run is invisible in a measurement
@@ -1543,7 +1556,7 @@ def test_a_receipt_outside_any_work_tree_is_UNKNOWN_never_tracked(tmp_path: Path
     assert "COUNTER_MODEL_TRACKED: tracked" not in proc.stdout
 
 
-def test_a_ran_receipt_carries_its_REVIEWER_EVIDENCE(tmp_path: Path) -> None:
+def test_a_ran_receipt_carries_its_REVIEWER_EVIDENCE(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """Item 2. The reviewer string had no pointer anyone could re-check."""
     out_dir = tmp_path / "out"
     proc = _ran_receipt(tmp_path, out_dir, "--branch", "b", "--head", "abc1234")
@@ -1579,7 +1592,7 @@ def test_reviewer_evidence_is_OPTIONAL_but_checked_when_present() -> None:
     assert any("reviewer_evidence" in p for p in CM.validate(skipped))
 
 
-def test_the_reviewer_is_the_TURN_model_not_the_first_model_key(tmp_path: Path) -> None:
+def test_the_reviewer_is_the_TURN_model_not_the_first_model_key(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """Item 3. A real rollout's first `"model"` is the session header's
     base-instructions provenance, not the model that ran the turn. Measured
     equal on three codex-cli 0.158.0 runs; this is the case where they differ."""
@@ -1604,7 +1617,7 @@ def test_the_reviewer_is_the_TURN_model_not_the_first_model_key(tmp_path: Path) 
     assert receipt["reviewer"] == "codex/turn-model"
 
 
-def test_a_rollout_whose_turns_DISAGREE_is_refused(tmp_path: Path) -> None:
+def test_a_rollout_whose_turns_DISAGREE_is_refused(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """Item 3. First-match silently picked one of two models."""
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "discarded")
     rollout = next(sessions_dir.rglob("*.jsonl"))
@@ -1660,7 +1673,9 @@ def test_a_transcript_of_ONLY_sidechain_records_is_refused(tmp_path: Path) -> No
     assert model is None and error is not None
 
 
-def test_a_second_RAN_receipt_for_the_same_branch_and_head_is_REFUSED(tmp_path: Path) -> None:
+def test_a_second_RAN_receipt_for_the_same_branch_and_head_is_REFUSED(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
     """Title item (Nit Store 5749736750). One run wrote a receipt after pass 1
     and another after pass 2; a corpus reader cannot tell that from two runs."""
     out_dir = tmp_path / "out"
@@ -1673,7 +1688,9 @@ def test_a_second_RAN_receipt_for_the_same_branch_and_head_is_REFUSED(tmp_path: 
     assert len(list(out_dir.glob("*.json"))) == 1
 
 
-def test_a_NEW_head_or_an_earlier_SKIP_does_not_block_a_ran_receipt(tmp_path: Path) -> None:
+def test_a_NEW_head_or_an_earlier_SKIP_does_not_block_a_ran_receipt(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
     """The other verdict: a re-review of new commits, and a run after a skip,
     are distinct attempts and both must be recordable."""
     out_dir = tmp_path / "out"
@@ -2023,7 +2040,7 @@ def test_a_head_that_is_not_an_object_name_is_refused() -> None:
     assert any("not a git object name" in p for p in mod.validate(receipt, "bad"))
 
 
-def test_the_committed_skip_reasons_are_readable_by_the_shell_lane() -> None:
+def test_the_committed_skip_reasons_are_readable_by_the_shell_lane() -> None:  # binary-guard: allow unscoped
     """`flow-finish-gate.sh` validates a skip against this output. A second copy of the
     set in shell is the cross-language drift #890/#1147 kept removing, and it fails in
     the dangerous direction: a stale shell copy would accept a retired reason."""
@@ -2061,7 +2078,7 @@ def test_REAL_rollout_shapes_still_resolve() -> None:
     ("abc1234", "abc1234" + "0" * 33),
     ("abc1234" + "0" * 33, "abc1234"),
 ])
-def test_an_ABBREVIATED_and_a_FULL_head_of_one_commit_are_the_same_run(
+def test_an_ABBREVIATED_and_a_FULL_head_of_one_commit_are_the_same_run(  # binary-guard: allow unscoped
     tmp_path: Path, existing: str, incoming: str
 ) -> None:
     """Counter-model review pass 2 of #1269: exact string comparison let the
@@ -2074,7 +2091,9 @@ def test_an_ABBREVIATED_and_a_FULL_head_of_one_commit_are_the_same_run(
     assert len(list(out_dir.glob("*.json"))) == 1
 
 
-def test_a_head_that_merely_SHARES_a_short_prefix_is_a_different_run(tmp_path: Path) -> None:
+def test_a_head_that_merely_SHARES_a_short_prefix_is_a_different_run(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
     out_dir = tmp_path / "out"
     first = _ran_receipt(tmp_path / "a", out_dir, "--branch", "b", "--head", "abc1234")
     assert first.returncode == CM.EXIT_OK, first.stderr
@@ -2139,7 +2158,7 @@ def _delegated_receipt(**overrides: object) -> dict:
     return {k: v for k, v in receipt.items() if v is not ...}
 
 
-def test_a_DELEGATED_review_is_recorded_with_both_sides_DERIVED(tmp_path: Path) -> None:
+def test_a_DELEGATED_review_is_recorded_with_both_sides_DERIVED(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """The issue's own case: Codex implemented, the supervising Claude session
     reviewed. Before #1383 there was no honest way to write this receipt, so the
     finish gate went red on every /codex:auto run. Each identity is derived
@@ -2202,21 +2221,21 @@ def test_a_DEFAULT_direction_receipt_may_not_carry_implementer_evidence() -> Non
     ["--reviewer-exec-log", "x.jsonl"],
     ["--implementer-session-id", "someone"],
 ])
-def test_the_two_directions_cannot_be_MIXED(tmp_path: Path, extra: list[str]) -> None:
+def test_the_two_directions_cannot_be_MIXED(tmp_path: Path, extra: list[str]) -> None:  # binary-guard: allow unscoped
     proc = _write(tmp_path, *_delegated_args(tmp_path, "gpt-a", "opus-b"), *extra)
     assert proc.returncode == CM.EXIT_USAGE
     assert "cannot be combined" in proc.stderr
     assert not list(tmp_path.glob("*.json"))
 
 
-def test_a_reviewer_session_alone_is_not_a_direction(tmp_path: Path) -> None:
+def test_a_reviewer_session_alone_is_not_a_direction(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     proc = _write(tmp_path, "--issue", "1", "--branch", "b", "--status", "ran", "--scope", "unverified",
                   "--reviewer-session-id", "s")
     assert proc.returncode == CM.EXIT_USAGE
     assert "requires --implementer-exec-log" in proc.stderr
 
 
-def test_a_delegated_write_without_a_REVIEWER_session_is_refused(
+def test_a_delegated_write_without_a_REVIEWER_session_is_refused(  # binary-guard: allow unscoped
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
@@ -2228,7 +2247,7 @@ def test_a_delegated_write_without_a_REVIEWER_session_is_refused(
     assert "reviewing Claude session" in proc.stderr
 
 
-def test_a_delegated_write_whose_reviewer_session_has_NO_transcript_is_refused(
+def test_a_delegated_write_whose_reviewer_session_has_NO_transcript_is_refused(  # binary-guard: allow unscoped
     tmp_path: Path,
 ) -> None:
     args = _delegated_args(tmp_path, "gpt-a", "opus-b")
@@ -2239,7 +2258,9 @@ def test_a_delegated_write_whose_reviewer_session_has_NO_transcript_is_refused(
     assert not list(tmp_path.glob("*.json"))
 
 
-def test_a_THREADLESS_implementer_stream_is_refused_not_attributed(tmp_path: Path) -> None:
+def test_a_THREADLESS_implementer_stream_is_refused_not_attributed(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
     """Qwen Code and OpenCode streams name no Codex thread, so there is no
     rollout to read the implementing model from. The writer refuses rather than
     guessing - a receipt naming an implementer nobody can re-derive is worse
@@ -2254,7 +2275,7 @@ def test_a_THREADLESS_implementer_stream_is_refused_not_attributed(tmp_path: Pat
     assert not list(tmp_path.glob("*.json"))
 
 
-def test_a_delegated_SKIP_is_refused_at_the_write_path(tmp_path: Path) -> None:
+def test_a_delegated_SKIP_is_refused_at_the_write_path(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     args = _delegated_args(tmp_path, "gpt-a", "opus-b")
     args[args.index("--status") + 1] = "skipped"
     proc = _write(tmp_path, *args, "--reason", "reviewer-unavailable")
@@ -2295,7 +2316,7 @@ def _rollout_model(tmp_path: Path, *args: str) -> subprocess.CompletedProcess:
     )
 
 
-def test_rollout_model_prints_the_derived_model(tmp_path: Path) -> None:
+def test_rollout_model_prints_the_derived_model(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
     proc = _rollout_model(
         tmp_path, "--exec-log", str(exec_log), "--sessions-dir", str(sessions_dir)
@@ -2305,7 +2326,7 @@ def test_rollout_model_prints_the_derived_model(tmp_path: Path) -> None:
     assert proc.stderr == ""
 
 
-def test_rollout_model_refuses_an_ambiguous_match_and_prints_nothing(
+def test_rollout_model_refuses_an_ambiguous_match_and_prints_nothing(  # binary-guard: allow unscoped
     tmp_path: Path,
 ) -> None:
     """The exact defect this subcommand exists to stop reintroducing: a
@@ -2336,7 +2357,7 @@ def test_rollout_model_refuses_an_ambiguous_match_and_prints_nothing(
     assert "multiple rollouts matching thread_id" in proc.stderr
 
 
-def test_rollout_model_refuses_a_threadless_stream(tmp_path: Path) -> None:
+def test_rollout_model_refuses_a_threadless_stream(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     exec_log = tmp_path / "reviewer-exec.jsonl"
     exec_log.write_text('{"type":"item.completed"}\n', encoding="utf-8")
     sessions_dir = tmp_path / "sessions"
@@ -2374,7 +2395,7 @@ def _command_execution(exit_code: int | None, status: str) -> dict:
     }
 
 
-def test_scope_full_is_recorded_on_the_receipt(tmp_path: Path) -> None:
+def test_scope_full_is_recorded_on_the_receipt(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
     thread_id = "thread-for-counter-model-test"
     exec_log = _exec_log_with_items(
@@ -2399,7 +2420,7 @@ def test_scope_full_is_recorded_on_the_receipt(tmp_path: Path) -> None:
     assert receipt["scope"] == "full"
 
 
-def test_scope_downgrades_from_full_to_unverified_when_nothing_was_examined(
+def test_scope_downgrades_from_full_to_unverified_when_nothing_was_examined(  # binary-guard: allow unscoped
     tmp_path: Path,
 ) -> None:
     """The gap codex gpt-6.1-sol found reviewing this change: `0 failed` of
@@ -2424,7 +2445,7 @@ def test_scope_downgrades_from_full_to_unverified_when_nothing_was_examined(
     assert receipt["scope"] == "unverified"
 
 
-def test_an_in_progress_command_with_no_terminal_outcome_also_downgrades_to_unverified(
+def test_an_in_progress_command_with_no_terminal_outcome_also_downgrades_to_unverified(  # binary-guard: allow unscoped
     tmp_path: Path,
 ) -> None:
     """Counter-model review pass 2 (codex gpt-6.1-sol) raised this as a
@@ -2463,7 +2484,7 @@ def test_an_in_progress_command_with_no_terminal_outcome_also_downgrades_to_unve
     assert receipt["scope"] == "unverified"
 
 
-def test_scope_downgrades_from_full_when_a_sandbox_launch_fails_mid_run(
+def test_scope_downgrades_from_full_when_a_sandbox_launch_fails_mid_run(  # binary-guard: allow unscoped
     tmp_path: Path,
 ) -> None:
     """The exact gap comment 5858478984 names: the pre-run probe cannot see a
@@ -2495,7 +2516,7 @@ def test_scope_downgrades_from_full_when_a_sandbox_launch_fails_mid_run(
     assert receipt["scope"] == "diff-only"
 
 
-def test_an_ordinary_nonzero_exit_does_not_downgrade_scope(tmp_path: Path) -> None:
+def test_an_ordinary_nonzero_exit_does_not_downgrade_scope(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """The precision this re-measurement needs (counter-model review): a
     reviewer's own `grep` that simply finds nothing is ALSO `status: "failed"`
     in codex's stream, but at `exit_code: 1` - a command that ran, not a
@@ -2525,7 +2546,7 @@ def test_an_ordinary_nonzero_exit_does_not_downgrade_scope(tmp_path: Path) -> No
     assert receipt["scope"] == "full"
 
 
-def test_scope_diff_only_is_never_upgraded(tmp_path: Path) -> None:
+def test_scope_diff_only_is_never_upgraded(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """Re-measurement only ever moves `full` toward `diff-only` - a review
     that already declared diff-only is not re-checked for an upgrade."""
     session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
@@ -2542,7 +2563,7 @@ def test_scope_diff_only_is_never_upgraded(tmp_path: Path) -> None:
     assert receipt["scope"] == "diff-only"
 
 
-def test_scope_is_refused_on_a_skip(tmp_path: Path) -> None:
+def test_scope_is_refused_on_a_skip(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
     proc = _write(
         tmp_path, "--issue", "1400", "--branch", "b", "--status", "skipped",
@@ -2553,7 +2574,7 @@ def test_scope_is_refused_on_a_skip(tmp_path: Path) -> None:
     assert "must not carry --scope" in proc.stderr
 
 
-def test_scope_is_refused_on_the_delegated_lane(tmp_path: Path) -> None:
+def test_scope_is_refused_on_the_delegated_lane(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     args = _delegated_args(tmp_path, "gpt-a", "opus-b")
     proc = _write(tmp_path, *args, "--scope", "full")
     assert proc.returncode == CM.EXIT_USAGE
@@ -2598,7 +2619,7 @@ def test_scope_is_refused_at_the_SCHEMA_LEVEL_on_a_delegated_receipt() -> None:
 # where no reviewer sandbox exists to measure.
 # --------------------------------------------------------------------------- #
 
-def test_network_is_recorded_on_the_receipt(tmp_path: Path) -> None:
+def test_network_is_recorded_on_the_receipt(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
     out_dir = tmp_path / "out"
@@ -2613,7 +2634,7 @@ def test_network_is_recorded_on_the_receipt(tmp_path: Path) -> None:
     assert receipt["network"] == "open"
 
 
-def test_network_is_refused_on_a_skip(tmp_path: Path) -> None:
+def test_network_is_refused_on_a_skip(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
     proc = _write(
         tmp_path, "--issue", "1450", "--branch", "b", "--status", "skipped",
@@ -2624,7 +2645,7 @@ def test_network_is_refused_on_a_skip(tmp_path: Path) -> None:
     assert "must not carry --network" in proc.stderr
 
 
-def test_network_is_refused_on_the_delegated_lane(tmp_path: Path) -> None:
+def test_network_is_refused_on_the_delegated_lane(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     args = _delegated_args(tmp_path, "gpt-a", "opus-b")
     proc = _write(tmp_path, *args, "--network", "blocked")
     assert proc.returncode == CM.EXIT_USAGE
@@ -2679,7 +2700,7 @@ def _write_ran(tmp_path: Path, *extra: str) -> subprocess.CompletedProcess:
     )
 
 
-def test_a_requested_third_pass_is_recorded_with_its_reason(tmp_path: Path) -> None:
+def test_a_requested_third_pass_is_recorded_with_its_reason(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """RED before #1400: `passes 3` was refused outright, so #1320's pass 3 and
     its MEDIUM finding could only live in the PR body."""
     reason = "orchestrator requested a pass on the final head after a rebase"
@@ -2690,19 +2711,19 @@ def test_a_requested_third_pass_is_recorded_with_its_reason(tmp_path: Path) -> N
     assert receipt["extra_passes_reason"] == reason
 
 
-def test_a_third_pass_without_a_reason_is_refused(tmp_path: Path) -> None:
+def test_a_third_pass_without_a_reason_is_refused(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     proc = _write_ran(tmp_path, "--passes", "3")
     assert proc.returncode == CM.EXIT_USAGE
     assert "requires --extra-pass-reason" in proc.stderr
 
 
-def test_a_reason_without_an_extra_pass_is_refused(tmp_path: Path) -> None:
+def test_a_reason_without_an_extra_pass_is_refused(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     proc = _write_ran(tmp_path, "--passes", "2", "--extra-pass-reason", "why not")
     assert proc.returncode == CM.EXIT_USAGE
     assert "only for --passes beyond 2" in proc.stderr
 
 
-def test_an_explicitly_empty_reason_is_refused_not_dropped(tmp_path: Path) -> None:
+def test_an_explicitly_empty_reason_is_refused_not_dropped(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """Counter-model review: the guards tested truthiness, so `""` slipped past
     them and was silently dropped instead of refused."""
     (tmp_path / "a").mkdir()
@@ -2738,14 +2759,16 @@ def test_the_schema_enforces_the_cap_and_its_reason_both_ways() -> None:
 # as measured, refused where /codex:code_review did not launch the reviewer.
 # --------------------------------------------------------------------------- #
 
-def test_local_credentials_is_recorded_on_the_receipt(tmp_path: Path) -> None:
+def test_local_credentials_is_recorded_on_the_receipt(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     proc = _write_ran(tmp_path, "--passes", "1", "--local-credentials", "present")
     assert proc.returncode == CM.EXIT_OK, proc.stderr
     receipt = json.loads(next((tmp_path / "out").glob("*.json")).read_text(encoding="utf-8"))
     assert receipt["local_credentials"] == "present"
 
 
-def test_local_credentials_is_refused_on_a_skip_and_the_delegated_lane(tmp_path: Path) -> None:
+def test_local_credentials_is_refused_on_a_skip_and_the_delegated_lane(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
     session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
     proc = _write(
         tmp_path, "--issue", "1459", "--branch", "b", "--status", "skipped",
@@ -2801,7 +2824,9 @@ def _codex_thread(tmp_path: Path, model: str = "gpt-impl") -> tuple[str, Path]:
 SKIP_ARGS = ["--issue", "1453", "--branch", "b", "--status", "skipped", "--reason", "reviewer-unavailable"]
 
 
-def test_a_codex_implementer_can_record_reviewer_unavailable_by_flag(tmp_path: Path) -> None:
+def test_a_codex_implementer_can_record_reviewer_unavailable_by_flag(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
     """RED before #1453: the writer demanded a Claude session id that a Codex
     session does not have, so the documented skip could not be recorded."""
     thread, sessions = _codex_thread(tmp_path)
@@ -2815,7 +2840,7 @@ def test_a_codex_implementer_can_record_reviewer_unavailable_by_flag(tmp_path: P
     assert CM.validate(receipt) == []
 
 
-def test_a_codex_session_alone_is_resolved_from_CODEX_THREAD_ID(tmp_path: Path) -> None:
+def test_a_codex_session_alone_is_resolved_from_CODEX_THREAD_ID(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     thread, sessions = _codex_thread(tmp_path)
     proc = _write_env(tmp_path, {"CODEX_THREAD_ID": thread}, *SKIP_ARGS,
                       "--codex-sessions-dir", str(sessions))
@@ -2824,7 +2849,7 @@ def test_a_codex_session_alone_is_resolved_from_CODEX_THREAD_ID(tmp_path: Path) 
     assert receipt["implementer"] == "codex/gpt-impl"
 
 
-def test_both_session_variables_set_is_refused_naming_the_flags(tmp_path: Path) -> None:
+def test_both_session_variables_set_is_refused_naming_the_flags(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """The COMMON case here (master, #1453): a codex child of a Claude session
     sees both. Neither is picked silently; the refusal names both exact flags."""
     thread, sessions = _codex_thread(tmp_path)
@@ -2837,14 +2862,14 @@ def test_both_session_variables_set_is_refused_naming_the_flags(tmp_path: Path) 
     assert not (tmp_path / "out").exists() or not list((tmp_path / "out").glob("*.json"))
 
 
-def test_an_explicit_flag_resolves_the_ambiguity(tmp_path: Path) -> None:
+def test_an_explicit_flag_resolves_the_ambiguity(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     thread, sessions = _codex_thread(tmp_path)
     proc = _write_env(tmp_path, {"CODEX_THREAD_ID": thread, "CLAUDE_CODE_SESSION_ID": "some-claude"},
                       *SKIP_ARGS, "--implementer-thread-id", thread, "--codex-sessions-dir", str(sessions))
     assert proc.returncode == CM.EXIT_OK, proc.stderr
 
 
-def test_a_codex_thread_with_no_rollout_is_refused(tmp_path: Path) -> None:
+def test_a_codex_thread_with_no_rollout_is_refused(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     _, sessions = _codex_thread(tmp_path)
     proc = _write_env(tmp_path, {}, *SKIP_ARGS, "--implementer-thread-id", "no-such-thread",
                       "--codex-sessions-dir", str(sessions))
@@ -2852,14 +2877,16 @@ def test_a_codex_thread_with_no_rollout_is_refused(tmp_path: Path) -> None:
     assert "no rollout matching thread_id 'no-such-thread'" in proc.stderr
 
 
-def test_both_implementer_flags_is_a_usage_error(tmp_path: Path) -> None:
+def test_both_implementer_flags_is_a_usage_error(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     proc = _write_env(tmp_path, {}, *SKIP_ARGS, "--implementer-thread-id", "t",
                       "--implementer-session-id", "s")
     assert proc.returncode == CM.EXIT_USAGE
     assert "name two different implementers" in proc.stderr
 
 
-def test_a_same_model_review_of_a_codex_implementer_cannot_be_recorded_as_ran(tmp_path: Path) -> None:
+def test_a_same_model_review_of_a_codex_implementer_cannot_be_recorded_as_ran(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
     """#864 c6227202040: a same-model subagent review is NOT cross-model. With
     the implementer and the reviewer both codex/gpt-impl, `ran` is refused; the
     honest record is skipped / reviewer-unavailable."""
@@ -2876,7 +2903,9 @@ def test_a_same_model_review_of_a_codex_implementer_cannot_be_recorded_as_ran(tm
     assert "reviewer and implementer are the same model" in proc.stderr
 
 
-def test_the_delegated_lane_is_untouched_with_both_variables_set(tmp_path: Path) -> None:
+def test_the_delegated_lane_is_untouched_with_both_variables_set(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
     """master on #1453: /codex:auto's delegated write passes --implementer-exec-log
     and never consults the environment, so the ambiguity refusal cannot fire there."""
     args = _delegated_args(tmp_path, "gpt-a", "opus-b")
@@ -2893,7 +2922,9 @@ def test_codex_implementer_evidence_is_accepted_and_checked_by_the_schema() -> N
                for p in CM.validate(dict(base, implementer_evidence={"thread_id": "t"})))
 
 
-def test_a_thread_id_cannot_be_mixed_into_the_delegated_direction(tmp_path: Path) -> None:
+def test_a_thread_id_cannot_be_mixed_into_the_delegated_direction(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
     """Counter-model red case (#1453): --implementer-thread-id names the default
     direction's implementer and must not ride along with --implementer-exec-log."""
     proc = _write(tmp_path, *_delegated_args(tmp_path, "gpt-a", "opus-b"),
@@ -2932,7 +2963,7 @@ def _scoped_write(tmp_path: Path, items: list[dict]) -> tuple[subprocess.Complet
 
 @pytest.mark.parametrize("output", ["cat: other/path: Permission denied\n",
                                     "ls: cannot open directory '/x': Operation not permitted\n"])
-def test_a_read_denied_mid_review_downgrades_full(tmp_path: Path, output: str) -> None:
+def test_a_read_denied_mid_review_downgrades_full(tmp_path: Path, output: str) -> None:  # binary-guard: allow unscoped
     """RED before #1461: only a sandbox that failed to LAUNCH counted, so a
     refused read left the receipt saying the reviewer saw everything."""
     proc, receipt = _scoped_write(tmp_path, [_cmd(0, "ok\n"), _cmd(1, output)])
@@ -2941,7 +2972,7 @@ def test_a_read_denied_mid_review_downgrades_full(tmp_path: Path, output: str) -
     assert "read access could not be verified" in proc.stderr
 
 
-def test_an_ordinary_non_zero_exit_keeps_full(tmp_path: Path) -> None:
+def test_an_ordinary_non_zero_exit_keeps_full(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """A grep with no match streams exactly like a refused cat (exit 1, failed);
     only a denial's TEXT counts - decided on purpose, not overlooked."""
     proc, receipt = _scoped_write(tmp_path, [_cmd(0, "ok\n"), _cmd(1, "0\n")])
@@ -2949,7 +2980,7 @@ def test_an_ordinary_non_zero_exit_keeps_full(tmp_path: Path) -> None:
     assert receipt["scope"] == "full"
 
 
-def test_a_ran_write_without_scope_is_refused(tmp_path: Path) -> None:
+def test_a_ran_write_without_scope_is_refused(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
     proc = _write(tmp_path, _NO_SCOPE_INJECTION, "--issue", "1461", "--branch", "b",
@@ -2981,7 +3012,9 @@ def test_every_committed_receipt_still_validates_under_the_cutoff() -> None:
     assert not [b for b in bad if b[1]], [b for b in bad if b[1]][:3]
 
 
-def test_a_denial_inside_a_command_that_exits_zero_still_downgrades(tmp_path: Path) -> None:
+def test_a_denial_inside_a_command_that_exits_zero_still_downgrades(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
     """Counter-model review: `cat protected/path; echo done` exits 0 because the
     last command succeeded, yet its output carries the denial."""
     proc, receipt = _scoped_write(tmp_path, [_cmd(0, "ok\n"),
@@ -2990,7 +3023,9 @@ def test_a_denial_inside_a_command_that_exits_zero_still_downgrades(tmp_path: Pa
     assert receipt["scope"] == "unverified"
 
 
-def test_file_content_that_says_permission_denied_downgrades_but_says_why(tmp_path: Path) -> None:
+def test_file_content_that_says_permission_denied_downgrades_but_says_why(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
     """Counter-model review pass 2 (LOW): a successful `cat` of code containing
     the phrase is indistinguishable from a refusal. It downgrades - the safe
     direction - and the note says read access could not be VERIFIED, not that
@@ -3055,7 +3090,9 @@ def _receipt(tmp_path: Path) -> dict:
     return json.loads(next((tmp_path / "out").glob("*.json")).read_text(encoding="utf-8"))
 
 
-def test_a_qwen_code_implementer_is_derived_from_its_stream_and_transcript(tmp_path: Path) -> None:
+def test_a_qwen_code_implementer_is_derived_from_its_stream_and_transcript(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
     """RED before #1454: the writer refused any stream with no Codex thread."""
     proc = _delegated_write(tmp_path, QWEN_STREAM, "--qwen-projects-dir", str(_qwen_projects(tmp_path)))
     assert proc.returncode == CM.EXIT_OK, proc.stderr
@@ -3067,7 +3104,9 @@ def test_a_qwen_code_implementer_is_derived_from_its_stream_and_transcript(tmp_p
     assert CM.validate(receipt) == []
 
 
-def test_an_opencode_implementer_is_derived_from_its_stream_and_database(tmp_path: Path) -> None:
+def test_an_opencode_implementer_is_derived_from_its_stream_and_database(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
     proc = _delegated_write(tmp_path, OPENCODE_STREAM, "--opencode-db", str(_opencode_db(tmp_path)))
     assert proc.returncode == CM.EXIT_OK, proc.stderr
     receipt = _receipt(tmp_path)
@@ -3086,14 +3125,16 @@ def test_the_captures_include_a_tool_call_turn() -> None:
     assert '"type":"tool_use"' in opencode.replace(" ", "")
 
 
-def test_a_qwen_transcript_that_disagrees_with_the_stream_is_refused(tmp_path: Path) -> None:
+def test_a_qwen_transcript_that_disagrees_with_the_stream_is_refused(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
     text = QWEN_TRANSCRIPT.read_text(encoding="utf-8").replace('"model":"qwen3-coder:30b"', '"model":"other-model"')
     proc = _delegated_write(tmp_path, QWEN_STREAM, "--qwen-projects-dir", str(_qwen_projects(tmp_path, text)))
     assert proc.returncode == CM.EXIT_INVALID
     assert "disagrees with the transcript" in proc.stderr
 
 
-def test_a_missing_qwen_transcript_is_refused(tmp_path: Path) -> None:
+def test_a_missing_qwen_transcript_is_refused(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     empty = tmp_path / "empty-projects"
     empty.mkdir()
     proc = _delegated_write(tmp_path, QWEN_STREAM, "--qwen-projects-dir", str(empty))
@@ -3101,7 +3142,7 @@ def test_a_missing_qwen_transcript_is_refused(tmp_path: Path) -> None:
     assert "expected one Qwen Code transcript" in proc.stderr
 
 
-def test_opencode_assistant_messages_that_disagree_are_refused(tmp_path: Path) -> None:
+def test_opencode_assistant_messages_that_disagree_are_refused(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     rows = [json.loads(line) for line in OPENCODE_ROWS.read_text(encoding="utf-8").splitlines()]
     for r in rows:
         if r["table"] == "message" and '"role":"assistant"' in r["data"]:
@@ -3112,7 +3153,7 @@ def test_opencode_assistant_messages_that_disagree_are_refused(tmp_path: Path) -
     assert "disagree" in proc.stderr
 
 
-def test_an_opencode_schema_drift_is_refused_never_guessed(tmp_path: Path) -> None:
+def test_an_opencode_schema_drift_is_refused_never_guessed(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """master's condition: a schema that is not the measured one reads as REFUSED."""
     db = _opencode_db(tmp_path, message_columns="id, session_id, payload")
     proc = _delegated_write(tmp_path, OPENCODE_STREAM, "--opencode-db", str(db))
@@ -3120,13 +3161,13 @@ def test_an_opencode_schema_drift_is_refused_never_guessed(tmp_path: Path) -> No
     assert "does not have the measured schema" in proc.stderr
 
 
-def test_a_missing_opencode_database_is_refused(tmp_path: Path) -> None:
+def test_a_missing_opencode_database_is_refused(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     proc = _delegated_write(tmp_path, OPENCODE_STREAM, "--opencode-db", str(tmp_path / "nope.db"))
     assert proc.returncode == CM.EXIT_INVALID
     assert "no OpenCode database" in proc.stderr
 
 
-def test_a_stream_with_two_harness_shapes_is_refused(tmp_path: Path) -> None:
+def test_a_stream_with_two_harness_shapes_is_refused(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     mixed = tmp_path / "mixed.jsonl"
     mixed.write_text(QWEN_STREAM.read_text(encoding="utf-8") + OPENCODE_STREAM.read_text(encoding="utf-8"),
                      encoding="utf-8")
@@ -3148,7 +3189,9 @@ def test_delegated_evidence_is_validated_per_harness() -> None:
 
 # Counter-model review of #1454 (gpt-6.1-sol).
 
-def test_a_damaged_event_line_is_refused_but_a_stderr_line_is_not(tmp_path: Path) -> None:
+def test_a_damaged_event_line_is_refused_but_a_stderr_line_is_not(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
     """The lanes write stderr into the stream (`2>&1`): a plain diagnostic line
     is skipped. A line that looks like an EVENT but does not parse might have
     named another session, so it refuses attribution."""
@@ -3167,7 +3210,7 @@ def test_a_damaged_event_line_is_refused_but_a_stderr_line_is_not(tmp_path: Path
     assert "damaged event line" in proc.stderr
 
 
-def test_a_session_id_is_never_a_glob(tmp_path: Path) -> None:
+def test_a_session_id_is_never_a_glob(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     projects = _qwen_projects(tmp_path)
     globbed = tmp_path / "glob.jsonl"
     globbed.write_text(re.sub(r'"session_id":"[^"]+"', '"session_id":"*"',
@@ -3177,7 +3220,7 @@ def test_a_session_id_is_never_a_glob(tmp_path: Path) -> None:
     assert "not the measured UUID form" in proc.stderr
 
 
-def test_wrong_field_types_are_refused_not_crashed(tmp_path: Path) -> None:
+def test_wrong_field_types_are_refused_not_crashed(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     lines = QWEN_TRANSCRIPT.read_text(encoding="utf-8").splitlines()
     for i, line in enumerate(lines):
         record = json.loads(line)
@@ -3210,7 +3253,9 @@ def test_a_non_string_evidence_harness_is_reported_not_raised(harness: object) -
     assert any("is not a string" in p for p in problems), problems
 
 
-def test_a_damaged_transcript_line_is_refused_whatever_it_starts_with(tmp_path: Path) -> None:
+def test_a_damaged_transcript_line_is_refused_whatever_it_starts_with(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
     """A transcript holds no stderr, so it is parsed strictly: a damaged record
     that does not start with `{` might have named another model."""
     lines = QWEN_TRANSCRIPT.read_text(encoding="utf-8").splitlines()
@@ -3222,7 +3267,7 @@ def test_a_damaged_transcript_line_is_refused_whatever_it_starts_with(tmp_path: 
 
 
 # Issue #1495: bound the review loop and version the extra-pass field.
-def test_1495_cli_ceiling_cannot_be_overridden_by_a_reason(tmp_path: Path) -> None:
+def test_1495_cli_ceiling_cannot_be_overridden_by_a_reason(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     proc = _write_ran(tmp_path, "--passes", "4", "--extra-pass-reason", "requested")
     assert proc.returncode == CM.EXIT_USAGE, proc.stderr
     assert "3" in proc.stderr and "review loop" in proc.stderr
@@ -3239,7 +3284,7 @@ def test_1495_validate_ceiling_cannot_be_overridden_by_a_reason() -> None:
     assert CM.validate(dict(receipt, schema=2, passes=3)) == []
 
 
-def test_1495_writer_strips_reason(tmp_path: Path) -> None:
+def test_1495_writer_strips_reason(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     proc = _write_ran(tmp_path, "--passes", "3", "--extra-pass-reason", "  padded  ")
     assert proc.returncode == CM.EXIT_OK, proc.stderr
     receipt = json.loads(next((tmp_path / "out").glob("*.json")).read_text())
@@ -3247,7 +3292,7 @@ def test_1495_writer_strips_reason(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("passes", [1, 2, 3])
-def test_1495_writer_selects_schema(tmp_path: Path, passes: int) -> None:
+def test_1495_writer_selects_schema(tmp_path: Path, passes: int) -> None:  # binary-guard: allow unscoped
     extra = ("--extra-pass-reason", "requested") if passes == 3 else ()
     proc = _write_ran(tmp_path, "--passes", str(passes), *extra)
     assert proc.returncode == CM.EXIT_OK, proc.stderr
@@ -3283,3 +3328,511 @@ def test_1495_uniformity_counts_schema_two_receipts(tmp_path: Path) -> None:
     )
     assert proc.returncode == 2, proc.stdout + proc.stderr
     assert "examined=1 verifiable=0 distinct=1" in proc.stdout
+
+
+# #1557: safe synthetic rollout streams through the real writer CLI.
+def _fresh_flow_receipt_fixture(
+    tmp_path: Path, case: str = "fresh", *, real_worktree: bool = False
+) -> tuple[Path, list[str], Path]:
+    import hashlib
+
+    assert shutil.which("git") is not None
+    repo = _git_repo(tmp_path)
+
+    def git(*args: str) -> str:
+        return subprocess.check_output(["git", "-C", str(repo), *args], text=True).strip()
+
+    data = json.loads((ROOT / "tests/fixtures/counter-model-flow-scope/cases.json").read_text())
+    issue, branch, run = data["issue"], data["branch"], data["run_id"]
+    base = git("rev-parse", "HEAD")
+    if real_worktree:
+        primary = repo
+        repo = tmp_path / "historical-worktree"
+        subprocess.run(
+            ["git", "-C", str(primary), "worktree", "add", "-qb", branch, str(repo), base],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    else:
+        git("checkout", "-qb", branch)
+    plan = (
+        f"<!-- flow-run n=1 id={run} -->\n## Run 1\n- Run-id: {run}\n"
+        f"- Issue: #{issue}\n- Base SHA: {base}\n- Approval: granted\n"
+        "- Approver: fixture owner\n### Section C - the approved plan\n1. `f.txt` - change fixture\n"
+    )
+    record = repo / f"docs/flow-runs/issue-{issue}.md"
+    record.parent.mkdir(parents=True)
+    record.write_text(plan)
+    (repo / "f.txt").write_text("implemented\n")
+    git("add", "-A")
+    git("commit", "-qm", "implementation")
+    head = git("rev-parse", "HEAD")
+    digest = hashlib.sha256(plan.rstrip("\n").encode()).hexdigest()
+    exec_log, sessions = _reviewer_derivation_fixture(tmp_path, "registration-model")
+    # Original harness events bind each command to the active model turn.
+    original: list[dict] = [
+        {"type": "session_meta", "payload": {"id": "flow-implementer"}},
+        {"type": "turn_context", "payload": {"model": "registration-model", "turn_id": "registration"}},
+        {"type": "turn_context", "payload": {"model": "implementation-model", "turn_id": "implementation"}},
+    ]
+
+    def event(name: str, cmd: str, output: str = "", **overrides) -> dict:
+        item = {
+            "type": "CommandExecution",
+            "id": name,
+            "command": ["/bin/bash", "-lc", cmd],
+            "cwd": repo.as_uri(),
+            "source": "unified_exec_startup",
+            "status": "completed",
+            "aggregated_output": output,
+            "exit_code": 0,
+            **overrides,
+        }
+        return {
+            "type": "event_msg",
+            "payload": {
+                "type": "item_completed",
+                "thread_id": "flow-implementer",
+                "turn_id": "implementation",
+                "item": item,
+            },
+        }
+
+    creation = (
+        f"HEAD is now at {base[:8]} fixture base\nLANE=cross-repo\nWT_CREATED=1\n"
+        f"BRANCH={branch}\nWT_PATH={repo}\nTARGET_REPO={repo}\nWT_BASE=origin/main\n"
+        "FLOW_START_RESOLVE_EXIT=0\nFLOW_START_RESOLVE: ok\n"
+    )
+    start = event("start", f"/safe/flow-start-resolve.sh {issue} fixture --session-cwd /safe", creation)
+    clean = event("clean", "git status --short")
+    mint = event(
+        "mint",
+        f"/safe/flow-plan-record.py reconcile {issue}",
+        f"FLOW_PLAN_RECORD_EXIT=0\nFLOW_PLAN_RUN: minted {run}\n",
+    )
+    begin = event(
+        "begin",
+        f"scripts/flow-plan-record.py begin-run {issue}",
+        f"FLOW_PLAN_RECORD_EXIT=0\nFLOW_PLAN_RECORD: began run 1 ({run}) in docs/flow-runs/issue-{issue}.md\n",
+    )
+    approve = event(
+        "approve",
+        f"python3 <<'PY'\npass\nPY\nscripts/flow-plan-record.py approve {issue}",
+        f"FLOW_PLAN_RECORD_EXIT=0\nFLOW_PLAN_RECORD: baseline stamped {digest}\n",
+    )
+    items = [start, clean, mint, begin, approve]
+
+    def item(row: dict) -> dict:
+        return row["payload"]["item"]
+
+    if case == "reused-creation":
+        item(start)["aggregated_output"] = creation.replace("WT_CREATED=1", "WT_CREATED=0")
+    elif case in ("dirty-first-probe", "later-clean-masking-dirty"):
+        item(clean)["aggregated_output"] = " M f.txt\n"
+        if case == "later-clean-masking-dirty":
+            items.insert(2, event("later-clean", "git status --short"))
+    elif case == "unmeasured":
+        items.remove(clean)
+    elif case == "wrong-branch":
+        item(start)["aggregated_output"] = creation.replace(branch, "issue-9999-other")
+    elif case == "wrong-base":
+        item(start)["aggregated_output"] = creation.replace(base[:8], "f" * 8)
+    elif case == "wrong-run":
+        item(mint)["aggregated_output"] = "FLOW_PLAN_RUN: minted " + "f" * 32 + "\nFLOW_PLAN_RECORD_EXIT=0\n"
+    elif case == "wrong-approval-digest":
+        item(approve)["aggregated_output"] = (
+            "FLOW_PLAN_RECORD: baseline stamped " + "0" * 64 + "\nFLOW_PLAN_RECORD_EXIT=0\n"
+        )
+    elif case == "dynamic-command":
+        item(start)["command"][2] = f"/safe/flow-start-resolve.sh {issue} $REPO"
+    elif case in ("missing-poll", "earlier-pending-start"):
+        if case == "missing-poll":
+            item(start)["exit_code"] = None
+            item(start)["status"] = "in_progress"
+        else:
+            items.insert(
+                0,
+                event("earlier", f"/safe/flow-start-resolve.sh {issue} fixture", exit_code=None, status="in_progress"),
+            )
+    elif case in ("unpaired-callback", "response-only", "uncalled-function", "false-branch", "loop-wrapper"):
+        items[0] = {
+            "type": "response_item",
+            "payload": {"type": "custom_tool_call_output", "call_id": "start", "output": creation},
+        }
+    elif case == "creation-heredoc-data":
+        item(start)["command"][2] = "python3 <<'DATA'\n" + f"/safe/flow-start-resolve.sh {issue} fixture\nDATA"
+    elif case == "mint-heredoc-data":
+        item(mint)["command"][2] = f"python3 <<'DATA'\n/safe/flow-plan-record.py reconcile {issue}\nDATA"
+    elif case == "approval-unclosed-heredoc":
+        item(approve)["command"][2] = f"python3 - <<'PY'\npass\nscripts/flow-plan-record.py approve {issue}"
+    elif case in ("earlier-unpaired-start", "earlier-wrong-branch", "earlier-reused-creation"):
+        earlier = event("earlier", f"/safe/flow-start-resolve.sh {issue} fixture", creation)
+        if case == "earlier-unpaired-start":
+            earlier["payload"]["type"] = "item_started"
+        elif case == "earlier-wrong-branch":
+            item(earlier)["aggregated_output"] = creation.replace(branch, "issue-9999-other")
+        else:
+            item(earlier)["aggregated_output"] = creation.replace("WT_CREATED=1", "WT_CREATED=0")
+        items.insert(0, earlier)
+    elif case in ("missing-begin", "missing-approval"):
+        items.remove(begin if case == "missing-begin" else approve)
+    elif case == "duplicate-creation":
+        items.append(event("duplicate", f"/safe/flow-start-resolve.sh {issue} fixture", creation))
+    elif case == "conflicting-approval":
+        items.append(
+            event(
+                "conflict",
+                f"scripts/flow-plan-record.py approve {issue}",
+                "FLOW_PLAN_RECORD: baseline stamped " + "f" * 64 + "\nFLOW_PLAN_RECORD_EXIT=0\n",
+            )
+        )
+    elif case == "false-exit":
+        item(start)["exit_code"] = False
+    elif case == "unknown-status":
+        item(start)["status"] = "unknown"
+    elif case == "wrong-thread":
+        start["payload"]["thread_id"] = "other"
+    elif case == "wrong-turn":
+        start["payload"]["turn_id"] = "absent"
+    elif case == "duplicate-execution":
+        item(mint)["id"] = "start"
+    elif case == "missing-helper-verdict":
+        item(approve)["aggregated_output"] = f"FLOW_PLAN_RECORD: baseline stamped {digest}\n"
+    elif case == "failed-helper-masked":
+        item(approve)["aggregated_output"] += "FLOW_PLAN_RECORD_EXIT=1\n"
+    elif case == "shell-function":
+        item(start)["command"][2] = f"f() {{\n/safe/flow-start-resolve.sh {issue} fixture\n}}\nprintf harmless"
+    elif case == "quoted-semicolon":
+        item(start)["command"][2] = f"printf '%s' ';' '/safe/flow-start-resolve.sh' '{issue}'"
+    elif case in (
+        "redirected",
+        "redirect-missing-cat",
+        "redirect-wrong-cat",
+        "redirect-dynamic",
+        "redirect-append",
+        "redirect-stderr",
+        "redirect-missing-exit",
+        "redirect-failed-exit",
+        "redirect-reused-diagnostic",
+    ):
+        target = "/tmp/fixture-start"
+        operator = ">>" if case == "redirect-append" else ("2>" if case == "redirect-stderr" else ">")
+        if case == "redirect-dynamic":
+            target = "$SCRATCH"
+        item(start)["command"][2] += f" {operator} {target}\ncat " + (
+            "/tmp/other" if case == "redirect-wrong-cat" else target
+        )
+        if case == "redirect-missing-cat":
+            item(start)["command"][2] = item(start)["command"][2].split("\n")[0]
+        item(start)["aggregated_output"] = f"Preparing worktree (new branch '{branch}')\n" + creation
+        if case == "redirect-missing-exit":
+            item(start)["aggregated_output"] = item(start)["aggregated_output"].replace(
+                "FLOW_START_RESOLVE_EXIT=0\n", ""
+            )
+        elif case == "redirect-failed-exit":
+            item(start)["aggregated_output"] = item(start)["aggregated_output"].replace(
+                "FLOW_START_RESOLVE_EXIT=0", "FLOW_START_RESOLVE_EXIT=1"
+            )
+        elif case == "redirect-reused-diagnostic":
+            item(start)["aggregated_output"] = item(start)["aggregated_output"].replace("new branch", "existing branch")
+    elif case in ("same-turn-repeat", "differing-turn-repeat"):
+        original.append(
+            {
+                "type": "turn_context",
+                "payload": {
+                    "model": "implementation-model" if case == "same-turn-repeat" else "other-model",
+                    "turn_id": "implementation",
+                },
+            }
+        )
+    elif case == "section-drift":
+        record.write_text(plan.replace("change fixture", "change approved plan"))
+        git("add", "-A")
+        git("commit", "-qm", "alter approved plan")
+        head = git("rev-parse", "HEAD")
+    elif case == "unknown-source":
+        item(start)["source"] = "printed"
+    elif case == "missing-exit":
+        item(start).pop("exit_code")
+    elif case == "missing-output":
+        item(start).pop("aggregated_output")
+    elif case == "nonzero-exit":
+        item(start)["exit_code"] = 1
+    elif case == "omitted-nonzero-helper":
+        item(approve)["aggregated_output"] = item(approve)["aggregated_output"].replace("EXIT=0", "EXIT=1")
+    elif case == "unbounded-prep":
+        item(start)["command"][2] = "printf harmless\n" + item(start)["command"][2]
+    elif case == "auxiliary-verdict-spoof":
+        script = (
+            f"/missing/flow-plan-record.py approve {issue}\npython3 <<'PY'\n"
+            f"print('FLOW_PLAN_RECORD_EXIT=0')\nprint('FLOW_PLAN_RECORD: baseline stamped {digest}')\nPY"
+        )
+        executed = subprocess.run(["/bin/bash", "-lc", script], capture_output=True, text=True, check=False)
+        assert executed.returncode == 0
+        item(approve)["command"][2] = script
+        item(approve)["aggregated_output"] = executed.stdout + executed.stderr
+    elif case == "neighbor-begin-hides-dirty":
+        foreign = event(
+            "foreign-begin",
+            f"scripts/flow-plan-record.py begin-run {issue}",
+            f"FLOW_PLAN_RECORD_EXIT=0\nFLOW_PLAN_RECORD: began run 1 ({run}) in docs/flow-runs/issue-{issue}.md\n",
+        )
+        item(foreign)["cwd"] = (repo.parent / "neighbor").as_uri()
+        items.insert(1, foreign)
+        item(clean)["aggregated_output"] = " M f.txt\n"
+    elif case in ("tab-dirty-probe", "quoted-dirty-probe"):
+        item(clean)["command"][2] = "git\tstatus --short" if case == "tab-dirty-probe" else "'git' 'status' '--short'"
+        item(clean)["aggregated_output"] = " M f.txt\n"
+    elif case in ("quoted-redirect-replay", "escaped-redirect-replay"):
+        replay = tmp_path / "replayed-creation"
+        replay.write_text(f"Preparing worktree (new branch '{branch}')\n" + creation)
+        token = "'>'" if case == "quoted-redirect-replay" else "\\>"
+        script = f"/missing/flow-start-resolve.sh {issue} fixture {token} {replay}\ncat {replay}"
+        executed = subprocess.run(["/bin/bash", "-lc", script], capture_output=True, text=True, check=False)
+        assert executed.returncode == 0
+        item(start)["command"][2] = script
+        item(start)["aggregated_output"] = executed.stdout + executed.stderr
+    elif case in ("clean-neighbor-probe", "dirty-neighbor-probe"):
+        neighbor = tmp_path / "neighbor"
+        subprocess.run(["git", "clone", "-q", str(repo), str(neighbor)], check=True, capture_output=True)
+        if case == "clean-neighbor-probe":
+            (repo / "f.txt").write_text("dirty target\n")
+        else:
+            (neighbor / "f.txt").write_text("dirty neighbor\n")
+        script = f"GIT_DIR={neighbor}/.git GIT_WORK_TREE={neighbor} git status --short"
+        # This is a synthetic -lc event envelope. Obtain its Git output directly
+        # with the parent PATH, including staged CI Git; do not claim that the
+        # recorded login-shell command itself ran. The literal attack remains
+        # unchanged, and target/neighbor twins prove which tree the output reads.
+        target_probe = subprocess.run(["git", "status", "--short"], cwd=repo, capture_output=True, text=True)
+        assert target_probe.returncode == 0, target_probe.stderr
+        probe_environment = dict(os.environ, GIT_DIR=str(neighbor / ".git"), GIT_WORK_TREE=str(neighbor))
+        executed = subprocess.run(["git", "status", "--short"], cwd=repo, env=probe_environment,
+                                  capture_output=True, text=True)
+        assert executed.returncode == 0, executed.stderr
+        assert target_probe.stdout.strip() == ("M f.txt" if case == "clean-neighbor-probe" else "")
+        assert executed.stdout.strip() == ("" if case == "clean-neighbor-probe" else "M f.txt")
+        item(clean)["command"][2] = script
+        item(clean)["aggregated_output"] = executed.stdout
+    elif case == "bounded-sequence":
+        item(begin)["command"][2] = "pwd; " + item(begin)["command"][2]
+        item(approve)["command"][2] += "\nuv sync --locked --extra dev > /tmp/fixture-sync 2>&1"
+    original += items
+    if case == "inside-model-switch":
+        original.append({"type": "turn_context", "payload": {"model": "registration-model", "turn_id": "later"}})
+    if case == "missing-model":
+        original = [row for row in original if row["type"] != "turn_context"]
+    rollout = sessions / "2026/09/19/rollout-flow-implementer.jsonl"
+    rollout.write_text(
+        "".join(json.dumps(row) + "\n" for row in original) + ("{\n" if case == "malformed-record" else "")
+    )
+    args = [
+        "--issue",
+        str(issue),
+        "--branch",
+        branch,
+        "--status",
+        "ran",
+        "--scope",
+        "unverified",
+        "--implementer-thread-id",
+        "flow-implementer",
+        "--implementer-flow-run",
+        run,
+        "--reviewer-exec-log",
+        str(exec_log),
+        "--codex-sessions-dir",
+        str(sessions),
+        "--head",
+        head,
+    ]
+    return repo, args, rollout
+
+
+@requires_git
+@pytest.mark.parametrize(
+    "case", ["fresh", "unmeasured", "bounded-sequence", "redirected", "same-turn-repeat", "auxiliary-verdict-spoof"]
+)
+def test_fresh_flow_scope_derives_implementation_without_registration_model(tmp_path: Path, case: str) -> None:
+    repo, args, original = _fresh_flow_receipt_fixture(tmp_path, case)
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "write", "--dir", str(tmp_path / "receipts"), *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    receipt = json.loads(next((tmp_path / "receipts").glob("*.json")).read_text())
+    assert receipt["schema"] == 3
+    assert receipt["implementer_evidence"]["flow_scope"]["initial_cleanliness"] == (
+        "unmeasured" if case == "unmeasured" else "measured-clean"
+    )
+    assert receipt["implementer"] == "codex/implementation-model"
+    assert receipt["reviewer"] == "codex/registration-model"
+    assert receipt["implementer_evidence"]["flow_scope"]["rollout_bytes"] == len(original.read_bytes())
+
+
+_FLOW_CASES = json.loads((ROOT / "tests/fixtures/counter-model-flow-scope/cases.json").read_text())["cases"]
+
+
+@requires_git
+@pytest.mark.parametrize("case", [case for case in _FLOW_CASES if case["expect"] != 0], ids=lambda case: case["id"])
+def test_fresh_flow_scope_refuses_committed_adverse_case(tmp_path: Path, case: dict) -> None:
+    repo, args, _ = _fresh_flow_receipt_fixture(tmp_path, case["id"])
+    destination = tmp_path / "receipts"
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "write", "--dir", str(destination), *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "Traceback" not in proc.stderr
+    if case["id"] in ("clean-neighbor-probe", "dirty-neighbor-probe"):
+        assert "environment" in proc.stderr
+    assert not list(destination.glob("*.json"))
+
+
+@requires_git
+def test_default_attribution_still_refuses_the_same_mixed_original(tmp_path: Path) -> None:
+    repo, args, _ = _fresh_flow_receipt_fixture(tmp_path)
+    index = args.index("--implementer-flow-run")
+    del args[index : index + 2]
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "write", "--dir", str(tmp_path / "receipts"), *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 1
+    assert "turn_context records disagree" in proc.stderr
+    assert not list((tmp_path / "receipts").glob("*.json"))
+
+
+@requires_git
+@pytest.mark.parametrize("mutation", ["none", "append", "alter-prefix", "truncate", "proof-drift"])
+def test_flow_audit_rederives_only_captured_original_prefix(tmp_path: Path, mutation: str) -> None:
+    repo, args, original = _fresh_flow_receipt_fixture(tmp_path)
+    destination = tmp_path / "receipts"
+    written = subprocess.run(
+        [sys.executable, str(SCRIPT), "write", "--dir", str(destination), *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert written.returncode == 0, written.stderr
+    receipt_path = next(destination.glob("*.json"))
+    if mutation == "append":
+        with original.open("a") as stream:
+            stream.write(json.dumps({"type": "turn_context", "payload": {"model": "later-model"}}) + "\n")
+    elif mutation == "alter-prefix":
+        original.write_text(original.read_text().replace("registration-model", "modified-model"))
+    elif mutation == "truncate":
+        original.write_bytes(original.read_bytes()[:-1])
+    elif mutation == "proof-drift":
+        receipt = json.loads(receipt_path.read_text())
+        receipt["implementer_evidence"]["flow_scope"]["creation_sha256"] = "f" * 64
+        receipt_path.write_text(json.dumps(receipt))
+    audited = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "audit-flow",
+            str(receipt_path),
+            "--codex-sessions-dir",
+            args[args.index("--codex-sessions-dir") + 1],
+        ],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert audited.returncode == (0 if mutation in ("none", "append") else 1), audited.stderr
+    assert "Traceback" not in audited.stderr
+
+
+@requires_git
+def test_aggregate_approval_output_never_asserts_verified_execution(tmp_path: Path) -> None:
+    repo, args, original = _fresh_flow_receipt_fixture(tmp_path, "auxiliary-verdict-spoof")
+    destination = tmp_path / "receipts"
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "write", "--dir", str(destination), *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    path = next(destination.glob("*.json"))
+    receipt = json.loads(path.read_text())
+    assert receipt["implementer_evidence"]["flow_scope"]["approval_execution"] == "unverified"
+    receipt["implementer_evidence"]["flow_scope"]["approval_execution"] = "verified"
+    path.write_text(json.dumps(receipt))
+    audit = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "audit-flow",
+            str(path),
+            "--codex-sessions-dir",
+            args[args.index("--codex-sessions-dir") + 1],
+        ],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert audit.returncode == 1
+    assert "approval execution must remain unverified" in audit.stderr
+
+
+@requires_git
+def test_flow_audit_survives_normal_merge_and_worktree_cleanup(tmp_path: Path) -> None:
+    repo, args, _ = _fresh_flow_receipt_fixture(tmp_path, real_worktree=True)
+    destination = repo / "docs/measurements/counter-model"
+    written = subprocess.run(
+        [sys.executable, str(SCRIPT), "write", "--dir", str(destination), *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert written.returncode == 0, written.stderr
+    relative_receipt = next(destination.glob("*.json")).relative_to(repo)
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "commit", "-qm", "record reviewed receipt"], check=True, capture_output=True
+    )
+    primary = tmp_path / "r"
+    branch = args[args.index("--branch") + 1]
+    subprocess.run(
+        ["git", "-C", str(primary), "merge", "--no-ff", "-qm", "merge reviewed flow", branch],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(["git", "-C", str(primary), "worktree", "remove", str(repo)], check=True, capture_output=True)
+    assert not repo.exists()
+    audited = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "audit-flow",
+            str(primary / relative_receipt),
+            "--codex-sessions-dir",
+            args[args.index("--codex-sessions-dir") + 1],
+        ],
+        cwd=primary,
+        capture_output=True,
+        text=True,
+    )
+    assert audited.returncode == 0, audited.stderr
+
+
+@requires_git
+def test_scoped_writer_refuses_when_git_cannot_launch(tmp_path: Path) -> None:
+    repo, args, _ = _fresh_flow_receipt_fixture(tmp_path)
+    destination = tmp_path / "receipts"
+    environment = dict(os.environ, PATH="")
+    written = subprocess.run([sys.executable, str(SCRIPT), "write", "--dir", str(destination), *args],
+                             cwd=repo, env=environment, capture_output=True, text=True)
+    assert written.returncode == 1, written.stderr
+    assert "fresh-flow scope refused" in written.stderr
+    assert "Traceback" not in written.stderr
+    assert not list(destination.glob("*.json"))

@@ -1,0 +1,272 @@
+{
+  "schema": 1,
+  "issue": 1557,
+  "branch": "issue-1557-fixture",
+  "run_id": "0123456789abcdef0123456789abcdef",
+  "cases": [
+    {
+      "id": "fresh",
+      "expect": 0
+    },
+    {
+      "id": "inside-model-switch",
+      "expect": 1
+    },
+    {
+      "id": "reused-creation",
+      "expect": 1
+    },
+    {
+      "id": "dirty-first-probe",
+      "expect": 1
+    },
+    {
+      "id": "wrong-branch",
+      "expect": 1
+    },
+    {
+      "id": "wrong-base",
+      "expect": 1
+    },
+    {
+      "id": "wrong-run",
+      "expect": 1
+    },
+    {
+      "id": "missing-begin",
+      "expect": 1
+    },
+    {
+      "id": "missing-approval",
+      "expect": 1
+    },
+    {
+      "id": "wrong-approval-digest",
+      "expect": 1
+    },
+    {
+      "id": "dynamic-command",
+      "expect": 1
+    },
+    {
+      "id": "missing-poll",
+      "expect": 1
+    },
+    {
+      "id": "duplicate-creation",
+      "expect": 1
+    },
+    {
+      "id": "earlier-reused-creation",
+      "expect": 1
+    },
+    {
+      "id": "conflicting-approval",
+      "expect": 1
+    },
+    {
+      "id": "unpaired-callback",
+      "expect": 1
+    },
+    {
+      "id": "malformed-record",
+      "expect": 1
+    },
+    {
+      "id": "missing-model",
+      "expect": 1
+    },
+    {
+      "id": "uncalled-function",
+      "expect": 1
+    },
+    {
+      "id": "false-branch",
+      "expect": 1
+    },
+    {
+      "id": "loop-wrapper",
+      "expect": 1
+    },
+    {
+      "id": "earlier-pending-start",
+      "expect": 1
+    },
+    {
+      "id": "earlier-unpaired-start",
+      "expect": 1
+    },
+    {
+      "id": "earlier-wrong-branch",
+      "expect": 1
+    },
+    {
+      "id": "creation-heredoc-data",
+      "expect": 1
+    },
+    {
+      "id": "mint-heredoc-data",
+      "expect": 1
+    },
+    {
+      "id": "approval-unclosed-heredoc",
+      "expect": 1
+    },
+    {
+      "id": "response-only",
+      "expect": 1
+    },
+    {
+      "id": "later-clean-masking-dirty",
+      "expect": 1
+    },
+    {
+      "id": "false-exit",
+      "expect": 1
+    },
+    {
+      "id": "unknown-status",
+      "expect": 1
+    },
+    {
+      "id": "wrong-thread",
+      "expect": 1
+    },
+    {
+      "id": "wrong-turn",
+      "expect": 1
+    },
+    {
+      "id": "duplicate-execution",
+      "expect": 1
+    },
+    {
+      "id": "missing-helper-verdict",
+      "expect": 1
+    },
+    {
+      "id": "failed-helper-masked",
+      "expect": 1
+    },
+    {
+      "id": "unmeasured",
+      "expect": 0
+    },
+    {
+      "id": "bounded-sequence",
+      "expect": 0
+    },
+    {
+      "id": "shell-function",
+      "expect": 1
+    },
+    {
+      "id": "quoted-semicolon",
+      "expect": 1
+    },
+    {
+      "id": "redirected",
+      "expect": 0
+    },
+    {
+      "id": "same-turn-repeat",
+      "expect": 0
+    },
+    {
+      "id": "redirect-missing-cat",
+      "expect": 1
+    },
+    {
+      "id": "redirect-wrong-cat",
+      "expect": 1
+    },
+    {
+      "id": "redirect-dynamic",
+      "expect": 1
+    },
+    {
+      "id": "redirect-append",
+      "expect": 1
+    },
+    {
+      "id": "redirect-stderr",
+      "expect": 1
+    },
+    {
+      "id": "redirect-missing-exit",
+      "expect": 1
+    },
+    {
+      "id": "redirect-failed-exit",
+      "expect": 1
+    },
+    {
+      "id": "redirect-reused-diagnostic",
+      "expect": 1
+    },
+    {
+      "id": "differing-turn-repeat",
+      "expect": 1
+    },
+    {
+      "id": "section-drift",
+      "expect": 1
+    },
+    {
+      "id": "unknown-source",
+      "expect": 1
+    },
+    {
+      "id": "missing-exit",
+      "expect": 1
+    },
+    {
+      "id": "missing-output",
+      "expect": 1
+    },
+    {
+      "id": "nonzero-exit",
+      "expect": 1
+    },
+    {
+      "id": "omitted-nonzero-helper",
+      "expect": 1
+    },
+    {
+      "id": "unbounded-prep",
+      "expect": 1
+    },
+    {
+      "id": "auxiliary-verdict-spoof",
+      "expect": 0
+    },
+    {
+      "id": "neighbor-begin-hides-dirty",
+      "expect": 1
+    },
+    {
+      "id": "tab-dirty-probe",
+      "expect": 1
+    },
+    {
+      "id": "quoted-dirty-probe",
+      "expect": 1
+    },
+    {
+      "id": "quoted-redirect-replay",
+      "expect": 1
+    },
+    {
+      "id": "escaped-redirect-replay",
+      "expect": 1
+    },
+    {
+      "id": "clean-neighbor-probe",
+      "expect": 1
+    },
+    {
+      "id": "dirty-neighbor-probe",
+      "expect": 1
+    }
+  ]
+}

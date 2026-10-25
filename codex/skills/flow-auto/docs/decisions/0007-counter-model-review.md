@@ -376,3 +376,74 @@ it is accumulating.
   it. Its anchor is not an earlier revision of the gate but the check that was
   actually run while #1017 was filed: one pointed at `~/.claude/daemon/roster.json`,
   the wrong object, which reports clear on every input.
+
+### Fresh flow model scope for a Codex implementer (#1557)
+
+Whole-thread attribution remains the default: conflicting model contexts refuse.
+An explicit `write --implementer-thread-id THREAD --implementer-flow-run RUN`
+can derive the implementer for a genuinely fresh flow run. This is available only
+for a `ran` receipt in the default review direction; reviewer and delegated
+attribution keep their existing rules. Schema 3 records this additional evidence;
+schemas 1 and 2 retain their contracts. Independence, scope, network and credential
+checks still apply, and enrollment still refuses a missing receipt.
+
+The writer reads the complete, unfiltered original rollout snapshot. Only original
+harness `event_msg` / `item_completed` / `CommandExecution` events from
+`unified_exec_startup`, with completed status, integer exit 0, unique execution
+identity and matching thread/turn identity, establish anchors. Printed tool response
+blocks establish none. A new branch and worktree (`WT_CREATED=1`, fresh/cross-repo
+lane, `WT_BASE=origin/main`) must join the issue, branch, base and current Git head.
+Unique ordered literal reconcile/mint, begin-run and approval commands and observed
+output stamps join the requested run and Git plan. Captured output must contain
+exactly one exit marker per plan helper, all zero, and unique output anchors in
+source order despite stdout/stderr interleaving. This is an observed metadata
+join: aggregate output cannot establish which command emitted a marker.
+
+Schema 3 always records `approval_execution: "unverified"`. It does not certify
+that a workflow approval helper executed successfully or authenticate an approval.
+An auxiliary Python command can print a stamp after a helper fails to launch;
+that input may still establish the model scope, but can never produce a verified
+approval claim. Public validation and source audit refuse a forged verified flag.
+Fresh creation is stricter: its event contains only creation, or the bounded
+stdout-file/cat transport and optional other-issue head-check, with no opaque
+Python or other auxiliary command capable of supplying creation evidence.
+
+The supported shell vocabulary is deliberately bounded: literal standalone helpers
+separated by unquoted newlines/semicolons, closed quoted Python heredocs treated as
+opaque plan data, literal driver/stale checks, registry registration, read-only rg
+pipelines, and the captured uv preparation forms. Functions, conditions, loops,
+eval, substitutions, dynamic helper arguments and unsupported shapes refuse.
+Creation stdout may go to one literal absolute scratch path only when immediately
+followed by `cat` of that path, with the original unique new-branch diagnostic,
+initial HEAD and successful helper exit still captured. The audit never rereads
+that historical scratch file. Append/stderr/dynamic redirection and quoted or escaped operator lookalikes are
+unsupported. Status probes accept no inline environment overrides; flow session
+identity assignments are the only supported helper prefixes.
+
+Model scope begins with the earliest original context matching creation's
+originating turn ID. Repeated contexts for that turn and every subsequent context
+through snapshot EOF must agree. There is no caller-selected line, time, end or
+model window. Evidence includes the source-relative rollout identity, full snapshot
+byte length/hash, context/creation boundaries, exact anchor record digests and
+excluded-prefix model population. Initial cleanliness is `measured-clean` only
+when an original empty Git status probe supports it; otherwise it is `unmeasured`.
+Observed dirty/contradictory state before begin refuses; a later clean probe cannot
+erase it. Fresh creation and driver-clear output alone never mean measured clean.
+
+Approval uses the actual `flow-plan-record.section_digest` semantics: SHA256 of the
+run section with trailing newlines removed. The original stamp must match a unique
+approved run-section prefix in the plan at the reviewed Git head, allowing appended
+execution evidence while preserving the approved bytes. This is not a raw whole-file
+hash and no baseline is restamped to force a match.
+
+`audit-flow RECEIPT --codex-sessions-dir ROOT` re-derives the recorded captured
+prefix and compares all evidence. Later appended transcript records do not change
+what the receipt captured; altered or truncated captured bytes refuse. Run it from a checkout containing the recorded Git objects, including after normal
+merge and worktree cleanup. Historical worktree paths come only from the hash-bound
+creation event and compare as lexically normalized absolute text; the audit never
+resolves or probes the former directory. The writer still binds the actual current
+worktree and branch. Hashes bind bytes, not
+authenticity: these receipts assert visible session/model scope, not complete
+authorship, absence of hook/off-thread changes, or resistance to coordinated
+forgery of both original log and receipt. Original unsupported history remains
+unsupported; do not filter a rollout or fabricate a skip/run to enroll it.
