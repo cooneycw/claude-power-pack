@@ -2362,3 +2362,21 @@ Key failure scenarios:
 - After completion, the user is in the main repo on the main branch
 - For step-by-step control, use individual commands: `/flow-start`, `/flow-eli5`, `/flow-finish`, `/flow-merge`, `/flow-deploy`
 - Friction capture runs throughout (always-on, fail-open, `scripts/friction-log.sh` -> `.claude/friction.jsonl`) and the run offers `/self-improvement-retro` at the end to codify fixes - the grill-me cycle (issue #426)
+
+### Codex fresh-flow attribution (#1557)
+
+If an original Codex thread has earlier unrelated model contexts, the receipt writer
+may use `--implementer-thread-id THREAD --implementer-flow-run RUN` only when the
+original full rollout proves fresh creation, ordered mint/begin/approval, Git plan
+bindings and one model from the originating creation turn through snapshot EOF.
+Use the original review exec stream and actual review counts. The writer records
+schema 3 model-scope evidence, `approval_execution: "unverified"`, and
+measured-clean/unmeasured initial cleanliness; observed dirt
+refuses. Unsupported history remains a refusal. Never filter a rollout, choose a
+manual model window, invent a skip or bypass enrollment. `audit-flow RECEIPT` can
+re-derive the captured original prefix. See ADR 0007 for exact supported commands
+and the limit: byte hashes and visible model scope do not prove all authorship.
+
+The Git plan and observed stamp join identifies the run; it does not verify approval
+helper execution. Aggregate output can contain auxiliary printed stamps. Creation
+has a stricter independent event shape, and every later model context is included.

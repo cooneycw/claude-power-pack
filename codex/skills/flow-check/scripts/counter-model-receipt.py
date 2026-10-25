@@ -38,9 +38,11 @@ open by whoever is deciding, not handed to them by a script nobody controlled.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -50,6 +52,7 @@ SCHEMA = 1
 # A receipt using extra_passes_reason declares this instead (issue #1495).
 # No committed receipt uses that field yet, so no existing file needs a shim.
 SCHEMA_EXTRA_PASSES = 2
+SCHEMA_FLOW_SCOPE = 3
 # The committed corpus tops out at 2 passes. The only historical extra-pass
 # request was #1320, exactly pass 3 (fc87b5b8 / PR #1457); nothing above 3
 # has ever been requested in the repository's review history.
@@ -347,6 +350,677 @@ def rollout_turn_model(rollout_text: str) -> tuple[str | None, str | None]:
     return next(iter(models)), None
 
 
+# Fresh-flow attribution is deliberately a literal native-harness adapter, not
+# a shell interpreter or an authorship detector. Unsupported anchors refuse.
+class FlowScopeRefused(ValueError):
+    pass
+
+
+def _flow_need(condition: bool, reason: str) -> None:
+    if not condition:
+        raise FlowScopeRefused(reason)
+
+
+def _flow_git(*args: str, strip: bool = True) -> str:
+    result = subprocess.run(["git", *args], capture_output=True, text=True, timeout=15)
+    _flow_need(result.returncode == 0, "cannot verify flow scope against Git")
+    return result.stdout.rstrip("\n") if strip else result.stdout
+
+
+def _flow_shell_commands(script: str) -> list[list[str]]:
+    """Split only unquoted literal separators; never execute source text."""
+    # Remove closed quoted heredoc data before lexing command syntax. The body
+    # cannot supply commands, separators, or proof. Only Python may precede an
+    # anchor in a supported sequence; other heredocs remain opaque commands.
+    lines = script.splitlines(keepends=True)
+    rendered = []
+    cursor = 0
+    while cursor < len(lines):
+        line = lines[cursor]
+        match = re.search(r"<<'([A-Za-z_][A-Za-z_0-9]*)'\s*$", line.rstrip("\n"))
+        if match:
+            prefix = line[: match.start()]
+            rendered.append(prefix + "__FLOW_HEREDOC__\n")
+            cursor += 1
+            while cursor < len(lines) and lines[cursor].rstrip("\n") != match.group(1):
+                cursor += 1
+            _flow_need(cursor < len(lines), "unclosed quoted heredoc")
+        else:
+            rendered.append(line)
+        cursor += 1
+    source = "".join(rendered)
+    segments = []
+    current = []
+    quote = None
+    escaped = False
+    for char in source:
+        if escaped:
+            current.append("__FLOW_LITERAL_GT__" if char == ">" else char)
+            escaped = False
+        elif char == "\\" and quote != "'":
+            current.append(char)
+            escaped = True
+        elif quote:
+            current.append("__FLOW_LITERAL_GT__" if char == ">" else char)
+            if char == quote:
+                quote = None
+        elif char in ("'", '"'):
+            current.append(char)
+            quote = char
+        elif char in ";\n":
+            if "".join(current).strip():
+                segments.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+    _flow_need(not quote and not escaped, "unclosed shell quoting")
+    if "".join(current).strip():
+        segments.append("".join(current))
+    result = []
+    for segment in segments:
+        try:
+            lexer = shlex.shlex(segment, posix=True, punctuation_chars="|&;<>(){}")
+            lexer.whitespace_split = True
+            lexer.commenters = ""
+            result.append(list(lexer))
+        except ValueError as exc:
+            raise FlowScopeRefused("unclosed shell quoting") from exc
+    return result
+
+
+def _flow_bounded_sequence(parts: list[list[str]]) -> bool:
+    """The small preparation vocabulary observed in supported original flows."""
+    for original in parts:
+        words = list(original)
+        while words and re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*=.*", words[0]):
+            assignment = words.pop(0)
+            if not assignment.startswith(("CLAUDE_PID=", "CLAUDE_CODE_SESSION_ID=")):
+                return False
+            if "`" in assignment or ("$" in assignment and not assignment.endswith("=$CODEX_THREAD_ID")):
+                return False
+        if not words or any("`" in word or "$" in word for word in words):
+            return False
+        name = Path(words[0]).name
+        if name in (
+            "flow-start-resolve.sh",
+            "flow-plan-record.py",
+            "flow-live-driver-guard.sh",
+            "flow-stale-check.sh",
+            "flow-wave-registry.sh",
+        ):
+            if any(word in ("|", "||", "&&", "&", "(", ")", "{", "}") for word in words):
+                return False
+            continue
+        if words in (["pwd"], ["git", "status", "--short"], ["git", "status", "--porcelain"]):
+            continue
+        if name == "cat" and len(words) == 2 and words[1].startswith("/"):
+            continue
+        if words in (
+            ["python3", "__FLOW_HEREDOC__"],
+            ["python3", "-", "__FLOW_HEREDOC__"],
+            ["uv", "run", "python", "-", "__FLOW_HEREDOC__"],
+        ):
+            continue
+        if (
+            words[:6] == ["uv", "sync", "--locked", "--extra", "dev", ">"]
+            and len(words) == 10
+            and words[6].startswith("/")
+            and words[7:] == ["2", ">&", "1"]
+        ):
+            continue
+        if name == "rg":
+            # Original read-only discovery may pipe rg output through rg/head.
+            stages = []
+            stage = []
+            for word in [*words, "|"]:
+                if word == "|":
+                    if not stage or Path(stage[0]).name not in ("rg", "head"):
+                        return False
+                    stages.append(stage)
+                    stage = []
+                elif word in ("||", "&&", "&", ">", "<", ">>", "(", ")", "{", "}"):
+                    return False
+                else:
+                    stage.append(word)
+            if stages:
+                continue
+        return False
+    return True
+
+
+def _flow_path(value: str, *, audit: bool) -> Path:
+    return Path(os.path.normpath(value)) if audit else Path(value).resolve()
+
+
+def _flow_commands(records: list[dict], branch: str, thread_id: str, root: Path, *, audit: bool = False) -> list[dict]:
+    """Use harness execution events, never printed native response blocks."""
+    issue = branch.split("-", 2)[1]
+    completed = []
+    identities = set()
+    begin_seen = False
+    for number, record in enumerate(records, 1):
+        if record.get("type") != "event_msg":
+            continue
+        payload = record.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        item = payload.get("item")
+        if not isinstance(item, dict):
+            continue
+        candidate_output = item.get("aggregated_output")
+        creation_output = (
+            isinstance(candidate_output, str) and "WT_CREATED=" in candidate_output and branch in candidate_output
+        )
+        if item.get("type") != "CommandExecution":
+            _flow_need(not creation_output, "malformed target execution item")
+            continue
+        argv = item.get("command")
+        output = item.get("aggregated_output")
+        raw = " ".join(argv) if isinstance(argv, list) and all(isinstance(x, str) for x in argv) else ""
+        if not (
+            isinstance(argv, list) and len(argv) == 3 and argv[:2] == ["/bin/bash", "-lc"] and isinstance(argv[2], str)
+        ):
+            _flow_need(
+                not creation_output and "flow-start-resolve.sh" not in raw and "flow-plan-record.py" not in raw,
+                "unsupported execution argv",
+            )
+            continue
+        try:
+            parts = _flow_shell_commands(argv[2])
+        except FlowScopeRefused as exc:
+            _flow_need(
+                not creation_output and "flow-start-resolve.sh" not in raw and "flow-plan-record.py" not in raw,
+                f"{exc} at record {number}",
+            )
+            continue
+        from urllib.parse import unquote, urlparse
+
+        encoded_cwd = item.get("cwd")
+        execution_cwd = (
+            _flow_path(unquote(urlparse(encoded_cwd).path), audit=audit)
+            if isinstance(encoded_cwd, str) and encoded_cwd.startswith("file:///")
+            else None
+        )
+        targets = []
+        all_plan_parts = []
+        for index, words in enumerate(parts):
+            offset = 0
+            while offset < len(words) and re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*=.*", words[offset]):
+                offset += 1
+            words = words[offset:]
+            if not words:
+                continue
+            if Path(words[0]).name == "flow-plan-record.py":
+                all_plan_parts.append((index, words))
+                if (
+                    len(words) != 3
+                    or words[1] not in ("reconcile", "read-issue", "begin-run", "approve")
+                    or words[2] != issue
+                ):
+                    continue
+                _flow_need(not any("$" in x or "`" in x for x in words), "dynamic flow helper arguments")
+                targets.append((index, words))
+            elif Path(words[0]).name == "flow-start-resolve.sh" and len(words) > 1 and words[1] == issue:
+                if ">" in words:
+                    redirect = words.index(">")
+                    _flow_need(
+                        redirect == len(words) - 2
+                        and words[-1].startswith("/")
+                        and not any(
+                            "$" in x or "`" in x or any(c in x for c in "|&;<>()")
+                            for x in words[:redirect] + [words[-1]]
+                        )
+                        and index + 1 < len(parts)
+                        and parts[index + 1] == ["cat", words[-1]],
+                        "unsupported redirected creation transport",
+                    )
+                    words = words[:redirect]
+                    _flow_need(
+                        isinstance(output, str)
+                        and re.findall(r"^Preparing worktree \(new branch '([^']+)'\)$", output, re.M) == [branch],
+                        "redirected creation lacks unique new-branch diagnostic",
+                    )
+                _flow_need(
+                    not any("$" in x or "`" in x or any(c in x for c in "|&;<>()") for x in words),
+                    "dynamic flow helper arguments",
+                )
+                _flow_need(
+                    len(words) == 3 or len(words) == 5 and words[3] == "--session-cwd" and words[4].startswith("/"),
+                    "unsupported creation arguments or redirection",
+                )
+                # Creation must be independently attributable: no opaque
+                # auxiliary command may manufacture fresh-worktree evidence.
+                trailing = parts[index + 1 :]
+                redirected = ">" in parts[index]
+                if redirected:
+                    _flow_need(index == 0 and len(trailing) in (1, 2), "unsupported creation sequence")
+                    if len(trailing) == 2:
+                        other = trailing[1]
+                        _flow_need(
+                            len(other) == 3
+                            and Path(other[0]).name == "flow-plan-record.py"
+                            and other[1] == "head-check"
+                            and other[2].isdigit()
+                            and other[2] != issue,
+                            "unsupported trailing creation command",
+                        )
+                else:
+                    _flow_need(len(parts) == 1, "creation must have no auxiliary commands")
+                targets.append((index, words))
+            elif words in (["git", "status", "--short"], ["git", "status", "--porcelain"]):
+                _flow_need(offset == 0, "environment overrides on Git status are unsupported")
+                if not begin_seen and execution_cwd == root:
+                    targets.append((index, words))
+        if execution_cwd == root and any(
+            Path(words[0]).name == "flow-plan-record.py" and words[1] == "begin-run" for _, words in targets
+        ):
+            begin_seen = True
+        if not targets or not any(
+            Path(words[0]).name != "flow-plan-record.py" or words[1] != "read-issue" for _, words in targets
+        ):
+            continue
+        _flow_need(
+            not any(
+                word
+                in (
+                    "if",
+                    "then",
+                    "else",
+                    "fi",
+                    "for",
+                    "while",
+                    "until",
+                    "do",
+                    "done",
+                    "case",
+                    "esac",
+                    "function",
+                    "eval",
+                    "source",
+                    ".",
+                    "{",
+                    "}",
+                    "()",
+                    "(",
+                    ")",
+                )
+                for words in parts
+                for word in words
+            ),
+            "unsupported shell control structure",
+        )
+        _flow_need(_flow_bounded_sequence(parts), "unsupported whole shell sequence")
+        identity = item.get("id")
+        _flow_need(
+            isinstance(identity, str) and bool(identity) and identity not in identities,
+            "duplicate or absent execution identity",
+        )
+        identities.add(identity)
+        valid_execution = (
+            payload.get("type") == "item_completed"
+            and payload.get("thread_id") == thread_id
+            and isinstance(payload.get("turn_id"), str)
+            and item.get("source") == "unified_exec_startup"
+            and item.get("status") == "completed"
+            and type(item.get("exit_code")) is int
+            and item["exit_code"] == 0
+            and isinstance(output, str)
+        )
+        cwd = item.get("cwd")
+        _flow_need(isinstance(cwd, str) and cwd.startswith("file:///"), "unsupported execution cwd")
+        from urllib.parse import unquote, urlparse
+
+        cwd = unquote(urlparse(cwd).path)
+        verdicts = list(re.finditer(r"^FLOW_PLAN_RECORD_EXIT=(.*)$", output or "", re.M))
+        if all_plan_parts:
+            _flow_need(
+                len(verdicts) == len(all_plan_parts) and all(v.group(1) == "0" for v in verdicts),
+                f"missing or conflicting per-helper verdicts at record {number}",
+            )
+        for index, words in targets:
+            helper_output = output
+            completed.append(
+                {
+                    "argv": words,
+                    "cwd": cwd,
+                    "line": number,
+                    "index": index,
+                    "call_id": identity,
+                    "turn_id": payload["turn_id"],
+                    "output": helper_output,
+                    "exit_code": item.get("exit_code"),
+                    "valid_execution": valid_execution,
+                }
+            )
+    return completed
+
+
+def _flow_fields(text: str) -> dict[str, str]:
+    fields = {}
+    for line in text.split("\n"):
+        match = re.fullmatch(r"([A-Z][A-Z_]+)=(.*)", line)
+        if match:
+            _flow_need(match.group(1) not in fields, "duplicate flow creation field")
+            fields[match.group(1)] = match.group(2)
+    return fields
+
+
+_FLOW_PROOF_KEYS = frozenset(
+    {
+        "version",
+        "kind",
+        "issue",
+        "run_id",
+        "branch",
+        "base",
+        "head",
+        "approved_plan_sha256",
+        "rollout_sha256",
+        "rollout_bytes",
+        "snapshot_records",
+        "start_line",
+        "creation_line",
+        "start_execution_id",
+        "creation_sha256",
+        "approval_sha256",
+        "clean_probe_sha256",
+        "included_model_contexts",
+        "excluded_prefix_records",
+        "excluded_prefix_models",
+        "initial_cleanliness",
+        "originating_turn_id",
+        "approval_execution",
+    }
+)
+
+
+def _flow_proof_problems(proof: object, receipt: dict) -> list[str]:
+    """Strict public shape/binding checks; private source re-derivation is separate."""
+    if not isinstance(proof, dict) or set(proof) != _FLOW_PROOF_KEYS:
+        return ["flow_scope has missing or unknown fields"]
+    problems = []
+    if proof["approval_execution"] != "unverified":
+        problems.append("flow_scope approval execution must remain unverified")
+    if type(proof["version"]) is not int or proof["version"] != 1 or proof["kind"] != "fresh-flow-run":
+        problems.append("flow_scope has unsupported version/kind")
+    for key, expected in (
+        ("issue", str(receipt.get("issue"))),
+        ("branch", receipt.get("branch")),
+        ("head", receipt.get("head")),
+    ):
+        if proof[key] != expected:
+            problems.append(f"flow_scope {key} disagrees with receipt")
+    for key, length in (
+        ("run_id", 32),
+        ("base", 40),
+        ("head", 40),
+        ("approved_plan_sha256", 64),
+        ("rollout_sha256", 64),
+        ("creation_sha256", 64),
+        ("approval_sha256", 64),
+    ):
+        if not isinstance(proof[key], str) or not re.fullmatch(rf"[0-9a-f]{{{length}}}", proof[key]):
+            problems.append(f"flow_scope {key} is not a bounded identity")
+    cleanliness = proof["initial_cleanliness"]
+    clean_hash = proof["clean_probe_sha256"]
+    if (
+        cleanliness not in ("measured-clean", "unmeasured")
+        or cleanliness == "unmeasured"
+        and clean_hash is not None
+        or cleanliness == "measured-clean"
+        and (not isinstance(clean_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", clean_hash))
+    ):
+        problems.append("flow_scope initial cleanliness evidence disagrees")
+    if not isinstance(proof["originating_turn_id"], str) or not proof["originating_turn_id"]:
+        problems.append("flow_scope originating turn identity is invalid")
+    for key in ("rollout_bytes", "snapshot_records", "start_line", "creation_line", "included_model_contexts"):
+        if type(proof[key]) is not int or not 1 <= proof[key] <= 1024**3:
+            problems.append(f"flow_scope {key} is not a bounded positive count")
+    if type(proof["excluded_prefix_records"]) is not int or proof["excluded_prefix_records"] < 0:
+        problems.append("flow_scope excluded prefix count is invalid")
+    if (
+        type(proof["start_line"]) is int
+        and type(proof["snapshot_records"]) is int
+        and (
+            proof["start_line"] > proof["snapshot_records"]
+            or proof["excluded_prefix_records"] != proof["start_line"] - 1
+        )
+    ):
+        problems.append("flow_scope record bounds disagree")
+    models = proof["excluded_prefix_models"]
+    if (
+        not isinstance(models, list)
+        or any(not isinstance(m, str) or not m.strip() or len(m) > 128 for m in models)
+        or len(set(m for m in models if isinstance(m, str))) != len(models)
+    ):
+        problems.append("flow_scope excluded model population is invalid")
+    if not isinstance(proof["start_execution_id"], str) or not 1 <= len(proof["start_execution_id"]) <= 256:
+        problems.append("flow_scope call identity is invalid")
+    if (
+        receipt.get("status") != "ran"
+        or receipt.get("direction", DIRECTION_DEFAULT) != DIRECTION_DEFAULT
+        or not str(receipt.get("implementer", "")).startswith("codex/")
+    ):
+        problems.append("flow_scope requires a ran default-direction Codex implementer")
+    return problems
+
+
+def _flow_argv(command: dict, *, require_supported: bool = True) -> tuple[list[str], str | None]:
+    return command["argv"], command["cwd"]
+
+
+def _flow_scope_model(
+    text: str, thread_id: str, args: argparse.Namespace, *, audit: bool = False, historical_root: Path | None = None
+) -> tuple[str, dict]:
+    _flow_need(text.endswith("\n"), "incomplete original rollout snapshot")
+    records = []
+    lines = text.split("\n")[:-1]
+    for line in lines:
+        try:
+            record = json.loads(line)
+        except ValueError as exc:
+            raise FlowScopeRefused("unparseable original rollout record") from exc
+        _flow_need(isinstance(record, dict), "unsupported original rollout record")
+        records.append(record)
+    headers = [r.get("payload", {}) for r in records if r.get("type") == "session_meta"]
+    _flow_need(
+        len(headers) == 1 and isinstance(headers[0], dict) and headers[0].get("id") == thread_id,
+        "original thread identity disagrees",
+    )
+    models = []
+    for number, record in enumerate(records, 1):
+        if record.get("type") == "turn_context":
+            payload = record.get("payload")
+            model = payload.get("model") if isinstance(payload, dict) else None
+            _flow_need(isinstance(model, str) and bool(model.strip()), "undeclared original model turn")
+            models.append((number, model.strip()))
+    run = args.implementer_flow_run
+    issue, branch = str(args.issue), args.branch
+    _flow_need(bool(re.fullmatch(r"[0-9a-f]{32}", run)), "unsupported flow run identity")
+    _flow_need(
+        bool(re.fullmatch(r"[1-9][0-9]*", issue)) and branch.startswith(f"issue-{issue}-"),
+        "scope issue/branch identity disagrees",
+    )
+    root = historical_root if audit else Path(_flow_git("rev-parse", "--show-toplevel")).resolve()
+    _flow_need(isinstance(root, Path) and root.is_absolute(), "missing absolute historical worktree identity")
+    head = args.head if audit else _flow_git("rev-parse", "HEAD")
+    if audit:
+        _flow_need(_flow_git("rev-parse", f"{head}^{{commit}}") == head, "recorded head is unavailable")
+    else:
+        _flow_need(not args.head or args.head == head, "scoped head must be the actual current head")
+        _flow_need(_flow_git("symbolic-ref", "--short", "HEAD") == branch, "actual branch disagrees with scope")
+    commands = _flow_commands(records, branch, thread_id, root, audit=audit)
+    starts = []
+    clean = []
+    mints = []
+    begins = []
+    approvals = []
+    for command in commands:
+        argv, cwd = _flow_argv(command)
+        output = command["output"]
+        creation = (
+            bool(argv)
+            and Path(argv[0]).name == "flow-start-resolve.sh"
+            and len(argv) > 1
+            and argv[1] == issue
+            or isinstance(output, str)
+            and "WT_CREATED=" in output
+            and branch in output
+        )
+        if creation:
+            _flow_need(
+                argv and Path(argv[0]).name == "flow-start-resolve.sh" and len(argv) >= 2 and argv[1] == issue,
+                "unsupported or contradictory creation call",
+            )
+            starts.append(command)
+        if not argv or cwd is None:
+            continue
+        if _flow_path(cwd, audit=audit) != root:
+            continue
+        if argv == ["git", "status", "--short"] or argv == ["git", "status", "--porcelain"]:
+            clean.append(command)
+        if Path(argv[0]).name == "flow-plan-record.py" and len(argv) == 3 and argv[2] == issue:
+            if argv[1] == "reconcile":
+                mints.append(command)
+            elif argv[1] == "begin-run":
+                begins.append(command)
+            elif argv[1] == "approve":
+                approvals.append(command)
+    _flow_need(len(starts) == 1, "missing, reused or conflicting fresh creation")
+    start = starts[0]
+    _flow_need(start["valid_execution"] and isinstance(start["output"], str), "incomplete creation execution")
+    fields = _flow_fields(start["output"])
+    _flow_need(
+        start["valid_execution"]
+        and fields.get("WT_CREATED") == "1"
+        and fields.get("LANE") in ("fresh", "cross-repo")
+        and fields.get("BRANCH") == branch
+        and fields.get("WT_BASE") == "origin/main"
+        and fields.get("WT_PATH")
+        and _flow_path(fields["WT_PATH"], audit=audit) == root
+        and fields.get("FLOW_START_RESOLVE_EXIT") == "0"
+        and re.findall(r"^FLOW_START_RESOLVE: ok$", start["output"], re.M) == ["FLOW_START_RESOLVE: ok"],
+        "creation is not a verified fresh worktree",
+    )
+    _flow_need(len(mints) == len(begins) == len(approvals) == 1, "missing or overlapping flow-run anchors")
+    mint, begin, approval = mints[0], begins[0], approvals[0]
+
+    def key(command: dict) -> tuple[int, int]:
+        return command["line"], command["index"]
+
+    _flow_need(key(start) < key(mint) < key(begin) < key(approval), "flow anchors are out of order")
+    _flow_need(
+        all(c["valid_execution"] for c in (start, mint, begin, approval)),
+        "flow anchor events did not complete in a supported ordered invocation",
+    )
+    _flow_need(
+        f"FLOW_PLAN_RUN: minted {run}\n" in mint["output"]
+        and f"({run}) in docs/flow-runs/issue-{issue}.md" in begin["output"],
+        "run mint/begin identity disagrees",
+    )
+    anchor_outputs = [
+        (mint, rf"^FLOW_PLAN_RUN: minted {run}$"),
+        (begin, rf"^FLOW_PLAN_RECORD: began run [1-9][0-9]* \({run}\) in docs/flow-runs/issue-{issue}\.md(?: - .*|)$"),
+        (approval, r"^FLOW_PLAN_RECORD: baseline stamped [0-9a-f]{64}$"),
+    ]
+    output_positions = []
+    for command, pattern in anchor_outputs:
+        matches = list(re.finditer(pattern, command["output"], re.M))
+        _flow_need(len(matches) == 1, "missing or ambiguous helper output anchor")
+        output_positions.append((command["line"], matches[0].start()))
+    _flow_need(
+        output_positions == sorted(output_positions) and len(set(output_positions)) == 3,
+        "helper output anchors are out of source order",
+    )
+    probes = [c for c in clean if key(start) < key(c) < key(begin)]
+    _flow_need(all(c["valid_execution"] and c["output"] == "" for c in probes), "dirty initial Git-visible probe")
+    cleanliness = "measured-clean" if probes else "unmeasured"
+    digest = re.findall(r"FLOW_PLAN_RECORD: baseline stamped ([0-9a-f]{64})(?:\n|$)", approval["output"])
+    _flow_need(len(digest) == 1, "missing or ambiguous approved-plan digest")
+    record_text = _flow_git("show", f"{head}:docs/flow-runs/issue-{issue}.md", strip=False)
+    marks = list(re.finditer(r"^<!-- flow-run n=[0-9]+ id=([0-9a-f]{32}) -->$", record_text, re.M))
+    matching = [mark for mark in marks if mark.group(1) == run]
+    _flow_need(len(matching) == 1, "approved plan has missing or overlapping run identity")
+    mark = matching[0]
+    later = [m.start() for m in marks if m.start() > mark.start()]
+    run_text = record_text[mark.start() : min(later) if later else len(record_text)]
+    approved = None
+    prefix = ""
+    for piece in run_text.splitlines(keepends=True):
+        prefix += piece
+        # flow-plan-record.section_digest hashes the run section with trailing
+        # newlines removed, rather than the complete file's raw bytes.
+        if hashlib.sha256(prefix.rstrip("\n").encode()).hexdigest() == digest[0]:
+            approved = prefix
+            break
+    _flow_need(approved is not None, "approved plan prefix differs from Git head")
+    marker = re.findall(rf"<!-- flow-run n=([0-9]+) id={run} -->", approved)
+    _flow_need(len(marker) == 1, "approved plan has missing or overlapping run identity")
+    section = approved.split(f"id={run} -->", 1)[1]
+    _flow_need(not re.search(r"<!-- flow-run ", section), "approved run is not the active final section")
+    _flow_need(
+        bool(re.search(rf"^- Issue:\s*#{issue}\s*$", section, re.M))
+        and bool(re.search(r"^- Approval:\s*granted\s*$", section, re.M)),
+        "approval/issue fields disagree",
+    )
+    bases = re.findall(r"^- Base SHA:\s*([0-9a-f]{40})\s*$", section, re.M)
+    _flow_need(len(bases) == 1, "missing or ambiguous approved base")
+    base = bases[0]
+    initial = re.findall(r"^HEAD is now at ([0-9a-f]{7,40})\b", start["output"], re.M)
+    _flow_need(
+        len(initial) == 1
+        and base.startswith(initial[0])
+        and _flow_git("rev-parse", f"{initial[0]}^{{commit}}") == base,
+        "fresh creation base disagrees",
+    )
+    _flow_git("merge-base", "--is-ancestor", base, head)
+    origins = [
+        (n, r["payload"].get("model"))
+        for n, r in enumerate(records, 1)
+        if r.get("type") == "turn_context"
+        and isinstance(r.get("payload"), dict)
+        and r["payload"].get("turn_id") == start["turn_id"]
+        and n < start["line"]
+    ]
+    _flow_need(
+        bool(origins) and len({model for _, model in origins}) == 1,
+        "execution has no consistent originating model context",
+    )
+    origin = origins[0]
+    included = [origin, *[row for row in models if row[0] > origin[0]]]
+    _flow_need(len({model for _, model in included}) == 1, "model changes inside the derived flow span")
+
+    def event_digest(command: dict) -> str:
+        return hashlib.sha256((lines[command["line"] - 1] + "\n").encode()).hexdigest()
+
+    proof = {
+        "version": 1,
+        "kind": "fresh-flow-run",
+        "issue": issue,
+        "run_id": run,
+        "branch": branch,
+        "base": base,
+        "head": head,
+        "approved_plan_sha256": digest[0],
+        "rollout_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        "rollout_bytes": len(text.encode("utf-8")),
+        "snapshot_records": len(records),
+        "start_line": origin[0],
+        "creation_line": start["line"],
+        "start_execution_id": start["call_id"],
+        "creation_sha256": event_digest(start),
+        "approval_sha256": event_digest(approval),
+        "initial_cleanliness": cleanliness,
+        "approval_execution": "unverified",
+        "originating_turn_id": start["turn_id"],
+        "clean_probe_sha256": event_digest(probes[0]) if probes else None,
+        "included_model_contexts": len(included),
+        "excluded_prefix_records": origin[0] - 1,
+        "excluded_prefix_models": sorted({model for line, model in models if line < origin[0]}),
+    }
+    return included[0][1], proof
+
+
 def _derive_reviewer_from_exec_log(
     exec_log: Path, sessions_dir: Path, role: str = "reviewer"
 ) -> tuple[str | None, dict | None, str | None]:
@@ -373,7 +1047,8 @@ def _derive_reviewer_from_exec_log(
 
 
 def _derive_codex_from_thread(
-    thread_id: str, sessions_dir: Path, role: str = "reviewer"
+    thread_id: str, sessions_dir: Path, role: str = "reviewer",
+    flow_args: argparse.Namespace | None = None,
 ) -> tuple[str | None, dict | None, str | None]:
     """`codex/<model>` for one Codex thread, read from that thread's own rollout.
 
@@ -409,16 +1084,26 @@ def _derive_codex_from_thread(
 
     rollout = matches[0]
     try:
-        rollout_text = rollout.read_text(encoding="utf-8")
-    except OSError as exc:
+        rollout_text = rollout.read_bytes().decode("utf-8")
+    except (OSError, UnicodeError) as exc:
         return None, None, f"cannot read matching rollout {rollout}: {exc}"
-    model, reason = rollout_turn_model(rollout_text)
+    flow_scope = None
+    if flow_args is not None:
+        try:
+            model, flow_scope = _flow_scope_model(rollout_text, thread_id, flow_args)
+            reason = None
+        except (FlowScopeRefused, OSError, subprocess.SubprocessError) as exc:
+            return None, None, f"fresh-flow scope refused: {exc}"
+    else:
+        model, reason = rollout_turn_model(rollout_text)
     if model is None:
         return None, None, f"{reason} in matching rollout {rollout}"
     evidence = {
         "thread_id": thread_id,
         "rollout": rollout.relative_to(sessions_dir).as_posix(),
     }
+    if flow_scope is not None:
+        evidence["flow_scope"] = flow_scope
     return f"codex/{model}", evidence, None
 
 
@@ -644,7 +1329,7 @@ def _default_claude_projects_dir() -> Path:
 
 def build(args: argparse.Namespace) -> dict:
     receipt: dict = {
-        "schema": SCHEMA,
+        "schema": SCHEMA_FLOW_SCOPE if getattr(args, "implementer_flow_run", None) else SCHEMA,
         "recorded_at": args.at or _now(),
         "issue": args.issue,
         "branch": args.branch,
@@ -699,7 +1384,8 @@ def build(args: argparse.Namespace) -> dict:
         receipt["passes"] = args.passes
         if getattr(args, "extra_pass_reason", None):
             receipt["extra_passes_reason"] = args.extra_pass_reason.strip()
-            receipt["schema"] = SCHEMA_EXTRA_PASSES
+            receipt["schema"] = (SCHEMA_FLOW_SCOPE if getattr(args, "implementer_flow_run", None)
+                                 else SCHEMA_EXTRA_PASSES)
         receipt["counts"] = {k: getattr(args, k) for k in COUNTS}
         receipt["red_cases"] = {
             "proposed": args.red_cases_proposed,
@@ -722,7 +1408,9 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
         return receipt[key]
 
     has_extra_reason = "extra_passes_reason" in receipt
-    expected_schema = SCHEMA_EXTRA_PASSES if has_extra_reason else SCHEMA
+    has_flow_scope = (isinstance(receipt.get("implementer_evidence"), dict)
+                      and "flow_scope" in receipt["implementer_evidence"])
+    expected_schema = SCHEMA_FLOW_SCOPE if has_flow_scope else (SCHEMA_EXTRA_PASSES if has_extra_reason else SCHEMA)
     if receipt.get("schema") != expected_schema:
         why = (
             "this receipt carries 'extra_passes_reason', which schema 1 does not "
@@ -734,6 +1422,9 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
         bad.append(
             f"{source}: schema is {receipt.get('schema')!r}, expected {expected_schema}: {why}"
         )
+    if has_flow_scope:
+        bad.extend(f"{source}: {problem}" for problem in _flow_proof_problems(
+            receipt["implementer_evidence"]["flow_scope"], receipt))
     need("recorded_at", str)
     need("branch", str)
     if not isinstance(receipt.get("issue"), (int, str)):
@@ -1486,7 +2177,8 @@ def cmd_write(args: argparse.Namespace) -> int:
         if side == "codex":
             sessions_dir = args.codex_sessions_dir or _default_codex_sessions_dir()
             implementer, evidence, error = _derive_codex_from_thread(
-                ident, sessions_dir, role="implementer"
+                ident, sessions_dir, role="implementer",
+                flow_args=args if getattr(args, "implementer_flow_run", None) else None,
             )
             if error is not None:
                 print(f"counter-model-receipt: implementer thread: {error}", file=sys.stderr)
@@ -1562,6 +2254,43 @@ def cmd_write(args: argparse.Namespace) -> int:
             "helper does not stage it.",
             file=sys.stderr,
         )
+    return EXIT_OK
+
+
+def cmd_audit_flow(args: argparse.Namespace) -> int:
+    """Re-derive the captured source prefix; hashes do not authenticate its author."""
+    try:
+        receipt = json.loads(args.receipt.read_bytes())
+        _flow_need(isinstance(receipt, dict), "receipt is not an object")
+        problems = validate(receipt, str(args.receipt))
+        _flow_need(not problems, "; ".join(problems))
+        evidence = receipt.get("implementer_evidence", {})
+        proof = evidence.get("flow_scope")
+        _flow_need(isinstance(proof, dict), "receipt has no fresh-flow evidence")
+        sessions = (args.codex_sessions_dir or _default_codex_sessions_dir()).resolve()
+        relative = Path(evidence["rollout"])
+        _flow_need(not relative.is_absolute() and ".." not in relative.parts, "unsafe rollout identity")
+        source = (sessions / relative).resolve()
+        _flow_need(source.is_relative_to(sessions), "rollout escapes sessions root")
+        raw = source.read_bytes()
+        size = proof["rollout_bytes"]
+        _flow_need(len(raw) >= size and hashlib.sha256(raw[:size]).hexdigest() == proof["rollout_sha256"],
+                   "captured rollout prefix changed or was truncated")
+        scope_args = argparse.Namespace(issue=receipt["issue"], branch=receipt["branch"],
+                                        head=receipt["head"], implementer_flow_run=proof["run_id"])
+        snapshot = raw[:size].decode("utf-8")
+        creation = json.loads(snapshot.splitlines()[proof["creation_line"] - 1])
+        historical_path = _flow_fields(creation["payload"]["item"]["aggregated_output"])["WT_PATH"]
+        _flow_need(historical_path.startswith("/"), "historical worktree path is not absolute")
+        model, derived = _flow_scope_model(snapshot, evidence["thread_id"], scope_args, audit=True,
+                                           historical_root=_flow_path(historical_path, audit=True))
+        _flow_need(derived == proof and receipt["implementer"] == f"codex/{model}",
+                   "re-derived flow evidence disagrees with receipt")
+    except (FlowScopeRefused, OSError, UnicodeError, ValueError, KeyError, IndexError, TypeError,
+            subprocess.SubprocessError) as exc:
+        print(f"COUNTER_MODEL_FLOW_AUDIT: refused ({exc})", file=sys.stderr)
+        return EXIT_INVALID
+    print("COUNTER_MODEL_FLOW_AUDIT: verified captured prefix")
     return EXIT_OK
 
 
@@ -1713,6 +2442,7 @@ def main() -> int:
              "IMPLEMENTING model through its own rollout - inside a Codex session "
              "pass \"$CODEX_THREAD_ID\". Exclusive with --implementer-session-id",
     )
+    w.add_argument("--implementer-flow-run", help="derive a Codex implementer from a verified fresh flow run identity")
     w.add_argument(
         "--implementer-session-id",
         help="Claude session from which to derive the IMPLEMENTING model "
@@ -1774,6 +2504,11 @@ def main() -> int:
     v.add_argument("--dir", default=str(RECEIPT_DIR))
     v.set_defaults(func=cmd_validate)
 
+    audit = sub.add_parser("audit-flow", help="re-derive a scoped receipt from its recorded original rollout prefix")
+    audit.add_argument("receipt", type=Path)
+    audit.add_argument("--codex-sessions-dir", type=Path)
+    audit.set_defaults(func=cmd_audit_flow)
+
     sr = sub.add_parser("skip-reasons",
                         help="print the committed skip reasons, one per line")
     sr.set_defaults(func=cmd_skip_reasons)
@@ -1790,6 +2525,9 @@ def main() -> int:
     rm.set_defaults(func=cmd_rollout_model)
 
     args = ap.parse_args()
+    if args.cmd == "write" and getattr(args, "implementer_flow_run", None):
+        if args.status != "ran" or not args.implementer_thread_id or args.implementer_exec_log:
+            ap.error("--implementer-flow-run requires a ran default-direction Codex --implementer-thread-id")
     if args.cmd == "write":
         # The direction is DERIVED from which evidence was supplied, never
         # declared by a flag of its own (issue #1383): a `--direction` value

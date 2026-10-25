@@ -3283,3 +3283,488 @@ def test_1495_uniformity_counts_schema_two_receipts(tmp_path: Path) -> None:
     )
     assert proc.returncode == 2, proc.stdout + proc.stderr
     assert "examined=1 verifiable=0 distinct=1" in proc.stdout
+
+
+# #1557: safe native-flow original streams through the real writer CLI.
+def _fresh_flow_receipt_fixture(
+    tmp_path: Path, case: str = "fresh", *, real_worktree: bool = False
+) -> tuple[Path, list[str], Path]:
+    import hashlib
+
+    assert shutil.which("git") is not None
+    repo = _git_repo(tmp_path)
+
+    def git(*args: str) -> str:
+        return subprocess.check_output(["git", "-C", str(repo), *args], text=True).strip()
+
+    data = json.loads((ROOT / "tests/fixtures/counter-model-flow-scope/cases.json").read_text())
+    issue, branch, run = data["issue"], data["branch"], data["run_id"]
+    base = git("rev-parse", "HEAD")
+    if real_worktree:
+        primary = repo
+        repo = tmp_path / "historical-worktree"
+        subprocess.run(
+            ["git", "-C", str(primary), "worktree", "add", "-qb", branch, str(repo), base],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    else:
+        git("checkout", "-qb", branch)
+    plan = (
+        f"<!-- flow-run n=1 id={run} -->\n## Run 1\n- Run-id: {run}\n"
+        f"- Issue: #{issue}\n- Base SHA: {base}\n- Approval: granted\n"
+        "- Approver: fixture owner\n### Section C - the approved plan\n1. `f.txt` - change fixture\n"
+    )
+    record = repo / f"docs/flow-runs/issue-{issue}.md"
+    record.parent.mkdir(parents=True)
+    record.write_text(plan)
+    (repo / "f.txt").write_text("implemented\n")
+    git("add", "-A")
+    git("commit", "-qm", "implementation")
+    head = git("rev-parse", "HEAD")
+    digest = hashlib.sha256(plan.rstrip("\n").encode()).hexdigest()
+    exec_log, sessions = _reviewer_derivation_fixture(tmp_path, "registration-model")
+    # Original harness events bind each command to the active model turn.
+    original: list[dict] = [
+        {"type": "session_meta", "payload": {"id": "flow-implementer"}},
+        {"type": "turn_context", "payload": {"model": "registration-model", "turn_id": "registration"}},
+        {"type": "turn_context", "payload": {"model": "implementation-model", "turn_id": "implementation"}},
+    ]
+
+    def event(name: str, cmd: str, output: str = "", **overrides) -> dict:
+        item = {
+            "type": "CommandExecution",
+            "id": name,
+            "command": ["/bin/bash", "-lc", cmd],
+            "cwd": repo.as_uri(),
+            "source": "unified_exec_startup",
+            "status": "completed",
+            "aggregated_output": output,
+            "exit_code": 0,
+            **overrides,
+        }
+        return {
+            "type": "event_msg",
+            "payload": {
+                "type": "item_completed",
+                "thread_id": "flow-implementer",
+                "turn_id": "implementation",
+                "item": item,
+            },
+        }
+
+    creation = (
+        f"HEAD is now at {base[:8]} fixture base\nLANE=cross-repo\nWT_CREATED=1\n"
+        f"BRANCH={branch}\nWT_PATH={repo}\nTARGET_REPO={repo}\nWT_BASE=origin/main\n"
+        "FLOW_START_RESOLVE_EXIT=0\nFLOW_START_RESOLVE: ok\n"
+    )
+    start = event("start", f"/safe/flow-start-resolve.sh {issue} fixture --session-cwd /safe", creation)
+    clean = event("clean", "git status --short")
+    mint = event(
+        "mint",
+        f"/safe/flow-plan-record.py reconcile {issue}",
+        f"FLOW_PLAN_RECORD_EXIT=0\nFLOW_PLAN_RUN: minted {run}\n",
+    )
+    begin = event(
+        "begin",
+        f"scripts/flow-plan-record.py begin-run {issue}",
+        f"FLOW_PLAN_RECORD_EXIT=0\nFLOW_PLAN_RECORD: began run 1 ({run}) in docs/flow-runs/issue-{issue}.md\n",
+    )
+    approve = event(
+        "approve",
+        f"python3 <<'PY'\npass\nPY\nscripts/flow-plan-record.py approve {issue}",
+        f"FLOW_PLAN_RECORD_EXIT=0\nFLOW_PLAN_RECORD: baseline stamped {digest}\n",
+    )
+    items = [start, clean, mint, begin, approve]
+
+    def item(row: dict) -> dict:
+        return row["payload"]["item"]
+
+    if case == "reused-creation":
+        item(start)["aggregated_output"] = creation.replace("WT_CREATED=1", "WT_CREATED=0")
+    elif case in ("dirty-first-probe", "later-clean-masking-dirty"):
+        item(clean)["aggregated_output"] = " M f.txt\n"
+        if case == "later-clean-masking-dirty":
+            items.insert(2, event("later-clean", "git status --short"))
+    elif case == "unmeasured":
+        items.remove(clean)
+    elif case == "wrong-branch":
+        item(start)["aggregated_output"] = creation.replace(branch, "issue-9999-other")
+    elif case == "wrong-base":
+        item(start)["aggregated_output"] = creation.replace(base[:8], "f" * 8)
+    elif case == "wrong-run":
+        item(mint)["aggregated_output"] = "FLOW_PLAN_RUN: minted " + "f" * 32 + "\nFLOW_PLAN_RECORD_EXIT=0\n"
+    elif case == "wrong-approval-digest":
+        item(approve)["aggregated_output"] = (
+            "FLOW_PLAN_RECORD: baseline stamped " + "0" * 64 + "\nFLOW_PLAN_RECORD_EXIT=0\n"
+        )
+    elif case == "dynamic-command":
+        item(start)["command"][2] = f"/safe/flow-start-resolve.sh {issue} $REPO"
+    elif case in ("missing-poll", "earlier-pending-start"):
+        if case == "missing-poll":
+            item(start)["exit_code"] = None
+            item(start)["status"] = "in_progress"
+        else:
+            items.insert(
+                0,
+                event("earlier", f"/safe/flow-start-resolve.sh {issue} fixture", exit_code=None, status="in_progress"),
+            )
+    elif case in ("unpaired-callback", "response-only", "uncalled-function", "false-branch", "loop-wrapper"):
+        items[0] = {
+            "type": "response_item",
+            "payload": {"type": "custom_tool_call_output", "call_id": "start", "output": creation},
+        }
+    elif case == "creation-heredoc-data":
+        item(start)["command"][2] = "python3 <<'DATA'\n" + f"/safe/flow-start-resolve.sh {issue} fixture\nDATA"
+    elif case == "mint-heredoc-data":
+        item(mint)["command"][2] = f"python3 <<'DATA'\n/safe/flow-plan-record.py reconcile {issue}\nDATA"
+    elif case == "approval-unclosed-heredoc":
+        item(approve)["command"][2] = f"python3 - <<'PY'\npass\nscripts/flow-plan-record.py approve {issue}"
+    elif case in ("earlier-unpaired-start", "earlier-wrong-branch", "earlier-reused-creation"):
+        earlier = event("earlier", f"/safe/flow-start-resolve.sh {issue} fixture", creation)
+        if case == "earlier-unpaired-start":
+            earlier["payload"]["type"] = "item_started"
+        elif case == "earlier-wrong-branch":
+            item(earlier)["aggregated_output"] = creation.replace(branch, "issue-9999-other")
+        else:
+            item(earlier)["aggregated_output"] = creation.replace("WT_CREATED=1", "WT_CREATED=0")
+        items.insert(0, earlier)
+    elif case in ("missing-begin", "missing-approval"):
+        items.remove(begin if case == "missing-begin" else approve)
+    elif case == "duplicate-creation":
+        items.append(event("duplicate", f"/safe/flow-start-resolve.sh {issue} fixture", creation))
+    elif case == "conflicting-approval":
+        items.append(
+            event(
+                "conflict",
+                f"scripts/flow-plan-record.py approve {issue}",
+                "FLOW_PLAN_RECORD: baseline stamped " + "f" * 64 + "\nFLOW_PLAN_RECORD_EXIT=0\n",
+            )
+        )
+    elif case == "false-exit":
+        item(start)["exit_code"] = False
+    elif case == "unknown-status":
+        item(start)["status"] = "unknown"
+    elif case == "wrong-thread":
+        start["payload"]["thread_id"] = "other"
+    elif case == "wrong-turn":
+        start["payload"]["turn_id"] = "absent"
+    elif case == "duplicate-execution":
+        item(mint)["id"] = "start"
+    elif case == "missing-helper-verdict":
+        item(approve)["aggregated_output"] = f"FLOW_PLAN_RECORD: baseline stamped {digest}\n"
+    elif case == "failed-helper-masked":
+        item(approve)["aggregated_output"] += "FLOW_PLAN_RECORD_EXIT=1\n"
+    elif case == "shell-function":
+        item(start)["command"][2] = f"f() {{\n/safe/flow-start-resolve.sh {issue} fixture\n}}\nprintf harmless"
+    elif case == "quoted-semicolon":
+        item(start)["command"][2] = f"printf '%s' ';' '/safe/flow-start-resolve.sh' '{issue}'"
+    elif case in (
+        "redirected",
+        "redirect-missing-cat",
+        "redirect-wrong-cat",
+        "redirect-dynamic",
+        "redirect-append",
+        "redirect-stderr",
+        "redirect-missing-exit",
+        "redirect-failed-exit",
+        "redirect-reused-diagnostic",
+    ):
+        target = "/tmp/fixture-start"
+        operator = ">>" if case == "redirect-append" else ("2>" if case == "redirect-stderr" else ">")
+        if case == "redirect-dynamic":
+            target = "$SCRATCH"
+        item(start)["command"][2] += f" {operator} {target}\ncat " + (
+            "/tmp/other" if case == "redirect-wrong-cat" else target
+        )
+        if case == "redirect-missing-cat":
+            item(start)["command"][2] = item(start)["command"][2].split("\n")[0]
+        item(start)["aggregated_output"] = f"Preparing worktree (new branch '{branch}')\n" + creation
+        if case == "redirect-missing-exit":
+            item(start)["aggregated_output"] = item(start)["aggregated_output"].replace(
+                "FLOW_START_RESOLVE_EXIT=0\n", ""
+            )
+        elif case == "redirect-failed-exit":
+            item(start)["aggregated_output"] = item(start)["aggregated_output"].replace(
+                "FLOW_START_RESOLVE_EXIT=0", "FLOW_START_RESOLVE_EXIT=1"
+            )
+        elif case == "redirect-reused-diagnostic":
+            item(start)["aggregated_output"] = item(start)["aggregated_output"].replace("new branch", "existing branch")
+    elif case in ("same-turn-repeat", "differing-turn-repeat"):
+        original.append(
+            {
+                "type": "turn_context",
+                "payload": {
+                    "model": "implementation-model" if case == "same-turn-repeat" else "other-model",
+                    "turn_id": "implementation",
+                },
+            }
+        )
+    elif case == "section-drift":
+        record.write_text(plan.replace("change fixture", "change approved plan"))
+        git("add", "-A")
+        git("commit", "-qm", "alter approved plan")
+        head = git("rev-parse", "HEAD")
+    elif case == "unknown-source":
+        item(start)["source"] = "printed"
+    elif case == "missing-exit":
+        item(start).pop("exit_code")
+    elif case == "missing-output":
+        item(start).pop("aggregated_output")
+    elif case == "nonzero-exit":
+        item(start)["exit_code"] = 1
+    elif case == "omitted-nonzero-helper":
+        item(approve)["aggregated_output"] = item(approve)["aggregated_output"].replace("EXIT=0", "EXIT=1")
+    elif case == "unbounded-prep":
+        item(start)["command"][2] = "printf harmless\n" + item(start)["command"][2]
+    elif case == "auxiliary-verdict-spoof":
+        script = (
+            f"/missing/flow-plan-record.py approve {issue}\npython3 <<'PY'\n"
+            f"print('FLOW_PLAN_RECORD_EXIT=0')\nprint('FLOW_PLAN_RECORD: baseline stamped {digest}')\nPY"
+        )
+        executed = subprocess.run(["/bin/bash", "-lc", script], capture_output=True, text=True, check=False)
+        assert executed.returncode == 0
+        item(approve)["command"][2] = script
+        item(approve)["aggregated_output"] = executed.stdout + executed.stderr
+    elif case == "neighbor-begin-hides-dirty":
+        foreign = event(
+            "foreign-begin",
+            f"scripts/flow-plan-record.py begin-run {issue}",
+            f"FLOW_PLAN_RECORD_EXIT=0\nFLOW_PLAN_RECORD: began run 1 ({run}) in docs/flow-runs/issue-{issue}.md\n",
+        )
+        item(foreign)["cwd"] = (repo.parent / "neighbor").as_uri()
+        items.insert(1, foreign)
+        item(clean)["aggregated_output"] = " M f.txt\n"
+    elif case in ("tab-dirty-probe", "quoted-dirty-probe"):
+        item(clean)["command"][2] = "git\tstatus --short" if case == "tab-dirty-probe" else "'git' 'status' '--short'"
+        item(clean)["aggregated_output"] = " M f.txt\n"
+    elif case in ("quoted-redirect-replay", "escaped-redirect-replay"):
+        replay = tmp_path / "replayed-creation"
+        replay.write_text(f"Preparing worktree (new branch '{branch}')\n" + creation)
+        token = "'>'" if case == "quoted-redirect-replay" else "\\>"
+        script = f"/missing/flow-start-resolve.sh {issue} fixture {token} {replay}\ncat {replay}"
+        executed = subprocess.run(["/bin/bash", "-lc", script], capture_output=True, text=True, check=False)
+        assert executed.returncode == 0
+        item(start)["command"][2] = script
+        item(start)["aggregated_output"] = executed.stdout + executed.stderr
+    elif case in ("clean-neighbor-probe", "dirty-neighbor-probe"):
+        neighbor = tmp_path / "neighbor"
+        subprocess.run(["git", "clone", "-q", str(repo), str(neighbor)], check=True, capture_output=True)
+        if case == "clean-neighbor-probe":
+            (repo / "f.txt").write_text("dirty target\n")
+        else:
+            (neighbor / "f.txt").write_text("dirty neighbor\n")
+        script = f"GIT_DIR={neighbor}/.git GIT_WORK_TREE={neighbor} git status --short"
+        executed = subprocess.run(["/bin/bash", "-lc", script], cwd=repo, capture_output=True, text=True, check=False)
+        assert executed.returncode == 0
+        item(clean)["command"][2] = script
+        item(clean)["aggregated_output"] = executed.stdout
+    elif case == "bounded-sequence":
+        item(begin)["command"][2] = "pwd; " + item(begin)["command"][2]
+        item(approve)["command"][2] += "\nuv sync --locked --extra dev > /tmp/fixture-sync 2>&1"
+    original += items
+    if case == "inside-model-switch":
+        original.append({"type": "turn_context", "payload": {"model": "registration-model", "turn_id": "later"}})
+    if case == "missing-model":
+        original = [row for row in original if row["type"] != "turn_context"]
+    rollout = sessions / "2026/09/19/rollout-flow-implementer.jsonl"
+    rollout.write_text(
+        "".join(json.dumps(row) + "\n" for row in original) + ("{\n" if case == "malformed-record" else "")
+    )
+    args = [
+        "--issue",
+        str(issue),
+        "--branch",
+        branch,
+        "--status",
+        "ran",
+        "--scope",
+        "unverified",
+        "--implementer-thread-id",
+        "flow-implementer",
+        "--implementer-flow-run",
+        run,
+        "--reviewer-exec-log",
+        str(exec_log),
+        "--codex-sessions-dir",
+        str(sessions),
+        "--head",
+        head,
+    ]
+    return repo, args, rollout
+
+
+@requires_git
+@pytest.mark.parametrize(
+    "case", ["fresh", "unmeasured", "bounded-sequence", "redirected", "same-turn-repeat", "auxiliary-verdict-spoof"]
+)
+def test_fresh_flow_scope_derives_implementation_without_registration_model(tmp_path: Path, case: str) -> None:
+    repo, args, original = _fresh_flow_receipt_fixture(tmp_path, case)
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "write", "--dir", str(tmp_path / "receipts"), *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    receipt = json.loads(next((tmp_path / "receipts").glob("*.json")).read_text())
+    assert receipt["schema"] == 3
+    assert receipt["implementer_evidence"]["flow_scope"]["initial_cleanliness"] == (
+        "unmeasured" if case == "unmeasured" else "measured-clean"
+    )
+    assert receipt["implementer"] == "codex/implementation-model"
+    assert receipt["reviewer"] == "codex/registration-model"
+    assert receipt["implementer_evidence"]["flow_scope"]["rollout_bytes"] == len(original.read_bytes())
+
+
+_FLOW_CASES = json.loads((ROOT / "tests/fixtures/counter-model-flow-scope/cases.json").read_text())["cases"]
+
+
+@requires_git
+@pytest.mark.parametrize("case", [case for case in _FLOW_CASES if case["expect"] != 0], ids=lambda case: case["id"])
+def test_fresh_flow_scope_refuses_committed_adverse_case(tmp_path: Path, case: dict) -> None:
+    repo, args, _ = _fresh_flow_receipt_fixture(tmp_path, case["id"])
+    destination = tmp_path / "receipts"
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "write", "--dir", str(destination), *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "Traceback" not in proc.stderr
+    if case["id"] in ("clean-neighbor-probe", "dirty-neighbor-probe"):
+        assert "environment" in proc.stderr
+    assert not list(destination.glob("*.json"))
+
+
+@requires_git
+def test_default_attribution_still_refuses_the_same_mixed_original(tmp_path: Path) -> None:
+    repo, args, _ = _fresh_flow_receipt_fixture(tmp_path)
+    index = args.index("--implementer-flow-run")
+    del args[index : index + 2]
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "write", "--dir", str(tmp_path / "receipts"), *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 1
+    assert "turn_context records disagree" in proc.stderr
+    assert not list((tmp_path / "receipts").glob("*.json"))
+
+
+@requires_git
+@pytest.mark.parametrize("mutation", ["none", "append", "alter-prefix", "truncate", "proof-drift"])
+def test_flow_audit_rederives_only_captured_original_prefix(tmp_path: Path, mutation: str) -> None:
+    repo, args, original = _fresh_flow_receipt_fixture(tmp_path)
+    destination = tmp_path / "receipts"
+    written = subprocess.run(
+        [sys.executable, str(SCRIPT), "write", "--dir", str(destination), *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert written.returncode == 0, written.stderr
+    receipt_path = next(destination.glob("*.json"))
+    if mutation == "append":
+        with original.open("a") as stream:
+            stream.write(json.dumps({"type": "turn_context", "payload": {"model": "later-model"}}) + "\n")
+    elif mutation == "alter-prefix":
+        original.write_text(original.read_text().replace("registration-model", "modified-model"))
+    elif mutation == "truncate":
+        original.write_bytes(original.read_bytes()[:-1])
+    elif mutation == "proof-drift":
+        receipt = json.loads(receipt_path.read_text())
+        receipt["implementer_evidence"]["flow_scope"]["creation_sha256"] = "f" * 64
+        receipt_path.write_text(json.dumps(receipt))
+    audited = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "audit-flow",
+            str(receipt_path),
+            "--codex-sessions-dir",
+            args[args.index("--codex-sessions-dir") + 1],
+        ],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert audited.returncode == (0 if mutation in ("none", "append") else 1), audited.stderr
+    assert "Traceback" not in audited.stderr
+
+
+@requires_git
+def test_aggregate_approval_output_never_asserts_verified_execution(tmp_path: Path) -> None:
+    repo, args, original = _fresh_flow_receipt_fixture(tmp_path, "auxiliary-verdict-spoof")
+    destination = tmp_path / "receipts"
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "write", "--dir", str(destination), *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    path = next(destination.glob("*.json"))
+    receipt = json.loads(path.read_text())
+    assert receipt["implementer_evidence"]["flow_scope"]["approval_execution"] == "unverified"
+    receipt["implementer_evidence"]["flow_scope"]["approval_execution"] = "verified"
+    path.write_text(json.dumps(receipt))
+    audit = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "audit-flow",
+            str(path),
+            "--codex-sessions-dir",
+            args[args.index("--codex-sessions-dir") + 1],
+        ],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert audit.returncode == 1
+    assert "approval execution must remain unverified" in audit.stderr
+
+
+@requires_git
+def test_flow_audit_survives_normal_merge_and_worktree_cleanup(tmp_path: Path) -> None:
+    repo, args, _ = _fresh_flow_receipt_fixture(tmp_path, real_worktree=True)
+    destination = repo / "docs/measurements/counter-model"
+    written = subprocess.run(
+        [sys.executable, str(SCRIPT), "write", "--dir", str(destination), *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert written.returncode == 0, written.stderr
+    relative_receipt = next(destination.glob("*.json")).relative_to(repo)
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "commit", "-qm", "record reviewed receipt"], check=True, capture_output=True
+    )
+    primary = tmp_path / "r"
+    branch = args[args.index("--branch") + 1]
+    subprocess.run(
+        ["git", "-C", str(primary), "merge", "--no-ff", "-qm", "merge reviewed flow", branch],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(["git", "-C", str(primary), "worktree", "remove", str(repo)], check=True, capture_output=True)
+    assert not repo.exists()
+    audited = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "audit-flow",
+            str(primary / relative_receipt),
+            "--codex-sessions-dir",
+            args[args.index("--codex-sessions-dir") + 1],
+        ],
+        cwd=primary,
+        capture_output=True,
+        text=True,
+    )
+    assert audited.returncode == 0, audited.stderr
