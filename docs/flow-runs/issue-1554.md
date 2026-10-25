@@ -197,3 +197,11 @@ The receipt is committed before current-base integration. The final consumer cod
 must remain unchanged apart from this receipt/evidence and reviewed upstream1557.
 Targeted reader/handoff/enrollment checks and full exact-head CI follow; prior
 1556 merge authorization is suspended until fresh root clearance.
+
+Current-base integration0380b003 retained all reviewed consumer reader/test/control
+and public artifact bytes unchanged. Targeted reader/conformance/handoff/enrollment:
+214 passed in3.50s; lint/typecheck384files pass;74 mirrored skills in sync. Actual
+behavioral control battery, enrollment and captured-prefix audit pass before push.
+No redundant full local suite was repeated for receipt/upstream-helper integration;
+the original full8173-pass run and helper full/CI evidence remain, with fresh full
+required CI and root clearance still mandatory for the final consumer head.
