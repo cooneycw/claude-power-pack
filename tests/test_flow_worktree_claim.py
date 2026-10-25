@@ -73,6 +73,7 @@ def _run(
     pid: str = SELF_PID,
     session: str = SELF_SESSION,
     live: str = "",
+    proc_root: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env.update(
@@ -84,6 +85,8 @@ def _run(
             "FLOW_CLAIM_LIVE_PIDS": live,
         }
     )
+    if proc_root is not None:
+        env["FLOW_CLAIM_PROC_ROOT"] = str(proc_root)
     return subprocess.run(
         ["bash", str(script), *args],
         env=env,
@@ -363,15 +366,17 @@ def _fake_proc(root: Path, pid: str, start: str) -> Path:
     return root
 
 
-def _lock_with(main: Path, wt: Path, *, pid: str, start: str | None, age_s: int = 0) -> None:
+def _lock_with(
+    main: Path, wt: Path, *, pid: str, start: str | None, age_s: int = 0,
+    session: str = OTHER_SESSION,
+) -> None:
     """Write a claim reason directly, so a specific witness/age can be posed."""
     import time as _time
 
     ts = int(_time.time()) - age_s
-    reason = (
-        f"flow-claim issue=42 pid={pid} session={OTHER_SESSION} "
-        f"host=testhost ts={ts}"
-    )
+    reason = f"flow-claim issue=42 pid={pid} host=testhost ts={ts}"
+    if session:
+        reason += f" session={session}"
     if start is not None:
         reason += f" start={start}"
     _git(main, "worktree", "unlock", str(wt))
@@ -591,10 +596,64 @@ def test_our_own_live_claim_is_still_self(tmp_path: Path, repo: tuple[Path, Path
     """GREEN for the above: the ordinary self-owned case must be untouched."""
     main, wt = repo
     proc = _fake_proc(tmp_path / "proc-live", SELF_PID, MATCHING_START)
-    _lock_with(main, wt, pid=SELF_PID, start=MATCHING_START)
+    _lock_with(main, wt, pid=SELF_PID, start=MATCHING_START, session=SELF_SESSION)
 
     res = _check_witness(wt, proc, live=SELF_PID)
     assert _verdict(res) == "self", res.stdout
+
+
+@requires_git
+@pytest.mark.parametrize("action", ["check", "release", "remove"])
+def test_shared_pid_different_session_keeps_claim(
+    tmp_path: Path, repo: tuple[Path, Path], action: str,
+) -> None:
+    """A Codex app-server's process witness cannot identify its owning thread."""
+    main, wt = repo
+    proc = _fake_proc(tmp_path / "proc-shared", SELF_PID, MATCHING_START)
+    _lock_with(main, wt, pid=SELF_PID, start=MATCHING_START)
+    # Pin the discriminating input: identical process, positively different session.
+    reason = _git(main, "worktree", "list", "--porcelain").stdout
+    assert f"session={OTHER_SESSION}" in reason
+    assert OTHER_SESSION != SELF_SESSION
+    assert f"pid={SELF_PID}" in reason and f"start={MATCHING_START}" in reason
+
+    args = (str(wt), "--force") if action == "remove" else (action, str(wt))
+    result = _run(
+        REMOVE if action == "remove" else CLAIM, *args,
+        live=SELF_PID, proc_root=proc,
+    )
+    if action == "remove":
+        assert result.returncode == 4, result.stdout + result.stderr
+        assert wt.exists(), "a sibling thread's worktree must survive"
+    else:
+        assert result.returncode == 0, result.stderr
+        assert _verdict(result) == "held", result.stdout
+        assert _field(result, "OWNER_WITNESS") == "matched", result.stdout
+    # Release must leave the actual lock intact; refusal output alone is insufficient.
+    assert f"session={OTHER_SESSION}" in _git(main, "worktree", "list", "--porcelain").stdout
+
+    if action == "release":
+        overridden = _run(CLAIM, "release", str(wt), "--force", live=SELF_PID, proc_root=proc)
+        assert _verdict(overridden) == "free", overridden.stdout
+    elif action == "remove":
+        overridden = _run(REMOVE, str(wt), "--steal", "--force", live=SELF_PID, proc_root=proc)
+        assert overridden.returncode == 0, overridden.stdout + overridden.stderr
+        assert not wt.exists()
+
+
+@requires_git
+@pytest.mark.parametrize("owner_session,caller_session", [
+    ("", SELF_SESSION), ("-", SELF_SESSION), (OTHER_SESSION, ""), (OTHER_SESSION, "-"),
+])
+def test_shared_pid_without_session_identity_remains_self(
+    tmp_path: Path, repo: tuple[Path, Path], owner_session: str, caller_session: str,
+) -> None:
+    """Legacy claims keep the PID/witness fallback when session identity is absent."""
+    main, wt = repo
+    proc = _fake_proc(tmp_path / "proc-legacy-session", SELF_PID, MATCHING_START)
+    _lock_with(main, wt, pid=SELF_PID, start=MATCHING_START, session=owner_session)
+    result = _run(CLAIM, "check", str(wt), session=caller_session, live=SELF_PID, proc_root=proc)
+    assert _verdict(result) == "self", result.stdout
 
 
 @requires_git
