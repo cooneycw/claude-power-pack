@@ -271,3 +271,27 @@ def test_supported_aws_subset_is_one_literal_lexical_word(bootstrap, value):
     rhs = line.partition("=")[2]
     assert shlex.split(rhs, comments=True, posix=True) == [value]
     assert not any(char in rhs for char in "$#'\"\\ \t\r\n")
+
+
+@pytest.mark.parametrize("supply_aws", [False, True])
+def test_colon_local_assignment_survives_with_or_without_aws(bootstrap, supply_aws):
+    module, path, payload = bootstrap
+    path.write_text("WOODPECKER_GRPC_SECRET: dummy-colon-local\n")
+    if supply_aws:
+        payload[GRPC] = "dummy-conflicting-aws"
+    module.main()
+    assert "WOODPECKER_GRPC_SECRET=dummy-colon-local\n" in path.read_text()
+    assert "dummy-conflicting-aws" not in path.read_text()
+
+
+@pytest.mark.parametrize("real_assignment", [False, True])
+def test_colon_multiline_neighbor_cannot_supply_a_signing_key(bootstrap, real_assignment):
+    module, path, payload = bootstrap
+    neighbor = "OTHER: 'first\nWOODPECKER_GRPC_SECRET=decoy\nlast'\n"
+    path.write_text(neighbor + ("WOODPECKER_GRPC_SECRET: dummy-real\n" if real_assignment else ""))
+    payload[GRPC] = "dummy-aws"
+    module.main()
+    assert path.read_text().count("WOODPECKER_GRPC_SECRET=") == 1
+    assert "decoy" not in path.read_text()
+    expected = "dummy-real" if real_assignment else "dummy-aws"
+    assert f"WOODPECKER_GRPC_SECRET={expected}\n" in path.read_text()
