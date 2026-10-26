@@ -23,7 +23,7 @@ def run(argv, cwd, env=None):
     try:
         result = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, timeout=10)
         return result.returncode, result.stdout, result.stderr
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError, UnicodeError):
         return None, "", ""
 
 

@@ -300,3 +300,27 @@ def test_effects_detector_rejects_the_committed_writing_provider(tmp_path):
     assert result.returncode == 2
     assert "unexpected observer writes" in result.stderr
     assert "FLOW_PREFLIGHT_CONTROL: ready" not in result.stdout
+
+
+@pytest.mark.skipif(shutil.which("python3") is None, reason="requires a real Python provider process")
+def test_invalid_provider_bytes_remain_unknown_and_other_checks_are_reported(observer, monkeypatch, capsys):
+    module, args, _, _ = observer
+    command = [sys.executable, "-c", "import os; os.write(1, bytes([255]))"]
+    raw = subprocess.run(command, cwd=args.repo, capture_output=True)
+    assert raw.returncode == 0 and raw.stdout == bytes([255])
+    with pytest.raises(UnicodeDecodeError):
+        raw.stdout.decode("utf-8")
+    original = module.run
+
+    def invalid_provider(argv, cwd, env=None):
+        if argv[0] == "gh":
+            return module._original_probe(command, cwd, env)
+        return original(argv, cwd, env)
+
+    monkeypatch.setattr(module, "run", invalid_provider)
+    report, code = module.observe(args)
+    assert code == 3 and report["status"] == "unknown"
+    assert len(report["checks"]) == 7
+    assert next(c for c in report["checks"] if c["id"] == "engine")["status"] == "ok"
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == ""

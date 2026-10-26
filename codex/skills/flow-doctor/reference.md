@@ -25,7 +25,7 @@ retaining both. This checks local capabilities, not authentication or live API
 access. It never installs/downloads runtimes or writes identity/configuration.
 Python 3.11 is CPP's runner selection policy, separate from target-project Python.
 This no-install/no-authentication bound covers the observer only; later legacy
-doctor checks may probe services or invoke uv. The observer bootstraps on Python 3.10; older/absent bootstrap Python reports
+doctor checks may probe services or invoke uv. The observer is written for Python 3.10 or newer; older/absent bootstrap Python reports
 unknown without importing it. Installed-Python coverage is PATH and the selected
 uv install directory, not every arbitrary runtime directory on the host.
 
