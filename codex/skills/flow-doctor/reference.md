@@ -8,23 +8,26 @@ Check that the environment is properly configured for the `/flow` workflow.
 
 When the user invokes `/flow-doctor`, run all diagnostic checks and present a single report.
 
-### Step 1: Environment Prerequisites
+### Step 1: Shared Host Preflight
 
-Check required tools:
+Run the shared observer once before the remaining posture checks:
 
 ```bash
-# git
-git --version 2>/dev/null && echo "PASS" || echo "FAIL"
-
-# gh CLI
-gh --version 2>/dev/null && echo "PASS" || echo "FAIL"
-
-# gh authentication
-gh auth status 2>/dev/null && echo "PASS" || echo "FAIL"
-
-# uv (optional but recommended)
-uv --version 2>/dev/null || echo "NOT_FOUND"
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-preflight.sh --harness auto
 ```
+
+Use the checkout's `scripts/flow-preflight.sh` if the installed helper is absent;
+pass `--harness claude` or `--harness codex` explicitly if native identity is
+absent or ambiguous. Auto selection never guesses across both identities. Report all gaps together. Exit 1
+means required missing/unsupported observations, exit 3 means required unknowns,
+and exit 0 permits optional warnings. Mixed missing and unknown exits 1 while
+retaining both. This checks local capabilities, not authentication or live API
+access. It never installs/downloads runtimes or writes identity/configuration.
+Python 3.11 is CPP's runner selection policy, separate from target-project Python.
+This no-install/no-authentication bound covers the observer only; later legacy
+doctor checks may probe services or invoke uv. The observer bootstraps on Python 3.10; older/absent bootstrap Python reports
+unknown without importing it. Installed-Python coverage is PATH and the selected
+uv install directory, not every arbitrary runtime directory on the host.
 
 ### Step 2: Git Repository State
 
@@ -39,8 +42,7 @@ git remote get-url origin 2>/dev/null || echo "NO_REMOTE"
 git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||'
 
 # User identity
-git config user.name 2>/dev/null || echo "NOT_SET"
-git config user.email 2>/dev/null || echo "NOT_SET"
+# Identity presence is reported without values by the shared observer above.
 
 # Effective worktree base (issue #627, #584, ADR 0003): worktrees are created
 # OUTSIDE the repo on the git lane by default (never EnterWorktree). Unset =
