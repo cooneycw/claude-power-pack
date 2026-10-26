@@ -9,6 +9,22 @@ Interactive wizard to install and configure Claude Power Pack components.
 
 ---
 
+## Step 0: Observe prerequisites before setup
+
+Run the installed shared observer before installation work:
+
+```bash
+~/.claude/scripts/flow-preflight.sh --json --repo . --harness auto
+```
+
+Report every required gap and unknown observation; optional Codex absence is a
+warning. If the helper is absent, report observation unavailable and use the
+verified CPP source found in Step 1 to repair it. Never invoke a target-project
+lookalike. Do not stop authorized setup or repair because identity, gh, optional
+review tooling or the installation itself needs attention. No login, tool
+installation, git configuration change or runtime download happens in this
+observation. Tier 4 separately requires verified uv and installed CPP Python.
+
 ## Step 1: Locate CPP Source
 
 Find where claude-power-pack is installed:
@@ -1354,12 +1370,34 @@ echo "Then verify with: /browser:session pool"
 
 ### Tier 4 Execution (CI/CD)
 
+Before any Tier 4 detection/generation command, run this boundary using the
+verified CPP source. A refusal leaves Tier 4 unexecuted: report its actual
+missing/unknown prerequisites and continue only other authorized setup/repair
+choices. Do not describe an unexecuted Tier 4 as successful.
+
+<!-- CPP_TIER4_PREFLIGHT_BEGIN -->
+```bash
+CPP_TIER4_REPORT=$(bash "$CPP_DIR/scripts/flow-preflight.sh" --json --repo "$PWD" --checks uv,cpp_python)
+CPP_TIER4_STATUS=$?
+printf '%s\n' "$CPP_TIER4_REPORT" | bash "$CPP_DIR/scripts/flow-preflight.sh" --json --checks uv,cpp_python --validate-exit "$CPP_TIER4_STATUS"
+if [ "$?" -ne 0 ]; then
+  echo "Tier 4 prerequisites unverified; no Tier 4 generator ran." >&2
+  exit 1
+fi
+```
+<!-- CPP_TIER4_PREFLIGHT_END -->
+
 #### 4a. Framework Detection and Makefile
 
 ```bash
 # Detect framework
 echo "Detecting project framework..."
-DETECT_JSON=$(PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd detect --json 2>/dev/null || echo "{}")
+DETECT_JSON=$(PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd detect --json)
+DETECT_STATUS=$?
+if [ "$DETECT_STATUS" -ne 0 ]; then
+  echo "Framework detection failed (exit $DETECT_STATUS); no generator ran." >&2
+  exit 1
+fi
 FRAMEWORK=$(echo "$DETECT_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('framework','unknown'))" 2>/dev/null || echo "unknown")
 PKG_MGR=$(echo "$DETECT_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('package_manager','unknown'))" 2>/dev/null || echo "unknown")
 echo "Detected: $FRAMEWORK ($PKG_MGR)"
@@ -1373,7 +1411,7 @@ if [ ! -f "Makefile" ]; then
   echo "No Makefile found. Generate one from the detected framework template?"
   # Use AskUserQuestion to confirm
   # If yes:
-  PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd detect --generate-makefile
+  PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd detect --generate-makefile
   echo "✓ Makefile generated"
 else
   echo "→ Makefile already exists"
@@ -1387,7 +1425,7 @@ If Makefile exists, run a quick check:
 if [ -f "Makefile" ]; then
   echo ""
   echo "Validating Makefile..."
-  PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd check --summary 2>/dev/null || echo "  (validation skipped)"
+  PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd check --summary 2>/dev/null || echo "  (validation skipped)"
 fi
 ```
 
@@ -1461,7 +1499,7 @@ Generate CI pipeline? [y/N]
 If yes:
 
 ```bash
-PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd pipeline --write 2>/dev/null
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd pipeline --write 2>/dev/null
 if [ -f ".github/workflows/ci.yml" ]; then
   echo "✓ .github/workflows/ci.yml generated"
 else
@@ -1486,7 +1524,7 @@ Generate container files? [y/N]
 If yes:
 
 ```bash
-PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd container --write 2>/dev/null
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd container --write 2>/dev/null
 echo "✓ Container files generated"
 ```
 

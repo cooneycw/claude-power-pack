@@ -291,7 +291,17 @@ def _build_step_env(project_root: Optional[Path] = None) -> dict[str, str]:
     # paragraphs up: "an explicit caller env always wins".
     if "UV_CACHE_DIR" not in env:
         env["UV_CACHE_DIR"] = str(_ensure_private_dir(_default_uv_cache_dir()))
-    floor = _project_python_floor(project_root)
+    # A target's own interpreter file is more specific than its compatibility
+    # floor. Leave it for uv to read, including a malformed/unreadable pin;
+    # manufacturing UV_PYTHON here would override or conceal that evidence.
+    target_pin = False
+    if project_root is not None:
+        pin = Path(project_root) / ".python-version"
+        try:
+            target_pin = pin.exists() or pin.is_symlink()
+        except OSError:
+            target_pin = True
+    floor = None if target_pin else _project_python_floor(project_root)
     if floor:
         env.setdefault("UV_PYTHON", floor)
     return env

@@ -1210,6 +1210,13 @@ class TestBuildStepEnv:
             env = _build_step_env(tmp_path)
             assert env["UV_PYTHON"] == "3.13"
 
+    def test_target_python_version_beats_derived_floor(self, tmp_path: Path):
+        (tmp_path / "pyproject.toml").write_text('requires-python = ">=3.11"\n')
+        (tmp_path / ".python-version").write_text("3.12\n")
+        env_without = {k: v for k, v in os.environ.items() if k != "UV_PYTHON"}
+        with patch.dict(os.environ, env_without, clear=True):
+            assert "UV_PYTHON" not in _build_step_env(tmp_path)
+
     def test_no_uv_python_when_floor_unknown(self, tmp_path: Path):
         """No pyproject / no requires-python -> UV_PYTHON left unset, not guessed."""
         env_without = {k: v for k, v in os.environ.items() if k != "UV_PYTHON"}

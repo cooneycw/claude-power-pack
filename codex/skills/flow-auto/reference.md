@@ -2221,7 +2221,7 @@ elif [[ -f "Makefile" ]] && grep -q "^deploy:" Makefile; then
         echo "Capturing pre-deploy baseline..."
         # PYTHONPATH points at CPP_DIR (the PARENT of lib/), not at lib/ itself,
         # or `-m lib.cicd` cannot resolve the package - same contract as Step 6.
-        PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify --baseline --summary
+        PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd verify --baseline --summary
     fi
 
     echo "Running: make deploy"
@@ -2232,7 +2232,7 @@ elif [[ -f "Makefile" ]] && grep -q "^deploy:" Makefile; then
     VERDICT="none"
     if [ "$VERIFY_ENABLED" -eq 1 ]; then
         echo "Running deploy verification..."
-        PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify
+        PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd verify
         VERIFY_EXIT=$?
         VERDICT=$( [ "$VERIFY_EXIT" -eq 1 ] && echo "rollback" || echo "proceed/review" )
         if [ "$VERIFY_EXIT" -eq 1 ]; then

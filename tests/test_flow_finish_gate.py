@@ -320,7 +320,7 @@ def test_runner_ok(tmp_path: Path) -> None:
     assert proc.returncode == 0
     assert "FLOW_FINISH_GATE: ok" in proc.stdout
     argv = (bindir / "uv.log").read_text()
-    assert f"run --project {cpp} python -m lib.cicd run --plan finish" in argv
+    assert f"run --python 3.11 --no-python-downloads --project {cpp} python -m lib.cicd run --plan finish" in argv
 
 
 @requires_bash
