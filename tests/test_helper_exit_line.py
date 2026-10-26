@@ -63,6 +63,8 @@ pytestmark = pytest.mark.skipif(
 
 #: helper basename -> the marker namespace it already uses on its own output.
 NAMESPACES = {
+    "flow-preflight.py": "FLOW_PREFLIGHT",
+    "flow-preflight.sh": "FLOW_PREFLIGHT_BOOTSTRAP",
     "flow-start-resolve.sh": "FLOW_START_RESOLVE",
     "flow-live-driver-guard.sh": "FLOW_LIVE_DRIVER",
     "flow-stale-check.sh": "FLOW_STALE",

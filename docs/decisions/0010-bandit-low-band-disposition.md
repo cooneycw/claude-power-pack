@@ -183,6 +183,19 @@ B314 `parse` call `.bandit-audit-allow` already accepts under #1113, for the
 same recorded reason: the XML is a JUnit report this repository itself just
 produced, so the untrusted-input premise does not hold.
 
+### B106 - hard-coded password argument (added 2026-10-26, #1571)
+
+**Accepted after reading the actual site.** `scripts/flow-preflight.py` passes
+a literal noncredential `GH_TOKEN` to reach gh's local invalid-field validator.
+It removes inherited credentials, uses an unused config location, disables
+prompts/telemetry/update checks and supplies deny proxies with no bypass list.
+The report accepts only the expected local field grammar and withholds provider
+output. Client traces and owned-root comparisons are bounded observations,
+not a syscall network fence. Reassess if the value becomes a credential or the
+command becomes an authenticated provider operation. Full site disposition:
+[security register](../security/bandit-finding-dispositions.md#low-b106-preflight-local-validator-credential-sentinel-1571).
+The new ledger record marks this class as read; the scan and threshold remain.
+
 ## The decision
 
 ### 1. The threshold stays at MEDIUM

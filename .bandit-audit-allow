@@ -146,3 +146,8 @@ reviewed-low B101 #1114
 # already accepts and for the same reason: the XML is a JUnit report this
 # repository itself just produced.
 reviewed-low B405 #1114
+
+# B106 - flow-preflight.py supplies a deliberate noncredential GH_TOKEN only
+# to reach gh's local field validator; real tokens removed, deny proxy set.
+# Read and bounded in docs/security/bandit-finding-dispositions.md (#1571).
+reviewed-low B106 #1571

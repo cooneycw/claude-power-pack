@@ -8,8 +8,8 @@
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
 be1f6b535e40b85415c3ce44d1c08c343742f76f39a2c8f8ddd56e5a16ecb187  flow-helpers-install.sh
-b741d05181b3c0995362354b296b0910c9089847b12b08764512d686bd1e1be4  flow-preflight.py
-77ce2aae05b0e5e2838828554f6ac5fefaa9031f0d991f3fe4ac02335f10453d  flow-preflight.sh
+839875fd536ba256b326f65f555ec9e89bb4c379cef47246ae020eb5f7236415  flow-preflight.py
+44677b4ea771a77af7d6b91ee0a1d06252a0c984954d76189781c4005ff38d7d  flow-preflight.sh
 28ee4b87e67d8fc715fa480806023077d80cf6bab4c16906fd29471d30510281  flow-worktree-claim.sh
 b40d7ac1cf93114acc885074267cb6f821fbb294c72030a3146d3d60c8e77a91  hook-mask-output.sh
 30ebbd9dc11a27591c8fa6437544e1a82c2b09d6da59050fbddb533754638ec6  worktree-remove.sh

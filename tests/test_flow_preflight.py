@@ -15,11 +15,67 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+OBSERVER = ROOT / "scripts" / "flow-preflight.py"
+BOOTSTRAP = ROOT / "scripts" / "flow-preflight.sh"
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bootstrap requires bash")
+@pytest.mark.parametrize("shell", [False, True])
+@pytest.mark.parametrize("outcome", [0, 1, 3, "usage", "exception"])
+def test_exit_markers_preserve_status_and_data(tmp_path, shell, outcome):
+    """Exercise the shipped entrypoint wrapper with a controlled observer body."""
+    source = OBSERVER.read_text()
+    if outcome == "usage":
+        stub = ""  # Real argparse rejects the unknown argument below.
+    elif outcome == "exception":
+        stub = '\ndef main():\n    raise RuntimeError("controlled failure")\n\n'
+    else:
+        stub = f"\ndef main():\n    print('{{\"controlled\":true}}')\n    return {outcome}\n\n"
+    assert source.count('if __name__ == "__main__":') == 1
+    payload = tmp_path / OBSERVER.name
+    payload.write_text(source.replace('if __name__ == "__main__":', stub + 'if __name__ == "__main__":'))
+    launcher = tmp_path / BOOTSTRAP.name
+    launcher.write_text(BOOTSTRAP.read_text())
+    argv = ["bash", str(launcher)] if shell else [sys.executable, str(payload)]
+    result = subprocess.run(argv + ["--invalid-argument"], capture_output=True, text=True, timeout=30)
+    expected = 2 if outcome == "usage" else 1 if outcome == "exception" else outcome
+    assert result.returncode == expected
+    namespace = "FLOW_PREFLIGHT_BOOTSTRAP" if shell else "FLOW_PREFLIGHT"
+    assert result.stderr.splitlines()[-1] == f"{namespace}_EXIT={expected}"
+    if isinstance(outcome, int):
+        assert json.loads(result.stdout) == {"controlled": True}
+    if outcome == "exception":
+        assert "RuntimeError: controlled failure" in result.stderr
+    combined = subprocess.run(
+        argv + ["--invalid-argument"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=30
+    )
+    assert combined.stdout.splitlines()[-1] == f"{namespace}_EXIT={expected}"
+
+
+@pytest.mark.skipif(
+    not Path("/dev/full").exists() or shutil.which("bash") is None, reason="requires /dev/full and bash"
+)
+@pytest.mark.parametrize("shell", [False, True])
+def test_failed_stdout_flush_keeps_error_status_and_last_marker(tmp_path, shell):
+    source = OBSERVER.read_text()
+    entry = 'if __name__ == "__main__":'
+    assert source.count(entry) == 1
+    payload = tmp_path / OBSERVER.name
+    payload.write_text(source.replace(entry, '\ndef main():\n    print("buffered output")\n    return 0\n\n' + entry))
+    launcher = tmp_path / BOOTSTRAP.name
+    launcher.write_text(BOOTSTRAP.read_text())
+    argv = ["bash", str(launcher)] if shell else [sys.executable, str(payload)]
+    with Path("/dev/full").open("w") as full:
+        result = subprocess.run(argv, stdout=full, stderr=subprocess.PIPE, text=True, timeout=30)
+    assert result.returncode == 1  # Interpreter shutdown must not replace it with 120.
+    assert "OSError: [Errno 28]" in result.stderr
+    namespace = "FLOW_PREFLIGHT_BOOTSTRAP" if shell else "FLOW_PREFLIGHT"
+    assert result.stderr.splitlines()[-1] == f"{namespace}_EXIT=1"
 
 
 @pytest.fixture
 def observer(tmp_path, monkeypatch):
-    spec = importlib.util.spec_from_file_location("flow_preflight", ROOT / "scripts/flow-preflight.py")
+    spec = importlib.util.spec_from_file_location("flow_preflight", OBSERVER)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -210,7 +266,7 @@ def test_bootstrap_reports_unknown_before_observer_import(tmp_path, old_python):
     else:
         assert shutil.which("python3", path=str(binary_dir)) is None
     result = subprocess.run(
-        [shutil.which("bash"), str(ROOT / "scripts/flow-preflight.sh"), "--json"],
+        [shutil.which("bash"), str(BOOTSTRAP), "--json"],
         env=dict(os.environ, PATH=str(binary_dir)),
         capture_output=True,
         text=True,
@@ -218,7 +274,7 @@ def test_bootstrap_reports_unknown_before_observer_import(tmp_path, old_python):
     assert result.returncode == 3
     report = json.loads(result.stdout)
     assert report["status"] == "unknown" and report["checks"][0]["id"] == "observer_python"
-    assert not result.stderr
+    assert result.stderr.strip() == "FLOW_PREFLIGHT_BOOTSTRAP_EXIT=3"
 
 
 def test_timeout_and_nonexecutable_probes_are_unknown_without_output(observer, monkeypatch):
@@ -238,7 +294,7 @@ def test_timeout_and_nonexecutable_probes_are_unknown_without_output(observer, m
 
 
 def test_observer_parses_as_310_syntax_without_claiming_310_runtime():
-    ast.parse((ROOT / "scripts/flow-preflight.py").read_text(), feature_version=(3, 10))
+    ast.parse(OBSERVER.read_text(), feature_version=(3, 10))
 
 
 def test_unreadable_managed_runtime_inventory_is_unknown(observer, monkeypatch):
@@ -294,7 +350,7 @@ def test_effects_detector_rejects_the_committed_writing_provider(tmp_path):
             sys.executable,
             str(ROOT / "controls/flow-preflight/run-case.py"),
             str(case),
-            str(ROOT / "scripts/flow-preflight.sh"),
+            str(BOOTSTRAP),
         ],
         capture_output=True,
         text=True,
@@ -397,7 +453,7 @@ def test_all_gaps_control_does_not_depend_on_host_python_version(tmp_path):
             str(wrapper),
             str(driver),
             str(case),
-            str(ROOT / "scripts/flow-preflight.sh"),
+            str(BOOTSTRAP),
         ],
         capture_output=True,
         text=True,
@@ -421,7 +477,7 @@ def test_fixture_allowlist_rejects_committed_unexpected_fake_commands(case_name)
             sys.executable,
             str(ROOT / "controls/flow-preflight/run-case.py"),
             str(case),
-            str(ROOT / "scripts/flow-preflight.sh"),
+            str(BOOTSTRAP),
         ],
         capture_output=True,
         text=True,
