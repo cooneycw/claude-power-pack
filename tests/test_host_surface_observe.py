@@ -1020,3 +1020,18 @@ def test_the_blind_anchor_keeps_its_repo_root_adaptation():
         f"the anchor's REPO_ROOT resolves parents[{depth}], which is not the repository root - "
         "the adaptation was dropped (regenerated from the gate?)"
     )
+
+
+@requires_git
+@pytest.mark.skipif(shutil.which("bash") is None or shutil.which("python3") is None, reason="requires bash and python3")
+def test_preflight_bootstrap_full_observation_writes_no_host_surface(monkeypatch):
+    name = "flow-preflight.sh"
+    assert name not in hso.ESCAPES
+    argv = hso.INVOCATIONS[name]
+    assert argv == [["--json", "--repo", "{HOME}", "--harness", "claude"]]
+    monkeypatch.setitem(hso.INVOCATIONS_FOR, name, argv)
+    observed = hso.observe(name, ROOT / "scripts" / name, [], Path.home())
+    assert observed.decision == "observable", observed.reason
+    assert observed.runs == 2 and observed.exercised
+    assert observed.appeared == [] and observed.undeclared == []
+    assert observed.exit_codes == [1, 1]  # Fresh HOME has no installed Claude engine: observed required gap.

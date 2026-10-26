@@ -51,7 +51,16 @@ SURFACES = (".claude/commands", "plugins", "codex/skills")
 VERIFY_LINE = re.compile(r"-m lib\.cicd verify\b")
 BARE_PYTHON = re.compile(r"\bpython3\b")
 PYTHONPATH_INTO_LIB = re.compile(r'PYTHONPATH="\$CPP_DIR/lib')
-CORRECT_UV = re.compile(r'uv run --project "\$CPP_DIR" python -m lib\.cicd verify\b')
+# Explicit approved shapes only: legacy commands and the CPP-specific isolated runner.
+LEGACY_VERIFY = 'PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify'
+CPP_VERIFY = (
+    'PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT '
+    '"CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" '
+    '"CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" '
+    'uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd verify'
+)
+VERIFY_PREFIXES = (LEGACY_VERIFY, CPP_VERIFY)
+CORRECT_UV = re.compile(r"(?:" + re.escape(LEGACY_VERIFY.split(" ", 1)[1]) + "|" + re.escape(CPP_VERIFY) + r")\b")
 
 
 def _markdown_files() -> list[Path]:
@@ -107,3 +116,29 @@ def test_verify_runs_through_uv(location: str, line: str):
         '`uv run --project "$CPP_DIR" python -m lib.cicd verify` (issue #595):\n  '
         f"{location}: {line}"
     )
+
+
+@pytest.mark.parametrize("prefix", VERIFY_PREFIXES)
+def test_verify_guard_accepts_both_explicit_shapes(prefix):
+    assert CORRECT_UV.search(prefix)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        CPP_VERIFY.replace("--python 3.11", "--python 3.12"),
+        CPP_VERIFY.replace("--no-python-downloads ", ""),
+        CPP_VERIFY.replace("env -u UV_PROJECT_ENVIRONMENT ", ""),
+        CPP_VERIFY.replace('"$CPP_DIR" python', '"$OTHER_PROJECT" python'),
+        LEGACY_VERIFY.replace("uv run --project", "python3 --project"),
+    ],
+)
+def test_verify_guard_rejects_mutated_shapes(bad):
+    assert not CORRECT_UV.search(bad)
+
+
+def test_guard_control_distinguishes_its_committed_blind_pattern():
+    blind = re.compile((ROOT / "tests/fixtures/step9_verify_contract/blind_uv_pattern.txt").read_text().strip())
+    assert blind.search(CPP_VERIFY) and CORRECT_UV.search(CPP_VERIFY)
+    bad = CPP_VERIFY.replace("--no-python-downloads ", "")
+    assert blind.search(bad) and not CORRECT_UV.search(bad)

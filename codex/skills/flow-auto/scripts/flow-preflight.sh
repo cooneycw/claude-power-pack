@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Observe prerequisites with a 3.10-compatible stdlib front end, never uv.
+#: HOST-SURFACE: none - stdlib observation; no uv execution, install, login or engine import
 #: NEGATIVE-CONTROL: controls/flow-preflight
 set -uo pipefail
 trap 'printf "FLOW_PREFLIGHT_BOOTSTRAP_EXIT=%d\n" "$?" >&2' EXIT

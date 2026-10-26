@@ -165,6 +165,10 @@ ESCAPES: dict[str, str] = {
 #: the after-snapshot as a surface the helper never wrote, which reads as an
 #: understatement the helper is not guilty of.
 INVOCATIONS: dict[str, list[list[str]]] = {
+    # Full observer: uv/codex presence only; gh invalid-field probes use isolated
+    # non-credential config and loopback proxies; Python uses --version, engine
+    # uses AST/data reads. No uv execution/imported engine/bytecode compilation.
+    "flow-preflight.sh": [["--json", "--repo", "{HOME}", "--harness", "claude"]],
     "cpp-host-write.sh": [
         ["ensure-dir", "{HOME}/.claude"],
         ["ensure-dir", "{HOME}/.claude/scripts"],
