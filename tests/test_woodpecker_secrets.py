@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.machinery
 import importlib.util
 import json
+import shlex
 import sys
 import types
 from pathlib import Path
@@ -257,3 +258,16 @@ def test_other_key_spellings_still_hide_multiline_decoys(bootstrap, neighbor_key
     module.main()
     assert "WOODPECKER_GRPC_SECRET=dummy-aws\n" in path.read_text()
     assert "decoy" not in path.read_text()
+
+
+@pytest.mark.parametrize("value", ["abcDEF0123", "._~+/=-", "YWJjZA=="])
+def test_supported_aws_subset_is_one_literal_lexical_word(bootstrap, value):
+    """Independent stdlib shell lexer, not the writer regex or live Compose."""
+    module, path, payload = bootstrap
+    payload[GRPC] = value
+    assert not path.exists()
+    module.main()
+    line = next(line for line in path.read_text().splitlines() if line.startswith(GRPC + "="))
+    rhs = line.partition("=")[2]
+    assert shlex.split(rhs, comments=True, posix=True) == [value]
+    assert not any(char in rhs for char in "$#'\"\\ \t\r\n")
