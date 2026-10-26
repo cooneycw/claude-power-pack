@@ -136,7 +136,7 @@ def test_quoted_existing_value_survives_regeneration(bootstrap):
     assert "WOODPECKER_GRPC_SECRET='dummy-quoted-key'\n" in path.read_text()
 
 
-def test_explicit_template_keys_still_preserve_local_signing_key(bootstrap, monkeypatch):
+def test_explicit_template_keys_still_preserve_local_signing_key(bootstrap, monkeypatch, capsys):
     module, path, payload = bootstrap
     payload[GRPC] = "dummy-source-excluded"
     path.write_text("WOODPECKER_GRPC_SECRET=dummy-local-kept\n")
@@ -144,9 +144,12 @@ def test_explicit_template_keys_still_preserve_local_signing_key(bootstrap, monk
     module.main()
     assert "WOODPECKER_GRPC_SECRET=dummy-local-kept\n" in path.read_text()
     assert "dummy-source-excluded" not in path.read_text()
+    captured = capsys.readouterr()
+    assert "dummy-source-excluded" not in captured.out + captured.err
+    assert "dummy-local-kept" not in captured.out + captured.err
 
 
-def test_explicit_template_keys_do_not_import_excluded_aws_secret(bootstrap, monkeypatch):
+def test_explicit_template_keys_do_not_import_excluded_aws_secret(bootstrap, monkeypatch, capsys):
     module, path, payload = bootstrap
     payload[GRPC] = "dummy-source-excluded"
     assert not path.exists()
@@ -156,6 +159,8 @@ def test_explicit_template_keys_do_not_import_excluded_aws_secret(bootstrap, mon
         assert GRPC + "=" not in path.read_text()
     else:
         assert "WOODPECKER_GRPC_SECRET=dummy-source-excluded\n" in path.read_text()
+    captured = capsys.readouterr()
+    assert "dummy-source-excluded" not in captured.out + captured.err
 
 
 def test_unrelated_env_syntax_does_not_block_preservation(bootstrap):
@@ -166,3 +171,15 @@ def test_unrelated_env_syntax_does_not_block_preservation(bootstrap):
     assert "WOODPECKER_GRPC_SECRET=dummy-local-kept\n" in path.read_text()
     assert "UNRELATED" not in path.read_text()
     assert "NEIGHBOR" not in path.read_text()
+
+
+@pytest.mark.parametrize("prefix", ["  ", "\t"])
+def test_leading_whitespace_local_key_is_retained_once(bootstrap, prefix):
+    module, path, payload = bootstrap
+    payload[GRPC] = "dummy-conflicting-source"
+    path.write_text(prefix + "WOODPECKER_GRPC_SECRET=dummy-old\n")
+    module.main()
+    result = path.read_text()
+    assert result.count("WOODPECKER_GRPC_SECRET=") == 1
+    assert "WOODPECKER_GRPC_SECRET=dummy-old\n" in result
+    assert "dummy-conflicting-source" not in result

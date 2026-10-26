@@ -63,50 +63,31 @@ intentionally does not silently rotate the existing local key. Existing older
 copies of the generator still drop this key; deploy the updated script before
 relying on preservation in boot automation.
 
-The following is an operator procedure to run from this directory on the server
-host, **after** bootstrap has generated `docker.env`, for initial provisioning or
-explicit recovery. It creates a random
-32-byte signing key only when neither a local assignment nor the protected
-durable file exists, then
-updates the generated environment without displaying either secret. If a
-durable signing key already exists elsewhere, securely restore it into
-`grpc-secret.env` first instead of generating a replacement. Both `.env` files
-are ignored by this repository. Back up the durable file securely; do not
-delete or regenerate it between restarts.
+For an existing deployment, first retain and securely back up its current
+signing key. Use the updated generator to preserve the local assignment,
+including one with leading whitespace. Do not generate a replacement key or
+manually reconstruct `docker.env` during routine regeneration. Recovering a
+missing file should use the same value from the durable secret manager.
+
+For initial provisioning only, when no signing key exists in either the local
+file or the durable source, an operator can create a protected random 32-byte
+key file without displaying it:
 
 ```sh
 set +x
-umask 077
-python3 - <<'PY'
-import os
-from pathlib import Path
-import secrets
-
-target = Path("docker.env")
-contents = target.read_text()  # Fail before creating a key if bootstrap is absent.
-durable = Path("grpc-secret.env")
-prefix = "WOODPECKER_GRPC_SECRET="
-local = [line for line in contents.splitlines() if line.startswith(prefix)]
-if len(local) > 1 or (local and not local[0][len(prefix):]):
-    raise SystemExit("Invalid local signing-secret assignment; restore it securely")
-try:
-    fd = os.open(durable, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-except FileExistsError:
-    pass
-else:
-    with os.fdopen(fd, "w") as output:
-        output.write((local[0] if local else prefix + secrets.token_hex(32)) + "\n")
-durable.chmod(0o600)
-entry = durable.read_text().strip()
-if not entry.startswith(prefix) or not entry[len(prefix):] or "\n" in entry:
-    raise SystemExit("Invalid durable signing-secret file; restore it securely")
-if local and local[0] != entry:
-    raise SystemExit("Local and durable signing keys differ; resolve without rotating")
-lines = [line for line in contents.splitlines() if not line.startswith(prefix)]
-target.chmod(0o600)
-target.write_text("\n".join(lines + [entry]) + "\n")
-PY
+(umask 077; set -C; openssl rand -hex 32 > grpc-signing-key.env)
 ```
+
+The exclusive redirection refuses to overwrite an existing key file. Keep this
+file protected and outside version control (`*.env` is ignored here). Import
+its value into the named AWS secret's `WOODPECKER_GRPC_SECRET` field using a
+secret manager's secure file-input facility or a protected editor; do not pass
+the value on command arguments or print it. The repository bootstrap uses the
+`essent-ai` AWS secret; the distributed template uses its `--secret-name`.
+Then run the updated bootstrap to write `docker.env` atomically. No independent
+runbook parser or in-place rewrite is needed. If the source has not been set,
+the generator deliberately leaves the key absent; provision it before starting
+the server. Securely retain the key in the durable secret manager for recovery.
 
 Install the updated generator in the operator-owned boot sequence and retain
 the generated `docker.env` across restarts; restore from the durable source
