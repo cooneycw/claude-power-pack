@@ -53,6 +53,10 @@ SCHEMA = 1
 # No committed receipt uses that field yet, so no existing file needs a shim.
 SCHEMA_EXTRA_PASSES = 2
 SCHEMA_FLOW_SCOPE = 3
+# A receipt whose retained Codex implementation rollout names more than one
+# real turn model carries the complete derived set under `implementers`. The
+# reviewer remains scalar: independence means it intersects none of this set.
+SCHEMA_IMPLEMENTER_SET = 4
 # The committed corpus tops out at 2 passes. The only historical extra-pass
 # request was #1320, exactly pass 3 (fc87b5b8 / PR #1457); nothing above 3
 # has ever been requested in the repository's review history.
@@ -348,6 +352,55 @@ def rollout_turn_model(rollout_text: str) -> tuple[str | None, str | None]:
             "the reviewing model is ambiguous"
         )
     return next(iter(models)), None
+
+
+def rollout_implementer_models(rollout_text: str) -> tuple[list[str] | None, str | None]:
+    """All real turn models in one implementing Codex rollout, in first-seen order.
+
+    The whole retained rollout remains the evidence boundary. Unlike reviewer
+    attribution, a model switch in an implementation is representable rather
+    than ambiguous, but one unknown turn still makes the complete set unknown.
+    A caller cannot select a window or supply any model name.
+    """
+    turn_contexts = 0
+    undeclared = 0
+    unparseable = 0
+    models: list[str] = []
+    seen: set[str] = set()
+    for line in rollout_text.split("\n"):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            unparseable += 1
+            continue
+        if not isinstance(record, dict) or record.get("type") != "turn_context":
+            continue
+        turn_contexts += 1
+        payload = record.get("payload")
+        model = payload.get("model") if isinstance(payload, dict) else None
+        if isinstance(model, str) and model.strip():
+            normalized = model.strip()
+            if normalized not in seen:
+                seen.add(normalized)
+                models.append(normalized)
+        else:
+            undeclared += 1
+    if turn_contexts == 0 and not unparseable:
+        return None, "no turn_context record"
+    if unparseable:
+        return None, (
+            f"{unparseable} unparseable line(s) beside {turn_contexts} turn_context "
+            "record(s); an implementing turn's model may be among them, so the "
+            "implementing models are not established"
+        )
+    if undeclared:
+        return None, (
+            f"{undeclared} of {turn_contexts} turn_context record(s) declare no "
+            "payload.model; the implementing models are not established"
+        )
+    return models, None
 
 
 # Fresh-flow attribution is deliberately a literal native-harness adapter, not
@@ -1024,8 +1077,9 @@ def _flow_scope_model(
 
 
 def _derive_reviewer_from_exec_log(
-    exec_log: Path, sessions_dir: Path, role: str = "reviewer"
-) -> tuple[str | None, dict | None, str | None]:
+    exec_log: Path, sessions_dir: Path, role: str = "reviewer",
+    implementer_set: bool = False,
+) -> tuple[str | list[str] | None, dict | None, str | None]:
     """Derive the model behind one Codex exec stream from its own rollout.
 
     Returns `(model, evidence, error)`. `evidence` is the pointer a later
@@ -1045,13 +1099,16 @@ def _derive_reviewer_from_exec_log(
     thread_match = re.search(r'"thread_id"\s*:\s*"([^"]*)"', exec_text)
     if thread_match is None or not thread_match.group(1):
         return None, None, f"{role} exec log {exec_log} contains no thread_id"
-    return _derive_codex_from_thread(thread_match.group(1), sessions_dir, role)
+    return _derive_codex_from_thread(
+        thread_match.group(1), sessions_dir, role, implementer_set=implementer_set
+    )
 
 
 def _derive_codex_from_thread(
     thread_id: str, sessions_dir: Path, role: str = "reviewer",
     flow_args: argparse.Namespace | None = None,
-) -> tuple[str | None, dict | None, str | None]:
+    implementer_set: bool = False,
+) -> tuple[str | list[str] | None, dict | None, str | None]:
     """`codex/<model>` for one Codex thread, read from that thread's own rollout.
 
     Shared by the reviewer derivation (thread id read from an exec stream) and,
@@ -1097,7 +1154,11 @@ def _derive_codex_from_thread(
         except (FlowScopeRefused, OSError, subprocess.SubprocessError) as exc:
             return None, None, f"fresh-flow scope refused: {exc}"
     else:
-        model, reason = rollout_turn_model(rollout_text)
+        if implementer_set:
+            models, reason = rollout_implementer_models(rollout_text)
+            model = models
+        else:
+            model, reason = rollout_turn_model(rollout_text)
     if model is None:
         return None, None, f"{reason} in matching rollout {rollout}"
     evidence = {
@@ -1106,6 +1167,9 @@ def _derive_codex_from_thread(
     }
     if flow_scope is not None:
         evidence["flow_scope"] = flow_scope
+    if isinstance(model, list):
+        identities = [f"codex/{item}" for item in model]
+        return identities[0] if len(identities) == 1 else identities, evidence, None
     return f"codex/{model}", evidence, None
 
 
@@ -1330,8 +1394,13 @@ def _default_claude_projects_dir() -> Path:
 
 
 def build(args: argparse.Namespace) -> dict:
+    implementer_set = isinstance(args.implementer, list)
     receipt: dict = {
-        "schema": SCHEMA_FLOW_SCOPE if getattr(args, "implementer_flow_run", None) else SCHEMA,
+        "schema": (
+            SCHEMA_IMPLEMENTER_SET if implementer_set
+            else SCHEMA_FLOW_SCOPE if getattr(args, "implementer_flow_run", None)
+            else SCHEMA
+        ),
         "recorded_at": args.at or _now(),
         "issue": args.issue,
         "branch": args.branch,
@@ -1342,8 +1411,11 @@ def build(args: argparse.Namespace) -> dict:
         # A skip had no reviewing model, so it records JSON null rather than
         # fabricating an identity for a review that never happened.
         "reviewer": args.reviewer,
-        "implementer": args.implementer,
     }
+    if implementer_set:
+        receipt["implementers"] = args.implementer
+    else:
+        receipt["implementer"] = args.implementer
     # The commit this review was taken against (issue #1171). OPTIONAL, and the
     # optionality is load-bearing: every receipt committed before #1171 has no
     # `head`, and making it required would invalidate all 50 of them at once -
@@ -1386,8 +1458,9 @@ def build(args: argparse.Namespace) -> dict:
         receipt["passes"] = args.passes
         if getattr(args, "extra_pass_reason", None):
             receipt["extra_passes_reason"] = args.extra_pass_reason.strip()
-            receipt["schema"] = (SCHEMA_FLOW_SCOPE if getattr(args, "implementer_flow_run", None)
-                                 else SCHEMA_EXTRA_PASSES)
+            if not implementer_set:
+                receipt["schema"] = (SCHEMA_FLOW_SCOPE if getattr(args, "implementer_flow_run", None)
+                                     else SCHEMA_EXTRA_PASSES)
         receipt["counts"] = {k: getattr(args, k) for k in COUNTS}
         receipt["red_cases"] = {
             "proposed": args.red_cases_proposed,
@@ -1412,9 +1485,17 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
     has_extra_reason = "extra_passes_reason" in receipt
     has_flow_scope = (isinstance(receipt.get("implementer_evidence"), dict)
                       and "flow_scope" in receipt["implementer_evidence"])
-    expected_schema = SCHEMA_FLOW_SCOPE if has_flow_scope else (SCHEMA_EXTRA_PASSES if has_extra_reason else SCHEMA)
+    has_implementer_set = "implementers" in receipt
+    expected_schema = (
+        SCHEMA_IMPLEMENTER_SET if has_implementer_set
+        else SCHEMA_FLOW_SCOPE if has_flow_scope
+        else SCHEMA_EXTRA_PASSES if has_extra_reason
+        else SCHEMA
+    )
     if receipt.get("schema") != expected_schema:
         why = (
+            "this receipt carries an 'implementers' set, which requires schema 4"
+            if has_implementer_set else
             "this receipt carries 'extra_passes_reason', which schema 1 does not "
             "describe; re-write this receipt with the current counter-model-receipt.py "
             "to pick up schema 2"
@@ -1427,6 +1508,8 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
     if has_flow_scope:
         bad.extend(f"{source}: {problem}" for problem in _flow_proof_problems(
             receipt["implementer_evidence"]["flow_scope"], receipt))
+    if receipt.get("schema") == SCHEMA_IMPLEMENTER_SET and not has_implementer_set:
+        bad.append(f"{source}: schema 4 is missing its 'implementers' list")
     need("recorded_at", str)
     need("branch", str)
     if not isinstance(receipt.get("issue"), (int, str)):
@@ -1437,7 +1520,40 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
         bad.append(f"{source}: status {status!r} not in {STATUSES}")
         return bad
 
-    implementer = need("implementer", str)
+    implementer: object | None = None
+    implementers: list[str] = []
+    if has_implementer_set:
+        if "implementer" in receipt:
+            bad.append(
+                f"{source}: schema 4 must not carry singular 'implementer' beside "
+                "the 'implementers' set"
+            )
+        raw_implementers = receipt["implementers"]
+        if not isinstance(raw_implementers, list):
+            bad.append(
+                f"{source}: 'implementers' is {type(raw_implementers).__name__}, expected list"
+            )
+        elif not raw_implementers:
+            bad.append(f"{source}: 'implementers' must be a nonempty list")
+        else:
+            for index, value in enumerate(raw_implementers):
+                if not isinstance(value, str):
+                    bad.append(
+                        f"{source}: implementers[{index}] is {type(value).__name__}; "
+                        "all implementer identities must be strings"
+                    )
+                elif not value.strip():
+                    bad.append(
+                        f"{source}: implementers[{index}] is empty; a run must name every model"
+                    )
+                else:
+                    implementers.append(value.strip())
+            if len(implementers) != len(set(implementers)):
+                bad.append(f"{source}: 'implementers' must contain unique model identities")
+    else:
+        implementer = need("implementer", str)
+        if isinstance(implementer, str) and implementer.strip():
+            implementers = [implementer.strip()]
     reviewer = receipt.get("reviewer")
     if status == "skipped":
         if reviewer is not None:
@@ -1453,18 +1569,25 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
     # reviewed this" on the strength of two empty strings. A missing identity
     # has to fail the same check a colliding one does.
     for name, value in (("reviewer", reviewer), ("implementer", implementer)):
-        if value is not None and not value.strip():
+        if isinstance(value, str) and not value.strip():
             bad.append(f"{source}: {name} is empty; a run must name the model")
-    if reviewer and implementer and reviewer.strip() and implementer.strip():
+    if isinstance(reviewer, str) and reviewer.strip() and implementers:
         # THE PROPERTY, CHECKED. A run whose reviewer IS the implementer is not
         # a counter-model review at all - it is the author agreeing with
         # themselves, recorded as independent evidence. Worse than no receipt,
         # because it is counted.
-        if reviewer.strip() == implementer.strip():
-            bad.append(
-                f"{source}: reviewer and implementer are the same model "
-                f"({reviewer!r}); the reviewing model must not be the implementing model"
-            )
+        if reviewer.strip() in implementers:
+            if has_implementer_set:
+                bad.append(
+                    f"{source}: reviewer overlaps the implementer set "
+                    f"({reviewer.strip()!r}); the reviewing model must differ from "
+                    "every implementing model"
+                )
+            else:
+                bad.append(
+                    f"{source}: reviewer and implementer are the same model "
+                    f"({reviewer!r}); the reviewing model must not be the implementing model"
+                )
 
     head = receipt.get("head")
     if head is not None:
@@ -1557,6 +1680,22 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
         elif local not in LOCAL_CREDENTIALS:
             bad.append(f"{source}: local_credentials {local!r} not in {LOCAL_CREDENTIALS}")
 
+    if has_implementer_set:
+        # Schema 4 is the Codex-rollout representation. This check is
+        # independent of direction: on a delegated lane Codex is the
+        # implementer, but a hand-built Qwen/OpenCode set must not acquire a
+        # representation their writers cannot derive.
+        if not implementers or any(not item.startswith("codex/") for item in implementers):
+            bad.append(
+                f"{source}: schema 4 is recorded only for codex/ implementers "
+                "derived from one complete retained rollout"
+            )
+        if not _names(receipt.get("implementer_evidence"), ("thread_id", "rollout")):
+            bad.append(
+                f"{source}: schema 4 requires implementer_evidence naming the Codex "
+                "thread and rollout from which the implementer set was derived"
+            )
+
     if delegated:
         # A delegated receipt exists BECAUSE a review happened: the supervising
         # Claude session is always present on that lane, so neither committed
@@ -1580,9 +1719,11 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
                 f"{source}: a delegated receipt must carry implementer_evidence naming a "
                 "non-empty " + " and ".join(repr(k) for k in DELEGATED_EVIDENCE_KEYS[harness])
             )
-        elif harness and not (isinstance(implementer, str) and implementer.startswith(f"{harness}/")):
-            bad.append(f"{source}: implementer {implementer!r} does not match its evidence's "
-                       f"harness {harness!r}")
+        elif harness and not implementers:
+            bad.append(f"{source}: no usable implementer identity matches evidence harness {harness!r}")
+        elif harness and any(not item.startswith(f"{harness}/") for item in implementers):
+            bad.append(f"{source}: implementers {implementers!r} do not all match their "
+                       f"evidence's harness {harness!r}")
         if not _names(receipt.get("reviewer_evidence"), ("session_id",)):
             bad.append(
                 f"{source}: a delegated receipt must carry reviewer_evidence "
@@ -1602,7 +1743,7 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
         # On the default direction it is recorded ONLY for a Codex implementer
         # (issue #1453), whose identity was read from its own thread's rollout.
         # A Claude implementer is derived from its transcript and carries none.
-        if not (isinstance(implementer, str) and implementer.startswith("codex/")):
+        if not implementers or any(not item.startswith("codex/") for item in implementers):
             bad.append(
                 f"{source}: 'implementer_evidence' on the default direction is "
                 "recorded only for a codex/ implementer (issue #1453); a Claude "
@@ -1613,7 +1754,6 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
                 f"{source}: a codex implementer's implementer_evidence must name a "
                 "non-empty 'thread_id' and 'rollout'"
             )
-
     if status == "skipped":
         if receipt.get("skip_reason") not in SKIP_REASONS:
             bad.append(
@@ -2052,7 +2192,7 @@ def _derive_delegated(args: argparse.Namespace) -> str | None:
     else:
         sessions_dir = args.codex_sessions_dir or _default_codex_sessions_dir()
         implementer, evidence, error = _derive_reviewer_from_exec_log(
-            args.implementer_exec_log, sessions_dir, role="implementer"
+            args.implementer_exec_log, sessions_dir, role="implementer", implementer_set=True
         )
     if error is not None:
         return error
@@ -2181,6 +2321,7 @@ def cmd_write(args: argparse.Namespace) -> int:
             implementer, evidence, error = _derive_codex_from_thread(
                 ident, sessions_dir, role="implementer",
                 flow_args=args if getattr(args, "implementer_flow_run", None) else None,
+                implementer_set=not getattr(args, "implementer_flow_run", None),
             )
             if error is not None:
                 print(f"counter-model-receipt: implementer thread: {error}", file=sys.stderr)
