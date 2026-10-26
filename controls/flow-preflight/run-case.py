@@ -58,6 +58,10 @@ if mode=='writing-provider':
  Path(os.environ['HOME'],'provider-device-id').write_text('dummy-provider-state')
 with open(os.environ['CPP_PROBE_TRACE'], 'a') as stream:
  stream.write(json.dumps([name,sys.argv[1:]])+'\n')
+if name=='gh' and mode=='unexpected-command' and sys.argv[1:]==['--version']:
+ import subprocess
+ extra=json.loads(os.environ['CPP_UNEXPECTED_COMMAND'])
+ subprocess.run([str(Path(sys.argv[0]).parent/extra[0]),*extra[1:]],capture_output=True)
 if name=='gh':
  if mode=='unknown': print('unrelated provider error',file=sys.stderr);sys.exit(4)
  if sys.argv[1:] == ['--version']: print('gh version 2.103.2');sys.exit(0)
@@ -108,6 +112,7 @@ sys.exit(0)
         PYTHONDONTWRITEBYTECODE="1",
         CPP_CONTROL_MODE=mode,
         CPP_PROBE_TRACE=str(trace),
+        CPP_UNEXPECTED_COMMAND=json.dumps(case.get("unexpected", [])),
         XDG_CONFIG_HOME=str(root / "config"),
         XDG_DATA_HOME=str(root / "data"),
         XDG_CACHE_HOME=str(root / "cache"),

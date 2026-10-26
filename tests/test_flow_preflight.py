@@ -404,3 +404,28 @@ def test_all_gaps_control_does_not_depend_on_host_python_version(tmp_path):
     )
     assert result.returncode == 1
     assert "FLOW_PREFLIGHT_CONTROL: blocked" in result.stdout
+
+
+@pytest.mark.skipif(
+    shutil.which("bash") is None or shutil.which("dirname") is None,
+    reason="adverse command fixture requires bash and dirname",
+)
+@pytest.mark.parametrize("case_name", ["gh-auth-command", "uv-install-command"])
+def test_fixture_allowlist_rejects_committed_unexpected_fake_commands(case_name):
+    case = ROOT / "controls/flow-preflight/effects-cases" / case_name
+    data = json.loads((case / "case.json").read_text())
+    assert data["mode"] == "unexpected-command"
+    assert data["unexpected"] in (["gh", "auth", "status"], ["uv", "python", "install", "3.11"])
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "controls/flow-preflight/run-case.py"),
+            str(case),
+            str(ROOT / "scripts/flow-preflight.sh"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "unexpected side-effect-capable command" in result.stderr
+    assert "FLOW_PREFLIGHT_CONTROL: ready" not in result.stdout
