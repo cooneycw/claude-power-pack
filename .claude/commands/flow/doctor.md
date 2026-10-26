@@ -362,8 +362,8 @@ Output a single diagnostic report in this format:
 |-------|--------|---------|
 | git | ✅ | v2.43.0 |
 | gh CLI | ✅ | v2.62.0 |
-| gh auth | ✅ | Logged in as {user} |
-| uv | ✅ | v0.5.14 |
+| gh local capabilities | ✅/⚠️/❌ | Required fields available / Unknown / Unsupported; authentication untested |
+| uv presence | ✅/❌ | Present / Missing (required for CPP runner); version not measured |
 
 ### Repository
 
@@ -371,7 +371,7 @@ Output a single diagnostic report in this format:
 |-------|--------|---------|
 | Git repo | ✅ | claude-power-pack |
 | Remote | ✅ | github.com/cooneycw/claude-power-pack |
-| User identity | ✅ | {name} <{email}> |
+| User identity presence | ✅/⚠️/❌ | Effective name/email present / Unknown / Missing; values withheld |
 
 ### Workflow Readiness
 
@@ -443,7 +443,7 @@ Output a single diagnostic report in this format:
 2c. ⚠️ **Flow helper(s) not at ~/.claude/scripts/ (clone install)** - the #581 zero-prompt lane degrades to CPP-checkout fallback paths, which prompt. Run `/flow:repair`, `/cpp:update` (Step 5b re-links new scripts), or `/cpp:init` Tier 2
 2d. ❌ **Flow helper(s) missing, no CPP checkout** - `/flow:start` and `/flow:auto` will exit 127 at Step 1. Clone CPP, then run `/flow:repair`; the canonical symlink tier returns in #663
 2e. ⚠️ **Flow helpers stale** - `flow-helpers-install.sh --check` reports installed copies differing from their checkout or legacy-cache source. Run `/flow:repair`
-3. ⚠️ **uv not installed** - Install: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+3. ❌ **uv not installed (required for CPP runner)** - Install: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 4. ❌ **cicd.yml missing** - Run `/cicd:init` to auto-detect framework and generate configuration
 5. ⚠️ **Makefile gaps** - Run `/cicd:check` for details or `/cicd:init` to add missing targets
 6. ❌ **No CI pipeline** - Run `/cicd:pipeline` to generate GitHub Actions or Woodpecker CI config
@@ -451,7 +451,7 @@ Output a single diagnostic report in this format:
 8. ⚠️ **No smoke tests** - Add `health.smoke_tests` to `.claude/cicd.yml` for post-deploy testing
 9. ⚠️ **second-opinion not registered** - It is an external server now. Run the `cooneycw/mcp-second-opinion` repo's server, then `/cpp:update` registers it at user scope at `${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp` (default 8080; export `SECOND_OPINION_URL` first for a moved port or a Tailscale URL).
 
-*All checks passed!* → "Environment is ready for `/flow` workflow."
+Only report ready when shared preflight exits 0 and all later required observations are known and pass. Keep required unknowns visible; never infer authentication or identity values from local capability success.
 ```
 
 ## Status Symbols
@@ -462,8 +462,8 @@ Output a single diagnostic report in this format:
 
 ## Notes
 
-- This is a read-only diagnostic - it never modifies anything
-- `uv` is recommended but not required (⚠️ if missing, not ❌)
+- The shared observer invokes local read probes and no installation/configuration writes. Its bounded effects evidence is not a whole-host or arbitrary-provider guarantee; later legacy doctor checks may authenticate, probe services, or invoke uv.
+- `uv` is required for the CPP runner (❌ if missing); target-project tools remain separate.
 - Makefile is recommended but not required (⚠️ if missing)
 - Scripts are ❌ if missing since the flow commands call them. Hooks are not graded ❌ (Step 4): they are not security protection - CPP's optional hooks are the observe-only permission census and the advisory pending-retro notice, and neither blocks or filters anything (#1206)
 - Keep the report concise - one table per section, actions at the end

@@ -116,8 +116,8 @@ def engine_check(harness, engine, home):
         if real.name != "project-next.py" or real.parent.name != "scripts" or not real.is_file():
             return check("engine", "unknown", "Selected entry point is not the supported project-next layout")
         tree = ast.parse(real.read_text())
-        imports = [node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)]
-        if not any(module.startswith("lib.project_next") for module in imports):
+        imports = [node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.level == 0]
+        if not any(module == "lib.project_next" or module.startswith("lib.project_next.") for module in imports):
             return check("engine", "unknown", "Selected entry point does not identify the CPP engine")
         root = real.parent.parent
         manifest = root / "lib/project_next/ownership.json"
@@ -150,14 +150,39 @@ def engine_check(harness, engine, home):
             "Selected engine or colocated ownership data is missing",
             "Repair the active harness installation; keep scripts and lib together",
         )
-    except (OSError, ValueError, SyntaxError, AttributeError):
+    except (OSError, ValueError, SyntaxError, AttributeError, RuntimeError):
         return check("engine", "unknown", "Selected engine ownership is unreadable or malformed")
 
 
 def python_check(repo, home):
+    unknown = False
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+
+    def verifies(candidates):
+        nonlocal unknown
+        for candidate in dict.fromkeys(candidates):
+            code, out, err = run([candidate, "--version"], repo, env)
+            version = re.fullmatch(r"Python (\d+)\.(\d+)\.(\d+)\s*", out or err)
+            if code != 0 or not version:
+                unknown = True
+            elif version.group(1, 2) == ("3", "11"):
+                return True
+        return False
+
+    def ready():
+        return check(
+            "cpp_python",
+            "ok",
+            "Installed CPP runner Python 3.11 is available",
+            policy="CPP runner only; target project Python is independent",
+        )
+
     candidates = [p for name in ("python3.11", "python3") if (p := shutil.which(name))]
+    if verifies(candidates):
+        return ready()
     data_root = Path(os.environ.get("XDG_DATA_HOME", str(home / ".local/share")))
     managed = Path(os.environ.get("UV_PYTHON_INSTALL_DIR", str(data_root / "uv/python")))
+    candidates = []
     try:
         try:
             directories = list(managed.iterdir())
@@ -174,20 +199,8 @@ def python_check(repo, home):
             candidates.append(str(candidate))
     except OSError:
         return check("cpp_python", "unknown", "Installed managed Python directory is unreadable")
-    unknown = False
-    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
-    for candidate in dict.fromkeys(candidates):
-        code, out, err = run([candidate, "--version"], repo, env)
-        version = re.fullmatch(r"Python (\d+)\.(\d+)\.(\d+)\s*", out or err)
-        if code != 0 or not version:
-            unknown = True
-        elif version.group(1, 2) == ("3", "11"):
-            return check(
-                "cpp_python",
-                "ok",
-                "Installed CPP runner Python 3.11 is available",
-                policy="CPP runner only; target project Python is independent",
-            )
+    if verifies(candidates):
+        return ready()
     return check(
         "cpp_python",
         "unknown" if unknown else "missing",
@@ -198,7 +211,10 @@ def python_check(repo, home):
 
 
 def observe(args):
-    repo = Path(args.repo).resolve()
+    try:
+        repo = Path(args.repo).resolve()
+    except (OSError, RuntimeError, ValueError):
+        repo = None
     home = Path.home()
     checks = [gh_check(repo)]
     checks.append(
@@ -209,9 +225,9 @@ def observe(args):
             "Install uv explicitly if missing; this observer never installs it",
         )
     )
-    checks.append(python_check(repo, home))
+    checks.append(python_check(repo or home, home))
     for key in ("user.name", "user.email"):
-        code, out, _ = run(["git", "config", "--get", key], repo)
+        code, out, _ = run(["git", "config", "--get", key], repo) if repo is not None else (None, "", "")
         status = "ok" if code == 0 and out.strip() else "missing" if code in (0, 1) else "unknown"
         checks.append(
             check(

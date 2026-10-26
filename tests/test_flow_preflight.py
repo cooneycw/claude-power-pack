@@ -243,6 +243,8 @@ def test_observer_parses_as_310_syntax_without_claiming_310_runtime():
 
 def test_unreadable_managed_runtime_inventory_is_unknown(observer, monkeypatch):
     module, args, home, _ = observer
+    monkeypatch.setattr(module.shutil, "which", lambda name: None)
+    assert module.shutil.which("python3.11") is None
 
     def denied(path):
         raise PermissionError("dummy-private-directory")
@@ -324,3 +326,81 @@ def test_invalid_provider_bytes_remain_unknown_and_other_checks_are_reported(obs
     assert next(c for c in report["checks"] if c["id"] == "engine")["status"] == "ok"
     captured = capsys.readouterr()
     assert captured.out == "" and captured.err == ""
+
+
+def test_usable_path_python_is_not_outvoted_by_unreadable_neighbor(observer, monkeypatch):
+    module, args, home, _ = observer
+
+    def denied(path):
+        raise PermissionError("dummy-neighbor")
+
+    monkeypatch.setattr(module.Path, "iterdir", denied)
+    assert module.python_check(Path(args.repo), home)["status"] == "ok"
+
+
+def test_looping_engine_does_not_abort_aggregate(observer):
+    module, args, _, engine = observer
+    engine.unlink()
+    engine.symlink_to(engine.name)
+    assert engine.is_symlink()
+    report, code = module.observe(args)
+    assert code == 3 and len(report["checks"]) == 7
+    assert next(item for item in report["checks"] if item["id"] == "engine")["status"] == "unknown"
+
+
+def test_looping_repository_does_not_abort_independent_observations(observer, tmp_path):
+    module, args, _, _ = observer
+    loop = tmp_path / "loop"
+    loop.symlink_to(loop.name)
+    args.repo = str(loop)
+    assert loop.is_symlink()
+    report, code = module.observe(args)
+    assert code == 3 and len(report["checks"]) == 7
+    assert next(item for item in report["checks"] if item["id"] == "engine")["status"] == "ok"
+    assert next(item for item in report["checks"] if item["id"] == "user.email")["status"] == "unknown"
+
+
+@pytest.mark.parametrize("namespace", ["lib.project_next_neighbor", ".lib.project_next"])
+def test_neighbor_or_relative_import_is_not_cpp_identity(observer, namespace):
+    module, _, home, engine = observer
+    engine.write_text(f"from {namespace} import main\n")
+    assert (home / ".claude/lib/project_next/ownership.json").exists()
+    assert module.engine_check("claude", None, home)["status"] == "unknown"
+
+
+@pytest.mark.skipif(
+    shutil.which("bash") is None or shutil.which("dirname") is None,
+    reason="control bootstrap requires bash and dirname",
+)
+def test_all_gaps_control_does_not_depend_on_host_python_version(tmp_path):
+    import shlex
+
+    wrapper = tmp_path / "host-python"
+    wrapper.write_text(
+        "#!" + shutil.which("bash") + "\n"
+        "if [[ ${1:-} == --version ]]; then printf 'Python 3.11.14\\n'; exit 0; fi\n"
+        "exec " + shlex.quote(sys.executable) + ' "$@"\n'
+    )
+    wrapper.chmod(0o755)
+    version = subprocess.run([str(wrapper), "--version"], capture_output=True, text=True)
+    assert version.returncode == 0 and version.stdout == "Python 3.11.14\n"
+    # Simulate sys.executable reporting 3.11 for the fixture's version observation;
+    # execution still delegates to this test's interpreter, not a native 3.11 claim.
+    driver = ROOT / "controls/flow-preflight/run-case.py"
+    case = ROOT / "controls/flow-preflight/cases/bad-all-gaps"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys,runpy; p=sys.argv[2]; sys.executable=sys.argv[1]; "
+            "sys.argv=sys.argv[2:]; runpy.run_path(p,run_name='__main__')",
+            str(wrapper),
+            str(driver),
+            str(case),
+            str(ROOT / "scripts/flow-preflight.sh"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1
+    assert "FLOW_PREFLIGHT_CONTROL: blocked" in result.stdout

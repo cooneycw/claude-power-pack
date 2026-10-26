@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -34,8 +35,17 @@ with tempfile.TemporaryDirectory() as directory:
         json.dumps({"owner": "cooneycw/claude-power-pack", "contract_version": "1.6"})
     )
     (library / "rank.py").write_text('CONTRACT_VERSION = "1.6"\n')
-    for name, target in (("python3", sys.executable), ("bash", bash), ("dirname", dirname)):
+    for name, target in (("bash", bash), ("dirname", dirname)):
         (binaries / name).symlink_to(target)
+    # Keep real execution for bootstrap/imports, but make the version observation
+    # deterministic even when the control's own interpreter is Python 3.11.
+    bootstrap = binaries / "python3"
+    bootstrap.write_text(
+        "#!" + bash + "\n"
+        "if [[ ${1:-} == --version ]]; then printf 'Python 3.10.0\\n'; exit 0; fi\n"
+        "exec " + shlex.quote(sys.executable) + ' "$@"\n'
+    )
+    bootstrap.chmod(0o755)
     stub = (
         "#!"
         + sys.executable
