@@ -60,6 +60,7 @@ from lib.project_next.collect import (  # noqa: E402
     CollectionError,
     CommandRunner,
     collect_repository,
+    gh_field_remediation,
     subprocess_runner,
 )
 from lib.project_next.config import ConfigError, load_config  # noqa: E402
@@ -292,7 +293,9 @@ def _native_rows_live(repository: Path, limit: int) -> tuple[list[dict[str, obje
         check=False,
     )
     if completed.returncode:
-        detail = (completed.stderr or completed.stdout or "command failed").strip().splitlines()[0]
+        diagnostic = (completed.stderr or completed.stdout or "command failed").strip()
+        command = ["gh", "issue", "list", "--json", fields]
+        detail = gh_field_remediation(command, diagnostic) or diagnostic.splitlines()[0]
         return None, f"native GitHub relationship fields unavailable: {detail}"
     try:
         payload = json.loads(completed.stdout)

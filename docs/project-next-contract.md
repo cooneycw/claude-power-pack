@@ -12,8 +12,8 @@ repository has been private and dormant since 2026-09-22 (#1076), and
 
 ## Version and entry points
 
-Contract version `1.6` accepts a structured `RepositoryState` and emits a
-structured `RecommendationResult`. Run it from a CPP checkout with:
+Contract version `1.7` accepts a structured `RepositoryState` and emits a
+structured `RecommendationResult`. Version 1.7 adds explicit remediation for a known gh JSON field rejected by the installed CLI; failed inventory remains incomplete and no authentication state is inferred (#1571). Run it from a CPP checkout with:
 
 ```bash
 python3 scripts/project-next.py [repository] [--brief|--compact|--full|--json]
@@ -182,7 +182,7 @@ synchronized or a specification group complete.
 Missing mappings produce `sync_spec`; stale or ambiguous identities produce
 `resolve_spec_mapping`. Neither state is silently treated as completed work.
 
-All modes name the `1.6` contract. Missing prerequisites and incomplete state
+All modes name the `1.7` contract. Missing prerequisites and incomplete state
 are explicit failure states; they never become a confident recommendation.
 
 Renderers cap long collector output: warnings list the first five entries and
@@ -191,7 +191,7 @@ always carries the complete lists.
 
 ## Compatibility notes
 
-`1.6` (#1488) retains later issue references on dependency lines and reports
+`1.7` (#1488) retains later issue references on dependency lines and reports
 uncertainty when prose interrupts the contiguous reference list. This favors
 recall over precision: qualifications such as "unlike #5" or "see #7" may add
 edges, but the line also requires human review. Explicit cross-repository
