@@ -1,0 +1,31 @@
+{
+  "branch": "fix/1571-b-consumer-preflight",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "16b034b2e51b44db0cbe8027720cb88644a49b95",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/25/rollout-2026-10-25T18-18-21-01a17448-f63f-7ef0-ae87-d75ec3e637d0.jsonl",
+    "thread_id": "01a17448-f63f-7ef0-ae87-d75ec3e637d0"
+  },
+  "issue": "1571",
+  "local_credentials": "absent",
+  "network": "open",
+  "passes": 1,
+  "recorded_at": "2026-10-26T10:16:32Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 5
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/26/rollout-2026-10-26T09-48-54-01a1779c-e8ff-7fb3-b9c7-94df72d91772.jsonl",
+    "thread_id": "01a1779c-e8ff-7fb3-b9c7-94df72d91772"
+  },
+  "schema": 1,
+  "scope": "full",
+  "status": "ran"
+}
