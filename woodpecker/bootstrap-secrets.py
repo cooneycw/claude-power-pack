@@ -20,8 +20,66 @@ is actually for.
 """
 import json
 import os
+import re
+import tempfile
+from pathlib import Path
 
 import boto3
+
+GRPC_KEY = "WOODPECKER_GRPC_SECRET"
+
+
+def write_env(path: str, values: dict, keys: list[str]) -> list[str]:
+    """Preserve only the signing key, validate before atomically replacing output."""
+    target = Path(path)
+    existing = None
+    if target.exists():
+        for line in target.read_text().splitlines():
+            if not re.match(r"^\s*(?:export\s+)?WOODPECKER_GRPC_SECRET(?:\s|=|$)", line):
+                continue
+            match = re.fullmatch(r"\s*WOODPECKER_GRPC_SECRET=(.*)", line)
+            if existing is not None or match is None:
+                raise ValueError("Duplicate or malformed local signing-secret assignment")
+            raw = match.group(1).strip()
+            checked = raw
+            if raw[:1] in ("'", '\"'):
+                if len(raw) < 2 or raw[-1] != raw[0]:
+                    raise ValueError("Malformed local signing-secret quoting")
+                checked = raw[1:-1]
+            if not checked or checked.startswith("#"):
+                raise ValueError("Empty local signing-secret assignment")
+            existing = raw
+    lines = []
+    written = []
+    for key in dict.fromkeys([*keys, *([GRPC_KEY] if existing is not None else [])]):
+        if key == GRPC_KEY and existing is not None:
+            value = existing
+        elif key not in values:
+            continue
+        else:
+            value = values[key]
+            if key == GRPC_KEY:
+                if value is None or value == "":
+                    continue
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError("Invalid supplied signing secret")
+            value = str(value)
+        if "\n" in value or "\r" in value:
+            raise ValueError("Environment values must occupy one line")
+        lines.append(f"{key}={value}\n")
+        written.append(key)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", dir=target.parent, prefix=".docker-env-", delete=False) as output:
+            temporary = output.name
+            output.write("".join(lines))
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, target)
+    finally:
+        if temporary is not None and os.path.exists(temporary):
+            os.unlink(temporary)
+    return written
 
 
 def main():
@@ -35,15 +93,13 @@ def main():
     secrets = json.loads(resp["SecretString"])
 
     env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docker.env")
-    with open(env_path, "w") as f:
-        for key in [
-            "WOODPECKER_GITHUB_CLIENT",
-            "WOODPECKER_GITHUB_SECRET",
-            "WOODPECKER_AGENT_SECRET",
-            "WOODPECKER_HOST",
-        ]:
-            if key in secrets:
-                f.write(f"{key}={secrets[key]}\n")
+    write_env(env_path, secrets, [
+        "WOODPECKER_GITHUB_CLIENT",
+        "WOODPECKER_GITHUB_SECRET",
+        "WOODPECKER_AGENT_SECRET",
+        "WOODPECKER_HOST",
+        GRPC_KEY,
+    ])
     print(f"Wrote {env_path} with secrets from essent-ai")
 
 

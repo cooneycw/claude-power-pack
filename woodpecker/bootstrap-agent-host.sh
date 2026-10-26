@@ -29,7 +29,7 @@ set -euo pipefail
 : "${WOODPECKER_AGENT_SECRET:?set WOODPECKER_AGENT_SECRET}"
 WOODPECKER_AGENT_LABELS=${WOODPECKER_AGENT_LABELS:-host=$(hostname -s)}
 WOODPECKER_MAX_WORKFLOWS=${WOODPECKER_MAX_WORKFLOWS:-2}
-AGENT_IMAGE=${AGENT_IMAGE:-woodpeckerci/woodpecker-agent:v3.13.0@sha256:a983b1016217ad94cdab48d732ec97b5b1f72718725d651183d7ec885f7caf35}
+AGENT_IMAGE=${AGENT_IMAGE:-woodpeckerci/woodpecker-agent:v3.19.0@sha256:f85f163e09494ace3377a3f3a6043f131fb47e3e627f7438de42417ee06ca56d}
 AGENT_DIR=${AGENT_DIR:-$HOME/woodpecker}
 
 log() { printf '\n=== %s ===\n' "$*"; }

@@ -4,7 +4,7 @@
 
 services:
   woodpecker-server:
-    image: woodpeckerci/woodpecker-server:v3.13.0@sha256:428eb0965754e25e67b8b086648438858b4fa64487b1cd3cc8e4101b396e459a
+    image: woodpeckerci/woodpecker-server:v3.19.0@sha256:6ca167a3c58b50c5a3c903dd8db92b39cfc30c560a47052cff7dd0235123a9cb
     container_name: woodpecker-server
     ports:
       - "9000:8000"
