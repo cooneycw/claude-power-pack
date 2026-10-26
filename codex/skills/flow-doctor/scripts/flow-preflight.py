@@ -196,6 +196,9 @@ def python_check(repo, home):
                 candidate.stat()
             except FileNotFoundError:
                 continue
+            except OSError:
+                unknown = True
+                continue
             candidates.append(str(candidate))
     except OSError:
         return check("cpp_python", "unknown", "Installed managed Python directory is unreadable")

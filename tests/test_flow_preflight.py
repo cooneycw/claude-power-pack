@@ -429,3 +429,43 @@ def test_fixture_allowlist_rejects_committed_unexpected_fake_commands(case_name)
     assert result.returncode == 2
     assert "unexpected side-effect-capable command" in result.stderr
     assert "FLOW_PREFLIGHT_CONTROL: ready" not in result.stdout
+
+
+@pytest.mark.parametrize("creation_order", [("good", "broken"), ("broken", "good")])
+def test_usable_managed_python_wins_over_looping_neighbor(observer, monkeypatch, tmp_path, creation_order):
+    module, args, home, _ = observer
+    managed = tmp_path / "managed"
+    good = managed / "cpython-3.11.good/bin/python3.11"
+    broken = managed / "cpython-3.11.broken/bin/python3.11"
+    for kind in creation_order:
+        candidate = good if kind == "good" else broken
+        candidate.parent.mkdir(parents=True)
+        if kind == "good":
+            candidate.write_text("dummy interpreter observation")
+        else:
+            candidate.symlink_to(candidate.name)
+    assert good.is_file() and broken.is_symlink()
+    with pytest.raises(OSError):
+        broken.stat()
+    monkeypatch.setattr(module.shutil, "which", lambda name: None)
+    monkeypatch.setenv("UV_PYTHON_INSTALL_DIR", str(managed))
+    original = module.run
+    monkeypatch.setattr(
+        module,
+        "run",
+        lambda argv, *rest: (0, "Python 3.11.14\n", "") if argv[0] == str(good) else original(argv, *rest),
+    )
+    assert module.python_check(Path(args.repo), home)["status"] == "ok"
+
+
+def test_only_broken_managed_python_stays_unknown(observer, monkeypatch, tmp_path):
+    module, args, home, _ = observer
+    managed = tmp_path / "managed"
+    broken = managed / "cpython-3.11.broken/bin/python3.11"
+    broken.parent.mkdir(parents=True)
+    broken.symlink_to(broken.name)
+    with pytest.raises(OSError):
+        broken.stat()
+    monkeypatch.setattr(module.shutil, "which", lambda name: None)
+    monkeypatch.setenv("UV_PYTHON_INSTALL_DIR", str(managed))
+    assert module.python_check(Path(args.repo), home)["status"] == "unknown"

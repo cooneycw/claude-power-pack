@@ -87,6 +87,16 @@ sys.exit(0)
         engine.unlink()
     elif mode == "optional":
         (binaries / "codex").unlink()
+    elif mode == "managed-neighbor":
+        (binaries / "python3.11").unlink()
+        for kind in ("good", "broken"):
+            candidate = root / "uv-python" / ("cpython-3.11." + kind) / "bin/python3.11"
+            candidate.parent.mkdir(parents=True)
+            if kind == "good":
+                candidate.write_text(stub)
+                candidate.chmod(0o755)
+            else:
+                candidate.symlink_to(candidate.name)
     elif mode == "wrong-engine":
         engine.write_text("print('unrelated application')\n")
 
