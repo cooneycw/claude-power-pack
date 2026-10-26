@@ -134,3 +134,35 @@ def test_quoted_existing_value_survives_regeneration(bootstrap):
     path.write_text("WOODPECKER_GRPC_SECRET='dummy-quoted-key'\n")
     module.main()
     assert "WOODPECKER_GRPC_SECRET='dummy-quoted-key'\n" in path.read_text()
+
+
+def test_explicit_template_keys_still_preserve_local_signing_key(bootstrap, monkeypatch):
+    module, path, payload = bootstrap
+    payload[GRPC] = "dummy-source-excluded"
+    path.write_text("WOODPECKER_GRPC_SECRET=dummy-local-kept\n")
+    monkeypatch.setattr(sys, "argv", [module.__file__, "--secret-name", "dummy-test", "--keys", "WOODPECKER_HOST"])
+    module.main()
+    assert "WOODPECKER_GRPC_SECRET=dummy-local-kept\n" in path.read_text()
+    assert "dummy-source-excluded" not in path.read_text()
+
+
+def test_explicit_template_keys_do_not_import_excluded_aws_secret(bootstrap, monkeypatch):
+    module, path, payload = bootstrap
+    payload[GRPC] = "dummy-source-excluded"
+    assert not path.exists()
+    monkeypatch.setattr(sys, "argv", [module.__file__, "--secret-name", "dummy-test", "--keys", "WOODPECKER_HOST"])
+    module.main()
+    if hasattr(module, "DEFAULT_KEYS"):  # Only the distributed template exposes --keys.
+        assert GRPC + "=" not in path.read_text()
+    else:
+        assert "WOODPECKER_GRPC_SECRET=dummy-source-excluded\n" in path.read_text()
+
+
+def test_unrelated_env_syntax_does_not_block_preservation(bootstrap):
+    module, path, _ = bootstrap
+    path.write_text("UNRELATED='multi\nline'\nexport OTHER=value\nWOODPECKER_GRPC_SECRET_NEIGHBOR=x\n"
+                    "WOODPECKER_GRPC_SECRET=dummy-local-kept\n")
+    module.main()
+    assert "WOODPECKER_GRPC_SECRET=dummy-local-kept\n" in path.read_text()
+    assert "UNRELATED" not in path.read_text()
+    assert "NEIGHBOR" not in path.read_text()

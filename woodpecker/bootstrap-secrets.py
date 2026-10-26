@@ -39,15 +39,15 @@ def write_env(path: str, values: dict, keys: list[str]) -> list[str]:
                 continue
             match = re.fullmatch(r"\s*WOODPECKER_GRPC_SECRET=(.*)", line)
             if existing is not None or match is None:
-                raise ValueError("Duplicate or malformed local signing-secret assignment")
+                raise ValueError("WOODPECKER_GRPC_SECRET: duplicate or malformed local assignment")
             raw = match.group(1).strip()
             checked = raw
             if raw[:1] in ("'", '\"'):
                 if len(raw) < 2 or raw[-1] != raw[0]:
-                    raise ValueError("Malformed local signing-secret quoting")
+                    raise ValueError("WOODPECKER_GRPC_SECRET: malformed local quoting")
                 checked = raw[1:-1]
             if not checked or checked.startswith("#"):
-                raise ValueError("Empty local signing-secret assignment")
+                raise ValueError("WOODPECKER_GRPC_SECRET: empty local assignment")
             existing = raw
     lines = []
     written = []
@@ -62,7 +62,7 @@ def write_env(path: str, values: dict, keys: list[str]) -> list[str]:
                 if value is None or value == "":
                     continue
                 if not isinstance(value, str) or not value.strip():
-                    raise ValueError("Invalid supplied signing secret")
+                    raise ValueError("WOODPECKER_GRPC_SECRET: invalid supplied value")
             value = str(value)
         if "\n" in value or "\r" in value:
             raise ValueError("Environment values must occupy one line")
