@@ -51,7 +51,10 @@ existing tests covered nothing, nor that every static proposal was executed.
 Runtime and effects evidence is bounded. Python 3.10 compatibility was checked
 with AST grammar only; native 3.10 execution remains unmeasured. Controlled
 3.11 version observations are not native 3.11 runtime evidence. Focused tests
-ran under native 3.12.3; the final actual-3.11 full gate remains pending. The
+ran under native 3.12.3. The complete local gate will use installed 3.12;
+native 3.11 verification remains pending the required existing CI lane, which
+must exercise the full suite and registered controls before merge. No runtime
+download or installation is authorized for this slice. The
 real gh 2.102.0 probe initially created a telemetry device-id. Final version,
 issue and PR probes with telemetry/update settings disabled preserved seven
 owned fixture roots and emitted no HTTP-debug traces. This is a bounded client
