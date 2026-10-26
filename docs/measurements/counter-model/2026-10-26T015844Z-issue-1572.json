@@ -1,0 +1,31 @@
+{
+  "branch": "fix/1572-woodpecker-319-pins",
+  "counts": {
+    "accepted": 5,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "01f167a7b10a25989055cf61dc9ba82441f4ee5f",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/25/rollout-2026-10-25T18-18-21-01a17448-f63f-7ef0-ae87-d75ec3e637d0.jsonl",
+    "thread_id": "01a17448-f63f-7ef0-ae87-d75ec3e637d0"
+  },
+  "issue": "1572",
+  "local_credentials": "absent",
+  "network": "unverified",
+  "passes": 2,
+  "recorded_at": "2026-10-26T01:58:44Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 8
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/26/rollout-2026-10-26T01-51-40-01a175e7-fd80-78b2-933f-28fe1c7acfaa.jsonl",
+    "thread_id": "01a175e7-fd80-78b2-933f-28fe1c7acfaa"
+  },
+  "schema": 1,
+  "scope": "diff-only",
+  "status": "ran"
+}

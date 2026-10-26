@@ -355,7 +355,7 @@
         <div class="box wp">
           <div class="icon" style="font-size: 1.2rem;">&#9654;</div>
           <div class="label">Woodpecker Server</div>
-          <div class="detail">v3.13.0<br>UI :9000 | gRPC :9001</div>
+          <div class="detail">v3.19.0<br>UI :9000 | gRPC :9001</div>
         </div>
       </div>
 
@@ -405,7 +405,7 @@
     </div>
     <div style="margin-top: 0.8rem; padding: 0.6rem; border: 1px dashed var(--border); border-radius: 6px; font-size: 0.75rem; color: var(--muted);">
       <strong style="color: var(--text);">Agent setup (any machine):</strong>
-      <code>agent.env</code> with WOODPECKER_AGENT_SECRET + WOODPECKER_SERVER &#8594; <code>docker compose up -d</code>
+      <code>agent.env</code> with WOODPECKER_AGENT_SECRET + WOODPECKER_SERVER; host-local <code>.env</code> with WOODPECKER_HOSTNAME + WOODPECKER_AGENT_LABELS; preserve <code>./agent-config:/etc/woodpecker</code>. See the <a href="../../woodpecker/README.md">deployment runbook</a> before starting or recreating containers.
     </div>
   </div>
 
@@ -481,7 +481,7 @@
         <tr>
           <td><span class="step-num">3</span></td>
           <td><code>docker compose up -d</code></td>
-          <td>Starts Woodpecker Server container with <code>docker.env</code></td>
+          <td>Preserve the durable WOODPECKER_GRPC_SECRET during bootstrap, then start the server with <code>docker.env</code>; see the <a href="../../woodpecker/README.md">runbook</a></td>
           <td><span class="badge auto">auto</span></td>
         </tr>
       </tbody>
@@ -504,7 +504,7 @@
       <span style="color: var(--muted);">&#8594;</span>
       <div class="box docker" style="min-width: 110px;">
         <div class="label" style="font-size: 0.78rem;">docker.env / agent.env</div>
-        <div class="detail">gitignored, ephemeral</div>
+        <div class="detail">gitignored, durable on host</div>
       </div>
       <span style="color: var(--muted);">&#8594;</span>
       <div class="box wp" style="min-width: 110px;">
@@ -530,7 +530,7 @@
           </tr>
           <tr>
             <td style="padding:0.3rem 0.5rem;"><code>docker.env</code></td>
-            <td style="padding:0.3rem 0.5rem;">WOODPECKER_GITHUB_CLIENT/SECRET, AGENT_SECRET, HOST</td>
+            <td style="padding:0.3rem 0.5rem;">WOODPECKER_GITHUB_CLIENT/SECRET, WOODPECKER_AGENT_SECRET, WOODPECKER_HOST, WOODPECKER_GRPC_SECRET</td>
             <td style="padding:0.3rem 0.5rem; color:var(--red);">&#10005; gitignored</td>
           </tr>
           <tr>
@@ -545,7 +545,7 @@
           </tr>
           <tr>
             <td style="padding:0.3rem 0.5rem;"><code>docker-compose.agent.yml</code></td>
-            <td style="padding:0.3rem 0.5rem;">Agent definition, docker.sock mount</td>
+            <td style="padding:0.3rem 0.5rem;">Agent definition, docker.sock and persistent agent-config mounts</td>
             <td style="padding:0.3rem 0.5rem; color:var(--green);">&#10003; Template</td>
           </tr>
           <tr>

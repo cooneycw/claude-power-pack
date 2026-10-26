@@ -2,6 +2,8 @@
 
 **Established 2026-09-15 for [#957](https://github.com/cooneycw/claude-power-pack/issues/957). Deployment: Woodpecker server `3.13.0` on `proxvmwoodpecker20` (100.78.227.106), measured from `proxVMkyle19` with `woodpecker-cli` 3.17.0.**
 
+**Deployment update (2026-10-26, [#1572](https://github.com/cooneycw/claude-power-pack/issues/1572)):** the operator reports the fleet upgraded to 3.19.0 on October 25; current image pins and persistence procedures are in [the deployment runbook](../../woodpecker/README.md). The 3.13.0 measurements and limits below describe September 15 and have not been remeasured against 3.19.0.
+
 ## Verdict
 
 **No deletion of pipelines or step logs has been observed, and the oldest records survive.** Step logs are retrievable from the repo's first pipeline that ran steps - **2026-03-06** - through the day of measurement. That is roughly six months and it is the repository's entire life, not a retention horizon.

@@ -20,8 +20,113 @@ is actually for.
 """
 import json
 import os
+import re
+import tempfile
+from pathlib import Path
 
 import boto3
+
+GRPC_KEY = "WOODPECKER_GRPC_SECRET"
+
+
+def quoted_end(value: str) -> int | None:
+    """Find the closing quote without treating escaped quotes as delimiters."""
+    escaped = False
+    for index, char in enumerate(value[1:], 1):
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char == value[0]:
+            return index
+    return None
+
+
+def local_signing_token(text: str) -> str | None:
+    """Read logical assignments; preserve literal tokens, never dependencies."""
+    existing = None
+    lines = iter(text.splitlines())
+    for line in lines:
+        if line.lstrip().startswith("#"):
+            continue
+        match = re.match(r"^\s*(?:export\s+)?([^=:\s]+)\s*[:=](.*)$", line)
+        if match is None:
+            if re.match(r"^\s*(?:export\s+)?WOODPECKER_GRPC_SECRET(?:\s|$)", line):
+                raise ValueError("WOODPECKER_GRPC_SECRET: malformed local assignment")
+            continue
+        key, raw = match.groups()
+        raw = raw.lstrip()
+        quoted = raw.startswith(("'", '"'))
+        if quoted:
+            end = quoted_end(raw)
+            while end is None:
+                continuation = next(lines, None)
+                if continuation is None:
+                    raise ValueError("WOODPECKER_GRPC_SECRET: unclosed local environment quote")
+                raw += "\n" + continuation
+                end = quoted_end(raw)
+            token = raw[:end + 1]
+            tail = raw[end + 1:].strip()
+        else:
+            token = re.split(r"\s+#", raw, maxsplit=1)[0].strip()
+            tail = ""
+        if key != GRPC_KEY:
+            continue
+        if existing is not None:
+            raise ValueError("WOODPECKER_GRPC_SECRET: duplicate local assignment")
+        if quoted and tail and not tail.startswith("#"):
+            raise ValueError("WOODPECKER_GRPC_SECRET: content after closing quote")
+        if not token or token.startswith("#") or (quoted and not token[1:-1]):
+            raise ValueError("WOODPECKER_GRPC_SECRET: empty local assignment")
+        if "\n" in token or "\r" in token:
+            raise ValueError("WOODPECKER_GRPC_SECRET: multiline local key is unsupported")
+        if not quoted and ("'" in token or '"' in token):
+            raise ValueError("WOODPECKER_GRPC_SECRET: mixed local quoting is unsupported")
+        if "$" in token and not token.startswith("'"):
+            raise ValueError("WOODPECKER_GRPC_SECRET: local interpolation is unsupported")
+        existing = token
+    return existing
+
+
+def write_env(path: str, values: dict, keys: list[str]) -> list[str]:
+    """Preserve only the signing key, validate before atomically replacing output."""
+    target = Path(path)
+    existing = local_signing_token(target.read_text()) if target.exists() else None
+    lines = []
+    written = []
+    for key in dict.fromkeys([*keys, *([GRPC_KEY] if existing is not None else [])]):
+        if key == GRPC_KEY and existing is not None:
+            value = existing
+        elif key not in values:
+            continue
+        else:
+            value = values[key]
+            if key == GRPC_KEY:
+                if value is None or value == "":
+                    continue
+                if not isinstance(value, str):
+                    raise ValueError("WOODPECKER_GRPC_SECRET: supplied value must be text")
+                if "\n" in value or "\r" in value:
+                    raise ValueError("WOODPECKER_GRPC_SECRET: supplied value must occupy one line")
+                if not re.fullmatch(r"[A-Za-z0-9._~+/=-]+", value):
+                    raise ValueError("WOODPECKER_GRPC_SECRET: supplied value requires unsupported dotenv syntax")
+            value = str(value)
+        if "\n" in value or "\r" in value:
+            raise ValueError("Environment values must occupy one line")
+        lines.append(f"{key}={value}\n")
+        written.append(key)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", dir=target.parent, prefix=".docker-env-", delete=False) as output:
+            temporary = output.name
+            output.write("".join(lines))
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, target)
+    finally:
+        if temporary is not None and os.path.exists(temporary):
+            os.unlink(temporary)
+    return written
 
 
 def main():
@@ -35,15 +140,13 @@ def main():
     secrets = json.loads(resp["SecretString"])
 
     env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docker.env")
-    with open(env_path, "w") as f:
-        for key in [
-            "WOODPECKER_GITHUB_CLIENT",
-            "WOODPECKER_GITHUB_SECRET",
-            "WOODPECKER_AGENT_SECRET",
-            "WOODPECKER_HOST",
-        ]:
-            if key in secrets:
-                f.write(f"{key}={secrets[key]}\n")
+    write_env(env_path, secrets, [
+        "WOODPECKER_GITHUB_CLIENT",
+        "WOODPECKER_GITHUB_SECRET",
+        "WOODPECKER_AGENT_SECRET",
+        "WOODPECKER_HOST",
+        GRPC_KEY,
+    ])
     print(f"Wrote {env_path} with secrets from essent-ai")
 
 
