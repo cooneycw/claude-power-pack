@@ -8,7 +8,7 @@
     "lib/project_next/__init__.py": "0df00452c2ea69de59ca4a528eff28b0b79c1f2b3faedbffa7b2f89f558cf988",
     "lib/project_next/classify.py": "4e07e8a59faaa4e3145303860190eaf984f530e95bb1beebebcd7072168e3945",
     "lib/project_next/cli.py": "e084bcbf526acf9ad373c6c843e019fbdb57b19d5a5e43c4a88c323b1e4dea5c",
-    "lib/project_next/collect.py": "596bd03a6200fbfcf79c6f6fe46ae1e44d65885ce13e0803b03acfb8e4d55024",
+    "lib/project_next/collect.py": "0465fba61eb305a723ec19d952e6a0505cb31d59d826cdfa27235e722ece79fb",
     "lib/project_next/config.py": "7e816be531930af90fcb89458bf7322298872d03d8bd7ead9cc306577a990265",
     "lib/project_next/models.py": "30771779c4238504adc2bf94da490ab939fd6ae765ac99fb94c8fb5a9ae97456",
     "lib/project_next/rank.py": "c74d643113ee77172e4a78d1ad838c7471cf55dfc391bf89a971e52ae4f8000f",

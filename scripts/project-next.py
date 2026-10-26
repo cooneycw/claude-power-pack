@@ -294,7 +294,7 @@ def _native_rows_live(repository: Path, limit: int) -> tuple[list[dict[str, obje
         check=False,
     )
     if completed.returncode:
-        diagnostic = (completed.stderr or completed.stdout or "command failed").strip()
+        diagnostic = (completed.stderr or "").strip() or (completed.stdout or "").strip() or "command failed"
         command = ["gh", "issue", "list", "--json", fields]
         detail = gh_field_remediation(command, diagnostic) or diagnostic.splitlines()[0]
         return None, f"native GitHub relationship fields unavailable: {detail}"

@@ -51,7 +51,7 @@ def subprocess_runner(command: list[str], cwd: Path) -> str:
     timeout = 30 if command[:5] == ["gh", "pr", "list", "--state", "merged"] else None
     completed = subprocess.run(command, cwd=cwd, capture_output=True, text=True, check=False, timeout=timeout)
     if completed.returncode:
-        diagnostic = (completed.stderr or completed.stdout or "command failed").strip()
+        diagnostic = (completed.stderr or "").strip() or (completed.stdout or "").strip() or "command failed"
         message = gh_field_remediation(command, diagnostic) or diagnostic.splitlines()[0]
         raise CollectionError(f"{' '.join(command[:3])}: {message}")
     return completed.stdout
