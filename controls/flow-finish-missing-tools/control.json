@@ -1,0 +1,44 @@
+{
+  "gate": "scripts/flow-finish-gate.sh",
+  "invocation": [
+    "python3",
+    "controls/flow-cpp-runtime/run-case.py",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_CPP_RUNTIME_CONTROL: blocked$",
+  "good_signal": "^FLOW_CPP_RUNTIME_CONTROL: ready$",
+  "unavailable_signal": "^FLOW_CPP_RUNTIME_CONTROL: unavailable$",
+  "limits": "Owned real shell dispatcher, explicit PATH with/without fake uv and owned Makefile. Missing uv plus a recipe requiring uv really returns command-not-found; a present uv separately returns127. Both must fail, while installed and Make-only complete cases pass. The always-ready anchor misses these refusals. This is independent of interpreter-selection blindness; no real provider/install/download is run.",
+  "cases": [
+    {
+      "name": "good-installed",
+      "input": "cases/good-installed",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-make-only",
+      "input": "cases/good-make-only",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-missing-uv-required",
+      "input": "cases/bad-missing-uv-required",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-present-tool-127",
+      "input": "cases/bad-present-tool-127",
+      "expect": "BAD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "path": "anchors/always-ready.sh",
+      "sha256": "443a699460bd83b5375f77802c832e464351b99d7408438831385d0bb2124650",
+      "why": "Claims ready regardless of missing-tool and real present-command failure populations."
+    }
+  ]
+}

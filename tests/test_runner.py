@@ -1217,6 +1217,13 @@ class TestBuildStepEnv:
         with patch.dict(os.environ, env_without, clear=True):
             assert "UV_PYTHON" not in _build_step_env(tmp_path)
 
+    def test_explicit_user_python_does_not_consult_an_unused_bad_pin(self, tmp_path: Path):
+        pin = tmp_path / ".python-version"
+        pin.symlink_to(pin.name)
+        assert pin.is_symlink()
+        with patch.dict(os.environ, {"UV_PYTHON": "3.12"}):
+            assert _build_step_env(tmp_path)["UV_PYTHON"] == "3.12"
+
     def test_no_uv_python_when_floor_unknown(self, tmp_path: Path):
         """No pyproject / no requires-python -> UV_PYTHON left unset, not guessed."""
         env_without = {k: v for k, v in os.environ.items() if k != "UV_PYTHON"}

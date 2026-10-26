@@ -268,6 +268,10 @@ def _ensure_private_dir(path: Path) -> Path:
     return path
 
 
+class TargetPythonPolicyError(ValueError):
+    """The target declared a pin whose contents cannot be observed safely."""
+
+
 def _build_step_env(project_root: Optional[Path] = None) -> dict[str, str]:
     """Build a sanitized copy of os.environ for child step processes.
 
@@ -295,12 +299,16 @@ def _build_step_env(project_root: Optional[Path] = None) -> dict[str, str]:
     # floor. Leave it for uv to read, including a malformed/unreadable pin;
     # manufacturing UV_PYTHON here would override or conceal that evidence.
     target_pin = False
-    if project_root is not None:
+    if project_root is not None and "UV_PYTHON" not in env:
         pin = Path(project_root) / ".python-version"
         try:
-            target_pin = pin.exists() or pin.is_symlink()
-        except OSError:
-            target_pin = True
+            target_pin = pin.is_symlink() or pin.exists()
+            if target_pin:
+                pin.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            raise TargetPythonPolicyError(
+                "Target .python-version is unreadable; interpreter policy is unverified"
+            ) from exc
     floor = None if target_pin else _project_python_floor(project_root)
     if floor:
         env.setdefault("UV_PYTHON", floor)
@@ -822,7 +830,20 @@ class DeterministicRunner:
         # Materialize CPP_OFFLINE once per run (the probe is the only network
         # touch) so shell ``skip_if`` expressions can skip network steps in a
         # sandbox instead of hard-failing (issue #534, part #5).
-        step_env = _build_step_env(self.project_root)
+        try:
+            step_env = _build_step_env(self.project_root)
+        except TargetPythonPolicyError as exc:
+            state.status = "failed"
+            state.save(self.project_root)
+            self._log(str(exc))
+            return RunResult(
+                success=False, run_id=state.run_id, plan_name=state.plan_name,
+                steps_completed=0, steps_total=len(step_defs), error=str(exc),
+                gates=plan_gate_ids(state.plan_name, step_defs),
+                dropped_gates=dropped_gate_ids(state.plan_name, step_defs),
+                step_details=[dict(id=step.id, status="not-run", not_run_reason=str(exc)) for step in step_defs],
+                resume_state_evidence=state.resume_state_evidence(),
+            )
         step_env.setdefault("CPP_OFFLINE", "1" if _is_offline() else "0")
 
         context = {

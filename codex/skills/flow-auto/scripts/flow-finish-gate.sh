@@ -29,6 +29,8 @@
 #   three of four it did the same thing again for `verify` (issue #1147).
 #
 #: NEGATIVE-CONTROL: controls/flow-finish-gate
+#: NEGATIVE-CONTROL: controls/flow-cpp-runtime
+#: NEGATIVE-CONTROL: controls/flow-finish-missing-tools
 #: NEGATIVE-CONTROL: controls/flow-finish-gate-declared-gates
 #: NEGATIVE-CONTROL: controls/flow-finish-gate-plan-reconciliation
 #: NEGATIVE-CONTROL: controls/flow-finish-gate-subsumption
