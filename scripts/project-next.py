@@ -1391,7 +1391,7 @@ def _live_preflight(repository: Path) -> None:
         )
         report, code = observer.observe(args)
         report = observer.validate_report(json.dumps(report), code, selected)
-    except (OSError, ValueError, TypeError, AttributeError, ImportError) as exc:
+    except (OSError, ValueError, TypeError, AttributeError, ImportError, SyntaxError) as exc:
         raise CollectionError("local preflight report is unverified; repair the colocated CPP observer") from exc
     if code:
         detail = "; ".join(

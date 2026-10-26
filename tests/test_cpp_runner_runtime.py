@@ -13,7 +13,10 @@ SCRIPT = ROOT / "scripts" / "flow-finish-gate.sh"
 
 
 @pytest.mark.skipif(
-    any(shutil.which(name) is None for name in ("uv", "bash", "make", "git")),
+    shutil.which("uv") is None
+    or shutil.which("bash") is None
+    or shutil.which("make") is None
+    or shutil.which("git") is None,
     reason="requires existing uv, bash, make and git",
 )
 @pytest.mark.parametrize("explicit_user_policy", [False, True])

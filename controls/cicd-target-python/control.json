@@ -1,0 +1,43 @@
+{
+  "gate": "lib/cicd/runner.py",
+  "invocation": [
+    "python3",
+    "controls/cicd-target-python/run-case.py",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^CICD_TARGET_PYTHON_CONTROL: blocked$",
+  "good_signal": "^CICD_TARGET_PYTHON_CONTROL: ready$",
+  "limits": "Executes the actual stdlib _build_step_env function plus its helper/class/constant extracted by AST from the supplied gate, avoiding unrelated runner dependency imports. Owned cache/target and explicit environment only; a later-effect sentinel is written only after readiness. Covers unreadable target policy and authoritative user override, not the entire execution loop. The maintained test separately executes actual DeterministicRunner and asserts zero steps/not-run/no target effect. The constructed anchor ignores pin observability and misses both adverse populations; both positive populations must remain ready.",
+  "cases": [
+    {
+      "name": "bad-loop",
+      "input": "cases/bad-loop",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-invalid-bytes",
+      "input": "cases/bad-invalid-bytes",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-readable",
+      "input": "cases/good-readable",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-explicit-override",
+      "input": "cases/good-explicit-override",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "path": "anchors/ignore-pin.py",
+      "sha256": "600155f131ca73fc3e21bf150f578afe8bef1c9127bada36cd88ee643e8d0376",
+      "why": "Returns an environment without observing the target policy, allowing later effects even for unreadable declared pins."
+    }
+  ]
+}

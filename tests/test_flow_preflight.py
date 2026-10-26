@@ -156,6 +156,12 @@ def observer(tmp_path, monkeypatch):
     spec.loader.exec_module(module)
     home = tmp_path / "home"
     home.mkdir()
+    # Own the managed inventory too: a test runner's installed Python is not
+    # part of this fake host's population.
+    managed = home / "uv-python"
+    managed.mkdir()
+    assert list(managed.iterdir()) == []
+    monkeypatch.setenv("UV_PYTHON_INSTALL_DIR", str(managed))
     engine = home / ".claude/scripts/project-next.py"
     engine.parent.mkdir(parents=True)
     engine.write_text("from lib.project_next.rank import CONTRACT_VERSION\n")

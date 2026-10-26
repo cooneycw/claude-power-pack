@@ -20,6 +20,17 @@ def load(name, path):
     return module
 
 
+def test_corrupt_colocated_observer_is_unverified_not_a_traceback(tmp_path, monkeypatch):
+    project = load("cpp_next_corrupt_observer", SCRIPT)
+
+    def corrupt():
+        return compile("invalid syntax !!!", "owned-observer", "exec")
+
+    monkeypatch.setattr(project, "_load_preflight", corrupt)
+    with pytest.raises(project.CollectionError, match="preflight report is unverified"):
+        project._live_preflight(tmp_path)
+
+
 @pytest.mark.parametrize("population", ["ready", "missing", "unknown", "malformed", "contradictory"])
 def test_live_preflight_validates_only_gh_and_physical_engine(tmp_path, monkeypatch, population):
     project = load("cpp_next_preflight_test", SCRIPT)

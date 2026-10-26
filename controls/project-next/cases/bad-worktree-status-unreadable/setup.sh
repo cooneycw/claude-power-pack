@@ -10,6 +10,12 @@ FIXTURE="$1"
 mkdir -p "$FIXTURE/bin"
 cat > "$FIXTURE/bin/gh" <<'SH'
 #!/usr/bin/env bash
+if [ "${1:-}" = --version ]; then echo "gh version 2.94.0"; exit 0; fi
+case "$*" in
+  *__cpp_preflight_fields__*)
+    printf '%s\n' 'Unknown JSON field: "__cpp_preflight_fields__"' 'Available fields:' '  assignees' '  blockedBy' '  blocking' '  parent' '  subIssues' '  closingIssuesReferences' >&2
+    exit 1 ;;
+esac
 case "$1 $2" in
   "repo view") echo '{"nameWithOwner":"example/control","defaultBranchRef":{"name":"main"},"url":"https://example.invalid/control"}' ;;
   "issue list") echo '[]' ;;

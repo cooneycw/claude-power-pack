@@ -272,6 +272,7 @@ class TargetPythonPolicyError(ValueError):
     """The target declared a pin whose contents cannot be observed safely."""
 
 
+#: NEGATIVE-CONTROL: controls/cicd-target-python
 def _build_step_env(project_root: Optional[Path] = None) -> dict[str, str]:
     """Build a sanitized copy of os.environ for child step processes.
 
@@ -296,7 +297,7 @@ def _build_step_env(project_root: Optional[Path] = None) -> dict[str, str]:
     if "UV_CACHE_DIR" not in env:
         env["UV_CACHE_DIR"] = str(_ensure_private_dir(_default_uv_cache_dir()))
     # A target's own interpreter file is more specific than its compatibility
-    # floor. Leave it for uv to read, including a malformed/unreadable pin;
+    # floor. Leave a readable pin for uv; refuse unreadable policy explicitly.
     # manufacturing UV_PYTHON here would override or conceal that evidence.
     target_pin = False
     if project_root is not None and "UV_PYTHON" not in env:
