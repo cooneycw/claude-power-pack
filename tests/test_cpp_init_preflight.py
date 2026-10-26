@@ -68,3 +68,9 @@ def test_init_repair_is_allowed_and_cpp_calls_are_process_selected():
         for line in path.read_text().splitlines():
             if "uv run" in line and '--project "$CPP_DIR"' in line:
                 assert "--python 3.11 --no-python-downloads" in line
+                assert (
+                    'env -u UV_PROJECT_ENVIRONMENT '
+                    '"CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}"'
+                    in line
+                )
+                assert '"CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}"' in line

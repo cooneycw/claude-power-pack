@@ -1392,7 +1392,7 @@ fi
 ```bash
 # Detect framework
 echo "Detecting project framework..."
-DETECT_JSON=$(PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd detect --json)
+DETECT_JSON=$(PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd detect --json)
 DETECT_STATUS=$?
 if [ "$DETECT_STATUS" -ne 0 ]; then
   echo "Framework detection failed (exit $DETECT_STATUS); no generator ran." >&2
@@ -1411,7 +1411,7 @@ if [ ! -f "Makefile" ]; then
   echo "No Makefile found. Generate one from the detected framework template?"
   # Use AskUserQuestion to confirm
   # If yes:
-  PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd detect --generate-makefile
+  PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd detect --generate-makefile
   echo "✓ Makefile generated"
 else
   echo "→ Makefile already exists"
@@ -1425,7 +1425,7 @@ If Makefile exists, run a quick check:
 if [ -f "Makefile" ]; then
   echo ""
   echo "Validating Makefile..."
-  PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd check --summary 2>/dev/null || echo "  (validation skipped)"
+  PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd check --summary 2>/dev/null || echo "  (validation skipped)"
 fi
 ```
 
@@ -1499,7 +1499,7 @@ Generate CI pipeline? [y/N]
 If yes:
 
 ```bash
-PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd pipeline --write 2>/dev/null
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd pipeline --write 2>/dev/null
 if [ -f ".github/workflows/ci.yml" ]; then
   echo "✓ .github/workflows/ci.yml generated"
 else
@@ -1524,7 +1524,7 @@ Generate container files? [y/N]
 If yes:
 
 ```bash
-PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd container --write 2>/dev/null
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd container --write 2>/dev/null
 echo "✓ Container files generated"
 ```
 

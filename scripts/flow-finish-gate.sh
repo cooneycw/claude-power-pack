@@ -421,7 +421,10 @@ fi
 
 # Select only CPP's outer interpreter. Do not export UV_PYTHON: the runner's
 # child gates must retain the target's pin or the caller's explicit policy.
-CPP_RUN=(uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd)
+CPP_RUN=(env -u UV_PROJECT_ENVIRONMENT
+    "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}"
+    "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}"
+    uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd)
 
 # --- Advisory Makefile-completeness mode (/flow:check Step 5) ---------------
 if [[ "$MODE" == "check-summary" ]]; then

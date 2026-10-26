@@ -10,7 +10,7 @@ from pathlib import Path
 
 case = json.loads((Path(sys.argv[1]) / "case.json").read_text())
 root = Path(__file__).resolve().parents[2]
-if not all(shutil.which(name) for name in ("bash", "jq", "grep", "sed", "awk", "mktemp", "tee", "rm")):
+if not all(shutil.which(name) for name in ("bash", "jq", "grep", "sed", "awk", "mktemp", "tee", "rm", "env")):
     print("FLOW_CPP_RUNTIME_CONTROL: unavailable")
     raise SystemExit(3)
 with tempfile.TemporaryDirectory() as directory:
@@ -18,6 +18,7 @@ with tempfile.TemporaryDirectory() as directory:
     binaries = owned / "bin"
     binaries.mkdir()
     for name in (
+        "env",
         "bash",
         "jq",
         "grep",

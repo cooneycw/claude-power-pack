@@ -191,7 +191,7 @@ always carries the complete lists.
 
 ## Compatibility notes
 
-`1.7` (#1488) retains later issue references on dependency lines and reports
+`1.6` (#1488), retained in 1.7, retains later issue references on dependency lines and reports
 uncertainty when prose interrupts the contiguous reference list. This favors
 recall over precision: qualifications such as "unlike #5" or "see #7" may add
 edges, but the line also requires human review. Explicit cross-repository

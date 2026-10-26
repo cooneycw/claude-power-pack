@@ -3,7 +3,7 @@
   "owner": "cooneycw/claude-power-pack",
   "contract_version": "1.7",
   "files": {
-    "docs/project-next-contract.md": "a6d0f1ede3214b1c373aa8a3c896915b36387cb3f6fa9fe57e7926f83c0aef5d",
+    "docs/project-next-contract.md": "5af09bd50d9378d65843882fc275e88cb7d9567393be1d9b32cef88f32367f7c",
     "lib/project_next/LICENSE": "09fc9c15f0b236d2bce483820f98147b4e8f65a807e927b58ea363f531fe0ab0",
     "lib/project_next/__init__.py": "0df00452c2ea69de59ca4a528eff28b0b79c1f2b3faedbffa7b2f89f558cf988",
     "lib/project_next/classify.py": "4e07e8a59faaa4e3145303860190eaf984f530e95bb1beebebcd7072168e3945",

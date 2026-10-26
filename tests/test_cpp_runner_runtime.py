@@ -1,7 +1,9 @@
 """The shipped finish path uses CPP 3.11 while target policy remains independent."""
 
+import hashlib
 import json
 import os
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -20,7 +22,8 @@ SCRIPT = ROOT / "scripts" / "flow-finish-gate.sh"
     reason="requires existing uv, bash, make and git",
 )
 @pytest.mark.parametrize("explicit_user_policy", [False, True])
-def test_actual_finish_preserves_dual_native_runtime_policy(tmp_path, explicit_user_policy):
+@pytest.mark.parametrize("target_environment", [None, "relative", "absolute"])
+def test_actual_finish_preserves_dual_native_runtime_policy(tmp_path, explicit_user_policy, target_environment):
     env = os.environ.copy()
     env.pop("UV_PYTHON", None)
     env.pop("UV_PROJECT_ENVIRONMENT", None)
@@ -40,7 +43,7 @@ def test_actual_finish_preserves_dual_native_runtime_policy(tmp_path, explicit_u
         version = subprocess.check_output([str(path), "-c", "import sys;print(sys.version_info[:3])"], text=True)
         assert version.startswith("(" + minor.replace(".", ", ") + ","), (path, version)
         interpreters[minor] = path
-    target = tmp_path / "target"
+    target = tmp_path / "target env $literal"
     target.mkdir()
     (target / "pyproject.toml").write_text(
         '[project]\nname="runtime-fixture"\nversion="0.0.0"\nrequires-python=">=3.11"\n'
@@ -49,7 +52,9 @@ def test_actual_finish_preserves_dual_native_runtime_policy(tmp_path, explicit_u
     (target / "probe.py").write_text(
         "import sys,os,json\nfrom pathlib import Path\n"
         'Path("runtime.json").write_text(json.dumps(dict(version=list(sys.version_info[:3]),'
-        'uv_python=os.environ.get("UV_PYTHON"))))\n'
+        'uv_python=os.environ.get("UV_PYTHON"),uv_project_environment=os.environ.get("UV_PROJECT_ENVIRONMENT"),'
+        'handoff_keys=[key for key in os.environ if key.startswith("CPP_RUNNER_TARGET_UV_")])))\n'
+        'print("owned runtime probe; no test summary")\n'
     )
     (target / "Makefile").write_text(
         "lint:\n\t@echo owned-lint\ntest:\n\t@uv run --no-python-downloads python probe.py\n"
@@ -59,6 +64,38 @@ def test_actual_finish_preserves_dual_native_runtime_policy(tmp_path, explicit_u
     policy = str(interpreters["3.12"]) if explicit_user_policy else None
     if policy is not None:
         env["UV_PYTHON"] = policy
+    environment_policy = None
+    if target_environment:
+        virtual = target / ".target env $literal"
+        create = subprocess.run(
+            ["uv", "venv", "--python", str(interpreters["3.12"]), "--no-python-downloads", str(virtual)],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        assert create.returncode == 0, create.stderr
+        environment_policy = str(virtual) if target_environment == "absolute" else virtual.name
+        env["UV_PROJECT_ENVIRONMENT"] = environment_policy
+
+        def snapshot():
+            entries = {}
+            for path in sorted(virtual.rglob("*")):
+                name = str(path.relative_to(virtual))
+                if path.is_symlink():
+                    entries[name] = ("symlink", os.readlink(path))
+                elif path.is_file():
+                    entries[name] = ("file", hashlib.sha256(path.read_bytes()).hexdigest())
+                else:
+                    entries[name] = ("directory",)
+            return entries
+
+        before = snapshot()
+        summary = subprocess.run(
+            ["bash", str(SCRIPT), "--check-summary"], cwd=target, env=env, capture_output=True, text=True, timeout=30
+        )
+        assert summary.returncode in (0, 3), summary.stdout + summary.stderr
+        assert snapshot() == before, "outer CPP selection must not rebuild/populate the target environment"
     result = subprocess.run(
         ["bash", str(SCRIPT), "--plan", "check"], cwd=target, env=env, capture_output=True, text=True, timeout=60
     )
@@ -68,6 +105,8 @@ def test_actual_finish_preserves_dual_native_runtime_policy(tmp_path, explicit_u
     runtime = json.loads((target / "runtime.json").read_text())
     assert runtime["version"][:2] == [3, 12]
     assert runtime["uv_python"] == policy
+    assert runtime["uv_project_environment"] == environment_policy
+    assert runtime["handoff_keys"] == []
     outer = subprocess.check_output([str(ROOT / ".venv/bin/python"), "--version"], text=True).strip()
     assert outer.startswith("Python 3.11."), outer
     print(json.dumps(dict(outer=outer, target=runtime, helper_exit=result.returncode)))
@@ -91,7 +130,12 @@ def test_unreadable_target_pin_is_explicitly_refused_before_target_execution(tmp
     with pytest.raises(TargetPythonPolicyError, match="policy is unverified"):
         _build_step_env(tmp_path)
     sentinel = tmp_path / "UNSAFE_READY"
-    command = f'{sys.executable} -c "from pathlib import Path; Path("{sentinel}").touch()"'
+    command = shlex.join([sys.executable, "-c", f"from pathlib import Path; Path({str(sentinel)!r}).touch()"])
+    positive = subprocess.run(command, shell=True, cwd=tmp_path, capture_output=True, text=True, timeout=15)
+    assert positive.returncode == 0, positive.stderr
+    assert sentinel.is_file(), "the exact later-effect command must be capable of writing"
+    sentinel.unlink()
+    assert not sentinel.exists()
     result = DeterministicRunner(project_root=tmp_path, output=StringIO()).run(
         "owned-policy", step_defs=[StepDef(id="test", command=command, gate=True)]
     )
