@@ -1384,3 +1384,5 @@ a closure changed after the evidence was taken must read `STALE (content)`;
 its constructed anchor hardcodes the comparison off and misses it.
 
 - `counter-model-receipt` (#1557): opt-in `write --implementer-flow-run RUN` derives a fresh Codex flow run from original harness execution events; schema 3 records snapshot hashes, model scope, observed approval joins, explicit unverified approval execution and measured-clean/unmeasured initial cleanliness. `audit-flow RECEIPT --codex-sessions-dir ROOT` re-derives that captured prefix. Default mixed-thread refusal and enrollment remain unchanged. See ADR 0007 for the bounded shell vocabulary and evidence limits.
+
+- `flow-preflight` - `flow-preflight.sh` bootstraps the stdlib `flow-preflight.py` observer on Python 3.10+. It aggregates local gh capabilities, uv presence, CPP-only Python 3.11 availability, git identity presence, optional reviewer presence and resolved engine ownership. Required gaps and unknowns remain distinct; no install, identity write or authentication is performed. Its installed-Python coverage is PATH and the selected uv install directory, not all possible host runtime directories.

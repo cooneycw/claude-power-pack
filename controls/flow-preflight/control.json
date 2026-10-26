@@ -1,0 +1,54 @@
+{
+  "gate": "scripts/flow-preflight.sh",
+  "invocation": [
+    "python3",
+    "controls/flow-preflight/run-case.py",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_PREFLIGHT_CONTROL: blocked$",
+  "good_signal": "^FLOW_PREFLIGHT_CONTROL: ready$",
+  "unavailable_signal": "^FLOW_PREFLIGHT_CONTROL: unavailable$",
+  "limits": "Real shell bootstrap and colocated Python observer run in a fake host with explicit tools, home and engine. Cases discriminate healthy, optional-only, aggregate missing plus unknown, unknown field enumeration, and a neighboring non-CPP entrypoint. Fixture tree hashes are unchanged. This does not measure real gh network syscalls, real Python3.10 execution, every possible installation layout, or consumer integration. The constructed blind anchor always claims ready and misses every adverse case. The committed effects-cases/writes-home provider deliberately writes owned HOME state; tests/test_flow_preflight.py requires the fixture snapshot detector to reject it. This is a control of the fixture effects detector, not a claim that production preflight can sandbox arbitrary executables. Command tracing is the only explicit fixture-write exception. Committed gh-auth-command and uv-install-command adverse populations invoke only fixture fake executables, never real authentication or installation; unit tests require the adapter command allowlist to refuse them. The managed-neighbor case has a working controlled version provider and a self-looping symlink; a usable candidate must win, independent of unused-candidate errors. It is not native Python3.11 execution.",
+  "cases": [
+    {
+      "name": "bad-all-gaps",
+      "input": "cases/bad-all-gaps",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-unknown",
+      "input": "cases/bad-unknown",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-wrong-engine",
+      "input": "cases/bad-wrong-engine",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-healthy",
+      "input": "cases/good-healthy",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-optional-only",
+      "input": "cases/good-optional-only",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-managed-neighbor",
+      "input": "cases/good-managed-neighbor",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "path": "anchors/always-ready.sh",
+      "sha256": "c6ec4e0ac3eaf67e184addb2a4a37c0639ae085af893cca0396d42db1469777c",
+      "why": "Always-ready reporter: agrees on healthy/optional-only but misses required gaps and unknown observations."
+    }
+  ]
+}

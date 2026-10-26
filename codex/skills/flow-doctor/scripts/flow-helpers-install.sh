@@ -109,6 +109,8 @@ TARGET_DIR="$HOME_DIR/.claude/scripts"
 # re-litigate a non-flow addition on naming grounds; the template is the
 # membership test, and tests/test_permissions_template_link_parity.py enforces it.
 HELPERS=(
+    flow-preflight.sh
+    flow-preflight.py
     flow-start-resolve.sh
     flow-live-driver-guard.sh
     flow-stale-check.sh

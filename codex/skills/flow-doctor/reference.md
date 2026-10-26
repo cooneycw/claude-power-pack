@@ -8,23 +8,26 @@ Check that the environment is properly configured for the `/flow` workflow.
 
 When the user invokes `/flow-doctor`, run all diagnostic checks and present a single report.
 
-### Step 1: Environment Prerequisites
+### Step 1: Shared Host Preflight
 
-Check required tools:
+Run the shared observer once before the remaining posture checks:
 
 ```bash
-# git
-git --version 2>/dev/null && echo "PASS" || echo "FAIL"
-
-# gh CLI
-gh --version 2>/dev/null && echo "PASS" || echo "FAIL"
-
-# gh authentication
-gh auth status 2>/dev/null && echo "PASS" || echo "FAIL"
-
-# uv (optional but recommended)
-uv --version 2>/dev/null || echo "NOT_FOUND"
+"${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-preflight.sh --harness auto
 ```
+
+Use the checkout's `scripts/flow-preflight.sh` if the installed helper is absent;
+pass `--harness claude` or `--harness codex` explicitly if native identity is
+absent or ambiguous. Auto selection never guesses across both identities. Report all gaps together. Exit 1
+means required missing/unsupported observations, exit 3 means required unknowns,
+and exit 0 permits optional warnings. Mixed missing and unknown exits 1 while
+retaining both. This checks local capabilities, not authentication or live API
+access. It never installs/downloads runtimes or writes identity/configuration.
+Python 3.11 is CPP's runner selection policy, separate from target-project Python.
+This no-install/no-authentication bound covers the observer only; later legacy
+doctor checks may probe services or invoke uv. The observer is written for Python 3.10 or newer; older/absent bootstrap Python reports
+unknown without importing it. Installed-Python coverage is PATH and the selected
+uv install directory, not every arbitrary runtime directory on the host.
 
 ### Step 2: Git Repository State
 
@@ -39,8 +42,7 @@ git remote get-url origin 2>/dev/null || echo "NO_REMOTE"
 git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||'
 
 # User identity
-git config user.name 2>/dev/null || echo "NOT_SET"
-git config user.email 2>/dev/null || echo "NOT_SET"
+# Identity presence is reported without values by the shared observer above.
 
 # Effective worktree base (issue #627, #584, ADR 0003): worktrees are created
 # OUTSIDE the repo on the git lane by default (never EnterWorktree). Unset =
@@ -355,10 +357,10 @@ Output a single diagnostic report in this format:
 
 | Check | Status | Details |
 |-------|--------|---------|
-| git | ✅ | v2.43.0 |
-| gh CLI | ✅ | v2.62.0 |
-| gh auth | ✅ | Logged in as {user} |
-| uv | ✅ | v0.5.14 |
+| git observations | ✅/?/❌ | Repository and identity observations below; version unmeasured |
+| gh CLI | ✅/?/❌ | Observed version or unknown; capabilities reported separately |
+| gh local capabilities | ✅/?/❌ | Required fields available / Unknown / Unsupported; authentication untested |
+| uv presence | ✅/❌ | Present / Missing (required for CPP runner); version not measured |
 
 ### Repository
 
@@ -366,7 +368,7 @@ Output a single diagnostic report in this format:
 |-------|--------|---------|
 | Git repo | ✅ | claude-power-pack |
 | Remote | ✅ | github.com/cooneycw/claude-power-pack |
-| User identity | ✅ | {name} <{email}> |
+| User identity presence | ✅/?/❌ | Effective name/email present / Unknown / Missing; values withheld |
 
 ### Workflow Readiness
 
@@ -438,7 +440,7 @@ Output a single diagnostic report in this format:
 2c. ⚠️ **Flow helper(s) not at ~/.claude/scripts/ (clone install)** - the #581 zero-prompt lane degrades to CPP-checkout fallback paths, which prompt. Run `/flow-repair`, `/cpp:update` (Step 5b re-links new scripts), or `/cpp:init` Tier 2
 2d. ❌ **Flow helper(s) missing, no CPP checkout** - `/flow-start` and `/flow-auto` will exit 127 at Step 1. Clone CPP, then run `/flow-repair`; the canonical symlink tier returns in #663
 2e. ⚠️ **Flow helpers stale** - `flow-helpers-install.sh --check` reports installed copies differing from their checkout or legacy-cache source. Run `/flow-repair`
-3. ⚠️ **uv not installed** - Install: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+3. ❌ **uv not installed (required for CPP runner)** - Install: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 4. ❌ **cicd.yml missing** - Run `/cicd-init` to auto-detect framework and generate configuration
 5. ⚠️ **Makefile gaps** - Run `/cicd-check` for details or `/cicd-init` to add missing targets
 6. ❌ **No CI pipeline** - Run `/cicd-pipeline` to generate GitHub Actions or Woodpecker CI config
@@ -446,19 +448,20 @@ Output a single diagnostic report in this format:
 8. ⚠️ **No smoke tests** - Add `health.smoke_tests` to `.claude/cicd.yml` for post-deploy testing
 9. ⚠️ **second-opinion not registered** - It is an external server now. Run the `cooneycw/mcp-second-opinion` repo's server, then `/cpp:update` registers it at user scope at `${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp` (default 8080; export `SECOND_OPINION_URL` first for a moved port or a Tailscale URL).
 
-*All checks passed!* → "Environment is ready for `/flow` workflow."
+Only report ready when shared preflight exits 0 and all later required observations are known and pass. Keep required unknowns visible; never infer authentication or identity values from local capability success.
 ```
 
 ## Status Symbols
 
 - ✅ = Check passed
 - ⚠️ = Optional/non-critical issue
+- ? = Required observation unknown - readiness is not established
 - ❌ = Required check failed - action needed
 
 ## Notes
 
-- This is a read-only diagnostic - it never modifies anything
-- `uv` is recommended but not required (⚠️ if missing, not ❌)
+- The shared observer invokes local read probes and no installation/configuration writes. Its bounded effects evidence is not a whole-host or arbitrary-provider guarantee; later legacy doctor checks may authenticate, probe services, or invoke uv.
+- `uv` is required for the CPP runner (❌ if missing); target-project tools remain separate.
 - Makefile is recommended but not required (⚠️ if missing)
 - Scripts are ❌ if missing since the flow commands call them. Hooks are not graded ❌ (Step 4): they are not security protection - CPP's optional hooks are the observe-only permission census and the advisory pending-retro notice, and neither blocks or filters anything (#1206)
 - Keep the report concise - one table per section, actions at the end

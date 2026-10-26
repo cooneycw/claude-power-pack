@@ -1,0 +1,31 @@
+{
+  "branch": "fix/1571-a-shared-preflight",
+  "counts": {
+    "accepted": 6,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "9a532a894fe96e2bf01835114b39eeaf4a0d86c7",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/25/rollout-2026-10-25T18-18-21-01a17448-f63f-7ef0-ae87-d75ec3e637d0.jsonl",
+    "thread_id": "01a17448-f63f-7ef0-ae87-d75ec3e637d0"
+  },
+  "issue": "1571",
+  "local_credentials": "absent",
+  "network": "unverified",
+  "passes": 2,
+  "recorded_at": "2026-10-26T03:50:50Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 13
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/26/rollout-2026-10-26T03-37-29-01a17648-ddc4-7152-b8fc-d5fbf9b76072.jsonl",
+    "thread_id": "01a17648-ddc4-7152-b8fc-d5fbf9b76072"
+  },
+  "schema": 1,
+  "scope": "diff-only",
+  "status": "ran"
+}

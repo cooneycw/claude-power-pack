@@ -359,6 +359,16 @@
       "class": "tested",
       "consumer": "tests/test_worktree_remove_occupied.py",
       "reason": "decides whether a checkout is destroyed"
+    },
+    "flow-preflight.sh": {
+      "class": "tested",
+      "consumer": "tests/test_flow_preflight.py",
+      "reason": "Shared read-only host observer; readiness/unknown/gap and bootstrap contract exercised by controls/flow-preflight."
+    },
+    "flow-preflight.py": {
+      "class": "tested",
+      "consumer": "tests/test_flow_preflight.py",
+      "reason": "Shared read-only host observer; readiness/unknown/gap and bootstrap contract exercised by controls/flow-preflight."
     }
   }
 }

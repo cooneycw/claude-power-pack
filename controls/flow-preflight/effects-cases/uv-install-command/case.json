@@ -1,0 +1,1 @@
+{"mode": "unexpected-command", "unexpected": ["uv", "python", "install", "3.11"], "status": "ready", "exit": 0}

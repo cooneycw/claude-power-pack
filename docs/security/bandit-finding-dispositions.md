@@ -301,6 +301,23 @@ assumption the disposition rests on, and it is the one to re-check.
 
 ---
 
+## LOW B106: preflight local-validator credential sentinel (#1571)
+
+Accepted on 2026-10-26 after reading the actual `gh_check` site in
+`scripts/flow-preflight.py`. Its literal `GH_TOKEN` is deliberately not a
+credential: gh requires a nonempty token before its local invalid-field parser
+will enumerate fields. The observer removes inherited GitHub credentials,
+uses an unused config location, disables prompts and telemetry/update checks,
+sets deny proxies with an empty bypass list, and accepts only the expected local
+enumeration grammar. Provider output and identity values are withheld from the
+report. Real-gh client traces and seven owned fixture roots were checked; this
+is not a syscall network fence or a whole-host no-effects guarantee.
+
+The `reviewed-low B106 #1571` ledger record marks the rule class as read under
+ADR 0010; it does not skip the scan or suppress higher-severity findings.
+Reassess if the value becomes a real credential, inherited credentials survive,
+or the invocation changes to an authenticated/provider operation.
+
 ## Closed
 
 Findings that were FIXED rather than accepted. Kept rather than deleted: a row removed
