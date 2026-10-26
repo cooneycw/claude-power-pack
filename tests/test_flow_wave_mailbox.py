@@ -4059,21 +4059,42 @@ def test_an_ack_landing_during_the_claim_cancels_the_escalation(tmp_path: Path) 
     lock = tmp_path / "mb" / "zz" / ".mailbox.lock"
     lock.touch()
 
-    holder = subprocess.Popen(["flock", str(lock), "sleep", "4"])
+    held = tmp_path / "claim-lock-held"
+    output = tmp_path / "escalate-output"
+    errors = tmp_path / "escalate-errors"
+    holder = subprocess.Popen(
+        ["flock", str(lock), "bash", "-c",
+         'printf locked > "$1"; IFS= read -r _ || true', "lock-holder", str(held)],
+        stdin=subprocess.PIPE,
+    )
+    esc = None
     try:
-        time.sleep(0.4)
-        esc = subprocess.Popen(
-            ["bash", str(MAILBOX), "escalate", "--role", "w1", "--wave", "zz"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-            env={**os.environ, **env, "FLOW_WAVE_NOW": later})
-        time.sleep(0.6)
-        #: The ack lands while escalate is blocked on the lock. Written directly
-        #: because `ack` would contend for the same lock and deadlock the test.
-        ackfile = tmp_path / "mb" / "zz" / ".ack-inbox-w1.md"
-        ackfile.write_text("1\n", encoding="utf-8")
+        assert _wait_for(held.exists, timeout=10), "the fixture never acquired the claim lock"
+        with output.open("w") as stdout, errors.open("w") as stderr:
+            esc = subprocess.Popen(
+                ["bash", str(MAILBOX), "escalate", "--role", "w1", "--wave", "zz"],
+                stdout=stdout, stderr=stderr, text=True,
+                env={**os.environ, **env, "FLOW_WAVE_NOW": later},
+            )
+            # This verdict precedes the lock and proves the caller observed
+            # the unacked revision. An ack before this event would not test
+            # the under-lock recheck at all.
+            assert _wait_for(
+                lambda: "FLOW_MAILBOX_ESCALATE_REV=1" in output.read_text(), timeout=10,
+            ), "escalate never observed the unacked revision before claiming"
+            assert holder.poll() is None, "the fixture released its lock before the ack"
+            # Direct write: the ack command itself would need the held lock.
+            ackfile = tmp_path / "mb" / "zz" / ".ack-inbox-w1.md"
+            ackfile.write_text("1\n", encoding="utf-8")
     finally:
-        holder.wait()
-    out, err = esc.communicate(timeout=30)
+        # The holder's lifetime is controlled by this pipe, not a four-second
+        # sleep that can expire while the test process is descheduled.
+        assert holder.stdin is not None
+        holder.stdin.close()
+        holder.wait(timeout=10)
+        if esc is not None:
+            esc.wait(timeout=30)
+    out, err = output.read_text(), errors.read_text()
     assert "FLOW_MAILBOX_ESCALATE=fire" not in out, (
         "an escalation claimed after the message was acked wakes someone for nothing", out, err)
     assert "FLOW_MAILBOX_ESCALATE=acked" in out, (out, err)
@@ -4111,6 +4132,24 @@ def test_escalate_refuses_to_guess_an_unresolvable_target(tmp_path: Path) -> Non
 # per-test kill calls WERE present and did run - they just could not finish
 # the job.
 # --------------------------------------------------------------------------
+
+
+def test_an_irrelevant_child_cannot_satisfy_inner_watch_readiness() -> None:
+    """A transient helper is a child, but is not the blocking watch (#1506)."""
+    parent = subprocess.Popen(
+        [sys.executable, "-c",
+         "import subprocess, sys; subprocess.run([sys.executable, '-c', "
+         "'import time; time.sleep(300)'])"],
+        start_new_session=True,
+    )
+    try:
+        assert _wait_for(lambda: bool(_children_of(parent.pid)), timeout=5), (
+            "precondition: the unrelated parent must have a live child"
+        )
+        assert _inner_watch(parent.pid) is None
+    finally:
+        kill_supervise_daemon(parent.pid)
+        parent.wait(timeout=10)
 
 
 @requires_bash
@@ -4154,13 +4193,21 @@ class TestLeakedSuperviseDaemonsAreReaped:
         # Preconditions. The whole point is to reap a daemon that is WEDGED
         # inside its blocking window, so the test must establish that it is
         # there before measuring how long it takes to die.
-        assert _wait_for(lambda: bool(_children_of(pid)), timeout=15), (
-            "the daemon never spawned an inner watch - nothing to block on, so "
+        watch_pid: int | None = None
+
+        def inner_watch_ready() -> bool:
+            nonlocal watch_pid
+            watch_pid = _inner_watch(pid)
+            return watch_pid is not None and _pid_not_zombie(watch_pid)
+
+        assert _wait_for(inner_watch_ready, timeout=15), (
+            "the daemon never spawned a live inner watch - nothing to block on, so "
             "this test would time a case it does not mean to exercise"
         )
-        time.sleep(2)  # firmly inside the inner watch's 30s window
-        children = _children_of(pid)
-        assert children, "the inner watch vanished before the reap was timed"
+        assert watch_pid is not None and _pid_not_zombie(watch_pid), (
+            "the identified inner watch exited before the reap was timed"
+        )
+        children = [watch_pid]
         assert _pid_alive(pid)
 
         started = time.monotonic()
@@ -4172,13 +4219,9 @@ class TestLeakedSuperviseDaemonsAreReaped:
             f"reported {result.leaked}"
         )
         assert not result.survivors, f"the reap gave up on {result.survivors}"
-        # Zombie-aware liveness, NOT this module's `_pid_alive` (counter-model
-        # review, issue #1116). `_pid_alive` asks `kill(pid, 0)`, which a
-        # zombie still answers, and a killed child whose parent has not yet
-        # reaped it IS a zombie for a moment - so the old helper would report
-        # a successful kill as a surviving process. What this test cares about
-        # is whether anything still HOLDS the working directory, and a zombie
-        # holds nothing.
+        # A zombie holds no working directory. Both this helper and
+        # _pid_alive exclude zombies since #1323; the older kill(pid, 0)
+        # predicate could mistake a successful kill for a surviving process.
         assert not _pid_not_zombie(pid), f"daemon {pid} survived the reap"
         for child in children:
             assert not _pid_not_zombie(child), (
