@@ -64,13 +64,57 @@ def test_tier4_prerequisites_gate_only_tier4(tmp_path, population):
 def test_init_repair_is_allowed_and_cpp_calls_are_process_selected():
     text = INIT.read_text()
     assert "Do not stop authorized setup or repair" in text
-    for path in (INIT, ROOT / ".claude/commands/flow/auto.md"):
-        for line in path.read_text().splitlines():
-            if "uv run" in line and '--project "$CPP_DIR"' in line:
-                assert "--python 3.11 --no-python-downloads" in line
-                assert (
-                    'env -u UV_PROJECT_ENVIRONMENT '
-                    '"CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}"'
-                    in line
-                )
-                assert '"CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}"' in line
+    expected = [
+        (
+            INIT,
+            [
+                ("detect", ("--json",)),
+                ("detect", ("--generate-makefile",)),
+                ("check", ("--summary",)),
+                ("pipeline", ("--write",)),
+                ("container", ("--write",)),
+            ],
+        ),
+        (ROOT / ".claude/commands/flow/auto.md", [("verify", ("--baseline", "--summary")), ("verify", ())]),
+    ]
+    for path, sites in expected:
+        blocks = re.findall(r"```(?:bash|sh)\n(.*?)```", path.read_text(), re.S)
+        calls = [
+            line.strip()
+            for block in blocks
+            for line in block.splitlines()
+            if "-m lib.cicd" in line and not line.lstrip().startswith("#")
+        ]
+        observed = []
+        for line in calls:
+            tail = line.split("-m lib.cicd", 1)[1].strip()
+            observed.append(
+                (tail.split()[0], tuple(re.findall(r"--(?:json|generate-makefile|summary|write|baseline)\b", tail)))
+            )
+        assert sorted(observed) == sorted(sites), (path, observed)
+        for line in calls:
+            assert 'PYTHONPATH="$CPP_DIR:$PYTHONPATH"' in line
+            assert 'uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd' in line
+            assert (
+                'env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}"'
+            ) in line
+            assert '"CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}"' in line
+
+
+@pytest.mark.parametrize("mutation", ["wrong-project", "missing-project", "bare-python", "empty"])
+def test_process_policy_assertion_rejects_missing_or_changed_sites(tmp_path, monkeypatch, mutation):
+    text = INIT.read_text()
+    assert text.count('--project "$CPP_DIR"') >= 5
+    if mutation == "wrong-project":
+        text = text.replace('--project "$CPP_DIR"', '--project "."')
+    elif mutation == "missing-project":
+        text = text.replace('--project "$CPP_DIR" ', "")
+    elif mutation == "bare-python":
+        text = text.replace('uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python', "python3")
+    else:
+        text = "\n".join(line for line in text.splitlines() if "-m lib.cicd" not in line)
+    owned = tmp_path / "init.md"
+    owned.write_text(text)
+    monkeypatch.setitem(globals(), "INIT", owned)
+    with pytest.raises(AssertionError):
+        test_init_repair_is_allowed_and_cpp_calls_are_process_selected()

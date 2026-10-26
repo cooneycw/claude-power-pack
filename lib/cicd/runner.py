@@ -272,6 +272,35 @@ class TargetPythonPolicyError(ValueError):
     """The target declared a pin whose contents cannot be observed safely."""
 
 
+MAX_TARGET_PYTHON_PIN_BYTES = 4096
+
+
+def _observe_target_python_pin(pin: Path) -> bool:
+    """Read only a bounded, opened regular pin; absence retains floor policy."""
+    message = "Target .python-version is unreadable or unsupported; interpreter policy is unverified"
+    try:
+        fd = os.open(pin, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0))
+    except FileNotFoundError as exc:
+        if pin.is_symlink():
+            raise TargetPythonPolicyError(message) from exc
+        return False
+    except OSError as exc:
+        raise TargetPythonPolicyError(message) from exc
+    try:
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_TARGET_PYTHON_PIN_BYTES:
+                raise TargetPythonPolicyError(message)
+            raw = os.read(fd, MAX_TARGET_PYTHON_PIN_BYTES + 1)
+            if len(raw) > MAX_TARGET_PYTHON_PIN_BYTES:
+                raise TargetPythonPolicyError(message)
+            raw.decode("utf-8")
+        finally:
+            os.close(fd)
+    except (OSError, UnicodeError) as exc:
+        raise TargetPythonPolicyError(message) from exc
+    return True
+
 #: NEGATIVE-CONTROL: controls/cicd-target-python
 def _build_step_env(project_root: Optional[Path] = None) -> dict[str, str]:
     """Build a sanitized copy of os.environ for child step processes.
@@ -301,15 +330,7 @@ def _build_step_env(project_root: Optional[Path] = None) -> dict[str, str]:
     # manufacturing UV_PYTHON here would override or conceal that evidence.
     target_pin = False
     if project_root is not None and "UV_PYTHON" not in env:
-        pin = Path(project_root) / ".python-version"
-        try:
-            target_pin = pin.is_symlink() or pin.exists()
-            if target_pin:
-                pin.read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as exc:
-            raise TargetPythonPolicyError(
-                "Target .python-version is unreadable; interpreter policy is unverified"
-            ) from exc
+        target_pin = _observe_target_python_pin(Path(project_root) / ".python-version")
     floor = None if target_pin else _project_python_floor(project_root)
     if floor:
         env.setdefault("UV_PYTHON", floor)
