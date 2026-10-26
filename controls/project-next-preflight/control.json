@@ -1,0 +1,48 @@
+{
+  "gate": "scripts/project-next.py",
+  "invocation": [
+    "python3",
+    "controls/project-next-preflight/run-case.py",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^PROJECT_NEXT_PREFLIGHT_CONTROL: blocked$",
+  "good_signal": "^PROJECT_NEXT_PREFLIGHT_CONTROL: ready$",
+  "limits": "Actual live main with owned observer observations and a collection sentinel that raises before any provider call. Measures selected gh/engine validation and refusal before collection, not real gh or host effects. Read-only target does not require identity/uv/runner. The constructed anchor removes the live preflight call and reaches the collector on every adverse report.",
+  "cases": [
+    {
+      "name": "bad-missing",
+      "input": "cases/bad-missing",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-unknown",
+      "input": "cases/bad-unknown",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-malformed-zero",
+      "input": "cases/bad-malformed-zero",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-contradictory-zero",
+      "input": "cases/bad-contradictory-zero",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-ready",
+      "input": "cases/good-ready",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "path": "anchors/preflight-blind.py",
+      "sha256": "4074f8987289cd7a356e36c14d1010151939d3caf293caab7c0a5a487d024c5d",
+      "why": "Skips the local readiness call while preserving the normal main/collector error handling."
+    }
+  ]
+}

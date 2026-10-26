@@ -388,6 +388,8 @@ another repo (the escalation clause); a row can be both.
 | 122 | `flow-preflight.py` | Full or explicitly selected host observations; strict schema/population/verdict validation is exercised by `controls/flow-start-preflight` against zero-exit malformed and contradictory reports | doctor and live/start consumers of the shared report | G |
 | 123 | `flow-start-resolve.sh --require-preflight` (`controls/flow-start-preflight`) | Refuses gaps, unknown and malformed readiness before the first later-effect seam; healthy and standalone populations reach an owned fake provider | `/flow:auto` before fetch, claims or worktree creation | G |
 
+| 124 | `project-next.py` (`controls/project-next-preflight`) | Selected gh/physical-engine readiness is validated before live collection; malformed, contradictory and unknown reports refuse | `/project:next` live collection boundary | G |
+
 > **Rows 66-73 were added by #1060, and how they were found is the point.** None
 > of the eight was a judgement that had been made and deferred - they were simply
 > never asked about. Seven predate #1060 by between four days and three weeks;

@@ -66,6 +66,13 @@ fi
 - A linked worktree has a `.git` file. Say that its issues belong to the parent
   repository and run against the parent instead of double-reporting it.
 
+The live entry point reuses the colocated `scripts/flow-preflight.py` observer
+(`scripts/flow-preflight.sh` is its standalone bootstrap) for only `gh,engine`.
+It validates the selected population, report and exit before collection. Missing
+or unknown local capabilities return exit 2 with stderr diagnostics; no full-host
+readiness is asserted. Read-only recommendations do not require identity, uv,
+CPP runner Python or Codex. `--help` and `--input` remain offline.
+
 ## Step 2: Run the engine once
 
 Map the requested mode to exactly one of `--brief`, `--compact`, or `--full`,

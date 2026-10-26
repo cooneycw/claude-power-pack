@@ -12,4 +12,6 @@ Every file below is a byte-identical copy of its canonical source in the claude-
 - `lib/project_next/ownership.json`
 - `lib/project_next/rank.py`
 - `lib/project_next/render.py`
+- `scripts/flow-preflight.py`
+- `scripts/flow-preflight.sh`
 - `scripts/project-next.py`

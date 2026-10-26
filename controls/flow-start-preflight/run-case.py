@@ -44,8 +44,19 @@ with tempfile.TemporaryDirectory() as directory:
     )
     if case.get("mode") == "contradictory":
         report["checks"] = []
+    elif case.get("mode") == "status":
+        report["checks"][0]["status"] = "unknown"
+    elif case.get("mode") == "counts":
+        report["required_gaps"] = 1
+    elif case.get("mode") == "required":
+        report["checks"][0]["required"] = False
+    elif case.get("mode") == "population":
+        report["checks"][0]["id"] = "unknown-population"
     data = installed / "report.json"
-    data.write_text("not JSON" if case.get("mode") == "malformed" else json.dumps(report))
+    serialized = json.dumps(report)
+    if case.get("mode") == "duplicate":
+        serialized = '{"schema":999,' + serialized[1:]
+    data.write_text("not JSON" if case.get("mode") == "malformed" else serialized)
     helper = installed / "flow-preflight.sh"
     helper.write_text(
         '#!/bin/bash\nif [[ "$*" == *--validate-exit* ]]; then\n'

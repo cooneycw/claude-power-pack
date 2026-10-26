@@ -10,7 +10,7 @@
   "detect_signal": "^FLOW_START_PREFLIGHT_CONTROL: blocked$",
   "good_signal": "^FLOW_START_PREFLIGHT_CONTROL: ready$",
   "unavailable_signal": "^FLOW_START_PREFLIGHT_CONTROL: unavailable$",
-  "limits": "Owned temporary git repository and fake gh first-later-effect sentinel only. Measures opt-in readiness refusal before issue reads, fetches, claims or worktree creation; healthy and standalone lanes deliberately stop at the fake provider. Does not authenticate, fetch from a network, install, or measure arbitrary host effects. The constructed anchor accepts the flag but removes enforcement, reaching the forbidden seam on every adverse report.",
+  "limits": "Owned temporary git repository and fake gh first-later-effect sentinel only. Measures opt-in readiness refusal before issue reads, fetches, claims or worktree creation; healthy and standalone lanes deliberately stop at the fake provider. Does not authenticate, fetch from a network, install, or measure arbitrary host effects. The constructed anchor accepts the flag but removes enforcement, reaching the forbidden seam on every adverse report. The validator mode is exercised against zero-exit contradictory status/counts/required flags, duplicate JSON keys and an unknown check population, with healthy positive control.",
   "cases": [
     {
       "name": "bad-gaps",
@@ -41,6 +41,31 @@
       "name": "good-standalone",
       "input": "cases/good-standalone",
       "expect": "GOOD"
+    },
+    {
+      "name": "bad-status-zero",
+      "input": "cases/bad-status-zero",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-counts-zero",
+      "input": "cases/bad-counts-zero",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-required-zero",
+      "input": "cases/bad-required-zero",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-duplicate-zero",
+      "input": "cases/bad-duplicate-zero",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-population-zero",
+      "input": "cases/bad-population-zero",
+      "expect": "BAD"
     }
   ],
   "anchors": [
