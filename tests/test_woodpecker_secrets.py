@@ -295,3 +295,20 @@ def test_colon_multiline_neighbor_cannot_supply_a_signing_key(bootstrap, real_as
     assert "decoy" not in path.read_text()
     expected = "dummy-real" if real_assignment else "dummy-aws"
     assert f"WOODPECKER_GRPC_SECRET={expected}\n" in path.read_text()
+
+
+@pytest.mark.parametrize("assignment", [
+    "WOODPECKER_GRPC_SECRET:", "WOODPECKER_GRPC_SECRET: ''",
+    "WOODPECKER_GRPC_SECRET: 'one'junk'", 'WOODPECKER_GRPC_SECRET: "unterminated',
+    "WOODPECKER_GRPC_SECRET=first\nWOODPECKER_GRPC_SECRET: second",
+    "WOODPECKER_GRPC_SECRET: first\nWOODPECKER_GRPC_SECRET=second",
+])
+def test_ambiguous_colon_and_mixed_duplicates_preserve_old_file(bootstrap, assignment):
+    module, path, payload = bootstrap
+    original = assignment + "\n"
+    path.write_text(original)
+    payload[GRPC] = "dummy-conflicting-aws"
+    assert path.read_text() == original
+    with pytest.raises(ValueError, match="WOODPECKER_GRPC_SECRET"):
+        module.main()
+    assert path.read_text() == original

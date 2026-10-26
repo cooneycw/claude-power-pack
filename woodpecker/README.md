@@ -47,7 +47,8 @@ on command arguments, or commit them.
 **Regeneration behavior:** `bootstrap-secrets.py` preserves an existing nonempty
 `WOODPECKER_GRPC_SECRET` assignment in `docker.env`, even when AWS supplies a
 different value. An empty, duplicate, or malformed local assignment fails before
-replacing the file. Equals- and colon-delimited logical quoted assignments are read as units so assignment-like
+replacing the file. [Compose dotenv syntax](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/#env-file-syntax)
+permits either `=` or `:` as the delimiter. Those logical quoted assignments are read as units so assignment-like
 text inside a multiline neighbouring value cannot supply the signing key.
 Literal single-quoted tokens and double-quoted tokens without interpolation
 retain their quoting; unquoted or double-quoted dollar expressions are refused
