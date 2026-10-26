@@ -8,7 +8,9 @@
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
 cbd85a9e0e08471a9c0be29725c177a09059a58a5604e0543263f2cf55cad6ca  flow-live-driver-guard.sh
-fa067118095e617c0668a0fa16fd4a3d5c0f0ec99bb95c00611b72671c3421f3  flow-start-resolve.sh
+d91f96a83de31a6bf9381469618f202a54a7291642766df75371f48936f3b0ad  flow-preflight.py
+2179c2f742634e21418b819e6a4c7c6c1e340e5c9d1eb773d0033f9c21353262  flow-preflight.sh
+d9b513d17a1821545bd0f1550d5f37fbd98109a456ce6e76d54329c97b89e1ad  flow-start-resolve.sh
 28ee4b87e67d8fc715fa480806023077d80cf6bab4c16906fd29471d30510281  flow-worktree-claim.sh
 d3ee7378cc583ccb8dd8e0a6c9c10e2c958b392e5e0bb973dd5824ac310b4d22  flow-worktree-guard.sh
 4095e524bf802a97f48add745e5c64addfe1055eac67c484b5ad81e5c26b38a8  gate-lib.sh

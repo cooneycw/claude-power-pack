@@ -19,6 +19,77 @@ REQUIRED_FIELDS = {
     "issue": {"blockedBy", "blocking", "parent", "subIssues", "assignees"},
     "pr": {"closingIssuesReferences"},
 }
+CHECK_IDS = ("gh", "uv", "cpp_python", "user.name", "user.email", "codex", "engine")
+
+
+def parse_checks(value):
+    if value == "all":
+        return CHECK_IDS
+    names = value.split(",")
+    if not names or any(name not in CHECK_IDS for name in names) or len(set(names)) != len(names):
+        raise argparse.ArgumentTypeError("--checks requires distinct known check IDs, or all")
+    return tuple(name for name in CHECK_IDS if name in names)
+
+
+def report_for(checks, selected):
+    gaps = sum(c["required"] and c["status"] in ("missing", "unsupported") for c in checks)
+    unknown = sum(c["required"] and c["status"] == "unknown" for c in checks)
+    code = 1 if gaps else 3 if unknown else 0
+    full = tuple(selected) == CHECK_IDS
+    status = "gaps" if gaps else "unknown" if unknown else "ready"
+    return dict(
+        schema=1,
+        status=status if full else "selected_" + status,
+        scope="full" if full else "selected",
+        full_host_ready=code == 0 if full else None,
+        selected_checks=list(selected),
+        unexamined_checks=[name for name in CHECK_IDS if name not in selected],
+        required_gaps=gaps,
+        required_unknown=unknown,
+        checks=checks,
+    ), code
+
+
+def validate_report(raw, exit_code, selected):
+    """Validate population, observations and verdict together, without probes.
+
+    Consumers must call this even after exit zero. Provider text is never
+    included in validation errors, including malformed/duplicate JSON keys.
+    """
+
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("Duplicate preflight report key")
+            result[key] = value
+        return result
+
+    try:
+        report = json.loads(raw, object_pairs_hook=unique)
+        if not isinstance(report, dict) or type(report.get("schema")) is not int or report["schema"] != 1:
+            raise ValueError("Invalid preflight schema")
+        checks = report["checks"]
+        if not isinstance(checks, list) or [c["id"] for c in checks] != list(selected):
+            raise ValueError("Preflight population mismatch")
+        for item in checks:
+            required = item["id"] != "codex"
+            states = ("ok", "missing", "unsupported", "unknown") if required else ("ok", "warning")
+            if item["required"] is not required or item["status"] not in states:
+                raise ValueError("Invalid preflight observation")
+            if not all(isinstance(item[key], str) for key in ("message", "remediation")):
+                raise ValueError("Invalid preflight diagnostic")
+            if not isinstance(item["evidence"], dict):
+                raise ValueError("Invalid preflight evidence")
+        expected, code = report_for(checks, selected)
+        for key, value in expected.items():
+            if key not in report or type(report[key]) is not type(value) or report[key] != value:
+                raise ValueError("Contradictory preflight report")
+        if type(exit_code) is not int or exit_code != code:
+            raise ValueError("Preflight exit disagrees with observations")
+        return report
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("Preflight report is unverified (schema, population or verdict mismatch)") from exc
 
 
 def run(argv, cwd, env=None):
@@ -221,47 +292,39 @@ def observe(args):
     except (OSError, RuntimeError, ValueError):
         repo = None
     home = Path.home()
-    checks = [gh_check(repo)]
-    checks.append(
-        check(
+    selected = getattr(args, "checks", CHECK_IDS)
+
+    def identity(key):
+        code, out, _ = run(["git", "config", "--get", key], repo) if repo is not None else (None, "", "")
+        status = "ok" if code == 0 and out.strip() else "missing" if code in (0, 1) else "unknown"
+        return check(
+            key,
+            status,
+            "Effective git identity presence (value withheld)",
+            f"Set {key} explicitly for this repository; use an account-provided noreply address if desired",
+        )
+
+    probes = {
+        "gh": lambda: gh_check(repo),
+        "uv": lambda: check(
             "uv",
             "ok" if shutil.which("uv") else "missing",
             "uv executable presence only",
             "Install uv explicitly if missing; this observer never installs it",
-        )
-    )
-    checks.append(python_check(repo or home, home))
-    for key in ("user.name", "user.email"):
-        code, out, _ = run(["git", "config", "--get", key], repo) if repo is not None else (None, "", "")
-        status = "ok" if code == 0 and out.strip() else "missing" if code in (0, 1) else "unknown"
-        checks.append(
-            check(
-                key,
-                status,
-                "Effective git identity presence (value withheld)",
-                f"Set {key} explicitly for this repository; use an account-provided noreply address if desired",
-            )
-        )
-    checks.append(
-        check(
+        ),
+        "cpp_python": lambda: python_check(repo or home, home),
+        "user.name": lambda: identity("user.name"),
+        "user.email": lambda: identity("user.email"),
+        "codex": lambda: check(
             "codex",
             "ok" if shutil.which("codex") else "warning",
             "Optional Codex executable presence only; auth/readiness untested",
             "Install/login only if choosing the optional review stage",
             required=False,
-        )
-    )
-    checks.append(engine_check(args.harness, args.engine, home))
-    gaps = sum(c["required"] and c["status"] in ("missing", "unsupported") for c in checks)
-    unknown = sum(c["required"] and c["status"] == "unknown" for c in checks)
-    code = 1 if gaps else 3 if unknown else 0
-    return dict(
-        schema=1,
-        status="gaps" if gaps else "unknown" if unknown else "ready",
-        required_gaps=gaps,
-        required_unknown=unknown,
-        checks=checks,
-    ), code
+        ),
+        "engine": lambda: engine_check(args.harness, args.engine, home),
+    }
+    return report_for([probes[name]() for name in selected], selected)
 
 
 def main():
@@ -270,7 +333,28 @@ def main():
     parser.add_argument("--repo", default=".")
     parser.add_argument("--harness", choices=("auto", "claude", "codex"), default="auto")
     parser.add_argument("--engine")
+    parser.add_argument(
+        "--checks",
+        type=parse_checks,
+        default=CHECK_IDS,
+        help="comma-separated check IDs, or all (default); unselected checks are unexamined",
+    )
+    parser.add_argument(
+        "--validate-exit", type=int, help="validate a JSON report on stdin against this original exit; no probes"
+    )
     args = parser.parse_args()
+    if args.validate_exit is not None:
+        try:
+            report = validate_report(sys.stdin.read(), args.validate_exit, args.checks)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 3
+        if args.json:
+            print(json.dumps(report, sort_keys=True))
+        if args.validate_exit != 0:
+            print("Preflight readiness unestablished: " + report["status"], file=sys.stderr)
+            return args.validate_exit
+        return 0
     report, code = observe(args)
     if args.json:
         print(json.dumps(report, sort_keys=True))

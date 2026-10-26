@@ -17,6 +17,9 @@
 # Resolve mode:
 #   flow-start-resolve.sh <ISSUE> [PROJECT] [--session-cwd PATH] [--allow-closed]
 #                         [--allow-pickup]
+#                         [--require-preflight]
+#   --require-preflight  require a verified full host report before any issue
+#                        read, fetch, claim or worktree side effect (flow:auto).
 #
 #   PROJECT        target repo when the session cwd is not the issue's repo
 #                  (issue #578): tried as a path first, else
@@ -143,6 +146,7 @@
 #   FLOW_START_RESOLVE_PROJECTS_DIR  override $HOME/Projects for name lookup
 #   (FLOW_LIVE_DRIVER_NOW passes through to the wrapped live-driver guard.)
 
+#: NEGATIVE-CONTROL: controls/flow-start-preflight
 set -uo pipefail
 
 # Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
@@ -255,6 +259,7 @@ GIT=git
 MODE=resolve
 ALLOW_CLOSED=0
 ALLOW_PICKUP=0
+REQUIRE_PREFLIGHT=0
 ISSUE_NUM=""
 PROJECT=""
 EXPECTED_BRANCH=""
@@ -265,6 +270,7 @@ while [ "$#" -gt 0 ]; do
     --verify) MODE=verify ;;
     --allow-closed) ALLOW_CLOSED=1 ;;
     --allow-pickup) ALLOW_PICKUP=1 ;;
+    --require-preflight) REQUIRE_PREFLIGHT=1 ;;
     --session-cwd)
       [ "$#" -ge 2 ] || usage_fail "--session-cwd requires a path argument"
       SESSION_CWD_ARG="$2"
@@ -296,6 +302,7 @@ printf '%s' "$ISSUE_NUM" | grep -qE '^[0-9]+$' || usage_fail "ISSUE must be a nu
 
 # ---- verify mode: the post-entry gate ---------------------------------------
 if [ "$MODE" = verify ]; then
+  [ "$REQUIRE_PREFLIGHT" -eq 0 ] || usage_fail "--require-preflight applies to resolve mode only"
   if ! "$GIT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "ERROR=not inside a git work tree - enter the worktree before --verify"
     echo "FLOW_START_VERIFY: fail"
@@ -412,6 +419,23 @@ else
   # branch and create a worktree in a surprise repository (issue #592, facet 2).
   TARGET_REPO=$(resolve_primary "$SESSION_CWD" || true)
   [ -n "$TARGET_REPO" ] || fail "session cwd '$SESSION_CWD_ABS' is not inside a git repo and no PROJECT was given - re-run as: flow-start-resolve.sh $ISSUE_NUM <PROJECT>"
+fi
+
+# This is the first point with a resolved target and no live reads or writes.
+# Bind to this CPP helper's physical colocation, never a target-repo lookalike.
+if [ "$REQUIRE_PREFLIGHT" -eq 1 ]; then
+  PREFLIGHT_DIR=$(dirname "$(sibling flow-preflight.sh)")
+  PREFLIGHT_HELPER="$PREFLIGHT_DIR/flow-preflight.sh"
+  [ -f "$PREFLIGHT_HELPER" ] || fail "required CPP preflight helper is missing; repair this installation"
+  preflight_report=$(bash "$PREFLIGHT_HELPER" --json --repo "$TARGET_REPO" --harness auto)
+  preflight_rc=$?
+  checked_report=$(printf '%s\n' "$preflight_report" | bash "$PREFLIGHT_HELPER" --json --validate-exit "$preflight_rc")
+  validated_rc=$?
+  [ -z "$checked_report" ] || printf '%s\n' "$checked_report" >&2
+  if [ "$preflight_rc" -ne 0 ] || [ "$validated_rc" -ne 0 ]; then
+    echo "flow-start-resolve: required preflight refused (original exit $preflight_rc, validated exit $validated_rc); no later effects." >&2
+    fail "required host readiness is unestablished; resolve the reported gaps or unknown observations"
+  fi
 fi
 
 SESSION_PRIMARY=$(resolve_primary "$SESSION_CWD" 2>/dev/null || true)

@@ -1,0 +1,845 @@
+#!/usr/bin/env bash
+# flow-start-resolve.sh - Deterministic Step-1 resolver for /flow:auto and
+# /flow:start (issue #581).
+#
+# Motivation: flow Step 1 used to be driven by multi-line inline bash blocks
+# (variable assignments, loops, command substitution). The permission matcher
+# can only auto-allow commands it can decompose into allowlisted prefixes, so
+# those compound blocks prompted on EVERY run regardless of allowlist tuning
+# (issue #482 census evidence; the rejected sandbox lane #541/ADR 0002 attacked
+# the same root cause). This helper extracts that plumbing into one audited,
+# allowlistable script: it resolves the target repo (#578), fetches the issue,
+# derives the issue-anchored branch, triages existing work, wraps the #503
+# live-driver guard, and performs the git-lane worktree creation itself. The
+# model reads the key=value contract below and makes exactly one decision:
+# call EnterWorktree, or ride the git lane (cd).
+#
+# Resolve mode:
+#   flow-start-resolve.sh <ISSUE> [PROJECT] [--session-cwd PATH] [--allow-closed]
+#                         [--allow-pickup]
+#                         [--require-preflight]
+#   --require-preflight  require a verified full host report before any issue
+#                        read, fetch, claim or worktree side effect (flow:auto).
+#
+#   PROJECT        target repo when the session cwd is not the issue's repo
+#                  (issue #578): tried as a path first, else
+#                  $HOME/Projects/<PROJECT>.
+#   --session-cwd  the CLAUDE SESSION's working directory, passed verbatim by
+#                  auto.md / start.md (issue #592). This is NOT the same thing
+#                  as the process cwd: the Bash tool's cwd persists across calls
+#                  and drifts whenever any earlier command `cd`s somewhere,
+#                  while EnterWorktree always acts on the session cwd, which
+#                  never moves. Inferring the session repo from `.` therefore
+#                  decides GIT_LANE against whatever repo the last `cd` landed
+#                  in. May also be supplied as FLOW_SESSION_CWD.
+#                  When ABSENT the resolver falls back to `.` (nothing
+#                  regresses) but says so - SESSION_CWD_INFERRED=1 - and fails
+#                  closed to GIT_LANE=1, because the git lane is correct in
+#                  every case while a wrong GIT_LANE=0 points EnterWorktree at
+#                  a directory that may not be a repo at all.
+#   --allow-closed proceed with worktree creation although the issue is not
+#                  OPEN (pass only after the user has confirmed).
+#   --allow-pickup proceed with picking up an issue branch that already has an
+#                  OPEN PR (pass only after the user has confirmed). Without it
+#                  that lane creates NOTHING and reports CONFIRM_REQUIRED=1
+#                  (issue #1258): asking after `git worktree add` asks about a
+#                  state that already exists.
+#
+#   Prints a key=value contract (stdout), one value per line:
+#     LANE=current-branch|fresh|resume|remote-pickup|local-pickup|cross-repo
+#     CROSS_REPO=0|1        1 = the target repo is not the session repo (#578)
+#     GIT_LANE=0|1          1 = ride the git lane end-to-end: enter with `cd`,
+#                           never EnterWorktree, git cleanup at Step 7. Since
+#                           worktrees are created OUTSIDE the repo by default
+#                           (issue #627), this is ALWAYS 1 - the native
+#                           EnterWorktree fresh lane is retired (#440 superseded).
+#     SESSION_CWD=<path>    the session cwd this resolution was decided against
+#     SESSION_CWD_INFERRED=0|1
+#                           1 = no --session-cwd/FLOW_SESSION_CWD was supplied,
+#                           so the process cwd was used as a stand-in and the
+#                           run may be resolving against a drifted directory
+#                           (issue #592); GIT_LANE is forced to 1 in this case
+#     TARGET_REPO=<abs path of the primary checkout>
+#     ISSUE_STATE=OPEN|CLOSED|MERGED
+#     ISSUE_TITLE=<title, whitespace flattened>
+#     BRANCH=<issue-N-slug branch this run must be on>
+#     WT_PATH=<abs path of the worktree to enter (or create, LANE=fresh)>
+#                           created OUTSIDE the repo (issue #627):
+#                           $FLOW_WORKTREE_BASE/<repo>-<branch> when set (#584),
+#                           else a visible sibling <parent>/<repo>-<branch>.
+#                           When <parent> is not writable (a container repo at
+#                           /workspace, issue #1258) it is
+#                           <repo>/.claude/worktrees/<repo>-<branch> if git
+#                           ignores that path, else the run refuses BEFORE any
+#                           branch is created and names FLOW_WORKTREE_BASE
+#     DEFAULT_BRANCH=<default branch name>
+#     REMOTE_BRANCH=origin/<...>       (remote-pickup lane only)
+#     WT_CREATED=0|1        1 = this run already ran `git worktree add`
+#                           and left the branch tracking origin/<BRANCH> - its
+#                           OWN name, never the base (issue #1221), so a bare
+#                           `git push` pushes the branch and git can never offer
+#                           `HEAD:main` as the remedy for a failed one
+#     WT_BASE=<ref, or a note naming a reused branch>       (WT_CREATED=1 only)
+#                           what the checkout actually stands on: BASE_REF (or
+#                           REMOTE_BRANCH) for a newly created branch, or a note
+#                           naming the pre-existing local branch that was reused
+#                           instead. LANE alone must not be read as a promise
+#                           the checkout came from BASE_REF (issue #793) - a
+#                           fresh/cross-repo/local-pickup lane that reused an
+#                           already-existing branch says so here.
+#     LIVE_DRIVER=clear|suspected|unknown|skipped  (#503 guard, resume lane)
+#     CLAIM=none|free|self|held|stale|foreign|unsupported|unknown
+#                           cross-session ownership of issue-N (issue #597),
+#                           read before any worktree is created. `held` = another
+#                           LIVE session is driving this issue right now
+#     CLAIM_PID=<pid|->     owning process id when CLAIM names an owner
+#     CLAIM_SESSION=<id|->  owning Claude session id
+#     PR_HEAD=none|<number>:<state>|unknown        (shipped-PR hazard; probed on
+#                           the resume AND pickup lanes, #742) - BEFORE any
+#                           pickup worktree is created (issue #1258)
+#     SHIPPED_BRANCH=<branch>:<number>:MERGED      (only when one was skipped)
+#                           an issue branch whose PR already MERGED is shipped
+#                           history, never a pickup source (issue #1258). It is
+#                           skipped; when no unshipped candidate remains the run
+#                           takes the fresh lane, on a free issue-anchored name
+#                           (a `-2`, `-3`... suffix if the slug name is taken)
+#     CONFIRM_REQUIRED=0|1  1 = STOP: explicit user confirmation needed
+#                           (suspected live driver, a live cross-session claim
+#                           on this issue, a resumed worktree with an
+#                           open/merged PR, a pickup branch with an OPEN PR
+#                           without --allow-pickup, or non-OPEN issue without
+#                           --allow-closed)
+#     FLOW_START_RESOLVE: ok
+#   On a hard error: ERROR=<reason> then `FLOW_START_RESOLVE: error`, exit 1.
+#   Hard errors include a failed label fetch or any normalized wayfinder-*
+#   label (charting tickets route through /project:init; remove the label for
+#   implementation work). Refused before branch/worktree/claim work.
+#
+# Verify mode (run from INSIDE the entered worktree - the Step-1 gate):
+#   flow-start-resolve.sh --verify <ISSUE> [EXPECTED_BRANCH]
+#
+#   Fails (FLOW_START_VERIFY: fail, exit 1) when the checkout is still on
+#   main/master or detached; renames a non-issue-anchored branch to
+#   EXPECTED_BRANCH so downstream steps can parse the issue number. On success
+#   prints BRANCH=, WT_ROOT=, CLAIM= and STASH_GUARD= then
+#   `FLOW_START_VERIFY: ok`.
+#
+#   Verify mode also ARMS the shared-stash guard (issue #1056), on by default:
+#   creating a linked worktree is the moment `refs/stash` becomes shared across
+#   checkouts, so this is where the hazard starts. STASH_GUARD reports
+#   installed|current|disabled|foreign|unsupported|unknown. Like CLAIM it is
+#   ADVISORY - reported, never consumed as a precondition, and never able to
+#   fail the gate. `disabled` means the repository recorded
+#   `cpp.stashGuard=false` and the guard changed nothing.
+#
+#   Verify mode also STAKES the cross-session claim (issue #597) - it is the one
+#   hook point that runs inside the worktree on every lane, since the native
+#   EnterWorktree lane creates the checkout only after resolve mode has already
+#   returned. Claiming is advisory here and never fails the gate.
+#
+# Env:
+#   FLOW_WORKTREE_BASE               worktree base override (issue #584, ADR
+#                                    0003 Option A; host config, never shipped)
+#   FLOW_SESSION_CWD                 session cwd (issue #592); --session-cwd wins
+# Env (test hooks - unset in normal use):
+#   FLOW_START_RESOLVE_GH            override the `gh` binary
+#   FLOW_START_RESOLVE_PROJECTS_DIR  override $HOME/Projects for name lookup
+#   (FLOW_LIVE_DRIVER_NOW passes through to the wrapped live-driver guard.)
+
+set -uo pipefail
+
+# Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
+trap 'printf "FLOW_START_RESOLVE_EXIT=%d\n" "$?" >&2' EXIT
+
+GH="${FLOW_START_RESOLVE_GH:-gh}"
+PROJECTS_DIR="${FLOW_START_RESOLVE_PROJECTS_DIR:-$HOME/Projects}"
+
+fail() {
+  echo "ERROR=$1"
+  echo "FLOW_START_RESOLVE: error"
+  exit 1
+}
+
+usage_fail() { echo "flow-start-resolve: $1" >&2; exit 2; }
+
+# Path to a sibling helper script (installed alongside this one).
+sibling() {
+  local self_dir
+  self_dir=$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")
+  echo "$self_dir/$1"
+}
+
+# Given any checkout path, print the PRIMARY checkout's toplevel (a linked
+# worktree resolves to the main repo that owns it).
+resolve_primary() {
+  local common
+  common=$("$GIT" -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
+  (cd "$common/.." 2>/dev/null && pwd)
+}
+
+# create_worktree PATH BRANCH START_REF - reuse an existing local branch if
+# one is left over from earlier work, else branch from START_REF. git worktree
+# chatter goes to stderr so the stdout contract stays clean.
+#
+# issue #793: a left-over local branch of the derived name used to be reused
+# UNCONDITIONALLY, silently discarding START_REF - a worktree could land on
+# another worker's unmerged branch tip while the caller still believed (and
+# reported, via LANE=fresh) that it had branched cleanly from START_REF. Before
+# reusing an existing branch, verify its tip is an ancestor of START_REF: if it
+# is, reuse is content-safe (everything on the branch is already in START_REF's
+# history) and WT_BASE_USED notes the reuse for the contract; if it is not, the
+# branch carries commits START_REF does not have - possibly someone else's
+# in-flight work, or content already merged elsewhere via a squash that gives
+# it a different SHA - and this refuses rather than guessing.
+create_worktree() {
+  local path="$1" branch="$2" start_ref="$3"
+  # Refuse BEFORE `-b` (issue #1258): a `git worktree add -b` that fails on the
+  # path has already created the branch, and the stray branch changes the lane
+  # the NEXT run reports.
+  [ -z "$WT_PATH_PROBLEM" ] || fail "$WT_PATH_PROBLEM"
+  [ -n "${FLOW_WORKTREE_BASE:-}" ] && mkdir -p "$FLOW_WORKTREE_BASE"
+  if "$GIT" -C "$TARGET_REPO" show-ref --verify --quiet "refs/heads/$branch"; then
+    if ! "$GIT" -C "$TARGET_REPO" merge-base --is-ancestor "$branch" "$start_ref" 2>/dev/null; then
+      local tip
+      tip=$("$GIT" -C "$TARGET_REPO" rev-parse --short "refs/heads/$branch" 2>/dev/null) || tip="unknown"
+      fail "local branch '$branch' already exists at $tip and is unmerged - it is not an ancestor of '$start_ref', so it may carry another worker's or earlier in-flight work; refusing to check it out silently (issue #793). Delete or rename the branch, or rebase it onto $start_ref, then retry."
+    fi
+    WT_BASE_USED="pre-existing branch '$branch' (ancestor of $start_ref), not freshly branched from it"
+    "$GIT" -C "$TARGET_REPO" worktree add "$path" "$branch" >&2 || return 1
+  else
+    WT_BASE_USED="$start_ref"
+    local start_sha
+    start_sha=$("$GIT" -C "$TARGET_REPO" rev-parse --verify --quiet "$start_ref^{commit}" 2>/dev/null) || start_sha=""
+    if ! "$GIT" -C "$TARGET_REPO" worktree add --no-track -b "$branch" "$path" "$start_ref" >&2; then
+      # Remove the branch a failed `-b` left behind - but only by COMPARE-AND-
+      # DELETE against the commit this call would have created it at
+      # (counter-model review). A branch of the same name created by ANOTHER
+      # session between the show-ref above and this add is not ours: if it has
+      # moved, `update-ref -d <ref> <old>` refuses and it survives. One still at
+      # start_sha carries no commits, so deleting it loses nothing either way.
+      #
+      # A matching tip is not ownership (counter-model review, pass 2): another
+      # session may have created the branch at the same commit AND checked it
+      # out. A branch any worktree holds is never deleted here. What remains is
+      # the window between this listing and the delete - narrowed, not closed;
+      # the cost of a leftover branch is one confusing next run, the cost of a
+      # deleted attached branch is someone's worktree losing its ref.
+      if [ -n "$start_sha" ] &&
+        ! "$GIT" -C "$TARGET_REPO" worktree list --porcelain 2>/dev/null | grep -qxF "branch refs/heads/$branch"; then
+        "$GIT" -C "$TARGET_REPO" update-ref -d "refs/heads/$branch" "$start_sha" >/dev/null 2>&1
+      fi
+      return 1
+    fi
+  fi
+  set_own_upstream "$branch"
+}
+
+# set_own_upstream BRANCH - make BRANCH track origin/BRANCH (issue #1221).
+#
+# Branching from origin/<default> makes git record origin/<default> as the
+# upstream (branch.autoSetupMerge). A bare `git push` then exits 128, and git's
+# FIRST suggested remedy is `git push origin HEAD:main` - which ships the branch
+# onto the default branch past every review gate. `--no-track` above stops that
+# for a new branch; this also repairs a REUSED branch that an older resolver
+# pointed at the base. The remote ref need not exist yet: `git status` shows the
+# upstream as [gone] until the first push, and a bare push creates it.
+# Written as config because `branch --set-upstream-to` refuses a ref that does
+# not exist. No origin remote (a local-only fixture) means nothing to track.
+set_own_upstream() {
+  local branch="$1"
+  "$GIT" -C "$TARGET_REPO" remote get-url origin >/dev/null 2>&1 || return 0
+  "$GIT" -C "$TARGET_REPO" config "branch.$branch.remote" origin &&
+    "$GIT" -C "$TARGET_REPO" config "branch.$branch.merge" "refs/heads/$branch"
+}
+
+GIT=git
+
+# ---- argument parsing -------------------------------------------------------
+MODE=resolve
+ALLOW_CLOSED=0
+ALLOW_PICKUP=0
+REQUIRE_PREFLIGHT=0
+ISSUE_NUM=""
+PROJECT=""
+EXPECTED_BRANCH=""
+SESSION_CWD_ARG=""
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --verify) MODE=verify ;;
+    --allow-closed) ALLOW_CLOSED=1 ;;
+    --allow-pickup) ALLOW_PICKUP=1 ;;
+    --require-preflight) REQUIRE_PREFLIGHT=1 ;;
+    --session-cwd)
+      [ "$#" -ge 2 ] || usage_fail "--session-cwd requires a path argument"
+      SESSION_CWD_ARG="$2"
+      shift
+      ;;
+    --session-cwd=*) SESSION_CWD_ARG="${1#--session-cwd=}" ;;
+    --help|-h)
+      sed -n '2,80p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    --*) usage_fail "unknown option: $1" ;;
+    *)
+      if [ -z "$ISSUE_NUM" ]; then
+        ISSUE_NUM="$1"
+      elif [ "$MODE" = verify ] && [ -z "$EXPECTED_BRANCH" ]; then
+        EXPECTED_BRANCH="$1"
+      elif [ "$MODE" = resolve ] && [ -z "$PROJECT" ]; then
+        PROJECT="$1"
+      else
+        usage_fail "unexpected argument: $1"
+      fi
+      ;;
+  esac
+  shift
+done
+
+[ -n "$ISSUE_NUM" ] || usage_fail "usage: flow-start-resolve.sh <ISSUE> [PROJECT] [--allow-closed] [--allow-pickup] | --verify <ISSUE> [EXPECTED_BRANCH]"
+printf '%s' "$ISSUE_NUM" | grep -qE '^[0-9]+$' || usage_fail "ISSUE must be a number, got: $ISSUE_NUM"
+
+# ---- verify mode: the post-entry gate ---------------------------------------
+if [ "$MODE" = verify ]; then
+  [ "$REQUIRE_PREFLIGHT" -eq 0 ] || usage_fail "--require-preflight applies to resolve mode only"
+  if ! "$GIT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "ERROR=not inside a git work tree - enter the worktree before --verify"
+    echo "FLOW_START_VERIFY: fail"
+    exit 1
+  fi
+  CURRENT=$("$GIT" branch --show-current 2>/dev/null || true)
+  if [ -z "$CURRENT" ] || [ "$CURRENT" = main ] || [ "$CURRENT" = master ]; then
+    echo "ERROR=still on '${CURRENT:-detached HEAD}' - the worktree switch did not happen; cannot proceed"
+    echo "FLOW_START_VERIFY: fail"
+    exit 1
+  fi
+  case "$CURRENT" in
+    issue-"$ISSUE_NUM"-*) : ;;  # already issue-anchored - keep it
+    *)
+      if [ -z "$EXPECTED_BRANCH" ]; then
+        echo "ERROR=branch '$CURRENT' is not issue-anchored (issue-${ISSUE_NUM}-*) and no EXPECTED_BRANCH was given to normalize to"
+        echo "FLOW_START_VERIFY: fail"
+        exit 1
+      fi
+      if ! "$GIT" branch -m "$EXPECTED_BRANCH"; then
+        echo "ERROR=failed to rename branch '$CURRENT' to '$EXPECTED_BRANCH'"
+        echo "FLOW_START_VERIFY: fail"
+        exit 1
+      fi
+      echo "flow-start-resolve: normalized branch '$CURRENT' -> '$EXPECTED_BRANCH'" >&2
+      CURRENT="$EXPECTED_BRANCH"
+      ;;
+  esac
+  WT_ROOT=$("$GIT" rev-parse --show-toplevel)
+
+  # Stake the cross-session claim (issue #597). This is the only hook point that
+  # runs INSIDE the worktree on every lane: the native lane's worktree does not
+  # exist yet when resolve mode returns, so resolve cannot claim it. Advisory by
+  # design - the gate's job is to prove we are on the right branch, and a claim
+  # that cannot be taken must never turn a healthy Step 1 into a hard stop.
+  CLAIM=unknown
+  CLAIM_HELPER=$(sibling flow-worktree-claim.sh)
+  if [ -f "$CLAIM_HELPER" ]; then
+    claim_out=$(bash "$CLAIM_HELPER" claim "$WT_ROOT" --issue "$ISSUE_NUM" 2>&1) || true
+    CLAIM=$(printf '%s\n' "$claim_out" | sed -n 's/^FLOW_CLAIM: //p' | tail -1)
+    CLAIM=${CLAIM:-unknown}
+    if [ "$CLAIM" = held ]; then
+      printf '%s\n' "$claim_out" | grep -v '^FLOW_CLAIM' >&2 || true
+    fi
+  fi
+
+  # Arm the shared-stash guard for this repository (issue #1056). THIS is the
+  # moment the hazard is created: a linked worktree now exists, so `refs/stash`
+  # in the common dir is shared across checkouts and a bare `git stash pop` can
+  # take a sibling session's work. It is the same reason the claim is staked
+  # here - the only hook point that runs inside the checkout on every lane.
+  #
+  # ON BY DEFAULT (owner decision, 2026-09-19), with the opt-out honoured: the
+  # guard reports `disabled` and changes nothing where the repository recorded
+  # `cpp.stashGuard=false`. `--quiet` keeps a no-op silent and a real install,
+  # or a `foreign`/`unsupported` refusal, visible.
+  #
+  # ADVISORY AND FAIL-OPEN, exactly like the claim above: this gate's job is to
+  # prove we are on the right branch. A guard that could not be installed must
+  # never turn a healthy Step 1 into a hard stop, so the verdict is reported and
+  # never consumed as a precondition.
+  STASH_GUARD=unknown
+  GUARD_HELPER=$(sibling stash-worktree-guard.sh)
+  if [ -f "$GUARD_HELPER" ]; then
+    guard_out=$(bash "$GUARD_HELPER" --install "$WT_ROOT" --quiet 2>&1) || true
+    STASH_GUARD=$(printf '%s\n' "$guard_out" | sed -n 's/^STASH_GUARD: //p' | tail -1)
+    STASH_GUARD=${STASH_GUARD:-unknown}
+    printf '%s\n' "$guard_out" | grep -v '^STASH_GUARD' >&2 || true
+  fi
+
+  echo "BRANCH=$CURRENT"
+  echo "WT_ROOT=$WT_ROOT"
+  echo "CLAIM=$CLAIM"
+  echo "STASH_GUARD=$STASH_GUARD"
+  echo "FLOW_START_VERIFY: ok"
+  exit 0
+fi
+
+# ---- session cwd (issue #592) -----------------------------------------------
+# The process cwd is NOT the session cwd. In Claude Code the Bash tool's working
+# directory persists across calls and drifts on any earlier `cd`, while
+# EnterWorktree always acts on the session's working directory, which never
+# moves. Resolving the session repo from `.` therefore decides the contract's
+# central question against whatever repo the last `cd` happened to land in.
+# Prefer the value the caller declares; fall back to `.` so nothing regresses,
+# but mark the fallback as inferred and fail closed below.
+SESSION_CWD_INFERRED=0
+if [ -n "$SESSION_CWD_ARG" ]; then
+  SESSION_CWD="$SESSION_CWD_ARG"
+elif [ -n "${FLOW_SESSION_CWD:-}" ]; then
+  SESSION_CWD="$FLOW_SESSION_CWD"
+else
+  SESSION_CWD="."
+  SESSION_CWD_INFERRED=1
+fi
+if [ "$SESSION_CWD_INFERRED" -eq 0 ] && [ ! -d "$SESSION_CWD" ]; then
+  fail "--session-cwd '$SESSION_CWD' is not a directory"
+fi
+SESSION_CWD_ABS=$(cd "$SESSION_CWD" 2>/dev/null && pwd) || SESSION_CWD_ABS="$SESSION_CWD"
+
+# ---- target-repo resolution (issue #578) ------------------------------------
+TARGET_REPO=""
+if [ -n "$PROJECT" ]; then
+  for cand in "$PROJECT" "$PROJECTS_DIR/$PROJECT"; do
+    if [ -d "$cand" ] && "$GIT" -C "$cand" rev-parse --show-toplevel >/dev/null 2>&1; then
+      TARGET_REPO=$(resolve_primary "$cand")
+      break
+    fi
+  done
+  [ -n "$TARGET_REPO" ] || fail "PROJECT '$PROJECT' is not a git checkout (tried '$PROJECT' and '$PROJECTS_DIR/$PROJECT')"
+else
+  # No PROJECT: the target repo comes from the SESSION cwd, never from the
+  # process cwd - a bare `/flow:start 42` after any earlier `cd` would otherwise
+  # branch and create a worktree in a surprise repository (issue #592, facet 2).
+  TARGET_REPO=$(resolve_primary "$SESSION_CWD" || true)
+  [ -n "$TARGET_REPO" ] || fail "session cwd '$SESSION_CWD_ABS' is not inside a git repo and no PROJECT was given - re-run as: flow-start-resolve.sh $ISSUE_NUM <PROJECT>"
+fi
+
+# This is the first point with a resolved target and no live reads or writes.
+# Bind to this CPP helper's physical colocation, never a target-repo lookalike.
+
+SESSION_PRIMARY=$(resolve_primary "$SESSION_CWD" 2>/dev/null || true)
+CROSS_REPO=1
+[ -n "$SESSION_PRIMARY" ] && [ "$SESSION_PRIMARY" = "$TARGET_REPO" ] && CROSS_REPO=0
+
+# Git lane (issues #578, #584, #627): flow worktrees are created OUTSIDE the repo
+# by DEFAULT now - a visible sibling under the repo's parent dir (issue #627),
+# relocatable via FLOW_WORKTREE_BASE (#584) - so every run rides the git lane.
+# EnterWorktree cannot be used for an out-of-repo worktree: it cannot reach
+# another repo, its base dir is not configurable, and out-of-repo
+# EnterWorktree(path=...) triggers an unsuppressable approval prompt (ADR 0003
+# constraint 2). GIT_LANE=1 is safe in every case (issue #592); the native
+# EnterWorktree fresh lane is retired for the default (#440 superseded).
+GIT_LANE=1
+
+# Worktree path for a branch. Worktrees are created OUTSIDE the repo (issue #627):
+# under FLOW_WORKTREE_BASE when set (#584), else a visible sibling in the repo's
+# parent dir. Either way the dir is named <repo>-<branch> to disambiguate repos
+# that share one base (e.g. everything under ~/Projects).
+#
+# An UNWRITABLE parent (issue #1258): a container mounts the repo at /workspace,
+# so the sibling lands under `/`, which is root-owned, and `git worktree add`
+# fails. The fallback is the repo's own `.claude/worktrees/` - but only where
+# git IGNORES it there, because an unignored in-repo worktree shows up as an
+# untracked tree in the primary checkout and is one `git add -A` from being
+# committed. With neither, WT_PATH_PROBLEM is set and create_worktree refuses
+# before any branch exists. Sets WT_PATH in the CALLER's shell - never call it
+# in a `$(...)` subshell, where the problem would be lost.
+WT_PATH_PROBLEM=""
+set_wt_path() {
+  local name
+  name="$(basename "$TARGET_REPO")-$1"
+  WT_PATH_PROBLEM=""
+  if [ -n "${FLOW_WORKTREE_BASE:-}" ]; then
+    WT_PATH="$FLOW_WORKTREE_BASE/$name"
+    return 0
+  fi
+  local parent
+  parent=$(dirname "$TARGET_REPO")
+  WT_PATH="$parent/$name"
+  [ -w "$parent" ] && return 0
+  if "$GIT" -C "$TARGET_REPO" check-ignore -q ".claude/worktrees/$name" 2>/dev/null; then
+    WT_PATH="$TARGET_REPO/.claude/worktrees/$name"
+    echo "flow-start-resolve: '$parent' is not writable - using the git-ignored in-repo base '$TARGET_REPO/.claude/worktrees' (issue #1258)." >&2
+    return 0
+  fi
+  WT_PATH_PROBLEM="the sibling worktree base '$parent' is not writable, and '$TARGET_REPO/.claude/worktrees/' is not git-ignored in that repo to fall back to - no branch was created. Set FLOW_WORKTREE_BASE to a writable directory (e.g. FLOW_WORKTREE_BASE=$TARGET_REPO/.claude/worktrees after ignoring it), then retry (issue #1258)."
+}
+
+# ---- issue fetch + state check ----------------------------------------------
+# gh resolves the repo from its cwd, so run it from the TARGET repo.
+ISSUE_STATE=$(cd "$TARGET_REPO" && "$GH" issue view "$ISSUE_NUM" --json state --jq .state 2>/dev/null) || true
+[ -n "${ISSUE_STATE:-}" ] || fail "could not fetch issue #$ISSUE_NUM via gh in $TARGET_REPO (not found, or gh unauthenticated)"
+ISSUE_TITLE=$(cd "$TARGET_REPO" && "$GH" issue view "$ISSUE_NUM" --json title --jq .title 2>/dev/null | tr '\n\t' '  ' | sed 's/[[:space:]]*$//') || true
+[ -n "${ISSUE_TITLE:-}" ] || ISSUE_TITLE="(no title)"
+
+# Match project-next's normalize_label() and WAYFINDER_LABEL_PREFIX, including
+# future labels: fold case, collapse whitespace/:/_ runs, trim edge hyphens.
+ISSUE_LABELS=$(cd "$TARGET_REPO" && "$GH" issue view "$ISSUE_NUM" --json labels --jq '.labels[].name' 2>/dev/null)
+LABELS_RC=$?
+[ "$LABELS_RC" -eq 0 ] || fail "could not fetch labels for issue #$ISSUE_NUM via gh in $TARGET_REPO (not found, or gh unauthenticated)"
+while IFS= read -r LABEL; do
+  NORMALIZED_LABEL=$(printf '%s' "${LABEL,,}" | sed -E 's#[[:space:]:/_]+#-#g; s/^-+//; s/-+$//') ||
+    fail "could not read labels for issue #$ISSUE_NUM in $TARGET_REPO"
+  case "$NORMALIZED_LABEL" in
+    wayfinder-*)
+      fail "issue #$ISSUE_NUM carries the Wayfinder label '$LABEL' - this is a charting/planning ticket, routed through /project:init rather than /flow:auto (same wayfinder:* rule as project-next). If this really is implementation work, remove the wayfinder label from the issue, then re-run."
+      ;;
+  esac
+done <<< "$ISSUE_LABELS"
+
+CREATE_OK=1
+CONFIRM_REQUIRED=0
+if [ "$ISSUE_STATE" != "OPEN" ] && [ "$ALLOW_CLOSED" -ne 1 ]; then
+  CREATE_OK=0
+  CONFIRM_REQUIRED=1
+  echo "flow-start-resolve: issue #$ISSUE_NUM is $ISSUE_STATE - confirm with the user, then re-run with --allow-closed to create the worktree." >&2
+fi
+
+# ---- branch derivation ------------------------------------------------------
+SLUG=$(printf '%s' "$ISSUE_TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//' | cut -c1-50)
+SLUG=$(printf '%s' "$SLUG" | sed 's/-$//')
+[ -n "$SLUG" ] || SLUG=work
+BRANCH="issue-${ISSUE_NUM}-${SLUG}"
+
+# ---- cross-session claim check (issue #597) ---------------------------------
+# Before triaging existing work, ask whether ANOTHER live session already holds
+# issue-N. Two sessions handed the same issue used to race silently: both
+# implemented it, and whichever cleaned up first deleted the other's worktree.
+# Run this BEFORE any worktree is created, so a fresh lane cannot find its own
+# brand-new checkout and report itself as the owner.
+CLAIM=none
+CLAIM_PID=-
+CLAIM_SESSION=-
+CLAIM_HELPER=$(sibling flow-worktree-claim.sh)
+if [ -f "$CLAIM_HELPER" ]; then
+  claim_out=$(bash "$CLAIM_HELPER" check --issue "$ISSUE_NUM" --repo "$TARGET_REPO" 2>/dev/null) || true
+  CLAIM=$(printf '%s\n' "$claim_out" | sed -n 's/^FLOW_CLAIM: //p' | tail -1)
+  CLAIM=${CLAIM:-none}
+  CLAIM_PID=$(printf '%s\n' "$claim_out" | sed -n 's/^FLOW_CLAIM_OWNER_PID=//p' | tail -1)
+  CLAIM_SESSION=$(printf '%s\n' "$claim_out" | sed -n 's/^FLOW_CLAIM_OWNER_SESSION=//p' | tail -1)
+  CLAIM_PID=${CLAIM_PID:--}
+  CLAIM_SESSION=${CLAIM_SESSION:--}
+  if [ "$CLAIM" = held ]; then
+    CONFIRM_REQUIRED=1
+    echo "flow-start-resolve: issue #$ISSUE_NUM is CLAIMED by another live session (pid $CLAIM_PID, session $CLAIM_SESSION)." >&2
+    echo "  That session is working this issue right now. Proceeding would duplicate its work, and" >&2
+    echo "  whichever run cleans up first deletes the other's worktree (issue #597)." >&2
+    echo "  STOP and confirm with the user before continuing." >&2
+  fi
+fi
+
+# ---- remote sync + default branch -------------------------------------------
+if ! "$GIT" -C "$TARGET_REPO" fetch origin --quiet 2>/dev/null; then
+  echo "flow-start-resolve: 'git fetch origin' failed in $TARGET_REPO (no remote or offline) - remote-pickup detection may be stale." >&2
+fi
+
+DEFAULT_BRANCH=$("$GIT" -C "$TARGET_REPO" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || true)
+DEFAULT_BRANCH=${DEFAULT_BRANCH#origin/}
+if [ -z "$DEFAULT_BRANCH" ]; then
+  for cand in main master; do
+    if "$GIT" -C "$TARGET_REPO" show-ref --verify --quiet "refs/remotes/origin/$cand" ||
+      "$GIT" -C "$TARGET_REPO" show-ref --verify --quiet "refs/heads/$cand"; then
+      DEFAULT_BRANCH="$cand"
+      break
+    fi
+  done
+fi
+DEFAULT_BRANCH=${DEFAULT_BRANCH:-main}
+BASE_REF="origin/$DEFAULT_BRANCH"
+"$GIT" -C "$TARGET_REPO" show-ref --verify --quiet "refs/remotes/origin/$DEFAULT_BRANCH" || BASE_REF="$DEFAULT_BRANCH"
+
+# ---- shipped-PR probe (issues #503, #742) -----------------------------------
+# Ask GitHub whether a branch already has an OPEN or MERGED PR - the guard that
+# stops a run from silently duplicating or steamrolling in-flight work. Name the
+# target repository EXPLICITLY (--repo, parsed from origin's URL): gh otherwise
+# resolves the repo from its cwd, and a cross-repo run (session cwd outside the
+# target repo, #578) must never let that resolution drift (#742). When origin's
+# URL is not an owner/repo-shaped GitHub remote (e.g. a local test fixture),
+# fall back to gh's cwd-based resolution from inside TARGET_REPO, which is the
+# pre-#742 shape. Sets PR_HEAD ONLY - what a hit means depends on the lane, so
+# the CALLER decides whether it needs confirmation (issue #1258: a MERGED pickup
+# branch is skipped, not confirmed; an OPEN one stops before creation).
+probe_pr_head() {
+  local branch="$1" owner_repo
+  owner_repo=$("$GIT" -C "$TARGET_REPO" remote get-url origin 2>/dev/null |
+    sed -E -e 's#^git@[^:]+:##' -e 's#^(ssh|git|https?)://[^/]+/##' -e 's#\.git$##' -e 's#/$##')
+  case "$owner_repo" in
+    /* | *" "* | */*/* | "") owner_repo="" ;; # not an owner/repo shape
+    */*) : ;;
+    *) owner_repo="" ;;
+  esac
+  if [ -n "$owner_repo" ]; then
+    PR_HEAD=$("$GH" pr list --repo "$owner_repo" --head "$branch" --state all --json number,state \
+      --jq '[.[] | select(.state == "OPEN" or .state == "MERGED")][0] | if . == null then "none" else "\(.number):\(.state)" end' 2>/dev/null) || true
+  else
+    PR_HEAD=$(cd "$TARGET_REPO" && "$GH" pr list --head "$branch" --state all --json number,state \
+      --jq '[.[] | select(.state == "OPEN" or .state == "MERGED")][0] | if . == null then "none" else "\(.number):\(.state)" end' 2>/dev/null) || true
+  fi
+  PR_HEAD=${PR_HEAD:-unknown}
+}
+
+# ---- existing-work triage ---------------------------------------------------
+LANE=""
+WT_PATH=""
+REMOTE_BRANCH=""
+WT_CREATED=0
+WT_BASE_USED=""
+LIVE_DRIVER=skipped
+PR_HEAD=none
+
+# 1. Already on the issue's branch in the session cwd (same repo only). Read
+#    the branch and toplevel from the SESSION cwd, not the process cwd (#592).
+SESSION_BRANCH=$("$GIT" -C "$SESSION_CWD" branch --show-current 2>/dev/null || true)
+case "$SESSION_BRANCH" in
+  issue-"$ISSUE_NUM"-*)
+    if [ "$CROSS_REPO" -eq 0 ]; then
+      LANE=current-branch
+      BRANCH="$SESSION_BRANCH"
+      WT_PATH=$("$GIT" -C "$SESSION_CWD" rev-parse --show-toplevel)
+    fi
+    ;;
+esac
+
+# 2. A worktree for this issue already exists (prior session).
+if [ -z "$LANE" ]; then
+  found_path=""
+  found_branch=""
+  cur_path=""
+  while IFS= read -r line; do
+    case "$line" in
+      "worktree "*) cur_path="${line#worktree }" ;;
+      "branch refs/heads/issue-${ISSUE_NUM}-"*)
+        found_path="$cur_path"
+        found_branch="${line#branch refs/heads/}"
+        ;;
+    esac
+  done < <("$GIT" -C "$TARGET_REPO" worktree list --porcelain 2>/dev/null)
+  if [ -n "$found_path" ]; then
+    LANE=resume
+    BRANCH="$found_branch"
+    WT_PATH="$found_path"
+    # A worktree outside the target repo (a base-override checkout from a
+    # prior run, #584) cannot be entered via EnterWorktree(path=...) without
+    # an unsuppressable approval prompt - commit to the git lane.
+    case "$WT_PATH" in
+      "$TARGET_REPO"/*) : ;;
+      *) GIT_LANE=1 ;;
+    esac
+  fi
+fi
+
+if [ "$LANE" = resume ]; then
+  # #503 live-driver guard (sibling script; advisory, fail-open when absent).
+  SELF_DIR=$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")
+  GUARD="$SELF_DIR/flow-live-driver-guard.sh"
+  if [ -f "$GUARD" ]; then
+    guard_out=$(bash "$GUARD" "$WT_PATH") || true
+    LIVE_DRIVER=$(printf '%s\n' "$guard_out" | sed -n 's/^FLOW_LIVE_DRIVER: //p' | tail -1)
+    LIVE_DRIVER=${LIVE_DRIVER:-unknown}
+  fi
+  [ "$LIVE_DRIVER" = suspected ] && CONFIRM_REQUIRED=1
+
+  # The other resume hazard: this branch already has an open/merged PR. The
+  # worktree already exists here (a prior run made it), so confirming is all
+  # that is left to do.
+  probe_pr_head "$BRANCH"
+  case "$PR_HEAD" in
+    *:*)
+      CONFIRM_REQUIRED=1
+      echo "flow-start-resolve: branch '$BRANCH' already has PR $PR_HEAD - possible concurrent or already-shipped work; confirm before entering." >&2
+      ;;
+  esac
+fi
+
+# 3. A remote branch exists but no local worktree (cross-machine pickup); or,
+#    lacking that, a LOCAL branch matching the issue's pattern already exists
+#    with no worktree attached (case 2 above only catches a branch WITH one).
+#    Matching by pattern rather than requiring the exact current-title-derived
+#    slug is deliberate (issue #793): the issue's title may have changed since
+#    that branch was created, and only a pattern match keeps a differently-
+#    slugged leftover branch from being invisible here and sailing through to
+#    the fresh lane below, where it would either collide under the exact-slug
+#    case (now refused by create_worktree's own guard) or, worse, be silently
+#    ignored while a second branch is created alongside it for the same issue.
+#
+#    EVERY candidate is probed for a PR BEFORE anything is created (issue
+#    #1258). This used to create the worktree first and report PR_HEAD after,
+#    so the confirmation was asked about a checkout that already existed -
+#    observed on /flow:auto 982 (kyle): a worktree 127 commits behind main, on a
+#    branch whose PR had merged. Now:
+#      - MERGED: shipped history, never a pickup source. Skipped, recorded as
+#        SHIPPED_BRANCH, and the next candidate is tried; with none left the run
+#        falls through to the fresh lane below.
+#      - OPEN: in-flight work. The lane is reported but NOTHING is created until
+#        the user confirms and the run is repeated with --allow-pickup.
+#      - none / unknown: picked up as before.
+SHIPPED_BRANCH=""
+PICKUP_OPEN_PR=0
+pickup_decide() { # BRANCH -> 0 = take it, 1 = shipped (skip it)
+  probe_pr_head "$1"
+  case "$PR_HEAD" in
+    *:MERGED)
+      [ -n "$SHIPPED_BRANCH" ] || SHIPPED_BRANCH="$1:$PR_HEAD"
+      echo "flow-start-resolve: branch '$1' already shipped as PR $PR_HEAD - not picking it up; new work goes on a fresh branch (issue #1258)." >&2
+      return 1
+      ;;
+    *:*)
+      PICKUP_OPEN_PR=1
+      # --allow-pickup IS that confirmation: reporting CONFIRM_REQUIRED=1 over a
+      # worktree it just created would tell the caller to STOP after the fact
+      # (counter-model review). Other hazards still set it on their own.
+      if [ "$ALLOW_PICKUP" -ne 1 ]; then
+        CONFIRM_REQUIRED=1
+        echo "flow-start-resolve: branch '$1' already has PR $PR_HEAD - possible concurrent work. Nothing was created; confirm with the user, then re-run with --allow-pickup (issue #1258)." >&2
+      fi
+      ;;
+  esac
+  return 0
+}
+pickup_may_create() {
+  [ "$CREATE_OK" -eq 1 ] || return 1
+  [ "$PICKUP_OPEN_PR" -eq 0 ] || [ "$ALLOW_PICKUP" -eq 1 ]
+}
+if [ -z "$LANE" ]; then
+  while IFS= read -r cand; do
+    [ -n "$cand" ] || continue
+    if pickup_decide "${cand#origin/}"; then
+      LANE=remote-pickup
+      REMOTE_BRANCH="$cand"
+      BRANCH="${cand#origin/}"
+      break
+    fi
+  done < <("$GIT" -C "$TARGET_REPO" branch -r --list "origin/issue-${ISSUE_NUM}-*" 2>/dev/null | sed 's/^[ *+]*//;s/ .*$//')
+  if [ -n "$LANE" ]; then
+    set_wt_path "$BRANCH"
+    # The pushed branch may already have an open PR - the same hazard as the
+    # resume lane. This probe was resume-only until #742, so a remote pickup of
+    # an in-flight PR sailed through unconfirmed; until #1258 it was probed
+    # only after the worktree had been created.
+    if pickup_may_create; then
+      create_worktree "$WT_PATH" "$BRANCH" "$REMOTE_BRANCH" ||
+        fail "git worktree add for '$BRANCH' from '$REMOTE_BRANCH' failed in $TARGET_REPO"
+      WT_CREATED=1
+    fi
+  else
+    while IFS= read -r cand; do
+      [ -n "$cand" ] || continue
+      # A local branch of a name already found shipped on the remote is the
+      # same shipped history.
+      case "$SHIPPED_BRANCH" in "$cand":*) continue ;; esac
+      if pickup_decide "$cand"; then
+        LANE=local-pickup
+        BRANCH="$cand"
+        break
+      fi
+    done < <("$GIT" -C "$TARGET_REPO" branch --list "issue-${ISSUE_NUM}-*" 2>/dev/null | sed 's/^[ *+]*//')
+    if [ -n "$LANE" ]; then
+      set_wt_path "$BRANCH"
+      if pickup_may_create; then
+        # BRANCH already exists locally, so create_worktree's own ancestor
+        # guard decides this: reused if BASE_REF contains it, refused (naming
+        # the branch and its tip) otherwise - never a silent checkout.
+        create_worktree "$WT_PATH" "$BRANCH" "$BASE_REF" ||
+          fail "git worktree add for '$BRANCH' from '$BASE_REF' failed in $TARGET_REPO"
+        WT_CREATED=1
+      fi
+    fi
+  fi
+fi
+
+# 4. Fresh start. Worktrees are created outside the repo (issue #627), so the
+#    git lane always applies (GIT_LANE=1) and the helper creates the worktree
+#    here - the native EnterWorktree fresh lane is retired.
+if [ -z "$LANE" ]; then
+  # Every pickup candidate was shipped history: the fresh lane is PR-free, so
+  # PR_HEAD describes the branch this run is on, not the one it skipped.
+  if [ -n "$SHIPPED_BRANCH" ]; then
+    PR_HEAD=none
+    # The derived name may BE the shipped branch; never reuse it (it would be
+    # checked out, or collide with the merged PR's head). Take the first free
+    # issue-anchored suffix, free both locally and on origin.
+    base_branch="$BRANCH"
+    n=2
+    while "$GIT" -C "$TARGET_REPO" show-ref --verify --quiet "refs/heads/$BRANCH" ||
+      "$GIT" -C "$TARGET_REPO" show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; do
+      BRANCH="${base_branch}-$n"
+      n=$((n + 1))
+    done
+  fi
+  set_wt_path "$BRANCH"
+  if [ "$CROSS_REPO" -eq 1 ]; then
+    LANE=cross-repo
+  else
+    LANE=fresh
+  fi
+  if [ "$GIT_LANE" -eq 1 ] && [ "$CREATE_OK" -eq 1 ]; then
+    create_worktree "$WT_PATH" "$BRANCH" "$BASE_REF" ||
+      fail "git worktree add for '$BRANCH' from '$BASE_REF' failed in $TARGET_REPO"
+    WT_CREATED=1
+  fi
+fi
+
+# ---- compose-project pin (issue #626) ---------------------------------------
+# docker compose derives its project name from the cwd basename when
+# COMPOSE_PROJECT_NAME is unset, so ANY compose call from a worktree - not just
+# the Step-9 deploy #535 already guards - forks a parallel stack (a duplicate DB
+# for the Step-4 test loop collides on the published port and leaks
+# <basename>_pgdata / <basename>_default orphans). Emit the canonical pin once so
+# every later step and every hand-run make in the worktree can inherit it.
+# Precedence matches Step 9: an explicit .claude/deploy.yaml override, else the
+# canonical primary-checkout basename (TARGET_REPO), never the worktree basename.
+# Portable extraction (no grep -P: BSD grep on macOS lacks it, and the PCRE
+# shape silently matched nothing there, dropping the override - found via #742's gate).
+COMPOSE_PROJECT_NAME=$(sed -n 's/^[[:space:]]*compose_project_name:[[:space:]]*\([^[:space:]]*\).*/\1/p' "$TARGET_REPO/.claude/deploy.yaml" 2>/dev/null | head -1)
+# Then the compose file's OWN top-level `name:` (issue #1258): compose honours
+# it over the directory basename, so it IS the project name - and the basename
+# is wrong wherever the checkout is not named after the project (a container
+# mounts kyle at /workspace; `name: kyle` is what compose actually uses). A
+# value carrying interpolation (`${...}`) is not a name this can resolve.
+if [ -z "$COMPOSE_PROJECT_NAME" ]; then
+  for cf in compose.yaml compose.yml docker-compose.yaml docker-compose.yml; do
+    [ -f "$TARGET_REPO/$cf" ] || continue
+    COMPOSE_PROJECT_NAME=$(sed -n "s/^name:[[:space:]]*[\"']\{0,1\}\([^\"'[:space:]#]*\).*/\1/p" "$TARGET_REPO/$cf" | head -1)
+    case "$COMPOSE_PROJECT_NAME" in *'$'*) COMPOSE_PROJECT_NAME="" ;; esac
+    break
+  done
+fi
+[ -n "$COMPOSE_PROJECT_NAME" ] || COMPOSE_PROJECT_NAME=$(basename "$TARGET_REPO" | tr '[:upper:]' '[:lower:]')
+
+# ---- contract ---------------------------------------------------------------
+echo "LANE=$LANE"
+echo "CROSS_REPO=$CROSS_REPO"
+echo "GIT_LANE=$GIT_LANE"
+echo "SESSION_CWD=$SESSION_CWD_ABS"
+echo "SESSION_CWD_INFERRED=$SESSION_CWD_INFERRED"
+echo "TARGET_REPO=$TARGET_REPO"
+echo "COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME"
+echo "ISSUE_STATE=$ISSUE_STATE"
+echo "ISSUE_TITLE=$ISSUE_TITLE"
+echo "BRANCH=$BRANCH"
+echo "WT_PATH=$WT_PATH"
+echo "DEFAULT_BRANCH=$DEFAULT_BRANCH"
+if [ -n "$REMOTE_BRANCH" ]; then
+  echo "REMOTE_BRANCH=$REMOTE_BRANCH"
+fi
+echo "WT_CREATED=$WT_CREATED"
+if [ -n "$WT_BASE_USED" ]; then
+  echo "WT_BASE=$WT_BASE_USED"
+fi
+echo "LIVE_DRIVER=$LIVE_DRIVER"
+echo "CLAIM=$CLAIM"
+echo "CLAIM_PID=$CLAIM_PID"
+echo "CLAIM_SESSION=$CLAIM_SESSION"
+echo "PR_HEAD=$PR_HEAD"
+if [ -n "$SHIPPED_BRANCH" ]; then
+  echo "SHIPPED_BRANCH=$SHIPPED_BRANCH"
+fi
+echo "CONFIRM_REQUIRED=$CONFIRM_REQUIRED"
+echo "FLOW_START_RESOLVE: ok"
+exit 0

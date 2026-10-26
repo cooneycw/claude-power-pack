@@ -136,9 +136,11 @@ result. This rule applies to every flow helper in this file (see also Steps 4,
 number (and project, when `/flow:auto` was given a PROJECT arg):
 
 ```bash
-~/.claude/scripts/flow-start-resolve.sh 42 --session-cwd /home/user/Projects/my-repo
-~/.claude/scripts/flow-start-resolve.sh 42 my-project --session-cwd /home/user/Projects/my-repo
+~/.claude/scripts/flow-start-resolve.sh 42 --require-preflight --session-cwd /home/user/Projects/my-repo
+~/.claude/scripts/flow-start-resolve.sh 42 my-project --require-preflight --session-cwd /home/user/Projects/my-repo
 ```
+
+**Require preflight (#1571).** The opt-in flag validates the complete local host report after resolving the target and before issue reads, fetches, claims or worktree creation. Required gaps, unknown observations, and malformed or contradictory reports stop this run. Optional Codex absence is a warning; standalone `/flow:start` keeps its existing behavior. The helper reports the original preflight status on stderr while preserving its stdout contract.
 
 **Pass `--session-cwd` (issue #592).** The helper cannot observe the Claude
 session's working directory - it sees only the cwd this Bash call inherited, and
