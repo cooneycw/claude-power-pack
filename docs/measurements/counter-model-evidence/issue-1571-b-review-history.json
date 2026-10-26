@@ -1,0 +1,1311 @@
+{
+  "description": "Historical evidence retained as recorded, superseded disposition explicitly below. Scope full means filesystem capability, never complete semantic coverage. All model calls had network open, no mechanical fence.",
+  "primary_receipt": "2026-10-26T101632Z-issue-1571.json",
+  "primary_receipt_meaning": "One actual T3 call at source16b, zero findings, five static red input categories already covered; does not aggregate all prior calls into one whole-tree review.",
+  "early_passes_original_receipt": {
+    "branch": "fix/1571-b-consumer-preflight",
+    "counts": {
+      "accepted": 1,
+      "deferred": 0,
+      "rejected": 0
+    },
+    "head": "4cb4022f2165b658b27f21c95a9244c71f356615",
+    "implementer": "codex/gpt-6.1-sol",
+    "implementer_evidence": {
+      "rollout": "2026/10/25/rollout-2026-10-25T18-18-21-01a17448-f63f-7ef0-ae87-d75ec3e637d0.jsonl",
+      "thread_id": "01a17448-f63f-7ef0-ae87-d75ec3e637d0"
+    },
+    "issue": "1571",
+    "local_credentials": "absent",
+    "network": "open",
+    "passes": 2,
+    "recorded_at": "2026-10-26T06:49:48Z",
+    "red_cases": {
+      "already_covered": 9,
+      "proposed": 9
+    },
+    "reviewer": "codex/gpt-6-astra",
+    "reviewer_evidence": {
+      "rollout": "2026/10/26/rollout-2026-10-26T06-43-07-01a176f2-d2fe-7cd0-9b7f-3d04774e9781.jsonl",
+      "thread_id": "01a176f2-d2fe-7cd0-9b7f-3d04774e9781"
+    },
+    "schema": 1,
+    "scope": "full",
+    "status": "ran"
+  },
+  "early_passes_original_companion": "# Issue 1571-B review evidence - INCOMPLETE\n\nReviewed production head: `4cb4022f2165b658b27f21c95a9244c71f356615`.\nBoth authorized actual Astra passes ran and both explicitly reported INCOMPLETE.\nThe receipt's `status: ran` records execution, not acceptance or complete coverage.\nIts `scope: full` records filesystem capability; `network: open` records the unfenced\nexecution environment. Neither field means all changed source was reviewed.\nFinal parser zero means no findings in the partial material read, not a complete B pass.\nRoot/master acceptance or split decision is pending. No third pass is authorized.\n\nPass 1: `codex/gpt-6-astra`, thread `01a176e1-997f-7e90-9fb5-03aeea88c59e`,\nhead `dfe3bd325add83e5fad412249588065c70d9eb31`, actual exit 0,\none accepted pre-existing LOW: whitespace-only diagnostics. Root authorized\nfixing it in the already changed B paths. The fix is in `4cb4022f`; it was NOT\nsemantically reviewed in pass 2. Owned tests at exact pass-1 head: 4 failed / 4 passed;\ncorrected focused suite: 69 passed, actual exit 0, before formatting-only line wrap\nand commit. Original execution statuses came from captured tool results; no separate\nhistorical status files or timestamps are invented.\nCanonical finding: https://github.com/cooneycw/claude-power-pack/issues/864#issuecomment-6409758810\n\nPass 2: `codex/gpt-6-astra`, thread `01a176f2-d2fe-7cd0-9b7f-3d04774e9781`,\nexact reviewed head above, actual exit 0, parser findings 0. Actual semantic reads:\n77/173 pieces (001-077), 6/37 batches, 86,989/507,206 bytes. EVERY piece 078-173\nand batch 7-37 is unread, including 28 changed direct production/doc/test paths,\nall designated current/called context, historical context, execution ledger/logs,\nnative-runtime and whitespace regression evidence, and prior review evidence.\n21 byte-identical copies, the ADR link transformation and 4 constructed-anchor\ncomplete deltas were independently verified, but their canonical semantic basis\nwas unread. Hash/copy verification is not semantic review.\nBoth exact before/after source, index and HEAD comparisons matched. Pass 2 used\nGIT_OPTIONAL_LOCKS=0 upfront; pass 1 did not because the instruction arrived late.\nNo tests, source writes, installations or remote operations were observed in either review.\n\nReceipt counts aggregate one accepted pass-1 finding and nine source-proposed adverse\ninput categories already represented by existing tests/controls. They assert no new\nexecution by the reviewer, no complete coverage, and no master acceptance.\nFull native streams, prompts, metadata, model derivations, parser outputs and exact\nsnapshots remain in owned external artifacts `1571-b-astra1-*` / `1571-b-astra2-*`.\nThe reports below preserve coverage statements, with Unicode dashes normalized to ASCII\nfor this repository's Markdown policy; original reports remain unmodified externally.\n\n## Actual pass 1 report\n\n## Findings\n\n### [LOW] Whitespace-only provider errors escape the collection-error contract\n\nFile: `lib/project_next/collect.py:55`; `scripts/project-next.py:299`\n\nIssue: A failed provider command with stderr `\" \\n\"` produces an empty diagnostic after stripping. `diagnostic.splitlines()[0]` then raises `IndexError`, bypassing the intended incomplete-inventory/error handling and producing a traceback. This is a pre-existing defect retained in the changed diagnostic paths, not a new B regression.\n\nSuggestion: Strip each candidate diagnostic before selecting the first nonempty value, default to `\"command failed\"`, and add whitespace-only error cases for both callers.\n\n## Red cases\n\nThese are source-reviewed inputs and supplied evidence, not tests executed during this review.\n\n| Instrument | Concrete opposite-verdict inputs |\n|---|---|\n| Report validation / early auto | Healthy complete report permits the later-provider sentinel; duplicate keys, unknown population, contradictory counts/status, malformed JSON, required gaps or unknown observations block it. Standalone invocation remains a positive control. |\n| Live project-next preflight | Valid selected `gh,engine` report reaches collection; missing/unknown capabilities and malformed/contradictory reports block collection. `--help` and `--input` bypass live observation. |\n| Init Tier 4 | Ready `uv,cpp_python` report reaches the generator sentinel; missing, unknown or malformed-zero reports refuse. |\n| CPP runtime selection | Installed runtime and Make-only fixtures pass; absent 3.11 with downloads forbidden fails. Supplied logs show both runtime-policy anchors miss the adverse case. |\n| Missing-tool handling | Make-only succeeds; a recipe requiring absent uv and a present uv returning 127 fail. |\n| Target Python policy | Readable pin or explicit `UV_PYTHON` override permits execution; looping symlink or invalid UTF-8 pin refuses. Supplied evidence distinguishes the corrected positive sentinel from its earlier syntax failure. |\n| Environment handoff | Valid unset/empty/relative/absolute/literal-shell-text policies restore exactly; orphaned metadata, missing value, invalid presence marker and unset-with-value refuse. |\n| Existing worktree control | Clean worktree passes; unreadable status is detected. Historical evidence uses the declared diagnostic dependency shim, not a pristine historical program. |\n| gh remediation | Requested known-field rejection receives upgrade guidance; authentication/network errors, unrequested fields and contaminated enumeration text do not. Whitespace-only diagnostics remain the finding above. |\n\nThe selected-report implementation explicitly names unexamined checks and leaves `full_host_ready` null. Runtime controls use owned providers; their greens do not establish arbitrary host readiness.\n\n## Coverage\n\n**Incomplete review: no complete-B PASS verdict.** Local reads succeeded, but output/context limits prevented reading the entire 611,634-byte patch and all required full-source context. Several oversized reads were truncated; those omissions are not counted as reviewed.\n\nConfirmed clean HEAD `dfe3bd325add83e5fad412249588065c70d9eb31`. All 89 canonical files matched the supplied manifest hashes; hashing is not semantic review.\n\nActual semantic reads included:\n\n- Full `CLAUDE.md`, `scripts/flow-preflight.py`, and `lib/cicd/__main__.py`.\n- Changed hunks in `.claude/commands/{cpp/init,flow/auto,project/next}.md`, `docs/project-next-contract.md`, `lib/project_next/{collect.py,ownership.json,rank.py}`, `lib/cicd/runner.py`, and `scripts/{flow-finish-gate.sh,flow-preflight.sh,flow-start-resolve.sh,project-next.py}`.\n- Additional current-source context: `collect.py` lines 1-160 and 365-530; `runner.py` lines 270-325 and 500-880; `flow-finish-gate.sh` lines 380-465; `flow-start-resolve.sh` lines 1-100, 150-265 and 360-460; `project-next.py` lines 270-320 and 1400-1485.\n- All changed test hunks listed in `changed-files.txt`, including complete newly added handoff, runtime, init and project-next-preflight test files.\n- Complete added case JSON, registrations and drivers under `controls/{cicd-environment-handoff,cicd-target-python,flow-cpp-runtime,flow-finish-missing-tools,flow-start-preflight,project-next-preflight}`; changed hunks under `controls/project-next/`.\n- Complete deltas between the four large constructed anchors and their current canonical programs. Their shared bodies were not fully semantically read.\n\nMirror handling: all 21 changed script/library mirror files compared byte-identically with canonical sources. The ADR mirror\u2019s complete comparison showed only three relative-to-GitHub link rewrites. Generated references, provenance and checksum files received partial diff inspection, not a complete independent generation audit.\n\nEvidence consulted: all five required initial scope files; package metadata and limits; baseline metadata; failed focused-run metadata/log; corrected register metadata; native-pair log; handoff quality and maintained-red logs; sentinel red/green logs; observer correction log; runtime, missing-tool, handoff, target-pin and historical-worktree control logs; secret-history positive/negative logs.\n\nOmitted: remaining full canonical source/test/document bodies, remaining patch content, complete generated metadata/reference review, and evidence entries not named above. The full register logs were not read. Permissions/shipping integration was not independently completed.\n\nNo tests, installations, writes or remote operations were performed. The supplemental finding was not posted, per the read-only scope.\n\n## Actual pass 2 report\n\n## Findings\n\nNone - no defects found.\n\n## Red cases\n\nStatically read these concrete opposite-verdict inputs; **none were executed or verified against execution logs in this pass**:\n\n- Environment handoff: orphan value, missing value, invalid presence marker, and unset marker with nonempty value versus valid unset/empty/relative/absolute/quoted/unmarked environments.\n- Target Python: looping `.python-version` symlink and invalid UTF-8 versus readable pin and explicit override.\n- CPP runtime: absent Python 3.11 with downloads forbidden versus installed runtime and Make-only operation.\n- Missing tools: absent required `uv` and present `uv` returning 127 versus successful installed and Make-only cases.\n- Flow-start preflight: gaps, unknown observations, malformed JSON, duplicate keys, contradictory status/counts/required flags/population versus healthy and standalone cases.\n- Project-next preflight: missing/unknown capabilities, malformed report, and selected-population report asserting full-host readiness versus selected readiness.\n\nProduction implementations, necessary context, and execution evidence remain unreviewed. These inputs therefore do **not** establish instrument effectiveness in this review.\n\n## Coverage\n\n**INCOMPLETE** against the approved all-changed-hunks plus necessary-context plan. Available context prevented completing the 507,206-byte plan. Acceptance or splitting remains the master\u2019s decision. No additional pass was started.\n\nVerified locally:\n\n- Base: `3a8a1fc028fd678524446760c5ff0200f5f84050`\n- Exact HEAD: `4cb4022f2165b658b27f21c95a9244c71f356615`\n- Manifest SHA-256: `0226ee9f1079cd3fd885e38dd87bebbd6fc9015897bd5b80346d659559436632`\n- Git changed-path inventory matches all 126 manifest entries.\n- All 126 current-file hashes and all 173 piece hashes match the manifest.\n- Independently verified **21/21** complete byte-identical copies.\n- Independently regenerated and matched the ADR\u2019s complete **three-hunk link transformation** and all **four complete constructed-anchor deltas**.\n- Initial/final tracked plus nonignored-untracked content/mode/symlink snapshots, index digest, and HEAD match. No writes, tests, installs, or remote operations were performed.\n\nActual semantic reads: **77/173 pieces, 6/37 batches, 86,989/507,206 bytes**, once each:\n\n| Batch | Piece IDs read |\n|---|---|\n| 1 | 001-005 |\n| 2 | 006-016 |\n| 3 | 017-037 |\n| 4 | 038-050 |\n| 5 | 051-065 |\n| 6 | 066-077 |\n\nAll six outputs were untruncated; each requested `max_output_tokens=6500`. No hidden output was counted.\n\n**Unread: every piece 078-173; every batch 7-37.** This includes remaining changed hunks, all designated current/called context, historical-anchor context, execution ledgers/logs, native-runtime proofs, whitespace regression evidence, and prior-review findings/coverage. No complete coverage or execution result was inherited from PASS1 or the task description.\n\nPer-path disposition follows. `D-read` means all supplied changed hunks were semantically read, **with necessary-context review still incomplete**. `D-unread` means changed hunks were not read. `C` means byte equality verified but canonical semantic review missing. `T/A` means complete delta read and independently verified, but canonical semantic review missing.\n\n**D-read: 72 paths**\n\n```text\n.claude/commands/cpp/init.md\n.claude/commands/flow/auto.md\n.claude/commands/project/next.md\ncodex/skills/flow-auto/PROVENANCE.md\ncodex/skills/flow-auto/reference.md\ncodex/skills/flow-auto/scripts/SHA256SUMS\ncodex/skills/flow-check/scripts/SHA256SUMS\ncodex/skills/flow-doctor/scripts/SHA256SUMS\ncodex/skills/flow-finish/scripts/SHA256SUMS\ncodex/skills/flow-merge/scripts/SHA256SUMS\ncodex/skills/flow-repair/PROVENANCE.md\ncodex/skills/flow-repair/scripts/SHA256SUMS\ncodex/skills/flow-start/PROVENANCE.md\ncodex/skills/flow-start/scripts/SHA256SUMS\ncodex/skills/project-next/PROVENANCE.md\ncodex/skills/project-next/reference.md\ncodex/skills/project-next/scripts/SHA256SUMS\ncontrols/cicd-environment-handoff/anchors/unchecked-handoff.py\ncontrols/cicd-environment-handoff/cases/bad-missing-value/case.json\ncontrols/cicd-environment-handoff/cases/bad-orphan/case.json\ncontrols/cicd-environment-handoff/cases/bad-status/case.json\ncontrols/cicd-environment-handoff/cases/bad-unset-with-value/case.json\ncontrols/cicd-environment-handoff/cases/good-absolute/case.json\ncontrols/cicd-environment-handoff/cases/good-empty/case.json\ncontrols/cicd-environment-handoff/cases/good-quoted/case.json\ncontrols/cicd-environment-handoff/cases/good-relative/case.json\ncontrols/cicd-environment-handoff/cases/good-unmarked/case.json\ncontrols/cicd-environment-handoff/cases/good-unset/case.json\ncontrols/cicd-environment-handoff/control.json\ncontrols/cicd-environment-handoff/run-case.py\ncontrols/cicd-target-python/anchors/ignore-pin.py\ncontrols/cicd-target-python/cases/bad-invalid-bytes/case.json\ncontrols/cicd-target-python/cases/bad-loop/case.json\ncontrols/cicd-target-python/cases/good-explicit-override/case.json\ncontrols/cicd-target-python/cases/good-readable/case.json\ncontrols/cicd-target-python/control.json\ncontrols/cicd-target-python/run-case.py\ncontrols/flow-cpp-runtime/cases/bad-missing-runtime-no-download/case.json\ncontrols/flow-cpp-runtime/cases/good-installed/case.json\ncontrols/flow-cpp-runtime/cases/good-make-only/case.json\ncontrols/flow-cpp-runtime/control.json\ncontrols/flow-cpp-runtime/run-case.py\ncontrols/flow-finish-missing-tools/anchors/always-ready.sh\ncontrols/flow-finish-missing-tools/cases/bad-missing-uv-required/case.json\ncontrols/flow-finish-missing-tools/cases/bad-present-tool-127/case.json\ncontrols/flow-finish-missing-tools/cases/good-installed/case.json\ncontrols/flow-finish-missing-tools/cases/good-make-only/case.json\ncontrols/flow-finish-missing-tools/control.json\ncontrols/flow-start-preflight/cases/bad-contradictory-zero/case.json\ncontrols/flow-start-preflight/cases/bad-counts-zero/case.json\ncontrols/flow-start-preflight/cases/bad-duplicate-zero/case.json\ncontrols/flow-start-preflight/cases/bad-gaps/case.json\ncontrols/flow-start-preflight/cases/bad-malformed-zero/case.json\ncontrols/flow-start-preflight/cases/bad-population-zero/case.json\ncontrols/flow-start-preflight/cases/bad-required-zero/case.json\ncontrols/flow-start-preflight/cases/bad-status-zero/case.json\ncontrols/flow-start-preflight/cases/bad-unknown/case.json\ncontrols/flow-start-preflight/cases/good-healthy/case.json\ncontrols/flow-start-preflight/cases/good-standalone/case.json\ncontrols/flow-start-preflight/control.json\ncontrols/flow-start-preflight/run-case.py\ncontrols/project-next-preflight/cases/bad-contradictory-zero/case.json\ncontrols/project-next-preflight/cases/bad-malformed-zero/case.json\ncontrols/project-next-preflight/cases/bad-missing/case.json\ncontrols/project-next-preflight/cases/bad-unknown/case.json\ncontrols/project-next-preflight/cases/good-ready/case.json\ncontrols/project-next-preflight/control.json\ncontrols/project-next-preflight/run-case.py\ncontrols/project-next/cases/bad-worktree-status-unreadable/setup.sh\ncontrols/project-next/cases/good-worktree-clean/setup.sh\ncontrols/project-next/control.json\ncontrols/project-next/overlay-diagnostic.py\n```\n\n**D-unread: 28 paths**\n\n```text\ndocs/decisions/0008-instrument-negative-control-bound.md [078-081]\ndocs/project-next-contract.md [082]\nlib/cicd/__main__.py [083]\nlib/cicd/runner.py [084]\nlib/project_next/collect.py [085]\nlib/project_next/ownership.json [086]\nlib/project_next/rank.py [087]\nscripts/flow-finish-gate.sh [088]\nscripts/flow-preflight.py [089-090]\nscripts/flow-preflight.sh [091]\nscripts/flow-start-resolve.sh [092]\nscripts/project-next.py [093-094]\ntests/project_next/fixtures/golden/brief.txt [095]\ntests/project_next/fixtures/golden/compact.md [096]\ntests/project_next/fixtures/golden/full.md [097]\ntests/project_next/fixtures/golden/result.json [098]\ntests/project_next/test_collection.py [099]\ntests/project_next/test_output_contract.py [100]\ntests/test_cicd_environment_handoff.py [101]\ntests/test_cpp_init_preflight.py [102]\ntests/test_cpp_runner_runtime.py [103]\ntests/test_flow_finish_gate.py [104]\ntests/test_flow_preflight.py [105]\ntests/test_flow_start_resolve.py [106]\ntests/test_project_next_contract.py [107]\ntests/test_project_next_diagnostics.py [108]\ntests/test_project_next_preflight.py [109]\ntests/test_runner.py [110]\n```\n\n**C: 21 paths; semantic derivation incomplete**\n\n```text\ncodex/skills/flow-auto/scripts/flow-finish-gate.sh\ncodex/skills/flow-auto/scripts/flow-preflight.py\ncodex/skills/flow-auto/scripts/flow-preflight.sh\ncodex/skills/flow-auto/scripts/flow-start-resolve.sh\ncodex/skills/flow-check/scripts/flow-finish-gate.sh\ncodex/skills/flow-doctor/scripts/flow-preflight.py\ncodex/skills/flow-doctor/scripts/flow-preflight.sh\ncodex/skills/flow-finish/scripts/flow-finish-gate.sh\ncodex/skills/flow-merge/scripts/flow-finish-gate.sh\ncodex/skills/flow-repair/scripts/flow-preflight.py\ncodex/skills/flow-repair/scripts/flow-preflight.sh\ncodex/skills/flow-repair/scripts/flow-start-resolve.sh\ncodex/skills/flow-start/scripts/flow-preflight.py\ncodex/skills/flow-start/scripts/flow-preflight.sh\ncodex/skills/flow-start/scripts/flow-start-resolve.sh\ncodex/skills/project-next/lib/project_next/collect.py\ncodex/skills/project-next/lib/project_next/ownership.json\ncodex/skills/project-next/lib/project_next/rank.py\ncodex/skills/project-next/scripts/flow-preflight.py\ncodex/skills/project-next/scripts/flow-preflight.sh\ncodex/skills/project-next/scripts/project-next.py\n```\n\n**T: 1 path; canonical coverage missing**\n\n```text\ncodex/skills/flow-auto/docs/decisions/0008-instrument-negative-control-bound.md [005]\n```\n\n**A: 4 paths; canonical coverage missing**\n\n```text\ncontrols/flow-cpp-runtime/anchors/ambient-runtime.sh [039]\ncontrols/flow-cpp-runtime/anchors/download-allowed.sh [040]\ncontrols/flow-start-preflight/anchors/preflight-blind.sh [052]\ncontrols/project-next-preflight/anchors/preflight-blind.py [066]\n```\n",
+  "old_pass3": {
+    "head": "cbfa3e85fd78628ef2cb1c28e4e6b434cd5b04a8",
+    "base": "3a8a1fc028fd678524446760c5ff0200f5f84050",
+    "manifest_sha256": "d49b4868965a5a24a0995eb1a063aad22b5ef5665f60b47665c8fbfcadf018dc",
+    "logical_pass": 3,
+    "explicit_actual_subcalls": 8,
+    "actual_models": "8 independently derived codex/gpt-6-astra, distinct implementer",
+    "assigned_paths": 34,
+    "assigned_pieces": 84,
+    "assigned_bytes": 282089,
+    "semantic_coverage_basis": "Each actual reviewer explicitly reports COMPLETE within its assigned changed hunks+minimumcurrentcontext; exact tool-output availability is separate provenance, not semanticproof. Not globalcleanB/fixed/newhead/fullsuite acceptance.",
+    "all_source_mode_index_head_snapshots_unchanged": true,
+    "findings_total": 4,
+    "prior_passes": "Original pass1 and pass2 remain INCOMPLETE; no retrospective upgrade. OriginalprePASS3gate7FAIL8587PASS3SKIP remainsFAILED, notpostreviewgate.",
+    "findings_disposition": {
+      "B2LOW": "acceptedroot10169 queuedafterseries; Nit6410844581",
+      "B4MEDIUM": "acceptedroot10176/master10178 mandatoryinBFDfixpending;1577administrativelyclosedNOTfixed",
+      "B7LOW": "acceptedroot10190 docattributionfixpending;Nit6411312607",
+      "B8MEDIUM": "NEW pendingrootassessment, canonicalNit6411425329; no probe/reproductionduringreview"
+    },
+    "source_status": "",
+    "rows": [
+      {
+        "batch": 1,
+        "name": "observer",
+        "head": "cbfa3e85fd78628ef2cb1c28e4e6b434cd5b04a8",
+        "start": "2026-10-26T07:38:53Z",
+        "end": "2026-10-26T07:40:25Z",
+        "model": "codex/gpt-6-astra",
+        "thread": "01a17725-e274-79f3-862c-926855ce5db8",
+        "actual_exit": 0,
+        "findings": [],
+        "coverage": "COMPLETE for assigned changed hunks + minimumcontext only",
+        "paths": [
+          "scripts/flow-preflight.py",
+          "scripts/flow-preflight.sh",
+          "tests/test_flow_preflight.py"
+        ],
+        "pieces": [
+          "b01-01.txt",
+          "b01-02.txt",
+          "b01-03.txt",
+          "b01-04.txt",
+          "b01-05.txt",
+          "b01-06.txt",
+          "b01-07.txt",
+          "b01-08.txt",
+          "b01-09.txt"
+        ],
+        "required_piece_bytes": 37119,
+        "all_named_pieces_declared_semantically_read": true,
+        "entire_piece_bytes_present_in_completed_native_tool_output": [
+          "b01-01.txt",
+          "b01-02.txt",
+          "b01-03.txt",
+          "b01-04.txt",
+          "b01-05.txt",
+          "b01-06.txt",
+          "b01-07.txt",
+          "b01-08.txt",
+          "b01-09.txt"
+        ],
+        "not_exactly_recaptured_from_tool_output": [],
+        "snapshot_all_true": true,
+        "mode_in_source_snapshot": true,
+        "scope": "full filesystem capability",
+        "network": "open, not fence",
+        "local_credentials": "absent",
+        "git_optional_locks": "0",
+        "report_path": "/workspace/.work/1571-b-pass3-b1-findings.md",
+        "report_sha256": "40cf489940a97fc85abeca4e338cb2a22e03bef930a096f6f3da766a677f5d19",
+        "stream_sha256": "66e146fd6dc26490cc46f219b14890e1e3fa74263e549cd11b3af17e2e78b8ea",
+        "comparison_sha256": "7416de33d1c66d7e3c1b40fbaa115fc09823914271cced632884d2e754010813",
+        "original_report": "## Findings\n\nNone - no defects found.\n\n## Red cases\n\nStatic analysis only; no tests or probes executed.\n\n- `--checks gh,gh`, `gh,`, or an unknown ID: selector rejects the input instead of reporting readiness.\n- Selected `gh,engine` report missing the engine observation: validator rejects the population.\n- Otherwise valid selected report with `full_host_ready=true`, duplicate JSON keys, Boolean counts, or a contradictory exit: validator rejects it.\n- Selected required observation `unknown`: exit 3; `missing`: exit 1. Neither validates against exit 0.\n- Missing selected engine with neighboring ownership metadata present: engine remains missing. Physical resolution and colocated ownership prevent neighboring metadata alone from establishing readiness.\n- Missing or pre-3.10 bootstrap Python: exit 3, all prerequisite checks explicitly unexamined, `full_host_ready=null`.\n- Optional Codex absence alone retains exit 0; unselected prerequisites remain unexamined rather than being counted as successful.\n\nThe bootstrap declaration\u2019s transitive observations were reviewed: local gh enumeration with noncredential token, blocked proxies and disabled update notifications; Python version subprocesses; git identity presence; executable lookup; and engine AST/metadata reads without engine import. These establish observation scope, not a sandbox for arbitrary executables.\n\n## Coverage\n\nCOMPLETE for B1 assigned changed hunks and necessary context only.\n\nEach piece was read individually, semantically, without truncation; every supplied piece hash matched:\n\n| Piece | Path coverage |\n|---|---|\n| b01-01.txt | `scripts/flow-preflight.py` changed hunks, part 1 |\n| b01-02.txt | `scripts/flow-preflight.py` changed hunks, part 2 |\n| b01-03.txt | `scripts/flow-preflight.sh` all changed hunks |\n| b01-04.txt | `tests/test_flow_preflight.py` all changed hunks |\n| b01-05.txt | Current `scripts/flow-preflight.py:1\u2013141` |\n| b01-06.txt | Current `scripts/flow-preflight.py:142\u2013271` |\n| b01-07.txt | Current `scripts/flow-preflight.py:272\u2013396` |\n| b01-08.txt | Current `scripts/flow-preflight.sh:1\u201313` |\n| b01-09.txt | Current `controls/flow-preflight/control.json:1\u201354` |\n\nPiece directory: `/workspace/.work/1571-b-split3-retarget-cbfa3e85-plan/`.\n\nAdditional reads: `CLAUDE.md` for repository instructions; `tests/test_flow_preflight.py:145\u2013245` for fixture behavior and adjacent population/neighbor assertions. Read-only Git metadata confirmed the assigned base-to-HEAD file scope.\n\nManifest hash matched. HEAD was `cbfa3e85fd78628ef2cb1c28e4e6b434cd5b04a8`, with clean Git status before and after review. No writes, tests, network operations, or delegation occurred. No omissions or truncation retries; optional external proof and other batches were not read."
+      },
+      {
+        "batch": 2,
+        "name": "early-auto-init",
+        "head": "cbfa3e85fd78628ef2cb1c28e4e6b434cd5b04a8",
+        "start": "2026-10-26T07:41:18Z",
+        "end": "2026-10-26T07:43:10Z",
+        "model": "codex/gpt-6-astra",
+        "thread": "01a17728-1865-7642-a891-ee28278383d2",
+        "actual_exit": 0,
+        "findings": [
+          {
+            "severity": "LOW",
+            "title": "Runtime-policy test silently excludes calls that lose their CPP project binding"
+          }
+        ],
+        "coverage": "COMPLETE for assigned changed hunks + minimumcontext only",
+        "paths": [
+          "scripts/flow-start-resolve.sh",
+          "tests/test_flow_start_resolve.py",
+          "tests/test_cpp_init_preflight.py"
+        ],
+        "pieces": [
+          "b02-01.txt",
+          "b02-02.txt",
+          "b02-03.txt",
+          "b02-04.txt",
+          "b02-05.txt",
+          "b02-06.txt",
+          "b02-07.txt",
+          "b02-08.txt"
+        ],
+        "required_piece_bytes": 35213,
+        "all_named_pieces_declared_semantically_read": true,
+        "entire_piece_bytes_present_in_completed_native_tool_output": [
+          "b02-01.txt",
+          "b02-02.txt",
+          "b02-03.txt",
+          "b02-04.txt",
+          "b02-05.txt",
+          "b02-06.txt",
+          "b02-07.txt",
+          "b02-08.txt"
+        ],
+        "not_exactly_recaptured_from_tool_output": [],
+        "snapshot_all_true": true,
+        "mode_in_source_snapshot": true,
+        "scope": "full filesystem capability",
+        "network": "open, not fence",
+        "local_credentials": "absent",
+        "git_optional_locks": "0",
+        "report_path": "/workspace/.work/1571-b-pass3-b2-findings.md",
+        "report_sha256": "476891bbdff9f061f1cbd53c8e016dbf91abef138cff75afb7e13ca50085fae0",
+        "stream_sha256": "d66b09bdf47405b10ddba78a69555b685a54acca9c6004686ca578fbe1eff7f1",
+        "comparison_sha256": "7416de33d1c66d7e3c1b40fbaa115fc09823914271cced632884d2e754010813",
+        "original_report": "## Findings\n\n### [LOW] Runtime-policy test silently excludes calls that lose their CPP project binding\nFile: tests/test_cpp_init_preflight.py:69\n\nIssue: The test examines only lines containing both `uv run` and the exact `--project \"$CPP_DIR\"` string. Changing an existing call to `--project \".\"`, removing its project argument, or replacing it with bare Python excludes that call from every assertion. Even zero matching calls passes this portion of the test, so it cannot establish the population implied by \u201cCPP calls are process selected.\u201d\n\nSuggestion: Identify the expected CPP invocation sites independently of the required syntax, assert their presence, and then validate each invocation. Include negative cases for missing/wrong project binding and an empty detected population.\n\n## Red cases\n\nStatic analysis only; no tests or fixtures were executed.\n\n- **Resolver refusal:** Full report with required `gh` missing and exit 1; required `gh` unknown and exit 3; malformed JSON with exit 0; or `checks=[]` despite a declared full population. The supplied resolver cases exercise these inputs and expect no later `gh` sentinel.\n- **Resolver continuation:** A complete, internally consistent ready report with exit 0 reaches the `gh` sentinel. The sentinel deliberately exits 1, so the final process exit alone does not distinguish admission from refusal.\n- **Tier 4 boundary:** Selected `uv,cpp_python` reports with missing/unknown `uv`, or malformed JSON with exit 0, prevent the generator sentinel. A consistent selected-ready report permits it. Validation preserves `full_host_ready=null` and the unexamined population.\n- **Runtime-policy assertion:** Retaining the matching CPP invocation while removing `--no-python-downloads` fails its assertion. Removing the project-binding substring instead escapes inspection, as described above.\n- **Ownership distinction:** Resolver helper selection uses the resolver\u2019s physical sibling path, rather than a helper in the target repository. No target-repository lookalike case appears in the assigned new test hunks.\n- **Standalone coverage limitation:** The supplied standalone case uses a healthy report. A failing-report standalone case would more directly establish that omitted opt-in preserves bypass behavior.\n\n## Coverage\n\n**COMPLETE for B2 assigned changed hunks and minimum context only.**\n\nIndividually read, without truncation:\n\n| Piece | Path coverage |\n|---|---|\n| b02-01.txt | All changed hunks: `scripts/flow-start-resolve.sh` |\n| b02-02.txt | All changed hunks: `tests/test_flow_start_resolve.py` |\n| b02-03.txt | Entire new `tests/test_cpp_init_preflight.py` |\n| b02-04.txt | Resolver current context, lines 1\u201391 |\n| b02-05.txt | Resolver current context, lines 92\u2013115 |\n| b02-06.txt | Resolver current context, lines 150\u2013265 |\n| b02-07.txt | Resolver current context, lines 360\u2013470 |\n| b02-08.txt | `.claude/commands/cpp/init.md`, lines 1355\u20131412 |\n\nAll pieces reside under `/workspace/.work/1571-b-split3-retarget-cbfa3e85-plan/`. Manifest and all eight piece hashes matched the supplied values.\n\nAdditional local reads:\n\n- `CLAUDE.md`: repository instructions.\n- Resolver lines 266\u2013320: argument parsing and verify-mode rejection.\n- Resolver matching `GH`, `fetch`, and `claim` lines: downstream ordering.\n- Test lines 37\u2013113 and 60\u201376 respectively: exact finding locations.\n- `scripts/flow-preflight.sh:1\u201313`, `scripts/flow-preflight.py:1\u2013107,330\u2013375`: called validation contract, population selection, and exit propagation; targeted symbol searches located these ranges.\n\nNo assigned omissions or truncation retries. `rg` was unavailable; the targeted search used `grep`. No tests, writes, posts, or other-batch reviews occurred. HEAD remained `cbfa3e85fd78628ef2cb1c28e4e6b434cd5b04a8`; initial and final Git status were clean. No independent comprehensive filesystem snapshot comparison was performed. Finding reported here only, consistent with the prohibition on posting."
+      },
+      {
+        "batch": 3,
+        "name": "cpp-environment-dispatch",
+        "head": "cbfa3e85fd78628ef2cb1c28e4e6b434cd5b04a8",
+        "start": "2026-10-26T07:54:22Z",
+        "end": "2026-10-26T07:56:31Z",
+        "model": "codex/gpt-6-astra",
+        "thread": "01a17734-0dcc-7211-b324-90fee268d086",
+        "actual_exit": 0,
+        "findings": [],
+        "coverage": "COMPLETE for assigned changed hunks + minimumcontext only",
+        "paths": [
+          "lib/cicd/__main__.py",
+          "scripts/flow-finish-gate.sh",
+          "tests/test_cicd_environment_handoff.py",
+          "tests/test_cpp_runner_runtime.py",
+          "tests/test_flow_finish_gate.py"
+        ],
+        "pieces": [
+          "b03-01.txt",
+          "b03-02.txt",
+          "b03-03.txt",
+          "b03-04.txt",
+          "b03-05.txt",
+          "b03-06.txt",
+          "b03-07.txt",
+          "b03-08.txt",
+          "b03-09.txt",
+          "b03-10.txt",
+          "b03-11.txt",
+          "b03-12.txt"
+        ],
+        "required_piece_bytes": 38961,
+        "all_named_pieces_declared_semantically_read": true,
+        "entire_piece_bytes_present_in_completed_native_tool_output": [
+          "b03-01.txt",
+          "b03-02.txt",
+          "b03-03.txt",
+          "b03-04.txt",
+          "b03-05.txt",
+          "b03-06.txt",
+          "b03-07.txt",
+          "b03-08.txt",
+          "b03-09.txt",
+          "b03-10.txt",
+          "b03-11.txt",
+          "b03-12.txt"
+        ],
+        "not_exactly_recaptured_from_tool_output": [],
+        "snapshot_all_true": true,
+        "mode_in_source_snapshot": true,
+        "scope": "full filesystem capability",
+        "network": "open, not fence",
+        "local_credentials": "absent",
+        "git_optional_locks": "0",
+        "report_path": "/workspace/.work/1571-b-pass3-b3-findings.md",
+        "report_sha256": "4e21ba71e0c0d6dab9746f26180a35bb66d4cda5da0ca80d574d91d9579adcdb",
+        "stream_sha256": "64c0394d340fdc2f2e7d4c72beb9b7c8fa0f50ed36c445eec01a88ae0bd92846",
+        "comparison_sha256": "7416de33d1c66d7e3c1b40fbaa115fc09823914271cced632884d2e754010813",
+        "original_report": "## Findings\n\nNone - no defects found.\n\n## Red cases\n\nStatic review only; none executed.\n\n- Handoff refusal: VALUE alone, PRESENT alone, invalid PRESENT, or PRESENT empty with nonempty VALUE raises `ValueError`. The entry point exits 1 before CLI import without printing supplied values.\n- Handoff acceptance: paired metadata preserves unset versus empty, relative/absolute paths, spaces, and literal shell characters; consumes both metadata keys. Unmarked callers retain their policy.\n- Runtime separation: target pin 3.12 or explicit caller `UV_PYTHON` must survive CPP\u2019s outer 3.11 selection. The new runtime test asserts target 3.12, unchanged environment policy, and no leaked handoff keys.\n- Unreadable policy: a self-referential `.python-version` symlink produces failure, zero completed steps, and `not-run` details. The test first establishes that its sentinel-writing command can execute.\n- Dispatch failure: present `uv` returning 127 remains a runner failure; it does not enter the unavailable-runner Makefile fallback. Missing `uv` selects that fallback, where failing Makefile commands remain failures.\n- Population distinction: the owned runtime probe deliberately prints no test summary and expects WARN/3. Reviewed verdict context distinguishes skipped, measured-zero, and qualified evidence. The environment checks address the caller\u2019s exact keys and target pin, rather than neighboring environments.\n\n## Coverage\n\nCOMPLETE for B3 assigned changed hunks and necessary context only.\n\nEvery piece below was read individually, semantically, with untruncated output. Piece paths share `/workspace/.work/1571-b-split3-retarget-cbfa3e85-plan/`.\n\n| Piece read | Canonical path and disposition |\n|---|---|\n| `b03-01.txt` | `lib/cicd/__main__.py`: all changed hunks |\n| `b03-02.txt` | `scripts/flow-finish-gate.sh`: all changed hunks |\n| `b03-03.txt` | `tests/test_cicd_environment_handoff.py`: entire new file |\n| `b03-04.txt` | `tests/test_cpp_runner_runtime.py`: new-file part 1 |\n| `b03-05.txt` | `tests/test_cpp_runner_runtime.py`: new-file part 2 |\n| `b03-06.txt` | `tests/test_flow_finish_gate.py`: all changed hunks |\n| `b03-07.txt` | `lib/cicd/__main__.py`: current lines 1\u201349 |\n| `b03-08.txt` | `scripts/flow-finish-gate.sh`: current lines 380\u2013465 |\n| `b03-09.txt` | Same: current lines 770\u2013805 |\n| `b03-10.txt` | Same: current lines 1190\u20131245 |\n| `b03-11.txt` | Same: current lines 1310\u20131423 |\n| `b03-12.txt` | Same: current lines 1424\u20131440 |\n\nAdditional local context reads:\n\n- `CLAUDE.md:1\u2013171`: repository instructions.\n- `lib/cicd/__init__.py:1\u2013308` and `lib/cicd/cli.py:1\u201385`: import ordering.\n- `lib/cicd/runner.py:65\u2013105,130\u2013175,271\u2013325,810\u2013870`: child-environment sanitization, target runtime policy, and structured refusal.\n- `scripts/flow-finish-gate.sh:1084\u20131108,1243\u20131310`: runner exit handling and fallback boundary.\n- `tests/test_flow_finish_gate.py:1\u2013184,285\u2013335`: changed assertion\u2019s fixture and dispatch context.\n- Targeted symbol searches in those files; unavailable `rg` was replaced with `grep`.\n\nManifest hash and all twelve piece hashes/byte counts matched the supplied values: 38,961 piece bytes. HEAD matched `cbfa3e85fd78628ef2cb1c28e4e6b434cd5b04a8` before and after; both worktree-status reads were clean. No differences were observed in those checks; no independent full-filesystem snapshot comparison was performed.\n\nNo omissions or truncation retries. No tests, writes, network operations, delegation, or other batch-material reads. No overall review-pass or execution-success claim."
+      },
+      {
+        "batch": 4,
+        "name": "target-python-runner",
+        "head": "cbfa3e85fd78628ef2cb1c28e4e6b434cd5b04a8",
+        "start": "2026-10-26T07:57:31Z",
+        "end": "2026-10-26T07:59:03Z",
+        "model": "codex/gpt-6-astra",
+        "thread": "01a17736-f106-71b0-a735-2597537eee49",
+        "actual_exit": 0,
+        "findings": [
+          {
+            "severity": "MEDIUM",
+            "title": "Pin validation can block indefinitely before step timeouts apply"
+          }
+        ],
+        "coverage": "COMPLETE for assigned changed hunks + minimumcontext only",
+        "paths": [
+          "lib/cicd/runner.py",
+          "tests/test_runner.py"
+        ],
+        "pieces": [
+          "b04-01.txt",
+          "b04-02.txt",
+          "b04-03.txt",
+          "b04-04.txt",
+          "b04-05.txt",
+          "b04-06.txt"
+        ],
+        "required_piece_bytes": 25489,
+        "all_named_pieces_declared_semantically_read": true,
+        "entire_piece_bytes_present_in_completed_native_tool_output": [
+          "b04-01.txt",
+          "b04-02.txt",
+          "b04-03.txt",
+          "b04-04.txt",
+          "b04-05.txt",
+          "b04-06.txt"
+        ],
+        "not_exactly_recaptured_from_tool_output": [],
+        "snapshot_all_true": true,
+        "mode_in_source_snapshot": true,
+        "scope": "full filesystem capability",
+        "network": "open, not fence",
+        "local_credentials": "absent",
+        "git_optional_locks": "0",
+        "report_path": "/workspace/.work/1571-b-pass3-b4-findings.md",
+        "report_sha256": "44658ea78503803e3c81179824a45e3a6059b7c2caf2d24c76e385c671813db9",
+        "stream_sha256": "9dcd435e7791fd35eb9d0b4b0d6c93a945a1c602e26e7f1c999538a25fe6a8cb",
+        "comparison_sha256": "7416de33d1c66d7e3c1b40fbaa115fc09823914271cced632884d2e754010813",
+        "original_report": "## Findings\n\n### [MEDIUM] Pin validation can block indefinitely before step timeouts apply\n\nFile: lib/cicd/runner.py:308\n\nIssue: With `UV_PYTHON` unset, a target `.python-version` that is a FIFO without a writer blocks in `read_text()`. A symlink to `/dev/zero` instead causes an unbounded read. Neither produces the intended structured policy failure; validation occurs before step execution and its timeouts.\n\nSuggestion: Open nonblocking, validate the opened descriptor is a regular file, and impose a bounded read. Convert unsupported file types and oversized contents into `TargetPythonPolicyError`. Add cases for a FIFO and a symlink to a nonregular file.\n\n## Red cases\n\nStatic analysis only; no cases or tests executed.\n\n- Target pin containing invalid UTF-8, with `UV_PYTHON` absent: raises `TargetPythonPolicyError`; `_execute` returns failure, zero completed steps, and explicit `not-run` details without fabricated test counts.\n- Self-referencing target pin with explicit `UV_PYTHON=3.12`: bypasses the unused pin and preserves the explicit selection. Removing that override makes the same pin fail.\n- Readable target pin `3.12` plus floor `>=3.11`: leaves `UV_PYTHON` unset for uv. Removing the pin derives `3.11`.\n- An unreadable neighboring repository\u2019s pin does not trigger rejection: the lookup names only `project_root/.python-version`.\n- FIFO without a writer: exposes the finding above; the expected refusal instead blocks.\n\nThe failure result distinguishes unexecuted steps from successful zero-count work. Readability alone does not establish valid pin syntax or an available interpreter; those remain delegated to uv.\n\n## Coverage\n\nCOMPLETE for B4 assigned changed hunks and minimum context only.\n\nIndividually read, without truncation, under `/workspace/.work/1571-b-split3-retarget-cbfa3e85-plan/`:\n\n- `b04-01.txt`: all changed hunks, `lib/cicd/runner.py`.\n- `b04-02.txt`: all changed hunks, `tests/test_runner.py`.\n- `b04-03.txt`: current runner context, lines 135\u2013259.\n- `b04-04.txt`: current runner context, lines 260\u2013330.\n- `b04-05.txt`: current runner context, lines 350\u2013420.\n- `b04-06.txt`: current runner context, lines 805\u2013905.\n\nAll six piece hashes and the manifest hash matched the supplied values. HEAD matched `cbfa3e85fd78628ef2cb1c28e4e6b434cd5b04a8` on both reads; final Git status was clean.\n\nAdditional reads:\n\n- `CLAUDE.md:1\u2013240`: repository instructions.\n- `lib/cicd/runner.py:1\u2013134,420\u2013510,560\u2013735`: environment stripping, result serialization, and early-return caller/state handling.\n- `lib/cicd/runner.py:299\u2013316` and `tests/test_runner.py:1208\u20131232`: direct-source confirmation.\n- Scoped base-to-HEAD diff statistics: consistent with the supplied changed hunks.\n\nNo coverage omissions or truncation retries. `rg` was unavailable; the surrounding source reads completed. No tests, writes, remote operations, or other batch materials were accessed. No broader review-completion claim is made."
+      },
+      {
+        "batch": 5,
+        "name": "project-next-live",
+        "head": "cbfa3e85fd78628ef2cb1c28e4e6b434cd5b04a8",
+        "start": "2026-10-26T08:04:19Z",
+        "end": "2026-10-26T08:06:03Z",
+        "model": "codex/gpt-6-astra",
+        "thread": "01a1773d-2a8e-74c0-a74f-fd52bd321db3",
+        "actual_exit": 0,
+        "findings": [],
+        "coverage": "COMPLETE for assigned changed hunks + minimumcontext only",
+        "paths": [
+          "scripts/project-next.py",
+          "tests/test_project_next_preflight.py",
+          "tests/test_project_next_contract.py"
+        ],
+        "pieces": [
+          "b05-01.txt",
+          "b05-02.txt",
+          "b05-03.txt",
+          "b05-04.txt",
+          "b05-05.txt",
+          "b05-06.txt",
+          "b05-07.txt"
+        ],
+        "required_piece_bytes": 31965,
+        "all_named_pieces_declared_semantically_read": true,
+        "entire_piece_bytes_present_in_completed_native_tool_output": [
+          "b05-01.txt",
+          "b05-02.txt",
+          "b05-03.txt",
+          "b05-04.txt",
+          "b05-05.txt",
+          "b05-06.txt",
+          "b05-07.txt"
+        ],
+        "not_exactly_recaptured_from_tool_output": [],
+        "snapshot_all_true": true,
+        "mode_in_source_snapshot": true,
+        "scope": "full filesystem capability",
+        "network": "open, not fence",
+        "local_credentials": "absent",
+        "git_optional_locks": "0",
+        "report_path": "/workspace/.work/1571-b-pass3-b5-findings.md",
+        "report_sha256": "df80d4840550fad2c38e4fcf782624539987ae7ddcabbe11a44e768d14f4c17d",
+        "stream_sha256": "92ecd73876221c7e1fa19a7ce94fabd1985187180dab97182deb8cdfc856c3f6",
+        "comparison_sha256": "7416de33d1c66d7e3c1b40fbaa115fc09823914271cced632884d2e754010813",
+        "original_report": "## Findings\n\nNone - no defects found.\n\n## Red cases\n\nStatic assessment only; no tests or probes executed.\n\n- **Live preflight:** a valid report containing exactly `gh` and `engine`, both `ok`, permits collection. Changing `gh` to `missing` or `unknown` blocks collection. Empty checks, malformed reports, contradictory `full_host_ready=true`, or an inconsistent exit code fail validation. Selected success leaves other checks explicitly unexamined.\n- **Physical engine:** the adapter supplies its resolved entry point, rather than a target-project neighbor. A mismatched ownership identity or contract version fails the called engine check.\n- **GitHub remediation:** rejection of requested `blockedBy` with the expected `Unknown JSON field` and `Available fields:` grammar produces capability remediation. Authentication errors, unrelated fields, and malformed enumeration do not. Whitespace-only stderr falls back to stdout; entirely blank diagnostics produce `command failed`.\n- **Offline paths:** the new test replaces `_live_preflight` with a failing sentinel; `--input` and `--help` must avoid it.\n- **Sandbox diagnostic:** the modified fake passes local capability enumeration, then fails repository collection. Existing assertions distinguish sandbox-enabled and ordinary failures.\n\n## Coverage\n\n**COMPLETE for B5 assigned changed hunks and minimum called context only.**\n\nEach piece was individually read semantically, without truncation, under `/workspace/.work/1571-b-split3-retarget-cbfa3e85-plan/`:\n\n- `b05-01.txt`: `scripts/project-next.py` changed hunks, part 1.\n- `b05-02.txt`: `scripts/project-next.py` changed hunks, part 2.\n- `b05-03.txt`: entire new `tests/test_project_next_preflight.py`.\n- `b05-04.txt`: all changed hunks in `tests/test_project_next_contract.py`.\n- `b05-05.txt`: current `scripts/project-next.py:1-110`.\n- `b05-06.txt`: current `scripts/project-next.py:265-325`.\n- `b05-07.txt`: current `scripts/project-next.py:1350-1468`, through EOF; requested lines 1469-1510 do not exist.\n\nAdditional local reads:\n\n- `CLAUDE.md`: repository instructions.\n- `scripts/flow-preflight.py:1-229,289-329`: directly called observer, selected-population validator, GitHub grammar, and physical-engine checks.\n- `lib/project_next/collect.py:1-59`: imported exception and diagnostic helper.\n- `tests/test_project_next_contract.py:165-220`: modified fake\u2019s surrounding assertions.\n- Function-location searches in the two dependency files; scoped Git diff statistics.\n\nManifest and all seven piece hashes matched the supplied values. Initial and final HEAD were `cbfa3e85fd78628ef2cb1c28e4e6b434cd5b04a8`; both porcelain status reads were empty. No writes or tests performed. No omissions or truncation retries. `rg` was unavailable; local `grep` supplied the location search. No broader-pass or full-suite verdict is claimed."
+      },
+      {
+        "batch": 6,
+        "name": "old-gh-contract",
+        "head": "cbfa3e85fd78628ef2cb1c28e4e6b434cd5b04a8",
+        "start": "2026-10-26T08:07:02Z",
+        "end": "2026-10-26T08:09:12Z",
+        "model": "codex/gpt-6-astra",
+        "thread": "01a1773f-a795-7343-b6bd-c4dcbeec2ac3",
+        "actual_exit": 0,
+        "findings": [],
+        "coverage": "COMPLETE for assigned changed hunks + minimumcontext only",
+        "paths": [
+          "lib/project_next/collect.py",
+          "lib/project_next/ownership.json",
+          "lib/project_next/rank.py",
+          "tests/project_next/test_collection.py",
+          "tests/project_next/test_output_contract.py",
+          "tests/test_project_next_diagnostics.py",
+          "tests/project_next/fixtures/golden/brief.txt",
+          "tests/project_next/fixtures/golden/compact.md",
+          "tests/project_next/fixtures/golden/full.md",
+          "tests/project_next/fixtures/golden/result.json",
+          "docs/project-next-contract.md"
+        ],
+        "pieces": [
+          "b06-01.txt",
+          "b06-02.txt",
+          "b06-03.txt",
+          "b06-04.txt",
+          "b06-05.txt",
+          "b06-06.txt",
+          "b06-07.txt",
+          "b06-08.txt",
+          "b06-09.txt",
+          "b06-10.txt",
+          "b06-11.txt",
+          "b06-12.txt",
+          "b06-13.txt",
+          "b06-14.txt",
+          "b06-15.txt",
+          "b06-16.txt",
+          "b06-17.txt"
+        ],
+        "required_piece_bytes": 33099,
+        "all_named_pieces_declared_semantically_read": true,
+        "entire_piece_bytes_present_in_completed_native_tool_output": [
+          "b06-01.txt",
+          "b06-02.txt",
+          "b06-03.txt",
+          "b06-04.txt",
+          "b06-05.txt",
+          "b06-06.txt",
+          "b06-07.txt",
+          "b06-08.txt",
+          "b06-09.txt",
+          "b06-10.txt",
+          "b06-11.txt",
+          "b06-12.txt",
+          "b06-13.txt",
+          "b06-14.txt",
+          "b06-15.txt",
+          "b06-16.txt",
+          "b06-17.txt"
+        ],
+        "not_exactly_recaptured_from_tool_output": [],
+        "snapshot_all_true": true,
+        "mode_in_source_snapshot": true,
+        "scope": "full filesystem capability",
+        "network": "open, not fence",
+        "local_credentials": "absent",
+        "git_optional_locks": "0",
+        "report_path": "/workspace/.work/1571-b-pass3-b6-findings.md",
+        "report_sha256": "4d06d8597232ead45983c99d9c10a143131ae7793041795108ff6fb0a488c86e",
+        "stream_sha256": "b2a7d72e206dacf3d3f3c2c2dc7ce3aa69a7be150a762e656289436c70e2360c",
+        "comparison_sha256": "7416de33d1c66d7e3c1b40fbaa115fc09823914271cced632884d2e754010813",
+        "original_report": "## Findings\n\nNone - no defects found.\n\n## Red cases\n\nStatic analysis only; no tests or product code executed.\n\n- For `gh issue list --json blockedBy`, `Unknown JSON field: \"blockedBy\"\\nAvailable fields:\\n  number` produces upgrade remediation, explicitly leaves inventory unexamined, and makes no authentication claim. The corresponding PR case uses `closingIssuesReferences`.\n- Authentication failures, connection failures, an unknown field, or an appended `HTTP request started` line produce no old-gh classification. These opposite cases are committed in `test_collection.py`.\n- A known but unrequested field, a different command, missing `--json`, or a missing field argument also returns no classification by inspection.\n- Failed providers with whitespace-only streams produce `command failed`; whitespace-only stderr with substantive stdout preserves stdout\u2019s diagnostic. Both collector and native callers have committed cases in `test_project_next_diagnostics.py`.\n- A failed collection records errors and `inventory_complete=False`; native collection returns `None` with a diagnostic. Neither failure is represented as an examined empty inventory.\n- Contract-version assertions reject `1.6` where `1.7` is required.\n\nThese establish expected distinctions from source, not observed red/green execution results.\n\n## Coverage\n\n**COMPLETE ONLY FOR B6 assigned changed hunks and minimum context.**\n\nEach piece below was read individually, semantically, without truncation. Piece paths are under `/workspace/.work/1571-b-split3-retarget-cbfa3e85-plan/`.\n\n| Piece | Path and disposition |\n|---|---|\n| b06-01.txt | `lib/project_next/collect.py` \u2014 all changed hunks |\n| b06-02.txt | `lib/project_next/ownership.json` \u2014 all changed hunks |\n| b06-03.txt | `lib/project_next/rank.py` \u2014 all changed hunks |\n| b06-04.txt | `tests/project_next/test_collection.py` \u2014 all changed test source |\n| b06-05.txt | `tests/project_next/test_output_contract.py` \u2014 all changed assertions |\n| b06-06.txt | `tests/test_project_next_diagnostics.py` \u2014 entire new test source |\n| b06-07.txt | `tests/project_next/fixtures/golden/brief.txt` \u2014 all changed hunks |\n| b06-08.txt | `tests/project_next/fixtures/golden/compact.md` \u2014 all changed hunks |\n| b06-09.txt | `tests/project_next/fixtures/golden/full.md` \u2014 all changed hunks |\n| b06-10.txt | `tests/project_next/fixtures/golden/result.json` \u2014 all changed hunks |\n| b06-11.txt | `docs/project-next-contract.md` \u2014 all changed hunks |\n| b06-12.txt | `lib/project_next/collect.py:1-135` \u2014 current context |\n| b06-13.txt | `lib/project_next/collect.py:136-175` \u2014 current context |\n| b06-14.txt | `lib/project_next/collect.py:350-488` \u2014 current context |\n| b06-15.txt | `lib/project_next/collect.py:489-493` \u2014 current context through EOF |\n| b06-16.txt | `scripts/project-next.py:277-310` \u2014 native caller context |\n| b06-17.txt | `lib/project_next/rank.py:1-55` \u2014 version context |\n\nAdditional semantic read: `CLAUDE.md:1-171`, required repository instructions. Additional metadata reads: HEAD/status, scoped base-to-head diff statistics, file lengths, manifest/piece hashes, and the three updated ownership-pinned file hashes.\n\nAll 17 piece hashes and the manifest hash matched the supplied values. Updated ownership hashes matched current files. The declared `collect.py:350-535` context ends at actual EOF, line 493; no existing lines were omitted.\n\nHEAD remained `cbfa3e85fd78628ef2cb1c28e4e6b434cd5b04a8`; initial and final status were clean. No writes, tests, network operations, or delegation occurred. No truncation retries, omitted pieces, unrelated batch reads, or inherited semantic coverage. This is not an overall review or full-suite PASS claim."
+      },
+      {
+        "batch": 7,
+        "name": "instrument-contract",
+        "head": "cbfa3e85fd78628ef2cb1c28e4e6b434cd5b04a8",
+        "start": "2026-10-26T08:10:26Z",
+        "end": "2026-10-26T08:12:16Z",
+        "model": "codex/gpt-6-astra",
+        "thread": "01a17742-c3e1-7580-9520-e4383bdbd17a",
+        "actual_exit": 0,
+        "findings": [
+          {
+            "severity": "LOW",
+            "title": "Census attributes entrypoint ordering coverage to a decoder-only control"
+          }
+        ],
+        "coverage": "COMPLETE for assigned changed hunks + minimumcontext only",
+        "paths": [
+          "docs/decisions/0008-instrument-negative-control-bound.md"
+        ],
+        "pieces": [
+          "b07-01.txt",
+          "b07-02.txt",
+          "b07-03.txt",
+          "b07-04.txt",
+          "b07-05.txt",
+          "b07-06.txt",
+          "b07-07.txt",
+          "b07-08.txt",
+          "b07-09.txt",
+          "b07-10.txt",
+          "b07-11.txt"
+        ],
+        "required_piece_bytes": 40216,
+        "all_named_pieces_declared_semantically_read": true,
+        "entire_piece_bytes_present_in_completed_native_tool_output": [
+          "b07-01.txt",
+          "b07-02.txt",
+          "b07-03.txt",
+          "b07-04.txt",
+          "b07-05.txt",
+          "b07-06.txt",
+          "b07-07.txt",
+          "b07-08.txt",
+          "b07-09.txt",
+          "b07-10.txt",
+          "b07-11.txt"
+        ],
+        "not_exactly_recaptured_from_tool_output": [],
+        "snapshot_all_true": true,
+        "mode_in_source_snapshot": true,
+        "scope": "full filesystem capability",
+        "network": "open, not fence",
+        "local_credentials": "absent",
+        "git_optional_locks": "0",
+        "report_path": "/workspace/.work/1571-b-pass3-b7-findings.md",
+        "report_sha256": "0284e7f4866140343ed669bf7365670a698cf96fe456729b287e1825b9da47f2",
+        "stream_sha256": "ef6ea1150bc2d3c933f8dfec0a925849769dc9a8528f9d70fdfa39b69b11113b",
+        "comparison_sha256": "7416de33d1c66d7e3c1b40fbaa115fc09823914271cced632884d2e754010813",
+        "original_report": "## Findings\n\n### [LOW] Census attributes entrypoint ordering coverage to a decoder-only control\n\nFile: docs/decisions/0008-instrument-negative-control-bound.md:270\n\nIssue: The new sentence says launch-metadata consistency \u201cbefore CLI import is covered by `controls/cicd-environment-handoff`.\u201d That control extracts only `restore_target_environment` and its constants; it never executes the entrypoint. Moving `.cli` import ahead of restoration, or deleting the entrypoint\u2019s restoration call, leaves its observations unchanged. The census therefore overstates what this registered control detects. Its registration correctly assigns entrypoint ordering to separate unit tests.\n\nSuggestion: Describe the registered coverage as decoder consistency and exact restoration; separately attribute before-import ordering to the entrypoint tests. Similarly qualify the adjacent target-policy control\u2019s \u201cbefore effects\u201d statement as an extracted-function check with an owned sentinel.\n\n## Red cases\n\nStatic assessment only; no tests, controls, anchors, or mutants executed.\n\n- **Flow-start preflight:** zero-exit reports containing contradictory counts/status, duplicate keys, or an unknown population must block; healthy selected reports and standalone operation are positive counterparts.\n- **Project-next preflight:** missing/unknown selected gh or engine readiness and malformed zero-exit reports must block before collection; a ready selected population permits collection.\n- **CPP runtime:** absent installed 3.11 under no-download policy must block; installed runtime and Make-only populations are positive counterparts.\n- **Missing tools:** absent uv required by a recipe, and present uv returning 127, must both fail; a complete Make-only population must remain accepted.\n- **Target interpreter policy:** a self-referential `.python-version` symlink or invalid UTF-8 pin must refuse; a readable pin or authoritative explicit override remains ready.\n- **Environment handoff:** orphan metadata, missing value, invalid presence status, or an unset marker with nonempty value must refuse; legitimate unset/empty/relative/absolute/quoted/unmarked policies remain accepted.\n- **Coverage counterexample:** reordering CLI import before restoration leaves the handoff control\u2019s extracted input unchanged. Thus that control cannot establish the census\u2019s ordering claim.\n\nThe registrations distinguish selected populations and owned sentinels from full-host or real-provider evidence. Internal cases do not establish additional census subjects.\n\n## Coverage\n\n**COMPLETE \u2014 only B7 assigned changed hunks and minimum necessary context.**\n\nEach piece below was individually read semantically, with untruncated output. Paths are under `/workspace/.work/1571-b-split3-retarget-cbfa3e85-plan/`.\n\n| Piece | Actual path | Coverage |\n|---|---|---|\n| b07-01 | `b07-01.txt` | ADR changed hunks, part 1/5 |\n| b07-02 | `b07-02.txt` | ADR changed hunks, part 2/5 |\n| b07-03 | `b07-03.txt` | ADR changed hunks, part 3/5 |\n| b07-04 | `b07-04.txt` | ADR changed hunks, part 4/5 |\n| b07-05 | `b07-05.txt` | ADR changed hunks, part 5/5 |\n| b07-06 | `b07-06.txt` | `controls/flow-start-preflight/control.json:1-79` |\n| b07-07 | `b07-07.txt` | `controls/project-next-preflight/control.json:1-48` |\n| b07-08 | `b07-08.txt` | `controls/flow-cpp-runtime/control.json:1-45` |\n| b07-09 | `b07-09.txt` | `controls/flow-finish-missing-tools/control.json:1-44` |\n| b07-10 | `b07-10.txt` | `controls/cicd-target-python/control.json:1-43` |\n| b07-11 | `b07-11.txt` | `controls/cicd-environment-handoff/control.json:1-73` |\n\nCanonical disposition: all assigned changes in `docs/decisions/0008-instrument-negative-control-bound.md` reviewed; one coverage-attribution finding above. Project-next\u2019s exclusion remains explicitly attached to row 23 rather than inventing another subject.\n\nAdditional reads:\n\n- `CLAUDE.md:1-171`: required repository instructions.\n- `controls/cicd-environment-handoff/run-case.py:1-34`: establish decoder-only measurement boundary.\n- `controls/cicd-target-python/run-case.py:1-54`: establish extracted-function and sentinel boundary.\n- `lib/cicd/__main__.py:1-49`: locate the real restoration/import boundary.\n- Exact base-to-HEAD diff for the canonical ADR: confirm changed-hunk coverage and line references.\n\nManifest and all 11 piece hashes matched the supplied values. Initial and final HEAD were `cbfa3e85fd78628ef2cb1c28e4e6b434cd5b04a8`; both porcelain status reads were empty. No writes or executions of reviewed instruments were performed. No full filesystem snapshot comparison is claimed.\n\nNo omissions, truncation retries, unrelated batch reads, or inherited semantic coverage. No external finding record was posted under the read-only restriction."
+      },
+      {
+        "batch": 8,
+        "name": "verification-contract-host-observation",
+        "head": "cbfa3e85fd78628ef2cb1c28e4e6b434cd5b04a8",
+        "start": "2026-10-26T08:15:32Z",
+        "end": "2026-10-26T08:17:20Z",
+        "model": "codex/gpt-6-astra",
+        "thread": "01a17747-6d2b-7e00-8012-f45c3366257e",
+        "actual_exit": 0,
+        "findings": [
+          {
+            "severity": "MEDIUM",
+            "title": "Full-observation test also accepts failure before any probes run"
+          }
+        ],
+        "coverage": "COMPLETE for assigned changed hunks + minimumcontext only",
+        "paths": [
+          "scripts/host-surface-observe.py",
+          "tests/test_cicd_verify_invocation.py",
+          "tests/test_step9_verify_executes.py",
+          "tests/test_host_surface_observe.py",
+          "tests/fixtures/step9_verify_contract/blind_extractor.py",
+          "tests/fixtures/step9_verify_contract/blind_uv_pattern.txt"
+        ],
+        "pieces": [
+          "b08-01.txt",
+          "b08-02.txt",
+          "b08-03.txt",
+          "b08-04.txt",
+          "b08-05.txt",
+          "b08-06.txt",
+          "b08-07.txt",
+          "b08-08.txt",
+          "b08-09.txt",
+          "b08-10.txt",
+          "b08-11.txt",
+          "b08-12.txt",
+          "b08-13.txt",
+          "b08-14.txt"
+        ],
+        "required_piece_bytes": 40027,
+        "all_named_pieces_declared_semantically_read": true,
+        "entire_piece_bytes_present_in_completed_native_tool_output": [
+          "b08-01.txt",
+          "b08-02.txt",
+          "b08-03.txt",
+          "b08-04.txt",
+          "b08-05.txt",
+          "b08-06.txt",
+          "b08-07.txt",
+          "b08-08.txt",
+          "b08-09.txt",
+          "b08-10.txt",
+          "b08-11.txt",
+          "b08-12.txt",
+          "b08-13.txt",
+          "b08-14.txt"
+        ],
+        "not_exactly_recaptured_from_tool_output": [],
+        "snapshot_all_true": true,
+        "mode_in_source_snapshot": true,
+        "scope": "full filesystem capability",
+        "network": "open, not fence",
+        "local_credentials": "absent",
+        "git_optional_locks": "0",
+        "report_path": "/workspace/.work/1571-b-pass3-b8-findings.md",
+        "report_sha256": "b236b47c528bafcc985c65c7dbd2f13ae3b51c76ba9476a491db4c12323e3bb8",
+        "stream_sha256": "3bb88ef172396065437ed6d9407f6320b6bc513c401ddf9f03c06c9402fe30a3",
+        "comparison_sha256": "7416de33d1c66d7e3c1b40fbaa115fc09823914271cced632884d2e754010813",
+        "original_report": "## Findings\n\n### [MEDIUM] Full-observation test also accepts failure before any probes run\n\nFile: tests/test_host_surface_observe.py:1033\n\nIssue: A preflight bootstrap that immediately exits 1 without output or writes satisfies every new assertion. `observe()` discards subprocess output, and `exercised` is automatically true when declarations are empty (`scripts/host-surface-observe.py:872`). A syntax error or startup exception can therefore pass this test without performing the claimed full observation. Exit 1 alone does not establish the comment\u2019s required-engine-gap explanation.\n\nSuggestion: Validate the actual invocation\u2019s JSON population, full scope, exit agreement, and missing-engine observation. Add an immediate-exit-1 negative input that this validation rejects.\n\n## Red cases\n\nStatic analysis only; no tests or probes executed.\n\n- Guard: changing Python 3.11 to 3.12, removing `--no-python-downloads` or the environment handoff, choosing another project, or substituting bare Python fails the approved-shape pattern.\n- Extractor: empty, extra, reordered, bare-Python, wrong-project, wrong-PYTHONPATH, download-enabled, missing-handoff, and appended-shell-command inputs fail its count or exact-string assertions. Both approved prefixes have positive cases.\n- Blind anchors: the broad regex accepts the missing-no-download input; the blind extractor fabricates a pair for an empty Step 9. Their committed comparisons distinguish these failures from the positive CPP pair.\n- Host observation: an undeclared surviving file under sandbox HOME/TMPDIR fails the empty-surface assertion. An immediate exit 1 produces the same accepted result as the intended missing-engine observation\u2014the unresolved distinction above.\n- Unknown observer members remain refused as `UNCLASSIFIED`; an empty derived population returns failure. Observation establishes bounded HOME/TMPDIR consistency, not an all-host or network fence.\n\n## Coverage\n\nCOMPLETE for B8 assigned changed hunks and necessary context only.\n\nEvery following piece was individually read, without truncation; paths below are relative to `/workspace/.work/1571-b-split3-retarget-cbfa3e85-plan/`:\n\n| Piece | Canonical path and coverage |\n|---|---|\n| b08-01.txt | `scripts/host-surface-observe.py` \u2014 all changed hunks |\n| b08-02.txt | `tests/test_cicd_verify_invocation.py` \u2014 all changed hunks |\n| b08-03.txt | `tests/test_step9_verify_executes.py` \u2014 changed hunks, part 1 |\n| b08-04.txt | Same \u2014 changed hunks, part 2 |\n| b08-05.txt | `tests/test_host_surface_observe.py` \u2014 all changed hunks |\n| b08-06.txt | `tests/fixtures/step9_verify_contract/blind_extractor.py` \u2014 entire new source |\n| b08-07.txt | `tests/fixtures/step9_verify_contract/blind_uv_pattern.txt` \u2014 entire new source |\n| b08-08.txt | `tests/test_cicd_verify_invocation.py:1-116` \u2014 current context |\n| b08-09.txt | `tests/test_step9_verify_executes.py:131-171` \u2014 retained real execution |\n| b08-10.txt | `scripts/host-surface-observe.py:140-178` \u2014 classification |\n| b08-11.txt | Same, `395-423` \u2014 sandbox environment |\n| b08-12.txt | Same, `756-869` \u2014 observation execution |\n| b08-13.txt | Same, `870-900` \u2014 exercise and exit interpretation |\n| b08-14.txt | Same, `930-1005` \u2014 classification and bounded verdicts |\n\nAdditional local reads:\n\n- `CLAUDE.md`, entire file: repository instructions.\n- `scripts/flow-preflight.sh:1-13` and `scripts/flow-preflight.py:1-396`: transitive classification justification, including AST-only engine reads, interpreter-version execution, presence-only uv/Codex checks, and local gh probes with non-credential configuration, loopback proxies, and disabled update notifications.\n- `tests/test_host_surface_observe.py:1020-1037`: finding line verification.\n- `scripts/host-surface-observe.py:900-929`: empty-population refusal and containment prerequisite.\n\nManifest and all 14 piece hashes matched. HEAD matched `cbfa3e85fd78628ef2cb1c28e4e6b434cd5b04a8` before and after; both status reads were clean. No writes, tests, external calls, omissions, or truncation retries. No full filesystem snapshot comparison was performed. The finding was not posted under the explicit no-post restriction."
+      }
+    ]
+  },
+  "targeted_postfix": {
+    "created_utc": "2026-10-26T09:59:32.710571+00:00",
+    "head": "16b034b2e51b44db0cbe8027720cb88644a49b95",
+    "base_reviewed_head": "cbfa3e85fd78628ef2cb1c28e4e6b434cd5b04a8",
+    "manifest_sha256": "c472214c06553724629966c5b58f3d2c65fce21b7ec2d6d22fa8308a08fe1890",
+    "scope": "targeted fix delta only; no overall B clean/fullgate claim",
+    "calls": [
+      {
+        "subcall": 1,
+        "name": "bounded-pin-and-real-runner",
+        "metadata": {
+          "base": "cbfa3e85fd78628ef2cb1c28e4e6b434cd5b04a8",
+          "head": "16b034b2e51b44db0cbe8027720cb88644a49b95",
+          "started_utc": "2026-10-26T09:29:00Z",
+          "pid": 27543,
+          "model_requested": "gpt-6-astra",
+          "scope": "full",
+          "network": "open",
+          "network_limit": "caller-authorized danger-full-access, no mechanical fence; previous read-only probes cannot start; no network operation authorized",
+          "local_credentials": "absent",
+          "local_credential_keys": [],
+          "credential_environment": "whitelist, actual CODEX_HOME only client auth; empty HOME/GH config, git helpers/headers/SSH reset",
+          "file_probe": "file-read-and-empty-gh-config-ok",
+          "manifest_sha256": "c472214c06553724629966c5b58f3d2c65fce21b7ec2d6d22fa8308a08fe1890",
+          "git_optional_locks": "0",
+          "phase": "targeted postreview delta",
+          "subcall": 1,
+          "subcall_name": "bounded-pin-and-real-runner",
+          "assigned_paths": [
+            "lib/cicd/runner.py",
+            "tests/test_cicd_target_pin_bounds.py"
+          ],
+          "required_pieces": [
+            "/workspace/.work/1571-b-targeted-16b-plan/t01-01.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t01-02.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t01-03.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t01-04.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t01-05.txt"
+          ],
+          "source_context_bytes": 19071,
+          "approval": "master10204/root10208 exact16b max3explicitserialtargetedcalls",
+          "pids_current": "54",
+          "finished_utc": "2026-10-26T09:37:37Z",
+          "actual_exit": 0
+        },
+        "native_thread": "01a1778a-b07b-7462-a49d-f85e2c5cf865",
+        "actual_model": "codex/gpt-6-astra",
+        "actual_exit": 0,
+        "parser": "COUNTER_MODEL_FINDINGS: 0\nCOUNTER_MODEL_REVIEW: clean\n",
+        "snapshots": {
+          "unchanged": true,
+          "head_same": true,
+          "status_same": true,
+          "index_same": true,
+          "files_same": true
+        },
+        "assigned_paths": [
+          "lib/cicd/runner.py",
+          "tests/test_cicd_target_pin_bounds.py"
+        ],
+        "piece_ledger": [
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t01-01.txt",
+            "bytes": 2849,
+            "sha256": "bc06d3b952bc9614fbc94c08ed2b8a9decdffd46b04b622d07ad450dd69eb933",
+            "entire_piece_in_completed_output": [
+              "item_9"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t01-02.txt",
+            "bytes": 5210,
+            "sha256": "98c9b81062efe6cf9b2c088d8b1f983a084907c595c41db147c2508881f316bd",
+            "entire_piece_in_completed_output": [
+              "item_10"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t01-03.txt",
+            "bytes": 2342,
+            "sha256": "cdf7d15d2bf38eb8839292834d942a363ef6a63e94c0128a9f425bf3b25b5405",
+            "entire_piece_in_completed_output": [
+              "item_11"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t01-04.txt",
+            "bytes": 4462,
+            "sha256": "ded8c73d1badef094b1216d6021871225f58b79ce882101c20367cef24adf170",
+            "entire_piece_in_completed_output": [
+              "item_5"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t01-05.txt",
+            "bytes": 4208,
+            "sha256": "226ab6657b7e281b42e66a1fa1a9a88c7e30d5cd72df2d9d16da93bed3686267",
+            "entire_piece_in_completed_output": [
+              "item_12"
+            ]
+          }
+        ],
+        "semantic_coverage": "reviewer explicitly scoped COMPLETE; byte availability independently audited, not substitute for semantic reading",
+        "original_report": "## Findings\n\nNone - no defects found.\n\n## Red cases\n\nStatic expectations only; no tests executed:\n\n- FIFO, `/dev/null` symlink, or 5000-byte pin: structured policy failure, zero completed steps, `not-run` detail, and no sentinel effect. The parent enforces a three-second child deadline.\n- Injected read error or invalid UTF-8: value-free `TargetPythonPolicyError`; opened descriptor closes.\n- Stale `fstat` size of zero: 4097 bytes rejected; 4096 accepted.\n- Regular pin, regular-file symlink, and explicit override with FIFO: positive runner cases require a completed step and sentinel effect.\n- Missing pin retains floor selection; broken symlink refuses policy. These branches were inspected, not executed.\n- The sentinel command runs successfully before the refusal check, establishing an owned positive counterpart in the test source.\n\n## Coverage\n\nCOMPLETE for T1\u2019s assigned delta and necessary context only.\n\nActually read individually, without truncation, under `/workspace/.work/1571-b-targeted-16b-plan/`:\n\n- `t01-04.txt`: first semantic read; full helper and environment caller, `runner.py:270\u2013355`.\n- `t01-01.txt`: all changed runner hunks.\n- `t01-02.txt`: entire new 121-line test file.\n- `t01-03.txt`: floor-selection context, `runner.py:130\u2013180`.\n- `t01-05.txt`: structured refusal context, `runner.py:830\u2013905`.\n\nAll are direct source/diff coverage; no derived mirrors. Additional reads: repository `CLAUDE.md` for instructions and runner lines 24, 657, 706, 729, 770 for the `stat` import and execution-call locations.\n\nPlan hash, all five piece hashes, both source hashes, exact committed diffs, and current context correspondence matched. HEAD remained `16b034b2e51b44db0cbe8027720cb88644a49b95`; successful before/after snapshots matched for index, clean status, contents, modes, and symlinks across both roots.\n\nNo omissions or truncation retries. Unavailable `python` and `rg` commands were replaced with read-only `python3` operations. No product execution, writes, delegation, or remote operations. This establishes no overall B verdict, fresh full-gate result, or original #1571 causal proof.",
+        "artifacts": {
+          "/workspace/.work/1571-b-targeted-t1-metadata.json": {
+            "bytes": 1487,
+            "sha256": "4121af02f840a274c7c52ec7ab17e8c96eb159ee7cdcb45acbd4dfe3350d95b5"
+          },
+          "/workspace/.work/1571-b-targeted-t1-stream.jsonl": {
+            "bytes": 56587,
+            "sha256": "2126f3af20fd9d37bc088b840f8bc689254d76a4e12f6f0025f8ea200a414403"
+          },
+          "/workspace/.work/1571-b-targeted-t1-findings.md": {
+            "bytes": 2125,
+            "sha256": "c2c15ff733e48271e024a5cd315640cf67a73aab2aa17ef319e3a81863c9e95e"
+          },
+          "/workspace/.work/1571-b-targeted-t1-source-before.json": {
+            "bytes": 621827,
+            "sha256": "a07201cbf04f66ffcdccb66e94d237c2bec25a3050d10e8f5c25b65a4bc41be8"
+          },
+          "/workspace/.work/1571-b-targeted-t1-source-after.json": {
+            "bytes": 621827,
+            "sha256": "a07201cbf04f66ffcdccb66e94d237c2bec25a3050d10e8f5c25b65a4bc41be8"
+          },
+          "/workspace/.work/1571-b-targeted-t1-source-comparison.json": {
+            "bytes": 111,
+            "sha256": "7416de33d1c66d7e3c1b40fbaa115fc09823914271cced632884d2e754010813"
+          },
+          "/workspace/.work/1571-b-targeted-t1-model.txt": {
+            "bytes": 18,
+            "sha256": "790a414c5e9f34710b50a0bd0d4a97d6260735b22bc39f0765e1575d7c212e18"
+          },
+          "/workspace/.work/1571-b-targeted-t1-parser.txt": {
+            "bytes": 54,
+            "sha256": "49d9c011db21964e3aff79f8e766bc65d2f17a22d39ec61eed0a822ef25ae1d4"
+          },
+          "/workspace/.work/1571-b-targeted-t1.status": {
+            "bytes": 2,
+            "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+          },
+          "/workspace/.work/1571-b-targeted-t1-prompt.txt": {
+            "bytes": 7953,
+            "sha256": "ad0bdba7ec8ea7ca7903e959773d70447534e3d0cce35e3bdeecee378af58fd5"
+          }
+        }
+      },
+      {
+        "subcall": 2,
+        "name": "pin-control-driver-anchor-cases-CPP-population",
+        "metadata": {
+          "base": "cbfa3e85fd78628ef2cb1c28e4e6b434cd5b04a8",
+          "head": "16b034b2e51b44db0cbe8027720cb88644a49b95",
+          "started_utc": "2026-10-26T09:38:28Z",
+          "pid": 29179,
+          "model_requested": "gpt-6-astra",
+          "scope": "full",
+          "network": "open",
+          "network_limit": "caller-authorized danger-full-access, no mechanical fence; previous read-only probes cannot start; no network operation authorized",
+          "local_credentials": "absent",
+          "local_credential_keys": [],
+          "credential_environment": "whitelist, actual CODEX_HOME only client auth; empty HOME/GH config, git helpers/headers/SSH reset",
+          "file_probe": "file-read-and-empty-gh-config-ok",
+          "manifest_sha256": "c472214c06553724629966c5b58f3d2c65fce21b7ec2d6d22fa8308a08fe1890",
+          "git_optional_locks": "0",
+          "phase": "targeted postreview delta",
+          "subcall": 2,
+          "subcall_name": "pin-control-driver-anchor-cases-CPP-population",
+          "assigned_paths": [
+            "controls/cicd-target-python/anchors/ignore-pin.py",
+            "controls/cicd-target-python/cases/bad-fifo/case.json",
+            "controls/cicd-target-python/cases/bad-nonregular-symlink/case.json",
+            "controls/cicd-target-python/cases/bad-oversized/case.json",
+            "controls/cicd-target-python/cases/good-absent/case.json",
+            "controls/cicd-target-python/cases/good-override-fifo/case.json",
+            "controls/cicd-target-python/cases/good-regular-symlink/case.json",
+            "controls/cicd-target-python/control.json",
+            "controls/cicd-target-python/run-case.py",
+            "tests/test_cpp_init_preflight.py"
+          ],
+          "required_pieces": [
+            "/workspace/.work/1571-b-targeted-16b-plan/t02-01.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t02-02.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t02-03.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t02-04.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t02-05.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t02-06.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t02-07.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t02-08.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t02-09.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t02-10.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t02-11.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t02-12.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t02-13.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t02-14.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t02-15.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t02-16.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t02-17.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t02-18.txt"
+          ],
+          "source_context_bytes": 36154,
+          "approval": "master10204/root10208 exact16b max3explicitserialtargetedcalls",
+          "pids_current": "55",
+          "finished_utc": "2026-10-26T09:47:59Z",
+          "actual_exit": 0
+        },
+        "native_thread": "01a17793-5e27-7db3-ac94-17c38a4db6d4",
+        "actual_model": "codex/gpt-6-astra",
+        "actual_exit": 0,
+        "parser": "COUNTER_MODEL_FINDINGS: 0\nCOUNTER_MODEL_REVIEW: clean\n",
+        "snapshots": {
+          "unchanged": true,
+          "head_same": true,
+          "status_same": true,
+          "index_same": true,
+          "files_same": true
+        },
+        "assigned_paths": [
+          "controls/cicd-target-python/anchors/ignore-pin.py",
+          "controls/cicd-target-python/cases/bad-fifo/case.json",
+          "controls/cicd-target-python/cases/bad-nonregular-symlink/case.json",
+          "controls/cicd-target-python/cases/bad-oversized/case.json",
+          "controls/cicd-target-python/cases/good-absent/case.json",
+          "controls/cicd-target-python/cases/good-override-fifo/case.json",
+          "controls/cicd-target-python/cases/good-regular-symlink/case.json",
+          "controls/cicd-target-python/control.json",
+          "controls/cicd-target-python/run-case.py",
+          "tests/test_cpp_init_preflight.py"
+        ],
+        "piece_ledger": [
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t02-01.txt",
+            "bytes": 3877,
+            "sha256": "f7c1dd33948321e11305b15f4721fff6d2006a44b9d450f9fb4244021cf67e20",
+            "entire_piece_in_completed_output": [
+              "item_8"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t02-02.txt",
+            "bytes": 272,
+            "sha256": "424128405152aef82fe5558e7f5c1cdde5383ccf4cdb75aa9f56db4ebf3fe78a",
+            "entire_piece_in_completed_output": [
+              "item_9"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t02-03.txt",
+            "bytes": 328,
+            "sha256": "91daeeae462a3d53151baa34814afe618dc083b6ab5c20e429667b09bad499cb",
+            "entire_piece_in_completed_output": [
+              "item_10"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t02-04.txt",
+            "bytes": 292,
+            "sha256": "c9fc32be2c59c267cc94dd10ff2b23ed2a58eab50394a642765914ca1aad0541",
+            "entire_piece_in_completed_output": [
+              "item_11"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t02-05.txt",
+            "bytes": 310,
+            "sha256": "483c707e2d5bb02b54800f67b233d66e1479b87785efa8d8dd5606956c717331",
+            "entire_piece_in_completed_output": [
+              "item_12"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t02-06.txt",
+            "bytes": 311,
+            "sha256": "dde5cb7213f892800a18e06f8a4e35a831f97ebea8e41981870f39dcfff951a4",
+            "entire_piece_in_completed_output": [
+              "item_13"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t02-07.txt",
+            "bytes": 319,
+            "sha256": "a5b30d5d58e9acaa2ccf438830a52b2fb312a0b687adeb2b48a35f8de90a64d5",
+            "entire_piece_in_completed_output": [
+              "item_14"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t02-08.txt",
+            "bytes": 3195,
+            "sha256": "3e85146bff208d1f4a615bee2a0190600df0ea780be4958cb814c747c3e9d1c8",
+            "entire_piece_in_completed_output": [
+              "item_15"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t02-09.txt",
+            "bytes": 3445,
+            "sha256": "8b733c007e50908f060ae0a966bbb3b5ea49c8f26778eb8e540d1a2eef2fdb55",
+            "entire_piece_in_completed_output": [
+              "item_16"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t02-10.txt",
+            "bytes": 3593,
+            "sha256": "76d93f6aec27c2c13994c33de98f467e43eecb4229c7c56ecf40c55edac4ef71",
+            "entire_piece_in_completed_output": [
+              "item_17",
+              "item_33"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t02-11.txt",
+            "bytes": 836,
+            "sha256": "22880480afb3f1907012fc81a1e2e2038b2b177566eb72ac04670e4b48385a4b",
+            "entire_piece_in_completed_output": [
+              "item_18"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t02-12.txt",
+            "bytes": 3155,
+            "sha256": "7b63b3516b1de594466aaf50a9703539d942a4685955a5b32e0c40abb093985f",
+            "entire_piece_in_completed_output": [
+              "item_19"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t02-13.txt",
+            "bytes": 3721,
+            "sha256": "012801300aed7da1a2bd6fd369544dee11cff10c77a7e9b86acda43096b48950",
+            "entire_piece_in_completed_output": [
+              "item_20"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t02-14.txt",
+            "bytes": 2650,
+            "sha256": "dc7c0f3f945e54c42ec5c433f9f5c82330d9a8ed3e1c4872b9b3f5356decc765",
+            "entire_piece_in_completed_output": [
+              "item_21"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t02-15.txt",
+            "bytes": 2342,
+            "sha256": "cdf7d15d2bf38eb8839292834d942a363ef6a63e94c0128a9f425bf3b25b5405",
+            "entire_piece_in_completed_output": [
+              "item_22"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t02-16.txt",
+            "bytes": 4462,
+            "sha256": "ded8c73d1badef094b1216d6021871225f58b79ce882101c20367cef24adf170",
+            "entire_piece_in_completed_output": [
+              "item_23"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t02-17.txt",
+            "bytes": 2076,
+            "sha256": "57467755689b01fdb7ffc5117090bca493eb25c489daece096a51c89cf299f7d",
+            "entire_piece_in_completed_output": [
+              "item_25"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t02-18.txt",
+            "bytes": 970,
+            "sha256": "99720581d60f2df11fd633e3da5524b38ba28ff25361daed0b6e4b176b42b465",
+            "entire_piece_in_completed_output": [
+              "item_26"
+            ]
+          }
+        ],
+        "semantic_coverage": "reviewer explicitly scoped COMPLETE; byte availability independently audited, not substitute for semantic reading",
+        "original_report": "## Findings\n\nNone - no defects found.\n\n## Red cases\n\nStatic conclusions only; no tests or product code executed.\n\n- **Pin policy:** self-loop symlink, invalid UTF-8, FIFO, symlink to an owned FIFO, and a 5,000-byte regular pin reach `blocked`/exit 1 in the current projection. The constructed presence-only anchor admits each, reaching `ready`/exit 0.\n- **Positive agreement:** readable regular pin and regular symlink leave `UV_PYTHON` unset; explicit overrides survive both loop and FIFO pins; absent pin selects floor `3.11`. Current projection and anchor agree.\n- **CPP population:** wrong project, missing project, and bare Python retain detectable invocation sites but fail the required command assertion. Removing all invocations fails population equality. Enumeration precedes project/runtime validation and covers five init calls plus two auto calls.\n\nThe driver's sentinel establishes ordering within the extracted policy projection, not real-runner execution.\n\n## Coverage\n\n**COMPLETE for own T2 assigned delta and necessary context only.** No overall B completeness or clean claim.\n\nAll pieces below were individually read without truncation. Piece paths are under `/workspace/.work/1571-b-targeted-16b-plan/`; source paths are relative to `/workspace/.work/cpp-1571-b/`.\n\n| Piece | Semantically reviewed source |\n|---|---|\n| `t02-01.txt` | All changed hunks: `controls/cicd-target-python/anchors/ignore-pin.py` |\n| `t02-02.txt` | Entire new `controls/cicd-target-python/cases/bad-fifo/case.json` |\n| `t02-03.txt` | Entire new `controls/cicd-target-python/cases/bad-nonregular-symlink/case.json` |\n| `t02-04.txt` | Entire new `controls/cicd-target-python/cases/bad-oversized/case.json` |\n| `t02-05.txt` | Entire new `controls/cicd-target-python/cases/good-absent/case.json` |\n| `t02-06.txt` | Entire new `controls/cicd-target-python/cases/good-override-fifo/case.json` |\n| `t02-07.txt` | Entire new `controls/cicd-target-python/cases/good-regular-symlink/case.json` |\n| `t02-08.txt` | All changed hunks: `controls/cicd-target-python/control.json` |\n| `t02-09.txt` | All changed hunks: `controls/cicd-target-python/run-case.py` |\n| `t02-10.txt` | All changed hunks, including complete changed/new tests: `tests/test_cpp_init_preflight.py` |\n| `t02-11.txt` | `tests/test_cpp_init_preflight.py:1-22` |\n| `t02-12.txt` | Complete current driver: `controls/cicd-target-python/run-case.py:1-72` |\n| `t02-13.txt` | Complete current anchor: `controls/cicd-target-python/anchors/ignore-pin.py:1-70` |\n| `t02-14.txt` | Complete current manifest: `controls/cicd-target-python/control.json:1-73` |\n| `t02-15.txt` | `lib/cicd/runner.py:130-180` |\n| `t02-16.txt` | `lib/cicd/runner.py:270-355`, including complete descriptor helper and caller |\n| `t02-17.txt` | Current init invocation contexts: 1393-1396, 1412-1415, 1426-1429, 1500-1503, 1525-1528 |\n| `t02-18.txt` | Current auto invocation contexts: 2220-2223, 2231-2234 |\n\nAdditional direct reads:\n\n- `CLAUDE.md`, complete, for repository instructions.\n- Line 1 of existing `bad-loop`, `bad-invalid-bytes`, `good-readable`, and `good-explicit-override` case JSON files, completing all ten case definitions.\n- `lib/cicd/runner.py:17,21-22,24,28-29,96`, confirming future annotations, imports, and the extracted strip constant.\n- Current fenced CPP invocation population independently enumerated at init lines 1395, 1414, 1428, 1502, 1527 and auto lines 2222, 2233.\n\nAll ten delta pieces matched the exact base-to-HEAD diffs. All eighteen piece hashes, ten assigned source hashes, and supplied current-context lines matched. No derived ADR/mirror was assigned or reviewed. No omissions or truncation retries.\n\nHEAD remained `16b034b2e51b44db0cbe8027720cb88644a49b95`; plan hash matched `c472214c06553724629966c5b58f3d2c65fce21b7ec2d6d22fa8308a08fe1890`. Before/after snapshots of HEAD, index, status, tracked content/modes/symlinks, and plan files matched; status remained clean. No writes, remote access, or delegation.",
+        "artifacts": {
+          "/workspace/.work/1571-b-targeted-t2-metadata.json": {
+            "bytes": 2812,
+            "sha256": "9e4c73d2ec445a441f2ba43d3a2d85040dc4c78dcbece6142c5744591bf2c07c"
+          },
+          "/workspace/.work/1571-b-targeted-t2-stream.jsonl": {
+            "bytes": 90858,
+            "sha256": "85b89263fcf5c355d6be0f4dc54f31432c02ca3931bc4b3dc01654654496517b"
+          },
+          "/workspace/.work/1571-b-targeted-t2-findings.md": {
+            "bytes": 3969,
+            "sha256": "f3b05c1b9531d3cabc358498652d3df12deb36c21995f59de4ddb315d9998a73"
+          },
+          "/workspace/.work/1571-b-targeted-t2-source-before.json": {
+            "bytes": 621827,
+            "sha256": "a07201cbf04f66ffcdccb66e94d237c2bec25a3050d10e8f5c25b65a4bc41be8"
+          },
+          "/workspace/.work/1571-b-targeted-t2-source-after.json": {
+            "bytes": 621827,
+            "sha256": "a07201cbf04f66ffcdccb66e94d237c2bec25a3050d10e8f5c25b65a4bc41be8"
+          },
+          "/workspace/.work/1571-b-targeted-t2-source-comparison.json": {
+            "bytes": 111,
+            "sha256": "7416de33d1c66d7e3c1b40fbaa115fc09823914271cced632884d2e754010813"
+          },
+          "/workspace/.work/1571-b-targeted-t2-model.txt": {
+            "bytes": 18,
+            "sha256": "790a414c5e9f34710b50a0bd0d4a97d6260735b22bc39f0765e1575d7c212e18"
+          },
+          "/workspace/.work/1571-b-targeted-t2-parser.txt": {
+            "bytes": 54,
+            "sha256": "49d9c011db21964e3aff79f8e766bc65d2f17a22d39ec61eed0a822ef25ae1d4"
+          },
+          "/workspace/.work/1571-b-targeted-t2.status": {
+            "bytes": 2,
+            "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+          },
+          "/workspace/.work/1571-b-targeted-t2-prompt.txt": {
+            "bytes": 15484,
+            "sha256": "a60756154fa05e65dc7617386dfc60528ccec79ed72ffe405a30612b639724f1"
+          }
+        }
+      },
+      {
+        "subcall": 3,
+        "name": "CPP-population-same-observation-and-truthful-census",
+        "metadata": {
+          "base": "cbfa3e85fd78628ef2cb1c28e4e6b434cd5b04a8",
+          "head": "16b034b2e51b44db0cbe8027720cb88644a49b95",
+          "started_utc": "2026-10-26T09:48:54Z",
+          "pid": 31228,
+          "model_requested": "gpt-6-astra",
+          "scope": "full",
+          "network": "open",
+          "network_limit": "caller-authorized danger-full-access, no mechanical fence; previous read-only probes cannot start; no network operation authorized",
+          "local_credentials": "absent",
+          "local_credential_keys": [],
+          "credential_environment": "whitelist, actual CODEX_HOME only client auth; empty HOME/GH config, git helpers/headers/SSH reset",
+          "file_probe": "file-read-and-empty-gh-config-ok",
+          "manifest_sha256": "c472214c06553724629966c5b58f3d2c65fce21b7ec2d6d22fa8308a08fe1890",
+          "git_optional_locks": "0",
+          "phase": "targeted postreview delta",
+          "subcall": 3,
+          "subcall_name": "CPP-population-same-observation-and-truthful-census",
+          "assigned_paths": [
+            "tests/test_host_surface_observe.py",
+            "docs/decisions/0008-instrument-negative-control-bound.md",
+            "codex/skills/flow-auto/docs/decisions/0008-instrument-negative-control-bound.md"
+          ],
+          "required_pieces": [
+            "/workspace/.work/1571-b-targeted-16b-plan/t03-01.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t03-02.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t03-03.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t03-04.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t03-05.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t03-06.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t03-07.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t03-08.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t03-09.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t03-10.txt",
+            "/workspace/.work/1571-b-targeted-16b-plan/t03-11.txt"
+          ],
+          "source_context_bytes": 36246,
+          "approval": "master10204/root10208 exact16b max3explicitserialtargetedcalls",
+          "pids_current": "57",
+          "finished_utc": "2026-10-26T09:58:48Z",
+          "actual_exit": 0
+        },
+        "native_thread": "01a1779c-e8ff-7fb3-b9c7-94df72d91772",
+        "actual_model": "codex/gpt-6-astra",
+        "actual_exit": 0,
+        "parser": "COUNTER_MODEL_FINDINGS: 0\nCOUNTER_MODEL_REVIEW: clean\n",
+        "snapshots": {
+          "unchanged": true,
+          "head_same": true,
+          "status_same": true,
+          "index_same": true,
+          "files_same": true
+        },
+        "assigned_paths": [
+          "tests/test_host_surface_observe.py",
+          "docs/decisions/0008-instrument-negative-control-bound.md",
+          "codex/skills/flow-auto/docs/decisions/0008-instrument-negative-control-bound.md"
+        ],
+        "piece_ledger": [
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t03-01.txt",
+            "bytes": 2974,
+            "sha256": "1c10efe1cdb1f4326c26d21b9228e637f33db578a49226d8da9aa6eb9e0216f6",
+            "entire_piece_in_completed_output": [
+              "item_8"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t03-02.txt",
+            "bytes": 5954,
+            "sha256": "2449e5a47ede19a4e2f7d42538ede61261feebec339208622b9a50d7a7a5b1b5",
+            "entire_piece_in_completed_output": [
+              "item_9"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t03-03.txt",
+            "bytes": 6324,
+            "sha256": "b4b02c5bc8c5bd2aa957854f467973954a3315c74fa1a91bcb32c8807ba9c21d",
+            "entire_piece_in_completed_output": [
+              "item_10"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t03-04.txt",
+            "bytes": 948,
+            "sha256": "f10e3d6ac499504c80295d973929e3c5f996be6c199d2e0e08a69d0f099fef17",
+            "entire_piece_in_completed_output": [
+              "item_11"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t03-05.txt",
+            "bytes": 1897,
+            "sha256": "c29d565796a61af51c6629626f6e4322e285f1e73ea26e9f3a32ccbd50658ce8",
+            "entire_piece_in_completed_output": [
+              "item_12"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t03-06.txt",
+            "bytes": 6471,
+            "sha256": "be4b9aa2b879a43e30fdbce1594c7dc03fdfc74e9f7c8299c886079d6627c9e7",
+            "entire_piece_in_completed_output": [
+              "item_13"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t03-07.txt",
+            "bytes": 1797,
+            "sha256": "c140bf3a5f02c6e91eb223da61f98b19f8e55d4166167d416211fd3b8593a81f",
+            "entire_piece_in_completed_output": [
+              "item_14"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t03-08.txt",
+            "bytes": 4732,
+            "sha256": "fe7c081a9079e7f8038dfabb8fb6ae14c0367dff6e7d8a1dbb2cceb43bcffde6",
+            "entire_piece_in_completed_output": [
+              "item_15"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t03-09.txt",
+            "bytes": 1524,
+            "sha256": "7d1155e972102e6aa5bbbf345215d69d5596f8629d22386efc803a2aaa6bb19f",
+            "entire_piece_in_completed_output": [
+              "item_16"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t03-10.txt",
+            "bytes": 2562,
+            "sha256": "85dba15d7d78b1099810e9622756755eedf35933c8f55eb3faa972a9c64439d7",
+            "entire_piece_in_completed_output": [
+              "item_17"
+            ]
+          },
+          {
+            "piece": "/workspace/.work/1571-b-targeted-16b-plan/t03-11.txt",
+            "bytes": 1063,
+            "sha256": "47b12e9e107effe6ad160170f5cecf22809d27ef1f9b9d831cfad3c13bd5bf28",
+            "entire_piece_in_completed_output": [
+              "item_18"
+            ]
+          }
+        ],
+        "semantic_coverage": "reviewer explicitly scoped COMPLETE; byte availability independently audited, not substitute for semantic reading",
+        "original_report": "## Findings\n\nNone - no defects found.\n\n## Red cases\n\nStatic conclusions only; none executed:\n\n- The committed executable containing `#!/bin/bash\\nexit 1\\n` produces no report. The same observation-test path rejects it rather than treating exit 1 as evidence of a missing engine.\n- Empty/malformed JSON, missing or reordered check IDs, incorrect schema/scope, contradictory readiness totals, and report/exit disagreement are rejected by `validate_report`.\n- A valid full report with an engine status other than `missing` fails the added engine assertion.\n- Invalid handoff metadata exercises decoder refusal; exact restoration exercises its positive counterpart. The census correctly separates this AST control from entrypoint-ordering tests.\n- FIFO, nonregular-symlink and oversized pins are concrete refusal inputs in the separately maintained runner tests; regular pins and authoritative override supply positive counterparts. The census does not attribute execution-loop proof to the extracted control.\n\n## Coverage\n\n**COMPLETE for the assigned T3 delta and necessary context only.**\n\nEach piece below was individually read, untruncated, under `/workspace/.work/1571-b-targeted-16b-plan/`:\n\n| Piece/path | Semantic coverage |\n|---|---|\n| `t03-01.txt` | All changed hunks and complete added tests in `tests/test_host_surface_observe.py` |\n| `t03-02.txt` | Canonical ADR delta, part 1 |\n| `t03-03.txt` | Canonical ADR delta, part 2 |\n| `t03-04.txt` | Canonical ADR delta, part 3 |\n| `t03-05.txt` | Complete current canonical-to-Codex-mirror transform |\n| `t03-06.txt` | Current observer context, part 1 |\n| `t03-07.txt` | Current observer context, part 2; together lines 756\u2013900 |\n| `t03-08.txt` | `scripts/flow-preflight.py:1\u2013107`, including entire strict validator |\n| `t03-09.txt` | Complete handoff control driver, lines 1\u201334 |\n| `t03-10.txt` | Complete handoff control manifest, lines 1\u201373 |\n| `t03-11.txt` | Observation-test setup, lines 1020\u20131040 |\n\nAdditional current semantic reads:\n\n- `CLAUDE.md`: repository instructions.\n- `tests/test_host_surface_observe.py:30\u201356,596\u2013605`: module loading and binary guard.\n- `scripts/host-surface-observe.py:160\u2013205,409\u2013453,734\u2013758,946\u2013980,1058\u20131068`: invocation, sandbox setup, refusal and unknown-member policy.\n- `scripts/flow-preflight.py:359\u2013396`: output and guarded entrypoint.\n- `controls/cicd-target-python/run-case.py:1\u201372`: complete AST driver and owned sentinel.\n- `tests/test_cicd_environment_handoff.py:1\u201394`: separate restoration/import-ordering evidence.\n- `tests/test_cicd_target_pin_bounds.py:1\u201373`: separate real-runner zero-step/no-effect assertions and positive counterparts.\n\nDirect canonical/test diffs matched the supplied pieces. The complete mirror transform matched current files; its three link rewrites were read semantically. All assigned piece/file hashes and immutable plan hash matched.\n\nBefore/after HEAD, index bytes/stages, clean status, tree contents, modes and symlink snapshots were identical at `16b034b2e51b44db0cbe8027720cb88644a49b95`. No truncation or omitted assigned pieces. Unavailable `python`/`rg` commands were replaced with local read-only alternatives.\n\nNo tests or product code executed. No fresh full-gate result, original same-tree cause proof, inherited coverage, or overall B-clean claim is established by this review.",
+        "artifacts": {
+          "/workspace/.work/1571-b-targeted-t3-metadata.json": {
+            "bytes": 1994,
+            "sha256": "c53a7f10a4e28ef6626e6430320a3ae4701aadfc0c3f41dc10a0ae3993f707de"
+          },
+          "/workspace/.work/1571-b-targeted-t3-stream.jsonl": {
+            "bytes": 114309,
+            "sha256": "c4ab8426c3a826d45db40736f01e158b295932f7c6bd1b8caa0c85b25682f93e"
+          },
+          "/workspace/.work/1571-b-targeted-t3-findings.md": {
+            "bytes": 3354,
+            "sha256": "4b6f60ac761ea7b46454c8b674d1e745b095323872fd01868c3e8ad688909e55"
+          },
+          "/workspace/.work/1571-b-targeted-t3-source-before.json": {
+            "bytes": 621827,
+            "sha256": "a07201cbf04f66ffcdccb66e94d237c2bec25a3050d10e8f5c25b65a4bc41be8"
+          },
+          "/workspace/.work/1571-b-targeted-t3-source-after.json": {
+            "bytes": 621827,
+            "sha256": "a07201cbf04f66ffcdccb66e94d237c2bec25a3050d10e8f5c25b65a4bc41be8"
+          },
+          "/workspace/.work/1571-b-targeted-t3-source-comparison.json": {
+            "bytes": 111,
+            "sha256": "7416de33d1c66d7e3c1b40fbaa115fc09823914271cced632884d2e754010813"
+          },
+          "/workspace/.work/1571-b-targeted-t3-model.txt": {
+            "bytes": 18,
+            "sha256": "790a414c5e9f34710b50a0bd0d4a97d6260735b22bc39f0765e1575d7c212e18"
+          },
+          "/workspace/.work/1571-b-targeted-t3-parser.txt": {
+            "bytes": 54,
+            "sha256": "49d9c011db21964e3aff79f8e766bc65d2f17a22d39ec61eed0a822ef25ae1d4"
+          },
+          "/workspace/.work/1571-b-targeted-t3.status": {
+            "bytes": 2,
+            "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+          },
+          "/workspace/.work/1571-b-targeted-t3-prompt.txt": {
+            "bytes": 11275,
+            "sha256": "688688eb3c9fa7ea875a1aa586525cb5cbcaa2519e58cb917b61a2d4ff5103c2"
+          }
+        }
+      }
+    ],
+    "total_paths": 15,
+    "direct_paths": 14,
+    "derived_paths": 1,
+    "total_pieces": 34,
+    "four_finding_dispositions": [
+      {
+        "finding": "B2 LOW CPP invocation population",
+        "record": "https://github.com/cooneycw/claude-power-pack/issues/864#issuecomment-6410844581",
+        "fix": "independent fenced CPP invocation population equality before project/runtime assertions; five init plus two auto sites",
+        "targeted_review": "T2"
+      },
+      {
+        "finding": "B4 MEDIUM bounded target pin observation",
+        "record": "issue1577 administratively closed notplanned by root/master because unmerged B; do not reopen",
+        "fix": "open nonblocking descriptor/fstat regular/4096 cap/read4097/decode/close/valuefree error; actual Runner regressions and registered5BAD5GOOD blind anchor",
+        "targeted_review": "T1 actualrunner/helper; T2 registeredprojection/anchor/cases"
+      },
+      {
+        "finding": "B7 LOW census overclaim",
+        "record": "https://github.com/cooneycw/claude-power-pack/issues/864#issuecomment-6411312607",
+        "fix": "separate AST handoff decoder/restoration from entrypoint ordering and target AST sentinel from actual Runner proof; normal derived mirror",
+        "targeted_review": "T3"
+      },
+      {
+        "finding": "B8 MEDIUM host observation falsepositive",
+        "record": "https://github.com/cooneycw/claude-power-pack/issues/864#issuecomment-6411425329",
+        "fix": "capture stdout/code from same real snapshotted invocations; strictfull7report/engineMISSING; actual owned immediateexit1 nooutput negative",
+        "targeted_review": "T3"
+      }
+    ],
+    "limits": [
+      "old full reviews1/2 remain INCOMPLETE",
+      "PASS3 eightcalls on oldcbfa scopedCOMPLETE with fourfindings; not silently reattributed16b",
+      "old4cb fullgate FAILED7/8587/3; no freshfullgate16b",
+      "no fourthactualcall/newhead/sourceedit/test/gate/PR/C authorized here"
+    ]
+  },
+  "current_disposition": "Four old PASS3 findings accepted, fixed16b, covered by T1-T3 and acceptedroot10230. Old pending disposition strings above are historical, not current.",
+  "old_gate": {
+    "started_at": "2026-10-26T06:51:21.125896+00:00",
+    "pid": 118578,
+    "cwd": "/workspace/.work/cpp-1571-b",
+    "argv": [
+      "bash",
+      "scripts/flow-finish-gate.sh"
+    ],
+    "head": "4cb4022f2165b658b27f21c95a9244c71f356615",
+    "removed_env": [
+      "CODEX_HOME",
+      "FLOW_GATE_RERUN",
+      "PYTEST_ADDOPTS",
+      "UV_PYTHON",
+      "UV_PROJECT_ENVIRONMENT",
+      "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT",
+      "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT"
+    ],
+    "selected_env": {
+      "UV_PYTHON_INSTALL_DIR": "/workspace/.tools/uv-python",
+      "UV_PYTHON_DOWNLOADS": "never",
+      "FLOW_GATE_CPP_DIR": "/workspace/.work/cpp-1571-b"
+    },
+    "pinned_scanner": "/workspace/.tools/gitleaks-8.30.1/gitleaks",
+    "runner_state_dir": "/workspace/.work/cpp-readonly/.git/worktrees/cpp-1571-b/cpp-runs",
+    "existing_state_files": [],
+    "fresh_no_resume": true,
+    "review_receipt": "docs/measurements/counter-model/2026-10-26T064948Z-issue-1571.json",
+    "review_semantic_coverage": "BOTH PASSES INCOMPLETE; companion issue-1571-b-review-evidence.md; no completeBreviewclaim or masteracceptance",
+    "source_status": "A  docs/measurements/counter-model/2026-10-26T064948Z-issue-1571.json\nA  docs/measurements/counter-model/issue-1571-b-review-evidence.md\n",
+    "pids_current": "91",
+    "exit_code": 1,
+    "finished_at": "2026-10-26T06:57:45.324019+00:00",
+    "log_sha256": "b484a1bc952ce4bb67ce7bbe368f2c9ca4db3c883f422bfdb4027f9f2df4d7f4"
+  },
+  "old_gate_state_sha256": "a1f84bf424935f246865bd6b9e832528a2a415680891f6782f8c8aaddd6ef9a4",
+  "old_gate_counts": "7 failed,8587 passed,3 skipped; make verify stopped at pytest, downstreamcontrols not run; no rerun then.",
+  "worker_execution_proof": {
+    "head": "16b034b2e51b44db0cbe8027720cb88644a49b95",
+    "reviewed_head": "cbfa3e85fd78628ef2cb1c28e4e6b434cd5b04a8",
+    "delta_bytes": 50693,
+    "delta_sha256": "15435f9577f72a9725ab6a68ac706f49e2da2b8c621f77db3586e1cc425bf02f",
+    "rows": [
+      {
+        "phase": "B2/B8 genuine red",
+        "command": "UV_PYTHON_INSTALL_DIR=/workspace/.tools/uv-python UV_PYTHON_DOWNLOADS=never uv run --python /workspace/.tools/uv-python/cpython-3.11.14-linux-x86_64-gnu/bin/python3.11 --no-python-downloads --extra dev pytest -q tests/test_cpp_init_preflight.py::test_process_policy_assertion_rejects_missing_or_changed_sites tests/test_host_surface_observe.py::test_full_observation_rejects_an_actual_no_output_exit_one",
+        "actual_exit": 1,
+        "counts": "5failed",
+        "log_path": "/workspace/.work/1571-b-postreview-population-observation-red.log",
+        "bytes": 7326,
+        "sha256": "4c06596f53d0a1b600e6582b8d324b280ce0653b2ffe0ade215f479233993809"
+      },
+      {
+        "phase": "B4 genuine red",
+        "command": "UV_PYTHON_INSTALL_DIR=/workspace/.tools/uv-python UV_PYTHON_DOWNLOADS=never uv run --python /workspace/.tools/uv-python/cpython-3.11.14-linux-x86_64-gnu/bin/python3.11 --no-python-downloads --extra dev pytest -q tests/test_cicd_target_pin_bounds.py",
+        "actual_exit": 1,
+        "counts": "3failed3passed",
+        "log_path": "/workspace/.work/1571-b-postreview-pin-reviewed-red.log",
+        "bytes": 12007,
+        "sha256": "3a0d652dd2f483d0278945a4cf82e9c97a27dd5412d1c0aed4a6c6ad31c6c034"
+      },
+      {
+        "phase": "First fixed focused",
+        "command": "UV_PYTHON_INSTALL_DIR=/workspace/.tools/uv-python UV_PYTHON_DOWNLOADS=never uv run --python /workspace/.tools/uv-python/cpython-3.11.14-linux-x86_64-gnu/bin/python3.11 --no-python-downloads --extra dev pytest -q tests/test_cpp_init_preflight.py tests/test_host_surface_observe.py tests/test_cicd_target_pin_bounds.py tests/test_cpp_runner_runtime.py::test_unreadable_target_pin_is_explicitly_refused_before_target_execution",
+        "actual_exit": 0,
+        "counts": "64passed2.52s",
+        "log_path": "/workspace/.work/1571-b-postreview-first-green.log",
+        "bytes": 139,
+        "sha256": "9d1d5f556191f82e3100ba42e700cddf0ba6065666dff82812a22013f1ee2a93"
+      },
+      {
+        "phase": "Final focused",
+        "command": "UV_PYTHON_INSTALL_DIR=/workspace/.tools/uv-python UV_PYTHON_DOWNLOADS=never uv run --python /workspace/.tools/uv-python/cpython-3.11.14-linux-x86_64-gnu/bin/python3.11 --no-python-downloads --extra dev pytest -q tests/test_cicd_target_pin_bounds.py tests/test_cpp_init_preflight.py tests/test_host_surface_observe.py tests/test_cpp_runner_runtime.py tests/test_runner.py::TestBuildStepEnv tests/test_cicd_verify_invocation.py tests/test_step9_verify_executes.py",
+        "actual_exit": 0,
+        "counts": "150passed7.34s",
+        "log_path": "/workspace/.work/1571-b-postreview-final-focused.log",
+        "bytes": 260,
+        "sha256": "40a17649c04fa5d9793bd1b2894539703bdb6719a0c1a583486eeac7957bf82f"
+      },
+      {
+        "phase": "Initial pin register tracking failure",
+        "command": "python3 scripts/check-negative-controls.py --strict --control controls/cicd-target-python",
+        "actual_exit": 1,
+        "log_path": "/workspace/.work/1571-b-postreview-pin-control.log",
+        "bytes": 4406,
+        "sha256": "af21cca8c67e9c28d2bc8e4be7945c99849ef442c7b670a7cf60ebd76faac529"
+      },
+      {
+        "phase": "Tracked final pin register",
+        "command": "python3 scripts/check-negative-controls.py --strict --control controls/cicd-target-python",
+        "actual_exit": 0,
+        "log_path": "/workspace/.work/1571-b-postreview-final-pin-control.log",
+        "bytes": 2985,
+        "sha256": "19bf1ec5d10224967a8133385191d234f9e50b096d48399a5fb14ab30dd06dd6"
+      },
+      {
+        "phase": "Final quality",
+        "command": "UV_PYTHON_INSTALL_DIR=/workspace/.tools/uv-python UV_PYTHON_DOWNLOADS=never make lint typecheck codex-skills-check project-next-check binary-guards-check negative-fixture-check host-surface-check",
+        "actual_exit": 0,
+        "log_path": "/workspace/.work/1571-b-postreview-final-quality.log",
+        "bytes": 3543,
+        "sha256": "8fb224b5626516d076330affc68bdd47e6e54aee6b8184c490a66b9811e6eec0"
+      }
+    ],
+    "status_provenance": "Captured original exec tool statuses/printedactualcodes; original focusedruns didnotwrite separatehistoricalstatusfiles/timestamps. This consolidatesactualevidence, notrerun. Original fullgateFAIL metadata/state remainsuntouched. B7docattributionreviewnotfakeexecutionred.",
+    "limits": "NewheadNOTAstrareviewed; approved8splitactualreviewcoverage attachesONLYcbfa, prior1/2remainINCOMPLETE. No fullsuite/fullfinishgate/newreview/CI/PR sincefix. NormalWIPpush independentlyverified; scannerscopeBcommitrangeonly, no installedprepushhookclaim."
+  },
+  "limits": [
+    "No single actual reviewer reviewed the whole final tree.",
+    "Early passes1/2 remain INCOMPLETE; interrupted/read-only-sandbox probes did not supply semantic coverage.",
+    "Eight serial PASS3 calls covered base3a8..cbfa approved34paths84pieces and found4issues.",
+    "Three serial targeted calls covered cbfa..16b all15paths34pieces after four fixes.",
+    "Reviewers executed no tests/product code; worker red/green evidence separate.",
+    "Original same-tree ok/warn cause UNPROVEN; silentstdout policy separate1576.",
+    "Evidence-only descendant commit adds these records, not product source; freshfullgate result pending."
+  ]
+}

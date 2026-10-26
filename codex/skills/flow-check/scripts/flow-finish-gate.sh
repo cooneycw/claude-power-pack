@@ -29,6 +29,8 @@
 #   three of four it did the same thing again for `verify` (issue #1147).
 #
 #: NEGATIVE-CONTROL: controls/flow-finish-gate
+#: NEGATIVE-CONTROL: controls/flow-cpp-runtime
+#: NEGATIVE-CONTROL: controls/flow-finish-missing-tools
 #: NEGATIVE-CONTROL: controls/flow-finish-gate-declared-gates
 #: NEGATIVE-CONTROL: controls/flow-finish-gate-plan-reconciliation
 #: NEGATIVE-CONTROL: controls/flow-finish-gate-subsumption
@@ -417,6 +419,13 @@ else
     REASON=$([[ -z "$CPP_DIR" ]] && echo "CPP checkout not found" || echo "uv not installed")
 fi
 
+# Select only CPP's outer interpreter. Do not export UV_PYTHON: the runner's
+# child gates must retain the target's pin or the caller's explicit policy.
+CPP_RUN=(env -u UV_PROJECT_ENVIRONMENT
+    "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}"
+    "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}"
+    uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd)
+
 # --- Advisory Makefile-completeness mode (/flow:check Step 5) ---------------
 if [[ "$MODE" == "check-summary" ]]; then
     if [[ "$RUNNER_OK" -eq 0 ]]; then
@@ -429,7 +438,7 @@ if [[ "$MODE" == "check-summary" ]]; then
         verdict skipped
         gate_exit skipped
     fi
-    if PYTHONPATH="$CPP_DIR:${PYTHONPATH:-}" uv run --project "$CPP_DIR" python -m lib.cicd check --summary; then
+    if PYTHONPATH="$CPP_DIR:${PYTHONPATH:-}" "${CPP_RUN[@]}" check --summary; then
         verdict ok
         gate_exit ok
     else
@@ -773,7 +782,7 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
     # A fixed number, not `{fd}>`, because macOS ships bash 3.2.
     exec 9>"$RUNNER_JSON"
     if [[ "$RERUN_ENABLED" == "1" ]]; then
-        CPP_GATE_RERUN_FAILED=1 PYTHONPATH="$CPP_DIR:${PYTHONPATH:-}" uv run --project "$CPP_DIR" python -m lib.cicd run --plan "$PLAN" \
+        CPP_GATE_RERUN_FAILED=1 PYTHONPATH="$CPP_DIR:${PYTHONPATH:-}" "${CPP_RUN[@]}" run --plan "$PLAN" \
             | tee /dev/fd/9
         RUNNER_EXIT=${PIPESTATUS[0]}
     else
@@ -783,7 +792,7 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         # case for a NESTED gate (CPP's own suite runs under an outer gate that
         # exported it). FLOW_GATE_RERUN=0 has to override an inherited value,
         # not merely abstain from setting one.
-        CPP_GATE_RERUN_FAILED=0 PYTHONPATH="$CPP_DIR:${PYTHONPATH:-}" uv run --project "$CPP_DIR" python -m lib.cicd run --plan "$PLAN" \
+        CPP_GATE_RERUN_FAILED=0 PYTHONPATH="$CPP_DIR:${PYTHONPATH:-}" "${CPP_RUN[@]}" run --plan "$PLAN" \
             | tee /dev/fd/9
         RUNNER_EXIT=${PIPESTATUS[0]}
     fi
@@ -1303,6 +1312,7 @@ echo "NOTE: deterministic runner unavailable ($REASON); using Makefile fallback.
 # removing. So it runs every gate - correct, just slower - and SAYS so, because
 # a reader comparing the two lanes' timings deserves the reason.
 echo "flow-finish-gate: subsumption: not derived in the fallback lane; all gates run." >&2
+echo "flow-finish-gate: CPP runner unavailable ($REASON); evaluating the target's own gates. Failures remain failures." >&2
 # Stated for the same reason (issue #1366): only the runner writes the durable
 # execution record, so a request for one is answered here, not dropped.
 if [[ -n "$EVIDENCE_SKILL" ]]; then

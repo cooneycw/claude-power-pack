@@ -1,0 +1,73 @@
+{
+  "gate": "lib/cicd/__main__.py",
+  "invocation": [
+    "python3",
+    "controls/cicd-environment-handoff/run-case.py",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^CICD_ENVIRONMENT_HANDOFF_CONTROL: blocked$",
+  "good_signal": "^CICD_ENVIRONMENT_HANDOFF_CONTROL: ready$",
+  "limits": "Actual stdlib metadata decoder extracted by AST from supplied source, not CLI imports. Owned later-effect sentinel only after readiness. Positive populations prove unset/empty/relative/absolute/quoted/no-marker policy and marker removal. Partial/invalid metadata must refuse. The unchecked anchor preserves legitimate restoration but silently consumes malformed metadata, missing all four BAD populations. Native tests independently exercise real uv, CPP3.11/target3.12 and pre-target venv snapshots; unit entrypoint tests prove refusal/restoration before CLI import for all subcommands.",
+  "cases": [
+    {
+      "name": "good-unset",
+      "input": "cases/good-unset",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-empty",
+      "input": "cases/good-empty",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-relative",
+      "input": "cases/good-relative",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-absolute",
+      "input": "cases/good-absolute",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-quoted",
+      "input": "cases/good-quoted",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-unmarked",
+      "input": "cases/good-unmarked",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-orphan",
+      "input": "cases/bad-orphan",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-missing-value",
+      "input": "cases/bad-missing-value",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-status",
+      "input": "cases/bad-status",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-unset-with-value",
+      "input": "cases/bad-unset-with-value",
+      "expect": "BAD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "path": "anchors/unchecked-handoff.py",
+      "sha256": "191ef1b3ee2b8a78a5e74da9206800a2f5f73f8a91fc39fb8e7974f490d5aad4",
+      "why": "Keeps legitimate restoration but ignores pair/status consistency, allowing effects for every malformed handoff."
+    }
+  ]
+}

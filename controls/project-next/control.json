@@ -42,14 +42,14 @@
   "invocation": [
     "bash",
     "-c",
-    "W=$(mktemp -d) || exit 9; git archive HEAD | (mkdir -p \"$W/engine\" && tar -x -C \"$W/engine\") || { rm -rf \"$W\"; exit 9; }; cp \"$2\" \"$W/engine/lib/project_next/collect.py\" || { rm -rf \"$W\"; exit 9; }; cp lib/project_next/models.py \"$W/engine/lib/project_next/models.py\" || { rm -rf \"$W\"; exit 9; }; . \"$1/setup.sh\" \"$W/fixture\" || { rm -rf \"$W\"; exit 9; }; cd \"$W/engine\" || { rm -rf \"$W\"; exit 9; }; OUTPUT=$(python3 scripts/project-next.py \"$W/fixture/repo\" --full); pyrc=$?; echo \"$OUTPUT\"; rm -rf \"$W\"; [ \"$pyrc\" -ne 0 ] && exit \"$pyrc\"; echo \"$OUTPUT\" | grep -q 'status-unknown worktree .* names issue #999' && exit 1; exit 0",
+    "W=$(mktemp -d) || exit 9; git archive HEAD | (mkdir -p \"$W/engine\" && tar -x -C \"$W/engine\") || { rm -rf \"$W\"; exit 9; }; cp \"$2\" \"$W/engine/lib/project_next/collect.py\" || { rm -rf \"$W\"; exit 9; }; cp lib/project_next/models.py \"$W/engine/lib/project_next/models.py\" || { rm -rf \"$W\"; exit 9; }; python3 controls/project-next/overlay-diagnostic.py \"$W/engine/lib/project_next/collect.py\" || { rm -rf \"$W\"; exit 9; }; . \"$1/setup.sh\" \"$W/fixture\" || { rm -rf \"$W\"; exit 9; }; cd \"$W/engine\" || { rm -rf \"$W\"; exit 9; }; OUTPUT=$(python3 scripts/project-next.py \"$W/fixture/repo\" --full); pyrc=$?; echo \"$OUTPUT\"; rm -rf \"$W\"; [ \"$pyrc\" -ne 0 ] && exit \"$pyrc\"; echo \"$OUTPUT\" | grep -q 'status-unknown worktree .* names issue #999' && exit 1; exit 0",
     "--",
     "{case}",
     "{gate}"
   ],
   "good_exit": 0,
   "detect_signal": "status-unknown worktree .* names issue #999",
-  "limits": "Covers ONLY the git-status-collection path (_parse_worktrees). It says nothing about the other worktree_delivery re-read (#1257, which already defends in depth against this exact collector behaviour) or about a worktree whose `git log` call fails instead of `git status` - both commands share one try/except in the gate, so a case distinguishing them would need a different injection point than a real broken worktree supplies.",
+  "limits": "Covers ONLY the git-status-collection path (_parse_worktrees). It says nothing about the other worktree_delivery re-read (#1257, which already defends in depth against this exact collector behaviour) or about a worktree whose `git log` call fails instead of `git status` - both commands share one try/except in the gate, so a case distinguishing them would need a different injection point than a real broken worktree supplies. The fixture gh also implements local capability enumeration. A historical collector anchor receives only the current unrelated gh_field_remediation formatter needed by the modern CLI import; its worktree decision is unchanged, and the current real collector needs no overlay. Anchor bytes/hashes themselves are not edited.",
   "cases": [
     {
       "name": "bad-worktree-status-unreadable",

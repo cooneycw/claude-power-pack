@@ -1,0 +1,45 @@
+{
+  "gate": "scripts/flow-finish-gate.sh",
+  "invocation": [
+    "python3",
+    "controls/flow-cpp-runtime/run-case.py",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_CPP_RUNTIME_CONTROL: blocked$",
+  "good_signal": "^FLOW_CPP_RUNTIME_CONTROL: ready$",
+  "unavailable_signal": "^FLOW_CPP_RUNTIME_CONTROL: unavailable$",
+  "limits": "Actual shell dispatch and verdict with owned fake uv/make, no live git repository. uv argv models installed or absent 3.11; removing no-download writes an owned marker and returns fixture-ready, never fetches. Synthetic runner JSON is a fixture transcript, not real gate execution. Installed and Make-only populations are positive controls. Independent missing-tool/present127 classification is registered separately at controls/flow-finish-missing-tools, since selection anchors cannot be blind to that distinct refusal. Native dual-runtime behavior is tested separately.",
+  "cases": [
+    {
+      "name": "good-installed",
+      "input": "cases/good-installed",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-make-only",
+      "input": "cases/good-make-only",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-missing-runtime-no-download",
+      "input": "cases/bad-missing-runtime-no-download",
+      "expect": "BAD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "path": "anchors/ambient-runtime.sh",
+      "sha256": "082c82d5e9d796f3ac0888b02aefd80e3b47057282f37cc3915feba29cd9f999",
+      "why": "Removes the named CPP runtime policy from the real invocation; absent 3.11 can then be reported ready by the owned provider."
+    },
+    {
+      "kind": "constructed",
+      "path": "anchors/download-allowed.sh",
+      "sha256": "03b2949878738442bb6caf12ab8c9b14de4c78ac111221c02ef125ac803b10e8",
+      "why": "Removes the named CPP runtime policy from the real invocation; absent 3.11 can then be reported ready by the owned provider."
+    }
+  ]
+}

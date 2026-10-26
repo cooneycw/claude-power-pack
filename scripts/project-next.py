@@ -26,6 +26,7 @@ outlived the vendoring that first motivated it, and is kept on its own merits.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -60,6 +61,7 @@ from lib.project_next.collect import (  # noqa: E402
     CollectionError,
     CommandRunner,
     collect_repository,
+    gh_field_remediation,
     subprocess_runner,
 )
 from lib.project_next.config import ConfigError, load_config  # noqa: E402
@@ -107,7 +109,7 @@ PREMISE_TERM_MINIMUM = 4
 DELIVERY_VERDICTS = ("delivered", "not-proven", "unknown")
 DELIVERY_ADVISORY = (
     "_`delivered`: every changed path has the identical blob on the default branch and the tree is clean. "
-    "`not-proven` is not \"undelivered\" - inspect before removing. `unknown` means git could not be asked. "
+    '`not-proven` is not "undelivered" - inspect before removing. `unknown` means git could not be asked. '
     "Ignored files are counted, not examined._"
 )
 PREMISE_ADVISORY = (
@@ -292,7 +294,9 @@ def _native_rows_live(repository: Path, limit: int) -> tuple[list[dict[str, obje
         check=False,
     )
     if completed.returncode:
-        detail = (completed.stderr or completed.stdout or "command failed").strip().splitlines()[0]
+        diagnostic = (completed.stderr or "").strip() or (completed.stdout or "").strip() or "command failed"
+        command = ["gh", "issue", "list", "--json", fields]
+        detail = gh_field_remediation(command, diagnostic) or diagnostic.splitlines()[0]
         return None, f"native GitHub relationship fields unavailable: {detail}"
     try:
         payload = json.loads(completed.stdout)
@@ -354,9 +358,7 @@ def normalize_relationships(
             relationships.add(Relationship(number, blocked, "blocking", "github-native", "confirmed"))
         parent = row.get("parent")
         if isinstance(parent, dict) and parent.get("number") is not None:
-            relationships.add(
-                Relationship(number, int(parent["number"]), "parent", "github-native", "confirmed")
-            )
+            relationships.add(Relationship(number, int(parent["number"]), "parent", "github-native", "confirmed"))
         for child in _numbers(row.get("subIssues")):
             relationships.add(Relationship(number, child, "sub_issue", "github-native", "confirmed"))
 
@@ -382,9 +384,7 @@ def normalize_relationships(
                 f"Blocked by: text-only dependency on {refs} is not a native GitHub edge, so it could not be verified"
             )
         for dependency in sorted(fallback):
-            relationships.add(
-                Relationship(issue.number, dependency, "blocked_by", "documented-text", "uncertain")
-            )
+            relationships.add(Relationship(issue.number, dependency, "blocked_by", "documented-text", "uncertain"))
         normalized.append(
             replace(
                 issue,
@@ -424,9 +424,7 @@ def _load_graduation_ledger(repository: Path) -> tuple[dict[str, dict[str, str]]
         return {}, [f"{GRADUATION_LEDGER}: top level must be an object"]
     version = payload.get("version")
     if version != GRADUATION_LEDGER_VERSION:
-        return {}, [
-            f"{GRADUATION_LEDGER}: 'version' must be {GRADUATION_LEDGER_VERSION}, got {version!r}"
-        ]
+        return {}, [f"{GRADUATION_LEDGER}: 'version' must be {GRADUATION_LEDGER_VERSION}, got {version!r}"]
     entries = payload.get("specs")
     if not isinstance(entries, list):
         return {}, [f"{GRADUATION_LEDGER}: 'specs' must be a list"]
@@ -664,9 +662,7 @@ def planning_routes(
         ids = {
             raw.get("decision_id")
             for raw in decisions
-            if isinstance(raw, dict)
-            and isinstance(raw.get("decision_id"), str)
-            and raw.get("status") != "resolved"
+            if isinstance(raw, dict) and isinstance(raw.get("decision_id"), str) and raw.get("status") != "resolved"
         }
         ids.discard(None)
         routes.append(
@@ -955,8 +951,7 @@ def premise_flags(
             continue
         if not spec.as_of:
             warnings.append(
-                f"premise check skipped for spec {slug!r}: {spec.path} has no parsable "
-                "'Created' or 'Amended' date"
+                f"premise check skipped for spec {slug!r}: {spec.path} has no parsable 'Created' or 'Amended' date"
             )
             continue
         for record in live:
@@ -1065,9 +1060,7 @@ def _tree_state(path: Path, runner: CommandRunner) -> tuple[str, int | None, str
     try:
         # Explicit flags, not config: `status.showUntrackedFiles=no` or a submodule
         # ignore setting would otherwise make an excluded population read as clean.
-        status = runner(
-            ["git", "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=none"], path
-        )
+        status = runner(["git", "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=none"], path)
         # `git status` cannot see an edit to an entry flagged assume-unchanged
         # (lowercase tag) or skip-worktree (`S`), and no status flag overrides the bit.
         tags = runner(["git", "ls-files", "-v"], path)
@@ -1090,9 +1083,7 @@ def _tree_state(path: Path, runner: CommandRunner) -> tuple[str, int | None, str
     return state, ignored_count, "; ".join(item for item in (reason, ignored_note) if item)
 
 
-def _committed_state(
-    path: Path, base_ref: str, runner: CommandRunner
-) -> tuple[str, int | None, tuple[str, ...], str]:
+def _committed_state(path: Path, base_ref: str, runner: CommandRunner) -> tuple[str, int | None, tuple[str, ...], str]:
     # Never `merge-base --is-ancestor` and never a rev-list count: a squash merge
     # breaks both, so a delivered branch reads as unmerged by either (#1257).
     try:
@@ -1228,7 +1219,8 @@ def render_cpp(
     lines = [f"_decision policy: contract v{result.contract_version} (project-next engine)_", "", base]
     wayfinder = extensions.wayfinder_map
     map_line = (
-        f"Wayfinder map: {wayfinder.state}" + (f" ({wayfinder.path})" if wayfinder.path else "")
+        f"Wayfinder map: {wayfinder.state}"
+        + (f" ({wayfinder.path})" if wayfinder.path else "")
         + (f" - {wayfinder.detail}" if wayfinder.detail else "")
         if wayfinder
         else "Wayfinder map: not checked"
@@ -1299,9 +1291,7 @@ def render_cpp(
     if mode == "brief":
         if delivery:
             tally = {name: sum(item.verdict == name for item in delivery) for name in DELIVERY_VERDICTS}
-            lines.append(
-                "Worktree delivery: " + " | ".join(f"{name} {tally[name]}" for name in DELIVERY_VERDICTS)
-            )
+            lines.append("Worktree delivery: " + " | ".join(f"{name} {tally[name]}" for name in DELIVERY_VERDICTS))
     elif mode == "full":
         lines.extend(
             (
@@ -1375,6 +1365,43 @@ def _codex_sandbox_hint(exc: BaseException) -> str:
     )
 
 
+def _load_preflight():
+    # Physical CPP colocation, never the target project's scripts directory.
+    path = REPO_ROOT / "scripts/flow-preflight.py"
+    spec = importlib.util.spec_from_file_location("cpp_project_next_preflight", path)
+    if spec is None or spec.loader is None:
+        raise CollectionError("local preflight observer could not be loaded")
+    module = importlib.util.module_from_spec(spec)
+    prior = sys.dont_write_bytecode
+    try:
+        sys.dont_write_bytecode = True
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = prior
+    return module
+
+
+#: NEGATIVE-CONTROL: controls/project-next-preflight
+def _live_preflight(repository: Path) -> None:
+    try:
+        observer = _load_preflight()
+        selected = ("gh", "engine")
+        args = argparse.Namespace(
+            repo=str(repository), harness="auto", engine=str(Path(__file__).resolve()), checks=selected
+        )
+        report, code = observer.observe(args)
+        report = observer.validate_report(json.dumps(report), code, selected)
+    except (OSError, ValueError, TypeError, AttributeError, ImportError, SyntaxError) as exc:
+        raise CollectionError("local preflight report is unverified; repair the colocated CPP observer") from exc
+    if code:
+        detail = "; ".join(
+            f"{item['id']}: {item['status']} - {item['message']}; {item['remediation']}"
+            for item in report["checks"]
+            if item["status"] != "ok"
+        )
+        raise CollectionError(f"local preflight {report['status']} (exit {code}): {detail}")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     repository = Path(args.repository).resolve()
@@ -1385,6 +1412,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             state = RepositoryState.from_dict(fixture)
             native_rows, native_warning = _native_rows_fixture(fixture)
         else:
+            _live_preflight(repository)
             state = collect_repository(repository, config)
             native_rows, native_warning = _native_rows_live(repository, config.issue_limit + 1)
         normalized, relationships = normalize_relationships(state, native_rows)

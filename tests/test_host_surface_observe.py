@@ -1020,3 +1020,59 @@ def test_the_blind_anchor_keeps_its_repo_root_adaptation():
         f"the anchor's REPO_ROOT resolves parents[{depth}], which is not the repository root - "
         "the adaptation was dropped (regenerated from the gate?)"
     )
+
+
+@requires_git
+@pytest.mark.skipif(shutil.which("bash") is None or shutil.which("python3") is None, reason="requires bash and python3")
+def test_preflight_bootstrap_full_observation_writes_no_host_surface(monkeypatch):
+    name = "flow-preflight.sh"
+    assert name not in hso.ESCAPES
+    argv = hso.INVOCATIONS[name]
+    assert argv == [["--json", "--repo", "{HOME}", "--harness", "claude"]]
+    monkeypatch.setitem(hso.INVOCATIONS_FOR, name, argv)
+    script = ROOT / "scripts" / name
+    real_run = hso.subprocess.run
+    captures = []
+
+    def capture_observed_run(command, *args, **kwargs):
+        result = real_run(command, *args, **kwargs)
+        if command and str(command[0]) == str(script):
+            captures.append((result.stdout, result.returncode))
+        return result
+
+    monkeypatch.setattr(hso.subprocess, "run", capture_observed_run)
+    observed = hso.observe(name, script, [], Path.home())
+    assert observed.decision == "observable", observed.reason
+    assert observed.runs == 2 and observed.exercised
+    assert observed.appeared == [] and observed.undeclared == []
+    assert observed.exit_codes == [1, 1]
+    assert len(captures) == observed.runs == 2  # SAME invocations whose writes were snapshotted.
+    spec = importlib.util.spec_from_file_location(
+        "owned_preflight_report_validator", hso.REPO_ROOT / "scripts/flow-preflight.py"
+    )
+    assert spec and spec.loader
+    validator = importlib.util.module_from_spec(spec)
+    previous = sys.dont_write_bytecode
+    try:
+        sys.dont_write_bytecode = True
+        spec.loader.exec_module(validator)
+    finally:
+        sys.dont_write_bytecode = previous
+    for stdout, code in captures:
+        report = validator.validate_report(stdout, code, validator.CHECK_IDS)
+        assert report["scope"] == "full" and report["full_host_ready"] is False
+        engine = next(check for check in report["checks"] if check["id"] == "engine")
+        assert engine["status"] == "missing"  # Positive explanation, not exit-code inference.
+
+
+@requires_git
+@pytest.mark.skipif(shutil.which("bash") is None or shutil.which("python3") is None, reason="requires bash and python3")
+def test_full_observation_rejects_an_actual_no_output_exit_one(tmp_path, monkeypatch):
+    script = tmp_path / "scripts/flow-preflight.sh"
+    script.parent.mkdir()
+    script.write_text("#!/bin/bash\nexit 1\n")
+    script.chmod(0o755)
+    assert script.is_file() and os.access(script, os.X_OK)
+    monkeypatch.setitem(globals(), "ROOT", tmp_path)
+    with pytest.raises((AssertionError, ValueError)):
+        test_preflight_bootstrap_full_observation_writes_no_host_surface(monkeypatch)

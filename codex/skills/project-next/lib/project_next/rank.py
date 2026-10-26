@@ -20,7 +20,7 @@ from .models import (
     WorktreeDetail,
 )
 
-CONTRACT_VERSION = "1.6"
+CONTRACT_VERSION = "1.7"
 PHASE = re.compile(r"\b(?:wave|phase)[-\s:]*(?P<number>\d+)\b", re.IGNORECASE)
 
 

@@ -5,8 +5,31 @@ from pathlib import Path
 
 import pytest
 
+import lib.project_next.collect as collection
 from lib.project_next.collect import CollectionError, _spec_inventory, _spec_tasks, collect_repository
 from lib.project_next.config import ProjectNextConfig
+
+
+@pytest.mark.parametrize("kind,field", [("pr", "closingIssuesReferences"), ("issue", "blockedBy")])
+def test_old_gh_requested_field_has_specific_remediation(kind, field):
+    command = ["gh", kind, "list", "--json", field + ",number"]
+    diagnostic = f'Unknown JSON field: "{field}"\nAvailable fields:\n  number\n'
+    message = collection.gh_field_remediation(command, diagnostic)
+    assert field in message and "Upgrade gh" in message and "2.94.0" in message
+    assert "inventory remains unexamined" in message
+
+
+@pytest.mark.parametrize(
+    "diagnostic",
+    [
+        "authentication required",
+        "error connecting to api.github.com",
+        'Unknown JSON field: "notRequested"\nAvailable fields:\n  number',
+        'Unknown JSON field: "blockedBy"\nAvailable fields:\n  number\nHTTP request started',
+    ],
+)
+def test_unrelated_provider_failure_is_not_mislabeled_old_gh(diagnostic):
+    assert collection.gh_field_remediation(["gh", "issue", "list", "--json", "blockedBy"], diagnostic) is None
 
 
 def test_collector_maps_git_github_and_worktree_state(tmp_path: Path) -> None:

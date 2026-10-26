@@ -24,11 +24,35 @@ class CollectionError(RuntimeError):
     """A required repository-state command failed."""
 
 
+def gh_field_remediation(command: list[str], diagnostic: str) -> str | None:
+    """Recognize only gh's local rejection of a known field we requested."""
+    if command[:3] not in (["gh", "issue", "list"], ["gh", "pr", "list"]) or "--json" not in command:
+        return None
+    index = command.index("--json") + 1
+    if index >= len(command):
+        return None
+    lines = diagnostic.strip().splitlines()
+    if len(lines) < 3 or lines[1] != "Available fields:":
+        return None
+    match = re.fullmatch(r'Unknown JSON field: "([A-Za-z][A-Za-z0-9]*)"', lines[0])
+    known = {"closingIssuesReferences", "blockedBy", "blocking", "parent", "subIssues"}
+    if not match or match[1] not in known or match[1] not in command[index].split(","):
+        return None
+    if any(not re.fullmatch(r"  [A-Za-z][A-Za-z0-9]*", line) for line in lines[2:]):
+        return None
+    return (
+        f"gh JSON field {match[1]} is unsupported by this installation. Upgrade gh "
+        "(standard-source capability floor 2.94.0; backports require capability verification); "
+        "inventory remains unexamined. This local field error does not establish authentication state."
+    )
+
+
 def subprocess_runner(command: list[str], cwd: Path) -> str:
     timeout = 30 if command[:5] == ["gh", "pr", "list", "--state", "merged"] else None
     completed = subprocess.run(command, cwd=cwd, capture_output=True, text=True, check=False, timeout=timeout)
     if completed.returncode:
-        message = (completed.stderr or completed.stdout or "command failed").strip().splitlines()[0]
+        diagnostic = (completed.stderr or "").strip() or (completed.stdout or "").strip() or "command failed"
+        message = gh_field_remediation(command, diagnostic) or diagnostic.splitlines()[0]
         raise CollectionError(f"{' '.join(command[:3])}: {message}")
     return completed.stdout
 

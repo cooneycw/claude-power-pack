@@ -6,5 +6,7 @@ Every file below is a byte-identical copy of its canonical source in the claude-
 
 - `scripts/flow-helpers-install.sh`
 - `scripts/flow-live-driver-guard.sh`
+- `scripts/flow-preflight.py`
+- `scripts/flow-preflight.sh`
 - `scripts/flow-start-resolve.sh`
 - `scripts/stash-worktree-guard.sh`

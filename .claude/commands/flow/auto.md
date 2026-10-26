@@ -136,9 +136,11 @@ result. This rule applies to every flow helper in this file (see also Steps 4,
 number (and project, when `/flow:auto` was given a PROJECT arg):
 
 ```bash
-~/.claude/scripts/flow-start-resolve.sh 42 --session-cwd /home/user/Projects/my-repo
-~/.claude/scripts/flow-start-resolve.sh 42 my-project --session-cwd /home/user/Projects/my-repo
+~/.claude/scripts/flow-start-resolve.sh 42 --require-preflight --session-cwd /home/user/Projects/my-repo
+~/.claude/scripts/flow-start-resolve.sh 42 my-project --require-preflight --session-cwd /home/user/Projects/my-repo
 ```
+
+**Require preflight (#1571).** The opt-in flag validates the complete local host report after resolving the target and before issue reads, fetches, claims or worktree creation. Required gaps, unknown observations, and malformed or contradictory reports stop this run. Optional Codex absence is a warning; standalone `/flow:start` keeps its existing behavior. The helper reports the original preflight status on stderr while preserving its stdout contract.
 
 **Pass `--session-cwd` (issue #592).** The helper cannot observe the Claude
 session's working directory - it sees only the cwd this Bash call inherited, and
@@ -2217,7 +2219,7 @@ elif [[ -f "Makefile" ]] && grep -q "^deploy:" Makefile; then
         echo "Capturing pre-deploy baseline..."
         # PYTHONPATH points at CPP_DIR (the PARENT of lib/), not at lib/ itself,
         # or `-m lib.cicd` cannot resolve the package - same contract as Step 6.
-        PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify --baseline --summary
+        PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd verify --baseline --summary
     fi
 
     echo "Running: make deploy"
@@ -2228,7 +2230,7 @@ elif [[ -f "Makefile" ]] && grep -q "^deploy:" Makefile; then
     VERDICT="none"
     if [ "$VERIFY_ENABLED" -eq 1 ]; then
         echo "Running deploy verification..."
-        PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify
+        PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd verify
         VERIFY_EXIT=$?
         VERDICT=$( [ "$VERIFY_EXIT" -eq 1 ] && echo "rollback" || echo "proceed/review" )
         if [ "$VERIFY_EXIT" -eq 1 ]; then

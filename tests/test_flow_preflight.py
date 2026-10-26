@@ -19,6 +19,81 @@ OBSERVER = ROOT / "scripts" / "flow-preflight.py"
 BOOTSTRAP = ROOT / "scripts" / "flow-preflight.sh"
 
 
+def test_selected_population_never_probes_unselected_prerequisites(observer, monkeypatch):
+    module, args, _, _ = observer
+    args.checks = ("gh", "engine")
+    monkeypatch.setattr(module, "python_check", lambda *a: pytest.fail("unselected Python probe"))
+    monkeypatch.setattr(module.shutil, "which", lambda name: "gh" if name == "gh" else pytest.fail(name))
+    report, code = module.observe(args)
+    assert code == 0 and report["status"] == "selected_ready"
+    assert report["scope"] == "selected" and report["full_host_ready"] is None
+    assert report["selected_checks"] == ["gh", "engine"]
+    assert report["unexamined_checks"] == ["uv", "cpp_python", "user.name", "user.email", "codex"]
+    assert [item["id"] for item in report["checks"]] == ["gh", "engine"]
+
+
+@pytest.mark.parametrize("selector", ["", "gh,", "unknown", "gh,gh", "all,gh", " gh", "gh,,engine"])
+def test_invalid_or_ambiguous_selector_is_a_usage_error(observer, selector):
+    module, _, _, _ = observer
+    with pytest.raises(argparse.ArgumentTypeError):
+        module.parse_checks(selector)
+
+
+def test_selector_order_is_canonical_and_default_all_remains_full(observer):
+    module, args, _, _ = observer
+    assert module.parse_checks("engine,gh") == ("gh", "engine")
+    assert module.parse_checks("all") == module.CHECK_IDS
+    report, code = module.observe(args)
+    assert report["status"] == "ready" and code == 0
+    assert report["scope"] == "full" and report["full_host_ready"] is True
+    assert report["selected_checks"] == list(module.CHECK_IDS)
+    assert report["unexamined_checks"] == []
+
+
+@pytest.mark.parametrize(
+    "corruption", ["schema", "population", "scope", "status", "counts", "required", "exit", "duplicate", "missing"]
+)
+def test_report_validator_refuses_zero_exit_with_unproved_readiness(observer, corruption):
+    module, args, _, _ = observer
+    args.checks = ("gh", "engine")
+    report, code = module.observe(args)
+    assert code == 0
+    assert module.validate_report(json.dumps(report), code, args.checks) == report
+    if corruption == "schema":
+        report["schema"] = True
+    elif corruption == "population":
+        report["checks"].pop()
+    elif corruption == "scope":
+        report["full_host_ready"] = True
+    elif corruption == "status":
+        report["checks"][0]["status"] = "unknown"
+    elif corruption == "counts":
+        report["required_gaps"] = True
+    elif corruption == "required":
+        report["checks"][0]["required"] = False
+    elif corruption == "exit":
+        code = 3
+    elif corruption == "missing":
+        del report["unexamined_checks"]
+    raw = json.dumps(report)
+    if corruption == "duplicate":
+        raw = '{"schema":999,' + raw[1:]
+    with pytest.raises(ValueError):
+        module.validate_report(raw, code, args.checks)
+
+
+def test_valid_unknown_and_gap_reports_retain_their_nonzero_exit(observer, monkeypatch):
+    module, args, _, _ = observer
+    args.checks = ("gh",)
+    for status, code in (("unknown", 3), ("missing", 1)):
+        monkeypatch.setattr(module, "gh_check", lambda *a: module.check("gh", status, "controlled"))
+        report, actual = module.observe(args)
+        assert actual == code
+        assert module.validate_report(json.dumps(report), actual, args.checks) == report
+        with pytest.raises(ValueError):
+            module.validate_report(json.dumps(report), 0, args.checks)
+
+
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bootstrap requires bash")
 @pytest.mark.parametrize("shell", [False, True])
 @pytest.mark.parametrize("outcome", [0, 1, 3, "usage", "exception"])
@@ -81,6 +156,12 @@ def observer(tmp_path, monkeypatch):
     spec.loader.exec_module(module)
     home = tmp_path / "home"
     home.mkdir()
+    # Own the managed inventory too: a test runner's installed Python is not
+    # part of this fake host's population.
+    managed = home / "uv-python"
+    managed.mkdir()
+    assert list(managed.iterdir()) == []
+    monkeypatch.setenv("UV_PYTHON_INSTALL_DIR", str(managed))
     engine = home / ".claude/scripts/project-next.py"
     engine.parent.mkdir(parents=True)
     engine.write_text("from lib.project_next.rank import CONTRACT_VERSION\n")

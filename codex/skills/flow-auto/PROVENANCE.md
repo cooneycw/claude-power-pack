@@ -24,6 +24,8 @@ Every file below is a byte-identical copy of its canonical source in the claude-
 - `scripts/flow-finish-gate.sh`
 - `scripts/flow-live-driver-guard.sh`
 - `scripts/flow-plan-record.py`
+- `scripts/flow-preflight.py`
+- `scripts/flow-preflight.sh`
 - `scripts/flow-stale-check.sh`
 - `scripts/flow-start-resolve.sh`
 - `scripts/flow-worktree-claim.sh`

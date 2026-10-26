@@ -180,7 +180,16 @@ def _run_with_failing_gh(tmp_path: Path, sandboxed: bool) -> subprocess.Complete
     bindir = tmp_path / "bin"
     bindir.mkdir()
     (bindir / "git").write_text(f"#!/bin/sh\necho '{tmp_path}'\n")
-    (bindir / "gh").write_text("#!/bin/sh\necho 'error connecting to api.github.com' >&2\nexit 1\n")
+    (bindir / "gh").write_text(
+        '#!/bin/sh\n'
+        'case "$*" in\n'
+        '  --version) echo "gh version 2.94.0"; exit 0 ;;\n'
+        '  *__cpp_preflight_fields__*)\n'
+        '    printf \'%s\\n\' \'Unknown JSON field: "__cpp_preflight_fields__"\' \'Available fields:\' \\\n'
+        "      '  assignees' '  blockedBy' '  blocking' '  parent' '  subIssues' '  closingIssuesReferences' >&2\n"
+        '    exit 1 ;;\n'
+        'esac\necho "error connecting to api.github.com" >&2\nexit 1\n'
+    )
     for fake in bindir.iterdir():
         fake.chmod(0o755)
     env = {k: v for k, v in os.environ.items() if k != "CODEX_SANDBOX_NETWORK_DISABLED"}

@@ -1,0 +1,73 @@
+{
+  "gate": "lib/cicd/runner.py",
+  "invocation": [
+    "python3",
+    "controls/cicd-target-python/run-case.py",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^CICD_TARGET_PYTHON_CONTROL: blocked$",
+  "good_signal": "^CICD_TARGET_PYTHON_CONTROL: ready$",
+  "limits": "Actual AST-extracted stdlib policy/helpers/constants, owned cache/target/sentinels. Covers bounded nonblocking regular-descriptor validation, loop/invalid UTF-8/FIFO/nonregular symlink/oversize refusal, readable regular symlink, explicit overrides and absent-pin floor. Does not execute the entire runner loop; maintained parent-time-bounded real-runner tests separately assert zero steps/not-run/no target effect. Constructed anchor preserves positive floor/pin/override behavior but removes observability validation and must miss every adverse case.",
+  "cases": [
+    {
+      "name": "bad-loop",
+      "input": "cases/bad-loop",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-invalid-bytes",
+      "input": "cases/bad-invalid-bytes",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-readable",
+      "input": "cases/good-readable",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-explicit-override",
+      "input": "cases/good-explicit-override",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-fifo",
+      "input": "cases/bad-fifo",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-nonregular-symlink",
+      "input": "cases/bad-nonregular-symlink",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-oversized",
+      "input": "cases/bad-oversized",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-regular-symlink",
+      "input": "cases/good-regular-symlink",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-override-fifo",
+      "input": "cases/good-override-fifo",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-absent",
+      "input": "cases/good-absent",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "path": "anchors/ignore-pin.py",
+      "sha256": "851843fb8884a198d55fbb54d6ca61ccd0579f40847615c057689f868eb1d4f8",
+      "why": "Constructed from current policy projection; replace only bounded descriptor validation by presence detection. Positive regular/symlink/floor/override behaviors retained, unreadable/special/oversized pins admitted."
+    }
+  ]
+}

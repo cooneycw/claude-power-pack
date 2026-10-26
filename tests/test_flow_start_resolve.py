@@ -25,6 +25,7 @@ throwaway git repos.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -34,6 +35,70 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "flow-start-resolve.sh"
+
+@pytest.mark.parametrize("population", ["gaps", "unknown", "malformed", "contradictory", "healthy", "standalone"])
+def test_required_preflight_precedes_every_later_effect(tmp_path, population):
+    if shutil.which("git") is None or shutil.which("bash") is None:
+        pytest.skip("requires git and bash")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    installed = tmp_path / "installed/scripts"
+    installed.mkdir(parents=True)
+    script = installed / SCRIPT.name
+    script.write_text(SCRIPT.read_text())
+    payload = installed / "flow-preflight.py"
+    payload.write_text((ROOT / "scripts/flow-preflight.py").read_text())
+    ids = ("gh", "uv", "cpp_python", "user.name", "user.email", "codex", "engine")
+    checks = [
+        dict(id=name, status="ok", required=name != "codex", message="", remediation="", evidence={}) for name in ids
+    ]
+    code = 0
+    if population in ("gaps", "unknown"):
+        checks[0]["status"] = "missing" if population == "gaps" else "unknown"
+        code = 1 if population == "gaps" else 3
+    report = dict(
+        schema=1,
+        status=population if code else "ready",
+        scope="full",
+        full_host_ready=code == 0,
+        selected_checks=list(ids),
+        unexamined_checks=[],
+        required_gaps=int(code == 1),
+        required_unknown=int(code == 3),
+        checks=checks,
+    )
+    if population == "contradictory":
+        report["checks"] = []
+    data = installed / "report.json"
+    data.write_text("not JSON" if population == "malformed" else json.dumps(report))
+    helper = installed / "flow-preflight.sh"
+    helper.write_text(
+        '#!/bin/bash\nif [[ "$*" == *--validate-exit* ]]; then\n'
+        '  exec python3 "$(dirname "$0")/flow-preflight.py" "$@"\nfi\n'
+        f'cat "{data}"\nexit {code}\n'
+    )
+    helper.chmod(0o755)
+    sentinel = tmp_path / "later-effect"
+    gh = tmp_path / "gh"
+    gh.write_text(f'#!/bin/bash\nprintf reached > "{sentinel}"\nexit 1\n')
+    gh.chmod(0o755)
+    env = dict(os.environ, FLOW_START_RESOLVE_GH=str(gh))
+    flag = [] if population == "standalone" else ["--require-preflight"]
+    result = subprocess.run(
+        ["bash", str(script), "42", "--session-cwd", str(repo), *flag],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert sentinel.exists() is (population in ("healthy", "standalone"))
+    assert len(_git(repo, "worktree", "list", "--porcelain").split("worktree ")) == 2
+    if population in ("gaps", "unknown"):
+        assert f"original exit {code}" in result.stderr
+
 
 # The behaviour tests drive real `git` and `bash` subprocesses. The Woodpecker
 # `validate` step runs in `uv:python3.11-bookworm-slim`, which ships bash but

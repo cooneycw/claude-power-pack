@@ -1,17 +1,17 @@
 {
   "_comment": "CPP owns lib/project_next outright (issue #1069). It was vendored from codex-power-pack until then, at upstream commit 1724e7d9; that repository goes private and dormant and is no longer a source of record. Provenance lives in lib/project_next/LICENSE and docs/project-next-provenance.md.",
   "owner": "cooneycw/claude-power-pack",
-  "contract_version": "1.6",
+  "contract_version": "1.7",
   "files": {
-    "docs/project-next-contract.md": "700c6c916344fd9bb0db185ab1cc24d8955205e5f3c1d29f939e4929fb9d3f30",
+    "docs/project-next-contract.md": "5af09bd50d9378d65843882fc275e88cb7d9567393be1d9b32cef88f32367f7c",
     "lib/project_next/LICENSE": "09fc9c15f0b236d2bce483820f98147b4e8f65a807e927b58ea363f531fe0ab0",
     "lib/project_next/__init__.py": "0df00452c2ea69de59ca4a528eff28b0b79c1f2b3faedbffa7b2f89f558cf988",
     "lib/project_next/classify.py": "4e07e8a59faaa4e3145303860190eaf984f530e95bb1beebebcd7072168e3945",
     "lib/project_next/cli.py": "e084bcbf526acf9ad373c6c843e019fbdb57b19d5a5e43c4a88c323b1e4dea5c",
-    "lib/project_next/collect.py": "f1419d67f35f3a0f03020d13412657a27209047546f895a0262e479ddd387cf8",
+    "lib/project_next/collect.py": "0465fba61eb305a723ec19d952e6a0505cb31d59d826cdfa27235e722ece79fb",
     "lib/project_next/config.py": "7e816be531930af90fcb89458bf7322298872d03d8bd7ead9cc306577a990265",
     "lib/project_next/models.py": "30771779c4238504adc2bf94da490ab939fd6ae765ac99fb94c8fb5a9ae97456",
-    "lib/project_next/rank.py": "a75af1be96e6762bbe3d020dfa80e7af3d74ff8683d9b07f4de4823d3f8da127",
+    "lib/project_next/rank.py": "c74d643113ee77172e4a78d1ad838c7471cf55dfc391bf89a971e52ae4f8000f",
     "lib/project_next/render.py": "dcd2f5ef8394c94877e172656f1ae80f996d99ae382206ce83e8c42223cb531e",
     "templates/project-next.schema.json": "ed77ea3fd458ddfd2f2f67bd050113df4019176f3ee243c21a9b4bed5216bfe0"
   }

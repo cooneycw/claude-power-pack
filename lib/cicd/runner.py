@@ -268,6 +268,40 @@ def _ensure_private_dir(path: Path) -> Path:
     return path
 
 
+class TargetPythonPolicyError(ValueError):
+    """The target declared a pin whose contents cannot be observed safely."""
+
+
+MAX_TARGET_PYTHON_PIN_BYTES = 4096
+
+
+def _observe_target_python_pin(pin: Path) -> bool:
+    """Read only a bounded, opened regular pin; absence retains floor policy."""
+    message = "Target .python-version is unreadable or unsupported; interpreter policy is unverified"
+    try:
+        fd = os.open(pin, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0))
+    except FileNotFoundError as exc:
+        if pin.is_symlink():
+            raise TargetPythonPolicyError(message) from exc
+        return False
+    except OSError as exc:
+        raise TargetPythonPolicyError(message) from exc
+    try:
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_TARGET_PYTHON_PIN_BYTES:
+                raise TargetPythonPolicyError(message)
+            raw = os.read(fd, MAX_TARGET_PYTHON_PIN_BYTES + 1)
+            if len(raw) > MAX_TARGET_PYTHON_PIN_BYTES:
+                raise TargetPythonPolicyError(message)
+            raw.decode("utf-8")
+        finally:
+            os.close(fd)
+    except (OSError, UnicodeError) as exc:
+        raise TargetPythonPolicyError(message) from exc
+    return True
+
+#: NEGATIVE-CONTROL: controls/cicd-target-python
 def _build_step_env(project_root: Optional[Path] = None) -> dict[str, str]:
     """Build a sanitized copy of os.environ for child step processes.
 
@@ -291,7 +325,13 @@ def _build_step_env(project_root: Optional[Path] = None) -> dict[str, str]:
     # paragraphs up: "an explicit caller env always wins".
     if "UV_CACHE_DIR" not in env:
         env["UV_CACHE_DIR"] = str(_ensure_private_dir(_default_uv_cache_dir()))
-    floor = _project_python_floor(project_root)
+    # A target's own interpreter file is more specific than its compatibility
+    # floor. Leave a readable pin for uv; refuse unreadable policy explicitly.
+    # manufacturing UV_PYTHON here would override or conceal that evidence.
+    target_pin = False
+    if project_root is not None and "UV_PYTHON" not in env:
+        target_pin = _observe_target_python_pin(Path(project_root) / ".python-version")
+    floor = None if target_pin else _project_python_floor(project_root)
     if floor:
         env.setdefault("UV_PYTHON", floor)
     return env
@@ -812,7 +852,20 @@ class DeterministicRunner:
         # Materialize CPP_OFFLINE once per run (the probe is the only network
         # touch) so shell ``skip_if`` expressions can skip network steps in a
         # sandbox instead of hard-failing (issue #534, part #5).
-        step_env = _build_step_env(self.project_root)
+        try:
+            step_env = _build_step_env(self.project_root)
+        except TargetPythonPolicyError as exc:
+            state.status = "failed"
+            state.save(self.project_root)
+            self._log(str(exc))
+            return RunResult(
+                success=False, run_id=state.run_id, plan_name=state.plan_name,
+                steps_completed=0, steps_total=len(step_defs), error=str(exc),
+                gates=plan_gate_ids(state.plan_name, step_defs),
+                dropped_gates=dropped_gate_ids(state.plan_name, step_defs),
+                step_details=[dict(id=step.id, status="not-run", not_run_reason=str(exc)) for step in step_defs],
+                resume_state_evidence=state.resume_state_evidence(),
+            )
         step_env.setdefault("CPP_OFFLINE", "1" if _is_offline() else "0")
 
         context = {
