@@ -357,9 +357,9 @@ Output a single diagnostic report in this format:
 
 | Check | Status | Details |
 |-------|--------|---------|
-| git | ✅ | v2.43.0 |
-| gh CLI | ✅ | v2.62.0 |
-| gh local capabilities | ✅/⚠️/❌ | Required fields available / Unknown / Unsupported; authentication untested |
+| git observations | ✅/?/❌ | Repository and identity observations below; version unmeasured |
+| gh CLI | ✅/?/❌ | Observed version or unknown; capabilities reported separately |
+| gh local capabilities | ✅/?/❌ | Required fields available / Unknown / Unsupported; authentication untested |
 | uv presence | ✅/❌ | Present / Missing (required for CPP runner); version not measured |
 
 ### Repository
@@ -368,7 +368,7 @@ Output a single diagnostic report in this format:
 |-------|--------|---------|
 | Git repo | ✅ | claude-power-pack |
 | Remote | ✅ | github.com/cooneycw/claude-power-pack |
-| User identity presence | ✅/⚠️/❌ | Effective name/email present / Unknown / Missing; values withheld |
+| User identity presence | ✅/?/❌ | Effective name/email present / Unknown / Missing; values withheld |
 
 ### Workflow Readiness
 
@@ -455,6 +455,7 @@ Only report ready when shared preflight exits 0 and all later required observati
 
 - ✅ = Check passed
 - ⚠️ = Optional/non-critical issue
+- ? = Required observation unknown - readiness is not established
 - ❌ = Required check failed - action needed
 
 ## Notes
