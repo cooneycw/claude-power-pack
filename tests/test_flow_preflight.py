@@ -469,3 +469,27 @@ def test_only_broken_managed_python_stays_unknown(observer, monkeypatch, tmp_pat
     monkeypatch.setattr(module.shutil, "which", lambda name: None)
     monkeypatch.setenv("UV_PYTHON_INSTALL_DIR", str(managed))
     assert module.python_check(Path(args.repo), home)["status"] == "unknown"
+
+
+def test_known_nonselected_python_and_empty_managed_root_is_missing(observer, monkeypatch, tmp_path):
+    module, args, home, _ = observer
+    managed = tmp_path / "empty-managed"
+    managed.mkdir()
+    assert managed.is_dir() and not list(managed.iterdir())
+    monkeypatch.setenv("UV_PYTHON_INSTALL_DIR", str(managed))
+    monkeypatch.setattr(module.shutil, "which", lambda name: "python3" if name == "python3" else None)
+    monkeypatch.setattr(module, "run", lambda *argv: (0, "Python 3.12.3\n", ""))
+    assert module.python_check(Path(args.repo), home)["status"] == "missing"
+
+
+def test_invalid_only_managed_candidate_is_unknown(observer, monkeypatch, tmp_path):
+    module, args, home, _ = observer
+    managed = tmp_path / "managed"
+    invalid = managed / "cpython-3.11.invalid/bin/python3.11"
+    invalid.parent.mkdir(parents=True)
+    invalid.write_text("dummy-invalid-provider")
+    assert invalid.is_file()
+    monkeypatch.setenv("UV_PYTHON_INSTALL_DIR", str(managed))
+    monkeypatch.setattr(module.shutil, "which", lambda name: None)
+    monkeypatch.setattr(module, "run", lambda *argv: (0, "not a Python version\n", ""))
+    assert module.python_check(Path(args.repo), home)["status"] == "unknown"
