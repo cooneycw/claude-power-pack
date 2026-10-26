@@ -47,9 +47,20 @@ on command arguments, or commit them.
 **Regeneration behavior:** `bootstrap-secrets.py` preserves an existing nonempty
 `WOODPECKER_GRPC_SECRET` assignment in `docker.env`, even when AWS supplies a
 different value. An empty, duplicate, or malformed local assignment fails before
-replacing the file. If the key is absent locally, a nonempty value from the
+replacing the file. Logical quoted assignments are read as units so assignment-like
+text inside a multiline neighbouring value cannot supply the signing key.
+Literal single-quoted tokens and double-quoted tokens without interpolation
+retain their quoting; unquoted or double-quoted dollar expressions are refused
+before replacement because their dependencies would not survive regeneration.
+Multiline signing values and mixed quote syntax are also refused.
+
+If the key is absent locally, a nonempty value from the
 named AWS secret supplies it; absent or empty AWS values leave it unset. The
-generator never generates a signing key or falls back to a literal. Only this
+generator accepts AWS signing values only from the literal-safe alphabet
+`A-Z a-z 0-9 . _ ~ + / = -` (including the generated hex format); other values
+fail before replacement rather than being silently interpolated, unquoted, or
+cut at a comment. The generator never generates a signing key or falls back
+to a literal. Only this
 local key survives regeneration; other keys come from AWS. Validation and writes
 use a protected temporary file and atomic replacement, so a failed regeneration
 does not truncate the previous file. The shipped template has the same behavior;

@@ -183,3 +183,77 @@ def test_leading_whitespace_local_key_is_retained_once(bootstrap, prefix):
     assert result.count("WOODPECKER_GRPC_SECRET=") == 1
     assert "WOODPECKER_GRPC_SECRET=dummy-old\n" in result
     assert "dummy-conflicting-source" not in result
+
+
+@pytest.mark.parametrize("value", ["${UNSET_SIGNING_KEY}", "abc #def", "'quoted'", '"quoted"', r"back\slash", "$NAME"])
+def test_unsupported_aws_expression_refuses_before_replacement(bootstrap, value, capsys):
+    module, path, payload = bootstrap
+    original = "WOODPECKER_HOST=old\n"
+    path.write_text(original)
+    payload[GRPC] = value
+    assert path.read_text() == original
+    with pytest.raises(ValueError, match="WOODPECKER_GRPC_SECRET"):
+        module.main()
+    assert path.read_text() == original
+    captured = capsys.readouterr()
+    assert value not in captured.out + captured.err
+
+
+@pytest.mark.parametrize("value", ["${SIGNING_KEY}", '"${SIGNING_KEY}"', "$UNRESOLVED"])
+def test_interpolation_dependency_cannot_silently_rotate(bootstrap, value):
+    module, path, payload = bootstrap
+    original = "SIGNING_KEY=dummy-old\nWOODPECKER_GRPC_SECRET=" + value + "\n"
+    path.write_text(original)
+    payload[GRPC] = "dummy-conflicting-aws"
+    assert path.read_text() == original
+    with pytest.raises(ValueError, match="WOODPECKER_GRPC_SECRET"):
+        module.main()
+    assert path.read_text() == original
+
+
+@pytest.mark.parametrize("real_assignment", [False, True])
+def test_assignment_shaped_multiline_neighbor_is_not_the_key(bootstrap, real_assignment):
+    module, path, payload = bootstrap
+    neighbor = "OTHER='first\nWOODPECKER_GRPC_SECRET=decoy\nlast'\n"
+    path.write_text(neighbor + ("WOODPECKER_GRPC_SECRET=dummy-real\n" if real_assignment else ""))
+    payload[GRPC] = "dummy-aws"
+    module.main()
+    assert path.read_text().count("WOODPECKER_GRPC_SECRET=") == 1
+    assert "decoy" not in path.read_text()
+    expected = "dummy-real" if real_assignment else "dummy-aws"
+    assert f"WOODPECKER_GRPC_SECRET={expected}\n" in path.read_text()
+
+
+@pytest.mark.parametrize(("line", "token"), [
+    ("WOODPECKER_GRPC_SECRET = dummy-value", "dummy-value"),
+    ("WOODPECKER_GRPC_SECRET='dummy-value' # comment", "'dummy-value'"),
+    ("WOODPECKER_GRPC_SECRET='#literal'", "'#literal'"),
+    ("export WOODPECKER_GRPC_SECRET = 'literal${UNCHANGED}'", "'literal${UNCHANGED}'"),
+    ('WOODPECKER_GRPC_SECRET="escaped\\\\path" # comment', '"escaped\\\\path"'),
+])
+def test_valid_literal_syntax_preserves_consumer_token(bootstrap, line, token):
+    module, path, _ = bootstrap
+    path.write_text(line + "\n")
+    module.main()
+    assert f"WOODPECKER_GRPC_SECRET={token}\n" in path.read_text()
+
+
+@pytest.mark.parametrize("value", ["'one'junk'", '"one"junk"', "'unterminated", '"unterminated'])
+def test_malformed_quote_trailing_content_cannot_replace(bootstrap, value):
+    module, path, _ = bootstrap
+    original = "WOODPECKER_GRPC_SECRET=" + value + "\n"
+    path.write_text(original)
+    assert path.read_text() == original
+    with pytest.raises(ValueError, match="WOODPECKER_GRPC_SECRET"):
+        module.main()
+    assert path.read_text() == original
+
+
+@pytest.mark.parametrize("neighbor_key", ["OTHER.KEY", "OTHER-KEY"])
+def test_other_key_spellings_still_hide_multiline_decoys(bootstrap, neighbor_key):
+    module, path, payload = bootstrap
+    path.write_text(neighbor_key + "='first\nWOODPECKER_GRPC_SECRET=decoy\nlast'\n")
+    payload[GRPC] = "dummy-aws"
+    module.main()
+    assert "WOODPECKER_GRPC_SECRET=dummy-aws\n" in path.read_text()
+    assert "decoy" not in path.read_text()
