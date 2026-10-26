@@ -5,6 +5,8 @@
 - Amended: 2026-09-16 (#1015 - the skip-reason set narrowed to the inability class)
 - Amended: 2026-09-16 (#1017 - the retirement trigger was evaluated and met;
   the `/flow:auto_codex` alias is retired)
+- Amended: 2026-10-26 (#1580 - schema 4 records every model in a resumed
+  Codex implementation while the reviewer remains scalar and independent)
 - Issue: #934
 - Supersedes: the separate `/flow:auto_codex` review stage
 - Related: [ADR 0008](0008-instrument-negative-control-bound.md) (this stage's
@@ -160,6 +162,24 @@ declared. Nothing about the rule changes: a receipt naming one model on both
 sides is refused whichever way round it claims to be, and a receipt with no
 `direction` means the default one. Qwen and Gemma streams name no thread to read
 a model from, so those lanes are refused rather than attributed.
+
+**A resumed Codex implementation can have more than one implementer (#1580).**
+Schemas 1-3 retain the scalar `implementer` field. Schema 4 instead carries a
+nonempty, duplicate-free `implementers` list and no singular field. The writer
+derives the list, in first-observed order, from every `turn_context.payload.model`
+in the complete retained implementation rollout; callers cannot supply model
+names or select a line, time, turn or history window. One malformed line, one
+turn with no usable model, no turn contexts, or a missing/duplicated rollout
+still refuses because the complete set is then unknown. A single observed model
+continues to use the legacy scalar representation.
+
+The reviewer remains one independently derived scalar identity. Multiple
+reviewer turn models are still ambiguous and refuse. A `ran` schema-4 receipt is
+valid only when that reviewer intersects none of the implementer identities;
+the validator names an overlap and refuses the receipt for either member. This
+is the original property applied to the actual population, not an exception to
+it. Schema 4 also requires the Codex thread/rollout evidence pointer, including
+on a skip, so a hand-built list without its derivation cannot validate.
 
 That is a documented query rather than a summarising script, deliberately: a
 number that decides whether this stage becomes blocking should be derived in the
@@ -379,12 +399,16 @@ it is accumulating.
 
 ### Fresh flow model scope for a Codex implementer (#1557)
 
-Whole-thread attribution remains the default: conflicting model contexts refuse.
+Whole-thread attribution remains the default: complete mixed implementer
+contexts use schema 4, while unknown implementer contexts and mixed reviewer
+contexts refuse.
 An explicit `write --implementer-thread-id THREAD --implementer-flow-run RUN`
 can derive the implementer for a genuinely fresh flow run. This is available only
 for a `ran` receipt in the default review direction; reviewer and delegated
 attribution keep their existing rules. Schema 3 records this additional evidence;
-schemas 1 and 2 retain their contracts. Independence, scope, network and credential
+schemas 1 and 2 retain their contracts, and schema 4 is the whole-thread set
+representation rather than a substitute for bounded fresh-flow evidence.
+Independence, scope, network and credential
 checks still apply, and enrollment still refuses a missing receipt.
 
 The writer reads the complete, unfiltered original rollout snapshot. Only original

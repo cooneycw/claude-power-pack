@@ -178,9 +178,13 @@ because a codex process launched from a Claude session sees BOTH
 `CODEX_THREAD_ID` and `CLAUDE_CODE_SESSION_ID`; with neither flag the writer
 refuses that ambiguity and names both flags rather than guessing. The delegated
 lane (`/codex:auto`, `--implementer-exec-log`) never consults the environment.
-**A same-model review is not a counter-model review:** an independent subagent of
-the implementing model cannot be recorded as `ran` (the writer refuses reviewer
-== implementer), so a run with no OTHER model available records
+**A reviewer matching any implementing model is not a counter-model review.** A
+single-model implementation stays on schemas 1-3 with scalar `implementer`. If
+the complete retained Codex rollout contains multiple real implementer models,
+schema 4 carries all of them in a nonempty unique `implementers` list. The
+reviewer remains scalar and independently derived; the writer refuses `ran` when
+it intersects any member. Callers never choose a model or history window, and an
+unknown implementation turn still refuses. With no OTHER model available, record
 `skipped / reviewer-unavailable`.
 
 **The match is by ANCESTRY, and ancestry is not identity.** A receipt counts

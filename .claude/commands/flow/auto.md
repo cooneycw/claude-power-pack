@@ -1073,7 +1073,7 @@ collapse" note above).
    ships no Codex-callable skill at all - `codex/skills/` has no `review` or
    `codex` entry - and even if it did, invoking it from a session where
    `$CODEX_THREAD_ID` is set would be this session reviewing its own diff: the
-   same defect "a same-model review is not a counter-model review" (1d, below)
+   same defect "a reviewer matching any implementer is not a counter-model review" (1d, below)
    already refuses to record. `/second-opinion-start` exists as a Codex skill
    and genuinely reaches a non-Codex model, but its output is free-form MCP
    prose, not the `COUNTER_MODEL_REVIEW:` marker shape `$CM_RECEIPT parse`
@@ -1183,9 +1183,13 @@ collapse" note above).
    `CODEX_THREAD_ID` and `CLAUDE_CODE_SESSION_ID`; with neither flag the writer
    refuses that ambiguity and names both flags rather than guessing. The delegated
    lane (`/codex:auto`, `--implementer-exec-log`) never consults the environment.
-   **A same-model review is not a counter-model review:** an independent subagent of
-   the implementing model cannot be recorded as `ran` (the writer refuses reviewer
-   == implementer), so a run with no OTHER model available records
+   **A reviewer matching any implementing model is not a counter-model review.** A
+   single-model implementation stays on schemas 1-3 with scalar `implementer`. If
+   the complete retained Codex rollout contains multiple real implementer models,
+   schema 4 carries all of them in a nonempty unique `implementers` list. The
+   reviewer remains scalar and independently derived; the writer refuses `ran` when
+   it intersects any member. Callers never choose a model or history window, and an
+   unknown implementation turn still refuses. With no OTHER model available, record
    `skipped / reviewer-unavailable`.
 
    **`--scope` carries `/codex:code_review`'s `CODEX_REVIEW_SCOPE` marker
@@ -1283,7 +1287,7 @@ collapse" note above).
    ```
    ## Counter-model review
 
-   Reviewer: <model> (must not be the implementing model), N pass(es)
+   Reviewer: <model> (must not match any implementing model), N pass(es)
    Findings: X accepted (fixed), Y rejected, Z deferred
    Red cases proposed: P, already covered by our tests: Q
    Receipt: docs/measurements/counter-model/<file>.json
@@ -2365,15 +2369,18 @@ Key failure scenarios:
 
 ### Codex fresh-flow attribution (#1557)
 
-If an original Codex thread has earlier unrelated model contexts, the receipt writer
-may use `--implementer-thread-id THREAD --implementer-flow-run RUN` only when the
+If an original Codex thread has earlier unrelated model contexts, whole-thread
+attribution truthfully records all complete observed implementers in schema 4.
+The receipt writer may instead use
+`--implementer-thread-id THREAD --implementer-flow-run RUN` only when the
 original full rollout proves fresh creation, ordered mint/begin/approval, Git plan
 bindings and one model from the originating creation turn through snapshot EOF.
 Use the original review exec stream and actual review counts. The writer records
 schema 3 model-scope evidence, `approval_execution: "unverified"`, and
 measured-clean/unmeasured initial cleanliness; observed dirt
-refuses. Unsupported history remains a refusal. Never filter a rollout, choose a
-manual model window, invent a skip or bypass enrollment. `audit-flow RECEIPT` can
+refuses. Unsupported fresh-flow history falls back only to truthful whole-thread
+attribution; incomplete identity evidence remains a refusal. Never filter a rollout,
+choose a manual model window, invent a skip or bypass enrollment. `audit-flow RECEIPT` can
 re-derive the captured original prefix. See ADR 0007 for exact supported commands
 and the limit: byte hashes and visible model scope do not prove all authorship.
 

@@ -3695,7 +3695,13 @@ def test_fresh_flow_scope_refuses_committed_adverse_case(tmp_path: Path, case: d
 
 
 @requires_git
-def test_default_attribution_still_refuses_the_same_mixed_original(tmp_path: Path) -> None:
+def test_default_mixed_attribution_still_refuses_a_reviewer_overlap(tmp_path: Path) -> None:
+    """#1557's mixed original is now representable, but not independent.
+
+    Its reviewer used the registration model, which is also one of the full
+    rollout's implementers. Schema 4 must therefore preserve the refusal for
+    the stronger, actual reason instead of restoring the old ambiguity error.
+    """
     repo, args, _ = _fresh_flow_receipt_fixture(tmp_path)
     index = args.index("--implementer-flow-run")
     del args[index : index + 2]
@@ -3706,7 +3712,8 @@ def test_default_attribution_still_refuses_the_same_mixed_original(tmp_path: Pat
         text=True,
     )
     assert proc.returncode == 1
-    assert "turn_context records disagree" in proc.stderr
+    assert "reviewer overlaps the implementer set" in proc.stderr
+    assert "codex/registration-model" in proc.stderr
     assert not list((tmp_path / "receipts").glob("*.json"))
 
 
@@ -3836,3 +3843,198 @@ def test_scoped_writer_refuses_when_git_cannot_launch(tmp_path: Path) -> None:
     assert "fresh-flow scope refused" in written.stderr
     assert "Traceback" not in written.stderr
     assert not list(destination.glob("*.json"))
+
+
+# Issue #1580: a resumed Codex implementation may contain more than one real
+# turn model. The whole retained rollout remains the attribution boundary; the
+# representation widens, not the evidence window.
+def _mixed_codex_write(
+    tmp_path: Path,
+    reviewer_models: tuple[str, ...] = ("gpt-6-astra",),
+    implementer_models: tuple[str, ...] = ("gpt-6.1-sol", "gpt-5.6-sol"),
+) -> subprocess.CompletedProcess:
+    reviewer_thread = "cpp-1580-reviewer"
+    exec_log, sessions = _reviewer_derivation_fixture(
+        tmp_path, reviewer_models[0], thread_id=reviewer_thread
+    )
+    reviewer_rollout = next(sessions.rglob(f"*{reviewer_thread}.jsonl"))
+    with reviewer_rollout.open("a", encoding="utf-8") as stream:
+        for model in reviewer_models[1:]:
+            stream.write(json.dumps({"type": "turn_context", "payload": {"model": model}}) + "\n")
+
+    implementer_thread = "cpp-1580-implementer"
+    implementer_rollout = reviewer_rollout.with_name(f"rollout-{implementer_thread}.jsonl")
+    implementer_rollout.write_text(
+        _rollout_text(implementer_models[0])
+        + "".join(
+            json.dumps({"type": "turn_context", "payload": {"model": model}}) + "\n"
+            for model in implementer_models[1:]
+        ),
+        encoding="utf-8",
+    )
+    return _write_env(
+        tmp_path,
+        {},
+        "--issue", "1580", "--branch", "issue-1580-fixture", "--status", "ran",
+        "--scope", "unverified", "--passes", "1",
+        "--reviewer-exec-log", str(exec_log),
+        "--implementer-thread-id", implementer_thread,
+        "--codex-sessions-dir", str(sessions),
+    )
+
+
+def test_1580_mixed_codex_implementers_write_one_truthful_receipt(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
+    """The primary regression: this is RED against the schema-3-era writer."""
+    proc = _mixed_codex_write(tmp_path)
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next((tmp_path / "out").glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["schema"] == CM.SCHEMA_IMPLEMENTER_SET
+    assert "implementer" not in receipt
+    assert receipt["implementers"] == ["codex/gpt-6.1-sol", "codex/gpt-5.6-sol"]
+    assert receipt["reviewer"] == "codex/gpt-6-astra"
+    assert CM.validate(receipt, "mixed writer output") == []
+
+
+@pytest.mark.parametrize("reviewer", ["gpt-6.1-sol", "gpt-5.6-sol"])
+def test_1580_reviewer_overlap_with_EACH_implementer_is_refused(  # binary-guard: allow unscoped
+    tmp_path: Path, reviewer: str,
+) -> None:
+    """Load-bearing bad controls: a blind mixed-list writer fails these."""
+    proc = _mixed_codex_write(tmp_path, reviewer_models=(reviewer,))
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "reviewer overlaps the implementer set" in proc.stderr
+    assert f"codex/{reviewer}" in proc.stderr
+    assert not (tmp_path / "out").exists() or not list((tmp_path / "out").glob("*.json"))
+
+
+def test_1580_mixed_reviewer_evidence_remains_ambiguous(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
+    proc = _mixed_codex_write(tmp_path, reviewer_models=("gpt-6-astra", "gpt-6.1-sol"))
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "reviewing model is ambiguous" in proc.stderr
+    assert not (tmp_path / "out").exists() or not list((tmp_path / "out").glob("*.json"))
+
+
+@pytest.mark.parametrize(
+    "damaged",
+    [
+        json.dumps({"type": "turn_context", "payload": {}}),
+        json.dumps({"type": "turn_context", "payload": {"model": "   "}}),
+        '{"type":"turn_context","payload":{"model":"trunc',
+    ],
+)
+def test_1580_unknown_implementer_turns_never_become_an_identity_set(  # binary-guard: allow unscoped
+    tmp_path: Path, damaged: str,
+) -> None:
+    proc = _mixed_codex_write(tmp_path, implementer_models=("gpt-6.1-sol",))
+    rollout = next((tmp_path / "sessions").rglob("*cpp-1580-implementer.jsonl"))
+    rollout.write_text(rollout.read_text(encoding="utf-8") + damaged + "\n", encoding="utf-8")
+    # Re-run against the damaged source in a distinct destination.
+    if (tmp_path / "out").exists():
+        shutil.rmtree(tmp_path / "out")
+    exec_log = tmp_path / "reviewer-exec.jsonl"
+    proc = _write_env(
+        tmp_path, {}, "--issue", "1580", "--branch", "issue-1580-fixture",
+        "--status", "ran", "--scope", "unverified", "--passes", "1",
+        "--reviewer-exec-log", str(exec_log),
+        "--implementer-thread-id", "cpp-1580-implementer",
+        "--codex-sessions-dir", str(tmp_path / "sessions"),
+    )
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "implementing models are not established" in proc.stderr
+    assert not list((tmp_path / "out").glob("*.json"))
+
+
+def _schema_four_receipt() -> dict:
+    receipt = dict(
+        _RAN_BASE,
+        schema=CM.SCHEMA_IMPLEMENTER_SET,
+        reviewer="codex/gpt-6-astra",
+        implementers=["codex/gpt-6.1-sol", "codex/gpt-5.6-sol"],
+        implementer_evidence={"thread_id": "t", "rollout": "r.jsonl"},
+        passes=1,
+    )
+    del receipt["implementer"]
+    return receipt
+
+
+@pytest.mark.parametrize(
+    ("implementers", "fragment"),
+    [
+        ([], "nonempty"),
+        (["codex/gpt-6.1-sol", "codex/gpt-6.1-sol"], "unique"),
+        (["codex/gpt-6.1-sol", 7], "strings"),
+        (["codex/gpt-6.1-sol", "  "], "empty"),
+        ("codex/gpt-6.1-sol", "list"),
+    ],
+)
+def test_1580_malformed_implementer_sets_are_refused(
+    implementers: object, fragment: str,
+) -> None:
+    receipt = _schema_four_receipt()
+    receipt["implementers"] = implementers
+    problems = CM.validate(receipt, "schema 4")
+    assert any(fragment in problem for problem in problems), problems
+
+
+def test_1580_schema_four_refuses_scalar_plural_contradiction() -> None:
+    receipt = _schema_four_receipt()
+    receipt["implementer"] = "codex/gpt-6.1-sol"
+    problems = CM.validate(receipt, "schema 4")
+    assert any("must not carry singular 'implementer'" in problem for problem in problems), problems
+
+
+def test_1580_schema_four_requires_codex_rollout_evidence_in_delegated_direction() -> None:
+    """A direction label cannot make an unsupported implementer set derivable."""
+    receipt = _schema_four_receipt()
+    receipt.pop("scope", None)
+    receipt.update(
+        direction="delegated",
+        reviewer="claude/opus-fixture",
+        reviewer_evidence={"session_id": "review-session"},
+    )
+    assert CM.validate(receipt, "delegated schema 4") == []
+
+    receipt.update(
+        implementers=["qwen-code/a", "qwen-code/b"],
+        implementer_evidence={
+            "harness": "qwen-code",
+            "harness_version": "1",
+            "session_id": "implementer-session",
+            "transcript": "implementer.jsonl",
+        },
+    )
+    problems = CM.validate(receipt, "delegated schema 4")
+    assert any("recorded only for codex/ implementers" in problem for problem in problems), problems
+    assert any("Codex thread and rollout" in problem for problem in problems), problems
+
+
+def test_1580_legacy_scalar_schema_one_and_two_still_validate() -> None:
+    assert CM.validate(dict(_RAN_BASE, passes=1)) == []
+    assert CM.validate(
+        dict(_RAN_BASE, schema=CM.SCHEMA_EXTRA_PASSES, passes=3,
+             extra_passes_reason="orchestrator requested it")
+    ) == []
+    # Schema 3 is exercised through the real writer and audit paths above by
+    # test_fresh_flow_scope_derives_implementation_without_registration_model.
+
+
+def test_1580_uniformity_reader_counts_schema_four_by_its_scalar_reviewer(
+    tmp_path: Path,
+) -> None:
+    """The corpus reader measures reviewer diversity, not implementer arity."""
+    receipts = tmp_path / "receipts"
+    receipts.mkdir()
+    (receipts / "mixed.json").write_text(
+        json.dumps(_schema_four_receipt()), encoding="utf-8"
+    )
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "scripts/counter-model-uniformity-check.py"),
+         "--receipts-dir", str(receipts)],
+        capture_output=True, text=True, check=False, timeout=30,
+    )
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "examined=1 verifiable=0 distinct=1" in proc.stdout
