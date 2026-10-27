@@ -136,6 +136,12 @@ REQUIRED lane, then merge in the same breath:
 "${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-ci-status.sh <pr-head-sha> --path "$(git rev-parse --show-toplevel)" --strict-event --wait 1800
 ```
 
+On `FLOW_CI_STATUS: stalled` (issue #1552) the pipeline is dead, not slow: the
+server lists it `running` past the repository's own timeout, so its agent lost
+it. Do not merge and do not keep waiting; report the `FLOW_CI_URL` and the
+`FLOW_CI_STALLED_STEP` lines and stop - it must be killed on the Woodpecker
+server and CI re-run.
+
 On `FLOW_CI_STATUS: success`, run the merge below at once - or pass
 `--wait-ci[=SECS]` to the helper, which turns its required-check wait into a
 deadline. Updating the branch when the base moved costs a CI run, so it is the

@@ -65,7 +65,27 @@
 #   FLOW_CI_URL: <url|->
 #   FLOW_CI_WAIT: none | settled | expired (<N>s)   (issue #1262)
 #   FLOW_CI_FAILED_STEP: <name>        (repeated, only on failure)
-#   FLOW_CI_STATUS: success | failure | running | pending | not-found | unknown
+#   FLOW_CI_STALL_CHECK: checked | unavailable (<why>)   (issue #1552; only
+#                                       when a Woodpecker HTTP pipeline was
+#                                       running or terminal - see below)
+#   FLOW_CI_STALLED: past-timeout (<E>m > <T>m + <G>m grace)
+#                  | terminal-pipeline-live-children     (issue #1552)
+#   FLOW_CI_STALLED_STEP: <name>       (repeated, a step still reading running)
+#   FLOW_CI_STATUS: success | failure | running | pending | stalled
+#                   | not-found | unknown
+#
+# `stalled` (issue #1552) is a TERMINAL verdict: the server still lists the
+# pipeline `running` more than <grace> minutes past the repository's own
+# timeout. Woodpecker's AGENT enforces that timeout, so a pipeline its agent
+# still holds cannot outlive it; one that does was stranded by an agent restart
+# (measured on 3.19.0, cooneycw/woodpecker-baseline#2). It means "dead, kill it
+# on the server", never "slow, keep waiting" - and this helper kills nothing.
+# A pipeline already `killed`/`failure`/`error` whose workflow or steps still
+# read `running` keeps STATUS `failure` and adds the stalled lines: the cancel
+# did not land. `FLOW_CI_STALL_CHECK: unavailable` means the timeout or the
+# pipeline detail could not be read, so a `running` verdict was NOT checked for
+# staleness - unchecked, never "not stalled". The woodpecker-cli and GitHub
+# Actions lanes do not run this check and print no STALL_CHECK line.
 #
 # Env (test hooks - unset in normal use):
 #   FLOW_CI_CURL   override the `curl` binary
@@ -73,6 +93,9 @@
 #   FLOW_CI_WPCLI  override the `woodpecker-cli` binary
 #   FLOW_CI_GH     override the `gh` binary
 #   FLOW_CI_SLEEP  override the `sleep` binary (make --wait instant in tests)
+#   FLOW_CI_NOW    override "now" in epoch seconds (stalled-verdict tests)
+#   FLOW_CI_STALL_GRACE_MIN  minutes past the repo timeout before `stalled`
+#                  (default 10; not a test hook - a host may widen it)
 
 set -uo pipefail
 
@@ -155,6 +178,14 @@ FAILED_STEP_ERRORS=()
 # Set when the failed-step enumeration itself failed part-way: the names that
 # arrived are still reported, but an origin over a partial list is not one.
 FAILED_STEPS_INCOMPLETE=0
+# Stalled-pipeline evidence (issue #1552). STALL_CHECK stays empty on lanes
+# that never run the check, so emit() prints nothing rather than a false
+# "checked".
+STALL_CHECK=""
+STALLED_REASON=""
+STALLED_STEPS=()
+STALL_GRACE_MIN="${FLOW_CI_STALL_GRACE_MIN:-10}"
+[[ "$STALL_GRACE_MIN" =~ ^[0-9]+$ ]] || STALL_GRACE_MIN=10
 
 # The fetch-failure exit code `ci-stage-jq.py`, `ci-stage-git.py` and
 # `ci-stage-make.py` all return for "could not fetch" (issue #1411) - 75,
@@ -220,6 +251,8 @@ failure_origin() {
     fi
 }
 
+#: NEGATIVE-CONTROL: controls/flow-ci-status-stalled
+#: A server-listed `running` past the repo timeout is dead, not slow (issue #1552).
 #: NEGATIVE-CONTROL: controls/flow-ci-status-cancellation
 #: Provider Canceled errors are distinct from code failures (issue #1486).
 #: NEGATIVE-CONTROL: controls/flow-ci-status
@@ -250,6 +283,13 @@ emit() {
             fi
         done
         echo "FLOW_CI_FAILURE_ORIGIN: $(failure_origin)"
+    fi
+    [[ -n "$STALL_CHECK" ]] && echo "FLOW_CI_STALL_CHECK: $STALL_CHECK"
+    if [[ -n "$STALLED_REASON" ]]; then
+        echo "FLOW_CI_STALLED: $STALLED_REASON"
+        for step in ${STALLED_STEPS+"${STALLED_STEPS[@]}"}; do
+            echo "FLOW_CI_STALLED_STEP: $step"
+        done
     fi
     echo "FLOW_CI_STATUS: $STATUS"
     if [[ "$WANT_EXIT_CODE" -eq 1 && "$STATUS" == "failure" ]]; then
@@ -403,9 +443,64 @@ wp_api() {
         | "$CURL_BIN" -s --max-time 30 -H @- -H "Accept: application/json" "${WP_SERVER}$1" 2>/dev/null
 }
 
+# Stalled-pipeline check (issue #1552). Reads ONE pipeline's detail and decides,
+# from the server's own record, whether it is dead rather than slow:
+#   - running past the repo timeout + grace -> STATUS=stalled (terminal);
+#   - terminal pipeline with a workflow or step still `running` -> stalled
+#     lines beside the existing `failure` verdict (a cancel that did not land).
+# $1 = pipeline number, $2 = repo timeout in minutes ("" when unreadable).
+# Never cancels or kills anything; it only reports.
+wp_stall_check() {
+    local number="$1" timeout_min="$2" detail started now elapsed_min live step
+    STALLED_REASON=""; STALLED_STEPS=()
+    if ! detail="$(wp_api "/api/repos/$REPO_ID/pipelines/$number")" \
+        || ! jq -e '.workflows | type == "array"' <<<"$detail" >/dev/null 2>&1; then
+        STALL_CHECK="unavailable (pipeline detail unreadable)"
+        return 0
+    fi
+    live="$(jq -r '[.workflows[]? | select(.state == "running" or .state == "started")]
+                   + [.workflows[]?.children[]? | select(.state == "running" or .state == "started")]
+                   | length' <<<"$detail" 2>/dev/null)"
+    case "$STATUS" in
+        failure)
+            STALL_CHECK="checked"
+            if [[ "${live:-0}" =~ ^[0-9]+$ && "${live:-0}" -gt 0 ]]; then
+                STALLED_REASON="terminal-pipeline-live-children"
+            fi ;;
+        running)
+            if [[ ! "$timeout_min" =~ ^[0-9]+$ ]] || [[ "$timeout_min" -eq 0 ]]; then
+                STALL_CHECK="unavailable (repo timeout unreadable)"
+                return 0
+            fi
+            started="$(jq -r '.started // 0' <<<"$detail" 2>/dev/null)"
+            if [[ ! "$started" =~ ^[0-9]+$ ]] || [[ "$started" -eq 0 ]]; then
+                STALL_CHECK="unavailable (pipeline start time unreadable)"
+                return 0
+            fi
+            now="${FLOW_CI_NOW:-$(date +%s)}"
+            elapsed_min=$(( (now - started) / 60 ))
+            STALL_CHECK="checked"
+            if [[ "$elapsed_min" -gt $(( timeout_min + STALL_GRACE_MIN )) ]]; then
+                STATUS="stalled"
+                STALLED_REASON="past-timeout (${elapsed_min}m > ${timeout_min}m + ${STALL_GRACE_MIN}m grace)"
+            fi ;;
+        *) return 0 ;;
+    esac
+    if [[ -n "$STALLED_REASON" ]]; then
+        while IFS= read -r step; do
+            [[ -n "$step" ]] && STALLED_STEPS+=("$step")
+        done < <(jq -r '.workflows[]?.children[]? | select(.state == "running" or .state == "started") | .name' <<<"$detail" 2>/dev/null)
+    fi
+    return 0
+}
+
 # ── Woodpecker lookup ──────────────────────────────────────────────────────
 if [[ "$HAVE_JQ" -eq 1 && -n "$WP_TOKEN" && -n "$WP_SERVER" ]]; then
-    REPO_ID="$(wp_api "/api/repos/lookup/$REPO" | jq -r '.id // empty' 2>/dev/null)"
+    REPO_JSON="$(wp_api "/api/repos/lookup/$REPO")"
+    REPO_ID="$(jq -r '.id // empty' <<<"$REPO_JSON" 2>/dev/null)"
+    # Minutes; the AGENT enforces it, which is what makes "past it" evidence
+    # of a lost agent rather than of a slow job (issue #1552).
+    REPO_TIMEOUT_MIN="$(jq -r '.timeout // empty' <<<"$REPO_JSON" 2>/dev/null)"
     if [[ -n "$REPO_ID" ]]; then
         PROVIDER="woodpecker"
         DEADLINE=$(( $(date +%s) + WAIT_SECS ))
@@ -434,9 +529,14 @@ if [[ "$HAVE_JQ" -eq 1 && -n "$WP_TOKEN" && -n "$WP_SERVER" ]]; then
             else
                 PIPELINE="-"; STATUS="not-found"
             fi
+            # Dead-versus-slow (issue #1552): may turn `running` into the
+            # terminal `stalled`, or annotate a `failure` whose children live.
+            if [[ "$PIPELINE" != "-" && ( "$STATUS" == "running" || "$STATUS" == "failure" ) ]]; then
+                wp_stall_check "$PIPELINE" "$REPO_TIMEOUT_MIN"
+            fi
 
             # Terminal, or out of patience - and SAY which (issue #1262).
-            if [[ "$STATUS" == "success" || "$STATUS" == "failure" || "$STATUS" == "unknown" ]]; then
+            if [[ "$STATUS" == "success" || "$STATUS" == "failure" || "$STATUS" == "stalled" || "$STATUS" == "unknown" ]]; then
                 [[ "$WAIT_SECS" -gt 0 ]] && WAIT_STATE="settled"
                 break
             fi

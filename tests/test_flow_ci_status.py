@@ -1407,3 +1407,139 @@ def test_cli_cancellation_is_separate_and_joined_without_borrowing(
     assert m["FLOW_CI_FAILED_STEP"] == ["validate"]
     assert m["FLOW_CI_STATUS"] == ["failure"]
     assert m["FLOW_CI_FAILURE_ORIGIN"] == [expected]
+
+
+# ── Stalled pipelines (issue #1552) ─────────────────────────────────────────
+# Shape measured on CPP pipelines 3372/3374 (Woodpecker 3.19.0, 2026-10-25): an
+# agent restart strands the workflow; the server keeps it `running` forever,
+# past the repo timeout the AGENT enforces. These tests fix "now" so the
+# elapsed time is exact.
+
+STARTED = 1_792_971_725
+TIMEOUT_MIN = 60
+
+
+def _stall_routes(status: str, *, timeout=TIMEOUT_MIN, workflow_state="running",
+                  children=None, started=STARTED) -> dict:
+    if children is None:
+        children = [
+            {"name": "shellcheck", "state": "success"},
+            {"name": "validate", "state": "running"},
+            {"name": "negative-controls", "state": "running"},
+            {"name": "mutation-probe", "state": "pending"},
+        ]
+    repo = {"id": 1}
+    if timeout is not None:
+        repo["timeout"] = timeout
+    return {
+        "/api/repos/lookup/": repo,
+        "pipelines?per_page": [_pipeline(3374, SHA, status)],
+        "pipelines/3374": {
+            "number": 3374,
+            "status": status,
+            "started": started,
+            "workflows": [{"name": "woodpecker", "state": workflow_state,
+                           "children": children}],
+        },
+    }
+
+
+def _stall_run(tmp_path: Path, routes: dict, now: int, *args: str):
+    curl = _write_fake_curl(tmp_path, routes, tmp_path / "argv.log")
+    return _run(tmp_path, SHA, "--repo", "o/r", *args,
+                env={"FLOW_CI_CURL": str(curl), "FLOW_CI_NOW": str(now)})
+
+
+@requires_bash
+def test_running_past_repo_timeout_is_stalled_and_names_live_steps(tmp_path):
+    """71 min into a 60-min-timeout repo: dead, not slow - and terminal, so a
+    --wait ends at once instead of waiting out its whole window."""
+    now = STARTED + 71 * 60
+    result = _stall_run(tmp_path, _stall_routes("running"), now, "--wait", "1800")
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_STATUS"] == ["stalled"], result.stdout + result.stderr
+    assert m["FLOW_CI_STALL_CHECK"] == ["checked"]
+    assert m["FLOW_CI_STALLED"] == ["past-timeout (71m > 60m + 10m grace)"]
+    assert m["FLOW_CI_STALLED_STEP"] == ["validate", "negative-controls"]
+    assert m["FLOW_CI_WAIT"] == ["settled"]
+    assert result.returncode == 0
+
+
+@requires_bash
+@pytest.mark.parametrize("minutes", [5, 59, 70])
+def test_long_running_inside_timeout_plus_grace_stays_running(tmp_path, minutes):
+    """The healthy long job #1552's acceptance names: NOT reported stalled.
+    70 min is exactly timeout + grace, still inside the bound."""
+    now = STARTED + minutes * 60
+    m = _markers(_stall_run(tmp_path, _stall_routes("running"), now).stdout)
+    assert m["FLOW_CI_STATUS"] == ["running"]
+    assert m["FLOW_CI_STALL_CHECK"] == ["checked"]
+    assert "FLOW_CI_STALLED" not in m
+    assert "FLOW_CI_STALLED_STEP" not in m
+
+
+@requires_bash
+def test_grace_is_configurable(tmp_path):
+    now = STARTED + 71 * 60
+    curl = _write_fake_curl(tmp_path, _stall_routes("running"), tmp_path / "argv.log")
+    result = _run(tmp_path, SHA, "--repo", "o/r",
+                  env={"FLOW_CI_CURL": str(curl), "FLOW_CI_NOW": str(now),
+                       "FLOW_CI_STALL_GRACE_MIN": "30"})
+    assert _markers(result.stdout)["FLOW_CI_STATUS"] == ["running"]
+
+
+@requires_bash
+@pytest.mark.parametrize("routes_kwargs,reason", [
+    ({"timeout": None}, "unavailable (repo timeout unreadable)"),
+    ({"timeout": 0}, "unavailable (repo timeout unreadable)"),
+    ({"started": 0}, "unavailable (pipeline start time unreadable)"),
+])
+def test_unreadable_inputs_leave_running_unchecked_not_cleared(tmp_path, routes_kwargs, reason):
+    """Silence must not read as 'checked and not stalled'."""
+    now = STARTED + 500 * 60
+    m = _markers(_stall_run(tmp_path, _stall_routes("running", **routes_kwargs), now).stdout)
+    assert m["FLOW_CI_STATUS"] == ["running"]
+    assert m["FLOW_CI_STALL_CHECK"] == [reason]
+    assert "FLOW_CI_STALLED" not in m
+
+
+@requires_bash
+def test_unreadable_detail_is_unavailable(tmp_path):
+    routes = _stall_routes("running")
+    del routes["pipelines/3374"]  # the fake curl then answers '{}'
+    m = _markers(_stall_run(tmp_path, routes, STARTED + 500 * 60).stdout)
+    assert m["FLOW_CI_STATUS"] == ["running"]
+    assert m["FLOW_CI_STALL_CHECK"] == ["unavailable (pipeline detail unreadable)"]
+
+
+@requires_bash
+def test_killed_pipeline_with_live_children_keeps_failure_and_flags_it(tmp_path):
+    """The 3374 shape after an API cancel: pipeline killed, workflow and two
+    steps still running. The verdict stays `failure`; the stalled lines say the
+    cancel did not land."""
+    m = _markers(_stall_run(tmp_path, _stall_routes("killed"), STARTED + 30 * 60).stdout)
+    assert m["FLOW_CI_STATUS"] == ["failure"]
+    assert m["FLOW_CI_STALL_CHECK"] == ["checked"]
+    assert m["FLOW_CI_STALLED"] == ["terminal-pipeline-live-children"]
+    assert m["FLOW_CI_STALLED_STEP"] == ["validate", "negative-controls"]
+
+
+@requires_bash
+def test_killed_pipeline_fully_terminal_has_no_stalled_line(tmp_path):
+    children = [{"name": "validate", "state": "killed"},
+                {"name": "negative-controls", "state": "killed"}]
+    routes = _stall_routes("killed", workflow_state="killed", children=children)
+    m = _markers(_stall_run(tmp_path, routes, STARTED + 30 * 60).stdout)
+    assert m["FLOW_CI_STATUS"] == ["failure"]
+    assert m["FLOW_CI_STALL_CHECK"] == ["checked"]
+    assert "FLOW_CI_STALLED" not in m
+
+
+@requires_bash
+def test_success_runs_no_stall_check(tmp_path):
+    routes = _stall_routes("success", workflow_state="success",
+                           children=[{"name": "validate", "state": "success"}])
+    m = _markers(_stall_run(tmp_path, routes, STARTED + 500 * 60).stdout)
+    assert m["FLOW_CI_STATUS"] == ["success"]
+    assert "FLOW_CI_STALL_CHECK" not in m
+    assert "FLOW_CI_STALLED" not in m
