@@ -4,6 +4,9 @@ description: Overview of Claude Power Pack (CPP) commands
 
 # Claude Power Pack Commands
 
+New to the workflow? Read the [short flow and permission guide](../../../docs/agents/flow-permissions-guide.md)
+for command choices, setup menus and what the optional allowlist changes.
+
 CPP provides commands for setting up and managing Claude Code enhancements.
 
 ## Available Commands
