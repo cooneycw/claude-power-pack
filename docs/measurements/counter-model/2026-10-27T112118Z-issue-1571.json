@@ -1,0 +1,27 @@
+{
+  "branch": "issue-1571-host-preflight-gaps-cpp-flows-assume-prerequisites",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "e461d545ef9ad52aefc709d787e77c3e4fbb1658",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1571",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 1,
+  "recorded_at": "2026-10-27T11:21:18Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/27/rollout-2026-10-27T07-20-37-01a17d17-3da7-73e3-a091-32557ee3ba44.jsonl",
+    "thread_id": "01a17d17-3da7-73e3-a091-32557ee3ba44"
+  },
+  "schema": 1,
+  "scope": "full",
+  "status": "ran"
+}
