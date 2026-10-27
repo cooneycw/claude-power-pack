@@ -498,10 +498,11 @@ instrument CAN say.
 | `gh-pr-merge.sh` `base_contained_now` | the base could not be fetched or read | a DOCUMENTED FAIL-OPEN: `GH_PR_MERGE_BASE_AT_SQUASH: skipped` and the merge PROCEEDS, matching the older `BASE_MOVED: skipped`; labelled `skipped`, never `0` (#1300) | merge helper |
 | `gh-pr-merge.sh` observed checks (#610) | required contexts not enumerable | a DOCUMENTED FAIL-OPEN: `GH_PR_MERGE_CI_WAIT: observed-fail-open` or `none-observed`, never `green`; GitHub enforces the posture at squash time | merge helper |
 | `flow-ci-status.sh` | no provider answered | `FLOW_CI_STATUS: unknown`, exit 0 by design (advisory); `FLOW_CI_WAIT: expired` separates a timed-out wait from one look | CI status |
+| `flow-ci-status.sh` stall check | the repo timeout, start time or pipeline detail was unreadable | `FLOW_CI_STALL_CHECK: unavailable (<why>)` beside `running`: staleness NOT checked, never "not stalled"; lanes that run no check print no line (#1552) | CI status |
 
 ## The instance index
 
-The thirty-one instances this contract was derived from. Kept here, in the guidance,
+The thirty-two instances this contract was derived from. Kept here, in the guidance,
 rather than in the issue that indexed them - a finding that lives only in a closed
 issue is the condition #834 was filed to end. Link new instances here.
 
@@ -538,6 +539,7 @@ issue is the condition #834 was filed to end. Link new instances here.
 | kyle#994 | is this variable one of the nine safe ones | is this variable safe to forward | fixed |
 | kyle#997 | what did the task *wrapper* exit with | what did the *watch* exit with | fixed |
 | #1206 | did the masking step run without error | was the emitted output masked | fixed |
+| #1552 | is the server still listing this pipeline `running` | is the job still alive (an agent restart strands it `running` forever) | fixed (detection: `stalled` past the agent-enforced timeout); recovery stays upstream |
 
 Three further instances are not in the table at all: they were found in
 instruments and in relays rather than in shipped checks, so there is no detector

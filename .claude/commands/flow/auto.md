@@ -1664,6 +1664,9 @@ fill this step.
    #1262; read `FLOW_CI_EVENT`. `--strict-event` makes that lane a FILTER for
    this recipe: a green pipeline on the other lane must not end the wait, so an
    absent required-lane pipeline stays `not-found` and the wait continues.) On
+   `stalled` (issue #1552) the pipeline is dead, not slow: do not merge and do
+   not keep waiting - report the URL and stalled steps and stop for the user,
+   who must kill it on the Woodpecker server and re-run CI. On
    `success`, invoke the merge helper at once, PINNED to the sha that wait
    was keyed on (issue #1543): pass `--match-head-commit <pr-head-sha>`, so a
    push that lands between the green and the squash is refused (exit 11)
@@ -2084,7 +2087,10 @@ FLOW_CI_WAIT: none | settled | expired (<N>s)
 FLOW_CI_FAILED_STEP: <name>        (repeated, only on failure)
 FLOW_CI_PRECODE_FAILURE: <name>    (repeated, only on failure; a failed `clone`-type step, or since #1411 a `*-stage` step exiting 75 - a stager that could not fetch)
 FLOW_CI_FAILURE_ORIGIN: precode | code | mixed | unknown   (only on failure)
-FLOW_CI_STATUS: success | failure | running | pending | not-found | unknown
+FLOW_CI_STALL_CHECK: checked | unavailable (<why>)   (Woodpecker HTTP lane, issue #1552)
+FLOW_CI_STALLED: past-timeout (...) | terminal-pipeline-live-children
+FLOW_CI_STALLED_STEP: <name>       (repeated, a step the server still lists running)
+FLOW_CI_STATUS: success | failure | running | pending | stalled | not-found | unknown
 ```
 
 Act on `FLOW_CI_STATUS`:
@@ -2103,9 +2109,23 @@ Act on `FLOW_CI_STATUS`:
   that uses `flow-ci-status.sh`: name a step that way only if exit 75 really
   means a fetch failure there. `unknown`
   is NOT `code`: the lane could not classify the step, so read the step log.
+- `stalled` -> **STOP**. Do not deploy, and do not wait or re-run: the
+  server still lists the pipeline `running` more than the grace period past the
+  repository's own timeout, which the agent enforces - so its agent lost it,
+  typically to a restart (issue #1552; measured in
+  cooneycw/woodpecker-baseline#2). Report `FLOW_CI_URL`, the `FLOW_CI_STALLED`
+  reason and every `FLOW_CI_STALLED_STEP`, and tell the user it needs killing
+  on the Woodpecker server. The helper reports only; it never cancels, and an
+  API cancel is known NOT to finish such a workflow.
+- `failure` WITH a `FLOW_CI_STALLED: terminal-pipeline-live-children` line ->
+  handle as `failure` above, and also report that the pipeline ended while
+  steps are still listed running (a cancel that did not land).
 - `running` / `pending` -> the wait window expired with the pipeline still
   going. Non-blocking: report that CI was still running and let the user decide
-  whether to wait, rather than deploying on an unknown result.
+  whether to wait, rather than deploying on an unknown result. Read
+  `FLOW_CI_STALL_CHECK` with it: `checked` means it is still inside its
+  timeout; `unavailable (...)` means staleness was NOT checked, so say so
+  rather than calling it merely slow.
 - `not-found` -> no pipeline carries this SHA (CI may not be wired for the repo,
   or the push has not registered yet). Warn and proceed. **Read `FLOW_CI_WAIT`
   first (issue #1262):** `not-found` with `FLOW_CI_WAIT: expired (<N>s)` is a

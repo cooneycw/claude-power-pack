@@ -1,0 +1,38 @@
+{
+  "gate": "scripts/flow-ci-status.sh",
+  "invocation": [
+    "sh",
+    "controls/flow-ci-status-stalled/run-case.sh",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_CI_STALLED_CONTROL: stalled$",
+  "good_signal": "^FLOW_CI_STALLED_CONTROL: running$",
+  "unavailable_signal": "^FLOW_CI_STALLED_CONTROL: unavailable",
+  "ci_deps_provided_by_invocation": [
+    "curl"
+  ],
+  "limits": "Checks the issue #1552 dead-versus-slow verdict on the HTTP lane only, using the measured pipeline 3374 shape (status running, workflow and two steps running) with repo timeout 60 and a fixed clock: 71 minutes elapsed must report stalled, 59 minutes must stay running. Does not establish the woodpecker-cli or GitHub Actions lanes (which run no stall check), the --wait loop, the terminal-pipeline-live-children annotation (covered by tests/test_flow_ci_status.py), or that a real orphan exceeds the timeout on every Woodpecker version. Anchor is the pre-change source at ed73d2bd6402ca3ba7e04f034e62f9c99eb7fa77; no network is used.",
+  "cases": [
+    {
+      "name": "bad-past-timeout",
+      "input": "cases/bad-past-timeout",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-inside-timeout",
+      "input": "cases/good-inside-timeout",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "ed73d2bd6402ca3ba7e04f034e62f9c99eb7fa77",
+      "origin": "scripts/flow-ci-status.sh",
+      "path": "anchors/pre-1552-flow-ci-status.sh",
+      "sha256": "71a3d705fd222e4eb44425c87460111fcba49d95d8e5689555d31601e55862ac"
+    }
+  ]
+}
