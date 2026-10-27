@@ -2,6 +2,9 @@
 
 Streamlined worktree-based development workflow. No locks, no Redis - just git.
 
+New to the workflow? Read the [short flow and permission guide](../../../docs/agents/flow-permissions-guide.md)
+for command choices, setup menus and what the optional allowlist changes.
+
 ## Commands
 
 | Command | Purpose |
