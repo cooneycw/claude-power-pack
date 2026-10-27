@@ -1588,3 +1588,36 @@ def test_malformed_children_population_is_unavailable_not_checked(tmp_path):
     assert m["FLOW_CI_STATUS"] == ["failure"]
     assert m["FLOW_CI_STALL_CHECK"] == ["unavailable (pipeline detail unreadable)"]
     assert "FLOW_CI_STALLED" not in m
+
+
+@requires_bash
+@pytest.mark.parametrize("bad_start", ["unknown", 1792971725.5, None])
+def test_non_integer_workflow_start_is_unavailable_not_a_crash(tmp_path, bad_start):
+    """Counter-model finding (pass 2): a string or fractional start reached bash
+    arithmetic and aborted before any verdict was emitted."""
+    routes = _stall_routes("running")
+    routes["pipelines/3374"]["workflows"][0]["started"] = bad_start
+    result = _stall_run(tmp_path, routes, STARTED + 500 * 60)
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_STATUS"] == ["running"], result.stdout + result.stderr
+    assert m["FLOW_CI_STALL_CHECK"] == ["unavailable (workflow start time unreadable)"]
+
+
+@requires_bash
+def test_workflow_without_state_is_unavailable_not_checked(tmp_path):
+    """Counter-model finding (pass 2): a stateless workflow left the timing
+    population empty while the line still claimed `checked`."""
+    routes = _stall_routes("running")
+    del routes["pipelines/3374"]["workflows"][0]["state"]
+    m = _markers(_stall_run(tmp_path, routes, STARTED + 500 * 60).stdout)
+    assert m["FLOW_CI_STATUS"] == ["running"]
+    assert m["FLOW_CI_STALL_CHECK"] == ["unavailable (pipeline detail unreadable)"]
+
+
+@requires_bash
+def test_running_pipeline_with_no_running_workflow_is_unavailable(tmp_path):
+    routes = _stall_routes("running", workflow_state="pending",
+                           children=[{"name": "validate", "state": "pending"}])
+    m = _markers(_stall_run(tmp_path, routes, STARTED + 500 * 60).stdout)
+    assert m["FLOW_CI_STATUS"] == ["running"]
+    assert m["FLOW_CI_STALL_CHECK"] == ["unavailable (no running workflow to time)"]

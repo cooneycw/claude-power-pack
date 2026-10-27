@@ -459,7 +459,9 @@ wp_stall_check() {
     if ! detail="$(wp_api "/api/repos/$REPO_ID/pipelines/$number")" \
         || ! jq -e '(.workflows | type == "array")
                     and all(.workflows[]; type == "object"
-                            and ((.children // []) | type == "array"))' <<<"$detail" >/dev/null 2>&1; then
+                            and (.state | type == "string")
+                            and ((.children // []) | type == "array")
+                            and all((.children // [])[]; type == "object" and (.state | type == "string")))' <<<"$detail" >/dev/null 2>&1; then
         STALL_CHECK="unavailable (pipeline detail unreadable)"
         return 0
     fi
@@ -493,16 +495,23 @@ wp_stall_check() {
             # The timeout bounds each WORKFLOW, not the pipeline (counter-model
             # review): a healthy workflow can start after a long sibling ends.
             # So measure the oldest RUNNING workflow from its own start.
-            if ! oldest="$(jq -er '[.workflows[] | select(.state == "running" or .state == "started") | (.started // 0)]
-                                  | if length == 0 then "none" elif any(. <= 0) then "unreadable" else min end' <<<"$detail" 2>/dev/null)"; then
+            # A positive INTEGER epoch, or unreadable (counter-model review: a
+            # string or fractional start reached bash arithmetic and aborted).
+            if ! oldest="$(jq -er '[.workflows[] | select(.state == "running" or .state == "started") | .started]
+                                  | if length == 0 then "none"
+                                    elif any(.[]; (type != "number") or (. != floor) or (. <= 0)) then "unreadable"
+                                    else min end' <<<"$detail" 2>/dev/null)"; then
                 STALL_CHECK="unavailable (pipeline detail unreadable)"
                 return 0
             fi
             case "$oldest" in
-                none) STALL_CHECK="checked"; return 0 ;;   # nothing running yet
+                # Nothing to time is not "inside the timeout" (counter-model review).
+                none) STALL_CHECK="unavailable (no running workflow to time)"; return 0 ;;
                 unreadable) STALL_CHECK="unavailable (workflow start time unreadable)"; return 0 ;;
             esac
+            [[ "$oldest" =~ ^[0-9]+$ ]] || { STALL_CHECK="unavailable (workflow start time unreadable)"; return 0; }
             now="${FLOW_CI_NOW:-$(date +%s)}"
+            [[ "$now" =~ ^[0-9]+$ ]] || now="$(date +%s)"
             elapsed_min=$(( (now - oldest) / 60 ))
             STALL_CHECK="checked"
             if [[ "$elapsed_min" -gt $(( timeout_min + STALL_GRACE_MIN )) ]]; then
