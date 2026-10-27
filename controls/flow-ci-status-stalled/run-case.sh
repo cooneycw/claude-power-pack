@@ -39,7 +39,7 @@ case "\$url" in
         ;;
     *"pipelines/3374"*)
         cat <<'JSON'
-{"number": 3374, "status": "running", "started": $STARTED, "workflows": [{"name": "woodpecker", "state": "running", "children": [
+{"number": 3374, "status": "running", "started": $STARTED, "workflows": [{"name": "woodpecker", "state": "running", "started": $STARTED, "children": [
     {"name": "shellcheck", "state": "success"},
     {"name": "validate", "state": "running"},
     {"name": "negative-controls", "state": "running"},
@@ -54,7 +54,7 @@ esac
 exit 0
 STUB
 # The quoted JSON heredoc above cannot expand STARTED; substitute it.
-sed -i "s/\"started\": \\\$STARTED/\"started\": $STARTED/" "$T/bin/curl"
+sed -i "s/\"started\": \\\$STARTED/\"started\": $STARTED/g" "$T/bin/curl"
 chmod +x "$T/bin/curl"
 
 resolved=$(PATH="$T/bin:$PATH" command -v curl)

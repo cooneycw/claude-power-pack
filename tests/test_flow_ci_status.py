@@ -1439,7 +1439,7 @@ def _stall_routes(status: str, *, timeout=TIMEOUT_MIN, workflow_state="running",
             "status": status,
             "started": started,
             "workflows": [{"name": "woodpecker", "state": workflow_state,
-                           "children": children}],
+                           "started": started, "children": children}],
         },
     }
 
@@ -1492,7 +1492,7 @@ def test_grace_is_configurable(tmp_path):
 @pytest.mark.parametrize("routes_kwargs,reason", [
     ({"timeout": None}, "unavailable (repo timeout unreadable)"),
     ({"timeout": 0}, "unavailable (repo timeout unreadable)"),
-    ({"started": 0}, "unavailable (pipeline start time unreadable)"),
+    ({"started": 0}, "unavailable (workflow start time unreadable)"),
 ])
 def test_unreadable_inputs_leave_running_unchecked_not_cleared(tmp_path, routes_kwargs, reason):
     """Silence must not read as 'checked and not stalled'."""
@@ -1542,4 +1542,49 @@ def test_success_runs_no_stall_check(tmp_path):
     m = _markers(_stall_run(tmp_path, routes, STARTED + 500 * 60).stdout)
     assert m["FLOW_CI_STATUS"] == ["success"]
     assert "FLOW_CI_STALL_CHECK" not in m
+    assert "FLOW_CI_STALLED" not in m
+
+
+@requires_bash
+def test_timeout_is_measured_per_workflow_not_from_pipeline_start(tmp_path):
+    """Counter-model finding: a healthy second workflow that started after a
+    50-minute first one is 21 minutes old at pipeline minute 71 - not stalled."""
+    routes = _stall_routes("running")
+    routes["pipelines/3374"]["workflows"] = [
+        {"name": "build", "state": "success", "started": STARTED,
+         "children": [{"name": "compile", "state": "success"}]},
+        {"name": "deploy", "state": "running", "started": STARTED + 50 * 60,
+         "children": [{"name": "rollout", "state": "running"}]},
+    ]
+    m = _markers(_stall_run(tmp_path, routes, STARTED + 71 * 60).stdout)
+    assert m["FLOW_CI_STATUS"] == ["running"]
+    assert m["FLOW_CI_STALL_CHECK"] == ["checked"]
+    assert "FLOW_CI_STALLED" not in m
+    # ...and the same second workflow past ITS bound is stalled.
+    m = _markers(_stall_run(tmp_path, routes, STARTED + (50 + 71) * 60).stdout)
+    assert m["FLOW_CI_STATUS"] == ["stalled"]
+    assert m["FLOW_CI_STALLED_STEP"] == ["rollout"]
+
+
+@requires_bash
+def test_detail_status_overrides_a_stale_running_list_entry(tmp_path):
+    """Counter-model finding: the pipeline finished between the list read and
+    the detail read; judge the detail, never the stale list `running`."""
+    routes = _stall_routes("running", workflow_state="success",
+                           children=[{"name": "validate", "state": "success"}])
+    routes["pipelines/3374"]["status"] = "success"
+    m = _markers(_stall_run(tmp_path, routes, STARTED + 71 * 60).stdout)
+    assert m["FLOW_CI_STATUS"] == ["success"]
+    assert "FLOW_CI_STALLED" not in m
+
+
+@requires_bash
+def test_malformed_children_population_is_unavailable_not_checked(tmp_path):
+    """Counter-model finding: a jq failure on the child population must not
+    read as 'checked, no live children'."""
+    routes = _stall_routes("killed", workflow_state="killed")
+    routes["pipelines/3374"]["workflows"][0]["children"] = {}
+    m = _markers(_stall_run(tmp_path, routes, STARTED + 30 * 60).stdout)
+    assert m["FLOW_CI_STATUS"] == ["failure"]
+    assert m["FLOW_CI_STALL_CHECK"] == ["unavailable (pipeline detail unreadable)"]
     assert "FLOW_CI_STALLED" not in m

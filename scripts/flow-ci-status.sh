@@ -74,16 +74,17 @@
 #   FLOW_CI_STATUS: success | failure | running | pending | stalled
 #                   | not-found | unknown
 #
-# `stalled` (issue #1552) is a TERMINAL verdict: the server still lists the
-# pipeline `running` more than <grace> minutes past the repository's own
-# timeout. Woodpecker's AGENT enforces that timeout, so a pipeline its agent
-# still holds cannot outlive it; one that does was stranded by an agent restart
+# `stalled` (issue #1552) is a TERMINAL verdict: a workflow the server still
+# lists `running` has run more than <grace> minutes past the repository's own
+# timeout, measured from THAT workflow's start. Woodpecker's AGENT enforces the
+# timeout per workflow, so a workflow its agent still holds cannot outlive it;
+# one that does was stranded by an agent restart
 # (measured on 3.19.0, cooneycw/woodpecker-baseline#2). It means "dead, kill it
 # on the server", never "slow, keep waiting" - and this helper kills nothing.
 # A pipeline already `killed`/`failure`/`error` whose workflow or steps still
 # read `running` keeps STATUS `failure` and adds the stalled lines: the cancel
-# did not land. `FLOW_CI_STALL_CHECK: unavailable` means the timeout or the
-# pipeline detail could not be read, so a `running` verdict was NOT checked for
+# did not land. `FLOW_CI_STALL_CHECK: unavailable` means the timeout, a running
+# workflow's start or the pipeline detail could not be read, so a `running` verdict was NOT checked for
 # staleness - unchecked, never "not stalled". The woodpecker-cli and GitHub
 # Actions lanes do not run this check and print no STALL_CHECK line.
 #
@@ -451,34 +452,58 @@ wp_api() {
 # $1 = pipeline number, $2 = repo timeout in minutes ("" when unreadable).
 # Never cancels or kills anything; it only reports.
 wp_stall_check() {
-    local number="$1" timeout_min="$2" detail started now elapsed_min live step
+    local number="$1" timeout_min="$2" detail detail_state live oldest now elapsed_min step
     STALLED_REASON=""; STALLED_STEPS=()
+    # The population is validated as a whole (counter-model review): a
+    # malformed `children` must read unavailable, never "checked, none live".
     if ! detail="$(wp_api "/api/repos/$REPO_ID/pipelines/$number")" \
-        || ! jq -e '.workflows | type == "array"' <<<"$detail" >/dev/null 2>&1; then
+        || ! jq -e '(.workflows | type == "array")
+                    and all(.workflows[]; type == "object"
+                            and ((.children // []) | type == "array"))' <<<"$detail" >/dev/null 2>&1; then
         STALL_CHECK="unavailable (pipeline detail unreadable)"
         return 0
     fi
-    live="$(jq -r '[.workflows[]? | select(.state == "running" or .state == "started")]
-                   + [.workflows[]?.children[]? | select(.state == "running" or .state == "started")]
-                   | length' <<<"$detail" 2>/dev/null)"
+    # Reconcile with the DETAIL's status (counter-model review): a pipeline that
+    # finished between the list read and this one must not be judged on the
+    # list's stale `running`.
+    detail_state="$(jq -r '.status // empty' <<<"$detail" 2>/dev/null)"
+    if [[ "$STATUS" == "running" && -n "$detail_state" && "$detail_state" != "running" && "$detail_state" != "started" ]]; then
+        case "$detail_state" in
+            success)                 STATUS="success" ;;
+            failure|error|killed)    STATUS="failure" ;;
+            pending|blocked|created) STATUS="pending" ;;
+            *)                       STATUS="unknown" ;;
+        esac
+    fi
+    if ! live="$(jq -er '[.workflows[] | select(.state == "running" or .state == "started")]
+                         + [.workflows[] | (.children // [])[] | select(.state == "running" or .state == "started")]
+                         | length' <<<"$detail" 2>/dev/null)"; then
+        STALL_CHECK="unavailable (pipeline detail unreadable)"
+        return 0
+    fi
     case "$STATUS" in
         failure)
             STALL_CHECK="checked"
-            if [[ "${live:-0}" =~ ^[0-9]+$ && "${live:-0}" -gt 0 ]]; then
-                STALLED_REASON="terminal-pipeline-live-children"
-            fi ;;
+            [[ "$live" -gt 0 ]] && STALLED_REASON="terminal-pipeline-live-children" ;;
         running)
             if [[ ! "$timeout_min" =~ ^[0-9]+$ ]] || [[ "$timeout_min" -eq 0 ]]; then
                 STALL_CHECK="unavailable (repo timeout unreadable)"
                 return 0
             fi
-            started="$(jq -r '.started // 0' <<<"$detail" 2>/dev/null)"
-            if [[ ! "$started" =~ ^[0-9]+$ ]] || [[ "$started" -eq 0 ]]; then
-                STALL_CHECK="unavailable (pipeline start time unreadable)"
+            # The timeout bounds each WORKFLOW, not the pipeline (counter-model
+            # review): a healthy workflow can start after a long sibling ends.
+            # So measure the oldest RUNNING workflow from its own start.
+            if ! oldest="$(jq -er '[.workflows[] | select(.state == "running" or .state == "started") | (.started // 0)]
+                                  | if length == 0 then "none" elif any(. <= 0) then "unreadable" else min end' <<<"$detail" 2>/dev/null)"; then
+                STALL_CHECK="unavailable (pipeline detail unreadable)"
                 return 0
             fi
+            case "$oldest" in
+                none) STALL_CHECK="checked"; return 0 ;;   # nothing running yet
+                unreadable) STALL_CHECK="unavailable (workflow start time unreadable)"; return 0 ;;
+            esac
             now="${FLOW_CI_NOW:-$(date +%s)}"
-            elapsed_min=$(( (now - started) / 60 ))
+            elapsed_min=$(( (now - oldest) / 60 ))
             STALL_CHECK="checked"
             if [[ "$elapsed_min" -gt $(( timeout_min + STALL_GRACE_MIN )) ]]; then
                 STATUS="stalled"
@@ -489,7 +514,7 @@ wp_stall_check() {
     if [[ -n "$STALLED_REASON" ]]; then
         while IFS= read -r step; do
             [[ -n "$step" ]] && STALLED_STEPS+=("$step")
-        done < <(jq -r '.workflows[]?.children[]? | select(.state == "running" or .state == "started") | .name' <<<"$detail" 2>/dev/null)
+        done < <(jq -r '.workflows[] | (.children // [])[] | select(.state == "running" or .state == "started") | .name' <<<"$detail" 2>/dev/null)
     fi
     return 0
 }
