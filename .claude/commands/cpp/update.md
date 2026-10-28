@@ -60,37 +60,14 @@ else
   families=$(find -L ~/.claude/commands -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
   helpers=$(find -L ~/.claude/scripts -mindepth 1 -maxdepth 1 -type f 2>/dev/null | wc -l)
 
-  # A PROBE, NOT `[ -w ]` (issue #1138). Permission bits are not the authority
-  # on whether a write succeeds: measured in a kyle container, the projected
-  # ~/.claude/settings.json is mode -rw-rw-r-- owned by the running user and an
-  # append-open still returns "Read-only file system", because the mount is
-  # read-only. A check reading the mode to answer a question the mount decides
-  # is the same defect class as the one this issue is about.
-  # The subshell is load-bearing: `if : > "$probe" 2>/dev/null` still leaks
-  # "Permission denied", because the shell processes redirections left to right
-  # and reports the failed one BEFORE 2>/dev/null takes effect. Measured.
-  # Through the declaring seam (#1132). A probe in intent, a write in fact -
-  # it creates a file under the surface and removes it. Deferring the surface
-  # answers the question the probe asks, so a deferred probe reports `no`
-  # rather than writing to find out what it was already told.
-  surface_writable=$(~/.claude/scripts/cpp-host-write.sh probe-writable ~/.claude/commands 2>/dev/null)
-  #: EXIT 0 AND 3 ARE BOTH ANSWERS (issue #1198): the helper prints yes/no and
-  #: returns 0, or prints no and returns 3 when the surface is deferred. Any
-  #: other status means the seam could not run, and the capture is then EMPTY -
-  #: which this line used to print as though it were a probe result, under a
-  #: label saying "probed, not inferred from mode bits". There is no checkout
-  #: here by construction, so there is nothing to bootstrap from: the honest
-  #: answer is that it was not probed.
-  case $? in
-    0|3) : ;;
-    *)   surface_writable="unknown (seam not installed here, so this was NOT probed)" ;;
-  esac
+  # Locating the source precedes installation consent. Do not create a probe file.
+  surface_writable="unverified (not probed before confirmation)"
 
   echo "No claude-power-pack CHECKOUT found at any known path."
   echo "  CPP command surface served here: $cpp_surface (~/.claude/commands/cpp/init.md readable)"
   echo "  command families already served: $families"
   echo "  helpers already served:          $helpers"
-  echo "  ~/.claude/commands writable:     $surface_writable (probed, not inferred from mode bits)"
+  echo "  ~/.claude/commands writable:     $surface_writable"
   echo
 
   if [ "$cpp_surface" = yes ]; then
