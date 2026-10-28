@@ -33,9 +33,11 @@ def test_committed_case(tmp_path, scenario):
         assert len(report.invocations) == 6, "invalid call must not be hidden by a population failure"
         assert len(report.findings) == 1
         assert "arguments rejected by real" in report.findings[0]
-    if scenario in {"good-helper", "good-python-helper", "good-sibling"}:
+    if scenario in {"good-helper", "good-python-helper", "good-sibling",
+                    "good-fragment-module", "good-escaped-backslash"}:
         assert len(report.invocations) == 6
-        assert "scripts/child." in " ".join(report.files)
+        if scenario not in {"good-fragment-module", "good-escaped-backslash"}:
+            assert "scripts/child." in " ".join(report.files)
 
 
 def test_repairing_the_planted_flag_stops_detection(tmp_path):

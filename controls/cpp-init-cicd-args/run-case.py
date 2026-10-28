@@ -97,6 +97,20 @@ def populate(root, scenario):
                          "python -m lib.cicd detect --json"])
     elif scenario == "good-metadata-path":
         commands.append('if [ -f "$foreign/scripts/not-a-call.sh" ]; then :; fi')
+    elif scenario in {"bad-fragment-module", "good-fragment-module"}:
+        flag = "--no-such-flag" if scenario.startswith("bad-") else "--json"
+        commands.append("python -m lib.ci" + chr(92) + "\ncd detect " + flag)
+    elif scenario == "bad-echo-compact":
+        commands.append("echo ready; python -mlib.cicd detect --no-such-flag")
+    elif scenario == "good-echo-commands":
+        commands.append('echo ready; echo "python -mlib.cicd detect --no-such-flag"')
+    elif scenario == "bad-mixed-launchers":
+        commands.append("python -m lib.cicd detect --json; python -mlib.cicd detect --no-such-flag")
+    elif scenario in {"bad-escaped-backslash", "good-escaped-backslash"}:
+        flag = "--no-such-flag" if scenario.startswith("bad-") else "--json"
+        commands.append("echo value" + chr(92) * 2 + "\npython -m lib.cicd detect " + flag)
+    elif scenario == "bad-comment-continuation":
+        commands.append("true # comment" + chr(92) + "\npython -m lib.cicd detect --no-such-flag")
     elif scenario == "good-values":
         commands.append('python3 -m lib.cicd check --path "$PWD" --summary')
         commands.append('python -m lib.cicd detect --path="${PROJECT}" --json')

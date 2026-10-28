@@ -53,6 +53,35 @@ class Report:
     parsed: int = 0
 
 
+def continues(statement: str) -> bool:
+    """Only an unescaped backslash outside single quotes removes a newline."""
+    quote = ""
+    index = 0
+    while index < len(statement):
+        char = statement[index]
+        if quote == "'":
+            if char == "'":
+                quote = ""
+            index += 1
+            continue
+        if char == "\\":
+            if index + 1 == len(statement):
+                return True
+            index += 2
+            continue
+        if char in "'\"":
+            if not quote:
+                quote = char
+            elif quote == char:
+                quote = ""
+        if not quote and char == "#" and (
+            index == 0 or statement[index - 1].isspace() or statement[index - 1] in ";|&()"
+        ):
+            return False
+        index += 1
+    return False
+
+
 def shell_lines(text: str, markdown: bool):
     """Yield shell units; only real, unquoted heredoc operators open data."""
     active = not markdown
@@ -85,9 +114,11 @@ def shell_lines(text: str, markdown: bool):
             continue
         if not pending:
             start = number
-        pending += line[:-1] + " " if line.endswith("\\") else line
-        if line.endswith("\\"):
+        combined = pending + line
+        if continues(combined):
+            pending = combined[:-1]
             continue
+        pending = combined
         yield start, pending, True
         try:
             words = tokens(pending)
@@ -229,23 +260,30 @@ def inspect_statement(report: Report, path: str, number: int, statement: str, su
     except ValueError:
         report.findings.append(f"{location}: unrecognized shell quoting")
         return
+    segment = []
+    for word in words + [CONTROL + ";"]:
+        if word.startswith(CONTROL):
+            inspect_command(report, path, number, segment)
+            segment = []
+        else:
+            segment.append(word)
+
+
+def inspect_command(report, path, number, words):
+    location = f"{path}:{number}"
     if not any(MODULE_HINT.search(word) for word in words):
-        return  # A trailing comment was removed; it is not a launcher.
+        return
+    program = words[:]
+    while program and (program[0] in {"if", "then", "else", "do", "!", "{"}
+                       or re.match(r"^[A-Za-z_]\w*=", program[0])):
+        program.pop(0)
+    if program and program[0] in {"echo", "printf"} and not any("$(" in word for word in words):
+        return
     positions = [i for i, word in enumerate(words) if word == MODULE]
     if not positions:
-        # Literal echo/printf text is not an executable module launcher.
-        if re.match(r"\s*(?:echo|printf)\b", statement) and "$(" not in statement:
-            return
         report.findings.append(f"{location}: unrecognized lib.cicd invocation shape")
         return
     for index in positions:
-        prefix = words[:max(0, index - 2)]
-        boundary = max((i for i, word in enumerate(prefix) if word.startswith(CONTROL)), default=-1)
-        program = prefix[boundary + 1:]
-        while program and program[0] in {"if", "then", "else", "do", "!"}:
-            program.pop(0)
-        if program and program[0] in {"echo", "printf"} and "$(" not in statement:
-            continue
         if index < 2 or words[index - 1] != "-m" or not PYTHON.fullmatch(Path(words[index - 2]).name):
             report.findings.append(f"{location}: unrecognized lib.cicd launcher")
             continue

@@ -230,6 +230,54 @@
       "input": "cases/good-metadata-path",
       "expect": "GOOD",
       "why": "A file-test operand is metadata, not an unresolved helper invocation."
+    },
+    {
+      "name": "bad-fragment-module",
+      "input": "cases/bad-fragment-module",
+      "expect": "BAD",
+      "why": "Review2: continuation splicing and exemptions respect individual shell commands."
+    },
+    {
+      "name": "good-fragment-module",
+      "input": "cases/good-fragment-module",
+      "expect": "GOOD",
+      "why": "Review2: continuation splicing and exemptions respect individual shell commands."
+    },
+    {
+      "name": "bad-echo-compact",
+      "input": "cases/bad-echo-compact",
+      "expect": "BAD",
+      "why": "Review2: continuation splicing and exemptions respect individual shell commands."
+    },
+    {
+      "name": "good-echo-commands",
+      "input": "cases/good-echo-commands",
+      "expect": "GOOD",
+      "why": "Review2: continuation splicing and exemptions respect individual shell commands."
+    },
+    {
+      "name": "bad-mixed-launchers",
+      "input": "cases/bad-mixed-launchers",
+      "expect": "BAD",
+      "why": "Review2: continuation splicing and exemptions respect individual shell commands."
+    },
+    {
+      "name": "bad-escaped-backslash",
+      "input": "cases/bad-escaped-backslash",
+      "expect": "BAD",
+      "why": "Only an unquoted/unescaped backslash-newline is a continuation; comments do not continue."
+    },
+    {
+      "name": "good-escaped-backslash",
+      "input": "cases/good-escaped-backslash",
+      "expect": "GOOD",
+      "why": "Only an unquoted/unescaped backslash-newline is a continuation; comments do not continue."
+    },
+    {
+      "name": "bad-comment-continuation",
+      "input": "cases/bad-comment-continuation",
+      "expect": "BAD",
+      "why": "Only an unquoted/unescaped backslash-newline is a continuation; comments do not continue."
     }
   ],
   "anchors": [
