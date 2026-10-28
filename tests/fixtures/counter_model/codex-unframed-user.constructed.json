@@ -1,0 +1,15 @@
+{
+  "kind": "constructed from the #1600 measured shape",
+  "runtime": "codex-cli 0.164.0",
+  "source": "https://github.com/cooneycw/claude-power-pack/issues/1600#issuecomment-6476111740",
+  "observed_user_text_bytes": 71153,
+  "observed_user_text_sha256": "cdd5ce4e8e05457e6edbcf57b5f4daa22b4c22e6b284ebb7761e343c55869c5e",
+  "record": {
+    "type": "response_item",
+    "payload": {
+      "type": "message",
+      "role": "user",
+      "content": [{"type": "input_text", "text": "OWNED_CANONICAL_PATCH"}]
+    }
+  }
+}
