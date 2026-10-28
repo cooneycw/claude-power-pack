@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
@@ -171,3 +172,41 @@ def test_force_requires_generation_and_does_not_write(tmp_path):
     assert result.returncode == 2
     assert "--force requires --generate-makefile" in result.stderr
     assert not (root / "Makefile").exists()
+
+
+@pytest.mark.parametrize("link_error", [errno.EPERM, errno.EXDEV], ids=["EPERM", "EXDEV"])
+@pytest.mark.parametrize("late_existing", [False, True], ids=["absent", "late-existing"])
+def test_link_failure_is_named_and_never_falls_back(tmp_path, monkeypatch, capsys, link_error, late_existing):
+    from lib.cicd.cli import main
+
+    root = project(tmp_path)
+    target = root / "Makefile"
+    assert not target.exists()
+    before = {p.name: p.read_bytes() for p in root.iterdir()}
+    reached = []
+
+    def refuse_link(source, destination):
+        source, destination = Path(source), Path(destination)
+        assert source.parent.parent == root, "staging must stay inside the destination directory"
+        assert source.stat().st_dev == root.stat().st_dev, "ordinary publication stays on one device"
+        assert destination == target
+        assert source.is_file() and not destination.exists()
+        if late_existing:
+            destination.write_text("# concurrent owner file\n")
+        reached.append(True)
+        raise OSError(link_error, "injected link failure")
+
+    monkeypatch.setattr(os, "link", refuse_link)
+    assert main(["detect", "--path", str(root), "--generate-makefile"]) == 1
+    output = capsys.readouterr()
+    assert reached == [True], "the failure must exercise the actual publish operation"
+    assert "Makefile generation failed:" in output.err
+    assert "injected link failure" in output.err
+    assert "Wrote Makefile:" not in output.out
+    for name, data in before.items():
+        assert (root / name).read_bytes() == data
+    if late_existing:
+        assert target.read_text() == "# concurrent owner file\n"
+    else:
+        assert not target.exists()
+    assert not list(root.glob(".cpp-makefile-*"))
