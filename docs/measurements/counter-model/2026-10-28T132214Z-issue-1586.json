@@ -5,7 +5,8 @@
     "deferred": 0,
     "rejected": 0
   },
-  "head": "cf174fc9f245477c6e7fbdd716696df443cac172",
+  "extra_passes_reason": "Full verify exposed the existing exact seam census: one authored quoted bootstrap raises init14 to15, with matching-list and drop-control proof; final pass reviews that test-only integration change. Afterwards only the census comment was labeled with issue1586 B2 as requested.",
+  "head": "f3b1350d8325717990f1e365b7b25a2a38574f8d",
   "implementer": "codex/gpt-6.1-sol",
   "implementer_evidence": {
     "rollout": "2026/10/28/rollout-2026-10-28T11-17-43-01a1823a-f1c5-72e1-9690-1f394b8034cc.jsonl",
@@ -14,18 +15,18 @@
   "issue": "1586",
   "local_credentials": "unknown",
   "network": "unverified",
-  "passes": 2,
-  "recorded_at": "2026-10-28T13:08:45Z",
+  "passes": 3,
+  "recorded_at": "2026-10-28T13:22:14Z",
   "red_cases": {
     "already_covered": 1,
     "proposed": 1
   },
   "reviewer": "codex/gpt-6-astra",
   "reviewer_evidence": {
-    "rollout": "2026/10/28/rollout-2026-10-28T13-06-24-01a1829e-708c-74b1-95aa-fac91a787e11.jsonl",
-    "thread_id": "01a1829e-708c-74b1-95aa-fac91a787e11"
+    "rollout": "2026/10/28/rollout-2026-10-28T13-20-41-01a182ab-8597-7732-8eda-7054a70f9045.jsonl",
+    "thread_id": "01a182ab-8597-7732-8eda-7054a70f9045"
   },
-  "schema": 1,
+  "schema": 2,
   "scope": "diff-only",
   "status": "ran"
 }
