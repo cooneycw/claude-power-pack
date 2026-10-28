@@ -1099,7 +1099,10 @@ def test_a_matching_rollout_without_a_model_is_refused(tmp_path: Path) -> None: 
     session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "discarded")
     rollout = next(sessions_dir.rglob("*.jsonl"))
-    rollout.write_text(json.dumps({"type": "session_meta", "payload": {"id": "thread-for-counter-model-test"}}) + "\n", encoding="utf-8")
+    rollout.write_text(
+        json.dumps({"type": "session_meta", "payload": {"id": "thread-for-counter-model-test"}}) + "\n",
+        encoding="utf-8",
+    )
     proc = _write(
         tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran", "--scope", "unverified",
         *_reviewer_evidence_args(exec_log, sessions_dir),
@@ -2960,7 +2963,9 @@ def _scoped_write(tmp_path: Path, items: list[dict]) -> tuple[subprocess.Complet
     sessions_dir = tmp_path / "sessions"
     rollout_dir = sessions_dir / "2026" / "09" / "19"
     rollout_dir.mkdir(parents=True)
-    (rollout_dir / f"rollout-{thread_id}.jsonl").write_text(_rollout_text("gpt-5.5", thread_id=thread_id), encoding="utf-8")
+    (rollout_dir / f"rollout-{thread_id}.jsonl").write_text(
+        _rollout_text("gpt-5.5", thread_id=thread_id), encoding="utf-8"
+    )
     out_dir = tmp_path / "out"
     proc = _write(tmp_path, "--dir", str(out_dir), "--issue", "1461", "--branch", "b",
                   "--status", "ran", "--passes", "1", "--scope", "full",
