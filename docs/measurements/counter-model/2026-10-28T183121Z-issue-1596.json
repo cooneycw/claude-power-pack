@@ -1,0 +1,70 @@
+{
+  "branch": "check/1596-init-cicd-argv",
+  "counts": {
+    "accepted": 6,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "passes 1 and 2 each found load-bearing extraction false-cleans (heredoc and Python-string; backslash-newline and statement-wide echo exemption); pass 3 reviews the tested fixes on a fresh schema-5 canonical patch from a clean commit.",
+  "head": "1a887a66702d56a89759fbd7d4597ce054ac94e3",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/10/28/rollout-2026-10-28T11-17-18-01a1823a-91b5-7c02-8536-651d05d47387.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 13379746,
+        "path": "2026/10/28/rollout-2026-10-28T11-17-18-01a1823a-91b5-7c02-8536-651d05d47387.jsonl",
+        "sha256": "1d4f9f84dcb0a1403b4638608ed0dcf6ba579df63e8cb9a7c01baa872e829b19"
+      }
+    ],
+    "thread_id": "01a1823a-91b5-7c02-8536-651d05d47387"
+  },
+  "issue": "1596",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 3,
+  "recorded_at": "2026-10-28T18:31:21Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 6
+  },
+  "reviewed_artifact": {
+    "base_sha": "802a140af93d4b865d928903014cd91f55b49827",
+    "merge_base": "802a140af93d4b865d928903014cd91f55b49827",
+    "method": "captured-patch",
+    "patch_sha256": "cdd5ce4e8e05457e6edbcf57b5f4daa22b4c22e6b284ebb7761e343c55869c5e",
+    "report_record": 17,
+    "target_head": "1a887a66702d56a89759fbd7d4597ce054ac94e3"
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "exec_log": "cicd-argv-review3.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6-astra"
+    ],
+    "rollout": "2026/10/28/rollout-2026-10-28T17-16-10-01a18383-1c28-7861-83f6-4d057b9ebbe2.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 1876,
+        "path": "cicd-argv-review3.jsonl",
+        "sha256": "e349651a82dbe253f0a2be42960a1d97e8876bf748a9ba005528804cf14e725a"
+      },
+      {
+        "bytes": 259840,
+        "path": "2026/10/28/rollout-2026-10-28T17-16-10-01a18383-1c28-7861-83f6-4d057b9ebbe2.jsonl",
+        "sha256": "75ecc80d18d7716cc47d805c6768b64e0cbe0697441473ac9ce8801572982b14"
+      }
+    ],
+    "thread_id": "01a18383-1c28-7861-83f6-4d057b9ebbe2"
+  },
+  "schema": 5,
+  "scope": "diff-only",
+  "status": "ran"
+}
