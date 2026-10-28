@@ -1624,13 +1624,16 @@ echo "Detected: $FRAMEWORK ($PKG_MGR)"
 
 If no Makefile exists, offer to generate one:
 
+The CLI refuses an existing Makefile by default. This wizard never passes
+`--force`; replacing a user's Makefile requires a separate explicit decision.
+
 ```bash
 if [ ! -f "Makefile" ]; then
   echo ""
   echo "No Makefile found. Generate one from the detected framework template?"
   # Use AskUserQuestion to confirm
   # If yes:
-  if PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd detect --generate-makefile; then
+  if PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd detect --path "$PWD" --generate-makefile; then
     echo "✓ Makefile generated"
   else
     echo "WARNING: setup command failed (exit $?)."

@@ -4,15 +4,18 @@ Provides:
 - parse_makefile: Extract targets, dependencies, and commands
 - check_makefile: Validate against framework standards
 - generate_makefile: Create from template based on detected framework
+- write_makefile: Publish generated content without replacing an existing file by default
 """
 
 from __future__ import annotations
 
+import os
 import re
+import stat
+import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-from .config import CICDConfig
 from .detector import detect_framework
 from .makefile_declaration import Makefile as MakefileDeclaration
 from .models import (
@@ -23,6 +26,9 @@ from .models import (
     MakefileTarget,
     PackageManager,
 )
+
+if TYPE_CHECKING:
+    from .config import CICDConfig
 
 
 def parse_makefile(project_root: str | Path) -> list[MakefileTarget]:
@@ -112,6 +118,8 @@ def check_makefile(
     """
     root = Path(project_root)
     if config is None:
+        from .config import CICDConfig
+
         config = CICDConfig.load(str(root))
 
     # Detect framework
@@ -246,6 +254,45 @@ def generate_makefile(
 
     # Generate inline
     return _generate_inline(info)
+
+
+#: NEGATIVE-CONTROL: controls/cicd-makefile-write
+def write_makefile(
+    project_root: str | Path,
+    *,
+    force: bool = False,
+    template_dir: Optional[str | Path] = None,
+) -> Path:
+    """Publish a complete Makefile; replacement requires explicit consent.
+
+    The default hard-link commit refuses an existing directory entry, including
+    a dangling symlink or a file created after the initial check. Forced writes
+    replace the entry atomically, without following a destination symlink.
+    """
+    root = Path(project_root).resolve()
+    target = root / "Makefile"
+    if not force and os.path.lexists(target):
+        raise FileExistsError(f"{target} already exists; use --force to replace it")
+
+    content = generate_makefile(root, template_dir=template_dir)
+    # Same-filesystem staging leaves the destination intact if generation,
+    # encoding, writing or publication fails. open() respects the caller's
+    # umask; an existing regular file keeps its mode on explicit replacement.
+    with tempfile.TemporaryDirectory(prefix=".cpp-makefile-", dir=root) as directory:
+        staged = Path(directory) / "Makefile"
+        with staged.open("x", encoding="utf-8") as output:
+            output.write(content)
+        if force:
+            try:
+                mode = target.lstat().st_mode
+            except FileNotFoundError:
+                mode = None
+            if mode is not None and stat.S_ISREG(mode):
+                staged.chmod(stat.S_IMODE(mode))
+            os.replace(staged, target)
+        else:
+            os.link(staged, target)
+    return target
 
 
 def _get_template_path(info: FrameworkInfo, template_dir: Path) -> Optional[Path]:
