@@ -249,7 +249,8 @@ Ask the user which permission profile they want using AskUserQuestion:
       "Bash(ls:*)", "Bash(pwd)", "Bash(cat:*)", "Bash(head:*)", "Bash(tail:*)",
       "Bash(npm:*)", "Bash(npx:*)", "Bash(uv:*)", "Bash(pip:*)", "Bash(yarn:*)",
       "Bash(python:*)", "Bash(node:*)",
-      "Bash(gh issue:*)", "Bash(gh pr list:*)", "Bash(gh pr view:*)",
+      "Bash(gh issue list:*)", "Bash(gh issue view:*)",
+      "Bash(gh pr list:*)", "Bash(gh pr view:*)",
       "WebFetch(domain:github.com)", "WebFetch(domain:docs.python.org)",
       "Skill(project-next)", "Skill(project-lite)"
     ],
@@ -267,7 +268,9 @@ Ask the user which permission profile they want using AskUserQuestion:
   "permissions": {
     "allow": [
       "Read", "Glob", "Grep", "Write",
-      "Bash(git:*)", "Bash(gh:*)",
+      "Bash(git:*)",
+      "Bash(gh issue list:*)", "Bash(gh issue view:*)",
+      "Bash(gh pr list:*)", "Bash(gh pr view:*)",
       "Bash(npm:*)", "Bash(npx:*)", "Bash(uv:*)", "Bash(pip:*)", "Bash(yarn:*)",
       "Bash(python:*)", "Bash(node:*)",
       "Bash(ls:*)", "Bash(cat:*)", "Bash(mkdir:*)", "Bash(cp:*)", "Bash(mv:*)",
@@ -285,6 +288,10 @@ Ask the user which permission profile they want using AskUserQuestion:
 }
 ```
 
+GitHub issue mutations require confirmation in every preset profile, including
+Trusted. Only issue list/view and PR list/view are auto-approved; broader GitHub
+permissions must be selected explicitly in Custom mode.
+
 ### Custom Mode Categories
 
 If user selects "Custom", ask which categories to enable using multi-select:
@@ -296,7 +303,7 @@ If user selects "Custom", ask which categories to enable using multi-select:
 | **Git (all)** | git push/pull/merge/rebase | ○ Disabled |
 | **Package Managers** | npm, npx, uv, pip, yarn | ✓ Enabled |
 | **Runtimes** | python, node | ✓ Enabled |
-| **GitHub CLI (read)** | gh issue, gh pr list, gh pr view | ✓ Enabled |
+| **GitHub CLI (read)** | gh issue list, gh issue view, gh pr list, gh pr view | ✓ Enabled |
 | **GitHub CLI (write)** | gh pr create, gh pr merge | ○ Disabled |
 | **File Writing** | Write tool | ○ Disabled |
 | **Web Access** | WebFetch, WebSearch | ○ Disabled |
