@@ -3224,6 +3224,8 @@ def main() -> int:
         ap.error("--implementer-session-id (Claude) and --implementer-thread-id (Codex) "
                  "name two different implementers; pass the one that wrote the change")
     if args.cmd == "write" and args.status == "skipped":
+        if args.implementer_rollout:
+            ap.error("--implementer-rollout requires --status ran; a Codex skip uses --implementer-thread-id")
         if any((args.implementer_exec_log, args.reviewer_session_id, args.reviewer_thread_id, args.reviewer_rollout)):
             ap.error("reviewer/exec evidence requires --status ran; no review happened on a skip")
     if args.cmd == "write" and args.status == "skipped" and not args.reason:

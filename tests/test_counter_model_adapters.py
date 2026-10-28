@@ -553,3 +553,72 @@ def test_a_diff_of_the_frame_reader_can_contain_its_own_delimiter_literals(evide
     args += runtime(e, "reviewer", "claude", "model-b", patch=e["patch"])
     result = write(e, *args)
     assert result.returncode == 0, result.stderr
+
+
+@requires_git
+def test_skipped_rollout_selector_cannot_fall_back_to_an_ambient_session(evidence):
+    e = evidence
+    runtime(e, "implementer", "codex", "explicit-model")
+    runtime(e, "ambient", "codex", "ambient-model")
+    root = e["tmp"] / "codex"
+    explicit = root / "rollout-fixture-implementer.jsonl"
+    ambient = root / "rollout-fixture-ambient.jsonl"
+    assert explicit.read_bytes() != ambient.read_bytes(), "negative-fixture precondition: distinct identities"
+    env = os.environ.copy()
+    env["CODEX_THREAD_ID"] = "fixture-ambient"
+    env.pop("CLAUDE_CODE_SESSION_ID", None)
+    result = subprocess.run([
+        sys.executable, str(SCRIPT), "write", "--dir", str(e["tmp"] / "out"), "--issue", "1584",
+        "--branch", "feature", "--status", "skipped", "--reason", "reviewer-unavailable",
+        "--implementer-rollout", str(explicit), "--codex-sessions-dir", str(root),
+    ], cwd=e["repo"], env=env, text=True, capture_output=True)
+    assert result.returncode == 2, result.stderr
+    assert "--implementer-rollout requires --status ran" in result.stderr
+    assert not list((e["tmp"] / "out").glob("*.json"))
+
+
+@requires_git
+@pytest.mark.parametrize("role", ["implementer", "reviewer"])
+def test_explicit_rollout_file_selects_either_role_without_a_sessions_root(evidence, role):
+    e = evidence
+    if role == "implementer":
+        runtime(e, role, "codex", "model-a")
+        args = runtime(e, "reviewer", "claude", "model-b", patch=e["patch"])
+    else:
+        args = runtime(e, "implementer", "claude", "model-a")
+        runtime(e, role, "codex", "model-b", patch=e["patch"])
+    path = e["tmp"] / "codex" / f"rollout-fixture-{role}.jsonl"
+    result = write(e, *args, f"--{role}-rollout", str(path))
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads(next((e["tmp"] / "out").glob("*.json")).read_text())
+    assert receipt[f"{role}_evidence"]["kind"] == "rollout"
+    assert receipt[f"{role}_evidence"]["thread_id"] == f"fixture-{role}"
+
+
+@requires_git
+@pytest.mark.parametrize("implementer", ["codex", "claude"])
+def test_codex_exec_reviewer_binds_its_runtime_captured_stdin(evidence, implementer):
+    e = evidence
+    args = runtime(e, "implementer", implementer, "model-a")
+    runtime(e, "reviewer", "codex", "model-b", patch=e["patch"])
+    path = e["tmp"] / "codex/rollout-fixture-reviewer.jsonl"
+    records = [json.loads(line) for line in path.read_text().split("\n") if line]
+    records[2]["payload"]["content"][0]["text"] = "Review prompt\n\n<stdin>\n" + e["patch"] + "</stdin>"
+    path.write_text("".join(json.dumps(r) + "\n" for r in records))
+    stream = e["tmp"] / "review-exec.jsonl"
+    stream.write_text(json.dumps({"type": "thread.started", "thread_id": "fixture-reviewer"}) + "\n")
+    result = write(e, *args, "--reviewer-exec-log", str(stream), "--codex-sessions-dir", str(path.parent),
+                   "--scope", "diff-only")
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads(next((e["tmp"] / "out").glob("*.json")).read_text())
+    assert receipt["reviewer_evidence"]["kind"] == "exec_log"
+    assert len(receipt["reviewer_evidence"]["sources"]) == 2
+
+
+@requires_git
+def test_qwen_reviewer_binds_its_persisted_user_parts(evidence):
+    e = evidence
+    args = runtime(e, "implementer", "claude", "model-a")
+    args += runtime(e, "reviewer", "qwen-code", "model-b", patch=e["patch"])
+    result = write(e, *args, "--scope", "diff-only")
+    assert result.returncode == 0, result.stderr
