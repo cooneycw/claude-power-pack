@@ -1,0 +1,31 @@
+{
+  "branch": "issue-1585-isolate-control-codex-home",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "bc474bf66f018f6f41ac944029988a577b49f05b",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/27/rollout-2026-10-27T10-01-57-01a17ccf-39dc-7a52-b013-482c0a8cbc5c.jsonl",
+    "thread_id": "01a17ccf-39dc-7a52-b013-482c0a8cbc5c"
+  },
+  "issue": "1585",
+  "local_credentials": "absent",
+  "network": "unverified",
+  "passes": 1,
+  "recorded_at": "2026-10-28T11:59:48Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 3
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/28/rollout-2026-10-28T11-56-52-01a1825e-c645-70a2-b3bd-e509cd2d40d8.jsonl",
+    "thread_id": "01a1825e-c645-70a2-b3bd-e509cd2d40d8"
+  },
+  "schema": 1,
+  "scope": "diff-only",
+  "status": "ran"
+}
