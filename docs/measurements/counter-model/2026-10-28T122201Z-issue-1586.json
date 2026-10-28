@@ -5,8 +5,8 @@
     "deferred": 0,
     "rejected": 0
   },
-  "extra_passes_reason": "Renewed supplied-diff review after adding fallback fixture cases and rebasing onto updated main; final code only removes the overbroad Step2 hunk, with exact subset proof.",
-  "head": "6ec44b2d66e4923a54584be0d35838eaf368f33d",
+  "extra_passes_reason": "Final reviewed superset minus Step2 restoration; implementation/test diff invariant across main rebase, sha256 5e6ce26f67ea6c2be73218385d50f320f5b56dd5435fa97b0efa0cd3be94829f. Existing review retained by cr-orch ruling12052/12132.",
+  "head": "d3e88dc49a6b0472a55780a26327637d0c839535",
   "implementer": "codex/gpt-6.1-sol",
   "implementer_evidence": {
     "rollout": "2026/10/28/rollout-2026-10-28T11-17-43-01a1823a-f1c5-72e1-9690-1f394b8034cc.jsonl",
@@ -16,7 +16,7 @@
   "local_credentials": "unknown",
   "network": "unverified",
   "passes": 3,
-  "recorded_at": "2026-10-28T11:54:10Z",
+  "recorded_at": "2026-10-28T12:22:01Z",
   "red_cases": {
     "already_covered": 0,
     "proposed": 0
