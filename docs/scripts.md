@@ -1159,8 +1159,12 @@ executed and no flag list is copied. The current init population floor is 5.
 Bash words use shlex with quote-aware operator boundaries; shell values are
 represented by stable values (choice values come from the parser). The check
 validates argument syntax, not actual values, runtime readiness or side effects.
-Unknown launcher/build shapes and early parser exits fail with a named source
-location instead of disappearing. Literal Python argv builders are checked;
+Literal CPP checkout/installed-helper paths and helper sibling directories from
+an explicit `BASH_SOURCE`/`dirname` binding are followed without execution.
+Sources reached without literal module launches are counted separately;
+unresolvable helper invocation paths fail, while file-test operands remain
+metadata. Unknown launcher/build shapes and early parser exits fail with a named
+source location instead of disappearing. Literal Python argv builders are checked;
 unrecognized builders with an explicit module hint fail closed. Computed module
 names are outside this static population. The verdict names invocation and
 source-file counts rather than claiming arbitrary shell/Python analysis.

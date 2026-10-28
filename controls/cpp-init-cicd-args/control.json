@@ -49,13 +49,13 @@
       "name": "bad-help",
       "input": "cases/bad-help",
       "expect": "BAD",
-      "why": "Committed bad-help source shape; fixture uses production floor and parser."
+      "why": "Help exits argparse before full argv validation; removing that early-exit shape restores examination."
     },
     {
       "name": "bad-outside-shell",
       "input": "cases/bad-outside-shell",
       "expect": "BAD",
-      "why": "Committed bad-outside-shell source shape; fixture uses production floor and parser."
+      "why": "A valid command outside supported shell source must be named as unexamined, not omitted."
     },
     {
       "name": "bad-helper",
@@ -170,6 +170,66 @@
       "input": "cases/good-neighbor",
       "expect": "GOOD",
       "why": "A different module is outside this gate even when its argv would fail our parser."
+    },
+    {
+      "name": "bad-quoted-heredoc",
+      "input": "cases/bad-quoted-heredoc",
+      "expect": "BAD",
+      "why": "Review or helper-boundary regression: bad-quoted-heredoc"
+    },
+    {
+      "name": "bad-comment-heredoc",
+      "input": "cases/bad-comment-heredoc",
+      "expect": "BAD",
+      "why": "Review or helper-boundary regression: bad-comment-heredoc"
+    },
+    {
+      "name": "bad-assigned-python",
+      "input": "cases/bad-assigned-python",
+      "expect": "BAD",
+      "why": "Even a valid command in an unrecognized assigned Python string must not silently evade the population."
+    },
+    {
+      "name": "bad-sibling",
+      "input": "cases/bad-sibling",
+      "expect": "BAD",
+      "why": "Review or helper-boundary regression: bad-sibling"
+    },
+    {
+      "name": "good-sibling",
+      "input": "cases/good-sibling",
+      "expect": "GOOD",
+      "why": "Review or helper-boundary regression: good-sibling"
+    },
+    {
+      "name": "bad-scriptdir-root",
+      "input": "cases/bad-scriptdir-root",
+      "expect": "BAD",
+      "why": "Review or helper-boundary regression: bad-scriptdir-root"
+    },
+    {
+      "name": "good-python-docstring",
+      "input": "cases/good-python-docstring",
+      "expect": "GOOD",
+      "why": "Review or helper-boundary regression: good-python-docstring"
+    },
+    {
+      "name": "bad-unterminated-heredoc",
+      "input": "cases/bad-unterminated-heredoc",
+      "expect": "BAD",
+      "why": "Heredoc state must remain bounded by actual shell/Markdown units."
+    },
+    {
+      "name": "good-multiple-heredoc",
+      "input": "cases/good-multiple-heredoc",
+      "expect": "GOOD",
+      "why": "Heredoc state must remain bounded by actual shell/Markdown units."
+    },
+    {
+      "name": "good-metadata-path",
+      "input": "cases/good-metadata-path",
+      "expect": "GOOD",
+      "why": "A file-test operand is metadata, not an unresolved helper invocation."
     }
   ],
   "anchors": [

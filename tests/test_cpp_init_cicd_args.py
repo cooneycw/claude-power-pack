@@ -29,11 +29,11 @@ def test_committed_case(tmp_path, scenario):
     cases.populate(tmp_path, scenario)
     report = checker.scan(tmp_path)
     assert bool(report.findings) == scenario.startswith("bad-"), report.findings
-    if scenario == "bad-flag":
+    if scenario in {"bad-flag", "bad-quoted-heredoc", "bad-comment-heredoc"}:
         assert len(report.invocations) == 6, "invalid call must not be hidden by a population failure"
         assert len(report.findings) == 1
         assert "arguments rejected by real" in report.findings[0]
-    if scenario in {"good-helper", "good-python-helper"}:
+    if scenario in {"good-helper", "good-python-helper", "good-sibling"}:
         assert len(report.invocations) == 6
         assert "scripts/child." in " ".join(report.files)
 
@@ -118,3 +118,37 @@ def test_parser_gate_runs_without_site_packages(tmp_path):
                              "--root", str(tmp_path)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     assert "5/5 invocations parsed" in result.stdout
+
+
+@pytest.mark.parametrize("scenario", ["bad-help", "bad-quoting", "bad-outside-shell",
+                                      "bad-assigned-python", "bad-scriptdir-root", "bad-quoted-heredoc"])
+def test_repairing_an_unsupported_shape_stops_detection(tmp_path, scenario):
+    cases.populate(tmp_path, scenario)
+    before = checker.scan(tmp_path)
+    assert len(before.findings) == 1, "the planted condition must be the sole finding"
+    document = tmp_path / checker.DOCUMENT
+    text = document.read_text()
+    if scenario == "bad-help":
+        assert text.count("--help") == 1
+        document.write_text(text.replace("--help", ""))
+    elif scenario == "bad-quoting":
+        assert text.count('"unterminated') == 1
+        document.write_text(text.replace('"unterminated', '"unterminated"'))
+    elif scenario == "bad-outside-shell":
+        assert "Run `python -m lib.cicd detect --json`." in text
+        document.write_text(text.split("Run `", 1)[0] + "```bash\npython -m lib.cicd detect --json\n```\n")
+    elif scenario == "bad-assigned-python":
+        helper = tmp_path / "scripts/assigned.py"
+        assert 'cmd = "python -m lib.cicd detect --json"' in helper.read_text()
+        helper.write_text('import subprocess\nsubprocess.run("python -m lib.cicd detect --json", shell=True)\n')
+    elif scenario == "bad-scriptdir-root":
+        parent = tmp_path / "scripts/parent.sh"
+        assert 'SCRIPT_DIR="$PWD/foreign"' in parent.read_text()
+        parent.write_text(parent.read_text().replace('SCRIPT_DIR="$PWD/foreign"',
+                          'SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"'))
+    else:
+        assert text.count("--no-such-flag") == 1
+        document.write_text(text.replace("--no-such-flag", "--json"))
+    after = checker.scan(tmp_path)
+    assert not after.findings
+    assert after.parsed == len(after.invocations) == 6

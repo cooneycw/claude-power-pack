@@ -28,8 +28,13 @@ MIN_INVOCATIONS = 5
 MODULE = "lib.cicd"
 MODULE_HINT = re.compile(r"(?:(?<![\w.])lib\.cicd|(?<![\w.])-mlib\.cicd)(?![\w.])")
 EXPANSION = re.compile(r"\$(?:[A-Za-z_]\w*|\{[A-Za-z_]\w*\})")
-REFERENCE = re.compile(r"(?:\$\{?CPP_DIR\}?|\$\{?HOME\}?/\.claude|~/.claude|\$\{?SCRIPT_DIR\}?)/scripts/([\w.-]+)")
-HEREDOC = re.compile(r"<<-?\s*['\"]?([A-Za-z_]\w*)['\"]?")
+VARIABLE_PATH = re.compile(r"^\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))/(.+)$")
+SCRIPT_DIRECTORY = re.compile(
+    r'^\s*([A-Za-z_]\w*)="\$\(\s*cd(?:\s+(?:--|-P))?\s+'
+    r'"\$\(dirname(?:\s+--)?\s+"\$\{BASH_SOURCE\[0\]\}"\)"\s*&&\s*pwd(?:\s+-P)?\s*\)"\s*$'
+)
+PARENT_DIRECTORY = re.compile(r'^\s*([A-Za-z_]\w*)="\$\(dirname\s+"\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))"\)"\s*$')
+SOURCE_ERROR = "\0CPP_SOURCE_ERROR:"
 PYTHON = re.compile(r"python(?:\d+(?:\.\d+)*)?")
 
 
@@ -49,17 +54,27 @@ class Report:
 
 
 def shell_lines(text: str, markdown: bool):
-    """Yield logical shell statements, skipping heredoc data and comments."""
+    """Yield shell units; only real, unquoted heredoc operators open data."""
     active = not markdown
-    heredoc = ""
+    heredocs = []
     pending = ""
     start = 0
     for number, line in enumerate(text.splitlines(), 1):
-        if heredoc:
-            if line.lstrip("\t") == heredoc:
-                heredoc = ""
+        fence = markdown and re.fullmatch(r"\s*```(?:bash|sh)?\s*", line)
+        if heredocs:
+            if fence:
+                yield start, SOURCE_ERROR + "unterminated heredoc in shell block", False
+                heredocs = []
+                active = line.strip() in {"```bash", "```sh"}
+            else:
+                delimiter, strip_tabs = heredocs[0]
+                if (line.lstrip("\t") if strip_tabs else line) == delimiter:
+                    heredocs.pop(0)
             continue
-        if markdown and re.fullmatch(r"\s*```(?:bash|sh)?\s*", line):
+        if fence:
+            if pending:
+                yield start, SOURCE_ERROR + "unfinished continued shell statement", False
+                pending = ""
             active = line.strip() in {"```bash", "```sh"}
             continue
         if not active:
@@ -74,12 +89,22 @@ def shell_lines(text: str, markdown: bool):
         if line.endswith("\\"):
             continue
         yield start, pending, True
-        match = HEREDOC.search(pending)
-        if match:
-            heredoc = match[1]
+        try:
+            words = tokens(pending)
+        except ValueError:
+            words = []  # The invocation/helper readers report relevant unsupported quoting.
+        for index, word in enumerate(words):
+            if word in {REDIRECT + "<<", REDIRECT + "<<-"}:
+                if index + 1 == len(words):
+                    yield start, SOURCE_ERROR + "heredoc delimiter missing", False
+                else:
+                    delimiter = words[index + 1].replace(DOLLAR, "$").replace(TICK, "`")
+                    heredocs.append((delimiter, word.endswith("<<-")))
         pending = ""
     if pending:
-        yield start, pending, False
+        yield start, SOURCE_ERROR + "unfinished continued shell statement", False
+    if heredocs:
+        yield start, SOURCE_ERROR + "unterminated heredoc", False
 
 
 CONTROL = "\0CPP_CONTROL:"
@@ -190,9 +215,12 @@ def normalize(argv: list[str], parser) -> list[str]:
 
 
 def inspect_statement(report: Report, path: str, number: int, statement: str, supported: bool) -> None:
+    location = f"{path}:{number}"
+    if statement.startswith(SOURCE_ERROR):
+        report.findings.append(f"{location}: {statement[len(SOURCE_ERROR):]}")
+        return
     if not MODULE_HINT.search(statement):
         return
-    location = f"{path}:{number}"
     if not supported:
         report.findings.append(f"{location}: unrecognized invocation outside a supported shell statement")
         return
@@ -269,6 +297,11 @@ def inspect_python(report, path, text):
         report.findings.append(f"{path}: unrecognized Python helper syntax")
         return
     handled = set()
+    docstrings = set()
+    for scope in ast.walk(tree):
+        if isinstance(scope, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if scope.body and isinstance(scope.body[0], ast.Expr):
+                docstrings.add(id(scope.body[0].value))
     for call in ast.walk(tree):
         if not isinstance(call, ast.Call):
             continue
@@ -292,8 +325,72 @@ def inspect_python(report, path, text):
                 ):
                     handled.add(id(argument))
     for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and node.value == MODULE and id(node) not in handled:
-            report.findings.append(f"{path}:{node.lineno}: unrecognized Python lib.cicd invocation builder")
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if id(node) in handled or id(node) in docstrings:
+                continue
+            if MODULE_HINT.search(node.value):
+                report.findings.append(f"{path}:{node.lineno}: unrecognized Python lib.cicd invocation builder")
+
+
+def helper_references(report, path, number, statement, bindings):
+    if path != DOCUMENT:
+        directory = SCRIPT_DIRECTORY.fullmatch(statement)
+        parent = PARENT_DIRECTORY.fullmatch(statement)
+        if directory:
+            bindings[directory[1]] = Path(path).parent
+        elif parent and (parent[2] or parent[3]) in bindings:
+            bindings[parent[1]] = bindings[parent[2] or parent[3]].parent
+        else:
+            assignment = re.match(r"\s*([A-Za-z_]\w*)=", statement)
+            if assignment and assignment[1] not in {"CPP_DIR", "HOME"}:
+                bindings.pop(assignment[1], None)
+    try:
+        words = tokens(statement)
+    except ValueError:
+        if "/scripts/" in statement:
+            report.findings.append(f"{path}:{number}: unrecognized helper-reference quoting")
+        return
+    for index, word in enumerate(words):
+        prefix = words[:index]
+        boundary = max((i for i, value in enumerate(prefix) if value.startswith(CONTROL)), default=-1)
+        prefix = prefix[boundary + 1:]
+        while prefix and (prefix[0] in {"if", "then", "else", "do", "!", "{"}
+                          or re.match(r"^[A-Za-z_]\w*=", prefix[0])):
+            prefix.pop(0)
+        metadata = prefix and prefix[0] in {"echo", "printf", "[", "[[", "test", "for", "case"}
+        runners = {"bash", "sh", "python", "python3", "exec"}
+        runner = max((i for i, value in enumerate(prefix) if Path(value).name in runners), default=-1)
+        callee = not metadata and (not prefix or runner >= 0 and all(v.startswith("-") for v in prefix[runner + 1:]))
+        assignment = re.match(r"^[A-Za-z_]\w*=", word)
+        if assignment:
+            callee = False
+        if re.match(r"^[A-Za-z_]\w*=", word):
+            word = word.partition("=")[2]
+        if word.startswith("~/"):
+            name, suffix = "HOME", word[2:]
+        else:
+            match = VARIABLE_PATH.fullmatch(word)
+            if not match:
+                if callee and word.startswith("$") and "/scripts/" in word:
+                    report.findings.append(f"{path}:{number}: unrecognized helper-root expansion")
+                continue
+            name, suffix = match[1] or match[2], match[3]
+        target = None
+        if name == "CPP_DIR" and suffix.startswith("scripts/"):
+            target = Path(suffix)
+        elif name == "HOME" and suffix.startswith(".claude/scripts/"):
+            target = Path("scripts") / suffix.removeprefix(".claude/scripts/")
+        elif name in bindings:
+            target = bindings[name] / suffix
+        elif callee and ("scripts/" in suffix or name in {"SCRIPT_DIR", "SCRIPTS_DIR"}):
+            report.findings.append(f"{path}:{number}: unrecognized helper root {name}")
+        if target is None or target.as_posix() == "scripts":
+            continue
+        if any(c in str(target) for c in "$*?[]"):
+            if callee:
+                report.findings.append(f"{path}:{number}: unrecognized dynamic helper path")
+            continue
+        yield target.as_posix()
 
 
 def scan(root: Path, minimum: int = MIN_INVOCATIONS) -> Report:
@@ -315,12 +412,12 @@ def scan(root: Path, minimum: int = MIN_INVOCATIONS) -> Report:
         if target.suffix == ".py":
             inspect_python(report, path, text)
             continue
+        bindings = {}
         for number, statement, supported in shell_lines(text, path.endswith(".md")):
             inspect_statement(report, path, number, statement, supported)
-            # Inspect literal CPP helper references, including copy/registration
-            # operands. This is a conservative superset of direct helper calls.
-            for match in REFERENCE.finditer(statement):
-                helper = "scripts/" + match[1]
+            # Read literal CPP/helper-directory references, including non-call
+            # operands; this conservatively exceeds the direct helper-call set.
+            for helper in helper_references(report, path, number, statement, bindings):
                 if helper not in report.files and helper not in queue:
                     queue.append(helper)
     if len(report.invocations) < minimum:
@@ -340,7 +437,9 @@ def main(argv=None) -> int:
     if report.findings:
         print(f"cpp-init-cicd-args: fail - {len(report.findings)} finding(s); {counts}")
         return 1
-    print(f"cpp-init-cicd-args: ok - {counts}; syntax only, no command handlers executed")
+    without_launches = report.files - {i.path for i in report.invocations} - {DOCUMENT}
+    print(f"cpp-init-cicd-args: ok - {counts}; {len(without_launches)} helper sources reached without literal "
+          "module launches; syntax only, no command handlers executed")
     return 0
 
 
