@@ -1165,6 +1165,7 @@ change. This proves source existence, not installation or readiness.
 `make cpp-init-promises-check`, `make verify` and CI run the gate.
 `controls/cpp-init-promises` commits missing helper, unfixed `.claude/hooks.json`,
 unknown, empty/near-empty, hidden affirmative, placeholder and escape cases,
+plus generated-source roles, individual unknown operands and shell-variable forms,
 with good fixed/retirement cases. Its constructed always-green anchor makes the
 battery fail when the path check is absent; provenance is explicitly unverified.
 

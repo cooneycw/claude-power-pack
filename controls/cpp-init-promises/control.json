@@ -100,6 +100,42 @@
       "input": "cases/bad-negative-then-positive",
       "expect": "BAD",
       "why": "Own probe: a historical negative cannot hide a later affirmative now-installs clause."
+    },
+    {
+      "name": "bad-generation-source-operand",
+      "input": "cases/bad-generation-source-operand",
+      "expect": "BAD",
+      "why": "Review2: a creation statement still needs its CPP source template; from does not create that input."
+    },
+    {
+      "name": "bad-unknown-before-known",
+      "input": "cases/bad-unknown-before-known",
+      "expect": "BAD",
+      "why": "Review2: a known source cannot hide an unknown preceding promised operand."
+    },
+    {
+      "name": "bad-unknown-after-known",
+      "input": "cases/bad-unknown-after-known",
+      "expect": "BAD",
+      "why": "An unknown trailing promised operand must fail independently of a known source."
+    },
+    {
+      "name": "bad-braced-home",
+      "input": "cases/bad-braced-home",
+      "expect": "BAD",
+      "why": "Braced HOME must resolve an installed helper back to its checkout source."
+    },
+    {
+      "name": "bad-source-modifier",
+      "input": "cases/bad-source-modifier",
+      "expect": "BAD",
+      "why": "Unsupported CPP_DIR expansion must be named as unclassified, never silently excluded."
+    },
+    {
+      "name": "bad-generated-cache-hides-install",
+      "input": "cases/bad-generated-cache-hides-install",
+      "expect": "BAD",
+      "why": "A prior generated destination does not classify a later explicit CPP source promise."
     }
   ],
   "anchors": [

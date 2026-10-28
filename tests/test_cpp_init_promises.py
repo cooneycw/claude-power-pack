@@ -38,6 +38,12 @@ def test_fixed_real_document_resolves():
         "bad-generation-hides-source",
         "bad-source-retirement-comment",
         "bad-negative-then-positive",
+        "bad-generation-source-operand",
+        "bad-unknown-before-known",
+        "bad-unknown-after-known",
+        "bad-braced-home",
+        "bad-source-modifier",
+        "bad-generated-cache-hides-install",
         "bad-missing-helper",
         "bad-real-hooks-json",
         "bad-unclassified",
@@ -80,6 +86,8 @@ def test_supported_path_forms_and_non_cpp_targets(tmp_path):
 Installs: /family:action
 Links: $CPP_DIR/.claude/commands/<family>
 Copies: "$CPP_DIR"/scripts/*.sh
+Copies: "${CPP_DIR}/scripts/helper.sh"
+Links: "${HOME}/.claude/scripts/helper.sh"
 Creates: .claude/generated.json
 To undo:
   rm .claude/generated.json

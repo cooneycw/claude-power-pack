@@ -51,6 +51,18 @@ def populate(root: Path, scenario: str) -> None:
         lines.append('cp "$CPP_DIR/scripts/missing-helper.sh" /consumer/destination # retired predecessor')
     elif scenario == "bad-negative-then-positive":
         lines.append("No longer installs scripts/old.sh now installs scripts/missing-helper.sh")
+    elif scenario == "bad-generation-source-operand":
+        lines.extend(["Creates: .claude/settings.json from templates/missing.json"])
+    elif scenario == "bad-unknown-before-known":
+        lines.extend(["Installs: chosen-at-runtime and scripts/supplied-0.sh"])
+    elif scenario == "bad-unknown-after-known":
+        lines.extend(["Installs: scripts/supplied-0.sh and chosen-at-runtime"])
+    elif scenario == "bad-braced-home":
+        lines.extend(["${HOME}/.claude/scripts/missing-helper.sh --install"])
+    elif scenario == "bad-source-modifier":
+        lines.extend(['cp "${CPP_DIR:-/fallback}/scripts/missing-helper.sh" /consumer/destination'])
+    elif scenario == "bad-generated-cache-hides-install":
+        lines.extend(["Creates: scripts/missing-helper.sh", "Installs: scripts/missing-helper.sh"])
     elif scenario == "bad-placeholder":
         lines.append("Installs: $CPP_DIR/scripts/<runtime>.sh")
     elif scenario == "bad-escape":

@@ -27,15 +27,15 @@ DOCUMENT = ".claude/commands/cpp/init.md"
 # Measured on the fixed #1587 document: 43 distinct source expressions.
 # An intentional retirement must update this floor deliberately.
 MIN_PROMISES = 43
-SOURCE = re.compile(r"(?:\$CPP_DIR|\{CPP_DIR\})[\"']?/([^\s`\"'();,]+)")
-HOME = re.compile(r"(?:~|\$HOME)[\"']?/[^\s`\"'();,]+")
+SOURCE = re.compile(r"(\$CPP_DIR|\$\{CPP_DIR[^}]*\}|\{CPP_DIR\})[\"']?/([^\s`\"'();,]+)")
+HOME = re.compile(r"(?:~|\$HOME|\$\{HOME\})[\"']?/[^\s`\"'();,]+")
 COMMAND = re.compile(r"(?<![\w/])/(?P<family>[a-z][\w-]*):(?P<name>[\w-]+)")
 RELATIVE = re.compile(r"(?<![\w/@])(?:\.[\w-]+|[a-zA-Z][\w.-]*)/[^\s`\"'();,]+")
 BARE_FILE = re.compile(r"(?<![\w./])(?:\.[\w-]+|[\w-]+\.[\w.-]+)(?![\w/])")
 VERBS = r"(?:installs?|links?|ships?|writes?|creates?|generates?|copies)"
 PROMISE = re.compile(
-    rf"(?:\b{VERBS}\b\s*:\s*|^(?:[-*•]\s*)?(?-i:Installs|Links|Ships|Writes|Creates|Generates|Copies)\b\s+|"
-    rf"\b{VERBS}\b\s+(?=[`~$./]|[\w-]+(?:/[\w<*]|\.[\w-])))",
+    rf"(?:(?<![\w-]){VERBS}\b\s*:\s*|^(?:[-*•]\s*)?(?-i:Installs|Links|Ships|Writes|Creates|Generates|Copies)\b\s+|"
+    rf"(?<![\w-]){VERBS}\b\s+(?=[`~$./]|[\w-]+(?:/[\w<*]|\.[\w-])))",
     re.I,
 )
 RETIREMENT = re.compile(r"\b(?:retired|removed|no longer|used to)\b", re.I)
@@ -149,11 +149,14 @@ def scan(text: str, root: Path, minimum: int) -> Report:
                     handled.append(match.span())
             for match in SOURCE.finditer(clause):
                 target = clean(match[0])
-                supplied(number, target, match[1])
+                if match[1] not in {"$CPP_DIR", "${CPP_DIR}", "{CPP_DIR}"}:
+                    report.findings.append(f"unclassified promise at {DOCUMENT}:{number}: {target}")
+                else:
+                    supplied(number, target, match[2])
                 handled.append(match.span())
             for match in HOME.finditer(clause):
                 target = clean(match[0])
-                suffix = re.sub(r"^(?:~|\$HOME)[\"']?/", "", target)
+                suffix = re.sub(r"^(?:~|\$HOME|\$\{HOME\})[\"']?/", "", target)
                 if "<name>" in suffix and "paths that will not exist" in clause and "echo" in clause:
                     add(number, "diagnostic", target)
                     handled.append(match.span())
@@ -186,6 +189,8 @@ def scan(text: str, root: Path, minimum: int) -> Report:
                     action
                     and re.fullmatch(r"creates?|generates?|configures?|writes?|adds?|downloads?", action[1], re.I)
                 )
+                relation = re.search(r"\b(?:from|using|via)\s+", clause[action.end() :]) if action else None
+                source_start = action.end() + relation.end() if action and relation else len(clause) + 1
                 tokens = [(clean(m[0]), m.start(), m.end()) for m in RELATIVE.finditer(clause)]
                 if producing or affirmative:
                     tokens += [(m[0], m.start(), m.end()) for m in BARE_FILE.finditer(clause)]
@@ -212,17 +217,39 @@ def scan(text: str, root: Path, minimum: int) -> Report:
                         add(number, "external", target)
                     elif re.search(rf"\b{re.escape(target)}:\s+https?://", clause):
                         add(number, "external", target)
-                    elif target in generated:
+                    elif target in generated and undo and not affirmative:
                         add(number, generated[target], target)
-                    elif producing and action and start >= action.end():
+                    elif producing and action and action.end() <= start < source_start:
                         generated[target] = "generated"
                         add(number, "generated", target)
                     elif target.startswith(("scripts/", "templates/", "lib/", "codex/", ".claude/")):
                         supplied(number, target, target)
+                    elif producing and start >= source_start:
+                        add(number, "consumer", target)
                     elif undo or affirmative:
                         report.findings.append(f"unclassified promise at {DOCUMENT}:{number}: {target}")
                     handled.append((start, end))
-                if affirmative and not handled and not tokens:
+                field = re.match(rf"^(?:[-*•]\s*)?{VERBS}\b(?:\s+if absent)?\s*:\s*", clause, re.I)
+                if affirmative and (field or re.match(r"^(?:[-*•]\s*)?(?:Installs|Links|Ships|Copies)\b", clause)):
+                    # Each comma/and-separated operand must begin with a
+                    # classified target. A recognized later path cannot excuse
+                    # an unknown first operand, or an unknown last operand.
+                    offset = field.end() if field else affirmative.end()
+                    body = clause[offset:]
+                    for operand in re.split(r",\s*|\s+and\s+", body):
+                        left = offset
+                        right = left + len(operand)
+                        spans = [(a, b) for a, b in handled if left <= a < right]
+                        prefix = clause[left : min((a for a, _ in spans), default=right)].strip(" `\"'")
+                        if operand.strip() and (not spans or prefix not in {"", "a", "an", "the"}):
+                            report.findings.append(f"unclassified promise at {DOCUMENT}:{number}: {operand.strip()}")
+                        # Find the next operand without losing the delimiter's
+                        # actual width or confusing a repeated target string.
+                        offset = right
+                        delimiter = re.match(r",\s*|\s+and\s+", clause[offset:])
+                        if delimiter:
+                            offset += delimiter.end()
+                elif affirmative and not handled and not tokens:
                     report.findings.append(f"unclassified promise at {DOCUMENT}:{number}: {clause}")
 
     if len(report.supplied) < minimum:
