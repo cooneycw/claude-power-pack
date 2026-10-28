@@ -1,6 +1,6 @@
 # Claude Power Pack
 
-**v10.0.0** - A productivity toolkit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that adds workflow automation, MCP servers, security scanning, secrets management, and CI/CD integration - with a verification discipline (from 8.0) enforced at the merge boundary (9.0), and in 10.0 a sweep of the helpers that read a non-answer as an answer, plus a merge helper that no longer escalates to `--admin` unless it is asked to.
+**v10.1.0** - A productivity toolkit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and Codex: explicit test/review evidence contracts, host preflight, clearer init permissions and consent, and guarded framework Makefile generation.
 
 ## What It Does
 
@@ -153,8 +153,33 @@ tag or a GitHub release - the only tag this repository has ever cut is
 `v1.1.0`, and no release has been published. Cutting an actual tagged release
 is a separate, standing operator checkpoint tracked at
 [#1278](https://github.com/cooneycw/claude-power-pack/issues/1278); until
-that happens, "v10.0.0" names a point in this Changelog and in `pyproject.toml`,
+that happens, "v10.1.0" names a point in this Changelog and in `pyproject.toml`,
 not a commit you can fetch by tag.
+
+### v10.1.0 (2026-10-28)
+
+**Minor by explicit owner ruling:** "CPP didn't augment anything new. if
+anything, v10.1". This supersedes #1278's consumer-action-to-MAJOR rule for this
+release. It records 35 commits since 10.0.0, including clearer setup choices,
+shared host preflight, reviewed-artifact evidence and guarded Makefile generation.
+
+**Behaviour changes you may notice.** Quiet successful tests now warn unless
+`silent_success` is declared per command. New schema 5 receipts need a committed
+checkpoint and exact reviewer runtime evidence; historical receipts stay valid.
+CPP's runner requires installed Python 3.11 with no implicit download. Standard
+GitHub permissions are list/view only in its read categories; Trusted prompts on
+every push and `gh api`, and YOLO is explicit opt-in. Init discloses writes and
+credential storage before consent and no longer probes writability beforehand.
+`detect --generate-makefile` refuses existing entries unless explicitly forced.
+Two new init gates and the writer control check the supplied promises/calls.
+The [full consumer-action ledger](CHANGELOG.md#behaviour-changes-you-may-notice)
+also covers helper paths, guarded merges, CI identity/status, wave/session
+contracts and bounded evaluation/resume evidence.
+
+This is a version milestone on rolling main: no tag or GitHub release. The
+broader init redesign, framework-first ordering and general rechecker remain
+#1587 work. Advisory evaluation remains bounded and current content is stale;
+this release makes no claim of behavioral assurance or deployed-host upgrades.
 
 ### v10.0.0 (2026-10-21)
 
