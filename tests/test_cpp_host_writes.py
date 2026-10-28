@@ -281,7 +281,7 @@ def test_the_gate_can_see_the_bootstrap_this_issue_added() -> None:
     )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    # Tier 2 and the independent local tiers each bootstrap the quoted seam.
+    # #1586 B2 adds one quoted local-tier bootstrap alongside the Tier 2 call.
     for rel, expected in ((".claude/commands/cpp/init.md", 15),
                           (".claude/commands/cpp/update.md", 7)):
         text = (ROOT / rel).read_text(encoding="utf-8")
