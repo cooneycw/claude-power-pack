@@ -281,7 +281,8 @@ def test_the_gate_can_see_the_bootstrap_this_issue_added() -> None:
     )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    for rel, expected in ((".claude/commands/cpp/init.md", 14),
+    # Tier 2 and the independent local tiers each bootstrap the quoted seam.
+    for rel, expected in ((".claude/commands/cpp/init.md", 15),
                           (".claude/commands/cpp/update.md", 7)):
         text = (ROOT / rel).read_text(encoding="utf-8")
         seen = [st for _, st in mod._shell_statements(text)
