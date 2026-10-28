@@ -1,0 +1,31 @@
+{
+  "branch": "fix/1586-local-tier-seam",
+  "counts": {
+    "accepted": 1,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "cf174fc9f245477c6e7fbdd716696df443cac172",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/28/rollout-2026-10-28T11-17-43-01a1823a-f1c5-72e1-9690-1f394b8034cc.jsonl",
+    "thread_id": "01a1823a-f1c5-72e1-9690-1f394b8034cc"
+  },
+  "issue": "1586",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 2,
+  "recorded_at": "2026-10-28T13:08:45Z",
+  "red_cases": {
+    "already_covered": 1,
+    "proposed": 1
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/28/rollout-2026-10-28T13-06-24-01a1829e-708c-74b1-95aa-fac91a787e11.jsonl",
+    "thread_id": "01a1829e-708c-74b1-95aa-fac91a787e11"
+  },
+  "schema": 1,
+  "scope": "diff-only",
+  "status": "ran"
+}
