@@ -222,8 +222,20 @@ Ask the user which permission profile they want using AskUserQuestion:
 |---------|-------------|----------|
 | **Cautious** | Minimal auto-approvals (Read only) | New users, shared machines |
 | **Standard** | Common dev tools auto-approved (Recommended) | Most developers |
-| **Trusted** | Broad auto-approvals, with no hook behind them: CPP's optional hooks (the permission census and the pending-retro notice) observe and advise, and neither blocks or filters anything | Solo developers, power users |
+| **Trusted** | Broad development approvals; asks on listed Git/GitHub verbs, including ordinary push and API calls. Optional hooks only advise | Solo developers, power users |
 | **Custom** | Choose individual permission categories | Fine-grained control |
+
+Keep the initial AskUserQuestion choices to Cautious, Standard, Trusted, and
+Custom. If the user selects Trusted, ask one additional question:
+
+**Which broad-approval profile?**
+- **Keep Trusted (default)** - ask on the listed Git/GitHub verbs, including ordinary push and API calls.
+- **YOLO (explicit opt-in)** - auto-approve those commands too; show the disclosure below before confirmation.
+
+YOLO is never the default and is never recommended. Do not select it from the
+installation tier, prior permissions, or a request to reduce prompts. A user must
+choose it explicitly and confirm its disclosure; declining returns to the profile
+chooser. Standard remains the recommended default.
 
 ### Profile Definitions
 
@@ -267,23 +279,186 @@ Ask the user which permission profile they want using AskUserQuestion:
 {
   "permissions": {
     "allow": [
-      "Read", "Glob", "Grep", "Write",
-      "Bash(git:*)", "Bash(gh:*)",
-      "Bash(npm:*)", "Bash(npx:*)", "Bash(uv:*)", "Bash(pip:*)", "Bash(yarn:*)",
-      "Bash(python:*)", "Bash(node:*)",
-      "Bash(ls:*)", "Bash(cat:*)", "Bash(mkdir:*)", "Bash(cp:*)", "Bash(mv:*)",
-      "Bash(curl:*)", "Bash(wget:*)",
-      "WebFetch", "WebSearch",
+      "Read",
+      "Glob",
+      "Grep",
+      "Write",
+      "Bash(git:*)",
+      "Bash(gh:*)",
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "Bash(uv:*)",
+      "Bash(pip:*)",
+      "Bash(yarn:*)",
+      "Bash(python:*)",
+      "Bash(node:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "WebFetch",
+      "WebSearch",
       "Skill(*)",
-      "mcp__second-opinion__*", "mcp__playwright__*"
+      "mcp__second-opinion__*",
+      "mcp__playwright__*"
     ],
     "deny": [
-      "Bash(rm -rf /:*)", "Bash(rm -rf ~:*)", "Bash(rm -rf /home:*)",
-      "Bash(git push --force origin main:*)", "Bash(git push --force origin master:*)",
-      "Bash(sudo rm:*)", "Bash(mkfs:*)", "Bash(dd if=:*)"
+      "Bash(rm -rf /:*)",
+      "Bash(rm -rf ~:*)",
+      "Bash(rm -rf /home:*)",
+      "Bash(git push --force origin main:*)",
+      "Bash(git push --force origin master:*)",
+      "Bash(sudo rm:*)",
+      "Bash(mkfs:*)",
+      "Bash(dd if=:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(git reset:*)",
+      "Bash(git clean:*)",
+      "Bash(git rebase:*)",
+      "Bash(git filter-branch:*)",
+      "Bash(git filter-repo:*)",
+      "Bash(git replace:*)",
+      "Bash(git update-ref:*)",
+      "Bash(gh repo delete:*)",
+      "Bash(gh repo archive:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(gh issue delete:*)",
+      "Bash(gh release delete:*)",
+      "Bash(gh api:*)",
+      "Bash(git commit --amend*)",
+      "Bash(git commit * --amend*)",
+      "Bash(git branch -D*)",
+      "Bash(git branch * -D*)",
+      "Bash(git branch --force*)",
+      "Bash(git branch * --force*)",
+      "Bash(git branch -f*)",
+      "Bash(git branch * -f*)",
+      "Bash(git branch -df*)",
+      "Bash(git branch * -df*)",
+      "Bash(git branch -rD*)",
+      "Bash(git branch * -rD*)",
+      "Bash(git branch -M*)",
+      "Bash(git branch * -M*)",
+      "Bash(git branch -C*)",
+      "Bash(git branch * -C*)"
     ]
   }
 }
+```
+
+**YOLO Profile:**
+```json
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Write",
+      "Bash(git:*)",
+      "Bash(gh:*)",
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "Bash(uv:*)",
+      "Bash(pip:*)",
+      "Bash(yarn:*)",
+      "Bash(python:*)",
+      "Bash(node:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "WebFetch",
+      "WebSearch",
+      "Skill(*)",
+      "mcp__second-opinion__*",
+      "mcp__playwright__*"
+    ],
+    "deny": [
+      "Bash(rm -rf /:*)",
+      "Bash(rm -rf ~:*)",
+      "Bash(rm -rf /home:*)",
+      "Bash(git push --force origin main:*)",
+      "Bash(git push --force origin master:*)",
+      "Bash(sudo rm:*)",
+      "Bash(mkfs:*)",
+      "Bash(dd if=:*)"
+    ]
+  }
+}
+```
+
+#### Trusted approval scope
+
+Trusted keeps its original broad allow list **and every original deny rule**,
+then adds `permissions.ask`. Normal rule precedence is **deny, then ask, then
+allow**, independent of specificity. Existing exact force-push-to-main/master
+prefix denies remain denied; they are not weakened into prompts.
+
+Whole-verb asks cover git push, reset, clean, rebase, filter-branch, filter-repo,
+replace and update-ref; gh repo delete/archive, pr merge, issue delete, release
+delete and api. All pushes and all API calls prompt, including ordinary pushes
+and GET requests such as `gh api repos/owner/repo`: flags, refspecs, grouped push
+options and implicit API methods make a finite dangerous-only list too easy to
+miss. This is a usability cost: the separate explicit YOLO choice restores the
+original Trusted policy if you accept that risk. Ordinary commits and branch
+creation/listing/rename/copy remain auto-approved; commit amend and forced branch
+delete/rename/copy forms use flag patterns instead. The JSON above is the complete
+installed ask list.
+
+Flags after operands are covered, for example `git push origin main --force`,
+`git commit -m fix --amend`, `git branch old -D`, and
+`gh api repos/owner/repo -X DELETE`. Claude Code checks every compound subcommand,
+so `cd subdir && git push -f` also prompts for the push.
+
+This is not a complete destructive-command list or a security boundary around
+programs. Flag patterns can also prompt when flag-like text occurs in a quoted
+argument; unlisted grouped branch flags may escape them. Alternate forms such as
+`/usr/bin/git`, `git -C . push`, `git 'push'`, and `sh -c '...'` are outside these
+prefixes; other rules and permission modes decide them. Broad runtime approvals
+can execute commands indirectly. Native sandbox and permission-mode settings
+still apply. The [Claude Code permission docs](https://code.claude.com/docs/en/permissions.md)
+document precedence, wildcard patterns, compounds and these matching limits,
+but do not name an earliest version for ask precedence. Do not promise it for
+an unverified old client.
+
+### YOLO Disclosure
+
+Show this after an explicit YOLO choice and before any installation confirmation:
+
+```
+=== YOLO permission profile: explicit opt-in ===
+
+This writes the selected profile to .claude/settings.local.json when that file
+is absent. Existing local settings are skipped; selecting a profile does not
+silently replace them.
+
+YOLO uses the original Trusted allow AND deny lists exactly. It auto-approves
+many destructive direct git and gh forms, unless an existing deny matches:
+  git push --force / -f / --force-with-lease (including flags after operands)
+  git reset --hard; git clean -f; git branch -D / -M / -C
+  git commit --amend; git rebase; git filter-branch; git filter-repo
+  git replace; git update-ref
+  gh repo delete; gh repo archive; gh pr merge; gh issue delete
+  gh release delete; gh api -X DELETE (including the method after the URL)
+
+These operations can discard work, rewrite published history, delete repositories
+or issues, and merge changes without an additional permission prompt. The existing
+exact git push --force origin main/master prefix denies remain, along with all
+original system denies. Other argument orders may not match those denies.
+
+YOLO is never the default or a recommendation. Native policy still applies; this
+choice does not enable bypassPermissions mode.
+
+Proceed? [y/N]
 ```
 
 The Standard profile auto-approves only GitHub issue list/view and PR list/view.
@@ -310,10 +485,10 @@ If user selects "Custom", ask which categories to enable using multi-select:
 
 ### Security Notes
 
-- **Deny rules are always enforced** - Dangerous patterns blocked regardless of profile
-- **Native blocking + sandbox are the first layer** - Claude Code natively auto-blocks destructive git commands and OS-sandboxes filesystem/system operations, even if auto-approved
+- **Matching deny rules take precedence** - In normal rule evaluation, deny wins over ask, and ask wins over allow
+- **Native policy still applies** - Profiles configure permission rules; the selected permission mode and sandbox settings also govern execution
 - **Nothing masks tool output** - CPP registers no output filter, so treat anything a command prints as reaching the transcript verbatim
-- **Trusted profile requires Tier 2** - Won't offer Trusted unless the helper scripts are installed
+- **Trusted and YOLO require Tier 2** - Offer the broad-approval chooser only when the Tier 2 helper scripts are installed
 
 ---
 
@@ -808,7 +983,9 @@ fi
 
 - **Standard**: See Step 3b for full JSON
 
-- **Trusted**: See Step 3b for full JSON
+- **Trusted**: See Step 3b for full JSON, including the ask exceptions
+
+- **YOLO**: See Step 3b; only after explicit selection and disclosure confirmation
 
 - **Custom**: Build JSON from selected categories
 

@@ -1,0 +1,296 @@
+{
+  "source_sha": "e9c02f230c19db79ad9ffff6b8937ed935054aac",
+  "original_trusted": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Write",
+      "Bash(git:*)",
+      "Bash(gh:*)",
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "Bash(uv:*)",
+      "Bash(pip:*)",
+      "Bash(yarn:*)",
+      "Bash(python:*)",
+      "Bash(node:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "WebFetch",
+      "WebSearch",
+      "Skill(*)",
+      "mcp__second-opinion__*",
+      "mcp__playwright__*"
+    ],
+    "deny": [
+      "Bash(rm -rf /:*)",
+      "Bash(rm -rf ~:*)",
+      "Bash(rm -rf /home:*)",
+      "Bash(git push --force origin main:*)",
+      "Bash(git push --force origin master:*)",
+      "Bash(sudo rm:*)",
+      "Bash(mkfs:*)",
+      "Bash(dd if=:*)"
+    ]
+  },
+  "commands": [
+    {
+      "command": "git push --force origin main",
+      "ask_rule": "Bash(git push:*)",
+      "trusted": "deny",
+      "yolo": "deny"
+    },
+    {
+      "command": "git push --force origin master",
+      "ask_rule": "Bash(git push:*)",
+      "trusted": "deny",
+      "yolo": "deny"
+    },
+    {
+      "command": "git push origin main --force",
+      "ask_rule": "Bash(git push:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git push origin main -f",
+      "ask_rule": "Bash(git push:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git push origin main --force-with-lease",
+      "ask_rule": "Bash(git push:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git push origin main",
+      "ask_rule": "Bash(git push:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git reset HEAD~1 --hard",
+      "ask_rule": "Bash(git reset:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git clean build/ -f",
+      "ask_rule": "Bash(git clean:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git branch old-work -D",
+      "ask_rule": "Bash(git branch * -D*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git rebase -i HEAD~3",
+      "ask_rule": "Bash(git rebase:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git commit -m replacement --amend",
+      "ask_rule": "Bash(git commit * --amend*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git filter-branch -- --all",
+      "ask_rule": "Bash(git filter-branch:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git filter-repo --path obsolete --invert-paths",
+      "ask_rule": "Bash(git filter-repo:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git replace --graft HEAD HEAD~2",
+      "ask_rule": "Bash(git replace:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git update-ref refs/heads/main HEAD~1",
+      "ask_rule": "Bash(git update-ref:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "gh repo delete owner/repo --yes",
+      "ask_rule": "Bash(gh repo delete:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "gh repo archive owner/repo --yes",
+      "ask_rule": "Bash(gh repo archive:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "gh pr merge 42 --squash",
+      "ask_rule": "Bash(gh pr merge:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "gh issue delete 42 --yes",
+      "ask_rule": "Bash(gh issue delete:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "gh release delete v1 --yes",
+      "ask_rule": "Bash(gh release delete:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "gh api repos/owner/repo -X DELETE",
+      "ask_rule": "Bash(gh api:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "gh api -X DELETE repos/owner/repo",
+      "ask_rule": "Bash(gh api:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "cd subdir && git push origin main -f",
+      "ask_rule": "Bash(git push:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git status; gh issue delete 42 --yes",
+      "ask_rule": "Bash(gh issue delete:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "gh api repos/owner/repo --method DELETE",
+      "ask_rule": "Bash(gh api:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git commit --amend --no-edit",
+      "ask_rule": "Bash(git commit --amend*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git branch -D old-work",
+      "ask_rule": "Bash(git branch -D*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git branch --force --delete old-work",
+      "ask_rule": "Bash(git branch --force*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git branch --delete old-work --force",
+      "ask_rule": "Bash(git branch * --force*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git branch -f old-work HEAD~1",
+      "ask_rule": "Bash(git branch -f*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git branch old-work HEAD~1 -f",
+      "ask_rule": "Bash(git branch * -f*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git branch -df old-work",
+      "ask_rule": "Bash(git branch -df*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git branch old-work -df",
+      "ask_rule": "Bash(git branch * -df*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git branch -rD origin/old-work",
+      "ask_rule": "Bash(git branch -rD*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git branch origin/old-work -rD",
+      "ask_rule": "Bash(git branch * -rD*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "gh api repos/owner/repo",
+      "ask_rule": "Bash(gh api:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git push --follow-tags",
+      "ask_rule": "Bash(git push:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git push -u origin work",
+      "ask_rule": "Bash(git push:*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git branch -M source existing-target",
+      "ask_rule": "Bash(git branch -M*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git branch source existing-target -M",
+      "ask_rule": "Bash(git branch * -M*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git branch -C source existing-target",
+      "ask_rule": "Bash(git branch -C*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    },
+    {
+      "command": "git branch source existing-target -C",
+      "ask_rule": "Bash(git branch * -C*)",
+      "trusted": "ask",
+      "yolo": "allow"
+    }
+  ]
+}
