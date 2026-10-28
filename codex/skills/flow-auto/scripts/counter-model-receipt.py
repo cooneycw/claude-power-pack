@@ -1164,6 +1164,13 @@ def _derive_codex_from_thread(
         rollout_text = rollout.read_bytes().decode("utf-8")
     except (OSError, UnicodeError) as exc:
         return None, None, f"cannot read matching rollout {rollout}: {exc}"
+    records, error = _strict_records(rollout_text)
+    if error:
+        return None, None, f"unreadable matching rollout {rollout}: {error}"
+    try:
+        _codex_rollout_identity(records, thread_id)
+    except EvidenceUnknown as exc:
+        return None, None, str(exc)
     flow_scope = None
     if flow_args is not None:
         try:
@@ -1463,6 +1470,18 @@ def _codex_stream_thread(records: list[dict]) -> tuple[str | None, str | None]:
     return ids[0], None
 
 
+def _codex_rollout_identity(records: list[dict], expected: str | None = None) -> str:
+    headers = [r.get("payload") for r in records if r.get("type") == "session_meta"]
+    if len(headers) != 1 or not isinstance(headers[0], dict):
+        raise EvidenceUnknown("rollout requires exactly one session_meta id")
+    ident = headers[0].get("id")
+    if not isinstance(ident, str) or not ident.strip():
+        raise EvidenceUnknown("rollout requires exactly one valid session_meta id")
+    if expected is not None and ident != expected:
+        raise EvidenceUnknown(f"rollout session_meta id {ident!r} does not match selected thread {expected!r}")
+    return ident
+
+
 def _adapter(args: argparse.Namespace, role: str) -> tuple[list[str], dict, list[dict]]:
     """Role-neutral evidence selection. No adapter accepts a model argument."""
     selectors = [
@@ -1495,15 +1514,13 @@ def _adapter(args: argparse.Namespace, role: str) -> tuple[list[str], dict, list
         if kind == "rollout":
             path = value
             source, records, text = _snapshot(path)
-            metas = [r.get("payload", {}).get("id") for r in records if r.get("type") == "session_meta"]
-            if len(metas) != 1 or not isinstance(metas[0], str) or not metas[0].strip():
-                raise EvidenceUnknown("rollout requires exactly one session_meta id")
-            value = metas[0]
+            value = _codex_rollout_identity(records)
         else:
             path = _one(
                 [p for p in root.rglob("*.jsonl") if p.name.endswith(f"{value}.jsonl")], f"Codex rollout for {value!r}"
             )
             source, records, text = _snapshot(path, root)
+            _codex_rollout_identity(records, value)
         sources.append(source)
         flow_scope = None
         if role == "implementer" and getattr(args, "implementer_flow_run", None):

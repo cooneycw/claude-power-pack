@@ -288,12 +288,15 @@ def _reviewer_derivation_fixture(
     rollout_dir = sessions_dir / "2026" / "09" / "19"
     rollout_dir.mkdir(parents=True)
     (rollout_dir / f"rollout-{thread_id}.jsonl").write_text(
-        _rollout_text(model), encoding="utf-8"
+        _rollout_text(model, thread_id=thread_id), encoding="utf-8"
     )
     return exec_log, sessions_dir
 
 
-def _rollout_text(turn_model: str, provenance_model: str | None = None) -> str:
+def _rollout_text(
+    turn_model: str, provenance_model: str | None = None, *,
+    thread_id: str = "thread-for-counter-model-test",
+) -> str:
     """A rollout in the shape codex-cli 0.158.0 writes (measured, issue #1269).
 
     The session header comes FIRST and carries a `model` of its own - the model
@@ -304,7 +307,7 @@ def _rollout_text(turn_model: str, provenance_model: str | None = None) -> str:
     header = {
         "type": "session_meta",
         "payload": {
-            "id": "fixture",
+            "id": thread_id,
             "base_instructions": {
                 "provenance": {"model": provenance_model or turn_model},
             },
@@ -1077,10 +1080,10 @@ def test_multiple_matching_reviewer_rollouts_are_refused(tmp_path: Path) -> None
     first.mkdir(parents=True)
     second.mkdir(parents=True)
     (first / f"rollout-{thread_id}.jsonl").write_text(
-        _rollout_text("gpt-5.5"), encoding="utf-8"
+        _rollout_text("gpt-5.5", thread_id=thread_id), encoding="utf-8"
     )
     (second / f"rollout-{thread_id}.jsonl").write_text(
-        _rollout_text("gpt-5"), encoding="utf-8"
+        _rollout_text("gpt-5", thread_id=thread_id), encoding="utf-8"
     )
     proc = _write(
         tmp_path, "--issue", "1400", "--branch", "b", "--status", "ran", "--scope", "unverified",
@@ -1096,7 +1099,7 @@ def test_a_matching_rollout_without_a_model_is_refused(tmp_path: Path) -> None: 
     session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "discarded")
     rollout = next(sessions_dir.rglob("*.jsonl"))
-    rollout.write_text('{"type":"session_meta"}\n', encoding="utf-8")
+    rollout.write_text(json.dumps({"type": "session_meta", "payload": {"id": "thread-for-counter-model-test"}}) + "\n", encoding="utf-8")
     proc = _write(
         tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran", "--scope", "unverified",
         *_reviewer_evidence_args(exec_log, sessions_dir),
@@ -2350,10 +2353,10 @@ def test_rollout_model_refuses_an_ambiguous_match_and_prints_nothing(  # binary-
     first.mkdir(parents=True)
     second.mkdir(parents=True)
     (first / f"rollout-{thread_id}.jsonl").write_text(
-        _rollout_text("gpt-5.5"), encoding="utf-8"
+        _rollout_text("gpt-5.5", thread_id=thread_id), encoding="utf-8"
     )
     (second / f"rollout-{thread_id}.jsonl").write_text(
-        _rollout_text("gpt-5"), encoding="utf-8"
+        _rollout_text("gpt-5", thread_id=thread_id), encoding="utf-8"
     )
     proc = _rollout_model(
         tmp_path, "--exec-log", str(exec_log), "--sessions-dir", str(sessions_dir)
@@ -2411,7 +2414,7 @@ def test_scope_full_is_recorded_on_the_receipt(tmp_path: Path) -> None:  # binar
     rollout_dir = sessions_dir / "2026" / "09" / "19"
     rollout_dir.mkdir(parents=True)
     (rollout_dir / f"rollout-{thread_id}.jsonl").write_text(
-        _rollout_text("gpt-5.5"), encoding="utf-8"
+        _rollout_text("gpt-5.5", thread_id=thread_id), encoding="utf-8"
     )
     out_dir = tmp_path / "out"
     proc = _write(
@@ -2475,7 +2478,7 @@ def test_an_in_progress_command_with_no_terminal_outcome_also_downgrades_to_unve
     rollout_dir = sessions_dir / "2026" / "09" / "19"
     rollout_dir.mkdir(parents=True)
     (rollout_dir / f"rollout-{thread_id}.jsonl").write_text(
-        _rollout_text("gpt-5.5"), encoding="utf-8"
+        _rollout_text("gpt-5.5", thread_id=thread_id), encoding="utf-8"
     )
     out_dir = tmp_path / "out"
     proc = _write(
@@ -2507,7 +2510,7 @@ def test_scope_downgrades_from_full_when_a_sandbox_launch_fails_mid_run(  # bina
     rollout_dir = sessions_dir / "2026" / "09" / "19"
     rollout_dir.mkdir(parents=True)
     (rollout_dir / f"rollout-{thread_id}.jsonl").write_text(
-        _rollout_text("gpt-5.5"), encoding="utf-8"
+        _rollout_text("gpt-5.5", thread_id=thread_id), encoding="utf-8"
     )
     out_dir = tmp_path / "out"
     proc = _write(
@@ -2537,7 +2540,7 @@ def test_an_ordinary_nonzero_exit_does_not_downgrade_scope(tmp_path: Path) -> No
     rollout_dir = sessions_dir / "2026" / "09" / "19"
     rollout_dir.mkdir(parents=True)
     (rollout_dir / f"rollout-{thread_id}.jsonl").write_text(
-        _rollout_text("gpt-5.5"), encoding="utf-8"
+        _rollout_text("gpt-5.5", thread_id=thread_id), encoding="utf-8"
     )
     out_dir = tmp_path / "out"
     proc = _write(
@@ -2901,7 +2904,7 @@ def test_a_same_model_review_of_a_codex_implementer_cannot_be_recorded_as_ran(  
     exec_log.write_text(json.dumps({"type": "thread.started", "thread_id": "rev-thread"}) + "\n",
                         encoding="utf-8")
     (sessions / "2026" / "09" / "19" / "rollout-rev-thread.jsonl").write_text(
-        _rollout_text("gpt-impl"), encoding="utf-8")
+        _rollout_text("gpt-impl", thread_id="rev-thread"), encoding="utf-8")
     proc = _write_env(tmp_path, {}, "--issue", "1453", "--branch", "b", "--status", "ran", "--scope", "unverified",
                       "--passes", "1", "--reviewer-exec-log", str(exec_log),
                       "--implementer-thread-id", thread, "--codex-sessions-dir", str(sessions))
@@ -2957,7 +2960,7 @@ def _scoped_write(tmp_path: Path, items: list[dict]) -> tuple[subprocess.Complet
     sessions_dir = tmp_path / "sessions"
     rollout_dir = sessions_dir / "2026" / "09" / "19"
     rollout_dir.mkdir(parents=True)
-    (rollout_dir / f"rollout-{thread_id}.jsonl").write_text(_rollout_text("gpt-5.5"), encoding="utf-8")
+    (rollout_dir / f"rollout-{thread_id}.jsonl").write_text(_rollout_text("gpt-5.5", thread_id=thread_id), encoding="utf-8")
     out_dir = tmp_path / "out"
     proc = _write(tmp_path, "--dir", str(out_dir), "--issue", "1461", "--branch", "b",
                   "--status", "ran", "--passes", "1", "--scope", "full",
@@ -3872,7 +3875,7 @@ def _mixed_codex_write(
     implementer_thread = "cpp-1580-implementer"
     implementer_rollout = reviewer_rollout.with_name(f"rollout-{implementer_thread}.jsonl")
     implementer_rollout.write_text(
-        _rollout_text(implementer_models[0])
+        _rollout_text(implementer_models[0], thread_id=implementer_thread)
         + "".join(
             json.dumps({"type": "turn_context", "payload": {"model": model}}) + "\n"
             for model in implementer_models[1:]

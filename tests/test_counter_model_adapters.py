@@ -944,3 +944,44 @@ def test_resolved_command_ids_can_be_reused_sequentially(evidence, runtime_name)
     path.write_text("".join(json.dumps(r) + "\n" for r in records))
     result = write(e, *args, "--scope", "full")
     assert result.returncode == 0, result.stderr
+
+
+@requires_git
+@pytest.mark.parametrize("role", ["implementer", "reviewer"])
+@pytest.mark.parametrize("selector", ["thread_id", "exec_log"])
+@pytest.mark.parametrize("mutation", ["mismatch", "suffix-only", "missing", "duplicate"])
+def test_codex_selection_requires_its_own_session_identity(evidence, role, selector, mutation):
+    e = evidence
+    if role == "implementer":
+        runtime(e, role, "codex", "model-a")
+        args = runtime(e, "reviewer", "claude", "model-b", patch=e["patch"])
+    else:
+        args = runtime(e, "implementer", "claude", "model-a")
+        runtime(e, role, "codex", "model-b", patch=e["patch"])
+    ident = f"fixture-{role}"
+    root = e["tmp"] / "codex"
+    path = root / f"rollout-{ident}.jsonl"
+    records = [json.loads(line) for line in path.read_text().split("\n") if line]
+    assert records[0]["payload"]["id"] == ident, "precondition: original session identity matches"
+    if mutation in ("mismatch", "suffix-only"):
+        records[0]["payload"]["id"] = "other-" + ident
+        if mutation == "suffix-only":
+            path.unlink()
+            path = root / f"rollout-other-{ident}.jsonl"
+            assert path.name.endswith(ident + ".jsonl"), "precondition: only a suffix collision remains"
+    elif mutation == "missing":
+        records.pop(0)
+    else:
+        records.insert(0, copy.deepcopy(records[0]))
+    path.write_text("".join(json.dumps(r) + "\n" for r in records))
+    assert len(list(root.glob("*.jsonl"))) == 1, "precondition: unique candidate, not duplicate-file refusal"
+    if selector == "thread_id":
+        args += [f"--{role}-thread-id", ident]
+    else:
+        stream = e["tmp"] / "selected-exec.jsonl"
+        stream.write_text(json.dumps({"type": "thread.started", "thread_id": ident}) + "\n")
+        args += [f"--{role}-exec-log", str(stream)]
+    result = write(e, *args, "--codex-sessions-dir", str(root), "--scope", "diff-only")
+    assert result.returncode != 0
+    assert "session_meta" in result.stderr
+    assert not list((e["tmp"] / "out").glob("*.json"))
