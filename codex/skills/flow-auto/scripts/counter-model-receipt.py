@@ -1706,8 +1706,8 @@ def _review_commands(records: list[dict], runtime: str) -> list[tuple[str, str]]
     return commands
 
 
-def _review_report_index(records: list[dict], runtime: str) -> int:
-    """Use the last actual report, so a supervising session may review many PRs."""
+def _review_report_window(records: list[dict], runtime: str) -> tuple[int, int]:
+    """A new report needs its own evidence, after any preceding report."""
     reports = []
     for index, r in enumerate(records):
         if runtime == "codex":
@@ -1724,7 +1724,7 @@ def _review_report_index(records: list[dict], runtime: str) -> int:
                     reports.append(index)
     if not reports:
         raise EvidenceUnknown("missing runtime review report: retain the reviewer's '## Findings' assistant output")
-    return reports[-1]
+    return (reports[-2] + 1 if len(reports) > 1 else 0), reports[-1]
 
 
 def _git_artifact(base_ref: str, target_ref: str = "HEAD") -> tuple[dict, bytes]:
@@ -1744,6 +1744,9 @@ def _git_artifact(base_ref: str, target_ref: str = "HEAD") -> tuple[dict, bytes]
         "--no-textconv",
         "--no-color",
         "--no-renames",
+        "--no-relative",
+        "--ignore-submodules=none",
+        "--submodule=short",
         "--src-prefix=a/",
         "--dst-prefix=b/",
         "--binary",
@@ -1763,8 +1766,8 @@ def _git_artifact(base_ref: str, target_ref: str = "HEAD") -> tuple[dict, bytes]
 def _artifact_binding(args: argparse.Namespace, evidence: dict, records: list[dict]) -> dict:
     binding, patch = _git_artifact(args.review_base, args.head or "HEAD")
     target = binding["target_head"]
-    report_index = _review_report_index(records, evidence["runtime"])
-    records = records[:report_index]
+    start_index, report_index = _review_report_window(records, evidence["runtime"])
+    records = records[start_index:report_index]
     binding["report_record"] = report_index + 1
     if args.scope == "full":
         heads = [
@@ -2952,7 +2955,10 @@ def cmd_audit_flow(args: argparse.Namespace) -> int:
 def cmd_review_patch(args: argparse.Namespace) -> int:
     """Produce exactly the artifact the writer independently recomputes."""
     try:
-        dirty = subprocess.check_output(["git", "status", "--porcelain"], stderr=subprocess.PIPE)
+        dirty = subprocess.check_output(
+            ["git", "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=none"],
+            stderr=subprocess.PIPE,
+        )
         if dirty:
             raise EvidenceRefused("commit the issue's implementation checkpoint "
                                   "before producing a receipt-bound review patch")

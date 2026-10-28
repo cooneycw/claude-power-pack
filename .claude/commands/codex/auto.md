@@ -680,7 +680,18 @@ Cross-model review: Claude Code reviews what Codex wrote.
 
 3. **Report review findings:**
 
+Emit `## Findings` as an actual assistant Markdown heading outside code fences,
+followed by structured severity findings or `None - no defects found.`. The
+receipt binds this runtime report. Each new report needs a fresh HEAD probe
+after the previous report; it cannot inherit another review's tool result.
+
 ```
+## Findings
+
+None - no defects found.
+
+## Review summary
+
 Step 5/8: Review Complete
 
 Codex Diff Review:

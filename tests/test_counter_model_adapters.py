@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -622,3 +623,167 @@ def test_qwen_reviewer_binds_its_persisted_user_parts(evidence):
     args += runtime(e, "reviewer", "qwen-code", "model-b", patch=e["patch"])
     result = write(e, *args, "--scope", "diff-only")
     assert result.returncode == 0, result.stderr
+
+
+@requires_git
+@pytest.mark.parametrize("scope", ["diff-only", "full"])
+def test_a_later_report_requires_fresh_binding_evidence(evidence, scope):
+    e = evidence
+    args = runtime(e, "implementer", "codex", "model-a")
+    args += runtime(e, "reviewer", "claude", "model-b",
+                    patch=e["patch"] if scope == "diff-only" else None,
+                    probe=e["head"] if scope == "full" else None)
+    path = e["tmp"] / "claude/fixture-reviewer.jsonl"
+    earlier = path.read_bytes()
+    runtime(e, "reviewer", "claude", "model-b")
+    later = path.read_bytes()
+    assert b"<cpp-review-patch>" not in later and b"git rev-parse HEAD" not in later, \
+        "negative-fixture precondition: later review has no fresh binding"
+    assert earlier.count(b"## Findings") == later.count(b"## Findings") == 1
+    path.write_bytes(earlier + later)
+    result = write(e, *args, "--scope", scope)
+    assert result.returncode != 0
+    diagnostic = "missing captured reviewer patch" if scope == "diff-only" else "missing reviewer runtime HEAD probe"
+    assert diagnostic in result.stderr, result.stderr
+    assert not list((e["tmp"] / "out").glob("*.json"))
+
+
+@requires_git
+def test_checkpoint_guard_sees_untracked_files_hidden_by_config(evidence):
+    e = evidence
+    repo = e["repo"]
+    git(repo, "config", "status.showUntrackedFiles", "no")
+    (repo / "uncommitted.py").write_text("implementation_not_in_the_commit = True\n")
+    assert "uncommitted.py" in git(repo, "ls-files", "--others", "--exclude-standard"), \
+        "negative-fixture precondition: unignored untracked implementation exists"
+    assert git(repo, "status", "--porcelain") == "", "precondition: default status is blinded by config"
+    result = subprocess.run([sys.executable, str(SCRIPT), "review-patch"], cwd=repo, capture_output=True)
+    assert result.returncode != 0
+    assert not result.stdout
+    assert b"implementation checkpoint" in result.stderr
+
+
+@requires_git
+def test_gitlink_changes_cannot_be_hidden_or_reformatted_by_hostile_config(evidence):
+    e = evidence
+    repo = e["repo"]
+    target_b = e["head"]
+    git(repo, "reset", "--hard", "origin/main")
+    target_a = git(repo, "rev-parse", "HEAD")
+    (repo / "dependency").mkdir()
+    git(repo, "update-index", "--add", "--cacheinfo", f"160000,{target_a},dependency")
+    git(repo, "commit", "-qm", "base gitlink")
+    git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    git(repo, "config", "diff.ignoreSubmodules", "all")
+    git(repo, "config", "diff.submodule", "log")
+    old_patch = git(repo, "diff", "origin/main...HEAD")
+    assert old_patch == ""
+    git(repo, "update-index", "--cacheinfo", f"160000,{target_b},dependency")
+    git(repo, "commit", "-qm", "updated gitlink")
+    assert target_a != target_b, "negative-fixture precondition: changed submodule target"
+    assert git(repo, "diff", "--name-only", "--ignore-submodules=none", "origin/main...HEAD") == "dependency"
+    assert git(repo, "diff", "origin/main...HEAD") == old_patch, "precondition: hostile config hides the gitlink delta"
+    args = runtime(e, "implementer", "codex", "model-a")
+    args += runtime(e, "reviewer", "claude", "model-b", patch=old_patch)
+    refused = write(e, *args, "--scope", "diff-only")
+    assert refused.returncode != 0
+    assert "captured reviewer patch differs" in refused.stderr
+    produced = subprocess.run([sys.executable, str(SCRIPT), "review-patch"], cwd=repo, capture_output=True)
+    assert produced.returncode == 0, produced.stderr
+    assert f"-Subproject commit {target_a}".encode() in produced.stdout
+    assert f"+Subproject commit {target_b}".encode() in produced.stdout
+    runtime(e, "reviewer", "claude", "model-b", patch=produced.stdout.decode())
+    accepted = write(e, *args, "--scope", "diff-only")
+    assert accepted.returncode == 0, accepted.stderr
+
+
+@requires_git
+def test_artifact_binding_cannot_hide_sibling_changes_with_relative_diff_config(evidence):
+    e = evidence
+    root = e["repo"]
+    subdir = root / "subdir"
+    subdir.mkdir()
+    git(root, "config", "diff.relative", "true")
+    assert git(root, "diff", "--name-only", "origin/main...HEAD") == "file"
+    assert git(subdir, "diff", "origin/main...HEAD") == "", "precondition: config hides changed sibling from subdir"
+    e["repo"] = subdir
+    args = runtime(e, "implementer", "codex", "model-a")
+    args += runtime(e, "reviewer", "claude", "model-b", patch="")
+    refused = write(e, *args, "--scope", "diff-only")
+    assert refused.returncode != 0
+    assert "captured reviewer patch differs" in refused.stderr
+    runtime(e, "reviewer", "claude", "model-b", patch=e["patch"])
+    accepted = write(e, *args, "--scope", "diff-only")
+    assert accepted.returncode == 0, accepted.stderr
+
+
+@requires_git
+@pytest.mark.parametrize("mutation", ["no-report", "failed-probe", "duplicate-frame"])
+def test_review_evidence_boundaries_named_by_pass_one(evidence, mutation):
+    e = evidence
+    args = runtime(e, "implementer", "codex", "model-a")
+    args += runtime(e, "reviewer", "claude", "model-b", patch=e["patch"], probe=e["head"])
+    path = e["tmp"] / "claude/fixture-reviewer.jsonl"
+    records = [json.loads(line) for line in path.read_text().split("\n") if line]
+    if mutation == "no-report":
+        assert "## Findings" in records[-1]["message"]["content"][0]["text"]
+        records[-1]["message"]["content"][0]["text"] = "Review complete without the required report"
+        diagnostic = "missing runtime review report"
+    elif mutation == "failed-probe":
+        result = records[-2]["message"]["content"][0]
+        assert result["type"] == "tool_result" and result["is_error"] is False
+        result["is_error"] = True
+        diagnostic = "missing reviewer runtime HEAD probe"
+    else:
+        content = records[0]["message"]["content"]
+        records[0]["message"]["content"] = content + "\n" + content
+        assert records[0]["message"]["content"].count("<cpp-review-patch>\n") == 2
+        diagnostic = "ambiguous captured reviewer patch framing"
+    path.write_text("".join(json.dumps(r) + "\n" for r in records))
+    refused = write(e, *args, "--scope", "full" if mutation == "failed-probe" else "diff-only")
+    assert refused.returncode != 0 and diagnostic in refused.stderr
+    assert not list((e["tmp"] / "out").glob("*.json"))
+
+
+@requires_git
+@pytest.mark.parametrize("runtime_name", ["qwen-code", "opencode"])
+def test_a_model_changed_between_derivation_and_snapshot_is_unknown(evidence, monkeypatch, runtime_name):
+    e = evidence
+    flags = runtime(e, "implementer", runtime_name, "model-a")
+    options = {flag.removeprefix("--").replace("-", "_"): Path(value)
+               for flag, value in zip(flags[::2], flags[1::2])}
+    module = load()
+    if runtime_name == "qwen-code":
+        transcript = next((e["tmp"] / runtime_name).rglob("*/chats/*.jsonl"))
+        snapshot = module._snapshot
+
+        def snapshot_after_model_switch(path, root=None):
+            if path == transcript:
+                records = [json.loads(line) for line in path.read_text().split("\n") if line]
+                assistants = [r for r in records if r.get("type") == "assistant"]
+                assert {r["model"] for r in assistants} == {"model-a"}, "precondition: initial model agrees"
+                for record in assistants:
+                    record["model"] = "changed-model"
+                path.write_text("".join(json.dumps(r) + "\n" for r in records))
+            return snapshot(path, root)
+
+        monkeypatch.setattr(module, "_snapshot", snapshot_after_model_switch)
+    else:
+        import sqlite3
+        derive = module._derive_opencode
+
+        def derive_then_switch_model(records, path):
+            result = derive(records, path)
+            assert result[0] == "opencode/fixture/model-a" and result[2] is None
+            with sqlite3.connect(path) as db:
+                rows = db.execute("select id, data from message").fetchall()
+                for ident, raw in rows:
+                    message = json.loads(raw)
+                    assert message["modelID"] == "model-a", "precondition: initial persisted identity agrees"
+                    message["modelID"] = "changed-model"
+                    db.execute("update message set data = ? where id = ?", (json.dumps(message), ident))
+            return result
+
+        monkeypatch.setattr(module, "_derive_opencode", derive_then_switch_model)
+    with pytest.raises(module.EvidenceUnknown, match="changed during derivation"):
+        module._adapter(SimpleNamespace(**options), "implementer")

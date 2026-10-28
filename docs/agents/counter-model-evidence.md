@@ -26,8 +26,11 @@ python3 scripts/counter-model-receipt.py review-patch --base origin/main > /tmp/
 For a full-scope review, the reviewer must execute exactly `git rev-parse HEAD`
 as a separate runtime shell tool call before inspecting the change. Keep the
 runtime tool call and successful result, not a pasted head or startup metadata.
-The receipt writer compares the last successful probe before the runtime
-`## Findings` report to the target commit. It checks recorded ordering, not
+The receipt writer compares the last successful probe between the preceding
+report and the current runtime `## Findings` report to the target commit.
+Each report requires fresh evidence in that interval, including a fresh input
+patch for diff-only reviews. A later report cannot inherit an earlier review's
+patch or HEAD probe. It checks recorded ordering, not
 the point at which semantic inspection began. Retain that assistant report
 alongside the input and tool evidence.
 
@@ -42,6 +45,9 @@ input framing is UNKNOWN, and the write refuses.
 
 At write time the helper resolves the current base ref and target commit,
 computes their merge-base then recomputes the canonical binary Git diff. It
+forces repository-wide paths and short submodule diffs, including gitlink
+changes even when Git config would hide them. The checkpoint guard likewise
+enumerates untracked files and submodule changes explicitly. It
 compares exact bytes without whitespace or context normalization. A clean
 update that preserves those bytes still binds; changed hunks or context need
 a fresh review. The receipt records base SHA, target head, current merge-base,
