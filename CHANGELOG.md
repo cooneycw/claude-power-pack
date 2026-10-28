@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Changed - consumer action required
+
+- Successful test commands with empty stdout/stderr now report UNKNOWN with a
+  warning (`flow-finish-gate.sh`: `warn`, exit 3), rather than bare SUCCESS
+  (#1576). On upgrade, a downstream repo with a silent test step changes from
+  `ok` (exit 0) to `warn` (exit 3). Whitespace-only unparsed output also warns. Intentional no-op and
+  genuinely quiet harnesses can retain qualified success by setting
+  `steps.<name>.silent_success: "<nonempty explanation>"` in
+  `.claude/cicd_tasks.yml`. This is per command, never project-wide. A recognized
+  summary takes precedence; failures and nonempty unparsed output are not
+  waived. `unsupported_runner` alone does not declare silence. Parsed test
+  summaries, non-test commands and health smoke tests retain their behavior.
+  **Older runners ignore the new key** and retain the old policy; upgrade the
+  runner to obtain this protection. CPP's own pytest command needs no opt-in.
+
 ### Added
 
 - Emit bounded exact consumed/generated resume-state identities and in-memory terminal stage facts; JSON mode reports only exact tracked state-operation failures safely (#1555).

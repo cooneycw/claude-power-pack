@@ -1183,11 +1183,29 @@ class DeterministicRunner:
                         f"SUCCESS - {outcome.empty_invocations} OF "
                         f"{outcome.invocations} INVOCATIONS RAN NO TESTS{qualifier}"
                     )
-                elif (
-                    outcome is None
-                    and step.is_test_step()
-                    and (result.output.strip() or result.error.strip())
-                ):
+                elif outcome is None and step.is_test_step() and not result.output and not result.error:
+                    # Literal silence establishes no test execution (#1576).
+                    # Only this command's explicit explanation can retain a
+                    # qualified success; unsupported_runner is not that intent.
+                    if step_def.silent_success is not None:
+                        self._log(
+                            f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                            "SUCCESS - SILENT SUCCESS DECLARED "
+                            f"({step_def.silent_success}); test outcome not measured"
+                        )
+                    else:
+                        warnings.append(
+                            f"{step.id}: exited 0 with empty stdout and stderr - "
+                            "test execution is UNKNOWN, not established; declare "
+                            "intentional silence with silent_success: <reason> "
+                            "on this step in .claude/cicd_tasks.yml (issue #1576)"
+                        )
+                        self._log(
+                            f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
+                            "SUCCESS - NO TEST OUTCOME PARSED (UNKNOWN, "
+                            "undeclared silence)"
+                        )
+                elif outcome is None and step.is_test_step():
                     # A parse that examined nothing reads UNKNOWN, not clean
                     # (issue #952, first implementation ticket #939). Silence
                     # here used to be indistinguishable from a healthy result:
@@ -1201,13 +1219,9 @@ class DeterministicRunner:
                     # summary, so the denominator is stated rather than left
                     # to inference.
                     #
-                    # SCOPED to a step that actually PRODUCED output, and the
-                    # bound is deliberate. A test step that printed nothing at
-                    # all (`command: true`) is not a suite whose result is
-                    # unknown - there is no result to be unknown about - and
-                    # #628/#890 pinned that shape as a bare success. Warning
-                    # there would fire on the normal case, which is how a
-                    # warning stops being read.
+                    # Nonempty streams, including whitespace, reach this
+                    # branch. silent_success applies only to literal silence
+                    # above; it cannot waive unparsed output or parsed counts.
                     #
                     # A runner CPP cannot parse (Go, Rust, a shell harness) also
                     # produces output, so it reaches this branch on every run.

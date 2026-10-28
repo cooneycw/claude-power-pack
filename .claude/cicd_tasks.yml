@@ -11,6 +11,7 @@
 #   steps.<name>.skip_if     - Shell expression; skip if exits 0
 #   steps.<name>.artifacts   - Output files to preserve
 #   steps.<name>.rollback    - Command to run on failure
+#   steps.<name>.silent_success - Nonempty reason to accept literally silent test success
 #   plans.<name>.steps       - Ordered list of step names
 #
 

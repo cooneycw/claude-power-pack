@@ -309,11 +309,20 @@ class StepDef:
     # It never makes the result clean: the outcome is still not measured, and
     # the runner still logs that. None means nothing was declared.
     unsupported_runner: Optional[str] = None
+    # Establish only process success for literally empty captured streams.
+    # Parsed test outcomes always take precedence over this declaration.
+    silent_success: Optional[str] = None
     # A recorded decision to exclude this whole step from run-level test
     # accounting, while retaining labelled per-step counts. Never changes
     # exit-code verdicts. Opt in per WHOLE STEP: a negative-control battery
     # must run separately from real suites, or their counts are excluded too.
     expected_red: bool = False
+
+    def __post_init__(self) -> None:
+        if self.silent_success is not None:
+            if not isinstance(self.silent_success, str) or not self.silent_success.strip():
+                raise ValueError("silent_success must explain the intentional silence")
+            self.silent_success = self.silent_success.strip()
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -328,6 +337,8 @@ class StepDef:
             d["env"] = self.env
         if self.expected_red:
             d["expected_red"] = True
+        if self.silent_success is not None:
+            d["silent_success"] = self.silent_success
         return d
 
 
