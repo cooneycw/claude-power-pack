@@ -60,7 +60,10 @@ class Report:
 
 
 def clean(token: str) -> str:
-    return token.rstrip(".?!:,\\").replace('\\"', "")
+    token = token.rstrip("?!:,\\").replace('\\"', "")
+    if token in {".", ".."} or token.endswith(("/.", "/..")):
+        return token
+    return token.rstrip(".")
 
 
 def scan(text: str, root: Path, minimum: int) -> Report:
