@@ -1,0 +1,32 @@
+{
+  "branch": "fix/1586-init-read-permissions",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "cr-orch authorized a third final-diff pass in mailbox 11993 after correcting A1 scope to preserve Trusted, after pass two had completed",
+  "head": "31a34b7d2c389d6ecf144c98cd7c1a7dcff3fe6a",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/28/rollout-2026-10-28T11-17-18-01a1823a-91b5-7c02-8536-651d05d47387.jsonl",
+    "thread_id": "01a1823a-91b5-7c02-8536-651d05d47387"
+  },
+  "issue": "1586",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 3,
+  "recorded_at": "2026-10-28T11:49:48Z",
+  "red_cases": {
+    "already_covered": 4,
+    "proposed": 4
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/28/rollout-2026-10-28T11-48-48-01a18257-65d2-7aa0-8e94-7331d4386567.jsonl",
+    "thread_id": "01a18257-65d2-7aa0-8e94-7331d4386567"
+  },
+  "schema": 2,
+  "scope": "diff-only",
+  "status": "ran"
+}
