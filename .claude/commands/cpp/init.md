@@ -690,6 +690,7 @@ This will make the following changes:
     (see above; Tiers 2-5 are NOT required for this tier)
 
   [Tier 6 - Local Qwen]
+    - Installs if absent: ~/.claude/scripts/cpp-host-write.sh (link to the verified checkout helper).
     - Requires: Qwen Code CLI as the agentic harness
       (npm install -g @qwen-code/qwen-code)
       NOTE: no cloud API key is needed - the harness talks straight to Ollama
@@ -719,6 +720,7 @@ This will make the following changes:
     (see above; Tiers 2-6 are NOT required for this tier)
 
   [Tier 7 - Local Gemma]
+    - Installs if absent: ~/.claude/scripts/cpp-host-write.sh (link to the verified checkout helper).
     - Requires: OpenCode CLI as the agentic harness
       (npm install -g opencode-ai)
       NOTE: no cloud API key is needed - the harness talks straight to Ollama
@@ -1928,6 +1930,39 @@ this harness remains the canonical `PATH` install. Idempotent.
 ```bash
 bash "$CPP_DIR/scripts/install-memory-harness.sh" \
   || echo "WARNING: memory harness install failed (continuing)"
+```
+
+### Local-model host-write seam (Tiers 6/7 only)
+
+If Tier 6 or Tier 7 was selected, run this block once before its setup commands.
+These tiers need only the declaring host-write helper, not the rest of Tier 2.
+Use the verified checkout copy to bootstrap it on a fresh host. An existing
+unusable path is refused rather than overwritten; a deferred install leaves
+local-tier configuration unexecuted. Report that outcome in the final summary.
+
+```bash
+CPP_LOCAL_SEAM="$HOME/.claude/scripts/cpp-host-write.sh"
+if [ ! -e "$CPP_LOCAL_SEAM" ] && [ ! -L "$CPP_LOCAL_SEAM" ]; then
+  "$CPP_DIR/scripts/cpp-host-write.sh" link-into \
+    "$CPP_DIR/scripts/cpp-host-write.sh" "$HOME/.claude/scripts" cpp-host-write.sh
+  CPP_LOCAL_SEAM_STATUS=$?
+  case "$CPP_LOCAL_SEAM_STATUS" in
+    0) ;; # Check executability below before any configuration step.
+    3)
+      echo "Local-model host-write seam deferred by request; local-tier configuration not run."
+      exit 3
+      ;;
+    *)
+      echo "ERROR: local-model host-write seam install failed (exit $CPP_LOCAL_SEAM_STATUS); local-tier configuration not run."
+      exit 1
+      ;;
+  esac
+fi
+if [ ! -x "$CPP_LOCAL_SEAM" ]; then
+  echo "ERROR: local-model host-write seam is missing or not executable at $CPP_LOCAL_SEAM; local-tier configuration not run."
+  exit 1
+fi
+echo "Local-model host-write seam available: $CPP_LOCAL_SEAM"
 ```
 
 ### Tier 6 Execution (Local Qwen Orchestration)
