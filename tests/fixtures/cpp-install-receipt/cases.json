@@ -1,0 +1,5 @@
+[
+  {"name":"installed","steps":[{"step":"commands","outcome":"installed","user_scope":["claude-commands"]},{"step":"stash-guard","outcome":"already"}],"outcome":"installed","summary":"CPP Installation Complete","status":"receipt complete","complete":true},
+  {"name":"failed-step","steps":[{"step":"commands","outcome":"FAILED"},{"step":"stash-guard","outcome":"already"}],"outcome":"FAILED","summary":"CPP Installation Incomplete","status":"receipt says failed","complete":false},
+  {"name":"unverified-step","steps":[{"step":"commands","outcome":"unverified"},{"step":"stash-guard","outcome":"already"}],"outcome":"unverified","summary":"CPP Installation Incomplete","status":"receipt incomplete","complete":false}
+]

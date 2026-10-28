@@ -186,6 +186,10 @@ non-Qwen local opinion is wanted.
 
 ---
 
+Record the chosen number as `SELECTED_TIER`. Record the chosen profile as
+`PROFILE_NAME`; use `not-selected` for Tiers 1, 6 and 7, which do not ask this
+question. These are selections, never proof that a step succeeded.
+
 ## Step 3b: Permission Profile (Tier 2+)
 
 **Only show this step if user selected Tier 2, Tier 3, Tier 4, or Tier 5.**
@@ -756,6 +760,50 @@ Proceed? [y/N]
 ## Step 5: Execute Installation
 
 Execute only the components that aren't already installed.
+
+Keep the existing observed `{STEP_RESULTS}` as structured `STEP_RESULTS_JSON`
+for the receipt as well as for display. This is the same outcome record, not a
+second checklist. Add/update one entry after each attempted step or explicit
+skip/decline; never use the selected tier as evidence. A nonzero command exit
+records `FAILED`; an unreadable observation records `unverified`; an existing
+component is `already` only after verification. Map the existing succeeded /
+failed / deferred wording to `installed` / `FAILED` / `skipped`. Optional extras
+must have an outcome too, including `declined` when the user says no.
+
+Each entry has only `step`, `outcome`, the observed numeric `exit_code` when
+available, and optionally `user_scope` reference IDs. A nonzero exit forces
+`FAILED` even if the supplied outcome accidentally says installed.
+Do not put stdout, stderr, command arguments, settings, endpoints, environment
+variables, credentials or their values into the record. The helper stamps each
+outcome with the UTC time it was recorded in the receipt, not an invented
+execution time. Its fixed reference registry describes user-scope dependencies
+without copying their configuration. It is a mode-0644 checkout helper called
+with python3, not an executable linked into `~/.claude/scripts`.
+
+Use these stable IDs for the existing steps (record optional steps only when
+offered; do not add unrelated tiers):
+
+| Existing steps | Receipt IDs |
+| --- | --- |
+| Tier 1 command setup / optional project scope / stash guard | `commands`, `project-commands`, `stash-guard` |
+| Tier 2 scripts / profile / prompt / optional Makefile | `scripts`, `permission-profile`, `shell-prompt`, `generic-makefile` |
+| Tier 3 uv / second-opinion / playwright / tavily / optional pool | `uv`, `second-opinion`, `playwright`, `tavily`, `browser-pool` |
+| Tier 4 framework Makefile / cicd.yml / health / pipeline / containers | `framework-makefile`, `cicd-config`, `health-config`, `pipeline`, `containers` |
+| Tier 5 CLI / doctor / auth / MCPs / skills / memory harness | `codex-cli`, `codex-doctor`, `codex-auth`, `codex-second-opinion`, `codex-playwright`, `codex-tavily`, `codex-skills`, `memory-harness` |
+| Tier 6 CLI / model / endpoint / smoke / always-on | `qwen-cli`, `qwen-model`, `qwen-endpoint`, `qwen-smoke`, `qwen-always-on` |
+| Tier 7 CLI / model / endpoint / provider / smoke | `gemma-cli`, `gemma-model`, `gemma-endpoint`, `gemma-provider`, `gemma-smoke` |
+| Extras | `sequential-thinking`, `codex-second-opinion`, `codex-playwright`, `codex-tavily`, `workstation-tuning`, `memory-store` |
+
+If an extra retries an earlier step, replace that step's final outcome using
+the latest observation; do not duplicate it. For example, a failed commands
+step and a verified existing stash guard are represented as:
+
+```json
+[{"step":"commands","outcome":"FAILED"},{"step":"stash-guard","outcome":"already"}]
+```
+
+The helper adds `unverified` records for required selected steps that have no
+observed outcome. It never fills those gaps with success.
 
 ### Tier 1 Execution
 
@@ -2810,8 +2858,40 @@ fi
 printf '%s\n' "$PERMISSION_REPORT"
 ```
 
-Use this report for the permission fields only, retaining its verified/unverified
-label and observed counts. Other steps retain their existing outcome records.
+Persist the observed outcomes and permission metadata now. `.claude/cpp-install.json`
+is a PROJECT write; it is outside the HOME-only host-write seam. It contains
+schema version 1, the local CPP HEAD revision, selected tier/profile, per-step
+outcomes and recording timestamps, and fixed user-scope references. It replaces
+the prior receipt atomically; it contains no command output or configuration
+values. The receipt is historical evidence, not a live connectivity probe.
+
+```bash
+# CPP_INSTALL_RECEIPT_WRITE_BEGIN
+if printf '%s\n' "$STEP_RESULTS_JSON" | python3 "$CPP_DIR/scripts/cpp-install-receipt.py" write \
+    --project-dir "$PWD" --cpp-dir "$CPP_DIR" \
+    --tier "$SELECTED_TIER" --profile "$PROFILE_NAME" \
+    --permission-report "$PERMISSION_REPORT"; then
+  python3 "$CPP_DIR/scripts/cpp-install-receipt.py" summary --project-dir "$PWD" --cpp-dir "$CPP_DIR"
+else
+  echo "CPP Installation Incomplete"
+  echo "Receipt write FAILED: retain the observed step outcomes and retry; do not render an older receipt as this run's summary."
+fi
+# CPP_INSTALL_RECEIPT_WRITE_END
+```
+
+Writing the receipt is not an installation step and cannot turn any outcome
+into installed. The `write` exit says only whether persistence succeeded;
+`summary` reads back the saved receipt and returns nonzero for incomplete or
+stale recorded state. A write failure itself is reported, with no success
+summary and no fallback to an old receipt. Preserve the observed results in
+the conversation for recovery.
+
+The helper's output is the authoritative final summary. The template below
+shows its fields: `{STEP_RESULTS}` and `{MCP_RESULTS}` come from receipt steps
+and user-scope references, and `PERMISSION_REPORT` comes from the receipt's
+sanitized permission observation, retaining verified/unverified and counts.
+Never rebuild these fields from the selected tier/profile or current shell
+variables after persistence.
 
 Use `CPP Installation Complete` for `{INSTALLATION_VERDICT}` only when every
 selected step succeeded or its existing state was verified and every optional

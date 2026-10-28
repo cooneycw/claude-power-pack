@@ -58,6 +58,35 @@ The last line is the verdict. Report it as written:
 A `Branch:` line naming anything other than `main` is its own warning: a primary
 checkout left on a feature branch serves that branch's helpers to every session.
 
+## Step 1c: Read this project's install receipt
+
+```bash
+if [ -n "$CPP_DIR" ]; then
+  python3 "$CPP_DIR/scripts/cpp-install-receipt.py" status --project-dir "$PWD" --cpp-dir "$CPP_DIR"
+else
+  echo "CPP_INSTALL_RECEIPT: unverified - CPP checkout unavailable"
+fi
+```
+
+Report its verdict literally and separately from the live component checks:
+
+- `no receipt`: no installation record for this project; it does not prove
+  components are absent. Suggest `/cpp:init` to record them.
+- `unreadable or invalid receipt`: an existing record could not be examined;
+  do not describe it as absent or installed.
+- `receipt says failed`: at least one recorded step is `FAILED`.
+- `receipt stale (CPP revision differs)`: the recorded CPP revision differs
+  from this checkout. This can appear alongside failed/incomplete outcomes;
+  retain both. Suggest `/cpp:init` to re-observe and refresh the record.
+- `receipt incomplete` / `receipt complete`: describe recorded outcomes only,
+  not present-day connectivity or readiness. Read-only status never rewrites it.
+
+The schema-versioned project record contains only selections, fixed step and
+reference identifiers, outcomes, timestamps and permission counts. User-scope
+components are references to shared installations, not copies of settings or
+credentials. Keep the receipt verdict in the final status summary even if a
+later live probe reports a different result; identify the two observations.
+
 ## Step 2: Check Tier 1 (Minimal)
 
 Check if commands and skills are symlinked:
@@ -712,6 +741,7 @@ Tier 7 (Local Gemma - optional):
   Status: Complete
 
 ---------------------------------
+Install receipt: {literal receipt verdict(s) from Step 1c}
 Current Level: Tier 2 (Standard)
 MCP wiring: second-opinion external, user scope (no CPP container runtime)
 Missing: Shell prompt, CI pipeline, Dockerfile
