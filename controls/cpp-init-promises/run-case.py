@@ -43,6 +43,14 @@ def populate(root: Path, scenario: str) -> None:
         lines = []
     elif scenario == "bad-retirement-hides-promise":
         lines.append("Retired scripts/old.sh. Installs scripts/missing-helper.sh")
+    elif scenario == "bad-braced-source":
+        lines.append('cp "${CPP_DIR}/scripts/missing-helper.sh" /consumer/destination')
+    elif scenario == "bad-generation-hides-source":
+        lines.append("Installs: scripts/missing-helper.sh (creates a symlink)")
+    elif scenario == "bad-source-retirement-comment":
+        lines.append('cp "$CPP_DIR/scripts/missing-helper.sh" /consumer/destination # retired predecessor')
+    elif scenario == "bad-negative-then-positive":
+        lines.append("No longer installs scripts/old.sh now installs scripts/missing-helper.sh")
     elif scenario == "bad-placeholder":
         lines.append("Installs: $CPP_DIR/scripts/<runtime>.sh")
     elif scenario == "bad-escape":

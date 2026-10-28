@@ -76,6 +76,30 @@
       "input": "cases/good-retirement",
       "expect": "GOOD",
       "why": "Retirement prose and a negative install statement do not promise old missing files."
+    },
+    {
+      "name": "bad-braced-source",
+      "input": "cases/bad-braced-source",
+      "expect": "BAD",
+      "why": "Review1: braced shell checkout variable must resolve the promised source, not silently bypass extraction."
+    },
+    {
+      "name": "bad-generation-hides-source",
+      "input": "cases/bad-generation-hides-source",
+      "expect": "BAD",
+      "why": "Review1: a parenthetical creates-a-symlink description does not make a CPP source generated."
+    },
+    {
+      "name": "bad-source-retirement-comment",
+      "input": "cases/bad-source-retirement-comment",
+      "expect": "BAD",
+      "why": "Own probe: retirement in a shell comment cannot hide an active source copy."
+    },
+    {
+      "name": "bad-negative-then-positive",
+      "input": "cases/bad-negative-then-positive",
+      "expect": "BAD",
+      "why": "Own probe: a historical negative cannot hide a later affirmative now-installs clause."
     }
   ],
   "anchors": [

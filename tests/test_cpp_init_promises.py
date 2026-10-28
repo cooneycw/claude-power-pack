@@ -34,6 +34,10 @@ def test_fixed_real_document_resolves():
 @pytest.mark.parametrize(
     "scenario",
     [
+        "bad-braced-source",
+        "bad-generation-hides-source",
+        "bad-source-retirement-comment",
+        "bad-negative-then-positive",
         "bad-missing-helper",
         "bad-real-hooks-json",
         "bad-unclassified",

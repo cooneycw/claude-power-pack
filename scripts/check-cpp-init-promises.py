@@ -120,7 +120,7 @@ def scan(text: str, root: Path, minimum: int) -> Report:
         # Split explicit clauses, not whole lines: a retirement reference must
         # not conceal a new affirmative install on the other side of a semicolon.
         clauses = re.split(
-            rf";\s*|\.\s+(?={VERBS}\b)|\s+but\s+|\s+and now\s+|(?:,\s*|\s+and\s+)(?={VERBS}\b)",
+            rf";\s*|\.\s+(?={VERBS}\b)|\s+but\s+|\s+(?:and )?now\s+(?={VERBS}\b)|(?:,\s*|\s+and\s+)(?={VERBS}\b)",
             line,
             flags=re.I,
         )
@@ -128,7 +128,13 @@ def scan(text: str, root: Path, minimum: int) -> Report:
             historical = RETIREMENT.search(clause)
             affirmative = PROMISE.search(clause)
             negative = re.search(r"\b(?:no longer|used to)\s+(?:installs?|copies|copy|ships?|links?)", clause, re.I)
-            if historical and (not affirmative or negative):
+            active_source = SOURCE.search(clause) and re.match(
+                r"^(?:if\s+)?(?:cp|ln|install|exec|bash|sh|python3)\b|^\w+=", clause
+            )
+            if historical and not active_source and (not affirmative or negative):
+                if negative and len(list(PROMISE.finditer(clause))) > 1:
+                    report.findings.append(f"unclassified promise at {DOCUMENT}:{number}: {clause}")
+                    continue
                 add(number, "retirement", clause)
                 continue
 
@@ -172,8 +178,13 @@ def scan(text: str, root: Path, minimum: int) -> Report:
                     else:
                         report.findings.append(f"unclassified promise at {DOCUMENT}:{number}: {clause}")
 
+                action = re.search(rf"(?<![\w/.-])({VERBS}|configures?|adds?|downloads?)\b(?![/-])", clause, re.I)
+                if action and re.search(r"\bollama\s+$", clause[: action.start()]):
+                    add(number, "external", clause)
+                    continue
                 producing = bool(
-                    re.search(r"\b(?:creates?|generates?|configures?|writes?|adds?|downloads?)\b", clause, re.I)
+                    action
+                    and re.fullmatch(r"creates?|generates?|configures?|writes?|adds?|downloads?", action[1], re.I)
                 )
                 tokens = [(clean(m[0]), m.start(), m.end()) for m in RELATIVE.finditer(clause)]
                 if producing or affirmative:
@@ -190,6 +201,8 @@ def scan(text: str, root: Path, minimum: int) -> Report:
                 for target, start, end in dict.fromkeys(tokens):
                     if any(left <= start and end <= right for left, right in handled):
                         continue
+                    if action and start <= action.start() < end:
+                        continue
                     if target.startswith(("http:", "https:", "@")) or target in {
                         "npx/stdio",
                         "Gemini/OpenAI/Anthropic",
@@ -201,7 +214,7 @@ def scan(text: str, root: Path, minimum: int) -> Report:
                         add(number, "external", target)
                     elif target in generated:
                         add(number, generated[target], target)
-                    elif producing:
+                    elif producing and action and start >= action.end():
                         generated[target] = "generated"
                         add(number, "generated", target)
                     elif target.startswith(("scripts/", "templates/", "lib/", "codex/", ".claude/")):
