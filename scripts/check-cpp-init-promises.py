@@ -69,6 +69,7 @@ def scan(text: str, root: Path, minimum: int) -> Report:
     disclosure = False
     scripts = False
     undo = False
+    in_bash = False
 
     def add(line: int, kind: str, target: str, source: str = "") -> None:
         claim = Claim(line, kind, target, source)
@@ -99,6 +100,8 @@ def scan(text: str, root: Path, minimum: int) -> Report:
                 report.findings.append(f"missing promised path at {DOCUMENT}:{line}: {target} -> {relative}")
 
     for number, original in enumerate(text.splitlines(), 1):
+        if original.startswith("```"):
+            in_bash = original.strip() == "```bash"
         if original.startswith("## Step 4:"):
             disclosure = True
         elif original.startswith("## Step 5:"):
@@ -128,8 +131,8 @@ def scan(text: str, root: Path, minimum: int) -> Report:
             historical = RETIREMENT.search(clause)
             affirmative = PROMISE.search(clause)
             negative = re.search(r"\b(?:no longer|used to)\s+(?:installs?|copies|copy|ships?|links?)", clause, re.I)
-            active_source = SOURCE.search(clause) and re.match(
-                r"^(?:if\s+)?(?:cp|ln|install|exec|bash|sh|python3)\b|^\w+=", clause
+            active_source = SOURCE.search(clause) and (
+                in_bash or re.match(r"^(?:if\s+!?\s*)?(?:cp|ln|install|exec|bash|sh|python3)\b|^\w+=", clause)
             )
             if historical and not active_source and (not affirmative or negative):
                 if negative and len(list(PROMISE.finditer(clause))) > 1:
@@ -189,7 +192,7 @@ def scan(text: str, root: Path, minimum: int) -> Report:
                     action
                     and re.fullmatch(r"creates?|generates?|configures?|writes?|adds?|downloads?", action[1], re.I)
                 )
-                relation = re.search(r"\b(?:from|using|via)\s+", clause[action.end() :]) if action else None
+                relation = re.search(r"\b(?:from|using|via)\s+", clause[action.end() :], re.I) if action else None
                 source_start = action.end() + relation.end() if action and relation else len(clause) + 1
                 tokens = [(clean(m[0]), m.start(), m.end()) for m in RELATIVE.finditer(clause)]
                 if producing or affirmative:
@@ -236,7 +239,7 @@ def scan(text: str, root: Path, minimum: int) -> Report:
                     # an unknown first operand, or an unknown last operand.
                     offset = field.end() if field else affirmative.end()
                     body = clause[offset:]
-                    for operand in re.split(r",\s*|\s+and\s+", body):
+                    for operand in re.split(r",\s*|\s+and\s+", body, flags=re.I):
                         left = offset
                         right = left + len(operand)
                         spans = [(a, b) for a, b in handled if left <= a < right]
@@ -246,7 +249,7 @@ def scan(text: str, root: Path, minimum: int) -> Report:
                         # Find the next operand without losing the delimiter's
                         # actual width or confusing a repeated target string.
                         offset = right
-                        delimiter = re.match(r",\s*|\s+and\s+", clause[offset:])
+                        delimiter = re.match(r",\s*|\s+and\s+", clause[offset:], re.I)
                         if delimiter:
                             offset += delimiter.end()
                 elif affirmative and not handled and not tokens:

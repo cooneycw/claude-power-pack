@@ -136,6 +136,30 @@
       "input": "cases/bad-generated-cache-hides-install",
       "expect": "BAD",
       "why": "A prior generated destination does not classify a later explicit CPP source promise."
+    },
+    {
+      "name": "bad-parent-source",
+      "input": "cases/bad-parent-source",
+      "expect": "BAD",
+      "why": "Review3: punctuation cleanup must preserve parent traversal and refuse an escaping source."
+    },
+    {
+      "name": "bad-uppercase-source-relation",
+      "input": "cases/bad-uppercase-source-relation",
+      "expect": "BAD",
+      "why": "Review3: FROM is a source relation, not a generated destination."
+    },
+    {
+      "name": "bad-conditional-retirement-comment",
+      "input": "cases/bad-conditional-retirement-comment",
+      "expect": "BAD",
+      "why": "A conditional executable source copy cannot be excused by retirement prose in its trailing comment."
+    },
+    {
+      "name": "bad-uppercase-unknown-operand",
+      "input": "cases/bad-uppercase-unknown-operand",
+      "expect": "BAD",
+      "why": "Case-insensitive fields also need case-insensitive operand separation; AND cannot hide an unknown target."
     }
   ],
   "anchors": [
