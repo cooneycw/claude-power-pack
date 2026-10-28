@@ -412,6 +412,48 @@ def _git(*args: str, cwd: Path, env_extra: dict[str, str] | None = None) -> str:
 
 
 @requires_git
+@pytest.mark.skipif(shutil.which("python3") is None, reason="the documented patch producer uses python3")
+@pytest.mark.parametrize("dirty", [False, True])
+def test_enrolled_step2_uses_the_shipping_patch_producer(tmp_path: Path, dirty: bool) -> None:
+    work = tmp_path / "work"
+    work.mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
+    receipt_dir = work / "docs/measurements/counter-model"
+    receipt_dir.mkdir(parents=True)
+    (receipt_dir / ".keep").write_text("")
+    (work / "file").write_text("before\n")
+    _git("init", "-q", "-b", "main", cwd=work)
+    _git("add", "-A", cwd=work)
+    _git("commit", "-qm", "base", cwd=work)
+    _git("update-ref", "refs/remotes/origin/main", "HEAD", cwd=work)
+    (work / "file").write_text("after\n")
+    _git("commit", "-qam", "implementation checkpoint", cwd=work)
+    if dirty:
+        (work / "file").write_text("uncommitted work\n")
+    assert bool(_git("status", "--porcelain", cwd=work).strip()) == dirty, "precondition: checkpoint cleanliness"
+    env = {**os.environ, "HOME": str(home), "BASE": "origin/main",
+           "CM_RECEIPT": str(REPO / "scripts/counter-model-receipt.py")}
+    result = subprocess.run(["bash", "-c", _step2_block() + '\necho "PATCH_PATH=$DIFF_FILE"'],
+                            cwd=work, env=env, text=True, capture_output=True)
+    if dirty:
+        assert result.returncode == 1
+        assert "CODEX_REVIEW: blocked" in result.stderr
+        assert "implementation checkpoint" in result.stderr
+    else:
+        assert result.returncode == 0, result.stdout + result.stderr
+        match = re.search(r"^PATCH_PATH=(.+)$", result.stdout, re.M)
+        assert match
+        patch_file = Path(match.group(1))
+        try:
+            expected = subprocess.check_output(["python3", str(REPO / "scripts/counter-model-receipt.py"),
+                                                "review-patch", "--base", "origin/main"], cwd=work)
+            assert patch_file.read_bytes() == expected
+        finally:
+            patch_file.unlink()
+
+
+@requires_git
 def test_step2_from_a_subdirectory_still_sees_a_sibling_new_file(tmp_path: Path) -> None:
     """Codex review finding, accepted: cwd must not narrow what gets marked.
 

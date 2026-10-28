@@ -121,7 +121,7 @@ GEMMA_OLLAMA_URL="$GEMMA_ENDPOINT" timeout 1800 opencode run \
     --agent gemma-implementer \
     --format json \
     --auto \
-    "$PROMPT" < /dev/null > "$OUTPUT_FILE" 2>&1   # </dev/null: non-TTY EOF so the harness never blocks reading stdin
+    "$PROMPT" < /dev/null > "$OUTPUT_FILE" 2> "${OUTPUT_FILE}.stderr"   # </dev/null: non-TTY EOF so the harness never blocks reading stdin
 
 GEMMA_EXIT=$?
 echo "opencode exited $GEMMA_EXIT; output: $OUTPUT_FILE"
@@ -262,3 +262,7 @@ or git checkout -- . to discard.
 - For a full issue lifecycle with review and quality gates, use `/gemma:auto`
 - A local 31B model needs explicit, tightly scoped prompts; for broad or subtle
   tasks prefer `/codex:exec` or direct Claude implementation
+
+When this stream supplies a counter-model evidence adapter, keep stdout as
+JSONL and stderr in the separate `.stderr` file above. Do not merge diagnostics
+into evidence. Preserve both until the consumer has derived the receipt.

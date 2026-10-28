@@ -32,6 +32,8 @@ only pins that each lane REACHES it, and reaches it with the right arguments.
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 import textwrap
 from pathlib import Path
 
@@ -181,6 +183,16 @@ def test_invocation_and_status_check_share_one_shell(family: str, kind: str) -> 
         )
 
 
+def _capture_tail(previous: str, binary: str) -> bool:
+    # A continued prompt argument may redirect stdout and stderr separately.
+    # Do not bless ANY line ending in a stderr redirect: an intervening echo
+    # can redirect too and still reset the exit status we meant to preserve.
+    split_stream_tail = re.fullmatch(
+        r'"\$[A-Z_]+"\s+<\s*/dev/null\s+>\s*"\$[A-Z_]+"\s+2>\s*"\$\{[A-Z_]+\}\.stderr"', previous,
+    )
+    return previous.endswith("2>&1") or binary.split()[0] in previous or split_stream_tail is not None
+
+
 @pytest.mark.parametrize(("family", "kind"), SURFACES, ids=IDS)
 def test_the_capture_immediately_follows_the_invocation(family: str, kind: str) -> None:
     """Same block is necessary, not sufficient: an `echo` between them resets `$?`."""
@@ -200,10 +212,24 @@ def test_the_capture_immediately_follows_the_invocation(family: str, kind: str) 
                 lines.append(code)
         position = lines.index(capture)
         previous = lines[position - 1]
-        assert previous.endswith("2>&1") or binary.split()[0] in previous, (
+        assert _capture_tail(previous, binary), (
             f"{family}/{kind}.md puts {previous!r} between the {binary} run and "
             f"{capture}; `$?` would be that command's status instead."
         )
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="capture control executes bash")
+@pytest.mark.parametrize("intervening", [False, True])
+def test_separate_stderr_capture_control_distinguishes_a_masked_status(tmp_path: Path, intervening: bool) -> None:
+    tail = '"$PROMPT" < /dev/null > "$OUTPUT_FILE" 2> "${OUTPUT_FILE}.stderr"'
+    masking = 'echo reset > "$OUTPUT_FILE" 2> "${OUTPUT_FILE}.stderr"'
+    previous = masking if intervening else tail
+    assert _capture_tail(previous, "codex exec") is not intervening
+    script = ('codex() { return 37; }\nPROMPT=fixture\nOUTPUT_FILE=stdout\ncodex exec \\\n' + tail + '\n'
+              + (masking + '\n' if intervening else '') + 'CODEX_EXIT=$?\nprintf "%s\\n" "$CODEX_EXIT"\n')
+    result = subprocess.run(["bash", "-c", script], cwd=tmp_path, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ("0" if intervening else "37")
 
 
 @pytest.mark.parametrize(("family", "kind"), SURFACES, ids=IDS)

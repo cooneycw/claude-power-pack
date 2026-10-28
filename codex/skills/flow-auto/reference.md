@@ -1045,6 +1045,16 @@ collapse" note above).
    `$CM_RECEIPT` further down in 1d, so the parse ran against an empty command
    name in a fresh shell.
 
+   **Before review, commit an implementation checkpoint (schema 5).** Stage
+   only the issue's owned changes, commit them, and review that committed
+   artifact. A fix accepted from review needs a new checkpoint and review before
+   the receipt is written. This keeps dirty working-tree changes from being
+   mistaken for the commit a receipt names. The runtime evidence and producer
+   contract is [counter-model evidence](docs/agents/counter-model-evidence.md).
+   A collector `CODEX_REVIEW: blocked` or missing artifact binding is a failed
+   precondition: correct the checkpoint/evidence and retry. It does not mean
+   the reviewer was unavailable, and must not be recorded as a skip.
+
    **Then probe the reviewer (issue #1015).** The ONLY condition that skips a
    review is the inability to run codex, so that inability is established
    BEFORE the invocation rather than inferred from its wreckage:
@@ -1071,18 +1081,15 @@ collapse" note above).
    inability to run codex. The reversal trigger that would bring it back is
    committed beside `SKIP_REASONS` in `scripts/counter-model-receipt.py`.
 
-   **No eligible reviewer in a Codex lane (issue #1494).** `/codex:code_review`
-   ships no Codex-callable skill at all - `codex/skills/` has no `review` or
-   `codex` entry - and even if it did, invoking it from a session where
-   `$CODEX_THREAD_ID` is set would be this session reviewing its own diff: the
-   same defect "a reviewer matching any implementer is not a counter-model review" (1d, below)
-   already refuses to record. `/second-opinion-start` exists as a Codex skill
-   and genuinely reaches a non-Codex model, but its output is free-form MCP
-   prose, not the `COUNTER_MODEL_REVIEW:` marker shape `$CM_RECEIPT parse`
-   requires - wiring it into this receipt pipeline is a separate, larger change
-   than naming the reviewer step honestly (tracked as issue #1513; out of
-   scope here). So: when `$CODEX_THREAD_ID` is set, skip straight to 1d with
-   `reviewer-unavailable` and do not attempt 1b.
+   **Select evidence independently of runtime (issue #1584).** A native Codex
+   implementation may be reviewed by another recorded model through a Codex
+   thread/rollout or a Claude session; it needs no implementing exec stream.
+   The reviewer must differ from every implementing model, including models
+   earlier in the same retained implementing session. Use an available
+   independent reviewer with genuine runtime evidence. When no eligible
+   reviewer can run, record `reviewer-unavailable`; never fabricate a stream
+   or copy a model from a banner. A free-form second-opinion response alone
+   does not supply a supported runtime transcript or artifact binding.
 
    **The skip receipt is not the whole story.** `reviewer-unavailable` means no
    reviewer feeds this automated pipeline - it does not mean no review ran.
@@ -1156,7 +1163,7 @@ collapse" note above).
 
    On a skip there is no reviewer to derive - `codex-absent` never invoked
    codex at all, `reviewer-unavailable` invoked it and got nothing usable -
-   so `--reviewer-exec-log` must not be passed; the writer already refuses a
+   so reviewer evidence must not be passed; the writer already refuses a
    skip that names one (#1046).
 
    **`--implementer` is ALSO derived now, not asserted (issue #1047).** It
@@ -1184,19 +1191,18 @@ collapse" note above).
    because a codex process launched from a Claude session sees BOTH
    `CODEX_THREAD_ID` and `CLAUDE_CODE_SESSION_ID`; with neither flag the writer
    refuses that ambiguity and names both flags rather than guessing. The delegated
-   lane (`/codex:auto`, `--implementer-exec-log`) never consults the environment.
-   **A reviewer matching any implementing model is not a counter-model review.** A
-   single-model implementation stays on schemas 1-3 with scalar `implementer`. If
-   the complete retained Codex rollout contains multiple real implementer models,
-   schema 4 carries all of them in a nonempty unique `implementers` list. The
-   reviewer remains scalar and independently derived; the writer refuses `ran` when
-   it intersects any member. Callers never choose a model or history window, and an
-   unknown implementation turn still refuses. With no OTHER model available, record
-   `skipped / reviewer-unavailable`.
+   exec selector (`--implementer-exec-log`) never needs a fabricated thread event.
+   **A reviewer matching any implementing model is not a counter-model review.**
+   New `ran` receipts use schema 5 with independent per-role adapters. All real
+   implementing models are retained under scalar `implementer` or plural
+   `implementers`; the reviewer remains scalar and must intersect none of them.
+   Schemas 1-4 remain valid historical records without migration. A typed model
+   with no runtime evidence, or a missing/ambiguous transcript, is UNKNOWN and
+   refuses a new write. See the evidence contract for supported selectors.
 
    **`--scope` carries `/codex:code_review`'s `CODEX_REVIEW_SCOPE` marker
    (issue #1400), and is re-measured, not trusted as printed. It is REQUIRED
-   on a `ran` write since #1461**, and a read DENIED mid-review (a command that
+   on a Codex-exec `ran` write since #1461**, and a read DENIED mid-review (a command that
    ran and printed "Permission denied" or "Operation not permitted") also
    downgrades a claimed `full`, to `unverified`. Unlike
    `--reviewer`, this flag still exists - a `full`/`diff-only`/`unverified`
@@ -1216,6 +1222,7 @@ collapse" note above).
    python3 "$CM_RECEIPT" write --dir "$(git rev-parse --show-toplevel)/docs/measurements/counter-model" \
        --issue "$ISSUE_NUM" --branch "$BRANCH" \
        --status ran --reviewer-exec-log "$STREAM" --scope "$CODEX_REVIEW_SCOPE" \
+       --review-base "$CODEX_REVIEW_BASE" \
        --network "$CODEX_REVIEW_NETWORK" \
        --local-credentials "$CODEX_REVIEW_LOCAL_CREDENTIALS" \
        --implementer-session-id "$CLAUDE_CODE_SESSION_ID" \

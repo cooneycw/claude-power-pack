@@ -38,3 +38,25 @@ restates that run's four findings in the bullet shape the Nit Store report
 All three contain zero finding headings, which is byte-identical - to anything
 counting headings - to a review that found nothing wrong. They are the reason
 `parse_review` has three outcomes instead of two.
+
+
+`native-codex-head.json` is a sanitized actual Codex CLI 0.164.0 native event,
+captured during #1584 through `functions.exec` calling `tools.exec_command`.
+Its command, argv, successful exit code, output, event envelope and parsed
+command are preserved. Timestamp was removed; command id, process id, cwd and
+duration were normalized. It is execution-format evidence, not a review.
+Source thread: `01a17ccf-39dc-7a52-b013-482c0a8cbc5c`, record line 12687;
+original record SHA256:
+`1c800ddd7d017a57f7cac13998f9c115eb7429f163059f4ce201c3942f3944a7`.
+A bounded prefix of that own rollout (32991633 bytes, SHA256
+`f9db7dca77df14c9a6223d55afdec52af5e22b48780e5a287cd46040578d2454`)
+contained 1190 CommandExecution events and 1159 custom `exec` calls, including
+two successful exact HEAD probes. The retained shell event is already supported;
+this observation does not establish every installed runtime's serialization.
+
+The paired controls require extraction of the captured successful result and
+refusal when its exit is failed, missing or textual. The writer integration
+adapts only the captured output SHA to an owned temporary Git repository,
+combines it with explicitly synthetic identity/model/report evidence, and
+requires successful write versus refusal on an exit-code mutation. No textual
+shell-result parser or wrapper-JavaScript parser was added on speculation.

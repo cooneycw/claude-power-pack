@@ -38,7 +38,7 @@ If review finds CRITICAL issues that Codex cannot fix via re-prompt (e.g., funda
 4. **Record the review as a counter-model receipt (issue #1383).** This review
    IS the cross-model review for this lane - Codex implemented, this Claude
    session reviewed - and the finish gate (`flow-finish-gate.sh`) refuses a PR
-   whose branch carries no receipt. Record it in the DELEGATED direction: the
+   whose branch carries no receipt. Select independent per-role evidence (schema 5): the
    implementer is derived from the Step 4 exec stream and the rollout its thread
    names, the reviewer from this session's transcript. Never record it as a skip
    (no reviewer was absent) and never as a `/codex:code_review` run (that would
@@ -53,6 +53,8 @@ If review finds CRITICAL issues that Codex cannot fix via re-prompt (e.g., funda
            --issue "$ISSUE_NUM" --branch "$(git branch --show-current)" --status ran \
            --implementer-exec-log "$CODEX_OUTPUT" \
            --reviewer-session-id "$CLAUDE_CODE_SESSION_ID" \
+           --scope full --review-base origin/main \
+           --network unverified --local-credentials unknown \
            --accepted <findings fixed> --rejected <n> --deferred <n>
        git add docs/measurements/counter-model/*.json
    fi
@@ -87,7 +89,7 @@ If review finds CRITICAL issues that Codex cannot fix via re-prompt (e.g., funda
        --json \
        -C "$WORKTREE_PATH" \
        --sandbox "$CODEX_SANDBOX" \
-       "$FIX_PROMPT" < /dev/null > "$CODEX_FIX_OUTPUT" 2>&1   # </dev/null: non-TTY EOF so codex never blocks reading stdin
+       "$FIX_PROMPT" < /dev/null > "$CODEX_FIX_OUTPUT" 2> "${CODEX_FIX_OUTPUT}.stderr"   # </dev/null: non-TTY EOF so codex never blocks reading stdin
 
    CODEX_FIX_EXIT=$?
    echo "codex fix attempt exited $CODEX_FIX_EXIT; output: $CODEX_FIX_OUTPUT"

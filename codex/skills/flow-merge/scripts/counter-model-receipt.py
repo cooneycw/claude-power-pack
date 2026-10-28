@@ -23,6 +23,12 @@ Evidence about an instrument that does not live in the tree cannot be
 re-derived by anyone else: a count held outside the repo is a green nobody can
 audit. One file per run, so concurrent workers never conflict on it.
 
+NEW WRITES
+----------
+Schema 5 selects evidence independently for each role and binds the reviewed
+artifact through runtime HEAD execution or exact captured patch bytes (#1584).
+Schemas 1-4 retain historical shape validation, without a corpus migration.
+
 WHAT THIS IS NOT
 ----------------
 It is not a gate and it returns no verdict about a change. `validate` checks
@@ -57,6 +63,7 @@ SCHEMA_FLOW_SCOPE = 3
 # real turn model carries the complete derived set under `implementers`. The
 # reviewer remains scalar: independence means it intersects none of this set.
 SCHEMA_IMPLEMENTER_SET = 4
+SCHEMA_ADAPTERS = 5
 # The committed corpus tops out at 2 passes. The only historical extra-pass
 # request was #1320, exactly pass 3 (fc87b5b8 / PR #1457); nothing above 3
 # has ever been requested in the repository's review history.
@@ -173,17 +180,26 @@ NEXT_H2 = re.compile(r"^##\s+(?!Findings\b)", re.MULTILINE)
 #: every finding after it vanished from triage - a HIGH silently dropped because
 #: a MEDIUM above it quoted some markdown. Masking preserves offsets so the
 #: ORIGINAL text can still be sliced by what was found in the masked copy.
-FENCE = re.compile(r"^(?P<fence>```+|~~~+).*?(?:^(?P=fence)\s*$|\Z)",
-                   re.MULTILINE | re.DOTALL)
-
-
 def _mask_fences(text: str) -> str:
-    out = list(text)
-    for m in FENCE.finditer(text):
-        for i in range(m.start(), m.end()):
-            if out[i] != "\n":
-                out[i] = " "
-    return "".join(out)
+    # CommonMark fences may have up to three leading spaces, and a closing
+    # run may be longer than its opener. An unclosed fence masks through EOF.
+    # Split only on JSON/Markdown's newline, preserving offsets and Unicode
+    # separators inside text rather than inventing extra line boundaries.
+    out = []
+    fence_char, fence_width = "", 0
+    for line in text.split("\n"):
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if fence_width:
+            out.append(" " * len(line))
+            if (marker and marker[1][0] == fence_char and len(marker[1]) >= fence_width
+                    and not marker[2].strip(" \t\r")):
+                fence_char, fence_width = "", 0
+        elif marker and (marker[1][0] != "`" or "`" not in marker[2]):
+            fence_char, fence_width = marker[1][0], len(marker[1])
+            out.append(" " * len(line))
+        else:
+            out.append(line)
+    return "\n".join(out)
 
 PARSE_FINDINGS = "findings"
 PARSE_CLEAN = "clean"
@@ -1093,14 +1109,16 @@ def _derive_reviewer_from_exec_log(
     """
     try:
         exec_text = exec_log.read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, UnicodeError) as exc:
         return None, None, f"cannot read {role} exec log {exec_log}: {exc}"
-
-    thread_match = re.search(r'"thread_id"\s*:\s*"([^"]*)"', exec_text)
-    if thread_match is None or not thread_match.group(1):
-        return None, None, f"{role} exec log {exec_log} contains no thread_id"
+    records, error = _strict_records(exec_text)
+    if error:
+        return None, None, f"{role} exec log {exec_log}: {error}"
+    thread_id, error = _codex_stream_thread(records)
+    if error:
+        return None, None, f"{role} exec log {exec_log}: {error}"
     return _derive_codex_from_thread(
-        thread_match.group(1), sessions_dir, role, implementer_set=implementer_set
+        thread_id, sessions_dir, role, implementer_set=implementer_set
     )
 
 
@@ -1146,6 +1164,13 @@ def _derive_codex_from_thread(
         rollout_text = rollout.read_bytes().decode("utf-8")
     except (OSError, UnicodeError) as exc:
         return None, None, f"cannot read matching rollout {rollout}: {exc}"
+    records, error = _strict_records(rollout_text)
+    if error:
+        return None, None, f"unreadable matching rollout {rollout}: {error}"
+    try:
+        _codex_rollout_identity(records, thread_id)
+    except EvidenceUnknown as exc:
+        return None, None, str(exc)
     flow_scope = None
     if flow_args is not None:
         try:
@@ -1393,12 +1418,459 @@ def _default_claude_projects_dir() -> Path:
     return Path.home() / ".claude" / "projects"
 
 
+class EvidenceUnknown(ValueError):
+    """Evidence could not establish an identity or reviewed artifact."""
+
+
+class EvidenceRefused(ValueError):
+    """Readable evidence establishes a violated boundary."""
+
+
+def _evidence_error(exc: Exception) -> None:
+    verdict = "REFUSED" if isinstance(exc, EvidenceRefused) else "UNKNOWN"
+    print(f"COUNTER_MODEL_EVIDENCE: {verdict} - {exc}", file=sys.stderr)
+
+
+def _snapshot(path: Path, root: Path | None = None) -> tuple[dict, list[dict], str]:
+    """Hash exactly the bytes parsed, not a later read of a growing session."""
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise EvidenceUnknown(f"cannot read evidence {path}: {exc}") from exc
+    records, error = _strict_records(raw.decode("utf-8"))
+    if error:
+        raise EvidenceUnknown(f"unreadable evidence {path}: {error}")
+    assert records is not None
+    return (
+        {
+            "path": path.relative_to(root).as_posix() if root else path.name,
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "bytes": len(raw),
+        },
+        records,
+        raw.decode("utf-8"),
+    )
+
+
+def _one(paths: list[Path], description: str) -> Path:
+    if len(paths) != 1:
+        raise EvidenceUnknown(f"expected one {description}, found {len(paths)}")
+    return paths[0]
+
+
+def _codex_stream_thread(records: list[dict]) -> tuple[str | None, str | None]:
+    ids = [r.get("thread_id") for r in records if r.get("type") == "thread.started"]
+    if not ids:
+        return None, "contains no thread_id from a thread.started event"
+    if len(ids) != 1 or not isinstance(ids[0], str) or not ids[0].strip():
+        return None, "requires one unambiguous thread.started event"
+    runtime, error = _stream_harness(records)
+    if error or runtime != "codex":
+        return None, error or "not a Codex stream"
+    return ids[0], None
+
+
+def _codex_rollout_identity(records: list[dict], expected: str | None = None) -> str:
+    headers = [r.get("payload") for r in records if r.get("type") == "session_meta"]
+    if len(headers) != 1 or not isinstance(headers[0], dict):
+        raise EvidenceUnknown("rollout requires exactly one session_meta id")
+    ident = headers[0].get("id")
+    if not isinstance(ident, str) or not ident.strip():
+        raise EvidenceUnknown("rollout requires exactly one valid session_meta id")
+    if expected is not None and ident != expected:
+        raise EvidenceUnknown(f"rollout session_meta id {ident!r} does not match selected thread {expected!r}")
+    return ident
+
+
+def _adapter(args: argparse.Namespace, role: str) -> tuple[list[str], dict, list[dict]]:
+    """Role-neutral evidence selection. No adapter accepts a model argument."""
+    selectors = [
+        (kind, getattr(args, f"{role}_{kind}", None)) for kind in ("thread_id", "rollout", "session_id", "exec_log")
+    ]
+    selected = [(kind, value) for kind, value in selectors if value is not None and value != ""]
+    if not selected and role == "implementer":
+        runtime, ident, error = _implementer_source(args)
+        if error:
+            raise EvidenceUnknown(error)
+        selected = [("thread_id" if runtime == "codex" else "session_id", ident)]
+    if len(selected) != 1:
+        raise EvidenceUnknown(f"{role} requires exactly one evidence selector (thread, rollout, session or exec log)")
+    kind, value = selected[0]
+    sources: list[dict] = []
+    runtime = "claude" if kind == "session_id" else "codex"
+    stream: list[dict] = []
+    if kind == "exec_log":
+        source, stream, _ = _snapshot(value)
+        sources.append(source)
+        runtime, error = _stream_harness(stream)
+        if error:
+            raise EvidenceUnknown(error)
+        if runtime == "codex":
+            value, error = _codex_stream_thread(stream)
+            if error:
+                raise EvidenceUnknown(error)
+    if runtime == "codex":
+        root = args.codex_sessions_dir or _default_codex_sessions_dir()
+        if kind == "rollout":
+            path = value
+            source, records, text = _snapshot(path)
+            value = _codex_rollout_identity(records)
+        else:
+            path = _one(
+                [p for p in root.rglob("*.jsonl") if p.name.endswith(f"{value}.jsonl")], f"Codex rollout for {value!r}"
+            )
+            source, records, text = _snapshot(path, root)
+            _codex_rollout_identity(records, value)
+        sources.append(source)
+        flow_scope = None
+        if role == "implementer" and getattr(args, "implementer_flow_run", None):
+            model, flow_scope = _flow_scope_model(text, value, args)
+            models, error = [model], None
+        elif role == "implementer":
+            models, error = rollout_implementer_models(text)
+        else:
+            model, error = rollout_turn_model(text)
+            models = [model] if model else None
+        if error or not models:
+            raise EvidenceUnknown(error or "Codex rollout has no model")
+        evidence = {"thread_id": value, "rollout": source["path"]}
+        if flow_scope:
+            evidence["flow_scope"] = flow_scope
+        identities = [f"codex/{model}" for model in models]
+    elif runtime == "claude":
+        root = args.claude_projects_dir or _default_claude_projects_dir()
+        path = _one([p for p in root.rglob("*.jsonl") if p.stem == value], f"Claude transcript for {value!r}")
+        source, records, text = _snapshot(path, root)
+        sources.append(source)
+        models = set()
+        for record in records:
+            if record.get("type") != "assistant":
+                continue
+            model = _eligible_assistant_model(record)
+            if model is None or not model.strip() or model.strip().startswith("<"):
+                raise EvidenceUnknown(
+                    "contains no real-shaped model entry; nested tool arguments cannot supply one "
+                    f"(read {len(records)} record(s); 0 unparseable; "
+                    f"{sum(r.get('type') == 'assistant' for r in records)} eligible)"
+                )
+            models.add(model.strip())
+        if not models or (role == "reviewer" and len(models) != 1):
+            raise EvidenceUnknown(
+                "contains no real-shaped model entry or has ambiguous reviewer models "
+                f"(read {len(records)} record(s); 0 unparseable; "
+                f"{sum(r.get('type') == 'assistant' for r in records)} eligible)"
+            )
+        identities = [f"claude/{model}" for model in sorted(models)]
+        evidence = {"session_id": value, "transcript": source["path"]}
+    elif runtime == "qwen-code":
+        root = args.qwen_projects_dir or Path.home() / ".qwen" / "projects"
+        model, evidence, error = _derive_qwen_code(stream, root)
+        if error:
+            raise EvidenceUnknown(error)
+        source, records, _ = _snapshot(root / evidence["transcript"], root)
+        actual = {r.get("model") for r in records if r.get("type") == "assistant"}
+        if actual != {model.removeprefix("qwen-code/")}:
+            raise EvidenceUnknown("Qwen evidence changed during derivation")
+        sources.append(source)
+        identities = [model]
+    else:
+        data_home = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+        path = args.opencode_db or Path(data_home) / "opencode" / "opencode.db"
+        model, evidence, error = _derive_opencode(stream, path)
+        if error:
+            raise EvidenceUnknown(error)
+        # A SQLite database can have live WAL pages. Hash the actual selected
+        # session rows, not the possibly stale main database file.
+        import sqlite3
+
+        try:
+            with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as db:
+                rows = db.execute(
+                    "select data from message where session_id = ? order by id", (evidence["session_id"],)
+                ).fetchall()
+        except sqlite3.Error as exc:
+            raise EvidenceUnknown(f"cannot snapshot OpenCode session rows: {exc}") from exc
+        actual = set()
+        for (data,) in rows:
+            message = json.loads(data)
+            if message.get("role") == "assistant":
+                actual.add(f"opencode/{message.get('providerID')}/{message.get('modelID')}")
+        if actual != {model}:
+            raise EvidenceUnknown("OpenCode evidence changed during derivation")
+        raw = json.dumps(rows, ensure_ascii=True, separators=(",", ":")).encode()
+        sources.append(
+            {
+                "path": path.name,
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "bytes": len(raw),
+                "format": "sqlite-session-rows",
+            }
+        )
+        records = stream
+        identities = [model]
+    evidence.update({"kind": kind, "runtime": runtime, "models": identities, "sources": sources})
+    if kind == "exec_log":
+        evidence["exec_log"] = sources[0]["path"]
+    return identities, evidence, records
+
+
+def _model_key(identity: str) -> str:
+    """Harness is not model identity. Do not invent model-name aliases."""
+    return identity.split("/", 2)[-1] if identity.startswith("opencode/") else identity.split("/", 1)[-1]
+
+
+def _review_inputs(records: list[dict], runtime: str) -> list[tuple[int, str]]:
+    """Keep one input per runtime message, with its chronological position."""
+    inputs = []
+    for index, r in enumerate(records):
+        if runtime == "codex":
+            message = r.get("payload", {}) if r.get("type") == "response_item" else {}
+        else:
+            message = r.get("message", {}) if r.get("type") == "user" else {}
+        if message.get("role") != "user":
+            continue
+        content = message.get("parts", []) if runtime == "qwen-code" else message.get("content", [])
+        if isinstance(content, str):
+            inputs.append((index, content))
+        elif isinstance(content, list):
+            text = "".join(
+                c["text"]
+                for c in content
+                if isinstance(c, dict) and (runtime == "qwen-code" or c.get("type") in ("input_text", "text"))
+                and isinstance(c.get("text"), str)
+            )
+            inputs.append((index, text))
+    return inputs
+
+
+def _review_commands(records: list[dict], runtime: str) -> list[tuple[str, str]]:
+    """Supported runtime command/results only, never assistant prose or user text."""
+    commands = []
+    calls: dict[str, str] = {}
+
+    def remember(call_id: object, command: object) -> None:
+        if not isinstance(call_id, str) or not call_id.strip():
+            raise EvidenceUnknown("runtime command requires a nonempty call id")
+        if not isinstance(command, str):
+            raise EvidenceUnknown("runtime command requires string command text")
+        if call_id in calls:
+            raise EvidenceUnknown("ambiguous duplicate pending runtime command id")
+        calls[call_id] = command
+
+    for r in records:
+        if runtime == "codex":
+            p = r.get("payload", {})
+            if (
+                r.get("type") == "response_item"
+                and p.get("type") == "function_call"
+                and p.get("name") in ("exec_command", "functions.exec_command", "shell_command")
+            ):
+                try:
+                    arg = json.loads(p["arguments"])
+                except (KeyError, ValueError, TypeError):
+                    continue
+                remember(p.get("call_id"), arg.get("cmd", arg.get("command")))
+            elif (
+                r.get("type") == "response_item"
+                and p.get("type") == "function_call_output"
+                and p.get("call_id") in calls
+            ):
+                command = calls.pop(p["call_id"])
+                out = p.get("output")
+                if isinstance(out, str):
+                    try:
+                        result = json.loads(out)
+                    except ValueError:
+                        result = None
+                    if (
+                        isinstance(result, dict)
+                        and type(result.get("exit_code")) is int and result["exit_code"] == 0
+                        and isinstance(result.get("output"), str)
+                    ):
+                        commands.append((command, result["output"]))
+            elif r.get("type") == "event_msg":
+                item = p.get("item", {})
+                argv = item.get("command")
+                if (
+                    item.get("type") == "CommandExecution"
+                    and type(item.get("exit_code")) is int and item["exit_code"] == 0
+                    and isinstance(argv, list)
+                    and len(argv) == 3
+                    and argv[:2] == ["/bin/bash", "-lc"]
+                ):
+                    commands.append((argv[2], item.get("aggregated_output", "")))
+        elif runtime == "qwen-code":
+            for part in r.get("message", {}).get("parts", []):
+                call = part.get("functionCall", {})
+                if r.get("type") == "assistant" and call.get("name") == "run_shell_command":
+                    remember(call.get("id"), call.get("args", {}).get("command"))
+                response = part.get("functionResponse", {})
+                result = r.get("toolCallResult", {})
+                if (r.get("type") == "tool_result" and response.get("id") in calls
+                        and result.get("callId") == response.get("id")):
+                    command = calls.pop(response["id"])
+                    output = response.get("response", {}).get("output", "")
+                    matched = re.search(r"\nOutput: (.*?)\nError: \(none\)\nExit Code: 0\n", output, re.S)
+                    if result.get("status") == "success" and matched:
+                        commands.append((command, matched.group(1)))
+        elif runtime == "claude":
+            message = r.get("message", {})
+            for part in message.get("content", []) if isinstance(message.get("content"), list) else []:
+                if not isinstance(part, dict):
+                    continue
+                if (
+                    r.get("type") == "assistant"
+                    and part.get("type") == "tool_use"
+                    and part.get("name") in ("Bash", "run_shell_command")
+                ):
+                    remember(part.get("id"), part.get("input", {}).get("command"))
+                elif (
+                    r.get("type") == "user"
+                    and part.get("type") == "tool_result"
+                    and part.get("tool_use_id") in calls
+                ):
+                    command = calls.pop(part["tool_use_id"])
+                    content = part.get("content")
+                    if not part.get("is_error") and isinstance(content, str):
+                        commands.append((command, content))
+        elif runtime == "opencode" and r.get("type") == "tool_use":
+            p = r.get("part", {})
+            state = p.get("state", {})
+            if (
+                p.get("tool") == "bash"
+                and state.get("status") == "completed"
+                and type(state.get("metadata", {}).get("exit")) is int
+                and state["metadata"]["exit"] == 0
+            ):
+                commands.append((state.get("input", {}).get("command"), state.get("output", "")))
+    return commands
+
+
+def _review_report_window(records: list[dict], runtime: str) -> tuple[int, int]:
+    """A new report needs its own evidence, after any preceding report."""
+    reports = []
+    for index, r in enumerate(records):
+        if runtime == "codex":
+            message = r.get("payload", {}) if r.get("type") == "response_item" else {}
+            content = message.get("content", []) if message.get("role") == "assistant" else []
+        elif runtime == "opencode":
+            content = [r.get("part", {})] if r.get("type") == "text" else []
+        else:
+            message = r.get("message", {}) if r.get("type") == "assistant" else {}
+            content = message.get("parts", []) if runtime == "qwen-code" else message.get("content", [])
+        text = "".join(part["text"] for part in content if isinstance(part, dict)
+                       and isinstance(part.get("text"), str)
+                       and (runtime in ("qwen-code", "opencode") or part.get("type") in ("text", "output_text"))) \
+            if isinstance(content, list) else ""
+        if re.search(r"^## Findings[ \t]*$", _mask_fences(text), re.M):
+            reports.append(index)
+    if not reports:
+        raise EvidenceUnknown("missing runtime review report: retain the reviewer's '## Findings' assistant output")
+    return (reports[-2] + 1 if len(reports) > 1 else 0), reports[-1]
+
+
+def _git_artifact(base_ref: str, target_ref: str = "HEAD") -> tuple[dict, bytes]:
+    def git(*argv: str) -> bytes:
+        return subprocess.check_output(["git", *argv], stderr=subprocess.PIPE)
+
+    target = git("rev-parse", "--verify", f"{target_ref}^{{commit}}").decode().strip()
+    base = git("rev-parse", "--verify", f"{base_ref}^{{commit}}").decode().strip()
+    merge_base = git("merge-base", base, target).decode().strip()
+    # Fixed flags make the exact artifact independent of host git presentation
+    # config (external diff, colour, prefixes, quotePath and rename detection).
+    patch = git(
+        "-c",
+        "core.quotePath=true",
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-color",
+        "--no-renames",
+        "--no-relative",
+        "--ignore-submodules=none",
+        "--submodule=short",
+        "--src-prefix=a/",
+        "--dst-prefix=b/",
+        "--binary",
+        merge_base,
+        target,
+        "--",
+    )
+    binding = {
+        "target_head": target,
+        "base_sha": base,
+        "merge_base": merge_base,
+        "patch_sha256": hashlib.sha256(patch).hexdigest(),
+    }
+    return binding, patch
+
+
+def _artifact_binding(args: argparse.Namespace, evidence: dict, records: list[dict]) -> dict:
+    binding, patch = _git_artifact(args.review_base, args.head or "HEAD")
+    target = binding["target_head"]
+    start_index, report_index = _review_report_window(records, evidence["runtime"])
+    records = records[start_index:report_index]
+    binding["report_record"] = report_index + 1
+    if args.scope == "full":
+        heads = [
+            output.strip()
+            for command, output in _review_commands(records, evidence["runtime"])
+            if command == "git rev-parse HEAD"
+        ]
+        if not heads:
+            raise EvidenceUnknown(
+                "missing reviewer runtime HEAD probe: before review execute exactly "
+                "'git rev-parse HEAD' and retain its tool result"
+            )
+        if heads[-1] != target:
+            raise EvidenceRefused("reviewer runtime HEAD probe names a different head")
+        binding["method"] = "runtime-head"
+    else:
+        patches = []
+        for message_index, text in _review_inputs(records, evidence["runtime"]):
+            input_frames = []
+            # Codex frames captured stdin this way; Claude/Qwen producers use
+            # the explicit CPP frame when sending an exact patch as user input.
+            for opening, closing in (("<stdin>\n", "</stdin>"), ("<cpp-review-patch>\n", "</cpp-review-patch>")):
+                starts = list(re.finditer(r"(?m)^" + re.escape(opening), text))
+                if not starts:
+                    continue
+                ends = list(re.finditer(r"(?m)^" + re.escape(closing) + r"(?=\n|\Z)", text))
+                if len(starts) != 1 or len(ends) != 1 or ends[0].start() < starts[0].end():
+                    raise EvidenceUnknown("ambiguous captured reviewer patch framing")
+                # A patch of this very reader contains the literal strings
+                # '</stdin>' and '</cpp-review-patch>'. Hunk lines have a diff
+                # prefix; only standalone transport lines delimit the frame.
+                captured = text[starts[0].end():ends[0].start()]
+                input_frames.append((message_index, starts[0].start(), captured.encode("utf-8")))
+            if len(input_frames) > 1:
+                raise EvidenceUnknown("competing captured patch frames within one review input")
+            patches.extend(input_frames)
+        if not patches:
+            raise EvidenceUnknown(
+                "missing captured reviewer patch: pass the exact canonical diff on stdin or in a "
+                "<cpp-review-patch> user-input frame; retain the reviewer's runtime transcript"
+            )
+        # Distinct messages retain their runtime chronology, independent of
+        # delimiter kind or the number of text parts making up a message.
+        if max(patches, key=lambda frame: (frame[0], frame[1]))[2] != patch:
+            raise EvidenceRefused(
+                "captured reviewer patch differs from the target head's current merge-base diff; "
+                "re-review the exact patch"
+            )
+        binding["method"] = "captured-patch"
+    args.head = target
+    return binding
+
+
 def build(args: argparse.Namespace) -> dict:
     implementer_set = isinstance(args.implementer, list)
     receipt: dict = {
         "schema": (
-            SCHEMA_IMPLEMENTER_SET if implementer_set
-            else SCHEMA_FLOW_SCOPE if getattr(args, "implementer_flow_run", None)
+            SCHEMA_IMPLEMENTER_SET
+            if implementer_set
+            else SCHEMA_FLOW_SCOPE
+            if getattr(args, "implementer_flow_run", None)
             else SCHEMA
         ),
         "recorded_at": args.at or _now(),
@@ -1459,14 +1931,129 @@ def build(args: argparse.Namespace) -> dict:
         if getattr(args, "extra_pass_reason", None):
             receipt["extra_passes_reason"] = args.extra_pass_reason.strip()
             if not implementer_set:
-                receipt["schema"] = (SCHEMA_FLOW_SCOPE if getattr(args, "implementer_flow_run", None)
-                                     else SCHEMA_EXTRA_PASSES)
+                receipt["schema"] = (
+                    SCHEMA_FLOW_SCOPE if getattr(args, "implementer_flow_run", None) else SCHEMA_EXTRA_PASSES
+                )
         receipt["counts"] = {k: getattr(args, k) for k in COUNTS}
         receipt["red_cases"] = {
             "proposed": args.red_cases_proposed,
             "already_covered": args.red_cases_already_covered,
         }
+    if getattr(args, "adapter_records", False):
+        receipt["schema"] = SCHEMA_ADAPTERS
+        receipt.pop("direction", None)
+        receipt["reviewed_artifact"] = args.reviewed_artifact
     return receipt
+
+
+def _validate_adapters(receipt: dict, source: str, implementers: list[str], reviewer: object) -> list[str]:
+    bad = []
+
+    def require(ok: bool, message: str) -> None:
+        if not ok:
+            bad.append(f"{source}: {message}")
+
+    require(receipt.get("status") == "ran", "schema 5 requires a review that ran")
+    require(type(receipt.get("schema")) is int, "schema 5 version must be an integer")
+    require("direction" not in receipt, "schema 5 selects evidence per role, not direction")
+    reviewer_evidence = receipt.get("reviewer_evidence")
+    for role, identities in (("implementer", implementers), ("reviewer", [reviewer])):
+        evidence = receipt.get(f"{role}_evidence")
+        if not isinstance(evidence, dict):
+            require(False, f"missing {role}_evidence object")
+            continue
+        runtime = evidence.get("runtime")
+        kind = evidence.get("kind")
+        require(
+            isinstance(runtime, str) and runtime in ("codex", "claude", "qwen-code", "opencode"),
+            f"{role} has an unsupported evidence runtime",
+        )
+        require(
+            isinstance(kind, str) and kind in ("thread_id", "rollout", "session_id", "exec_log"),
+            f"{role} has an unsupported evidence kind",
+        )
+        require(
+            (runtime == "codex" and kind in ("thread_id", "rollout", "exec_log"))
+            or (runtime == "claude" and kind == "session_id")
+            or (runtime in ("qwen-code", "opencode") and kind == "exec_log"),
+            f"{role} evidence kind does not match runtime",
+        )
+        require(evidence.get("models") == identities, f"{role} evidence models disagree with receipt identities")
+        require(
+            all(isinstance(i, str) and i.startswith(f"{runtime}/") for i in identities),
+            f"{role} identities disagree with evidence runtime",
+        )
+        require(all(isinstance(i, str) and bool(_model_key(i).strip())
+                    and not _model_key(i).strip().startswith("<") for i in identities),
+                f"{role} requires a real nonempty model identity")
+        keys = ("thread_id", "rollout") if runtime == "codex" else ("session_id",)
+        for key in keys:
+            require(
+                isinstance(evidence.get(key), str) and bool(evidence[key].strip()), f"{role} evidence missing {key}"
+            )
+        sources = evidence.get("sources")
+        require(isinstance(sources, list) and bool(sources), f"{role} evidence requires consumed sources")
+        if isinstance(sources, list):
+            expected = 2 if kind == "exec_log" else 1
+            require(len(sources) == expected, f"{role} evidence requires {expected} consumed source(s)")
+            paths = [item.get("path") for item in sources if isinstance(item, dict)]
+            pointer = "rollout" if runtime == "codex" else "database" if runtime == "opencode" else "transcript"
+            require(isinstance(evidence.get(pointer), str) and evidence[pointer] in paths,
+                    f"{role} {pointer} must identify a consumed source")
+            if kind == "exec_log":
+                require(isinstance(evidence.get("exec_log"), str) and evidence["exec_log"] in paths,
+                        f"{role} exec_log must identify a consumed source")
+            if "flow_scope" in evidence:
+                require(role == "implementer" and runtime == "codex", "fresh-flow proof requires a Codex implementer")
+        for item in sources if isinstance(sources, list) else []:
+            if not isinstance(item, dict):
+                require(False, f"{role} evidence source must be an object")
+                continue
+            path = item.get("path")
+            require(
+                isinstance(path, str) and bool(path) and not Path(path).is_absolute() and ".." not in Path(path).parts,
+                f"{role} source path must be relative and bounded",
+            )
+            require(
+                isinstance(item.get("sha256"), str) and bool(re.fullmatch(r"[0-9a-f]{64}", item["sha256"])),
+                f"{role} source requires sha256",
+            )
+            require(
+                type(item.get("bytes")) is int and item["bytes"] > 0, f"{role} source requires positive byte length"
+            )
+    if isinstance(reviewer, str):
+        require(
+            all(_model_key(reviewer) != _model_key(i) for i in implementers),
+            "reviewer overlaps an implementing model independently of runtime",
+        )
+    artifact = receipt.get("reviewed_artifact")
+    if not isinstance(artifact, dict):
+        require(False, "missing reviewed_artifact binding")
+    else:
+        require(type(artifact.get("report_record")) is int and artifact["report_record"] > 0,
+                "reviewed_artifact requires runtime report_record")
+        for key in ("target_head", "base_sha", "merge_base"):
+            require(
+                isinstance(artifact.get(key), str) and bool(re.fullmatch(r"[0-9a-f]{40}", artifact[key])),
+                f"reviewed_artifact requires full {key}",
+            )
+        require(artifact.get("target_head") == receipt.get("head"), "reviewed artifact names a different head")
+        require(
+            isinstance(artifact.get("patch_sha256"), str)
+            and bool(re.fullmatch(r"[0-9a-f]{64}", artifact["patch_sha256"])),
+            "reviewed_artifact requires patch_sha256",
+        )
+        method = "runtime-head" if receipt.get("scope") == "full" else "captured-patch"
+        require(artifact.get("method") == method, "reviewed artifact method disagrees with review scope")
+    require(receipt.get("scope") in SCOPES, "schema 5 requires a supported review scope")
+    for key, values in (("network", NETWORKS), ("local_credentials", LOCAL_CREDENTIALS)):
+        require(isinstance(receipt.get(key), str) and receipt[key] in values, f"schema 5 requires supported {key}")
+    if isinstance(reviewer_evidence, dict) and not (
+        reviewer_evidence.get("runtime") == "codex" and reviewer_evidence.get("kind") == "exec_log"
+    ):
+        require(receipt.get("network") == "unverified", "this reviewer adapter has no network probe")
+        require(receipt.get("local_credentials") == "unknown", "this reviewer adapter has no credential probe")
+    return bad
 
 
 def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
@@ -1482,14 +2069,23 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
             return None
         return receipt[key]
 
+    if not isinstance(receipt, dict):
+        return [f"{source}: receipt must be an object"]
+    adapters = receipt.get("schema") == SCHEMA_ADAPTERS
     has_extra_reason = "extra_passes_reason" in receipt
-    has_flow_scope = (isinstance(receipt.get("implementer_evidence"), dict)
-                      and "flow_scope" in receipt["implementer_evidence"])
+    has_flow_scope = (
+        isinstance(receipt.get("implementer_evidence"), dict) and "flow_scope" in receipt["implementer_evidence"]
+    )
     has_implementer_set = "implementers" in receipt
     expected_schema = (
-        SCHEMA_IMPLEMENTER_SET if has_implementer_set
-        else SCHEMA_FLOW_SCOPE if has_flow_scope
-        else SCHEMA_EXTRA_PASSES if has_extra_reason
+        SCHEMA_ADAPTERS
+        if adapters
+        else SCHEMA_IMPLEMENTER_SET
+        if has_implementer_set
+        else SCHEMA_FLOW_SCOPE
+        if has_flow_scope
+        else SCHEMA_EXTRA_PASSES
+        if has_extra_reason
         else SCHEMA
     )
     if receipt.get("schema") != expected_schema:
@@ -1594,166 +2190,169 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
         if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{7,40}", head):
             bad.append(f"{source}: head {head!r} is not a git object name")
 
-    direction = receipt.get("direction", DIRECTION_DEFAULT)
-    if direction not in DIRECTIONS:
-        bad.append(f"{source}: direction {direction!r} not in {DIRECTIONS}")
-        return bad
-    delegated = direction == DIRECTION_DELEGATED
+    if adapters:
+        bad.extend(_validate_adapters(receipt, source, implementers, reviewer))
+    if not adapters:
+        direction = receipt.get("direction", DIRECTION_DEFAULT)
+        if direction not in DIRECTIONS:
+            bad.append(f"{source}: direction {direction!r} not in {DIRECTIONS}")
+            return bad
+        delegated = direction == DIRECTION_DELEGATED
 
-    def _names(evidence: object, keys: tuple[str, ...]) -> bool:
-        return isinstance(evidence, dict) and all(
-            isinstance(evidence.get(k), str) and evidence[k].strip() for k in keys
-        )
-
-    # Where each identity came from. On the default direction the CODEX side is
-    # the reviewer; on a delegated one it is the implementer and the reviewer is
-    # a Claude session (issue #1383). Each pointer is shaped by the side it
-    # names, so a receipt cannot carry one direction's evidence under the other
-    # direction's label.
-    reviewer_keys = ("session_id",) if delegated else ("thread_id", "rollout")
-    if "reviewer_evidence" in receipt:
-        evidence = receipt["reviewer_evidence"]
-        if status == "skipped":
-            bad.append(
-                f"{source}: a skipped run must not carry 'reviewer_evidence'; "
-                "no review happened"
-            )
-        elif not _names(evidence, reviewer_keys):
-            bad.append(
-                f"{source}: reviewer_evidence {evidence!r} must name a non-empty "
-                + " and ".join(repr(k) for k in reviewer_keys)
+        def _names(evidence: object, keys: tuple[str, ...]) -> bool:
+            return isinstance(evidence, dict) and all(
+                isinstance(evidence.get(k), str) and evidence[k].strip() for k in keys
             )
 
-    if "scope" in receipt:
-        scope = receipt["scope"]
-        if status == "skipped":
-            bad.append(
-                f"{source}: a skipped run must not carry 'scope'; no review happened"
-            )
-        elif delegated:
-            # The CLI guard refuses `--scope` on the delegated lane (the
-            # reviewer there is a Claude session, which has no sandbox probe
-            # to measure) - the schema must refuse it too, or a hand-built
-            # or historical receipt could carry it unchecked (counter-model
-            # review, codex gpt-6.1-sol).
-            bad.append(
-                f"{source}: a delegated receipt must not carry 'scope'; its "
-                "reviewer is a Claude session, which has no sandbox probe"
-            )
-        elif scope not in SCOPES:
-            bad.append(f"{source}: scope {scope!r} not in {SCOPES}")
+        # Where each identity came from. On the default direction the CODEX side is
+        # the reviewer; on a delegated one it is the implementer and the reviewer is
+        # a Claude session (issue #1383). Each pointer is shaped by the side it
+        # names, so a receipt cannot carry one direction's evidence under the other
+        # direction's label.
+        reviewer_keys = ("session_id",) if delegated else ("thread_id", "rollout")
+        if "reviewer_evidence" in receipt:
+            evidence = receipt["reviewer_evidence"]
+            if status == "skipped":
+                bad.append(
+                    f"{source}: a skipped run must not carry 'reviewer_evidence'; "
+                    "no review happened"
+                )
+            elif not _names(evidence, reviewer_keys):
+                bad.append(
+                    f"{source}: reviewer_evidence {evidence!r} must name a non-empty "
+                    + " and ".join(repr(k) for k in reviewer_keys)
+                )
 
-    if (status == "ran" and not delegated and "scope" not in receipt
-            and isinstance(receipt.get("recorded_at"), str)
-            and receipt["recorded_at"] >= SCOPE_REQUIRED_FROM):
-        bad.append(
-            f"{source}: a default-direction ran receipt recorded at or after "
-            f"{SCOPE_REQUIRED_FROM} must carry 'scope' (issue #1461); a receipt "
-            "without it says nothing about what the reviewer could see"
-        )
+        if "scope" in receipt:
+            scope = receipt["scope"]
+            if status == "skipped":
+                bad.append(
+                    f"{source}: a skipped run must not carry 'scope'; no review happened"
+                )
+            elif delegated:
+                # The CLI guard refuses `--scope` on the delegated lane (the
+                # reviewer there is a Claude session, which has no sandbox probe
+                # to measure) - the schema must refuse it too, or a hand-built
+                # or historical receipt could carry it unchecked (counter-model
+                # review, codex gpt-6.1-sol).
+                bad.append(
+                    f"{source}: a delegated receipt must not carry 'scope'; its "
+                    "reviewer is a Claude session, which has no sandbox probe"
+                )
+            elif scope not in SCOPES:
+                bad.append(f"{source}: scope {scope!r} not in {SCOPES}")
 
-    if "network" in receipt:
-        network = receipt["network"]
-        if status == "skipped":
+        if (status == "ran" and not delegated and "scope" not in receipt
+                and isinstance(receipt.get("recorded_at"), str)
+                and receipt["recorded_at"] >= SCOPE_REQUIRED_FROM):
             bad.append(
-                f"{source}: a skipped run must not carry 'network'; no review happened"
-            )
-        elif delegated:
-            bad.append(
-                f"{source}: a delegated receipt must not carry 'network'; its "
-                "reviewer is a Claude session, which has no sandbox probe"
-            )
-        elif network not in NETWORKS:
-            bad.append(f"{source}: network {network!r} not in {NETWORKS}")
-
-    if "local_credentials" in receipt:
-        local = receipt["local_credentials"]
-        if status == "skipped":
-            bad.append(
-                f"{source}: a skipped run must not carry 'local_credentials'; no review happened"
-            )
-        elif delegated:
-            bad.append(
-                f"{source}: a delegated receipt must not carry 'local_credentials'; its "
-                "reviewer is a Claude session, which /codex:code_review did not launch"
-            )
-        elif local not in LOCAL_CREDENTIALS:
-            bad.append(f"{source}: local_credentials {local!r} not in {LOCAL_CREDENTIALS}")
-
-    if has_implementer_set:
-        # Schema 4 is the Codex-rollout representation. This check is
-        # independent of direction: on a delegated lane Codex is the
-        # implementer, but a hand-built Qwen/OpenCode set must not acquire a
-        # representation their writers cannot derive.
-        if not implementers or any(not item.startswith("codex/") for item in implementers):
-            bad.append(
-                f"{source}: schema 4 is recorded only for codex/ implementers "
-                "derived from one complete retained rollout"
-            )
-        if not _names(receipt.get("implementer_evidence"), ("thread_id", "rollout")):
-            bad.append(
-                f"{source}: schema 4 requires implementer_evidence naming the Codex "
-                "thread and rollout from which the implementer set was derived"
+                f"{source}: a default-direction ran receipt recorded at or after "
+                f"{SCOPE_REQUIRED_FROM} must carry 'scope' (issue #1461); a receipt "
+                "without it says nothing about what the reviewer could see"
             )
 
-    if delegated:
-        # A delegated receipt exists BECAUSE a review happened: the supervising
-        # Claude session is always present on that lane, so neither committed
-        # skip reason (an inability to run the reviewer) can be true of it.
-        if status != "ran":
-            bad.append(
-                f"{source}: a delegated receipt records a review that happened; "
-                f"status {status!r} is not 'ran'"
-            )
-        evidence = receipt.get("implementer_evidence")
-        harness = evidence.get("harness") if isinstance(evidence, dict) else None
-        if harness is not None and not isinstance(harness, str):
-            # Checked BEFORE the membership test (counter-model review): an
-            # unhashable value would raise instead of being reported.
-            bad.append(f"{source}: implementer_evidence harness {harness!r} is not a string")
-        elif harness not in DELEGATED_EVIDENCE_KEYS:
-            bad.append(f"{source}: implementer_evidence harness {harness!r} is not one this "
-                       f"writer derives ({', '.join(k for k in DELEGATED_EVIDENCE_KEYS if k)} or Codex)")
-        elif not _names(evidence, DELEGATED_EVIDENCE_KEYS[harness]):
-            bad.append(
-                f"{source}: a delegated receipt must carry implementer_evidence naming a "
-                "non-empty " + " and ".join(repr(k) for k in DELEGATED_EVIDENCE_KEYS[harness])
-            )
-        elif harness and not implementers:
-            bad.append(f"{source}: no usable implementer identity matches evidence harness {harness!r}")
-        elif harness and any(not item.startswith(f"{harness}/") for item in implementers):
-            bad.append(f"{source}: implementers {implementers!r} do not all match their "
-                       f"evidence's harness {harness!r}")
-        if not _names(receipt.get("reviewer_evidence"), ("session_id",)):
-            bad.append(
-                f"{source}: a delegated receipt must carry reviewer_evidence "
-                "naming a non-empty 'session_id'"
-            )
-        # The direction is checkable against the identities themselves: on a
-        # delegated lane the REVIEWER is the Claude session. A receipt saying
-        # `delegated` while a non-Claude model reviewed is the default
-        # direction mislabelled.
-        if isinstance(reviewer, str) and reviewer.strip() \
-                and not reviewer.startswith("claude/"):
-            bad.append(
-                f"{source}: a delegated receipt's reviewer {reviewer!r} is not a "
-                "Claude session; the supervising session is the reviewer"
-            )
-    elif "implementer_evidence" in receipt:
-        # On the default direction it is recorded ONLY for a Codex implementer
-        # (issue #1453), whose identity was read from its own thread's rollout.
-        # A Claude implementer is derived from its transcript and carries none.
-        if not implementers or any(not item.startswith("codex/") for item in implementers):
-            bad.append(
-                f"{source}: 'implementer_evidence' on the default direction is "
-                "recorded only for a codex/ implementer (issue #1453); a Claude "
-                "implementer is derived from its session transcript"
-            )
-        elif not _names(receipt.get("implementer_evidence"), ("thread_id", "rollout")):
-            bad.append(
-                f"{source}: a codex implementer's implementer_evidence must name a "
-                "non-empty 'thread_id' and 'rollout'"
-            )
+        if "network" in receipt:
+            network = receipt["network"]
+            if status == "skipped":
+                bad.append(
+                    f"{source}: a skipped run must not carry 'network'; no review happened"
+                )
+            elif delegated:
+                bad.append(
+                    f"{source}: a delegated receipt must not carry 'network'; its "
+                    "reviewer is a Claude session, which has no sandbox probe"
+                )
+            elif network not in NETWORKS:
+                bad.append(f"{source}: network {network!r} not in {NETWORKS}")
+
+        if "local_credentials" in receipt:
+            local = receipt["local_credentials"]
+            if status == "skipped":
+                bad.append(
+                    f"{source}: a skipped run must not carry 'local_credentials'; no review happened"
+                )
+            elif delegated:
+                bad.append(
+                    f"{source}: a delegated receipt must not carry 'local_credentials'; its "
+                    "reviewer is a Claude session, which /codex:code_review did not launch"
+                )
+            elif local not in LOCAL_CREDENTIALS:
+                bad.append(f"{source}: local_credentials {local!r} not in {LOCAL_CREDENTIALS}")
+
+        if has_implementer_set:
+            # Schema 4 is the Codex-rollout representation. This check is
+            # independent of direction: on a delegated lane Codex is the
+            # implementer, but a hand-built Qwen/OpenCode set must not acquire a
+            # representation their writers cannot derive.
+            if not implementers or any(not item.startswith("codex/") for item in implementers):
+                bad.append(
+                    f"{source}: schema 4 is recorded only for codex/ implementers "
+                    "derived from one complete retained rollout"
+                )
+            if not _names(receipt.get("implementer_evidence"), ("thread_id", "rollout")):
+                bad.append(
+                    f"{source}: schema 4 requires implementer_evidence naming the Codex "
+                    "thread and rollout from which the implementer set was derived"
+                )
+
+        if delegated:
+            # A delegated receipt exists BECAUSE a review happened: the supervising
+            # Claude session is always present on that lane, so neither committed
+            # skip reason (an inability to run the reviewer) can be true of it.
+            if status != "ran":
+                bad.append(
+                    f"{source}: a delegated receipt records a review that happened; "
+                    f"status {status!r} is not 'ran'"
+                )
+            evidence = receipt.get("implementer_evidence")
+            harness = evidence.get("harness") if isinstance(evidence, dict) else None
+            if harness is not None and not isinstance(harness, str):
+                # Checked BEFORE the membership test (counter-model review): an
+                # unhashable value would raise instead of being reported.
+                bad.append(f"{source}: implementer_evidence harness {harness!r} is not a string")
+            elif harness not in DELEGATED_EVIDENCE_KEYS:
+                bad.append(f"{source}: implementer_evidence harness {harness!r} is not one this "
+                           f"writer derives ({', '.join(k for k in DELEGATED_EVIDENCE_KEYS if k)} or Codex)")
+            elif not _names(evidence, DELEGATED_EVIDENCE_KEYS[harness]):
+                bad.append(
+                    f"{source}: a delegated receipt must carry implementer_evidence naming a "
+                    "non-empty " + " and ".join(repr(k) for k in DELEGATED_EVIDENCE_KEYS[harness])
+                )
+            elif harness and not implementers:
+                bad.append(f"{source}: no usable implementer identity matches evidence harness {harness!r}")
+            elif harness and any(not item.startswith(f"{harness}/") for item in implementers):
+                bad.append(f"{source}: implementers {implementers!r} do not all match their "
+                           f"evidence's harness {harness!r}")
+            if not _names(receipt.get("reviewer_evidence"), ("session_id",)):
+                bad.append(
+                    f"{source}: a delegated receipt must carry reviewer_evidence "
+                    "naming a non-empty 'session_id'"
+                )
+            # The direction is checkable against the identities themselves: on a
+            # delegated lane the REVIEWER is the Claude session. A receipt saying
+            # `delegated` while a non-Claude model reviewed is the default
+            # direction mislabelled.
+            if isinstance(reviewer, str) and reviewer.strip() \
+                    and not reviewer.startswith("claude/"):
+                bad.append(
+                    f"{source}: a delegated receipt's reviewer {reviewer!r} is not a "
+                    "Claude session; the supervising session is the reviewer"
+                )
+        elif "implementer_evidence" in receipt:
+            # On the default direction it is recorded ONLY for a Codex implementer
+            # (issue #1453), whose identity was read from its own thread's rollout.
+            # A Claude implementer is derived from its transcript and carries none.
+            if not implementers or any(not item.startswith("codex/") for item in implementers):
+                bad.append(
+                    f"{source}: 'implementer_evidence' on the default direction is "
+                    "recorded only for a codex/ implementer (issue #1453); a Claude "
+                    "implementer is derived from its session transcript"
+                )
+            elif not _names(receipt.get("implementer_evidence"), ("thread_id", "rollout")):
+                bad.append(
+                    f"{source}: a codex implementer's implementer_evidence must name a "
+                    "non-empty 'thread_id' and 'rollout'"
+                )
     if status == "skipped":
         if receipt.get("skip_reason") not in SKIP_REASONS:
             bad.append(
@@ -2158,57 +2757,6 @@ def _derive_opencode(records: list[dict], db_path: Path) -> tuple[str | None, di
     return f"opencode/{provider}/{model}", evidence, None
 
 
-def _derive_delegated(args: argparse.Namespace) -> str | None:
-    """Both identities for a delegated run (issue #1383), or the refusal.
-
-    The inverse of the default direction, with the same rule on each side: the
-    IMPLEMENTER is derived from the delegated model's own exec stream and the
-    rollout its thread id names, and the REVIEWER from the supervising Claude
-    session's transcript. Neither is accepted as a value. A stream that names
-    no thread - Qwen Code and OpenCode streams today - is refused rather than
-    attributed: there is no rollout to read a model from, and a receipt naming
-    an implementer nobody can re-derive is worse than none.
-    """
-    try:
-        stream_text = args.implementer_exec_log.read_text(encoding="utf-8")
-    except OSError as exc:
-        return f"cannot read implementer exec log {args.implementer_exec_log}: {exc}"
-    records, damaged = _stream_records(stream_text)
-    harness, error = _stream_harness(records)
-    if error is not None:
-        return f"implementer exec log {args.implementer_exec_log} {error}"
-    if damaged and harness in ("qwen-code", "opencode"):
-        # Refused, not skipped (counter-model review): a damaged event might have
-        # named another session or harness. Codex keeps its own reader below.
-        return (f"implementer exec log {args.implementer_exec_log} has {damaged} damaged "
-                "event line(s); refusing to attribute from the records that survived")
-    if harness == "qwen-code":
-        projects = args.qwen_projects_dir or Path.home() / ".qwen" / "projects"
-        implementer, evidence, error = _derive_qwen_code(records, projects)
-    elif harness == "opencode":
-        data_home = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
-        db_path = args.opencode_db or Path(data_home) / "opencode" / "opencode.db"
-        implementer, evidence, error = _derive_opencode(records, db_path)
-    else:
-        sessions_dir = args.codex_sessions_dir or _default_codex_sessions_dir()
-        implementer, evidence, error = _derive_reviewer_from_exec_log(
-            args.implementer_exec_log, sessions_dir, role="implementer", implementer_set=True
-        )
-    if error is not None:
-        return error
-    projects_dir = args.claude_projects_dir or _default_claude_projects_dir()
-    reviewer, error = _derive_implementer_from_session(
-        args.reviewer_session_id, projects_dir
-    )
-    if error is not None:
-        return f"reviewer session: {error}"
-    args.implementer = implementer
-    args.implementer_evidence = evidence
-    args.reviewer = reviewer
-    args.reviewer_evidence = {"session_id": args.reviewer_session_id}
-    return None
-
-
 def _implementer_source(args: argparse.Namespace) -> tuple[str, str, str | None]:
     """Which session implemented: `("claude", session_id)` or `("codex", thread_id)`.
 
@@ -2246,22 +2794,30 @@ def _implementer_source(args: argparse.Namespace) -> tuple[str, str, str | None]
 
 
 def cmd_write(args: argparse.Namespace) -> int:
-    delegated = getattr(args, "direction", DIRECTION_DEFAULT) == DIRECTION_DELEGATED
-    if delegated:
-        error = _derive_delegated(args)
-        if error is not None:
-            print(f"counter-model-receipt: {error}", file=sys.stderr)
+    adapters = args.status == "ran"
+    if adapters:
+        try:
+            implementing, args.implementer_evidence, _ = _adapter(args, "implementer")
+            reviewing, args.reviewer_evidence, review_records = _adapter(args, "reviewer")
+            if len(reviewing) != 1:
+                raise EvidenceUnknown("reviewer evidence must resolve exactly one model")
+            if not args.scope and args.reviewer_exec_log and args.reviewer_evidence["runtime"] == "codex":
+                print("counter-model-receipt: --status ran requires --scope with a Codex exec reviewer",
+                      file=sys.stderr)
+                return EXIT_USAGE
+            args.scope = args.scope or "unverified"
+            args.implementer = implementing[0] if len(implementing) == 1 else implementing
+            args.reviewer = reviewing[0]
+            if any(_model_key(args.reviewer) == _model_key(i) for i in implementing):
+                raise EvidenceRefused(f"reviewer overlaps the implementer set ({args.reviewer!r}; {implementing!r}); "
+                                      "the reviewing model must differ from every implementing model")
+            args.adapter_records = True
+            args.network = args.network or "unverified"
+            args.local_credentials = args.local_credentials or "unknown"
+        except (EvidenceUnknown, OSError, UnicodeError, ValueError, TypeError, KeyError, AttributeError) as exc:
+            _evidence_error(exc)
             return EXIT_INVALID
-    elif args.status == "ran":
-        sessions_dir = args.codex_sessions_dir or _default_codex_sessions_dir()
-        reviewer, evidence, error = _derive_reviewer_from_exec_log(
-            args.reviewer_exec_log, sessions_dir
-        )
-        if error is not None:
-            print(f"counter-model-receipt: {error}", file=sys.stderr)
-            return EXIT_INVALID
-        args.reviewer = reviewer
-        args.reviewer_evidence = evidence
+    if adapters and args.reviewer_exec_log and args.reviewer_evidence["runtime"] == "codex":
         # Re-measure the caller's pre-run scope CLAIM against the same exec
         # log the reviewer identity was just derived from (issue #1400): a
         # probe that passed before the review started is not trusted alone
@@ -2307,11 +2863,11 @@ def cmd_write(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
                 args.scope = "unverified"
-    else:
+    elif not adapters:
         args.reviewer = None
         args.reviewer_evidence = None
 
-    if not delegated:
+    if not adapters:
         side, ident, error = _implementer_source(args)
         if error is not None:
             print(f"counter-model-receipt: {error}", file=sys.stderr)
@@ -2335,6 +2891,13 @@ def cmd_write(args: argparse.Namespace) -> int:
                 return EXIT_INVALID
         args.implementer = implementer
 
+    if adapters:
+        try:
+            args.reviewed_artifact = _artifact_binding(args, args.reviewer_evidence, review_records)
+        except (EvidenceUnknown, OSError, UnicodeError, ValueError, TypeError, KeyError,
+                AttributeError, subprocess.SubprocessError) as exc:
+            _evidence_error(exc)
+            return EXIT_INVALID
     args.head, head_warning = _derive_head(getattr(args, "head", None))
     if head_warning:
         print(
@@ -2434,6 +2997,24 @@ def cmd_audit_flow(args: argparse.Namespace) -> int:
         print(f"COUNTER_MODEL_FLOW_AUDIT: refused ({exc})", file=sys.stderr)
         return EXIT_INVALID
     print("COUNTER_MODEL_FLOW_AUDIT: verified captured prefix")
+    return EXIT_OK
+
+
+def cmd_review_patch(args: argparse.Namespace) -> int:
+    """Produce exactly the artifact the writer independently recomputes."""
+    try:
+        dirty = subprocess.check_output(
+            ["git", "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=none"],
+            stderr=subprocess.PIPE,
+        )
+        if dirty:
+            raise EvidenceRefused("commit the issue's implementation checkpoint "
+                                  "before producing a receipt-bound review patch")
+        _, patch = _git_artifact(args.base, args.head or "HEAD")
+    except (EvidenceUnknown, EvidenceRefused, OSError, subprocess.SubprocessError) as exc:
+        _evidence_error(exc)
+        return EXIT_INVALID
+    sys.stdout.buffer.write(patch)
     return EXIT_OK
 
 
@@ -2550,7 +3131,7 @@ def main() -> int:
     w.add_argument(
         "--reviewer-exec-log",
         type=Path,
-        help="Codex --json exec stream from which to derive the REVIEWING model",
+        help="runtime exec stream from which to resolve the reviewing model and its persisted evidence",
     )
     w.add_argument(
         "--codex-sessions-dir",
@@ -2599,27 +3180,30 @@ def main() -> int:
     w.add_argument(
         "--implementer-exec-log",
         type=Path,
-        help="DELEGATED lane (issue #1383): the delegated model's --json exec "
-             "stream, from which to derive the IMPLEMENTING model",
+        help="runtime exec stream resolving the implementing model through persisted evidence",
     )
     w.add_argument(
         "--qwen-projects-dir",
         type=Path,
-        help="DELEGATED lane, Qwen Code (issue #1454): where its transcripts live "
+        help="Qwen Code adapter: where its transcripts live "
              "(default ~/.qwen/projects)",
     )
     w.add_argument(
         "--opencode-db",
         type=Path,
-        help="DELEGATED lane, OpenCode (issue #1454): its SQLite database, opened "
+        help="OpenCode adapter: its SQLite database, opened "
              "read-only (default $XDG_DATA_HOME/opencode/opencode.db)",
     )
     w.add_argument(
         "--reviewer-session-id",
-        help="DELEGATED lane (issue #1383): the supervising Claude session that "
-             "reviewed the diff, from which to derive the REVIEWING model "
+        help="Claude session that reviewed the diff; derive its model from the runtime transcript "
              "(defaults to $CLAUDE_CODE_SESSION_ID when --implementer-exec-log is given)",
     )
+    w.add_argument("--reviewer-thread-id", help="derive reviewer from its own Codex rollout")
+    w.add_argument("--reviewer-rollout", type=Path, help="explicit reviewer Codex rollout file")
+    w.add_argument("--implementer-rollout", type=Path, help="explicit implementer Codex rollout file")
+    w.add_argument("--review-base", default="origin/main",
+                   help="base ref for exact reviewed-artifact diff; resolved at write time")
     w.add_argument("--passes", type=int, default=1,
                    help="review passes run; beyond 2 requires --extra-pass-reason")
     w.add_argument(
@@ -2638,6 +3222,11 @@ def main() -> int:
     )
     w.add_argument("--at", help="override the timestamp (tests)")
     w.set_defaults(func=cmd_write)
+
+    patch = sub.add_parser("review-patch", help="emit the exact committed review artifact on stdout")
+    patch.add_argument("--base", default="origin/main")
+    patch.add_argument("--head")
+    patch.set_defaults(func=cmd_review_patch)
 
     pr = sub.add_parser("parse", help="read a reviewer transcript and report its verdict")
     pr.add_argument("transcript", help="path to the reviewer's output")
@@ -2672,44 +3261,27 @@ def main() -> int:
         if args.status != "ran" or not args.implementer_thread_id or args.implementer_exec_log:
             ap.error("--implementer-flow-run requires a ran default-direction Codex --implementer-thread-id")
     if args.cmd == "write":
-        # The direction is DERIVED from which evidence was supplied, never
-        # declared by a flag of its own (issue #1383): a `--direction` value
-        # would be one more assertion about the run, the thing #1048 removed.
-        if args.implementer_exec_log is not None:
-            args.direction = DIRECTION_DELEGATED
-            if args.status != "ran":
-                ap.error("--implementer-exec-log records a delegated review that "
-                         "happened; it requires --status ran")
-            if args.reviewer_exec_log is not None or args.implementer_session_id \
-                    or args.implementer_thread_id:
-                ap.error("--implementer-exec-log (delegated: Codex implements, Claude "
-                         "reviews) cannot be combined with --reviewer-exec-log, "
-                         "--implementer-session-id or --implementer-thread-id (the "
-                         "other direction)")
-            if args.scope:
-                ap.error("--scope measures a Codex REVIEWER's sandbox access "
-                         "(/codex:code_review); the delegated direction's "
-                         "reviewer is a Claude session and has no such probe")
-            if args.local_credentials:
-                ap.error("--local-credentials is measured by /codex:code_review; "
-                         "the delegated direction's reviewer is a Claude session")
-            if args.network:
-                ap.error("--network measures a Codex REVIEWER's network fence "
-                         "(/codex:code_review); the delegated direction's "
-                         "reviewer is a Claude session and has no such probe")
-            args.reviewer_session_id = (args.reviewer_session_id
-                                        or os.environ.get("CLAUDE_CODE_SESSION_ID"))
-            if not args.reviewer_session_id:
-                ap.error("--implementer-exec-log requires --reviewer-session-id or "
-                         "CLAUDE_CODE_SESSION_ID: the reviewing Claude session")
-        else:
-            args.direction = DIRECTION_DEFAULT
-            if args.reviewer_session_id:
-                ap.error("--reviewer-session-id is the delegated direction and "
-                         "requires --implementer-exec-log")
+        args.direction = DIRECTION_DEFAULT
+        for role in ("implementer", "reviewer"):
+            supplied = [getattr(args, f"{role}_{kind}", None)
+                        for kind in ("thread_id", "rollout", "session_id", "exec_log")]
+            if sum(bool(value) for value in supplied) > 1:
+                ap.error(f"{role} evidence selectors cannot be combined; name exactly one source")
+        if args.implementer_exec_log and not any((args.reviewer_session_id, args.reviewer_thread_id,
+                                                args.reviewer_rollout, args.reviewer_exec_log)):
+            args.reviewer_session_id = os.environ.get("CLAUDE_CODE_SESSION_ID")
+        if args.status == "ran" and not any((args.reviewer_session_id, args.reviewer_thread_id,
+                                            args.reviewer_rollout, args.reviewer_exec_log)):
+            ap.error("--status ran requires reviewer evidence: --reviewer-exec-log, "
+                     "--reviewer-thread-id, --reviewer-rollout or --reviewer-session-id")
     if args.cmd == "write" and args.implementer_session_id and args.implementer_thread_id:
         ap.error("--implementer-session-id (Claude) and --implementer-thread-id (Codex) "
                  "name two different implementers; pass the one that wrote the change")
+    if args.cmd == "write" and args.status == "skipped":
+        if args.implementer_rollout:
+            ap.error("--implementer-rollout requires --status ran; a Codex skip uses --implementer-thread-id")
+        if any((args.implementer_exec_log, args.reviewer_session_id, args.reviewer_thread_id, args.reviewer_rollout)):
+            ap.error("reviewer/exec evidence requires --status ran; no review happened on a skip")
     if args.cmd == "write" and args.status == "skipped" and not args.reason:
         ap.error("--status skipped requires --reason")
     if (args.cmd == "write" and args.status == "skipped"
@@ -2734,15 +3306,7 @@ def main() -> int:
         ap.error("--status skipped must not carry --local-credentials; no review happened")
     if args.cmd == "write" and args.status == "skipped" and args.network:
         ap.error("--status skipped must not carry --network; no review happened")
-    if (args.cmd == "write" and args.status == "ran"
-            and args.direction != DIRECTION_DELEGATED
-            and args.reviewer_exec_log is None):
-        ap.error("--status ran requires --reviewer-exec-log")
-    if (args.cmd == "write" and args.status == "ran"
-            and args.direction != DIRECTION_DELEGATED and not args.scope):
-        ap.error("--status ran requires --scope: pass /codex:code_review's "
-                 "CODEX_REVIEW_SCOPE marker as printed (issue #1461). A receipt "
-                 "without it says nothing about what the reviewer could see.")
+
     return int(args.func(args))
 
 
