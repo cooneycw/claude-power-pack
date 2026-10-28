@@ -283,7 +283,13 @@ def inspect_command(report, path, number, words):
     if not positions:
         report.findings.append(f"{location}: unrecognized lib.cicd invocation shape")
         return
-    for index in positions:
+    launchers = [i for i in positions if i >= 2 and words[i - 1] == "-m"
+                 and PYTHON.fullmatch(Path(words[i - 2]).name)]
+    if not launchers:
+        report.findings.append(f"{location}: unrecognized lib.cicd launcher")
+        return
+    # Later occurrences are argv data; the real parser decides their validity.
+    for index in launchers[:1]:
         if index < 2 or words[index - 1] != "-m" or not PYTHON.fullmatch(Path(words[index - 2]).name):
             report.findings.append(f"{location}: unrecognized lib.cicd launcher")
             continue

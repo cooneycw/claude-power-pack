@@ -278,6 +278,12 @@
       "input": "cases/bad-comment-continuation",
       "expect": "BAD",
       "why": "Only an unquoted/unescaped backslash-newline is a continuation; comments do not continue."
+    },
+    {
+      "name": "good-module-value",
+      "input": "cases/good-module-value",
+      "expect": "GOOD",
+      "why": "A module-shaped project path is argument data, not a second launcher."
     }
   ],
   "anchors": [

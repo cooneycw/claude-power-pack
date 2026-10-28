@@ -34,9 +34,9 @@ def test_committed_case(tmp_path, scenario):
         assert len(report.findings) == 1
         assert "arguments rejected by real" in report.findings[0]
     if scenario in {"good-helper", "good-python-helper", "good-sibling",
-                    "good-fragment-module", "good-escaped-backslash"}:
+                    "good-fragment-module", "good-escaped-backslash", "good-module-value"}:
         assert len(report.invocations) == 6
-        if scenario not in {"good-fragment-module", "good-escaped-backslash"}:
+        if scenario not in {"good-fragment-module", "good-escaped-backslash", "good-module-value"}:
             assert "scripts/child." in " ".join(report.files)
 
 

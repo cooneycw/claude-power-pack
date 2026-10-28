@@ -111,6 +111,8 @@ def populate(root, scenario):
         commands.append("echo value" + chr(92) * 2 + "\npython -m lib.cicd detect " + flag)
     elif scenario == "bad-comment-continuation":
         commands.append("true # comment" + chr(92) + "\npython -m lib.cicd detect --no-such-flag")
+    elif scenario == "good-module-value":
+        commands.append("python -m lib.cicd detect --path lib.cicd --json")
     elif scenario == "good-values":
         commands.append('python3 -m lib.cicd check --path "$PWD" --summary')
         commands.append('python -m lib.cicd detect --path="${PROJECT}" --json')
