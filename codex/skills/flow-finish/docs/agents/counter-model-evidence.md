@@ -35,8 +35,13 @@ the point at which semantic inspection began. Retain that assistant report
 alongside the input and tool evidence.
 
 For a diff-only review, give the reviewer the exact producer output as stdin.
-Codex records that input in its own transcript inside `<stdin>` framing. A
-Claude or Qwen user request may instead frame the unchanged patch as
+Codex CLI 0.164.0 can record stdin as unframed user text. The writer accepts
+that Codex input only when its entire UTF-8 text equals the freshly recomputed,
+nonempty canonical patch byte for byte. It does not strip text, select a
+substring, or accept a prefix or superset. Empty diffs still require explicit
+framing, so an empty/nontext user message cannot stand in for a captured patch.
+Supported `<stdin>` framing remains valid. A Claude or Qwen user request may
+instead frame the unchanged patch as
 `<cpp-review-patch>` followed by a newline, the exact bytes, then
 `</cpp-review-patch>`. The closing marker immediately follows the patch's own
 last byte. Retain the reviewer's runtime transcript; a patch supplied only as
@@ -44,8 +49,10 @@ a receipt-writer argument is not evidence. Unsupported or ambiguous runtime
 input framing is UNKNOWN, and the write refuses.
 Each runtime user message supplies at most one frame, across all its text
 parts and both supported delimiter types. Competing frames in one input are
-UNKNOWN. Separate inputs retain their runtime chronology; the latest captured
-frame in the current review interval supplies the artifact. Findings headings
+UNKNOWN. Exact raw Codex captures and framed inputs retain their runtime
+chronology; the latest eligible capture in the current review interval supplies
+the artifact. A later wrong framed patch still refuses even when an earlier raw
+input matched. Findings headings
 inside backtick or tilde fences are examples, not completed reports.
 
 At write time the helper resolves the current base ref and target commit,
