@@ -992,6 +992,103 @@ def test_codex_selection_requires_its_own_session_identity(evidence, role, selec
 
 
 NATIVE_HEAD = Path(__file__).parent / "fixtures/counter_model/native-codex-head.json"
+UNFRAMED_USER = Path(__file__).parent / "fixtures/counter_model/codex-unframed-user.constructed.json"
+
+
+def codex_review_inputs(e: dict, texts: list[str]) -> None:
+    """Construct owned inputs from the measured #1600 shape, not a live log."""
+    path = e["tmp"] / "codex/rollout-fixture-reviewer.jsonl"
+    records = [json.loads(line) for line in path.read_text().splitlines()]
+    template = json.loads(UNFRAMED_USER.read_text())["record"]
+    inputs = []
+    for text in texts:
+        record = copy.deepcopy(template)
+        record["payload"]["content"][0]["text"] = text
+        inputs.append(record)
+    records[2:-1] = inputs
+    path.write_text("".join(json.dumps(record) + "\n" for record in records))
+
+
+@requires_git
+@pytest.mark.parametrize("shape", ["raw-exact", "one-byte", "prefix", "superset", "framed-exact", "framed-wrong"])
+def test_codex_stdin_requires_the_exact_canonical_patch(evidence, shape):
+    e = evidence
+    patch = e["patch"]
+    assert "+after\n" in patch, "negative-fixture precondition: owned changed line"
+    captured = patch
+    if shape == "one-byte":
+        captured = patch.replace("+after\n", "+afteR\n")
+        assert len(captured.encode()) == len(patch.encode()) and captured != patch
+    elif shape == "prefix":
+        captured = patch[:-1]
+        assert patch.startswith(captured) and len(captured) < len(patch)
+    elif shape == "superset":
+        captured = "Review instructions\n" + patch + "Extra context\n"
+        assert patch in captured and len(captured) > len(patch)
+    elif shape == "framed-wrong":
+        other = patch.replace("+after\n", "+foreign\n")
+        assert other != patch, "negative-fixture precondition: framed patch differs"
+        captured = "<cpp-review-patch>\n" + other + "</cpp-review-patch>"
+    elif shape == "framed-exact":
+        captured = "<cpp-review-patch>\n" + patch + "</cpp-review-patch>"
+    args = runtime(e, "implementer", "claude", "model-a")
+    args += runtime(e, "reviewer", "codex", "model-b")
+    codex_review_inputs(e, [captured])
+    result = write(e, *args, "--scope", "diff-only")
+    expected = shape in ("raw-exact", "framed-exact")
+    assert (result.returncode == 0) == expected, result.stderr
+    if expected:
+        receipt = json.loads(next((e["tmp"] / "out").glob("*.json")).read_text())
+        assert receipt["reviewed_artifact"]["method"] == "captured-patch"
+        assert receipt["reviewed_artifact"]["target_head"] == e["head"]
+    else:
+        assert not list((e["tmp"] / "out").glob("*.json"))
+
+
+@requires_git
+@pytest.mark.parametrize("raw_last", [False, True])
+def test_exact_raw_input_does_not_override_a_later_wrong_frame(evidence, raw_last):
+    e = evidence
+    other = e["patch"].replace("+after\n", "+foreign\n")
+    assert other != e["patch"], "negative-fixture precondition: distinct framed artifact"
+    framed = "<cpp-review-patch>\n" + other + "</cpp-review-patch>"
+    inputs = [framed, e["patch"]] if raw_last else [e["patch"], framed]
+    args = runtime(e, "implementer", "claude", "model-a")
+    args += runtime(e, "reviewer", "codex", "model-b")
+    codex_review_inputs(e, inputs)
+    result = write(e, *args, "--scope", "diff-only")
+    assert (result.returncode == 0) == raw_last, result.stderr
+    if not raw_last:
+        assert "captured reviewer patch differs" in result.stderr
+
+
+@requires_git
+@pytest.mark.parametrize("framed", [False, True])
+def test_empty_diff_keeps_requiring_explicit_framing(evidence, framed):
+    e = evidence
+    git(e["repo"], "reset", "--hard", "origin/main")
+    e["head"] = git(e["repo"], "rev-parse", "HEAD")
+    assert git(e["repo"], "diff", "origin/main...HEAD") == "", "precondition: empty canonical diff"
+    args = runtime(e, "implementer", "claude", "model-a")
+    args += runtime(e, "reviewer", "codex", "model-b")
+    codex_review_inputs(e, ["<cpp-review-patch>\n</cpp-review-patch>" if framed else ""])
+    result = write(e, *args, "--scope", "diff-only")
+    assert (result.returncode == 0) == framed, result.stderr
+
+
+@requires_git
+def test_unframed_equivalence_is_limited_to_codex(evidence):
+    e = evidence
+    args = runtime(e, "implementer", "codex", "model-a")
+    args += runtime(e, "reviewer", "claude", "model-b", patch=e["patch"])
+    path = e["tmp"] / "claude/fixture-reviewer.jsonl"
+    records = [json.loads(line) for line in path.read_text().splitlines()]
+    records[0]["message"]["content"] = e["patch"]
+    path.write_text("".join(json.dumps(record) + "\n" for record in records))
+    result = write(e, *args, "--scope", "diff-only")
+    assert result.returncode != 0
+    assert "missing captured reviewer patch" in result.stderr
+    assert not list((e["tmp"] / "out").glob("*.json"))
 
 
 @pytest.mark.parametrize("mutation", ["none", "failed", "missing-exit", "text-exit"])

@@ -1829,8 +1829,11 @@ def _artifact_binding(args: argparse.Namespace, evidence: dict, records: list[di
         patches = []
         for message_index, text in _review_inputs(records, evidence["runtime"]):
             input_frames = []
-            # Codex frames captured stdin this way; Claude/Qwen producers use
-            # the explicit CPP frame when sending an exact patch as user input.
+            # Native Codex can persist stdin without transport framing. Only
+            # exact, nonempty canonical bytes establish that raw capture.
+            if evidence["runtime"] == "codex" and patch and text.encode("utf-8") == patch:
+                input_frames.append((message_index, 0, patch))
+            # Keep strict framing for the supported explicit transports.
             for opening, closing in (("<stdin>\n", "</stdin>"), ("<cpp-review-patch>\n", "</cpp-review-patch>")):
                 starts = list(re.finditer(r"(?m)^" + re.escape(opening), text))
                 if not starts:

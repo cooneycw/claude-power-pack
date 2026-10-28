@@ -39,6 +39,14 @@ All three contain zero finding headings, which is byte-identical - to anything
 counting headings - to a review that found nothing wrong. They are the reason
 `parse_review` has three outcomes instead of two.
 
+`codex-unframed-user.constructed.json` is constructed from the #1600 measured
+shape, not a captured runtime record. The issue's native Codex CLI 0.164.0
+reproducer measured one raw input_text part: 71,153 bytes, SHA256
+`cdd5ce4e8e05457e6edbcf57b5f4daa22b4c22e6b284ebb7761e343c55869c5e`.
+The fixture substitutes an owned test repository's canonical patch. It pins
+whole-input matching, strict negative cases and input chronology; it does not
+claim that the constructed session is a live review.
+
 
 `native-codex-head.json` is a sanitized actual Codex CLI 0.164.0 native event,
 captured during #1584 through `functions.exec` calling `tools.exec_command`.
