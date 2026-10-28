@@ -18,8 +18,10 @@ CASES = [
     ("#### 3c. Register MCP Servers", "✓ playwright MCP"),
     ("#### 3c. Register MCP Servers", "✓ tavily MCP"),
     ("#### 3d. Register the browser desk pool", "✓ playwright-desk-1 registered"),
+    ("#### 3d. Register the browser desk pool", "✓ Seeded .claude/playwright-pool.json"),
     ("If no Makefile exists, offer to generate one:", "✓ Makefile generated"),
     ("#### 4b. Generate cicd.yml", "✓ .claude/cicd.yml created from template"),
+    ("#### 4b. Generate cicd.yml", "✓ .claude/cicd.yml created with defaults"),
     ("#### 4d. CI Pipeline Generation", "✓ .github/workflows/ci.yml generated"),
     ("#### 4e. Container Generation", "✓ Container files generated"),
     ("#### 5d. Register MCP Servers with Codex", "Registered second-opinion with Codex"),
@@ -34,7 +36,8 @@ CASES = [
 @pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3")
 @pytest.mark.parametrize(
     "heading,success,list_rc",
-    [(h, s, 0) for h, s in CASES] + [(h, s, 19) for h, s in CASES if "Register" in h or "### 8" in h or "3d." in h],
+    [(h, s, 0) for h, s in CASES]
+    + [(h, s, 19) for h, s in CASES if ("Register" in h or "### 8" in h or "3d." in h) and "Seeded" not in s],
 )
 @pytest.mark.parametrize("step_rc", [0, 19], ids=["success", "silent-failure"])
 def test_step_verdict_follows_exit_status(tmp_path, heading, success, list_rc, step_rc):
@@ -64,7 +67,8 @@ exit "$STEP_RC"
     home = tmp_path / "home"
     home.mkdir()
     (tmp_path / ".claude").mkdir()
-    (tmp_path / ".claude/playwright-pool.json").write_text('{"desks": ["playwright-desk-1"]}')
+    if "Seeded" not in success:
+        (tmp_path / ".claude/playwright-pool.json").write_text('{"desks": ["playwright-desk-1"]}')
     # A stale output must not turn a failed generator into a successful verdict.
     (tmp_path / ".github/workflows").mkdir(parents=True)
     (tmp_path / ".github/workflows/ci.yml").write_text("# pre-existing workflow\n")
@@ -73,7 +77,7 @@ exit "$STEP_RC"
         HOME=str(home),
         CLAUDE_CONFIG_DIR=str(home),
         PATH=f"{bindir}:{os.environ['PATH']}",
-        CPP_DIR=str(ROOT),
+        CPP_DIR=str(tmp_path / "empty-cpp") if success.endswith("with defaults") else str(ROOT),
         STEP_RC=str(step_rc),
         LIST_RC=str(list_rc),
         CALL_LOG=str(tmp_path / "add-calls"),
