@@ -168,7 +168,10 @@ for unit in mcp-second-opinion second-opinion mcp-playwright mcp-playwright-pers
 done
 
 MCP_SERVERS=""
-MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
+if ! MCP_LIST=$(claude mcp list 2>/dev/null); then
+  echo "WARNING: claude MCP registrations could not be read; registration step not run."
+  exit 1
+fi
 for server in second-opinion playwright; do
   echo "$MCP_LIST" | grep -q "$server" && MCP_SERVERS="$MCP_SERVERS $server"
 done
@@ -601,8 +604,11 @@ mkdir -p .claude
 
 # Symlink commands (skip if exists)
 if [ ! -L ".claude/commands" ] && [ ! -d ".claude/commands" ]; then
-  ln -sf "$CPP_DIR/.claude/commands" .claude/commands
-  echo "✓ Commands symlinked"
+  if ln -sf "$CPP_DIR/.claude/commands" .claude/commands; then
+    echo "✓ Commands symlinked"
+  else
+    echo "WARNING: setup command failed (exit $?)."
+  fi
 else
   echo "→ Commands already installed (skipped)"
 fi
@@ -746,10 +752,14 @@ Based on the profile selected in Step 3b, generate `.claude/settings.local.json`
 
 if [ ! -f ".claude/settings.local.json" ]; then
   # Write the selected profile to settings.local.json
-  cat > .claude/settings.local.json << 'SETTINGS_EOF'
+  if cat > .claude/settings.local.json << 'SETTINGS_EOF'
 {PROFILE_JSON_CONTENT}
 SETTINGS_EOF
-  echo "✓ Permission profile configured: {PROFILE_NAME}"
+  then
+    echo "✓ Permission profile configured: {PROFILE_NAME}"
+  else
+    echo "WARNING: configuration write failed (exit $?)."
+  fi
 else
   echo "→ settings.local.json exists (skipped)"
   echo "  To reconfigure, delete .claude/settings.local.json and run /cpp:init"
@@ -758,10 +768,11 @@ fi
 # Add settings.local.json to .gitignore if not already there
 if [ -f ".gitignore" ]; then
   if ! grep -q "settings.local.json" .gitignore; then
-    echo "" >> .gitignore
-    echo "# Claude Code local settings (contains user-specific permissions)" >> .gitignore
-    echo ".claude/settings.local.json" >> .gitignore
-    echo "✓ Added settings.local.json to .gitignore"
+    if printf '\n# Claude Code local settings (contains user-specific permissions)\n.claude/settings.local.json\n' >> .gitignore; then
+      echo "✓ Added settings.local.json to .gitignore"
+    else
+      echo "WARNING: .gitignore update failed (exit $?)."
+    fi
   fi
 fi
 ```
@@ -784,8 +795,11 @@ if [ -f ".gitignore" ]; then
         echo "# Claude Code friction capture (local, not shared history)" >> .gitignore
         FRICTION_HEADER_WRITTEN=1
       fi
-      echo "$pattern" >> .gitignore
-      echo "✓ Added $pattern to .gitignore"
+      if echo "$pattern" >> .gitignore; then
+        echo "✓ Added $pattern to .gitignore"
+      else
+        echo "WARNING: .gitignore update failed (exit $?)."
+      fi
     fi
   done
 fi
@@ -1086,8 +1100,11 @@ Create a starter Makefile? [y/N]
 If yes:
 ```bash
 if [ ! -f "Makefile" ]; then
-  cp "$CPP_DIR/templates/Makefile.example" Makefile
-  echo "✓ Makefile created from template"
+  if cp "$CPP_DIR/templates/Makefile.example" Makefile; then
+    echo "✓ Makefile created from template"
+  else
+    echo "WARNING: setup command failed (exit $?)."
+  fi
   echo "  Edit targets to match your project's commands"
 else
   echo "→ Makefile already exists (skipped)"
@@ -1121,8 +1138,7 @@ if command -v happy &>/dev/null; then
   happy --version 2>&1 | head -1
 else
   echo "Installing happy-cli..."
-  npm install -g happy-coder
-  if command -v happy &>/dev/null; then
+  if npm install -g happy-coder && command -v happy &>/dev/null; then
     echo "✓ happy-cli installed"
     echo "  Run 'happy' to complete onboarding"
   else
@@ -1130,7 +1146,7 @@ else
     echo "  Try: sudo npm install -g happy-coder"
   fi
 fi
-echo "✓ /cpp:happy-check command available (verify version updates)"
+echo "  Verify /cpp:happy-check availability with /cpp:status."
 ```
 
 If no:
@@ -1164,8 +1180,7 @@ if command -v specify &>/dev/null; then
   specify version 2>/dev/null | head -1 || true
 else
   echo "Installing spec-kit CLI (uv tool)..."
-  uv tool install specify-cli --from git+https://github.com/github/spec-kit.git
-  if command -v specify &>/dev/null; then
+  if uv tool install specify-cli --from git+https://github.com/github/spec-kit.git && command -v specify &>/dev/null; then
     echo "✓ spec-kit CLI installed"
     echo "  Run /spec:adopt in a project to scaffold spec-kit into it"
   else
@@ -1173,7 +1188,7 @@ else
     echo "  Try: uv tool install specify-cli --from git+https://github.com/github/spec-kit.git"
   fi
 fi
-echo "✓ /spec:adopt command available (per-project spec-kit scaffold)"
+echo "  Verify /spec:adopt availability with /cpp:status."
 ```
 
 If no:
@@ -1235,7 +1250,10 @@ re-register (`claude mcp remove second-opinion -s user`, then this step again).
 
 ```bash
 # Add MCP servers to Claude Code
-MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
+if ! MCP_LIST=$(claude mcp list 2>/dev/null); then
+  echo "WARNING: claude MCP registrations could not be read; registration step not run."
+  exit 1
+fi
 
 # Second Opinion is an external streamable-http server, registered at USER scope
 # only - the repo ships no project-scope .mcp.json entry to compete with it (#1256).
@@ -1288,8 +1306,11 @@ if echo "$MCP_LIST" | grep -q "playwright-persistent"; then
 fi
 if ! echo "$MCP_LIST" | grep -qw "playwright"; then
   if command -v npx &>/dev/null; then
-    claude mcp add --transport stdio --scope user playwright -- npx -y @playwright/mcp@latest --headless
-    echo "✓ playwright MCP (upstream @playwright/mcp) registered"
+    if claude mcp add --transport stdio --scope user playwright -- npx -y @playwright/mcp@latest --headless; then
+      echo "✓ playwright MCP (upstream @playwright/mcp) registered"
+    else
+      echo "WARNING: setup command failed (exit $?)."
+    fi
   else
     echo "⚠ npx not found. Browser automation needs Node.js 18+."
     echo "  Install later: claude mcp add --transport stdio --scope user playwright -- npx -y @playwright/mcp@latest --headless"
@@ -1305,8 +1326,11 @@ fi
 if ! echo "$MCP_LIST" | grep -qw "tavily"; then
   if command -v npx &>/dev/null; then
     if [ -n "$TAVILY_API_KEY" ]; then
-      claude mcp add tavily --transport stdio --scope user -e TAVILY_API_KEY="$TAVILY_API_KEY" -- npx -y tavily-mcp@latest
-      echo "✓ tavily MCP (upstream tavily-mcp) registered"
+      if claude mcp add tavily --transport stdio --scope user -e TAVILY_API_KEY="$TAVILY_API_KEY" -- npx -y tavily-mcp@latest; then
+        echo "✓ tavily MCP (upstream tavily-mcp) registered"
+      else
+        echo "WARNING: setup command failed (exit $?)."
+      fi
     else
       echo "⚠ TAVILY_API_KEY not set. Get a key from https://app.tavily.com/home"
       echo "  Then: claude mcp add tavily --transport stdio --scope user -e TAVILY_API_KEY=tvly-... -- npx -y tavily-mcp@latest"
@@ -1348,22 +1372,34 @@ stdio MCP servers (upstream via `npx`, no custom image, pinned version):
 # Seed the project's pool config (edit desk count / idle timeout there later).
 mkdir -p .claude
 if [ ! -f .claude/playwright-pool.json ]; then
-  cp "$CPP_DIR/templates/playwright-pool.example.json" .claude/playwright-pool.json
-  echo "✓ Seeded .claude/playwright-pool.json"
+  if cp "$CPP_DIR/templates/playwright-pool.example.json" .claude/playwright-pool.json; then
+    echo "✓ Seeded .claude/playwright-pool.json"
+  else
+    echo "WARNING: setup command failed (exit $?)."
+  fi
 fi
 
 # Register one MCP server per desk listed in the pool config. Each runs upstream
 # @playwright/mcp with --isolated (blank context per lease; session identity lives
 # in the portable state file, not the desk).
 PW_MCP_VERSION="0.0.77"
-DESKS=$(python3 -c "import json; print('\n'.join(json.load(open('.claude/playwright-pool.json'))['desks']))")
-MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
+if ! DESKS=$(python3 -c "import json; print('\n'.join(json.load(open('.claude/playwright-pool.json'))['desks']))"); then
+  echo "WARNING: browser desk configuration could not be read; no desks registered."
+  exit 1
+fi
+if ! MCP_LIST=$(claude mcp list 2>/dev/null); then
+  echo "WARNING: claude MCP registrations could not be read; registration step not run."
+  exit 1
+fi
 for desk in $DESKS; do
   if echo "$MCP_LIST" | grep -q "$desk"; then
     echo "→ $desk already registered (skipped)"
   else
-    claude mcp add "$desk" --scope user -- npx -y "@playwright/mcp@${PW_MCP_VERSION}" --isolated
-    echo "✓ $desk registered (npx @playwright/mcp@${PW_MCP_VERSION} --isolated)"
+    if claude mcp add "$desk" --scope user -- npx -y "@playwright/mcp@${PW_MCP_VERSION}" --isolated; then
+      echo "✓ $desk registered (npx @playwright/mcp@${PW_MCP_VERSION} --isolated)"
+    else
+      echo "WARNING: setup command failed (exit $?)."
+    fi
   fi
 done
 
@@ -1416,8 +1452,11 @@ if [ ! -f "Makefile" ]; then
   echo "No Makefile found. Generate one from the detected framework template?"
   # Use AskUserQuestion to confirm
   # If yes:
-  PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd detect --generate-makefile
-  echo "✓ Makefile generated"
+  if PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd detect --generate-makefile; then
+    echo "✓ Makefile generated"
+  else
+    echo "WARNING: setup command failed (exit $?)."
+  fi
 else
   echo "→ Makefile already exists"
   echo "  Run /cicd:check to validate targets"
@@ -1441,11 +1480,14 @@ if [ ! -f ".claude/cicd.yml" ]; then
   mkdir -p .claude
   # Generate cicd.yml with detected defaults
   if [ -f "$CPP_DIR/templates/cicd.yml.example" ]; then
-    cp "$CPP_DIR/templates/cicd.yml.example" .claude/cicd.yml
-    echo "✓ .claude/cicd.yml created from template"
+    if cp "$CPP_DIR/templates/cicd.yml.example" .claude/cicd.yml; then
+      echo "✓ .claude/cicd.yml created from template"
+    else
+      echo "WARNING: setup command failed (exit $?)."
+    fi
     echo "  Edit to configure health checks and smoke tests"
   else
-    cat > .claude/cicd.yml << 'CICD_EOF'
+    if cat > .claude/cicd.yml << 'CICD_EOF'
 build:
   framework: auto
   package_manager: auto
@@ -1458,7 +1500,11 @@ health:
   smoke_tests: []
   post_deploy: false
 CICD_EOF
-    echo "✓ .claude/cicd.yml created with defaults"
+    then
+      echo "✓ .claude/cicd.yml created with defaults"
+    else
+      echo "WARNING: configuration write failed (exit $?)."
+    fi
   fi
 else
   echo "→ .claude/cicd.yml already exists (skipped)"
@@ -1504,11 +1550,14 @@ Generate CI pipeline? [y/N]
 If yes:
 
 ```bash
-PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd pipeline --write 2>/dev/null
-if [ -f ".github/workflows/ci.yml" ]; then
-  echo "✓ .github/workflows/ci.yml generated"
+if PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd pipeline --write 2>/dev/null; then
+  if [ -f ".github/workflows/ci.yml" ]; then
+    echo "✓ .github/workflows/ci.yml generated"
+  else
+    echo "WARNING: pipeline generator returned success but ci.yml is absent."
+  fi
 else
-  echo "⚠ Pipeline generation failed"
+  echo "WARNING: pipeline generation failed (exit $?)."
 fi
 ```
 
@@ -1529,8 +1578,11 @@ Generate container files? [y/N]
 If yes:
 
 ```bash
-PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd container --write 2>/dev/null
-echo "✓ Container files generated"
+if PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd container --write 2>/dev/null; then
+  echo "✓ Container files generated"
+else
+  echo "WARNING: setup command failed (exit $?)."
+fi
 ```
 
 ### Tier 5 Execution (Codex Orchestration)
@@ -1553,8 +1605,7 @@ else
   echo ""
   # Ask user if they want to install
   # If yes:
-  npm install -g @openai/codex
-  if command -v codex &>/dev/null; then
+  if npm install -g @openai/codex && command -v codex &>/dev/null; then
     echo "Codex CLI installed"
   else
     echo "WARNING: Codex CLI installation failed"
@@ -1570,12 +1621,13 @@ fi
 if command -v codex &>/dev/null; then
   echo ""
   echo "Running codex doctor..."
-  DOCTOR_OUTPUT=$(codex doctor 2>&1 || true)
+  DOCTOR_OUTPUT=$(codex doctor 2>&1)
+  DOCTOR_STATUS=$?
   echo "$DOCTOR_OUTPUT"
 
-  if echo "$DOCTOR_OUTPUT" | grep -qi "error\|fail\|missing"; then
+  if [ "$DOCTOR_STATUS" -ne 0 ]; then
     echo ""
-    echo "WARNING: codex doctor reported issues. Resolve before using /codex:auto."
+    echo "WARNING: codex doctor failed (exit $DOCTOR_STATUS). Resolve before using /codex:auto."
   else
     echo "[x] codex doctor: all checks passed"
   fi
@@ -1590,8 +1642,10 @@ if command -v codex &>/dev/null; then
   echo "=== OpenAI API Key ==="
 
   CODEX_CONFIG="$HOME/.codex/config.toml"
-  if [ -f "$CODEX_CONFIG" ] || [ -n "$OPENAI_API_KEY" ]; then
-    echo "[x] OpenAI API key: configured"
+  if [ -n "$OPENAI_API_KEY" ]; then
+    echo "[x] OPENAI_API_KEY is set (authentication unverified)"
+  elif [ -f "$CODEX_CONFIG" ]; then
+    echo "[?] Codex config exists; API credentials unverified"
   else
     echo "[ ] OpenAI API key: not configured"
     echo ""
@@ -1606,7 +1660,7 @@ fi
 
 #### 5d. Register MCP Servers with Codex (Optional)
 
-This reuses the logic from Step 7 (Optional Extras) section 8b, but is now part of the Tier 5 flow:
+This reuses the logic from Step 6 (Optional Extras) section 8b, but is now part of the Tier 5 flow:
 
 ```bash
 if command -v codex &>/dev/null; then
@@ -1618,7 +1672,10 @@ if command -v codex &>/dev/null; then
   echo ""
   # Ask user if they want to register - use AskUserQuestion
   # If yes:
-  CODEX_LIST=$(codex mcp list 2>/dev/null || echo "")
+  if ! CODEX_LIST=$(codex mcp list 2>/dev/null); then
+    echo "WARNING: codex MCP registrations could not be read; registration step not run."
+    exit 1
+  fi
 
   for entry in "second-opinion:8080"; do
     NAME="${entry%%:*}"
@@ -1627,8 +1684,11 @@ if command -v codex &>/dev/null; then
       echo "-> $NAME already registered with Codex (skipped)"
     else
       if curl -sf --max-time 2 "http://127.0.0.1:${PORT}/" >/dev/null 2>&1; then
-        codex mcp add "$NAME" --url "http://127.0.0.1:${PORT}/mcp"
-        echo "Registered $NAME with Codex (http://127.0.0.1:${PORT}/mcp)"
+        if codex mcp add "$NAME" --url "http://127.0.0.1:${PORT}/mcp"; then
+          echo "Registered $NAME with Codex (http://127.0.0.1:${PORT}/mcp)"
+        else
+          echo "WARNING: setup command failed (exit $?)."
+        fi
       else
         echo "WARNING: $NAME not reachable on port $PORT - skipping Codex registration"
         echo "  Start the external second-opinion server first (see https://github.com/cooneycw/mcp-second-opinion)"
@@ -1640,8 +1700,11 @@ if command -v codex &>/dev/null; then
   if echo "$CODEX_LIST" | grep -qw "playwright"; then
     echo "-> playwright already registered with Codex (skipped)"
   elif command -v npx &>/dev/null; then
-    codex mcp add playwright -- npx -y @playwright/mcp@latest --headless
-    echo "Registered playwright (upstream @playwright/mcp) with Codex"
+    if codex mcp add playwright -- npx -y @playwright/mcp@latest --headless; then
+      echo "Registered playwright (upstream @playwright/mcp) with Codex"
+    else
+      echo "WARNING: setup command failed (exit $?)."
+    fi
   else
     echo "WARNING: npx not found - skipping Codex playwright registration (needs Node.js 18+)"
   fi
@@ -2065,65 +2128,6 @@ the full diagnosis.
 
 ---
 
-## Step 6: Installation Summary
-
-```
-=================================
-CPP Installation Complete!
-=================================
-
-Installed:
-  ✓ Tier 1: Commands symlinked
-  ✓ Tier 2: Scripts, hooks, shell prompt
-  ✓ Tier 3: MCP servers (external second-opinion + playwright)
-  ✓ Tier 4: CI/CD build system, health checks, pipeline, containers
-  ✓ Tier 5: Codex CLI orchestration
-  ✓ Tier 6: Local Qwen orchestration (optional - only if selected)
-  ✓ Tier 7: Local Gemma orchestration (optional - only if selected)
-
-Permission Profile: {PROFILE_NAME}
-  Auto-approved: {AUTO_APPROVE_SUMMARY}
-  Blocked: rm -rf, git push --force, sudo (destructive)
-  Settings: .claude/settings.local.json
-
-MCP Servers:
-  • second-opinion (external server, http://127.0.0.1:8080/mcp) - Gemini/OpenAI
-    code review. Run it from https://github.com/cooneycw/mcp-second-opinion;
-    export SECOND_OPINION_URL for a Tailscale host. Registered at user scope only.
-  • playwright (upstream @playwright/mcp, npx/stdio) - Browser automation
-
-Update pathway:
-  /cpp:update pulls CPP and tears down any legacy systemd units or retired MCP
-  containers (mcp-second-opinion, aws-secrets-agent, ...) left on this host.
-
-Next Steps:
-  1. Verify the second-opinion server is running (from the mcp-second-opinion
-     repo) and reachable at http://127.0.0.1:8080/mcp
-
-  2. Restart your shell to apply prompt changes:
-     source ~/.bashrc
-
-  3. Verify installation:
-     /cpp:status
-
-  4. Try the commands:
-     /project:next    - See what to work on
-     /spec:help       - Spec-driven development
-     /github:help     - Issue management
-     /cicd:help       - CI/CD build & verification
-     npx skills find  - Discover skills from skills.sh (or /plugin for the marketplace)
-
-Change Permissions Later:
-  • Edit .claude/settings.local.json directly
-  • Or delete it and run /cpp:init to reconfigure
-
-Documentation:
-  • CLAUDE.md - Full reference
-  • ISSUE_DRIVEN_DEVELOPMENT.md - IDD workflow
-  • /cpp:load-best-practices - Community tips
-
-=================================
-```
 
 ---
 
@@ -2153,9 +2157,9 @@ Install Node.js (https://nodejs.org/), then:
 
 ---
 
-## Step 7: Optional Extras
+## Step 6: Optional Extras
 
-After the main installation completes, offer optional extras.
+After the selected tier steps have run, offer optional extras before the final summary.
 
 ### 8a. Sequential Thinking
 
@@ -2180,12 +2184,18 @@ if ! command -v npx &>/dev/null; then
   echo "  Install Node.js: https://nodejs.org/"
   echo "  Skipping Sequential Thinking."
 else
-  MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
+  if ! MCP_LIST=$(claude mcp list 2>/dev/null); then
+    echo "WARNING: claude MCP registrations could not be read; registration step not run."
+    exit 1
+  fi
   if echo "$MCP_LIST" | grep -q "sequential-thinking"; then
     echo "→ sequential-thinking MCP already registered (skipped)"
   else
-    claude mcp add --transport stdio --scope user sequential-thinking -- npx -y @modelcontextprotocol/server-sequential-thinking
-    echo "✓ Sequential Thinking MCP registered (stdio, user scope)"
+    if claude mcp add --transport stdio --scope user sequential-thinking -- npx -y @modelcontextprotocol/server-sequential-thinking; then
+      echo "✓ Sequential Thinking MCP registered (stdio, user scope)"
+    else
+      echo "WARNING: setup command failed (exit $?)."
+    fi
   fi
 fi
 ```
@@ -2218,7 +2228,10 @@ if ! command -v codex &>/dev/null; then
   echo "⚠ Codex CLI not found. Skipping registration."
   echo "  Install Codex first, then run the commands in .agents/CODEX_SETUP.md"
 else
-  CODEX_LIST=$(codex mcp list 2>/dev/null || echo "")
+  if ! CODEX_LIST=$(codex mcp list 2>/dev/null); then
+    echo "WARNING: codex MCP registrations could not be read; registration step not run."
+    exit 1
+  fi
 
   for entry in "second-opinion:8080"; do
     NAME="${entry%%:*}"
@@ -2228,8 +2241,11 @@ else
     else
       # Verify the external server is reachable before registering
       if curl -sf --max-time 2 "http://127.0.0.1:${PORT}/" >/dev/null 2>&1; then
-        codex mcp add "$NAME" --url "http://127.0.0.1:${PORT}/mcp"
-        echo "✓ $NAME registered with Codex (http://127.0.0.1:${PORT}/mcp)"
+        if codex mcp add "$NAME" --url "http://127.0.0.1:${PORT}/mcp"; then
+          echo "✓ $NAME registered with Codex (http://127.0.0.1:${PORT}/mcp)"
+        else
+          echo "WARNING: setup command failed (exit $?)."
+        fi
       else
         echo "⚠ $NAME not reachable on port $PORT - skipping Codex registration"
         echo "  Start the external second-opinion server first (see https://github.com/cooneycw/mcp-second-opinion)"
@@ -2241,8 +2257,11 @@ else
   if echo "$CODEX_LIST" | grep -qw "playwright"; then
     echo "-> playwright already registered with Codex (skipped)"
   elif command -v npx &>/dev/null; then
-    codex mcp add playwright -- npx -y @playwright/mcp@latest --headless
-    echo "✓ playwright (upstream @playwright/mcp) registered with Codex"
+    if codex mcp add playwright -- npx -y @playwright/mcp@latest --headless; then
+      echo "✓ playwright (upstream @playwright/mcp) registered with Codex"
+    else
+      echo "WARNING: setup command failed (exit $?)."
+    fi
   else
     echo "⚠ npx not found - skipping Codex playwright registration (needs Node.js 18+)"
   fi
@@ -2259,8 +2278,11 @@ echo "-> Codex registration skipped"
 # Write setup artifact for manual registration later
 mkdir -p .agents
 if [ -f "$CPP_DIR/.agents/CODEX_SETUP.md" ]; then
-  cp "$CPP_DIR/.agents/CODEX_SETUP.md" .agents/CODEX_SETUP.md
-  echo "  Setup commands saved to .agents/CODEX_SETUP.md"
+  if cp "$CPP_DIR/.agents/CODEX_SETUP.md" .agents/CODEX_SETUP.md; then
+    echo "  Setup commands saved to .agents/CODEX_SETUP.md"
+  else
+    echo "WARNING: setup command failed (exit $?)."
+  fi
 else
   echo "  Register later with: codex mcp add <name> --url http://127.0.0.1:<port>/mcp"
 fi
@@ -2404,6 +2426,72 @@ esac
 ```
 
 Verify with `cpp-memory ping` (its JSON now reports `backend` and `federation`).
+
+---
+
+## Step 7: Installation Summary
+
+Render this summary only after all selected tier steps and optional extras have
+run or been explicitly skipped. Build `{STEP_RESULTS}` from their observed exit
+statuses: report each selected step as succeeded, failed, deferred, skipped or
+unverified. A failed read is unverified, never absent or already installed.
+Registration success proves configuration was written, not server connectivity.
+Never infer success from selecting a tier or finding an old generated file.
+
+Use `CPP Installation Complete` for `{INSTALLATION_VERDICT}` only when every
+selected step succeeded or its existing state was verified and every optional
+extra has run or been explicitly declined. Otherwise use `CPP Installation
+Incomplete` and list the failures, deferrals and unverified steps with next
+actions. Do not print a blanket installed checklist.
+
+```
+=================================
+{INSTALLATION_VERDICT}
+=================================
+
+Step results:
+{STEP_RESULTS}
+
+Permission Profile: {PROFILE_NAME}
+  Auto-approved: {AUTO_APPROVE_SUMMARY}
+  Blocked: rm -rf, git push --force, sudo (destructive)
+  Settings: .claude/settings.local.json
+
+MCP registrations (configuration only; connectivity reported separately):
+{MCP_RESULTS}
+
+Update pathway:
+  /cpp:update pulls CPP and tears down any legacy systemd units or retired MCP
+  containers (mcp-second-opinion, aws-secrets-agent, ...) left on this host.
+
+Next Steps:
+  1. Verify the second-opinion server is running (from the mcp-second-opinion
+     repo) and reachable at http://127.0.0.1:8080/mcp
+
+  2. Restart your shell to apply prompt changes:
+     source ~/.bashrc
+
+  3. Verify installation:
+     /cpp:status
+
+  4. Try the commands:
+     /project:next    - See what to work on
+     /spec:help       - Spec-driven development
+     /github:help     - Issue management
+     /cicd:help       - CI/CD build & verification
+     npx skills find  - Discover skills from skills.sh (or /plugin for the marketplace)
+
+Change Permissions Later:
+  • Edit .claude/settings.local.json directly
+  • Or delete it and run /cpp:init to reconfigure
+
+Documentation:
+  • CLAUDE.md - Full reference
+  • ISSUE_DRIVEN_DEVELOPMENT.md - IDD workflow
+  • /cpp:load-best-practices - Community tips
+
+=================================
+```
 
 ---
 
