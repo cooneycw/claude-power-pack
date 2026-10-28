@@ -1,0 +1,55 @@
+{
+  "kind": "captured native Codex user record with patch text redacted by the source author",
+  "runtime": "codex-cli 0.164.0",
+  "source": "https://github.com/cooneycw/claude-power-pack/issues/1600#issuecomment-6476347572",
+  "original_record_bytes": 75379,
+  "original_record_sha256": "906703a1ead14a82adc2f19697f69b83df91e10d9c9dbe0215bf792d0d55c4a1",
+  "original_user_text_bytes": 71153,
+  "original_user_text_sha256": "cdd5ce4e8e05457e6edbcf57b5f4daa22b4c22e6b284ebb7761e343c55869c5e",
+  "record": {
+    "timestamp": "2026-10-28T17:16:11.673Z",
+    "ordinal": 11,
+    "type": "response_item",
+    "payload": {
+      "type": "message",
+      "id": "msg_01a18383-2218-7e02-8542-eb42f4bc8ecc",
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "<CANONICAL_PATCH: 71153 bytes, sha256 cdd5ce4e8e05457e6edbcf57b5f4daa22b4c22e6b284ebb7761e343c55869c5e>"
+        }
+      ],
+      "internal_chat_message_metadata_passthrough": {
+        "turn_id": "01a18383-1e4c-7842-911a-c5a1a67c0d15",
+        "create_time": 1793207771.6728864,
+        "content_item_kinds": [
+          "user.text"
+        ],
+        "content_item_metadata": [
+          {
+            "provenance": {
+              "type": "user"
+            }
+          }
+        ]
+      }
+    },
+    "metadata": {
+      "retained_source": {
+        "id": {
+          "message_id": "msg_01a18383-2218-7e02-8542-eb42f4bc8ecc",
+          "turn_id": "01a18383-1e4c-7842-911a-c5a1a67c0d15",
+          "role": "user"
+        },
+        "revision": "retained_01a18383-2219-7d41-94cc-64e48d9769b1",
+        "complete": false
+      },
+      "client_authored": false,
+      "user_input_order": 0,
+      "mcp_attribution": {
+        "status": "none"
+      }
+    }
+  }
+}

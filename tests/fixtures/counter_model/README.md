@@ -48,6 +48,25 @@ whole-input matching, strict negative cases and input chronology; it does not
 claim that the constructed session is a live review.
 
 
+`codex-unframed-user.captured.json` retains the genuine Codex CLI 0.164.0
+USER-record envelope published in #1600, comment 6476347572. The source author
+replaced only the canonical patch text with its size/hash placeholder. This
+redacted envelope is not an original rollout or a substitute review transcript.
+Tests substitute the owned repository patch into that one text part; all other
+record fields remain captured. The constructed fixture above stays separately
+labelled, and both envelopes exercise the same acceptance and refusal cases.
+
+The original record excluding its terminating LF was 75,379 bytes, SHA256
+`906703a1ead14a82adc2f19697f69b83df91e10d9c9dbe0215bf792d0d55c4a1`.
+That original-record hash is reported source provenance, not the redacted file's
+hash. The committed redacted fixture SHA256 is
+`9fd11749fb67d464a54bc78f62dbb8992da52e6b386936d72d5b2003104cbb26`.
+Its documented 71,153-byte patch hash was independently reproduced using
+`review-patch --base 802a140af93d4b865d928903014cd91f55b49827 --head 1a887a66702d56a89759fbd7d4597ce054ac94e3`.
+The unchanged original-rollout writer repro succeeded at 3479ef4b; see #1600,
+comment 6476694221. That upstream repro is separate from these owned controls.
+
+
 `native-codex-head.json` is a sanitized actual Codex CLI 0.164.0 native event,
 captured during #1584 through `functions.exec` calling `tools.exec_command`.
 Its command, argv, successful exit code, output, event envelope and parsed

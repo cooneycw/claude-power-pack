@@ -995,11 +995,14 @@ NATIVE_HEAD = Path(__file__).parent / "fixtures/counter_model/native-codex-head.
 UNFRAMED_USER = Path(__file__).parent / "fixtures/counter_model/codex-unframed-user.constructed.json"
 
 
-def codex_review_inputs(e: dict, texts: list[str]) -> None:
-    """Construct owned inputs from the measured #1600 shape, not a live log."""
+CAPTURED_USER = Path(__file__).parent / "fixtures/counter_model/codex-unframed-user.captured.json"
+
+
+def codex_review_inputs(e: dict, texts: list[str], fixture: Path = UNFRAMED_USER) -> None:
+    """Substitute owned patch text in an explicitly labelled #1600 envelope."""
     path = e["tmp"] / "codex/rollout-fixture-reviewer.jsonl"
     records = [json.loads(line) for line in path.read_text().splitlines()]
-    template = json.loads(UNFRAMED_USER.read_text())["record"]
+    template = json.loads(fixture.read_text())["record"]
     inputs = []
     for text in texts:
         record = copy.deepcopy(template)
@@ -1011,7 +1014,8 @@ def codex_review_inputs(e: dict, texts: list[str]) -> None:
 
 @requires_git
 @pytest.mark.parametrize("shape", ["raw-exact", "one-byte", "prefix", "superset", "framed-exact", "framed-wrong"])
-def test_codex_stdin_requires_the_exact_canonical_patch(evidence, shape):
+@pytest.mark.parametrize("user_fixture", [UNFRAMED_USER, CAPTURED_USER], ids=["constructed", "captured-redacted"])
+def test_codex_stdin_requires_the_exact_canonical_patch(evidence, shape, user_fixture):
     e = evidence
     patch = e["patch"]
     assert "+after\n" in patch, "negative-fixture precondition: owned changed line"
@@ -1033,7 +1037,7 @@ def test_codex_stdin_requires_the_exact_canonical_patch(evidence, shape):
         captured = "<cpp-review-patch>\n" + patch + "</cpp-review-patch>"
     args = runtime(e, "implementer", "claude", "model-a")
     args += runtime(e, "reviewer", "codex", "model-b")
-    codex_review_inputs(e, [captured])
+    codex_review_inputs(e, [captured], user_fixture)
     result = write(e, *args, "--scope", "diff-only")
     expected = shape in ("raw-exact", "framed-exact")
     assert (result.returncode == 0) == expected, result.stderr
