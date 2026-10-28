@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Counter-model receipts derive each role through independent evidence adapters
+  (schema 5), including native Codex TUI implementations reviewed by Claude.
+  New writes require a reviewed-artifact binding: a reviewer runtime HEAD probe
+  for full reviews, or exact runtime-captured patch bytes for diff-only reviews.
+  Review producers now require an implementation checkpoint first. Historical
+  schemas 1-4 remain valid without migration.
+
+
 ### Changed - consumer action required
 
 - Successful test commands with empty stdout/stderr now report UNKNOWN with a

@@ -44,6 +44,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "counter-model-receipt.py"
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "counter_model"
 COMMANDS = ROOT / ".claude" / "commands"
+WRITE_SCRIPT = FIXTURES / "identity-cli.py"
 
 
 def _load():
@@ -268,7 +269,7 @@ _NO_SCOPE_INJECTION = "<no-scope-injection>"
 
 def _write(tmp_path: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [sys.executable, str(SCRIPT), "write", "--dir", str(tmp_path), *_with_scope(args)],
+        [sys.executable, str(WRITE_SCRIPT), "write", "--dir", str(tmp_path), *_with_scope(args)],
         capture_output=True, text=True,
     )
 
@@ -287,12 +288,15 @@ def _reviewer_derivation_fixture(
     rollout_dir = sessions_dir / "2026" / "09" / "19"
     rollout_dir.mkdir(parents=True)
     (rollout_dir / f"rollout-{thread_id}.jsonl").write_text(
-        _rollout_text(model), encoding="utf-8"
+        _rollout_text(model, thread_id=thread_id), encoding="utf-8"
     )
     return exec_log, sessions_dir
 
 
-def _rollout_text(turn_model: str, provenance_model: str | None = None) -> str:
+def _rollout_text(
+    turn_model: str, provenance_model: str | None = None, *,
+    thread_id: str = "thread-for-counter-model-test",
+) -> str:
     """A rollout in the shape codex-cli 0.158.0 writes (measured, issue #1269).
 
     The session header comes FIRST and carries a `model` of its own - the model
@@ -303,7 +307,7 @@ def _rollout_text(turn_model: str, provenance_model: str | None = None) -> str:
     header = {
         "type": "session_meta",
         "payload": {
-            "id": "fixture",
+            "id": thread_id,
             "base_instructions": {
                 "provenance": {"model": provenance_model or turn_model},
             },
@@ -395,7 +399,7 @@ def test_an_implementer_session_without_a_matching_transcript_is_refused(  # bin
         tmp_path, projects_dir, "--implementer-session-id", session_id
     )
     assert proc.returncode == CM.EXIT_INVALID, proc.stderr
-    assert "no transcript matching session_id" in proc.stderr
+    assert "expected one Claude transcript" in proc.stderr
     assert list(tmp_path.glob("*.json")) == []
 
 
@@ -410,7 +414,7 @@ def test_multiple_matching_implementer_transcripts_are_refused(tmp_path: Path) -
         tmp_path, projects_dir, "--implementer-session-id", session_id
     )
     assert proc.returncode == CM.EXIT_INVALID, proc.stderr
-    assert "multiple transcripts matching session_id" in proc.stderr
+    assert "expected one Claude transcript" in proc.stderr
     assert list(tmp_path.glob("*.json")) == []
 
 
@@ -443,7 +447,7 @@ def test_an_implementer_transcript_without_model_entries_is_refused(  # binary-g
     assert list(tmp_path.glob("*.json")) == []
 
 
-def test_the_latest_real_implementer_model_wins(tmp_path: Path) -> None:  # binary-guard: allow unscoped
+def test_unresolved_claude_turns_cannot_be_dropped(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     """A genuine mid-session model switch is preserved; sentinels do not erase it.
 
     PRESERVATION, NOT REGRESSION: this passes on both sides of #1109 and is not
@@ -469,9 +473,9 @@ def test_the_latest_real_implementer_model_wins(tmp_path: Path) -> None:  # bina
     proc = _write_session_receipt(
         tmp_path, projects_dir, "--implementer-session-id", session_id
     )
-    assert proc.returncode == CM.EXIT_OK, proc.stderr
-    receipt = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
-    assert receipt["implementer"] == "claude/claude-sonnet-5"
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "no real-shaped model entry" in proc.stderr
+    assert not list(tmp_path.glob("*.json"))
 
 
 # --------------------------------------------------------------------------- #
@@ -598,8 +602,8 @@ def test_a_truncated_record_cannot_fabricate_an_implementer(tmp_path: Path) -> N
     # The census is the point: "1 unparseable" and "0 eligible" are different
     # facts about an empty result, and a diagnostic that cannot tell them apart
     # sends the reader looking in the wrong place.
-    assert "read 1 record(s); 1 unparseable" in proc.stderr
-    assert "0 eligible assistant message(s)" in proc.stderr
+    assert "line 1 is not JSON" in proc.stderr
+    assert "COUNTER_MODEL_EVIDENCE: UNKNOWN" in proc.stderr
     assert list(tmp_path.glob("*.json")) == []
 
 
@@ -680,7 +684,7 @@ def test_message_content_cannot_decide_the_identity(  # binary-guard: allow unsc
     )
     assert proc.returncode == CM.EXIT_OK, proc.stderr
     receipt = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
-    assert receipt["implementer"] == "claude/claude-sonnet-5"
+    assert receipt["implementers"] == ["claude/claude-opus-5", "claude/claude-sonnet-5"]
 
 
 @pytest.mark.parametrize(
@@ -846,7 +850,7 @@ def test_projects_override_never_touches_the_real_claude_directory(
     def forbidden_default() -> Path:
         pytest.fail("explicit override must not even resolve the default projects root")
 
-    original_rglob, original_read = Path.rglob, Path.read_text
+    original_rglob, original_read = Path.rglob, Path.read_bytes
     searched = []
 
     def isolated_rglob(path: Path, pattern: str):
@@ -861,9 +865,15 @@ def test_projects_override_never_touches_the_real_claude_directory(
 
     monkeypatch.setattr(CM, "_default_claude_projects_dir", forbidden_default)
     monkeypatch.setattr(Path, "rglob", isolated_rglob)
-    monkeypatch.setattr(Path, "read_text", isolated_read)
+    monkeypatch.setattr(Path, "read_bytes", isolated_read)
+    def isolated_binding(args, evidence, records):
+        args.head = "f" * 40
+        return {"target_head": args.head, "base_sha": "b" * 40, "merge_base": "b" * 40,
+                "patch_sha256": "a" * 64, "method": "captured-patch", "report_record": 1}
+
+    monkeypatch.setattr(CM, "_artifact_binding", isolated_binding)
     monkeypatch.setattr(sys, "argv", [
-        str(SCRIPT), "write", "--dir", str(tmp_path), "--issue", "1047",
+        str(WRITE_SCRIPT), "write", "--dir", str(tmp_path), "--issue", "1047",
         "--branch", "b", "--status", "ran", "--scope", "unverified",
         *_reviewer_evidence_args(exec_log, sessions_dir),
         *_implementer_evidence_args(session_id, projects_dir),
@@ -1006,7 +1016,7 @@ def test_a_missing_or_unreadable_exec_log_is_refused(  # binary-guard: allow uns
         *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
     )
     assert proc.returncode == CM.EXIT_INVALID
-    assert "cannot read reviewer exec log" in proc.stderr
+    assert "cannot read evidence" in proc.stderr
     assert list(tmp_path.glob("*.json")) == []
 
 
@@ -1022,7 +1032,7 @@ def test_an_exec_log_without_a_thread_id_is_refused(tmp_path: Path) -> None:  # 
         *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
     )
     assert proc.returncode == CM.EXIT_INVALID
-    assert "contains no thread_id" in proc.stderr
+    assert "names no harness this writer recognises" in proc.stderr
     assert list(tmp_path.glob("*.json")) == []
 
 
@@ -1044,7 +1054,7 @@ def test_an_exec_log_without_a_matching_rollout_is_refused(tmp_path: Path) -> No
         *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
     )
     assert proc.returncode == CM.EXIT_INVALID
-    assert "no rollout matching thread_id" in proc.stderr
+    assert "expected one Codex rollout" in proc.stderr
     assert list(tmp_path.glob("*.json")) == []
 
 
@@ -1070,10 +1080,10 @@ def test_multiple_matching_reviewer_rollouts_are_refused(tmp_path: Path) -> None
     first.mkdir(parents=True)
     second.mkdir(parents=True)
     (first / f"rollout-{thread_id}.jsonl").write_text(
-        _rollout_text("gpt-5.5"), encoding="utf-8"
+        _rollout_text("gpt-5.5", thread_id=thread_id), encoding="utf-8"
     )
     (second / f"rollout-{thread_id}.jsonl").write_text(
-        _rollout_text("gpt-5"), encoding="utf-8"
+        _rollout_text("gpt-5", thread_id=thread_id), encoding="utf-8"
     )
     proc = _write(
         tmp_path, "--issue", "1400", "--branch", "b", "--status", "ran", "--scope", "unverified",
@@ -1081,7 +1091,7 @@ def test_multiple_matching_reviewer_rollouts_are_refused(tmp_path: Path) -> None
         *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
     )
     assert proc.returncode == CM.EXIT_INVALID, proc.stderr
-    assert "multiple rollouts matching thread_id" in proc.stderr
+    assert "expected one Codex rollout" in proc.stderr
     assert list(tmp_path.glob("*.json")) == []
 
 
@@ -1089,14 +1099,17 @@ def test_a_matching_rollout_without_a_model_is_refused(tmp_path: Path) -> None: 
     session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "discarded")
     rollout = next(sessions_dir.rglob("*.jsonl"))
-    rollout.write_text('{"type":"session_meta"}\n', encoding="utf-8")
+    rollout.write_text(
+        json.dumps({"type": "session_meta", "payload": {"id": "thread-for-counter-model-test"}}) + "\n",
+        encoding="utf-8",
+    )
     proc = _write(
         tmp_path, "--issue", "1048", "--branch", "b", "--status", "ran", "--scope", "unverified",
         *_reviewer_evidence_args(exec_log, sessions_dir),
         *_implementer_evidence_args(session_id, projects_dir), "--passes", "1",
     )
     assert proc.returncode == CM.EXIT_INVALID
-    assert "no turn_context record in" in proc.stderr
+    assert "no turn_context record" in proc.stderr
     assert list(tmp_path.glob("*.json")) == []
 
 
@@ -1497,7 +1510,7 @@ def _ran_receipt(tmp_path: Path, out_dir: Path, *extra: str) -> subprocess.Compl
     exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
     return subprocess.run(
         [
-            sys.executable, str(SCRIPT), "write", "--dir", str(out_dir),
+            sys.executable, str(WRITE_SCRIPT), "write", "--dir", str(out_dir),
             "--issue", "1269", "--status", "ran", "--scope", "unverified", "--passes", "1",
             *_reviewer_evidence_args(exec_log, sessions_dir),
             *_implementer_evidence_args(session_id, projects_dir), *extra,
@@ -1562,10 +1575,9 @@ def test_a_ran_receipt_carries_its_REVIEWER_EVIDENCE(tmp_path: Path) -> None:  #
     proc = _ran_receipt(tmp_path, out_dir, "--branch", "b", "--head", "abc1234")
     assert proc.returncode == CM.EXIT_OK, proc.stderr
     receipt = json.loads(next(out_dir.glob("*.json")).read_text(encoding="utf-8"))
-    assert receipt["reviewer_evidence"] == {
-        "thread_id": "thread-for-counter-model-test",
-        "rollout": "2026/09/19/rollout-thread-for-counter-model-test.jsonl",
-    }
+    assert receipt["reviewer_evidence"]["thread_id"] == "thread-for-counter-model-test"
+    assert receipt["reviewer_evidence"]["rollout"] == "2026/09/19/rollout-thread-for-counter-model-test.jsonl"
+    assert receipt["reviewer_evidence"]["sources"][0]["sha256"]
 
 
 def test_reviewer_evidence_is_OPTIONAL_but_checked_when_present() -> None:
@@ -1605,7 +1617,7 @@ def test_the_reviewer_is_the_TURN_model_not_the_first_model_key(tmp_path: Path) 
     session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
     proc = subprocess.run(
         [
-            sys.executable, str(SCRIPT), "write", "--dir", str(out_dir),
+            sys.executable, str(WRITE_SCRIPT), "write", "--dir", str(out_dir),
             "--issue", "1269", "--branch", "b", "--status", "ran", "--scope", "unverified", "--passes", "1",
             *_reviewer_evidence_args(exec_log, sessions_dir),
             *_implementer_evidence_args(session_id, projects_dir),
@@ -1630,7 +1642,7 @@ def test_a_rollout_whose_turns_DISAGREE_is_refused(tmp_path: Path) -> None:  # b
     session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5")
     proc = subprocess.run(
         [
-            sys.executable, str(SCRIPT), "write", "--dir", str(out_dir),
+            sys.executable, str(WRITE_SCRIPT), "write", "--dir", str(out_dir),
             "--issue", "1269", "--branch", "b", "--status", "ran", "--scope", "unverified", "--passes", "1",
             *_reviewer_evidence_args(exec_log, sessions_dir),
             *_implementer_evidence_args(session_id, projects_dir),
@@ -1697,7 +1709,7 @@ def test_a_NEW_head_or_an_earlier_SKIP_does_not_block_a_ran_receipt(  # binary-g
     session_id, projects_dir = _implementer_session_fixture(tmp_path / "s", "opus-5")
     skip = subprocess.run(
         [
-            sys.executable, str(SCRIPT), "write", "--dir", str(out_dir),
+            sys.executable, str(WRITE_SCRIPT), "write", "--dir", str(out_dir),
             "--issue", "1269", "--branch", "b", "--status", "skipped",
             "--reason", "reviewer-unavailable", "--head", "abc1234",
             *_implementer_evidence_args(session_id, projects_dir),
@@ -2166,11 +2178,11 @@ def test_a_DELEGATED_review_is_recorded_with_both_sides_DERIVED(tmp_path: Path) 
     proc = _write(tmp_path, *_delegated_args(tmp_path, "gpt-6-astra", "claude-opus-5-5"))
     assert proc.returncode == CM.EXIT_OK, proc.stderr
     receipt = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
-    assert receipt["direction"] == "delegated"
+    assert receipt["schema"] == CM.SCHEMA_ADAPTERS
     assert receipt["implementer"] == "codex/gpt-6-astra"
     assert receipt["reviewer"] == "claude/claude-opus-5-5"
     assert receipt["implementer_evidence"]["thread_id"] == "thread-for-counter-model-test"
-    assert receipt["reviewer_evidence"] == {"session_id": "session-for-counter-model-test"}
+    assert receipt["reviewer_evidence"]["session_id"] == "session-for-counter-model-test"
     assert CM.validate(receipt) == []
 
 
@@ -2228,11 +2240,11 @@ def test_the_two_directions_cannot_be_MIXED(tmp_path: Path, extra: list[str]) ->
     assert not list(tmp_path.glob("*.json"))
 
 
-def test_a_reviewer_session_alone_is_not_a_direction(tmp_path: Path) -> None:  # binary-guard: allow unscoped
+def test_a_reviewer_session_still_requires_implementer_evidence(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     proc = _write(tmp_path, "--issue", "1", "--branch", "b", "--status", "ran", "--scope", "unverified",
                   "--reviewer-session-id", "s")
-    assert proc.returncode == CM.EXIT_USAGE
-    assert "requires --implementer-exec-log" in proc.stderr
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "missing implementer identity" in proc.stderr
 
 
 def test_a_delegated_write_without_a_REVIEWER_session_is_refused(  # binary-guard: allow unscoped
@@ -2244,7 +2256,7 @@ def test_a_delegated_write_without_a_REVIEWER_session_is_refused(  # binary-guar
     del args[i:i + 2]
     proc = _write(tmp_path, *args)
     assert proc.returncode == CM.EXIT_USAGE
-    assert "reviewing Claude session" in proc.stderr
+    assert "requires reviewer evidence" in proc.stderr
 
 
 def test_a_delegated_write_whose_reviewer_session_has_NO_transcript_is_refused(  # binary-guard: allow unscoped
@@ -2254,7 +2266,7 @@ def test_a_delegated_write_whose_reviewer_session_has_NO_transcript_is_refused( 
     args[args.index("--reviewer-session-id") + 1] = "no-such-session"
     proc = _write(tmp_path, *args)
     assert proc.returncode == CM.EXIT_INVALID
-    assert "reviewer session" in proc.stderr
+    assert "Claude transcript" in proc.stderr
     assert not list(tmp_path.glob("*.json"))
 
 
@@ -2271,7 +2283,7 @@ def test_a_THREADLESS_implementer_stream_is_refused_not_attributed(  # binary-gu
                         encoding="utf-8")
     proc = _write(tmp_path, *args)
     assert proc.returncode == CM.EXIT_INVALID
-    assert "implementer exec log" in proc.stderr and "names no harness this writer recognises" in proc.stderr
+    assert "names no harness this writer recognises" in proc.stderr
     assert not list(tmp_path.glob("*.json"))
 
 
@@ -2344,10 +2356,10 @@ def test_rollout_model_refuses_an_ambiguous_match_and_prints_nothing(  # binary-
     first.mkdir(parents=True)
     second.mkdir(parents=True)
     (first / f"rollout-{thread_id}.jsonl").write_text(
-        _rollout_text("gpt-5.5"), encoding="utf-8"
+        _rollout_text("gpt-5.5", thread_id=thread_id), encoding="utf-8"
     )
     (second / f"rollout-{thread_id}.jsonl").write_text(
-        _rollout_text("gpt-5"), encoding="utf-8"
+        _rollout_text("gpt-5", thread_id=thread_id), encoding="utf-8"
     )
     proc = _rollout_model(
         tmp_path, "--exec-log", str(exec_log), "--sessions-dir", str(sessions_dir)
@@ -2405,7 +2417,7 @@ def test_scope_full_is_recorded_on_the_receipt(tmp_path: Path) -> None:  # binar
     rollout_dir = sessions_dir / "2026" / "09" / "19"
     rollout_dir.mkdir(parents=True)
     (rollout_dir / f"rollout-{thread_id}.jsonl").write_text(
-        _rollout_text("gpt-5.5"), encoding="utf-8"
+        _rollout_text("gpt-5.5", thread_id=thread_id), encoding="utf-8"
     )
     out_dir = tmp_path / "out"
     proc = _write(
@@ -2469,7 +2481,7 @@ def test_an_in_progress_command_with_no_terminal_outcome_also_downgrades_to_unve
     rollout_dir = sessions_dir / "2026" / "09" / "19"
     rollout_dir.mkdir(parents=True)
     (rollout_dir / f"rollout-{thread_id}.jsonl").write_text(
-        _rollout_text("gpt-5.5"), encoding="utf-8"
+        _rollout_text("gpt-5.5", thread_id=thread_id), encoding="utf-8"
     )
     out_dir = tmp_path / "out"
     proc = _write(
@@ -2501,7 +2513,7 @@ def test_scope_downgrades_from_full_when_a_sandbox_launch_fails_mid_run(  # bina
     rollout_dir = sessions_dir / "2026" / "09" / "19"
     rollout_dir.mkdir(parents=True)
     (rollout_dir / f"rollout-{thread_id}.jsonl").write_text(
-        _rollout_text("gpt-5.5"), encoding="utf-8"
+        _rollout_text("gpt-5.5", thread_id=thread_id), encoding="utf-8"
     )
     out_dir = tmp_path / "out"
     proc = _write(
@@ -2531,7 +2543,7 @@ def test_an_ordinary_nonzero_exit_does_not_downgrade_scope(tmp_path: Path) -> No
     rollout_dir = sessions_dir / "2026" / "09" / "19"
     rollout_dir.mkdir(parents=True)
     (rollout_dir / f"rollout-{thread_id}.jsonl").write_text(
-        _rollout_text("gpt-5.5"), encoding="utf-8"
+        _rollout_text("gpt-5.5", thread_id=thread_id), encoding="utf-8"
     )
     out_dir = tmp_path / "out"
     proc = _write(
@@ -2574,11 +2586,11 @@ def test_scope_is_refused_on_a_skip(tmp_path: Path) -> None:  # binary-guard: al
     assert "must not carry --scope" in proc.stderr
 
 
-def test_scope_is_refused_on_the_delegated_lane(tmp_path: Path) -> None:  # binary-guard: allow unscoped
+def test_claude_reviewer_can_record_full_scope(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     args = _delegated_args(tmp_path, "gpt-a", "opus-b")
     proc = _write(tmp_path, *args, "--scope", "full")
-    assert proc.returncode == CM.EXIT_USAGE
-    assert "delegated direction's reviewer is a Claude session" in proc.stderr
+    assert proc.returncode == CM.EXIT_OK
+    assert json.loads(next(tmp_path.glob("*.json")).read_text())["scope"] == "full"
 
 
 def test_scope_is_OPTIONAL_but_checked_when_present() -> None:
@@ -2648,8 +2660,8 @@ def test_network_is_refused_on_a_skip(tmp_path: Path) -> None:  # binary-guard: 
 def test_network_is_refused_on_the_delegated_lane(tmp_path: Path) -> None:  # binary-guard: allow unscoped
     args = _delegated_args(tmp_path, "gpt-a", "opus-b")
     proc = _write(tmp_path, *args, "--network", "blocked")
-    assert proc.returncode == CM.EXIT_USAGE
-    assert "--network measures a Codex REVIEWER's network fence" in proc.stderr
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "this reviewer adapter has no network probe" in proc.stderr
 
 
 def test_network_is_OPTIONAL_but_checked_when_present() -> None:
@@ -2780,8 +2792,8 @@ def test_local_credentials_is_refused_on_a_skip_and_the_delegated_lane(  # binar
     (tmp_path / "d").mkdir()
     proc = _write(tmp_path / "d", *_delegated_args(tmp_path / "d", "gpt-a", "opus-b"),
                   "--local-credentials", "absent")
-    assert proc.returncode == CM.EXIT_USAGE
-    assert "--local-credentials is measured by /codex:code_review" in proc.stderr
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "this reviewer adapter has no credential probe" in proc.stderr
 
 
 def test_local_credentials_is_OPTIONAL_but_checked_when_present() -> None:
@@ -2811,7 +2823,7 @@ def _write_env(tmp_path: Path, env_set: dict[str, str], *args: str) -> subproces
            if k not in ("CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID")}
     env.update(env_set)
     return subprocess.run(
-        [sys.executable, str(SCRIPT), "write", "--dir", str(tmp_path / "out"), *_with_scope(args)],
+        [sys.executable, str(WRITE_SCRIPT), "write", "--dir", str(tmp_path / "out"), *_with_scope(args)],
         capture_output=True, text=True, env=env,
     )
 
@@ -2881,7 +2893,7 @@ def test_both_implementer_flags_is_a_usage_error(tmp_path: Path) -> None:  # bin
     proc = _write_env(tmp_path, {}, *SKIP_ARGS, "--implementer-thread-id", "t",
                       "--implementer-session-id", "s")
     assert proc.returncode == CM.EXIT_USAGE
-    assert "name two different implementers" in proc.stderr
+    assert "implementer evidence selectors cannot be combined" in proc.stderr
 
 
 def test_a_same_model_review_of_a_codex_implementer_cannot_be_recorded_as_ran(  # binary-guard: allow unscoped
@@ -2895,12 +2907,12 @@ def test_a_same_model_review_of_a_codex_implementer_cannot_be_recorded_as_ran(  
     exec_log.write_text(json.dumps({"type": "thread.started", "thread_id": "rev-thread"}) + "\n",
                         encoding="utf-8")
     (sessions / "2026" / "09" / "19" / "rollout-rev-thread.jsonl").write_text(
-        _rollout_text("gpt-impl"), encoding="utf-8")
+        _rollout_text("gpt-impl", thread_id="rev-thread"), encoding="utf-8")
     proc = _write_env(tmp_path, {}, "--issue", "1453", "--branch", "b", "--status", "ran", "--scope", "unverified",
                       "--passes", "1", "--reviewer-exec-log", str(exec_log),
                       "--implementer-thread-id", thread, "--codex-sessions-dir", str(sessions))
     assert proc.returncode == CM.EXIT_INVALID
-    assert "reviewer and implementer are the same model" in proc.stderr
+    assert "reviewer overlaps the implementer set" in proc.stderr
 
 
 def test_the_delegated_lane_is_untouched_with_both_variables_set(  # binary-guard: allow unscoped
@@ -2912,7 +2924,7 @@ def test_the_delegated_lane_is_untouched_with_both_variables_set(  # binary-guar
     proc = _write_env(tmp_path, {"CODEX_THREAD_ID": "x", "CLAUDE_CODE_SESSION_ID": "y"}, *args)
     assert proc.returncode == CM.EXIT_OK, proc.stderr
     receipt = json.loads(next((tmp_path / "out").glob("*.json")).read_text(encoding="utf-8"))
-    assert receipt["direction"] == "delegated" and receipt["implementer"] == "codex/gpt-a"
+    assert receipt["schema"] == CM.SCHEMA_ADAPTERS and receipt["implementer"] == "codex/gpt-a"
 
 
 def test_codex_implementer_evidence_is_accepted_and_checked_by_the_schema() -> None:
@@ -2930,7 +2942,7 @@ def test_a_thread_id_cannot_be_mixed_into_the_delegated_direction(  # binary-gua
     proc = _write(tmp_path, *_delegated_args(tmp_path, "gpt-a", "opus-b"),
                   "--implementer-thread-id", "t")
     assert proc.returncode == CM.EXIT_USAGE
-    assert "--implementer-thread-id (the other direction)" in proc.stderr
+    assert "implementer evidence selectors cannot be combined" in proc.stderr
 
 
 # --------------------------------------------------------------------------- #
@@ -2951,7 +2963,9 @@ def _scoped_write(tmp_path: Path, items: list[dict]) -> tuple[subprocess.Complet
     sessions_dir = tmp_path / "sessions"
     rollout_dir = sessions_dir / "2026" / "09" / "19"
     rollout_dir.mkdir(parents=True)
-    (rollout_dir / f"rollout-{thread_id}.jsonl").write_text(_rollout_text("gpt-5.5"), encoding="utf-8")
+    (rollout_dir / f"rollout-{thread_id}.jsonl").write_text(
+        _rollout_text("gpt-5.5", thread_id=thread_id), encoding="utf-8"
+    )
     out_dir = tmp_path / "out"
     proc = _write(tmp_path, "--dir", str(out_dir), "--issue", "1461", "--branch", "b",
                   "--status", "ran", "--passes", "1", "--scope", "full",
@@ -3189,7 +3203,7 @@ def test_delegated_evidence_is_validated_per_harness() -> None:
 
 # Counter-model review of #1454 (gpt-6.1-sol).
 
-def test_a_damaged_event_line_is_refused_but_a_stderr_line_is_not(  # binary-guard: allow unscoped
+def test_non_json_stream_lines_are_unknown_instead_of_silently_dropped(  # binary-guard: allow unscoped
     tmp_path: Path,
 ) -> None:
     """The lanes write stderr into the stream (`2>&1`): a plain diagnostic line
@@ -3200,14 +3214,15 @@ def test_a_damaged_event_line_is_refused_but_a_stderr_line_is_not(  # binary-gua
     noisy.write_text("[WARN] some harness diagnostic\n" + QWEN_STREAM.read_text(encoding="utf-8"),
                      encoding="utf-8")
     proc = _delegated_write(tmp_path, noisy, "--qwen-projects-dir", str(projects))
-    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    assert proc.returncode == CM.EXIT_INVALID
+    assert "line 1 is not JSON" in proc.stderr
     damaged = tmp_path / "damaged.jsonl"
     damaged.write_text(QWEN_STREAM.read_text(encoding="utf-8") + '{"type":"system","session_id":"x"\n',
                        encoding="utf-8")
     (tmp_path / "d").mkdir()
     proc = _delegated_write(tmp_path / "d", damaged, "--qwen-projects-dir", str(projects))
     assert proc.returncode == CM.EXIT_INVALID
-    assert "damaged event line" in proc.stderr
+    assert "is not JSON" in proc.stderr
 
 
 def test_a_session_id_is_never_a_glob(tmp_path: Path) -> None:  # binary-guard: allow unscoped
@@ -3297,9 +3312,9 @@ def test_1495_writer_selects_schema(tmp_path: Path, passes: int) -> None:  # bin
     proc = _write_ran(tmp_path, "--passes", str(passes), *extra)
     assert proc.returncode == CM.EXIT_OK, proc.stderr
     receipt = json.loads(next((tmp_path / "out").glob("*.json")).read_text())
-    assert receipt["schema"] == (2 if passes == 3 else CM.SCHEMA)
+    assert receipt["schema"] == CM.SCHEMA_ADAPTERS
     if passes == 3:
-        assert receipt["schema"] == CM.SCHEMA_EXTRA_PASSES
+        assert receipt["schema"] == CM.SCHEMA_ADAPTERS
 
 
 @pytest.mark.parametrize("seen,expected", [(1, 2), (2, 1)])
@@ -3657,14 +3672,14 @@ def _fresh_flow_receipt_fixture(
 def test_fresh_flow_scope_derives_implementation_without_registration_model(tmp_path: Path, case: str) -> None:
     repo, args, original = _fresh_flow_receipt_fixture(tmp_path, case)
     proc = subprocess.run(
-        [sys.executable, str(SCRIPT), "write", "--dir", str(tmp_path / "receipts"), *args],
+        [sys.executable, str(WRITE_SCRIPT), "write", "--dir", str(tmp_path / "receipts"), *args],
         cwd=repo,
         capture_output=True,
         text=True,
     )
     assert proc.returncode == 0, proc.stderr
     receipt = json.loads(next((tmp_path / "receipts").glob("*.json")).read_text())
-    assert receipt["schema"] == 3
+    assert receipt["schema"] == CM.SCHEMA_ADAPTERS
     assert receipt["implementer_evidence"]["flow_scope"]["initial_cleanliness"] == (
         "unmeasured" if case == "unmeasured" else "measured-clean"
     )
@@ -3682,7 +3697,7 @@ def test_fresh_flow_scope_refuses_committed_adverse_case(tmp_path: Path, case: d
     repo, args, _ = _fresh_flow_receipt_fixture(tmp_path, case["id"])
     destination = tmp_path / "receipts"
     proc = subprocess.run(
-        [sys.executable, str(SCRIPT), "write", "--dir", str(destination), *args],
+        [sys.executable, str(WRITE_SCRIPT), "write", "--dir", str(destination), *args],
         cwd=repo,
         capture_output=True,
         text=True,
@@ -3706,7 +3721,7 @@ def test_default_mixed_attribution_still_refuses_a_reviewer_overlap(tmp_path: Pa
     index = args.index("--implementer-flow-run")
     del args[index : index + 2]
     proc = subprocess.run(
-        [sys.executable, str(SCRIPT), "write", "--dir", str(tmp_path / "receipts"), *args],
+        [sys.executable, str(WRITE_SCRIPT), "write", "--dir", str(tmp_path / "receipts"), *args],
         cwd=repo,
         capture_output=True,
         text=True,
@@ -3723,7 +3738,7 @@ def test_flow_audit_rederives_only_captured_original_prefix(tmp_path: Path, muta
     repo, args, original = _fresh_flow_receipt_fixture(tmp_path)
     destination = tmp_path / "receipts"
     written = subprocess.run(
-        [sys.executable, str(SCRIPT), "write", "--dir", str(destination), *args],
+        [sys.executable, str(WRITE_SCRIPT), "write", "--dir", str(destination), *args],
         cwd=repo,
         capture_output=True,
         text=True,
@@ -3763,7 +3778,7 @@ def test_aggregate_approval_output_never_asserts_verified_execution(tmp_path: Pa
     repo, args, original = _fresh_flow_receipt_fixture(tmp_path, "auxiliary-verdict-spoof")
     destination = tmp_path / "receipts"
     proc = subprocess.run(
-        [sys.executable, str(SCRIPT), "write", "--dir", str(destination), *args],
+        [sys.executable, str(WRITE_SCRIPT), "write", "--dir", str(destination), *args],
         cwd=repo,
         capture_output=True,
         text=True,
@@ -3796,7 +3811,7 @@ def test_flow_audit_survives_normal_merge_and_worktree_cleanup(tmp_path: Path) -
     repo, args, _ = _fresh_flow_receipt_fixture(tmp_path, real_worktree=True)
     destination = repo / "docs/measurements/counter-model"
     written = subprocess.run(
-        [sys.executable, str(SCRIPT), "write", "--dir", str(destination), *args],
+        [sys.executable, str(WRITE_SCRIPT), "write", "--dir", str(destination), *args],
         cwd=repo,
         capture_output=True,
         text=True,
@@ -3837,10 +3852,10 @@ def test_scoped_writer_refuses_when_git_cannot_launch(tmp_path: Path) -> None:
     repo, args, _ = _fresh_flow_receipt_fixture(tmp_path)
     destination = tmp_path / "receipts"
     environment = dict(os.environ, PATH="")
-    written = subprocess.run([sys.executable, str(SCRIPT), "write", "--dir", str(destination), *args],
+    written = subprocess.run([sys.executable, str(WRITE_SCRIPT), "write", "--dir", str(destination), *args],
                              cwd=repo, env=environment, capture_output=True, text=True)
     assert written.returncode == 1, written.stderr
-    assert "fresh-flow scope refused" in written.stderr
+    assert "No such file or directory" in written.stderr
     assert "Traceback" not in written.stderr
     assert not list(destination.glob("*.json"))
 
@@ -3865,7 +3880,7 @@ def _mixed_codex_write(
     implementer_thread = "cpp-1580-implementer"
     implementer_rollout = reviewer_rollout.with_name(f"rollout-{implementer_thread}.jsonl")
     implementer_rollout.write_text(
-        _rollout_text(implementer_models[0])
+        _rollout_text(implementer_models[0], thread_id=implementer_thread)
         + "".join(
             json.dumps({"type": "turn_context", "payload": {"model": model}}) + "\n"
             for model in implementer_models[1:]
@@ -3890,7 +3905,7 @@ def test_1580_mixed_codex_implementers_write_one_truthful_receipt(  # binary-gua
     proc = _mixed_codex_write(tmp_path)
     assert proc.returncode == CM.EXIT_OK, proc.stderr
     receipt = json.loads(next((tmp_path / "out").glob("*.json")).read_text(encoding="utf-8"))
-    assert receipt["schema"] == CM.SCHEMA_IMPLEMENTER_SET
+    assert receipt["schema"] == CM.SCHEMA_ADAPTERS
     assert "implementer" not in receipt
     assert receipt["implementers"] == ["codex/gpt-6.1-sol", "codex/gpt-5.6-sol"]
     assert receipt["reviewer"] == "codex/gpt-6-astra"
@@ -3944,7 +3959,7 @@ def test_1580_unknown_implementer_turns_never_become_an_identity_set(  # binary-
         "--codex-sessions-dir", str(tmp_path / "sessions"),
     )
     assert proc.returncode == CM.EXIT_INVALID
-    assert "implementing models are not established" in proc.stderr
+    assert "implementing models are not established" in proc.stderr or "unreadable evidence" in proc.stderr
     assert not list((tmp_path / "out").glob("*.json"))
 
 

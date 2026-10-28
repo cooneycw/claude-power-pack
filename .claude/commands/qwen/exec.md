@@ -118,7 +118,7 @@ timeout 1800 qwen \
     --output-format stream-json \
     --approval-mode yolo \
     $SANDBOX_FLAG \
-    "$PROMPT" < /dev/null > "$OUTPUT_FILE" 2>&1   # </dev/null: non-TTY EOF so the harness never blocks reading stdin
+    "$PROMPT" < /dev/null > "$OUTPUT_FILE" 2> "${OUTPUT_FILE}.stderr"   # </dev/null: non-TTY EOF so the harness never blocks reading stdin
 
 QWEN_EXIT=$?
 echo "qwen exited $QWEN_EXIT; output: $OUTPUT_FILE"
@@ -243,3 +243,7 @@ or git checkout -- . to discard.
 - No automatic commit - user reviews and commits manually
 - For full issue lifecycle with review and quality gates, use `/qwen:auto`
 - A local 27B model needs explicit, tightly scoped prompts; for broad or subtle tasks prefer `/codex:exec` or direct Claude implementation
+
+When this stream supplies a counter-model evidence adapter, keep stdout as
+JSONL and stderr in the separate `.stderr` file above. Do not merge diagnostics
+into evidence. Preserve both until the consumer has derived the receipt.

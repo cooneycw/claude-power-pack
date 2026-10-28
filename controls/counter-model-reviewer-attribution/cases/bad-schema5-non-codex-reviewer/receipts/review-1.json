@@ -1,0 +1,63 @@
+{
+  "branch": "issue-9001-alpha",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "implementer": "codex/implementing-model",
+  "issue": "9001",
+  "passes": 1,
+  "recorded_at": "2026-09-16T20:52:21Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "claude/reviewer-model",
+  "schema": 5,
+  "status": "ran",
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "scope": "full",
+  "network": "unverified",
+  "local_credentials": "unknown",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "runtime": "codex",
+    "models": [
+      "codex/implementing-model"
+    ],
+    "sources": [
+      {
+        "path": "implementer.jsonl",
+        "sha256": "e08522ff01c477a87b24af510f64f931fa68cfd5cc735a3e87a73a12a4ba9679",
+        "bytes": 68
+      }
+    ],
+    "thread_id": "implementer",
+    "rollout": "implementer.jsonl"
+  },
+  "reviewer_evidence": {
+    "kind": "session_id",
+    "runtime": "claude",
+    "models": [
+      "claude/reviewer-model"
+    ],
+    "sources": [
+      {
+        "path": "reviewer.jsonl",
+        "sha256": "e08522ff01c477a87b24af510f64f931fa68cfd5cc735a3e87a73a12a4ba9679",
+        "bytes": 68
+      }
+    ],
+    "session_id": "reviewer",
+    "transcript": "reviewer.jsonl"
+  },
+  "reviewed_artifact": {
+    "target_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "merge_base": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "patch_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "method": "runtime-head",
+    "report_record": 1
+  }
+}

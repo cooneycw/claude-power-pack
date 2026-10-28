@@ -471,3 +471,13 @@ authenticity: these receipts assert visible session/model scope, not complete
 authorship, absence of hook/off-thread changes, or resistance to coordinated
 forgery of both original log and receipt. Original unsupported history remains
 unsupported; do not filter a rollout or fabricate a skip/run to enroll it.
+
+## Runtime evidence adapters (issue #1584)
+
+New reviews write schema 5 using the [runtime evidence contract](../agents/counter-model-evidence.md).
+Implementer and reviewer evidence select adapters independently. Identity remains
+runtime-derived, and the reviewer must differ from every implementing model.
+Schemas 1-4 stay readable without migration. Full reviews retain the reviewer's
+successful pre-review HEAD tool probe; diff-only reviews bind exact captured
+input bytes against a freshly recomputed merge-base diff. This establishes the
+recorded artifact, not the thoroughness of review or coverage of later commits.

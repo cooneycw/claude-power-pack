@@ -90,6 +90,22 @@
       "why": "Stored reviewer matches the model its linked rollout records, with a discriminating extractor. Treating every attribution as suspect would falsely flag this GOOD case.",
       "expected_exit": 0,
       "expected_output": "ATTRIBUTION-OK: examined=1 linked=1 agreed=1 disagreed=0 ambiguous=0 unlinked=0 extractor_distinct=2 repo=repo - every one of 1 linked receipt(s) agrees with its rollout"
+    },
+    {
+      "name": "bad-schema5-non-codex-reviewer",
+      "input": "cases/bad-schema5-non-codex-reviewer",
+      "expect": "BAD",
+      "why": "Schema 5 selects the reviewer runtime explicitly. The legacy audit must exclude a Claude reviewer instead of attributing its implementing Codex rollout; the paired Codex case remains examinable.",
+      "expected_exit": 2,
+      "expected_output": "ATTRIBUTION-UNKNOWN: examined=0 linked=0 agreed=0 disagreed=0 ambiguous=0 unlinked=0 extractor_distinct=2 repo=repo - nothing was examined (empty or misconfigured receipts-dir)\nATTRIBUTION-NOTE: review-1.json: schema 5 reviewer is outside this Codex-rollout audit's population; excluded rather than attributed to the implementer's rollout"
+    },
+    {
+      "name": "good-schema5-codex-reviewer",
+      "input": "cases/good-schema5-codex-reviewer",
+      "expect": "GOOD",
+      "why": "Schema 5 selects the reviewer runtime explicitly. The legacy audit must exclude a Claude reviewer instead of attributing its implementing Codex rollout; the paired Codex case remains examinable.",
+      "expected_exit": 0,
+      "expected_output": "ATTRIBUTION-OK: examined=1 linked=1 agreed=1 disagreed=0 ambiguous=0 unlinked=0 extractor_distinct=2 repo=repo - every one of 1 linked receipt(s) agrees with its rollout"
     }
   ],
   "anchors": [

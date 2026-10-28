@@ -763,10 +763,28 @@ Cross-model review: Claude Code reviews what the local Qwen model wrote.
 produces plausible-but-wrong code at a higher rate than a frontier model.
 Review the diff line by line, not just structurally.
 
-1. **Read the full diff:**
+1. **Commit the implementation checkpoint, then bind the review artifact.**
+   Stage only this issue's owned changes and commit them before reviewing. A
+   receipt-bound review identifies a commit, so uncommitted work cannot stand
+   in for its final artifact. If review fixes change it, commit and review the
+   new checkpoint before writing the receipt.
+
+   In this reviewing Claude session, execute this exact command as a separate
+   Bash tool call BEFORE inspecting the change:
+
    ```bash
-   git diff
+   git rev-parse HEAD
    ```
+
+   Keep its genuine runtime tool call and result. Startup metadata, a pasted
+   SHA or a tool-call argument without the successful result cannot bind it.
+   Then read the full committed diff against the current merge-base:
+
+   ```bash
+   git diff "$(git merge-base origin/main HEAD)" HEAD
+   ```
+
+   Binding establishes WHICH artifact was reviewed, not how thoroughly.
 
 2. **Review for:**
    - Correctness: Does the implementation match the issue requirements?
@@ -784,7 +802,18 @@ Review the diff line by line, not just structurally.
 
 3. **Report review findings:**
 
+Emit `## Findings` as an actual assistant Markdown heading outside code fences,
+followed by structured severity findings or `None - no defects found.`. The
+receipt binds this runtime report. Each new report needs a fresh HEAD probe
+after the previous report; it cannot inherit another review's tool result.
+
 ```
+## Findings
+
+None - no defects found.
+
+## Review summary
+
 Step 5/8: Review Complete
 
 Qwen Diff Review:
@@ -806,7 +835,7 @@ wrong approach), STOP and report. Offer to re-prompt Qwen, escalate to
 4. **Record the review as a counter-model receipt (issues #1383, #1454).** This
    review IS the cross-model review for this lane - Qwen Code implemented, this
    Claude session reviewed - and the finish gate refuses a PR whose branch
-   carries no receipt. Record it in the DELEGATED direction: the writer derives
+   carries no receipt. Select independent per-role evidence (schema 5): the writer derives
    the implementer from the Step 4 Qwen Code stream and its own transcript (`~/.qwen/projects/<slug>/chats/<session_id>.jsonl`), and the reviewer
    from this session's transcript. It refuses rather than guesses when the
    stream, the record or the schema is not the one it measured. Never record it
@@ -821,6 +850,8 @@ wrong approach), STOP and report. Offer to re-prompt Qwen, escalate to
            --issue "$ISSUE_NUM" --branch "$(git branch --show-current)" --status ran \
            --implementer-exec-log "$QWEN_OUTPUT" \
            --reviewer-session-id "$CLAUDE_CODE_SESSION_ID" \
+           --scope full --review-base origin/main \
+           --network unverified --local-credentials unknown \
            --accepted <findings fixed> --rejected <n> --deferred <n>
        git add docs/measurements/counter-model/*.json
    fi
@@ -926,7 +957,7 @@ If quality gates fail:
    checking the payload (issue #798):
    ```bash
    QWEN_FIX_OUTPUT="/tmp/qwen-fix-${ISSUE_NUM}-${RETRY}.jsonl"
-   # ... same qwen invocation as Step 4 ... > "$QWEN_FIX_OUTPUT" 2>&1
+   # ... same qwen invocation as Step 4 ... > "$QWEN_FIX_OUTPUT" 2> "${QWEN_FIX_OUTPUT}.stderr"
    QWEN_FIX_EXIT=$?
    echo "qwen fix attempt exited $QWEN_FIX_EXIT; output: $QWEN_FIX_OUTPUT"
    ```
@@ -937,6 +968,10 @@ If quality gates fail:
    signals - the retry did not run, so re-running the gate only re-reports the
    same failure and consumes a retry that fixed nothing.
 4. **Re-run quality gates.**
+If a quality-gate fix changes implementation, return to Step 5: commit the
+new checkpoint, repeat the independent review and derive its receipt before
+re-running the finish gates. An earlier receipt describes an earlier artifact.
+
 5. If still failing after 2 retries, STOP and report. Offer escalation: re-run the remaining fix loop under `/codex:auto` (frontier model) or fix manually.
 
 ```

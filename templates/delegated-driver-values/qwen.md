@@ -54,7 +54,7 @@ wrong approach), STOP and report. Offer to re-prompt Qwen, escalate to
 4. **Record the review as a counter-model receipt (issues #1383, #1454).** This
    review IS the cross-model review for this lane - Qwen Code implemented, this
    Claude session reviewed - and the finish gate refuses a PR whose branch
-   carries no receipt. Record it in the DELEGATED direction: the writer derives
+   carries no receipt. Select independent per-role evidence (schema 5): the writer derives
    the implementer from the Step 4 Qwen Code stream and its own transcript (`~/.qwen/projects/<slug>/chats/<session_id>.jsonl`), and the reviewer
    from this session's transcript. It refuses rather than guesses when the
    stream, the record or the schema is not the one it measured. Never record it
@@ -69,6 +69,8 @@ wrong approach), STOP and report. Offer to re-prompt Qwen, escalate to
            --issue "$ISSUE_NUM" --branch "$(git branch --show-current)" --status ran \
            --implementer-exec-log "$QWEN_OUTPUT" \
            --reviewer-session-id "$CLAUDE_CODE_SESSION_ID" \
+           --scope full --review-base origin/main \
+           --network unverified --local-credentials unknown \
            --accepted <findings fixed> --rejected <n> --deferred <n>
        git add docs/measurements/counter-model/*.json
    fi
@@ -111,7 +113,7 @@ wrong approach), STOP and report. Offer to re-prompt Qwen, escalate to
    checking the payload (issue #798):
    ```bash
    QWEN_FIX_OUTPUT="/tmp/qwen-fix-${ISSUE_NUM}-${RETRY}.jsonl"
-   # ... same qwen invocation as Step 4 ... > "$QWEN_FIX_OUTPUT" 2>&1
+   # ... same qwen invocation as Step 4 ... > "$QWEN_FIX_OUTPUT" 2> "${QWEN_FIX_OUTPUT}.stderr"
    QWEN_FIX_EXIT=$?
    echo "qwen fix attempt exited $QWEN_FIX_EXIT; output: $QWEN_FIX_OUTPUT"
    ```
