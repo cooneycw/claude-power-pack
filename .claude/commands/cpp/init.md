@@ -633,7 +633,7 @@ fall back to `"$CPP_DIR/scripts/stash-worktree-guard.sh"`):
 
 Act on `STASH_GUARD:`:
 
-- `installed` / `current` - armed. Say so in the Step 6 summary.
+- `installed` / `current` - armed. Say so in the Step 7 summary.
 - `disabled` - this repository recorded `cpp.stashGuard=false` on a previous
   opt-out. **Leave it off** and do not re-offer: re-asking every install is the
   oscillation an opt-out exists to end.

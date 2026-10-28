@@ -2,6 +2,7 @@
 
 import os
 import re
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -34,6 +35,7 @@ CASES = [
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="requires bash")
 @pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3")
+@pytest.mark.skipif(any(shutil.which(name) is None for name in ("cp", "ln", "cat")), reason="requires cp, ln and cat")
 @pytest.mark.parametrize(
     "heading,success,list_rc",
     [(h, s, 0) for h, s in CASES]
@@ -57,7 +59,11 @@ exit "$STEP_RC"
     for name in ("codex", "claude", "uv", "cp", "ln", "cat"):
         target = bindir / name
         # Successful file operations create the artifacts the real snippet uses.
-        operation = f'if [ "$STEP_RC" = 0 ]; then exec /bin/{name} "$@"; fi\n' if name in ("cp", "ln", "cat") else ""
+        operation = (
+            f'if [ "$STEP_RC" = 0 ]; then exec {shlex.quote(shutil.which(name))} "$@"; fi\n'
+            if name in ("cp", "ln", "cat")
+            else ""
+        )
         target.write_text(stub.replace('exit "$STEP_RC"', operation + 'exit "$STEP_RC"'))
         target.chmod(0o755)
     for name in ("npx", "curl"):
