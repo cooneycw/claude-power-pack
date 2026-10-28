@@ -1,0 +1,66 @@
+{
+  "_comment": [
+    "#1596: writer refusal is consumed by cpp:init and callers in other repositories without independently re-deriving whether replacement was allowed.",
+    "Inputs build owned scratch Node projects. Existing files and symlinks are asserted before invocation; a late file appears inside the actual generation phase.",
+    "The case driver tests the writer API, while end-to-end tests run the actual Tier4 snippet and real argparse CLI. No Node executable or third-party Python package is needed by this control.",
+    "The constructed anchor implements a plain write_text overwrite. It misses every BAD case and agrees on both GOOD cases. Its provenance is unverified.",
+    "Bounds: framework generation is source-derived; this does not execute or validate project lint/test commands."
+  ],
+  "gate": "lib/cicd/makefile.py",
+  "invocation": [
+    "python3",
+    "controls/cicd-makefile-write/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^MAKEFILE_WRITE: refused-existing$",
+  "good_signal": "^MAKEFILE_WRITE: wrote$",
+  "unknown_signal": "^MAKEFILE_WRITE: UNKNOWN - ",
+  "cases": [
+    {
+      "name": "bad-existing",
+      "input": "cases/bad-existing",
+      "expect": "BAD",
+      "why": "An existing user Makefile must be refused and preserved without force."
+    },
+    {
+      "name": "bad-symlink",
+      "input": "cases/bad-symlink",
+      "expect": "BAD",
+      "why": "A user symlink is an existing entry; refusal must preserve both entry and target."
+    },
+    {
+      "name": "bad-dangling-symlink",
+      "input": "cases/bad-dangling-symlink",
+      "expect": "BAD",
+      "why": "A dangling symlink also exists; the guard must not create its target."
+    },
+    {
+      "name": "bad-late-existing",
+      "input": "cases/bad-late-existing",
+      "expect": "BAD",
+      "why": "A competing Makefile appears during generation, after the initial guard; the atomic commit must refuse it."
+    },
+    {
+      "name": "good-new-file",
+      "input": "cases/good-new-file",
+      "expect": "GOOD",
+      "why": "A genuinely absent destination receives framework content, ruling out always-refuse blindness."
+    },
+    {
+      "name": "good-explicit-force",
+      "input": "cases/good-explicit-force",
+      "expect": "GOOD",
+      "why": "Explicit replacement must write framework content, the opposite of the default refusal."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "path": "anchors/unguarded-writer.py",
+      "sha256": "9b662eed887201d4014568bc30ac1c559d7e379129765154001c1d8510acf5d2",
+      "why": "A writer that generates correct content but ignores the overwrite guard. It gives a clean wrote result while replacing existing or late-created files and following symlinks."
+    }
+  ]
+}
