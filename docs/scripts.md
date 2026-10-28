@@ -1161,6 +1161,8 @@ represented by stable values (choice values come from the parser). The check
 validates argument syntax, not actual values, runtime readiness or side effects.
 Literal CPP checkout/installed-helper paths and helper sibling directories from
 an explicit `BASH_SOURCE`/`dirname` binding are followed without execution.
+Expanding heredocs that mix module hints with command substitutions fail as
+unexamined; quoted or escaped heredoc text remains data.
 Sources reached without literal module launches are counted separately;
 unresolvable helper invocation paths fail, while file-test operands remain
 metadata. Unknown launcher/build shapes and early parser exits fail with a named

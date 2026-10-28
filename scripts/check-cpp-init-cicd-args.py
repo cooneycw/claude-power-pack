@@ -82,6 +82,34 @@ def continues(statement: str) -> bool:
     return False
 
 
+def expanding_body_unexamined(lines):
+    """Refuse module hints combined with executable substitutions, without eval."""
+    raw = "\n".join(lines)
+    body = []
+    index = 0
+    while index < len(raw):
+        if raw[index:index + 2] == "\\\\":
+            body.append("\\\\")
+            index += 2
+        elif raw[index:index + 2] == "\\\n":
+            index += 2
+        else:
+            body.append(raw[index])
+            index += 1
+    text = "".join(body)
+    if not MODULE_HINT.search(text):
+        return False
+    index = 0
+    while index < len(text):
+        if text[index] == "\\" and index + 1 < len(text) and text[index + 1] in "\\$`":
+            index += 2
+        elif text.startswith("$(", index) or text[index] == "`":
+            return True
+        else:
+            index += 1
+    return False
+
+
 def shell_lines(text: str, markdown: bool):
     """Yield shell units; only real, unquoted heredoc operators open data."""
     active = not markdown
@@ -96,9 +124,15 @@ def shell_lines(text: str, markdown: bool):
                 heredocs = []
                 active = line.strip() in {"```bash", "```sh"}
             else:
-                delimiter, strip_tabs = heredocs[0]
-                if (line.lstrip("\t") if strip_tabs else line) == delimiter:
+                delimiter, strip_tabs, expanding, body, opener = heredocs[0]
+                content = line.lstrip("\t") if strip_tabs else line
+                if content == delimiter:
+                    if expanding and expanding_body_unexamined(body):
+                        message = "unexamined expanding heredoc with module hints and substitutions"
+                        yield opener, SOURCE_ERROR + message, False
                     heredocs.pop(0)
+                else:
+                    body.append(content)
             continue
         if fence:
             if pending:
@@ -125,12 +159,13 @@ def shell_lines(text: str, markdown: bool):
         except ValueError:
             words = []  # The invocation/helper readers report relevant unsupported quoting.
         for index, word in enumerate(words):
-            if word in {REDIRECT + "<<", REDIRECT + "<<-"}:
+            operator = word.removeprefix(REDIRECT).partition(":")[0]
+            if word.startswith(REDIRECT) and operator in {"<<", "<<-"}:
                 if index + 1 == len(words):
                     yield start, SOURCE_ERROR + "heredoc delimiter missing", False
                 else:
                     delimiter = words[index + 1].replace(DOLLAR, "$").replace(TICK, "`")
-                    heredocs.append((delimiter, word.endswith("<<-")))
+                    heredocs.append((delimiter, operator == "<<-", not word.endswith(":quoted"), [], start))
         pending = ""
     if pending:
         yield start, SOURCE_ERROR + "unfinished continued shell statement", False
@@ -142,6 +177,15 @@ CONTROL = "\0CPP_CONTROL:"
 REDIRECT = "\0CPP_REDIRECT:"
 DOLLAR = "\0CPP_LITERAL_DOLLAR"
 TICK = "\0CPP_LITERAL_TICK"
+
+
+def heredoc_word_quoted(remainder):
+    for char in remainder.lstrip():
+        if char in "'\"\\":
+            return True
+        if char.isspace() or char in ";|&()<>":
+            return False
+    return False
 
 
 def tokens(statement: str) -> list[str]:
@@ -198,7 +242,9 @@ def tokens(statement: str) -> list[str]:
         if operator:
             # An adjacent numeric word is an IO descriptor, not a CLI value.
             marked = [re.sub(r"(?<!\S)\d+$", "", "".join(marked))]
-            marked.append(" " + REDIRECT + operator + " ")
+            mode = ":quoted" if operator in {"<<", "<<-"} and heredoc_word_quoted(
+                statement[index + len(operator):]) else ""
+            marked.append(" " + REDIRECT + operator + mode + " ")
         else:
             operator = next((value for value in controls if statement.startswith(value, index)), None)
             if operator:
@@ -277,7 +323,7 @@ def inspect_command(report, path, number, words):
     while program and (program[0] in {"if", "then", "else", "do", "!", "{"}
                        or re.match(r"^[A-Za-z_]\w*=", program[0])):
         program.pop(0)
-    if program and program[0] in {"echo", "printf"} and not any("$(" in word for word in words):
+    if program and program[0] in {"echo", "printf"} and not any("$(" in word or "`" in word for word in words):
         return
     positions = [i for i, word in enumerate(words) if word == MODULE]
     if not positions:

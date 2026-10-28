@@ -113,6 +113,21 @@ def populate(root, scenario):
         commands.append("true # comment" + chr(92) + "\npython -m lib.cicd detect --no-such-flag")
     elif scenario == "good-module-value":
         commands.append("python -m lib.cicd detect --path lib.cicd --json")
+    elif scenario == "bad-backtick-echo":
+        commands.append('echo "`python -m lib.cicd detect --no-such-flag`"')
+    elif scenario == "good-literal-backtick":
+        commands.append("echo '`python -m lib.cicd detect --no-such-flag`'")
+    elif scenario in {"bad-expanding-heredoc", "good-quoted-heredoc-substitution",
+                      "good-partquoted-heredoc", "good-escaped-heredoc-substitution"}:
+        opener = "cat <<DATA"
+        if scenario == "good-quoted-heredoc-substitution":
+            opener = "cat <<'DATA'"
+        elif scenario == "good-partquoted-heredoc":
+            opener = 'cat <<D"A"TA'
+        body = "$(python -m lib.cicd detect --no-such-flag)"
+        if scenario == "good-escaped-heredoc-substitution":
+            body = chr(92) + body
+        commands.extend([opener, body, "DATA"])
     elif scenario == "good-values":
         commands.append('python3 -m lib.cicd check --path "$PWD" --summary')
         commands.append('python -m lib.cicd detect --path="${PROJECT}" --json')

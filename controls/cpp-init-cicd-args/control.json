@@ -284,6 +284,42 @@
       "input": "cases/good-module-value",
       "expect": "GOOD",
       "why": "A module-shaped project path is argument data, not a second launcher."
+    },
+    {
+      "name": "bad-backtick-echo",
+      "input": "cases/bad-backtick-echo",
+      "expect": "BAD",
+      "why": "Pass3 reproduced substitution finding or its literal/quoted/escaped counterpart."
+    },
+    {
+      "name": "good-literal-backtick",
+      "input": "cases/good-literal-backtick",
+      "expect": "GOOD",
+      "why": "Pass3 reproduced substitution finding or its literal/quoted/escaped counterpart."
+    },
+    {
+      "name": "bad-expanding-heredoc",
+      "input": "cases/bad-expanding-heredoc",
+      "expect": "BAD",
+      "why": "Pass3 reproduced substitution finding or its literal/quoted/escaped counterpart."
+    },
+    {
+      "name": "good-quoted-heredoc-substitution",
+      "input": "cases/good-quoted-heredoc-substitution",
+      "expect": "GOOD",
+      "why": "Pass3 reproduced substitution finding or its literal/quoted/escaped counterpart."
+    },
+    {
+      "name": "good-partquoted-heredoc",
+      "input": "cases/good-partquoted-heredoc",
+      "expect": "GOOD",
+      "why": "Pass3 reproduced substitution finding or its literal/quoted/escaped counterpart."
+    },
+    {
+      "name": "good-escaped-heredoc-substitution",
+      "input": "cases/good-escaped-heredoc-substitution",
+      "expect": "GOOD",
+      "why": "Pass3 reproduced substitution finding or its literal/quoted/escaped counterpart."
     }
   ],
   "anchors": [

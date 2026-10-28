@@ -154,3 +154,23 @@ def test_repairing_an_unsupported_shape_stops_detection(tmp_path, scenario):
     after = checker.scan(tmp_path)
     assert not after.findings
     assert after.parsed == len(after.invocations) == 6
+
+
+@pytest.mark.parametrize("scenario", ["bad-backtick-echo", "bad-expanding-heredoc"])
+def test_quoting_the_reported_substitution_stops_detection(tmp_path, scenario):
+    cases.populate(tmp_path, scenario)
+    document = tmp_path / checker.DOCUMENT
+    text = document.read_text()
+    assert text.count("--no-such-flag") == 1, "the fixture contains the reported command text"
+    before = checker.scan(tmp_path)
+    assert len(before.findings) == 1 and len(before.invocations) == 5
+    if scenario == "bad-backtick-echo":
+        assert 'echo "`python' in text
+        text = text.replace('echo "`python', "echo '`python").replace('--no-such-flag`"', "--no-such-flag`'")
+    else:
+        assert "cat <<DATA" in text
+        text = text.replace("cat <<DATA", "cat <<'DATA'")
+    document.write_text(text)
+    after = checker.scan(tmp_path)
+    assert not after.findings
+    assert after.parsed == len(after.invocations) == 5
