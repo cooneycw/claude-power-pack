@@ -679,7 +679,11 @@ def test_gitlink_changes_cannot_be_hidden_or_reformatted_by_hostile_config(evide
     old_patch = git(repo, "diff", "origin/main...HEAD")
     assert old_patch == ""
     git(repo, "update-index", "--cacheinfo", f"160000,{target_b},dependency")
-    git(repo, "commit", "-qm", "updated gitlink")
+    before_update = git(repo, "rev-parse", "HEAD")
+    # Git 2.39 treats this gitlink-only setup as empty under the hostile config.
+    # Override only this commit; retain the config for the diff and writer.
+    git(repo, "-c", "diff.ignoreSubmodules=none", "commit", "-qm", "updated gitlink")
+    assert git(repo, "rev-parse", "HEAD") != before_update, "precondition: gitlink setup commit advanced HEAD"
     assert target_a != target_b, "negative-fixture precondition: changed submodule target"
     assert git(repo, "diff", "--name-only", "--ignore-submodules=none", "origin/main...HEAD") == "dependency"
     assert git(repo, "diff", "origin/main...HEAD") == old_patch, "precondition: hostile config hides the gitlink delta"
