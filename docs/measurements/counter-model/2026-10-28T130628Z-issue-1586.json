@@ -1,0 +1,32 @@
+{
+  "branch": "fix/1586-trusted-ask-yolo",
+  "counts": {
+    "accepted": 1,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "Mailbox12180 requested final review after #1585 rebase after pass2 completed; third launched before12187 clarified equivalence could carry pass2. B1 rebase carried this review by identical normalized authored-patch SHA2568e95a9747ab8af39281d2b003c4878cccb75036077b4a632d4ab99d207ae21f4 per12214; no further pass",
+  "head": "2a3e741d57f95eb2565adb3835bf08cf46d6b992",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/28/rollout-2026-10-28T11-17-18-01a1823a-91b5-7c02-8536-651d05d47387.jsonl",
+    "thread_id": "01a1823a-91b5-7c02-8536-651d05d47387"
+  },
+  "issue": "1586",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 3,
+  "recorded_at": "2026-10-28T13:06:28Z",
+  "red_cases": {
+    "already_covered": 4,
+    "proposed": 5
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/28/rollout-2026-10-28T12-39-16-01a18285-99a0-7711-8402-bcfc0bdbe36e.jsonl",
+    "thread_id": "01a18285-99a0-7711-8402-bcfc0bdbe36e"
+  },
+  "schema": 2,
+  "scope": "diff-only",
+  "status": "ran"
+}
