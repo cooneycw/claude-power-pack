@@ -66,7 +66,7 @@ wrong approach), STOP and report. Offer to re-prompt Gemma, escalate to
 4. **Record the review as a counter-model receipt (issues #1383, #1454).** This
    review IS the cross-model review for this lane - OpenCode implemented, this
    Claude session reviewed - and the finish gate refuses a PR whose branch
-   carries no receipt. Record it in the DELEGATED direction: the writer derives
+   carries no receipt. Select independent per-role evidence (schema 5): the writer derives
    the implementer from the Step 4 OpenCode stream and its own database (`~/.local/share/opencode/opencode.db`, read-only), and the reviewer
    from this session's transcript. It refuses rather than guesses when the
    stream, the record or the schema is not the one it measured. Never record it
@@ -81,6 +81,8 @@ wrong approach), STOP and report. Offer to re-prompt Gemma, escalate to
            --issue "$ISSUE_NUM" --branch "$(git branch --show-current)" --status ran \
            --implementer-exec-log "$GEMMA_OUTPUT" \
            --reviewer-session-id "$CLAUDE_CODE_SESSION_ID" \
+           --scope full --review-base origin/main \
+           --network unverified --local-credentials unknown \
            --accepted <findings fixed> --rejected <n> --deferred <n>
        git add docs/measurements/counter-model/*.json
    fi
@@ -124,7 +126,7 @@ wrong approach), STOP and report. Offer to re-prompt Gemma, escalate to
    #798):
    ```bash
    GEMMA_FIX_OUTPUT="/tmp/gemma-fix-${ISSUE_NUM}-${RETRY}.jsonl"
-   # ... same opencode invocation as Step 4 ... > "$GEMMA_FIX_OUTPUT" 2>&1
+   # ... same opencode invocation as Step 4 ... > "$GEMMA_FIX_OUTPUT" 2> "${GEMMA_FIX_OUTPUT}.stderr"
    GEMMA_FIX_EXIT=$?
    echo "opencode fix attempt exited $GEMMA_FIX_EXIT; output: $GEMMA_FIX_OUTPUT"
    ```

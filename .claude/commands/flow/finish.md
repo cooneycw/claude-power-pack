@@ -560,3 +560,12 @@ This run ends at the PR, so a TO-DO item here is typically a review request, a d
 - Quality gates are optional - if no Makefile exists, the flow still works
 - The commit step follows standard git commit conventions (the user controls the message)
 - This command works from any worktree directory
+
+New `ran` receipts use independent runtime evidence adapters (schema 5), with
+[reviewed-artifact binding](../../../docs/agents/counter-model-evidence.md).
+Commit the implementation checkpoint before review. Full-scope reviewers
+execute `git rev-parse HEAD` in their own runtime before inspecting the change;
+diff-only reviewers retain the exact input patch, which the writer compares
+to the current merge-base diff. Schemas 1-4 keep their historical validation.
+Binding identifies the reviewed artifact, not review thoroughness or coverage
+of later commits. A Codex TUI implementer and Claude reviewer need no exec stream.

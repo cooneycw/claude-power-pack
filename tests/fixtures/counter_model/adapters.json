@@ -1,0 +1,150 @@
+{
+  "writer": [
+    {
+      "mutation": "same-model",
+      "diagnostic": "overlaps"
+    },
+    {
+      "mutation": "missing",
+      "diagnostic": "missing captured reviewer patch"
+    },
+    {
+      "mutation": "wrong-patch",
+      "diagnostic": "captured reviewer patch differs"
+    }
+  ],
+  "validator": [
+    {
+      "path": [
+        "reviewer_evidence"
+      ],
+      "remove": true,
+      "diagnostic": "reviewer_evidence"
+    },
+    {
+      "path": [
+        "implementer_evidence"
+      ],
+      "remove": true,
+      "diagnostic": "implementer_evidence"
+    },
+    {
+      "path": [
+        "reviewed_artifact"
+      ],
+      "remove": true,
+      "diagnostic": "reviewed_artifact"
+    },
+    {
+      "path": [
+        "reviewed_artifact",
+        "target_head"
+      ],
+      "value": "ffffffffffffffffffffffffffffffffffffffff",
+      "diagnostic": "different head"
+    },
+    {
+      "path": [
+        "reviewed_artifact",
+        "method"
+      ],
+      "value": "runtime-head",
+      "diagnostic": "method"
+    },
+    {
+      "path": [
+        "reviewed_artifact",
+        "patch_sha256"
+      ],
+      "value": "typed digest",
+      "diagnostic": "patch_sha256"
+    },
+    {
+      "path": [
+        "reviewed_artifact",
+        "report_record"
+      ],
+      "value": false,
+      "diagnostic": "report_record"
+    },
+    {
+      "path": [
+        "reviewer_evidence",
+        "models"
+      ],
+      "value": [
+        "claude/typed-model"
+      ],
+      "diagnostic": "models disagree"
+    },
+    {
+      "path": [
+        "reviewer_evidence",
+        "kind"
+      ],
+      "value": "typed-model",
+      "diagnostic": "unsupported evidence kind"
+    },
+    {
+      "path": [
+        "reviewer_evidence",
+        "runtime"
+      ],
+      "value": [],
+      "diagnostic": "unsupported evidence runtime"
+    },
+    {
+      "path": [
+        "reviewer_evidence",
+        "sources"
+      ],
+      "value": [],
+      "diagnostic": "consumed sources"
+    },
+    {
+      "path": [
+        "reviewer_evidence",
+        "transcript"
+      ],
+      "value": "foreign.jsonl",
+      "diagnostic": "consumed source"
+    },
+    {
+      "path": [
+        "reviewer_evidence",
+        "sources",
+        0,
+        "sha256"
+      ],
+      "value": "caller claim",
+      "diagnostic": "sha256"
+    },
+    {
+      "path": [
+        "reviewer_evidence",
+        "sources",
+        0,
+        "path"
+      ],
+      "value": "../foreign.jsonl",
+      "diagnostic": "bounded"
+    },
+    {
+      "path": [
+        "reviewer_evidence",
+        "sources",
+        0,
+        "bytes"
+      ],
+      "value": true,
+      "diagnostic": "byte length"
+    },
+    {
+      "path": [
+        "schema"
+      ],
+      "value": 5.0,
+      "diagnostic": "integer"
+    }
+  ]
+}

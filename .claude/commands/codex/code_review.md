@@ -37,7 +37,7 @@ take the thread id from the stream, and read that thread's rollout:
 
 ```bash
 CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
-CM_RECEIPT=~/.claude/scripts/counter-model-receipt.py
+CM_RECEIPT="${CM_RECEIPT:-$HOME/.claude/scripts/counter-model-receipt.py}"
 [ -f "$CM_RECEIPT" ] || CM_RECEIPT="${CLAUDE_PLUGIN_ROOT}/scripts/counter-model-receipt.py"
 # FAIL CLOSED, and REFUSE rather than guess on an ambiguous match (issue
 # #1400). This used to be inline `find ... -name "*$THREAD.jsonl" | head -1`
@@ -219,6 +219,17 @@ fi
 if ! git diff "$MERGE_BASE" > "$DIFF_FILE"; then
     echo "CODEX_REVIEW: unavailable (diff against $MERGE_BASE failed)" >&2
     exit 3
+fi
+# Receipt-bound reviews consume a committed artifact, using the SAME canonical
+# byte producer the writer independently recomputes. Standalone non-enrolled
+# reviews retain the working-tree view above, but cannot claim schema-5 binding.
+if [ -d "$GIT_ROOT/docs/measurements/counter-model" ]; then
+    CM_RECEIPT="${CM_RECEIPT:-$HOME/.claude/scripts/counter-model-receipt.py}"
+    [ -f "$CM_RECEIPT" ] || CM_RECEIPT="${CLAUDE_PLUGIN_ROOT}/scripts/counter-model-receipt.py"
+    if [ ! -f "$CM_RECEIPT" ] || ! python3 "$CM_RECEIPT" review-patch --base "$BASE" > "$DIFF_FILE"; then
+        echo "CODEX_REVIEW: blocked (commit the implementation checkpoint, then produce the canonical review patch)" >&2
+        exit 1
+    fi
 fi
 git diff --stat "$MERGE_BASE"
 wc -l "$DIFF_FILE"
@@ -513,6 +524,8 @@ cat "$DIFF_FILE" | env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GIT
     --output-last-message "$FINDINGS" \
     "You are reviewing a code change as an independent reviewer. The unified diff is provided on stdin. ${SCOPE_LINE} ${NETWORK_LINE} Review intent/context: ${CONTEXT:-none provided}.
 
+Before inspecting the change, if repository execution is available, execute exactly 'git rev-parse HEAD' as a separate shell tool call and retain its result. Never copy a head from this prompt or from session startup metadata. If execution is unavailable, review only the exact stdin patch; its runtime-captured bytes bind the reviewed artifact.
+
 Review for: correctness bugs, security issues, missed edge cases, broken or missing tests, and meaningful simplifications. Do NOT restyle working code or comment on formatting.
 
 If the diff adds or changes a check, gate, guard, tripwire or allowlist, ask two further questions of it and report a failure of either as a finding: (1) does its success message claim more than its input population supports - can a zero distinguish 'I looked and found nothing' from 'there was nothing to look at'; and (2) can a non-zero distinguish 'our thing changed' from 'a neighbour changed'. Widening the detector is not always the remedy: where the narrow answer is deliberately correct, say so and say where the larger question should be answered instead.
@@ -553,6 +566,8 @@ run the command in the background and poll, exactly as documented in
 # $REVIEW_MODEL out of this command's shell, and the findings transcript
 # deliberately carries no model. Emit a marker, same convention as
 # FLOW_CI_STATUS / COUNTER_MODEL_REVIEW, and let the caller consume it.
+echo "CODEX_REVIEW_BASE: $BASE"
+echo "CODEX_REVIEW_STREAM: $STREAM"
 echo "CODEX_REVIEW_MODEL: ${REVIEW_MODEL:-unknown}"
 echo "CODEX_REVIEW_SCOPE: ${REVIEW_SCOPE:-unverified}"
 echo "CODEX_REVIEW_NETWORK: ${REVIEW_NETWORK:-unverified}"
@@ -569,7 +584,9 @@ case "${REVIEW_LOCAL_CREDS:-unknown}" in
 esac
 echo "===== Codex (${REVIEW_MODEL:-model unread}) code review - scope: ${REVIEW_SCOPE:-unverified} - ${NETWORK_BANNER} - ${LOCAL_BANNER} ====="
 cat "$FINDINGS"
-rm -f "$DIFF_FILE" "$FINDINGS" "$STREAM"
+rm -f "$DIFF_FILE" "$FINDINGS"
+# Retain $STREAM until the caller writes and stages its receipt; the writer
+# must resolve the actual exec evidence. The caller may then remove this file.
 ```
 
 Present the findings **attributed to Codex** - never silently merged into your
@@ -687,3 +704,5 @@ gap to fill.
   empty case, so an absent section stays distinguishable from a considered
   zero.
 - For a review by non-OpenAI models, use `/second-opinion:start` instead.
+
+Receipt-bound reviews follow [the runtime evidence contract](../../../docs/agents/counter-model-evidence.md). Binding names the recorded artifact, not the thoroughness of review. Pass `CODEX_REVIEW_BASE` as `--review-base` when recording the receipt.

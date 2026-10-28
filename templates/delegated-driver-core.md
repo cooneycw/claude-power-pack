@@ -290,10 +290,28 @@ There is deliberately no auto-approved outcome: a value that can still be produc
 Cross-model review: Claude Code reviews what {{MODEL_WROTE}}.
 {{STEP5_EMPHASIS}}
 
-1. **Read the full diff:**
+1. **Commit the implementation checkpoint, then bind the review artifact.**
+   Stage only this issue's owned changes and commit them before reviewing. A
+   receipt-bound review identifies a commit, so uncommitted work cannot stand
+   in for its final artifact. If review fixes change it, commit and review the
+   new checkpoint before writing the receipt.
+
+   In this reviewing Claude session, execute this exact command as a separate
+   Bash tool call BEFORE inspecting the change:
+
    ```bash
-   git diff
+   git rev-parse HEAD
    ```
+
+   Keep its genuine runtime tool call and result. Startup metadata, a pasted
+   SHA or a tool-call argument without the successful result cannot bind it.
+   Then read the full committed diff against the current merge-base:
+
+   ```bash
+   git diff "$(git merge-base origin/main HEAD)" HEAD
+   ```
+
+   Binding establishes WHICH artifact was reviewed, not how thoroughly.
 
 2. **Review for:**
    - Correctness: Does the implementation match the issue requirements?
@@ -397,6 +415,10 @@ If quality gates fail:
    signals - the retry did not run, so re-running the gate only re-reports the
    same failure and consumes a retry that fixed nothing.
 4. **Re-run quality gates.**
+If a quality-gate fix changes implementation, return to Step 5: commit the
+new checkpoint, repeat the independent review and derive its receipt before
+re-running the finish gates. An earlier receipt describes an earlier artifact.
+
 5. If still failing after 2 retries, STOP and report.{{STEP6_ESCALATION}}
 
 ```
