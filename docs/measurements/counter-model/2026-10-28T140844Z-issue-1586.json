@@ -1,0 +1,31 @@
+{
+  "branch": "fix/1586-profile-selection-and-summary",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "409c432e5283d310bbc5b2df0af8fc67573a5aef",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/28/rollout-2026-10-28T11-17-18-01a1823a-91b5-7c02-8536-651d05d47387.jsonl",
+    "thread_id": "01a1823a-91b5-7c02-8536-651d05d47387"
+  },
+  "issue": "1586",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 2,
+  "recorded_at": "2026-10-28T14:08:44Z",
+  "red_cases": {
+    "already_covered": 8,
+    "proposed": 8
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/28/rollout-2026-10-28T14-05-25-01a182d4-78c9-7cc3-8019-a843f25b21a6.jsonl",
+    "thread_id": "01a182d4-78c9-7cc3-8019-a843f25b21a6"
+  },
+  "schema": 1,
+  "scope": "diff-only",
+  "status": "ran"
+}

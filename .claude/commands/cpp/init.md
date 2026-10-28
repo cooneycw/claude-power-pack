@@ -210,7 +210,7 @@ non-Qwen local opinion is wanted.
 
 ## Step 3b: Permission Profile (Tier 2+)
 
-**Only show this step if user selected Tier 2 or Tier 3.**
+**Only show this step if user selected Tier 2, Tier 3, Tier 4, or Tier 5.**
 
 Claude Code prompts "Allow?" before running tools. You can auto-approve safe operations to reduce interruptions while blocking dangerous commands.
 
@@ -461,9 +461,9 @@ choice does not enable bypassPermissions mode.
 Proceed? [y/N]
 ```
 
-The Standard profile auto-approves only GitHub issue list/view and PR list/view.
-In Standard, GitHub mutations require confirmation. Select Custom mode to choose
-broader GitHub permissions explicitly.
+The Standard profile lists direct GitHub issue and PR read commands.
+The Custom GitHub CLI write category adds PR create/merge only; it
+does not include issue-write verbs. Other permission settings and modes still apply.
 
 ### Custom Mode Categories
 
@@ -2650,6 +2650,98 @@ unverified. A failed read is unverified, never absent or already installed.
 Registration success proves configuration was written, not server connectivity.
 Never infer success from selecting a tier or finding an old generated file.
 
+The permission lines below describe the project file only. This observer does not re-check other installation steps or effective native permissions. Read the
+actual file even when the selected profile was skipped because a file existed;
+never infer its name or rules from the selection. It emits only preset identity
+and rule counts, never environment, credential or rule values. An unknown/custom
+preset identity or failed read is labelled unverified. A null means unverified; numeric zero remains zero.
+
+```bash
+if PERMISSION_REPORT=$(python3 - "$CPP_DIR/.claude/commands/cpp/init.md" .claude/settings.local.json <<'PY_PERMISSIONS'
+# CPP_INIT_PERMISSION_OBSERVER_BEGIN
+import json
+import re
+import sys
+from pathlib import Path
+
+FIELDS = ("allow", "ask", "deny")
+
+def unknown(reason, counts=None):
+    return {
+        "profile": "unknown", "verified": False,
+        "counts": counts if counts is not None else dict.fromkeys(FIELDS),
+        "scope": "project-file declarations only", "reason": reason,
+    }
+
+def normalized(permissions):
+    if not isinstance(permissions, dict):
+        raise ValueError("permissions shape")
+    result = dict(permissions)
+    for field in FIELDS:
+        rules = permissions.get(field, [])
+        if not isinstance(rules, list) or not all(isinstance(rule, str) for rule in rules):
+            raise ValueError("rule list shape")
+        result[field] = sorted(rules)
+    return result
+
+def observe(presets, settings):
+    try:
+        data = json.loads(settings.read_text())
+    except FileNotFoundError:
+        return unknown("project settings absent")
+    except OSError:
+        return unknown("project settings unreadable")
+    except ValueError:
+        return unknown("project settings invalid JSON")
+    try:
+        if not isinstance(data, dict):
+            raise ValueError("settings shape")
+        actual = normalized(data.get("permissions", {}))
+    except ValueError:
+        return unknown("project permission rule lists invalid")
+    counts = {field: len(actual[field]) for field in FIELDS}
+    try:
+        source = presets.read_text()
+        found = []
+        for name in ("Cautious", "Standard", "Trusted", "YOLO"):
+            pattern = rf"\*\*{name} Profile(?: \(Default\))?:\*\*\s*```json\n(.*?)```"
+            matches = re.findall(pattern, source, re.S)
+            if len(matches) != 1:
+                return unknown("CPP preset definitions incomplete", counts)
+            preset = normalized(json.loads(matches[0])["permissions"])
+            if actual == preset:
+                found.append(name)
+    except (OSError, ValueError, TypeError, KeyError):
+        return unknown("CPP preset definitions unavailable", counts)
+    if len(found) != 1:
+        report = unknown("not a unique named CPP preset", counts)
+        report["profile"] = "Custom/existing"
+        return report
+    return {
+        "profile": found[0], "verified": True, "counts": counts,
+        "scope": "project-file declarations only", "reason": "",
+    }
+
+report = observe(Path(sys.argv[1]), Path(sys.argv[2]))
+report["verification"] = "verified" if report["verified"] else "unverified"
+print(json.dumps(report, sort_keys=True))
+raise SystemExit(0 if report["verified"] else 3)
+# CPP_INIT_PERMISSION_OBSERVER_END
+PY_PERMISSIONS
+); then
+  PERMISSION_REPORT_RC=0
+else
+  PERMISSION_REPORT_RC=$?
+fi
+if { [ "$PERMISSION_REPORT_RC" -ne 0 ] && [ "$PERMISSION_REPORT_RC" -ne 3 ]; } || [ -z "$PERMISSION_REPORT" ]; then
+    PERMISSION_REPORT='{"profile":"unknown","verification":"unverified","verified":false,"counts":{"allow":null,"ask":null,"deny":null},"scope":"project-file declarations only","reason":"permission observer unavailable"}'
+fi
+printf '%s\n' "$PERMISSION_REPORT"
+```
+
+Use this report for the permission fields only, retaining its verified/unverified
+label and observed counts. Other steps retain their existing outcome records.
+
 Use `CPP Installation Complete` for `{INSTALLATION_VERDICT}` only when every
 selected step succeeded or its existing state was verified and every optional
 extra has run or been explicitly declined. Otherwise use `CPP Installation
@@ -2664,10 +2756,11 @@ actions. Do not print a blanket installed checklist.
 Step results:
 {STEP_RESULTS}
 
-Permission Profile: {PROFILE_NAME}
-  Auto-approved: {AUTO_APPROVE_SUMMARY}
-  Blocked: rm -rf, git push --force, sudo (destructive)
-  Settings: .claude/settings.local.json
+Permission Profile: {PERMISSION_REPORT.profile} ({PERMISSION_REPORT.verification})
+  Declared allow rules: {PERMISSION_REPORT.counts.allow}
+  Declared ask rules: {PERMISSION_REPORT.counts.ask}
+  Declared deny rules: {PERMISSION_REPORT.counts.deny}
+  Settings examined: .claude/settings.local.json (project-file declarations only)
 
 MCP registrations (configuration only; connectivity reported separately):
 {MCP_RESULTS}
