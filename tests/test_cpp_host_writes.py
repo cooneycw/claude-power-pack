@@ -255,7 +255,11 @@ def test_the_proximity_framing_false_positives_where_the_gate_passes(case: str) 
     )
 
 
-def test_the_gate_can_see_the_bootstrap_this_issue_added() -> None:
+@pytest.mark.parametrize("rel, expected", [
+    (".claude/commands/cpp/init.md", 14),
+    (".claude/commands/cpp/update.md", 6),
+])
+def test_the_gate_can_see_the_bootstrap_this_issue_added(rel: str, expected: int) -> None:
     """The blind spot that mattered most, asserted on the REAL documents.
 
     The fix adds a bootstrap invocation written with a QUOTED path, and the
@@ -281,19 +285,18 @@ def test_the_gate_can_see_the_bootstrap_this_issue_added() -> None:
     )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    # #1586 B2 adds one quoted local-tier bootstrap alongside the Tier 2 call.
-    for rel, expected in ((".claude/commands/cpp/init.md", 15),
-                          (".claude/commands/cpp/update.md", 7)):
-        text = (ROOT / rel).read_text(encoding="utf-8")
-        seen = [st for _, st in mod._shell_statements(text)
-                if mod.SEAM_INVOKE_RE.search(st)]
-        assert len(seen) == expected, (
-            f"{rel}: the gate sees {len(seen)} seam invocation(s), expected "
-            f"{expected}. A drop means the matcher stopped recognising a form "
-            f"the document uses - most likely the quoted bootstrap."
-        )
-        quoted = [st for st in seen if '"$CPP_DIR' in st]
-        assert quoted, f"{rel}: no QUOTED invocation is visible to the gate"
+    # #1586 A2b removes exactly one pre-confirmation probe per document.
+    # Both quoted bootstraps remain visible; the exact statement delta is recorded.
+    text = (ROOT / rel).read_text(encoding="utf-8")
+    seen = [st for _, st in mod._shell_statements(text)
+            if mod.SEAM_INVOKE_RE.search(st)]
+    assert len(seen) == expected, (
+        f"{rel}: the gate sees {len(seen)} seam invocation(s), expected "
+        f"{expected}. A drop means the matcher stopped recognising a form "
+        f"the document uses - most likely the quoted bootstrap."
+    )
+    quoted = [st for st in seen if '"$CPP_DIR' in st]
+    assert quoted, f"{rel}: no QUOTED invocation is visible to the gate"
 
 
 @pytest.mark.parametrize(

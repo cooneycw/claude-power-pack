@@ -1,0 +1,31 @@
+{
+  "branch": "fix/1586-preconsent-write-inventory",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "eab5528ea0d592d21f6f3a39497dce2bb489d877",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/28/rollout-2026-10-28T11-17-18-01a1823a-91b5-7c02-8536-651d05d47387.jsonl",
+    "thread_id": "01a1823a-91b5-7c02-8536-651d05d47387"
+  },
+  "issue": "1586",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 2,
+  "recorded_at": "2026-10-28T15:47:43Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 3
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/28/rollout-2026-10-28T15-45-40-01a18330-447e-7522-b513-99dea04e3f54.jsonl",
+    "thread_id": "01a18330-447e-7522-b513-99dea04e3f54"
+  },
+  "schema": 1,
+  "scope": "diff-only",
+  "status": "ran"
+}

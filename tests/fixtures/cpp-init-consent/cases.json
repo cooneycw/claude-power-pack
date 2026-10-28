@@ -1,0 +1,315 @@
+[
+  {
+    "id": "shared",
+    "start": "## Step 4: Show Disclosure",
+    "end": "### Tier 1 Disclosure",
+    "required": [
+      "Applicable write and credential inventory",
+      "before asking",
+      "TAVILY_API_KEY",
+      "plaintext",
+      "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json",
+      "reference-transaction",
+      "cpp.stashGuard=false",
+      ".gitignore",
+      "~/.claude/settings.json",
+      ".woodpecker.yml",
+      ".cpp-skill-install.lock",
+      "~/.codex/prompts/cpp-memory.md",
+      "QWEN_OLLAMA_URL",
+      "GEMMA_OLLAMA_URL",
+      "npm",
+      "uv",
+      "~/.cache/ms-playwright"
+    ]
+  },
+  {
+    "id": "guard",
+    "start": "=== Shared-stash guard ===",
+    "end": "Keep it on?",
+    "required": [
+      "Consent:",
+      "reference-transaction",
+      "cpp.stashGuard=false"
+    ]
+  },
+  {
+    "id": "allowlist",
+    "start": "**User-Level Flow Allowlist (Optional)**",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      "~/.claude/settings.json",
+      "merge"
+    ]
+  },
+  {
+    "id": "census",
+    "start": "**Permission-Prompt Census Hook (Optional)**",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      "~/.claude/settings.json",
+      "PermissionRequest"
+    ]
+  },
+  {
+    "id": "retro",
+    "start": "**Session-Open Reminders (Optional, opt-in)**",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      "~/.claude/settings.json",
+      "SessionStart"
+    ]
+  },
+  {
+    "id": "prompt",
+    "start": "**Shell Prompt Integration (Optional)**",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      "~/.bashrc",
+      "append"
+    ]
+  },
+  {
+    "id": "tmux",
+    "start": "**Tmux Auto-Start (Optional)**",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      "~/.bashrc",
+      "append"
+    ]
+  },
+  {
+    "id": "makefile",
+    "start": "**Makefile Setup (Optional)**",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      "Makefile",
+      "absent"
+    ]
+  },
+  {
+    "id": "happy",
+    "start": "**Happy CLI Installation (Optional)**",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      "npm",
+      "global",
+      "cache"
+    ]
+  },
+  {
+    "id": "speckit",
+    "start": "**Spec-Kit CLI Installation (Optional)**",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      "uv",
+      "tool",
+      "cache"
+    ]
+  },
+  {
+    "id": "pool",
+    "start": "#### 3d. Register the browser desk pool",
+    "end": "Ask the user with AskUserQuestion",
+    "required": [
+      "Consent:",
+      ".claude/playwright-pool.json",
+      "user MCP config",
+      "~/.cache/ms-playwright"
+    ]
+  },
+  {
+    "id": "framework",
+    "start": "#### 4a. Framework Detection and Makefile",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      "Makefile",
+      "absent"
+    ]
+  },
+  {
+    "id": "health",
+    "start": "#### 4c. Health Check Configuration",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      ".claude/cicd.yml"
+    ]
+  },
+  {
+    "id": "pipeline",
+    "start": "#### 4d. CI Pipeline Generation",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      ".github/workflows/ci.yml",
+      ".woodpecker.yml",
+      "overwrite"
+    ]
+  },
+  {
+    "id": "container",
+    "start": "#### 4e. Container Generation",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      "Dockerfile",
+      "docker-compose.yml",
+      ".dockerignore",
+      "overwrite"
+    ]
+  },
+  {
+    "id": "codexcli",
+    "start": "#### 5a. Check Codex CLI",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      "npm",
+      "global",
+      "cache"
+    ]
+  },
+  {
+    "id": "codexmcp",
+    "start": "#### 5d. Register MCP Servers with Codex",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      "${CODEX_HOME:-$HOME/.codex}/config.toml"
+    ]
+  },
+  {
+    "id": "qwencli",
+    "start": "#### 6a. Verify the Qwen Code CLI Harness",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      "npm",
+      "global",
+      "cache"
+    ]
+  },
+  {
+    "id": "qwenendpoint",
+    "start": "#### 6c. Remote Access",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      "QWEN_OLLAMA_URL",
+      "shell RC"
+    ]
+  },
+  {
+    "id": "qwensmoke",
+    "start": "#### 6d. Smoke Test",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      "runtime",
+      "cache",
+      "skip"
+    ]
+  },
+  {
+    "id": "gemmacli",
+    "start": "#### 7a. Verify the OpenCode Harness",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      "npm",
+      "global",
+      "cache"
+    ]
+  },
+  {
+    "id": "gemmaendpoint",
+    "start": "#### 7b.1 Persist the Gemma Endpoint",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      "GEMMA_OLLAMA_URL",
+      "shell RC"
+    ]
+  },
+  {
+    "id": "gemmaconfig",
+    "start": "#### 7c. Install the Provider",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      "~/.config/opencode/opencode.json",
+      "merge"
+    ]
+  },
+  {
+    "id": "gemmasmoke",
+    "start": "#### 7d. Smoke Test",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      "temporary",
+      "probe.txt",
+      "runtime"
+    ]
+  },
+  {
+    "id": "sequential",
+    "start": "### 8a. Sequential Thinking",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      "user MCP config",
+      "npx",
+      "cache"
+    ]
+  },
+  {
+    "id": "codexextra",
+    "start": "### 8b. Codex MCP Registration",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      "${CODEX_HOME:-$HOME/.codex}/config.toml",
+      ".agents/CODEX_SETUP.md",
+      "No",
+      "overwrite",
+      "No always creates project `.agents/`"
+    ]
+  },
+  {
+    "id": "tuning",
+    "start": "### 8c. Workstation Tuning",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      "/swapfile",
+      "/etc/fstab",
+      "/etc/sysctl.d/99-claude-code.conf",
+      "sudo"
+    ]
+  },
+  {
+    "id": "backend",
+    "start": "### 8d. Common-Memory Store Backend",
+    "end": "\n```",
+    "required": [
+      "Consent:",
+      "~/.config/claude-power-pack/secrets/cpp-memories.backend",
+      "cpp_memory_data",
+      "POSTGRES_PASSWORD",
+      "plaintext",
+      "SELECT 1",
+      "CPP_MEMORIES_DSN"
+    ]
+  }
+]
