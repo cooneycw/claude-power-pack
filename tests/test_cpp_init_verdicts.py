@@ -115,7 +115,7 @@ def test_config_file_alone_does_not_prove_credentials(tmp_path):
     config.parent.mkdir()
     config.write_text("")
     assert config.exists() and not config.read_text(), "fixture has no credential configuration"
-    text = INIT.read_text().split("#### 5c. Verify OpenAI API Key", 1)[1]
+    text = INIT.read_text().split("#### 5c. Observe Codex Authentication Configuration", 1)[1]
     block = re.search(r"```bash\n(.*?)```", text, re.S)
     assert block
     result = subprocess.run(

@@ -404,6 +404,15 @@ steps:
   # two files in the checkout, so it gives the same verdict here as on a dev
   # box. Shown red under this digest on the pre-fix tree, not merely shown to
   # run: a step that cannot FAIL in the image is green by absence (#1036).
+  # #1587: resolve checkout-supplied installation promises; stdlib-only,
+  # offline and git-free. Committed controls exercise missing, unknown and
+  # empty populations against a deliberately blind substitute.
+  cpp-init-promises-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/check-cpp-init-promises.py
+
   cpp-host-writes-check:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
     depends_on: [secret-scan]

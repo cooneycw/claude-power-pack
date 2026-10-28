@@ -8,7 +8,7 @@
        eli5-check eli5-drift eli5-revendor \
        project-next-check project-next-repin \
        host-surface-check host-surface-manifest \
-       cpp-host-writes-check ci-coverage-check \
+       cpp-host-writes-check cpp-init-promises-check ci-coverage-check \
        tool-risk-check tool-risk-drift \
        branch-protection-check branch-protection-apply branch-protection-show \
        host-surfaces-check host-surfaces-plan host-surfaces-prune memory-harness \
@@ -403,7 +403,7 @@ verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-impor
 	project-next-check delegated-core-check codex-skills-check \
 	scripts-inventory-check instrument-census-check verify-coverage-check \
 	control-ci-deps-check ci-coverage-check \
-	consolidation-ledger-check host-surface-check cpp-host-writes-check \
+	consolidation-ledger-check host-surface-check cpp-host-writes-check cpp-init-promises-check \
 	version-consistency-check unicode-dashes-check co-authored-by-trailer-check md-relative-links-check \
 	codex-skill-links-check \
 	behavioral-eval-check eli5-check tool-risk-check skill-coverage-map-check eval-enrollment-check
@@ -689,6 +689,10 @@ instrument-census-check:
 
 ## Inline host writes in the cpp command documents (issue #1132). The seam is
 ## total today; without this it is partial the first time someone adds a printf.
+## verify-coverage: gate cpp-init-promises-check - CPP-supplied promises resolve in cpp:init; ci: runs cpp-init-promises-check
+cpp-init-promises-check:
+	@python3 scripts/check-cpp-init-promises.py
+
 ## verify-coverage: gate cpp-host-writes-check - no inline host write in /cpp:init or /cpp:update; ci: runs cpp-host-writes-check
 cpp-host-writes-check:
 	@python3 scripts/check-cpp-host-writes.py

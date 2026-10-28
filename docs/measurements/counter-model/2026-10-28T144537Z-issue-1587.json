@@ -1,0 +1,32 @@
+{
+  "branch": "fix/1587-init-stale-promises",
+  "counts": {
+    "accepted": 5,
+    "deferred": 0,
+    "rejected": 1
+  },
+  "extra_passes_reason": "Third pass on rebased495dd679 reviewed source-role/operand fixes. Its two specified defects and two own followups were fixed afterward with4red99green and24controlsPASS; no fourth pass.",
+  "head": "495dd67950e3c00f446cecab6943b2d87480d5e7",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/28/rollout-2026-10-28T11-17-43-01a1823a-f1c5-72e1-9690-1f394b8034cc.jsonl",
+    "thread_id": "01a1823a-f1c5-72e1-9690-1f394b8034cc"
+  },
+  "issue": "1587",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 3,
+  "recorded_at": "2026-10-28T14:45:37Z",
+  "red_cases": {
+    "already_covered": 1,
+    "proposed": 6
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/28/rollout-2026-10-28T14-40-17-01a182f4-66bf-7441-8c66-6f581d00b00a.jsonl",
+    "thread_id": "01a182f4-66bf-7441-8c66-6f581d00b00a"
+  },
+  "schema": 2,
+  "scope": "diff-only",
+  "status": "ran"
+}
