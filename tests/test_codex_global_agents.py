@@ -263,3 +263,44 @@ def test_codex_home_environment_and_cli_precedence(home: Path, monkeypatch):
     )
     assert proc.returncode == 0, proc.stderr
     assert agents(home).is_file()
+
+
+@pytest.mark.skipif(shutil.which("python3") is None, reason="control invokes python3")
+def test_registered_control_isolates_an_inherited_foreign_codex_home():
+    """Exercise the shipped invocation, including both bad cases and its anchor."""
+    foreign = ROOT / "controls/codex-global-agents/cases/foreign-codex-home"
+    before = (foreign / "AGENTS.md").read_bytes()
+    assert b"Foreign Codex instructions" in before
+    assert b"cpp-codex-global-agents:" not in before
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(foreign)
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "scripts/check-negative-controls.py"),
+         "--root", str(ROOT), "--control", "controls/codex-global-agents", "--strict"],
+        env=env, capture_output=True, text=True, check=False, timeout=60,
+    )
+    assert (foreign / "AGENTS.md").read_bytes() == before
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "case good-fresh-pair: expected=GOOD observed=GOOD (exit 0)" in proc.stdout
+    for case in ("bad-source-gained-a-rule", "bad-hand-edited"):
+        assert f"case {case}: expected=BAD observed=BAD (exit 3)" in proc.stdout
+        assert f"on case {case}: missed the known-bad input (blind, as required)" in proc.stdout
+    assert "NEGATIVE_CONTROL_VERDICT: PASS" in proc.stdout
+
+
+def test_no_flags_still_selects_codex_home_environment(home: Path, monkeypatch, capsys):
+    """Default relocation is a supported real-use policy, separate from fixtures."""
+    relocated = home / "relocated-default"
+    relocated.mkdir()
+    spec = importlib.util.spec_from_file_location("codex_global_agents_default", SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module.Path, "home", lambda: home)
+    monkeypatch.setenv("CODEX_HOME", str(relocated))
+    assert module.main(["--write"]) == 0
+    assert (relocated / "AGENTS.md").is_file()
+    assert not agents(home).exists()
+    capsys.readouterr()
+    assert module.main(["--check", "--quiet"]) == 0
+    assert capsys.readouterr().out == "CODEX_GLOBAL_AGENTS: current\n"
