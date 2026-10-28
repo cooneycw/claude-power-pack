@@ -1,0 +1,38 @@
+[
+  {
+    "ordinal": 12686,
+    "type": "event_msg",
+    "payload": {
+      "type": "item_completed",
+      "thread_id": "01a17ccf-39dc-7a52-b013-482c0a8cbc5c",
+      "turn_id": "01a1830f-2216-7bb0-a5ed-f2d24e867238",
+      "item": {
+        "type": "CommandExecution",
+        "id": "captured-command",
+        "process_id": null,
+        "command": [
+          "/bin/bash",
+          "-lc",
+          "git rev-parse HEAD"
+        ],
+        "cwd": "/fixture/repo",
+        "parsed_cmd": [
+          {
+            "type": "unknown",
+            "cmd": "git rev-parse HEAD"
+          }
+        ],
+        "source": "unified_exec_startup",
+        "status": "completed",
+        "aggregated_output": "f85ca34546f4ec9b0b1827064778cfd886353eab\n",
+        "exit_code": 0,
+        "duration": {
+          "secs": 0,
+          "nanos": 0
+        }
+      },
+      "started_at_ms": 1793200564150,
+      "completed_at_ms": 1793200564150
+    }
+  }
+]

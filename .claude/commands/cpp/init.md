@@ -78,37 +78,14 @@ else
   families=$(find -L ~/.claude/commands -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
   helpers=$(find -L ~/.claude/scripts -mindepth 1 -maxdepth 1 -type f 2>/dev/null | wc -l)
 
-  # A PROBE, NOT `[ -w ]` (issue #1138). Permission bits are not the authority
-  # on whether a write succeeds: measured in a kyle container, the projected
-  # ~/.claude/settings.json is mode -rw-rw-r-- owned by the running user and an
-  # append-open still returns "Read-only file system", because the mount is
-  # read-only. A check reading the mode to answer a question the mount decides
-  # is the same defect class as the one this issue is about.
-  # The subshell is load-bearing: `if : > "$probe" 2>/dev/null` still leaks
-  # "Permission denied", because the shell processes redirections left to right
-  # and reports the failed one BEFORE 2>/dev/null takes effect. Measured.
-  # Through the declaring seam (#1132). A probe in intent, a write in fact -
-  # it creates a file under the surface and removes it. Deferring the surface
-  # answers the question the probe asks, so a deferred probe reports `no`
-  # rather than writing to find out what it was already told.
-  surface_writable=$(~/.claude/scripts/cpp-host-write.sh probe-writable ~/.claude/commands 2>/dev/null)
-  #: EXIT 0 AND 3 ARE BOTH ANSWERS (issue #1198): the helper prints yes/no and
-  #: returns 0, or prints no and returns 3 when the surface is deferred. Any
-  #: other status means the seam could not run, and the capture is then EMPTY -
-  #: which this line used to print as though it were a probe result, under a
-  #: label saying "probed, not inferred from mode bits". There is no checkout
-  #: here by construction, so there is nothing to bootstrap from: the honest
-  #: answer is that it was not probed.
-  case $? in
-    0|3) : ;;
-    *)   surface_writable="unknown (seam not installed here, so this was NOT probed)" ;;
-  esac
+  # Locating the source precedes installation consent. Do not create a probe file.
+  surface_writable="unverified (not probed before confirmation)"
 
   echo "No claude-power-pack CHECKOUT found at any known path."
   echo "  CPP command surface served here: $cpp_surface (~/.claude/commands/cpp/init.md readable)"
   echo "  command families already served: $families"
   echo "  helpers already served:          $helpers"
-  echo "  ~/.claude/commands writable:     $surface_writable (probed, not inferred from mode bits)"
+  echo "  ~/.claude/commands writable:     $surface_writable"
   echo
 
   if [ "$cpp_surface" = yes ]; then
@@ -497,6 +474,34 @@ If user selects "Custom", ask which categories to enable using multi-select:
 
 **CRITICAL**: Before making ANY changes, show the user exactly what will be modified.
 
+### Applicable write and credential inventory
+
+Before the selected tier's Proceed question, show this inventory with only the
+applicable rows, including inherited tiers (2 through 5 inherit all lower tiers;
+6 and 7 inherit Tier 1 plus their own local-model setup). Resolve `{PROJECT}`,
+`{CPP_DIR}`, the home/config directories, the npm global prefix, and the Git hook
+location using read-only inspection. If a location cannot be resolved, label it
+unknown before asking; do not make a temporary write to test access. Selecting a
+profile is not consent to install. Required parent directories and temporary
+files for atomic replacement are included in each write below. Optional rows
+run only after their own choice, with the same destinations repeated there.
+
+| Applies to | Writes and scope | Credential handling |
+| --- | --- | --- |
+| Tier 1, all tiers | User command-family symlinks under `~/.claude/commands/` are installed/refreshed and stale CPP-owned links may be pruned; foreign content is preserved. Optional project `.claude/commands` symlink and `.claude/` directory. The default shared-stash guard installs the repository's `reference-transaction` hook at the common Git hooks directory or configured absolute `core.hooksPath`; refusal/foreign hooks are reported. Opt-out removes CPP's own hook and records `cpp.stashGuard=false` in the repository Git config. | None. |
+| Tier 2 and inherited 3/4/5 | Link **all executable scripts** supplied under `{CPP_DIR}/scripts/` into `~/.claude/scripts/`, including the host-write helper. Create project `.claude/settings.local.json` only if absent, and append the relevant settings/friction ignore entries to an existing `.gitignore`. Optional user-level `~/.claude/settings.json` merges permission and hook entries; optional `~/.bashrc` prompt/tmux additions; optional starter `Makefile`; global npm Happy installation uses its reported prefix/cache; uv Spec-Kit uses its tool directory, executable directory (normally `~/.local/bin`) and cache. | Permission lists are configuration, not credential values; existing unrelated settings are preserved. |
+| Tier 3 and inherited 4/5 | User-scope Claude MCP registrations update `${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json`: second-opinion URL, Playwright and conditional Tavily (when `TAVILY_API_KEY` is available). npm/npx uses its configured cache; Playwright can download browser binaries to `~/.cache/ms-playwright` on later use. Optional desk pool creates project `.claude/playwright-pool.json` if absent and adds user MCP desk registrations; later browser use writes `.claude/playwright-state/`. | Tavily requires Node.js 20+. `TAVILY_API_KEY` is read from the environment and stored **in plaintext** in the Tavily server environment entry in that user MCP config. Show its name and destination only, never its value. External second-opinion provider keys remain in its separate repository; CPP registers its URL. |
+| Tier 4 and inherited 5 | Create project `Makefile` and `.claude/cicd.yml` when absent; optional health configuration edits the latter. Generate project `.github/workflows/ci.yml`, `.woodpecker.yml`, or both according to provider selection; generate project `Dockerfile`, `docker-compose.yml`, `.dockerignore` for optional containers; Pipeline and container destinations may overwrite existing content after the applicable confirmation. `uv run --project {CPP_DIR}` may sync the CPP checkout's generated `.venv` and the configured uv cache. These commands prohibit Python runtime downloads. | Generated CI configuration can name secret references; never display secret values. |
+| Tier 5 | Optional global npm Codex CLI installation; optional MCP registration updates `${CODEX_HOME:-$HOME/.codex}/config.toml`. CPP skills install under `$HOME/.codex/skills/` even when CODEX_HOME differs, with managed entries refreshed or pruned and lock `~/.codex/.cpp-skill-install.lock`. Common-memory harness links `~/.local/bin/cpp-memory` and copies `~/.codex/prompts/cpp-memory.md`. | The auth check reads existing auth state. `codex login` is advice, not an init credential write. A separately invoked login has its own credential storage. |
+| Tier 6/7 | Preserve the disclosed `~/.claude/scripts/cpp-host-write.sh` bootstrap link. Optional global npm Qwen Code/OpenCode installation uses its global prefix/cache. Optional endpoint persistence adds `QWEN_OLLAMA_URL` or `GEMMA_OLLAMA_URL` to the resolved shell RC path. Tier 7 merges provider/agent entries into `~/.config/opencode/opencode.json`. Optional smoke tests may create temporary probe files and vendor runtime cache/logs. Ollama model pulls shown here are instructions for the serving host, not an automatic init download. | Local Ollama requires no cloud API key; do not print any credentials embedded in a supplied endpoint. |
+
+For every credential supplied to a selected optional tool, name its environment
+variable and actual persistent storage scope before confirmation, say whether it
+is plaintext, and never echo or interpolate its value into the disclosure. The
+vendor cache/config areas above are vendor-managed; this inventory lists CPP's
+controlled destinations and relevant vendor areas, not every file a vendor may
+create at runtime.
+
 ### Tier 1 Disclosure (Minimal)
 
 ```
@@ -831,6 +836,9 @@ It guards `push` only. `pop` and `drop` cannot be guarded - git removes the
 entry before a hook can refuse - so its silence there is not approval. See
 docs/agents/shared-stash-stack.md.
 
+Consent: keeping the reference-transaction hook leaves the project hook installed.
+No removes CPP's own hook and writes cpp.stashGuard=false in the repository Git config.
+
 Keep it on? [Y/n]
 ```
 
@@ -994,6 +1002,8 @@ fi
 
 **User-Level Flow Allowlist (Optional)**
 
+Consent: merge permission rules into user `~/.claude/settings.json` (creating its parent/file if absent); existing unrelated settings remain. Applies to every project on this host, not just this project.
+
 The project profiles above govern ONE repo. The `/flow:*` commands also run
 git/gh workflow commands (issue reads, fetches and worktree creation,
 the branch-slug text pipeline) in EVERY repo, which prompts on every run unless the rules
@@ -1060,6 +1070,8 @@ echo "  Merge later via /cpp:update, or read templates/claude-settings-permissio
 
 **Permission-Prompt Census Hook (Optional)**
 
+Consent: merge the PermissionRequest registration into user `~/.claude/settings.json`, creating its parent/file if absent. Later hook use appends project `.claude/friction.jsonl`; it observes prompts and does not grant permissions.
+
 The retro loop's `permission-prompt` friction class (issue #426) can only be
 captured by the harness: a manually approved tool call and an auto-allowed one
 are indistinguishable to the model. `scripts/hook-permission-census.sh` (a
@@ -1114,6 +1126,8 @@ echo "  Register later via /cpp:update, or read docs/HOST_MANAGED_ARTIFACTS.md"
 ```
 
 **Session-Open Reminders (Optional, opt-in)**
+
+Consent: merge the SessionStart registration into user `~/.claude/settings.json`, creating its parent/file if absent. No stored credentials; later sessions read the advisory inputs described below.
 
 `scripts/hook-pending-retro.sh` (a `SessionStart` hook, installed as a Tier 2
 script above) prints up to TWO advisory lines at session open, each independent
@@ -1178,6 +1192,8 @@ echo "  Enable later via /cpp:update"
 
 **Shell Prompt Integration (Optional)**
 
+Consent: append a managed prompt block to user `~/.bashrc`, creating it if absent. This changes future interactive shells on this host.
+
 Ask the user if they want shell prompt integration:
 
 ```
@@ -1211,6 +1227,8 @@ esac
 ```
 
 **Tmux Auto-Start (Optional)**
+
+Consent: append a managed tmux block to user `~/.bashrc`, creating it if absent. This changes future interactive shells on this host.
 
 Ask the user if they want tmux to start automatically in new terminal tabs:
 
@@ -1263,6 +1281,8 @@ echo '  if command -v tmux &>/dev/null && [ -z "$TMUX" ] && [[ $- == *i* ]]; the
 
 **Makefile Setup (Optional)**
 
+Consent: copy the project `Makefile` only when absent; an existing file is skipped.
+
 If no Makefile exists in the project root, offer to create one from the template:
 
 ```
@@ -1296,6 +1316,8 @@ echo "  You can copy it later: cp $CPP_DIR/templates/Makefile.example Makefile"
 ```
 
 **Happy CLI Installation (Optional)**
+
+Consent: if absent, install happy-coder with npm into the resolved global prefix and configured npm cache. Show those areas before offering this choice; onboarding is a later separate action.
 
 Ask the user if they want to install happy-cli:
 
@@ -1333,6 +1355,8 @@ echo "→ Happy CLI installation skipped"
 ```
 
 **Spec-Kit CLI Installation (Optional)**
+
+Consent: if absent, install specify-cli in the resolved uv tool directory and executable directory (normally `~/.local/bin`), using the uv cache. This does not scaffold a project.
 
 Ask the user if they want to install the official spec-kit CLI (`specify`). This is the
 authoring engine behind `/spec:adopt`; installing it now means `/spec:adopt` and the
@@ -1534,6 +1558,8 @@ python3 "$CPP_DIR/scripts/mcp-drift.py" --scope-check --claude-json "$USER_JSON"
 
 #### 3d. Register the browser desk pool (optional, off by default)
 
+Consent: create project `.claude/playwright-pool.json` if absent and merge desk registrations into the user MCP config (`${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json`). npx uses its cache, later browser downloads use `~/.cache/ms-playwright`, and later sessions write project `.claude/playwright-state/`. Show the configured desk names/count before the choice.
+
 The **lease-desk pool** powers `/browser:session` - named **concurrent** browser
 sessions over upstream `@playwright/mcp` (issue #421). It is opt-in: it registers
 N always-present upstream instances ("desks"), each adding a `browser_*` tool
@@ -1607,6 +1633,8 @@ fi
 <!-- CPP_TIER4_PREFLIGHT_END -->
 
 #### 4a. Framework Detection and Makefile
+
+Consent: the optional generator creates project `Makefile` only when absent. Detection/generation via uv may sync the CPP checkout `.venv` and configured uv cache; include those areas in the tier approval.
 
 ```bash
 # Detect framework
@@ -1694,6 +1722,8 @@ fi
 
 #### 4c. Health Check Configuration (Optional)
 
+Consent: update project `.claude/cicd.yml` with the supplied health URLs and port checks. Show the proposed entries before confirmation; redact credentials in URLs.
+
 Ask the user if they want to configure health checks:
 
 ```
@@ -1715,6 +1745,8 @@ Configure health checks? [y/N]
 If yes, use AskUserQuestion to get endpoint URLs, then update `.claude/cicd.yml`.
 
 #### 4d. CI Pipeline Generation (Optional)
+
+Consent: generate project `.github/workflows/ci.yml`, `.woodpecker.yml`, or both according to the selected provider. These can overwrite existing files; show the selected destinations before confirmation. Secret references are names, never values.
 
 Ask the user if they want to generate a CI pipeline:
 
@@ -1744,6 +1776,8 @@ fi
 
 #### 4e. Container Generation (Optional)
 
+Consent: generate project `Dockerfile`, `docker-compose.yml`, and `.dockerignore`. These can overwrite existing files; show the destinations before confirmation.
+
 Ask the user if they want to generate container files:
 
 ```
@@ -1769,6 +1803,8 @@ fi
 ### Tier 5 Execution (Codex Orchestration)
 
 #### 5a. Check Codex CLI
+
+Consent: before offering an absent CLI install, show the resolved npm global prefix and cache used by @openai/codex. This installs a host-wide executable; it does not perform login.
 
 ```bash
 echo ""
@@ -1841,6 +1877,8 @@ fi
 ```
 
 #### 5d. Register MCP Servers with Codex (Optional)
+
+Consent: register the selected servers in `${CODEX_HOME:-$HOME/.codex}/config.toml`; create its parent/file if absent and preserve unrelated configuration. Show the server names and transport before asking.
 
 This reuses the logic from Step 6 (Optional Extras) section 8b, but is now part of the Tier 5 flow:
 
@@ -1982,6 +2020,8 @@ CONSUMES a remote server before running the checks.
 
 #### 6a. Verify the Qwen Code CLI Harness (no API key needed)
 
+Consent: before offering an absent Qwen Code CLI install, show the resolved npm global prefix and cache used by @qwen-code/qwen-code. No cloud API key is stored.
+
 ```bash
 echo ""
 echo "=== Tier 6: Local Qwen Orchestration ==="
@@ -2015,7 +2055,7 @@ QWEN_ENDPOINT="${QWEN_OLLAMA_URL:-http://127.0.0.1:11434}"
 QWEN_MODEL="${QWEN_MODEL:-qwen3.8-code:latest}"
 
 if curl -sf --max-time 5 "$QWEN_ENDPOINT/api/version" > /dev/null; then
-  echo "[x] Ollama reachable at $QWEN_ENDPOINT"
+  echo "[x] Ollama reachable at configured QWEN_OLLAMA_URL (value withheld)"
   # The model is judged only against an endpoint that answered (issue #1263).
   # /api/tags fails for the SAME single cause as /api/version, so a "missing"
   # read off an unreachable host is not an observation - and its rebuild
@@ -2036,10 +2076,10 @@ if curl -sf --max-time 5 "$QWEN_ENDPOINT/api/version" > /dev/null; then
       echo "      printf 'FROM qwen3.8:27b\nPARAMETER num_ctx 65536\nPARAMETER temperature 0.7\nPARAMETER top_p 0.8\n' | ollama create qwen3.8-code -f -"
     fi
   else
-    echo "[?] Model '$QWEN_MODEL' unknown (the model list could not be read from $QWEN_ENDPOINT)"
+    echo "[?] Model '$QWEN_MODEL' unknown (the model list could not be read from configured QWEN_OLLAMA_URL (value withheld))"
   fi
 else
-  echo "[ ] Ollama NOT reachable at $QWEN_ENDPOINT"
+  echo "[ ] Ollama NOT reachable at configured QWEN_OLLAMA_URL (value withheld)"
   echo "    Serving machine: install and start Ollama (brew install ollama on macOS),"
   echo "    bind to the network with OLLAMA_HOST=0.0.0.0:11434 for LAN/tailnet use."
   echo "    Consumer machine: set QWEN_OLLAMA_URL=http://<serving-ip>:11434"
@@ -2048,6 +2088,8 @@ fi
 ```
 
 #### 6c. Remote Access (consumer machines only)
+
+Consent: the endpoint option appends QWEN_OLLAMA_URL to the resolved shell RC path (`~/.bashrc` or `~/.zshrc`); show that path before asking. This persists the endpoint in plaintext; do not display any credential value embedded in it.
 
 No harness config file is needed for a remote Ollama server. Only offer to
 persist the endpoint when `QWEN_ENDPOINT` is not
@@ -2068,15 +2110,17 @@ case "${SHELL##*/}" in
 esac
 ```
 
-Show the actual `QWEN_ENDPOINT` and selected rc file in this prompt, not
-placeholders:
+Show the selected endpoint and actual rc path, but redact credential values
+(including URL userinfo and query tokens). Fill `QWEN_ENDPOINT_REDACTED` for
+display only; never render the unredacted endpoint in the confirmation. The
+approved write below still uses the actual value internally:
 
 ```
 === Optional: Persist Qwen Endpoint ===
 
 Remote Qwen commands need this setting in every fresh shell. I can add:
   # Claude Power Pack - Qwen serving endpoint (issue #755)
-  export QWEN_OLLAMA_URL=${QWEN_ENDPOINT}
+  export QWEN_OLLAMA_URL={QWEN_ENDPOINT_REDACTED}
 
 Add to ${QWEN_RC_DISPLAY}? [y/N]
 ```
@@ -2104,8 +2148,7 @@ esac
 If no:
 ```bash
 echo "-> QWEN_OLLAMA_URL persistence skipped"
-echo "  Add these exact lines to $QWEN_RC_DISPLAY later:"
-printf '# Claude Power Pack - Qwen serving endpoint (issue #755)\nexport QWEN_OLLAMA_URL=%s\n' "$QWEN_ENDPOINT"
+echo "  Set QWEN_OLLAMA_URL in $QWEN_RC_DISPLAY to the selected endpoint; its value is withheld from output."
 ```
 
 `/qwen:auto`, `/qwen:exec`, and `/qwen:status` derive the harness endpoint
@@ -2116,6 +2159,8 @@ removing them - a leftover `wire_api = "chat"` provider block hard-errors
 every modern Codex invocation, including unrelated `/codex:*` commands.
 
 #### 6d. Smoke Test (optional)
+
+Consent: offer to skip before running the real Qwen harness. It contacts the selected Ollama endpoint and can write vendor runtime cache/logs in its configured user area; it can take minutes.
 
 ```bash
 QWEN_ENDPOINT="${QWEN_OLLAMA_URL:-http://127.0.0.1:11434}"
@@ -2160,6 +2205,8 @@ model, harness, env var, and config block.
 
 #### 7a. Verify the OpenCode Harness (no API key needed)
 
+Consent: before offering an absent OpenCode CLI install, show the resolved npm global prefix and cache used by opencode-ai. No cloud API key is stored.
+
 ```bash
 echo ""
 echo "=== Tier 7: Local Gemma Orchestration ==="
@@ -2181,7 +2228,7 @@ GEMMA_ENDPOINT="${GEMMA_OLLAMA_URL:-http://127.0.0.1:11434}"
 GEMMA_MODEL="${GEMMA_MODEL:-gemma4-code:latest}"
 
 if curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/version" > /dev/null; then
-  echo "[x] Ollama reachable at $GEMMA_ENDPOINT"
+  echo "[x] Ollama reachable at configured GEMMA_OLLAMA_URL (value withheld)"
   # The model is judged only against an endpoint that answered (issue #1263).
   # /api/tags fails for the SAME single cause as /api/version, so a "missing"
   # read off an unreachable host is not an observation - and its rebuild
@@ -2205,10 +2252,10 @@ if curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/version" > /dev/null; then
       echo "    bump costs VRAM, and one layer spilling to CPU collapses throughput."
     fi
   else
-    echo "[?] Model '$GEMMA_MODEL' unknown (the model list could not be read from $GEMMA_ENDPOINT)"
+    echo "[?] Model '$GEMMA_MODEL' unknown (the model list could not be read from configured GEMMA_OLLAMA_URL (value withheld))"
   fi
 else
-  echo "[ ] Ollama NOT reachable at $GEMMA_ENDPOINT"
+  echo "[ ] Ollama NOT reachable at configured GEMMA_OLLAMA_URL (value withheld)"
   echo "    Serving machine: start it ('ollama serve') and retry."
   echo "    Consumer machine: set GEMMA_OLLAMA_URL=http://<serving-host>:11434"
   echo "    Shared-GPU host: another VM may currently hold the card."
@@ -2221,6 +2268,8 @@ truncates long agent transcripts mid-run - no error, the model just loses the
 start of its own session.
 
 #### 7b.1 Persist the Gemma Endpoint (consumer machines only)
+
+Consent: the endpoint option appends GEMMA_OLLAMA_URL to the resolved shell RC path (`~/.bashrc` or `~/.zshrc`); show that path before asking. This persists the endpoint in plaintext; do not display any credential value embedded in it.
 
 Only offer to persist the endpoint when `GEMMA_ENDPOINT` is not
 `http://127.0.0.1:11434`, or when the user said this machine consumes a
@@ -2244,15 +2293,17 @@ case "${SHELL##*/}" in
 esac
 ```
 
-Show the actual `GEMMA_ENDPOINT` and selected rc file in this prompt, not
-placeholders:
+Show the selected endpoint and actual rc path, but redact credential values
+(including URL userinfo and query tokens). Fill `GEMMA_ENDPOINT_REDACTED` for
+display only; never render the unredacted endpoint in the confirmation. The
+approved write below still uses the actual value internally:
 
 ```
 === Optional: Persist Gemma Endpoint ===
 
 Remote Gemma commands need this setting in every fresh shell. I can add:
   # Claude Power Pack - Gemma serving endpoint (issue #755)
-  export GEMMA_OLLAMA_URL=${GEMMA_ENDPOINT}
+  export GEMMA_OLLAMA_URL={GEMMA_ENDPOINT_REDACTED}
 
 Add to ${GEMMA_RC_DISPLAY}? [y/N]
 ```
@@ -2280,11 +2331,12 @@ esac
 If no:
 ```bash
 echo "-> GEMMA_OLLAMA_URL persistence skipped"
-echo "  Add these exact lines to $GEMMA_RC_DISPLAY later:"
-printf '# Claude Power Pack - Gemma serving endpoint (issue #755)\nexport GEMMA_OLLAMA_URL=%s\n' "$GEMMA_ENDPOINT"
+echo "  Set GEMMA_OLLAMA_URL in $GEMMA_RC_DISPLAY to the selected endpoint; its value is withheld from output."
 ```
 
 #### 7c. Install the Provider and the Mechanical Fence
+
+Consent: the selected Tier 7 approval covers a merge into user `~/.config/opencode/opencode.json` (provider and agent entries), preserving unrelated entries. Required parents and replacement temporary files are included. Show this destination again before offering this step.
 
 CPP ships both blocks as `templates/opencode-gemma.json`. Merge them into the
 user's OpenCode config; never overwrite an existing file, which may hold their
@@ -2324,6 +2376,8 @@ Two things are being installed here, and the second is the safety-critical one:
   without it.
 
 #### 7d. Smoke Test (recommended)
+
+Consent: ask before running the real OpenCode harness. It creates a temporary directory with `probe.txt`, deletes that directory afterward, contacts the selected Ollama endpoint, and may write vendor runtime cache/logs. Offer to skip.
 
 This exercises tool calling through a real `opencode run`, including its system
 prompt. A bare curl probe checks endpoint reachability but does not exercise
@@ -2382,6 +2436,8 @@ After the selected tier steps have run, offer optional extras before the final s
 
 ### 8a. Sequential Thinking
 
+Consent: add a stdio server to the user MCP config (`${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json`), creating its parent/file if absent. npx uses its configured cache; no API key is needed.
+
 ```
 === Optional: Sequential Thinking MCP ===
 
@@ -2426,6 +2482,8 @@ echo "  Install later: claude mcp add --transport stdio --scope user sequential-
 ```
 
 ### 8b. Codex MCP Registration (optional)
+
+Consent: Yes updates `${CODEX_HOME:-$HOME/.codex}/config.toml` with the listed servers and npx can use its cache. No always creates project `.agents/`, even when the setup source is absent; generate project `.agents/CODEX_SETUP.md` by copying the supplied setup artifact only if the source exists; that copy can overwrite an existing setup file. Disclose both branches before asking.
 
 ```
 === Optional: Codex MCP Registration ===
@@ -2509,6 +2567,8 @@ fi
 
 ### 8c. Workstation Tuning (bash-prep)
 
+Consent: sudo may create/recreate `/swapfile`, append its entry to `/etc/fstab`, and write `/etc/sysctl.d/99-claude-code.conf`. It also changes active swap/kernel settings now. Show the calculated swap size and these destinations before asking.
+
 ```
 === Optional: Workstation Tuning ===
 
@@ -2544,6 +2604,8 @@ echo "  Or check current values: bash ~/.claude/scripts/bash-prep.sh --check"
 ```
 
 ### 8d. Common-Memory Store Backend (mini-tier)
+
+Consent: any backend selection replaces the nonsecret choice in `~/.config/claude-power-pack/secrets/cpp-memories.backend` and creates required parents. md writes project `.claude/learnings.md` and `.claude/learnings.rejected.jsonl` only when later memory features are used. local-pg can optionally pull postgres:17 and start Docker container `cpp-memory-db`, with persistent volume `cpp_memory_data` on loopback port 5433; schema initialization runs on an empty volume. The shipped development POSTGRES_USER, POSTGRES_PASSWORD and POSTGRES_DB settings are plaintext in the compose configuration, not production secrets; name them without printing values. remote-pg reads CPP_MEMORIES_DSN, the local `~/.config/claude-power-pack/secrets/cpp-memories.dsn` file or AWS Secrets Manager; the local DSN file, if supplied, is plaintext credential storage. Init writes no DSN or remote schema: its ping is SELECT 1 only. Show this inventory before the backend choice.
 
 Only offer this when the common-memory feature is in use. Tier 2 links the
 checkout's executable helpers; Tier 5f installs the PATH harness for `cpp-memory`.
@@ -2605,6 +2667,7 @@ case "$MEM_BACKEND_CHOICE" in
       *) echo "✗ common-memory backend selection FAILED - check $BACKEND_FILE - a failed write may have modified it" ;;
     esac
     if command -v docker >/dev/null 2>&1; then
+      echo "Consent: pull postgres:17; start cpp-memory-db with volume cpp_memory_data, plaintext shipped development POSTGRES_PASSWORD settings, and first-boot schema initialization. No credential values will be printed."
       read -r -p "Start the local postgres:17 store now (docker compose up -d)? [y/N] " START_PG
       if [[ "$START_PG" =~ ^[Yy]$ ]]; then
         docker compose -f "$CPP_DIR/lib/cpp_memory/docker-compose.yml" up -d
@@ -2615,7 +2678,7 @@ case "$MEM_BACKEND_CHOICE" in
     else
       echo "⚠ Docker not found - install it, then: docker compose -f \"$CPP_DIR/lib/cpp_memory/docker-compose.yml\" up -d"
     fi
-    echo "  Default DSN: postgresql://cpp_memory:cpp_memory@127.0.0.1:5433/cpp_memory"
+    echo "  Local credentials: POSTGRES_USER, POSTGRES_PASSWORD and POSTGRES_DB in the shipped compose configuration (plaintext development settings); values withheld."
     ;;
   iii|remote-pg)
     ~/.claude/scripts/cpp-host-write.sh file-write "$BACKEND_FILE" "remote-pg"

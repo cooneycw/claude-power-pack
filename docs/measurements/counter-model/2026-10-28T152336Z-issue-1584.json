@@ -1,0 +1,70 @@
+{
+  "branch": "issue-1584-evidence-adapters",
+  "counts": {
+    "accepted": 7,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "Orchestrator requested pass 3 after pass 2 found two new MEDIUM binding defects; pass 3 verifies their fixes",
+  "head": "f85ca34546f4ec9b0b1827064778cfd886353eab",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/10/27/rollout-2026-10-27T10-01-57-01a17ccf-39dc-7a52-b013-482c0a8cbc5c.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 32873284,
+        "path": "2026/10/27/rollout-2026-10-27T10-01-57-01a17ccf-39dc-7a52-b013-482c0a8cbc5c.jsonl",
+        "sha256": "9e4e3121696b1c920de1a855bc34a36977dde672f708934166f675acb8001e0e"
+      }
+    ],
+    "thread_id": "01a17ccf-39dc-7a52-b013-482c0a8cbc5c"
+  },
+  "issue": "1584",
+  "local_credentials": "absent",
+  "network": "unverified",
+  "passes": 3,
+  "recorded_at": "2026-10-28T15:23:36Z",
+  "red_cases": {
+    "already_covered": 11,
+    "proposed": 20
+  },
+  "reviewed_artifact": {
+    "base_sha": "247d3a0f1201f3c394f20efe1e8dddb70c651273",
+    "merge_base": "025bd596c2ab54a090af8592b458c96e416beb79",
+    "method": "captured-patch",
+    "patch_sha256": "b540a854c99f048b34bfac11bc4c4df7a26a0b51d2fa93e2172dc0ee0ca218d1",
+    "report_record": 25,
+    "target_head": "f85ca34546f4ec9b0b1827064778cfd886353eab"
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "exec_log": "stream.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6-astra"
+    ],
+    "rollout": "2026/10/28/rollout-2026-10-28T15-05-47-01a1830b-bddd-7453-ae79-18388a074b35.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 6548,
+        "path": "stream.jsonl",
+        "sha256": "795f55c255904c3208085785de6ed877b8364de76fa04a6f4aec42fd37922fea"
+      },
+      {
+        "bytes": 1254747,
+        "path": "2026/10/28/rollout-2026-10-28T15-05-47-01a1830b-bddd-7453-ae79-18388a074b35.jsonl",
+        "sha256": "55b97a1b3ca598b374cfaab8647840ead5f420ca1b13979fb90bf2065204ae70"
+      }
+    ],
+    "thread_id": "01a1830b-bddd-7453-ae79-18388a074b35"
+  },
+  "schema": 5,
+  "scope": "diff-only",
+  "status": "ran"
+}

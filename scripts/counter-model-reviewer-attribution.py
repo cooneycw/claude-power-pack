@@ -257,6 +257,15 @@ def scan(
                 "is a Claude session, which no Codex rollout can attribute"
             )
             continue
+        if receipt.get("schema") == 5:
+            evidence = receipt.get("reviewer_evidence")
+            runtime = evidence.get("runtime") if isinstance(evidence, dict) else None
+            if runtime != "codex":
+                notes.append(
+                    f"ATTRIBUTION-NOTE: {name}: schema 5 reviewer is outside this Codex-rollout audit's "
+                    "population; excluded rather than attributed to the implementer's rollout"
+                )
+                continue
         examined += 1
 
         branch = receipt.get("branch")

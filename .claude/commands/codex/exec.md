@@ -63,7 +63,7 @@ OUTPUT_FILE="/tmp/codex-exec-${TIMESTAMP}.jsonl"
 codex exec \
     --json \
     --sandbox danger-full-access \
-    "$PROMPT" < /dev/null > "$OUTPUT_FILE" 2>&1   # </dev/null: non-TTY EOF so codex never blocks reading stdin
+    "$PROMPT" < /dev/null > "$OUTPUT_FILE" 2> "${OUTPUT_FILE}.stderr"   # </dev/null: non-TTY EOF so codex never blocks reading stdin
 
 CODEX_EXIT=$?
 echo "codex exited $CODEX_EXIT; output: $OUTPUT_FILE"
@@ -175,3 +175,7 @@ or git checkout -- . to discard.
 - No automatic commit - user reviews and commits manually
 - For full issue lifecycle with review and quality gates, use `/codex:auto`
 - For a read-only question (no file changes), use `/codex:ask`
+
+When this stream supplies a counter-model evidence adapter, keep stdout as
+JSONL and stderr in the separate `.stderr` file above. Do not merge diagnostics
+into evidence. Preserve both until the consumer has derived the receipt.
