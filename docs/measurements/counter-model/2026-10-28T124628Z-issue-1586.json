@@ -1,0 +1,32 @@
+{
+  "branch": "fix/1586-init-verdicts",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "Review retained under cr-orch12052/12132/12181: final reviewed superset minus Step2 restoration; authored/test diff invariant across main rebases, sha256 5e6ce26f67ea6c2be73218385d50f320f5b56dd5435fa97b0efa0cd3be94829f; post025 focused66pass.",
+  "head": "f14c006851ddc933a0fabcd47b8abee16a32d7e6",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/10/28/rollout-2026-10-28T11-17-43-01a1823a-f1c5-72e1-9690-1f394b8034cc.jsonl",
+    "thread_id": "01a1823a-f1c5-72e1-9690-1f394b8034cc"
+  },
+  "issue": "1586",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 3,
+  "recorded_at": "2026-10-28T12:46:28Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "rollout": "2026/10/28/rollout-2026-10-28T11-50-40-01a18259-1dbf-7431-875f-c786acaf1eee.jsonl",
+    "thread_id": "01a18259-1dbf-7431-875f-c786acaf1eee"
+  },
+  "schema": 2,
+  "scope": "diff-only",
+  "status": "ran"
+}

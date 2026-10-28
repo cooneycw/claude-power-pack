@@ -1,0 +1,302 @@
+[
+  {
+    "name": "cautious",
+    "mode": "json",
+    "settings": {
+      "permissions": {
+        "allow": [
+          "Read",
+          "Glob",
+          "Grep"
+        ],
+        "deny": [
+          "Bash(rm -rf:*)",
+          "Bash(git push --force:*)"
+        ]
+      },
+      "env": {
+        "PRIVATE_TEST_FIELD": "do-not-render-this-value"
+      }
+    },
+    "profile": "Cautious",
+    "verified": true,
+    "counts": {
+      "allow": 3,
+      "ask": 0,
+      "deny": 2
+    }
+  },
+  {
+    "name": "standard",
+    "mode": "json",
+    "settings": {
+      "permissions": {
+        "allow": [
+          "Read",
+          "Glob",
+          "Grep",
+          "Bash(git status:*)",
+          "Bash(git diff:*)",
+          "Bash(git log:*)",
+          "Bash(git add:*)",
+          "Bash(git commit:*)",
+          "Bash(git branch:*)",
+          "Bash(git checkout:*)",
+          "Bash(git stash:*)",
+          "Bash(git fetch:*)",
+          "Bash(ls:*)",
+          "Bash(pwd)",
+          "Bash(cat:*)",
+          "Bash(head:*)",
+          "Bash(tail:*)",
+          "Bash(npm:*)",
+          "Bash(npx:*)",
+          "Bash(uv:*)",
+          "Bash(pip:*)",
+          "Bash(yarn:*)",
+          "Bash(python:*)",
+          "Bash(node:*)",
+          "Bash(gh issue list:*)",
+          "Bash(gh issue view:*)",
+          "Bash(gh pr list:*)",
+          "Bash(gh pr view:*)",
+          "WebFetch(domain:github.com)",
+          "WebFetch(domain:docs.python.org)",
+          "Skill(project-next)",
+          "Skill(project-lite)"
+        ],
+        "deny": [
+          "Bash(rm -rf:*)",
+          "Bash(git push --force:*)",
+          "Bash(git reset --hard:*)",
+          "Bash(sudo:*)",
+          "Bash(chmod -R:*)"
+        ]
+      },
+      "env": {
+        "PRIVATE_TEST_FIELD": "do-not-render-this-value"
+      }
+    },
+    "profile": "Standard",
+    "verified": true,
+    "counts": {
+      "allow": 32,
+      "ask": 0,
+      "deny": 5
+    }
+  },
+  {
+    "name": "trusted",
+    "mode": "json",
+    "settings": {
+      "permissions": {
+        "allow": [
+          "Read",
+          "Glob",
+          "Grep",
+          "Write",
+          "Bash(git:*)",
+          "Bash(gh:*)",
+          "Bash(npm:*)",
+          "Bash(npx:*)",
+          "Bash(uv:*)",
+          "Bash(pip:*)",
+          "Bash(yarn:*)",
+          "Bash(python:*)",
+          "Bash(node:*)",
+          "Bash(ls:*)",
+          "Bash(cat:*)",
+          "Bash(mkdir:*)",
+          "Bash(cp:*)",
+          "Bash(mv:*)",
+          "Bash(curl:*)",
+          "Bash(wget:*)",
+          "WebFetch",
+          "WebSearch",
+          "Skill(*)",
+          "mcp__second-opinion__*",
+          "mcp__playwright__*"
+        ],
+        "deny": [
+          "Bash(rm -rf /:*)",
+          "Bash(rm -rf ~:*)",
+          "Bash(rm -rf /home:*)",
+          "Bash(git push --force origin main:*)",
+          "Bash(git push --force origin master:*)",
+          "Bash(sudo rm:*)",
+          "Bash(mkfs:*)",
+          "Bash(dd if=:*)"
+        ],
+        "ask": [
+          "Bash(git push:*)",
+          "Bash(git reset:*)",
+          "Bash(git clean:*)",
+          "Bash(git rebase:*)",
+          "Bash(git filter-branch:*)",
+          "Bash(git filter-repo:*)",
+          "Bash(git replace:*)",
+          "Bash(git update-ref:*)",
+          "Bash(gh repo delete:*)",
+          "Bash(gh repo archive:*)",
+          "Bash(gh pr merge:*)",
+          "Bash(gh issue delete:*)",
+          "Bash(gh release delete:*)",
+          "Bash(gh api:*)",
+          "Bash(git commit --amend*)",
+          "Bash(git commit * --amend*)",
+          "Bash(git branch -D*)",
+          "Bash(git branch * -D*)",
+          "Bash(git branch --force*)",
+          "Bash(git branch * --force*)",
+          "Bash(git branch -f*)",
+          "Bash(git branch * -f*)",
+          "Bash(git branch -df*)",
+          "Bash(git branch * -df*)",
+          "Bash(git branch -rD*)",
+          "Bash(git branch * -rD*)",
+          "Bash(git branch -M*)",
+          "Bash(git branch * -M*)",
+          "Bash(git branch -C*)",
+          "Bash(git branch * -C*)"
+        ]
+      },
+      "env": {
+        "PRIVATE_TEST_FIELD": "do-not-render-this-value"
+      }
+    },
+    "profile": "Trusted",
+    "verified": true,
+    "counts": {
+      "allow": 25,
+      "ask": 30,
+      "deny": 8
+    }
+  },
+  {
+    "name": "yolo",
+    "mode": "json",
+    "settings": {
+      "permissions": {
+        "allow": [
+          "Read",
+          "Glob",
+          "Grep",
+          "Write",
+          "Bash(git:*)",
+          "Bash(gh:*)",
+          "Bash(npm:*)",
+          "Bash(npx:*)",
+          "Bash(uv:*)",
+          "Bash(pip:*)",
+          "Bash(yarn:*)",
+          "Bash(python:*)",
+          "Bash(node:*)",
+          "Bash(ls:*)",
+          "Bash(cat:*)",
+          "Bash(mkdir:*)",
+          "Bash(cp:*)",
+          "Bash(mv:*)",
+          "Bash(curl:*)",
+          "Bash(wget:*)",
+          "WebFetch",
+          "WebSearch",
+          "Skill(*)",
+          "mcp__second-opinion__*",
+          "mcp__playwright__*"
+        ],
+        "deny": [
+          "Bash(rm -rf /:*)",
+          "Bash(rm -rf ~:*)",
+          "Bash(rm -rf /home:*)",
+          "Bash(git push --force origin main:*)",
+          "Bash(git push --force origin master:*)",
+          "Bash(sudo rm:*)",
+          "Bash(mkfs:*)",
+          "Bash(dd if=:*)"
+        ]
+      },
+      "env": {
+        "PRIVATE_TEST_FIELD": "do-not-render-this-value"
+      }
+    },
+    "profile": "YOLO",
+    "verified": true,
+    "counts": {
+      "allow": 25,
+      "ask": 0,
+      "deny": 8
+    }
+  },
+  {
+    "name": "custom",
+    "mode": "json",
+    "settings": {
+      "permissions": {
+        "allow": [
+          "Read"
+        ],
+        "ask": [
+          "Bash(npm:*)"
+        ],
+        "deny": []
+      }
+    },
+    "profile": "Custom/existing",
+    "verified": false,
+    "counts": {
+      "allow": 1,
+      "ask": 1,
+      "deny": 0
+    }
+  },
+  {
+    "name": "bad-shape",
+    "mode": "json",
+    "settings": {
+      "permissions": {
+        "allow": "Read"
+      }
+    },
+    "profile": "unknown",
+    "verified": false,
+    "counts": {
+      "allow": null,
+      "ask": null,
+      "deny": null
+    }
+  },
+  {
+    "name": "invalid-json",
+    "mode": "raw",
+    "settings": "{\"permissions\":",
+    "profile": "unknown",
+    "verified": false,
+    "counts": {
+      "allow": null,
+      "ask": null,
+      "deny": null
+    }
+  },
+  {
+    "name": "absent",
+    "mode": "absent",
+    "profile": "unknown",
+    "verified": false,
+    "counts": {
+      "allow": null,
+      "ask": null,
+      "deny": null
+    }
+  },
+  {
+    "name": "unreadable-directory",
+    "mode": "directory",
+    "profile": "unknown",
+    "verified": false,
+    "counts": {
+      "allow": null,
+      "ask": null,
+      "deny": null
+    }
+  }
+]

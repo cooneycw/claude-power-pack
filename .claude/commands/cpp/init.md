@@ -136,7 +136,8 @@ fi
 
 ## Step 2: Detect Current State
 
-Check what's already installed (same logic as `/cpp:status`):
+Collect these presence observations to guide the remaining steps. They do not
+prove that the installed capabilities are ready; use `/cpp:status` for readiness:
 
 ```bash
 # Tier 1 checks
@@ -186,8 +187,8 @@ Ask the user which tier they want to install using the AskUserQuestion tool:
 
 | Tier | Name | Description |
 |------|------|-------------|
-| 1 | **Minimal** | Commands symlink only |
-| 2 | **Standard** | + Scripts, hooks, shell prompt |
+| 1 | **Minimal** | Commands symlinks and project stash guard |
+| 2 | **Standard** | + Scripts and shell prompt |
 | 3 | **Full** | + MCP servers (external second-opinion + playwright) |
 | 4 | **CI/CD** | + Build system, health checks, pipelines, containers |
 | 5 | **Codex** | + Codex CLI orchestration (cross-model implementation and review) |
@@ -197,8 +198,8 @@ Ask the user which tier they want to install using the AskUserQuestion tool:
 Default recommendation: **Standard** for most users, **Full** for MCP-powered workflows, **CI/CD** for projects needing build automation, **Codex** for cross-model implementation workflows, **Local Qwen** or **Local Gemma** for zero-cost/private local-model implementation.
 
 Tier 6 is optional and additive: it layers on Tier 1 (commands symlink) and
-does not require Tiers 2-5, though it reuses the Codex CLI binary as a
-harness if Tier 5 already installed it.
+does not require Tiers 2-5. It uses the Qwen Code CLI as its harness and talks
+directly to the selected Ollama endpoint; the Codex CLI is not used for this lane.
 
 Tier 7 is likewise optional and additive, and independent of Tier 6: a
 different model, a different harness (OpenCode), a different env var, and its
@@ -210,7 +211,7 @@ non-Qwen local opinion is wanted.
 
 ## Step 3b: Permission Profile (Tier 2+)
 
-**Only show this step if user selected Tier 2 or Tier 3.**
+**Only show this step if user selected Tier 2, Tier 3, Tier 4, or Tier 5.**
 
 Claude Code prompts "Allow?" before running tools. You can auto-approve safe operations to reduce interruptions while blocking dangerous commands.
 
@@ -222,8 +223,20 @@ Ask the user which permission profile they want using AskUserQuestion:
 |---------|-------------|----------|
 | **Cautious** | Minimal auto-approvals (Read only) | New users, shared machines |
 | **Standard** | Common dev tools auto-approved (Recommended) | Most developers |
-| **Trusted** | Broad auto-approvals, with no hook behind them: CPP's optional hooks (the permission census and the pending-retro notice) observe and advise, and neither blocks or filters anything | Solo developers, power users |
+| **Trusted** | Broad development approvals; asks on listed Git/GitHub verbs, including ordinary push and API calls. Optional hooks only advise | Solo developers, power users |
 | **Custom** | Choose individual permission categories | Fine-grained control |
+
+Keep the initial AskUserQuestion choices to Cautious, Standard, Trusted, and
+Custom. If the user selects Trusted, ask one additional question:
+
+**Which broad-approval profile?**
+- **Keep Trusted (default)** - ask on the listed Git/GitHub verbs, including ordinary push and API calls.
+- **YOLO (explicit opt-in)** - auto-approve those commands too; show the disclosure below before confirmation.
+
+YOLO is never the default and is never recommended. Do not select it from the
+installation tier, prior permissions, or a request to reduce prompts. A user must
+choose it explicitly and confirm its disclosure; declining returns to the profile
+chooser. Standard remains the recommended default.
 
 ### Profile Definitions
 
@@ -267,28 +280,191 @@ Ask the user which permission profile they want using AskUserQuestion:
 {
   "permissions": {
     "allow": [
-      "Read", "Glob", "Grep", "Write",
-      "Bash(git:*)", "Bash(gh:*)",
-      "Bash(npm:*)", "Bash(npx:*)", "Bash(uv:*)", "Bash(pip:*)", "Bash(yarn:*)",
-      "Bash(python:*)", "Bash(node:*)",
-      "Bash(ls:*)", "Bash(cat:*)", "Bash(mkdir:*)", "Bash(cp:*)", "Bash(mv:*)",
-      "Bash(curl:*)", "Bash(wget:*)",
-      "WebFetch", "WebSearch",
+      "Read",
+      "Glob",
+      "Grep",
+      "Write",
+      "Bash(git:*)",
+      "Bash(gh:*)",
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "Bash(uv:*)",
+      "Bash(pip:*)",
+      "Bash(yarn:*)",
+      "Bash(python:*)",
+      "Bash(node:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "WebFetch",
+      "WebSearch",
       "Skill(*)",
-      "mcp__second-opinion__*", "mcp__playwright__*"
+      "mcp__second-opinion__*",
+      "mcp__playwright__*"
     ],
     "deny": [
-      "Bash(rm -rf /:*)", "Bash(rm -rf ~:*)", "Bash(rm -rf /home:*)",
-      "Bash(git push --force origin main:*)", "Bash(git push --force origin master:*)",
-      "Bash(sudo rm:*)", "Bash(mkfs:*)", "Bash(dd if=:*)"
+      "Bash(rm -rf /:*)",
+      "Bash(rm -rf ~:*)",
+      "Bash(rm -rf /home:*)",
+      "Bash(git push --force origin main:*)",
+      "Bash(git push --force origin master:*)",
+      "Bash(sudo rm:*)",
+      "Bash(mkfs:*)",
+      "Bash(dd if=:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(git reset:*)",
+      "Bash(git clean:*)",
+      "Bash(git rebase:*)",
+      "Bash(git filter-branch:*)",
+      "Bash(git filter-repo:*)",
+      "Bash(git replace:*)",
+      "Bash(git update-ref:*)",
+      "Bash(gh repo delete:*)",
+      "Bash(gh repo archive:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(gh issue delete:*)",
+      "Bash(gh release delete:*)",
+      "Bash(gh api:*)",
+      "Bash(git commit --amend*)",
+      "Bash(git commit * --amend*)",
+      "Bash(git branch -D*)",
+      "Bash(git branch * -D*)",
+      "Bash(git branch --force*)",
+      "Bash(git branch * --force*)",
+      "Bash(git branch -f*)",
+      "Bash(git branch * -f*)",
+      "Bash(git branch -df*)",
+      "Bash(git branch * -df*)",
+      "Bash(git branch -rD*)",
+      "Bash(git branch * -rD*)",
+      "Bash(git branch -M*)",
+      "Bash(git branch * -M*)",
+      "Bash(git branch -C*)",
+      "Bash(git branch * -C*)"
     ]
   }
 }
 ```
 
-The Standard profile auto-approves only GitHub issue list/view and PR list/view.
-In Standard, GitHub mutations require confirmation. Select Custom mode to choose
-broader GitHub permissions explicitly.
+**YOLO Profile:**
+```json
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Write",
+      "Bash(git:*)",
+      "Bash(gh:*)",
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "Bash(uv:*)",
+      "Bash(pip:*)",
+      "Bash(yarn:*)",
+      "Bash(python:*)",
+      "Bash(node:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "WebFetch",
+      "WebSearch",
+      "Skill(*)",
+      "mcp__second-opinion__*",
+      "mcp__playwright__*"
+    ],
+    "deny": [
+      "Bash(rm -rf /:*)",
+      "Bash(rm -rf ~:*)",
+      "Bash(rm -rf /home:*)",
+      "Bash(git push --force origin main:*)",
+      "Bash(git push --force origin master:*)",
+      "Bash(sudo rm:*)",
+      "Bash(mkfs:*)",
+      "Bash(dd if=:*)"
+    ]
+  }
+}
+```
+
+#### Trusted approval scope
+
+Trusted keeps its original broad allow list **and every original deny rule**,
+then adds `permissions.ask`. Normal rule precedence is **deny, then ask, then
+allow**, independent of specificity. Existing exact force-push-to-main/master
+prefix denies remain denied; they are not weakened into prompts.
+
+Whole-verb asks cover git push, reset, clean, rebase, filter-branch, filter-repo,
+replace and update-ref; gh repo delete/archive, pr merge, issue delete, release
+delete and api. All pushes and all API calls prompt, including ordinary pushes
+and GET requests such as `gh api repos/owner/repo`: flags, refspecs, grouped push
+options and implicit API methods make a finite dangerous-only list too easy to
+miss. This is a usability cost: the separate explicit YOLO choice restores the
+original Trusted policy if you accept that risk. Ordinary commits and branch
+creation/listing/rename/copy remain auto-approved; commit amend and forced branch
+delete/rename/copy forms use flag patterns instead. The JSON above is the complete
+installed ask list.
+
+Flags after operands are covered, for example `git push origin main --force`,
+`git commit -m fix --amend`, `git branch old -D`, and
+`gh api repos/owner/repo -X DELETE`. Claude Code checks every compound subcommand,
+so `cd subdir && git push -f` also prompts for the push.
+
+This is not a complete destructive-command list or a security boundary around
+programs. Flag patterns can also prompt when flag-like text occurs in a quoted
+argument; unlisted grouped branch flags may escape them. Alternate forms such as
+`/usr/bin/git`, `git -C . push`, `git 'push'`, and `sh -c '...'` are outside these
+prefixes; other rules and permission modes decide them. Broad runtime approvals
+can execute commands indirectly. Native sandbox and permission-mode settings
+still apply. The [Claude Code permission docs](https://code.claude.com/docs/en/permissions.md)
+document precedence, wildcard patterns, compounds and these matching limits,
+but do not name an earliest version for ask precedence. Do not promise it for
+an unverified old client.
+
+### YOLO Disclosure
+
+Show this after an explicit YOLO choice and before any installation confirmation:
+
+```
+=== YOLO permission profile: explicit opt-in ===
+
+This writes the selected profile to .claude/settings.local.json when that file
+is absent. Existing local settings are skipped; selecting a profile does not
+silently replace them.
+
+YOLO uses the original Trusted allow AND deny lists exactly. It auto-approves
+many destructive direct git and gh forms, unless an existing deny matches:
+  git push --force / -f / --force-with-lease (including flags after operands)
+  git reset --hard; git clean -f; git branch -D / -M / -C
+  git commit --amend; git rebase; git filter-branch; git filter-repo
+  git replace; git update-ref
+  gh repo delete; gh repo archive; gh pr merge; gh issue delete
+  gh release delete; gh api -X DELETE (including the method after the URL)
+
+These operations can discard work, rewrite published history, delete repositories
+or issues, and merge changes without an additional permission prompt. The existing
+exact git push --force origin main/master prefix denies remain, along with all
+original system denies. Other argument orders may not match those denies.
+
+YOLO is never the default or a recommendation. Native policy still applies; this
+choice does not enable bypassPermissions mode.
+
+Proceed? [y/N]
+```
+
+The Standard profile lists direct GitHub issue and PR read commands.
+The Custom GitHub CLI write category adds PR create/merge only; it
+does not include issue-write verbs. Other permission settings and modes still apply.
 
 ### Custom Mode Categories
 
@@ -310,10 +486,10 @@ If user selects "Custom", ask which categories to enable using multi-select:
 
 ### Security Notes
 
-- **Deny rules are always enforced** - Dangerous patterns blocked regardless of profile
-- **Native blocking + sandbox are the first layer** - Claude Code natively auto-blocks destructive git commands and OS-sandboxes filesystem/system operations, even if auto-approved
+- **Matching deny rules take precedence** - In normal rule evaluation, deny wins over ask, and ask wins over allow
+- **Native policy still applies** - Profiles configure permission rules; the selected permission mode and sandbox settings also govern execution
 - **Nothing masks tool output** - CPP registers no output filter, so treat anything a command prints as reaching the transcript verbatim
-- **Trusted profile requires Tier 2** - Won't offer Trusted unless the helper scripts are installed
+- **Trusted and YOLO require Tier 2** - Offer the broad-approval chooser only when the Tier 2 helper scripts are installed
 
 ---
 
@@ -369,7 +545,8 @@ This will make the following changes:
     • prompt-context.sh       - Shell prompt worktree context
     • worktree-remove.sh      - Safe worktree cleanup
     • secrets-mask.sh         - Secret-masking filter for files at rest
-    • hook-mask-output.sh     - JSON wrapper around secrets-mask.sh
+    • hook-mask-output.sh     - Standalone JSON helper for files at rest;
+      not registered as a hook and masking nothing live
 
   [Tier 2 - Shell Prompt] (optional)
     • Add worktree context to PS1: [CPP #42] ~/project $
@@ -388,7 +565,6 @@ This will make the following changes:
   To undo:
     rm .claude/commands
     find ~/.claude/scripts -maxdepth 1 -type l -delete   # CPP installs symlinks only
-    rm .claude/hooks.json
     # Remove PS1 line from ~/.bashrc or ~/.zshrc
 
 Proceed? [y/N]
@@ -491,7 +667,7 @@ This will make the following changes:
 
   [Tier 5 - Codex CLI]
     - Requires: Codex CLI (npm install -g @openai/codex)
-    - Requires: OpenAI API key (codex login)
+    - Requires: ChatGPT sign-in or API-key authentication (codex login)
     - Installs: /codex:auto, /codex:exec, /codex:ask, /codex:status, /codex:help commands
     - Optional: Register CPP MCP servers with Codex
 
@@ -515,6 +691,7 @@ This will make the following changes:
     (see above; Tiers 2-5 are NOT required for this tier)
 
   [Tier 6 - Local Qwen]
+    - Installs if absent: ~/.claude/scripts/cpp-host-write.sh (link to the verified checkout helper).
     - Requires: Qwen Code CLI as the agentic harness
       (npm install -g @qwen-code/qwen-code)
       NOTE: no cloud API key is needed - the harness talks straight to Ollama
@@ -544,6 +721,7 @@ This will make the following changes:
     (see above; Tiers 2-6 are NOT required for this tier)
 
   [Tier 7 - Local Gemma]
+    - Installs if absent: ~/.claude/scripts/cpp-host-write.sh (link to the verified checkout helper).
     - Requires: OpenCode CLI as the agentic harness
       (npm install -g opencode-ai)
       NOTE: no cloud API key is needed - the harness talks straight to Ollama
@@ -601,8 +779,11 @@ mkdir -p .claude
 
 # Symlink commands (skip if exists)
 if [ ! -L ".claude/commands" ] && [ ! -d ".claude/commands" ]; then
-  ln -sf "$CPP_DIR/.claude/commands" .claude/commands
-  echo "✓ Commands symlinked"
+  if ln -sf "$CPP_DIR/.claude/commands" .claude/commands; then
+    echo "✓ Commands symlinked"
+  else
+    echo "WARNING: setup command failed (exit $?)."
+  fi
 else
   echo "→ Commands already installed (skipped)"
 fi
@@ -627,7 +808,7 @@ fall back to `"$CPP_DIR/scripts/stash-worktree-guard.sh"`):
 
 Act on `STASH_GUARD:`:
 
-- `installed` / `current` - armed. Say so in the Step 6 summary.
+- `installed` / `current` - armed. Say so in the Step 7 summary.
 - `disabled` - this repository recorded `cpp.stashGuard=false` on a previous
   opt-out. **Leave it off** and do not re-offer: re-asking every install is the
   oscillation an opt-out exists to end.
@@ -746,10 +927,14 @@ Based on the profile selected in Step 3b, generate `.claude/settings.local.json`
 
 if [ ! -f ".claude/settings.local.json" ]; then
   # Write the selected profile to settings.local.json
-  cat > .claude/settings.local.json << 'SETTINGS_EOF'
+  if cat > .claude/settings.local.json << 'SETTINGS_EOF'
 {PROFILE_JSON_CONTENT}
 SETTINGS_EOF
-  echo "✓ Permission profile configured: {PROFILE_NAME}"
+  then
+    echo "✓ Permission profile configured: {PROFILE_NAME}"
+  else
+    echo "WARNING: configuration write failed (exit $?)."
+  fi
 else
   echo "→ settings.local.json exists (skipped)"
   echo "  To reconfigure, delete .claude/settings.local.json and run /cpp:init"
@@ -758,10 +943,11 @@ fi
 # Add settings.local.json to .gitignore if not already there
 if [ -f ".gitignore" ]; then
   if ! grep -q "settings.local.json" .gitignore; then
-    echo "" >> .gitignore
-    echo "# Claude Code local settings (contains user-specific permissions)" >> .gitignore
-    echo ".claude/settings.local.json" >> .gitignore
-    echo "✓ Added settings.local.json to .gitignore"
+    if printf '\n# Claude Code local settings (contains user-specific permissions)\n.claude/settings.local.json\n' >> .gitignore; then
+      echo "✓ Added settings.local.json to .gitignore"
+    else
+      echo "WARNING: .gitignore update failed (exit $?)."
+    fi
   fi
 fi
 ```
@@ -784,8 +970,11 @@ if [ -f ".gitignore" ]; then
         echo "# Claude Code friction capture (local, not shared history)" >> .gitignore
         FRICTION_HEADER_WRITTEN=1
       fi
-      echo "$pattern" >> .gitignore
-      echo "✓ Added $pattern to .gitignore"
+      if echo "$pattern" >> .gitignore; then
+        echo "✓ Added $pattern to .gitignore"
+      else
+        echo "WARNING: .gitignore update failed (exit $?)."
+      fi
     fi
   done
 fi
@@ -797,26 +986,29 @@ fi
 
 - **Standard**: See Step 3b for full JSON
 
-- **Trusted**: See Step 3b for full JSON
+- **Trusted**: See Step 3b for full JSON, including the ask exceptions
+
+- **YOLO**: See Step 3b; only after explicit selection and disclosure confirmation
 
 - **Custom**: Build JSON from selected categories
 
 **User-Level Flow Allowlist (Optional)**
 
 The project profiles above govern ONE repo. The `/flow:*` commands also run
-read-only git/gh plumbing (issue reads, worktree creation, the branch-slug
-text pipeline) in EVERY repo, which prompts on every run unless the rules
+git/gh workflow commands (issue reads, fetches and worktree creation,
+the branch-slug text pipeline) in EVERY repo, which prompts on every run unless the rules
 exist at user level. Offer to merge the CPP allowlist template into
 `~/.claude/settings.json`:
 
 ```
 === Optional: User-Level Flow Allowlist ===
 
-/flow commands run read-only git/gh plumbing (gh issue view, git fetch,
+/flow commands run git/gh workflow commands (gh issue view, git fetch,
 git worktree, slug pipelines) that triggers a permission prompt on every
 run, in every repo, unless allowed at user level.
 
-Merge the CPP read-only allowlist into ~/.claude/settings.json?
+Merge the CPP workflow allowlist into ~/.claude/settings.json?
+(This allows repository mutations including fetches and worktree creation.)
 (Additive and idempotent - existing settings and rules are preserved.
 Rationale and caveats: templates/claude-settings-permissions.md)  [y/N]
 ```
@@ -1077,7 +1269,7 @@ If no Makefile exists in the project root, offer to create one from the template
 === Optional: Makefile ===
 
 The /flow commands use Makefile targets for quality gates and deployment:
-  /flow:finish  → runs `make lint` and `make test`
+  /flow:finish  → runs the project's declared quality gates
   /flow:deploy  → runs `make deploy`
 
 Create a starter Makefile? [y/N]
@@ -1086,8 +1278,11 @@ Create a starter Makefile? [y/N]
 If yes:
 ```bash
 if [ ! -f "Makefile" ]; then
-  cp "$CPP_DIR/templates/Makefile.example" Makefile
-  echo "✓ Makefile created from template"
+  if cp "$CPP_DIR/templates/Makefile.example" Makefile; then
+    echo "✓ Makefile created from template"
+  else
+    echo "WARNING: setup command failed (exit $?)."
+  fi
   echo "  Edit targets to match your project's commands"
 else
   echo "→ Makefile already exists (skipped)"
@@ -1121,8 +1316,7 @@ if command -v happy &>/dev/null; then
   happy --version 2>&1 | head -1
 else
   echo "Installing happy-cli..."
-  npm install -g happy-coder
-  if command -v happy &>/dev/null; then
+  if npm install -g happy-coder && command -v happy &>/dev/null; then
     echo "✓ happy-cli installed"
     echo "  Run 'happy' to complete onboarding"
   else
@@ -1130,7 +1324,7 @@ else
     echo "  Try: sudo npm install -g happy-coder"
   fi
 fi
-echo "✓ /cpp:happy-check command available (verify version updates)"
+echo "  Verify /cpp:happy-check availability with /cpp:status."
 ```
 
 If no:
@@ -1164,8 +1358,7 @@ if command -v specify &>/dev/null; then
   specify version 2>/dev/null | head -1 || true
 else
   echo "Installing spec-kit CLI (uv tool)..."
-  uv tool install specify-cli --from git+https://github.com/github/spec-kit.git
-  if command -v specify &>/dev/null; then
+  if uv tool install specify-cli --from git+https://github.com/github/spec-kit.git && command -v specify &>/dev/null; then
     echo "✓ spec-kit CLI installed"
     echo "  Run /spec:adopt in a project to scaffold spec-kit into it"
   else
@@ -1173,7 +1366,7 @@ else
     echo "  Try: uv tool install specify-cli --from git+https://github.com/github/spec-kit.git"
   fi
 fi
-echo "✓ /spec:adopt command available (per-project spec-kit scaffold)"
+echo "  Verify /spec:adopt availability with /cpp:status."
 ```
 
 If no:
@@ -1235,7 +1428,10 @@ re-register (`claude mcp remove second-opinion -s user`, then this step again).
 
 ```bash
 # Add MCP servers to Claude Code
-MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
+if ! MCP_LIST=$(claude mcp list 2>/dev/null); then
+  echo "WARNING: claude MCP registrations could not be read; registration step not run."
+  exit 1
+fi
 
 # Second Opinion is an external streamable-http server, registered at USER scope
 # only - the repo ships no project-scope .mcp.json entry to compete with it (#1256).
@@ -1288,8 +1484,11 @@ if echo "$MCP_LIST" | grep -q "playwright-persistent"; then
 fi
 if ! echo "$MCP_LIST" | grep -qw "playwright"; then
   if command -v npx &>/dev/null; then
-    claude mcp add --transport stdio --scope user playwright -- npx -y @playwright/mcp@latest --headless
-    echo "✓ playwright MCP (upstream @playwright/mcp) registered"
+    if claude mcp add --transport stdio --scope user playwright -- npx -y @playwright/mcp@latest --headless; then
+      echo "✓ playwright MCP (upstream @playwright/mcp) registered"
+    else
+      echo "WARNING: setup command failed (exit $?)."
+    fi
   else
     echo "⚠ npx not found. Browser automation needs Node.js 18+."
     echo "  Install later: claude mcp add --transport stdio --scope user playwright -- npx -y @playwright/mcp@latest --headless"
@@ -1305,8 +1504,11 @@ fi
 if ! echo "$MCP_LIST" | grep -qw "tavily"; then
   if command -v npx &>/dev/null; then
     if [ -n "$TAVILY_API_KEY" ]; then
-      claude mcp add tavily --transport stdio --scope user -e TAVILY_API_KEY="$TAVILY_API_KEY" -- npx -y tavily-mcp@latest
-      echo "✓ tavily MCP (upstream tavily-mcp) registered"
+      if claude mcp add tavily --transport stdio --scope user -e TAVILY_API_KEY="$TAVILY_API_KEY" -- npx -y tavily-mcp@latest; then
+        echo "✓ tavily MCP (upstream tavily-mcp) registered"
+      else
+        echo "WARNING: setup command failed (exit $?)."
+      fi
     else
       echo "⚠ TAVILY_API_KEY not set. Get a key from https://app.tavily.com/home"
       echo "  Then: claude mcp add tavily --transport stdio --scope user -e TAVILY_API_KEY=tvly-... -- npx -y tavily-mcp@latest"
@@ -1348,22 +1550,34 @@ stdio MCP servers (upstream via `npx`, no custom image, pinned version):
 # Seed the project's pool config (edit desk count / idle timeout there later).
 mkdir -p .claude
 if [ ! -f .claude/playwright-pool.json ]; then
-  cp "$CPP_DIR/templates/playwright-pool.example.json" .claude/playwright-pool.json
-  echo "✓ Seeded .claude/playwright-pool.json"
+  if cp "$CPP_DIR/templates/playwright-pool.example.json" .claude/playwright-pool.json; then
+    echo "✓ Seeded .claude/playwright-pool.json"
+  else
+    echo "WARNING: setup command failed (exit $?)."
+  fi
 fi
 
 # Register one MCP server per desk listed in the pool config. Each runs upstream
 # @playwright/mcp with --isolated (blank context per lease; session identity lives
 # in the portable state file, not the desk).
 PW_MCP_VERSION="0.0.77"
-DESKS=$(python3 -c "import json; print('\n'.join(json.load(open('.claude/playwright-pool.json'))['desks']))")
-MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
+if ! DESKS=$(python3 -c "import json; print('\n'.join(json.load(open('.claude/playwright-pool.json'))['desks']))"); then
+  echo "WARNING: browser desk configuration could not be read; no desks registered."
+  exit 1
+fi
+if ! MCP_LIST=$(claude mcp list 2>/dev/null); then
+  echo "WARNING: claude MCP registrations could not be read; registration step not run."
+  exit 1
+fi
 for desk in $DESKS; do
   if echo "$MCP_LIST" | grep -q "$desk"; then
     echo "→ $desk already registered (skipped)"
   else
-    claude mcp add "$desk" --scope user -- npx -y "@playwright/mcp@${PW_MCP_VERSION}" --isolated
-    echo "✓ $desk registered (npx @playwright/mcp@${PW_MCP_VERSION} --isolated)"
+    if claude mcp add "$desk" --scope user -- npx -y "@playwright/mcp@${PW_MCP_VERSION}" --isolated; then
+      echo "✓ $desk registered (npx @playwright/mcp@${PW_MCP_VERSION} --isolated)"
+    else
+      echo "WARNING: setup command failed (exit $?)."
+    fi
   fi
 done
 
@@ -1416,8 +1630,11 @@ if [ ! -f "Makefile" ]; then
   echo "No Makefile found. Generate one from the detected framework template?"
   # Use AskUserQuestion to confirm
   # If yes:
-  PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd detect --generate-makefile
-  echo "✓ Makefile generated"
+  if PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd detect --generate-makefile; then
+    echo "✓ Makefile generated"
+  else
+    echo "WARNING: setup command failed (exit $?)."
+  fi
 else
   echo "→ Makefile already exists"
   echo "  Run /cicd:check to validate targets"
@@ -1441,11 +1658,14 @@ if [ ! -f ".claude/cicd.yml" ]; then
   mkdir -p .claude
   # Generate cicd.yml with detected defaults
   if [ -f "$CPP_DIR/templates/cicd.yml.example" ]; then
-    cp "$CPP_DIR/templates/cicd.yml.example" .claude/cicd.yml
-    echo "✓ .claude/cicd.yml created from template"
+    if cp "$CPP_DIR/templates/cicd.yml.example" .claude/cicd.yml; then
+      echo "✓ .claude/cicd.yml created from template"
+    else
+      echo "WARNING: setup command failed (exit $?)."
+    fi
     echo "  Edit to configure health checks and smoke tests"
   else
-    cat > .claude/cicd.yml << 'CICD_EOF'
+    if cat > .claude/cicd.yml << 'CICD_EOF'
 build:
   framework: auto
   package_manager: auto
@@ -1458,7 +1678,11 @@ health:
   smoke_tests: []
   post_deploy: false
 CICD_EOF
-    echo "✓ .claude/cicd.yml created with defaults"
+    then
+      echo "✓ .claude/cicd.yml created with defaults"
+    else
+      echo "WARNING: configuration write failed (exit $?)."
+    fi
   fi
 else
   echo "→ .claude/cicd.yml already exists (skipped)"
@@ -1504,11 +1728,14 @@ Generate CI pipeline? [y/N]
 If yes:
 
 ```bash
-PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd pipeline --write 2>/dev/null
-if [ -f ".github/workflows/ci.yml" ]; then
-  echo "✓ .github/workflows/ci.yml generated"
+if PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd pipeline --write 2>/dev/null; then
+  if [ -f ".github/workflows/ci.yml" ]; then
+    echo "✓ .github/workflows/ci.yml generated"
+  else
+    echo "WARNING: pipeline generator returned success but ci.yml is absent."
+  fi
 else
-  echo "⚠ Pipeline generation failed"
+  echo "WARNING: pipeline generation failed (exit $?)."
 fi
 ```
 
@@ -1529,8 +1756,11 @@ Generate container files? [y/N]
 If yes:
 
 ```bash
-PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd container --write 2>/dev/null
-echo "✓ Container files generated"
+if PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd container --write 2>/dev/null; then
+  echo "✓ Container files generated"
+else
+  echo "WARNING: setup command failed (exit $?)."
+fi
 ```
 
 ### Tier 5 Execution (Codex Orchestration)
@@ -1553,8 +1783,7 @@ else
   echo ""
   # Ask user if they want to install
   # If yes:
-  npm install -g @openai/codex
-  if command -v codex &>/dev/null; then
+  if npm install -g @openai/codex && command -v codex &>/dev/null; then
     echo "Codex CLI installed"
   else
     echo "WARNING: Codex CLI installation failed"
@@ -1570,43 +1799,47 @@ fi
 if command -v codex &>/dev/null; then
   echo ""
   echo "Running codex doctor..."
-  DOCTOR_OUTPUT=$(codex doctor 2>&1 || true)
+  DOCTOR_OUTPUT=$(codex doctor 2>&1)
+  DOCTOR_STATUS=$?
   echo "$DOCTOR_OUTPUT"
 
-  if echo "$DOCTOR_OUTPUT" | grep -qi "error\|fail\|missing"; then
+  if [ "$DOCTOR_STATUS" -ne 0 ]; then
     echo ""
-    echo "WARNING: codex doctor reported issues. Resolve before using /codex:auto."
+    echo "WARNING: codex doctor failed (exit $DOCTOR_STATUS). Resolve before using /codex:auto."
   else
     echo "[x] codex doctor: all checks passed"
   fi
 fi
 ```
 
-#### 5c. Verify OpenAI API Key
+#### 5c. Observe Codex Authentication Configuration
 
 ```bash
 if command -v codex &>/dev/null; then
   echo ""
-  echo "=== OpenAI API Key ==="
+  echo "=== Codex Authentication Configuration ==="
 
   CODEX_CONFIG="$HOME/.codex/config.toml"
-  if [ -f "$CODEX_CONFIG" ] || [ -n "$OPENAI_API_KEY" ]; then
-    echo "[x] OpenAI API key: configured"
+  if [ -n "$OPENAI_API_KEY" ]; then
+    echo "[x] OPENAI_API_KEY is set (authentication unverified)"
+  elif [ -f "$CODEX_CONFIG" ]; then
+    echo "[?] Codex config exists; API credentials unverified"
   else
-    echo "[ ] OpenAI API key: not configured"
+    echo "[?] No API-key environment variable or config file observed; authentication unverified"
     echo ""
     echo "Configure with one of:"
-    echo "  codex login                    (interactive)"
+    echo "  codex login                    (interactive ChatGPT sign-in)"
     echo "  export OPENAI_API_KEY=sk-...   (environment variable)"
     echo ""
-    echo "Codex commands require an OpenAI API key to function."
+    echo "Codex supports ChatGPT sign-in or API-key authentication."
+    echo "Use codex login status to inspect stored authentication; this step does not verify it."
   fi
 fi
 ```
 
 #### 5d. Register MCP Servers with Codex (Optional)
 
-This reuses the logic from Step 7 (Optional Extras) section 8b, but is now part of the Tier 5 flow:
+This reuses the logic from Step 6 (Optional Extras) section 8b, but is now part of the Tier 5 flow:
 
 ```bash
 if command -v codex &>/dev/null; then
@@ -1618,7 +1851,10 @@ if command -v codex &>/dev/null; then
   echo ""
   # Ask user if they want to register - use AskUserQuestion
   # If yes:
-  CODEX_LIST=$(codex mcp list 2>/dev/null || echo "")
+  if ! CODEX_LIST=$(codex mcp list 2>/dev/null); then
+    echo "WARNING: codex MCP registrations could not be read; registration step not run."
+    exit 1
+  fi
 
   for entry in "second-opinion:8080"; do
     NAME="${entry%%:*}"
@@ -1627,8 +1863,11 @@ if command -v codex &>/dev/null; then
       echo "-> $NAME already registered with Codex (skipped)"
     else
       if curl -sf --max-time 2 "http://127.0.0.1:${PORT}/" >/dev/null 2>&1; then
-        codex mcp add "$NAME" --url "http://127.0.0.1:${PORT}/mcp"
-        echo "Registered $NAME with Codex (http://127.0.0.1:${PORT}/mcp)"
+        if codex mcp add "$NAME" --url "http://127.0.0.1:${PORT}/mcp"; then
+          echo "Registered $NAME with Codex (http://127.0.0.1:${PORT}/mcp)"
+        else
+          echo "WARNING: setup command failed (exit $?)."
+        fi
       else
         echo "WARNING: $NAME not reachable on port $PORT - skipping Codex registration"
         echo "  Start the external second-opinion server first (see https://github.com/cooneycw/mcp-second-opinion)"
@@ -1640,8 +1879,11 @@ if command -v codex &>/dev/null; then
   if echo "$CODEX_LIST" | grep -qw "playwright"; then
     echo "-> playwright already registered with Codex (skipped)"
   elif command -v npx &>/dev/null; then
-    codex mcp add playwright -- npx -y @playwright/mcp@latest --headless
-    echo "Registered playwright (upstream @playwright/mcp) with Codex"
+    if codex mcp add playwright -- npx -y @playwright/mcp@latest --headless; then
+      echo "Registered playwright (upstream @playwright/mcp) with Codex"
+    else
+      echo "WARNING: setup command failed (exit $?)."
+    fi
   else
     echo "WARNING: npx not found - skipping Codex playwright registration (needs Node.js 18+)"
   fi
@@ -1691,6 +1933,42 @@ this harness remains the canonical `PATH` install. Idempotent.
 ```bash
 bash "$CPP_DIR/scripts/install-memory-harness.sh" \
   || echo "WARNING: memory harness install failed (continuing)"
+```
+
+### Local-model host-write seam (Tiers 6/7 only)
+
+If Tier 6 or Tier 7 was selected, run this block once before its setup commands.
+These tiers need only the declaring host-write helper, not the rest of Tier 2.
+Use the verified checkout copy to bootstrap it on a fresh host. An existing
+unusable path is refused rather than overwritten; a deferred install leaves
+local-tier configuration unexecuted. If this block returns nonzero, stop the
+selected local-tier setup: do not run its endpoint persistence or provider/fence
+blocks. Report that outcome in the final summary; other authorized setup may
+continue.
+
+```bash
+CPP_LOCAL_SEAM="$HOME/.claude/scripts/cpp-host-write.sh"
+if [ ! -e "$CPP_LOCAL_SEAM" ] && [ ! -L "$CPP_LOCAL_SEAM" ]; then
+  "$CPP_DIR/scripts/cpp-host-write.sh" link-into \
+    "$CPP_DIR/scripts/cpp-host-write.sh" "$HOME/.claude/scripts" cpp-host-write.sh
+  CPP_LOCAL_SEAM_STATUS=$?
+  case "$CPP_LOCAL_SEAM_STATUS" in
+    0) ;; # Check executability below before any configuration step.
+    3)
+      echo "Local-model host-write seam deferred by request; local-tier configuration not run."
+      exit 3
+      ;;
+    *)
+      echo "ERROR: local-model host-write seam install failed (exit $CPP_LOCAL_SEAM_STATUS); local-tier configuration not run."
+      exit 1
+      ;;
+  esac
+fi
+if [ ! -f "$CPP_LOCAL_SEAM" ] || [ ! -x "$CPP_LOCAL_SEAM" ]; then
+  echo "ERROR: local-model host-write seam is not an executable regular file at $CPP_LOCAL_SEAM; local-tier configuration not run."
+  exit 1
+fi
+echo "Local-model host-write seam available: $CPP_LOCAL_SEAM"
 ```
 
 ### Tier 6 Execution (Local Qwen Orchestration)
@@ -2044,9 +2322,9 @@ Two things are being installed here, and the second is the safety-critical one:
 
 #### 7d. Smoke Test (recommended)
 
-This is the check that actually proves the native-API path works, because it
-runs a real `opencode run` and therefore inherits the full system prompt. A
-bare curl probe passes on both `/v1` and `/api/chat` and proves nothing.
+This exercises tool calling through a real `opencode run`, including its system
+prompt. A bare curl probe checks endpoint reachability but does not exercise
+this harness or establish that tool calling works.
 
 ```bash
 SMOKE_DIR=$(mktemp -d)
@@ -2059,71 +2337,13 @@ GEMMA_OLLAMA_URL="$GEMMA_ENDPOINT" timeout 120 opencode run \
 rm -rf "$SMOKE_DIR"
 ```
 
-A count of 1 or more means tool calling survives the full harness. Zero is the
-`/v1` signature - re-check the provider block from 7c. Run `/gemma:status` for
-the full diagnosis.
+A count of 1 or more means this run emitted matching tool-use events. Zero is inconclusive:
+it can reflect CLI, network, provider, model or output-format failures, including
+an incorrect `/v1` provider block. Inspect the command output and exit status,
+re-check 7c, and run `/gemma:status` for further diagnosis.
 
 ---
 
-## Step 6: Installation Summary
-
-```
-=================================
-CPP Installation Complete!
-=================================
-
-Installed:
-  ✓ Tier 1: Commands symlinked
-  ✓ Tier 2: Scripts, hooks, shell prompt
-  ✓ Tier 3: MCP servers (external second-opinion + playwright)
-  ✓ Tier 4: CI/CD build system, health checks, pipeline, containers
-  ✓ Tier 5: Codex CLI orchestration
-  ✓ Tier 6: Local Qwen orchestration (optional - only if selected)
-  ✓ Tier 7: Local Gemma orchestration (optional - only if selected)
-
-Permission Profile: {PROFILE_NAME}
-  Auto-approved: {AUTO_APPROVE_SUMMARY}
-  Blocked: rm -rf, git push --force, sudo (destructive)
-  Settings: .claude/settings.local.json
-
-MCP Servers:
-  • second-opinion (external server, http://127.0.0.1:8080/mcp) - Gemini/OpenAI
-    code review. Run it from https://github.com/cooneycw/mcp-second-opinion;
-    export SECOND_OPINION_URL for a Tailscale host. Registered at user scope only.
-  • playwright (upstream @playwright/mcp, npx/stdio) - Browser automation
-
-Update pathway:
-  /cpp:update pulls CPP and tears down any legacy systemd units or retired MCP
-  containers (mcp-second-opinion, aws-secrets-agent, ...) left on this host.
-
-Next Steps:
-  1. Verify the second-opinion server is running (from the mcp-second-opinion
-     repo) and reachable at http://127.0.0.1:8080/mcp
-
-  2. Restart your shell to apply prompt changes:
-     source ~/.bashrc
-
-  3. Verify installation:
-     /cpp:status
-
-  4. Try the commands:
-     /project:next    - See what to work on
-     /spec:help       - Spec-driven development
-     /github:help     - Issue management
-     /cicd:help       - CI/CD build & verification
-     npx skills find  - Discover skills from skills.sh (or /plugin for the marketplace)
-
-Change Permissions Later:
-  • Edit .claude/settings.local.json directly
-  • Or delete it and run /cpp:init to reconfigure
-
-Documentation:
-  • CLAUDE.md - Full reference
-  • ISSUE_DRIVEN_DEVELOPMENT.md - IDD workflow
-  • /cpp:load-best-practices - Community tips
-
-=================================
-```
 
 ---
 
@@ -2153,9 +2373,9 @@ Install Node.js (https://nodejs.org/), then:
 
 ---
 
-## Step 7: Optional Extras
+## Step 6: Optional Extras
 
-After the main installation completes, offer optional extras.
+After the selected tier steps have run, offer optional extras before the final summary.
 
 ### 8a. Sequential Thinking
 
@@ -2180,12 +2400,18 @@ if ! command -v npx &>/dev/null; then
   echo "  Install Node.js: https://nodejs.org/"
   echo "  Skipping Sequential Thinking."
 else
-  MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
+  if ! MCP_LIST=$(claude mcp list 2>/dev/null); then
+    echo "WARNING: claude MCP registrations could not be read; registration step not run."
+    exit 1
+  fi
   if echo "$MCP_LIST" | grep -q "sequential-thinking"; then
     echo "→ sequential-thinking MCP already registered (skipped)"
   else
-    claude mcp add --transport stdio --scope user sequential-thinking -- npx -y @modelcontextprotocol/server-sequential-thinking
-    echo "✓ Sequential Thinking MCP registered (stdio, user scope)"
+    if claude mcp add --transport stdio --scope user sequential-thinking -- npx -y @modelcontextprotocol/server-sequential-thinking; then
+      echo "✓ Sequential Thinking MCP registered (stdio, user scope)"
+    else
+      echo "WARNING: setup command failed (exit $?)."
+    fi
   fi
 fi
 ```
@@ -2218,7 +2444,10 @@ if ! command -v codex &>/dev/null; then
   echo "⚠ Codex CLI not found. Skipping registration."
   echo "  Install Codex first, then run the commands in .agents/CODEX_SETUP.md"
 else
-  CODEX_LIST=$(codex mcp list 2>/dev/null || echo "")
+  if ! CODEX_LIST=$(codex mcp list 2>/dev/null); then
+    echo "WARNING: codex MCP registrations could not be read; registration step not run."
+    exit 1
+  fi
 
   for entry in "second-opinion:8080"; do
     NAME="${entry%%:*}"
@@ -2228,8 +2457,11 @@ else
     else
       # Verify the external server is reachable before registering
       if curl -sf --max-time 2 "http://127.0.0.1:${PORT}/" >/dev/null 2>&1; then
-        codex mcp add "$NAME" --url "http://127.0.0.1:${PORT}/mcp"
-        echo "✓ $NAME registered with Codex (http://127.0.0.1:${PORT}/mcp)"
+        if codex mcp add "$NAME" --url "http://127.0.0.1:${PORT}/mcp"; then
+          echo "✓ $NAME registered with Codex (http://127.0.0.1:${PORT}/mcp)"
+        else
+          echo "WARNING: setup command failed (exit $?)."
+        fi
       else
         echo "⚠ $NAME not reachable on port $PORT - skipping Codex registration"
         echo "  Start the external second-opinion server first (see https://github.com/cooneycw/mcp-second-opinion)"
@@ -2241,8 +2473,11 @@ else
   if echo "$CODEX_LIST" | grep -qw "playwright"; then
     echo "-> playwright already registered with Codex (skipped)"
   elif command -v npx &>/dev/null; then
-    codex mcp add playwright -- npx -y @playwright/mcp@latest --headless
-    echo "✓ playwright (upstream @playwright/mcp) registered with Codex"
+    if codex mcp add playwright -- npx -y @playwright/mcp@latest --headless; then
+      echo "✓ playwright (upstream @playwright/mcp) registered with Codex"
+    else
+      echo "WARNING: setup command failed (exit $?)."
+    fi
   else
     echo "⚠ npx not found - skipping Codex playwright registration (needs Node.js 18+)"
   fi
@@ -2259,8 +2494,11 @@ echo "-> Codex registration skipped"
 # Write setup artifact for manual registration later
 mkdir -p .agents
 if [ -f "$CPP_DIR/.agents/CODEX_SETUP.md" ]; then
-  cp "$CPP_DIR/.agents/CODEX_SETUP.md" .agents/CODEX_SETUP.md
-  echo "  Setup commands saved to .agents/CODEX_SETUP.md"
+  if cp "$CPP_DIR/.agents/CODEX_SETUP.md" .agents/CODEX_SETUP.md; then
+    echo "  Setup commands saved to .agents/CODEX_SETUP.md"
+  else
+    echo "WARNING: setup command failed (exit $?)."
+  fi
 else
   echo "  Register later with: codex mcp add <name> --url http://127.0.0.1:<port>/mcp"
 fi
@@ -2304,8 +2542,9 @@ echo "  Or check current values: bash ~/.claude/scripts/bash-prep.sh --check"
 
 ### 8d. Common-Memory Store Backend (mini-tier)
 
-Only offer this when the common-memory feature is in use (Tier 2+ installed the
-`cpp-memory` harness). It selects the storage backend for the friction-knowledge
+Only offer this when the common-memory feature is in use. Tier 2 links the
+checkout's executable helpers; Tier 5f installs the PATH harness for `cpp-memory`.
+This option selects the storage backend for the friction-knowledge
 ledger (`lib/cpp_memory`, issue #472). **Federation is the key column** - only
 tier iii shares learnings/rejections across VMs; on i and ii the `is_known` /
 `rejected_here` check is this-box-only.
@@ -2407,9 +2646,168 @@ Verify with `cpp-memory ping` (its JSON now reports `backend` and `federation`).
 
 ---
 
+## Step 7: Installation Summary
+
+Render this summary only after all selected tier steps and optional extras have
+run or been explicitly skipped. Build `{STEP_RESULTS}` from their observed exit
+statuses: report each selected step as succeeded, failed, deferred, skipped or
+unverified. A failed read is unverified, never absent or already installed.
+Registration success proves configuration was written, not server connectivity.
+Never infer success from selecting a tier or finding an old generated file.
+
+The permission lines below describe the project file only. This observer does not re-check other installation steps or effective native permissions. Read the
+actual file even when the selected profile was skipped because a file existed;
+never infer its name or rules from the selection. It emits only preset identity
+and rule counts, never environment, credential or rule values. An unknown/custom
+preset identity or failed read is labelled unverified. A null means unverified; numeric zero remains zero.
+
+```bash
+if PERMISSION_REPORT=$(python3 - "$CPP_DIR/.claude/commands/cpp/init.md" .claude/settings.local.json <<'PY_PERMISSIONS'
+# CPP_INIT_PERMISSION_OBSERVER_BEGIN
+import json
+import re
+import sys
+from pathlib import Path
+
+FIELDS = ("allow", "ask", "deny")
+
+def unknown(reason, counts=None):
+    return {
+        "profile": "unknown", "verified": False,
+        "counts": counts if counts is not None else dict.fromkeys(FIELDS),
+        "scope": "project-file declarations only", "reason": reason,
+    }
+
+def normalized(permissions):
+    if not isinstance(permissions, dict):
+        raise ValueError("permissions shape")
+    result = dict(permissions)
+    for field in FIELDS:
+        rules = permissions.get(field, [])
+        if not isinstance(rules, list) or not all(isinstance(rule, str) for rule in rules):
+            raise ValueError("rule list shape")
+        result[field] = sorted(rules)
+    return result
+
+def observe(presets, settings):
+    try:
+        data = json.loads(settings.read_text())
+    except FileNotFoundError:
+        return unknown("project settings absent")
+    except OSError:
+        return unknown("project settings unreadable")
+    except ValueError:
+        return unknown("project settings invalid JSON")
+    try:
+        if not isinstance(data, dict):
+            raise ValueError("settings shape")
+        actual = normalized(data.get("permissions", {}))
+    except ValueError:
+        return unknown("project permission rule lists invalid")
+    counts = {field: len(actual[field]) for field in FIELDS}
+    try:
+        source = presets.read_text()
+        found = []
+        for name in ("Cautious", "Standard", "Trusted", "YOLO"):
+            pattern = rf"\*\*{name} Profile(?: \(Default\))?:\*\*\s*```json\n(.*?)```"
+            matches = re.findall(pattern, source, re.S)
+            if len(matches) != 1:
+                return unknown("CPP preset definitions incomplete", counts)
+            preset = normalized(json.loads(matches[0])["permissions"])
+            if actual == preset:
+                found.append(name)
+    except (OSError, ValueError, TypeError, KeyError):
+        return unknown("CPP preset definitions unavailable", counts)
+    if len(found) != 1:
+        report = unknown("not a unique named CPP preset", counts)
+        report["profile"] = "Custom/existing"
+        return report
+    return {
+        "profile": found[0], "verified": True, "counts": counts,
+        "scope": "project-file declarations only", "reason": "",
+    }
+
+report = observe(Path(sys.argv[1]), Path(sys.argv[2]))
+report["verification"] = "verified" if report["verified"] else "unverified"
+print(json.dumps(report, sort_keys=True))
+raise SystemExit(0 if report["verified"] else 3)
+# CPP_INIT_PERMISSION_OBSERVER_END
+PY_PERMISSIONS
+); then
+  PERMISSION_REPORT_RC=0
+else
+  PERMISSION_REPORT_RC=$?
+fi
+if { [ "$PERMISSION_REPORT_RC" -ne 0 ] && [ "$PERMISSION_REPORT_RC" -ne 3 ]; } || [ -z "$PERMISSION_REPORT" ]; then
+    PERMISSION_REPORT='{"profile":"unknown","verification":"unverified","verified":false,"counts":{"allow":null,"ask":null,"deny":null},"scope":"project-file declarations only","reason":"permission observer unavailable"}'
+fi
+printf '%s\n' "$PERMISSION_REPORT"
+```
+
+Use this report for the permission fields only, retaining its verified/unverified
+label and observed counts. Other steps retain their existing outcome records.
+
+Use `CPP Installation Complete` for `{INSTALLATION_VERDICT}` only when every
+selected step succeeded or its existing state was verified and every optional
+extra has run or been explicitly declined. Otherwise use `CPP Installation
+Incomplete` and list the failures, deferrals and unverified steps with next
+actions. Do not print a blanket installed checklist.
+
+```
+=================================
+{INSTALLATION_VERDICT}
+=================================
+
+Step results:
+{STEP_RESULTS}
+
+Permission Profile: {PERMISSION_REPORT.profile} ({PERMISSION_REPORT.verification})
+  Declared allow rules: {PERMISSION_REPORT.counts.allow}
+  Declared ask rules: {PERMISSION_REPORT.counts.ask}
+  Declared deny rules: {PERMISSION_REPORT.counts.deny}
+  Settings examined: .claude/settings.local.json (project-file declarations only)
+
+MCP registrations (configuration only; connectivity reported separately):
+{MCP_RESULTS}
+
+Update pathway:
+  /cpp:update pulls CPP and tears down any legacy systemd units or retired MCP
+  containers (mcp-second-opinion, aws-secrets-agent, ...) left on this host.
+
+Next Steps:
+  1. Verify the second-opinion server is running (from the mcp-second-opinion
+     repo) and reachable at http://127.0.0.1:8080/mcp
+
+  2. Restart your shell to apply prompt changes:
+     source ~/.bashrc
+
+  3. Verify installation:
+     /cpp:status
+
+  4. Try the commands:
+     /project:next    - See what to work on
+     /spec:help       - Spec-driven development
+     /github:help     - Issue management
+     /cicd:help       - CI/CD build & verification
+     npx skills find  - Discover community skills from skills.sh
+
+Change Permissions Later:
+  • Edit .claude/settings.local.json directly
+  • Or delete it and run /cpp:init to reconfigure
+
+Documentation:
+  • CLAUDE.md - Full reference
+  • ISSUE_DRIVEN_DEVELOPMENT.md - IDD workflow
+  • /cpp:load-best-practices - Community tips
+
+=================================
+```
+
+---
+
 ## Notes
 
-- This wizard is **idempotent** - safe to run multiple times
-- Already-installed components are skipped with a message
+- Steps with presence guards skip the artifacts they recognize; those guards do not prove readiness
+- Re-running can repeat optional writes and registrations; review each disclosure and observed result
 - Symlinks are preferred over copies for easier updates
 - Run `/cpp:status` anytime to check installation state
