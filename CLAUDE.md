@@ -170,4 +170,4 @@ arguments, or logs.
 
 ## Version
 
-Current version: 10.0.0
+Current version: 10.1.0

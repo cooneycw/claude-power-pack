@@ -2,34 +2,202 @@
 
 ## [Unreleased]
 
-### Changed
+## [10.1.0] - 2026-10-28
 
-- Counter-model receipts derive each role through independent evidence adapters
-  (schema 5), including native Codex TUI implementations reviewed by Claude.
-  New writes require a reviewed-artifact binding: a reviewer runtime HEAD probe
-  for full reviews, or exact runtime-captured patch bytes for diff-only reviews.
-  Review producers now require an implementation checkpoint first. Historical
-  schemas 1-4 remain valid without migration.
+35 commits since 10.0.0 (`b318a14b..cacc4564`; fix 20, feat 6,
+unprefixed 6, chore 1, test 1, docs 1). **MINOR by explicit owner ruling:**
+"CPP didn't augment anything new. if anything, v10.1". This supersedes
+#1278's consumer-action-to-MAJOR rule for this release. Required actions are
+listed prominently below because the version number does not signal them.
 
+### Behaviour changes you may notice
 
-### Changed - consumer action required
-
-- Successful test commands with empty stdout/stderr now report UNKNOWN with a
-  warning (`flow-finish-gate.sh`: `warn`, exit 3), rather than bare SUCCESS
-  (#1576). On upgrade, a downstream repo with a silent test step changes from
-  `ok` (exit 0) to `warn` (exit 3). Whitespace-only unparsed output also warns. Intentional no-op and
-  genuinely quiet harnesses can retain qualified success by setting
-  `steps.<name>.silent_success: "<nonempty explanation>"` in
-  `.claude/cicd_tasks.yml`. This is per command, never project-wide. A recognized
-  summary takes precedence; failures and nonempty unparsed output are not
-  waived. `unsupported_runner` alone does not declare silence. Parsed test
-  summaries, non-test commands and health smoke tests retain their behavior.
-  **Older runners ignore the new key** and retain the old policy; upgrade the
-  runner to obtain this protection. CPP's own pytest command needs no opt-in.
+- **Silent test success now warns** (#1576; PR #1588). Upgrade the runner and
+  declare `steps.<name>.silent_success: "<nonempty explanation>"` per intentional
+  quiet command, or emit a recognized summary. Empty/whitespace-only unparsed
+  test output is UNKNOWN; finish changes `ok`/0 to `warn`/3. Recognized summaries
+  take precedence; failures and nonempty unparsed output cannot be waived.
+  Older runners ignore the key. CPP's pytest command needs no opt-in.
+- **New counter-model receipts use schema 5** (#1557, #1580, #1584, #1600;
+  PRs #1558, #1581, #1597, #1601). Commit a clean implementation checkpoint;
+  give diff-only reviewers exact canonical `review-patch` output on stdin, or
+  have a full-scope reviewer itself execute exactly `git rev-parse HEAD` with
+  a successful runtime result. Emit an unfenced current `## Findings` report.
+  Native Codex nonempty unframed stdin is now accepted only on exact byte
+  equality; other inputs retain explicit framing. Use independent runtime
+  evidence adapters, keep original evidence and a reviewer model distinct from
+  every implementer. Historical schemas 1-4 remain valid without migration.
+  Binding proves the recorded artifact, not review thoroughness or later coverage.
+- **CPP needs installed Python 3.11** (#1571; PRs #1575, #1579, #1582).
+  Gate execution uses `uv run --python 3.11 --no-python-downloads`. Repair named
+  gh/uv/Git-identity/selected-engine preflight gaps before gated work; missing,
+  unsupported and unknown are distinct. Target-project Python policy stays
+  separate; init may perform authorized repair. Doctor and flow/allowlist help
+  explain the prerequisites and permission choices.
+- **Codex bundled helpers need the actual skill directory** (#1542; PR #1546).
+  Regenerate/install updated bundles; set/substitute absolute `CPP_SKILL_DIR`
+  per invocation. Unset paths fail closed; never run the target project's decoy.
+- **Guarded merge and finish contracts stop explicitly** (#1543, #1547;
+  PRs #1545, #1548). Repair a missing `gh-pr-merge.sh` (exit 12); raw merge is
+  no fallback. Optional `--match-head-commit <40hex>` stops exit 11 on head
+  change; reverify rather than retry stale evidence. No `FLOW_FINISH_GATE:`
+  verdict means did not run: STOP, never infer skipped from shell/usage errors.
+- **Init profiles require deliberate choices** (#1586; PRs #1589, #1592,
+  #1594). Standard's GitHub issue/PR read categories allow list/view only.
+  Trusted prompts for destructive forms, **every push and every `gh api`**,
+  including ordinary pushes and read API calls. Explicit opt-in YOLO keeps
+  the former broad policy and inherited denies; Standard stays recommended.
+  Existing settings are not automatically migrated. Tier 4/5 inherit the chooser;
+  summary reports declared preset/counts, not effective native permissions.
+  Missing/malformed/custom/unavailable data is unverified. Custom GitHub choice
+  adds PR create/merge only, not issue writes. Patterns are not a security boundary.
+- **Consent and results are explicit** (#1586, #1587; PRs #1591, #1595,
+  #1598). Review write destinations and credential stores before approval,
+  including plaintext Tavily-key storage in user MCP config. Init/update no
+  longer probe writability before confirmation. Affected credential/endpoint
+  displays withhold values. Final results follow optional extras and observed
+  outcomes, preserving failed/deferred/unverified; present is not authenticated
+  or ready. General rechecking and framework-first ordering remain pending.
+- **Local-tier setup bootstraps one helper** (#1586; PR #1593). Deferred or
+  unusable host-write bootstrap stops the selected Tier 6/7 setup, preserves
+  existing paths and does not install the rest of Tier 2.
+- **Makefile generation is an explicit CLI operation** (#1596; PR #1599).
+  Use `python -m lib.cicd detect --generate-makefile --path <project>`.
+  Default atomic publication refuses any existing/late entry, even dangling
+  symlinks. Explicit `--force` replaces the entry without following a symlink
+  and preserves regular-file mode. Hard-link failure has no overwrite fallback.
+  Init passes the project path and never forces.
+- **Init verification has two new gates and a writer control** (Refs #1587,
+  #1596; PRs #1595, #1599, #1602). Maintain supplied-source promises for
+  `cpp-init-promises-check` (43 expressions) and parser-valid literal calls for
+  `cpp-init-cicd-args-check` (5 calls/14 files). These bounded static checks do
+  not prove installation, readiness or runtime values. The guarded-writer
+  control runs in the existing battery; verify now has 39 prerequisites.
+- **Woodpecker identity and secrets persist** (#1551, #1572; PRs #1553,
+  #1574). Set stable `WOODPECKER_HOSTNAME` and `WOODPECKER_AGENT_LABELS`, persist
+  `./agent-config:/etc/woodpecker`, retain the shared gRPC secret securely and
+  follow startup/maintenance/reconnect steps for 3.19.0. Existing nonempty local
+  secret wins over AWS; malformed/ambiguous assignments refuse replacement.
+  Repository pins do not establish that live hosts were upgraded.
+- **Woodpecker HTTP `stalled` stops merge/deploy** (Refs #1552; PR #1583).
+  The detector uses each workflow's start, timeout plus grace(default 10 min),
+  returns from `--wait`, and names unavailable checks. Failed/killed pipelines
+  with live children remain failure plus diagnostics. Recover/kill manually on
+  the server; no automatic reaper shipped. Other CI lanes do not run this check.
+- **Wave callers must preserve unknown/error states** (#1562, #1564;
+  PRs #1565, #1569). Mailbox absence exit 9 differs from error exit 3/backoff.
+  Liveness undeterminable exit 2 is not all roles ended. Wave close is explicit
+  opt-in: preview, archive and verify before removal; force cannot override a
+  confirmed watcher or unsafe source.
+- **Native session and wake identity are explicit** (#1560, #1563, #1567;
+  PRs #1561, #1566, #1568). Forward actual `CODEX_THREAD_ID`; do not synthesize
+  a Claude identity or use shared PID to adopt another known session's claim.
+  Require the intended worker's bounded ACK, not send acceptance as delivery
+  proof. Claude shell-watcher ownership remains a separate transport contract.
+- **Evaluation exports retain their own evidence** (#1371, #1532, #1554;
+  PRs #1549, #1550, #1556). Missing captured-attempt/grading manifests or results
+  now refuses; legitimate noncaptured states stay valid. Enrolment is advisory,
+  not efficacy/discrimination or installation assurance. Current flow-check
+  content is stale; unmapped skills are not evaluated.
+- **Resume evidence is bounded producer evidence** (#1555; PR #1559).
+  Exact consumed/generated identities and terminal facts do not grant consumer
+  admission or authenticate a writer. JSON-safe failure details cover only the
+  exact tracked state-operation exception, not all failure telemetry.
+- **Retain native CODEX_HOME during verification** (#1585; PR #1590).
+  The control explicitly selects both fixture roots; the previous stripping
+  workaround is retired. PATH/mailbox readiness fixes are test isolation,
+  not production delivery guarantees (#1544, #1506; PRs #1570, #1573).
 
 ### Added
 
-- Emit bounded exact consumed/generated resume-state identities and in-memory terminal stage facts; JSON mode reports only exact tracked state-operation failures safely (#1555).
+- **`lib.cicd detect --generate-makefile --path <project>`** (#1596; PR #1599)
+  uses the framework generator and a same-filesystem staged writer. Default
+  publication atomically refuses existing or late entries, including dangling
+  symlinks. Explicit `--force` replaces the entry without following a symlink,
+  preserving an existing regular file's mode. Unsupported hard links fail
+  without overwrite fallback. Init passes the project path and never forces;
+  the framework-first setup reorder is still #1587 work.
+- **Explicit archived wave close and whole-wave watcher status** (#1562;
+  PR #1565). Preview and opt into archive/verified removal of finished wave
+  runtime. Force cannot bypass a confirmed watcher or unsafe source.
+- **Bounded exact resume-state evidence** (#1555; PR #1559): exact consumed
+  and generated identities plus in-memory terminal stage facts. JSON reports
+  the exact tracked state-operation failure safely, without claiming consumer
+  admission or complete failure telemetry.
+- **Advisory flow-check evaluation enrolment** (#1371; PR #1550) as checked
+  data under ADR 0011. It distinguishes current, stale, unknown and fixture
+  evidence without a blocking efficacy threshold. This is not behavioral
+  assurance; the current snapshot is stale after later content changes.
+- **`cpp-init-promises-check`** (Refs #1587; PR #1595) joins Make verify and CI,
+  deriving 43 distinct supplied source expressions without a second asset
+  inventory. Missing/unknown/escaping promises fail. It does not prove install,
+  permissions, registration or readiness. Guarded-writer controls also join
+  the existing negative-control battery (PR #1599).
+
+- **`cpp-init-cicd-args-check`** (Refs #1596; PR #1602) joins Make verify
+  and CI, parsing literal init/helper `python -m lib.cicd` calls against the
+  real parser without dispatching handlers. Current population is 5 calls
+  across 14 examined files; computed module names/dynamic code are outside
+  its bounded grammar, and unsupported/unresolved forms fail by name.
+  Verify now has 39 prerequisites; the writer control uses the existing battery.
+
+### Changed
+
+- **Init permission choices** (#1586; PRs #1589, #1592, #1594): Standard
+  narrows issue/PR access to list/view. Trusted prompts for destructive forms,
+  every push and every `gh api` call; explicit opt-in YOLO preserves the former
+  broad allow policy and inherited denies. Standard stays recommended.
+  Tier 4/5 inherit the chooser; summary reads the declared preset/counts and
+  calls missing/malformed/custom data unverified. Custom GitHub choice adds
+  PR create/merge only. Existing settings are not automatically migrated, and
+  declared patterns do not prove effective native permissions.
+- **CI stalled is terminal** (Refs #1552; PR #1583). The Woodpecker HTTP lane
+  detects running workflows past their own timeout plus grace(default 10 min),
+  stops waiting and stops merge/deploy. Unavailable checks are explicit;
+  failed/killed pipelines with live children keep failure plus diagnostics.
+  Manual server recovery remains necessary; no automatic reaper is added.
+- **Native session ownership and wake guidance** (#1560, #1563, #1567;
+  PRs #1561, #1566, #1568). Codex uses real `CODEX_THREAD_ID`; a shared PID
+  cannot adopt another known claim session. Native delivery requires the
+  intended worker's ACK within the bound; send acceptance is not proof.
+  Claude shell-watcher ownership remains a separate transport contract.
+- **Real evaluation exports fail closed on missing evidence** (#1554;
+  PR #1556). Captured attempts and grading need their own manifests/results;
+  legitimate noncaptured states remain valid. Inconclusive/install-readiness
+  unknown is retained, not converted into an efficacy or installation claim.
+
+### Fixed
+
+- **Native Codex unframed review stdin accepted exactly** (#1600; PR #1601).
+  Its complete nonempty UTF-8 user message must equal the recomputed canonical
+  patch byte for byte. Prefixes, supersets, changed bytes and wrong frames
+  remain refused. Empty patches still require explicit framing; the relaxation
+  is Codex-only and preserves chronology and current report windows.
+
+- **Init success follows command outcomes** (#1586; PR #1591). Silent failures,
+  unreadable registration inventories, stale outputs and config-only credentials
+  cannot become success. Final summary follows optional extras and preserves
+  failed/deferred/unverified outcomes rather than a blanket installed checklist.
+- **Fresh local tiers bootstrap the one required host-write helper** (#1586;
+  PR #1593). Deferred/unusable bootstrap stops selected local setup without
+  overwriting existing paths or installing the rest of Tier 2.
+- **Consent precedes disclosed writes and credential stores** (#1586;
+  PR #1598). Init names destinations and plaintext Tavily-key storage before
+  approval; init/update locators no longer probe writability before confirmation.
+  Affected local database/endpoint displays withhold credential values.
+- **Stale init promises corrected** (Refs #1587; PR #1595): remove the missing
+  hooks.json undo and retired marketplace claims; describe Tier 2 hooks, Qwen
+  harness, authentication, smoke checks, idempotence and git allowance within
+  their actual bounds. The masking helper remains standalone, unregistered,
+  files-at-rest only. Broader tier redesign and rechecking remain pending.
+- **Verification isolation** (#1544, #1506, #1585; PRs #1570, #1573, #1590):
+  scrub nested virtualenv PATH leakage in the generated-project test,
+  synchronize mailbox test readiness, and explicitly select both fixture roots
+  for the global-instructions control. Retain native CODEX_HOME; the old
+  stripping workaround is no longer needed. These fixes do not claim product
+  delivery improvements.
+- **Coverage reference refreshed at capture** (#1532; PR #1549). Later closure
+  changes are reported stale instead of treating the old snapshot as current.
 
 ## [10.0.0] - 2026-10-21
 

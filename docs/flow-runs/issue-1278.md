@@ -61,3 +61,27 @@ Scope: 5 files, ~150-200 lines. Risks: under-classification (would lengthen Brea
 7. `tests/test_version_consistency.py` - a flow-run record quoting an old version stays clean (red on the unfixed checker); a stale CLAUDE.md beside such a record still fails.
 - Also reworded this run's own Section C item 5 so it does not quote the phrase (for the next release's sake).
 - Effect on outcome: none to the release; one gate narrowed by one historical path.
+
+<!-- flow-run n=3 id=eb5535cf1f194314ac39eb1888b3e77c -->
+## Run 3
+
+- Run-id:            eb5535cf1f194314ac39eb1888b3e77c
+- Run-start:         cacc4564b6f2375d344b3f6090d4cb4de1910fc7
+
+- Issue:             #1278
+- Base SHA:          cacc4564b6f2375d344b3f6090d4cb4de1910fc7
+- Necessity verdict: Still needed
+- Approval:          granted
+- Approver:          release coordinator, mailbox 13557, carrying the operator ruling on the accepted release proposal
+- Recorded at:       2026-10-28T22:15:04.185898+00:00
+
+### Section B evidence
+The last milestone is PR #1541 at b318a14b; the current base is cacc4564. The complete release inventory has 35 commits (fix 20, feat 6, unprefixed 6, chore 1, test 1, docs 1). Every final PR body and merge OID was checked live: #1545, #1546, #1548, #1549, #1550, #1553, #1558, #1556, #1559, #1561, #1566, #1565, #1568, #1569, #1570, #1573, #1574, #1575, #1579, #1581, #1582, #1583, #1588, #1589, #1590, #1591, #1592, #1593, #1594, #1595, #1597, #1598, #1599, #1601, #1602. The two additions to the accepted proposal are 0121af19 / PR #1601 (native Codex patch input) and cacc4564 / PR #1602 (argv gate). Duplicate/superseding issues considered: #938 and #544 are historical; #1479 and #1222 concern different work. No open release PR and no unpushed implementation in this fresh clone's sibling worktrees. The evergreen still calls for this release; no product change is required.
+
+### Section C - the approved plan
+1. `CHANGELOG.md` - fresh empty Unreleased and v10.1.0 section covering all 35 commits, prominent Behaviour changes you may notice, and the verbatim owner override of the major-bump rule.
+2. `pyproject.toml` - package version 10.1.0.
+3. `uv.lock` - re-lock the package's version.
+4. `README.md` - line-3 banner, milestone explanation and new v10.1.0 notes, including consumer actions and no tag/GitHub release.
+5. `CLAUDE.md` - update the current-version line to 10.1.0.
+Scope: five release files, approximately 200 lines, plus this append-only run/snapshot and a genuine review receipt. Risks: omitted actions, stale issue claims, version drift and accidental evergreen closure. Mitigations: complete ledger, live tracker verification, version-consistency check and Refs-only PR. No material concern with this documentation/version-only approach. The operator explicitly supersedes the normal major rule for this release: "CPP didn't augment anything new. if anything, v10.1". Refs #1278 only; no tag or GitHub release.
