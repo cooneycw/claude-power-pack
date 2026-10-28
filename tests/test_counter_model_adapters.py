@@ -985,3 +985,45 @@ def test_codex_selection_requires_its_own_session_identity(evidence, role, selec
     assert result.returncode != 0
     assert "session_meta" in result.stderr
     assert not list((e["tmp"] / "out").glob("*.json"))
+
+
+NATIVE_HEAD = Path(__file__).parent / "fixtures/counter_model/native-codex-head.json"
+
+
+@pytest.mark.parametrize("mutation", ["none", "failed", "missing-exit", "text-exit"])
+def test_captured_native_codex_head_result(mutation):
+    records = json.loads(NATIVE_HEAD.read_text())
+    item = records[0]["payload"]["item"]
+    if mutation == "failed":
+        item["exit_code"] = 1
+    elif mutation == "missing-exit":
+        del item["exit_code"]
+    elif mutation == "text-exit":
+        item["exit_code"] = "0"
+    commands = load()._review_commands(records, "codex")
+    if mutation == "none":
+        assert commands == [("git rev-parse HEAD", "f85ca34546f4ec9b0b1827064778cfd886353eab\n")]
+    else:
+        assert commands == []
+
+
+@requires_git
+@pytest.mark.parametrize("failed", [False, True])
+def test_native_codex_event_shape_through_receipt_writer(evidence, failed):
+    e = evidence
+    args = runtime(e, "implementer", "claude", "model-a")
+    args += runtime(e, "reviewer", "codex", "model-b")
+    rollout = e["tmp"] / "codex/rollout-fixture-reviewer.jsonl"
+    records = [json.loads(line) for line in rollout.read_text().splitlines()]
+    captured = json.loads(NATIVE_HEAD.read_text())[0]
+    # Only the command output is adapted to this owned repository's HEAD.
+    # These surrounding model/report records are synthetic, not a live review.
+    captured["payload"]["item"]["aggregated_output"] = e["head"] + "\n"
+    if failed:
+        captured["payload"]["item"]["exit_code"] = 1
+    records.insert(-1, captured)
+    rollout.write_text("".join(json.dumps(record) + "\n" for record in records))
+    result = write(e, *args, "--scope", "full")
+    assert (result.returncode == 0) == (not failed), result.stderr
+    if failed:
+        assert "HEAD probe" in result.stderr
