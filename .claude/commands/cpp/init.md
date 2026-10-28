@@ -1938,7 +1938,10 @@ If Tier 6 or Tier 7 was selected, run this block once before its setup commands.
 These tiers need only the declaring host-write helper, not the rest of Tier 2.
 Use the verified checkout copy to bootstrap it on a fresh host. An existing
 unusable path is refused rather than overwritten; a deferred install leaves
-local-tier configuration unexecuted. Report that outcome in the final summary.
+local-tier configuration unexecuted. If this block returns nonzero, stop the
+selected local-tier setup: do not run its endpoint persistence or provider/fence
+blocks. Report that outcome in the final summary; other authorized setup may
+continue.
 
 ```bash
 CPP_LOCAL_SEAM="$HOME/.claude/scripts/cpp-host-write.sh"
@@ -1958,8 +1961,8 @@ if [ ! -e "$CPP_LOCAL_SEAM" ] && [ ! -L "$CPP_LOCAL_SEAM" ]; then
       ;;
   esac
 fi
-if [ ! -x "$CPP_LOCAL_SEAM" ]; then
-  echo "ERROR: local-model host-write seam is missing or not executable at $CPP_LOCAL_SEAM; local-tier configuration not run."
+if [ ! -f "$CPP_LOCAL_SEAM" ] || [ ! -x "$CPP_LOCAL_SEAM" ]; then
+  echo "ERROR: local-model host-write seam is not an executable regular file at $CPP_LOCAL_SEAM; local-tier configuration not run."
   exit 1
 fi
 echo "Local-model host-write seam available: $CPP_LOCAL_SEAM"

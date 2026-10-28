@@ -78,7 +78,8 @@ def test_fresh_local_tier_writes_without_tier2(tmp_path, kind, shell):
 @pytest.mark.skipif(shutil.which("bash") is None, reason="requires bash")
 @pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3")
 @pytest.mark.parametrize(
-    "population,expected", [("deferred", 3), ("broken", 1), ("non-executable", 1), ("parent-is-file", 1)]
+    "population,expected",
+    [("deferred", 3), ("broken", 1), ("non-executable", 1), ("parent-is-file", 1), ("directory", 1)],
 )
 def test_unavailable_local_seam_refuses_before_configuration(tmp_path, population, expected):
     home = tmp_path / "home"
@@ -87,6 +88,9 @@ def test_unavailable_local_seam_refuses_before_configuration(tmp_path, populatio
     if population == "parent-is-file":
         (home / ".claude").write_text("owned parent\n")
         assert (home / ".claude").is_file(), "a parent file prevents helper installation even under root"
+    elif population == "directory":
+        seam.mkdir(parents=True)
+        assert seam.is_dir() and os.access(seam, os.X_OK), "searchable directory passes test -x"
     elif population != "deferred":
         seam.parent.mkdir(parents=True)
         if population == "broken":
@@ -114,3 +118,5 @@ def test_unavailable_local_seam_refuses_before_configuration(tmp_path, populatio
         assert seam.read_text() == "owned content\n"
     elif population == "parent-is-file":
         assert (home / ".claude").read_text() == "owned parent\n"
+    elif population == "directory":
+        assert seam.is_dir()
