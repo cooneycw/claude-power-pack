@@ -12,7 +12,7 @@ READ_GITHUB_RULES = {
 }
 
 
-@pytest.mark.parametrize("profile", ["Cautious", "Standard", "Trusted"])
+@pytest.mark.parametrize("profile", ["Cautious", "Standard"])
 def test_profile_issue_permissions_are_read_only(profile):
     text = INIT.read_text()
     match = re.search(rf"\*\*{profile} Profile(?: \(Default\))?:\*\*\s*```json\n(.*?)```", text, re.S)

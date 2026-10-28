@@ -268,9 +268,7 @@ Ask the user which permission profile they want using AskUserQuestion:
   "permissions": {
     "allow": [
       "Read", "Glob", "Grep", "Write",
-      "Bash(git:*)",
-      "Bash(gh issue list:*)", "Bash(gh issue view:*)",
-      "Bash(gh pr list:*)", "Bash(gh pr view:*)",
+      "Bash(git:*)", "Bash(gh:*)",
       "Bash(npm:*)", "Bash(npx:*)", "Bash(uv:*)", "Bash(pip:*)", "Bash(yarn:*)",
       "Bash(python:*)", "Bash(node:*)",
       "Bash(ls:*)", "Bash(cat:*)", "Bash(mkdir:*)", "Bash(cp:*)", "Bash(mv:*)",
@@ -288,9 +286,9 @@ Ask the user which permission profile they want using AskUserQuestion:
 }
 ```
 
-GitHub issue mutations require confirmation in every preset profile, including
-Trusted. Only issue list/view and PR list/view are auto-approved; broader GitHub
-permissions must be selected explicitly in Custom mode.
+The Standard profile auto-approves only GitHub issue list/view and PR list/view.
+In Standard, GitHub mutations require confirmation. Select Custom mode to choose
+broader GitHub permissions explicitly.
 
 ### Custom Mode Categories
 
