@@ -168,10 +168,7 @@ for unit in mcp-second-opinion second-opinion mcp-playwright mcp-playwright-pers
 done
 
 MCP_SERVERS=""
-if ! MCP_LIST=$(claude mcp list 2>/dev/null); then
-  echo "WARNING: claude MCP registrations could not be read; registration step not run."
-  exit 1
-fi
+MCP_LIST=$(claude mcp list 2>/dev/null || echo "")
 for server in second-opinion playwright; do
   echo "$MCP_LIST" | grep -q "$server" && MCP_SERVERS="$MCP_SERVERS $server"
 done
