@@ -42,6 +42,11 @@ Claude or Qwen user request may instead frame the unchanged patch as
 last byte. Retain the reviewer's runtime transcript; a patch supplied only as
 a receipt-writer argument is not evidence. Unsupported or ambiguous runtime
 input framing is UNKNOWN, and the write refuses.
+Each runtime user message supplies at most one frame, across all its text
+parts and both supported delimiter types. Competing frames in one input are
+UNKNOWN. Separate inputs retain their runtime chronology; the latest captured
+frame in the current review interval supplies the artifact. Findings headings
+inside backtick or tilde fences are examples, not completed reports.
 
 At write time the helper resolves the current base ref and target commit,
 computes their merge-base then recomputes the canonical binary Git diff. It

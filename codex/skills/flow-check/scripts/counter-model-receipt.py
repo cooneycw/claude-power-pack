@@ -180,17 +180,26 @@ NEXT_H2 = re.compile(r"^##\s+(?!Findings\b)", re.MULTILINE)
 #: every finding after it vanished from triage - a HIGH silently dropped because
 #: a MEDIUM above it quoted some markdown. Masking preserves offsets so the
 #: ORIGINAL text can still be sliced by what was found in the masked copy.
-FENCE = re.compile(r"^(?P<fence>```+|~~~+).*?(?:^(?P=fence)\s*$|\Z)",
-                   re.MULTILINE | re.DOTALL)
-
-
 def _mask_fences(text: str) -> str:
-    out = list(text)
-    for m in FENCE.finditer(text):
-        for i in range(m.start(), m.end()):
-            if out[i] != "\n":
-                out[i] = " "
-    return "".join(out)
+    # CommonMark fences may have up to three leading spaces, and a closing
+    # run may be longer than its opener. An unclosed fence masks through EOF.
+    # Split only on JSON/Markdown's newline, preserving offsets and Unicode
+    # separators inside text rather than inventing extra line boundaries.
+    out = []
+    fence_char, fence_width = "", 0
+    for line in text.split("\n"):
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if fence_width:
+            out.append(" " * len(line))
+            if (marker and marker[1][0] == fence_char and len(marker[1]) >= fence_width
+                    and not marker[2].strip(" \t\r")):
+                fence_char, fence_width = "", 0
+        elif marker and (marker[1][0] != "`" or "`" not in marker[2]):
+            fence_char, fence_width = marker[1][0], len(marker[1])
+            out.append(" " * len(line))
+        else:
+            out.append(line)
+    return "\n".join(out)
 
 PARSE_FINDINGS = "findings"
 PARSE_CLEAN = "clean"
@@ -1593,9 +1602,10 @@ def _model_key(identity: str) -> str:
     return identity.split("/", 2)[-1] if identity.startswith("opencode/") else identity.split("/", 1)[-1]
 
 
-def _review_inputs(records: list[dict], runtime: str) -> list[str]:
+def _review_inputs(records: list[dict], runtime: str) -> list[tuple[int, str]]:
+    """Keep one input per runtime message, with its chronological position."""
     inputs = []
-    for r in records:
+    for index, r in enumerate(records):
         if runtime == "codex":
             message = r.get("payload", {}) if r.get("type") == "response_item" else {}
         else:
@@ -1604,21 +1614,32 @@ def _review_inputs(records: list[dict], runtime: str) -> list[str]:
             continue
         content = message.get("parts", []) if runtime == "qwen-code" else message.get("content", [])
         if isinstance(content, str):
-            inputs.append(content)
+            inputs.append((index, content))
         elif isinstance(content, list):
-            inputs.extend(
+            text = "".join(
                 c["text"]
                 for c in content
                 if isinstance(c, dict) and (runtime == "qwen-code" or c.get("type") in ("input_text", "text"))
                 and isinstance(c.get("text"), str)
             )
+            inputs.append((index, text))
     return inputs
 
 
 def _review_commands(records: list[dict], runtime: str) -> list[tuple[str, str]]:
     """Supported runtime command/results only, never assistant prose or user text."""
     commands = []
-    calls = {}
+    calls: dict[str, str] = {}
+
+    def remember(call_id: object, command: object) -> None:
+        if not isinstance(call_id, str) or not call_id.strip():
+            raise EvidenceUnknown("runtime command requires a nonempty call id")
+        if not isinstance(command, str):
+            raise EvidenceUnknown("runtime command requires string command text")
+        if call_id in calls:
+            raise EvidenceUnknown("ambiguous duplicate pending runtime command id")
+        calls[call_id] = command
+
     for r in records:
         if runtime == "codex":
             p = r.get("payload", {})
@@ -1629,14 +1650,15 @@ def _review_commands(records: list[dict], runtime: str) -> list[tuple[str, str]]
             ):
                 try:
                     arg = json.loads(p["arguments"])
-                    calls[p["call_id"]] = arg.get("cmd", arg.get("command"))
                 except (KeyError, ValueError, TypeError):
                     continue
+                remember(p.get("call_id"), arg.get("cmd", arg.get("command")))
             elif (
                 r.get("type") == "response_item"
                 and p.get("type") == "function_call_output"
                 and p.get("call_id") in calls
             ):
+                command = calls.pop(p["call_id"])
                 out = p.get("output")
                 if isinstance(out, str):
                     try:
@@ -1648,7 +1670,7 @@ def _review_commands(records: list[dict], runtime: str) -> list[tuple[str, str]]
                         and type(result.get("exit_code")) is int and result["exit_code"] == 0
                         and isinstance(result.get("output"), str)
                     ):
-                        commands.append((calls[p["call_id"]], result["output"]))
+                        commands.append((command, result["output"]))
             elif r.get("type") == "event_msg":
                 item = p.get("item", {})
                 argv = item.get("command")
@@ -1664,15 +1686,16 @@ def _review_commands(records: list[dict], runtime: str) -> list[tuple[str, str]]
             for part in r.get("message", {}).get("parts", []):
                 call = part.get("functionCall", {})
                 if r.get("type") == "assistant" and call.get("name") == "run_shell_command":
-                    calls[call.get("id")] = call.get("args", {}).get("command")
+                    remember(call.get("id"), call.get("args", {}).get("command"))
                 response = part.get("functionResponse", {})
                 result = r.get("toolCallResult", {})
                 if (r.get("type") == "tool_result" and response.get("id") in calls
-                        and result.get("callId") == response.get("id") and result.get("status") == "success"):
+                        and result.get("callId") == response.get("id")):
+                    command = calls.pop(response["id"])
                     output = response.get("response", {}).get("output", "")
                     matched = re.search(r"\nOutput: (.*?)\nError: \(none\)\nExit Code: 0\n", output, re.S)
-                    if matched:
-                        commands.append((calls[response["id"]], matched.group(1)))
+                    if result.get("status") == "success" and matched:
+                        commands.append((command, matched.group(1)))
         elif runtime == "claude":
             message = r.get("message", {})
             for part in message.get("content", []) if isinstance(message.get("content"), list) else []:
@@ -1683,16 +1706,16 @@ def _review_commands(records: list[dict], runtime: str) -> list[tuple[str, str]]
                     and part.get("type") == "tool_use"
                     and part.get("name") in ("Bash", "run_shell_command")
                 ):
-                    calls[part.get("id")] = part.get("input", {}).get("command")
+                    remember(part.get("id"), part.get("input", {}).get("command"))
                 elif (
                     r.get("type") == "user"
                     and part.get("type") == "tool_result"
                     and part.get("tool_use_id") in calls
-                    and not part.get("is_error")
                 ):
+                    command = calls.pop(part["tool_use_id"])
                     content = part.get("content")
-                    if isinstance(content, str):
-                        commands.append((calls[part["tool_use_id"]], content))
+                    if not part.get("is_error") and isinstance(content, str):
+                        commands.append((command, content))
         elif runtime == "opencode" and r.get("type") == "tool_use":
             p = r.get("part", {})
             state = p.get("state", {})
@@ -1718,10 +1741,12 @@ def _review_report_window(records: list[dict], runtime: str) -> tuple[int, int]:
         else:
             message = r.get("message", {}) if r.get("type") == "assistant" else {}
             content = message.get("parts", []) if runtime == "qwen-code" else message.get("content", [])
-        for part in content if isinstance(content, list) else []:
-            if isinstance(part, dict) and isinstance(part.get("text"), str):
-                if re.search(r"^## Findings\s*$", part["text"], re.M):
-                    reports.append(index)
+        text = "".join(part["text"] for part in content if isinstance(part, dict)
+                       and isinstance(part.get("text"), str)
+                       and (runtime in ("qwen-code", "opencode") or part.get("type") in ("text", "output_text"))) \
+            if isinstance(content, list) else ""
+        if re.search(r"^## Findings[ \t]*$", _mask_fences(text), re.M):
+            reports.append(index)
     if not reports:
         raise EvidenceUnknown("missing runtime review report: retain the reviewer's '## Findings' assistant output")
     return (reports[-2] + 1 if len(reports) > 1 else 0), reports[-1]
@@ -1785,7 +1810,8 @@ def _artifact_binding(args: argparse.Namespace, evidence: dict, records: list[di
         binding["method"] = "runtime-head"
     else:
         patches = []
-        for text in _review_inputs(records, evidence["runtime"]):
+        for message_index, text in _review_inputs(records, evidence["runtime"]):
+            input_frames = []
             # Codex frames captured stdin this way; Claude/Qwen producers use
             # the explicit CPP frame when sending an exact patch as user input.
             for opening, closing in (("<stdin>\n", "</stdin>"), ("<cpp-review-patch>\n", "</cpp-review-patch>")):
@@ -1799,13 +1825,18 @@ def _artifact_binding(args: argparse.Namespace, evidence: dict, records: list[di
                 # '</stdin>' and '</cpp-review-patch>'. Hunk lines have a diff
                 # prefix; only standalone transport lines delimit the frame.
                 captured = text[starts[0].end():ends[0].start()]
-                patches.append(captured.encode("utf-8"))
+                input_frames.append((message_index, starts[0].start(), captured.encode("utf-8")))
+            if len(input_frames) > 1:
+                raise EvidenceUnknown("competing captured patch frames within one review input")
+            patches.extend(input_frames)
         if not patches:
             raise EvidenceUnknown(
                 "missing captured reviewer patch: pass the exact canonical diff on stdin or in a "
                 "<cpp-review-patch> user-input frame; retain the reviewer's runtime transcript"
             )
-        if patches[-1] != patch:
+        # Distinct messages retain their runtime chronology, independent of
+        # delimiter kind or the number of text parts making up a message.
+        if max(patches, key=lambda frame: (frame[0], frame[1]))[2] != patch:
             raise EvidenceRefused(
                 "captured reviewer patch differs from the target head's current merge-base diff; "
                 "re-review the exact patch"

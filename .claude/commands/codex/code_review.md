@@ -530,7 +530,7 @@ Review for: correctness bugs, security issues, missed edge cases, broken or miss
 
 If the diff adds or changes a check, gate, guard, tripwire or allowlist, ask two further questions of it and report a failure of either as a finding: (1) does its success message claim more than its input population supports - can a zero distinguish 'I looked and found nothing' from 'there was nothing to look at'; and (2) can a non-zero distinguish 'our thing changed' from 'a neighbour changed'. Widening the detector is not always the remedy: where the narrow answer is deliberately correct, say so and say where the larger question should be answered instead.
 
-Return a findings report AND a red cases section, in exactly this format:
+Return a findings report AND a red cases section, in exactly this format. Emit the report headings as unfenced Markdown; code examples may use fences:
 
 ## Findings
 

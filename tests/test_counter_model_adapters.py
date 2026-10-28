@@ -787,3 +787,160 @@ def test_a_model_changed_between_derivation_and_snapshot_is_unknown(evidence, mo
         monkeypatch.setattr(module, "_derive_opencode", derive_then_switch_model)
     with pytest.raises(module.EvidenceUnknown, match="changed during derivation"):
         module._adapter(SimpleNamespace(**options), "implementer")
+
+
+@requires_git
+@pytest.mark.parametrize("opening,closing", [("```md", "```"), ("~~~text", "~~~"),
+                                             ("  ```md", "  ```"), ("````md", "`````"), ("```", "")])
+@pytest.mark.parametrize("placement", ["alone", "after-report"])
+def test_fenced_examples_neither_supply_nor_displace_a_review_report(evidence, opening, closing, placement):
+    e = evidence
+    args = runtime(e, "implementer", "codex", "model-a")
+    args += runtime(e, "reviewer", "claude", "model-b", probe=e["head"])
+    path = e["tmp"] / "claude/fixture-reviewer.jsonl"
+    records = [json.loads(line) for line in path.read_text().split("\n") if line]
+    example = f"{opening}\n## Findings\n\nNone - no defects found.\n{closing}"
+    assert example.count("## Findings") == 1, "precondition: fenced template contains the report marker"
+    if placement == "alone":
+        records[-1]["message"]["content"][0]["text"] = example
+    else:
+        quoted = copy.deepcopy(records[-1])
+        quoted["message"]["content"][0]["text"] = example
+        records.append(quoted)
+    path.write_text("".join(json.dumps(r) + "\n" for r in records))
+    result = write(e, *args, "--scope", "full")
+    if placement == "alone":
+        assert result.returncode != 0
+        assert "missing runtime review report" in result.stderr
+    else:
+        assert result.returncode == 0, result.stderr
+
+
+@requires_git
+def test_fence_state_spans_assistant_text_parts(evidence):
+    e = evidence
+    args = runtime(e, "implementer", "codex", "model-a")
+    args += runtime(e, "reviewer", "claude", "model-b", probe=e["head"])
+    path = e["tmp"] / "claude/fixture-reviewer.jsonl"
+    records = [json.loads(line) for line in path.read_text().split("\n") if line]
+    records[-1]["message"]["content"] = [
+        {"type": "text", "text": "```md\n"},
+        {"type": "text", "text": "## Findings\n\nThis is a quoted example.\n"},
+        {"type": "text", "text": "```\n\n## Findings\n\nNone - no defects found."},
+    ]
+    path.write_text("".join(json.dumps(r) + "\n" for r in records))
+    result = write(e, *args, "--scope", "full")
+    assert result.returncode == 0, result.stderr
+
+
+@requires_git
+@pytest.mark.parametrize("cpp_first", [False, True])
+@pytest.mark.parametrize("split_parts", [False, True])
+def test_competing_patch_frame_types_in_one_input_are_unknown(evidence, cpp_first, split_parts):
+    e = evidence
+    args = runtime(e, "implementer", "codex", "model-a")
+    args += runtime(e, "reviewer", "claude", "model-b", patch=e["patch"])
+    cpp = "<cpp-review-patch>\n" + e["patch"] + "</cpp-review-patch>\n"
+    other_patch = e["patch"].replace("+after\n", "+foreign\n")
+    assert other_patch != e["patch"], "negative-fixture precondition: competing patches differ"
+    stdin = "<stdin>\n" + other_patch + "</stdin>\n"
+    frames = [cpp, stdin] if cpp_first else [stdin, cpp]
+    path = e["tmp"] / "claude/fixture-reviewer.jsonl"
+    records = [json.loads(line) for line in path.read_text().split("\n") if line]
+    records[0]["message"]["content"] = ([{"type": "text", "text": text} for text in frames]
+                                        if split_parts else "".join(frames))
+    path.write_text("".join(json.dumps(r) + "\n" for r in records))
+    result = write(e, *args, "--scope", "diff-only")
+    assert result.returncode != 0
+    assert "competing captured patch frames" in result.stderr
+    assert not list((e["tmp"] / "out").glob("*.json"))
+
+
+@requires_git
+@pytest.mark.parametrize("last_kind", ["stdin", "cpp-review-patch"])
+@pytest.mark.parametrize("last_matches", [False, True])
+def test_separate_review_inputs_select_the_latest_frame_chronologically(evidence, last_kind, last_matches):
+    e = evidence
+    args = runtime(e, "implementer", "codex", "model-a")
+    args += runtime(e, "reviewer", "claude", "model-b", patch=e["patch"])
+    other = e["patch"].replace("+after\n", "+foreign\n")
+    assert other != e["patch"], "negative-fixture precondition: a distinct patch"
+    first_kind = "cpp-review-patch" if last_kind == "stdin" else "stdin"
+    first_patch, last_patch = (other, e["patch"]) if last_matches else (e["patch"], other)
+    path = e["tmp"] / "claude/fixture-reviewer.jsonl"
+    records = [json.loads(line) for line in path.read_text().split("\n") if line]
+    records[0]["message"]["content"] = f"<{first_kind}>\n{first_patch}</{first_kind}>"
+    later_input = copy.deepcopy(records[0])
+    later_input["message"]["content"] = f"<{last_kind}>\n{last_patch}</{last_kind}>"
+    records.insert(-1, later_input)
+    path.write_text("".join(json.dumps(r) + "\n" for r in records))
+    result = write(e, *args, "--scope", "diff-only")
+    assert (result.returncode == 0) == last_matches, result.stderr
+    if not last_matches:
+        assert "captured reviewer patch differs" in result.stderr
+
+
+@requires_git
+@pytest.mark.parametrize("runtime_name", ["claude", "qwen-code"])
+@pytest.mark.parametrize("mutation", ["missing-id", "null-id", "duplicate-pending-id"])
+def test_malformed_command_linkage_cannot_supply_a_head_probe(evidence, runtime_name, mutation):
+    e = evidence
+    args = runtime(e, "implementer", "codex", "model-a")
+    args += runtime(e, "reviewer", runtime_name, "model-b", probe=e["head"])
+    if runtime_name == "claude":
+        path = e["tmp"] / "claude/fixture-reviewer.jsonl"
+    else:
+        path = next((e["tmp"] / "qwen-code").rglob("*/chats/*.jsonl"))
+    records = [json.loads(line) for line in path.read_text().split("\n") if line]
+    if runtime_name == "claude":
+        call_index = 2
+        call = records[call_index]["message"]["content"][0]
+        result = records[call_index + 1]["message"]["content"][0]
+        if mutation in ("missing-id", "null-id"):
+            assert call.pop("id") == result.pop("tool_use_id") == "probe"
+            if mutation == "null-id":
+                call["id"] = result["tool_use_id"] = None
+        else:
+            earlier = copy.deepcopy(records[call_index])
+            earlier["message"]["content"][0]["input"]["command"] = "echo an-untrusted-head"
+            records.insert(call_index, earlier)
+    else:
+        call_index = 1
+        call = records[call_index]["message"]["parts"][0]["functionCall"]
+        result_record = records[call_index + 1]
+        response = result_record["message"]["parts"][0]["functionResponse"]
+        if mutation in ("missing-id", "null-id"):
+            assert call.pop("id") == response.pop("id") == result_record["toolCallResult"].pop("callId") == "probe"
+            if mutation == "null-id":
+                call["id"] = response["id"] = result_record["toolCallResult"]["callId"] = None
+        else:
+            earlier = copy.deepcopy(records[call_index])
+            earlier["message"]["parts"][0]["functionCall"]["args"]["command"] = "echo an-untrusted-head"
+            records.insert(call_index, earlier)
+    path.write_text("".join(json.dumps(r) + "\n" for r in records))
+    result = write(e, *args, "--scope", "full")
+    assert result.returncode != 0
+    assert "UNKNOWN" in result.stderr
+    assert not list((e["tmp"] / "out").glob("*.json"))
+
+
+@requires_git
+@pytest.mark.parametrize("runtime_name", ["claude", "qwen-code"])
+def test_resolved_command_ids_can_be_reused_sequentially(evidence, runtime_name):
+    e = evidence
+    args = runtime(e, "implementer", "codex", "model-a")
+    args += runtime(e, "reviewer", runtime_name, "model-b", probe=e["head"])
+    if runtime_name == "claude":
+        path = e["tmp"] / "claude/fixture-reviewer.jsonl"
+        call_index = 2
+    else:
+        path = next((e["tmp"] / "qwen-code").rglob("*/chats/*.jsonl"))
+        call_index = 1
+    records = [json.loads(line) for line in path.read_text().split("\n") if line]
+    completed_pair = copy.deepcopy(records[call_index:call_index + 2])
+    records[-1:-1] = completed_pair
+    result_parts = ("tool_use_id" if runtime_name == "claude" else "callId")
+    assert result_parts in json.dumps(completed_pair), "precondition: reused id has a preceding completed result"
+    path.write_text("".join(json.dumps(r) + "\n" for r in records))
+    result = write(e, *args, "--scope", "full")
+    assert result.returncode == 0, result.stderr
