@@ -1870,16 +1870,10 @@ class TestUnparsedTestOutcomeReadsUnknown:
         assert "UNKNOWN, not clean" in " ".join(result.warnings)
         assert "WITH WARNINGS" in text
 
-    def test_a_test_step_that_printed_nothing_is_still_a_bare_success(
+    def test_a_test_step_that_printed_nothing_needs_explicit_intent(
         self, tmp_project: Path
     ) -> None:
-        """The bound on the warning above, pinned so it cannot quietly widen.
-
-        A step that produced NO output is not a suite whose result is unknown -
-        there is nothing to be unknown about - and #628/#890 pinned that shape
-        as a bare success. A warning that fires on the normal case is one
-        nobody reads, so this is the negative half of the pair.
-        """
+        """#1576 replaces the old #628/#890 bare-silence success policy."""
         step = StepDef(id="test", command="true", timeout_seconds=30)
         log = StringIO()
         result = DeterministicRunner(project_root=tmp_project, output=log).run(
@@ -1887,8 +1881,9 @@ class TestUnparsedTestOutcomeReadsUnknown:
         )
 
         assert result.success
-        assert not result.warnings
-        assert "UNKNOWN" not in log.getvalue()
+        assert result.warnings
+        assert "UNKNOWN" in log.getvalue()
+        assert not result.tests
 
 
 def _run_test_step(
@@ -2538,7 +2533,10 @@ class TestSkippedGateReporting:
     def _always_run(step_id: str, *, gate: bool = True) -> StepDef:
         # Defaults True: every call site here runs a real quality gate, and the
         # steps that RAN are not what any assertion in this class turns on.
-        return StepDef(id=step_id, command="true", timeout_seconds=30, gate=gate)
+        return StepDef(
+            id=step_id, command="true", timeout_seconds=30, gate=gate,
+            silent_success="Intentional no-op: this fixture tests gate skip reporting",
+        )
 
     def test_skipped_gates_qualify_the_run(self, tmp_project: Path):
         log = StringIO()

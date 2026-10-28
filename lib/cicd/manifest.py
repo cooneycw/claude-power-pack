@@ -77,9 +77,18 @@ class StepModel(BaseModel):
     # summary could be parsed" UNKNOWN warning: a recorded, reviewable decision
     # rather than a widened tolerance. See StepDef.unsupported_runner.
     unsupported_runner: Optional[str] = None
+    # A per-command explanation, never a project-wide waiver (#1576).
+    silent_success: Optional[str] = Field(default=None, strict=True)
     expected_red: bool = False
 
     model_config = {"extra": "ignore"}
+
+    @field_validator("silent_success")
+    @classmethod
+    def silence_is_intentional(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not value.strip():
+            raise ValueError("silent_success must explain the intentional silence")
+        return value.strip() if value is not None else None
 
     @field_validator("unsupported_runner")
     @classmethod
@@ -324,6 +333,7 @@ def step_model_to_step_def(step_id: str, model: StepModel) -> Any:
         depends_on=list(model.depends_on),
         env=dict(model.env),
         unsupported_runner=model.unsupported_runner,
+        silent_success=model.silent_success,
         expected_red=model.expected_red,
     )
 

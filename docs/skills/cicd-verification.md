@@ -71,6 +71,46 @@ clean:
 	rm -rf .pytest_cache __pycache__ dist/
 ```
 
+## Intentional silent test commands
+
+A successful process exit does not establish test execution. A test step with
+empty stdout and stderr reports UNKNOWN with a warning by default (#1576), just
+as unparsed output does. The finish helper returns `warn` (exit 3). No test
+counts are invented. This also affects whitespace-only unparsed output.
+
+Projects that intentionally use a no-op or a genuinely quiet harness must
+declare the intent **on that command**, in `.claude/cicd_tasks.yml`:
+
+```yaml
+version: "1"
+steps:
+  test:
+    command: "true"
+    silent_success: "Intentional no-op: this project has no test suite"
+plans:
+  check:
+    steps: [test]
+```
+
+`silent_success` is an optional nonempty explanation string. Booleans, empty
+strings and whitespace-only explanations are invalid. There is no project-wide
+opt-in in `.claude/cicd.yml`. A declaration keeps a qualified SUCCESS only when
+both captured streams are literally empty and the process exited zero. The log
+names the explanation and says the test outcome was not measured.
+
+A recognized summary always wins: zero-test/all-skipped findings still warn,
+and a nonzero process exit still fails. Nonempty unparsed output, including
+whitespace-only output, is not waived by `silent_success`. The separate
+`unsupported_runner` declaration retains its existing behavior for nonempty
+unparsed output; it does not declare silence. Non-test steps and health smoke
+tests are unaffected. CPP's own `make test` emits pytest summaries and needs no
+declaration. Test fixtures using a deliberate no-op should declare their own
+intent rather than print invented summaries.
+
+**Compatibility:** previously undeclared successful silent commands received
+bare success; they now warn. Upgrade the CPP runner as well as adding the
+declaration: older runners ignore the unknown key and retain the old policy.
+
 ## Health Check Configuration
 
 Configure in `.claude/cicd.yml`:

@@ -314,6 +314,16 @@ class StepDef:
     # exit-code verdicts. Opt in per WHOLE STEP: a negative-control battery
     # must run separately from real suites, or their counts are excluded too.
     expected_red: bool = False
+    # Appended to preserve the positional constructor's existing fields.
+    # Establish only process success for literally empty captured streams.
+    # Parsed test outcomes always take precedence over this declaration.
+    silent_success: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if self.silent_success is not None:
+            if not isinstance(self.silent_success, str) or not self.silent_success.strip():
+                raise ValueError("silent_success must explain the intentional silence")
+            self.silent_success = self.silent_success.strip()
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -328,6 +338,8 @@ class StepDef:
             d["env"] = self.env
         if self.expected_red:
             d["expected_red"] = True
+        if self.silent_success is not None:
+            d["silent_success"] = self.silent_success
         return d
 
 
