@@ -1,0 +1,1 @@
+good-quoted-heredoc-substitution

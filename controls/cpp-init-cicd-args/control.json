@@ -1,0 +1,335 @@
+{
+  "_comment": [
+    "#1596: parse extracted literal module argv with the real CLI builder, never execute handlers.",
+    "The invented-flag fixture stays bad after --generate-makefile becomes real. The repaired form is separately proven clean.",
+    "Helper scope is statically referenced source; dynamic module assembly is not executed. Named unsupported shapes and insufficient population fail."
+  ],
+  "gate": "scripts/check-cpp-init-cicd-args.py",
+  "invocation": [
+    "python3",
+    "controls/cpp-init-cicd-args/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^CICD_ARGV_FINDING: ",
+  "good_signal": "^cpp-init-cicd-args: ok -",
+  "cases": [
+    {
+      "name": "bad-flag",
+      "input": "cases/bad-flag",
+      "expect": "BAD",
+      "why": "Committed bad-flag source shape; fixture uses production floor and parser."
+    },
+    {
+      "name": "bad-quoting",
+      "input": "cases/bad-quoting",
+      "expect": "BAD",
+      "why": "Committed bad-quoting source shape; fixture uses production floor and parser."
+    },
+    {
+      "name": "bad-launcher",
+      "input": "cases/bad-launcher",
+      "expect": "BAD",
+      "why": "Committed bad-launcher source shape; fixture uses production floor and parser."
+    },
+    {
+      "name": "bad-bundle",
+      "input": "cases/bad-bundle",
+      "expect": "BAD",
+      "why": "Committed bad-bundle source shape; fixture uses production floor and parser."
+    },
+    {
+      "name": "bad-command-expansion",
+      "input": "cases/bad-command-expansion",
+      "expect": "BAD",
+      "why": "Committed bad-command-expansion source shape; fixture uses production floor and parser."
+    },
+    {
+      "name": "bad-help",
+      "input": "cases/bad-help",
+      "expect": "BAD",
+      "why": "Help exits argparse before full argv validation; removing that early-exit shape restores examination."
+    },
+    {
+      "name": "bad-outside-shell",
+      "input": "cases/bad-outside-shell",
+      "expect": "BAD",
+      "why": "A valid command outside supported shell source must be named as unexamined, not omitted."
+    },
+    {
+      "name": "bad-helper",
+      "input": "cases/bad-helper",
+      "expect": "BAD",
+      "why": "Committed bad-helper source shape; fixture uses production floor and parser."
+    },
+    {
+      "name": "bad-python-helper",
+      "input": "cases/bad-python-helper",
+      "expect": "BAD",
+      "why": "Committed bad-python-helper source shape; fixture uses production floor and parser."
+    },
+    {
+      "name": "bad-empty",
+      "input": "cases/bad-empty",
+      "expect": "BAD",
+      "why": "Committed bad-empty source shape; fixture uses production floor and parser."
+    },
+    {
+      "name": "bad-floor",
+      "input": "cases/bad-floor",
+      "expect": "BAD",
+      "why": "Committed bad-floor source shape; fixture uses production floor and parser."
+    },
+    {
+      "name": "good-basic",
+      "input": "cases/good-basic",
+      "expect": "GOOD",
+      "why": "Committed good-basic source shape; fixture uses production floor and parser."
+    },
+    {
+      "name": "good-helper",
+      "input": "cases/good-helper",
+      "expect": "GOOD",
+      "why": "Committed good-helper source shape; fixture uses production floor and parser."
+    },
+    {
+      "name": "good-python-helper",
+      "input": "cases/good-python-helper",
+      "expect": "GOOD",
+      "why": "Committed good-python-helper source shape; fixture uses production floor and parser."
+    },
+    {
+      "name": "good-values",
+      "input": "cases/good-values",
+      "expect": "GOOD",
+      "why": "Committed good-values source shape; fixture uses production floor and parser."
+    },
+    {
+      "name": "good-continuation",
+      "input": "cases/good-continuation",
+      "expect": "GOOD",
+      "why": "Committed good-continuation source shape; fixture uses production floor and parser."
+    },
+    {
+      "name": "good-echo",
+      "input": "cases/good-echo",
+      "expect": "GOOD",
+      "why": "Committed good-echo source shape; fixture uses production floor and parser."
+    },
+    {
+      "name": "good-heredoc",
+      "input": "cases/good-heredoc",
+      "expect": "GOOD",
+      "why": "Committed good-heredoc source shape; fixture uses production floor and parser."
+    },
+    {
+      "name": "bad-after-redirection",
+      "input": "cases/bad-after-redirection",
+      "expect": "BAD",
+      "why": "Quoted words, comments and redirects retain shell argument boundaries: bad-after-redirection"
+    },
+    {
+      "name": "good-punctuation",
+      "input": "cases/good-punctuation",
+      "expect": "GOOD",
+      "why": "Quoted words, comments and redirects retain shell argument boundaries: good-punctuation"
+    },
+    {
+      "name": "good-numeric-redirection",
+      "input": "cases/good-numeric-redirection",
+      "expect": "GOOD",
+      "why": "Quoted words, comments and redirects retain shell argument boundaries: good-numeric-redirection"
+    },
+    {
+      "name": "bad-singlequoted-choice",
+      "input": "cases/bad-singlequoted-choice",
+      "expect": "BAD",
+      "why": "Quoted words, comments and redirects retain shell argument boundaries: bad-singlequoted-choice"
+    },
+    {
+      "name": "good-dynamic-choice",
+      "input": "cases/good-dynamic-choice",
+      "expect": "GOOD",
+      "why": "Quoted words, comments and redirects retain shell argument boundaries: good-dynamic-choice"
+    },
+    {
+      "name": "good-inlinecomment",
+      "input": "cases/good-inlinecomment",
+      "expect": "GOOD",
+      "why": "Quoted words, comments and redirects retain shell argument boundaries: good-inlinecomment"
+    },
+    {
+      "name": "bad-live-with-comment",
+      "input": "cases/bad-live-with-comment",
+      "expect": "BAD",
+      "why": "Quoted words, comments and redirects retain shell argument boundaries: bad-live-with-comment"
+    },
+    {
+      "name": "good-neighbor",
+      "input": "cases/good-neighbor",
+      "expect": "GOOD",
+      "why": "A different module is outside this gate even when its argv would fail our parser."
+    },
+    {
+      "name": "bad-quoted-heredoc",
+      "input": "cases/bad-quoted-heredoc",
+      "expect": "BAD",
+      "why": "Review or helper-boundary regression: bad-quoted-heredoc"
+    },
+    {
+      "name": "bad-comment-heredoc",
+      "input": "cases/bad-comment-heredoc",
+      "expect": "BAD",
+      "why": "Review or helper-boundary regression: bad-comment-heredoc"
+    },
+    {
+      "name": "bad-assigned-python",
+      "input": "cases/bad-assigned-python",
+      "expect": "BAD",
+      "why": "Even a valid command in an unrecognized assigned Python string must not silently evade the population."
+    },
+    {
+      "name": "bad-sibling",
+      "input": "cases/bad-sibling",
+      "expect": "BAD",
+      "why": "Review or helper-boundary regression: bad-sibling"
+    },
+    {
+      "name": "good-sibling",
+      "input": "cases/good-sibling",
+      "expect": "GOOD",
+      "why": "Review or helper-boundary regression: good-sibling"
+    },
+    {
+      "name": "bad-scriptdir-root",
+      "input": "cases/bad-scriptdir-root",
+      "expect": "BAD",
+      "why": "Review or helper-boundary regression: bad-scriptdir-root"
+    },
+    {
+      "name": "good-python-docstring",
+      "input": "cases/good-python-docstring",
+      "expect": "GOOD",
+      "why": "Review or helper-boundary regression: good-python-docstring"
+    },
+    {
+      "name": "bad-unterminated-heredoc",
+      "input": "cases/bad-unterminated-heredoc",
+      "expect": "BAD",
+      "why": "Heredoc state must remain bounded by actual shell/Markdown units."
+    },
+    {
+      "name": "good-multiple-heredoc",
+      "input": "cases/good-multiple-heredoc",
+      "expect": "GOOD",
+      "why": "Heredoc state must remain bounded by actual shell/Markdown units."
+    },
+    {
+      "name": "good-metadata-path",
+      "input": "cases/good-metadata-path",
+      "expect": "GOOD",
+      "why": "A file-test operand is metadata, not an unresolved helper invocation."
+    },
+    {
+      "name": "bad-fragment-module",
+      "input": "cases/bad-fragment-module",
+      "expect": "BAD",
+      "why": "Review2: continuation splicing and exemptions respect individual shell commands."
+    },
+    {
+      "name": "good-fragment-module",
+      "input": "cases/good-fragment-module",
+      "expect": "GOOD",
+      "why": "Review2: continuation splicing and exemptions respect individual shell commands."
+    },
+    {
+      "name": "bad-echo-compact",
+      "input": "cases/bad-echo-compact",
+      "expect": "BAD",
+      "why": "Review2: continuation splicing and exemptions respect individual shell commands."
+    },
+    {
+      "name": "good-echo-commands",
+      "input": "cases/good-echo-commands",
+      "expect": "GOOD",
+      "why": "Review2: continuation splicing and exemptions respect individual shell commands."
+    },
+    {
+      "name": "bad-mixed-launchers",
+      "input": "cases/bad-mixed-launchers",
+      "expect": "BAD",
+      "why": "Review2: continuation splicing and exemptions respect individual shell commands."
+    },
+    {
+      "name": "bad-escaped-backslash",
+      "input": "cases/bad-escaped-backslash",
+      "expect": "BAD",
+      "why": "Only an unquoted/unescaped backslash-newline is a continuation; comments do not continue."
+    },
+    {
+      "name": "good-escaped-backslash",
+      "input": "cases/good-escaped-backslash",
+      "expect": "GOOD",
+      "why": "Only an unquoted/unescaped backslash-newline is a continuation; comments do not continue."
+    },
+    {
+      "name": "bad-comment-continuation",
+      "input": "cases/bad-comment-continuation",
+      "expect": "BAD",
+      "why": "Only an unquoted/unescaped backslash-newline is a continuation; comments do not continue."
+    },
+    {
+      "name": "good-module-value",
+      "input": "cases/good-module-value",
+      "expect": "GOOD",
+      "why": "A module-shaped project path is argument data, not a second launcher."
+    },
+    {
+      "name": "bad-backtick-echo",
+      "input": "cases/bad-backtick-echo",
+      "expect": "BAD",
+      "why": "Pass3 reproduced substitution finding or its literal/quoted/escaped counterpart."
+    },
+    {
+      "name": "good-literal-backtick",
+      "input": "cases/good-literal-backtick",
+      "expect": "GOOD",
+      "why": "Pass3 reproduced substitution finding or its literal/quoted/escaped counterpart."
+    },
+    {
+      "name": "bad-expanding-heredoc",
+      "input": "cases/bad-expanding-heredoc",
+      "expect": "BAD",
+      "why": "Pass3 reproduced substitution finding or its literal/quoted/escaped counterpart."
+    },
+    {
+      "name": "good-quoted-heredoc-substitution",
+      "input": "cases/good-quoted-heredoc-substitution",
+      "expect": "GOOD",
+      "why": "Pass3 reproduced substitution finding or its literal/quoted/escaped counterpart."
+    },
+    {
+      "name": "good-partquoted-heredoc",
+      "input": "cases/good-partquoted-heredoc",
+      "expect": "GOOD",
+      "why": "Pass3 reproduced substitution finding or its literal/quoted/escaped counterpart."
+    },
+    {
+      "name": "good-escaped-heredoc-substitution",
+      "input": "cases/good-escaped-heredoc-substitution",
+      "expect": "GOOD",
+      "why": "Pass3 reproduced substitution finding or its literal/quoted/escaped counterpart."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "no-check",
+      "origin": "scripts/check-cpp-init-cicd-args.py",
+      "path": "anchors/no-check.py",
+      "sha256": "7541ef4cecee6f7b1d1788b9bf90ded406d078b9a9ab2bec32cd1c94b10f2a67",
+      "why": "The prior absence of argument validation is represented by an always-green substitute; all bad cases must make it BLIND."
+    }
+  ]
+}

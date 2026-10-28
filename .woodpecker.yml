@@ -413,6 +413,13 @@ steps:
     commands:
       - python3 scripts/check-cpp-init-promises.py
 
+  # #1596: use the real argparse factory without dispatching commands.
+  cpp-init-cicd-args-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/check-cpp-init-cicd-args.py
+
   cpp-host-writes-check:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
     depends_on: [secret-scan]
