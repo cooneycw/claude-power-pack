@@ -1,0 +1,92 @@
+{
+  "_comment": [
+    "#1587: make verify and CI consume this source-path verdict without independently resolving promises.",
+    "Cases build checkout-shaped assets in a temporary directory. The production default floor is exercised, not overridden.",
+    "Population is extracted from cpp:init, never from a separate product manifest. Generated, consumer and external targets are reported but unverified.",
+    "The constructed anchor represents the prior absence of a check; provenance is unverified, not historical. Each bad case must make it BLIND.",
+    "Bounds: source existence does not prove registration, executable permissions, network readiness, generated content, or completion of a disclosed step."
+  ],
+  "gate": "scripts/check-cpp-init-promises.py",
+  "invocation": [
+    "python3",
+    "controls/cpp-init-promises/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^PROMISE_FINDING: ",
+  "unknown_signal": "^cpp-init-promises: UNKNOWN - ",
+  "cases": [
+    {
+      "name": "bad-missing-helper",
+      "input": "cases/bad-missing-helper",
+      "expect": "BAD",
+      "why": "A promised CPP helper is absent, while 43 other supplied paths resolve."
+    },
+    {
+      "name": "bad-real-hooks-json",
+      "input": "cases/bad-real-hooks-json",
+      "expect": "BAD",
+      "why": "The unfixed Tier 2 undo names missing .claude/hooks.json; hook-mask-output.sh exists and must not be blamed."
+    },
+    {
+      "name": "bad-unclassified",
+      "input": "cases/bad-unclassified",
+      "expect": "BAD",
+      "why": "An explicit Installs field has an unknown target shape. Ignoring it must fail."
+    },
+    {
+      "name": "bad-empty",
+      "input": "cases/bad-empty",
+      "expect": "BAD",
+      "why": "An empty document is not evidence that every promise resolves."
+    },
+    {
+      "name": "bad-near-empty",
+      "input": "cases/bad-near-empty",
+      "expect": "BAD",
+      "why": "One valid source cannot satisfy the measured production floor of 43."
+    },
+    {
+      "name": "bad-retirement-hides-promise",
+      "input": "cases/bad-retirement-hides-promise",
+      "expect": "BAD",
+      "why": "Retirement prose must not hide an affirmative install in the next sentence."
+    },
+    {
+      "name": "bad-placeholder",
+      "input": "cases/bad-placeholder",
+      "expect": "BAD",
+      "why": "An unsupported runtime placeholder cannot be assumed to resolve."
+    },
+    {
+      "name": "bad-escape",
+      "input": "cases/bad-escape",
+      "expect": "BAD",
+      "why": "A CPP source that escapes the checkout is not a supplied asset."
+    },
+    {
+      "name": "good-fixed",
+      "input": "cases/good-fixed",
+      "expect": "GOOD",
+      "why": "43 distinct CPP source expressions resolve at the production floor."
+    },
+    {
+      "name": "good-retirement",
+      "input": "cases/good-retirement",
+      "expect": "GOOD",
+      "why": "Retirement prose and a negative install statement do not promise old missing files."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "no-check",
+      "origin": "scripts/check-cpp-init-promises.py",
+      "path": "anchors/no-check.py",
+      "sha256": "c5212d5c59031a7041dfe90a1862c7968ea89092e342121c3139cffe29aded09",
+      "why": "No promised-source-path gate existed before #1587. This deliberately blind substitute returns green for every fixture, demonstrating the control fails without the new check."
+    }
+  ],
+  "good_signal": "^cpp-init-promises: ok - 43 CPP-supplied paths resolve;"
+}

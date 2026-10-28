@@ -136,7 +136,8 @@ fi
 
 ## Step 2: Detect Current State
 
-Check what's already installed (same logic as `/cpp:status`):
+Collect these presence observations to guide the remaining steps. They do not
+prove that the installed capabilities are ready; use `/cpp:status` for readiness:
 
 ```bash
 # Tier 1 checks
@@ -186,8 +187,8 @@ Ask the user which tier they want to install using the AskUserQuestion tool:
 
 | Tier | Name | Description |
 |------|------|-------------|
-| 1 | **Minimal** | Commands symlink only |
-| 2 | **Standard** | + Scripts, hooks, shell prompt |
+| 1 | **Minimal** | Commands symlinks and project stash guard |
+| 2 | **Standard** | + Scripts and shell prompt |
 | 3 | **Full** | + MCP servers (external second-opinion + playwright) |
 | 4 | **CI/CD** | + Build system, health checks, pipelines, containers |
 | 5 | **Codex** | + Codex CLI orchestration (cross-model implementation and review) |
@@ -197,8 +198,8 @@ Ask the user which tier they want to install using the AskUserQuestion tool:
 Default recommendation: **Standard** for most users, **Full** for MCP-powered workflows, **CI/CD** for projects needing build automation, **Codex** for cross-model implementation workflows, **Local Qwen** or **Local Gemma** for zero-cost/private local-model implementation.
 
 Tier 6 is optional and additive: it layers on Tier 1 (commands symlink) and
-does not require Tiers 2-5, though it reuses the Codex CLI binary as a
-harness if Tier 5 already installed it.
+does not require Tiers 2-5. It uses the Qwen Code CLI as its harness and talks
+directly to the selected Ollama endpoint; the Codex CLI is not used for this lane.
 
 Tier 7 is likewise optional and additive, and independent of Tier 6: a
 different model, a different harness (OpenCode), a different env var, and its
@@ -544,7 +545,8 @@ This will make the following changes:
     • prompt-context.sh       - Shell prompt worktree context
     • worktree-remove.sh      - Safe worktree cleanup
     • secrets-mask.sh         - Secret-masking filter for files at rest
-    • hook-mask-output.sh     - JSON wrapper around secrets-mask.sh
+    • hook-mask-output.sh     - Standalone JSON helper for files at rest;
+      not registered as a hook and masking nothing live
 
   [Tier 2 - Shell Prompt] (optional)
     • Add worktree context to PS1: [CPP #42] ~/project $
@@ -563,7 +565,6 @@ This will make the following changes:
   To undo:
     rm .claude/commands
     find ~/.claude/scripts -maxdepth 1 -type l -delete   # CPP installs symlinks only
-    rm .claude/hooks.json
     # Remove PS1 line from ~/.bashrc or ~/.zshrc
 
 Proceed? [y/N]
@@ -666,7 +667,7 @@ This will make the following changes:
 
   [Tier 5 - Codex CLI]
     - Requires: Codex CLI (npm install -g @openai/codex)
-    - Requires: OpenAI API key (codex login)
+    - Requires: ChatGPT sign-in or API-key authentication (codex login)
     - Installs: /codex:auto, /codex:exec, /codex:ask, /codex:status, /codex:help commands
     - Optional: Register CPP MCP servers with Codex
 
@@ -994,19 +995,20 @@ fi
 **User-Level Flow Allowlist (Optional)**
 
 The project profiles above govern ONE repo. The `/flow:*` commands also run
-read-only git/gh plumbing (issue reads, worktree creation, the branch-slug
-text pipeline) in EVERY repo, which prompts on every run unless the rules
+git/gh workflow commands (issue reads, fetches and worktree creation,
+the branch-slug text pipeline) in EVERY repo, which prompts on every run unless the rules
 exist at user level. Offer to merge the CPP allowlist template into
 `~/.claude/settings.json`:
 
 ```
 === Optional: User-Level Flow Allowlist ===
 
-/flow commands run read-only git/gh plumbing (gh issue view, git fetch,
+/flow commands run git/gh workflow commands (gh issue view, git fetch,
 git worktree, slug pipelines) that triggers a permission prompt on every
 run, in every repo, unless allowed at user level.
 
-Merge the CPP read-only allowlist into ~/.claude/settings.json?
+Merge the CPP workflow allowlist into ~/.claude/settings.json?
+(This allows repository mutations including fetches and worktree creation.)
 (Additive and idempotent - existing settings and rules are preserved.
 Rationale and caveats: templates/claude-settings-permissions.md)  [y/N]
 ```
@@ -1267,7 +1269,7 @@ If no Makefile exists in the project root, offer to create one from the template
 === Optional: Makefile ===
 
 The /flow commands use Makefile targets for quality gates and deployment:
-  /flow:finish  → runs `make lint` and `make test`
+  /flow:finish  → runs the project's declared quality gates
   /flow:deploy  → runs `make deploy`
 
 Create a starter Makefile? [y/N]
@@ -1810,12 +1812,12 @@ if command -v codex &>/dev/null; then
 fi
 ```
 
-#### 5c. Verify OpenAI API Key
+#### 5c. Observe Codex Authentication Configuration
 
 ```bash
 if command -v codex &>/dev/null; then
   echo ""
-  echo "=== OpenAI API Key ==="
+  echo "=== Codex Authentication Configuration ==="
 
   CODEX_CONFIG="$HOME/.codex/config.toml"
   if [ -n "$OPENAI_API_KEY" ]; then
@@ -1823,13 +1825,14 @@ if command -v codex &>/dev/null; then
   elif [ -f "$CODEX_CONFIG" ]; then
     echo "[?] Codex config exists; API credentials unverified"
   else
-    echo "[ ] OpenAI API key: not configured"
+    echo "[?] No API-key environment variable or config file observed; authentication unverified"
     echo ""
     echo "Configure with one of:"
-    echo "  codex login                    (interactive)"
+    echo "  codex login                    (interactive ChatGPT sign-in)"
     echo "  export OPENAI_API_KEY=sk-...   (environment variable)"
     echo ""
-    echo "Codex commands require an OpenAI API key to function."
+    echo "Codex supports ChatGPT sign-in or API-key authentication."
+    echo "Use codex login status to inspect stored authentication; this step does not verify it."
   fi
 fi
 ```
@@ -2319,9 +2322,9 @@ Two things are being installed here, and the second is the safety-critical one:
 
 #### 7d. Smoke Test (recommended)
 
-This is the check that actually proves the native-API path works, because it
-runs a real `opencode run` and therefore inherits the full system prompt. A
-bare curl probe passes on both `/v1` and `/api/chat` and proves nothing.
+This exercises tool calling through a real `opencode run`, including its system
+prompt. A bare curl probe checks endpoint reachability but does not exercise
+this harness or establish that tool calling works.
 
 ```bash
 SMOKE_DIR=$(mktemp -d)
@@ -2334,9 +2337,10 @@ GEMMA_OLLAMA_URL="$GEMMA_ENDPOINT" timeout 120 opencode run \
 rm -rf "$SMOKE_DIR"
 ```
 
-A count of 1 or more means tool calling survives the full harness. Zero is the
-`/v1` signature - re-check the provider block from 7c. Run `/gemma:status` for
-the full diagnosis.
+A count of 1 or more means this run emitted matching tool-use events. Zero is inconclusive:
+it can reflect CLI, network, provider, model or output-format failures, including
+an incorrect `/v1` provider block. Inspect the command output and exit status,
+re-check 7c, and run `/gemma:status` for further diagnosis.
 
 ---
 
@@ -2538,8 +2542,9 @@ echo "  Or check current values: bash ~/.claude/scripts/bash-prep.sh --check"
 
 ### 8d. Common-Memory Store Backend (mini-tier)
 
-Only offer this when the common-memory feature is in use (Tier 2+ installed the
-`cpp-memory` harness). It selects the storage backend for the friction-knowledge
+Only offer this when the common-memory feature is in use. Tier 2 links the
+checkout's executable helpers; Tier 5f installs the PATH harness for `cpp-memory`.
+This option selects the storage backend for the friction-knowledge
 ledger (`lib/cpp_memory`, issue #472). **Federation is the key column** - only
 tier iii shares learnings/rejections across VMs; on i and ii the `is_known` /
 `rejected_here` check is this-box-only.
@@ -2784,7 +2789,7 @@ Next Steps:
      /spec:help       - Spec-driven development
      /github:help     - Issue management
      /cicd:help       - CI/CD build & verification
-     npx skills find  - Discover skills from skills.sh (or /plugin for the marketplace)
+     npx skills find  - Discover community skills from skills.sh
 
 Change Permissions Later:
   • Edit .claude/settings.local.json directly
@@ -2802,7 +2807,7 @@ Documentation:
 
 ## Notes
 
-- This wizard is **idempotent** - safe to run multiple times
-- Already-installed components are skipped with a message
+- Steps with presence guards skip the artifacts they recognize; those guards do not prove readiness
+- Re-running can repeat optional writes and registrations; review each disclosure and observed result
 - Symlinks are preferred over copies for easier updates
 - Run `/cpp:status` anytime to check installation state
