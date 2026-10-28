@@ -56,12 +56,28 @@ from .runner import resume_run, run_plan, show_status
 
 def cmd_detect(args: argparse.Namespace) -> int:
     """Detect project framework and package manager."""
-    info = detect_framework(args.path)
+    makefile_path = None
+    if args.generate_makefile:
+        from .makefile import write_makefile
+
+        try:
+            info = detect_framework(args.path)
+            makefile_path = write_makefile(args.path, force=args.force)
+        except (OSError, ValueError) as exc:
+            print(f"Makefile generation failed: {exc}", file=sys.stderr)
+            return 1
+    else:
+        info = detect_framework(args.path)
 
     if args.json:
-        print(json.dumps(info.to_dict(), indent=2))
+        report = info.to_dict()
+        if makefile_path is not None:
+            report["makefile"] = {"path": str(makefile_path), "status": "written"}
+        print(json.dumps(report, indent=2))
     elif args.quiet:
-        print(f"{info.framework.value}:{info.package_manager.value}")
+        print(
+            str(makefile_path) if makefile_path is not None else f"{info.framework.value}:{info.package_manager.value}"
+        )
     else:
         print(f"Framework:       {info.framework.label}")
         print(f"Package Manager: {info.package_manager.label}")
@@ -93,6 +109,8 @@ def cmd_detect(args: argparse.Namespace) -> int:
             print(f"  Not covered:   {info.uncovered_summary()}")
         if info.discovery_scope:
             print(f"  Examined:      {info.discovery_scope}")
+        if makefile_path is not None:
+            print(f"\nWrote Makefile: {makefile_path}")
 
     return 0
 
@@ -883,7 +901,18 @@ def create_parser() -> argparse.ArgumentParser:
         "--quiet",
         "-q",
         action="store_true",
-        help="Minimal output: framework:package_manager",
+        help="Minimal output: framework:package_manager, or the generated Makefile path",
+    )
+
+    detect_parser.add_argument(
+        "--generate-makefile",
+        action="store_true",
+        help="Write a framework-aware Makefile in --path; existing entries are refused by default",
+    )
+    detect_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="With --generate-makefile, replace an existing Makefile entry",
     )
 
     # 'evidence' subcommand (issue #1366) - read a durable execution record
@@ -1046,6 +1075,9 @@ def main(argv: list[str] | None = None) -> int:
     """Main entry point for the CLI."""
     parser = create_parser()
     args = parser.parse_args(argv)
+
+    if args.command == "detect" and args.force and not args.generate_makefile:
+        parser.error("--force requires --generate-makefile")
 
     if args.command is None:
         parser.print_help()
