@@ -1,0 +1,27 @@
+{
+  "branch": "issue-1604-flow-ci-helpers-make-github-actions-a-first-class",
+  "counts": {
+    "accepted": 6,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "253de1cd",
+  "implementer": "claude/claude-opus-5-5",
+  "issue": "1604",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 2,
+  "recorded_at": "2026-10-30T10:41:22Z",
+  "red_cases": {
+    "already_covered": 4,
+    "proposed": 6
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "rollout": "2026/10/30/rollout-2026-10-30T06-37-53-01a18c63-32c1-71a0-af36-579965f229f2.jsonl",
+    "thread_id": "01a18c63-32c1-71a0-af36-579965f229f2"
+  },
+  "schema": 1,
+  "scope": "full",
+  "status": "ran"
+}
