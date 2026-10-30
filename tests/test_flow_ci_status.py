@@ -1937,3 +1937,40 @@ def test_a_RED_inside_a_capped_listing_is_still_failure(tmp_path):
     runs = [_gha_run(i, "success") for i in range(1, 100)] + [_gha_run(100, "failure")]
     gh = _gha_gh(tmp_path, runs)
     assert _gha(tmp_path, gh=gh)["FLOW_CI_STATUS"] == ["failure"]
+
+
+@requires_bash
+def test_a_PIPE_in_workflow_job_and_step_names_keeps_the_classification(tmp_path):
+    """Counter-model review pass 2: `|`-delimited rows split a name containing
+    `|` across fields, so a precode checkout read `code`."""
+    gh = _gha_gh(tmp_path, [_gha_run(8, "failure", workflow="ci | main")], jobs={8: [
+        {"name": "unit | integration", "conclusion": "failure", "steps": [
+            {"name": "Run actions/checkout@v4", "conclusion": "failure"}]},
+    ]})
+    m = _gha(tmp_path, gh=gh)
+    assert m["FLOW_CI_FAILED_STEP"] == ["ci | main / unit | integration / Run actions/checkout@v4"]
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["precode"]
+
+
+@requires_bash
+def test_a_MALFORMED_later_job_makes_the_origin_unknown_not_precode(tmp_path):
+    """A failed checkout in job 1 and an unreadable job 2: a classification
+    over the half that parsed is not one."""
+    gh = _gha_gh(tmp_path, [_gha_run(8, "failure", workflow="ci")], jobs={8: [
+        {"name": "a", "conclusion": "failure", "steps": [
+            {"name": "Run actions/checkout@v4", "conclusion": "failure"}]},
+        {"name": "b", "conclusion": "failure", "steps": "garbled"},
+    ]})
+    m = _gha(tmp_path, gh=gh)
+    assert m["FLOW_CI_STATUS"] == ["failure"]
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["unknown"]
+    assert m["FLOW_CI_FAILED_STEP"] == ["ci"]
+
+
+@requires_bash
+def test_a_CAPPED_green_does_not_claim_nothing_ran(tmp_path):
+    gh = _gha_gh(tmp_path, [_gha_run(i, "success") for i in range(1, 101)])
+    result = _run(tmp_path, SHA, "--repo", "o/r",
+                  env={"FLOW_CI_GH": str(gh), "WOODPECKER_API_TOKEN": "", "FLOW_CI_CURL": "/nonexistent/curl"})
+    assert "nothing ran" not in result.stderr
+    assert "hit its cap" in result.stderr

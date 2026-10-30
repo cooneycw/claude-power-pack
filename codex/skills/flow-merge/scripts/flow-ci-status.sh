@@ -831,27 +831,44 @@ gha_verdict() {
 # there is, and a guessed pattern (`*checkout*`) would send a red
 # `test checkout flow` step to the infrastructure. A job that failed with no
 # step evidence has an EMPTY type, which classifies unknown, never code.
+#
+# FIELDS ARE SEPARATED BY US (0x1f), NOT `|` (counter-model review): a job
+# named `unit | integration` split its own name across fields and turned a
+# precode checkout failure into `code`. US is not IFS whitespace, so an empty
+# field survives the split, and no workflow or job name carries it.
+#
+# A PARTIAL ANSWER IS SAID, NOT INFERRED (counter-model review). This runs in
+# a process substitution, so a variable it sets never reaches the parent; it
+# prints the sentinel row `!INCOMPLETE` instead, and the parent sets
+# FAILED_STEPS_INCOMPLETE from it. The whole job population is validated
+# before any row is printed, so a malformed later job cannot leave an earlier
+# row standing as a complete classification.
+GHA_FS=$'\x1f'
 gha_failed_rows() {
-    local id="$1" wf="$2" cls="$3" jobs rows
+    local id="$1" wf="$2" cls="$3" jobs rows canceled=""
+    [[ "$cls" == "canceled" ]] && canceled="Canceled"
     if ! jobs="$("$GH_BIN" run view "$id" --repo "$REPO" --json jobs 2>/dev/null)" \
-        || ! jq -e '.jobs | type == "array"' <<<"$jobs" >/dev/null 2>&1; then
-        FAILED_STEPS_INCOMPLETE=1
-        printf '%s||%s\n' "$wf" "$( [[ "$cls" == "canceled" ]] && echo Canceled )"
+        || ! rows="$(jq -r --arg wf "$wf" '
+            def red: (. // "") as $c | $c != "" and ($c | IN("success", "skipped", "neutral") | not);
+            def precode: .name == "Set up job" or (.name | startswith("Run actions/checkout@"));
+            def ok: (.name | type) == "string" and ((.conclusion // "") | type) == "string";
+            (.jobs | if type == "array" and all(.[]; type == "object" and ok
+                         and ((.steps // []) | type == "array" and all(.[]; type == "object" and ok)))
+                     then . else error("malformed job population") end)[]
+            | select(.conclusion | red) | . as $j
+            | [(.steps // [])[] | select(.conclusion | red)] as $fs
+            | if ($fs | length) > 0 then
+                  $fs[] | "\($wf) / \($j.name) / \(.name)\u001f\(if precode then "clone" else "commands" end)\u001f\(if .conclusion == "cancelled" or $j.conclusion == "cancelled" then "Canceled" else "" end)"
+              else
+                  "\($wf) / \($j.name)\u001f\u001f\(if $j.conclusion == "cancelled" then "Canceled" else "" end)"
+              end' <<<"$jobs" 2>/dev/null)"; then
+        printf '!INCOMPLETE\n'
+        printf '%s%s%s%s\n' "$wf" "$GHA_FS" "$GHA_FS" "$canceled"
         return
     fi
-    rows="$(jq -r --arg wf "$wf" '
-        def red: (. // "") as $c | $c != "" and ($c | IN("success", "skipped", "neutral") | not);
-        def precode: .name == "Set up job" or (.name | startswith("Run actions/checkout@"));
-        .jobs[] | select(.conclusion | red) | . as $j
-        | [(.steps // [])[] | select(.conclusion | red)] as $fs
-        | if ($fs | length) > 0 then
-              $fs[] | "\($wf) / \($j.name) / \(.name)|\(if precode then "clone" else "commands" end)|\(if .conclusion == "cancelled" or $j.conclusion == "cancelled" then "Canceled" else "" end)"
-          else
-              "\($wf) / \($j.name)||\(if $j.conclusion == "cancelled" then "Canceled" else "" end)"
-          end' <<<"$jobs" 2>/dev/null)"
     if [[ -z "$rows" ]]; then
         # Red with no red job: cancelled or refused before any job started.
-        printf '%s||%s\n' "$wf" "$( [[ "$cls" == "canceled" ]] && echo Canceled )"
+        printf '%s%s%s%s\n' "$wf" "$GHA_FS" "$GHA_FS" "$canceled"
     else
         printf '%s\n' "$rows"
     fi
@@ -871,7 +888,7 @@ gha_stall_check() {
     STALLED_REASON=""; STALLED_STEPS=(); GHA_STALLED_ID=""; GHA_STALLED_URL=""
     now="${FLOW_CI_NOW:-$(date +%s)}"
     limit=$(( (GHA_TIMEOUT_MIN + STALL_GRACE_MIN) * 60 ))
-    while IFS='|' read -r id wf started url; do
+    while IFS="$GHA_FS" read -r id wf started url; do
         [[ -n "$id" ]] || continue
         if [[ ! "$started" =~ ^[0-9]+$ ]]; then why="a running run's start time is unreadable"; continue; fi
         (( now - started > limit )) || continue
@@ -888,10 +905,10 @@ gha_stall_check() {
                 | .[]
                 | ((.startedAt // "") | try fromdateiso8601 catch error("bad startedAt")) as $s
                 | select($now - $s > $limit)
-                | "\($wf) / \(.name)|\(($now - $s) / 60 | floor)"' <<<"$jobs" 2>/dev/null)"; then
+                | "\($wf) / \(.name)\u001f\(($now - $s) / 60 | floor)"' <<<"$jobs" 2>/dev/null)"; then
             why="run $id has gone past the timeout with no running job that can be timed"; continue
         fi
-        while IFS='|' read -r name elapsed; do
+        while IFS="$GHA_FS" read -r name elapsed; do
             [[ -n "$name" ]] || continue
             STALLED_STEPS+=("$name")
             STALLED_REASON="past-timeout (${elapsed}m > ${GHA_TIMEOUT_MIN}m + ${STALL_GRACE_MIN}m grace)"
@@ -899,7 +916,7 @@ gha_stall_check() {
             # first (counter-model review): recovery is pointed at this URL.
             if [[ -z "$GHA_STALLED_ID" ]]; then GHA_STALLED_ID="$id"; GHA_STALLED_URL="$url"; fi
         done <<<"$rows"
-    done < <(jq -r '.[] | "\(.databaseId)|\(.workflowName // "?")|\((.startedAt // "") | try fromdateiso8601 catch "")|\(.url // "-")"' <<<"$live" 2>/dev/null)
+    done < <(jq -r '.[] | "\(.databaseId)\u001f\(.workflowName // "?")\u001f\((.startedAt // "") | try fromdateiso8601 catch "")\u001f\(.url // "-")"' <<<"$live" 2>/dev/null)
     if [[ -n "$STALLED_REASON" ]]; then
         STALL_CHECK="checked"; STATUS="stalled"
         PIPELINE="$GHA_STALLED_ID"; URL="${GHA_STALLED_URL:--}"
@@ -939,20 +956,22 @@ if [[ "$HAVE_JQ" -eq 1 ]] && command -v "$GH_BIN" >/dev/null 2>&1; then
             [[ -n "$ALL_RUNS" ]] || ALL_RUNS="[]"
         done
         GHA_RUNS_LINE="$(jq -r '.runs | "\(length)" + (if length > 0 then " (" + (map("\(.databaseId):\(.workflowName // "?"):\(.event):\(if .status == "completed" then .conclusion else .status end)") | join(", ")) + ")" else "" end)' <<<"$VERDICT" 2>/dev/null)"
-        if [[ "$STATUS" == "unknown" && "$(jq -r '.runs | length' <<<"$VERDICT" 2>/dev/null)" -gt 0 ]]; then
+        if [[ "$STATUS" == "unknown" \
+            && "$(jq -r '(.runs | length) > 0 and all(.runs[]; .cls == "pass")' <<<"$VERDICT" 2>/dev/null)" == "true" ]]; then
             echo "flow-ci-status: every run on ${SHA:0:12} was skipped or neutral - nothing ran, so this is not a success" >&2
         fi
         if [[ "$STATUS" == "failure" ]]; then
-            while IFS='|' read -r id wf cls; do
+            while IFS="$GHA_FS" read -r id wf cls; do
                 [[ -n "$id" ]] || continue
-                while IFS='|' read -r step step_type step_error; do
+                while IFS="$GHA_FS" read -r step step_type step_error; do
                     [[ -n "$step" ]] || continue
+                    if [[ "$step" == "!INCOMPLETE" ]]; then FAILED_STEPS_INCOMPLETE=1; continue; fi
                     FAILED_STEPS+=("$step")
                     FAILED_STEP_TYPES+=("$step_type")
                     FAILED_STEP_EXIT_CODES+=("")
                     FAILED_STEP_ERRORS+=("$step_error")
                 done < <(gha_failed_rows "$id" "$wf" "$cls")
-            done < <(jq -r '.red[] | "\(.databaseId)|\(.workflowName // "?")|\(.cls)"' <<<"$VERDICT" 2>/dev/null)
+            done < <(jq -r '.red[] | "\(.databaseId)\u001f\(.workflowName // "?")\u001f\(.cls)"' <<<"$VERDICT" 2>/dev/null)
         fi
         emit
     fi
