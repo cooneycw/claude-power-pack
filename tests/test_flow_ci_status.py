@@ -987,19 +987,63 @@ def test_STRICT_EVENT_holds_on_the_CLI_lane_too(tmp_path):
     assert _markers(result.stdout)["FLOW_CI_STATUS"] == ["not-found"], result.stdout
 
 
-def _gha_gh(tmp_path: Path, runs: list[dict]) -> Path:
-    """A gh whose only answer is `run list` (the GitHub Actions lane)."""
+def _gha_gh(
+    tmp_path: Path,
+    runs: list[dict],
+    jobs: dict[int, list[dict]] | None = None,
+    contexts: list[str] | None = None,
+) -> Path:
+    """A gh answering the GitHub Actions lane: `run list`, `run view <id>
+    --json jobs` (from ``jobs``; an id without an entry fails), and - when
+    ``contexts`` is given - the branch-protection reads of derive_event."""
+    jobs_dir = tmp_path / "bin" / "jobs"
+    jobs_dir.mkdir(parents=True, exist_ok=True)
+    for run_id, run_jobs in (jobs or {}).items():
+        (jobs_dir / f"{run_id}.json").write_text(json.dumps({"jobs": run_jobs}), encoding="utf-8")
     path = tmp_path / "bin" / "gh"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "#!/usr/bin/env bash\n"
-        'if [[ "$1 $2" == "run list" ]]; then\n'
-        "cat <<'JSON'\n" + json.dumps(runs) + "\nJSON\n"
-        "exit 0\nfi\nexit 1\n",
-        encoding="utf-8",
-    )
+    body = [
+        "#!/usr/bin/env bash",
+        'if [[ "$1 $2" == "run list" ]]; then',
+        "cat <<'JSON'",
+        json.dumps(runs),
+        "JSON",
+        "exit 0; fi",
+        'if [[ "$1 $2" == "run view" ]]; then',
+        f'  f="{jobs_dir}/$3.json"; [[ -f "$f" ]] && cat "$f" && exit 0; exit 1',
+        "fi",
+    ]
+    if contexts is not None:
+        body += [
+            'if [[ "$1" == "api" ]]; then',
+            '  case "$2" in',
+            "    *required_status_checks)",
+            "      cat <<'CTX'", *contexts, "CTX",
+            "      exit 0 ;;",
+            "    repos/*/*/*) exit 1 ;;",
+            '    repos/*) echo main; exit 0 ;;',
+            "  esac",
+            "fi",
+        ]
+    body += ["exit 1", ""]
+    path.write_text("\n".join(body), encoding="utf-8")
     path.chmod(0o755)
     return path
+
+
+def _gha_run(run_id: int, conclusion: str | None, event: str = "pull_request",
+             workflow: str = "ci", status: str = "completed", started: str = "2026-10-30T10:00:00Z") -> dict:
+    return {"status": status, "conclusion": conclusion or "", "databaseId": run_id,
+            "url": f"https://github.com/o/r/actions/runs/{run_id}", "event": event,
+            "workflowName": workflow, "startedAt": started}
+
+
+def _gha(tmp_path: Path, *args: str, gh: Path, env: dict | None = None) -> dict[str, list[str]]:
+    result = _run(tmp_path, SHA, "--repo", "o/r", *args,
+                  env={"FLOW_CI_GH": str(gh), "WOODPECKER_API_TOKEN": "",
+                       "FLOW_CI_CURL": "/nonexistent/curl", **(env or {})})
+    markers = _markers(result.stdout)
+    assert markers.get("FLOW_CI_PROVIDER") == ["github-actions"], result.stdout + result.stderr
+    return markers
 
 
 @requires_bash
@@ -1294,29 +1338,243 @@ def test_a_FAILED_type_call_keeps_the_step_names_and_says_unknown(tmp_path):
 
 
 @requires_bash
-def test_the_GITHUB_ACTIONS_lane_cannot_classify_and_says_unknown(tmp_path):
-    """A checkout on Actions is a step INSIDE a job; the job list carries no
-    pre-code type. Its failure must never read as a code failure."""
-    path = tmp_path / "bin" / "gh"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    runs = [{"status": "completed", "conclusion": "failure", "databaseId": 8,
-             "url": "v", "event": "push"}]
-    path.write_text(
-        "#!/usr/bin/env bash\n"
-        'if [[ "$1 $2" == "run list" ]]; then\n'
-        "cat <<'JSON'\n" + json.dumps(runs) + "\nJSON\nexit 0\nfi\n"
-        'if [[ "$1 $2" == "run view" ]]; then echo checkout; exit 0; fi\n'
-        "exit 1\n",
-        encoding="utf-8",
-    )
-    path.chmod(0o755)
-    result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "push",
-                  env={"FLOW_CI_GH": str(path), "WOODPECKER_API_TOKEN": ""})
-    m = _markers(result.stdout)
-    assert m["FLOW_CI_PROVIDER"] == ["github-actions"], result.stdout + result.stderr
-    assert m["FLOW_CI_FAILED_STEP"] == ["checkout"]
+def test_the_GITHUB_ACTIONS_lane_reads_STEPS_so_a_failed_checkout_is_PRECODE(tmp_path):
+    """#1604: failures used to be named by JOB, so a red `actions/checkout`
+    step - which runs before any of the change's code - read unknown at best.
+    The job's steps are now read, and GitHub's own generated step names for
+    the checkout and job setup classify pre-code."""
+    gh = _gha_gh(tmp_path, [_gha_run(8, "failure", workflow="test")], jobs={8: [
+        {"name": "pytest", "conclusion": "failure", "steps": [
+            {"name": "Set up job", "conclusion": "success"},
+            {"name": "Run actions/checkout@v4", "conclusion": "failure"},
+            {"name": "Run tests", "conclusion": "skipped"},
+        ]},
+    ]})
+    m = _gha(tmp_path, "--event", "pull_request", gh=gh)
+    assert m["FLOW_CI_FAILED_STEP"] == ["test / pytest / Run actions/checkout@v4"]
+    assert m["FLOW_CI_PRECODE_FAILURE"] == ["test / pytest / Run actions/checkout@v4"]
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["precode"]
+
+
+@requires_bash
+def test_a_RENAMED_checkout_step_reads_code_not_precode(tmp_path):
+    """The step list carries no type, so only GitHub's GENERATED names count
+    as pre-code; a guessed `*checkout*` pattern would send a red
+    `test checkout flow` step to the infrastructure."""
+    gh = _gha_gh(tmp_path, [_gha_run(8, "failure")], jobs={8: [
+        {"name": "unit", "conclusion": "failure", "steps": [
+            {"name": "test checkout flow", "conclusion": "failure"}]},
+    ]})
+    m = _gha(tmp_path, gh=gh)
     assert "FLOW_CI_PRECODE_FAILURE" not in m
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["code"]
+
+
+@requires_bash
+def test_a_job_with_NO_step_evidence_stays_unknown(tmp_path):
+    """A job that failed without a failed step (a startup failure) has no
+    classification, and its absence must never read as `code`."""
+    gh = _gha_gh(tmp_path, [_gha_run(8, "startup_failure")], jobs={8: [
+        {"name": "unit", "conclusion": "failure", "steps": []}]})
+    m = _gha(tmp_path, gh=gh)
+    assert m["FLOW_CI_FAILED_STEP"] == ["ci / unit"]
     assert m["FLOW_CI_FAILURE_ORIGIN"] == ["unknown"]
+
+
+@requires_bash
+def test_UNREADABLE_jobs_keep_the_failure_and_say_unknown(tmp_path):
+    gh = _gha_gh(tmp_path, [_gha_run(8, "failure", workflow="test")])  # run view fails
+    m = _gha(tmp_path, gh=gh)
+    assert m["FLOW_CI_STATUS"] == ["failure"]
+    assert m["FLOW_CI_FAILED_STEP"] == ["test"]
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["unknown"]
+
+
+# ── GitHub Actions aggregation (issue #1604) ───────────────────────────────
+#
+# One commit carries one run per workflow. The lane took `.[0]`, so the
+# verdict depended on list order and a green lint run could hide a red test
+# run. Each test below FAILS on the pre-#1604 script (measured: the anchor at
+# controls/flow-ci-status-gha/anchors/pre-1604-flow-ci-status.sh).
+
+
+@requires_bash
+@pytest.mark.parametrize("order", ["green-first", "red-first"])
+def test_ANY_red_run_is_failure_in_EITHER_order(tmp_path, order):
+    """The issue's red case: [success, failure] and [failure, success] both
+    give failure, and the verdict names the red run."""
+    runs = [_gha_run(1, "success", workflow="lint"), _gha_run(2, "failure", workflow="test")]
+    if order == "red-first":
+        runs.reverse()
+    gh = _gha_gh(tmp_path, runs, jobs={2: [
+        {"name": "pytest", "conclusion": "failure", "steps": [{"name": "Run tests", "conclusion": "failure"}]}]})
+    m = _gha(tmp_path, "--event", "pull_request", gh=gh)
+    assert m["FLOW_CI_STATUS"] == ["failure"]
+    assert m["FLOW_CI_PIPELINE"] == ["2"]
+    assert m["FLOW_CI_FAILED_STEP"] == ["test / pytest / Run tests"]
+    assert m["FLOW_CI_RUNS"][0].startswith("2 (")
+
+
+@requires_bash
+@pytest.mark.parametrize("order", ["green-first", "cancel-first"])
+def test_a_CANCELLED_run_is_failure_with_the_CANCELED_origin(tmp_path, order):
+    runs = [_gha_run(1, "success"), _gha_run(2, "cancelled", workflow="test")]
+    if order == "cancel-first":
+        runs.reverse()
+    gh = _gha_gh(tmp_path, runs, jobs={2: [
+        {"name": "pytest", "conclusion": "cancelled", "steps": [{"name": "Run tests", "conclusion": "cancelled"}]}]})
+    m = _gha(tmp_path, gh=gh)
+    assert m["FLOW_CI_STATUS"] == ["failure"]
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["canceled"]
+
+
+@requires_bash
+def test_a_run_cancelled_before_ANY_job_is_still_canceled(tmp_path):
+    gh = _gha_gh(tmp_path, [_gha_run(2, "cancelled", workflow="test")], jobs={2: []})
+    m = _gha(tmp_path, gh=gh)
+    assert m["FLOW_CI_FAILED_STEP"] == ["test"]
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["canceled"]
+
+
+@requires_bash
+@pytest.mark.parametrize("conclusion", ["failure", "timed_out", "startup_failure", "action_required", "stale"])
+def test_every_other_completed_conclusion_is_RED(tmp_path, conclusion):
+    """An unrecognised conclusion is red, not green: GitHub adding a value
+    must never turn into a merge."""
+    gh = _gha_gh(tmp_path, [_gha_run(1, "success"), _gha_run(2, conclusion)])
+    assert _gha(tmp_path, gh=gh)["FLOW_CI_STATUS"] == ["failure"]
+
+
+@requires_bash
+@pytest.mark.parametrize("conclusion", ["skipped", "neutral"])
+def test_SKIPPED_and_NEUTRAL_pass_beside_a_success(tmp_path, conclusion):
+    """GitHub branch protection treats both as passing; a path-filtered
+    workflow that skips by design must not block a merge."""
+    gh = _gha_gh(tmp_path, [_gha_run(1, conclusion), _gha_run(2, "success")])
+    m = _gha(tmp_path, gh=gh)
+    assert m["FLOW_CI_STATUS"] == ["success"]
+    assert m["FLOW_CI_PIPELINE"] == ["2"]
+
+
+@requires_bash
+def test_a_commit_whose_runs_ALL_skipped_is_UNKNOWN_not_success(tmp_path):
+    """Nothing ran, so a green would rest on an empty population."""
+    gh = _gha_gh(tmp_path, [_gha_run(1, "skipped"), _gha_run(2, "neutral")])
+    result = _run(tmp_path, SHA, "--repo", "o/r",
+                  env={"FLOW_CI_GH": str(gh), "WOODPECKER_API_TOKEN": "", "FLOW_CI_CURL": "/nonexistent/curl"})
+    assert _markers(result.stdout)["FLOW_CI_STATUS"] == ["unknown"], result.stdout
+    assert "nothing ran" in result.stderr
+
+
+@requires_bash
+def test_an_UNFINISHED_run_beside_a_green_one_is_RUNNING(tmp_path):
+    gh = _gha_gh(tmp_path, [_gha_run(1, "success"),
+                            _gha_run(2, None, status="in_progress", started="2099-01-01T00:00:00Z")])
+    m = _gha(tmp_path, gh=gh)
+    assert m["FLOW_CI_STATUS"] == ["running"]
+    assert m["FLOW_CI_PIPELINE"] == ["2"]
+    assert m["FLOW_CI_STALL_CHECK"] == ["checked"]
+
+
+@requires_bash
+def test_a_RED_run_ends_the_wait_even_while_another_still_runs(tmp_path):
+    gh = _gha_gh(tmp_path, [_gha_run(1, None, status="in_progress", started="2099-01-01T00:00:00Z"),
+                            _gha_run(2, "failure")])
+    m = _gha(tmp_path, "--wait", "30", gh=gh)
+    assert m["FLOW_CI_STATUS"] == ["failure"]
+    assert m["FLOW_CI_WAIT"] == ["settled"]
+
+
+@requires_bash
+def test_a_NON_WOODPECKER_required_set_means_ANY_event_under_strict(tmp_path):
+    """The issue's red case: required `test,lint` with only pull_request runs
+    gave not-found under --strict-event (event fell back to `push`), so
+    /flow:merge waited out its full 1800s on every PR."""
+    gh = _gha_gh(tmp_path, [_gha_run(1, "success", workflow="test"), _gha_run(2, "success", workflow="lint")],
+                 contexts=["test", "lint"])
+    m = _gha(tmp_path, "--strict-event", gh=gh)
+    assert m["FLOW_CI_STATUS"] == ["success"]
+    assert m["FLOW_CI_EVENT"][0].startswith("any (branch-protection on main: test,lint")
+
+
+@requires_bash
+def test_ANY_event_counts_a_red_push_run_too(tmp_path):
+    """With no lane named, a red on either event is red - the conservative
+    direction. The green is on `push` and the red on `pull_request`, so the
+    pre-#1604 `push` fallback - which reads only the green - fails this."""
+    gh = _gha_gh(tmp_path, [_gha_run(1, "success", event="push"), _gha_run(2, "failure")],
+                 contexts=["test"])
+    assert _gha(tmp_path, "--strict-event", gh=gh)["FLOW_CI_STATUS"] == ["failure"]
+
+
+@requires_bash
+def test_a_STRICT_pull_request_lane_ignores_a_red_push_run(tmp_path):
+    """The filter still holds when a lane IS named."""
+    gh = _gha_gh(tmp_path, [_gha_run(1, "success"), _gha_run(2, "failure", event="push")])
+    m = _gha(tmp_path, "--event", "pull_request", "--strict-event", gh=gh)
+    assert m["FLOW_CI_STATUS"] == ["success"]
+    assert m["FLOW_CI_PIPELINE"] == ["1"]
+
+
+@requires_bash
+def test_ANY_event_on_the_WOODPECKER_lane_takes_either_event_under_strict(tmp_path):
+    curl = _write_fake_curl(
+        tmp_path,
+        {"/api/repos/lookup/": {"id": 17},
+         "pipelines?per_page": [_pipeline(90, SHA, "failure", "pull_request")]},
+        tmp_path / "argv.log",
+    )
+    result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "any", "--strict-event",
+                  env={"FLOW_CI_CURL": str(curl)})
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_PIPELINE"] == ["90"], result.stdout + result.stderr
+    assert m["FLOW_CI_STATUS"] == ["failure"]
+
+
+@requires_bash
+def test_ANY_event_on_the_CLI_lane_lists_each_pipeline_once(tmp_path):
+    wpcli = _write_fake_wpcli(tmp_path, [f"90|failure|{SHA}|pull_request", f"91|success|{SHA}|push"],
+                              [], tmp_path / "argv.log")
+    result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "any", "--strict-event",
+                  env={"FLOW_CI_WPCLI": str(wpcli), "WOODPECKER_API_TOKEN": ""})
+    assert _markers(result.stdout)["FLOW_CI_PIPELINE"] == ["90"], result.stdout
+    assert result.stderr.count("#90 ") == 1, result.stderr
+
+
+# ── GitHub Actions stall check (issue #1604, #1552 parity) ─────────────────
+
+NOW_2026 = "1793354400"  # 2026-10-30T10:00:00Z
+
+
+@requires_bash
+def test_an_in_progress_job_PAST_the_timeout_is_STALLED(tmp_path):
+    started = "2026-10-29T00:00:00Z"  # 34h before NOW_2026
+    gh = _gha_gh(tmp_path, [_gha_run(5, None, status="in_progress", started=started, workflow="test")],
+                 jobs={5: [{"name": "pytest", "status": "in_progress", "conclusion": "", "startedAt": started}]})
+    m = _gha(tmp_path, gh=gh, env={"FLOW_CI_NOW": NOW_2026})
+    assert m["FLOW_CI_STATUS"] == ["stalled"]
+    assert m["FLOW_CI_STALLED_STEP"] == ["test / pytest"]
+    assert m["FLOW_CI_STALLED"][0].startswith("past-timeout (2040m > 360m + 10m grace)")
+
+
+@requires_bash
+def test_a_SLOW_job_inside_a_raised_timeout_is_still_RUNNING(tmp_path):
+    started = "2026-10-30T02:00:00Z"  # 8h before NOW_2026, past 360m
+    gh = _gha_gh(tmp_path, [_gha_run(5, None, status="in_progress", started=started)],
+                 jobs={5: [{"name": "soak", "status": "in_progress", "conclusion": "", "startedAt": started}]})
+    stalled = _gha(tmp_path, gh=gh, env={"FLOW_CI_NOW": NOW_2026})
+    raised = _gha(tmp_path, gh=gh, env={"FLOW_CI_NOW": NOW_2026, "FLOW_CI_GHA_TIMEOUT_MIN": "720"})
+    assert stalled["FLOW_CI_STATUS"] == ["stalled"]
+    assert raised["FLOW_CI_STATUS"] == ["running"]
+    assert raised["FLOW_CI_STALL_CHECK"] == ["checked"]
+
+
+@requires_bash
+def test_UNREADABLE_jobs_on_an_old_run_are_UNAVAILABLE_not_checked(tmp_path):
+    gh = _gha_gh(tmp_path, [_gha_run(5, None, status="in_progress", started="2026-10-29T00:00:00Z")])
+    m = _gha(tmp_path, gh=gh, env={"FLOW_CI_NOW": NOW_2026})
+    assert m["FLOW_CI_STATUS"] == ["running"]
+    assert m["FLOW_CI_STALL_CHECK"][0].startswith("unavailable (")
 
 
 @requires_bash

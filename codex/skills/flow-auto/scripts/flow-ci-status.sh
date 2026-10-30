@@ -42,8 +42,12 @@
 #                  Default: DERIVED from the DEFAULT branch's required status
 #                  contexts (issue #1262; a PR into another base passes --event) - `ci/woodpecker/pr/*` required alone
 #                  means pull_request, `ci/woodpecker/push/*` alone means push.
-#                  Both, neither, or unreadable falls back to `push`, and the
-#                  FLOW_CI_EVENT line says which source decided.
+#                  Required contexts that are ALL non-Woodpecker (GitHub
+#                  Actions check names such as `test`, `lint`) mean `any`:
+#                  every event counts (issue #1604). Both lanes, no required
+#                  context, or unreadable falls back to `push`, and the
+#                  FLOW_CI_EVENT line says which source decided. `--event any`
+#                  may also be passed.
 #   --strict-event Treat the event as a FILTER, not a preference (issue #1300):
 #                  a pipeline on another event never answers. The wait-then-merge
 #                  recipe uses it so a green push pipeline cannot end a wait for
@@ -64,7 +68,11 @@
 #   FLOW_CI_PIPELINE: <number|->
 #   FLOW_CI_URL: <url|->
 #   FLOW_CI_WAIT: none | settled | expired (<N>s)   (issue #1262)
-#   FLOW_CI_FAILED_STEP: <name>        (repeated, only on failure)
+#   FLOW_CI_RUNS: <n> (<id>:<workflow>:<event>:<result>, ...)
+#                                      (GitHub Actions lane only, issue #1604:
+#                                       every run the verdict aggregated)
+#   FLOW_CI_FAILED_STEP: <name>        (repeated, only on failure; on the
+#                                       Actions lane `workflow / job / step`)
 #   FLOW_CI_STALL_CHECK: checked | unavailable (<why>)   (issue #1552; only
 #                                       when a Woodpecker HTTP pipeline was
 #                                       running or terminal - see below)
@@ -85,8 +93,15 @@
 # read `running` keeps STATUS `failure` and adds the stalled lines: the cancel
 # did not land. `FLOW_CI_STALL_CHECK: unavailable` means the timeout, a running
 # workflow's start or the pipeline detail could not be read, so a `running` verdict was NOT checked for
-# staleness - unchecked, never "not stalled". The woodpecker-cli and GitHub
-# Actions lanes do not run this check and print no STALL_CHECK line.
+# staleness - unchecked, never "not stalled". The GitHub Actions lane runs the
+# same check against GitHub's job timeout (issue #1604; see gha_stall_check).
+# The woodpecker-cli lane does not run it and prints no STALL_CHECK line.
+#
+# The GitHub Actions lane AGGREGATES every run on the commit (issue #1604):
+# any red run is failure, else any unfinished run is running, else success;
+# `cancelled` is the `canceled` origin, a failed `Set up job` or default-named
+# `actions/checkout` step is `precode`, and a commit whose runs were all
+# skipped or neutral is `unknown`, never success.
 #
 # Env (test hooks - unset in normal use):
 #   FLOW_CI_CURL   override the `curl` binary
@@ -97,6 +112,9 @@
 #   FLOW_CI_NOW    override "now" in epoch seconds (stalled-verdict tests)
 #   FLOW_CI_STALL_GRACE_MIN  minutes past the repo timeout before `stalled`
 #                  (default 10; not a test hook - a host may widen it)
+#   FLOW_CI_GHA_TIMEOUT_MIN  the GitHub Actions job timeout the stall check
+#                  measures against (default 360, GitHub's own default; the
+#                  API does not expose a job's declared timeout-minutes)
 
 set -uo pipefail
 
@@ -155,7 +173,7 @@ while [[ $# -gt 0 ]]; do
             if [[ "${2:-}" =~ ^[0-9]+$ ]]; then WAIT_SECS="$2"; shift 2; else WAIT_SECS=600; shift; fi
             ;;
         --wait=*)      WAIT_SECS="${1#*=}"; [[ "$WAIT_SECS" =~ ^[0-9]+$ ]] || die_usage "--wait needs seconds"; shift ;;
-        -h|--help)     sed -n '2,75p' "$0"; exit 0 ;;
+        -h|--help)     sed -n '2,117p' "$0"; exit 0 ;;
         -*)            die_usage "unknown argument: $1" ;;
         *)             [[ -z "$SHA" ]] || die_usage "unexpected argument: $1"; SHA="$1"; shift ;;
     esac
@@ -252,6 +270,9 @@ failure_origin() {
     fi
 }
 
+#: NEGATIVE-CONTROL: controls/flow-ci-status-gha
+#: A red GitHub Actions run must surface whatever its list position, and a
+#: repo requiring only non-Woodpecker checks must not read not-found (#1604).
 #: NEGATIVE-CONTROL: controls/flow-ci-status-stalled
 #: A server-listed `running` past the repo timeout is dead, not slow (issue #1552).
 #: NEGATIVE-CONTROL: controls/flow-ci-status-cancellation
@@ -271,6 +292,7 @@ emit() {
     echo "FLOW_CI_PIPELINE: $PIPELINE"
     echo "FLOW_CI_URL: $URL"
     echo "FLOW_CI_WAIT: $WAIT_STATE"
+    [[ -n "${GHA_RUNS_LINE:-}" ]] && echo "FLOW_CI_RUNS: $GHA_RUNS_LINE"
     for step in ${FAILED_STEPS+"${FAILED_STEPS[@]}"}; do
         echo "FLOW_CI_FAILED_STEP: $step"
     done
@@ -349,7 +371,7 @@ fi
 # check. So the default is now the lane the base branch REQUIRES, read from
 # GitHub; when that cannot be decided the old default stands and says so.
 derive_event() {
-    local default_branch contexts ctx pr=0 push=0
+    local default_branch contexts ctx pr=0 push=0 other=0
     if ! command -v "$GH_BIN" >/dev/null 2>&1; then
         EVENT_SOURCE="default: gh unavailable, required contexts unreadable"; return
     fi
@@ -369,6 +391,8 @@ derive_event() {
         case "$ctx" in
             ci/woodpecker/pr/*|ci/woodpecker/pull_request/*) pr=1 ;;
             ci/woodpecker/push/*) push=1 ;;
+            "") ;;
+            *) other=1 ;;
         esac
     done <<<"$contexts"
     local listed
@@ -383,6 +407,17 @@ derive_event() {
         PREFER_EVENT="push"; EVENT_SOURCE="branch-protection on $default_branch: ${listed}"
     elif (( pr && push )); then
         EVENT_SOURCE="default: both lanes required on $default_branch (${listed})"
+    elif (( other )); then
+        # REQUIRED, BUT NOT WOODPECKER (issue #1604). A GitHub Actions repo
+        # requires check names like `test` and `lint`, which carry no event, so
+        # they cannot say which lane matters - and `push` was then a FILTER
+        # under --strict-event over a repository whose PR runs are all
+        # `pull_request`: /flow:merge waited out its full 1800s on every PR.
+        # `any` makes every event count. That is the conservative direction:
+        # with nothing saying a lane is irrelevant, a red on either one is red.
+        # An EMPTY required set keeps the `push` default below - nothing is
+        # required there, and a Woodpecker-only repo is unchanged.
+        PREFER_EVENT="any"; EVENT_SOURCE="branch-protection on $default_branch: ${listed} (no woodpecker lane; every event counts)"
     else
         EVENT_SOURCE="default: no woodpecker lane among required contexts on $default_branch${listed:+ (${listed})}"
     fi
@@ -541,7 +576,7 @@ if [[ "$HAVE_JQ" -eq 1 && -n "$WP_TOKEN" && -n "$WP_SERVER" ]]; then
         while :; do
             MATCHES="$(wp_api "/api/repos/$REPO_ID/pipelines?per_page=50" \
                 | jq -c --arg sha "$SHA" --arg ev "$PREFER_EVENT" --argjson strict "$STRICT_EVENT" \
-                    '[.[] | select(.commit == $sha) | select($strict == 0 or .event == $ev)]
+                    '[.[] | select(.commit == $sha) | select($strict == 0 or $ev == "any" or .event == $ev)]
                      | sort_by(.event != $ev)            # preferred event first
                      | map({number, event, status})' 2>/dev/null)"
             COUNT="$(jq -r 'length' <<<"${MATCHES:-[]}" 2>/dev/null || echo 0)"
@@ -617,11 +652,12 @@ if command -v "$WPCLI_BIN" >/dev/null 2>&1; then
         while :; do
             MATCHES=()
             while IFS='|' read -r number state commit event; do
-                [[ "$commit" == "$SHA" && "$event" == "$PREFER_EVENT" ]] || continue
+                [[ "$commit" == "$SHA" && ( "$PREFER_EVENT" == "any" || "$event" == "$PREFER_EVENT" ) ]] || continue
                 MATCHES+=("$number|$state|$commit|$event")
             done <<<"$WPCLI_ROWS"
             while IFS='|' read -r number state commit event; do
                 (( STRICT_EVENT )) && continue
+                [[ "$PREFER_EVENT" == "any" ]] && continue   # the first pass took every event
                 [[ "$commit" == "$SHA" && "$event" != "$PREFER_EVENT" ]] || continue
                 MATCHES+=("$number|$state|$commit|$event")
             done <<<"$WPCLI_ROWS"
@@ -734,19 +770,125 @@ if command -v "$WPCLI_BIN" >/dev/null 2>&1; then
 fi
 
 # ── GitHub Actions fallback ────────────────────────────────────────────────
-# The run LIST is fetched and filtered here rather than asking gh for `.[0]`,
-# so --strict-event can hold on this lane too (counter-model review, #1300): a
-# successful push workflow must not end a wait for the pull_request lane. A
-# provider that answers with no run on the required event is `not-found`, and a
-# --wait keeps waiting for it; the event is a preference without --strict-event.
+# EVERY RUN ON THE COMMIT DECIDES, NOT ONE (issue #1604). A commit on an
+# Actions repository carries one run per WORKFLOW - `lint`, `test`, ... - and
+# this lane used to take `.[0]`: on one SHA `[success, cancelled]` read
+# success and `[cancelled, success]` read failure, so a green lint workflow
+# could hide a red test workflow depending on list order. Now:
+#
+#   - the runs considered are the event's: a FILTER under --strict-event, a
+#     PREFERENCE otherwise (the preferred event's runs when any exist, else
+#     all), and every run when the event is `any`;
+#   - any red run is failure (fail fast: the wait ends on the first red);
+#     else any unfinished run is running; else a success is success;
+#   - `skipped` and `neutral` PASS, as GitHub branch protection treats them,
+#     but a commit whose runs ALL skipped is `unknown`: nothing ran, so a
+#     green would rest on nothing (the ADR 0008 zero-population rule);
+#   - `cancelled` is red with the `canceled` origin, never a code failure;
+#     every other completed conclusion (failure, timed_out, startup_failure,
+#     action_required, and any value GitHub adds later) is red.
+#
+# FLOW_CI_PIPELINE / FLOW_CI_URL name the run that DECIDED the verdict, and
+# FLOW_CI_RUNS lists every run considered, so the aggregate is auditable.
 gha_runs() {
-    "$GH_BIN" run list --repo "$REPO" --commit "$SHA" \
-        --json status,conclusion,databaseId,url,event 2>/dev/null
+    "$GH_BIN" run list --repo "$REPO" --commit "$SHA" --limit 100 \
+        --json status,conclusion,databaseId,url,event,workflowName,startedAt 2>/dev/null
 }
-gha_pick() {
-    jq -c --arg ev "$PREFER_EVENT" --argjson strict "$STRICT_EVENT" \
-        'if $strict == 1 then [.[] | select(.event == $ev)] else (sort_by(.event != $ev)) end | .[0]' \
-        <<<"$1" 2>/dev/null
+gha_verdict() {
+    jq -c --arg ev "$PREFER_EVENT" --argjson strict "$STRICT_EVENT" '
+        def cls: if .status != "completed" then "running"
+                 elif .conclusion == "success" then "success"
+                 elif (.conclusion == "skipped" or .conclusion == "neutral") then "pass"
+                 elif .conclusion == "cancelled" then "canceled"
+                 else "red" end;
+        (if $ev == "any" then .
+         elif $strict == 1 then map(select(.event == $ev))
+         else (map(select(.event == $ev)) as $p | if ($p | length) > 0 then $p else . end)
+         end) | map(. + {cls: cls}) as $runs
+        | ($runs | map(select(.cls == "red" or .cls == "canceled"))) as $red
+        | ($runs | map(select(.cls == "running"))) as $live
+        | ($runs | map(select(.cls == "success"))) as $ok
+        | {runs: $runs,
+           red: $red,
+           live: $live,
+           status: (if ($runs | length) == 0 then "not-found"
+                    elif ($red | length) > 0 then "failure"
+                    elif ($live | length) > 0 then "running"
+                    elif ($ok | length) > 0 then "success"
+                    else "unknown" end),
+           decide: (($red + $live + $ok + $runs) | .[0] // null)}' <<<"$1" 2>/dev/null
+}
+# Failed jobs and steps of ONE red run, as `name|type|error` rows. The name is
+# `workflow / job / step`, because two workflows may share a job name. TYPE is
+# `clone` (pre-code) only for the two step names GitHub itself generates
+# before a job's own code: `Set up job`, and `Run actions/checkout@<ref>` - the
+# default name of a checkout step. A checkout step the workflow renamed reads
+# `commands`; the step list carries no type, so the NAME is the only evidence
+# there is, and a guessed pattern (`*checkout*`) would send a red
+# `test checkout flow` step to the infrastructure. A job that failed with no
+# step evidence has an EMPTY type, which classifies unknown, never code.
+gha_failed_rows() {
+    local id="$1" wf="$2" cls="$3" jobs rows
+    if ! jobs="$("$GH_BIN" run view "$id" --repo "$REPO" --json jobs 2>/dev/null)" \
+        || ! jq -e '.jobs | type == "array"' <<<"$jobs" >/dev/null 2>&1; then
+        FAILED_STEPS_INCOMPLETE=1
+        printf '%s||%s\n' "$wf" "$( [[ "$cls" == "canceled" ]] && echo Canceled )"
+        return
+    fi
+    rows="$(jq -r --arg wf "$wf" '
+        def red: (. // "") as $c | $c != "" and ($c | IN("success", "skipped", "neutral") | not);
+        def precode: .name == "Set up job" or (.name | startswith("Run actions/checkout@"));
+        .jobs[] | select(.conclusion | red) | . as $j
+        | [(.steps // [])[] | select(.conclusion | red)] as $fs
+        | if ($fs | length) > 0 then
+              $fs[] | "\($wf) / \($j.name) / \(.name)|\(if precode then "clone" else "commands" end)|\(if .conclusion == "cancelled" or $j.conclusion == "cancelled" then "Canceled" else "" end)"
+          else
+              "\($wf) / \($j.name)||\(if $j.conclusion == "cancelled" then "Canceled" else "" end)"
+          end' <<<"$jobs" 2>/dev/null)"
+    if [[ -z "$rows" ]]; then
+        # Red with no red job: cancelled or refused before any job started.
+        printf '%s||%s\n' "$wf" "$( [[ "$cls" == "canceled" ]] && echo Canceled )"
+    else
+        printf '%s\n' "$rows"
+    fi
+}
+# Dead-versus-slow on this lane (#1552 parity). GitHub cancels a job at its
+# `timeout-minutes` (default 360), so a job still `in_progress` well past it
+# lost its runner. The API does not expose a job's declared timeout, so the
+# threshold is GitHub's default; FLOW_CI_GHA_TIMEOUT_MIN raises it for a
+# repository that declares longer timeouts (self-hosted runners allow up to
+# 5 days). Jobs are read only for a run that has itself been going longer than
+# the threshold - no job can be older than its run - so a healthy wait costs
+# no extra API call. Unreadable evidence reports `unavailable`, never clean.
+GHA_TIMEOUT_MIN="${FLOW_CI_GHA_TIMEOUT_MIN:-360}"
+[[ "$GHA_TIMEOUT_MIN" =~ ^[0-9]+$ ]] || GHA_TIMEOUT_MIN=360
+gha_stall_check() {
+    local live="$1" now limit id wf started jobs rows why=""
+    STALLED_REASON=""; STALLED_STEPS=()
+    now="${FLOW_CI_NOW:-$(date +%s)}"
+    limit=$(( (GHA_TIMEOUT_MIN + STALL_GRACE_MIN) * 60 ))
+    while IFS='|' read -r id wf started; do
+        [[ -n "$id" ]] || continue
+        if [[ ! "$started" =~ ^[0-9]+$ ]]; then why="a running run's start time is unreadable"; continue; fi
+        (( now - started > limit )) || continue
+        if ! jobs="$("$GH_BIN" run view "$id" --repo "$REPO" --json jobs 2>/dev/null)" \
+            || ! rows="$(jq -r --arg wf "$wf" --argjson now "$now" --argjson limit "$limit" '
+                (.jobs | if type == "array" then . else error("no jobs") end)[]
+                | select(.status == "in_progress")
+                | ((.startedAt // "") | try fromdateiso8601 catch error("bad startedAt")) as $s
+                | select($now - $s > $limit)
+                | "\($wf) / \(.name)|\(($now - $s) / 60 | floor)"' <<<"$jobs" 2>/dev/null)"; then
+            why="the jobs of run $id are unreadable"; continue
+        fi
+        while IFS='|' read -r name elapsed; do
+            [[ -n "$name" ]] || continue
+            STALLED_STEPS+=("$name")
+            STALLED_REASON="past-timeout (${elapsed}m > ${GHA_TIMEOUT_MIN}m + ${STALL_GRACE_MIN}m grace)"
+        done <<<"$rows"
+    done < <(jq -r '.[] | "\(.databaseId)|\(.workflowName // "?")|\((.startedAt // "") | try fromdateiso8601 catch "")"' <<<"$live" 2>/dev/null)
+    if [[ -n "$STALLED_REASON" ]]; then STALL_CHECK="checked"; STATUS="stalled"
+    elif [[ -n "$why" ]]; then STALL_CHECK="unavailable ($why)"
+    else STALL_CHECK="checked"; fi
 }
 if [[ "$HAVE_JQ" -eq 1 ]] && command -v "$GH_BIN" >/dev/null 2>&1; then
     ALL_RUNS="$(gha_runs)"
@@ -754,20 +896,20 @@ if [[ "$HAVE_JQ" -eq 1 ]] && command -v "$GH_BIN" >/dev/null 2>&1; then
         PROVIDER="github-actions"
         DEADLINE=$(( $(date +%s) + WAIT_SECS ))
         while :; do
-            RUN_JSON="$(gha_pick "$ALL_RUNS")"
-            if [[ -z "$RUN_JSON" || "$RUN_JSON" == "null" ]]; then
-                PIPELINE="-"; URL="-"; STATUS="not-found"
-            else
-                GH_STATUS="$(jq -r '.status // empty' <<<"$RUN_JSON")"
-                GH_CONCL="$(jq -r '.conclusion // empty' <<<"$RUN_JSON")"
-                PIPELINE="$(jq -r '.databaseId // "-"' <<<"$RUN_JSON")"
-                URL="$(jq -r '.url // "-"' <<<"$RUN_JSON")"
-                if [[ "$GH_STATUS" == "completed" ]]; then
-                    [[ "$GH_CONCL" == "success" ]] && STATUS="success" || STATUS="failure"
-                    [[ "$WAIT_SECS" -gt 0 ]] && WAIT_STATE="settled"
-                    break
-                fi
-                STATUS="running"
+            VERDICT="$(gha_verdict "$ALL_RUNS")"
+            STATUS="$(jq -r '.status // "unknown"' <<<"$VERDICT" 2>/dev/null)"
+            [[ -n "$STATUS" ]] || STATUS="unknown"
+            PIPELINE="$(jq -r '.decide.databaseId // "-"' <<<"$VERDICT" 2>/dev/null)"
+            URL="$(jq -r '.decide.url // "-"' <<<"$VERDICT" 2>/dev/null)"
+            [[ -n "$PIPELINE" ]] || PIPELINE="-"
+            [[ -n "$URL" ]] || URL="-"
+            STALL_CHECK=""; STALLED_REASON=""; STALLED_STEPS=()
+            if [[ "$STATUS" == "running" ]]; then
+                gha_stall_check "$(jq -c '.live' <<<"$VERDICT")"
+            fi
+            if [[ "$STATUS" == "success" || "$STATUS" == "failure" || "$STATUS" == "stalled" || "$STATUS" == "unknown" ]]; then
+                [[ "$WAIT_SECS" -gt 0 ]] && WAIT_STATE="settled"
+                break
             fi
             if [[ "$WAIT_SECS" -eq 0 ]]; then break; fi
             if [[ "$(date +%s)" -ge "$DEADLINE" ]]; then WAIT_STATE="expired (${WAIT_SECS}s)"; break; fi
@@ -775,11 +917,21 @@ if [[ "$HAVE_JQ" -eq 1 ]] && command -v "$GH_BIN" >/dev/null 2>&1; then
             ALL_RUNS="$(gha_runs)"
             [[ -n "$ALL_RUNS" ]] || ALL_RUNS="[]"
         done
-        if [[ "$STATUS" == "failure" && "$PIPELINE" != "-" ]]; then
-            while IFS= read -r step; do
-                [[ -n "$step" ]] && FAILED_STEPS+=("$step")
-            done < <("$GH_BIN" run view "$PIPELINE" --repo "$REPO" --json jobs \
-                --jq '.jobs[]? | select(.conclusion!="success" and .conclusion!="skipped" and .conclusion!="") | .name' 2>/dev/null)
+        GHA_RUNS_LINE="$(jq -r '.runs | "\(length)" + (if length > 0 then " (" + (map("\(.databaseId):\(.workflowName // "?"):\(.event):\(if .status == "completed" then .conclusion else .status end)") | join(", ")) + ")" else "" end)' <<<"$VERDICT" 2>/dev/null)"
+        if [[ "$STATUS" == "unknown" && "$(jq -r '.runs | length' <<<"$VERDICT" 2>/dev/null)" -gt 0 ]]; then
+            echo "flow-ci-status: every run on ${SHA:0:12} was skipped or neutral - nothing ran, so this is not a success" >&2
+        fi
+        if [[ "$STATUS" == "failure" ]]; then
+            while IFS='|' read -r id wf cls; do
+                [[ -n "$id" ]] || continue
+                while IFS='|' read -r step step_type step_error; do
+                    [[ -n "$step" ]] || continue
+                    FAILED_STEPS+=("$step")
+                    FAILED_STEP_TYPES+=("$step_type")
+                    FAILED_STEP_EXIT_CODES+=("")
+                    FAILED_STEP_ERRORS+=("$step_error")
+                done < <(gha_failed_rows "$id" "$wf" "$cls")
+            done < <(jq -r '.red[] | "\(.databaseId)|\(.workflowName // "?")|\(.cls)"' <<<"$VERDICT" 2>/dev/null)
         fi
         emit
     fi

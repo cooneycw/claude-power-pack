@@ -2093,10 +2093,11 @@ FLOW_CI_EVENT: <event> (flag | branch-protection on <branch>: <contexts> | defau
 FLOW_CI_PIPELINE: <number|->
 FLOW_CI_URL: <url|->
 FLOW_CI_WAIT: none | settled | expired (<N>s)
-FLOW_CI_FAILED_STEP: <name>        (repeated, only on failure)
+FLOW_CI_RUNS: <n> (<id>:<workflow>:<event>:<result>, ...)   (GitHub Actions lane: every run aggregated, issue #1604)
+FLOW_CI_FAILED_STEP: <name>        (repeated, only on failure; `workflow / job / step` on GitHub Actions)
 FLOW_CI_PRECODE_FAILURE: <name>    (repeated, only on failure; a failed `clone`-type step, or since #1411 a `*-stage` step exiting 75 - a stager that could not fetch)
-FLOW_CI_FAILURE_ORIGIN: precode | code | mixed | unknown   (only on failure)
-FLOW_CI_STALL_CHECK: checked | unavailable (<why>)   (Woodpecker HTTP lane, issue #1552)
+FLOW_CI_FAILURE_ORIGIN: precode | code | canceled | mixed | unknown   (only on failure)
+FLOW_CI_STALL_CHECK: checked | unavailable (<why>)   (Woodpecker HTTP and GitHub Actions lanes, issues #1552, #1604)
 FLOW_CI_STALLED: past-timeout (...) | terminal-pipeline-live-children
 FLOW_CI_STALLED_STEP: <name>       (repeated, a step the server still lists running)
 FLOW_CI_STATUS: success | failure | running | pending | stalled | not-found | unknown

@@ -1,0 +1,1 @@
+[{"status":"completed","conclusion":"success","databaseId":1,"url":"https://github.com/o/r/actions/runs/1","event":"push","workflowName":"lint","startedAt":"2026-10-30T10:00:00Z"},{"status":"completed","conclusion":"cancelled","databaseId":2,"url":"https://github.com/o/r/actions/runs/2","event":"push","workflowName":"test","startedAt":"2026-10-30T10:00:00Z"}]
