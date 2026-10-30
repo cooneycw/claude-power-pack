@@ -1,0 +1,70 @@
+{
+  "branch": "issue-1612-ci-provider-link-up-per-project-woodpecker-github",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "self-initiated: pass 2 was clean but its prompt lacked the runtime HEAD probe that the #1584 receipt writer requires (the review prompt was copied from a stale command document), so pass 3 re-ran the same review with the current prompt to bind the reviewed head",
+  "head": "2152fdde58667987131d8d7bd617577395257205",
+  "implementer": "claude/claude-opus-5-5",
+  "implementer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "51f4cbfb-a863-4d9f-858e-828c3367d2a4",
+    "sources": [
+      {
+        "bytes": 2458832,
+        "path": "-home-cooneycw-Projects/51f4cbfb-a863-4d9f-858e-828c3367d2a4.jsonl",
+        "sha256": "9434dfb175973286daec22680d827c94324c484f868bd893ee468901bf8e8cc2"
+      }
+    ],
+    "transcript": "-home-cooneycw-Projects/51f4cbfb-a863-4d9f-858e-828c3367d2a4.jsonl"
+  },
+  "issue": "1612",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 3,
+  "recorded_at": "2026-10-30T12:52:52Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewed_artifact": {
+    "base_sha": "46d999566a38224da0bb54b546a597f15ac2f56d",
+    "merge_base": "46d999566a38224da0bb54b546a597f15ac2f56d",
+    "method": "runtime-head",
+    "patch_sha256": "90728507a73b0623b12b4fe2059811caff7201670e96a4d8d90511aa3ab65af7",
+    "report_record": 61,
+    "target_head": "2152fdde58667987131d8d7bd617577395257205"
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "exec_log": "stream-1612.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/10/30/rollout-2026-10-30T08-51-52-01a18cdd-dab8-7ad0-859d-99435fc7f777.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 159901,
+        "path": "stream-1612.jsonl",
+        "sha256": "b7a3c6a073051f42d50f197030824b87dacaee48eda58ecb1315027f0981c4a8"
+      },
+      {
+        "bytes": 516199,
+        "path": "2026/10/30/rollout-2026-10-30T08-51-52-01a18cdd-dab8-7ad0-859d-99435fc7f777.jsonl",
+        "sha256": "5006b118a61aded460caeb4d1c8db1a3c57f9d7e72a92f461c222c38813e9036"
+      }
+    ],
+    "thread_id": "01a18cdd-dab8-7ad0-859d-99435fc7f777"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}
