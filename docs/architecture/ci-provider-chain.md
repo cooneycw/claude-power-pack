@@ -83,12 +83,13 @@ flowchart LR
 - [ ] `/cicd:init` asks the same question for an existing repository, so both entry points converge on one record.
 - [ ] Derive required checks from the provider and the generated job names, and write `.claude/branch-protection.json` (wire `BranchProtection` into `CICDConfig`). Apply with `scripts/branch-protection.sh` only after explicit approval.
   - GitHub Actions: job `ci` in workflow `CI` reports as `ci`; **a strategy matrix reports one check per cell** (`ci (3.11)`), so derivation must expand the matrix.
-  - Woodpecker: `ci/woodpecker/pr/woodpecker` (pr lane) and `ci/woodpecker/push/woodpecker`; a `.woodpecker/` directory names one check per file.
+  - Woodpecker: `ci/woodpecker/pr/woodpecker`; a `.woodpecker/` directory names one check per file.
+  - **Require only checks the PR event emits on the PR head.** The generated Woodpecker pipeline runs `push` only on `main`, so `ci/woodpecker/push/woodpecker` never appears on a PR head; requiring it would leave `gh-pr-merge.sh` waiting for a check that cannot arrive before merge. The main push pipeline is post-merge verification (`/flow:auto` Step 8), which is CPP's own posture (ADR 0004).
 - [ ] Check the choice against the host record (P3) and warn when this host cannot use it.
 - [ ] `/cicd:pipeline` reads or asks for the recorded provider instead of telling the user to hand-edit YAML, and its overwrite check covers `.woodpecker.yml` too.
 - [ ] `/cicd:infra-pipeline` accepts `both`.
 - [ ] The resume check and summary report the provider, not just file presence.
-- [ ] Negative control: a `branch-protection.json` whose check the recorded provider does not produce is reported inconsistent.
+- [ ] Negative controls: a `branch-protection.json` whose check the recorded provider does not produce is reported inconsistent, and so is one requiring a check that is emitted only after merge (a Woodpecker push context).
 
 ### P3 - `/cpp:init` Tier 4 becomes host-only CI checks (#1609)
 

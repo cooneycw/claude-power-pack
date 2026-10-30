@@ -91,9 +91,15 @@ An audit at `46d99956` found that fact recorded nowhere anyone reads:
   selection, the host verdicts and every doctor line.
 - `both` is a real choice, not a migration state: a `both` project's verdict is
   red when either provider is red.
-- Running `/cpp:init` inside a repository no longer changes that repository.
-  Users who relied on Tier 4 to scaffold a project are pointed to `/project:init`
-  or `/cicd:init` instead.
+- `/cpp:init` Tier 4 no longer writes into the repository it runs from. Users
+  who relied on it to scaffold a project are pointed to `/project:init` or
+  `/cicd:init` instead. This decision covers Tier 4's CI setup only: other
+  tiers may still write project files (Tier 3's optional browser desk pool
+  creates `.claude/playwright-pool.json`), and moving those is outside it.
+- Required status checks are derived only from checks the PR event emits on a
+  PR head. A Woodpecker push context runs only on `main`, so requiring it would
+  hold every PR open; it stays post-merge verification, as ADR 0004 already
+  sets for CPP.
 
 ## Open questions (owner)
 
