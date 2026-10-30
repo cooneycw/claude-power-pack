@@ -1879,3 +1879,61 @@ def test_running_pipeline_with_no_running_workflow_is_unavailable(tmp_path):
     m = _markers(_stall_run(tmp_path, routes, STARTED + 500 * 60).stdout)
     assert m["FLOW_CI_STATUS"] == ["running"]
     assert m["FLOW_CI_STALL_CHECK"] == ["unavailable (no running workflow to time)"]
+
+
+# ── Counter-model review of #1604 ──────────────────────────────────────────
+
+
+@requires_bash
+@pytest.mark.parametrize("order", ["stalled-first", "stalled-second"])
+def test_a_STALLED_verdict_names_the_STALLED_run_in_either_order(tmp_path, order):
+    """The verdict used to keep the first-listed run's id and URL, so a healthy
+    recent run was named while its old sibling was the dead one."""
+    old, recent = "2026-10-29T00:00:00Z", "2026-10-30T09:55:00Z"
+    runs = [_gha_run(1, None, status="in_progress", started=recent, workflow="fresh"),
+            _gha_run(2, None, status="in_progress", started=old, workflow="old")]
+    if order == "stalled-first":
+        runs.reverse()
+    gh = _gha_gh(tmp_path, runs, jobs={
+        1: [{"name": "lint", "status": "in_progress", "startedAt": recent}],
+        2: [{"name": "tests", "status": "in_progress", "startedAt": old}],
+    })
+    m = _gha(tmp_path, gh=gh, env={"FLOW_CI_NOW": NOW_2026})
+    assert m["FLOW_CI_STATUS"] == ["stalled"]
+    assert m["FLOW_CI_PIPELINE"] == ["2"]
+    assert m["FLOW_CI_URL"] == ["https://github.com/o/r/actions/runs/2"]
+    assert m["FLOW_CI_STALLED_STEP"] == ["old / tests"]
+
+
+@requires_bash
+@pytest.mark.parametrize("jobs", [
+    [],                                                        # nothing to time
+    [{"name": "build", "status": "queued"}],                   # waiting, not running
+    [{"name": "build", "startedAt": "2026-10-29T00:00:00Z"}],  # no status at all
+], ids=["empty", "queued-only", "statusless"])
+def test_an_old_run_with_NO_timeable_job_is_UNAVAILABLE_not_checked(tmp_path, jobs):
+    """`checked` claims the run is inside its timeout; with no running job to
+    time, that claim rests on nothing."""
+    gh = _gha_gh(tmp_path, [_gha_run(5, None, status="in_progress", started="2026-10-29T00:00:00Z")],
+                 jobs={5: jobs})
+    m = _gha(tmp_path, gh=gh, env={"FLOW_CI_NOW": NOW_2026})
+    assert m["FLOW_CI_STATUS"] == ["running"]
+    assert m["FLOW_CI_STALL_CHECK"][0].startswith("unavailable ("), m["FLOW_CI_STALL_CHECK"]
+
+
+@requires_bash
+def test_a_listing_AT_THE_CAP_cannot_report_success(tmp_path):
+    """100 greens may be all of the commit's runs or the first 100 of more; a
+    red beyond the cap would be invisible, so the green is not complete."""
+    gh = _gha_gh(tmp_path, [_gha_run(i, "success", workflow=f"w{i}") for i in range(1, 101)])
+    result = _run(tmp_path, SHA, "--repo", "o/r",
+                  env={"FLOW_CI_GH": str(gh), "WOODPECKER_API_TOKEN": "", "FLOW_CI_CURL": "/nonexistent/curl"})
+    assert _markers(result.stdout)["FLOW_CI_STATUS"] == ["unknown"], result.stdout
+    assert "hit its cap" in result.stderr
+
+
+@requires_bash
+def test_a_RED_inside_a_capped_listing_is_still_failure(tmp_path):
+    runs = [_gha_run(i, "success") for i in range(1, 100)] + [_gha_run(100, "failure")]
+    gh = _gha_gh(tmp_path, runs)
+    assert _gha(tmp_path, gh=gh)["FLOW_CI_STATUS"] == ["failure"]

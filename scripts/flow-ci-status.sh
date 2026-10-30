@@ -790,8 +790,12 @@ fi
 #
 # FLOW_CI_PIPELINE / FLOW_CI_URL name the run that DECIDED the verdict, and
 # FLOW_CI_RUNS lists every run considered, so the aggregate is auditable.
+#: The listing's cap. A listing that comes back AT the cap may have left runs
+#: out, so a green over it is not a green over the commit (counter-model
+#: review): `success` is then reported `unknown`. A red seen is still red.
+GHA_RUN_LIMIT=100
 gha_runs() {
-    "$GH_BIN" run list --repo "$REPO" --commit "$SHA" --limit 100 \
+    "$GH_BIN" run list --repo "$REPO" --commit "$SHA" --limit "$GHA_RUN_LIMIT" \
         --json status,conclusion,databaseId,url,event,workflowName,startedAt 2>/dev/null
 }
 gha_verdict() {
@@ -863,30 +867,42 @@ gha_failed_rows() {
 GHA_TIMEOUT_MIN="${FLOW_CI_GHA_TIMEOUT_MIN:-360}"
 [[ "$GHA_TIMEOUT_MIN" =~ ^[0-9]+$ ]] || GHA_TIMEOUT_MIN=360
 gha_stall_check() {
-    local live="$1" now limit id wf started jobs rows why=""
-    STALLED_REASON=""; STALLED_STEPS=()
+    local live="$1" now limit id wf started url jobs rows why="" name elapsed
+    STALLED_REASON=""; STALLED_STEPS=(); GHA_STALLED_ID=""; GHA_STALLED_URL=""
     now="${FLOW_CI_NOW:-$(date +%s)}"
     limit=$(( (GHA_TIMEOUT_MIN + STALL_GRACE_MIN) * 60 ))
-    while IFS='|' read -r id wf started; do
+    while IFS='|' read -r id wf started url; do
         [[ -n "$id" ]] || continue
         if [[ ! "$started" =~ ^[0-9]+$ ]]; then why="a running run's start time is unreadable"; continue; fi
         (( now - started > limit )) || continue
         if ! jobs="$("$GH_BIN" run view "$id" --repo "$REPO" --json jobs 2>/dev/null)" \
             || ! rows="$(jq -r --arg wf "$wf" --argjson now "$now" --argjson limit "$limit" '
-                (.jobs | if type == "array" then . else error("no jobs") end)[]
-                | select(.status == "in_progress")
+                # The POPULATION is validated, not just filtered (counter-model
+                # review): a job with no readable status, or an old running run
+                # with NO running job, leaves nothing to time - that is
+                # `unavailable`, never "checked, inside its timeout".
+                (.jobs | if type == "array" then . else error("no jobs") end)
+                | if all(.[]; (.status | type) == "string") then . else error("job without a status") end
+                | map(select(.status == "in_progress"))
+                | if length == 0 then error("no running job to time") else . end
+                | .[]
                 | ((.startedAt // "") | try fromdateiso8601 catch error("bad startedAt")) as $s
                 | select($now - $s > $limit)
                 | "\($wf) / \(.name)|\(($now - $s) / 60 | floor)"' <<<"$jobs" 2>/dev/null)"; then
-            why="the jobs of run $id are unreadable"; continue
+            why="run $id has gone past the timeout with no running job that can be timed"; continue
         fi
         while IFS='|' read -r name elapsed; do
             [[ -n "$name" ]] || continue
             STALLED_STEPS+=("$name")
             STALLED_REASON="past-timeout (${elapsed}m > ${GHA_TIMEOUT_MIN}m + ${STALL_GRACE_MIN}m grace)"
+            # The verdict names the STALLED run, not whichever run was listed
+            # first (counter-model review): recovery is pointed at this URL.
+            if [[ -z "$GHA_STALLED_ID" ]]; then GHA_STALLED_ID="$id"; GHA_STALLED_URL="$url"; fi
         done <<<"$rows"
-    done < <(jq -r '.[] | "\(.databaseId)|\(.workflowName // "?")|\((.startedAt // "") | try fromdateiso8601 catch "")"' <<<"$live" 2>/dev/null)
-    if [[ -n "$STALLED_REASON" ]]; then STALL_CHECK="checked"; STATUS="stalled"
+    done < <(jq -r '.[] | "\(.databaseId)|\(.workflowName // "?")|\((.startedAt // "") | try fromdateiso8601 catch "")|\(.url // "-")"' <<<"$live" 2>/dev/null)
+    if [[ -n "$STALLED_REASON" ]]; then
+        STALL_CHECK="checked"; STATUS="stalled"
+        PIPELINE="$GHA_STALLED_ID"; URL="${GHA_STALLED_URL:--}"
     elif [[ -n "$why" ]]; then STALL_CHECK="unavailable ($why)"
     else STALL_CHECK="checked"; fi
 }
@@ -903,6 +919,11 @@ if [[ "$HAVE_JQ" -eq 1 ]] && command -v "$GH_BIN" >/dev/null 2>&1; then
             URL="$(jq -r '.decide.url // "-"' <<<"$VERDICT" 2>/dev/null)"
             [[ -n "$PIPELINE" ]] || PIPELINE="-"
             [[ -n "$URL" ]] || URL="-"
+            if [[ "$STATUS" == "success" \
+                && "$(jq -r 'if type == "array" then length else 0 end' <<<"$ALL_RUNS" 2>/dev/null)" -ge "$GHA_RUN_LIMIT" ]]; then
+                echo "flow-ci-status: the run listing hit its cap of $GHA_RUN_LIMIT on ${SHA:0:12}; runs beyond it were not examined, so this green is not complete" >&2
+                STATUS="unknown"
+            fi
             STALL_CHECK=""; STALLED_REASON=""; STALLED_STEPS=()
             if [[ "$STATUS" == "running" ]]; then
                 gha_stall_check "$(jq -c '.live' <<<"$VERDICT")"
