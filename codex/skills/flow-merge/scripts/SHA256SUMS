@@ -8,7 +8,7 @@
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
 21bcb206222161e898df6a102e6f40759a5d52e6dddb5b8a2fadbee4906ff3fc  counter-model-receipt.py
-0d6f0923267ef28b721768b905586f2b705f9271383d8b86d0f9147156543f50  flow-ci-status.sh
+ac98a22b90537cd3a5efee3f466831796343d545eaf899cc3877059863b8a75f  flow-ci-status.sh
 806d036315afe7a7d0bc631d38a3c8267dc45c8b6bbb218643a0c6a09d0a6855  flow-finish-gate.sh
 28ee4b87e67d8fc715fa480806023077d80cf6bab4c16906fd29471d30510281  flow-worktree-claim.sh
 16302cb9f88ce225f2673dc3730667cd9081f8c44f2696b7f5ee732b27555660  friction-log.sh
