@@ -12,7 +12,7 @@ map and the task list. Tracking issue: #1612.
 | Record | Scope | Location | Written by | Holds |
 |---|---|---|---|---|
 | Project CI providers | one repository | `<repo>/.claude/cicd.yml` -> `pipeline.providers` (a list) | `/project:init` (new), `/cicd:init` (existing) | one or more registered names, today `woodpecker`, `github-actions`; absent reads `unknown`; legacy scalar `pipeline.provider` (`both` = both names) stays readable |
-| Host CI capability | one workspace root | `<root>/.claude/cpp-host.json` (here `~/Projects/.claude/cpp-host.json`) | `/cpp:init` Tier 4 | one entry per REGISTERED provider, each checked independently (a host may be ready for none, one or several): `ready` \| `missing (<what>)` \| `unknown (<why>)`, tool versions, checked-at; never a secret |
+| Host CI capability | the machine's one projects folder | `<projects>/.claude/cpp-host.json` (here `~/Projects/.claude/cpp-host.json`), located from the repo's main checkout | `/cpp:init` Tier 4 | one entry per REGISTERED provider, each checked independently (a host may be ready for none, one or several): `ready` \| `missing (<what>)` \| `unknown (<why>)`, tool versions, checked-at; never a secret |
 
 Everything else - pipeline files, required status checks, which CI lane a flow
 helper reads - is derived from these two records.
@@ -28,7 +28,7 @@ one registry entry plus its negative controls, not an edit to every consumer.
 ```mermaid
 flowchart LR
     subgraph host["Host (once per machine)"]
-        CI["/cpp:init Tier 4<br/>host-only CI checks"] --> HR[("cpp-host.json<br/>at workspace root")]
+        CI["/cpp:init Tier 4<br/>host-only CI checks"] --> HR[("cpp-host.json<br/>in the projects folder")]
     end
     subgraph project["Project (once per repo)"]
         PI["/project:init<br/>or /cicd:init"] -->|asks which providers:<br/>one or more| PR[("cicd.yml<br/>pipeline.providers")]
@@ -102,18 +102,18 @@ flowchart LR
 ### P3 - `/cpp:init` Tier 4 becomes host-only CI checks (#1609)
 
 - [ ] Replace Tier 4's project generation (4a-4e) with host checks over EVERY registered provider, each independent - not a choice between them: `gh` installed and `gh auth status` for GitHub Actions; `woodpecker-cli` authenticated and the Woodpecker token resolvable (environment or AWS secret, never printed) for Woodpecker; a future provider's own registry check.
-- [ ] Ask once for the workspace root (default: the parent of the CPP checkout) and write `<root>/.claude/cpp-host.json`.
+- [ ] Ask once for the projects folder (default: the parent of the CPP checkout) and write `<projects>/.claude/cpp-host.json`. Consumers locate it from the repo's main checkout (git common dir), so a worktree relocated by `FLOW_WORKTREE_BASE` still finds it; a container session that cannot reach it reports `unknown` and never borrows the host's answer.
 - [ ] Tier 4 ends with a one-line handoff to `/project:init` / `/cicd:init`; its disclosure, undo and consent text change to match.
 - [ ] Negative controls: failing `gh auth status` reads `missing`; an unresolvable token reads `missing`; a probe error reads `unknown`, never `ready`; the record contains no secret value.
 
 ### P4 - Flow helpers select the lane from the record (#1610)
 
-Absorbs #1604 items 6 (`flow-pr-watch.sh`), 8 (enrolment as an Actions job) and 11 (docs for both providers).
+Absorbs #1604 items 6 (`flow-pr-watch.sh`), 8 (enrolment as an Actions job; fork PRs warn) and 11 (docs for both providers).
 
 - [ ] `flow-ci-status.sh` and `flow-pr-watch.sh` select their lanes from P1's reader: one lane per listed provider through the registry (any red is red; running while none is red and any runs), stop on `unknown`. Probing survives only as a fallback that says it is one.
 - [ ] `flow-pr-watch.sh` derives its check from protection and the record, accepts Actions run URLs, and extracts failing tests with `gh run view --log-failed`.
 - [ ] Finish/merge preflight compares the project provider with the host record and stops early with a named remedy.
-- [ ] Enrolment as a job in every registered provider's generated template, per the owner's fork-PR ruling (open).
+- [ ] Enrolment as a job in every registered provider's generated template. Owner ruling: a fork PR WARNS, a same-repository PR without a receipt still FAILS; tell them apart from the provider's event data (Actions: head repo differs from base repo), never the branch name. Negative controls for both.
 - [ ] `derive_event` reads rulesets and `.checks`, as `gh-pr-merge.sh` already does.
 - [ ] Recovery and docs text per provider: `auto.md`, `merge.md`, `wave.md`, `register.md`, the lexicon example.
 - [ ] Negative controls: a Woodpecker-known repo whose commit ran only on Actions, recorded `github-actions`, resolves on the Actions lane; `flow-pr-watch` reports a red Actions check instead of timing out.

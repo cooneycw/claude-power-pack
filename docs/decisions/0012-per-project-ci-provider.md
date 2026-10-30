@@ -30,21 +30,15 @@ cloud. More may come later.
    writes the answers down. It is not a choice between robots: a machine may be
    able to reach one, several, or none. It no longer creates files inside
    whatever project folder it happened to be run from.
-4. **The machine's answers live beside the projects.** They are saved once in
-   the folder that holds all the projects (here `~/Projects`), so every project
-   on the machine can read them.
-
-Two choices are still open:
-
-- **Outside contributors on public projects.** Every change here is reviewed by
-  a second AI model, and the review leaves a receipt that CI checks for. Someone
-  outside the team who proposes a change from their own copy of the project
-  (a "fork") cannot produce that receipt. Should CI refuse their change, let it
-  through without one, or only warn?
-- **One machine record or several.** If one computer ever holds two separate
-  folders of projects, should each folder keep its own copy of the machine's
-  answers, or should there be one record for the whole computer? They would
-  normally say the same thing; the default is one per folder.
+4. **The machine's answers live in the projects folder.** All work on a
+   machine happens under one projects folder (here `~/Projects`) - that is how
+   CPP is meant to be used - so the machine's answers are saved once there, and
+   every project on the machine reads the same record.
+5. **Outside contributors get a warning, not a wall.** Every change here is
+   reviewed by a second AI model, and the review leaves a receipt that CI checks
+   for. Someone outside the team who proposes a change from their own copy of
+   the project (a "fork") cannot produce that receipt, so on their change the
+   check warns instead of failing. Changes from inside the team still need it.
 
 ## Context
 
@@ -117,14 +111,31 @@ An audit at `46d99956` found that fact recorded nowhere anyone reads:
    projects) and `/cicd:init` (existing repositories), and Tier 4 hands off to
    them in one line.
 
-4. **The host record lives at the workspace root** - the directory holding the
-   projects, here `~/Projects` - as `<root>/.claude/cpp-host.json`. `/cpp:init`
-   asks for the root once, defaulting to the parent of the CPP checkout, and
-   consumers find the record by walking up from a repository. It holds
-   verdicts, versions and timestamps, never a secret. A provider that could not
-   be checked is `unknown`, never `ready`.
+4. **The host record lives in the projects folder** - the one directory all
+   work on the machine happens under, here `~/Projects` - as
+   `<projects>/.claude/cpp-host.json`. One machine has one projects folder, so
+   it has one record (owner ruling). `/cpp:init` asks for the folder once,
+   defaulting to the parent of the CPP checkout. It holds verdicts, versions and
+   timestamps, never a secret. A provider that could not be checked is
+   `unknown`, never `ready`.
 
-5. **Consumers read the records; they do not infer.** CI lane selection,
+   Consumers locate it from the repository's MAIN checkout (git's common
+   directory), never by walking up from the current directory: a worktree
+   relocated by `FLOW_WORKTREE_BASE` sits outside the projects folder, but its
+   main checkout does not. A session that cannot reach the record - a container
+   that sees the project at `/workspace` - reports host capability `unknown`
+   and never borrows the host's answer: a container's credentials and network
+   are not the host's.
+
+5. **Counter-model enrolment WARNS on a fork PR** (owner ruling, #1604 item 8).
+   A pull request from a fork cannot carry a receipt, so the generated
+   enrolment job reports a warning there instead of failing; a same-repository
+   pull request still fails without one. The job must tell the two apart from
+   the provider's own event data (on GitHub Actions, whether
+   `github.event.pull_request.head.repo.full_name` differs from the base
+   repository), never from the branch name.
+
+6. **Consumers read the records; they do not infer.** CI lane selection,
    failing-test extraction, recovery text and preflight all key on the project's
    recorded provider, and check it against the host record before a run commits
    to waiting. Probing for a provider remains only as a fallback that announces
@@ -155,11 +166,9 @@ An audit at `46d99956` found that fact recorded nowhere anyone reads:
 
 ## Open questions (owner)
 
-- **Fork PRs and counter-model enrolment on public repositories** (#1604 item 8,
-  carried into #1610). A fork PR carries no receipt, so an enforced enrolment
-  step fails every outside contributor.
-- **One host record per workspace root, or one per machine** (#1609). The
-  default is per root; the two only differ on a machine with several roots.
+None. Both questions raised while this record was drafted were ruled on
+2026-10-30: fork PRs warn (decision 5), and one projects folder per machine
+holds the one host record (decision 4).
 
 ## Rejected alternatives
 
