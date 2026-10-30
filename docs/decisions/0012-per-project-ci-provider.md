@@ -8,6 +8,44 @@
   negative-control bound every new check here falls under)
 - Architecture and plan: [ci-provider-chain.md](../architecture/ci-provider-chain.md)
 
+## The owner's choices, in plain language
+
+CI (continuous integration) is the robot that runs a project's tests every time
+someone proposes a change. CPP works with two such robots today: Woodpecker,
+which runs on our own machines, and GitHub Actions, which runs in GitHub's
+cloud. More may come later.
+
+1. **Each project says which robots it uses, and writes that down.** When a
+   project is created (`/project:init`), it is asked "which CI do you use?" and
+   may answer Woodpecker, GitHub Actions, both, or another one added later. The
+   answer is saved in the project's own settings file, so every later step reads
+   it instead of guessing.
+2. **No answer means "stop and ask", not "assume".** If a project never wrote
+   its answer down, CPP stops and says how to record it. Today it silently
+   assumes GitHub Actions, which is how CPP's own settings came to name the
+   wrong robot.
+3. **Setting up a machine only checks the machine.** `/cpp:init` installs CPP on
+   a computer. Its CI step (Tier 4) now only asks "which robots can THIS
+   computer talk to?" - is GitHub logged in, does the Woodpecker key work - and
+   writes the answers down. It is not a choice between robots: a machine may be
+   able to reach one, several, or none. It no longer creates files inside
+   whatever project folder it happened to be run from.
+4. **The machine's answers live beside the projects.** They are saved once in
+   the folder that holds all the projects (here `~/Projects`), so every project
+   on the machine can read them.
+
+Two choices are still open:
+
+- **Outside contributors on public projects.** Every change here is reviewed by
+  a second AI model, and the review leaves a receipt that CI checks for. Someone
+  outside the team who proposes a change from their own copy of the project
+  (a "fork") cannot produce that receipt. Should CI refuse their change, let it
+  through without one, or only warn?
+- **One machine record or several.** If one computer ever holds two separate
+  folders of projects, should each folder keep its own copy of the machine's
+  answers, or should there be one record for the whole computer? They would
+  normally say the same thing; the default is one per folder.
+
 ## Context
 
 CPP drives CI for every repository it manages: it generates pipelines
@@ -46,11 +84,22 @@ An audit at `46d99956` found that fact recorded nowhere anyone reads:
 
 ## Decision
 
-1. **The provider is a per-project choice, made at `/project:init`, and
-   recorded once** in the project's `.claude/cicd.yml` as `pipeline.provider`:
-   `woodpecker`, `github-actions` or `both`. An existing repository records it
+1. **The providers are a per-project choice, made at `/project:init`, and
+   recorded once** in the project's `.claude/cicd.yml` as a LIST,
+   `pipeline.providers`, of one or more known provider names - today
+   `woodpecker` and `github-actions`. An existing repository records it
    through `/cicd:init`. That field is the single source; pipeline files and
    branch-protection checks are derived from it, never the other way round.
+
+   **The set is open, not binary** (owner clarification, 2026-10-30). A project
+   may use either provider or both, and further providers may be added later.
+   So the record is a list, not an enum with a combined `both` value that would
+   need a new member for every combination. Each provider is one entry in a
+   registry naming its pipeline generator, its required-check derivation, its
+   CI lane and its host check; adding a provider adds a registry entry, and no
+   consumer special-cases a combination. The legacy scalar `pipeline.provider`
+   stays readable: `woodpecker` and `github-actions` map to a one-entry list,
+   `both` to both names. A name not in the registry is refused, never ignored.
 
 2. **A missing provider fails closed.** Absent means `unknown`, never a default.
    Generation refuses on `unknown`, and every flow consumer that needs the
@@ -59,10 +108,12 @@ An audit at `46d99956` found that fact recorded nowhere anyone reads:
    name the wrong provider.
 
 3. **`/cpp:init` is host setup; Tier 4 becomes host-only CI checks.** It checks
-   whether this machine can use each provider (GitHub Actions: `gh` installed
-   and authenticated; Woodpecker: `woodpecker-cli` authenticated and the API
-   token resolvable), records the verdicts, and writes nothing into any
-   project. Its former project-generation steps move to `/project:init` (new
+   EVERY registered provider independently (GitHub Actions: `gh` installed and
+   authenticated; Woodpecker: `woodpecker-cli` authenticated and the API token
+   resolvable; a future provider: its own registry check), records one verdict
+   per provider, and writes nothing into any project. This is not a selection:
+   a host can be ready for none, one or several providers at once, and the
+   record says which. Its former project-generation steps move to `/project:init` (new
    projects) and `/cicd:init` (existing repositories), and Tier 4 hands off to
    them in one line.
 
@@ -89,8 +140,9 @@ An audit at `46d99956` found that fact recorded nowhere anyone reads:
 - Each new or widened check is an instrument under ADR 0008 and ships with a
   committed negative control: the reader's `unknown`, generation's refusal, lane
   selection, the host verdicts and every doctor line.
-- `both` is a real choice, not a migration state: a `both` project's verdict is
-  red when either provider is red.
+- A multi-provider project is a real configuration, not a migration state: its
+  CI verdict is red when any listed provider is red, and running only when none
+  is red and any is still running.
 - `/cpp:init` Tier 4 no longer writes into the repository it runs from. Users
   who relied on it to scaffold a project are pointed to `/project:init` or
   `/cicd:init` instead. This decision covers Tier 4's CI setup only: other

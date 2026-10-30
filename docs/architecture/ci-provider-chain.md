@@ -1,6 +1,7 @@
 # CI provider chain: from host setup to merge
 
-How a project's CI provider (self-hosted Woodpecker, GitHub Actions, or both)
+How a project's CI providers (self-hosted Woodpecker, GitHub Actions, both, or a
+provider added later)
 flows from setup through every CI-dependent flow step, where the chain broke at
 `46d99956`, and the plan that closes it. The decision is
 [ADR 0012](../decisions/0012-per-project-ci-provider.md); this document is the
@@ -10,11 +11,17 @@ map and the task list. Tracking issue: #1612.
 
 | Record | Scope | Location | Written by | Holds |
 |---|---|---|---|---|
-| Project CI provider | one repository | `<repo>/.claude/cicd.yml` -> `pipeline.provider` | `/project:init` (new), `/cicd:init` (existing) | `woodpecker` \| `github-actions` \| `both`; absent reads `unknown` |
-| Host CI capability | one workspace root | `<root>/.claude/cpp-host.json` (here `~/Projects/.claude/cpp-host.json`) | `/cpp:init` Tier 4 | per provider: `ready` \| `missing (<what>)` \| `unknown (<why>)`, tool versions, checked-at; never a secret |
+| Project CI providers | one repository | `<repo>/.claude/cicd.yml` -> `pipeline.providers` (a list) | `/project:init` (new), `/cicd:init` (existing) | one or more registered names, today `woodpecker`, `github-actions`; absent reads `unknown`; legacy scalar `pipeline.provider` (`both` = both names) stays readable |
+| Host CI capability | one workspace root | `<root>/.claude/cpp-host.json` (here `~/Projects/.claude/cpp-host.json`) | `/cpp:init` Tier 4 | one entry per REGISTERED provider, each checked independently (a host may be ready for none, one or several): `ready` \| `missing (<what>)` \| `unknown (<why>)`, tool versions, checked-at; never a secret |
 
 Everything else - pipeline files, required status checks, which CI lane a flow
 helper reads - is derived from these two records.
+
+**The provider set is open.** Each provider is one entry in a registry (in
+`lib/cicd`) naming its pipeline generator, its required-check derivation, its
+flow CI lane and its host check. Consumers iterate the project's list through
+the registry; none special-cases a combination, so adding a provider later is
+one registry entry plus its negative controls, not an edit to every consumer.
 
 ## Target chain
 
@@ -24,7 +31,7 @@ flowchart LR
         CI["/cpp:init Tier 4<br/>host-only CI checks"] --> HR[("cpp-host.json<br/>at workspace root")]
     end
     subgraph project["Project (once per repo)"]
-        PI["/project:init<br/>or /cicd:init"] -->|asks woodpecker /<br/>github-actions / both| PR[("cicd.yml<br/>pipeline.provider")]
+        PI["/project:init<br/>or /cicd:init"] -->|asks which providers:<br/>one or more| PR[("cicd.yml<br/>pipeline.providers")]
         PR --> GEN["pipeline generation<br/>ci.yml / .woodpecker.yml"]
         PR --> BP["required checks<br/>branch-protection.json"]
         GEN -. job names .-> BP
@@ -69,17 +76,18 @@ flowchart LR
 
 ### P1 - One recorded provider per project, failing closed (#1607)
 
-- [ ] `pipeline.provider` absent resolves to `unknown`; validation stops passing an absent value as `github-actions`.
-- [ ] Add the single reader `python -m lib.cicd provider --path <repo>`, printing `CICD_PROVIDER: <value> (<source>)`; a test fails if a flow helper parses `cicd.yml` for `provider` itself.
-- [ ] Add a writer (`pipeline --provider X --record`) so a choice is persisted, not just applied to one run.
+- [ ] Introduce the provider registry (one entry per provider: generator, required-check derivation, CI lane, host check) and the list field `pipeline.providers`. The legacy scalar `pipeline.provider` maps onto it (`both` = both names); an unregistered name is refused.
+- [ ] Absent providers resolve to `unknown`; validation stops passing an absent value as `github-actions`.
+- [ ] Add the single reader `python -m lib.cicd provider --path <repo>`, printing `CICD_PROVIDERS: <name>[,<name>...] | unknown (<source>)`; a test fails if a flow helper parses `cicd.yml` for `provider` itself.
+- [ ] Add a writer (`pipeline --providers X[,Y] --record`) so a choice is persisted, not just applied to one run.
 - [ ] Uncomment the template's `pipeline:` block with no default value and a "required" comment.
 - [ ] Generation refuses on `unknown` and names the fix.
-- [ ] Record `pipeline.provider: woodpecker` in CPP's own `.claude/cicd.yml`.
+- [ ] Record `pipeline.providers: [woodpecker]` in CPP's own `.claude/cicd.yml`.
 - [ ] Negative control: a config without `pipeline:` reads `unknown` (the pre-change model reads `github-actions`).
 
 ### P2 - `/project:init` asks, records, generates (#1608)
 
-- [ ] `/project:init` asks woodpecker / github-actions / both, writes the answer through P1's writer, and generates the matching pipeline.
+- [ ] `/project:init` asks which registered providers the project uses (a multi-select over the registry - today Woodpecker and GitHub Actions, either or both), writes the list through P1's writer, and generates each listed provider's pipeline.
 - [ ] `/cicd:init` asks the same question for an existing repository, so both entry points converge on one record.
 - [ ] Derive required checks from the provider and the generated job names, and write `.claude/branch-protection.json` (wire `BranchProtection` into `CICDConfig`). Apply with `scripts/branch-protection.sh` only after explicit approval.
   - GitHub Actions: job `ci` in workflow `CI` reports as `ci`; **a strategy matrix reports one check per cell** (`ci (3.11)`), so derivation must expand the matrix.
@@ -87,13 +95,13 @@ flowchart LR
   - **Require only checks the PR event emits on the PR head.** The generated Woodpecker pipeline runs `push` only on `main`, so `ci/woodpecker/push/woodpecker` never appears on a PR head; requiring it would leave `gh-pr-merge.sh` waiting for a check that cannot arrive before merge. The main push pipeline is post-merge verification (`/flow:auto` Step 8), which is CPP's own posture (ADR 0004).
 - [ ] Check the choice against the host record (P3) and warn when this host cannot use it.
 - [ ] `/cicd:pipeline` reads or asks for the recorded provider instead of telling the user to hand-edit YAML, and its overwrite check covers `.woodpecker.yml` too.
-- [ ] `/cicd:infra-pipeline` accepts `both`.
+- [ ] `/cicd:infra-pipeline` takes the same provider list (today it has no `both` and routes any non-actions value to Woodpecker).
 - [ ] The resume check and summary report the provider, not just file presence.
 - [ ] Negative controls: a `branch-protection.json` whose check the recorded provider does not produce is reported inconsistent, and so is one requiring a check that is emitted only after merge (a Woodpecker push context).
 
 ### P3 - `/cpp:init` Tier 4 becomes host-only CI checks (#1609)
 
-- [ ] Replace Tier 4's project generation (4a-4e) with host checks: `gh` installed and `gh auth status` for GitHub Actions; `woodpecker-cli` authenticated and the Woodpecker token resolvable (environment or AWS secret, never printed) for Woodpecker.
+- [ ] Replace Tier 4's project generation (4a-4e) with host checks over EVERY registered provider, each independent - not a choice between them: `gh` installed and `gh auth status` for GitHub Actions; `woodpecker-cli` authenticated and the Woodpecker token resolvable (environment or AWS secret, never printed) for Woodpecker; a future provider's own registry check.
 - [ ] Ask once for the workspace root (default: the parent of the CPP checkout) and write `<root>/.claude/cpp-host.json`.
 - [ ] Tier 4 ends with a one-line handoff to `/project:init` / `/cicd:init`; its disclosure, undo and consent text change to match.
 - [ ] Negative controls: failing `gh auth status` reads `missing`; an unresolvable token reads `missing`; a probe error reads `unknown`, never `ready`; the record contains no secret value.
@@ -102,10 +110,10 @@ flowchart LR
 
 Absorbs #1604 items 6 (`flow-pr-watch.sh`), 8 (enrolment as an Actions job) and 11 (docs for both providers).
 
-- [ ] `flow-ci-status.sh` and `flow-pr-watch.sh` select their lane from P1's reader: one lane for `woodpecker` or `github-actions`, both for `both` (any red is red), stop on `unknown`. Probing survives only as a fallback that says it is one.
+- [ ] `flow-ci-status.sh` and `flow-pr-watch.sh` select their lanes from P1's reader: one lane per listed provider through the registry (any red is red; running while none is red and any runs), stop on `unknown`. Probing survives only as a fallback that says it is one.
 - [ ] `flow-pr-watch.sh` derives its check from protection and the record, accepts Actions run URLs, and extracts failing tests with `gh run view --log-failed`.
 - [ ] Finish/merge preflight compares the project provider with the host record and stops early with a named remedy.
-- [ ] Enrolment as a job in both providers' generated templates, per the owner's fork-PR ruling (open).
+- [ ] Enrolment as a job in every registered provider's generated template, per the owner's fork-PR ruling (open).
 - [ ] `derive_event` reads rulesets and `.checks`, as `gh-pr-merge.sh` already does.
 - [ ] Recovery and docs text per provider: `auto.md`, `merge.md`, `wave.md`, `register.md`, the lexicon example.
 - [ ] Negative controls: a Woodpecker-known repo whose commit ran only on Actions, recorded `github-actions`, resolves on the Actions lane; `flow-pr-watch` reports a red Actions check instead of timing out.
