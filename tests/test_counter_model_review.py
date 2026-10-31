@@ -476,8 +476,14 @@ def test_unresolved_claude_turns_cannot_be_dropped(tmp_path: Path) -> None:  # b
     assert not list(tmp_path.glob("*.json"))
 
 
-def _synthetic_record(output_tokens: int = 0, input_tokens: int = 0, model: str = "<synthetic>") -> dict:
-    """The harness's own record - an API error or interrupt, as the host writes it."""
+def _synthetic_record(
+    output_tokens: int = 0, input_tokens: int = 0, model: str = "<synthetic>", **usage: object
+) -> dict:
+    """The harness's own record - an API error or interrupt, as the host writes it.
+
+    The default usage mirrors the real shape: counters all zero, nested ones
+    too, plus the null-valued fields the harness leaves unset.
+    """
     return {
         "type": "assistant",
         "isSidechain": False,
@@ -485,7 +491,16 @@ def _synthetic_record(output_tokens: int = 0, input_tokens: int = 0, model: str 
         "message": {
             "model": model,
             "content": [{"type": "text", "text": "Login expired · Please run /login"}],
-            "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
+            "usage": {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "server_tool_use": {"web_search_requests": 0, "web_fetch_requests": 0},
+                "cache_creation": {"ephemeral_1h_input_tokens": 0, "ephemeral_5m_input_tokens": 0},
+                "service_tier": None,
+                **usage,
+            },
         },
     }
 
@@ -521,6 +536,11 @@ def test_one_harness_synthesised_record_does_not_block_a_real_transcript(  # bin
     [
         pytest.param((_synthetic_record(output_tokens=12),), id="synthetic-claiming-output"),
         pytest.param((_synthetic_record(input_tokens=40),), id="synthetic-claiming-input"),
+        pytest.param((_synthetic_record(cache_read_input_tokens=40),), id="synthetic-claiming-cache-read"),
+        pytest.param((_synthetic_record(cache_creation_input_tokens=40),), id="synthetic-claiming-cache-write"),
+        pytest.param(
+            (_synthetic_record(cache_creation={"ephemeral_5m_input_tokens": 40}),), id="synthetic-nested-counter"
+        ),
         pytest.param(({"type": "assistant", "message": {"model": "<synthetic>"}},), id="synthetic-without-usage"),
         pytest.param((_synthetic_record(model="<future-session-placeholder>"),), id="unknown-sentinel-zero-usage"),
         pytest.param((_synthetic_record(model=" "),), id="blank-zero-usage"),

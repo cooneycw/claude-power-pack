@@ -1330,9 +1330,11 @@ def _is_harness_synthesised(record: dict) -> bool:
     author may be a model the receipt would omit.
 
     This exempts only that one known label, and only when the record's own
-    usage shows no model ran: zero input and zero output tokens, both present.
-    A novel sentinel, a blank, or a `<synthetic>` record missing usage or
-    claiming tokens stays unresolved and still refuses. On this host all 469
+    usage shows no model ran: input and output token counts present, and EVERY
+    number anywhere in usage zero - cache reads and writes included, because a
+    cached prompt is still a model call (counter-model review). A novel
+    sentinel, a blank, or a `<synthetic>` record missing usage or counting any
+    usage stays unresolved and still refuses. On this host all 469
     `<synthetic>` records had exactly this shape.
     """
     message = record.get("message")
@@ -1341,9 +1343,21 @@ def _is_harness_synthesised(record: dict) -> bool:
     usage = message.get("usage")
     if not isinstance(usage, dict):
         return False
-    return all(
-        type(usage.get(key)) is int and usage[key] == 0 for key in ("input_tokens", "output_tokens")
-    )
+    if any(type(usage.get(key)) is not int for key in ("input_tokens", "output_tokens")):
+        return False
+
+    def all_zero(value: object) -> bool:
+        if isinstance(value, dict):
+            return all(all_zero(v) for v in value.values())
+        if isinstance(value, list):
+            return all(all_zero(v) for v in value)
+        if isinstance(value, bool) or value is None or isinstance(value, str):
+            return True
+        if isinstance(value, (int, float)):
+            return value == 0
+        return False
+
+    return all_zero(usage)
 
 
 def _derive_implementer_from_session(
