@@ -1320,6 +1320,46 @@ def _eligible_assistant_model(record: object) -> str | None:
     return model if isinstance(model, str) else None
 
 
+def _is_harness_synthesised(record: dict) -> bool:
+    """Whether Claude Code wrote this assistant record itself, with no model run.
+
+    The harness records an API error or an interrupt notice as an assistant
+    message with `model: "<synthetic>"` (issue #1615). One such record in a long
+    session used to refuse the whole implementer set, because the #1584 rule
+    refuses any turn whose author is unresolved - rightly, since an unknown
+    author may be a model the receipt would omit.
+
+    This exempts only that one known label, and only when the record's own
+    usage shows no model ran: input and output token counts present, and EVERY
+    number anywhere in usage zero - cache reads and writes included, because a
+    cached prompt is still a model call (counter-model review). A novel
+    sentinel, a blank, or a `<synthetic>` record missing usage or counting any
+    usage stays unresolved and still refuses. On this host all 469
+    `<synthetic>` records had exactly this shape.
+    """
+    message = record.get("message")
+    if _eligible_assistant_model(record) != "<synthetic>" or not isinstance(message, dict):
+        return False
+    usage = message.get("usage")
+    if not isinstance(usage, dict):
+        return False
+    if any(type(usage.get(key)) is not int for key in ("input_tokens", "output_tokens")):
+        return False
+
+    def all_zero(value: object) -> bool:
+        if isinstance(value, dict):
+            return all(all_zero(v) for v in value.values())
+        if isinstance(value, list):
+            return all(all_zero(v) for v in value)
+        if isinstance(value, bool) or value is None or isinstance(value, str):
+            return True
+        if isinstance(value, (int, float)):
+            return value == 0
+        return False
+
+    return all_zero(usage)
+
+
 def _derive_implementer_from_session(
     session_id: str, projects_dir: Path
 ) -> tuple[str | None, str | None]:
@@ -1546,12 +1586,16 @@ def _adapter(args: argparse.Namespace, role: str) -> tuple[list[str], dict, list
         for record in records:
             if record.get("type") != "assistant":
                 continue
+            if _is_harness_synthesised(record):
+                continue
             model = _eligible_assistant_model(record)
             if model is None or not model.strip() or model.strip().startswith("<"):
                 raise EvidenceUnknown(
                     "contains no real-shaped model entry; nested tool arguments cannot supply one "
                     f"(read {len(records)} record(s); 0 unparseable; "
-                    f"{sum(r.get('type') == 'assistant' for r in records)} eligible)"
+                    f"{sum(r.get('type') == 'assistant' for r in records)} eligible; "
+                    f"unresolved assistant turn declared model {model!r}, and an unresolved "
+                    "turn is refused rather than dropped)"
                 )
             models.add(model.strip())
         if not models or (role == "reviewer" and len(models) != 1):

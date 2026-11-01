@@ -448,14 +448,12 @@ def test_an_implementer_transcript_without_model_entries_is_refused(  # binary-g
 
 
 def test_unresolved_claude_turns_cannot_be_dropped(tmp_path: Path) -> None:  # binary-guard: allow unscoped
-    """A genuine mid-session model switch is preserved; sentinels do not erase it.
+    """A turn whose author cannot be resolved refuses the whole implementer set.
 
-    PRESERVATION, NOT REGRESSION: this passes on both sides of #1109 and is not
-    offered as evidence for that fix. Its SPECIMEN changed, though, and that is
-    worth saying plainly - it used to be four bare `{"model": ...}` lines, which
-    are not assistant messages and under #1109 correctly supply nothing. The
-    property under test is unchanged; the input is now structurally the thing
-    the property is about.
+    Since #1584 every implementing model is recorded, so a turn with an unknown
+    or blank model is a possible author the receipt would silently omit. It is
+    refused, not dropped - even beside real models. The one exception is a
+    harness-synthesised record (#1615), pinned by the tests that follow.
     """
     session_id, projects_dir = _implementer_session_fixture(tmp_path, "discarded")
     next(projects_dir.rglob("*.jsonl")).write_text(
@@ -474,6 +472,108 @@ def test_unresolved_claude_turns_cannot_be_dropped(tmp_path: Path) -> None:  # b
         tmp_path, projects_dir, "--implementer-session-id", session_id
     )
     assert proc.returncode == CM.EXIT_INVALID
+    assert "no real-shaped model entry" in proc.stderr
+    assert not list(tmp_path.glob("*.json"))
+
+
+def _synthetic_record(
+    output_tokens: int = 0, input_tokens: int = 0, model: str = "<synthetic>", **usage: object
+) -> dict:
+    """The harness's own record - an API error or interrupt, as the host writes it.
+
+    The default usage mirrors the real shape: counters all zero, nested ones
+    too, plus the null-valued fields the harness leaves unset.
+    """
+    return {
+        "type": "assistant",
+        "isSidechain": False,
+        "isApiErrorMessage": True,
+        "message": {
+            "model": model,
+            "content": [{"type": "text", "text": "Login expired · Please run /login"}],
+            "usage": {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "server_tool_use": {"web_search_requests": 0, "web_fetch_requests": 0},
+                "cache_creation": {"ephemeral_1h_input_tokens": 0, "ephemeral_5m_input_tokens": 0},
+                "service_tier": None,
+                **usage,
+            },
+        },
+    }
+
+
+def _real_record(model: str = "claude-opus-5") -> dict:
+    return {"type": "assistant", "message": {"model": model}}
+
+
+def test_one_harness_synthesised_record_does_not_block_a_real_transcript(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
+    """REGRESSION for #1615: fails on the code before the fix.
+
+    A long session routinely carries one `<synthetic>` record the harness wrote
+    itself (zero tokens in, zero out - no model ran). It used to abort the whole
+    derivation with "contains no real-shaped model entry" beside 1300+ real
+    turns, so a clean review could not be recorded at all.
+    """
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "discarded")
+    _overwrite_transcript(
+        projects_dir, _real_record(), _synthetic_record(), _real_record(), _real_record("claude-sonnet-5")
+    )
+    proc = _write_session_receipt(
+        tmp_path, projects_dir, "--implementer-session-id", session_id
+    )
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["implementers"] == ["claude/claude-opus-5", "claude/claude-sonnet-5"]
+
+
+@pytest.mark.parametrize(
+    "unresolved",
+    [
+        pytest.param((_synthetic_record(output_tokens=12),), id="synthetic-claiming-output"),
+        pytest.param((_synthetic_record(input_tokens=40),), id="synthetic-claiming-input"),
+        pytest.param((_synthetic_record(cache_read_input_tokens=40),), id="synthetic-claiming-cache-read"),
+        pytest.param((_synthetic_record(cache_creation_input_tokens=40),), id="synthetic-claiming-cache-write"),
+        pytest.param(
+            (_synthetic_record(cache_creation={"ephemeral_5m_input_tokens": 40}),), id="synthetic-nested-counter"
+        ),
+        pytest.param(({"type": "assistant", "message": {"model": "<synthetic>"}},), id="synthetic-without-usage"),
+        pytest.param((_synthetic_record(model="<future-session-placeholder>"),), id="unknown-sentinel-zero-usage"),
+        pytest.param((_synthetic_record(model=" "),), id="blank-zero-usage"),
+    ],
+)
+def test_only_a_zero_token_synthetic_record_may_be_skipped(  # binary-guard: allow unscoped
+    tmp_path: Path, unresolved: tuple
+) -> None:
+    """The #1615 exception is narrow: label AND zero usage, nothing else.
+
+    Each case sits beside a real turn, so the refusal can only come from the
+    unresolved record - the #1584 rule that an unknown author is not dropped.
+    """
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "discarded")
+    _overwrite_transcript(projects_dir, _real_record(), *unresolved)
+    proc = _write_session_receipt(
+        tmp_path, projects_dir, "--implementer-session-id", session_id
+    )
+    assert proc.returncode == CM.EXIT_INVALID, proc.stderr
+    assert "no real-shaped model entry" in proc.stderr
+    assert not list(tmp_path.glob("*.json"))
+
+
+def test_a_transcript_of_only_synthetic_records_stays_unknown(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
+    """Skipping harness records must not turn 'no author' into a receipt."""
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "discarded")
+    _overwrite_transcript(projects_dir, _synthetic_record(), _synthetic_record())
+    proc = _write_session_receipt(
+        tmp_path, projects_dir, "--implementer-session-id", session_id
+    )
+    assert proc.returncode == CM.EXIT_INVALID, proc.stderr
     assert "no real-shaped model entry" in proc.stderr
     assert not list(tmp_path.glob("*.json"))
 
