@@ -122,6 +122,11 @@ HELPERS=(
     flow-wave-lexicon.sh
     flow-wave-plan.py
     speckit-context.py
+    # The only supported route from a plan to issues (#1618). It resolves
+    # speckit-context.py beside itself, so the pair must install together, and
+    # /project:init and /spec:adopt print this stable path. Installed but
+    # deliberately NOT in the permissions template: it creates GitHub issues.
+    speckit-tasks-to-issues.sh
     flow-driver-capability.sh
     flow-vantage.sh
     flow-finish-gate.sh

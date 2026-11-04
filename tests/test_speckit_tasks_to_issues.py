@@ -1238,3 +1238,114 @@ class TestDocumentedRefreshGuardIsExecutable:
             "the documented script reported success after `gh issue edit` failed"
         )
         assert _issues(state)[0]["body"] == original, "a failed write must change nothing"
+
+
+class TestInstalledOutsideTheCheckout:
+    """The documented route must work from a project that is not CPP (#1618).
+
+    `/project:init` and `/spec:adopt` used to print `./scripts/...`, which exists
+    only inside the CPP checkout, and the unattended installer did not install the
+    converter at the stable path either. These run the REAL installer and then the
+    INSTALLED copy, from an unrelated repository, as a provisioned host would.
+    """
+
+    def _install(self, home: Path) -> Path:
+        proc = subprocess.run(
+            ["bash", str(ROOT / "scripts" / "flow-helpers-install.sh")],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "FLOW_HELPERS_HOME": str(home)},
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        return home / ".claude" / "scripts" / "speckit-tasks-to-issues.sh"
+
+    def test_installed_converter_dry_runs_from_an_unrelated_repo(
+        self, project, tmp_path: Path
+    ) -> None:
+        repo, bindir, state = project({".specify/specs/feat/tasks.md": BOLD_TASKS})
+        assert not (repo / "scripts").exists(), "fixture must not be a CPP checkout"
+        installed = self._install(tmp_path / "home")
+        assert installed.is_file(), "the unattended installer must provide the converter"
+
+        proc = subprocess.run(
+            [str(installed), "--dry-run"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            env={
+                "PATH": f"{bindir}:{os.environ['PATH']}",
+                "HOME": str(tmp_path / "home"),
+                "GH_STUB_STATE": str(state),
+            },
+        )
+
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "T001" in proc.stdout, proc.stdout
+        assert _issues(state) == [], "--dry-run must create nothing"
+
+    def test_context_helper_installs_beside_it(self, tmp_path: Path) -> None:
+        installed = self._install(tmp_path / "home")
+        assert (installed.parent / "speckit-context.py").is_file()
+
+    @staticmethod
+    def _relative_invocation(line: str) -> bool:
+        """True unless every mention is the stable path or names the source file.
+
+        Deny by default: a new phrasing is an offender until someone decides it
+        only describes the file. Matching run-forms instead missed a bare
+        `scripts/x.sh --dry-run` line, which fails just the same for a user.
+        """
+        rest = line.replace("~/.claude/scripts/speckit-tasks-to-issues.sh", "")
+        if "scripts/speckit-tasks-to-issues.sh" not in rest:
+            return False
+        descriptive = (
+            rest.lstrip().startswith(
+                "> Dependency: `scripts/speckit-tasks-to-issues.sh` calls `scripts/speckit-context.py`"
+            ),
+            "via `scripts/speckit-tasks-to-issues.sh`" in rest,
+            rest.lstrip().startswith("- `scripts/speckit-tasks-to-issues.sh` - "),
+        )
+        return not any(descriptive)
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "./scripts/speckit-tasks-to-issues.sh --dry-run",
+            "scripts/speckit-tasks-to-issues.sh --dry-run",
+            "run `scripts/speckit-tasks-to-issues.sh`",
+            "Execute `scripts/speckit-tasks-to-issues.sh`",
+            "--> then create issues:  scripts/speckit-tasks-to-issues.sh",
+            "> Dependency: run ./scripts/speckit-tasks-to-issues.sh --dry-run",
+        ],
+    )
+    def test_the_guard_flags_every_relative_form(self, line: str) -> None:
+        assert self._relative_invocation(line)
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "~/.claude/scripts/speckit-tasks-to-issues.sh --dry-run",
+            "> Dependency: `scripts/speckit-tasks-to-issues.sh` calls `scripts/speckit-context.py` at runtime",
+            "- Tasks become GitHub issues via `scripts/speckit-tasks-to-issues.sh`",
+            "- `scripts/speckit-tasks-to-issues.sh` - Turn a spec into issues",
+        ],
+    )
+    def test_the_guard_leaves_the_stable_path_and_descriptions_alone(self, line: str) -> None:
+        assert not self._relative_invocation(line)
+
+    def test_no_command_document_prints_a_relative_invocation(self) -> None:
+        docs = sorted((ROOT / ".claude" / "commands").rglob("*.md"))
+        assert docs, "the command documents must be found, or this scans nothing"
+        lines = [
+            (doc, line)
+            for doc in docs
+            for line in doc.read_text(encoding="utf-8").splitlines()
+            if "speckit-tasks-to-issues.sh" in line
+        ]
+        assert lines, "the converter must be named somewhere, or this examined nothing"
+        offenders = [
+            f"{doc.relative_to(ROOT)}: {line.strip()}"
+            for doc, line in lines
+            if self._relative_invocation(line)
+        ]
+        assert offenders == []

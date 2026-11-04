@@ -44,6 +44,11 @@
 #   8  an existing issue's context could not be read or checked on a re-run
 set -euo pipefail
 
+# The exit status on stderr, last, like the rest of the installed family (#1031,
+# #1618): stdout is this script's report, and `... | tail -3; echo $?` reports
+# tail's status rather than this one.
+trap 'printf "SPECKIT_TASKS_TO_ISSUES_EXIT=%d\n" "$?" >&2' EXIT
+
 DRY_RUN=0
 TASKS=""
 REPO=""

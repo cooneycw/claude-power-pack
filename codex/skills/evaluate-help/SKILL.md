@@ -86,7 +86,7 @@ Generates spec artifacts in `.specify/specs/{feature-name}/`:
 └── tasks.md     ← Actionable items organized in waves
 ```
 
-Use `./scripts/speckit-tasks-to-issues.sh` to create GitHub issues from the generated tasks.
+Use `"${CPP_SKILL_DIR:-/dev/null}"/scripts/speckit-tasks-to-issues.sh` to create GitHub issues from the generated tasks.
 
 > Dependency: `scripts/speckit-tasks-to-issues.sh` calls `scripts/speckit-context.py` at runtime to render each issue's task-context block (#858). Both ship together: if the helper is missing or fails, the converter stops with an error before creating anything, because a packaging fault is not a context-free installation. `--no-context` is the explicit opt-out.
 

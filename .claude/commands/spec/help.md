@@ -75,8 +75,8 @@ the tracker.
 
 3. **Turn tasks into GitHub issues** (gh-CLI, no github-mcp-server needed):
    ```
-   ./scripts/speckit-tasks-to-issues.sh --dry-run   # preview
-   ./scripts/speckit-tasks-to-issues.sh             # create issues
+   ~/.claude/scripts/speckit-tasks-to-issues.sh --dry-run   # preview
+   ~/.claude/scripts/speckit-tasks-to-issues.sh             # create issues
    ```
    > Upstream `/speckit-taskstoissues` requires github-mcp-server (which CPP does not
    > run); the bundled gh-CLI script is the CPP-supported substitute.
