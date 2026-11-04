@@ -821,5 +821,14 @@ def test_resume_takes_the_tasks_file_from_disk_not_the_project_name() -> None:
     """A resumed feature directory need not match the project name."""
     step = _step(5)
 
-    assert "find .specify/specs -maxdepth 2 -name tasks.md" in step
-    assert 'FEATURE_NAME="$(basename "$FEATURE_DIR")"' in step
+    assert "`.specify/specs/*/tasks.md`" in step
+    assert "take `FEATURE_NAME` from its directory" in step
+
+
+@pytest.mark.parametrize("number", [5, 6])
+def test_a_resumed_run_with_nothing_staged_does_not_stop_at_the_commit(number: int) -> None:
+    """A bare `git commit` fails on a clean index and strands the retry behind it."""
+    step = _step(number)
+
+    assert "git diff --cached --quiet || git commit -m" in step
+    assert "\ngit commit -m" not in step

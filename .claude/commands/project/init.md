@@ -558,12 +558,9 @@ On a resumed run these files already exist. Keep them, take the feature from the
 file rather than from the project name, and go to 5b. The feature directory need
 not match the project name:
 
-```bash
-mapfile -t EXISTING_TASKS < <(find .specify/specs -maxdepth 2 -name tasks.md | sort)
-# Exactly one: TASKS_FILE="${EXISTING_TASKS[0]}"
-# FEATURE_DIR="$(dirname "$TASKS_FILE")"; FEATURE_NAME="$(basename "$FEATURE_DIR")"
-# More than one: ask the user which feature to resume with AskUserQuestion.
-```
+Find it with the `Glob` tool (`.specify/specs/*/tasks.md`). With exactly one match,
+use it as `TASKS_FILE` and take `FEATURE_NAME` from its directory. With more than
+one, ask which feature to resume with `AskUserQuestion`.
 
 On a cleared
 Wayfinder map or clear multi-session route, use the spec and tasks those routes
@@ -606,11 +603,11 @@ would read as missing from every issue this step creates.
 
 ```bash
 git add .specify
-git commit -m "docs(spec): add the $FEATURE_NAME spec and tasks
+# A resumed run may have nothing staged; its retry still has to reach the sync.
+git diff --cached --quiet || git commit -m "docs(spec): add the $FEATURE_NAME spec and tasks
 
 Co-Authored-By: <name> <noreply@anthropic.com>"
-# Replace <name> as in Step 3. On a resumed run with nothing staged, skip the
-# commit and continue with the push.
+# Replace <name> as in Step 3.
 git push origin main
 ```
 
@@ -644,9 +641,8 @@ Report: `Step 5/6: Spec created, {N} issues filed`, `Step 5/6: Spec created, syn
 git add .
 git diff --cached --stat
 
-# Commit the CPP setup. On a resumed run with nothing staged, skip the commit and
-# continue with the push.
-git commit -m "chore: add CPP setup, Makefile, and spec structure
+# Commit the CPP setup. A resumed run may have nothing staged.
+git diff --cached --quiet || git commit -m "chore: add CPP setup, Makefile, and spec structure
 
 Co-Authored-By: <name> <noreply@anthropic.com>"
 # Replace <name> with the current session's own assistant model - never a
