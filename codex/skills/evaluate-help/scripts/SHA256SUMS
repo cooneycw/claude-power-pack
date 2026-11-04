@@ -8,4 +8,4 @@
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
 0909790cc9e29f072c73acc324d85664fd5aee329ec5bd5cfe326d372cb3efe4  speckit-context.py
-0e5e990c115c76985c4621885f581931b3f6423c7fd3f6cde18e9a6e8fd193e0  speckit-tasks-to-issues.sh
+46db1eba1caf92258615d32c903d936b28e594f6f2d3b5c94640a7d0a9ee0878  speckit-tasks-to-issues.sh

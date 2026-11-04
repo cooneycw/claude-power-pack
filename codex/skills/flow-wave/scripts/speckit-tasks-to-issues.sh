@@ -244,6 +244,7 @@ while IFS= read -r line || [ -n "$line" ]; do
             MALFORMED+=("${TASKS}:${lineno}: ${tid} has no description: ${line}")
             continue
         fi
+        # shellcheck disable=SC2016  # a sed program; the backticks are literal
         desc_prose="$(printf '%s' "$desc" | sed -E 's/`[^`]*`//g')"
         if [[ "$desc_prose" =~ $TASK_PLACEHOLDER_RE ]]; then
             MALFORMED+=("${TASKS}:${lineno}: ${tid} still has the unfilled placeholder ${BASH_REMATCH[0]}: ${line}")
