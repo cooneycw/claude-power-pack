@@ -541,6 +541,55 @@ class TestPackagedConverterInAnIsolatedProject:
         )
         assert "source: .specify/specs/onboarding/spec.md" in body
 
+    def test_a_step_5_plan_from_a_non_cpp_project_reaches_real_issues(
+        self, tmp_path: Path, skill_script: Path
+    ) -> None:
+        """#1622: preview, sync, re-run - the commands /project:init Step 5 runs.
+
+        Runs the converter only. The drafting and the approval question are the
+        model's, in a command document no test executes;
+        tests/test_project_init.py pins that document's order instead.
+        """
+        project = _isolated(tmp_path, skill_script.parent)
+        assert _no_cpp_checkout_above(project.repo) == []
+        (project.repo / ISOLATED_TASKS).write_text(
+            "# Tasks: onboarding\n\n## Wave 1: Foundation\n"
+            "- [ ] **T001** [US1] Add the offline first run `src/app.py`\n"
+            "- [ ] **T002** [US1] Cover it with a test `tests/test_app.py` (depends on T001)\n"
+            "\n## Issue Sync\n| Task | Issue | Status |\n|------|-------|--------|\n",
+            encoding="utf-8",
+        )
+
+        preview = project.convert(ISOLATED_TASKS, "--dry-run")
+        assert preview.returncode == 0, preview.stderr
+        assert project.issues() == [], "the preview filed something before approval"
+        assert preview.stdout.count("would create:") == 2
+
+        synced = project.convert(ISOLATED_TASKS)
+        assert synced.returncode == 0, synced.stderr
+        issues = project.issues()
+        assert len(issues) == 2
+        assert ISOLATED_PROMISE in project.body_for(ISOLATED_TASKS)
+        assert f"Blocked by #{issues[0]['number']}" in issues[1]["body"]
+
+        again = project.convert(ISOLATED_TASKS)
+        assert again.returncode == 0, again.stderr
+        assert len(project.issues()) == 2, "a re-run filed a task twice"
+
+    def test_the_packaged_converter_refuses_the_placeholder_too(
+        self, tmp_path: Path, skill_script: Path
+    ) -> None:
+        project = _isolated(tmp_path, skill_script.parent)
+        (project.repo / ISOLATED_TASKS).write_text(
+            "- [ ] **T001** [US1] {First task}\n", encoding="utf-8"
+        )
+
+        result = project.convert(ISOLATED_TASKS, "--dry-run")
+
+        assert result.returncode == 3, result.stderr
+        assert "unfilled placeholder" in result.stderr
+        assert project.issues() == []
+
     def test_without_its_bundled_helper_the_packaged_run_refuses(
         self, tmp_path: Path, skill_script: Path
     ) -> None:

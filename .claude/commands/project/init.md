@@ -29,7 +29,7 @@ Create a new project from zero to pushed GitHub repo in one command.
   Step 2: Select framework, generate scaffold
   Step 3: Initialize git, push to GitHub
   Step 4: Makefile/CI (lib/cicd) + CPP toolkit install; delegate CLAUDE.md/skills/hooks to native /init
-  Step 5: Initial spec (optional) + issue sync
+  Step 5: Draft spec and tasks, review, sync approved tasks to GitHub issues
   Step 6: Summary
 ```
 
@@ -139,6 +139,9 @@ If the directory already exists, check what steps have been completed and resume
 - Has `Makefile` + `.claude/cicd.yml`? → cicd:init done.
 - Has `.claude/commands` symlink? → cpp:init done.
 - Has `.specify/`? → spec structure already present.
+- Has `.specify/specs/*/tasks.md`? → Step 5 was reached. Keep the file, do not
+  redraft over it, and resume at its review (Step 5, 5a). Re-running the sync is
+  safe.
 
 If the directory doesn't exist:
 
@@ -265,8 +268,8 @@ so the lane's current directory is the new project. Otherwise continue to Step 3
 Explain the boundary with the offer: at this point the project has a skeleton
 but no issue tracker content or filed issues, so `/gemma:auto`, `/qwen:auto`,
 and `/codex:auto` cannot serve it. Their `exec` commands are the greenfield
-route. Once Step 3 creates the GitHub repo and Step 5's spec produces filed
-issues, the corresponding `auto` lanes become available for those issues.
+route. Once Step 3 creates the GitHub repo and Step 5 files the approved tasks,
+the corresponding `auto` lanes become available for those issues.
 
 Report: `Step 2/6: {Framework} scaffold planned and applied by project-init engine`
 
@@ -485,17 +488,18 @@ Report: `Step 4/6: CPP setup complete - Makefile, CPP toolkit, CLAUDE.md (via na
 
 ---
 
-## Step 5: Initial Spec (Mandatory)
+## Step 5: Initial Spec and Issues (Mandatory)
 
-Create an initial feature specification for the project. This step is mandatory to
-ensure every project starts with a spec-driven foundation. The spec can be minimal
-and refined later.
+Create an initial feature specification for the project, then file its reviewed
+tasks as GitHub issues. This step is mandatory to ensure every project starts with
+a spec-driven foundation and work Flow can pick up. The spec can be minimal and
+refined later.
 
 When the preliminary gate routed a clear multi-session effort here, use the
 confirmed destination as the feature and create or link its implementation spec
 and tasks without creating Wayfinder decision tickets. When a cleared Wayfinder
 map routed here, apply the confirmed `PlannedWrite` returned by `clear_map()` as
-`spec.md` instead of the generic spec stub below, preserve its exact
+`spec.md` instead of the generic spec draft in 5a, preserve its exact
 `lifecycle: active` and `transitional: true` metadata and map/decision links,
 then derive implementation tasks from that evidence. This active spec governs
 unresolved delivery work and is suitable for later graduation; it is not
@@ -506,86 +510,127 @@ supplies the feature identity.
 
 Route later spec close-out through the canonical [knowledge lifecycle](../../../docs/agents/knowledge-lifecycle.md) before removing the completed spec.
 
+On a resumed run with an existing `.specify/specs/*/tasks.md`, skip the feature
+question too: the existing file names the feature. See 5a.
+
 Ask the user with `AskUserQuestion`:
 
 **Question:** "What is the first feature or MVP for this project? (Enter a name or press enter to use the project name)"
 
 Use the project name as the default feature name if the user doesn't provide one.
 
+### 5a: Draft the Spec and Tasks
+
+Issues are what Flow works from, so this step ends with real issues, not a
+template. Draft all three files from the confirmed destination and the first
+feature. Do not leave a `{...}` placeholder in any of them: the task wording
+becomes the issue title, and the spec's story and acceptance text is copied into
+each issue body as its governing context.
+
 ```bash
-FEATURE_NAME="$PROJECT_NAME"
-mkdir -p ".specify/specs/$FEATURE_NAME"
-
-# Create spec.md, plan.md, tasks.md from templates or minimal stubs
-cat > ".specify/specs/$FEATURE_NAME/spec.md" << SPECEOF
-# Feature Specification: $FEATURE_NAME
-
-## Overview
-
-{Brief description of the project's first feature or MVP.}
-
-## User Stories
-
-### US1: {Story Title}
-**As a** {role}, **I want** {capability}, **So that** {benefit}.
-
-**Acceptance Criteria:**
-- [ ] {Criterion}
-
-## Requirements
-
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| R1 | {Requirement} | Must |
-
-## Success Criteria
-- [ ] All acceptance criteria met
-- [ ] Tests passing
-SPECEOF
-
-cat > ".specify/specs/$FEATURE_NAME/plan.md" << PLANEOF
-# Implementation Plan: $FEATURE_NAME
-
-## Summary
-{Technical approach}
-
-## Architecture
-{Component design}
-
-## Dependencies
-| Package | Purpose |
-|---------|---------|
-
-## Phases
-| Phase | Tasks | Dependencies |
-|-------|-------|--------------|
-PLANEOF
-
-cat > ".specify/specs/$FEATURE_NAME/tasks.md" << TASKEOF
-# Tasks: $FEATURE_NAME
-
-## Format
-\`[ID] [P?] [Story] Description\`
-
-## Wave 1: Foundation
-- [ ] **T001** [US1] {First task}
-
-## Issue Sync
-| Task | Issue | Status |
-|------|-------|--------|
-TASKEOF
-
-echo "Created spec: .specify/specs/$FEATURE_NAME/"
+FEATURE_NAME="$PROJECT_NAME"  # or the feature named above
+FEATURE_DIR=".specify/specs/$FEATURE_NAME"
+TASKS_FILE="$FEATURE_DIR/tasks.md"
+mkdir -p "$FEATURE_DIR"
 ```
 
-Then ask: "Sync tasks to GitHub issues now?"
-- **Yes** → run `~/.claude/scripts/speckit-tasks-to-issues.sh`
-- **Skip** → sync later
+Write these with the `Write` tool, using this shape and your own drafted content:
+
+- `spec.md` - `# Feature Specification: <feature>`, then `## Overview`,
+  `## User Stories` (each `### US1: <title>` with its
+  `**As a** ... **I want** ... **So that** ...` line and an
+  `**Acceptance Criteria:**` checklist), `## Requirements` (an
+  `| ID | Requirement | Priority |` table) and `## Success Criteria`.
+- `plan.md` - `# Implementation Plan: <feature>`, then `## Summary`,
+  `## Architecture`, `## Dependencies` and `## Phases`.
+- `tasks.md` - `# Tasks: <feature>`, a `## Wave 1: Foundation` section with one
+  line per task, and an empty `## Issue Sync` table. Task lines look like this:
+
+  ```
+  - [ ] **T001** [US1] Add the health endpoint `src/app.py`
+  - [ ] **T002** [US1] Cover it with a test `tests/test_app.py` (depends on T001)
+  ```
+
+Each task is one piece of work a person or agent can pick up as its own issue.
+Start at T001, tag it with its story, and declare any `(depends on T00N)`.
+
+On a resumed run these files already exist. Keep them, take the feature from the
+file rather than from the project name, and go to 5b. The feature directory need
+not match the project name:
+
+Find it with the `Glob` tool (`.specify/specs/*/tasks.md`). With exactly one match,
+use it as `TASKS_FILE` and take `FEATURE_NAME` from its directory. With more than
+one, ask which feature to resume with `AskUserQuestion`.
+
+On a cleared
+Wayfinder map or clear multi-session route, use the spec and tasks those routes
+produced above, in place of this draft, and point `TASKS_FILE` at that tasks file.
+
+### 5b: Review the Tasks
+
+The tasks become public issues, so nothing is filed until the user has seen them.
+This checkpoint is required on every route.
+
+Preview exactly what would be filed:
+
+```bash
+~/.claude/scripts/speckit-tasks-to-issues.sh --tasks "$TASKS_FILE" --dry-run
+```
+
+The converter refuses an unfilled placeholder with exit 3, and in that case fix
+the named lines and preview again. Show the user the task list, then ask with
+`AskUserQuestion`:
+
+**Question:** "File these tasks as GitHub issues?"
+
+**Options:**
+- **Create issues (Recommended)** - Commit the spec, then file one issue per task
+- **Edit first** - Change the tasks, then review them again
+- **Not now** - Keep the spec and tasks, and create no issues
+
+For **Edit first**, apply the user's changes, preview again and repeat the
+question. Only **Create issues** continues to 5c, so the sync is part of this plan
+rather than a second decision. For **Not now**, record `SYNC_STATE=declined` and go
+to Step 6.
 
 > Dependency: `scripts/speckit-tasks-to-issues.sh` calls `scripts/speckit-context.py` at runtime to render each issue's task-context block (#858). Both ship together: if the helper is missing or fails, the converter stops with an error before creating anything, because a packaging fault is not a context-free installation. `--no-context` is the explicit opt-out.
 
+### 5c: Commit, Push, Then Sync
 
-Report: `Step 5/6: Initial spec created` or `Step 5/6: Skipped`
+Push before syncing. Each issue names `tasks.md` and `spec.md` as its source, and
+`/flow:auto` works from a branch of `origin/main`, so a spec that is only local
+would read as missing from every issue this step creates.
+
+```bash
+git add .specify
+# A resumed run may have nothing staged; its retry still has to reach the sync.
+git diff --cached --quiet || git commit -m "docs(spec): add the $FEATURE_NAME spec and tasks
+
+Co-Authored-By: <name> <noreply@anthropic.com>"
+# Replace <name> as in Step 3.
+git push origin main
+```
+
+Then sync:
+
+```bash
+~/.claude/scripts/speckit-tasks-to-issues.sh --tasks "$TASKS_FILE"
+```
+
+Re-running is safe: each issue carries a feature-scoped identity marker (#857), so
+a task already filed is skipped rather than filed twice.
+
+Keep every `create T001 -> <url>` and `skip T001 (issue #N ...)` line whatever the
+exit status. Together they are the issue list for the summary, and the lowest task
+number is the first issue.
+
+- Exit 0: record `SYNC_STATE=created`.
+- Non-zero: report the error, record `SYNC_STATE=failed`, and go to Step 6. The
+  converter creates issues one at a time, so it can fail after creating some.
+  Those lines are the only record of them, and the summary lists them beside the
+  command to retry.
+
+Report: `Step 5/6: Spec created, {N} issues filed`, `Step 5/6: Spec created, sync declined` or `Step 5/6: Spec created, sync failed after {N} issues`
 
 ---
 
@@ -596,8 +641,8 @@ Report: `Step 5/6: Initial spec created` or `Step 5/6: Skipped`
 git add .
 git diff --cached --stat
 
-# Commit the CPP setup
-git commit -m "chore: add CPP setup, Makefile, and spec structure
+# Commit the CPP setup. A resumed run may have nothing staged.
+git diff --cached --quiet || git commit -m "chore: add CPP setup, Makefile, and spec structure
 
 Co-Authored-By: <name> <noreply@anthropic.com>"
 # Replace <name> with the current session's own assistant model - never a
@@ -617,13 +662,47 @@ Project created: {PROJECT_NAME}
   Framework:  {Framework} ({PackageManager})
   Makefile:   lint, test, build, deploy, clean, verify
   CPP:        Commands + Skills + Hooks
-  Spec:       .specify/ initialized
+  Spec:       .specify/specs/{FEATURE_NAME}/
+```
+
+Then finish with the block for the recorded `SYNC_STATE`. Never print an issue
+number that Step 5 did not create or find.
+
+`SYNC_STATE=created`:
+
+```
+Issues:
+  #{N}  T001 {task}
+  #{M}  T002 {task}
 
 Next steps:
   cd ~/Projects/{PROJECT_NAME}
-  /project:next              # See recommended actions
-  /spec:adopt                # Adopt official spec-kit for feature specs (optional)
-  /flow:start {N}            # Start working on an issue
+  /flow:auto {N}             # Start the first issue
+```
+
+`SYNC_STATE=declined`, or `failed` with no `create` or `skip` line (no issue exists
+yet, so print the literal command with the real tasks path):
+
+```
+Issues:     none filed
+
+Next steps:
+  cd ~/Projects/{PROJECT_NAME}
+  ~/.claude/scripts/speckit-tasks-to-issues.sh --tasks {TASKS_FILE}
+  /flow:auto <first issue>   # Once the command above has created the issues
+```
+
+`SYNC_STATE=failed` with at least one `create` or `skip` line (the sync stopped
+part way, so list what exists and finish it before starting):
+
+```
+Issues:     sync stopped part way
+  #{N}  T001 {task}
+
+Next steps:
+  cd ~/Projects/{PROJECT_NAME}
+  ~/.claude/scripts/speckit-tasks-to-issues.sh --tasks {TASKS_FILE}
+  /flow:auto {N}             # Once the command above has finished the sync
 ```
 
 ---
@@ -649,6 +728,11 @@ Key failure scenarios:
 - **Repo name taken on GitHub:** Suggest alternative name or link to existing
 - **CPP source not found:** Skip Step 4 with warning, still complete other steps
 - **uv/npm not installed:** Warn but continue (user can install deps later)
+- **Placeholder left in tasks.md:** The converter exits 3 before creating anything;
+  fix the named lines and preview again
+- **Sync fails after the push:** The spec is safe on `origin/main`. The summary
+  lists any issues already created and gives the command to retry, and a retry
+  never duplicates an issue
 
 ## Notes
 

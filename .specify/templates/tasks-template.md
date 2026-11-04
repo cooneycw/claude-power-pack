@@ -56,6 +56,8 @@
 ## Issue Sync
 
 > Use `scripts/speckit-tasks-to-issues.sh` to create GitHub issues from these tasks.
+> It refuses any task still carrying an unfilled `{Placeholder}` from this template,
+> including under `--dry-run`, so replace them all first.
 
 Task IDs restart at T001 in every feature, so they identify a task only WITHIN one
 tasks file. Each issue the converter creates therefore carries a feature-scoped
