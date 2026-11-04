@@ -1299,7 +1299,9 @@ class TestInstalledOutsideTheCheckout:
         if "scripts/speckit-tasks-to-issues.sh" not in rest:
             return False
         descriptive = (
-            rest.lstrip().startswith("> Dependency:"),
+            rest.lstrip().startswith(
+                "> Dependency: `scripts/speckit-tasks-to-issues.sh` calls `scripts/speckit-context.py`"
+            ),
             "via `scripts/speckit-tasks-to-issues.sh`" in rest,
             rest.lstrip().startswith("- `scripts/speckit-tasks-to-issues.sh` - "),
         )
@@ -1313,6 +1315,7 @@ class TestInstalledOutsideTheCheckout:
             "run `scripts/speckit-tasks-to-issues.sh`",
             "Execute `scripts/speckit-tasks-to-issues.sh`",
             "--> then create issues:  scripts/speckit-tasks-to-issues.sh",
+            "> Dependency: run ./scripts/speckit-tasks-to-issues.sh --dry-run",
         ],
     )
     def test_the_guard_flags_every_relative_form(self, line: str) -> None:
@@ -1322,7 +1325,7 @@ class TestInstalledOutsideTheCheckout:
         "line",
         [
             "~/.claude/scripts/speckit-tasks-to-issues.sh --dry-run",
-            "> Dependency: `scripts/speckit-tasks-to-issues.sh` calls a helper",
+            "> Dependency: `scripts/speckit-tasks-to-issues.sh` calls `scripts/speckit-context.py` at runtime",
             "- Tasks become GitHub issues via `scripts/speckit-tasks-to-issues.sh`",
             "- `scripts/speckit-tasks-to-issues.sh` - Turn a spec into issues",
         ],
