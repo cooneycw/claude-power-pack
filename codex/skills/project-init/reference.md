@@ -576,7 +576,7 @@ echo "Created spec: .specify/specs/$FEATURE_NAME/"
 ```
 
 Then ask: "Sync tasks to GitHub issues now?"
-- **Yes** → run `./scripts/speckit-tasks-to-issues.sh`
+- **Yes** → run `"${CPP_SKILL_DIR:-/dev/null}"/scripts/speckit-tasks-to-issues.sh`
 - **Skip** → sync later
 
 > Dependency: `scripts/speckit-tasks-to-issues.sh` calls `scripts/speckit-context.py` at runtime to render each issue's task-context block (#858). Both ship together: if the helper is missing or fails, the converter stops with an error before creating anything, because a packaging fault is not a context-free installation. `--no-context` is the explicit opt-out.

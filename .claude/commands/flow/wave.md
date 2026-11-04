@@ -482,7 +482,7 @@ the escape when a prose line happens to open with a reserved word.
 
 ## Phase 1: Scaffold the issue set
 
-- **Spec-kit repo:** run `scripts/speckit-tasks-to-issues.sh` (dedup-safe) to emit
+- **Spec-kit repo:** run `~/.claude/scripts/speckit-tasks-to-issues.sh` (dedup-safe) to emit
   one issue per task. It ALSO writes the dependency edges itself: a task's
   `(depends on T00N)` clause becomes a `Depends on:` line plus `- Blocked by #N`
   bullets, and every filed task is reconciled on each run, so a forward reference
