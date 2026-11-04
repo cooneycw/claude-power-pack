@@ -34,8 +34,7 @@
 #   0  success
 #   1  environment refusal (no gh, no GitHub remote, no tasks file)
 #   2  usage error
-#   3  tasks.md could not be parsed (malformed task lines, unfilled placeholder
-#      tasks, or no tasks at all)
+#   3  tasks.md could not be parsed (malformed task lines, or no tasks at all)
 #   4  the existing-issue inventory could not be established (lookup failed, or
 #      the result may be truncated)
 #   5  one or more tasks have an ambiguous legacy identity awaiting resolution
@@ -217,19 +216,6 @@ TASKS_REL_NORM="$(normalize_source_path "$TASKS_REL")"
 declare -a TIDS=() DESCS=() DEPS=()
 declare -A SEEN_TID=()
 declare -a MALFORMED=() UNRECOGNISED=()
-# An unfilled template slot is not a task (issue #1622). `/project:init` used to
-# write `{First task}` and then offer to sync it, and tasks become public issues,
-# so the refusal lives here where every caller gets it, and in the parse pass so
-# --dry-run reports it too.
-#
-# The shape is what the templates actually write: a brace pair that is capitalised
-# (`{Task description}`, `{FEATURE_NAME}`) or holds a space (`{first task}`). A
-# bare lowercase token is real content, not a slot: `GET /users/{id}` is a legitimate
-# task. Single-backtick spans are removed first, so they are the way to keep a
-# literal brace that would otherwise match. That is the only escape; there is no
-# flag, and a double-backtick span is not one.
-TASK_PLACEHOLDER_RE='\{([A-Z][^{}]*|[^{}]*[[:space:]][^{}]*)\}'
-placeholder_found=0
 lineno=0
 while IFS= read -r line || [ -n "$line" ]; do
     lineno=$((lineno + 1))
@@ -242,13 +228,6 @@ while IFS= read -r line || [ -n "$line" ]; do
         desc="$(printf '%s' "${BASH_REMATCH[3]:-}" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
         if [ -z "$desc" ]; then
             MALFORMED+=("${TASKS}:${lineno}: ${tid} has no description: ${line}")
-            continue
-        fi
-        # shellcheck disable=SC2016  # a sed program; the backticks are literal
-        desc_prose="$(printf '%s' "$desc" | sed -E 's/`[^`]*`//g')"
-        if [[ "$desc_prose" =~ $TASK_PLACEHOLDER_RE ]]; then
-            MALFORMED+=("${TASKS}:${lineno}: ${tid} still has the unfilled placeholder ${BASH_REMATCH[0]}: ${line}")
-            placeholder_found=1
             continue
         fi
         if [ -n "${SEEN_TID[$tid]:-}" ]; then
@@ -326,10 +305,6 @@ fi
 if [ "${#MALFORMED[@]}" -gt 0 ]; then
     echo "ERROR: ${#MALFORMED[@]} task-like line(s) could not be parsed:" >&2
     printf '  %s\n' "${MALFORMED[@]}" >&2
-    if [ "$placeholder_found" -eq 1 ]; then
-        echo "Replace each placeholder with the real task. Tasks become public issues, so an" >&2
-        echo "unfilled template line is never filed. Literal braces belong in single \`backticks\`." >&2
-    fi
     echo "Fix the lines above (or pass a different --tasks) and re-run. No issues were created." >&2
     exit 3
 fi
