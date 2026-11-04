@@ -806,3 +806,20 @@ def test_summary_names_the_first_issue_and_not_spec_adopt() -> None:
     assert "/flow:start" not in text
     assert "/flow:auto {N}" in summary
     assert "speckit-tasks-to-issues.sh --tasks {TASKS_FILE}" in summary
+
+
+def test_a_partial_sync_still_reports_the_issues_it_created() -> None:
+    """The converter files one at a time, so a failure can follow real issues."""
+    assert "whatever the\nexit status" in _step(5)
+    summary = _step(6)
+
+    assert "sync stopped part way" in summary
+    assert summary.index("sync stopped part way") < summary.rindex("#{N}  T001 {task}")
+
+
+def test_resume_takes_the_tasks_file_from_disk_not_the_project_name() -> None:
+    """A resumed feature directory need not match the project name."""
+    step = _step(5)
+
+    assert "find .specify/specs -maxdepth 2 -name tasks.md" in step
+    assert 'FEATURE_NAME="$(basename "$FEATURE_DIR")"' in step

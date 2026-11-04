@@ -219,8 +219,16 @@ class TestPlaceholderRefusal:
             "- [ ] **T001** [P] [US1] {Parallelizable task} `path/to/other.py`\n",
             "- [ ] T001 Wire up the {FEATURE_NAME} route\n",
             "- [ ] T001 Support the {first task} flow\n",
+            "- [ ] T001 Document ``{Task description}`` literally\n",
         ],
-        ids=["init-stub", "template", "template-parallel", "half-filled", "lowercase-phrase"],
+        ids=[
+            "init-stub",
+            "template",
+            "template-parallel",
+            "half-filled",
+            "lowercase-phrase",
+            "double-backtick-is-no-escape",
+        ],
     )
     @pytest.mark.parametrize("mode", [(), ("--dry-run",)], ids=["real", "dry-run"])
     def test_placeholder_refused_before_anything_exists(

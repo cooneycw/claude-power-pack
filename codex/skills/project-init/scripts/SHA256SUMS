@@ -9,4 +9,4 @@
 # Verifying arrival needs a key that is not in this bundle.
 39b03ed59e5a49313ead549b49a01004058a30ceae26dad7340aba74ea3337b1  project-init.py
 0909790cc9e29f072c73acc324d85664fd5aee329ec5bd5cfe326d372cb3efe4  speckit-context.py
-22009304c168d15ef418e5e4513296d425001d7dc4edb282f0982988a4e0762f  speckit-tasks-to-issues.sh
+0e5e990c115c76985c4621885f581931b3f6423c7fd3f6cde18e9a6e8fd193e0  speckit-tasks-to-issues.sh

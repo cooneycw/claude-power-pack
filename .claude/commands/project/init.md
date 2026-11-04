@@ -140,7 +140,8 @@ If the directory already exists, check what steps have been completed and resume
 - Has `.claude/commands` symlink? → cpp:init done.
 - Has `.specify/`? → spec structure already present.
 - Has `.specify/specs/*/tasks.md`? → Step 5 was reached. Keep the file, do not
-  redraft over it, and resume at its review. Re-running the sync is safe.
+  redraft over it, and resume at its review (Step 5, 5a). Re-running the sync is
+  safe.
 
 If the directory doesn't exist:
 
@@ -509,6 +510,9 @@ supplies the feature identity.
 
 Route later spec close-out through the canonical [knowledge lifecycle](../../../docs/agents/knowledge-lifecycle.md) before removing the completed spec.
 
+On a resumed run with an existing `.specify/specs/*/tasks.md`, skip the feature
+question too: the existing file names the feature. See 5a.
+
 Ask the user with `AskUserQuestion`:
 
 **Question:** "What is the first feature or MVP for this project? (Enter a name or press enter to use the project name)"
@@ -550,7 +554,18 @@ Write these with the `Write` tool, using this shape and your own drafted content
 Each task is one piece of work a person or agent can pick up as its own issue.
 Start at T001, tag it with its story, and declare any `(depends on T00N)`.
 
-On a resumed run these files already exist: keep them and go to 5b. On a cleared
+On a resumed run these files already exist. Keep them, take the feature from the
+file rather than from the project name, and go to 5b. The feature directory need
+not match the project name:
+
+```bash
+mapfile -t EXISTING_TASKS < <(find .specify/specs -maxdepth 2 -name tasks.md | sort)
+# Exactly one: TASKS_FILE="${EXISTING_TASKS[0]}"
+# FEATURE_DIR="$(dirname "$TASKS_FILE")"; FEATURE_NAME="$(basename "$FEATURE_DIR")"
+# More than one: ask the user which feature to resume with AskUserQuestion.
+```
+
+On a cleared
 Wayfinder map or clear multi-session route, use the spec and tasks those routes
 produced above, in place of this draft, and point `TASKS_FILE` at that tasks file.
 
@@ -606,15 +621,19 @@ Then sync:
 ```
 
 Re-running is safe: each issue carries a feature-scoped identity marker (#857), so
-a task already filed is skipped rather than filed twice. If the converter exits
-non-zero, report its error, record `SYNC_STATE=failed`, and go to Step 6. The
-summary then gives the same command to retry.
+a task already filed is skipped rather than filed twice.
 
-On success, record `SYNC_STATE=created` and keep the `create T001 -> <url>` lines,
-including any `skip T001 (issue #N ...)` lines from a re-run. Together they are the
-issue list for the summary, and the lowest task number is the first issue.
+Keep every `create T001 -> <url>` and `skip T001 (issue #N ...)` line whatever the
+exit status. Together they are the issue list for the summary, and the lowest task
+number is the first issue.
 
-Report: `Step 5/6: Spec created, {N} issues filed` or `Step 5/6: Spec created, sync declined`
+- Exit 0: record `SYNC_STATE=created`.
+- Non-zero: report the error, record `SYNC_STATE=failed`, and go to Step 6. The
+  converter creates issues one at a time, so it can fail after creating some.
+  Those lines are the only record of them, and the summary lists them beside the
+  command to retry.
+
+Report: `Step 5/6: Spec created, {N} issues filed`, `Step 5/6: Spec created, sync declined` or `Step 5/6: Spec created, sync failed after {N} issues`
 
 ---
 
@@ -665,8 +684,8 @@ Next steps:
   /flow:auto {N}             # Start the first issue
 ```
 
-`SYNC_STATE=declined` or `failed` (no issue exists yet, so print the literal
-command with the real tasks path):
+`SYNC_STATE=declined`, or `failed` with no `create` or `skip` line (no issue exists
+yet, so print the literal command with the real tasks path):
 
 ```
 Issues:     none filed
@@ -675,6 +694,19 @@ Next steps:
   cd ~/Projects/{PROJECT_NAME}
   ~/.claude/scripts/speckit-tasks-to-issues.sh --tasks {TASKS_FILE}
   /flow:auto <first issue>   # Once the command above has created the issues
+```
+
+`SYNC_STATE=failed` with at least one `create` or `skip` line (the sync stopped
+part way, so list what exists and finish it before starting):
+
+```
+Issues:     sync stopped part way
+  #{N}  T001 {task}
+
+Next steps:
+  cd ~/Projects/{PROJECT_NAME}
+  ~/.claude/scripts/speckit-tasks-to-issues.sh --tasks {TASKS_FILE}
+  /flow:auto {N}             # Once the command above has finished the sync
 ```
 
 ---
@@ -703,7 +735,8 @@ Key failure scenarios:
 - **Placeholder left in tasks.md:** The converter exits 3 before creating anything;
   fix the named lines and preview again
 - **Sync fails after the push:** The spec is safe on `origin/main`. The summary
-  gives the command to retry, and a retry never duplicates an issue
+  lists any issues already created and gives the command to retry, and a retry
+  never duplicates an issue
 
 ## Notes
 

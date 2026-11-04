@@ -225,8 +225,9 @@ declare -a MALFORMED=() UNRECOGNISED=()
 # The shape is what the templates actually write: a brace pair that is capitalised
 # (`{Task description}`, `{FEATURE_NAME}`) or holds a space (`{first task}`). A
 # bare lowercase token is real content, not a slot: `GET /users/{id}` is a legitimate
-# task. Code spans are removed first, so backticks are the way to keep a literal
-# brace that would otherwise match. That is the only escape; there is no flag.
+# task. Single-backtick spans are removed first, so they are the way to keep a
+# literal brace that would otherwise match. That is the only escape; there is no
+# flag, and a double-backtick span is not one.
 TASK_PLACEHOLDER_RE='\{([A-Z][^{}]*|[^{}]*[[:space:]][^{}]*)\}'
 placeholder_found=0
 lineno=0
@@ -326,7 +327,7 @@ if [ "${#MALFORMED[@]}" -gt 0 ]; then
     printf '  %s\n' "${MALFORMED[@]}" >&2
     if [ "$placeholder_found" -eq 1 ]; then
         echo "Replace each placeholder with the real task. Tasks become public issues, so an" >&2
-        echo "unfilled template line is never filed. Literal braces belong in \`backticks\`." >&2
+        echo "unfilled template line is never filed. Literal braces belong in single \`backticks\`." >&2
     fi
     echo "Fix the lines above (or pass a different --tasks) and re-run. No issues were created." >&2
     exit 3
