@@ -1287,20 +1287,62 @@ class TestInstalledOutsideTheCheckout:
         installed = self._install(tmp_path / "home")
         assert (installed.parent / "speckit-context.py").is_file()
 
-    def test_no_command_document_prints_a_relative_invocation(self) -> None:
-        """Naming `scripts/x.sh` in prose is fine; telling a user to RUN it is not."""
-        run_forms = re.compile(
-            r"(?:\./scripts/speckit-tasks-to-issues\.sh"
-            r"|\brun `?scripts/speckit-tasks-to-issues\.sh"
-            r"|issues:\s+scripts/speckit-tasks-to-issues\.sh)",
-            re.IGNORECASE,
+    @staticmethod
+    def _relative_invocation(line: str) -> bool:
+        """True unless every mention is the stable path or names the source file.
+
+        Deny by default: a new phrasing is an offender until someone decides it
+        only describes the file. Matching run-forms instead missed a bare
+        `scripts/x.sh --dry-run` line, which fails just the same for a user.
+        """
+        rest = line.replace("~/.claude/scripts/speckit-tasks-to-issues.sh", "")
+        if "scripts/speckit-tasks-to-issues.sh" not in rest:
+            return False
+        descriptive = (
+            rest.lstrip().startswith("> Dependency:"),
+            "via `scripts/speckit-tasks-to-issues.sh`" in rest,
+            rest.lstrip().startswith("- `scripts/speckit-tasks-to-issues.sh` - "),
         )
+        return not any(descriptive)
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "./scripts/speckit-tasks-to-issues.sh --dry-run",
+            "scripts/speckit-tasks-to-issues.sh --dry-run",
+            "run `scripts/speckit-tasks-to-issues.sh`",
+            "Execute `scripts/speckit-tasks-to-issues.sh`",
+            "--> then create issues:  scripts/speckit-tasks-to-issues.sh",
+        ],
+    )
+    def test_the_guard_flags_every_relative_form(self, line: str) -> None:
+        assert self._relative_invocation(line)
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "~/.claude/scripts/speckit-tasks-to-issues.sh --dry-run",
+            "> Dependency: `scripts/speckit-tasks-to-issues.sh` calls a helper",
+            "- Tasks become GitHub issues via `scripts/speckit-tasks-to-issues.sh`",
+            "- `scripts/speckit-tasks-to-issues.sh` - Turn a spec into issues",
+        ],
+    )
+    def test_the_guard_leaves_the_stable_path_and_descriptions_alone(self, line: str) -> None:
+        assert not self._relative_invocation(line)
+
+    def test_no_command_document_prints_a_relative_invocation(self) -> None:
         docs = sorted((ROOT / ".claude" / "commands").rglob("*.md"))
         assert docs, "the command documents must be found, or this scans nothing"
-        offenders = [
-            f"{doc.relative_to(ROOT)}: {line.strip()}"
+        lines = [
+            (doc, line)
             for doc in docs
             for line in doc.read_text(encoding="utf-8").splitlines()
-            if run_forms.search(line)
+            if "speckit-tasks-to-issues.sh" in line
+        ]
+        assert lines, "the converter must be named somewhere, or this examined nothing"
+        offenders = [
+            f"{doc.relative_to(ROOT)}: {line.strip()}"
+            for doc, line in lines
+            if self._relative_invocation(line)
         ]
         assert offenders == []
