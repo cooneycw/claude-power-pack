@@ -26,7 +26,8 @@ One-command project setup that orchestrates:
 5. Delegates CLAUDE.md/skills/hooks scaffolding to native `/init`, then applies CPP
    CI/CD governance via `/claude-md:lint`
 6. Initializes `.specify/` for spec-driven development
-7. Optionally creates an initial feature spec
+7. Drafts the first feature's spec and tasks for your review, then files the
+   approved tasks as GitHub issues so you can go straight to `/flow:auto`
 
 **Example:**
 ```

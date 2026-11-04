@@ -762,3 +762,47 @@ def test_generated_python_project_really_builds_lints_tests_and_typechecks(
         env=clean_env,
     )
     assert result.returncode == 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+
+
+INIT_DOC = ROOT / ".claude" / "commands" / "project" / "init.md"
+
+
+def _step(number: int) -> str:
+    """One step of the command document, so a match elsewhere cannot satisfy a check."""
+    text = INIT_DOC.read_text(encoding="utf-8")
+    start = text.index(f"## Step {number}:")
+    return text[start : text.index("\n---\n", start)]
+
+
+def test_step_5_writes_no_task_placeholder_and_keeps_the_approval() -> None:
+    """#1622: the stub task is gone, and tasks are not filed unseen."""
+    step = _step(5)
+
+    assert "{First task}" not in step
+    assert "{Task description}" not in step
+    assert "Sync tasks to GitHub issues now?" not in step
+    assert "AskUserQuestion" in step
+    assert "**Not now**" in step
+
+
+def test_step_5_previews_then_approves_then_pushes_then_syncs() -> None:
+    """The order is the contract: public issues last, and after the spec is on origin."""
+    step = _step(5)
+    preview = step.index('speckit-tasks-to-issues.sh --tasks "$TASKS_FILE" --dry-run')
+    question = step.index("File these tasks as GitHub issues?")
+    commit = step.index("git add .specify")
+    push = step.index("git push origin main")
+    sync = step.index('speckit-tasks-to-issues.sh --tasks "$TASKS_FILE"\n')
+
+    assert preview < question < commit < push < sync
+
+
+def test_summary_names_the_first_issue_and_not_spec_adopt() -> None:
+    """#1622: the summary points at the next action, and only a real issue."""
+    text = INIT_DOC.read_text(encoding="utf-8")
+    summary = _step(6)
+
+    assert "/spec:adopt" not in text
+    assert "/flow:start" not in text
+    assert "/flow:auto {N}" in summary
+    assert "speckit-tasks-to-issues.sh --tasks {TASKS_FILE}" in summary
