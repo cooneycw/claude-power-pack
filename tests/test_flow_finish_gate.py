@@ -3149,6 +3149,7 @@ def test_resume_stub_requires_exactly_one_state_file(
         assert "PRECONDITION FAILED" not in result.stderr
 
 
+@requires_git
 @requires_bash
 @pytest.mark.parametrize("signal", [None, "", "0", "unknown", "true", "1"])
 def test_coordination_supervises_full_gate_once_only_when_enabled(tmp_path: Path, signal: str | None):
@@ -3174,6 +3175,7 @@ def test_coordination_supervises_full_gate_once_only_when_enabled(tmp_path: Path
     assert proc.stdout.count("FLOW_FINISH_GATE_EXIT=0") == 1
 
 
+@requires_git
 @requires_bash
 def test_coordination_refusal_starts_no_gate_work(tmp_path: Path):
     supervisor = tmp_path / "refuse"
@@ -3187,6 +3189,7 @@ def test_coordination_refusal_starts_no_gate_work(tmp_path: Path):
     assert "FLOW_FINISH_GATE: ok" not in proc.stdout
 
 
+@requires_git
 @requires_bash
 @pytest.mark.parametrize("mode", ["--enrolment-only", "--check-summary", "--help"])
 def test_coordination_metadata_never_acquires(tmp_path: Path, mode: str):
@@ -3196,6 +3199,7 @@ def test_coordination_metadata_never_acquires(tmp_path: Path, mode: str):
     assert str(supervisor) not in proc.stdout
 
 
+@requires_git
 @requires_bash
 def test_coordination_missing_supervisor_refuses_before_work(tmp_path: Path):
     (tmp_path / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
@@ -3205,6 +3209,7 @@ def test_coordination_missing_supervisor_refuses_before_work(tmp_path: Path):
     assert not (bindir / "make.log").exists()
 
 
+@requires_git
 @requires_bash
 def test_coordination_continuation_keeps_one_lease_and_hides_authority_credentials(tmp_path: Path):
     bindir = tmp_path / "bin"
@@ -3314,6 +3319,7 @@ def test_coordination_flag_symlink_is_off_and_changes_are_observed_per_call(tmp_
     assert result.returncode == 0, result.stderr
 
 
+@requires_git
 @requires_bash
 @pytest.mark.parametrize("content", [None, b"", b"garbage\n"])
 @pytest.mark.parametrize("gate_exit", [0, 1])
