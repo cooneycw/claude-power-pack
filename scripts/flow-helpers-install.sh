@@ -130,6 +130,7 @@ HELPERS=(
     flow-driver-capability.sh
     flow-vantage.sh
     flow-finish-gate.sh
+    coordination-admission.sh
     # flow-finish-gate.sh SOURCES this and refuses to run without it (#1061).
     # Installing the gate alone would put a script at the stable path that exits 2
     # on every invocation - which is what it did before this line existed.

@@ -29,6 +29,7 @@
 #   three of four it did the same thing again for `verify` (issue #1147).
 #
 #: NEGATIVE-CONTROL: controls/flow-finish-gate
+#: NEGATIVE-CONTROL: controls/flow-finish-coordination
 #: NEGATIVE-CONTROL: controls/flow-cpp-runtime
 #: NEGATIVE-CONTROL: controls/flow-finish-missing-tools
 #: NEGATIVE-CONTROL: controls/flow-finish-gate-declared-gates
@@ -145,6 +146,15 @@
 
 set -uo pipefail
 
+# An older installed bundle can lack this rollout helper. Unknown stays on
+# the original path; installing a new caller alone never activates coordination.
+coordination_admission_on() { return 1; }
+_coordination_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+if [[ -r "$_coordination_dir/coordination-admission.sh" ]]; then
+    # shellcheck source=scripts/coordination-admission.sh
+    . "$_coordination_dir/coordination-admission.sh"
+fi
+
 # Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
 # The trap also removes the runner's JSON temp file (issue #1258): it was removed
 # by one straight-line `rm` after parsing, so any exit before that line -
@@ -237,6 +247,7 @@ unset _fn
 # exit specifically would notice.
 gate_map ok=0 fail=1 usage=2 warn=3 skipped=4 undecidable=5
 
+COORDINATION_ORIGINAL_ARGS=("$@")
 PLAN="finish"
 MODE="gate"
 EVIDENCE_SKILL=""
@@ -305,6 +316,24 @@ fi
 if [[ "$CM_BRANCH_GIVEN" -eq 1 && "$MODE" != "enrolment" ]]; then
     echo "flow-finish-gate: --branch is only meaningful with --enrolment-only" >&2
     gate_exit usage
+fi
+# Supervise one complete gate, including runner/fallback and any retries.
+# The continuation marker is scoped to this command's descendant environment;
+# it prevents nested reacquisition, and is not a security boundary. The owner
+# activates the rollout separately from service-side admission.
+if coordination_admission_on && [[ "$MODE" == "gate" && "${CPP_KYLE_FULL_SUITE_ACTIVE:-}" != "1" ]]; then
+    _coordination_bin="${CPP_KYLE_LOCK_BIN:-kyle-lock}"
+    if ! command -v "$_coordination_bin" >/dev/null 2>&1; then
+        echo "flow-finish-gate: coordination enabled but kyle-lock is unavailable; refusing to start." >&2
+        gate_exit fail
+    fi
+    # The authority configuration belongs to the supervisor. Test commands
+    # must not inherit its credentials. exec leaves one owner of the child
+    # group and one gate exit marker (from the continued gate).
+    trap - EXIT
+    exec "$_coordination_bin" run full-suite -- env \
+        -u KYLE_LOCK_URL -u KYLE_LOCK_TOKEN -u KYLE_LOCK_TOKEN_FILE \
+        CPP_KYLE_FULL_SUITE_ACTIVE=1 bash "${BASH_SOURCE[0]}" "${COORDINATION_ORIGINAL_ARGS[@]}"
 fi
 if [[ -n "$EVIDENCE_SKILL" ]]; then
     if [[ ! "$EVIDENCE_SKILL" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]]; then

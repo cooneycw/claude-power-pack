@@ -369,6 +369,11 @@
       "class": "tested",
       "consumer": "tests/test_flow_preflight.py",
       "reason": "Shared read-only host observer; readiness/unknown/gap and bootstrap contract exercised by controls/flow-preflight."
+    },
+    "coordination-admission.sh": {
+      "class": "tested",
+      "consumer": "tests/test_flow_finish_gate.py",
+      "reason": "Shared rollout signal read by suite and merge callers; the focused coordination tests drive both paths."
     }
   }
 }

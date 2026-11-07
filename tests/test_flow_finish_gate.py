@@ -33,10 +33,13 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
 
+# coordination-admission.sh is exercised through each real caller, including
+# its false/missing signal path; no second signal classifier is used in tests.
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "flow-finish-gate.sh"
 
@@ -98,6 +101,7 @@ def _run(
     cwd: Path | None = None,
     uv_stdout: str = "",
     inject_gates: bool = True,
+    extra_env: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], Path]:
     """Run the helper with stubbed uv/make; returns (proc, stub bin dir)."""
     bindir = tmp_path / "bin"
@@ -109,6 +113,16 @@ def _run(
     if make_exit is not None:
         _make_stub(bindir, "make", make_exit)
     env = os.environ.copy()
+    for key in ("CPP_KYLE_COORDINATION_ADMISSION", "CPP_KYLE_FULL_SUITE_ACTIVE", "CPP_KYLE_LOCK_BIN"):
+        env.pop(key, None)
+    env.pop("CPP_COORDINATION_ADMISSION_FILE", None)
+    extras = dict(extra_env or {})
+    signal = extras.pop("CPP_KYLE_COORDINATION_ADMISSION", None)
+    flag = tmp_path / "coordination-flag"
+    if signal is not None:
+        flag.write_text("on\n" if signal == "1" else signal)
+    env["CPP_COORDINATION_ADMISSION_FILE"] = str(flag)
+    env.update(extras)
     env["PATH"] = f"{bindir}:{env['PATH']}"
     if cpp_dir is not None:
         env["FLOW_GATE_CPP_DIR"] = cpp_dir
@@ -3133,3 +3147,193 @@ def test_resume_stub_requires_exactly_one_state_file(
         assert "precondition ok" in result.stderr
         assert "PHASE 2" in result.stderr
         assert "PRECONDITION FAILED" not in result.stderr
+
+
+@requires_bash
+@pytest.mark.parametrize("signal", [None, "", "0", "unknown", "true", "1"])
+def test_coordination_supervises_full_gate_once_only_when_enabled(tmp_path: Path, signal: str | None):
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    supervisor = bindir / "supervisor"
+    supervisor.write_text(
+        "#!/usr/bin/env bash\n"
+        'printf "%s\\n" "$*" >> "$(dirname "$0")/supervisor.log"\n'
+        '[[ "$1" == run && "$2" == full-suite && "$3" == -- ]] || exit 92\n'
+        'shift 3\nexec "$@"\n'
+    )
+    supervisor.chmod(0o755)
+    (tmp_path / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
+    extra = {"CPP_KYLE_LOCK_BIN": str(supervisor)}
+    if signal is not None:
+        extra["CPP_KYLE_COORDINATION_ADMISSION"] = signal
+    proc, _ = _run(tmp_path, cpp_dir="", make_exit=0, extra_env=extra)
+    assert proc.returncode == 0, proc.stdout
+    log = bindir / "supervisor.log"
+    assert (len(log.read_text().splitlines()) if log.exists() else 0) == (1 if signal == "1" else 0)
+    assert (bindir / "make.log").read_text().splitlines() == ["lint", "test", "typecheck", "verify"]
+    assert proc.stdout.count("FLOW_FINISH_GATE_EXIT=0") == 1
+
+
+@requires_bash
+def test_coordination_refusal_starts_no_gate_work(tmp_path: Path):
+    supervisor = tmp_path / "refuse"
+    supervisor.write_text("#!/usr/bin/env bash\nexit 75\n")
+    supervisor.chmod(0o755)
+    (tmp_path / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
+    proc, bindir = _run(tmp_path, cpp_dir="", make_exit=0, extra_env={
+        "CPP_KYLE_COORDINATION_ADMISSION": "1", "CPP_KYLE_LOCK_BIN": str(supervisor)})
+    assert proc.returncode == 75, proc.stdout
+    assert not (bindir / "make.log").exists()
+    assert "FLOW_FINISH_GATE: ok" not in proc.stdout
+
+
+@requires_bash
+@pytest.mark.parametrize("mode", ["--enrolment-only", "--check-summary", "--help"])
+def test_coordination_metadata_never_acquires(tmp_path: Path, mode: str):
+    supervisor = tmp_path / "unexpected-supervisor"
+    proc, _ = _run(tmp_path, mode, cpp_dir="", extra_env={
+        "CPP_KYLE_COORDINATION_ADMISSION": "1", "CPP_KYLE_LOCK_BIN": str(supervisor)})
+    assert str(supervisor) not in proc.stdout
+
+
+@requires_bash
+def test_coordination_missing_supervisor_refuses_before_work(tmp_path: Path):
+    (tmp_path / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
+    proc, bindir = _run(tmp_path, cpp_dir="", make_exit=0, extra_env={
+        "CPP_KYLE_COORDINATION_ADMISSION": "1", "CPP_KYLE_LOCK_BIN": str(tmp_path / "absent")})
+    assert proc.returncode != 0
+    assert not (bindir / "make.log").exists()
+
+
+@requires_bash
+def test_coordination_continuation_keeps_one_lease_and_hides_authority_credentials(tmp_path: Path):
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    supervisor = bindir / "supervisor"
+    supervisor.write_text(
+        "#!/usr/bin/env bash\n"
+        'printf "%s\\n" "$*" >> "$(dirname "$0")/supervisor.log"\n'
+        '[[ "$KYLE_LOCK_TOKEN" == synthetic-supervisor-only ]] || exit 93\n'
+        'shift 3\nexec "$@"\n'
+    )
+    supervisor.chmod(0o755)
+    make = bindir / "make"
+    make.write_text(
+        "#!/usr/bin/env bash\n"
+        '[[ ! -v KYLE_LOCK_URL && ! -v KYLE_LOCK_TOKEN && ! -v KYLE_LOCK_TOKEN_FILE ]] || exit 94\n'
+        'printf "%s\\n" "$1" >> "$(dirname "$0")/make.log"\n'
+        'if [[ "$1" == test && "${CPP_NESTED_PROBE:-}" != 1 ]]; then\n'
+        f'  CPP_NESTED_PROBE=1 bash "{SCRIPT}" --plan check\n'
+        'fi\n'
+    )
+    make.chmod(0o755)
+    (tmp_path / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
+    # Run directly: _run's one-marker assertion deliberately excludes a nested
+    # invocation, which has its own distinct verdict in this test transcript.
+    env = os.environ.copy()
+    env.update({"PATH": f"{bindir}:{env['PATH']}", "FLOW_GATE_CPP_DIR": "",
+                "CPP_KYLE_COORDINATION_ADMISSION": "1", "CPP_KYLE_LOCK_BIN": str(supervisor),
+                "KYLE_LOCK_TOKEN": "synthetic-supervisor-only", "KYLE_LOCK_URL": "http://invalid.example",
+                "KYLE_LOCK_TOKEN_FILE": "synthetic-file"})
+    env.pop("CPP_KYLE_FULL_SUITE_ACTIVE", None)
+    flag = tmp_path / "coordination-flag"
+    flag.write_text("on\n")
+    env["CPP_COORDINATION_ADMISSION_FILE"] = str(flag)
+    env.pop("CPP_KYLE_COORDINATION_ADMISSION", None)
+    result = subprocess.run(["bash", str(SCRIPT)], cwd=tmp_path, env=env,
+                            capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert len((bindir / "supervisor.log").read_text().splitlines()) == 1
+    assert (bindir / "make.log").read_text().splitlines() == [
+        "lint", "test", "lint", "test", "typecheck", "typecheck", "verify"]
+
+
+@requires_bash
+@pytest.mark.skipif(shutil.which("cmp") is None, reason="requires cmp for exact flag bytes")
+@pytest.mark.parametrize("content", [None, b"", b"garbage\n", b"on", b"on\n\n", b"on\x00\n", b"on\n"])
+def test_coordination_flag_exact_bytes_and_silent_off(tmp_path: Path, content: bytes | None):
+    flag = tmp_path / "flag"
+    if content is not None:
+        flag.write_bytes(content)
+    env = dict(os.environ, CPP_COORDINATION_ADMISSION_FILE=str(flag))
+    result = subprocess.run(["bash", "-c", '. "$1"; coordination_admission_on', "probe",
+                             str(ROOT / "scripts/coordination-admission.sh")],
+                            env=env, capture_output=True, text=True, timeout=5)
+    assert result.returncode == (0 if content == b"on\n" else 1)
+    assert result.stdout == result.stderr == ""
+
+
+@requires_bash
+def test_coordination_unreadable_flag_is_silently_off():
+    # If the test itself is root, read as an unprivileged process so chmod(0)
+    # actually makes the input unreadable. A root-only access check is blind.
+    lower_privileges = None
+    if os.geteuid() == 0:
+        import pwd
+        account = pwd.getpwnam("nobody")
+
+        def lower_privileges():
+            os.setgroups([])
+            os.setgid(account.pw_gid)
+            os.setuid(account.pw_uid)
+
+    with tempfile.TemporaryDirectory(prefix="cpp-unreadable-flag-") as directory:
+        root = Path(directory)
+        root.chmod(0o755)
+        flag = root / "flag"
+        flag.write_bytes(b"on\n")
+        flag.chmod(0)
+        command = (ROOT / "scripts/coordination-admission.sh").read_text()
+        result = subprocess.run(["bash", "-c", command + '\n[[ ! -r "$CPP_COORDINATION_ADMISSION_FILE" ]] || exit 91; '
+                                'coordination_admission_on'],
+                                env=dict(os.environ, CPP_COORDINATION_ADMISSION_FILE=str(flag)),
+                                preexec_fn=lower_privileges, capture_output=True, text=True, timeout=5)
+        flag.chmod(0o600)
+        assert result.returncode == 1
+        assert result.stdout == result.stderr == ""
+
+
+@requires_bash
+def test_coordination_flag_symlink_is_off_and_changes_are_observed_per_call(tmp_path: Path):
+    flag = tmp_path / "flag"
+    target = tmp_path / "target"
+    target.write_bytes(b"on\n")
+    flag.symlink_to(target)
+    helper = ROOT / "scripts/coordination-admission.sh"
+    result = subprocess.run(["bash", "-c", '. "$1"; coordination_admission_on', "probe", str(helper)],
+                            env=dict(os.environ, CPP_COORDINATION_ADMISSION_FILE=str(flag)),
+                            capture_output=True, text=True, timeout=5)
+    assert result.returncode == 1
+    flag.unlink()
+    # One process calls the same loaded function before and after the owner
+    # changes its flag; a cached environment snapshot would miss this switch.
+    result = subprocess.run(["bash", "-c", '. "$1"; coordination_admission_on && exit 90; '
+                             'printf "on\\n" > "$CPP_COORDINATION_ADMISSION_FILE"; coordination_admission_on',
+                             "probe", str(helper)], env=dict(os.environ, CPP_COORDINATION_ADMISSION_FILE=str(flag)),
+                            capture_output=True, text=True, timeout=5)
+    assert result.returncode == 0, result.stderr
+
+
+@requires_bash
+@pytest.mark.parametrize("content", [None, b"", b"garbage\n"])
+@pytest.mark.parametrize("gate_exit", [0, 1])
+def test_coordination_off_is_byte_exact_prechange_behavior(tmp_path: Path, content: bytes | None, gate_exit: int):
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    _make_stub(bindir, "make", gate_exit)
+    (tmp_path / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
+    flag = tmp_path / "flag"
+    if content is not None:
+        flag.write_bytes(content)
+    env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", FLOW_GATE_CPP_DIR="",
+               CLAUDE_PLUGIN_ROOT=str(ROOT), CPP_COORDINATION_ADMISSION_FILE=str(flag))
+    env.pop("CPP_KYLE_FULL_SUITE_ACTIVE", None)
+    anchor = ROOT / "controls/flow-finish-coordination/anchors/6bc585a-flow-finish-gate.sh"
+    old = subprocess.run(["bash", str(anchor)], cwd=tmp_path, env=env,
+                         capture_output=True, timeout=10)
+    old_calls = (bindir / "make.log").read_bytes()
+    (bindir / "make.log").unlink()
+    new = subprocess.run(["bash", str(SCRIPT)], cwd=tmp_path, env=env,
+                         capture_output=True, timeout=10)
+    assert (new.returncode, new.stdout, new.stderr) == (old.returncode, old.stdout, old.stderr)
+    assert (bindir / "make.log").read_bytes() == old_calls

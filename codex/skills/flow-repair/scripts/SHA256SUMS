@@ -7,7 +7,7 @@
 # corruption, a partial edit, and post-build modification. It does NOT
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
-4b8c86b1cbf0bcd1098e4c859612a34ea62f90df5b5ebd937da8c88d3c01df9d  flow-helpers-install.sh
+601834263bbc804b74f440af6b32bc1551ffc09fa311ee7a7e121e7b77b54ec2  flow-helpers-install.sh
 cbd85a9e0e08471a9c0be29725c177a09059a58a5604e0543263f2cf55cad6ca  flow-live-driver-guard.sh
 d91f96a83de31a6bf9381469618f202a54a7291642766df75371f48936f3b0ad  flow-preflight.py
 1069332f343f45bc47cdc96a539b46cbb7bf24c327f76a77497f353a20340132  flow-preflight.sh
