@@ -115,18 +115,26 @@ Its `basis` decides what this step does:
   as the pick. Nothing to resolve.
 - `needs-judgement` - the engine could not prove it safe and lists why. Resolve
   those reasons yourself before presenting the pick, then end with one.
-- none - every open issue is blocked, in flight, or open by design. Say so, and
-  name the action that unblocks the most work (the top action, or the blocker
-  most issues wait on). That is still an answer, never "nothing to do".
+- none, with a complete inventory - every open issue is blocked, in flight, or
+  open by design. Say so, and name the action that unblocks the most work (the
+  top action, or the blocker most issues wait on). That is still an answer,
+  never "nothing to do".
+- none, with an incomplete inventory - the engine examined too little to say
+  anything about the rest. Do not claim everything is blocked: report the
+  collection failure and name restoring the inventory as the action.
 
 Resolving is reading, bounded and read-only:
 
 1. Take the recommendation, its runner-up, and the next uncertain issues by rank
    - at most 10 issues.
-2. For each, read the issue body (`gh issue view N`) and the merged PRs that
-   mention it (`gh pr list --state merged --search "N"`, confirmed by a `Refs #N`
+2. Scope EVERY read to the report's repository (`REPO` = the `repository` field
+   of the result, `owner/name`) with `-R "$REPO"`: the session's cwd may be a
+   different repository whose issue numbers collide. For each issue, read its
+   body (`gh issue view N -R "$REPO"`) and the merged PRs that mention it
+   (`gh pr list -R "$REPO" --state merged --search "N"`, confirmed by a `Refs #N`
    or closing reference in the PR text). For a cross-repo dependency, read that
-   issue's state with `gh issue view N -R owner/repo`.
+   issue's state with `gh issue view N -R owner/repo`; a pull request closed
+   without merging delivered nothing.
 3. Settle each uncertainty reason to exactly one of:
    - `satisfied` - the dependency is closed or delivered; cite the issue or PR.
    - `open-blocker` - it names an open issue; cite it. The issue is not a pick.

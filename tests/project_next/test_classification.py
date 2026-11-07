@@ -405,3 +405,20 @@ def test_a_cross_repo_dependency_with_no_recorded_state_stays_uncertain() -> Non
     assert result.uncertain == (6,)
     reasons = " ".join(result.uncertainty[6])
     assert "depends on other/repo#9, not checkable" in reasons
+
+
+def test_resolving_cross_repo_references_does_not_resolve_trailing_prose() -> None:
+    # Counter-model review on #1626: "and the owner approving the design" is a
+    # prerequisite no looked-up reference names, so it must keep the issue uncertain.
+    state = RepositoryState(
+        repository="example/cross",
+        default_branch="main",
+        collected_at="2026-11-06T00:00:00Z",
+        issues=(Issue(6, "Waits", body="Depends on other/repo#8 and the owner approving the design."),),
+        external_issue_states={"other/repo#8": "CLOSED"},
+    )
+
+    result = classify_repository(state)
+
+    assert result.uncertain == (6,)
+    assert "dependency prose after resolved cross-repo references" in " ".join(result.uncertainty[6])

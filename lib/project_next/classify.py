@@ -51,6 +51,9 @@ EXPLICIT_PR_ISSUE = re.compile(
     r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|issue)\s*:?[\s#]+(?P<number>\d+)\b",
     re.IGNORECASE,
 )
+# Words left on a dependency line after its cross-repo references: a prerequisite in
+# prose that resolving those references does not settle.
+EXTERNAL_TRAILING_PROSE = re.compile(r"[A-Za-z]{3,}")
 # Guards an "#367-#376" style range from expanding into an implausible span.
 MAX_REFERENCE_RANGE = 50
 
@@ -209,6 +212,13 @@ def _line_references(
                     unresolved.append(
                         f"'{lead.group(0).strip()}' declares a dependency but depends on "
                         f"{', '.join(unknown_external)}, not checkable from this repo's inventory: {line.strip()}"
+                    )
+                elif EXTERNAL_TRAILING_PROSE.search(line[stopped:]) and not trailing:
+                    # Every external reference is resolved, but the declaration goes on
+                    # in words ("... and the owner approving the design"). Resolving the
+                    # references must not resolve a prerequisite they never named.
+                    unresolved.append(
+                        f"dependency prose after resolved cross-repo references requires review: {line.strip()}"
                     )
                 continue
             if consumed or not strong or _declares_none(line, start):

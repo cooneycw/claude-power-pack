@@ -428,7 +428,7 @@ def _external_issue_states(
             parts.append(
                 f'r{index}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) '
                 f"{{ issueOrPullRequest(number: {int(number)}) "
-                "{ ... on Issue { state } ... on PullRequest { state } } }"
+                "{ __typename ... on Issue { state } ... on PullRequest { state } } }"
             )
         try:
             payload = _json(runner(["gh", "api", "graphql", "-f", f"query=query {{ {' '.join(parts)} }}"], repository))
@@ -438,9 +438,14 @@ def _external_issue_states(
         data = payload.get("data") if isinstance(payload, dict) else None
         for index, ref in enumerate(batch):
             node = ((data or {}).get(f"r{index}") or {}).get("issueOrPullRequest") if isinstance(data, dict) else None
+            kind = str((node or {}).get("__typename") or "")
             state = str((node or {}).get("state") or "").upper()
-            if state in {"OPEN", "CLOSED", "MERGED"}:
-                states[ref] = "OPEN" if state == "OPEN" else "CLOSED"
+            if state == "OPEN":
+                states[ref] = "OPEN"
+            elif (kind == "Issue" and state == "CLOSED") or (kind == "PullRequest" and state == "MERGED"):
+                states[ref] = "CLOSED"
+            # A pull request closed WITHOUT merging delivered nothing: it stays unknown,
+            # so the dependency stays uncertain rather than reading as satisfied.
     return states
 
 

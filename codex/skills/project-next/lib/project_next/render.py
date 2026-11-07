@@ -49,6 +49,9 @@ def _next_issue(result: RecommendationResult, state: RepositoryState) -> str:
 def _recommended(result: RecommendationResult, state: RepositoryState) -> str:
     """Contract 1.8 (#1626): always say what to work on, and on what basis."""
     recommendation = result.recommendation
+    if recommendation is None and not result.inventory_complete:
+        # A zero over an unexamined population is not "everything is blocked".
+        return "None from the collected evidence — the inventory is incomplete; restore it first."
     if recommendation is None:
         return "None — every open issue is blocked, in flight, or open by design."
     titles = {issue.number: issue.title for issue in state.issues}

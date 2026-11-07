@@ -6,13 +6,13 @@
     "docs/project-next-contract.md": "86092056bb813ed5d1c75cc183b722cf2b6ab31e50b47fd11ddfa1a2af389802",
     "lib/project_next/LICENSE": "09fc9c15f0b236d2bce483820f98147b4e8f65a807e927b58ea363f531fe0ab0",
     "lib/project_next/__init__.py": "0df00452c2ea69de59ca4a528eff28b0b79c1f2b3faedbffa7b2f89f558cf988",
-    "lib/project_next/classify.py": "0be733d70b4e2bfd3bdc0d3ec3eea9816aa6ecd3f46ed684333c06777346dd05",
+    "lib/project_next/classify.py": "5df60bf40e51bb74b1b6fd0eb5633b73eeb9bbabc123446a4926feee1b270ea0",
     "lib/project_next/cli.py": "e084bcbf526acf9ad373c6c843e019fbdb57b19d5a5e43c4a88c323b1e4dea5c",
-    "lib/project_next/collect.py": "3ef0020c0f24562d040c1ecaf98348cb012b243ab5e1554e68f660a179518dc0",
+    "lib/project_next/collect.py": "71d6c9ea96fc923fb6af72162f40e22346cbbc3f999c5fd71224793f865fd422",
     "lib/project_next/config.py": "7e816be531930af90fcb89458bf7322298872d03d8bd7ead9cc306577a990265",
     "lib/project_next/models.py": "c87baf87eb84bea7e6015999b8e1c34df96e7aad211ec2a872d140bc7547c105",
     "lib/project_next/rank.py": "5efc6a02472a29116f09376a968716e23da94d04ee0d242def4d16cbf7bc3e1d",
-    "lib/project_next/render.py": "042d40bc65ddbb7b307aa79dd1f2b7923ec5528e822766893c27955cbd9abafa",
+    "lib/project_next/render.py": "505af802339f1d9e119e3d9a17b6df69e57da3e83fc0a9ae2ed303363209bfcc",
     "templates/project-next.schema.json": "ed77ea3fd458ddfd2f2f67bd050113df4019176f3ee243c21a9b4bed5216bfe0"
   }
 }

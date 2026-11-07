@@ -389,7 +389,7 @@ def test_cross_repo_references_are_looked_up_and_failures_stay_unknown(tmp_path:
         return json.dumps(
             {
                 "data": {
-                    "r0": {"issueOrPullRequest": {"state": "CLOSED"}},
+                    "r0": {"issueOrPullRequest": {"__typename": "Issue", "state": "CLOSED"}},
                     "r1": {"issueOrPullRequest": None},
                 }
             }
@@ -397,6 +397,19 @@ def test_cross_repo_references_are_looked_up_and_failures_stay_unknown(tmp_path:
 
     warnings: list[str] = []
     assert _external_issue_states(runner, tmp_path, references, warnings) == {"other/repo#8": "CLOSED"}
+
+    def pull_requests(command: list[str], cwd: Path) -> str:
+        # Counter-model review on #1626: a PR closed WITHOUT merging delivered nothing.
+        return json.dumps(
+            {
+                "data": {
+                    "r0": {"issueOrPullRequest": {"__typename": "PullRequest", "state": "CLOSED"}},
+                    "r1": {"issueOrPullRequest": {"__typename": "PullRequest", "state": "MERGED"}},
+                }
+            }
+        )
+
+    assert _external_issue_states(pull_requests, tmp_path, references, []) == {"other/repo#9": "CLOSED"}
 
     def failing(command: list[str], cwd: Path) -> str:
         raise CollectionError("graphql: offline")
