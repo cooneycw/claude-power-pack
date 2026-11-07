@@ -49,7 +49,7 @@ Existing CPP marketplace users should run `/plugin uninstall <family>@cpp` for e
 - **Browser automation** - registers the upstream `@playwright/mcp` npx/stdio server (no container).
 - **Tavily web tools** - registers the upstream [tavily-mcp](https://github.com/tavily-ai/tavily-mcp) npx/stdio server for web search, extract, crawl, and map. Requires `TAVILY_API_KEY` (stored in AWS Secrets Manager `claude-power-pack/mcp-keys`).
 - **Secrets provisioning** - AWS Secrets Manager access for Woodpecker CI keys (`essent-ai`) and the `CPP_MEMORIES_DSN` common-memory DSN; fetched directly via the AWS SDK/CLI.
-- **Bootstrap prerequisites** - `jq`, and the optional spec-kit CLI (`specify`, the engine behind `/spec:adopt`).
+- **Bootstrap prerequisites** - bash 4.4 or newer first on PATH (macOS ships 3.2: `brew install bash`), `jq`, and the optional spec-kit CLI (`specify`, the engine behind `/spec:adopt`). `/cpp:init`, `/cpp:update` and `/flow:doctor` report a bash below that floor, and `/flow:auto` refuses to start on one.
 - **Permission census hook + flow allowlist** - registers the observe-only PermissionRequest census hook and merges the read-only `/flow:*` allowlist - including the audited flow helper-script rules that make `/flow:auto` Phase 1 prompt-free (issue #581) - into `~/.claude/settings.json` (both user-confirmed).
 
 `/cpp:update` refreshes those same host artifacts. See [`docs/HOST_MANAGED_ARTIFACTS.md`](docs/HOST_MANAGED_ARTIFACTS.md) for the full inventory.

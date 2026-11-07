@@ -35,8 +35,16 @@ with tempfile.TemporaryDirectory() as directory:
         json.dumps({"owner": "cooneycw/claude-power-pack", "contract_version": "1.6"})
     )
     (library / "rank.py").write_text('CONTRACT_VERSION = "1.6"\n')
-    for name, target in (("bash", bash), ("dirname", dirname)):
-        (binaries / name).symlink_to(target)
+    (binaries / "dirname").symlink_to(dirname)
+    # A wrapper, not a symlink: the version the bash check reads must come from
+    # this fake host, or a stock macOS bash would turn the healthy cases red.
+    wrapper = binaries / "bash"
+    wrapper.write_text(
+        "#!" + bash + "\n"
+        "if [[ ${1:-} == --version ]]; then printf 'GNU bash, version 5.2.15(1)-release\\n'; exit 0; fi\n"
+        "exec " + shlex.quote(bash) + ' "$@"\n'
+    )
+    wrapper.chmod(0o755)
     # Keep real execution for bootstrap/imports, but make the version observation
     # deterministic even when the control's own interpreter is Python 3.11.
     bootstrap = binaries / "python3"

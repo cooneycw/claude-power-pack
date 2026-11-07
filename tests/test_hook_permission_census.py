@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -408,3 +409,32 @@ def test_empty_bash_command_records_nothing(tmp_path: Path):
     proc, log = _run(tmp_path, {"tool_name": "Bash", "tool_input": {"command": "   "}})
     assert proc.returncode == 0
     assert _records(log) == []
+
+
+def test_no_heredoc_inside_a_command_substitution():
+    """Bash 3.2 cannot parse one, and its syntax error exits 2 - not fail-open (#1628).
+
+    Linux CI has no bash 3.2 to run the hook under, so this names the shape.
+    """
+    text = CENSUS.read_text()
+    assert "PYEOF" in text
+    assert not re.search(r"\$\((?:[^()\n]|\([^()\n]*\))*<<", text)
+
+
+@pytest.mark.skipif(not Path("/bin/bash").exists(), reason="requires /bin/bash")
+def test_hook_records_a_prompt_under_the_oldest_bash_available(tmp_path):
+    version = subprocess.run(
+        ["/bin/bash", "-c", "echo ${BASH_VERSINFO[0]}"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    if int(version) >= 4:
+        pytest.skip("host /bin/bash is not the macOS 3.2")
+    log = tmp_path / "friction.jsonl"
+    result = subprocess.run(
+        ["/bin/bash", str(CENSUS)],
+        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "gh issue view 1"}}),
+        capture_output=True,
+        text=True,
+        env={**os.environ, "CPP_FRICTION_LOG": str(log)},
+    )
+    assert result.returncode == 0 and result.stdout == "" and result.stderr == ""
+    assert log.exists()
