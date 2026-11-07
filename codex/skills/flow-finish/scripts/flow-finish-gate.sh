@@ -175,17 +175,18 @@ unset CPP_FLOW_FINISH_GATE_STATUS_FILE
 _gate_on_exit() {
     local rc=$1
     if [[ -n "$_gate_status_file" ]]; then
-        printf "%d\n" "$rc" > "$_gate_status_file"
+        printf "%d\n" "$rc" 2>/dev/null > "$_gate_status_file"
     else
         printf "FLOW_FINISH_GATE_EXIT=%d\n" "$rc" >&2
     fi
     [[ -z "$RUNNER_JSON" ]] || rm -f "$RUNNER_JSON"
-    # The coordination parent's status and verdict files, also on an interrupt.
-    [[ -z "$_coordination_status$_coordination_verdict" ]] \
-        || rm -f -- ${_coordination_status:+"$_coordination_status"} ${_coordination_verdict:+"$_coordination_verdict"}
+    # The coordination parent's private directory, also on an interrupt. The
+    # files live inside it so a writer still running after this cleanup - the
+    # continued gate's status, the verdict reader - fails to open its path
+    # rather than recreating it.
+    [[ -z "$_coordination_tmp" ]] || rm -rf -- "$_coordination_tmp"
 }
-_coordination_status=""
-_coordination_verdict=""
+_coordination_tmp=""
 trap '_gate_on_exit "$?"' EXIT
 
 # --- The shared gate conventions (issue #1061) ------------------------------
@@ -351,11 +352,13 @@ if coordination_admission_on && [[ "$MODE" == "gate" && "${CPP_KYLE_FULL_SUITE_A
         echo "flow-finish-gate: coordination enabled but kyle-lock is unavailable; refusing to start." >&2
         gate_exit fail
     fi
-    if ! _coordination_status="$(mktemp "${TMPDIR:-/tmp}/flow-finish-gate-status.XXXXXX")" \
-            || ! _coordination_verdict="$(mktemp "${TMPDIR:-/tmp}/flow-finish-gate-verdict.XXXXXX")"; then
-        echo "flow-finish-gate: coordination enabled but no status file could be created; refusing to start." >&2
+    if ! _coordination_tmp="$(mktemp -d "${TMPDIR:-/tmp}/flow-finish-gate-coordination.XXXXXX")"; then
+        _coordination_tmp=""
+        echo "flow-finish-gate: coordination enabled but no status directory could be created; refusing to start." >&2
         gate_exit fail
     fi
+    _coordination_status="$_coordination_tmp/status"
+    _coordination_verdict="$_coordination_tmp/verdict"
     # The authority configuration belongs to the supervisor. Test commands
     # must not inherit its credentials.
     #
@@ -371,7 +374,7 @@ if coordination_admission_on && [[ "$MODE" == "gate" && "${CPP_KYLE_FULL_SUITE_A
         bash "${BASH_SOURCE[0]}" "${COORDINATION_ORIGINAL_ARGS[@]}" \
         | while IFS= read -r _coordination_line || [[ -n "$_coordination_line" ]]; do
             if [[ "$_coordination_line" == "FLOW_FINISH_GATE: "* ]]; then
-                printf '%s\n' "$_coordination_line" >> "$_coordination_verdict"
+                printf '%s\n' "$_coordination_line" 2>/dev/null >> "$_coordination_verdict"
             else
                 printf '%s\n' "$_coordination_line"
             fi
@@ -379,7 +382,8 @@ if coordination_admission_on && [[ "$MODE" == "gate" && "${CPP_KYLE_FULL_SUITE_A
     _coordination_rc=${PIPESTATUS[0]}
     _coordination_gate_rc="$(cat -- "$_coordination_status" 2>/dev/null)"
     _coordination_held="$(cat -- "$_coordination_verdict" 2>/dev/null)"
-    rm -f -- "$_coordination_status" "$_coordination_verdict"
+    rm -rf -- "$_coordination_tmp"
+    _coordination_tmp=""
     if [[ "$_coordination_gate_rc" =~ ^[0-9]+$ ]]; then
         if [[ "$_coordination_gate_rc" == "$_coordination_rc" ]]; then
             [[ -z "$_coordination_held" ]] || printf '%s\n' "$_coordination_held"

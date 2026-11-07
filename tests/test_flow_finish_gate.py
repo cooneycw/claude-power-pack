@@ -3228,7 +3228,7 @@ def test_coordination_interrupted_parent_removes_its_temp_files(tmp_path: Path):
             time.sleep(0.05)
         assert started.exists(), "the supervisor never started"
         created = sorted(f.name for f in scratch.iterdir())
-        assert any(n.startswith("flow-finish-gate-status.") for n in created), created
+        assert any(n.startswith("flow-finish-gate-coordination.") for n in created), created
         proc.send_signal(signal.SIGTERM)
         proc.wait(timeout=15)
     finally:
@@ -3237,6 +3237,63 @@ def test_coordination_interrupted_parent_removes_its_temp_files(tmp_path: Path):
         except ProcessLookupError:
             pass
     assert sorted(f.name for f in scratch.iterdir()) == []
+
+
+@requires_git
+@requires_bash
+def test_coordination_writers_outliving_the_parent_cannot_recreate_its_files(tmp_path: Path):
+    # Only the parent is stopped; the supervisor and the continued gate run on
+    # and finish afterwards. Their late status and verdict writes must not
+    # recreate anything the parent's cleanup removed.
+    import signal
+    import time
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    _make_stub(bindir, "make", 0)
+    started, go, done = tmp_path / "started", tmp_path / "go", tmp_path / "done"
+    supervisor = bindir / "supervisor"
+    supervisor.write_text(
+        "#!/usr/bin/env bash\n"
+        f'touch "{started}"\n'
+        f'while [[ ! -e "{go}" ]]; do sleep 0.05; done\n'
+        'shift 3\n"$@"\n'
+        f'touch "{done}"\n'
+    )
+    supervisor.chmod(0o755)
+    (tmp_path / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
+    scratch = tmp_path / "tmp"
+    scratch.mkdir()
+    flag = tmp_path / "coordination-flag"
+    flag.write_text("on\n")
+    env = os.environ.copy()
+    for key in ("CPP_KYLE_FULL_SUITE_ACTIVE", "CPP_FLOW_FINISH_GATE_STATUS_FILE"):
+        env.pop(key, None)
+    env.update({"CPP_COORDINATION_ADMISSION_FILE": str(flag), "CPP_KYLE_LOCK_BIN": str(supervisor),
+                "TMPDIR": str(scratch), "FLOW_GATE_CPP_DIR": "", "PATH": f"{bindir}:{env['PATH']}"})
+    proc = subprocess.Popen(["bash", str(SCRIPT)], cwd=tmp_path, env=env, start_new_session=True,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        deadline = time.monotonic() + 15
+        while not started.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert started.exists(), "the supervisor never started"
+        assert any(n.startswith("flow-finish-gate-coordination.") for n in (f.name for f in scratch.iterdir()))
+        proc.send_signal(signal.SIGTERM)
+        proc.wait(timeout=15)
+        assert sorted(f.name for f in scratch.iterdir()) == [], "the parent did not clean up"
+        go.touch()
+        deadline = time.monotonic() + 30
+        while not done.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert done.exists(), "the continued gate never finished"
+        time.sleep(0.5)
+    finally:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    assert sorted(str(f.relative_to(scratch)) for f in scratch.rglob("*")) == []
 
 
 @requires_git
