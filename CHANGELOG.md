@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Behaviour changes you may notice
+
+- CPP now states a bash 4.4 floor. `flow-preflight` gains a required `bash` check, so `/cpp:init`, `/cpp:update` and `/flow:doctor` report a bash below it, and `/flow:auto` refuses to start until it is upgraded. On macOS: `brew install bash`, first on PATH (#1628).
+- `hook-permission-census.sh` now parses under bash 3.2, so it no longer exits 2 from a syntax error on a stock macOS host (#1628).
+
 ## [10.1.0] - 2026-10-28
 
 35 commits since 10.0.0 (`b318a14b..cacc4564`; fix 20, feat 6,

@@ -320,6 +320,26 @@ mandatory; everything below is what you execute *after* confirming it is current
 
 ---
 
+## Step 3.6: Bash Floor Report (issue #1628)
+
+CPP's helpers need bash 4.4 or newer, and macOS ships 3.2. Below the floor, later
+steps fail with raw shell errors that do not name the cause, so say it once here
+in plain words. Call the CHECKOUT copy: the pull may have changed the check, and
+an installed helper from before this version does not have it.
+
+```bash
+"$CPP_DIR/scripts/flow-preflight.sh" --checks bash
+```
+
+- Exit 0 - report the `OK bash:` line, including the part of it that says what it
+  did not examine.
+- Exit 1 (`UNSUPPORTED` or `MISSING`) - report the line and its remedy prominently,
+  and carry it to Step 10. Do not stop the update: expect helper failures in the
+  steps below, and attribute them to this rather than diagnosing each one.
+- Exit 3 (`UNKNOWN`) - report that the floor was not verified. Never relay it as met.
+
+---
+
 ## Step 4: Update Dependencies
 
 CPP no longer ships in-repo MCP server venvs. The second-opinion server is an
@@ -783,6 +803,10 @@ Act on `STASH_GUARD:`:
   and change nothing; merging the two is the user's call.
 - `unsupported` - git below 2.28, or a RELATIVE `core.hooksPath`. Report the
   reason rather than a bare failure.
+- No `STASH_GUARD:` line (exit 2 with a shell `syntax error`) - the guard did not
+  run, because bash is below the floor Step 3.6 reported (issue #1628). It is NOT
+  `unsupported`, and the exit-127 fallback does not apply. Report
+  `→ Shared-stash guard: NOT installed (bash below floor)` and continue.
 
 **Turning it off from here** is the same one action that records the choice:
 
@@ -2145,6 +2169,7 @@ Version: v{OLD_VERSION} -> v{NEW_VERSION}
 Commit:  {OLD_COMMIT} -> {NEW_COMMIT} {(finished on FINISH_COMMIT - moved during this run) if it differs}
 Branch:  {BRANCH}
 Tier:    {TIER} {(upgraded from X if applicable)}
+Bash:    {Step 3.6 line - floor met, below floor with remedy, or not verified}
 Helpers: {Step 5b refresh line}; {Step 5b orphan-prune line}
 
 Changes pulled:

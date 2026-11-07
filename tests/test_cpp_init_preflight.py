@@ -33,7 +33,7 @@ def test_tier4_prerequisites_gate_only_tier4(tmp_path, population):
         scope="selected",
         full_host_ready=None,
         selected_checks=["uv", "cpp_python"],
-        unexamined_checks=["gh", "user.name", "user.email", "codex", "engine"],
+        unexamined_checks=["gh", "bash", "user.name", "user.email", "codex", "engine"],
         checks=checks,
         required_gaps=int(code == 1),
         required_unknown=int(code == 3),

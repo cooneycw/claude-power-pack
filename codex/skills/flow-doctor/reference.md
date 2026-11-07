@@ -24,6 +24,8 @@ and exit 0 permits optional warnings. Mixed missing and unknown exits 1 while
 retaining both. This checks local capabilities, not authentication or live API
 access. It never installs/downloads runtimes or writes identity/configuration.
 Python 3.11 is CPP's runner selection policy, separate from target-project Python.
+The `bash` check reads the `bash` on the caller's PATH against CPP's 4.4 floor;
+it says nothing about a PATH it did not see, such as a launchd job's.
 This no-install/no-authentication bound covers the observer only; later legacy
 doctor checks may probe services or invoke uv. The observer is written for Python 3.10 or newer; older/absent bootstrap Python reports
 unknown without importing it. Installed-Python coverage is PATH and the selected

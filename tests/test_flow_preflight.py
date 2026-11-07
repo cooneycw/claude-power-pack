@@ -28,7 +28,7 @@ def test_selected_population_never_probes_unselected_prerequisites(observer, mon
     assert code == 0 and report["status"] == "selected_ready"
     assert report["scope"] == "selected" and report["full_host_ready"] is None
     assert report["selected_checks"] == ["gh", "engine"]
-    assert report["unexamined_checks"] == ["uv", "cpp_python", "user.name", "user.email", "codex"]
+    assert report["unexamined_checks"] == ["uv", "cpp_python", "bash", "user.name", "user.email", "codex"]
     assert [item["id"] for item in report["checks"]] == ["gh", "engine"]
 
 
@@ -183,6 +183,8 @@ def observer(tmp_path, monkeypatch):
             return 1, "", text + "\n".join("  " + field for field in fields)
         if argv[0].startswith("python"):
             return 0, "Python 3.11.14\n", ""
+        if argv[:2] == ["bash", "--version"]:
+            return 0, "GNU bash, version 5.2.15(1)-release (x86_64-pc-linux-gnu)\n", ""
         if argv[:3] == ["git", "config", "--get"]:
             return 0, "dummy-identity-value\n", ""
         raise AssertionError("Unexpected command population")
@@ -193,11 +195,85 @@ def observer(tmp_path, monkeypatch):
     return module, args, home, engine
 
 
+def _bash_report(module, monkeypatch, result):
+    monkeypatch.setattr(module, "run", lambda argv, cwd, env=None: result)
+    return module.bash_check(Path("."))
+
+
+@pytest.mark.parametrize(
+    "text, status",
+    [
+        ("GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)\n", "unsupported"),
+        ("GNU bash, version 4.3.48(1)-release (x86_64-pc-linux-gnu)\n", "unsupported"),
+        ("GNU bash, version 4.4.0(1)-release (x86_64-pc-linux-gnu)\n", "ok"),
+        ("GNU bash, version 5.3.20(1)-release (aarch64-apple-darwin25)\n", "ok"),
+        ("GNU bash, version 10.0.0(1)-release (x86_64-pc-linux-gnu)\n", "ok"),
+    ],
+)
+def test_bash_floor_is_compared_numerically_at_the_boundary(observer, monkeypatch, text, status):
+    module, _, _, _ = observer
+    result = _bash_report(module, monkeypatch, (0, text, ""))
+    assert result["status"] == status and result["required"] is True
+    assert result["evidence"]["floor"] == "4.4"
+    assert result["status"] == "ok" or "brew install bash" in result["remediation"]
+
+
+def test_a_passing_bash_check_claims_only_the_path_it_saw(observer, monkeypatch):
+    module, _, _, _ = observer
+    result = _bash_report(module, monkeypatch, (0, "GNU bash, version 5.3.20(1)-release\n", ""))
+    assert result["status"] == "ok" and "unexamined" in result["message"]
+
+
+def test_absent_bash_is_missing_and_never_probed(observer, monkeypatch):
+    module, _, _, _ = observer
+    monkeypatch.setattr(module.shutil, "which", lambda name: None)
+    monkeypatch.setattr(module, "run", lambda *a, **k: pytest.fail("no bash to probe"))
+    assert module.bash_check(Path("."))["status"] == "missing"
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        (None, "", ""),
+        (1, "GNU bash, version 5.3.20(1)-release\n", ""),
+        (0, "", ""),
+        (0, "version 9.9\n", ""),
+        (0, "busybox 1.36 bash-alike\n", ""),
+    ],
+)
+def test_unreadable_bash_version_is_unknown_never_a_pass(observer, monkeypatch, result):
+    module, _, _, _ = observer
+    assert _bash_report(module, monkeypatch, result)["status"] == "unknown"
+
+
+def test_old_bash_is_a_required_gap_for_the_whole_host(observer, monkeypatch):
+    module, args, _, _ = observer
+    healthy = module.run
+
+    def old_bash(argv, cwd, env=None):
+        if argv[:2] == ["bash", "--version"]:
+            return 0, "GNU bash, version 3.2.57(1)-release\n", ""
+        return healthy(argv, cwd, env)
+
+    monkeypatch.setattr(module, "run", old_bash)
+    report, code = module.observe(args)
+    assert code == 1 and report["status"] == "gaps" and report["full_host_ready"] is False
+    assert module.validate_report(json.dumps(report), code, module.CHECK_IDS) == report
+
+
+def test_a_selection_without_bash_never_probes_it(observer, monkeypatch):
+    module, args, _, _ = observer
+    args.checks = ("gh", "engine")
+    monkeypatch.setattr(module, "bash_check", lambda *a: pytest.fail("unselected bash probe"))
+    report, code = module.observe(args)
+    assert code == 0 and "bash" in report["unexamined_checks"]
+
+
 def test_known_healthy_population_and_identity_values_withheld(observer):
     module, args, _, _ = observer
     report, code = module.observe(args)
     assert code == 0 and report["status"] == "ready"
-    assert len(report["checks"]) == 7
+    assert len(report["checks"]) == 8
     assert "dummy-identity-value" not in json.dumps(report)
 
 
@@ -218,7 +294,7 @@ def test_all_gaps_are_aggregated_and_unknowns_not_erased(observer, monkeypatch):
     report, code = module.observe(args)
     assert code == 1 and report["status"] == "gaps"
     assert report["required_gaps"] >= 4 and report["required_unknown"] == 2
-    assert len(report["checks"]) == 7
+    assert len(report["checks"]) == 8
 
 
 def test_unknown_gh_is_not_ready_and_provider_output_is_not_disclosed(observer, monkeypatch):
@@ -263,7 +339,7 @@ def test_interrupted_and_unrelated_provider_errors_remain_unknown(observer, monk
     )
     report, exit_code = module.observe(args)
     assert exit_code == 3 and report["required_unknown"] == 1
-    assert len(report["checks"]) == 7
+    assert len(report["checks"]) == 8
 
 
 def test_known_field_population_without_required_capability_is_unsupported(observer, monkeypatch):
@@ -459,7 +535,7 @@ def test_invalid_provider_bytes_remain_unknown_and_other_checks_are_reported(obs
     monkeypatch.setattr(module, "run", invalid_provider)
     report, code = module.observe(args)
     assert code == 3 and report["status"] == "unknown"
-    assert len(report["checks"]) == 7
+    assert len(report["checks"]) == 8
     assert next(c for c in report["checks"] if c["id"] == "engine")["status"] == "ok"
     captured = capsys.readouterr()
     assert captured.out == "" and captured.err == ""
@@ -481,7 +557,7 @@ def test_looping_engine_does_not_abort_aggregate(observer):
     engine.symlink_to(engine.name)
     assert engine.is_symlink()
     report, code = module.observe(args)
-    assert code == 3 and len(report["checks"]) == 7
+    assert code == 3 and len(report["checks"]) == 8
     assert next(item for item in report["checks"] if item["id"] == "engine")["status"] == "unknown"
 
 
@@ -492,7 +568,7 @@ def test_looping_repository_does_not_abort_independent_observations(observer, tm
     args.repo = str(loop)
     assert loop.is_symlink()
     report, code = module.observe(args)
-    assert code == 3 and len(report["checks"]) == 7
+    assert code == 3 and len(report["checks"]) == 8
     assert next(item for item in report["checks"] if item["id"] == "engine")["status"] == "ok"
     assert next(item for item in report["checks"] if item["id"] == "user.email")["status"] == "unknown"
 
