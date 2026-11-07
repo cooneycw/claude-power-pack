@@ -328,15 +328,21 @@ in plain words. Call the CHECKOUT copy: the pull may have changed the check, and
 an installed helper from before this version does not have it.
 
 ```bash
-"$CPP_DIR/scripts/flow-preflight.sh" --checks bash
+BASH_FLOOR_REPORT=$("$CPP_DIR/scripts/flow-preflight.sh" --checks bash 2>/dev/null)
+BASH_FLOOR_RC=$?
+if [ "$BASH_FLOOR_RC" -ne 0 ]; then
+  printf '%s\n' "$BASH_FLOOR_REPORT"
+  echo "BASH_FLOOR: not met or not verified (exit $BASH_FLOOR_RC)"
+fi
 ```
 
-- Exit 0 - report the `OK bash:` line, including the part of it that says what it
-  did not examine.
-- Exit 1 (`UNSUPPORTED` or `MISSING`) - report the line and its remedy prominently,
-  and carry it to Step 10. Do not stop the update: expect helper failures in the
-  steps below, and attribute them to this rather than diagnosing each one.
-- Exit 3 (`UNKNOWN`) - report that the floor was not verified. Never relay it as met.
+- No output - the floor is met on this PATH. Say nothing and move on.
+- `BASH_FLOOR:` with exit 1 (`UNSUPPORTED` or `MISSING`) - report the line and its
+  remedy prominently, and carry it to Step 10. Do not stop the update: expect helper
+  failures in the steps below, and attribute them to this rather than diagnosing
+  each one.
+- `BASH_FLOOR:` with any other exit - report that the floor was not verified. Never
+  relay it as met.
 
 ---
 
@@ -2169,7 +2175,7 @@ Version: v{OLD_VERSION} -> v{NEW_VERSION}
 Commit:  {OLD_COMMIT} -> {NEW_COMMIT} {(finished on FINISH_COMMIT - moved during this run) if it differs}
 Branch:  {BRANCH}
 Tier:    {TIER} {(upgraded from X if applicable)}
-Bash:    {Step 3.6 line - floor met, below floor with remedy, or not verified}
+{Bash:   Step 3.6 finding with its remedy - only when Step 3.6 reported one}
 Helpers: {Step 5b refresh line}; {Step 5b orphan-prune line}
 
 Changes pulled:

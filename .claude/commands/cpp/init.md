@@ -111,6 +111,27 @@ fi
 
 ---
 
+## Step 1b: Bash Floor Report (issue #1628)
+
+Step 0 asks the INSTALLED observer, which a fresh host does not have and an older
+install has without this check. So ask the checkout now, on every tier:
+
+```bash
+BASH_FLOOR_REPORT=$("$CPP_DIR/scripts/flow-preflight.sh" --checks bash 2>/dev/null)
+BASH_FLOOR_RC=$?
+if [ "$BASH_FLOOR_RC" -ne 0 ]; then
+  printf '%s\n' "$BASH_FLOOR_REPORT"
+  echo "BASH_FLOOR: not met or not verified (exit $BASH_FLOOR_RC)"
+fi
+```
+
+No output means the floor is met on this PATH. On a `BASH_FLOOR:` line, report it and
+its remedy, and do not stop setup: expect helper failures below until bash is
+upgraded, and attribute them to this rather than diagnosing each one. Anything but
+exit 1 means the floor was not verified, which is never relayed as met.
+
+---
+
 ## Step 2: Detect Current State
 
 Collect these presence observations to guide the remaining steps. They do not
