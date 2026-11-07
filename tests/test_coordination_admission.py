@@ -75,10 +75,11 @@ def test_a_symlinked_flag_is_off_even_when_its_target_says_on(tmp_path: Path) ->
 
 
 @requires_bash
-def test_an_unknown_argument_is_a_usage_refusal(tmp_path: Path) -> None:
+@pytest.mark.parametrize("args", [("--enable",), ("",), ("--help", "--enable"), ("", "--enable")])
+def test_an_unknown_argument_is_a_usage_refusal(tmp_path: Path, args: tuple[str, ...]) -> None:
     flag = tmp_path / "admission"
     flag.write_bytes(b"on\n")
-    result = _direct(flag, "--enable")
+    result = _direct(flag, *args)
     assert result.returncode == 2
     assert result.stdout == ""
     assert result.stderr.splitlines()[-1] == "COORDINATION_ADMISSION_EXIT=2"

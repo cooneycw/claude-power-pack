@@ -113,7 +113,8 @@ def _run(
     if make_exit is not None:
         _make_stub(bindir, "make", make_exit)
     env = os.environ.copy()
-    for key in ("CPP_KYLE_COORDINATION_ADMISSION", "CPP_KYLE_FULL_SUITE_ACTIVE", "CPP_KYLE_LOCK_BIN"):
+    for key in ("CPP_KYLE_COORDINATION_ADMISSION", "CPP_KYLE_FULL_SUITE_ACTIVE", "CPP_KYLE_LOCK_BIN",
+                "CPP_FLOW_FINISH_GATE_STATUS_FILE"):
         env.pop(key, None)
     env.pop("CPP_COORDINATION_ADMISSION_FILE", None)
     extras = dict(extra_env or {})
@@ -3177,16 +3178,54 @@ def test_coordination_supervises_full_gate_once_only_when_enabled(tmp_path: Path
 
 @requires_git
 @requires_bash
-def test_coordination_refusal_starts_no_gate_work(tmp_path: Path):
+@pytest.mark.parametrize("supervisor_exit", [75, 3, 2, 10, 11, 0])
+def test_coordination_refusal_starts_no_gate_work(tmp_path: Path, supervisor_exit: int):
+    # kyle-lock's own codes overlap the gate's: refused 3 would read as warn and
+    # usage 2 as usage. A supervisor that never ran the gate - whatever it exits,
+    # 0 included - must be one fail with one exit line, and no gate work.
     supervisor = tmp_path / "refuse"
-    supervisor.write_text("#!/usr/bin/env bash\nexit 75\n")
+    supervisor.write_text(f"#!/usr/bin/env bash\nexit {supervisor_exit}\n")
     supervisor.chmod(0o755)
     (tmp_path / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
     proc, bindir = _run(tmp_path, cpp_dir="", make_exit=0, extra_env={
         "CPP_KYLE_COORDINATION_ADMISSION": "1", "CPP_KYLE_LOCK_BIN": str(supervisor)})
-    assert proc.returncode == 75, proc.stdout
+    assert proc.returncode == 1, proc.stdout + proc.stderr
     assert not (bindir / "make.log").exists()
+    assert f"FLOW_FINISH_GATE: fail (coordination supervisor exited {supervisor_exit} " in proc.stdout
     assert "FLOW_FINISH_GATE: ok" not in proc.stdout
+    exit_lines = [ln for ln in proc.stdout.splitlines() if ln.startswith("FLOW_FINISH_GATE_EXIT=")]
+    assert exit_lines == ["FLOW_FINISH_GATE_EXIT=1"], proc.stdout
+    assert proc.stdout.splitlines()[-1] == "FLOW_FINISH_GATE_EXIT=1"
+
+
+@requires_git
+@requires_bash
+@pytest.mark.parametrize(("supervisor_tail", "gate_exit", "expected"), [
+    ("exit $rc", 0, 0), ("exit $rc", 1, 1), ("exit 12", 0, 1), ("exit 13", 0, 1)])
+def test_coordination_passes_the_gate_verdict_only_when_the_supervisor_agrees(
+    tmp_path: Path, supervisor_tail: str, gate_exit: int, expected: int
+):
+    # A lease lost (12) or an unconfirmed stop (13) after a green gate is not a
+    # green gate. Either way there is exactly one exit line, from the parent.
+    supervisor = tmp_path / "supervisor"
+    supervisor.write_text(
+        "#!/usr/bin/env bash\n"
+        '[[ "$1 $2 $3" == "run full-suite --" ]] || exit 92\n'
+        f'shift 3\n"$@"\nrc=$?\n{supervisor_tail}\n'
+    )
+    supervisor.chmod(0o755)
+    (tmp_path / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
+    proc, bindir = _run(tmp_path, cpp_dir="", make_exit=gate_exit, extra_env={
+        "CPP_KYLE_COORDINATION_ADMISSION": "1", "CPP_KYLE_LOCK_BIN": str(supervisor)})
+    assert (bindir / "make.log").exists(), "the gate must have run under the supervisor"
+    assert proc.returncode == expected, proc.stdout + proc.stderr
+    if supervisor_tail != "exit $rc":
+        assert "lease lost or stop unconfirmed" in proc.stdout
+    exit_lines = [ln for ln in proc.stdout.splitlines() if ln.startswith("FLOW_FINISH_GATE_EXIT=")]
+    assert exit_lines == [f"FLOW_FINISH_GATE_EXIT={expected}"], proc.stdout
+    verdicts = [ln for ln in proc.stdout.splitlines() if ln.startswith("FLOW_FINISH_GATE: ")]
+    want = "FLOW_FINISH_GATE: ok" if expected == 0 else "FLOW_FINISH_GATE: fail"
+    assert len(verdicts) == 1 and verdicts[0].startswith(want), verdicts
 
 
 @requires_git

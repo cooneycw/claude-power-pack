@@ -40,9 +40,9 @@ with tempfile.TemporaryDirectory(prefix="cpp-coordination-control-") as tmp:
     result = subprocess.run(["bash", str(gate)], cwd=work, env=env, capture_output=True, text=True, timeout=15)
     calls = work / "calls.log"
     started = (work / "work.log").exists()
-    if result.returncode == 75 and calls.exists() and not started:
+    if result.returncode == 1 and calls.exists() and not started:
         print("CPP_COORDINATION_REFUSED: no gate work started")
-        sys.exit(75)
+        sys.exit(1)
     if result.returncode == 0 and started:
         print("CPP_COORDINATION_CONTROL: gate ran")
         sys.exit(0)

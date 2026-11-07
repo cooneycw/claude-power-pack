@@ -29,8 +29,8 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     if [[ -z "$(trap -p EXIT 2>/dev/null)" ]]; then
         trap 'printf "COORDINATION_ADMISSION_EXIT=%d\n" "$?" >&2' EXIT
     fi
-    case "${1:-}" in
-        "")
+    case "$#:${1:-}" in
+        0:)
             if coordination_admission_on; then
                 echo "COORDINATION_ADMISSION: on"
             else
@@ -38,7 +38,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
             fi
             exit 0
             ;;
-        -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+        1:-h|1:--help) sed -n '2,10p' "$0"; exit 0 ;;
         *) echo "usage: bash $0 [--help]" >&2; exit 2 ;;
     esac
 fi

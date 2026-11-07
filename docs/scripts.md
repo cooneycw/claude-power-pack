@@ -1455,7 +1455,13 @@ verified before the owner switches.
 On opt-in, the finish caller delegates the whole gate once to
 `kyle-lock run full-suite`; `CPP_KYLE_LOCK_BIN` selects its executable (default
 `kyle-lock`). Metadata-only modes do not acquire. Missing supervisor or refused
-admission starts no gate work. Authority configuration is stripped from the
+admission starts no gate work. The supervisor's exit codes overlap the gate's
+(refused 3 is the gate's `warn`), so the parent gate does not pass them through:
+the continued gate records its own status in a file and its verdict line is
+held back, and only a supervisor exit equal to that status is the gate's
+verdict. Anything else - refused, queued, frozen, unavailable, usage, a lease
+lost or a stop unconfirmed after the gate finished - is one `fail` with the
+supervisor's code named, and the parent writes the single exit line. Authority configuration is stripped from the
 supervised child's environment, and a descendant continuation marker prevents
 nested acquisition. The marker is not a security boundary. CPP merges acquire
 no `main-merge` barrier and keep all existing required-check/base/head rules;
