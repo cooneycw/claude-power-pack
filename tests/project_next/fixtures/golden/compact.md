@@ -1,7 +1,8 @@
-## example/operations — Project Next 1.7
+## example/operations — Project Next 1.8
 
 **Top action:** continue_pr: Build active foundation (issue #2, PR #20) — PR #20 is active and should be completed before broad new work. Evidence: head:issue-2-active-foundation, checks:pending, review:unknown.
 **Next safe issue:** #3 Wave 1 feature
+**Recommended:** #3 Wave 1 feature (engine-safe); runner-up #4
 **State:** 6 open | 1 in-flight | 1 blocked | 1 uncertain | 0 non-startable | inventory complete
 
 ### Ready to start (top 3)

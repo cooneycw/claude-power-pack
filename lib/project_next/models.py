@@ -205,6 +205,12 @@ class RepositoryState:
     collector_errors: tuple[str, ...] = ()
     merged_refs_issue_numbers: tuple[int, ...] = ()
     merged_pr_history_complete: bool = True
+    # Contract 1.8: open issues whose per-issue merged-PR lookup could not settle
+    # partial delivery. Each is uncertain on its own; the rest of the inventory is not.
+    merged_refs_unknown_issue_numbers: tuple[int, ...] = ()
+    # Contract 1.8: `owner/repo#N` -> "OPEN" | "CLOSED", for cross-repo dependency
+    # references the collector could look up. An absent key is unknown, never closed.
+    external_issue_states: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RepositoryState:
@@ -220,6 +226,10 @@ class RepositoryState:
             spec_features=tuple(SpecFeature.from_dict(item) for item in data.get("spec_features", ())),
             merged_refs_issue_numbers=_tuple_of_ints(data.get("merged_refs_issue_numbers")),
             merged_pr_history_complete=bool(data.get("merged_pr_history_complete", True)),
+            merged_refs_unknown_issue_numbers=_tuple_of_ints(data.get("merged_refs_unknown_issue_numbers")),
+            external_issue_states={
+                str(key): str(value).upper() for key, value in (data.get("external_issue_states") or {}).items()
+            },
             gate_status=str(data.get("gate_status") or "unknown"),
             inventory_complete=bool(data.get("inventory_complete", True)),
             collector_warnings=_tuple_of_strings(data.get("collector_warnings")),
@@ -244,6 +254,8 @@ class Classification:
     in_flight_evidence: dict[int, tuple[str, ...]] = field(default_factory=dict)
     uncertainty: dict[int, tuple[str, ...]] = field(default_factory=dict)
     unmapped_worktrees: tuple[str, ...] = ()
+    # Contract 1.8: open cross-repo blockers (`owner/repo#N`) the collector confirmed.
+    external_blocked_by: dict[int, tuple[str, ...]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return _json_ready(asdict(self))
@@ -326,6 +338,21 @@ class CleanupCandidate:
 
 
 @dataclass(frozen=True)
+class Recommendation:
+    """Contract 1.8: the issue to work on next, always named when one exists.
+
+    `engine-safe` means it is `next_startable_issue`. `needs-judgement` means the
+    engine could not prove it safe and `reasons` say what a reader must resolve.
+    It is never the dispatch verdict: only `next_startable_issue` is.
+    """
+
+    issue_number: int
+    basis: str
+    reasons: tuple[str, ...] = ()
+    runner_up: int | None = None
+
+
+@dataclass(frozen=True)
 class RecommendationResult:
     contract_version: str
     repository: str
@@ -342,6 +369,7 @@ class RecommendationResult:
     worktree_details: tuple[WorktreeDetail, ...] = ()
     cleanup_candidates: tuple[CleanupCandidate, ...] = ()
     warnings: tuple[str, ...] = ()
+    recommendation: Recommendation | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return _json_ready(asdict(self))

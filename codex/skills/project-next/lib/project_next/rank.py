@@ -15,13 +15,15 @@ from .models import (
     Classification,
     CleanupCandidate,
     Issue,
+    Recommendation,
     RecommendationResult,
     RepositoryState,
     WorktreeDetail,
 )
 
-CONTRACT_VERSION = "1.7"
+CONTRACT_VERSION = "1.8"
 PHASE = re.compile(r"\b(?:wave|phase)[-\s:]*(?P<number>\d+)\b", re.IGNORECASE)
+SPEC_SYNC_WARNING = re.compile(r": spec-sync mapping is \w+ for \d+ task")
 
 
 def _parse_time(value: str) -> datetime | None:
@@ -162,7 +164,12 @@ def _top_action(
 ) -> Action | None:
     issues = {issue.number: issue for issue in state.issues}
     if not state.inventory_complete or state.collector_errors:
-        detail = tuple(state.collector_errors or state.collector_warnings)
+        # Causes only (#1626): a spec-sync mapping gap is advice, not a reason the
+        # inventory is incomplete, and listing it here read as one.
+        detail = tuple(
+            state.collector_errors
+            or tuple(warning for warning in state.collector_warnings if not SPEC_SYNC_WARNING.search(warning))
+        )
         return Action(
             kind="resolve_inventory",
             title="Restore complete repository inventory",
@@ -509,6 +516,56 @@ def _vocabulary_warnings(state: RepositoryState, config: ProjectNextConfig) -> t
     )
 
 
+def _recommendation(
+    state: RepositoryState,
+    classification: Classification,
+    ranked: tuple[int, ...],
+    next_startable: int | None,
+    config: ProjectNextConfig,
+) -> Recommendation | None:
+    """Name the issue to work on next, even when none is provably safe (#1626).
+
+    `next_startable_issue` stays the strict dispatch verdict. This is the answer to
+    "what should I do next": the dispatch-safe issue when there is one, else the best
+    available-or-uncertain issue with no KNOWN open blocker, labelled `needs-judgement`
+    with the reasons a reader must resolve first. Blocked, in-flight and non-startable
+    work is never named - resolving uncertainty must not erase a real blocker.
+    """
+    if next_startable is not None:
+        runner_up = next((number for number in ranked if number != next_startable), None)
+        return Recommendation(issue_number=next_startable, basis="engine-safe", runner_up=runner_up)
+    issues = {issue.number: issue for issue in state.issues}
+    open_numbers = set(issues)
+    excluded = set(classification.in_flight) | set(classification.non_startable) | set(classification.blocked)
+
+    def open_blockers(number: int) -> set[int]:
+        return (set(classification.dependency_map.get(number, ())) & open_numbers) - {number}
+
+    pool = [
+        number
+        for number in (*classification.available, *classification.uncertain)
+        if number not in excluded
+        and not open_blockers(number)
+        and number not in classification.external_blocked_by
+    ]
+    if not pool:
+        return None
+    available = set(classification.available)
+    ordered = sorted(
+        pool, key=lambda number: (0 if number in available else 1, rank_key(issues[number], state, config))
+    )
+    pick = ordered[0]
+    reasons = tuple(classification.uncertainty.get(pick, ()))
+    if not reasons:
+        reasons = ("the repository inventory is incomplete, so this pick is not proven globally safe",)
+    return Recommendation(
+        issue_number=pick,
+        basis="needs-judgement",
+        reasons=reasons,
+        runner_up=ordered[1] if len(ordered) > 1 else None,
+    )
+
+
 def recommend(state: RepositoryState, config: ProjectNextConfig | None = None) -> RecommendationResult:
     config = config or ProjectNextConfig()
     classification = classify_repository(state, config.non_startable_labels)
@@ -552,4 +609,5 @@ def recommend(state: RepositoryState, config: ProjectNextConfig | None = None) -
         worktree_details=worktree_details,
         cleanup_candidates=cleanup_candidates,
         warnings=warnings,
+        recommendation=_recommendation(state, classification, ranked, next_startable, config),
     )

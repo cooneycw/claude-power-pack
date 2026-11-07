@@ -366,3 +366,71 @@ def test_any_startable_issue_outranks_triaging_the_inbox() -> None:
     assert result.top_action is not None
     assert result.top_action.kind == "start_issue"
     assert result.top_action.issue_number == 900
+
+
+def test_recommendation_survives_an_incomplete_inventory_but_never_becomes_dispatch_safe(
+    project_next_scenarios: dict[str, Any],
+) -> None:
+    # Issue #1626: truncated PR history made every issue uncertain and the command
+    # recommended nothing. The recommendation is now always named, labelled as
+    # needing judgement, and never leaks into the strict dispatch verdict.
+    state = RepositoryState.from_dict(project_next_scenarios["truncated_history_prose_dependency"]["state"])
+
+    result = recommend(state)
+
+    assert result.next_startable_issue is None
+    assert result.candidates == ()
+    assert result.recommendation is not None
+    assert result.recommendation.issue_number == 80
+    assert result.recommendation.basis == "needs-judgement"
+    assert result.recommendation.reasons
+    # #82 outranks #80 (priority-high) but depends on open #80, so it is never the pick.
+    assert result.recommendation.issue_number != 82
+
+
+def test_recommendation_never_names_blocked_in_flight_or_non_startable_work(
+    project_next_scenarios: dict[str, Any],
+) -> None:
+    state = RepositoryState.from_dict(project_next_scenarios["native_open_blocker_only"]["state"])
+
+    result = recommend(state)
+
+    assert result.classification.blocked == (90,)
+    assert result.recommendation is None
+
+
+def test_recommendation_is_engine_safe_exactly_when_dispatch_is(
+    project_next_scenarios: dict[str, Any],
+) -> None:
+    for name, scenario in project_next_scenarios.items():
+        result = recommend(RepositoryState.from_dict(scenario["state"]))
+        if result.next_startable_issue is not None:
+            assert result.recommendation is not None, name
+            assert result.recommendation.issue_number == result.next_startable_issue, name
+            assert result.recommendation.basis == "engine-safe", name
+        elif result.recommendation is not None:
+            assert result.recommendation.basis == "needs-judgement", name
+            excluded = (
+                set(result.classification.blocked)
+                | set(result.classification.in_flight)
+                | set(result.classification.non_startable)
+            )
+            assert result.recommendation.issue_number not in excluded, name
+
+
+def test_resolve_inventory_evidence_keeps_real_causes_and_drops_spec_sync_advice() -> None:
+    state = RepositoryState(
+        repository="example/evidence",
+        default_branch="main",
+        collected_at="2026-11-06T00:00:00Z",
+        inventory_complete=False,
+        collector_warnings=(
+            ".specify/specs/x/tasks.md: spec-sync mapping is missing for 6 task(s): T001",
+            "remote branch refresh failed: git fetch: offline",
+        ),
+    )
+
+    action = recommend(state).top_action
+
+    assert action is not None and action.kind == "resolve_inventory"
+    assert action.evidence == ("remote branch refresh failed: git fetch: offline",)

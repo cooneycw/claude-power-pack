@@ -51,6 +51,9 @@ EXPLICIT_PR_ISSUE = re.compile(
     r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|issue)\s*:?[\s#]+(?P<number>\d+)\b",
     re.IGNORECASE,
 )
+# Words left on a dependency line after its cross-repo references: a prerequisite in
+# prose that resolving those references does not settle.
+EXTERNAL_TRAILING_PROSE = re.compile(r"[A-Za-z]")
 # Guards an "#367-#376" style range from expanding into an implausible span.
 MAX_REFERENCE_RANGE = 50
 
@@ -157,7 +160,17 @@ def _declares_none(line: str, position: int) -> bool:
 
 #: NEGATIVE-CONTROL: controls/project-next-dependencies
 # ADR 0008 row 23: dependency declarations must retain later references.
-def _line_references(line: str, repository: str = "") -> tuple[set[int], set[str], list[str]]:
+def _line_references(
+    line: str,
+    repository: str = "",
+    external_states: dict[str, str] | None = None,
+    external_open: list[str] | None = None,
+) -> tuple[set[int], set[str], list[str]]:
+    """`external_states` (contract 1.8) resolves a cross-repo reference the collector
+    looked up: CLOSED is satisfied, OPEN is appended to `external_open` as a real
+    blocker. A reference with no recorded state stays uncertain, exactly as before.
+    """
+    states = external_states or {}
     issues: set[int] = set()
     tasks: set[str] = set()
     unresolved: list[str] = []
@@ -192,10 +205,21 @@ def _line_references(line: str, repository: str = "") -> tuple[set[int], set[str
             # issue, so "Depends on #12, other/repo#34" must still name #34 even
             # though `consumed` (from #12) would otherwise suppress the report.
             if strong and found_external:
-                unresolved.append(
-                    f"'{lead.group(0).strip()}' declares a dependency but depends on "
-                    f"{', '.join(found_external)}, not checkable from this repo's inventory: {line.strip()}"
-                )
+                unknown_external = [ref for ref in found_external if states.get(ref.lower()) not in {"OPEN", "CLOSED"}]
+                if external_open is not None:
+                    external_open.extend(ref for ref in found_external if states.get(ref.lower()) == "OPEN")
+                if unknown_external:
+                    unresolved.append(
+                        f"'{lead.group(0).strip()}' declares a dependency but depends on "
+                        f"{', '.join(unknown_external)}, not checkable from this repo's inventory: {line.strip()}"
+                    )
+                elif EXTERNAL_TRAILING_PROSE.search(line[stopped:]) and not trailing:
+                    # Every external reference is resolved, but the declaration goes on
+                    # in words ("... and the owner approving the design"). Resolving the
+                    # references must not resolve a prerequisite they never named.
+                    unresolved.append(
+                        f"dependency prose after resolved cross-repo references requires review: {line.strip()}"
+                    )
                 continue
             if consumed or not strong or _declares_none(line, start):
                 continue
@@ -207,7 +231,11 @@ def _line_references(line: str, repository: str = "") -> tuple[set[int], set[str
 
 
 def _dependencies(
-    issue: Issue, task_issues: dict[str, set[int]], repository: str = ""
+    issue: Issue,
+    task_issues: dict[str, set[int]],
+    repository: str = "",
+    external_states: dict[str, str] | None = None,
+    external_open: list[str] | None = None,
 ) -> tuple[set[int], list[str], set[str]]:
     text = strip_code(f"{issue.title}\n{issue.body}")
     lines = text.splitlines()
@@ -221,7 +249,7 @@ def _dependencies(
     referenced_tasks: set[str] = set()
     uncertainty: list[str] = []
     for line in lines:
-        found_issues, found_tasks, unresolved = _line_references(line, repository)
+        found_issues, found_tasks, unresolved = _line_references(line, repository, external_states, external_open)
         dependencies |= found_issues
         referenced_tasks |= found_tasks
         uncertainty.extend(unresolved)
@@ -341,8 +369,15 @@ def classify_repository(state: RepositoryState, non_startable_labels: tuple[str,
     task_issues = _task_issue_index(state)
     dependency_map: dict[int, set[int]] = {}
     uncertainty: dict[int, list[str]] = defaultdict(list)
+    external_states = {key.lower(): str(value).upper() for key, value in state.external_issue_states.items()}
+    external_blockers: dict[int, tuple[str, ...]] = {}
     for issue in state.issues:
-        dependencies, reasons, unresolved_tasks = _dependencies(issue, task_issues, state.repository)
+        external_open: list[str] = []
+        dependencies, reasons, unresolved_tasks = _dependencies(
+            issue, task_issues, state.repository, external_states, external_open
+        )
+        if external_open:
+            external_blockers[issue.number] = tuple(sorted(set(external_open)))
         dependency_map[issue.number] = dependencies
         uncertainty[issue.number].extend(reasons)
         if issue.number in state.merged_refs_issue_numbers:
@@ -351,6 +386,8 @@ def classify_repository(state: RepositoryState, non_startable_labels: tuple[str,
             )
         if not state.merged_pr_history_complete:
             uncertainty[issue.number].append("merged PR history unavailable or truncated; partial delivery unknown")
+        elif issue.number in state.merged_refs_unknown_issue_numbers:
+            uncertainty[issue.number].append("merged PR search could not settle partial delivery for this issue")
         if not state.inventory_complete:
             unknown = sorted(dependencies - issue_numbers)
             if unknown:
@@ -388,7 +425,9 @@ def classify_repository(state: RepositoryState, non_startable_labels: tuple[str,
     # some resolution after which it would become startable.
     non_startable = set(marked) - in_flight
     uncertain = {number for number, reasons in uncertainty.items() if reasons} - in_flight - non_startable
-    blocked = {number for number, blockers in blocked_by.items() if blockers} - in_flight - non_startable - uncertain
+    blocked = (
+        {number for number, blockers in blocked_by.items() if blockers} | set(external_blockers)
+    ) - in_flight - non_startable - uncertain
     available = issue_numbers - in_flight - non_startable - blocked - uncertain
 
     partitions = (in_flight, non_startable, blocked, available, uncertain)
@@ -409,4 +448,5 @@ def classify_repository(state: RepositoryState, non_startable_labels: tuple[str,
         in_flight_evidence={number: tuple(sorted(values)) for number, values in sorted(evidence.items())},
         uncertainty={number: tuple(values) for number, values in sorted(uncertainty.items()) if values},
         unmapped_worktrees=tuple(sorted(unmapped_worktrees)),
+        external_blocked_by={number: refs for number, refs in sorted(external_blockers.items())},
     )

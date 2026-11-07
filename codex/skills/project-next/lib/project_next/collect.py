@@ -18,6 +18,15 @@ TASK = re.compile(r"^-\s*\[\s\]\s+(?:\*\*)?(?P<id>[A-Za-z]+\d+)(?:\*\*)?\s+(?P<t
 ISSUE_REF = re.compile(r"#(?P<number>\d+)\b")
 TASK_ID = re.compile(r"\bT\d{3}\b")
 LEDGER_IDENTITY = re.compile(r"^spec-sync:v1:(?P<repo>[^:]+/[^:]+):(?P<source>.+):(?P<group>[^:]+)$")
+REFS_LINE = re.compile(r"\bRefs\s*:?\s*((?:#\d+[\s,;]*(?:and\s*)?)+)", re.IGNORECASE)
+CROSS_REPO_ISSUE = re.compile(r"(?<![\w./-])(?P<owner>[\w.-]+)/(?P<name>[\w.-]+)#(?P<number>\d+)\b")
+#: Aliased GraphQL lookups per request; bounded so one request stays well inside
+#: GitHub's query-complexity limit.
+LOOKUP_BATCH = 20
+#: A per-issue search returning more hits than this cannot prove absence for that issue.
+PER_ISSUE_SEARCH_LIMIT = 50
+#: Cross-repo references looked up per run; the rest stay unknown, never closed.
+MAX_EXTERNAL_LOOKUPS = 60
 
 
 class CollectionError(RuntimeError):
@@ -49,6 +58,8 @@ def gh_field_remediation(command: list[str], diagnostic: str) -> str | None:
 
 def subprocess_runner(command: list[str], cwd: Path) -> str:
     timeout = 30 if command[:5] == ["gh", "pr", "list", "--state", "merged"] else None
+    if command[:3] == ["gh", "api", "graphql"]:
+        timeout = 60
     completed = subprocess.run(command, cwd=cwd, capture_output=True, text=True, check=False, timeout=timeout)
     if completed.returncode:
         diagnostic = (completed.stderr or "").strip() or (completed.stdout or "").strip() or "command failed"
@@ -327,6 +338,117 @@ def _spec_tasks(repository: Path, repository_name: str, warnings: list[str]) -> 
     return _spec_inventory(repository, repository_name, warnings)[0]
 
 
+def _refs_numbers(text: str) -> set[int]:
+    """Issue numbers named on `Refs #N` lines, the non-closing delivery convention."""
+    numbers: set[int] = set()
+    for line in text.splitlines():
+        for match in REFS_LINE.finditer(line):
+            numbers.update(int(ref.group("number")) for ref in ISSUE_REF.finditer(match.group(1)))
+    return numbers
+
+
+def _graphql(runner: CommandRunner, repository: Path, query: str) -> dict[str, Any]:
+    payload = _json(runner(["gh", "api", "graphql", "-f", f"query={query}"], repository))
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), dict) or payload.get("errors"):
+        detail = payload.get("errors") if isinstance(payload, dict) else payload
+        raise CollectionError(f"graphql lookup failed: {str(detail)[:200]}")
+    return payload["data"]
+
+
+def _per_issue_merged_refs(
+    runner: CommandRunner, repository: Path, repo_name: str, numbers: list[int]
+) -> tuple[set[int], set[int]]:
+    """Ask, per open issue, whether a merged PR names it on a `Refs` line (#1626).
+
+    Replaces "the newest 200 merged PRs" as the evidence when that window is full, so
+    the answer is about THIS issue rather than about how many PRs the repository has
+    ever merged. GitHub search narrows the candidates; each hit's own title and body
+    are re-read locally, so a number appearing in unrelated prose is not delivery.
+    Returns (issues with a merged Refs PR, issues the search could not settle). Raises
+    CollectionError when a request itself fails, so the caller can fail closed.
+    """
+    referenced: set[int] = set()
+    unsettled: set[int] = set()
+    for start in range(0, len(numbers), LOOKUP_BATCH):
+        batch = numbers[start : start + LOOKUP_BATCH]
+        fields = " ".join(
+            f'i{number}: search(type: ISSUE, first: {PER_ISSUE_SEARCH_LIMIT}, '
+            f'query: "repo:{repo_name} is:pr is:merged {number}") '
+            "{ issueCount nodes { ... on PullRequest { number title body } } }"
+            for number in batch
+        )
+        data = _graphql(runner, repository, f"query {{ {fields} }}")
+        for number in batch:
+            result = data.get(f"i{number}")
+            if not isinstance(result, dict) or not isinstance(result.get("nodes"), list):
+                unsettled.add(number)
+                continue
+            if int(result.get("issueCount") or 0) > PER_ISSUE_SEARCH_LIMIT:
+                unsettled.add(number)
+            for node in result["nodes"]:
+                if not isinstance(node, dict):
+                    continue
+                if number in _refs_numbers(f"{node.get('title') or ''}\n{node.get('body') or ''}"):
+                    referenced.add(number)
+    return referenced, unsettled - referenced
+
+
+def _external_references(issues: tuple[Issue, ...], repo_name: str) -> list[str]:
+    from .classify import strip_code
+
+    found: set[str] = set()
+    for issue in issues:
+        for match in CROSS_REPO_ISSUE.finditer(strip_code(issue.body)):
+            ref = f"{match.group('owner')}/{match.group('name')}#{match.group('number')}"
+            if f"{match.group('owner')}/{match.group('name')}".lower() != repo_name.lower():
+                found.add(ref)
+    return sorted(found)
+
+
+def _external_issue_states(
+    runner: CommandRunner, repository: Path, references: list[str], warnings: list[str]
+) -> dict[str, str]:
+    """Look up cross-repo `owner/repo#N` references (#1626). Fail-open to UNKNOWN.
+
+    A reference left out of the result is unknown and stays uncertain in the
+    classifier; nothing here can make an unlooked-up blocker read as satisfied.
+    """
+    states: dict[str, str] = {}
+    if len(references) > MAX_EXTERNAL_LOOKUPS:
+        warnings.append(
+            f"{len(references)} cross-repo references found; only the first {MAX_EXTERNAL_LOOKUPS} were looked up"
+        )
+        references = references[:MAX_EXTERNAL_LOOKUPS]
+    for start in range(0, len(references), LOOKUP_BATCH):
+        batch = references[start : start + LOOKUP_BATCH]
+        parts = []
+        for index, ref in enumerate(batch):
+            repo, _, number = ref.partition("#")
+            owner, _, name = repo.partition("/")
+            parts.append(
+                f'r{index}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) '
+                f"{{ issueOrPullRequest(number: {int(number)}) "
+                "{ __typename ... on Issue { state } ... on PullRequest { state } } }"
+            )
+        try:
+            payload = _json(runner(["gh", "api", "graphql", "-f", f"query=query {{ {' '.join(parts)} }}"], repository))
+        except (CollectionError, subprocess.TimeoutExpired) as exc:
+            warnings.append(f"cross-repo dependency lookup failed; those references stay uncertain: {exc}")
+            continue
+        data = payload.get("data") if isinstance(payload, dict) else None
+        for index, ref in enumerate(batch):
+            node = ((data or {}).get(f"r{index}") or {}).get("issueOrPullRequest") if isinstance(data, dict) else None
+            kind = str((node or {}).get("__typename") or "")
+            state = str((node or {}).get("state") or "").upper()
+            if state == "OPEN":
+                states[ref] = "OPEN"
+            elif (kind == "Issue" and state == "CLOSED") or (kind == "PullRequest" and state == "MERGED"):
+                states[ref] = "CLOSED"
+            # A pull request closed WITHOUT merging delivered nothing: it stays unknown,
+            # so the dependency stays uncertain rather than reading as satisfied.
+    return states
+
+
 def collect_repository(
     repository: Path,
     config: ProjectNextConfig | None = None,
@@ -424,9 +546,12 @@ def collect_repository(
         complete = False
         pull_requests = ()
 
-    # One bounded bulk read. A full page cannot establish absence of older Refs.
+    # One bounded bulk read. A full page cannot establish absence of older Refs, so a
+    # full page is followed by a per-issue lookup (#1626) before anything is unknown.
     merged_refs: set[int] = set()
+    merged_refs_unknown: set[int] = set()
     merged_history_complete = True
+    window_full = False
     try:
         merged_prs = _json(
             runner(
@@ -436,17 +561,27 @@ def collect_repository(
         )
         if not isinstance(merged_prs, list):
             raise CollectionError("merged PR history is not a JSON list")
-        if len(merged_prs) >= 200:
-            merged_history_complete = False
-            warnings.append("merged PR history truncated at 200; partial delivery unknown")
+        window_full = len(merged_prs) >= 200
         for item in merged_prs:
-            for line in f"{item.get('title') or ''}\n{item.get('body') or ''}".splitlines():
-                # Refs is the repository's non-closing delivery convention.
-                for match in re.finditer(r"\bRefs\s*:?\s*((?:#\d+[\s,;]*(?:and\s*)?)+)", line, re.IGNORECASE):
-                    merged_refs.update(int(ref.group("number")) for ref in ISSUE_REF.finditer(match.group(1)))
+            merged_refs |= _refs_numbers(f"{item.get('title') or ''}\n{item.get('body') or ''}")
     except (CollectionError, subprocess.TimeoutExpired, KeyError, TypeError, AttributeError) as exc:
         merged_history_complete = False
         errors.append(f"merged PR history unavailable: {exc}")
+    if merged_history_complete and window_full:
+        unchecked = sorted({issue.number for issue in issues} - merged_refs)
+        try:
+            found, merged_refs_unknown = _per_issue_merged_refs(runner, repository, repo_name, unchecked)
+            merged_refs |= found
+            if merged_refs_unknown:
+                warnings.append(
+                    "merged PR search could not settle partial delivery for "
+                    + ", ".join(f"#{number}" for number in sorted(merged_refs_unknown))
+                )
+        except (CollectionError, subprocess.TimeoutExpired, KeyError, TypeError, AttributeError) as exc:
+            merged_history_complete = False
+            warnings.append(
+                f"merged PR history truncated at 200 and the per-issue lookup failed ({exc}); partial delivery unknown"
+            )
     if not merged_history_complete:
         complete = False
 
@@ -474,6 +609,7 @@ def collect_repository(
         complete = False
         branches = ()
 
+    external_states = _external_issue_states(runner, repository, _external_references(issues, repo_name), warnings)
     spec_tasks, spec_features = _spec_inventory(repository, repo_name, warnings)
     return RepositoryState(
         repository=repo_name,
@@ -483,6 +619,8 @@ def collect_repository(
         pull_requests=pull_requests,
         merged_refs_issue_numbers=tuple(sorted(merged_refs & {issue.number for issue in issues})),
         merged_pr_history_complete=merged_history_complete,
+        merged_refs_unknown_issue_numbers=tuple(sorted(merged_refs_unknown)),
+        external_issue_states=external_states,
         worktrees=worktrees,
         branches=branches,
         spec_tasks=spec_tasks,

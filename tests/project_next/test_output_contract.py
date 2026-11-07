@@ -18,7 +18,8 @@ def test_all_human_modes_are_versioned_and_separate_both_decisions(project_next_
 
     for mode in ("brief", "compact", "full"):
         rendered = render_result(result, state, mode)
-        assert "1.7" in rendered
+        assert "1.8" in rendered
+        assert "Recommended: #2" in rendered or "**Recommended:** #2" in rendered
         assert "Top action" in rendered
         assert "Next safe issue" in rendered
         assert "#1" in rendered
@@ -29,7 +30,7 @@ def test_structured_output_is_versioned_and_json_serializable(project_next_scena
     state = RepositoryState.from_dict(project_next_scenarios["active_pr_and_safe_issue"]["state"])
     payload = recommend(state).to_dict()
 
-    assert CONTRACT_VERSION == "1.7"
+    assert CONTRACT_VERSION == "1.8"
     assert payload["contract_version"] == CONTRACT_VERSION
     assert payload["top_action"]["issue_number"] == 1
     assert payload["next_startable_issue"] == 2
@@ -83,3 +84,20 @@ def test_compact_has_at_most_three_safe_candidates(project_next_scenarios: dict[
     assert rendered.count("`/flow:auto ") == 3
     assert "#1 Critical security repair — blocked" in rendered
     assert "`/flow:auto 1`" not in rendered
+
+
+def test_no_recommendation_over_an_incomplete_inventory_never_claims_everything_is_blocked() -> None:
+    # Counter-model review on #1626: an issue-list failure leaves zero issues. That
+    # zero is unexamined, not "every open issue is blocked".
+    state = RepositoryState(
+        repository="example/failed",
+        default_branch="main",
+        collected_at="2026-11-06T00:00:00Z",
+        inventory_complete=False,
+        collector_errors=("open issue inventory unavailable: gh: rate limited",),
+    )
+
+    rendered = render_result(recommend(state), state, "compact")
+
+    assert "every open issue is blocked" not in rendered
+    assert "inventory is incomplete" in rendered
