@@ -7,6 +7,6 @@
 # corruption, a partial edit, and post-build modification. It does NOT
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
-df76f004aa946f9647746f46c2afa6ab09bc5f43f1b0e6114c5277768979cd21  flow-preflight.py
+7f19b3a4e171180dced1742d54be8e09f6399d82bdcfba611c5ded634e00a0f3  flow-preflight.py
 513c58d202b21e333b2275a0d8a29017f92778aa32b8fa513e1515aa55d48022  flow-preflight.sh
 249c8948824d7d29d0f11abf05a5a3e7733d97a72d8596401c6210420ee04c31  project-next.py

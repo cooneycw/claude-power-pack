@@ -809,10 +809,12 @@ Act on `STASH_GUARD:`:
   and change nothing; merging the two is the user's call.
 - `unsupported` - git below 2.28, or a RELATIVE `core.hooksPath`. Report the
   reason rather than a bare failure.
-- No `STASH_GUARD:` line (exit 2 with a shell `syntax error`) - the guard did not
-  run, because bash is below the floor Step 3.6 reported (issue #1628). It is NOT
-  `unsupported`, and the exit-127 fallback does not apply. Report
-  `→ Shared-stash guard: NOT installed (bash below floor)` and continue.
+- No `STASH_GUARD:` line - the guard did not run, which is NOT `unsupported`, and
+  the exit-127 fallback does not apply. Only when Step 3.6 reported exit 1 with
+  `UNSUPPORTED bash` and this is a shell `syntax error` (issue #1628), report
+  `→ Shared-stash guard: NOT installed (bash below floor)`. Otherwise old bash is
+  not the established cause: report `→ Shared-stash guard: NOT installed (cause
+  unknown)` with the helper's own diagnostic. Either way, continue.
 
 **Turning it off from here** is the same one action that records the choice:
 

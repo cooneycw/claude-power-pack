@@ -183,7 +183,7 @@ def observer(tmp_path, monkeypatch):
             return 1, "", text + "\n".join("  " + field for field in fields)
         if argv[0].startswith("python"):
             return 0, "Python 3.11.14\n", ""
-        if argv[:2] == ["bash", "--version"]:
+        if Path(argv[0]).name == "bash" and argv[1:] == ["--version"]:
             return 0, "GNU bash, version 5.2.15(1)-release (x86_64-pc-linux-gnu)\n", ""
         if argv[:3] == ["git", "config", "--get"]:
             return 0, "dummy-identity-value\n", ""
@@ -224,6 +224,23 @@ def test_a_passing_bash_check_claims_only_the_path_it_saw(observer, monkeypatch)
     assert result["status"] == "ok" and "unexamined" in result["message"]
 
 
+def test_relative_path_entry_is_resolved_from_the_caller_not_the_repository(observer, monkeypatch, tmp_path):
+    module, _, _, _ = observer
+    caller = tmp_path / "caller"
+    (caller / "tools").mkdir(parents=True)
+    monkeypatch.chdir(caller)
+    seen = []
+
+    def probe(argv, cwd, env=None):
+        seen.append(argv[0])
+        return 0, "GNU bash, version 5.3.20(1)-release\n", ""
+
+    monkeypatch.setattr(module.shutil, "which", lambda name: "tools/bash")
+    monkeypatch.setattr(module, "run", probe)
+    module.bash_check(tmp_path / "target")
+    assert seen == [os.path.join(os.getcwd(), "tools/bash")]
+
+
 def test_absent_bash_is_missing_and_never_probed(observer, monkeypatch):
     module, _, _, _ = observer
     monkeypatch.setattr(module.shutil, "which", lambda name: None)
@@ -251,7 +268,7 @@ def test_old_bash_is_a_required_gap_for_the_whole_host(observer, monkeypatch):
     healthy = module.run
 
     def old_bash(argv, cwd, env=None):
-        if argv[:2] == ["bash", "--version"]:
+        if Path(argv[0]).name == "bash":
             return 0, "GNU bash, version 3.2.57(1)-release\n", ""
         return healthy(argv, cwd, env)
 

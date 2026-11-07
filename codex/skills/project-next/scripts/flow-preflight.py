@@ -295,6 +295,9 @@ def bash_check(repo):
     path = shutil.which("bash")
     if not path:
         return check("bash", "missing", "bash is absent from this PATH", remediation, floor=floor)
+    # Absolute before run() changes directory: a relative PATH entry names the
+    # caller's bash, and resolved from the repository it would name a neighbour's.
+    path = os.path.abspath(path)
     code, out, _ = run([path, "--version"], repo, dict(os.environ, LC_ALL="C"))
     version = re.match(r"GNU bash, version (\d+)\.(\d+)", out)
     if code != 0 or not version:
