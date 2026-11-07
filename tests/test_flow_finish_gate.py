@@ -3337,3 +3337,46 @@ def test_coordination_off_is_byte_exact_prechange_behavior(tmp_path: Path, conte
                          capture_output=True, timeout=10)
     assert (new.returncode, new.stdout, new.stderr) == (old.returncode, old.stdout, old.stderr)
     assert (bindir / "make.log").read_bytes() == old_calls
+
+
+@requires_bash
+@pytest.mark.parametrize("xdg", [False, True])
+@pytest.mark.parametrize("enabled", [False, True])
+def test_coordination_default_uses_only_dedicated_folder(tmp_path: Path, xdg: bool, enabled: bool):
+    home = tmp_path / "operator-home"
+    config = tmp_path / "xdg-config" if xdg else home / ".config"
+    folder = config / "claude-power-pack" / "coordination"
+    folder.mkdir(parents=True)
+    # The old sibling flag is deliberately the opposite value. It must never
+    # control admission after moving to the dedicated directory contract.
+    (folder.parent / "coordination-admission").write_bytes(b"garbage\n" if enabled else b"on\n")
+    (folder / "admission").write_bytes(b"on\n" if enabled else b"garbage\n")
+    env = dict(os.environ, HOME=str(home))
+    env.pop("CPP_COORDINATION_ADMISSION_FILE", None)
+    env.pop("XDG_CONFIG_HOME", None)
+    if xdg:
+        env["XDG_CONFIG_HOME"] = str(config)
+    result = subprocess.run(["bash", "-c", '. "$1"; coordination_admission_on', "probe",
+                             str(ROOT / "scripts/coordination-admission.sh")],
+                            env=env, capture_output=True, text=True, timeout=5)
+    assert result.returncode == (0 if enabled else 1)
+    assert result.stdout == result.stderr == ""
+
+
+@requires_bash
+def test_coordination_directory_replacement_and_removal_are_observed(tmp_path: Path):
+    home = tmp_path / "operator-home"
+    folder = home / ".config" / "claude-power-pack" / "coordination"
+    folder.mkdir(parents=True)
+    env = dict(os.environ, HOME=str(home))
+    env.pop("CPP_COORDINATION_ADMISSION_FILE", None)
+    env.pop("XDG_CONFIG_HOME", None)
+    command = ('. "$1"; coordination_admission_on && exit 90; '
+               'printf "on\\n" > "$2/replacement"; mv "$2/replacement" "$2/admission"; '
+               'coordination_admission_on || exit 91; rm "$2/admission"; '
+               'coordination_admission_on && exit 92; exit 0')
+    result = subprocess.run(["bash", "-c", command, "probe",
+                             str(ROOT / "scripts/coordination-admission.sh"), str(folder)],
+                            env=env, capture_output=True, text=True, timeout=5)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == result.stderr == ""

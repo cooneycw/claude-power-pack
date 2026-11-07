@@ -1438,11 +1438,16 @@ its constructed anchor hardcodes the comparison off and misses it.
 
 A shared rollout decision for `gh-pr-merge.sh` and `flow-finish-gate.sh`. Only
 exact `on` plus newline bytes in the owner-controlled rollout flag activate
-service coordination. `CPP_COORDINATION_ADMISSION_FILE` is a test hook only and must not be set
-in operational environments. The owner switches the default shared file. The default is the coordination-admission file in the claude-power-pack directory
-under the operator's XDG configuration directory (falling back to the user's
-.config directory). Missing, unreadable, symlinked or malformed files preserve the old queue read and gate execution. The owner changes this
-signal at the joint switch; merging helpers does not enable it. The service's
+service coordination. `CPP_COORDINATION_ADMISSION_FILE` is a test hook only
+and must not be set in operational environments. The default is the `admission`
+file inside the dedicated `claude-power-pack/coordination` folder under the
+operator's XDG configuration directory (falling back to the user's `.config`
+directory). Only this dedicated folder is shared read-only with containers;
+other CPP configuration stays outside the mount. Mount the folder rather than
+the flag so replacement and removal remain visible to running processes.
+Missing, unreadable, symlinked or malformed files preserve the old queue read
+and gate execution. The owner changes this signal at the joint switch;
+merging helpers does not enable it. The service's
 own admission flag and credentials are separate prerequisites. An older bundle
 missing this helper uses the old path, so installed/bundled coverage must be
 verified before the owner switches.
