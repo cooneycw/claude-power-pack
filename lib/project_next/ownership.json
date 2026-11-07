@@ -6,7 +6,7 @@
     "docs/project-next-contract.md": "86092056bb813ed5d1c75cc183b722cf2b6ab31e50b47fd11ddfa1a2af389802",
     "lib/project_next/LICENSE": "09fc9c15f0b236d2bce483820f98147b4e8f65a807e927b58ea363f531fe0ab0",
     "lib/project_next/__init__.py": "0df00452c2ea69de59ca4a528eff28b0b79c1f2b3faedbffa7b2f89f558cf988",
-    "lib/project_next/classify.py": "5df60bf40e51bb74b1b6fd0eb5633b73eeb9bbabc123446a4926feee1b270ea0",
+    "lib/project_next/classify.py": "aad31cce00b47d1f1a9cdb11ba1f03f8ee96d65d90e7c53f8e21a460571108a8",
     "lib/project_next/cli.py": "e084bcbf526acf9ad373c6c843e019fbdb57b19d5a5e43c4a88c323b1e4dea5c",
     "lib/project_next/collect.py": "71d6c9ea96fc923fb6af72162f40e22346cbbc3f999c5fd71224793f865fd422",
     "lib/project_next/config.py": "7e816be531930af90fcb89458bf7322298872d03d8bd7ead9cc306577a990265",

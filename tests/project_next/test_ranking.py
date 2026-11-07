@@ -416,3 +416,21 @@ def test_recommendation_is_engine_safe_exactly_when_dispatch_is(
                 | set(result.classification.non_startable)
             )
             assert result.recommendation.issue_number not in excluded, name
+
+
+def test_resolve_inventory_evidence_keeps_real_causes_and_drops_spec_sync_advice() -> None:
+    state = RepositoryState(
+        repository="example/evidence",
+        default_branch="main",
+        collected_at="2026-11-06T00:00:00Z",
+        inventory_complete=False,
+        collector_warnings=(
+            ".specify/specs/x/tasks.md: spec-sync mapping is missing for 6 task(s): T001",
+            "remote branch refresh failed: git fetch: offline",
+        ),
+    )
+
+    action = recommend(state).top_action
+
+    assert action is not None and action.kind == "resolve_inventory"
+    assert action.evidence == ("remote branch refresh failed: git fetch: offline",)

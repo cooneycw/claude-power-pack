@@ -53,7 +53,7 @@ EXPLICIT_PR_ISSUE = re.compile(
 )
 # Words left on a dependency line after its cross-repo references: a prerequisite in
 # prose that resolving those references does not settle.
-EXTERNAL_TRAILING_PROSE = re.compile(r"[A-Za-z]{3,}")
+EXTERNAL_TRAILING_PROSE = re.compile(r"[A-Za-z]")
 # Guards an "#367-#376" style range from expanding into an implausible span.
 MAX_REFERENCE_RANGE = 50
 

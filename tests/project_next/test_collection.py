@@ -417,3 +417,33 @@ def test_cross_repo_references_are_looked_up_and_failures_stay_unknown(tmp_path:
     warnings = []
     assert _external_issue_states(failing, tmp_path, references, warnings) == {}
     assert warnings and "stay uncertain" in warnings[0]
+
+
+def test_a_graphql_error_payload_is_a_failed_lookup_never_an_examined_zero(tmp_path: Path) -> None:
+    from lib.project_next.collect import _per_issue_merged_refs
+
+    def runner(command: list[str], cwd: Path) -> str:
+        return json.dumps({"data": {}, "errors": [{"message": "rate limited"}]})
+
+    with pytest.raises(CollectionError):
+        _per_issue_merged_refs(runner, tmp_path, "example/repo", [7])
+
+
+def test_references_beyond_the_lookup_cap_stay_unknown(tmp_path: Path) -> None:
+    from lib.project_next.collect import MAX_EXTERNAL_LOOKUPS, _external_issue_states
+
+    references = [f"other/repo#{n}" for n in range(1, MAX_EXTERNAL_LOOKUPS + 2)]
+    looked_up: list[str] = []
+
+    def runner(command: list[str], cwd: Path) -> str:
+        count = command[-1].count("issueOrPullRequest")
+        looked_up.extend(["x"] * count)
+        closed = {"issueOrPullRequest": {"__typename": "Issue", "state": "CLOSED"}}
+        return json.dumps({"data": {f"r{i}": closed for i in range(count)}})
+
+    warnings: list[str] = []
+    states = _external_issue_states(runner, tmp_path, references, warnings)
+
+    assert len(looked_up) == MAX_EXTERNAL_LOOKUPS
+    assert references[-1] not in states
+    assert warnings and "only the first" in warnings[0]

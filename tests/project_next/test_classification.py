@@ -407,14 +407,16 @@ def test_a_cross_repo_dependency_with_no_recorded_state_stays_uncertain() -> Non
     assert "depends on other/repo#9, not checkable" in reasons
 
 
-def test_resolving_cross_repo_references_does_not_resolve_trailing_prose() -> None:
-    # Counter-model review on #1626: "and the owner approving the design" is a
-    # prerequisite no looked-up reference names, so it must keep the issue uncertain.
+@pytest.mark.parametrize("tail", ["and the owner approving the design.", "and QA.", "and an OK"])
+def test_resolving_cross_repo_references_does_not_resolve_trailing_prose(tail: str) -> None:
+    # Counter-model review on #1626 (both passes): any words after the resolved
+    # references are a prerequisite no looked-up reference names - including short
+    # ones like "QA" - so they must keep the issue uncertain.
     state = RepositoryState(
         repository="example/cross",
         default_branch="main",
         collected_at="2026-11-06T00:00:00Z",
-        issues=(Issue(6, "Waits", body="Depends on other/repo#8 and the owner approving the design."),),
+        issues=(Issue(6, "Waits", body=f"Depends on other/repo#8 {tail}"),),
         external_issue_states={"other/repo#8": "CLOSED"},
     )
 
