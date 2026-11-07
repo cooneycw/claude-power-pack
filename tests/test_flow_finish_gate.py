@@ -3200,6 +3200,47 @@ def test_coordination_refusal_starts_no_gate_work(tmp_path: Path, supervisor_exi
 
 @requires_git
 @requires_bash
+def test_coordination_interrupted_parent_removes_its_temp_files(tmp_path: Path):
+    import signal
+    import time
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    started = tmp_path / "supervisor-started"
+    supervisor = bindir / "supervisor"
+    supervisor.write_text(f'#!/usr/bin/env bash\ntouch "{started}"\nexec sleep 60\n')
+    supervisor.chmod(0o755)
+    (tmp_path / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
+    scratch = tmp_path / "tmp"
+    scratch.mkdir()
+    flag = tmp_path / "coordination-flag"
+    flag.write_text("on\n")
+    env = os.environ.copy()
+    for key in ("CPP_KYLE_FULL_SUITE_ACTIVE", "CPP_FLOW_FINISH_GATE_STATUS_FILE"):
+        env.pop(key, None)
+    env.update({"CPP_COORDINATION_ADMISSION_FILE": str(flag), "CPP_KYLE_LOCK_BIN": str(supervisor),
+                "TMPDIR": str(scratch), "FLOW_GATE_CPP_DIR": "", "PATH": f"{bindir}:{env['PATH']}"})
+    proc = subprocess.Popen(["bash", str(SCRIPT)], cwd=tmp_path, env=env, start_new_session=True,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        deadline = time.monotonic() + 15
+        while not started.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert started.exists(), "the supervisor never started"
+        created = sorted(f.name for f in scratch.iterdir())
+        assert any(n.startswith("flow-finish-gate-status.") for n in created), created
+        proc.send_signal(signal.SIGTERM)
+        proc.wait(timeout=15)
+    finally:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    assert sorted(f.name for f in scratch.iterdir()) == []
+
+
+@requires_git
+@requires_bash
 @pytest.mark.parametrize(("supervisor_tail", "gate_exit", "expected"), [
     ("exit $rc", 0, 0), ("exit $rc", 1, 1), ("exit 12", 0, 1), ("exit 13", 0, 1)])
 def test_coordination_passes_the_gate_verdict_only_when_the_supervisor_agrees(

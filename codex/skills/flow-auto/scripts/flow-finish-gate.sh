@@ -180,7 +180,12 @@ _gate_on_exit() {
         printf "FLOW_FINISH_GATE_EXIT=%d\n" "$rc" >&2
     fi
     [[ -z "$RUNNER_JSON" ]] || rm -f "$RUNNER_JSON"
+    # The coordination parent's status and verdict files, also on an interrupt.
+    [[ -z "$_coordination_status$_coordination_verdict" ]] \
+        || rm -f -- ${_coordination_status:+"$_coordination_status"} ${_coordination_verdict:+"$_coordination_verdict"}
 }
+_coordination_status=""
+_coordination_verdict=""
 trap '_gate_on_exit "$?"' EXIT
 
 # --- The shared gate conventions (issue #1061) ------------------------------
@@ -346,11 +351,9 @@ if coordination_admission_on && [[ "$MODE" == "gate" && "${CPP_KYLE_FULL_SUITE_A
         echo "flow-finish-gate: coordination enabled but kyle-lock is unavailable; refusing to start." >&2
         gate_exit fail
     fi
-    _coordination_status=""
     if ! _coordination_status="$(mktemp "${TMPDIR:-/tmp}/flow-finish-gate-status.XXXXXX")" \
             || ! _coordination_verdict="$(mktemp "${TMPDIR:-/tmp}/flow-finish-gate-verdict.XXXXXX")"; then
         echo "flow-finish-gate: coordination enabled but no status file could be created; refusing to start." >&2
-        rm -f -- "$_coordination_status"
         gate_exit fail
     fi
     # The authority configuration belongs to the supervisor. Test commands
