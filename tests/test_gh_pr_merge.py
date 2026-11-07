@@ -4108,7 +4108,7 @@ def test_coordination_signal_preserves_queue_unless_explicitly_enabled(tmp_path:
     assert any(c.startswith("gh pr merge") for c in calls), calls
 
 
-@pytest.mark.parametrize("status,expected", [("FAILURE", 1), ("SUCCESS", 0)])
+@pytest.mark.parametrize("status,expected", [("FAILURE", 1), ("PENDING", 1), ("SUCCESS", 0)])
 def test_coordination_does_not_bypass_required_checks(tmp_path: Path, status: str, expected: int):
     stubs = _make_stubs(tmp_path, merge_exit=0, pr_state="OPEN",
                         required_contexts=[WOODPECKER], check_rollup=[[(WOODPECKER, status)]])
@@ -4118,3 +4118,15 @@ def test_coordination_does_not_bypass_required_checks(tmp_path: Path, status: st
     assert merged == (expected == 0), result.stderr
     if expected:
         assert result.returncode != 0
+
+
+def test_coordination_does_not_bypass_the_head_pin(tmp_path: Path):
+    # Opt-in skips only the advisory queue read; a head that moved after CI
+    # must still be a CLEAN STOP with no squash attempted (kyle#2130).
+    stubs = _make_stubs(tmp_path, merge_exit=0, pr_state="MERGED")
+    verified = "0123456789abcdef0123456789abcdef01234567"
+    result = _run(_linked_worktree(tmp_path), stubs,
+                  "--match-head-commit", verified, "42", "issue-2130",
+                  extra_env={"CPP_KYLE_COORDINATION_ADMISSION": "1"})
+    assert result.returncode == 11, result.stderr
+    assert [c for c in _calls(stubs) if c.startswith("gh pr merge")] == []
