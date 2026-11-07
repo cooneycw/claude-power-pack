@@ -46,6 +46,27 @@ def _next_issue(result: RecommendationResult, state: RepositoryState) -> str:
     return f"#{issue.number} {issue.title}"
 
 
+def _recommended(result: RecommendationResult, state: RepositoryState) -> str:
+    """Contract 1.8 (#1626): always say what to work on, and on what basis."""
+    recommendation = result.recommendation
+    if recommendation is None:
+        return "None — every open issue is blocked, in flight, or open by design."
+    titles = {issue.number: issue.title for issue in state.issues}
+    line = f"#{recommendation.issue_number} {titles.get(recommendation.issue_number, '')}".rstrip()
+    if recommendation.basis == "engine-safe":
+        line += " (engine-safe)"
+    else:
+        line += f" (needs judgement: {_reasons(recommendation.reasons)})"
+    if recommendation.runner_up is not None:
+        line += f"; runner-up #{recommendation.runner_up}"
+    return line
+
+
+def _blockers(number: int, result: RecommendationResult) -> str:
+    local = [f"#{blocker}" for blocker in result.classification.blocked_by.get(number, ())]
+    return ", ".join(local + list(result.classification.external_blocked_by.get(number, ())))
+
+
 def _candidate_lines(candidate: Candidate, title: str, position: int | None = None) -> list[str]:
     prefix = f"{position}." if position is not None else "-"
     evidence = (
@@ -79,6 +100,7 @@ def render_brief(result: RecommendationResult, state: RepositoryState) -> str:
             f"Project Next {result.contract_version} — brief",
             f"Top action: {_action(result.top_action)}",
             f"Next safe issue: {_next_issue(result, state)}",
+            f"Recommended: {_recommended(result, state)}",
             f"Inventory: {confidence}",
         )
     )
@@ -91,6 +113,7 @@ def render_compact(result: RecommendationResult, state: RepositoryState) -> str:
         "",
         f"**Top action:** {_action(result.top_action)}",
         f"**Next safe issue:** {_next_issue(result, state)}",
+        f"**Recommended:** {_recommended(result, state)}",
         (
             f"**State:** {len(state.issues)} open | {len(result.classification.in_flight)} in-flight | "
             f"{len(result.classification.blocked)} blocked | {len(result.classification.uncertain)} uncertain | "
@@ -123,8 +146,7 @@ def render_compact(result: RecommendationResult, state: RepositoryState) -> str:
     if result.classification.blocked:
         lines.extend(("", "### Blocked (not startable)"))
         lines.extend(
-            f"- #{number} {issues[number].title} — blocked by "
-            + ", ".join(f"#{blocker}" for blocker in result.classification.blocked_by[number])
+            f"- #{number} {issues[number].title} — blocked by {_blockers(number, result)}"
             for number in result.classification.blocked
         )
     if result.classification.uncertain:

@@ -497,5 +497,58 @@
       "available": [],
       "uncertain": []
     }
+  },
+  "truncated_history_prose_dependency": {
+    "state": {
+      "repository": "example/truncated",
+      "default_branch": "main",
+      "collected_at": "2026-11-06T12:00:00Z",
+      "inventory_complete": false,
+      "merged_pr_history_complete": false,
+      "collector_warnings": ["merged PR history truncated at 200; partial delivery unknown"],
+      "issues": [
+        {"number": 80, "title": "Fix the finish gate clearing an interrupted target", "labels": ["bug"]},
+        {
+          "number": 81,
+          "title": "Ask for the CI provider at init",
+          "body": "Part of the link-up. Depends on the project-record issue."
+        },
+        {"number": 82, "title": "Second gate fix", "body": "Depends on #80", "labels": ["bug", "priority-high"]}
+      ]
+    },
+    "expected": {
+      "top_action": "resolve_inventory",
+      "top_issue": null,
+      "next_startable": null,
+      "in_flight": [],
+      "blocked": [],
+      "available": [],
+      "uncertain": [80, 81, 82],
+      "recommendation": {"issue": 80, "basis": "needs-judgement"}
+    }
+  },
+  "native_open_blocker_only": {
+    "state": {
+      "repository": "example/blocked",
+      "default_branch": "main",
+      "collected_at": "2026-11-06T12:00:00Z",
+      "issues": [
+        {"number": 90, "title": "Second step", "body": "Depends on #91"},
+        {"number": 91, "title": "First step, already being worked"}
+      ],
+      "pull_requests": [
+        {"number": 300, "title": "First step (Refs #91)", "head_ref": "issue-91-first-step", "checks_state": "pending"}
+      ]
+    },
+    "expected": {
+      "top_action": "continue_pr",
+      "top_issue": 91,
+      "next_startable": null,
+      "in_flight": [91],
+      "blocked": [90],
+      "available": [],
+      "uncertain": [],
+      "recommendation": null
+    }
   }
 }

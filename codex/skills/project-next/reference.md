@@ -2,10 +2,15 @@
 
 # Project Next Steps Recommendation
 
-Run CPP's always-present project-next engine and return its read-only,
-deterministic recommendation. This command never modifies issues, branches,
-worktrees, specifications, or lifecycle ledgers. Do not enter plan mode - this
-is a report, not a change.
+Run CPP's always-present project-next engine, return its read-only,
+deterministic report, and END WITH A PICK: the issue to work on next. This
+command never modifies issues, branches, worktrees, specifications, or
+lifecycle ledgers. Do not enter plan mode - this is a report, not a change.
+
+The command exists to recommend. "No safe issue" is the engine's answer to a
+narrower question - what may be dispatched unattended - and is never the
+command's final answer while an open issue remains that is not blocked, in
+flight, or open by design (#1626).
 
 ## Arguments
 
@@ -84,7 +89,8 @@ python3 "${CPP_SKILL_DIR:-/dev/null}"/scripts/project-next.py "$TARGET" <mode>
 
 Return that report without independently collecting issues or rebuilding its
 decision. If diagnosis needs the complete structured result, run the same
-entry point once with `--json`; the JSON result is authoritative.
+entry point once with `--json`; the JSON result is authoritative. The engine
+output is reproduced as printed; Step 3 adds to it, never edits it.
 
 The collector uses batched GitHub and git reads. It collects issue assignees
 and GitHub's native `blockedBy`, `blocking`, `parent`, and `subIssues` fields.
@@ -99,6 +105,48 @@ hierarchy evidence and do not silently become blocker edges.
 Collection, authentication, rate-limit, parse, and inventory failures remain
 visible. An incomplete inventory produces no globally safe
 `next_startable_issue`.
+
+## Step 3: Resolve and recommend
+
+The report carries a `Recommended:` line (JSON `recommendation`, contract 1.8).
+Its `basis` decides what this step does:
+
+- `engine-safe` - it is `next_startable_issue`. Present it, with its runner-up,
+  as the pick. Nothing to resolve.
+- `needs-judgement` - the engine could not prove it safe and lists why. Resolve
+  those reasons yourself before presenting the pick, then end with one.
+- none - every open issue is blocked, in flight, or open by design. Say so, and
+  name the action that unblocks the most work (the top action, or the blocker
+  most issues wait on). That is still an answer, never "nothing to do".
+
+Resolving is reading, bounded and read-only:
+
+1. Take the recommendation, its runner-up, and the next uncertain issues by rank
+   - at most 10 issues.
+2. For each, read the issue body (`gh issue view N`) and the merged PRs that
+   mention it (`gh pr list --state merged --search "N"`, confirmed by a `Refs #N`
+   or closing reference in the PR text). For a cross-repo dependency, read that
+   issue's state with `gh issue view N -R owner/repo`.
+3. Settle each uncertainty reason to exactly one of:
+   - `satisfied` - the dependency is closed or delivered; cite the issue or PR.
+   - `open-blocker` - it names an open issue; cite it. The issue is not a pick.
+   - `external-pending` - it waits on another repo's open issue; cite it.
+   - `owner-decision` - it waits on a ruling only the owner can give; quote it.
+   - `partial` - a merged PR delivered part of it; say what remains.
+
+Then present, after the engine report and visibly separate from it:
+
+- **Pick:** the best-ranked issue whose reasons all settled to `satisfied` (or
+  `partial` with clear remaining scope), with one line of evidence per reason.
+- **Runner-up:** the next such issue.
+- Anything that settled to `open-blocker`, `external-pending` or
+  `owner-decision`, one line each, so the reader can see why it was passed over.
+
+Label this section **agent judgment**. It is your reading, not the engine's
+verdict: it never changes `next_startable_issue`, and an unattended dispatcher
+(a wave orchestrator, `/flow-auto` without a human) still waits for an
+`engine-safe` issue or a human's go. If nothing settles cleanly, still name the
+least-encumbered issue and say exactly what would have to be true to start it.
 
 ## CPP extension contract
 
@@ -220,6 +268,10 @@ issue on premise grounds stays a reviewer decision.
   `continue_work`; it is reported as a warning to inspect.
 - `next_startable_issue` and start candidates never name an issue outside
   `available` when inventory is complete.
+- `recommendation` is never a `blocked`, `in_flight` or `non_startable` issue,
+  never one with a known open blocker, and never fills `next_startable_issue`.
+- Every report ends with a pick, or with the action that unblocks the most work
+  when every open issue is blocked, in flight, or open by design (Step 3).
 - Critical non-startable work remains visible but is not recommended as safe.
 - All modes use the same engine result, lifecycle decisions, relationship
   evidence, and Wayfinder routes. Renderers do not reclassify them.

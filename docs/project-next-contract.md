@@ -12,8 +12,8 @@ repository has been private and dormant since 2026-09-22 (#1076), and
 
 ## Version and entry points
 
-Contract version `1.7` accepts a structured `RepositoryState` and emits a
-structured `RecommendationResult`. Version 1.7 adds explicit remediation for a known gh JSON field rejected by the installed CLI; failed inventory remains incomplete and no authentication state is inferred (#1571). Run it from a CPP checkout with:
+Contract version `1.8` accepts a structured `RepositoryState` and emits a
+structured `RecommendationResult`. Version 1.8 always names a `recommendation`, separate from the strict `next_startable_issue`, checks partial delivery per issue instead of through a truncated global window, and resolves looked-up cross-repo dependencies (#1626). Run it from a CPP checkout with:
 
 ```bash
 python3 scripts/project-next.py [repository] [--brief|--compact|--full|--json]
@@ -155,6 +155,24 @@ headline of the report.
 issue only when the repository inventory is complete. Active work may therefore
 be the top action while a different issue is the safe next issue to start.
 
+`recommendation` (1.8, #1626) answers "what should I work on next" even when
+nothing is provably safe. It is `null` only when every open issue is blocked, in
+flight, or non-startable. Otherwise it carries `issue_number`, `basis`,
+`reasons` and `runner_up`:
+
+- `basis: engine-safe` - it IS `next_startable_issue`, with no reasons.
+- `basis: needs-judgement` - `next_startable_issue` is null. The pick is the
+  best-ranked `available` issue, else the best-ranked `uncertain` one, that has
+  no KNOWN open blocker: never a `blocked`, `in_flight` or `non_startable`
+  issue, never an issue whose dependency map names an open issue, and never one
+  with an open cross-repo blocker. `reasons` lists what a reader must resolve
+  before starting it.
+
+`recommendation` is never a dispatch verdict. Unattended dispatch reads
+`next_startable_issue` only, and a `needs-judgement` recommendation never fills
+it. The `/project:next` command resolves the reasons before presenting the pick
+as its own judgement.
+
 ## Output contract
 
 - `--json` emits the complete versioned result and is authoritative.
@@ -182,7 +200,7 @@ synchronized or a specification group complete.
 Missing mappings produce `sync_spec`; stale or ambiguous identities produce
 `resolve_spec_mapping`. Neither state is silently treated as completed work.
 
-All modes name the `1.7` contract. Missing prerequisites and incomplete state
+All modes name the `1.8` contract and render the recommendation with its basis. Missing prerequisites and incomplete state
 are explicit failure states; they never become a confident recommendation.
 
 Renderers cap long collector output: warnings list the first five entries and
@@ -190,6 +208,19 @@ per-issue uncertainty lists the first two reasons, each truncated. `--json`
 always carries the complete lists.
 
 ## Compatibility notes
+
+`1.8` (#1626) keeps every `1.7` field and adds `recommendation` to the result,
+`external_blocked_by` to the classification, and `external_issue_states` and
+`merged_refs_unknown_issue_numbers` to repository state (defaults: empty). When
+the 200-PR merged window is full, the collector asks, per open issue not already
+seen, for merged PRs mentioning it (batched GraphQL search, each hit's title and
+body re-read locally for a `Refs #N` line). A successful lookup makes merged
+history complete; an issue whose search overflowed is uncertain on its own; a
+failed lookup keeps the 1.7 fail-closed behaviour. Cross-repo `owner/repo#N`
+references are looked up the same way: `CLOSED` (or a merged PR) is satisfied,
+`OPEN` is a blocker in `external_blocked_by`, and anything not looked up stays
+uncertain. `resolve_inventory` evidence lists causes only, never spec-sync
+mapping warnings.
 
 `1.6` (#1488), retained in 1.7, retains later issue references on dependency lines and reports
 uncertainty when prose interrupts the contiguous reference list. This favors

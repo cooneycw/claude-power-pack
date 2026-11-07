@@ -372,3 +372,36 @@ def test_a_trailing_task_reference_after_prose_is_not_read_as_resolved() -> None
     result = classify_repository(state)
     assert result.dependency_map[28] == (8,)
     assert result.uncertain == (28,)
+
+
+def _cross_repo_state(states: dict[str, str]) -> RepositoryState:
+    return RepositoryState(
+        repository="example/cross",
+        default_branch="main",
+        collected_at="2026-11-06T00:00:00Z",
+        issues=(Issue(6, "Waits on another repo", body="Depends on: other/repo#8, other/repo#9."),),
+        external_issue_states=states,
+    )
+
+
+def test_cross_repo_dependencies_known_closed_are_satisfied() -> None:
+    # Issue #1626: a looked-up cross-repo reference is no longer left uncertain.
+    result = classify_repository(_cross_repo_state({"other/repo#8": "CLOSED", "Other/Repo#9": "closed"}))
+
+    assert result.available == (6,)
+    assert result.uncertain == ()
+
+
+def test_a_cross_repo_dependency_known_open_is_a_real_blocker() -> None:
+    result = classify_repository(_cross_repo_state({"other/repo#8": "CLOSED", "other/repo#9": "OPEN"}))
+
+    assert result.blocked == (6,)
+    assert result.external_blocked_by == {6: ("other/repo#9",)}
+
+
+def test_a_cross_repo_dependency_with_no_recorded_state_stays_uncertain() -> None:
+    result = classify_repository(_cross_repo_state({"other/repo#8": "CLOSED"}))
+
+    assert result.uncertain == (6,)
+    reasons = " ".join(result.uncertainty[6])
+    assert "depends on other/repo#9, not checkable" in reasons

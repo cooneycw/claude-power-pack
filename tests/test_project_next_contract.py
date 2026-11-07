@@ -56,6 +56,20 @@ def test_wiring_always_uses_the_owned_engine_and_manifest_pin() -> None:
     assert manifest["contract_version"] == CONTRACT_VERSION
 
 
+def test_command_always_ends_with_a_pick_labelled_as_agent_judgment() -> None:
+    # Issue #1626: the command relayed "Next safe issue: None" as its answer. The
+    # engine's strict verdict stays VERBATIM; the command must still resolve the
+    # uncertainty and name a pick, labelled so it cannot pass as dispatch-safe.
+    text = NEXT_MD.read_text(encoding="utf-8")
+
+    assert "## Step 3: Resolve and recommend" in text
+    assert "END WITH A PICK" in text
+    assert "agent judgment" in text
+    assert "never changes `next_startable_issue`" in text
+    for disposition in ("`satisfied`", "`open-blocker`", "`external-pending`", "`owner-decision`"):
+        assert disposition in text, disposition
+
+
 def test_old_host_probe_and_prompt_fallback_are_fully_superseded() -> None:
     text = NEXT_MD.read_text(encoding="utf-8")
 
@@ -76,6 +90,14 @@ def test_owned_fixture_corpus_matches_engine_classification() -> None:
         assert list(result.classification.uncertain) == expected["uncertain"], name
         if result.next_startable_issue is not None:
             assert result.next_startable_issue in result.classification.available, name
+        if "recommendation" in expected:
+            want = expected["recommendation"]
+            got = result.recommendation
+            if want is None:
+                assert got is None, name
+            else:
+                assert got is not None, name
+                assert (got.issue_number, got.basis) == (want["issue"], want["basis"]), name
 
 
 def test_vendored_human_and_json_goldens_are_executable() -> None:

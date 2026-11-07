@@ -276,7 +276,10 @@ def test_spec_inventory_reports_file_readiness_and_partial_sync(tmp_path: Path) 
     assert readiness.recommended_action == "sync remaining tasks to issues"
 
 
-@pytest.mark.parametrize("history", ["refs", "failed", "timeout", "truncated", "malformed", "clean"])
+@pytest.mark.parametrize(
+    "history",
+    ["refs", "failed", "timeout", "truncated", "malformed", "clean", "truncated-searched", "truncated-search-refs"],
+)
 def test_merged_refs_history_is_uncertain_and_fails_closed(tmp_path: Path, history: str) -> None:
     import subprocess
 
@@ -299,20 +302,36 @@ def test_merged_refs_history_is_uncertain_and_fails_closed(tmp_path: Path, histo
                 raise CollectionError("merged history unavailable")
             if history == "timeout":
                 raise subprocess.TimeoutExpired(command, 30)
-            if history == "truncated":
+            if history.startswith("truncated"):
                 return json.dumps([{"number": n, "title": "Unrelated"} for n in range(200)])
             if history == "malformed":
                 return "{}"
             if history == "clean":
                 return "[]"
             return json.dumps([{"number": 41, "title": "Part one", "body": "Refs #28"}])
+        if command[:3] == ["gh", "api", "graphql"]:
+            # The per-issue lookup only runs when the 200-PR window was full (#1626).
+            assert history.startswith("truncated"), command
+            assert "is:pr is:merged 28" in command[-1]
+            if history == "truncated":
+                raise CollectionError("graphql: rate limited")
+            body = "Refs #28" if history == "truncated-search-refs" else "mentions 28 in passing"
+            return json.dumps(
+                {"data": {"i28": {"issueCount": 1, "nodes": [{"number": 501, "title": "Part", "body": body}]}}}
+            )
         if command[0] == "git":
             return ""
         raise AssertionError(command)
 
     state = collect_repository(tmp_path, runner=runner)
     result = classify_repository(state)
-    assert result.uncertain == (() if history == "clean" else (28,))
+    settled_clean = history in {"clean", "truncated-searched"}
+    assert result.uncertain == (() if settled_clean else (28,))
+    if history.startswith("truncated-"):
+        # A full window followed by a successful per-issue lookup is complete evidence.
+        assert state.merged_pr_history_complete and state.inventory_complete
+    if history == "truncated-search-refs":
+        assert "partially delivered" in " ".join(result.uncertainty[28])
     assert len(merged_calls) == 1
     assert merged_calls[0][merged_calls[0].index("--limit") + 1] == "200"
     assert result.in_flight == ()
@@ -334,3 +353,54 @@ def test_git_log_failure_preserves_known_dirty_status(tmp_path: Path) -> None:
     assert result[0].status_unknown_reason == ""
     assert result[0].recent_commits == ()
     assert warnings == ["git log: unreadable history"]
+
+
+def test_per_issue_search_overflow_leaves_only_that_issue_unsettled(tmp_path: Path) -> None:
+    from lib.project_next.collect import _per_issue_merged_refs
+
+    def runner(command: list[str], cwd: Path) -> str:
+        return json.dumps(
+            {
+                "data": {
+                    "i7": {"issueCount": 51, "nodes": []},
+                    "i8": {"issueCount": 0, "nodes": []},
+                }
+            }
+        )
+
+    referenced, unsettled = _per_issue_merged_refs(runner, tmp_path, "example/repo", [7, 8])
+
+    assert referenced == set()
+    assert unsettled == {7}
+
+
+def test_cross_repo_references_are_looked_up_and_failures_stay_unknown(tmp_path: Path) -> None:
+    from lib.project_next.collect import _external_issue_states, _external_references
+    from lib.project_next.models import Issue
+
+    issues = (
+        Issue(1, "a", body="Depends on: other/repo#8, other/repo#9, example/repo#3"),
+        Issue(2, "b", body="`code/span#4` is code, not a reference"),
+    )
+    references = _external_references(issues, "example/repo")
+    assert references == ["other/repo#8", "other/repo#9"]
+
+    def runner(command: list[str], cwd: Path) -> str:
+        return json.dumps(
+            {
+                "data": {
+                    "r0": {"issueOrPullRequest": {"state": "CLOSED"}},
+                    "r1": {"issueOrPullRequest": None},
+                }
+            }
+        )
+
+    warnings: list[str] = []
+    assert _external_issue_states(runner, tmp_path, references, warnings) == {"other/repo#8": "CLOSED"}
+
+    def failing(command: list[str], cwd: Path) -> str:
+        raise CollectionError("graphql: offline")
+
+    warnings = []
+    assert _external_issue_states(failing, tmp_path, references, warnings) == {}
+    assert warnings and "stay uncertain" in warnings[0]
