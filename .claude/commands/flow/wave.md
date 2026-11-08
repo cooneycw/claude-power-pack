@@ -948,6 +948,14 @@ things to know before reading the result:
   wayfinder research branch both look like that by design, and both were live on
   the measured host.
 
+Before closing a wave that deliberately preserved and pushed unfinished work,
+follow `/flow:cleanup`'s **Preserved-WIP handoff** procedure: put the branch,
+exact pushed tip, issue state, provenance and remaining work in an issue comment
+or linked draft PR, read it back, and relay the verified URL in the wave close
+summary. A remote branch alone is not a completed handoff (#1614). On a failed
+publication, keep the worktree and report the incomplete handoff; a sweep's
+no-PR skip never establishes that the issue has a handoff record.
+
 Run it *before* any `git fetch --prune`, and see
 [ADR 0006](../../../docs/decisions/0006-worktree-teardown-ownership.md) for why
 teardown is a sweep rather than a step on the merge path.

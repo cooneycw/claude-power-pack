@@ -644,6 +644,14 @@ this when nothing was deliberately preserved: `declare-salvage` refuses a sha
 that is not an ancestor of HEAD, and the writer must know which commit is a
 genuine preservation, never infer one from history.
 
+If this run ends with deliberately preserved unfinished work pushed to origin,
+follow `/flow-cleanup`'s **Preserved-WIP handoff** procedure before yielding:
+publish or reuse a verified issue comment or linked draft PR naming the branch,
+exact pushed tip, current issue state, provenance and remaining work, and relay
+its URL. `declare-salvage` records local plan accounting, not an issue-visible
+handoff (#1614). A failed publication leaves the handoff incomplete; keep the
+branch/worktree and report that blocker.
+
 Keep Section C as one numbered line per file, in the form ``N. `path` - gist``:
 Step 6 compares the diff against exactly those paths, and a line it cannot parse
 makes that comparison `unknown`. Markdown only - `.gitignore` carries a blanket

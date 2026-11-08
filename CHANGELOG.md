@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Flow cleanup, wave closure and early flow handoff now require an issue-visible record for deliberately preserved and pushed unfinished work, including the pushed tip and remaining work, with publication readback before reporting the handoff complete (#1614).
+
 - Drift detection now completes on hosts without Docker, reports Docker-dependent checks as skipped, and preserves drift findings from later checks (#1629).
 
 ### Behaviour changes you may notice

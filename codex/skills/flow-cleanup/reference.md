@@ -249,6 +249,66 @@ Report `FLOW_WAVE_ARCHIVE` and `FLOW_WAVE_BYTES_FREED` for each closed wave.
   {N} local issue branches remaining
 ```
 
+## Preserved-WIP handoff
+
+When you deliberately preserve and push unfinished work, the pushed branch is
+only the storage half of the handoff (#1614). Before reporting preservation
+complete or ending the run, publish a durable issue comment or a draft PR linked
+to the issue. It must name the branch, exact pushed commit, current issue state,
+provenance (or explicitly unknown provenance), and remaining work, including any
+uncommitted or untracked remainder. A local plan's `declare-salvage` record does
+not replace this issue-visible handoff.
+
+Read the published record back, verify those fields, and relay its URL to the
+assigning session and closing report. Reuse an existing comment or linked draft
+PR only after verifying it describes this same pushed tip; do not create a
+duplicate for an unchanged preservation. A draft uses `Refs #N`, leaving the
+issue open. If the issue is already closed, record that fact and the reason for
+keeping the WIP; do not reopen it or imply it is startable work.
+
+For a new preservation without an existing verified handoff, set `WIP_ROOT` to
+the checkout, `WIP_REPO` to its verified owner/name, `WIP_ISSUE` to the assigned
+issue, and `WIP_PROVENANCE` / `WIP_REMAINING` to the factual handoff details.
+This recipe records the already-pushed commit; it does not commit, push, delete,
+or claim to preserve the rest of the workspace. Keep secrets out of the text.
+
+<!-- preserved-wip-handoff:begin -->
+```bash
+set -euo pipefail
+: "${WIP_ROOT:?checkout required}"
+: "${WIP_REPO:?verified owner/name required}"
+: "${WIP_ISSUE:?assigned issue required}"
+: "${WIP_PROVENANCE:?provenance or explicit unknown required}"
+: "${WIP_REMAINING:?unfinished work required}"
+WIP_BRANCH=$(git -C "$WIP_ROOT" symbolic-ref --quiet --short HEAD)
+WIP_TIP=$(git -C "$WIP_ROOT" rev-parse HEAD)
+WIP_PUSHED=$(git -C "$WIP_ROOT" ls-remote --exit-code origin "refs/heads/$WIP_BRANCH" | awk 'NR == 1 {print $1}')
+if [[ "$WIP_TIP" != "$WIP_PUSHED" ]]; then
+    printf '%s\n' 'WIP handoff incomplete: origin does not contain this branch tip.' >&2
+    exit 1
+fi
+WIP_STATE=$(gh api "repos/$WIP_REPO/issues/$WIP_ISSUE" --jq .state)
+case "$WIP_STATE" in open|closed) ;; *) printf '%s\n' 'WIP issue state unreadable.' >&2; exit 1 ;; esac
+WIP_BODY=$(mktemp)
+trap 'rm -f "$WIP_BODY"' EXIT
+printf 'Preserved unfinished work.\n\n- Issue: #%s (%s)\n- Branch: `%s`\n- Pushed commit: `%s`\n- Provenance: %s\n- Remaining work: %s\n\nThis is a preservation handoff, not a completed implementation.\n' \
+    "$WIP_ISSUE" "$WIP_STATE" "$WIP_BRANCH" "$WIP_TIP" "$WIP_PROVENANCE" "$WIP_REMAINING" > "$WIP_BODY"
+WIP_COMMENT_ID=$(gh api --method POST "repos/$WIP_REPO/issues/$WIP_ISSUE/comments" -F "body=@$WIP_BODY" --jq .id)
+[[ "$WIP_COMMENT_ID" =~ ^[0-9]+$ ]]
+WIP_READBACK=$(gh api "repos/$WIP_REPO/issues/comments/$WIP_COMMENT_ID" --jq .body)
+[[ "$WIP_READBACK" == "$(cat "$WIP_BODY")" ]]
+WIP_URL=$(gh api "repos/$WIP_REPO/issues/comments/$WIP_COMMENT_ID" --jq .html_url)
+[[ "$WIP_URL" == "https://"*"/$WIP_REPO/issues/$WIP_ISSUE#issuecomment-$WIP_COMMENT_ID" ]]
+printf 'PRESERVED_WIP_HANDOFF: %s\n' "$WIP_URL"
+```
+<!-- preserved-wip-handoff:end -->
+
+If publication or readback fails, the handoff is incomplete. Keep the branch and
+worktree, report the blocker and exact pushed tip, and stop; do not describe the
+preservation as handed off. The normal sweep still skips no-PR worktrees. Merely
+discovering an old WIP branch does not authorize publishing comments or creating
+draft PRs for a historical backlog; report the missing handoff instead.
+
 ## Error Handling
 
 - **Not a git repo:** Report error and exit
@@ -268,4 +328,5 @@ Report `FLOW_WAVE_ARCHIVE` and `FLOW_WAVE_BYTES_FREED` for each closed wave.
 - Only deletes `issue-*` pattern branches in the squash-merge detection path (other branches require `--merged` confirmation)
 - Use `git branch -d` (safe delete) for merged branches, `git branch -D` (force) only for branches whose remote was deleted
 - Run automatically after `/flow-merge` or manually anytime
-- Does not require network access except for `git fetch --prune`
+- Normal cleanup needs network access for `git fetch --prune`; a deliberate
+  preserved-WIP handoff also needs GitHub publication and readback.
