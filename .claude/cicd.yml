@@ -27,3 +27,6 @@ health:
   smoke_tests:
     - name: lib-cicd-imports
       command: python3 -c "import lib.cicd"
+
+pipeline:
+  providers: [woodpecker]

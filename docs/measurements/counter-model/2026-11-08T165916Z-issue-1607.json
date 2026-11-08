@@ -1,0 +1,70 @@
+{
+  "branch": "fix/1607-recorded-ci-providers",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "orchestrator CHANGES (infra-pipeline fail-closed) changed the reviewed artifact after pass 2; cs-orch authorized",
+  "head": "3c2ca62384c29a1954dd04d51be42107636197b0",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/08/rollout-2026-11-08T14-14-53-01a1bb83-1a47-7b20-9a18-a39641fddde4.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 3601480,
+        "path": "2026/11/08/rollout-2026-11-08T14-14-53-01a1bb83-1a47-7b20-9a18-a39641fddde4.jsonl",
+        "sha256": "7dacb98fd896cce4c1efcd02042656f66e72f8b0fdde345978e7aace49e6ebc6"
+      }
+    ],
+    "thread_id": "01a1bb83-1a47-7b20-9a18-a39641fddde4"
+  },
+  "issue": "1607",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 3,
+  "recorded_at": "2026-11-08T16:59:16Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 3
+  },
+  "reviewed_artifact": {
+    "base_sha": "badecd1c069b39b7154ef3ef27a0cb0f968c2cac",
+    "merge_base": "badecd1c069b39b7154ef3ef27a0cb0f968c2cac",
+    "method": "captured-patch",
+    "patch_sha256": "d0cc3d3ce23a612b49885f3d8ab437cf4e0e5acc8e3187ebd71433793e0a3d5e",
+    "report_record": 19,
+    "target_head": "3c2ca62384c29a1954dd04d51be42107636197b0"
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "exec_log": "review1607-pass3.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6-astra"
+    ],
+    "rollout": "2026/11/08/rollout-2026-11-08T16-56-34-01a1bc17-20e8-7c30-af28-fd95912d8f3e.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 1099,
+        "path": "review1607-pass3.jsonl",
+        "sha256": "ab10374cd57b4c3406ccab341279baf10dde37a60f287f8f6406321f1094558b"
+      },
+      {
+        "bytes": 215221,
+        "path": "2026/11/08/rollout-2026-11-08T16-56-34-01a1bc17-20e8-7c30-af28-fd95912d8f3e.jsonl",
+        "sha256": "c40e6ac0c8c14c36aa67116527b355e8704ace5cac3a535f369f7d9a1173e732"
+      }
+    ],
+    "thread_id": "01a1bc17-20e8-7c30-af28-fd95912d8f3e"
+  },
+  "schema": 5,
+  "scope": "diff-only",
+  "status": "ran"
+}

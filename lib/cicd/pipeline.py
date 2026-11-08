@@ -88,14 +88,13 @@ def generate_pipeline(
     Returns:
         Dict mapping filename to content for each generated file.
     """
-    provider = config.pipeline.provider
+    from .providers import PROVIDERS, require_providers
+    selected = require_providers(config.pipeline.providers)
     files: dict[str, str] = {}
-
-    if provider in ("github-actions", "both"):
-        files[".github/workflows/ci.yml"] = generate_github_actions(info, config)
-
-    if provider in ("woodpecker", "both"):
-        files[".woodpecker.yml"] = generate_woodpecker(info, config)
+    for name in selected:
+        spec = PROVIDERS[name]
+        generator = globals()[spec.generator]
+        files[spec.pipeline_file] = generator(info, config)
 
     if output_dir:
         root = Path(output_dir)
