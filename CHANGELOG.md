@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- The unattended helper installer now includes `project-next.py`, so checkout installs satisfy the Claude preflight engine dependency; project-next documents the colocated library requirement for legacy copy installs (#1619).
+- The unattended helper installer now includes `project-next.py`, so checkout installs satisfy the Claude preflight engine dependency; project-next documents the colocated library requirement for legacy copy installs and emits the installed-family exit marker on stderr (#1619).
 
 - Project-next names unparsed architecture decision records in every premise-staleness report and JSON coverage, so an incomplete ADR corpus cannot read as a clean scan (#1614).
 - Partial worktree-removal verification now names its Git 2.36 minimum on older or unrecognized Git versions, rather than reporting a misleading registry-read failure (#1621).
