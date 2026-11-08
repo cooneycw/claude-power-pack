@@ -35,6 +35,7 @@ def test_tier4_writes_only_the_approved_host_record(tmp_path):
     before = _files(repo)
     cpp = tmp_path / "cpp"
     (cpp / "scripts").mkdir(parents=True)
+    (cpp / "scripts/cpp-install-receipt.py").write_bytes((ROOT / "scripts/cpp-install-receipt.py").read_bytes())
     (cpp / "templates").mkdir()
     (cpp / "templates/cicd.yml.example").write_text("build:\n  framework: python\n")
     (cpp / "scripts/flow-preflight.sh").write_text('#!/bin/bash\nprintf \'{}\\n\'\nexit 0\n')

@@ -1,0 +1,56 @@
+{
+  "gate": "scripts/cpp-mcp-state.py",
+  "invocation": [
+    "python3",
+    "controls/cpp-mcp-state/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "good_signal": "^CPP_MCP_STATE_CONTROL: loaded$",
+  "detect_signal": "^CPP_MCP_STATE_CONTROL: refused$",
+  "unknown_signal": "^CPP_MCP_STATE_CONTROL: unknown$",
+  "limits": "Owned temporary metadata only, no clients or network. Pending-over-old-green and malformed results must refuse; repaired cases load. Missing results are unknown. This does not attest host writes, connectivity or authenticity of project metadata.",
+  "cases": [
+    {
+      "name": "good-loaded",
+      "input": "cases/good-loaded",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-pending",
+      "input": "cases/bad-pending",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-repaired-pending",
+      "input": "cases/good-repaired-pending",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-invalid",
+      "input": "cases/bad-invalid",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-repaired-invalid",
+      "input": "cases/good-repaired-invalid",
+      "expect": "GOOD"
+    },
+    {
+      "name": "unknown-missing",
+      "input": "cases/unknown-missing",
+      "expect": "UNKNOWN"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "no-check",
+      "origin": "scripts/cpp-mcp-state.py",
+      "path": "anchors/always-loaded.py",
+      "sha256": "86275aa15d7b56d66d35d9e23392df3a4792708bf72136dcd3c56101b5a5e3a1",
+      "why": "Preserves missing-state UNKNOWN but always returns an installed row for existing state, ignoring pending and malformed inputs. Constructed to isolate the intended state-loader refusal contract."
+    }
+  ]
+}

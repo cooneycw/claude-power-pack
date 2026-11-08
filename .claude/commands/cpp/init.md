@@ -501,6 +501,14 @@ If user selects "Custom", ask which categories to enable using multi-select:
 
 ### Applicable write and credential inventory
 
+All tiers create a private temporary run directory under `$TMPDIR` (or the
+system temporary directory), mode 0700. It contains generated `routines.sh`,
+fixed-ID `results.json`, an ownership marker and pending-attempt state. Files
+contain no credential or endpoint values. Recording atomically replaces the
+results file. After the final project receipt is written, remove these temporary
+files and report cleanup. Failed persistence retains temporary state for retry.
+These artifacts are not written into the target project.
+
 Every selected tier also creates project `.claude/cpp-install.json`, atomically
 replacing an existing receipt after installation and optional choices. It records
 the selected tier/profile and capabilities, offered steps and their observed
@@ -523,7 +531,7 @@ run only after their own choice, with the same destinations repeated there.
 | Applies to | Writes and scope | Credential handling |
 | --- | --- | --- |
 | Tier 1, all tiers | User command-family symlinks under `~/.claude/commands/` are installed/refreshed and stale CPP-owned links may be pruned; foreign content is preserved. Optional project `.claude/commands` symlink and `.claude/` directory. The default shared-stash guard installs the repository's `reference-transaction` hook at the common Git hooks directory or configured absolute `core.hooksPath`; refusal/foreign hooks are reported. Opt-out removes CPP's own hook and records `cpp.stashGuard=false` in the repository Git config. | None. |
-| Tier 2 and inherited 3/4/5 | Link **all executable scripts** supplied under `{CPP_DIR}/scripts/` into `~/.claude/scripts/`, including the host-write helper. Create project `.claude/settings.local.json` only if absent, and append the relevant settings/friction ignore entries to an existing `.gitignore`. Optional user-level `~/.claude/settings.json` merges permission and hook entries; optional `~/.bashrc` prompt/tmux additions; optional starter `Makefile`; global npm Happy installation uses its reported prefix/cache; uv Spec-Kit uses its tool directory, executable directory (normally `~/.local/bin`) and cache. | Permission lists are configuration, not credential values; existing unrelated settings are preserved. |
+| Tier 2 and inherited 3/4/5 | Link **all executable scripts** supplied under `{CPP_DIR}/scripts/` into `~/.claude/scripts/`, including the host-write helper. Create project `.claude/settings.local.json` only if absent, and append the relevant settings/friction ignore entries to an existing `.gitignore`. Optional user-level `~/.claude/settings.json` merges permission and hook entries; optional `~/.bashrc` prompt/tmux additions; global npm Happy installation uses its reported prefix/cache; uv Spec-Kit uses its tool directory, executable directory (normally `~/.local/bin`) and cache. | Permission lists are configuration, not credential values; existing unrelated settings are preserved. |
 | Tier 3 and inherited 4/5 | User-scope Claude MCP registrations update `${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json`: second-opinion URL, Playwright and conditional Tavily (when `TAVILY_API_KEY` is available). npm/npx uses its configured cache; Playwright can download browser binaries to `~/.cache/ms-playwright` on later use. Optional desk pool creates project `.claude/playwright-pool.json` if absent and adds user MCP desk registrations; later browser use writes `.claude/playwright-state/`. | Tavily requires Node.js 20+. `TAVILY_API_KEY` is read from the environment and stored **in plaintext** in the Tavily server environment entry in that user MCP config. Show its name and destination only, never its value. External second-opinion provider keys remain in its separate repository; CPP registers its URL. |
 | Tier 4 | Probe every registered provider independently. Ask once for the projects folder (default: CPP main-checkout parent). Write only `<projects>/.claude/cpp-host.json` through the defer-aware seam; uv uses `~/.cache/claude-power-pack/host-ci/{venv,uv}` and disables project bytecode writes. No project generation. | Persist only verdicts, controlled reasons, timestamp and numeric versions; credentials never enter argv, output or the record. |
 | Tier 5 | Optional global npm Codex CLI installation; optional MCP registration updates `${CODEX_HOME:-$HOME/.codex}/config.toml`. CPP skills install under `$HOME/.codex/skills/` even when CODEX_HOME differs, with managed entries refreshed or pruned and lock `~/.codex/.cpp-skill-install.lock`. Common-memory harness links `~/.local/bin/cpp-memory` and copies `~/.codex/prompts/cpp-memory.md`. | The auth check reads existing auth state. `codex login` is advice, not an init credential write. A separately invoked login has its own credential storage. |
@@ -594,10 +602,6 @@ This will make the following changes:
     • Add tmux auto-start to ~/.bashrc
     • Each new terminal tab opens its own tmux session
     • Skipped inside existing tmux sessions and non-interactive shells
-
-  [Tier 2 - Makefile] (optional)
-    • Create starter Makefile with lint, test, deploy targets
-    • Used by /flow:finish and /flow:deploy
 
   Disk usage: ~50 KB
 
@@ -792,10 +796,10 @@ Execute only the components that aren't already installed.
 Keep the existing observed `{STEP_RESULTS}` as structured `STEP_RESULTS_JSON`
 for the receipt as well as for display. This is the same outcome record, not a
 second checklist. Add/update one entry after each attempted step or explicit
-skip/decline; never use the selected tier as evidence. A nonzero command exit
-records `FAILED`; an unreadable observation records `unverified`; an existing
+skip/decline; never use the selected tier as evidence. For ordinary steps, a
+nonzero command exit records `FAILED`; an unreadable observation records `unverified`; an existing
 component is `already` only after verification. Map the existing succeeded /
-failed / deferred wording to `installed` / `FAILED` / `skipped`. Optional extras
+failed / deferred wording for ordinary steps to `installed` / `FAILED` / `skipped`. Optional extras
 must have an outcome too, including `declined` when the user says no.
 
 Maintain `OFFERED_STEPS_JSON`, an array of the fixed IDs below, separately from
@@ -809,7 +813,13 @@ from outcomes; this does not introduce the later capability-selection redesign.
 
 Each entry has only `step`, `outcome`, the observed numeric `exit_code` when
 available, and optionally `user_scope` reference IDs. A nonzero exit forces
-`FAILED` even if the supplied outcome accidentally says installed.
+`FAILED` for ordinary steps even if the supplied outcome says installed.
+`host-ci` instead records its actual write outcome (`written`, `deferred`,
+`failed`, `unknown`) with the observed launcher exit: only `written` + 0
+completes it. A deferred/unknown write is not a completed installation. Provider
+ready/missing/unknown verdicts are independent of whether the record was written.
+Historical schema-1 receipts retain the retired project-generation IDs; new
+Tier 4/5 construction requires only `host-ci` at that tier.
 Do not put stdout, stderr, command arguments, settings, endpoints, environment
 variables, credentials or their values into the record. The helper stamps each
 outcome with the UTC time it was recorded in the receipt, not an invented
@@ -823,10 +833,10 @@ offered; do not add unrelated tiers):
 | Existing steps | Receipt IDs |
 | --- | --- |
 | Tier 1 command setup / optional project scope / stash guard | `commands`, `project-commands`, `stash-guard` |
-| Tier 2 scripts / profile / prompt / optional Makefile | `scripts`, `permission-profile`, `shell-prompt`, `generic-makefile` |
+| Tier 2 scripts / profile / prompt | `scripts`, `permission-profile`, `shell-prompt` |
 | Tier 2 optional user allowlist / census / reminders / tmux / Happy / Spec-Kit | `user-flow-allowlist`, `permission-census`, `session-reminders`, `tmux-autostart`, `happy-cli`, `spec-kit-cli` |
 | Tier 3 uv / second-opinion / playwright / tavily / optional pool | `uv`, `second-opinion`, `playwright`, `tavily`, `browser-pool` |
-| Tier 4 framework Makefile / cicd.yml / health / pipeline / containers | `framework-makefile`, `cicd-config`, `health-config`, `pipeline`, `containers` |
+| Tier 4 host CI capability record | `host-ci` |
 | Tier 5 CLI / doctor / auth / MCPs / skills / memory harness | `codex-cli`, `codex-doctor`, `codex-auth`, `codex-second-opinion`, `codex-playwright`, `codex-tavily`, `codex-skills`, `memory-harness` |
 | Tier 6 CLI / model / endpoint / smoke / always-on | `qwen-cli`, `qwen-model`, `qwen-endpoint`, `qwen-smoke`, `qwen-always-on` |
 | Tier 7 CLI / model / endpoint / provider / smoke | `gemma-cli`, `gemma-model`, `gemma-endpoint`, `gemma-provider`, `gemma-smoke` |
@@ -849,6 +859,225 @@ no available API key is `skipped`. These are explicit optional dispositions,
 not failures and not missing observations. If a grouped step performs several
 writes, record it as `FAILED` when any required sub-operation fails; a later
 successful sub-operation must not overwrite that failure.
+
+### Shared MCP registration routines
+
+Every Bash tool invocation starts a fresh shell. Do not rely on functions,
+arrays or variables surviving a prior call. The initialization block below
+creates a private per-run temporary directory and prints its absolute path.
+For EACH later Bash tool call, bind `CPP_DIR` to the verified checkout and
+`CPP_MCP_RUN_DIR` to that exact printed path in that same invocation. Carry the
+literal path in the wizard's context; do not assume an exported variable lasts.
+Run blocks sequentially within a run; parallel setups require separate run paths.
+Each registration, decline and persistence block loads the generated routines
+and saved outcomes itself. Missing/unreadable run state refuses the block.
+
+The following fenced body is template data for the initialization block, not a
+separate setup action. The generated script contains these definitions and the verified state-helper
+path, no credential values. The checkout helper `scripts/cpp-mcp-state.py` owns
+temporary-file initialization, validation and atomic persistence; it is mode 0644,
+invoked with python3 and not linked into the executable host-helper population. Call registration only after approval for the named server
+and its disclosed destinations. Recovery initializes a new run after approval.
+
+The per-client routines retain command exit status, withhold command output and
+endpoint/key values, and save fixed-ID outcomes for the R4 receipt. Existing
+configuration is an observation, not a connectivity/authentication test. A failed
+list/config read is unverified and does not authorize a write. Browser desks
+share one receipt row; any failed desk keeps that pool incomplete.
+
+```bash
+# CPP_MCP_ROUTINES_BEGIN
+CPP_MCP_RUN_DIR="${BASH_SOURCE[0]%/*}"
+declare -A CPP_MCP_RESULTS=()
+cpp_mcp_load() {
+  local saved id row
+  if ! saved=$(python3 "$CPP_MCP_STATE_HELPER" load --run-dir "$CPP_MCP_RUN_DIR"); then
+    echo "WARNING: MCP run results unavailable or interrupted; setup incomplete" >&2
+    return 3
+  fi
+  while IFS=$'\t' read -r id row; do
+    if [ -n "$id" ]; then CPP_MCP_RESULTS[$id]="$row"; fi
+  done <<< "$saved"
+}
+
+cpp_mcp_attempt() {
+  # Create a write-ahead marker before invoking a client. An interrupted or
+  # unrecorded attempt prevents a later shell from reusing an old green row.
+  if ! python3 "$CPP_MCP_STATE_HELPER" attempt --run-dir "$CPP_MCP_RUN_DIR"; then
+    echo "WARNING: cannot start MCP attempt; registered nothing" >&2
+    return 1
+  fi
+}
+
+cpp_mcp_record() {
+  local id="$1" outcome="$2" code="${3-}" keep=0
+  # A later desk must not conceal a failed, unreadable or skipped desk.
+  if [ "$id" = browser-pool ]; then
+    if [[ "${CPP_MCP_RESULTS[$id]-}" = *'"outcome":"FAILED"'* ]]; then keep=1; fi
+    if [[ "${CPP_MCP_RESULTS[$id]-}" = *'"outcome":"unverified"'* ]] && [ "$outcome" != FAILED ]; then keep=1; fi
+    if [[ "${CPP_MCP_RESULTS[$id]-}" = *'"outcome":"skipped"'* ]] && [[ "$outcome" = installed || "$outcome" = already ]]; then keep=1; fi
+  fi
+  if [ "$keep" -eq 0 ]; then
+    CPP_MCP_RESULTS[$id]="{\"step\":\"$id\",\"outcome\":\"$outcome\"${code:+,\"exit_code\":$code}}"
+  fi
+  if ! python3 "$CPP_MCP_STATE_HELPER" save --run-dir "$CPP_MCP_RUN_DIR" "${CPP_MCP_RESULTS[@]}"; then
+    echo "WARNING: MCP result persistence failed; setup incomplete" >&2
+    return 1
+  fi
+}
+
+cpp_register_claude_mcp() {
+  local server="$1" id="$1" state rc kind="$1"
+  local -a args
+  if [ "${2-}" = desk ]; then kind=desk; id=browser-pool; fi
+  cpp_mcp_attempt || return 1
+  case "$kind" in
+    second-opinion) args=(--transport http --scope user "$server" "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp") ;;
+    playwright) args=(--transport stdio --scope user "$server" -- npx -y @playwright/mcp@latest --headless) ;;
+    tavily) args=(--transport stdio --scope user "$server" -e "TAVILY_API_KEY=${TAVILY_API_KEY-}" -- npx -y tavily-mcp@latest) ;;
+    sequential-thinking) args=(--transport stdio --scope user "$server" -- npx -y @modelcontextprotocol/server-sequential-thinking) ;;
+    desk)
+      if [[ ! "$server" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        cpp_mcp_record browser-pool unverified || return 1
+        echo "WARNING: unsupported browser desk name; registered nothing"
+        return 2
+      fi
+      args=(--transport stdio --scope user "$server" -- npx -y @playwright/mcp@0.0.77 --isolated)
+      ;;
+    *) echo "WARNING: unsupported Claude MCP server; registered nothing"; return 2 ;;
+  esac
+  if ! claude mcp list >/dev/null 2>&1; then
+    cpp_mcp_record "$id" unverified || return 1
+    echo "WARNING: claude MCP registrations could not be read; registered nothing"
+    return 3
+  fi
+  # Query USER scope, not a list that also contains project registrations (#1256).
+  if python3 - "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" "$server" <<'PY_MCP'
+import json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        data = json.load(f)
+except FileNotFoundError:
+    sys.exit(1)
+except (OSError, ValueError):
+    sys.exit(3)
+servers = data.get("mcpServers", {}) if isinstance(data, dict) else None
+if not isinstance(servers, dict):
+    sys.exit(3)
+if sys.argv[2] not in servers:
+    sys.exit(1)
+sys.exit(0 if isinstance(servers[sys.argv[2]], dict) else 3)
+PY_MCP
+  then state=0; else state=$?; fi
+  if [ "$state" -eq 0 ]; then
+    cpp_mcp_record "$id" already || return 1
+    echo "-> $server MCP already registered at user scope (skipped)"
+    return 0
+  elif [ "$state" -ne 1 ]; then
+    cpp_mcp_record "$id" unverified || return 1
+    echo "WARNING: could not read user MCP config (unreadable or wrong shape) - registered nothing"
+    return 3
+  fi
+  if [ "$server" != second-opinion ] && ! command -v npx >/dev/null 2>&1; then
+    cpp_mcp_record "$id" skipped || return 1
+    echo "WARNING: npx not found; $server registration skipped"
+    return 0
+  fi
+  if [ "$server" = tavily ] && [ -z "${TAVILY_API_KEY-}" ]; then
+    cpp_mcp_record "$id" skipped || return 1
+    echo "WARNING: TAVILY_API_KEY not set; tavily registration skipped"
+    return 0
+  fi
+  if claude mcp add "${args[@]}" >/dev/null 2>&1; then
+    cpp_mcp_record "$id" installed 0 || return 1
+    echo "✓ $server MCP registered (user scope)"
+    return 0
+  else
+    rc=$?
+    cpp_mcp_record "$id" FAILED "$rc" || return 1
+    echo "WARNING: $server MCP registration FAILED (exit $rc)"
+    return "$rc"
+  fi
+}
+
+cpp_register_codex_mcp() {
+  local server="$1" id="codex-$1" list state rc
+  local -a args
+  cpp_mcp_attempt || return 1
+  case "$server" in
+    second-opinion) args=("$server" --url "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp") ;;
+    playwright) args=("$server" -- npx -y @playwright/mcp@latest --headless) ;;
+    *) echo "WARNING: unsupported Codex MCP server; registered nothing"; return 2 ;;
+  esac
+  if ! list=$(codex mcp list --json 2>/dev/null); then
+    cpp_mcp_record "$id" unverified || return 1
+    echo "WARNING: codex MCP registrations could not be read; registered nothing"
+    return 3
+  fi
+  if printf '%s\n' "$list" | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except (OSError, ValueError):
+    sys.exit(3)
+if not isinstance(data, list) or any(not isinstance(x, dict) or not isinstance(x.get("name"), str) for x in data):
+    sys.exit(3)
+sys.exit(0 if any(x["name"] == sys.argv[1] for x in data) else 1)
+' "$server"; then state=0; else state=$?; fi
+  if [ "$state" -eq 0 ]; then
+    cpp_mcp_record "$id" already || return 1
+    echo "-> $server MCP already registered with Codex (skipped)"
+    return 0
+  elif [ "$state" -ne 1 ]; then
+    cpp_mcp_record "$id" unverified || return 1
+    echo "WARNING: could not read Codex MCP registration shape; registered nothing"
+    return 3
+  fi
+  if [ "$server" = playwright ] && ! command -v npx >/dev/null 2>&1; then
+    cpp_mcp_record "$id" skipped || return 1
+    echo "WARNING: npx not found; Codex playwright registration skipped"
+    return 0
+  fi
+  if [ "$server" = second-opinion ] && ! curl -sf --max-time 2 "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/" >/dev/null 2>&1; then
+    cpp_mcp_record "$id" skipped || return 1
+    echo "WARNING: second-opinion not reachable; Codex registration skipped"
+    return 0
+  fi
+  if codex mcp add "${args[@]}" >/dev/null 2>&1; then
+    cpp_mcp_record "$id" installed 0 || return 1
+    echo "✓ $server MCP registered with Codex"
+    return 0
+  else
+    rc=$?
+    cpp_mcp_record "$id" FAILED "$rc" || return 1
+    echo "WARNING: Codex $server MCP registration FAILED (exit $rc)"
+    return "$rc"
+  fi
+}
+cpp_mcp_load
+# CPP_MCP_ROUTINES_END
+```
+
+Initialize the per-run files now, after confirmation. Retain the printed path
+and rebind it explicitly in each later tool call; each new wizard/recovery run
+must initialize its own directory, even in the same project. These temporary
+local artifacts are historical setup observations, not a host readiness scan.
+Do not copy another run's results. They are removed after the final receipt is
+written; failed persistence retains the temporary run for retry.
+
+```bash
+# CPP_MCP_RUN_INIT_BEGIN
+if CPP_MCP_RUN_DIR=$(python3 "$CPP_DIR/scripts/cpp-mcp-state.py" begin \
+    --document "$CPP_DIR/.claude/commands/cpp/init.md"); then
+  printf 'CPP_MCP_RUN_DIR=%s\n' "$CPP_MCP_RUN_DIR"
+else
+  echo "CPP Installation Incomplete"
+  echo "WARNING: MCP run state could not be initialized"
+  exit 1
+fi
+# CPP_MCP_RUN_INIT_END
+```
+
 
 ### Tier 1 Execution
 
@@ -1372,40 +1601,14 @@ echo "  Add later by appending to ~/.bashrc:"
 echo '  if command -v tmux &>/dev/null && [ -z "$TMUX" ] && [[ $- == *i* ]]; then tmux new-session; fi'
 ```
 
-**Makefile Setup (Optional)**
+**Project Makefile Handoff**
 
-Consent: copy the project `Makefile` only when absent; an existing file is skipped.
+Configure project build targets through `/project:init` for new projects or
+`/cicd:init` for existing repositories. Run that project workflow separately;
+this host setup leaves every existing project entry intact.
 
-If no Makefile exists in the project root, offer to create one from the template:
-
-```
-=== Optional: Makefile ===
-
-The /flow commands use Makefile targets for quality gates and deployment:
-  /flow:finish  → runs the project's declared quality gates
-  /flow:deploy  → runs `make deploy`
-
-Create a starter Makefile? [y/N]
-```
-
-If yes:
 ```bash
-if [ ! -f "Makefile" ]; then
-  if cp "$CPP_DIR/templates/Makefile.example" Makefile; then
-    echo "✓ Makefile created from template"
-  else
-    echo "WARNING: setup command failed (exit $?)."
-  fi
-  echo "  Edit targets to match your project's commands"
-else
-  echo "→ Makefile already exists (skipped)"
-fi
-```
-
-If no:
-```bash
-echo "→ Makefile creation skipped"
-echo "  You can copy it later: cp $CPP_DIR/templates/Makefile.example Makefile"
+echo "Project Makefile setup: /project:init (new projects); /cicd:init (existing repositories)."
 ```
 
 **Happy CLI Installation (Optional)**
@@ -1544,107 +1747,19 @@ re-register (`claude mcp remove second-opinion -s user`, then this step again).
 #### 3c. Register MCP Servers
 
 ```bash
-# Add MCP servers to Claude Code
-if ! MCP_LIST=$(claude mcp list 2>/dev/null); then
-  echo "WARNING: claude MCP registrations could not be read; registration step not run."
+# Rebind CPP_MCP_RUN_DIR to this run's printed absolute path in this tool call.
+if [ -z "${CPP_MCP_RUN_DIR-}" ] || ! source "$CPP_MCP_RUN_DIR/routines.sh"; then
+  echo "CPP Installation Incomplete"
+  echo "WARNING: MCP run state could not be loaded"
   exit 1
 fi
+# Approved Tier 3 registrations, using the shared definitions above.
+if cpp_register_claude_mcp second-opinion; then :; else echo "WARNING: second-opinion setup incomplete"; fi
+if cpp_register_claude_mcp playwright; then :; else echo "WARNING: playwright setup incomplete"; fi
+if cpp_register_claude_mcp tavily; then :; else echo "WARNING: tavily setup incomplete"; fi
 
-# Second Opinion is an external streamable-http server, registered at USER scope
-# only - the repo ships no project-scope .mcp.json entry to compete with it (#1256).
-# `claude mcp add` takes the URL as a positional after the name - it has no
-# --url option, and the form that used one failed while this step still
-# printed success.
-# The guard asks USER scope specifically, never `claude mcp list`: the list also
-# carries local- and project-scope entries (a project's own .mcp.json, even while
-# it awaits approval), and a list grep once skipped this add on every install run
-# from a checkout that shipped one.
-#
-# THREE ANSWERS, NOT TWO (issue #1498, matching /cpp:update step 6b.0): 0
-# registered, 1 absent (no file, or no such key), 3 the config could not be
-# read or has the wrong shape. The old two-way guard treated an unreadable or
-# malformed config the SAME as absent and ran `claude mcp add` anyway - an
-# unreadable config is not evidence that nothing is there.
+# Report only: never remove a conflicting registration automatically.
 USER_JSON="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"
-python3 - "$USER_JSON" <<'PY'
-import json, sys
-try:
-    with open(sys.argv[1], encoding="utf-8") as fh:
-        data = json.load(fh)
-except FileNotFoundError:
-    sys.exit(1)  # only a missing file is an established absence
-except (OSError, ValueError):
-    sys.exit(3)  # permission denied, a directory, bad JSON: unknown
-servers = data.get("mcpServers", {}) if isinstance(data, dict) else None
-if not isinstance(servers, dict):
-    sys.exit(3)
-if "second-opinion" not in servers:
-    sys.exit(1)
-sys.exit(0 if isinstance(servers["second-opinion"], dict) else 3)
-PY
-SO_USER_RC=$?
-if [ "$SO_USER_RC" -eq 0 ]; then
-  echo "→ second-opinion MCP already registered at user scope (skipped)"
-elif [ "$SO_USER_RC" -ne 1 ]; then
-  echo "? could not read $USER_JSON (unreadable or not the expected shape) - registered nothing"
-elif claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"; then
-  echo "✓ second-opinion MCP registered (streamable-http, user scope)"
-else
-  echo "✗ second-opinion MCP registration FAILED (see the error above)"
-fi
-
-# Browser automation is the upstream @playwright/mcp server, registered via
-# npx/stdio (no container). Requires Node.js 18+ for npx.
-if echo "$MCP_LIST" | grep -q "playwright-persistent"; then
-  echo "→ Legacy playwright-persistent registration detected."
-  echo "  Run /cpp:update to tear down the retired container/registration (issue #423)."
-fi
-if ! echo "$MCP_LIST" | grep -qw "playwright"; then
-  if command -v npx &>/dev/null; then
-    if claude mcp add --transport stdio --scope user playwright -- npx -y @playwright/mcp@latest --headless; then
-      echo "✓ playwright MCP (upstream @playwright/mcp) registered"
-    else
-      echo "WARNING: setup command failed (exit $?)."
-    fi
-  else
-    echo "⚠ npx not found. Browser automation needs Node.js 18+."
-    echo "  Install later: claude mcp add --transport stdio --scope user playwright -- npx -y @playwright/mcp@latest --headless"
-  fi
-else
-  echo "→ playwright MCP already registered (skipped)"
-fi
-
-# Tavily web search/extract/crawl/map is the upstream tavily-mcp server,
-# registered via npx/stdio (no container). Requires Node.js 20+ and a
-# TAVILY_API_KEY in the environment. API key is stored in AWS Secrets Manager
-# (claude-power-pack/mcp-keys).
-if ! echo "$MCP_LIST" | grep -qw "tavily"; then
-  if command -v npx &>/dev/null; then
-    if [ -n "$TAVILY_API_KEY" ]; then
-      if claude mcp add tavily --transport stdio --scope user -e TAVILY_API_KEY="$TAVILY_API_KEY" -- npx -y tavily-mcp@latest; then
-        echo "✓ tavily MCP (upstream tavily-mcp) registered"
-      else
-        echo "WARNING: setup command failed (exit $?)."
-      fi
-    else
-      echo "⚠ TAVILY_API_KEY not set. Get a key from https://app.tavily.com/home"
-      echo "  Then: claude mcp add tavily --transport stdio --scope user -e TAVILY_API_KEY=tvly-... -- npx -y tavily-mcp@latest"
-    fi
-  else
-    echo "⚠ npx not found. Tavily MCP needs Node.js 20+."
-    echo "  Install later: claude mcp add tavily --transport stdio --scope user -e TAVILY_API_KEY=... -- npx -y tavily-mcp@latest"
-  fi
-else
-  echo "→ tavily MCP already registered (skipped)"
-fi
-
-# Report a server defined at two scopes with different endpoints (issue #1256).
-# It covers a pre-existing registration the step above skipped, which the shared
-# URL expression cannot fix. Report only: nothing is removed; the printed remedy
-# is the user's call. Exit 1 is a conflict, 3 is "could not examine" - neither
-# stops init. It reads the SAME user config the guard above read ($USER_JSON,
-# which honours CLAUDE_CONFIG_DIR), or it would examine a profile this session
-# does not use.
 python3 "$CPP_DIR/scripts/mcp-drift.py" --scope-check --claude-json "$USER_JSON" --project-dir "$CPP_DIR" \
   || echo "⚠ MCP scope check did not pass (see above) - init continues"
 ```
@@ -1666,6 +1781,12 @@ If the user opts in, seed the pool config into the project and register the desk
 stdio MCP servers (upstream via `npx`, no custom image, pinned version):
 
 ```bash
+# Rebind CPP_MCP_RUN_DIR to this run's printed absolute path in this tool call.
+if [ -z "${CPP_MCP_RUN_DIR-}" ] || ! source "$CPP_MCP_RUN_DIR/routines.sh"; then
+  echo "CPP Installation Incomplete"
+  echo "WARNING: MCP run state could not be loaded"
+  exit 1
+fi
 # Seed the project's pool config (edit desk count / idle timeout there later).
 mkdir -p .claude
 if [ ! -f .claude/playwright-pool.json ]; then
@@ -1679,26 +1800,30 @@ fi
 # Register one MCP server per desk listed in the pool config. Each runs upstream
 # @playwright/mcp with --isolated (blank context per lease; session identity lives
 # in the portable state file, not the desk).
-PW_MCP_VERSION="0.0.77"
-if ! DESKS=$(python3 -c "import json; print('\n'.join(json.load(open('.claude/playwright-pool.json'))['desks']))"); then
-  echo "WARNING: browser desk configuration could not be read; no desks registered."
-  exit 1
+unset 'CPP_MCP_RESULTS[browser-pool]'
+if DESKS=$(python3 - <<'PY_DESKS'
+import json, re, sys
+try:
+    with open('.claude/playwright-pool.json', encoding='utf-8') as f:
+        data = json.load(f)
+    desks = data.get('desks') if isinstance(data, dict) else None
+    if not isinstance(desks, list) or not desks:
+        sys.exit(3)
+    if any(not isinstance(name, str) or not re.fullmatch(r'[a-zA-Z0-9_-]+', name) for name in desks):
+        sys.exit(3)
+except (OSError, ValueError):
+    sys.exit(3)
+print('\n'.join(desks))
+PY_DESKS
+); then
+  # Every element has been validated before the first registration.
+  while IFS= read -r desk; do
+    if cpp_register_claude_mcp "$desk" desk; then :; else echo "WARNING: browser desk setup incomplete"; fi
+  done <<< "$DESKS"
+else
+  cpp_mcp_record browser-pool unverified || exit 1
+  echo "WARNING: browser desk configuration could not be read or has invalid names; no desks registered."
 fi
-if ! MCP_LIST=$(claude mcp list 2>/dev/null); then
-  echo "WARNING: claude MCP registrations could not be read; registration step not run."
-  exit 1
-fi
-for desk in $DESKS; do
-  if echo "$MCP_LIST" | grep -q "$desk"; then
-    echo "→ $desk already registered (skipped)"
-  else
-    if claude mcp add "$desk" --scope user -- npx -y "@playwright/mcp@${PW_MCP_VERSION}" --isolated; then
-      echo "✓ $desk registered (npx @playwright/mcp@${PW_MCP_VERSION} --isolated)"
-    else
-      echo "WARNING: setup command failed (exit $?)."
-    fi
-  fi
-done
 
 echo ""
 echo "IMPORTANT: restart Claude Code so the playwright-desk-* servers load at startup"
@@ -1748,8 +1873,20 @@ Makefile, cicd config, workflow or container files are created by this tier.
 
 ```bash
 CPP_HOST_RUNTIME="$HOME/.cache/claude-power-pack/host-ci"
-PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" UV_PROJECT_ENVIRONMENT="$CPP_HOST_RUNTIME/venv" UV_CACHE_DIR="$CPP_HOST_RUNTIME/uv" UV_LOCKED=1 PYTHONDONTWRITEBYTECODE=1 uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd host-ci --path "$PWD" --projects-root "$CPP_PROJECTS_ROOT" --write
+CPP_HOST_CI_REPORT=$(PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" UV_PROJECT_ENVIRONMENT="$CPP_HOST_RUNTIME/venv" UV_CACHE_DIR="$CPP_HOST_RUNTIME/uv" UV_LOCKED=1 PYTHONDONTWRITEBYTECODE=1 uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd host-ci --path "$PWD" --projects-root "$CPP_PROJECTS_ROOT" --write)
 CPP_HOST_CI_STATUS=$?
+printf '%s\n' "$CPP_HOST_CI_REPORT"
+# Derive this observation from the actual write receipt, never from tier choice.
+if CPP_HOST_UPDATED_RESULTS=$(printf '%s\n' "$CPP_HOST_CI_REPORT" | python3 "$CPP_DIR/scripts/cpp-install-receipt.py" host-ci-outcome --exit-code "$CPP_HOST_CI_STATUS" --steps-json "${STEP_RESULTS_JSON:-[]}"); then
+  STEP_RESULTS_JSON="$CPP_HOST_UPDATED_RESULTS"
+  printf 'CPP_INSTALL_STEP_RESULTS: %s\n' "$STEP_RESULTS_JSON"
+else
+  # An unrecorded retry must never leave an older green row as this run's evidence.
+  CPP_HOST_PRIOR_STEP_RESULTS_JSON="${STEP_RESULTS_JSON:-[]}"
+  STEP_RESULTS_JSON=""
+  echo "Host CI observation unverified; retain prior metadata and retry before saving the receipt." >&2
+  exit 1
+fi
 case "$CPP_HOST_CI_STATUS" in
   0) echo "Host CI record persisted; see each provider's independent verdict above." ;;
   3) echo "Host CI persistence deferred, unavailable or unconfirmed; see record state above." ;;
@@ -1839,57 +1976,24 @@ fi
 
 Consent: register the selected servers in `${CODEX_HOME:-$HOME/.codex}/config.toml`; create its parent/file if absent and preserve unrelated configuration. Show the server names and transport before asking.
 
-This reuses the logic from Step 6 (Optional Extras) section 8b, but is now part of the Tier 5 flow:
+Use the shared per-client definitions above, just as in Step 6 section 8b. Record both IDs in the offered-step set before asking this choice:
 
 ```bash
+# Rebind CPP_MCP_RUN_DIR to this run's printed absolute path in this tool call.
+if [ -z "${CPP_MCP_RUN_DIR-}" ] || ! source "$CPP_MCP_RUN_DIR/routines.sh"; then
+  echo "CPP Installation Incomplete"
+  echo "WARNING: MCP run state could not be loaded"
+  exit 1
+fi
+# Only run this block after Yes to this section's registration choice.
 if command -v codex &>/dev/null; then
-  echo ""
-  echo "=== Codex MCP Registration ==="
-  echo ""
-  echo "Register Claude Power Pack MCP servers with Codex?"
-  echo "MCP servers expose streamable HTTP at /mcp for Codex compatibility."
-  echo ""
-  # Ask user if they want to register - use AskUserQuestion
-  # If yes:
-  if ! CODEX_LIST=$(codex mcp list 2>/dev/null); then
-    echo "WARNING: codex MCP registrations could not be read; registration step not run."
-    exit 1
-  fi
-
-  for entry in "second-opinion:8080"; do
-    NAME="${entry%%:*}"
-    PORT="${entry#*:}"
-    if echo "$CODEX_LIST" | grep -q "$NAME"; then
-      echo "-> $NAME already registered with Codex (skipped)"
-    else
-      if curl -sf --max-time 2 "http://127.0.0.1:${PORT}/" >/dev/null 2>&1; then
-        if codex mcp add "$NAME" --url "http://127.0.0.1:${PORT}/mcp"; then
-          echo "Registered $NAME with Codex (http://127.0.0.1:${PORT}/mcp)"
-        else
-          echo "WARNING: setup command failed (exit $?)."
-        fi
-      else
-        echo "WARNING: $NAME not reachable on port $PORT - skipping Codex registration"
-        echo "  Start the external second-opinion server first (see https://github.com/cooneycw/mcp-second-opinion)"
-      fi
-    fi
-  done
-
-  # Browser automation (upstream @playwright/mcp) is stdio/npx, not HTTP.
-  if echo "$CODEX_LIST" | grep -qw "playwright"; then
-    echo "-> playwright already registered with Codex (skipped)"
-  elif command -v npx &>/dev/null; then
-    if codex mcp add playwright -- npx -y @playwright/mcp@latest --headless; then
-      echo "Registered playwright (upstream @playwright/mcp) with Codex"
-    else
-      echo "WARNING: setup command failed (exit $?)."
-    fi
-  else
-    echo "WARNING: npx not found - skipping Codex playwright registration (needs Node.js 18+)"
-  fi
-
-  echo ""
+  if cpp_register_codex_mcp second-opinion; then :; else echo "WARNING: Codex second-opinion setup incomplete"; fi
+  if cpp_register_codex_mcp playwright; then :; else echo "WARNING: Codex playwright setup incomplete"; fi
   echo "Restart Codex for tools to become available."
+else
+  cpp_mcp_record codex-second-opinion skipped || exit 1
+  cpp_mcp_record codex-playwright skipped || exit 1
+  echo "WARNING: Codex CLI not found; registration skipped"
 fi
 ```
 
@@ -2376,7 +2480,9 @@ If your server runs on a different host (e.g. a Tailscale address), export
 SECOND_OPINION_URL with its base URL (no /mcp), then re-register at user scope
 from that value:
   claude mcp remove second-opinion -s user
-  claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"
+  # Initialize a new run above; bind its printed CPP_MCP_RUN_DIR in this call.
+  source "$CPP_MCP_RUN_DIR/routines.sh" || exit 1
+  if cpp_register_claude_mcp second-opinion; then :; else echo "WARNING: registration incomplete"; fi
 ```
 
 ### npx Not Available (playwright)
@@ -2384,7 +2490,9 @@ from that value:
 ⚠ npx not found. Browser automation (upstream @playwright/mcp) needs Node.js 18+.
 
 Install Node.js (https://nodejs.org/), then:
-  claude mcp add --transport stdio --scope user playwright -- npx -y @playwright/mcp@latest --headless
+  # Initialize a new run above; bind its printed CPP_MCP_RUN_DIR in this call.
+  source "$CPP_MCP_RUN_DIR/routines.sh" || exit 1
+  if cpp_register_claude_mcp playwright; then :; else echo "WARNING: registration incomplete"; fi
 ```
 
 ---
@@ -2412,32 +2520,26 @@ Install Sequential Thinking? [y/N]
 If yes:
 
 ```bash
-# Check if Node.js is available
-if ! command -v npx &>/dev/null; then
-  echo "⚠ npx not found. Sequential Thinking requires Node.js 18+."
-  echo "  Install Node.js: https://nodejs.org/"
-  echo "  Skipping Sequential Thinking."
-else
-  if ! MCP_LIST=$(claude mcp list 2>/dev/null); then
-    echo "WARNING: claude MCP registrations could not be read; registration step not run."
-    exit 1
-  fi
-  if echo "$MCP_LIST" | grep -q "sequential-thinking"; then
-    echo "→ sequential-thinking MCP already registered (skipped)"
-  else
-    if claude mcp add --transport stdio --scope user sequential-thinking -- npx -y @modelcontextprotocol/server-sequential-thinking; then
-      echo "✓ Sequential Thinking MCP registered (stdio, user scope)"
-    else
-      echo "WARNING: setup command failed (exit $?)."
-    fi
-  fi
+# Rebind CPP_MCP_RUN_DIR to this run's printed absolute path in this tool call.
+if [ -z "${CPP_MCP_RUN_DIR-}" ] || ! source "$CPP_MCP_RUN_DIR/routines.sh"; then
+  echo "CPP Installation Incomplete"
+  echo "WARNING: MCP run state could not be loaded"
+  exit 1
 fi
+if cpp_register_claude_mcp sequential-thinking; then :; else echo "WARNING: Sequential Thinking setup incomplete"; fi
 ```
 
 If no:
 ```bash
+# Rebind CPP_MCP_RUN_DIR to this run's printed absolute path in this tool call.
+if [ -z "${CPP_MCP_RUN_DIR-}" ] || ! source "$CPP_MCP_RUN_DIR/routines.sh"; then
+  echo "CPP Installation Incomplete"
+  echo "WARNING: MCP run state could not be loaded"
+  exit 1
+fi
 echo "→ Sequential Thinking skipped"
-echo "  Install later: claude mcp add --transport stdio --scope user sequential-thinking -- npx -y @modelcontextprotocol/server-sequential-thinking"
+cpp_mcp_record sequential-thinking declined || exit 1
+echo "  Install later: rerun /cpp:init optional Sequential Thinking"
 ```
 
 ### 8b. Codex MCP Registration (optional)
@@ -2448,7 +2550,7 @@ Consent: Yes updates `${CODEX_HOME:-$HOME/.codex}/config.toml` with the listed s
 === Optional: Codex MCP Registration ===
 
 Register Claude Power Pack MCP servers with Codex?
-This will run `codex mcp add ...` and update Codex configuration.
+This calls the shared Codex registration routine and updates Codex configuration.
 
 MCP servers expose streamable HTTP at /mcp. Claude Code and Codex both use
 the /mcp streamable-http endpoint.
@@ -2459,58 +2561,37 @@ Register with Codex? [y/N]
 If yes:
 
 ```bash
-# Check if Codex CLI is available
-if ! command -v codex &>/dev/null; then
-  echo "⚠ Codex CLI not found. Skipping registration."
-  echo "  Install Codex first, then run the commands in .agents/CODEX_SETUP.md"
-else
-  if ! CODEX_LIST=$(codex mcp list 2>/dev/null); then
-    echo "WARNING: codex MCP registrations could not be read; registration step not run."
-    exit 1
-  fi
-
-  for entry in "second-opinion:8080"; do
-    NAME="${entry%%:*}"
-    PORT="${entry#*:}"
-    if echo "$CODEX_LIST" | grep -q "$NAME"; then
-      echo "-> $NAME already registered with Codex (skipped)"
-    else
-      # Verify the external server is reachable before registering
-      if curl -sf --max-time 2 "http://127.0.0.1:${PORT}/" >/dev/null 2>&1; then
-        if codex mcp add "$NAME" --url "http://127.0.0.1:${PORT}/mcp"; then
-          echo "✓ $NAME registered with Codex (http://127.0.0.1:${PORT}/mcp)"
-        else
-          echo "WARNING: setup command failed (exit $?)."
-        fi
-      else
-        echo "⚠ $NAME not reachable on port $PORT - skipping Codex registration"
-        echo "  Start the external second-opinion server first (see https://github.com/cooneycw/mcp-second-opinion)"
-      fi
-    fi
-  done
-
-  # Browser automation (upstream @playwright/mcp) is stdio/npx, not HTTP.
-  if echo "$CODEX_LIST" | grep -qw "playwright"; then
-    echo "-> playwright already registered with Codex (skipped)"
-  elif command -v npx &>/dev/null; then
-    if codex mcp add playwright -- npx -y @playwright/mcp@latest --headless; then
-      echo "✓ playwright (upstream @playwright/mcp) registered with Codex"
-    else
-      echo "WARNING: setup command failed (exit $?)."
-    fi
-  else
-    echo "⚠ npx not found - skipping Codex playwright registration (needs Node.js 18+)"
-  fi
-
-  echo ""
+# Rebind CPP_MCP_RUN_DIR to this run's printed absolute path in this tool call.
+if [ -z "${CPP_MCP_RUN_DIR-}" ] || ! source "$CPP_MCP_RUN_DIR/routines.sh"; then
+  echo "CPP Installation Incomplete"
+  echo "WARNING: MCP run state could not be loaded"
+  exit 1
+fi
+# Only run this block after Yes to this section's registration choice.
+if command -v codex &>/dev/null; then
+  if cpp_register_codex_mcp second-opinion; then :; else echo "WARNING: Codex second-opinion setup incomplete"; fi
+  if cpp_register_codex_mcp playwright; then :; else echo "WARNING: Codex playwright setup incomplete"; fi
   echo "Restart Codex for tools to become available."
+else
+  cpp_mcp_record codex-second-opinion skipped || exit 1
+  cpp_mcp_record codex-playwright skipped || exit 1
+  echo "WARNING: Codex CLI not found; registration skipped"
 fi
 ```
 
 If no:
 
 ```bash
+# Rebind CPP_MCP_RUN_DIR to this run's printed absolute path in this tool call.
+if [ -z "${CPP_MCP_RUN_DIR-}" ] || ! source "$CPP_MCP_RUN_DIR/routines.sh"; then
+  echo "CPP Installation Incomplete"
+  echo "WARNING: MCP run state could not be loaded"
+  exit 1
+fi
 echo "-> Codex registration skipped"
+for id in codex-second-opinion codex-playwright; do
+  if [ -z "${CPP_MCP_RESULTS[$id]-}" ]; then cpp_mcp_record "$id" declined || exit 1; fi
+done
 # Write setup artifact for manual registration later
 mkdir -p .agents
 if [ -f "$CPP_DIR/.agents/CODEX_SETUP.md" ]; then
@@ -2520,7 +2601,7 @@ if [ -f "$CPP_DIR/.agents/CODEX_SETUP.md" ]; then
     echo "WARNING: setup command failed (exit $?)."
   fi
 else
-  echo "  Register later with: codex mcp add <name> --url http://127.0.0.1:<port>/mcp"
+  echo "  Register later with: /cpp:init optional Codex MCP registration"
 fi
 ```
 
@@ -2678,6 +2759,12 @@ run or been explicitly skipped. Build `{STEP_RESULTS}` from their observed exit
 statuses: report each selected step as succeeded, failed, deferred, skipped or
 unverified. A failed read is unverified, never absent or already installed.
 Registration success proves configuration was written, not server connectivity.
+The shared MCP routines automatically merge their latest fixed-ID observations
+into `STEP_RESULTS_JSON` before persistence; do not replace a FAILED outcome
+with a tier-based success. Record offered MCP IDs before the relevant choice,
+including browser-pool, sequential-thinking, codex-second-opinion and
+codex-playwright. A declined Codex choice after an earlier successful Tier 5
+registration retains the observed registration rather than undoing it.
 Never infer success from selecting a tier or finding an old generated file.
 
 The permission lines below describe the project file only. This observer does not re-check other installation steps or effective native permissions. Read the
@@ -2778,11 +2865,39 @@ values. The receipt is historical evidence, not a live connectivity probe.
 
 ```bash
 # CPP_INSTALL_RECEIPT_WRITE_BEGIN
+# Rebind CPP_MCP_RUN_DIR to this run's printed absolute path in this tool call.
+if [ -z "${CPP_MCP_RUN_DIR-}" ] || ! source "$CPP_MCP_RUN_DIR/routines.sh"; then
+  echo "CPP Installation Incomplete"
+  echo "WARNING: MCP run state could not be loaded"
+  exit 1
+fi
+# CPP_MCP_RECEIPT_MERGE_BEGIN
+if STEP_RESULTS_JSON=$(printf '%s\n' "$STEP_RESULTS_JSON" | python3 -c '
+import json, sys
+rows = json.load(sys.stdin)
+if not isinstance(rows, list):
+    raise ValueError("step observations must be an array")
+observed = [json.loads(value) for value in sys.argv[1:]]
+ids = {row["step"] for row in observed}
+print(json.dumps([row for row in rows if row.get("step") not in ids] + observed))
+' "${CPP_MCP_RESULTS[@]}"); then
+  :
+else
+  echo "CPP Installation Incomplete"
+  echo "WARNING: registration observations could not be merged; receipt not written"
+  exit 1
+fi
+# CPP_MCP_RECEIPT_MERGE_END
 if printf '%s\n' "$STEP_RESULTS_JSON" | python3 "$CPP_DIR/scripts/cpp-install-receipt.py" write \
     --project-dir "$PWD" --cpp-dir "$CPP_DIR" \
     --tier "$SELECTED_TIER" --profile "$PROFILE_NAME" \
     --offered-steps "$OFFERED_STEPS_JSON" \
     --permission-report "$PERMISSION_REPORT"; then
+  if python3 "$CPP_MCP_STATE_HELPER" cleanup --run-dir "$CPP_MCP_RUN_DIR"; then
+    echo "MCP setup temporary run removed after receipt persistence."
+  else
+    echo "WARNING: receipt saved, but temporary MCP run cleanup failed; inspect the retained run."
+  fi
   if CPP_INSTALL_SUMMARY=$(python3 "$CPP_DIR/scripts/cpp-install-receipt.py" summary --project-dir "$PWD" --cpp-dir "$CPP_DIR"); then
     printf '%s\n' "$CPP_INSTALL_SUMMARY"
   else

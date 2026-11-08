@@ -339,14 +339,15 @@ done
 if [ -z "$CPP_DIR" ]; then
     echo "WARNING: claude-power-pack not found. Skipping cicd:init."
 else
-    # Generate Makefile from detected framework
-    if [ ! -f "Makefile" ]; then
-        PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -c "
-from lib.cicd.makefile import generate_makefile
-content = generate_makefile('.')
-print(content)
-" > Makefile
-        echo "Generated Makefile from detected framework"
+    # Preserve every existing directory entry, including dangling symlinks.
+    if [ -e "Makefile" ] || [ -L "Makefile" ]; then
+        echo "Preserved existing Makefile entry"
+    elif PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd detect --path "$PWD" --generate-makefile; then
+        : # The guarded writer reports the actual written path; no shell redirect.
+    else
+        GENERATION_STATUS=$?
+        echo "ERROR: Makefile generation failed; stopping project setup." >&2
+        exit "$GENERATION_STATUS"
     fi
 
     # Create .claude/cicd.yml config

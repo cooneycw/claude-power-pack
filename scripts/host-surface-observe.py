@@ -185,6 +185,7 @@ INVOCATIONS: dict[str, list[list[str]]] = {
     # Like stash-worktree-guard, the writer operates on a project, not a fixed
     # host surface. Exercise its read-only status path with no git dependency;
     # receipt write/atomicity are covered by its owned-project tests/controls.
+    "cpp-mcp-state.py": [["load", "--run-dir", "{HOME}"]],
     "cpp-install-receipt.py": [["status", "--project-dir", "{HOME}", "--revision", "a" * 40]],
     "codex-skill-sync.py": [["--install"]],
     "install-memory-harness.sh": [[]],

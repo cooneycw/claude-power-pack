@@ -1,6 +1,9 @@
 """The remaining wording promises current features, without reviving retired ones."""
 
+import re
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 INIT = ROOT / ".claude/commands/cpp/init.md"
@@ -43,10 +46,32 @@ def test_git_allowance_discloses_mutating_operations():
     assert "fetches and worktree creation" in text
 
 
-def test_finish_description_uses_declared_gates():
-    text = INIT.read_text()
-    assert "/flow:finish  → runs `make lint` and `make test`" not in text
-    assert "project's declared quality gates" in text
+def assert_no_retired_finish_claim(text: str) -> None:
+    stale = r"`?/flow:finish`?\s*(?:→|->)\s*runs\s+`?make lint`?\s+and\s+`?make test`?"
+    assert not re.search(stale, text), "retired fixed gate description returned"
+
+
+def test_retired_makefile_finish_description_stays_absent():
+    # The offer containing the old positive description was retired by R3.
+    # Preserve the stale-claim guard without requiring that dead offer's text.
+    assert_no_retired_finish_claim(INIT.read_text())
+
+
+@pytest.mark.parametrize("stale", [
+    "/flow:finish  → runs `make lint` and `make test`",
+    "/flow:finish -> runs make lint and make test",
+    "`/flow:finish` → runs `make lint` and `make test`",
+])
+def test_retired_finish_description_guard_rejects_known_bad_claims(stale):
+    assert "/flow:finish" in stale and "make lint" in stale and "make test" in stale
+    with pytest.raises(AssertionError, match="retired fixed gate description"):
+        assert_no_retired_finish_claim(stale)
+
+
+def test_retired_finish_guard_allows_a_correct_description_without_requiring_it():
+    # This remains valid prose elsewhere, but cpp:init no longer needs to offer
+    # a project Makefile in order to carry it.
+    assert_no_retired_finish_claim("/flow:finish → runs the project's declared quality gates")
 
 
 def test_codex_authentication_is_not_api_key_only():

@@ -13,6 +13,11 @@
 
 ### Fixed
 
+- `cpp:init` shares one MCP registration routine per client and records actual
+  registration outcomes in its install receipt (Refs #1587, R2).
+- `project:init` uses the guarded framework Makefile writer, preserves existing entries and symlinks, and stops on generation failure without creating an empty Makefile or reporting success (#1650).
+
+- Tier 4/5 installation receipts now use the observed host CI record write instead of requiring retired project generators; deferred, failed and unknown writes remain incomplete, and historical schema-1 project-generation receipts still read (#1649).
 - Flow CI refuses mixed Woodpecker credential sources instead of sending an AWS token to an unrelated environment-selected server (or the reverse), while complete and matching pairs keep working (#1644).
 
 - cpp:init Tier 4 now records independent host CI capabilities instead of generating project files; project consumers share a container-aware, worktree-stable reader (#1609).
@@ -35,6 +40,15 @@
 - Drift detection now completes on hosts without Docker, reports Docker-dependent checks as skipped, and preserves drift findings from later checks (#1629).
 
 ### Behaviour changes you may notice
+
+- `cpp:init` retires its generic Makefile offer; use `/project:init` for new
+  projects or `/cicd:init` for existing repositories. Historical install receipts
+  remain readable (Refs #1587, R3).
+
+- MCP setup saves private per-run temporary artifacts under `$TMPDIR` so later
+  tool calls can reload outcomes, then removes the run after saving the receipt (Refs #1587, R2).
+- Codex MCP registration now honors `SECOND_OPINION_URL`, matching Claude,
+  instead of always registering localhost port 8080 (Refs #1587, R2).
 
 - CPP now states a bash 4.4 floor. `flow-preflight` gains a required `bash` check, so `/cpp:init`, `/cpp:update` and `/flow:doctor` report a bash below it, and `/flow:auto` refuses to start until it is upgraded. On macOS: `brew install bash`, first on PATH (#1628).
 - `hook-permission-census.sh` now parses under bash 3.2, so it no longer exits 2 from a syntax error on a stock macOS host (#1628).
