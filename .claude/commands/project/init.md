@@ -136,7 +136,10 @@ If the directory already exists, check what steps have been completed and resume
 
 - Has `pyproject.toml` / `package.json` / `go.mod` / `Cargo.toml`? → Step 2 done.
 - Has `.git/`? → Step 3 partially done. Check if GitHub remote exists.
-- Has `Makefile` + `.claude/cicd.yml`? → cicd:init done.
+- CI setup is complete only when the recorded providers, their emitted pipeline files,
+  and `.claude/branch-protection.json` agree: run `python -m lib.cicd checks --path <repo> --json`.
+  File presence alone never completes CI setup. `unknown` or `drift` resumes the CI step;
+  host capability is reported separately as recorded evidence with its timestamp.
 - Has `.claude/commands` symlink? → cpp:init done.
 - Has `.specify/`? → spec structure already present.
 
@@ -354,6 +357,46 @@ print(content)
     fi
 fi
 ```
+
+### 4a.1: Record CI providers and generate their artifacts
+
+Use the same deterministic CI setup as `/cicd:init` for an existing repository.
+Read choices with `python -m lib.cicd provider --registry --json` and the current
+selection with `python -m lib.cicd provider --path <repo> --json`. If selection is
+unknown, ask once with AskUserQuestion using `multiSelect: true` over the registered
+names (today `woodpecker` and `github-actions`). Require one or more explicit
+choices; there is no default provider or separate `both` choice. On resume,
+reuse a valid recorded selection unless the user requests a change.
+
+Record the comma-separated selected names through the shared writer and preview
+both pipelines and local protection:
+
+```bash
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd pipeline --path "$PWD" --providers "$CI_PROVIDERS" --record --protection --json
+```
+
+Inspect every proposed path in `files`, including `.woodpecker.yml`,
+`.github/workflows/ci.yml` and `.claude/branch-protection.json`. Ask before
+overwriting existing files; do not infer consent from a resume checkpoint.
+Then generate the reviewed files with the same command plus `--write`, and run
+`python -m lib.cicd checks --path "$PWD" --json`. A nonzero result stops this
+step with its named reason. Unsupported pipeline shapes are unknown, never a
+successful consistency check.
+
+Required checks are derived from unconditional PR jobs: Actions matrix cells
+have separate contexts; Woodpecker uses PR contexts per emitted pipeline file.
+Push-only jobs and path-filtered pipelines cannot become mandatory checks for
+every PR. The JSON result also reports each selected provider's host capability.
+Read the canonical host record without probes or writes. Show `last recorded
+<status> at <checked_at>` with the provider reason and a `/cpp:init` Tier 4 refresh
+instruction. A recorded ready verdict is historical evidence, never a claim that
+credentials work now. Warn for missing or unknown capability; an unavailable or
+container record remains unknown and never borrows another host's answer.
+
+Writing the local posture does not apply it to GitHub. Show the concrete
+`.claude/branch-protection.json` to the user and offer
+`scripts/branch-protection.sh --apply --config .claude/branch-protection.json`
+only after explicit approval. No setup default invokes the protection API.
 
 ### 4b: CPP Init (symlinks)
 
@@ -616,6 +659,8 @@ Project created: {PROJECT_NAME}
   GitHub:     github.com/{user}/{PROJECT_NAME} (private)
   Framework:  {Framework} ({PackageManager})
   Makefile:   lint, test, build, deploy, clean, verify
+  CI:         {recorded provider list}; pipelines {paths}; required checks {derived contexts}
+  Host CI:    {per-provider ready/missing/unknown; never inferred from config}
   CPP:        Commands + Skills + Hooks
   Spec:       .specify/ initialized
 

@@ -7,6 +7,7 @@ pass command output, configuration, endpoints, credentials or environment values
 The project receipt is not a host installation surface or a successful step.
 """
 # NEGATIVE-CONTROL: controls/cpp-install-receipt
+# NEGATIVE-CONTROL: controls/cpp-host-install-receipt
 
 from __future__ import annotations
 
@@ -20,9 +21,12 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+HOST_CI_OUTCOMES = {"written", "deferred", "failed", "unknown"}
+LEGACY_TIER4_STEPS = {"framework-makefile", "cicd-config"}
 OUTCOMES = {"installed", "already", "skipped", "declined", "FAILED", "unverified"}
 PROFILES = {"Cautious", "Standard", "Trusted", "YOLO", "Custom", "not-selected"}
 REFERENCES = {
+    "host-ci-record": "<projects>/.claude/cpp-host.json (recorded host capability snapshot)",
     "claude-commands": "~/.claude/commands (CPP family links)",
     "claude-scripts": "~/.claude/scripts (CPP helper links)",
     "shell-prompt": "user shell startup file (CPP prompt block)",
@@ -47,6 +51,7 @@ REFERENCES = {
     "memory-service": "user common-memory service/container (reference only)",
 }
 STEP_REFS = {
+    "host-ci": ["host-ci-record"],
     "commands": ["claude-commands"], "scripts": ["claude-scripts"],
     "shell-prompt": ["shell-prompt"], "second-opinion": ["claude-second-opinion"],
     "playwright": ["claude-playwright"], "tavily": ["claude-tavily"],
@@ -67,7 +72,7 @@ TIER_STEPS = {
     1: ["commands", "stash-guard"],
     2: ["scripts", "permission-profile"],
     3: ["uv", "second-opinion", "playwright", "tavily"],
-    4: ["framework-makefile", "cicd-config"],
+    4: ["host-ci"],
     5: ["codex-cli", "codex-doctor", "codex-auth", "codex-skills", "memory-harness"],
     6: ["qwen-cli", "qwen-model"],
     7: ["gemma-cli", "gemma-model", "gemma-provider"],
@@ -82,12 +87,13 @@ OPTIONAL_STEPS = {
     "stash-guard", "tavily", "user-flow-allowlist", "permission-census", "session-reminders", "tmux-autostart",
     "happy-cli", "spec-kit-cli", "memory-store-start", "memory-store-ping",
 }
-STEPS = set().union(*TIER_STEPS.values(), OPTIONAL_STEPS)
+STEPS = set().union(*TIER_STEPS.values(), OPTIONAL_STEPS, LEGACY_TIER4_STEPS)
 
 
-def required_steps(tier: int) -> list[str]:
+def required_steps(tier: int, *, legacy: bool = False) -> list[str]:
     tiers = range(1, tier + 1) if tier <= 5 else (1, tier)
-    return [step for number in tiers for step in TIER_STEPS[number]]
+    return [step for number in tiers for step in
+            (sorted(LEGACY_TIER4_STEPS) if legacy and number == 4 else TIER_STEPS[number])]
 
 
 def selected_capabilities(tier: int) -> list[str]:
@@ -153,6 +159,60 @@ def permissions(raw: object) -> dict:
     return {"profile": profile, "verification": verification, "counts": counts}
 
 
+def host_ci_valid(outcome: object, code: object) -> bool:
+    """Only an actual successful write completes this step; scope checks do not."""
+    return ((outcome == "written" and type(code) is int and code == 0)
+            or (outcome in {"deferred", "unknown"} and type(code) is int and code == 3)
+            or (outcome == "unknown" and type(code) is int and code == 0)
+            or (outcome == "failed" and type(code) is int and 0 < code <= 255 and code != 3)
+            or (outcome == "unverified" and code is None))
+
+
+def observation(item: object) -> dict:
+    if not isinstance(item, dict) or set(item) - {"step", "outcome", "user_scope", "exit_code"}:
+        raise ValueError("STEP_RESULTS metadata invalid")
+    step, outcome = item.get("step"), item.get("outcome")
+    if not isinstance(step, str) or step not in STEPS or not isinstance(outcome, str):
+        raise ValueError("STEP_RESULTS step or outcome invalid")
+    code = item.get("exit_code")
+    if code is not None and (type(code) is not int or not 0 <= code <= 255):
+        raise ValueError("STEP_RESULTS exit status invalid")
+    if step == "host-ci":
+        if not host_ci_valid(outcome, code):
+            raise ValueError("host-ci outcome does not match observed write status")
+    elif outcome not in OUTCOMES:
+        raise ValueError("STEP_RESULTS outcome invalid")
+    elif code:
+        outcome = "FAILED"
+    refs = item.get("user_scope", STEP_REFS.get(step, []))
+    if (not isinstance(refs, list)
+            or any(not isinstance(ref, str) or ref not in STEP_REFS.get(step, []) for ref in refs)):
+        raise ValueError("STEP_RESULTS reference invalid")
+    return {**item, "step": step, "outcome": outcome}
+
+
+def host_ci_results(raw: str, code: int, previous: object) -> list[dict]:
+    """Replace only the host observation from the actual CLI receipt + status.
+
+    Ignore provider verdicts and discard raw probe text. Missing, duplicate or
+    contradictory receipt lines cannot prove persistence, even on exit zero.
+    """
+    if not isinstance(previous, list):
+        raise ValueError("STEP_RESULTS must be a list")
+    preserved = [observation(item) for item in previous if not isinstance(item, dict) or item.get("step") != "host-ci"]
+    states = [line for line in raw.splitlines() if line.startswith("HOST_CI_RECORD:")]
+    state = states[0].removeprefix("HOST_CI_RECORD: ") if len(states) == 1 else None
+    if code == 0 and state == "written":
+        outcome = "written"
+    elif code == 3 and state == "deferred":
+        outcome = "deferred"
+    elif code not in {0, 3}:
+        outcome = "failed"
+    else:
+        outcome = "unknown"
+    return [*preserved, {"step": "host-ci", "outcome": outcome, "exit_code": code}]
+
+
 def make_receipt(args: argparse.Namespace, cpp_revision: str) -> dict:
     data = json.load(sys.stdin)
     if not isinstance(data, list):
@@ -162,24 +222,14 @@ def make_receipt(args: argparse.Namespace, cpp_revision: str) -> dict:
     steps: list[dict] = []
     seen = set()
     for item in data:
-        if not isinstance(item, dict) or set(item) - {"step", "outcome", "user_scope", "exit_code"}:
-            raise ValueError("STEP_RESULTS metadata invalid")
-        step, outcome = item.get("step"), item.get("outcome")
-        if not isinstance(step, str) or step not in STEPS or step in seen:
-            raise ValueError("STEP_RESULTS step invalid or duplicated")
+        item = observation(item)
+        step, outcome = item["step"], item["outcome"]
+        if step in seen:
+            raise ValueError("STEP_RESULTS step duplicated")
         if step not in offered:
             raise ValueError("STEP_RESULTS observation outside offered population")
-        if not isinstance(outcome, str) or outcome not in OUTCOMES:
-            raise ValueError("STEP_RESULTS outcome invalid")
         exit_code = item.get("exit_code")
-        if exit_code is not None and (type(exit_code) is not int or not 0 <= exit_code <= 255):
-            raise ValueError("STEP_RESULTS exit status invalid")
-        if exit_code:
-            outcome = "FAILED"
         refs = item.get("user_scope", STEP_REFS.get(step, []))
-        if (not isinstance(refs, list)
-                or any(not isinstance(ref, str) or ref not in STEP_REFS.get(step, []) for ref in refs)):
-            raise ValueError("STEP_RESULTS reference invalid")
         seen.add(step)
         steps.append({"step": step, "outcome": outcome, "recorded_at": now,
                       "exit_code": exit_code, "user_scope": sorted(set(refs))})
@@ -217,7 +267,11 @@ def validate(data: object) -> dict:
     offered = data["offered_steps"]
     if (not isinstance(offered, list)
             or any(not isinstance(step, str) or step not in STEPS for step in offered)
-            or len(set(offered)) != len(offered) or not set(required_steps(selected["tier"])) <= set(offered)):
+            or len(set(offered)) != len(offered)):
+        raise ValueError("receipt offered population invalid")
+    legacy = (selected["tier"] in {4, 5} and "host-ci" not in offered
+              and LEGACY_TIER4_STEPS <= set(offered))
+    if not set(required_steps(selected["tier"], legacy=legacy)) <= set(offered):
         raise ValueError("receipt offered population invalid")
     if not isinstance(data["steps"], list) or not data["steps"]:
         raise ValueError("receipt outcomes absent")
@@ -229,10 +283,14 @@ def validate(data: object) -> dict:
         step, outcome = item["step"], item["outcome"]
         if not isinstance(step, str) or step not in STEPS or step in seen:
             raise ValueError("receipt step invalid")
-        if not isinstance(outcome, str) or outcome not in OUTCOMES or not valid_time(item["recorded_at"]):
+        if (not isinstance(outcome, str) or not valid_time(item["recorded_at"])
+                or (step != "host-ci" and outcome not in OUTCOMES)):
             raise ValueError("receipt outcome invalid")
         code = item["exit_code"]
-        if code is not None and (type(code) is not int or not 0 <= code <= 255 or (code and outcome != "FAILED")):
+        if step == "host-ci":
+            if not host_ci_valid(outcome, code):
+                raise ValueError("host-ci receipt exit status invalid")
+        elif code is not None and (type(code) is not int or not 0 <= code <= 255 or (code and outcome != "FAILED")):
             raise ValueError("receipt exit status invalid")
         if (not isinstance(item["user_scope"], list)
                 or any(not isinstance(ref, str) or ref not in STEP_REFS.get(step, []) for ref in item["user_scope"])):
@@ -249,7 +307,8 @@ def validate(data: object) -> dict:
 
 
 def complete(data: dict) -> bool:
-    return all(item["outcome"] in {"installed", "already"} or (
+    return all((item["step"] == "host-ci" and item["outcome"] == "written")
+               or item["outcome"] in {"installed", "already"} or (
         item["step"] in OPTIONAL_STEPS and item["outcome"] in {"skipped", "declined"}
     ) for item in data["steps"])
 
@@ -264,7 +323,8 @@ def report(path: Path, current: str, summary: bool) -> int:
         print("CPP_INSTALL_RECEIPT: unreadable or invalid receipt - run /cpp:init")
         return 1
     stale = data["cpp_revision"] != current
-    failed = any(item["outcome"] == "FAILED" for item in data["steps"])
+    failed = any(item["outcome"] == "FAILED" or (item["step"] == "host-ci" and item["outcome"] == "failed")
+                 for item in data["steps"])
     if stale:
         print("CPP_INSTALL_RECEIPT: receipt stale (CPP revision differs)")
     state = "receipt says failed" if failed else "receipt complete" if complete(data) else "receipt incomplete"
@@ -305,7 +365,7 @@ def write(path: Path, data: dict) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("write", "summary", "status"))
+    parser.add_argument("command", choices=("write", "summary", "status", "host-ci-outcome"))
     parser.add_argument("--project-dir", type=Path, default=Path.cwd())
     parser.add_argument("--cpp-dir", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--revision", help="explicit CPP revision (otherwise read local checkout HEAD)")
@@ -313,9 +373,16 @@ def main() -> int:
     parser.add_argument("--profile", choices=sorted(PROFILES))
     parser.add_argument("--offered-steps", help="JSON array of fixed step IDs offered by this run; required for write")
     parser.add_argument("--permission-report", default="{}", help="permission observer metadata only")
+    parser.add_argument("--exit-code", type=int, choices=range(256), help="observed host-ci launcher exit")
+    parser.add_argument("--steps-json", default="[]", help="prior general metadata outcomes for host-ci replacement")
     args = parser.parse_args()
     path = args.project_dir / ".claude/cpp-install.json"
     try:
+        if args.command == "host-ci-outcome":
+            if args.exit_code is None:
+                raise ValueError("observed exit status required")
+            print(json.dumps(host_ci_results(sys.stdin.read(), args.exit_code, json.loads(args.steps_json))))
+            return 0
         current = revision(args)
         if args.command == "write":
             if args.tier is None or args.profile is None:
@@ -329,6 +396,8 @@ def main() -> int:
         if args.command == "write":
             print("CPP_INSTALL_RECEIPT: receipt write FAILED - installation incomplete; "
                   "retain observed STEP_RESULTS and retry")
+        elif args.command == "host-ci-outcome":
+            print("CPP_INSTALL_HOST_CI: unverified - observation metadata invalid")
         else:
             print("CPP_INSTALL_RECEIPT: unverified - CPP revision unavailable or receipt could not be examined")
         return 1

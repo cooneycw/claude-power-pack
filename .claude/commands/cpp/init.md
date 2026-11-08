@@ -800,10 +800,10 @@ Execute only the components that aren't already installed.
 Keep the existing observed `{STEP_RESULTS}` as structured `STEP_RESULTS_JSON`
 for the receipt as well as for display. This is the same outcome record, not a
 second checklist. Add/update one entry after each attempted step or explicit
-skip/decline; never use the selected tier as evidence. A nonzero command exit
-records `FAILED`; an unreadable observation records `unverified`; an existing
+skip/decline; never use the selected tier as evidence. For ordinary steps, a
+nonzero command exit records `FAILED`; an unreadable observation records `unverified`; an existing
 component is `already` only after verification. Map the existing succeeded /
-failed / deferred wording to `installed` / `FAILED` / `skipped`. Optional extras
+failed / deferred wording for ordinary steps to `installed` / `FAILED` / `skipped`. Optional extras
 must have an outcome too, including `declined` when the user says no.
 
 Maintain `OFFERED_STEPS_JSON`, an array of the fixed IDs below, separately from
@@ -817,7 +817,13 @@ from outcomes; this does not introduce the later capability-selection redesign.
 
 Each entry has only `step`, `outcome`, the observed numeric `exit_code` when
 available, and optionally `user_scope` reference IDs. A nonzero exit forces
-`FAILED` even if the supplied outcome accidentally says installed.
+`FAILED` for ordinary steps even if the supplied outcome says installed.
+`host-ci` instead records its actual write outcome (`written`, `deferred`,
+`failed`, `unknown`) with the observed launcher exit: only `written` + 0
+completes it. A deferred/unknown write is not a completed installation. Provider
+ready/missing/unknown verdicts are independent of whether the record was written.
+Historical schema-1 receipts retain the retired project-generation IDs; new
+Tier 4/5 construction requires only `host-ci` at that tier.
 Do not put stdout, stderr, command arguments, settings, endpoints, environment
 variables, credentials or their values into the record. The helper stamps each
 outcome with the UTC time it was recorded in the receipt, not an invented
@@ -834,7 +840,7 @@ offered; do not add unrelated tiers):
 | Tier 2 scripts / profile / prompt / optional Makefile | `scripts`, `permission-profile`, `shell-prompt`, `generic-makefile` |
 | Tier 2 optional user allowlist / census / reminders / tmux / Happy / Spec-Kit | `user-flow-allowlist`, `permission-census`, `session-reminders`, `tmux-autostart`, `happy-cli`, `spec-kit-cli` |
 | Tier 3 uv / second-opinion / playwright / tavily / optional pool | `uv`, `second-opinion`, `playwright`, `tavily`, `browser-pool` |
-| Tier 4 framework Makefile / cicd.yml / health / pipeline / containers | `framework-makefile`, `cicd-config`, `health-config`, `pipeline`, `containers` |
+| Tier 4 host CI capability record | `host-ci` |
 | Tier 5 CLI / doctor / auth / MCPs / skills / memory harness | `codex-cli`, `codex-doctor`, `codex-auth`, `codex-second-opinion`, `codex-playwright`, `codex-tavily`, `codex-skills`, `memory-harness` |
 | Tier 6 CLI / model / endpoint / smoke / always-on | `qwen-cli`, `qwen-model`, `qwen-endpoint`, `qwen-smoke`, `qwen-always-on` |
 | Tier 7 CLI / model / endpoint / provider / smoke | `gemma-cli`, `gemma-model`, `gemma-endpoint`, `gemma-provider`, `gemma-smoke` |
@@ -1897,8 +1903,20 @@ Makefile, cicd config, workflow or container files are created by this tier.
 
 ```bash
 CPP_HOST_RUNTIME="$HOME/.cache/claude-power-pack/host-ci"
-PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" UV_PROJECT_ENVIRONMENT="$CPP_HOST_RUNTIME/venv" UV_CACHE_DIR="$CPP_HOST_RUNTIME/uv" UV_LOCKED=1 PYTHONDONTWRITEBYTECODE=1 uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd host-ci --path "$PWD" --projects-root "$CPP_PROJECTS_ROOT" --write
+CPP_HOST_CI_REPORT=$(PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" UV_PROJECT_ENVIRONMENT="$CPP_HOST_RUNTIME/venv" UV_CACHE_DIR="$CPP_HOST_RUNTIME/uv" UV_LOCKED=1 PYTHONDONTWRITEBYTECODE=1 uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd host-ci --path "$PWD" --projects-root "$CPP_PROJECTS_ROOT" --write)
 CPP_HOST_CI_STATUS=$?
+printf '%s\n' "$CPP_HOST_CI_REPORT"
+# Derive this observation from the actual write receipt, never from tier choice.
+if CPP_HOST_UPDATED_RESULTS=$(printf '%s\n' "$CPP_HOST_CI_REPORT" | python3 "$CPP_DIR/scripts/cpp-install-receipt.py" host-ci-outcome --exit-code "$CPP_HOST_CI_STATUS" --steps-json "${STEP_RESULTS_JSON:-[]}"); then
+  STEP_RESULTS_JSON="$CPP_HOST_UPDATED_RESULTS"
+  printf 'CPP_INSTALL_STEP_RESULTS: %s\n' "$STEP_RESULTS_JSON"
+else
+  # An unrecorded retry must never leave an older green row as this run's evidence.
+  CPP_HOST_PRIOR_STEP_RESULTS_JSON="${STEP_RESULTS_JSON:-[]}"
+  STEP_RESULTS_JSON=""
+  echo "Host CI observation unverified; retain prior metadata and retry before saving the receipt." >&2
+  exit 1
+fi
 case "$CPP_HOST_CI_STATUS" in
   0) echo "Host CI record persisted; see each provider's independent verdict above." ;;
   3) echo "Host CI persistence deferred, unavailable or unconfirmed; see record state above." ;;

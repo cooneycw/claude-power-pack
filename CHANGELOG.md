@@ -4,6 +4,7 @@
 
 ### Added
 
+- Project and existing-repository CI setup can select registered providers, derive unconditional PR checks (including matrix cells), generate local protection, and verify consistency; infrastructure generation supports the provider list (#1608).
 - `cpp:init` saves a project install receipt with recorded step outcomes and
   shared-component references; its summary and `cpp:status` distinguish failed,
   missing, stale and incomplete records (Refs #1587, R4).
@@ -12,6 +13,8 @@
 
 - `cpp:init` shares one MCP registration routine per client and records actual
   registration outcomes in its install receipt (Refs #1587, R2).
+- Tier 4/5 installation receipts now use the observed host CI record write instead of requiring retired project generators; deferred, failed and unknown writes remain incomplete, and historical schema-1 project-generation receipts still read (#1649).
+- Flow CI refuses mixed Woodpecker credential sources instead of sending an AWS token to an unrelated environment-selected server (or the reverse), while complete and matching pairs keep working (#1644).
 
 - cpp:init Tier 4 now records independent host CI capabilities instead of generating project files; project consumers share a container-aware, worktree-stable reader (#1609).
 - The unattended helper installer now includes `project-next.py`, so checkout installs satisfy the Claude preflight engine dependency; project-next documents the colocated library requirement for legacy copy installs and emits the installed-family exit marker on stderr (#1619).
