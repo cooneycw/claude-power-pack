@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-HELPER = ROOT / "scripts/cpp-install-receipt.py"
+HELPER = ROOT / "scripts" / "cpp-install-receipt.py"
 CASES = json.loads((ROOT / "tests/fixtures/cpp-install-receipt/cases.json").read_text())
 REVISION = "a" * 40
 
