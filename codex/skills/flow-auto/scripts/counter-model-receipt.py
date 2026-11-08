@@ -1753,7 +1753,7 @@ def _review_commands(records: list[dict], runtime: str) -> list[tuple[str, str]]
     """Supported runtime command/results only, never assistant prose or user text."""
     commands = []
     calls: dict[str, str] = {}
-    exec_calls: dict[str, str] = {}
+    exec_calls: dict[str, str | None] = {}
 
     def remember(call_id: object, command: object) -> None:
         if not isinstance(call_id, str) or not call_id.strip():
@@ -1767,12 +1767,14 @@ def _review_commands(records: list[dict], runtime: str) -> list[tuple[str, str]]
     for r in records:
         if runtime == "codex":
             p = r.get("payload", {})
-            if r.get("type") == "response_item" and p.get("type") == "custom_tool_call" and p.get("name") == "exec":
-                command = _codex_exec_command(p.get("input"))
-                if command is not None:
-                    call_id = p.get("call_id")
-                    remember(call_id, command)
-                    exec_calls[call_id] = calls.pop(call_id)
+            if r.get("type") == "response_item" and p.get("type") == "custom_tool_call":
+                command = _codex_exec_command(p.get("input")) if p.get("name") == "exec" else None
+                call_id = p.get("call_id")
+                # Unsupported calls still own their ids. Ignoring one could
+                # attach its output to a supported pending call with that id.
+                remember(call_id, command if command is not None else "")
+                calls.pop(call_id)
+                exec_calls[call_id] = command
                 continue
             if r.get("type") == "response_item" and p.get("type") == "custom_tool_call_output":
                 command = exec_calls.pop(p.get("call_id"), None)

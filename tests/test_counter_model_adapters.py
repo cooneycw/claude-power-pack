@@ -1188,7 +1188,8 @@ def test_captured_custom_exec_through_receipt_writer(evidence, mutation):
 
 @pytest.mark.parametrize("mutation", [
     "none", "quoted-key", "missing-exit", "text-exit", "bool-exit", "missing-result",
-    "output-first", "duplicate-call", "extra-output", "different-tool", "different-name",
+    "output-first", "duplicate-call", "duplicate-unsupported", "duplicate-other-name",
+    "unsupported-first", "extra-output", "different-tool", "different-name",
     "transformed-result", "malformed-args", "running",
 ])
 def test_custom_exec_requires_unambiguous_completed_result(mutation):
@@ -1208,6 +1209,13 @@ def test_custom_exec_requires_unambiguous_completed_result(mutation):
         records.reverse()
     elif mutation == "duplicate-call":
         records.insert(1, copy.deepcopy(records[0]))
+    elif mutation in ("duplicate-unsupported", "duplicate-other-name", "unsupported-first"):
+        duplicate = copy.deepcopy(records[0])
+        if mutation == "duplicate-other-name":
+            duplicate["payload"]["name"] = "other"
+        else:
+            duplicate["payload"]["input"] = 'text("not a shell call")'
+        records.insert(0 if mutation == "unsupported-first" else 1, duplicate)
     elif mutation == "extra-output":
         output["output"].append(copy.deepcopy(output["output"][1]))
     elif mutation == "different-tool":
@@ -1223,7 +1231,7 @@ def test_custom_exec_requires_unambiguous_completed_result(mutation):
     output["output"][1]["text"] = json.dumps(result)
     if mutation != "none":
         assert records != original, "negative-fixture precondition: runtime evidence was altered"
-    if mutation == "duplicate-call":
+    if mutation in ("duplicate-call", "duplicate-unsupported", "duplicate-other-name", "unsupported-first"):
         module = load()
         with pytest.raises(module.EvidenceUnknown, match="duplicate pending"):
             module._review_commands(records, "codex")
