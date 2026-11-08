@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Drift detection now completes on hosts without Docker, reports Docker-dependent checks as skipped, and preserves drift findings from later checks (#1629).
+
 ### Behaviour changes you may notice
 
 - CPP now states a bash 4.4 floor. `flow-preflight` gains a required `bash` check, so `/cpp:init`, `/cpp:update` and `/flow:doctor` report a bash below it, and `/flow:auto` refuses to start until it is upgraded. On macOS: `brew install bash`, first on PATH (#1628).
