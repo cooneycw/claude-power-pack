@@ -17,6 +17,7 @@ Every file below is a byte-identical copy of its canonical source in the claude-
 - `scripts/check-ignored-additions.sh`
 - `scripts/codex-skill-resync.sh`
 - `scripts/codex-skill-sync.py`
+- `scripts/coordination-admission.sh`
 - `scripts/counter-model-receipt.py`
 - `scripts/counter-model-reviewer-attribution.py`
 - `scripts/eli5-vendor.py`
