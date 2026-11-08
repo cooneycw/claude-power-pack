@@ -39,6 +39,11 @@ REFERENCES = {
     "sequential-thinking": "Claude user-scope MCP registration: sequential-thinking",
     "workstation-tuning": "user workstation tuning (bash-prep)",
     "memory-store": "user common-memory backend configuration (reference only)",
+    "claude-user-settings": "~/.claude/settings.json (user permission/hook declarations)",
+    "shell-startup": "user shell startup file (CPP startup blocks)",
+    "happy-cli": "user npm global installation (Happy CLI; reference only)",
+    "spec-kit-cli": "user uv tool installation (Spec-Kit CLI; reference only)",
+    "memory-service": "user common-memory service/container (reference only)",
 }
 STEP_REFS = {
     "commands": ["claude-commands"], "scripts": ["claude-scripts"],
@@ -52,6 +57,10 @@ STEP_REFS = {
     "gemma-endpoint": ["gemma-config"], "gemma-provider": ["gemma-config"],
     "sequential-thinking": ["sequential-thinking"],
     "workstation-tuning": ["workstation-tuning"], "memory-store": ["memory-store"],
+    "user-flow-allowlist": ["claude-user-settings"], "permission-census": ["claude-user-settings"],
+    "session-reminders": ["claude-user-settings"], "tmux-autostart": ["shell-startup"],
+    "happy-cli": ["happy-cli"], "spec-kit-cli": ["spec-kit-cli"],
+    "memory-store-start": ["memory-service"], "memory-store-ping": ["memory-store"],
 }
 TIER_STEPS = {
     1: ["commands", "stash-guard"],
@@ -62,12 +71,15 @@ TIER_STEPS = {
     6: ["qwen-cli", "qwen-model"],
     7: ["gemma-cli", "gemma-model", "gemma-provider"],
 }
+TIER_CAPABILITIES = {1: "commands", 2: "scripts", 3: "mcp", 4: "cicd", 5: "codex", 6: "qwen", 7: "gemma"}
 OPTIONAL_STEPS = {
     "project-commands", "shell-prompt", "generic-makefile", "browser-pool",
     "health-config", "pipeline", "containers", "codex-second-opinion",
     "codex-playwright", "codex-tavily", "qwen-endpoint", "qwen-smoke",
     "qwen-always-on", "gemma-endpoint", "gemma-smoke", "sequential-thinking",
     "workstation-tuning", "memory-store",
+    "stash-guard", "tavily", "user-flow-allowlist", "permission-census", "session-reminders", "tmux-autostart",
+    "happy-cli", "spec-kit-cli", "memory-store-start", "memory-store-ping",
 }
 STEPS = set().union(*TIER_STEPS.values(), OPTIONAL_STEPS)
 
@@ -75,6 +87,22 @@ STEPS = set().union(*TIER_STEPS.values(), OPTIONAL_STEPS)
 def required_steps(tier: int) -> list[str]:
     tiers = range(1, tier + 1) if tier <= 5 else (1, tier)
     return [step for number in tiers for step in TIER_STEPS[number]]
+
+
+def selected_capabilities(tier: int) -> list[str]:
+    """Record the existing preset selection, independently of step outcomes."""
+    tiers = range(1, tier + 1) if tier <= 5 else (1, tier)
+    return [TIER_CAPABILITIES[number] for number in tiers]
+
+
+def offered_steps(raw: object, tier: int) -> list[str]:
+    if not isinstance(raw, str):
+        raise ValueError("offered step population required")
+    values = json.loads(raw)
+    if (not isinstance(values, list) or any(not isinstance(step, str) or step not in STEPS for step in values)
+            or len(set(values)) != len(values)):
+        raise ValueError("offered step population invalid")
+    return list(dict.fromkeys([*required_steps(tier), *values]))
 
 
 def timestamp() -> str:
@@ -129,6 +157,7 @@ def make_receipt(args: argparse.Namespace, cpp_revision: str) -> dict:
     if not isinstance(data, list):
         raise ValueError("STEP_RESULTS must be a list")
     now = timestamp()
+    offered = offered_steps(args.offered_steps, args.tier)
     steps = []
     seen = set()
     for item in data:
@@ -137,6 +166,8 @@ def make_receipt(args: argparse.Namespace, cpp_revision: str) -> dict:
         step, outcome = item.get("step"), item.get("outcome")
         if not isinstance(step, str) or step not in STEPS or step in seen:
             raise ValueError("STEP_RESULTS step invalid or duplicated")
+        if step not in offered:
+            raise ValueError("STEP_RESULTS observation outside offered population")
         if not isinstance(outcome, str) or outcome not in OUTCOMES:
             raise ValueError("STEP_RESULTS outcome invalid")
         exit_code = item.get("exit_code")
@@ -145,19 +176,21 @@ def make_receipt(args: argparse.Namespace, cpp_revision: str) -> dict:
         if exit_code:
             outcome = "FAILED"
         refs = item.get("user_scope", STEP_REFS.get(step, []))
-        if not isinstance(refs, list) or any(not isinstance(ref, str) or ref not in STEP_REFS.get(step, []) for ref in refs):
+        if (not isinstance(refs, list)
+                or any(not isinstance(ref, str) or ref not in STEP_REFS.get(step, []) for ref in refs)):
             raise ValueError("STEP_RESULTS reference invalid")
         seen.add(step)
         steps.append({"step": step, "outcome": outcome, "recorded_at": now,
                       "exit_code": exit_code, "user_scope": sorted(set(refs))})
-    for step in required_steps(args.tier):
+    for step in offered:
         if step not in seen:
             steps.append({"step": step, "outcome": "unverified", "recorded_at": now,
                           "exit_code": None, "user_scope": STEP_REFS.get(step, [])})
     refs = sorted({ref for step in steps for ref in step["user_scope"]})
     return {
         "schema": 1, "cpp_revision": cpp_revision, "recorded_at": now,
-        "selected": {"tier": args.tier, "profile": args.profile}, "steps": steps,
+        "selected": {"tier": args.tier, "profile": args.profile, "capabilities": selected_capabilities(args.tier)},
+        "offered_steps": offered, "steps": steps,
         "user_scope": {ref: REFERENCES[ref] for ref in refs},
         "permissions": permissions(json.loads(args.permission_report)),
     }
@@ -165,18 +198,26 @@ def make_receipt(args: argparse.Namespace, cpp_revision: str) -> dict:
 
 def validate(data: object) -> dict:
     if not isinstance(data, dict) or set(data) != {
-        "schema", "cpp_revision", "recorded_at", "selected", "steps", "user_scope", "permissions",
+        "schema", "cpp_revision", "recorded_at", "selected", "offered_steps", "steps", "user_scope", "permissions",
     }:
         raise ValueError("receipt shape invalid")
     if type(data["schema"]) is not int or data["schema"] != 1 or not valid_time(data["recorded_at"]):
         raise ValueError("receipt version or timestamp invalid")
-    if not isinstance(data["cpp_revision"], str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", data["cpp_revision"]):
+    if (not isinstance(data["cpp_revision"], str)
+            or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", data["cpp_revision"])):
         raise ValueError("receipt revision invalid")
     selected = data["selected"]
-    if not isinstance(selected, dict) or set(selected) != {"tier", "profile"}:
+    if not isinstance(selected, dict) or set(selected) != {"tier", "profile", "capabilities"}:
         raise ValueError("receipt selection invalid")
     if type(selected["tier"]) is not int or selected["tier"] not in TIER_STEPS or selected["profile"] not in PROFILES:
         raise ValueError("receipt selection invalid")
+    if selected["capabilities"] != selected_capabilities(selected["tier"]):
+        raise ValueError("receipt selected capabilities invalid")
+    offered = data["offered_steps"]
+    if (not isinstance(offered, list)
+            or any(not isinstance(step, str) or step not in STEPS for step in offered)
+            or len(set(offered)) != len(offered) or not set(required_steps(selected["tier"])) <= set(offered)):
+        raise ValueError("receipt offered population invalid")
     if not isinstance(data["steps"], list) or not data["steps"]:
         raise ValueError("receipt outcomes absent")
     seen = set()
@@ -192,12 +233,13 @@ def validate(data: object) -> dict:
         code = item["exit_code"]
         if code is not None and (type(code) is not int or not 0 <= code <= 255 or (code and outcome != "FAILED")):
             raise ValueError("receipt exit status invalid")
-        if not isinstance(item["user_scope"], list) or any(not isinstance(ref, str) or ref not in STEP_REFS.get(step, []) for ref in item["user_scope"]):
+        if (not isinstance(item["user_scope"], list)
+                or any(not isinstance(ref, str) or ref not in STEP_REFS.get(step, []) for ref in item["user_scope"])):
             raise ValueError("receipt reference invalid")
         refs.update(item["user_scope"])
         seen.add(step)
-    if not set(required_steps(selected["tier"])) <= seen:
-        raise ValueError("receipt selected outcomes missing")
+    if set(offered) != seen:
+        raise ValueError("receipt offered outcomes missing or unexpected")
     if data["user_scope"] != {ref: REFERENCES[ref] for ref in refs}:
         raise ValueError("receipt references invalid")
     if data["permissions"] != permissions(data["permissions"]):
@@ -230,7 +272,8 @@ def report(path: Path, current: str, summary: bool) -> int:
         print("CPP Installation Complete" if complete(data) and not stale else "CPP Installation Incomplete")
         print(f"Recorded CPP revision: {data['cpp_revision']}")
         print(f"Selected tier: {data['selected']['tier']}; selected profile: {data['selected']['profile']}")
-        print("Step results (recorded outcomes; not live health probes):")
+        print("Selected capabilities (tier preset): " + ", ".join(data["selected"]["capabilities"]))
+        print(f"Recorded outcomes for {len(data['offered_steps'])} offered steps (not live health probes):")
         for item in data["steps"]:
             print(f"  {item['step']}: {item['outcome']} ({item['recorded_at']})")
         observed = data["permissions"]
@@ -267,6 +310,7 @@ def main() -> int:
     parser.add_argument("--revision", help="explicit CPP revision (otherwise read local checkout HEAD)")
     parser.add_argument("--tier", type=int, choices=range(1, 8))
     parser.add_argument("--profile", choices=sorted(PROFILES))
+    parser.add_argument("--offered-steps", help="JSON array of fixed step IDs offered by this run; required for write")
     parser.add_argument("--permission-report", default="{}", help="permission observer metadata only")
     args = parser.parse_args()
     path = args.project_dir / ".claude/cpp-install.json"
@@ -282,7 +326,8 @@ def main() -> int:
         return report(path, current, args.command == "summary")
     except (OSError, ValueError, TypeError, subprocess.SubprocessError):
         if args.command == "write":
-            print("CPP_INSTALL_RECEIPT: receipt write FAILED - installation incomplete; retain observed STEP_RESULTS and retry")
+            print("CPP_INSTALL_RECEIPT: receipt write FAILED - installation incomplete; "
+                  "retain observed STEP_RESULTS and retry")
         else:
             print("CPP_INSTALL_RECEIPT: unverified - CPP revision unavailable or receipt could not be examined")
         return 1

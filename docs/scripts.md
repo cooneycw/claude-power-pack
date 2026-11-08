@@ -1177,6 +1177,30 @@ source-file counts rather than claiming arbitrary shell/Python analysis.
 refusals, and valid counterparts. A repaired bad-flag case must become clean;
 a constructed always-green anchor must be BLIND on every bad case.
 
+## `cpp-install-receipt` (#1587 R4)
+
+A mode-0644 checkout helper called with `python3` by `cpp:init` and `cpp:status`.
+It is deliberately excluded from the executable host-helper link population.
+`write` persists fixed metadata to project `.claude/cpp-install.json` atomically:
+CPP revision, current tier/profile and preset capabilities, an explicit offered
+step population, recorded outcomes/times and sanitized permission counts plus
+fixed references to shared user components. It stores no command output,
+endpoints, configuration or credential values. Nonzero exits force FAILED;
+missing required or offered observations become unverified. Optional declined
+choices are recorded, never invented from missing input.
+
+`summary` and `status` re-read and validate the receipt. A failed write does not
+render an older green receipt; no receipt, invalid/unreadable, failed, incomplete
+and stale records remain distinct. A stale failed receipt reports both facts.
+This is recorded installation evidence, not a live readiness/connection check or
+a tamper-proof attestation. The receipt's UTC stamps are recording times.
+
+`tests/test_cpp_install_receipt.py` drives the CLI and shipped summary consumer;
+`controls/cpp-install-receipt` registers BAD/GOOD/UNKNOWN cases, repaired BAD
+inputs and a constructed blind writer/reporter. No installer or model runs in
+these controls. The runner substitutes only its helper path and fixed revision
+in the actual consumer block to avoid git and host-state dependencies.
+
 ## `check-cpp-init-promises` (#1587)
 
 Resolves CPP-supplied paths extracted from `cpp:init` disclosures, explicit

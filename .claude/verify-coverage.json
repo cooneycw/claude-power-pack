@@ -374,6 +374,11 @@
       "class": "tested",
       "consumer": "tests/test_coordination_admission.py",
       "reason": "Shared rollout signal sourced by flow-finish-gate.sh and gh-pr-merge.sh; the module named here runs it directly and sourced, and the callers' decisions under each flag state are driven by test_flow_finish_gate.py and test_gh_pr_merge.py."
+    },
+    "cpp-install-receipt.py": {
+      "class": "tested",
+      "consumer": "tests/test_cpp_install_receipt.py",
+      "reason": "Persists project installation observations and reports the saved state for cpp:init and cpp:status; controls/cpp-install-receipt distinguishes failed, missing-offered and failed-write outcomes against a constructed blind reporter."
     }
   }
 }

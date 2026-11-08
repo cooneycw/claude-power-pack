@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- `cpp:init` saves a project install receipt with recorded step outcomes and
+  shared-component references; its summary and `cpp:status` distinguish failed,
+  missing, stale and incomplete records (Refs #1587, R4).
+
 ### Fixed
 
 - Full-scope counter-model receipts recognize the current Codex custom `exec`

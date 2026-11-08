@@ -81,7 +81,7 @@ Report its verdict literally and separately from the live component checks:
 - `receipt incomplete` / `receipt complete`: describe recorded outcomes only,
   not present-day connectivity or readiness. Read-only status never rewrites it.
 
-The schema-versioned project record contains only selections, fixed step and
+The schema-versioned project record contains only selections, offered step IDs, fixed step and
 reference identifiers, outcomes, timestamps and permission counts. User-scope
 components are references to shared installations, not copies of settings or
 credentials. Keep the receipt verdict in the final status summary even if a

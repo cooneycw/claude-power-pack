@@ -501,6 +501,15 @@ If user selects "Custom", ask which categories to enable using multi-select:
 
 ### Applicable write and credential inventory
 
+Every selected tier also creates project `.claude/cpp-install.json`, atomically
+replacing an existing receipt after installation and optional choices. It records
+the selected tier/profile and capabilities, offered steps and their observed
+outcomes, recording times, CPP revision and fixed references to shared user
+components. It stores no credentials, endpoints or configuration values. An
+existing receipt is replaced only after the new record is saved successfully;
+a failed write is reported as incomplete and never displays the older receipt
+as this run's result. Include this project-file write in the confirmation below.
+
 Before the selected tier's Proceed question, show this inventory with only the
 applicable rows, including inherited tiers (2 through 5 inherit all lower tiers;
 6 and 7 inherit Tier 1 plus their own local-model setup). Resolve `{PROJECT}`,
@@ -791,6 +800,15 @@ component is `already` only after verification. Map the existing succeeded /
 failed / deferred wording to `installed` / `FAILED` / `skipped`. Optional extras
 must have an outcome too, including `declined` when the user says no.
 
+Maintain `OFFERED_STEPS_JSON`, an array of the fixed IDs below, separately from
+outcomes. Start with the selected tier's steps; add an optional ID **before**
+offering its choice, even when the user later declines it. Do not reconstruct
+this population from successful or observed results. A missing observation for
+an offered step is `unverified`, so an unrecorded optional choice cannot make
+the summary complete. Choices never offered by this run are outside its record.
+The helper records the current tier preset's selected capabilities separately
+from outcomes; this does not introduce the later capability-selection redesign.
+
 Each entry has only `step`, `outcome`, the observed numeric `exit_code` when
 available, and optionally `user_scope` reference IDs. A nonzero exit forces
 `FAILED` even if the supplied outcome accidentally says installed.
@@ -808,12 +826,14 @@ offered; do not add unrelated tiers):
 | --- | --- |
 | Tier 1 command setup / optional project scope / stash guard | `commands`, `project-commands`, `stash-guard` |
 | Tier 2 scripts / profile / prompt / optional Makefile | `scripts`, `permission-profile`, `shell-prompt`, `generic-makefile` |
+| Tier 2 optional user allowlist / census / reminders / tmux / Happy / Spec-Kit | `user-flow-allowlist`, `permission-census`, `session-reminders`, `tmux-autostart`, `happy-cli`, `spec-kit-cli` |
 | Tier 3 uv / second-opinion / playwright / tavily / optional pool | `uv`, `second-opinion`, `playwright`, `tavily`, `browser-pool` |
 | Tier 4 framework Makefile / cicd.yml / health / pipeline / containers | `framework-makefile`, `cicd-config`, `health-config`, `pipeline`, `containers` |
 | Tier 5 CLI / doctor / auth / MCPs / skills / memory harness | `codex-cli`, `codex-doctor`, `codex-auth`, `codex-second-opinion`, `codex-playwright`, `codex-tavily`, `codex-skills`, `memory-harness` |
 | Tier 6 CLI / model / endpoint / smoke / always-on | `qwen-cli`, `qwen-model`, `qwen-endpoint`, `qwen-smoke`, `qwen-always-on` |
 | Tier 7 CLI / model / endpoint / provider / smoke | `gemma-cli`, `gemma-model`, `gemma-endpoint`, `gemma-provider`, `gemma-smoke` |
 | Extras | `sequential-thinking`, `codex-second-opinion`, `codex-playwright`, `codex-tavily`, `workstation-tuning`, `memory-store` |
+| Optional memory service start / recorded backend ping | `memory-store-start`, `memory-store-ping` |
 
 If an extra retries an earlier step, replace that step's final outcome using
 the latest observation; do not duplicate it. For example, a failed commands
@@ -823,8 +843,14 @@ step and a verified existing stash guard are represented as:
 [{"step":"commands","outcome":"FAILED"},{"step":"stash-guard","outcome":"already"}]
 ```
 
-The helper adds `unverified` records for required selected steps that have no
+The helper adds `unverified` records for required selected or offered steps with no
 observed outcome. It never fills those gaps with success.
+
+The existing stash-guard opt-out is `declined`; conditional Tavily setup with
+no available API key is `skipped`. These are explicit optional dispositions,
+not failures and not missing observations. If a grouped step performs several
+writes, record it as `FAILED` when any required sub-operation fails; a later
+successful sub-operation must not overwrite that failure.
 
 ### Tier 1 Execution
 
@@ -2891,6 +2917,7 @@ values. The receipt is historical evidence, not a live connectivity probe.
 if printf '%s\n' "$STEP_RESULTS_JSON" | python3 "$CPP_DIR/scripts/cpp-install-receipt.py" write \
     --project-dir "$PWD" --cpp-dir "$CPP_DIR" \
     --tier "$SELECTED_TIER" --profile "$PROFILE_NAME" \
+    --offered-steps "$OFFERED_STEPS_JSON" \
     --permission-report "$PERMISSION_REPORT"; then
   python3 "$CPP_DIR/scripts/cpp-install-receipt.py" summary --project-dir "$PWD" --cpp-dir "$CPP_DIR"
 else

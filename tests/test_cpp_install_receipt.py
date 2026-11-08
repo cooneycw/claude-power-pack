@@ -20,7 +20,9 @@ REVISION = "a" * 40
 
 
 def run(project, command, *args, data=None):
-    return subprocess.run(
+    if command == "write" and "--offered-steps" not in args:
+        args = (*args, "--offered-steps", json.dumps([item["step"] for item in data or []]))
+    return subprocess.run(  # binary-guard: allow explicit --revision bypasses git
         [sys.executable, str(HELPER), command, "--project-dir", str(project),
          "--revision", REVISION, *args],
         input=json.dumps(data) if data is not None else None,
@@ -34,7 +36,7 @@ def test_committed_outcomes_survive_receipt_and_summary(tmp_path, case):
     assert result.returncode == 0, result.stdout + result.stderr
     receipt = json.loads((tmp_path / ".claude/cpp-install.json").read_text())
     assert receipt["schema"] == 1 and receipt["cpp_revision"] == REVISION
-    assert receipt["selected"] == {"tier": 1, "profile": "not-selected"}
+    assert receipt["selected"] == {"tier": 1, "profile": "not-selected", "capabilities": ["commands"]}
     assert receipt["steps"][0]["outcome"] == case["outcome"]
     assert all(step["recorded_at"].endswith("Z") for step in receipt["steps"])
     summary = run(tmp_path, "summary")
@@ -129,6 +131,7 @@ def test_observed_nonzero_exit_overrides_an_accidental_success_label(tmp_path):
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="requires bash")
 @pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3")
+@pytest.mark.skipif(shutil.which("git") is None, reason="shipped summary derives checkout revision with git")
 @pytest.mark.parametrize("write_fails", [False, True])
 def test_shipped_summary_reads_saved_outcomes_and_never_reuses_old_receipt(tmp_path, write_fails):
     text = (ROOT / ".claude/commands/cpp/init.md").read_text()
@@ -143,7 +146,8 @@ def test_shipped_summary_reads_saved_outcomes_and_never_reuses_old_receipt(tmp_p
     result = subprocess.run(
         ["bash", "-c", match[1]], cwd=tmp_path,
         env=dict(os.environ, CPP_DIR=str(ROOT), SELECTED_TIER="1", PROFILE_NAME="not-selected",
-                 STEP_RESULTS_JSON=json.dumps(data), PERMISSION_REPORT="{}"),
+                 STEP_RESULTS_JSON=json.dumps(data), OFFERED_STEPS_JSON=json.dumps(["commands", "stash-guard"]),
+                 PERMISSION_REPORT="{}"),
         capture_output=True, text=True, timeout=10,
     )
     assert "CPP Installation Incomplete" in result.stdout
@@ -181,3 +185,78 @@ def test_receipt_project_write_is_disclosed_before_installation_confirmation():
     execution = source.index("## Step 5:")
     disclosure = source[:execution]
     assert ".claude/cpp-install.json" in disclosure, "the project write must be disclosed before confirmation"
+
+
+def test_cli_missing_offered_observation_is_recorded_unverified(tmp_path):
+    result = run(tmp_path, "write", "--tier", "1", "--profile", "not-selected",
+                 "--offered-steps", json.dumps(["commands", "stash-guard", "project-commands"]),
+                 data=CASES[0]["steps"])
+    assert result.returncode == 0, result.stdout
+    receipt = json.loads((tmp_path / ".claude/cpp-install.json").read_text())
+    assert set(receipt["offered_steps"]) == {"commands", "stash-guard", "project-commands"}
+    assert next(item for item in receipt["steps"] if item["step"] == "project-commands")["outcome"] == "unverified"
+    summary = run(tmp_path, "summary")
+    assert summary.returncode == 1 and "CPP Installation Incomplete" in summary.stdout
+    assert "project-commands: unverified" in summary.stdout
+
+
+@pytest.mark.parametrize("offered", ["null", "{}", '["commands","commands"]', '["PRIVATE_VALUE_DO_NOT_SAVE"]'])
+def test_invalid_offered_population_never_overwrites_an_old_receipt(tmp_path, offered):
+    assert run(tmp_path, "write", "--tier", "1", "--profile", "not-selected", data=CASES[0]["steps"]).returncode == 0
+    path = tmp_path / ".claude/cpp-install.json"
+    before = path.read_bytes()
+    result = run(tmp_path, "write", "--tier", "1", "--profile", "not-selected",
+                 "--offered-steps", offered, data=CASES[0]["steps"])
+    assert result.returncode == 1
+    assert path.read_bytes() == before
+    assert "PRIVATE_VALUE_DO_NOT_SAVE" not in result.stdout + result.stderr + path.read_text()
+
+
+@pytest.mark.parametrize("tier,expected", [
+    (1, ["commands"]), (5, ["commands", "scripts", "mcp", "cicd", "codex"]),
+    (6, ["commands", "qwen"]), (7, ["commands", "gemma"]),
+])
+def test_preset_capabilities_are_selections_not_success_observations(tmp_path, tier, expected):
+    assert run(tmp_path, "write", "--tier", str(tier), "--profile", "not-selected", data=[]).returncode == 0
+    receipt = json.loads((tmp_path / ".claude/cpp-install.json").read_text())
+    assert receipt["selected"]["capabilities"] == expected
+    assert all(item["outcome"] == "unverified" for item in receipt["steps"])
+    assert run(tmp_path, "summary").returncode == 1
+
+
+@pytest.mark.skipif(shutil.which("bash") is None or shutil.which("python3") is None, reason="requires bash and python3")
+def test_registered_controls_discriminate_and_repaired_cases_stop_detection():
+    result = subprocess.run([
+        sys.executable, str(ROOT / "scripts/check-negative-controls.py"),
+        "--root", str(ROOT), "--control", "controls/cpp-install-receipt", "--strict",
+    ], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "NEGATIVE_CONTROL_VERDICT: PASS" in result.stdout
+    for case in ("bad-nonzero", "bad-missing-offered", "bad-old-green-write-fails"):
+        assert f"on case {case}: missed the known-bad input (blind, as required)" in result.stdout
+    for case in ("good-repaired-nonzero", "good-repaired-offered", "good-repaired-write"):
+        assert f"case {case}: expected=GOOD observed=GOOD" in result.stdout
+
+
+def test_explicit_revision_does_not_invoke_git(monkeypatch):
+    spec = importlib.util.spec_from_file_location("install_receipt", HELPER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    def refuse_command(*args, **kwargs):
+        raise AssertionError("explicit revision must bypass subprocess execution")
+
+    monkeypatch.setattr(module.subprocess, "run", refuse_command)
+    assert module.revision(SimpleNamespace(revision=REVISION, cpp_dir=ROOT)) == REVISION
+
+
+def test_conditional_tavily_skip_and_stash_opt_out_are_not_install_failures():
+    spec = importlib.util.spec_from_file_location("install_receipt", HELPER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    # These choices are conditional/optional in the existing wizard. They have
+    # an explicit observation, unlike an omitted offered step.
+    data = {"steps": [{"step": "commands", "outcome": "installed"},
+                      {"step": "stash-guard", "outcome": "declined"},
+                      {"step": "tavily", "outcome": "skipped"}]}
+    assert module.complete(data), "an explicit conditional skip must remain distinct from missing evidence"

@@ -1,0 +1,77 @@
+{
+  "gate": "scripts/cpp-install-receipt.py",
+  "invocation": [
+    "python3",
+    "controls/cpp-install-receipt/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "good_signal": "^CPP Installation Complete$",
+  "detect_signal": "^CPP Installation Incomplete$",
+  "unknown_signal": "^(?:CPP_INSTALL_RECEIPT: (?:no receipt|unreadable or invalid receipt)|CPP_INSTALL_CONTROL: unknown - )",
+  "unavailable_signal": "^CPP_INSTALL_CONTROL: unavailable - ",
+  "limits": "Exercises the actual wizard persistence/summary branch in an owned temporary project, substituting only the helper path and explicit fixture revision. Fixed metadata only; no model, installer, real credentials, host writes or network. BAD inputs are a nonzero exit mislabeled installed, an offered step without an observation, and an old green receipt behind a destination symlink which the real writer refuses. Each has a committed repaired GOOD case. UNKNOWN status cases distinguish absent and malformed records. Recorded state is historical evidence, not current connectivity. The always-complete anchor is constructed, not a historical pre-fix artifact.",
+  "cases": [
+    {
+      "name": "good-complete",
+      "input": "cases/good-complete",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-declined",
+      "input": "cases/good-declined",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-nonzero",
+      "input": "cases/bad-nonzero",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-missing-offered",
+      "input": "cases/bad-missing-offered",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-old-green-write-fails",
+      "input": "cases/bad-old-green-write-fails",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-repaired-nonzero",
+      "input": "cases/good-repaired-nonzero",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-repaired-offered",
+      "input": "cases/good-repaired-offered",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-repaired-write",
+      "input": "cases/good-repaired-write",
+      "expect": "GOOD"
+    },
+    {
+      "name": "unknown-absent",
+      "input": "cases/unknown-absent",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "unknown-invalid",
+      "input": "cases/unknown-invalid",
+      "expect": "UNKNOWN"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "no-check",
+      "origin": "scripts/cpp-install-receipt.py",
+      "path": "anchors/always-complete.py",
+      "sha256": "83ae310d98f5257ceb16c28711e9047aa3ba435020605976680ab51011a4fc00",
+      "why": "Constructed substitute retains absent/malformed status detection but its writer and summary always declare complete, ignoring persistence, exit codes and offered observations. Thus only the intended outcome/consumer blindness differs on BAD inputs; known GOOD and UNKNOWN cases remain identical. No historical no-receipt helper exists to vendor."
+    }
+  ]
+}
