@@ -1,0 +1,125 @@
+{
+  "cpp_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "offered_steps": [
+    "commands",
+    "stash-guard",
+    "scripts",
+    "permission-profile",
+    "uv",
+    "second-opinion",
+    "playwright",
+    "tavily",
+    "framework-makefile",
+    "cicd-config"
+  ],
+  "permissions": {
+    "counts": {
+      "allow": null,
+      "ask": null,
+      "deny": null
+    },
+    "profile": "unknown",
+    "verification": "unverified"
+  },
+  "recorded_at": "2026-11-08T00:00:00Z",
+  "schema": 1,
+  "selected": {
+    "capabilities": [
+      "commands",
+      "scripts",
+      "mcp",
+      "cicd"
+    ],
+    "profile": "not-selected",
+    "tier": 4
+  },
+  "steps": [
+    {
+      "exit_code": 0,
+      "outcome": "installed",
+      "recorded_at": "2026-11-08T00:00:00Z",
+      "step": "commands",
+      "user_scope": [
+        "claude-commands"
+      ]
+    },
+    {
+      "exit_code": 0,
+      "outcome": "installed",
+      "recorded_at": "2026-11-08T00:00:00Z",
+      "step": "stash-guard",
+      "user_scope": []
+    },
+    {
+      "exit_code": 0,
+      "outcome": "installed",
+      "recorded_at": "2026-11-08T00:00:00Z",
+      "step": "scripts",
+      "user_scope": [
+        "claude-scripts"
+      ]
+    },
+    {
+      "exit_code": 0,
+      "outcome": "installed",
+      "recorded_at": "2026-11-08T00:00:00Z",
+      "step": "permission-profile",
+      "user_scope": []
+    },
+    {
+      "exit_code": 0,
+      "outcome": "installed",
+      "recorded_at": "2026-11-08T00:00:00Z",
+      "step": "uv",
+      "user_scope": []
+    },
+    {
+      "exit_code": 0,
+      "outcome": "installed",
+      "recorded_at": "2026-11-08T00:00:00Z",
+      "step": "second-opinion",
+      "user_scope": [
+        "claude-second-opinion"
+      ]
+    },
+    {
+      "exit_code": 0,
+      "outcome": "installed",
+      "recorded_at": "2026-11-08T00:00:00Z",
+      "step": "playwright",
+      "user_scope": [
+        "claude-playwright"
+      ]
+    },
+    {
+      "exit_code": 0,
+      "outcome": "installed",
+      "recorded_at": "2026-11-08T00:00:00Z",
+      "step": "tavily",
+      "user_scope": [
+        "claude-tavily"
+      ]
+    },
+    {
+      "exit_code": 0,
+      "outcome": "installed",
+      "recorded_at": "2026-11-08T00:00:00Z",
+      "step": "framework-makefile",
+      "user_scope": []
+    },
+    {
+      "exit_code": 0,
+      "outcome": "installed",
+      "recorded_at": "2026-11-08T00:00:00Z",
+      "step": "cicd-config",
+      "user_scope": []
+    }
+  ],
+  "user_scope": {
+    "claude-commands": "~/.claude/commands (CPP family links)",
+    "claude-playwright": "Claude user-scope MCP registration: playwright",
+    "claude-scripts": "~/.claude/scripts (CPP helper links)",
+    "claude-second-opinion": "Claude user-scope MCP registration: second-opinion",
+    "claude-tavily": "Claude user-scope MCP registration: tavily"
+  }
+}
