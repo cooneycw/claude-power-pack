@@ -225,16 +225,26 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
     info = detect_framework(args.path)
     config = CICDConfig.load(args.path)
 
-    # Override provider if specified on CLI
-    if args.provider:
-        config.pipeline.provider = args.provider
+    from .providers import normalize_providers, record_providers, require_providers
+    explicit = None
+    if getattr(args, "providers", None) is not None:
+        explicit = require_providers(args.providers.split(","))
+    elif args.provider:
+        explicit = normalize_providers({"provider": args.provider})
+    if getattr(args, "record", False):
+        if explicit is None:
+            raise ValueError("--record requires --providers NAME[,NAME] or --provider NAME")
+        record_providers(args.path, explicit)
+    if explicit is not None:
+        config.pipeline.providers = explicit
+    require_providers(config.pipeline.providers)
 
     # Check secrets configuration
     warnings = _check_secrets_source(config)
 
     if args.json:
         files = generate_pipeline(info, config)
-        result = {"provider": config.pipeline.provider, "files": files}
+        result = {"provider": config.pipeline.provider, "providers": config.pipeline.providers, "files": files}
         if warnings:
             result["warnings"] = warnings
         print(json.dumps(result, indent=2))
@@ -252,9 +262,8 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
     else:
         files = generate_pipeline(info, config)
 
-    provider = config.pipeline.provider
     secrets_source = config.pipeline.secrets_source
-    print(f"Pipeline provider: {provider}")
+    print(f"Pipeline providers: {','.join(config.pipeline.providers)}")
     print(f"Secrets source: {secrets_source}")
     print(f"Framework: {info.framework.label} ({info.package_manager.label})")
     print()
@@ -270,6 +279,22 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
         print("(dry run - use --write to create files)")
 
     return 0
+
+
+def cmd_provider(args: argparse.Namespace) -> int:
+    """Read only the project's explicit provider record, without inference."""
+    from .providers import ProviderError, read_provider_record
+    try:
+        record = read_provider_record(args.path)
+        names, source = record.providers, record.source
+        code = 0 if names else 1
+    except ProviderError as exc:
+        names, source, code = (), str(exc), 2
+    if args.json:
+        print(json.dumps({"providers": list(names), "status": "known" if names else "unknown", "source": source}))
+    else:
+        print(f"CICD_PROVIDERS: {','.join(names) if names else 'unknown'} ({source})")
+    return code
 
 
 def cmd_health(args: argparse.Namespace) -> int:
@@ -1003,18 +1028,24 @@ def create_parser() -> argparse.ArgumentParser:
         help="Write files to disk (default: dry run to stdout)",
     )
 
+    provider_parser = subparsers.add_parser("provider", help="Read recorded project CI providers")
+    _add_common_args(provider_parser)
+
     # 'pipeline' subcommand
     pipeline_parser = subparsers.add_parser(
         "pipeline",
         help="Generate CI/CD pipeline files (GitHub Actions, Woodpecker)",
     )
     _add_common_args(pipeline_parser)
-    pipeline_parser.add_argument(
+    provider_selection = pipeline_parser.add_mutually_exclusive_group()
+    provider_selection.add_argument(
         "--provider",
         choices=["github-actions", "woodpecker", "both"],
         default=None,
         help="Pipeline provider (overrides cicd.yml)",
     )
+    provider_selection.add_argument("--providers", help="Comma-separated registered provider names")
+    pipeline_parser.add_argument("--record", action="store_true", help="Persist the explicit selection in cicd.yml")
     pipeline_parser.add_argument(
         "--write",
         "-w",
@@ -1098,6 +1129,7 @@ def main(argv: list[str] | None = None) -> int:
         "verify": cmd_verify,
         "container": cmd_container,
         "pipeline": cmd_pipeline,
+        "provider": cmd_provider,
         "infra-init": cmd_infra_init,
         "infra-discover": cmd_infra_discover,
         "infra-pipeline": cmd_infra_pipeline,
@@ -1105,6 +1137,12 @@ def main(argv: list[str] | None = None) -> int:
 
     handler = commands.get(args.command)
     if handler:
+        if args.command in ("pipeline", "provider"):
+            try:
+                return handler(args)
+            except (ValueError, OSError) as exc:
+                print(f"cicd: {exc}", file=sys.stderr)
+                return 2
         return handler(args)
 
     parser.print_help()

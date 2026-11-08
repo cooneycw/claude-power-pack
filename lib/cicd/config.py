@@ -272,7 +272,34 @@ class PipelineConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    provider: str = "github-actions"  # github-actions | woodpecker | both
+    providers: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _provider_record(cls, value: Any) -> Any:
+        from .providers import normalize_providers
+        if value is None:
+            value = {}
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        data["providers"] = normalize_providers(data)
+        data.pop("provider", None)
+        return data
+
+    @property
+    def provider(self) -> str:
+        # Compatibility display for old callers. Dispatch uses the list.
+        if len(self.providers) == 1:
+            return self.providers[0]
+        if set(self.providers) == {"github-actions", "woodpecker"}:
+            return "both"
+        return ",".join(self.providers) or "unknown"
+
+    @provider.setter
+    def provider(self, value: str) -> None:
+        from .providers import normalize_providers
+        self.providers = normalize_providers({"provider": value})
     branches: dict[str, list[str]] = Field(
         default_factory=lambda: {
             "main": ["lint", "test", "typecheck", "build"],
@@ -440,12 +467,11 @@ class CICDConfig(BaseModel):
         dropped - ensuring backwards compatibility with older configs.
         """
         try:
-            import yaml
+            from .providers import parse_config_mapping
         except ImportError:
             return cls._defaults()
-
         with open(path) as f:
-            data = yaml.safe_load(f) or {}
+            data = parse_config_mapping(f.read(), str(path))
 
         # Soften per-probe failures so one bad entry cannot take the whole
         # config - and the fail-open verification gate - down with it (#620).
@@ -515,16 +541,18 @@ class CICDConfig(BaseModel):
                     "Did you mean pipeline.provider? Move it to the 'pipeline' section."
                 )
 
+        if not data.get("pipeline"):
+            issues.append("pipeline.providers is required; record at least one registered provider")
+
         # Validate pipeline section
         pipeline_data = data.get("pipeline", {})
         if pipeline_data and isinstance(pipeline_data, dict):
-            provider = pipeline_data.get("provider", "")
-            valid_providers = {"github-actions", "woodpecker", "both"}
-            if provider and provider not in valid_providers:
-                issues.append(
-                    f"pipeline.provider '{provider}' is invalid. "
-                    f"Valid values: {', '.join(sorted(valid_providers))}"
-                )
+            from .providers import ProviderError, normalize_providers
+            try:
+                if not normalize_providers(pipeline_data):
+                    issues.append("pipeline.providers is required; record at least one registered provider")
+            except ProviderError as exc:
+                issues.append(str(exc))
 
             secrets_source = pipeline_data.get("secrets_source", "platform")
             valid_sources = {"platform", "aws-secrets-manager"}

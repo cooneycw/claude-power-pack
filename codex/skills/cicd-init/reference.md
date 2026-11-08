@@ -100,6 +100,9 @@ Generate `.claude/cicd.yml` with:
 - Detected framework and package manager (commented out - auto-detection is preferred)
 - Build section with required and recommended targets
 - Deploy section with placeholder target metadata
+- Required `pipeline.providers` list, selected explicitly from the registered providers.
+  Record the selection with `python -m lib.cicd pipeline --providers NAME[,NAME] --record`.
+  Missing providers are `unknown` and generation stops; never assume GitHub Actions.
 
 Use the `templates/cicd.yml.example` as reference but generate a minimal version with only the relevant sections for the detected framework.
 
