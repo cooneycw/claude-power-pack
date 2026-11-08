@@ -32,8 +32,14 @@ the package is `lib/project_next/`, the contract is
 `tests/project_next/fixtures/`. It was vendored from codex-power-pack until
 #1069 and is not vendored from anywhere now. The executable CPP entry point is
 `scripts/project-next.py`; normal installations expose it as
-`"${CPP_SKILL_DIR:-/dev/null}"/scripts/project-next.py`. It is always present with this command, so
-there is no sibling-checkout probe and no prompt-policy fallback.
+`"${CPP_SKILL_DIR:-/dev/null}"/scripts/project-next.py`. `/cpp:init` Tier 2 and
+`flow-helpers-install.sh` from a CPP checkout link this entry point back to the
+checkout, keeping its `lib/project_next/` package and ownership data available.
+Legacy copy-mode installs must separately keep `lib/project_next/` (including
+`ownership.json`) beside the installed `scripts/` directory. Copying scripts
+alone does not install the engine package; the installer's helper-file success
+marker does not establish engine readiness. Preflight's `engine` check names a
+missing package. There is no sibling-checkout probe or prompt-policy fallback.
 
 Read `lib/project_next/ownership.json` (it ships with the engine package, so a
 tree holding only `scripts/` and `lib/` has it too - issue #1448) and use its

@@ -238,5 +238,6 @@ def test_gh_failure_outside_codex_sandbox_is_unchanged(tmp_path: Path) -> None: 
     completed = _run_with_failing_gh(tmp_path, sandboxed=False)
     assert completed.returncode == 2
     assert completed.stderr.strip() == (
-        "project-next: cannot resolve GitHub repository: gh repo view: error connecting to api.github.com"
+        "project-next: cannot resolve GitHub repository: gh repo view: error connecting to api.github.com\n"
+        "PROJECT_NEXT_EXIT=2"
     )
