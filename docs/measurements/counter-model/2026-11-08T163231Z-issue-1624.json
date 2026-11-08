@@ -1,0 +1,70 @@
+{
+  "branch": "issue-1624-codex-exec-evidence",
+  "counts": {
+    "accepted": 1,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "Owner explicitly required refreshed review after main merge and schema-derived custom-only regression; ruling relayed by cs-orch in mailbox18789 on2026-11-08. Earlier pass1 was sandbox-incomplete, pass2 found corrected call-ID ambiguity.",
+  "head": "f9ea7f22e827fee5af2606d96ae4d6823cc3276c",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/08/rollout-2026-11-08T14-14-24-01a1bb82-a99e-7851-a7a9-477bf3590bf8.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 2108986,
+        "path": "2026/11/08/rollout-2026-11-08T14-14-24-01a1bb82-a99e-7851-a7a9-477bf3590bf8.jsonl",
+        "sha256": "2714469f0ef188ac65498e03501dc48c502d2b9d97128ec675ad8ab18448071a"
+      }
+    ],
+    "thread_id": "01a1bb82-a99e-7851-a7a9-477bf3590bf8"
+  },
+  "issue": "1624",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 3,
+  "recorded_at": "2026-11-08T16:32:31Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 1
+  },
+  "reviewed_artifact": {
+    "base_sha": "7845a0de733ca03c0fb615bb5ad18576f128dc1a",
+    "merge_base": "7845a0de733ca03c0fb615bb5ad18576f128dc1a",
+    "method": "captured-patch",
+    "patch_sha256": "5d4528d1ae86ec7a820a2b4fdfed51f1d98db4675f86b8a4ff34f37be5251065",
+    "report_record": 17,
+    "target_head": "f9ea7f22e827fee5af2606d96ae4d6823cc3276c"
+  },
+  "reviewer": "codex/gpt-6.1-terra",
+  "reviewer_evidence": {
+    "exec_log": "review-1624-owner.stream.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-terra"
+    ],
+    "rollout": "2026/11/08/rollout-2026-11-08T16-32-02-01a1bc00-a894-7802-9536-78ad2fa457de.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 1447,
+        "path": "review-1624-owner.stream.jsonl",
+        "sha256": "f046c2ff999fdb001e98312ab48f255766cd3627d3153480d7a342ab5e0c278c"
+      },
+      {
+        "bytes": 208352,
+        "path": "2026/11/08/rollout-2026-11-08T16-32-02-01a1bc00-a894-7802-9536-78ad2fa457de.jsonl",
+        "sha256": "d6490ebee6e0f66b44a7352d93f09979c90710ee5cc129f8ff187cf3dd8d88ad"
+      }
+    ],
+    "thread_id": "01a1bc00-a894-7802-9536-78ad2fa457de"
+  },
+  "schema": 5,
+  "scope": "diff-only",
+  "status": "ran"
+}

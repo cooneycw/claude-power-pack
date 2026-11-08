@@ -6,6 +6,15 @@
 
 - The unattended helper installer now includes `project-next.py`, so checkout installs satisfy the Claude preflight engine dependency; project-next documents the colocated library requirement for legacy copy installs (#1619).
 
+- Project-next names unparsed architecture decision records in every premise-staleness report and JSON coverage, so an incomplete ADR corpus cannot read as a clean scan (#1614).
+- Partial worktree-removal verification now names its Git 2.36 minimum on older or unrecognized Git versions, rather than reporting a misleading registry-read failure (#1621).
+- Worktree claims and wave roles treat Linux process states `Z` and `X` as
+  exited, reporting `owner-zombie` rather than retaining a dead owner's lock.
+  Live owners retain their existing held/live classification (#1605).
+- Full-scope counter-model receipts recognize the current Codex custom `exec`
+  wrapper's directly awaited shell call and its linked successful result.
+  Missing probes, foreign heads, assistant prose and unsupported JavaScript
+  still refuse artifact binding (#1624).
 - Refuse filtered pytest retries when a test invocation was interrupted or started without completing a summary, so a passing subset cannot clear an unfinished composite target (#1617).
 - Drift detection now completes on hosts without Docker, reports Docker-dependent checks as skipped, and preserves drift findings from later checks (#1629).
 
