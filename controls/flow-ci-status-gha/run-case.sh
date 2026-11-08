@@ -28,6 +28,7 @@ if [ "\$1 \$2" = "run list" ]; then cat "$case_dir/runs.json"; exit 0; fi
 if [ "\$1" = "api" ] && [ -f "$case_dir/contexts" ]; then
     case "\$2" in
         *required_status_checks) cat "$case_dir/contexts"; exit 0 ;;
+        */rules/branches/*) exit 0 ;; # readable ruleset response with no required contexts
         repos/*/*/*) exit 1 ;;
         repos/*) echo main; exit 0 ;;
     esac
@@ -36,15 +37,38 @@ exit 1
 STUB
 chmod +x "$T/gh"
 
-out=$(env FLOW_CI_GH="$T/gh" \
-          FLOW_CI_CURL=/nonexistent/curl FLOW_CI_AWS=/nonexistent/aws \
+# The recorded-provider cases exercise selection as well as backend evidence.
+# JSON is a valid YAML subset read by the canonical stdlib fast path; no
+# dependency install or second parser is needed in the offline control image.
+backend=probe
+curl=/nonexistent/curl
+project="$T/project"
+mkdir -p "$project/.claude"
+if [ -f "$case_dir/provider-record.json" ]; then
+    jq -e '.pipeline.providers == ["github-actions"]' "$case_dir/provider-record.json" >/dev/null || exit 3
+    cp "$case_dir/provider-record.json" "$project/.claude/cicd.yml"
+    backend=""
+    curl="$T/curl"
+    cat > "$curl" <<'CURL'
+#!/bin/sh
+case "${*}" in
+    */lookup/*) echo '{"id":7}'; exit 0 ;;
+    *pipelines*) echo '[]'; exit 0 ;;
+esac
+echo '{}'
+CURL
+    chmod +x "$curl"
+fi
+
+out=$(env CPP_FLOW_CI_BACKEND="$backend" FLOW_CI_GH="$T/gh" \
+          FLOW_CI_CURL="$curl" FLOW_CI_AWS=/nonexistent/aws \
           FLOW_CI_WPCLI=/nonexistent/woodpecker-cli FLOW_CI_SLEEP=/bin/true \
-          WOODPECKER_API_TOKEN="" WOODPECKER_SERVER="" WOODPECKER_HOST="" \
-          bash "$gate" 2b308175a757e0b17c30caead6aabbe9356b43cc --repo o/r --strict-event 2>&1)
+          WOODPECKER_API_TOKEN="fixture-token" WOODPECKER_SERVER="https://wp.example.invalid" WOODPECKER_HOST="" \
+          bash "$gate" 2b308175a757e0b17c30caead6aabbe9356b43cc --path "$project" --repo o/r --strict-event 2>&1)
 
 provider=$(printf '%s\n' "$out" | sed -n 's/^FLOW_CI_PROVIDER: //p' | head -1)
 status=$(printf '%s\n' "$out" | sed -n 's/^FLOW_CI_STATUS: //p' | head -1)
-if [ "$provider" != "github-actions" ]; then
+if [ "$provider" != "github-actions" ] && ! { [ -f "$case_dir/provider-record.json" ] && [ "$provider" = woodpecker ]; }; then
     echo "FLOW_CI_GHA_CONTROL: cannot-run - the gate did not answer on the GitHub Actions lane:"
     printf '%s\n' "$out" | sed 's/^/  /'
     exit 3

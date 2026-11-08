@@ -328,6 +328,7 @@
 # runs the post-merge cleanup and completeness checks, and exits 0.
 #
 # Env (test hooks - unset in normal use):
+#   GH_PR_MERGE_HOST_PREFLIGHT  override the read-only host preflight command
 #   GH_PR_MERGE_GH             override the `gh` binary (default: gh)
 #   GH_PR_MERGE_GIT            override the `git` binary (default: git)
 #   GH_PR_MERGE_POLL_ATTEMPTS  mergeability poll attempts (default: 5)
@@ -347,7 +348,7 @@
 # Env (optional integration, issue #717):
 #   WOODPECKER_API_TOKEN      enables the queued-pipeline wait; unset skips it
 #                              entirely (same credential /flow:auto Step 8 uses)
-#   WOODPECKER_SERVER         Woodpecker base URL (default: https://woodpecker.essent-ai.com)
+#   WOODPECKER_SERVER         explicit Woodpecker base URL (WOODPECKER_HOST is also accepted)
 #
 # Env (operator opt-in):
 #   GH_PR_MERGE_STRICT_DELETIONS=1   turn surfaced deletions into the exit-4
@@ -928,12 +929,14 @@ wait_for_observed_checks() {
 WOODPECKER_REPO_ID=""
 WOODPECKER_SERVER_RESOLVED=""
 woodpecker_repo_id() {
+    [[ ",$FLOW_MERGE_LANES," == *,woodpecker,* ]] || return 1
     [[ -n "$WOODPECKER_REPO_ID" ]] && return 0
     [[ -z "${WOODPECKER_API_TOKEN:-}" ]] && return 1
     command -v "$CURL_BIN" >/dev/null 2>&1 || return 1
     command -v jq >/dev/null 2>&1 || return 1
     local server repo_full raw id
-    server="${WOODPECKER_SERVER:-https://woodpecker.essent-ai.com}"
+    server="${WOODPECKER_SERVER:-${WOODPECKER_HOST:-}}"
+    [[ -n "$server" ]] || return 1
     repo_full=$("$GH_BIN" repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
     [[ -z "$repo_full" ]] && return 1
     raw=$("$CURL_BIN" -sf -H "Authorization: Bearer $WOODPECKER_API_TOKEN" \
@@ -1232,6 +1235,47 @@ if [[ "$PR_STATE_BEFORE" == "MERGED" ]]; then
     merge_exit=0
     finish_merged already
 fi
+
+# The live merge preflight is distinct from deterministic quality/enrolment gates.
+# A SELECTED missing host capability stops; unknown (including containers) warns.
+_host_path=$("$GIT_BIN" rev-parse --show-toplevel 2>/dev/null) || _host_path=""
+[[ -n "$_host_path" ]] || _host_path="$PWD"
+_host_report=""
+if [[ -n "${GH_PR_MERGE_HOST_PREFLIGHT:-}" ]]; then
+    _host_report=$("$GH_PR_MERGE_HOST_PREFLIGHT" "$_host_path")
+    _host_rc=$?
+else
+    _host_report=$(python3 - "${BASH_SOURCE[0]}" "$_host_path" <<'PYCODE'
+import os, sys
+from pathlib import Path
+script = Path(sys.argv[1]).resolve()
+candidates = [*script.parents, Path(os.environ.get("CLAUDE_PLUGIN_ROOT", "/nonexistent")),
+              Path.home() / "Projects/claude-power-pack", Path("/opt/claude-power-pack"),
+              Path.home() / ".claude-power-pack"]
+for root in candidates:
+    if (root / "lib/cicd/flow.py").is_file():
+        runtime = root / ".venv/bin/python"
+        if runtime.is_file() and Path(sys.prefix) != root / ".venv":
+            code = "import sys; sys.path.insert(0, sys.argv[1]); from lib.cicd.flow import host_preflight_main; raise SystemExit(host_preflight_main(sys.argv[3]))"
+            os.execv(str(runtime), [str(runtime), "-c", code, str(root), str(script), *sys.argv[2:]])
+        sys.path.insert(0, str(root))
+        from lib.cicd.flow import host_preflight_main
+        raise SystemExit(host_preflight_main(sys.argv[2]))
+print("flow-host-preflight: CPP provider reader unavailable; restore the CPP installation", file=sys.stderr)
+print("FLOW_CI_HOST: unknown (project provider unreadable)")
+raise SystemExit(2)
+PYCODE
+    )
+    _host_rc=$?
+fi
+printf '%s\n' "$_host_report"
+FLOW_MERGE_LANES=$(sed -n 's/^FLOW_CI_HOST_LANES: //p' <<<"$_host_report")
+if [[ "$_host_rc" -ne 0 || -z "$FLOW_MERGE_LANES" ]]; then
+    echo "GH_PR_MERGE_HOST_PREFLIGHT: stop" >&2
+    echo "CLEAN STOP: recorded provider/host preflight refused this merge; refresh with /cpp:init Tier 4 on the host." >&2
+    exit 13
+fi
+echo "GH_PR_MERGE_HOST_PREFLIGHT: proceed"
 
 if ! poll_mergeable; then
     exit 1

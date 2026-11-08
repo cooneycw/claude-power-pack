@@ -9,7 +9,7 @@
   "good_exit": 0,
   "detect_signal": "^FLOW_CI_GHA_CONTROL: red surfaced$",
   "good_signal": "^FLOW_CI_GHA_CONTROL: no red \\((success|not-found)\\)$",
-  "limits": "Checks that a red GitHub Actions run on a commit surfaces as FLOW_CI_STATUS: failure under --strict-event, through a stub gh handed in by FLOW_CI_GH: a failure or cancellation listed AFTER a green run on the same event, and a pull_request-only red under required contexts that name no Woodpecker lane (test,lint). Good cases: all green, green plus skipped, and pull_request-only greens under the same non-Woodpecker contexts. Every run view call fails, so step naming, the precode/canceled origins, the all-skipped unknown verdict and the stall check are NOT covered here - tests/test_flow_ci_status.py covers those. Anchor is the gate at 626a96d9, before #1604; no network was used. A gate regressing to not-found under non-Woodpecker contexts is caught by bad-required-nonwoodpecker, not by the good cases: the good_signal accepts not-found because the anchor answers it there, and good/anchor agreement is required.",
+  "limits": "Checks that a red GitHub Actions run on a commit surfaces as FLOW_CI_STATUS: failure under --strict-event, through a stub gh handed in by FLOW_CI_GH: a failure or cancellation listed AFTER a green run on the same event, and a pull_request-only red under required contexts that name no Woodpecker lane (test,lint). Good cases: all green, green plus skipped, and pull_request-only greens under the same non-Woodpecker contexts. Every run view call fails, so step naming, the precode/canceled origins, the all-skipped unknown verdict and the stall check are NOT covered here - tests/test_flow_ci_status.py covers those. Anchor is the gate at 626a96d9, before #1604; no network was used. A gate regressing to not-found under non-Woodpecker contexts is caught by bad-required-nonwoodpecker, not by the good cases: the good_signal accepts not-found because the anchor answers it there, and good/anchor agreement is required. These cases exercise backend evidence with CPP_FLOW_CI_BACKEND=probe; recorded-provider dispatch is independently tested in tests/test_flow_recorded_providers.py. Recorded-provider cases use the canonical JSON-subset reader and an owned Woodpecker-known/empty-pipeline HTTP stub: a red Actions run must surface rather than be claimed as Woodpecker not-found. For those cases a historical Woodpecker/not-found answer is a MISS, not unavailable. The other cases remain backend-only; no network or package installation.",
   "cases": [
     {
       "name": "bad-hidden-red",
@@ -39,6 +39,16 @@
     {
       "name": "good-required-nonwoodpecker",
       "input": "cases/good-required-nonwoodpecker",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-recorded-actions-hidden-by-woodpecker",
+      "input": "cases/bad-recorded-actions-hidden-by-woodpecker",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-recorded-actions-green",
+      "input": "cases/good-recorded-actions-green",
       "expect": "GOOD"
     }
   ],

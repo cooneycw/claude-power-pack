@@ -33,7 +33,8 @@ def exercise(gate, case):
                 if block.startswith('CPP_HOST_RUNTIME='))
     final = re.search(r'# CPP_INSTALL_RECEIPT_WRITE_BEGIN\n(.*?)# CPP_INSTALL_RECEIPT_WRITE_END', text, re.S)
     assert final and final[1].strip()
-    with tempfile.TemporaryDirectory(prefix='host-install-control-') as directory:
+    with tempfile.TemporaryDirectory(prefix='host-install-control-') as directory, \
+            tempfile.TemporaryDirectory(prefix='host-install-mcp-state-') as state_directory:
         root = Path(directory)
         cpp = root / 'cpp'
         (cpp / 'scripts').mkdir(parents=True)
@@ -65,13 +66,26 @@ def exercise(gate, case):
         assert len(raw) == 1
         rows = json.loads(raw[0])
         assert [row for row in rows if row['step'] != 'host-ci'] == observations[:len(BASE)]
-        final_env = {**env, 'STEP_RESULTS_JSON':json.dumps(rows), 'SELECTED_TIER':'4', 'PROFILE_NAME':'not-selected',
+        # The final consumer runs in a fresh harness shell and requires this
+        # run's explicit temporary path. Initialize the real state helper, not
+        # a synthesized function/array or the host-observation blind anchor.
+        initial = re.search(r'# CPP_MCP_RUN_INIT_BEGIN\n(.*?)# CPP_MCP_RUN_INIT_END', text, re.S)
+        assert initial and initial[1].strip(), 'must execute the actual MCP run initializer'
+        setup = subprocess.run(['bash', '-c', initial[1]], cwd=root,
+                               env={**env, 'CPP_DIR':str(ROOT), 'TMPDIR':state_directory},
+                               capture_output=True, text=True, timeout=10)
+        assert setup.returncode == 0, setup.stdout + setup.stderr
+        run_paths = [line.split('=', 1)[1] for line in setup.stdout.splitlines()
+                     if line.startswith('CPP_MCP_RUN_DIR=')]
+        assert len(run_paths) == 1 and Path(run_paths[0]).is_absolute()
+        final_env = {**env, 'CPP_MCP_RUN_DIR':run_paths[0], 'STEP_RESULTS_JSON':json.dumps(rows),
+                     'SELECTED_TIER':'4', 'PROFILE_NAME':'not-selected',
                      'OFFERED_STEPS_JSON':json.dumps(BASE + ['host-ci']), 'PERMISSION_REPORT':'{}'}
         consumer = final[1].replace('--cpp-dir "$CPP_DIR"', '--revision "' + 'a' * 40 + '"')
         result = subprocess.run(['bash', '-c', consumer], cwd=root, env=final_env,
                                 capture_output=True, text=True, timeout=10)
         receipt = root / '.claude/cpp-install.json'
-        assert receipt.is_file()
+        assert receipt.is_file(), result.stdout + result.stderr
         assert 'private-payload-canary' not in receipt.read_text()
         print(result.stdout, end='')
         if 'CPP Installation Complete' in result.stdout.splitlines():

@@ -105,7 +105,7 @@ if [ "$(basename "$case_dir")" = signal-exit-reports-real-status ]; then
     # Signal after the watcher installs its traps, while its CLI stub blocks.
     printf '#!/bin/sh\n: > "%s/ready"\nsleep 1\n' "$T" > "$T/gh"
     chmod +x "$T/gh"
-    env FLOW_PR_WATCH_GH="$T/gh" bash "$gate" 42 --repo o/r >"$T/out" 2>"$T/err" &
+    env CPP_FLOW_PR_WATCH_BACKEND=probe FLOW_PR_WATCH_GH="$T/gh" bash "$gate" 42 --repo o/r >"$T/out" 2>"$T/err" &
     watcher=$!
     while [ ! -f "$T/ready" ]; do sleep 0.01; done
     kill -TERM "$watcher"
@@ -120,7 +120,7 @@ if [ "$(basename "$case_dir")" = signal-exit-reports-real-status ]; then
     exit 0
 fi
 
-out=$(env FLOW_PR_WATCH_GH="$T/gh" \
+out=$(env CPP_FLOW_PR_WATCH_BACKEND=probe FLOW_PR_WATCH_GH="$T/gh" \
           FLOW_PR_WATCH_WPCLI="$T/wpcli" \
           FLOW_PR_WATCH_SLEEP=/bin/true \
           bash "$gate" 42 --repo o/r --baseline "$T/baseline" 2>&1)

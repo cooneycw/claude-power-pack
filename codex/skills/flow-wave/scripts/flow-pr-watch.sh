@@ -46,7 +46,7 @@
 # Usage:
 #   flow-pr-watch.sh <pr-number> [--repo <owner/name>] [--timeout <s>]
 #                    [--interval <s>] [--context <ctx>] [--baseline <file>]
-#                    [--path <checkout>]
+#                    [--path <checkout>] [--fallback-provider-probes]
 #
 #   <pr-number>     The PR to watch (required).
 #   --repo          owner/name override; default resolved from `gh`, else the
@@ -54,8 +54,10 @@
 #   --timeout <s>   Give up after S seconds (default 1800). `--timeout 0` reads
 #                   once and reports whatever state it finds - no blocking.
 #   --interval <s>  Poll interval (default 15).
-#   --context <ctx> Select the exact GitHub status context to watch. Default:
-#                   ci/woodpecker/pr/woodpecker (the PR lane).
+#   --context <ctx> Scope to one context required by the PR base. Default:
+#                   every required context for the recorded provider list.
+#   --fallback-provider-probes  Permit labelled legacy Woodpecker probing only
+#                   when the canonical record cannot select lanes.
 #   --baseline <f>  Declared-flaky test ids, one per line; `#` comments and blank
 #                   lines ignored. Default:
 #                   <checkout>/.claude/flow-flake-baseline.txt when it exists.
@@ -119,7 +121,22 @@
 #   FLOW_PR_WATCH_WPCLI   override the `woodpecker-cli` binary
 #   FLOW_PR_WATCH_SLEEP   override `sleep` (makes polling instant in tests)
 
+#: NEGATIVE-CONTROL: controls/flow-pr-watch-actions
 set -uo pipefail
+_watch_args=()
+for _watch_arg in "$@"; do
+    if [[ "$_watch_arg" == "--fallback-provider-probes" ]] && ! command -v python3 >/dev/null 2>&1; then
+        export CPP_FLOW_PR_WATCH_BACKEND=probe
+    else
+        _watch_args+=("$_watch_arg")
+    fi
+done
+set -- "${_watch_args[@]}"
+_watch_original_args=("$@")
+if [[ "${CPP_FLOW_PR_WATCH_BACKEND:-}" == "probe" ]]; then
+    echo "FLOW_PR_WATCH_SELECTION=fallback (explicit provider probing)"
+fi
+
 
 # Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
 # Invoked only via the `trap` calls below; shellcheck cannot see that.
@@ -135,6 +152,7 @@ trap 'signal_exit 129' HUP
 trap 'printf "FLOW_PR_WATCH_EXIT=%d\n" "$?" >&2' EXIT
 
 PR_NUMBER=""
+WATCH_EXPECT_HEAD=""
 REPO=""
 TIMEOUT=1800
 INTERVAL=15
@@ -154,6 +172,8 @@ die_usage() {
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --fallback-provider-probes) shift ;;
+        --watch-head) WATCH_EXPECT_HEAD="${2:-}"; [[ "$WATCH_EXPECT_HEAD" =~ ^[0-9a-fA-F]{40}$ ]] || die_usage "--watch-head needs a full SHA"; shift 2 ;;
         --repo)       REPO="${2:-}"; [[ -n "$REPO" ]] || die_usage "--repo needs owner/name"; shift 2 ;;
         --repo=*)     REPO="${1#*=}"; shift ;;
         --timeout)    TIMEOUT="${2:-}"; [[ "$TIMEOUT" =~ ^[0-9]+$ ]] || die_usage "--timeout needs seconds"; shift 2 ;;
@@ -188,6 +208,33 @@ done
 [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || die_usage "PR number must be numeric: $PR_NUMBER"
 [[ "$INTERVAL" -gt 0 ]] || INTERVAL=1
 
+# Resolve CPP source, never parse project YAML in this consumer. Installed
+# helpers may be symlinks; generated mirrors can locate their containing checkout.
+if [[ -z "${CPP_FLOW_PR_WATCH_BACKEND:-}" && "$*" != "--help" && "$*" != "-h" ]]; then
+    exec python3 - "$0" "${_watch_original_args[@]}" <<'PYCODE'
+import os, sys
+from pathlib import Path
+script = Path(sys.argv[1]).resolve()
+candidates = [*script.parents, Path(os.environ.get("CLAUDE_PLUGIN_ROOT", "/nonexistent")),
+              Path.home() / "Projects/claude-power-pack", Path("/opt/claude-power-pack"),
+              Path.home() / ".claude-power-pack"]
+for root in candidates:
+    if (root / "lib/cicd/flow.py").is_file():
+        runtime = root / ".venv/bin/python"
+        if runtime.is_file() and Path(sys.prefix) != root / ".venv":
+            code = "import sys; sys.path.insert(0, sys.argv[1]); from lib.cicd.flow import watch_entry; raise SystemExit(watch_entry(sys.argv[2], sys.argv[3:]))"
+            os.execv(str(runtime), [str(runtime), "-c", code, str(root), str(script), *sys.argv[2:]])
+        sys.path.insert(0, str(root))
+        from lib.cicd.flow import watch_entry
+        raise SystemExit(watch_entry(str(script), sys.argv[2:]))
+print("flow-pr-watch: CPP provider reader unavailable; restore the CPP installation", file=sys.stderr)
+print("FLOW_PR_WATCH: unknown")
+print("FLOW_PR_WATCH_EXIT=2", file=sys.stderr)
+raise SystemExit(2)
+PYCODE
+fi
+
+
 HEAD_SHA="-"
 PIPELINE="-"
 URL="-"
@@ -201,6 +248,14 @@ emit() {
     echo "FLOW_PR_WATCH_PR=$PR_NUMBER"
     echo "FLOW_PR_WATCH_HEAD=$HEAD_SHA"
     echo "FLOW_PR_WATCH_PIPELINE=$PIPELINE"
+    echo "FLOW_PR_WATCH_STATE=${STATE:-unknown}"
+    local kill_signature=0
+    if [[ "${STATE,,}" == "killed" || "${STATE,,}" == "cancelled" || "${CANCELED_STEP:-0}" -eq 1 ]] \
+       || [[ "${SIMULTANEOUS_STOP:-0}" -eq 1 && "${HAS_SUMMARY:-0}" -eq 0 ]]; then
+        kill_signature=1
+    fi
+    if [[ "${HAS_SUMMARY:-0}" -eq 1 && "${#FAILED_IDS[@]}" -gt 0 ]]; then kill_signature=0; fi
+    echo "FLOW_PR_WATCH_KILL_SIGNATURE=$kill_signature"
     echo "FLOW_PR_WATCH_URL=$URL"
     echo "FLOW_PR_WATCH_SUPERSEDED_BY=$SUPERSEDED_BY"
     if [[ "${#FAILED_IDS[@]}" -gt 0 ]]; then
@@ -257,22 +312,41 @@ gh_pr_json() { # gh_pr_json <json-fields> <jq-filter>
 # rollup. The rollup mixes two node shapes - a commit STATUS (context/state/
 # targetUrl, what Woodpecker posts) and a GitHub CHECK RUN (name/status/
 # conclusion/detailsUrl) - so both are flattened to `context|url|state`. Only
-# rows whose context exactly matches the named context and whose URL is shaped
-# like a Woodpecker pipeline permalink are considered. The highest pipeline
-# number within that one context wins, safely preferring a re-run in the same
-# lane over a stale one without crossing into another lane.
+# rows whose context exactly matches the named context and whose URL belongs
+# to the selected provider are considered. Woodpecker prefers its latest
+# pipeline. Actions can share a check name across push and PR runs on one
+# head: any red wins there, then pending, then green; run number breaks ties.
 rollup_pipeline() { # -> "<number>|<state>|<url>" or empty
-    gh_pr_json statusCheckRollup \
-        '.statusCheckRollup[]? | "\(.context // .name // "")|\(.targetUrl // .detailsUrl // "")|\(.state // .conclusion // .status // "PENDING")"' \
+    local fields=statusCheckRollup
+    local filter='.statusCheckRollup[]? | "\(.context // .name // "")|\(.targetUrl // .detailsUrl // "")|\(.state // .conclusion // .status // "PENDING")"'
+    if [[ -n "$WATCH_EXPECT_HEAD" ]]; then
+        # One GraphQL snapshot binds the rollup to its head. A later PR head
+        # must never supply the statuses for the pinned watch.
+        fields=headRefOid,statusCheckRollup
+        filter="select(.headRefOid == \"$WATCH_EXPECT_HEAD\") | $filter"
+    fi
+    gh_pr_json "$fields" "$filter" \
     | {
         best_num=-1
+        best_rank=-1
         best=""
         while IFS='|' read -r ctx url state; do
             [[ "$ctx" == "$CONTEXT" ]] || continue
-            [[ "$url" =~ /pipeline/([0-9]+) ]] || continue
-            num="${BASH_REMATCH[1]}"
-            if [[ "$num" -gt "$best_num" ]]; then
+            rank=0
+            if [[ "${CPP_FLOW_PR_WATCH_BACKEND:-woodpecker}" == "github-actions" ]]; then
+                [[ "$url" =~ /actions/runs/([0-9]+) ]] || continue
+                num="${BASH_REMATCH[1]}"
+                case "$(outcome_of "$state")" in
+                    failure) rank=2 ;;
+                    pending) rank=1 ;;
+                esac
+            else
+                [[ "$url" =~ /pipeline/([0-9]+) ]] || continue
+                num="${BASH_REMATCH[1]}"
+            fi
+            if (( rank > best_rank || (rank == best_rank && num > best_num) )); then
                 best_num="$num"
+                best_rank="$rank"
                 best="$num|$state|$url"
             fi
         done
@@ -281,7 +355,13 @@ rollup_pipeline() { # -> "<number>|<state>|<url>" or empty
 }
 
 # ── woodpecker-cli lane ────────────────────────────────────────────────────
-have_wpcli() { command -v "$WPCLI_BIN" >/dev/null 2>&1; }
+have_wpcli() {
+    if [[ "${CPP_FLOW_PR_WATCH_BACKEND:-woodpecker}" == "github-actions" ]]; then
+        command -v "$GH_BIN" >/dev/null 2>&1
+    else
+        command -v "$WPCLI_BIN" >/dev/null 2>&1
+    fi
+}
 
 wp_rows() {
     "$WPCLI_BIN" pipeline ls --output-no-headers \
@@ -292,6 +372,7 @@ wp_rows() {
 # Highest-numbered pipeline whose commit is exactly $1 - anchored on the SHA,
 # never on list position, because that shared list is mostly other sessions' runs.
 wp_pipeline_for_sha() { # -> "<number>|<status>" or empty
+    [[ "${CPP_FLOW_PR_WATCH_BACKEND:-woodpecker}" == "github-actions" ]] && return 0
     local sha="$1" best="" best_num=-1 number status commit event
     while IFS='|' read -r number status commit event; do
         [[ "$commit" == "$sha" ]] || continue
@@ -306,6 +387,10 @@ wp_pipeline_for_sha() { # -> "<number>|<status>" or empty
 }
 
 wp_status_of() { # wp_status_of <pipeline-number> -> "<status>" or empty
+    if [[ "${CPP_FLOW_PR_WATCH_BACKEND:-woodpecker}" == "github-actions" ]]; then
+        "$GH_BIN" run view "$1" --repo "$REPO" --json conclusion --jq .conclusion 2>/dev/null
+        return
+    fi
     local want="$1" number status commit event
     while IFS='|' read -r number status commit event; do
         if [[ "$number" == "$want" ]]; then
@@ -317,11 +402,23 @@ wp_status_of() { # wp_status_of <pipeline-number> -> "<status>" or empty
 }
 
 wp_steps() { # -> "<name>|<state>|<stopped>|<PID>|<error>" lines
+    if [[ "${CPP_FLOW_PR_WATCH_BACKEND:-woodpecker}" == "github-actions" ]]; then
+        "$GH_BIN" run view "$1" --repo "$REPO" --json jobs --jq \
+            '.jobs[] | "\(.name)|\(.conclusion // .status)|\(.completedAt // "")|\(.databaseId)|\(if .conclusion == "cancelled" then "Canceled" else "" end)"' 2>/dev/null
+        return
+    fi
     "$WPCLI_BIN" pipeline ps --format '{{ .step.Name }}|{{ .step.State }}|{{ .step.Stopped }}|{{ .step.PID }}|{{ .step.Error }}
 ' "$REPO" "$1" 2>/dev/null
 }
 
-wp_log() { "$WPCLI_BIN" pipeline log show "$REPO" "$1" "$2" 2>/dev/null; }
+wp_log() {
+    if [[ "${CPP_FLOW_PR_WATCH_BACKEND:-woodpecker}" == "github-actions" ]]; then
+        "$GH_BIN" run view "$1" --repo "$REPO" --job "$2" --log-failed 2>/dev/null \
+            | sed -E 's/^[^\t]+\t[^\t]+\t[0-9]{4}-[0-9T:.Z+\-]+ ?//'
+    else
+        "$WPCLI_BIN" pipeline log show "$REPO" "$1" "$2" 2>/dev/null
+    fi
+}
 
 # Map the named GH status context to Woodpecker's own `.Event`
 # vocabulary, so the woodpecker-cli lane (which has no context field)
@@ -345,6 +442,11 @@ resolve_wp_event() { # resolve_wp_event <context> -> event name, or empty
 # buckets. Anything unrecognized is pending, so an unknown state makes the watch
 # keep waiting rather than inventing a terminal verdict.
 outcome_of() {
+    if [[ "${CPP_FLOW_PR_WATCH_BACKEND:-woodpecker}" == "github-actions" ]]; then
+        case "${1,,}" in
+            skipped|neutral) echo "success"; return ;;
+        esac
+    fi
     case "${1,,}" in
         success)                                            echo "success" ;;
         failure|error|killed|cancelled|timed_out|declined)  echo "failure" ;;
@@ -361,6 +463,11 @@ if [[ -z "$WATCH_HEAD" ]]; then
     emit
 fi
 HEAD_SHA="$WATCH_HEAD"
+if [[ -n "$WATCH_EXPECT_HEAD" && "$WATCH_HEAD" != "$WATCH_EXPECT_HEAD" ]]; then
+    HEAD_SHA="$WATCH_EXPECT_HEAD"
+    echo "flow-pr-watch: head moved before the pinned watch began; no cancellation evidence." >&2
+    emit
+fi
 
 DEADLINE=$(( $(date +%s) + TIMEOUT ))
 SUPERSEDED=0
@@ -371,6 +478,10 @@ while :; do
     CURRENT_HEAD="$(gh_pr_json headRefOid '.headRefOid')"
     if [[ -n "$CURRENT_HEAD" && "$CURRENT_HEAD" != "$WATCH_HEAD" ]]; then
         SUPERSEDED=1
+        if [[ -n "$WATCH_EXPECT_HEAD" && "$PIPELINE" == "-" ]]; then
+            echo "flow-pr-watch: pinned head moved before any run was examined; no cancellation evidence." >&2
+            emit
+        fi
         if have_wpcli; then
             NEWER="$(wp_pipeline_for_sha "$CURRENT_HEAD")"
             [[ -n "$NEWER" ]] && SUPERSEDED_BY="${NEWER%%|*}"
@@ -486,11 +597,27 @@ TOTAL_FAILED=0
 COUNT_SEEN=0
 CANCELED_STEP=0
 HAS_SUMMARY=0
+NON_TEST_FAILURE=0
+failed_watch_step() {
+    if [[ "${CPP_FLOW_PR_WATCH_BACKEND:-probe}" == "github-actions" ]]; then
+        case "${1,,}" in success|skipped|neutral) return 1 ;; *) return 0 ;; esac
+    fi
+    case "${1,,}" in failure|error|killed) return 0 ;; *) return 1 ;; esac
+}
 while IFS='|' read -r name state _ pid error; do
-    case "${state,,}" in failure|error|killed) ;; *) continue ;; esac
+    failed_watch_step "$state" || continue
+    if [[ "${CPP_FLOW_PR_WATCH_BACKEND:-probe}" == "github-actions" && "$state" != "failure" ]]; then
+        NON_TEST_FAILURE=1
+        echo "flow-pr-watch: non-test Actions conclusion '$state' in $name cannot be baselined." >&2
+    fi
     [[ "$error" == "Canceled" ]] && CANCELED_STEP=1
     LOG=""
-    [[ -n "$pid" ]] && LOG="$(wp_log "$PIPELINE" "$pid")"
+    if [[ -n "$pid" ]] && ! LOG="$(wp_log "$PIPELINE" "$pid")"; then
+        VERDICT="red"
+        ATTRIBUTION="unavailable (failed log fetch)"
+        echo "flow-pr-watch: failed to fetch the red job log; baseline classification is unavailable." >&2
+        emit
+    fi
     ALL_LOG+="$LOG"$'\n'
 
 # A pytest run that reached its own conclusion prints a summary. Its ABSENCE is
@@ -692,6 +819,11 @@ if [[ "$SUPERSEDED" -eq 1 ]]; then
     else
         echo "flow-pr-watch: pipeline #$PIPELINE was superseded, but its log carries no pytest summary - classifying on the failures, not on the supersession." >&2
     fi
+fi
+
+if [[ "$NON_TEST_FAILURE" -eq 1 ]]; then
+    VERDICT="red"
+    emit
 fi
 
 if [[ "$UNRESOLVED" -eq 1 ]]; then

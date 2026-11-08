@@ -60,5 +60,6 @@
       "path": "anchors/pre-1644-flow-ci-status.sh",
       "sha256": "ac98a22b90537cd3a5efee3f466831796343d545eaf899cc3877059863b8a75f"
     }
-  ]
+  ],
+  "limits": " Backend-only credential cases explicitly set CPP_FLOW_CI_BACKEND=probe; recorded-provider selection is a separate question."
 }

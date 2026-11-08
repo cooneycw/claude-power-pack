@@ -347,6 +347,12 @@ def cmd_provider(args: argparse.Namespace) -> int:
     return code
 
 
+def cmd_flow_host(args: argparse.Namespace) -> int:
+    """Read-only host preflight for CI-dependent flow orchestration."""
+    from .flow import host_preflight_main
+    return host_preflight_main(args.path)
+
+
 def cmd_checks(args: argparse.Namespace) -> int:
     """Inspect generated PR contexts and local declared protection, without API calls."""
     from .checks import (
@@ -1135,6 +1141,8 @@ def create_parser() -> argparse.ArgumentParser:
     host_mode.add_argument("--write", action="store_true", help="Persist via the host-write seam")
     host_parser.add_argument("--projects-root", type=Path, help="Approved host projects folder for --write")
 
+    flow_host_parser = subparsers.add_parser("flow-host", help="Check recorded host capability for selected providers")
+    _add_common_args(flow_host_parser)
     provider_parser = subparsers.add_parser("provider", help="Read recorded project CI providers")
     _add_common_args(provider_parser)
     provider_parser.add_argument("--registry", action="store_true", help="List registered choices")
@@ -1245,6 +1253,7 @@ def main(argv: list[str] | None = None) -> int:
         "pipeline": cmd_pipeline,
         "provider": cmd_provider,
         "checks": cmd_checks,
+        "flow-host": cmd_flow_host,
         "host-ci": cmd_host_ci,
         "doctor-ci": cmd_doctor_ci,
         "infra-init": cmd_infra_init,

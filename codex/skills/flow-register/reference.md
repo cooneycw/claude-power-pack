@@ -96,7 +96,7 @@ role:**
 | **authority model** | `--authority-model` | `orchestrator-only`, `user-and-orchestrator`, or `user-only`. Two required signatures is how a wave deadlocks (#676); `user-only` is the most restrictive answer and exists because every other escape from this enum was PERMISSIVE - an operator declaring a narrower authority than it offered had to leave it empty or store a value granting authority nobody delegated (#1026) |
 | ledger format | `--ledger` | the one structured element that already worked - both workers produced comparable output all day |
 | merge authority | `--merge-authority` | who authorises the merge |
-| deploy policy | `--deploy-policy` | Woodpecker-only, #469 no-op, etc. |
+| deploy policy | `--deploy-policy` | Recorded CI providers, #469 no-op, etc. |
 
 **Tier 2 - role-level, declared per session on `register`:**
 
@@ -309,7 +309,7 @@ sits unacked is the ORDINARY healthy shape - this wave ran most of a session wit
   --gate "stop at /flow-auto Step 3; orchestrator judges; --yes forbidden" \
   --ledger "delivered / in-scope / residual" \
   --merge-authority worker \
-  --deploy-policy "woodpecker-only, never a manual deploy"
+  --deploy-policy "recorded CI providers only, never a manual deploy"
 ```
 
 `policy set` MERGES: fields not given are left alone, so amending one field is
