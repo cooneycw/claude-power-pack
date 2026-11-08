@@ -173,6 +173,8 @@ def record_providers(project: str | Path, names: list[str]) -> None:
                 end += 1
             if end <= start:
                 end = start + 1
+            while end > start + 1 and not lines[end - 1].strip():
+                end -= 1
             for i in range(start, end):
                 if "#" in lines[i]:
                     raise ProviderError(f"refusing to discard comment at line {i + 1}; edit providers explicitly")

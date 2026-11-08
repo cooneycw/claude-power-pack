@@ -310,3 +310,13 @@ def test_infra_explicit_single_provider_is_accepted(tmp_path: Path, capsys):
     assert main(["infra-pipeline", "--path", str(tmp_path), "--provider", "woodpecker", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["provider"] == "woodpecker"
     assert not (tmp_path / ".claude/cicd.yml").exists()
+
+
+def test_writer_preserves_blank_lines_after_block_list(tmp_path: Path):
+    from lib.cicd.providers import record_providers
+    path = tmp_path / ".claude/cicd.yml"
+    path.parent.mkdir()
+    before = "pipeline:\n  providers:\n    - github-actions\n\n  branches: {pr: [test]}\n"
+    path.write_text(before)
+    record_providers(tmp_path, ["woodpecker"])
+    assert path.read_text() == 'pipeline:\n  providers: ["woodpecker"]\n\n  branches: {pr: [test]}\n'
