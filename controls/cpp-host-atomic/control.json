@@ -1,0 +1,44 @@
+{
+  "_comment": [
+    "#1609: host capability verdicts and persistence are consumed by other sessions without re-deriving authentication or the write.",
+    "All API/credential responses are bounded fixtures; no live authentication or AWS store. Constructed anchors are deliberately blind, with no historical provenance claim."
+  ],
+  "gate": "scripts/cpp-host-write.sh",
+  "invocation": [
+    "python3",
+    "controls/cpp-host-atomic/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^HOST_ATOMIC: refused$",
+  "good_signal": "^HOST_ATOMIC: written$",
+  "cases": [
+    {
+      "name": "bad-deferred",
+      "input": "cases/bad-deferred",
+      "expect": "BAD",
+      "why": "bad deferred"
+    },
+    {
+      "name": "bad-symlink",
+      "input": "cases/bad-symlink",
+      "expect": "BAD",
+      "why": "bad symlink"
+    },
+    {
+      "name": "good-written",
+      "input": "cases/good-written",
+      "expect": "GOOD",
+      "why": "good written"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "path": "anchors/plain-write.sh",
+      "sha256": "d383d601d9aa9594b9f786dc0458e0dc6d287f2afe597f4bd61654408efbcaab",
+      "why": "A successful answer that ignores the state the consumer relies on."
+    }
+  ]
+}

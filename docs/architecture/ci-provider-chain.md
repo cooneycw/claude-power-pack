@@ -106,6 +106,29 @@ flowchart LR
 - [ ] Tier 4 ends with a one-line handoff to `/project:init` / `/cicd:init`; its disclosure, undo and consent text change to match.
 - [ ] Negative controls: failing `gh auth status` reads `missing`; an unresolvable token reads `missing`; a probe error reads `unknown`, never `ready`; the record contains no secret value.
 
+The #1609 consumer interface is `lib.cicd.host.read_host_record(repo)` (or
+`python -m lib.cicd host-ci --path REPO --read --json`). Reading never runs
+provider probes or writes. Its normalized record has `schema: 1`, `checked_at`
+(UTC ISO string, or null when unavailable), and `providers`, keyed by every
+registered provider. Each entry has `status` (`ready`, `missing`, `unknown`), a
+controlled `reason` code, and `versions` containing only numeric tool versions.
+Missing provider entries stay unknown independently. The CLI additionally names
+`record_state`; `--write --projects-root FOLDER` probes all registry hooks and
+persists through the shared atomic host-write/defer seam. A timeout reports an
+unknown commit outcome; it never certifies that the previous record survived.
+The selected folder applies to projects whose main checkouts are directly inside
+it; the installer checkout may live elsewhere. Consumers outside that folder
+read their own projects-folder record (or unknown), not the installer's choice.
+
+GitHub ready requires real github.com authentication, a token-valid `user` API
+response, and an exact `repo` member in classic `X-OAuth-Scopes`. An authenticated
+classic token without that scope is missing; fine-grained/app/absent scope is
+unknown because it is not introspectable. CPP's public origin is never proof of
+private repository scope. Probe errors are unknown; absent Woodpecker credentials
+are missing, while a failed credential resolver is unknown. No provider is
+selected by these checks. Containers return unknown before reading mounted
+records; no host result attests to a container's tools or credentials.
+
 ### P4 - Flow helpers select the lane from the record (#1610)
 
 Absorbs #1604 items 6 (`flow-pr-watch.sh`), 8 (enrolment as an Actions job; fork PRs warn) and 11 (docs for both providers).
