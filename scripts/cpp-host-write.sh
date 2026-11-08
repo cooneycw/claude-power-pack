@@ -84,6 +84,7 @@ cpp-host-write.sh <command> [--defer SURFACE]... [args]
   link-into <src> <dir> <name>   symlink a file into a host directory
   unlink-orphan <dir> <name>     remove a dangling install-shaped helper link
   file-write <target> <content>  replace a host file's contents
+  file-write-atomic <target>    atomically replace from stdin (0 wrote / 3 deferred / 1 failed)
   json-merge-sections <tmpl> <target> <section>...
                                  merge template sections into a JSON target
   settings-edit [--arg K V]...   apply a jq program (stdin) to settings.json
@@ -370,7 +371,8 @@ cmd_file_write() {
 cmd_file_write_atomic() {
     local target="$1"
     is_deferred "$target" && { refuse "$target" cpp; return $?; }
-    PYTHONPATH='' python3 -c '
+    # exec makes the atomic writer the process a timeout kills, not an orphan.
+    exec env PYTHONPATH='' python3 -c '
 import os, pathlib, stat, sys, tempfile
 target = pathlib.Path(sys.argv[1])
 tmp = None
@@ -390,8 +392,8 @@ except OSError:
         pathlib.Path(tmp).unlink(missing_ok=True)
     print("cpp-host-write: FAILED atomic host record write", file=sys.stderr)
     sys.exit(1)
-' "$target" || return 1
-    printf 'cpp-host-write: ok %s (written atomically)\n' "$(normalise "$target")"
+print("cpp-host-write: ok (written atomically)")
+' "$target"
 }
 
 cmd_json_merge_sections() {

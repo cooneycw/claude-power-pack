@@ -1678,7 +1678,7 @@ PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARG
 CPP_HOST_CI_STATUS=$?
 case "$CPP_HOST_CI_STATUS" in
   0) echo "Host CI record persisted; see each provider's independent verdict above." ;;
-  3) echo "Host CI record not persisted (deferred or host unavailable); this run did not update the record." ;;
+  3) echo "Host CI persistence deferred, unavailable or unconfirmed; see record state above." ;;
   *) echo "Host CI record write failed; previous record preserved." >&2; exit 1 ;;
 esac
 ```

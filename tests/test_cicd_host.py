@@ -276,3 +276,80 @@ def test_reader_payload_sanitizer_never_leaks(payload):
     assert CANARY not in json.dumps(got)
     if not isinstance(payload, dict) or payload.get('versions') is None:
         assert got['status'] == 'unknown'
+
+
+@requires_git
+@requires_bash_python
+def test_nested_linked_worktree_root_is_never_a_host_destination(repository, tmp_path):
+    relocated = tmp_path / 'elsewhere/linked'
+    git(repository, 'worktree', 'add', '-b', 'nested-linked', str(relocated))
+    nested = relocated / 'src'
+    nested.mkdir()
+    target = relocated / '.claude/cpp-host.json'
+    assert not target.exists()
+    record = host._unknown('record-unavailable')
+    ctx = host.ProbeContext(container=False)
+    assert host.write_host_record(record, relocated, nested, ctx) == 'failed'
+    assert not target.parent.exists()
+
+
+@requires_git
+@requires_bash_python
+def test_timeout_commit_outcome_is_unknown_and_writer_cannot_outlive_caller(repository, tmp_path):
+    import time
+
+    root = repository.parent
+    target = put_record(root, {'previous': 'record'})
+    old = target.read_bytes()
+    bindir = tmp_path / 'bin'
+    bindir.mkdir()
+    paused = tmp_path / 'paused'
+    release = tmp_path / 'release'
+    resumed = tmp_path / 'resumed'
+    stub = bindir / 'python3'
+    stub.write_text(
+        '#!' + shutil.which('python3') + '\n'
+        'import os, pathlib, sys, time\n'
+        f'pathlib.Path({str(paused)!r}).touch()\n'
+        'end=time.monotonic()+8\n'
+        f'while not pathlib.Path({str(release)!r}).exists():\n'
+        '    if time.monotonic()>end: sys.exit(2)\n'
+        '    time.sleep(0.01)\n'
+        f'pathlib.Path({str(resumed)!r}).touch()\n'
+        'os.execv(sys.executable, [sys.executable, *sys.argv[1:]])\n'
+    )
+    stub.chmod(0o755)
+    env = {**os.environ, 'PATH': str(bindir) + os.pathsep + os.environ['PATH']}
+    assert shutil.which('python3', path=env['PATH']) == str(stub)
+
+    def timeout_run(argv, **kwargs):
+        return subprocess.run(argv, **{**kwargs, 'timeout': 2})
+
+    ctx = host.ProbeContext(run=timeout_run, env=env, container=False)
+    state = host.write_host_record(host._unknown('record-unavailable'), root, repository, ctx)
+    assert paused.exists(), 'must time out during an actual pending writer'
+    release.touch()
+    end = time.monotonic() + 0.4
+    while time.monotonic() < end:
+        time.sleep(0.01)
+    assert state == 'unknown', 'a timeout cannot certify that the previous record survived'
+    assert not resumed.exists(), 'writer must be the timed process, with no surviving child'
+    assert target.read_bytes() == old
+
+
+@requires_git
+@requires_bash_python
+def test_selected_projects_folder_applies_to_its_projects_not_installer(repository, tmp_path, monkeypatch):
+    monkeypatch.setattr(host, 'in_container', lambda: False)
+    custom = tmp_path / 'custom-projects'
+    project = custom / 'consumer'
+    project.mkdir(parents=True)
+    git(project, 'init')
+    decoy = host._unknown('record-unavailable')
+    decoy['checked_at'] = '2026-11-08T10:00:00Z'
+    put_record(repository.parent, decoy)
+    ctx, _ = context(github())
+    record = host.probe_host(ctx)
+    assert host.write_host_record(record, custom, repository, host.ProbeContext(container=False)) == 'written'
+    assert host.read_host_record(project)['providers'] == record['providers']
+    assert {v['status'] for v in host.read_host_record(repository)['providers'].values()} == {'unknown'}

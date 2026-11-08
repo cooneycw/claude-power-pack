@@ -114,7 +114,11 @@ registered provider. Each entry has `status` (`ready`, `missing`, `unknown`), a
 controlled `reason` code, and `versions` containing only numeric tool versions.
 Missing provider entries stay unknown independently. The CLI additionally names
 `record_state`; `--write --projects-root FOLDER` probes all registry hooks and
-persists through the shared atomic host-write/defer seam.
+persists through the shared atomic host-write/defer seam. A timeout reports an
+unknown commit outcome; it never certifies that the previous record survived.
+The selected folder applies to projects whose main checkouts are directly inside
+it; the installer checkout may live elsewhere. Consumers outside that folder
+read their own projects-folder record (or unknown), not the installer's choice.
 
 GitHub ready requires real github.com authentication, a token-valid `user` API
 response, and an exact `repo` member in classic `X-OAuth-Scopes`. An authenticated

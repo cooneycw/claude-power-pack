@@ -240,6 +240,16 @@ def read_host_record(repo: str | Path) -> dict[str, Any]:
     return record
 
 
+def _invoked_checkout(repo: str | Path) -> Path | None:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    try:
+        result = subprocess.run(["git", "-C", str(repo), "rev-parse", "--show-toplevel"],
+                                capture_output=True, text=True, timeout=10, env=env)
+        return Path(result.stdout.strip()).resolve() if result.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
 def write_host_record(record: dict[str, Any], projects_root: str | Path,
                       repo: str | Path, ctx: ProbeContext | None = None) -> str:
     """Persist through the shared defer-aware seam; return its actual outcome."""
@@ -248,9 +258,9 @@ def write_host_record(record: dict[str, Any], projects_root: str | Path,
         return "unavailable"
     main = main_checkout(repo)
     root = Path(projects_root).expanduser().resolve()
-    invoked = Path(repo).resolve()
+    invoked = _invoked_checkout(repo)
     target = root / ".claude/cpp-host.json"
-    if (main is None or root.is_relative_to(invoked) or root.is_relative_to(main)
+    if (main is None or invoked is None or root.is_relative_to(invoked) or root.is_relative_to(main)
             or target.resolve().is_relative_to(invoked) or target.resolve().is_relative_to(main)):
         return "failed"
     # Re-sanitize the complete payload even if a caller bypassed probe_host.
@@ -265,6 +275,12 @@ def write_host_record(record: dict[str, Any], projects_root: str | Path,
         result = ctx.run(["bash", str(helper), "file-write-atomic", str(target)],
                          input=json.dumps(safe, indent=2) + "\n", capture_output=True,
                          text=True, timeout=15, env=ctx.env)
-        return {0: "written", 3: "deferred"}.get(result.returncode, "failed")
-    except (OSError, subprocess.SubprocessError):
+        return {0: "written", 3: "deferred", 1: "failed"}.get(result.returncode, "unknown")
+    except subprocess.TimeoutExpired:
+        # A timeout can race the atomic commit. Even with the direct writer
+        # killed, absence of its receipt cannot certify preservation.
+        return "unknown"
+    except OSError:
         return "failed"
+    except subprocess.SubprocessError:
+        return "unknown"

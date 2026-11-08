@@ -79,7 +79,7 @@ def cmd_host_ci(args: argparse.Namespace) -> int:
         for name, result in record["providers"].items():
             print(f"{name}: {result['status']} ({result['reason']})")
         print(f"HOST_CI_RECORD: {state}")
-    return 1 if state == "failed" else 3 if state in {"deferred", "unavailable"} else 0
+    return 1 if state == "failed" else 3 if state in {"deferred", "unavailable", "unknown"} else 0
 
 
 def cmd_detect(args: argparse.Namespace) -> int:
