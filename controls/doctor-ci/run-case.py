@@ -45,6 +45,26 @@ def main():
         value = module.host_row(selected, data['host'])
     else:
         assert target == 'fallback'
+        assert data['providers'] == selected and selected == ['github-actions']
+        plan, explicit = data['plan'], data['explicit']
+        assert plan['fallback'] == {'requested':False, 'would_trigger':False}
+        assert explicit['fallback']['requested'] is True
+        if case.name.startswith('bad-'):
+            assert plan['status'] == explicit['status'] == 'ok'
+            assert plan['providers'] == explicit['providers'] == ['woodpecker']
+            assert plan['lanes'] == explicit['lanes'] == [{'provider':'woodpecker', 'lane':'woodpecker'}]
+            assert explicit['fallback']['would_trigger'] is False
+        elif case.name.startswith('good-'):
+            assert plan['status'] == explicit['status'] == 'ok'
+            assert plan['providers'] == explicit['providers'] == selected
+            assert plan['lanes'] == explicit['lanes'] == [{'provider':'github-actions', 'lane':'github-actions'}]
+            assert explicit['fallback']['would_trigger'] is False
+        else:
+            assert case.name == 'unknown-lane-plan'
+            assert plan['status'] == explicit['status'] == 'unknown'
+            assert plan['providers'] == explicit['providers'] == []
+            assert plan['lanes'] == explicit['lanes'] == []
+            assert explicit['fallback']['would_trigger'] is True
         value = module.lane_row(selected, data['plan'], data['explicit'])
     print('DOCTOR_ROW: ' + value['status'] + ' (' + value['reason'] + ')')
     return {'ok':0, 'drift':1, 'unknown':3}[value['status']]

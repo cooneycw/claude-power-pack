@@ -2,7 +2,7 @@
   "_comment": [
     "#1611: each doctor relationship is read as evidence by users/other sessions; absence of proof never means ok.",
     "This stdlib control drives normalized-fact verdicts, not raw-source collection; actual canonical collector and published-shell regressions are in tests/test_cicd_doctor.py. Historical config absence is unknown; the explicit Actions/Woodpecker mismatch is labelled constructed.",
-    "The constructed anchor masks only drift as ok, preserving known-good and unknown cases; it misses each of the four relationship drift lines. Fallback facts describe offline plans, never probe execution."
+    "The anchor masks normalized drift as ok. Three BAD cases represent independent relationships. The fourth is only a defensive normalized lane mismatch: stable runtime records cannot produce it, since names and plans use the same reader/registry."
   ],
   "gate": "lib/cicd/doctor.py",
   "invocation": [
@@ -86,7 +86,7 @@
       "name": "bad-lane-plan",
       "input": "cases/bad-lane-plan",
       "expect": "BAD",
-      "why": "known lane plan contradicts the recorded provider"
+      "why": "constructed normalized mismatch exercises defensive lane verdict only; not reachable with a stable runtime record"
     },
     {
       "name": "good-lane-plan",

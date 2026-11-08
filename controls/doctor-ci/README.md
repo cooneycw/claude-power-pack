@@ -13,6 +13,10 @@ the canonical YAML/check readers, GitHub API collector with offline responses,
 container/worktree host reader, and the actual published doctor procedure.
 The constructed anchor changes only drift to ok, preserving known-good and
 unknown behavior. Row 4 consumes normalized canonical offline lane plans:
-a recorded-provider mismatch is drift, a repaired plan is ok, and unavailable
-recorded lanes stay unknown. Both default and explicit fallback flags are
+the runtime reports recorded lanes and fallback behavior, or unknown when
+unavailable. Its BAD lane case is a constructed mismatch between normalized
+facts and the explicit selected providers. It tests the defensive verdict
+function; a stable real record cannot produce this mismatch because both
+inputs use the same canonical reader and registry. It does not prove runtime
+lane drift detection. Both default and explicit fallback flags are
 reported without executing provider probes.

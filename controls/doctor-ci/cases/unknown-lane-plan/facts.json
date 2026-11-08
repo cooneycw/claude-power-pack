@@ -19,5 +19,8 @@
       "requested": true,
       "would_trigger": true
     }
-  }
+  },
+  "providers": [
+    "github-actions"
+  ]
 }

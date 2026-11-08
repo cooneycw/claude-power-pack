@@ -582,3 +582,33 @@ def test_failed_lane_reader_does_not_hide_independent_relationships(tmp_path, mo
     result = doctor.collect(tmp_path, ctx)
     assert [item['status'] for item in result['rows']] == ['ok','ok','ok','unknown']
     assert 'PRIVATE_LANE_EXCEPTION_CANARY' not in doctor.render(result)
+
+
+@pytest.mark.parametrize('write', [False, True])
+def test_checks_ignores_unrelated_non_directory_scope(tmp_path, capsys, write):
+    import json
+
+    from lib.cicd import cli, doctor
+    _project(tmp_path)
+    (tmp_path / '.woodpecker').write_text('unrelated regular file\n')
+    args = ['checks', '--path', str(tmp_path), '--json'] + (['--write'] if write else [])
+    assert cli.main(args) == 0
+    value = json.loads(capsys.readouterr().out)
+    assert value['derivation']['status'] == 'known'
+    assert value['derivation']['checks'] == ['verify']
+    ctx, _ = _context(tmp_path)
+    assert doctor.collect(tmp_path, ctx)['rows'][0]['status'] == 'unknown'
+
+
+def test_doctor_unexpected_exception_is_unknown(tmp_path, monkeypatch, capsys):
+    import json
+
+    from lib.cicd import cli, doctor
+    def broken(path):
+        raise RuntimeError('PRIVATE_DOCTOR_EXCEPTION_CANARY')
+    monkeypatch.setattr(doctor, 'collect', broken)
+    assert cli.main(['doctor-ci', '--path', str(tmp_path), '--json']) == 3
+    output = capsys.readouterr()
+    value = json.loads(output.out)
+    assert all(item['status'] == 'unknown' for item in value['rows'])
+    assert 'PRIVATE_DOCTOR_EXCEPTION_CANARY' not in output.out + output.err

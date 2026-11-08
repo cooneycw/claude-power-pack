@@ -271,11 +271,18 @@ def derive_required_checks(providers: list[str], files: dict[str, str]) -> Requi
         return RequiredChecks("unknown", reason=str(exc), examined_files=examined, excluded=tuple(excluded))
 
 
-def read_pipeline_inventory(project: str | Path) -> dict[str, list[str]]:
-    """Registry-owned pipeline paths, including a future provider's canonical file."""
+def read_pipeline_inventory(project: str | Path, *, provider_names: list[str] | None = None) -> dict[str, list[str]]:
+    """Registry-owned paths; optional selection scopes checks to its providers.
+
+    Doctor omits the selection to examine every registered provider, including
+    unreadable unselected scopes. Checks only needs the recorded providers and
+    must not be blocked by an unrelated provider's directory layout.
+    """
     root = Path(project)
     inventory = {}
-    for name, provider in PROVIDERS.items():
+    selected = PROVIDERS if provider_names is None else require_providers(provider_names)
+    for name in selected:
+        provider = PROVIDERS[name]
         patterns = provider.pipeline_patterns or (provider.pipeline_file,)
         paths: set[Path] = set()
         for pattern in patterns:
@@ -301,9 +308,9 @@ def read_pipeline_inventory(project: str | Path) -> dict[str, list[str]]:
     return inventory
 
 
-def read_pipeline_files(project: str | Path) -> dict[str, str]:
+def read_pipeline_files(project: str | Path, *, provider_names: list[str] | None = None) -> dict[str, str]:
     root = Path(project)
-    inventory = read_pipeline_inventory(root)
+    inventory = read_pipeline_inventory(root, provider_names=provider_names)
     return {name: (root / name).read_text() for paths in inventory.values() for name in paths}
 
 

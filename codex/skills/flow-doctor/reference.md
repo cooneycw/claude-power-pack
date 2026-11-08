@@ -333,7 +333,9 @@ The fallback row uses the canonical offline lane planner, names the recorded
 lanes, and reports whether fallback would trigger by default and with the
 explicit `--fallback-provider-probes` option. Missing records or unavailable
 handlers remain unknown even when explicit fallback would trigger. This
-diagnostic executes no provider probes.
+diagnostic executes no provider probes. The lane row describes the runtime
+plan; it does not independently detect lane drift, because selection and plan
+use the same canonical record and registry.
 
 If `CPP_DIR` is not found, report CI/CD readiness unknown (`lib/cicd` unavailable).
 Do not mark a skipped diagnostic as successful.

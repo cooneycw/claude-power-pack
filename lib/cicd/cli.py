@@ -61,6 +61,8 @@ def cmd_doctor_ci(args: argparse.Namespace) -> int:
         value = collect(args.path)
     except ImportError:
         value = report([row(name, "unknown", "existing CPP diagnostic dependencies unavailable") for name in IDS], [])
+    except Exception:
+        value = report([row(name, "unknown", "diagnostic collection failed") for name in IDS], [])
     print(json.dumps(value, indent=2) if args.json else render(value))
     return value["exit_code"]
 
@@ -366,7 +368,7 @@ def cmd_checks(args: argparse.Namespace) -> int:
     from .config import CICDConfig
     from .providers import read_provider_record, require_providers
     providers = require_providers(read_provider_record(args.path).providers)
-    required = derive_required_checks(providers, read_pipeline_files(args.path))
+    required = derive_required_checks(providers, read_pipeline_files(args.path, provider_names=providers))
     path = Path(args.path) / ".claude/branch-protection.json"
     if args.write:
         posture = protection_record(CICDConfig.load(args.path), required)
