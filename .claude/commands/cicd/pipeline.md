@@ -46,10 +46,19 @@ PYTHONPATH="$PWD:$HOME/Projects/claude-power-pack:$PYTHONPATH" uv run --project 
 PYTHONPATH="$PWD:$HOME/Projects/claude-power-pack:$PYTHONPATH" uv run --project "$HOME/Projects/claude-power-pack" python -m lib.cicd pipeline
 ```
 
-4. **Review output** with the user. Show the generated workflow YAML.
+4. **Read or ask for providers** through `python -m lib.cicd provider --registry --json`
+   and `provider --path "$PWD" --json`. Reuse the recorded list, or ask a multi-select
+   over the registry and record it with `pipeline --providers "$CI_PROVIDERS" --record`.
+   Never instruct the user to hand-edit YAML as the selection mechanism.
+
+   **Review output** with the user. Use `pipeline --protection --json` to include
+   derived PR contexts and local protection; host capability is reported separately.
 
 5. **Check for existing files** before writing:
-   - If `.github/workflows/ci.yml` exists, ask before overwriting
+   - Inspect every proposed `files` path, including `.github/workflows/ci.yml`,
+     `.woodpecker.yml` and `.claude/branch-protection.json`; ask before overwriting any.
+   - Run `python -m lib.cicd checks --json` for recorded pipeline/protection consistency.
+     Only supported CPP-generated shapes are assessed; unknown is never complete.
 
 6. **Write files** if approved:
 

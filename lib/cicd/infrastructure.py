@@ -63,7 +63,7 @@ def scaffold_infrastructure(
 
 def generate_infra_pipeline(
     config: Optional[InfrastructureConfig] = None,
-    provider: str = "github-actions",
+    provider: str | list[str] = "github-actions",
     output_dir: Optional[str | Path] = None,
 ) -> dict[str, str]:
     """Generate CI/CD pipelines for infrastructure tiers.
@@ -85,10 +85,19 @@ def generate_infra_pipeline(
 
     iac = IaCProvider(config.provider)
 
-    if provider == "github-actions":
-        files = _generate_gh_infra_pipeline(config, iac)
-    else:
-        files = _generate_woodpecker_infra_pipeline(config, iac)
+    from .providers import PROVIDERS, normalize_providers, require_providers
+    selected = require_providers(
+        normalize_providers({"provider": provider}) if isinstance(provider, str) else provider
+    )
+    files: dict[str, str] = {}
+    for name in selected:
+        hook = PROVIDERS[name].infra_generator
+        if not hook or hook not in globals():
+            raise ValueError("infrastructure generator unavailable for provider: " + name)
+        emitted = globals()[hook](config, iac)
+        if set(files) & set(emitted):
+            raise ValueError("infrastructure providers emit overlapping paths")
+        files.update(emitted)
 
     if output_dir:
         root = Path(output_dir)

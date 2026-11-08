@@ -1,0 +1,64 @@
+{
+  "_comment": [
+    "#1644: the resolver must never send a token to an unrelated source endpoint. Full script runs with explicit owned AWS/HTTP stubs; no network or live secret store.",
+    "Bad cases assert actual mismatched partial-source preconditions and observe whether any authenticated request occurred. Good cases require real helper success and the expected fixture token/endpoint, so always-refuse is blind.",
+    "The anchor is historical main5a55ad18, where both bad cases make authenticated requests and all four good cases still succeed. Logs contain only owned fixture canaries and are deleted with the sandbox."
+  ],
+  "gate": "scripts/flow-ci-status.sh",
+  "invocation": [
+    "python3",
+    "controls/flow-ci-credential-pair/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^CREDENTIAL_PAIR: refused$",
+  "good_signal": "^CREDENTIAL_PAIR: authenticated-request$",
+  "cases": [
+    {
+      "name": "bad-server-mix",
+      "input": "cases/bad-server-mix",
+      "expect": "BAD",
+      "why": "bad server mix"
+    },
+    {
+      "name": "bad-token-mix",
+      "input": "cases/bad-token-mix",
+      "expect": "BAD",
+      "why": "bad token mix"
+    },
+    {
+      "name": "good-environment",
+      "input": "cases/good-environment",
+      "expect": "GOOD",
+      "why": "good environment"
+    },
+    {
+      "name": "good-secret",
+      "input": "cases/good-secret",
+      "expect": "GOOD",
+      "why": "good secret"
+    },
+    {
+      "name": "good-matching-server",
+      "input": "cases/good-matching-server",
+      "expect": "GOOD",
+      "why": "good matching server"
+    },
+    {
+      "name": "good-matching-token",
+      "input": "cases/good-matching-token",
+      "expect": "GOOD",
+      "why": "good matching token"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "5a55ad184d388c406a946c07db932eb52f85e79a",
+      "origin": "scripts/flow-ci-status.sh",
+      "path": "anchors/pre-1644-flow-ci-status.sh",
+      "sha256": "ac98a22b90537cd3a5efee3f466831796343d545eaf899cc3877059863b8a75f"
+    }
+  ]
+}

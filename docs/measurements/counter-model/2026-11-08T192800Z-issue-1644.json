@@ -1,0 +1,69 @@
+{
+  "branch": "fix/1644-woodpecker-credential-pair",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "e62f2de8144ee6fbc836a19cd78483252918a574",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/08/rollout-2026-11-08T14-15-21-01a1bb83-84a8-73f3-9a28-1c147bf50eaf.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 8694713,
+        "path": "2026/11/08/rollout-2026-11-08T14-15-21-01a1bb83-84a8-73f3-9a28-1c147bf50eaf.jsonl",
+        "sha256": "2f9ddca3a5e29cab4ddeebc092dc98980a65ce51f2adb7a3568a569cbf44379c"
+      }
+    ],
+    "thread_id": "01a1bb83-84a8-73f3-9a28-1c147bf50eaf"
+  },
+  "issue": "1644",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 1,
+  "recorded_at": "2026-11-08T19:28:00Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewed_artifact": {
+    "base_sha": "5a55ad184d388c406a946c07db932eb52f85e79a",
+    "merge_base": "5a55ad184d388c406a946c07db932eb52f85e79a",
+    "method": "captured-patch",
+    "patch_sha256": "99207eadd5ac333ee811c7e106f36a3201c9a38dd6783aa1fe8fa98c4578bb0d",
+    "report_record": 17,
+    "target_head": "e62f2de8144ee6fbc836a19cd78483252918a574"
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "exec_log": "1644-review.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6-astra"
+    ],
+    "rollout": "2026/11/08/rollout-2026-11-08T19-27-04-01a1bca0-e84e-72c1-87f2-efe8d450c255.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 1611,
+        "path": "1644-review.jsonl",
+        "sha256": "8b3f450e519a00c448c10d2717a815fecb76740b88a000f81d5c263293550a08"
+      },
+      {
+        "bytes": 283198,
+        "path": "2026/11/08/rollout-2026-11-08T19-27-04-01a1bca0-e84e-72c1-87f2-efe8d450c255.jsonl",
+        "sha256": "e794aeaa4f49fb057649a63a6c040bfe5b4f60d71201af7a8e129d4b62db9a75"
+      }
+    ],
+    "thread_id": "01a1bca0-e84e-72c1-87f2-efe8d450c255"
+  },
+  "schema": 5,
+  "scope": "diff-only",
+  "status": "ran"
+}
