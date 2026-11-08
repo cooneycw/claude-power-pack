@@ -8,6 +8,7 @@ Every file below is a byte-identical copy of its canonical source in the claude-
 - `lib/cicd/evidence.py`
 - `lib/cicd/state.py`
 - `scripts/check-ignored-additions.sh`
+- `scripts/coordination-admission.sh`
 - `scripts/counter-model-receipt.py`
 - `scripts/execution-evidence-verify.py`
 - `scripts/flow-finish-gate.sh`

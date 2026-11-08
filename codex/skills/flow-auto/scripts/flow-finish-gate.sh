@@ -29,6 +29,7 @@
 #   three of four it did the same thing again for `verify` (issue #1147).
 #
 #: NEGATIVE-CONTROL: controls/flow-finish-gate
+#: NEGATIVE-CONTROL: controls/flow-finish-coordination
 #: NEGATIVE-CONTROL: controls/flow-cpp-runtime
 #: NEGATIVE-CONTROL: controls/flow-finish-missing-tools
 #: NEGATIVE-CONTROL: controls/flow-finish-gate-declared-gates
@@ -145,6 +146,15 @@
 
 set -uo pipefail
 
+# An older installed bundle can lack this rollout helper. Unknown stays on
+# the original path; installing a new caller alone never activates coordination.
+coordination_admission_on() { return 1; }
+_coordination_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+if [[ -r "$_coordination_dir/coordination-admission.sh" ]]; then
+    # shellcheck source=scripts/coordination-admission.sh
+    . "$_coordination_dir/coordination-admission.sh"
+fi
+
 # Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
 # The trap also removes the runner's JSON temp file (issue #1258): it was removed
 # by one straight-line `rm` after parsing, so any exit before that line -
@@ -152,7 +162,32 @@ set -uo pipefail
 # `$?` is read FIRST, by the printf, before the `rm` can change it; the `rm`
 # writes nothing, so the exit line is still the last thing on stderr.
 RUNNER_JSON=""
-trap 'printf "FLOW_FINISH_GATE_EXIT=%d\n" "$?" >&2; [[ -z "$RUNNER_JSON" ]] || rm -f "$RUNNER_JSON"' EXIT
+# A gate continued under the coordination supervisor (below) hands its exit
+# status to the parent gate through this file, and the parent alone writes the
+# exit line. Honoured only with the continuation marker, and unset at once, so
+# a grandchild gate (a nested run) still emits its own line (kyle#2130).
+_gate_status_file=""
+if [[ "${CPP_KYLE_FULL_SUITE_ACTIVE:-}" == "1" && -n "${CPP_FLOW_FINISH_GATE_STATUS_FILE:-}" ]]; then
+    _gate_status_file="$CPP_FLOW_FINISH_GATE_STATUS_FILE"
+fi
+unset CPP_FLOW_FINISH_GATE_STATUS_FILE
+# shellcheck disable=SC2317  # invoked only from the EXIT trap below
+_gate_on_exit() {
+    local rc=$1
+    if [[ -n "$_gate_status_file" ]]; then
+        printf "%d\n" "$rc" 2>/dev/null > "$_gate_status_file"
+    else
+        printf "FLOW_FINISH_GATE_EXIT=%d\n" "$rc" >&2
+    fi
+    [[ -z "$RUNNER_JSON" ]] || rm -f "$RUNNER_JSON"
+    # The coordination parent's private directory, also on an interrupt. The
+    # files live inside it so a writer still running after this cleanup - the
+    # continued gate's status, the verdict reader - fails to open its path
+    # rather than recreating it.
+    [[ -z "$_coordination_tmp" ]] || rm -rf -- "$_coordination_tmp"
+}
+_coordination_tmp=""
+trap '_gate_on_exit "$?"' EXIT
 
 # --- The shared gate conventions (issue #1061) ------------------------------
 # SIBLING FIRST, like every other helper this repository resolves: a generated
@@ -237,6 +272,7 @@ unset _fn
 # exit specifically would notice.
 gate_map ok=0 fail=1 usage=2 warn=3 skipped=4 undecidable=5
 
+COORDINATION_ORIGINAL_ARGS=("$@")
 PLAN="finish"
 MODE="gate"
 EVIDENCE_SKILL=""
@@ -305,6 +341,61 @@ fi
 if [[ "$CM_BRANCH_GIVEN" -eq 1 && "$MODE" != "enrolment" ]]; then
     echo "flow-finish-gate: --branch is only meaningful with --enrolment-only" >&2
     gate_exit usage
+fi
+# Supervise one complete gate, including runner/fallback and any retries.
+# The continuation marker is scoped to this command's descendant environment;
+# it prevents nested reacquisition, and is not a security boundary. The owner
+# activates the rollout separately from service-side admission.
+if coordination_admission_on && [[ "$MODE" == "gate" && "${CPP_KYLE_FULL_SUITE_ACTIVE:-}" != "1" ]]; then
+    _coordination_bin="${CPP_KYLE_LOCK_BIN:-kyle-lock}"
+    if ! command -v "$_coordination_bin" >/dev/null 2>&1; then
+        echo "flow-finish-gate: coordination enabled but kyle-lock is unavailable; refusing to start." >&2
+        gate_exit fail
+    fi
+    if ! _coordination_tmp="$(mktemp -d "${TMPDIR:-/tmp}/flow-finish-gate-coordination.XXXXXX")"; then
+        _coordination_tmp=""
+        echo "flow-finish-gate: coordination enabled but no status directory could be created; refusing to start." >&2
+        gate_exit fail
+    fi
+    _coordination_status="$_coordination_tmp/status"
+    _coordination_verdict="$_coordination_tmp/verdict"
+    # The authority configuration belongs to the supervisor. Test commands
+    # must not inherit its credentials.
+    #
+    # The supervisor's own codes overlap the gate's (refused 3 is warn here,
+    # usage 2 is usage), so its exit code alone cannot say whether the gate ran
+    # or what it decided. The continued gate records its status in a file, and
+    # its verdict line is held back from stdout: only a matching pair is the
+    # gate's verdict, so a lease lost after a green gate prints one fail, never
+    # an ok followed by a fail. This process writes the one exit line.
+    "$_coordination_bin" run full-suite -- env \
+        -u KYLE_LOCK_URL -u KYLE_LOCK_TOKEN -u KYLE_LOCK_TOKEN_FILE \
+        CPP_KYLE_FULL_SUITE_ACTIVE=1 CPP_FLOW_FINISH_GATE_STATUS_FILE="$_coordination_status" \
+        bash "${BASH_SOURCE[0]}" "${COORDINATION_ORIGINAL_ARGS[@]}" \
+        | while IFS= read -r _coordination_line || [[ -n "$_coordination_line" ]]; do
+            if [[ "$_coordination_line" == "FLOW_FINISH_GATE: "* ]]; then
+                printf '%s\n' "$_coordination_line" 2>/dev/null >> "$_coordination_verdict"
+            else
+                printf '%s\n' "$_coordination_line"
+            fi
+        done
+    _coordination_rc=${PIPESTATUS[0]}
+    _coordination_gate_rc="$(cat -- "$_coordination_status" 2>/dev/null)"
+    _coordination_held="$(cat -- "$_coordination_verdict" 2>/dev/null)"
+    rm -rf -- "$_coordination_tmp"
+    _coordination_tmp=""
+    if [[ "$_coordination_gate_rc" =~ ^[0-9]+$ ]]; then
+        if [[ "$_coordination_gate_rc" == "$_coordination_rc" ]]; then
+            [[ -z "$_coordination_held" ]] || printf '%s\n' "$_coordination_held"
+            exit "$_coordination_rc"
+        fi
+        echo "FLOW_FINISH_GATE: fail (coordination supervisor exited $_coordination_rc after the gate exited $_coordination_gate_rc: lease lost or stop unconfirmed)"
+        gate_exit fail
+    fi
+    # No recorded status is refused, queued, frozen, unavailable or usage before
+    # the gate started - or a gate killed outright. It never reads as a pass.
+    echo "FLOW_FINISH_GATE: fail (coordination supervisor exited $_coordination_rc and the gate recorded no status)"
+    gate_exit fail
 fi
 if [[ -n "$EVIDENCE_SKILL" ]]; then
     if [[ ! "$EVIDENCE_SKILL" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]]; then
