@@ -29,7 +29,12 @@ from pathlib import Path
 from typing import Any, Optional, TextIO
 
 from .coverage import SCOPE_COMPONENT, ZERO
-from .outcomes import classify_unparsed, parse_failed_node_ids, pytest_incomplete_reason
+from .outcomes import (
+    INTERRUPTED_EXIT_CODES,
+    classify_unparsed,
+    parse_failed_node_ids,
+    pytest_incomplete_reason,
+)
 from .state import ResumeStateEvidence, RunState, StepStatus, compute_tree_signature
 from .steps import (
     # GATE_STEP_IDS is deliberately NOT imported here any more (#1155). The
@@ -1358,7 +1363,7 @@ class DeterministicRunner:
                 # re-run, only an unfinished run.
                 timed_out = result.exit_code == TIMEOUT_EXIT_CODE
                 incomplete = pytest_incomplete_reason(result.output, result.error)
-                if result.exit_code in (-2, -9, -15, 130, 137, 143):
+                if result.exit_code in INTERRUPTED_EXIT_CODES:
                     incomplete = f"step interrupted (exit {result.exit_code})"
                 if timed_out:
                     budget = step_def.timeout_seconds

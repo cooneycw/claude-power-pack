@@ -179,6 +179,12 @@ _UNITTEST_DETAIL = re.compile(
 )
 
 _PYTEST_SESSION_START = re.compile(r"^=+\s*test session starts\s*=+\s*$")
+INTERRUPTED_EXIT_CODES = frozenset({-2, -9, -15, 130, 137, 143})
+_MAKE_RECIPE_EXIT = re.compile(
+    r"^(?:g?make)(?:\[\d+\])?:\s+\*\*\*\s+\[.+\]\s+"
+    r"(?:Error (?P<code>\d+)|(?P<signal>Killed|Interrupt|Terminated))"
+    r"(?:\s+\(ignored\))?\s*$"
+)
 
 
 def pytest_incomplete_reason(output: str, error: str) -> Optional[str]:
@@ -198,6 +204,14 @@ def pytest_incomplete_reason(output: str, error: str) -> Optional[str]:
         text, _ = _extract_control_segments(stream or "")
         pending = 0
         for line in text.splitlines():
+            recipe = _MAKE_RECIPE_EXIT.match(line.strip())
+            if recipe and (
+                recipe.group("signal")
+                or int(recipe.group("code")) in INTERRUPTED_EXIT_CODES
+            ):
+                return f"make recipe interrupted ({recipe.group('signal') or recipe.group('code')})"
+            # A test may print this diagnostic as data. Refusing its filtered
+            # retry is the conservative choice; the original failure stands.
             if re.match(r"^(?:!+\s*)?(?:KeyboardInterrupt\b|Interrupted:)", line.strip()):
                 return "pytest interruption diagnostic"
             if _PYTEST_SESSION_START.match(line):

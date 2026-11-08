@@ -78,10 +78,28 @@ def test_completed_or_labelled_child_evidence_does_not_refuse_retry(output, erro
     assert pytest_incomplete_reason(output, error) is None
 
 
+@pytest.mark.parametrize("diagnostic", [
+    "make: *** [Makefile:1: test] Error 1",
+    "make[1]: *** [Makefile:1: test] Error 2",
+    "application data: Error 137",
+    "test printed Killed while checking error handling",
+])
+def test_ordinary_make_failures_and_unframed_signal_words_do_not_block_retry(diagnostic):
+    assert pytest_incomplete_reason("=== 1 failed in 0.1s ===\n", diagnostic) is None
+
+
 def test_unmarked_quiet_interruption_cannot_be_inferred():
     # No start or interruption signal: indistinguishable from a completed quiet
     # invocation. The detector claims only to refuse observed incomplete work.
     assert pytest_incomplete_reason("=== 1 failed in 0.1s ===\n", "") is None
+
+
+def test_silent_same_stream_child_replacement_is_indistinguishable():
+    # This can be one completed verbose child, or an unfinished verbose child
+    # silently replaced by a quiet child. With NO diagnostic or signal status,
+    # their bytes are identical. The detector does not claim to distinguish it.
+    transcript = "=== test session starts ===\n=== 1 failed in 0.1s ===\n"
+    assert pytest_incomplete_reason(transcript, "") is None
 
 
 def test_crossed_stream_completion_cannot_be_attributed():
@@ -101,6 +119,27 @@ def test_unrelated_stderr_summary_cannot_complete_a_stdout_session(tmp_path):
         "else touch attempted; printf '%s\\n' '=== 1 failed in 0.01s ===' "
         "'FAILED tests/unit.py::test_one - AssertionError' >&2; "
         "printf '%s\\n' '=== test session starts ==='; exit 1; fi"
+    )
+    log = StringIO()
+    result = DeterministicRunner(
+        project_root=tmp_path, output=log, rerun_failed=True
+    ).run("check", step_defs=[StepDef(id="test", command=command)])
+    assert not result.success, log.getvalue()
+    assert not result.reruns
+
+
+@requires_shell
+@pytest.mark.parametrize("reason", ["Error 130", "Error 137", "Error 143", "Killed", "Interrupt", "Terminated"])
+def test_make_recipe_reports_quiet_child_interruption(tmp_path, reason):
+    # Quiet child emits neither a banner nor a pytest interruption diagnostic;
+    # make translates the child's signal into its own ordinary exit status 2.
+    command = (
+        "if [ -f attempted ]; then printf '%s\\n' '=== 1 passed in 0.01s ==='; "
+        "else touch attempted; printf '%s\\n' '=== 1 failed in 0.01s ===' "
+        "'FAILED tests/unit.py::test_one - AssertionError'; "
+        "printf '%s\\n' 'tests/browser.py F........ [ 46%]'; "
+        f"printf '%s\\n' 'make[1]: *** [Makefile:25: test-browser] {reason}' >&2; "
+        "exit 2; fi"
     )
     log = StringIO()
     result = DeterministicRunner(
