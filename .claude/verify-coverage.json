@@ -379,6 +379,11 @@
       "class": "tested",
       "consumer": "tests/test_cpp_install_receipt.py",
       "reason": "Persists project installation observations and reports the saved state for cpp:init and cpp:status; controls/cpp-install-receipt distinguishes failed, missing-offered and failed-write outcomes against a constructed blind reporter."
+    },
+    "cpp-mcp-state.py": {
+      "class": "tested",
+      "consumer": "tests/test_cpp_init_mcp_registration.py",
+      "reason": "Persists and validates selected project MCP run state across fresh harness shells; controls/cpp-mcp-state rejects interrupted or invalid state against a constructed blind loader."
     }
   }
 }

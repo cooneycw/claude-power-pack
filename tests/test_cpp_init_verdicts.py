@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_cpp_init_mcp_registration import initialize_mcp
+
 ROOT = Path(__file__).resolve().parents[1]
 INIT = ROOT / ".claude/commands/cpp/init.md"
 CASES = [
@@ -94,9 +96,9 @@ exit "$STEP_RC"
     # Pin the negative condition: the command itself fails without diagnostics.
     probe = subprocess.run([str(bindir / "codex"), "doctor"], env=env, capture_output=True, text=True, timeout=10)
     assert (probe.returncode, probe.stdout, probe.stderr) == (step_rc, "", "")
-    routines = re.search(r"# CPP_MCP_ROUTINES_BEGIN\n(.*?)# CPP_MCP_ROUTINES_END", text, re.S)[1]
+    env["CPP_MCP_RUN_DIR"] = initialize_mcp(tmp_path, env)
     result = subprocess.run(
-        ["bash", "-c", routines + "\n" + block[1]], cwd=tmp_path, env=env,
+        ["bash", "-c", block[1]], cwd=tmp_path, env=env,
         capture_output=True, text=True, timeout=30,
     )
     output = result.stdout + result.stderr

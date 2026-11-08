@@ -31,6 +31,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_cpp_init_mcp_registration import initialize_mcp
+
 ROOT = Path(__file__).resolve().parents[1]
 
 EXPECTED_URL = "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"
@@ -192,9 +194,7 @@ def _init_3c_block() -> str:
     text = (ROOT / ".claude/commands/cpp/init.md").read_text()
     section = text[text.index("#### 3c. Register MCP Servers") :]
     start = section.index("```bash\n") + len("```bash\n")
-    match = re.search(r"# CPP_MCP_ROUTINES_BEGIN\n(.*?)# CPP_MCP_ROUTINES_END", text, re.S)
-    assert match, "shared MCP routines must exist"
-    return match[1] + "\n" + section[start : section.index("\n```", start)]
+    return section[start : section.index("\n```", start)]
 
 
 _STUB = """#!/bin/sh
@@ -250,8 +250,9 @@ def _run_3c(
     }
     if url is not None:
         env["SECOND_OPINION_URL"] = url
+    env["CPP_MCP_RUN_DIR"] = initialize_mcp(tmp_path, env)
     out = subprocess.run(
-        ["bash", "-c", _init_3c_block()], env=env, capture_output=True, text=True, timeout=60
+        ["bash", "-c", _init_3c_block()], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60
     )
     calls = log.read_text().splitlines() if log.exists() else []
     return out.stdout + out.stderr, [c for c in calls if c.startswith("mcp add") and "second-opinion" in c]

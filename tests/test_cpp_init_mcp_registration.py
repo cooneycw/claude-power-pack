@@ -12,6 +12,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 INIT = ROOT / ".claude/commands/cpp/init.md"
+STATE_HELPER = ROOT / "scripts" / "cpp-mcp-state.py"
 SHELL = pytest.mark.skipif(
     any(shutil.which(x) is None for x in ("bash", "python3")), reason="requires bash and python3",
 )
@@ -80,6 +81,19 @@ def test_one_registration_definition_per_client():
     assert_single_definition(INIT.read_text())
 
 
+
+def initialize_mcp(project, env):
+    """Execute the shipped initializer in its own tool-like subprocess."""
+    match = re.search(r'# CPP_MCP_RUN_INIT_BEGIN\n(.*?)# CPP_MCP_RUN_INIT_END', INIT.read_text(), re.S)
+    assert match, 'per-run initializer must exist'
+    result = subprocess.run(['bash', '-c', match[1]], cwd=project, env=dict(env, CPP_DIR=str(ROOT)),
+                            capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, result.stdout + result.stderr
+    paths = [x.split('=', 1)[1] for x in result.stdout.splitlines() if x.startswith('CPP_MCP_RUN_DIR=')]
+    assert len(paths) == 1 and Path(paths[0]).is_absolute()
+    return paths[0]
+
+
 def fake_environment(tmp_path):
     bindir = tmp_path / "bin"
     bindir.mkdir()
@@ -97,6 +111,10 @@ if args[:2] == ["mcp", "list"]:
     print(os.environ.get("CODEX_LIST_JSON", default) if client == "codex" and "--json" in args else "")
     sys.exit(int(os.environ.get("LIST_RC", "0")))
 if args[:2] == ["mcp", "add"]:
+    if os.environ.get("MCP_BREAK_RESULTS") == "1":
+        path = pathlib.Path(os.environ["CPP_MCP_RUN_DIR"]) / "results.json"
+        path.rename(path.with_suffix('.previous'))
+        path.mkdir()
     rc = int(os.environ.get("ADD_RC", "0"))
     if not rc and client == "codex":
         state = pathlib.Path(os.environ["MCP_FAKE_REGISTRY"])
@@ -130,7 +148,9 @@ sys.exit(0)
 def run(tmp_path, code, **changes):
     env, log = fake_environment(tmp_path)
     env.update(changes)
-    result = subprocess.run(["bash", "-c", definitions() + "\n" + code], cwd=tmp_path, env=env,
+    env["CPP_MCP_RUN_DIR"] = initialize_mcp(tmp_path, env)
+    load = 'source "$CPP_MCP_RUN_DIR/routines.sh" || exit 3\n'
+    result = subprocess.run(["bash", "-c", load + code], cwd=tmp_path, env=env,
                             capture_output=True, text=True, timeout=20)
     calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
     return result, calls
@@ -374,3 +394,115 @@ def test_registration_block_works_in_a_fresh_shell_after_initialization(tmp_path
     calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
     assert 'command not found' not in result.stderr, result.stdout + result.stderr
     assert len([c for c in calls if c[1:3] == ['mcp', 'add']]) == 2
+
+
+def consumer():
+    match = re.search(r'# CPP_INSTALL_RECEIPT_WRITE_BEGIN\n(.*?)# CPP_INSTALL_RECEIPT_WRITE_END',
+                      INIT.read_text(), re.S)
+    assert match
+    return match[1].replace('--cpp-dir "$CPP_DIR"', '--revision ' + 'a' * 40)
+
+
+def invoke(project, env, code):
+    return subprocess.run(['bash', '-c', code], cwd=project, env=env, capture_output=True, text=True, timeout=15)
+
+
+@SHELL
+@pytest.mark.parametrize('add_rc', ['0', '19'])
+def test_receipt_reloads_registration_from_a_different_shell(tmp_path, add_rc):
+    env, log = fake_environment(tmp_path)
+    env['CPP_MCP_RUN_DIR'] = initialize_mcp(tmp_path, env)
+    env['ADD_RC'] = add_rc
+    registration = invoke(tmp_path, env, block('#### 5d. Register MCP Servers with Codex'))
+    assert 'command not found' not in registration.stderr
+    calls = [json.loads(line) for line in log.read_text().splitlines()]
+    assert len([c for c in calls if c[1:3] == ['mcp', 'add']]) == 2
+    data = [{"step": "commands", "outcome": "installed"}, {"step": "stash-guard", "outcome": "already"},
+            {"step": "codex-second-opinion", "outcome": "installed"},
+            {"step": "codex-playwright", "outcome": "installed"}]
+    env.update(STEP_RESULTS_JSON=json.dumps(data), OFFERED_STEPS_JSON=json.dumps([x['step'] for x in data]),
+               SELECTED_TIER='1', PROFILE_NAME='not-selected', PERMISSION_REPORT='{}')
+    summary = invoke(tmp_path, env, consumer())
+    receipt = json.loads((tmp_path / '.claude/cpp-install.json').read_text())
+    codex = [x for x in receipt['steps'] if x['step'].startswith('codex-')]
+    assert {x['outcome'] for x in codex} == ({'FAILED'} if add_rc == '19' else {'installed'})
+    assert {x['exit_code'] for x in codex} == {int(add_rc)}
+    assert ('CPP Installation Complete' in summary.stdout) is (add_rc == '0')
+    run = Path(env['CPP_MCP_RUN_DIR'])
+    assert run.stat().st_mode & 0o777 == 0o700
+    assert all((run / name).stat().st_mode & 0o777 == 0o600 for name in ('routines.sh', 'results.json'))
+    assert 'fixture-only-placeholder' not in (run / 'routines.sh').read_text()
+    assert 'fixture-only-placeholder' not in (run / 'results.json').read_text()
+
+
+@SHELL
+def test_runs_in_one_project_do_not_share_results(tmp_path):
+    env, _ = fake_environment(tmp_path)
+    first = initialize_mcp(tmp_path, env)
+    second = initialize_mcp(tmp_path, env)
+    assert first != second
+    failed = invoke(tmp_path, dict(env, CPP_MCP_RUN_DIR=first, ADD_RC='19'),
+                    block('#### 5d. Register MCP Servers with Codex'))
+    succeeded = invoke(tmp_path, dict(env, CPP_MCP_RUN_DIR=second, ADD_RC='0'),
+                       block('#### 5d. Register MCP Servers with Codex'))
+    assert 'FAILED' in failed.stdout and 'MCP registered' in succeeded.stdout
+    assert {x['outcome'] for x in json.loads((Path(first) / 'results.json').read_text())} == {'FAILED'}
+    assert {x['outcome'] for x in json.loads((Path(second) / 'results.json').read_text())} == {'installed'}
+
+
+@SHELL
+def test_failed_result_write_leaves_pending_and_refuses_later_receipt(tmp_path):
+    env, _ = fake_environment(tmp_path)
+    env['CPP_MCP_RUN_DIR'] = initialize_mcp(tmp_path, env)
+    env['MCP_BREAK_RESULTS'] = '1'
+    result = invoke(tmp_path, env, block('#### 5d. Register MCP Servers with Codex'))
+    run = Path(env['CPP_MCP_RUN_DIR'])
+    assert (run / 'results.json').is_dir(), 'fixture must block atomic result replacement'
+    assert (run / 'pending').is_file(), 'unrecorded attempt must remain pending'
+    assert 'result persistence failed' in result.stderr
+    assert 'MCP registered' not in result.stdout
+    later = invoke(tmp_path, env, consumer())
+    assert 'CPP Installation Incomplete' in later.stdout
+    assert 'CPP Installation Complete' not in later.stdout
+    assert not (tmp_path / '.claude/cpp-install.json').exists()
+
+
+@SHELL
+@pytest.mark.parametrize('fault', ['missing', 'invalid', 'pending'])
+def test_later_shell_refuses_unavailable_or_interrupted_run(tmp_path, fault):
+    env, log = fake_environment(tmp_path)
+    env['CPP_MCP_RUN_DIR'] = initialize_mcp(tmp_path, env)
+    run = Path(env['CPP_MCP_RUN_DIR'])
+    if fault == 'missing':
+        (run / 'results.json').unlink()
+        assert not (run / 'results.json').exists()
+    elif fault == 'invalid':
+        (run / 'results.json').write_text('{')
+        with pytest.raises(ValueError):
+            json.loads((run / 'results.json').read_text())
+    else:
+        (run / 'pending').write_text('interrupted')
+        assert (run / 'pending').is_file()
+    result = invoke(tmp_path, env, block('#### 5d. Register MCP Servers with Codex'))
+    assert result.returncode != 0
+    assert 'CPP Installation Incomplete' in result.stdout
+    assert not log.exists(), 'refused state must prevent every client call'
+
+
+@pytest.mark.parametrize('rows_data', [
+    [{"step": "second-opinion", "outcome": "installed", "endpoint": "must-not-store"}],
+    [{"step": "not-our-server", "outcome": "installed"}],
+    [{"step": "playwright", "outcome": "installed", "exit_code": True}],
+])
+def test_state_helper_rejects_invalid_metadata_without_values(tmp_path, rows_data):
+    (tmp_path / 'results.json').write_text(json.dumps(rows_data))
+    result = subprocess.run([sys.executable, str(STATE_HELPER), 'load', '--run-dir', str(tmp_path)],
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 3
+    assert not result.stdout
+    assert 'must-not-store' not in result.stderr
+
+
+def test_state_helper_stays_outside_executable_host_link_population():
+    assert STATE_HELPER.is_file()
+    assert STATE_HELPER.stat().st_mode & 0o111 == 0

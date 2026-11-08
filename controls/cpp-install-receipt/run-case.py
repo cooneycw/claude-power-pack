@@ -83,11 +83,22 @@ def run(gate: Path, case: Path) -> int:
                 "    assert not receipt.exists(), 'negative-fixture precondition: summary input absent'\n"
                 "raise SystemExit(result.returncode)\n"
             )
+        # Initialize genuine per-run state in a separate tool-like shell; the
+        # persistence consumer must load it itself, never inherit functions.
+        initial = re.search(r"# CPP_MCP_RUN_INIT_BEGIN\n(.*?)# CPP_MCP_RUN_INIT_END", text, re.S)
+        assert initial and initial[1].strip(), "must use the actual run initializer"
+        setup = subprocess.run(["bash", "-c", initial[1]], cwd=project, capture_output=True, text=True,
+                               env=dict(os.environ, CPP_DIR=str(ROOT)), timeout=15)
+        assert setup.returncode == 0, setup.stdout + setup.stderr
+        run_paths = [line.split("=", 1)[1] for line in setup.stdout.splitlines()
+                     if line.startswith("CPP_MCP_RUN_DIR=")]
+        assert len(run_paths) == 1
         script = match[1].replace('"$CPP_DIR/scripts/cpp-install-receipt.py"', '"$CPP_RECEIPT_CONTROL_GATE"')
         script = script.replace('--cpp-dir "$CPP_DIR"', '--revision "$CPP_RECEIPT_CONTROL_REVISION"')
         result = subprocess.run(
             ["bash", "-c", script], cwd=project, capture_output=True, text=True, timeout=15,
-            env=dict(os.environ, CPP_RECEIPT_CONTROL_GATE=str(command_gate), CPP_RECEIPT_CONTROL_REVISION=REVISION,
+            env=dict(os.environ, CPP_MCP_RUN_DIR=run_paths[0], CPP_RECEIPT_CONTROL_GATE=str(command_gate),
+                     CPP_RECEIPT_CONTROL_REVISION=REVISION,
                      SELECTED_TIER="1", PROFILE_NAME="not-selected", PERMISSION_REPORT="{}",
                      STEP_RESULTS_JSON=json.dumps(observations), OFFERED_STEPS_JSON=json.dumps(offered)),
         )

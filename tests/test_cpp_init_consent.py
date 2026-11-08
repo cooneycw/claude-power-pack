@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_cpp_init_mcp_registration import initialize_mcp
+
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / ".claude/commands/cpp/init.md"
 CASES = json.loads((ROOT / "tests/fixtures/cpp-init-consent/cases.json").read_text())
@@ -186,7 +188,7 @@ def test_late_shared_inventory_is_rejected():
         assert_shared_precedes_choices(bad)
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not on PATH")
+@pytest.mark.skipif(any(shutil.which(x) is None for x in ("bash", "python3")), reason="requires bash/python3")
 def test_codex_decline_creates_directory_even_without_setup_source(tmp_path):
     text = SOURCE.read_text().split("### 8b. Codex MCP Registration", 1)[1]
     blocks = re.findall(r"^```bash\n(.*?)^```$", text, re.M | re.S)
@@ -197,9 +199,10 @@ def test_codex_decline_creates_directory_even_without_setup_source(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     assert not (project / ".agents").exists(), "fixture must start without generated directory"
-    routines = re.search(r"# CPP_MCP_ROUTINES_BEGIN\n(.*?)# CPP_MCP_ROUTINES_END", SOURCE.read_text(), re.S)[1]
-    result = subprocess.run(["bash", "-c", routines + "\n" + selected[0]], cwd=project,
-                            env=dict(os.environ, CPP_DIR=str(missing)), capture_output=True, text=True)
+    env = dict(os.environ, CPP_DIR=str(missing))
+    env["CPP_MCP_RUN_DIR"] = initialize_mcp(project, env)
+    result = subprocess.run(["bash", "-c", selected[0]], cwd=project,
+                            env=env, capture_output=True, text=True)
     assert result.returncode == 0
     assert (project / ".agents").is_dir()
     assert not (project / ".agents/CODEX_SETUP.md").exists()
