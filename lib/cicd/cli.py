@@ -286,8 +286,8 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
                 output = Path(args.path) / filename
                 output.parent.mkdir(parents=True, exist_ok=True)
                 output.write_text(content)
-    from .checks import unknown_host_capability
-    host = unknown_host_capability(config.pipeline.providers)
+    from .checks import host_capability
+    host = host_capability(args.path, config.pipeline.providers)
     if args.json:
         result = {"provider": config.pipeline.provider, "providers": config.pipeline.providers,
                   "files": files, "written": bool(args.write), "host_capability": host}
@@ -301,7 +301,7 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
         print(warning)
     print("Pipeline providers: " + ",".join(config.pipeline.providers))
     for name, state in host.items():
-        print(f"Host {name}: {state['status']} - {state['reason']}")
+        print(f"Host {name}: {state['summary']} - {state['reason']}. {state['refresh']}")
     for filename, content in files.items():
         if args.write:
             print("Wrote: " + filename)
@@ -341,9 +341,9 @@ def cmd_checks(args: argparse.Namespace) -> int:
     from .checks import (
         check_posture,
         derive_required_checks,
+        host_capability,
         protection_record,
         read_pipeline_files,
-        unknown_host_capability,
         write_protection,
     )
     from .config import CICDConfig
@@ -361,7 +361,7 @@ def cmd_checks(args: argparse.Namespace) -> int:
             posture = None
     assessment = check_posture(required, posture)
     result = {"providers": providers, "derivation": required.to_dict(), "consistency": assessment,
-              "host_capability": unknown_host_capability(providers)}
+              "host_capability": host_capability(args.path, providers)}
     if args.json:
         print(json.dumps(result, indent=2))
     else:
@@ -372,7 +372,7 @@ def cmd_checks(args: argparse.Namespace) -> int:
         if required.reason:
             print(required.reason)
         for name, host in result["host_capability"].items():
-            print(f"Host {name}: {host['status']} - {host['reason']}")
+            print(f"Host {name}: {host['summary']} - {host['reason']}. {host['refresh']}")
     return {"ok": 0, "drift": 1, "unknown": 2}[assessment["status"]]
 
 

@@ -107,9 +107,13 @@ Write the reviewed proposal with the same command plus `--write`, then run
 evidence stops setup; existing Makefile/config files alone do not establish
 that CI is complete. This is the same setup used by `/project-init`.
 
-Report host capability independently. Until #1609's reader is on main, the
-result explicitly reports `unknown: host record unavailable (#1609)`; warn
-without substituting credentials or claiming ready. Applying protection is
+Report host capability independently from the canonical read-only host record.
+Show `last recorded <status> at <checked_at>` and the reason for each selected
+provider; the timestamp is historical evidence, never proof that credentials
+are ready now. For missing or unknown capability, warn with the reason. Offer
+`/cpp:init` Tier 4 on the host to refresh the record; setup itself never probes
+credentials or writes the host record. An unavailable/container record stays
+unknown without borrowing the host's answer. Applying protection is
 separate: show the resulting local JSON and offer `scripts/branch-protection.sh
 --apply` only after explicit approval. No default calls GitHub's protection API.
 

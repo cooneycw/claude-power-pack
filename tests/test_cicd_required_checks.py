@@ -91,6 +91,8 @@ def test_offline_project_setup_and_resume(  # binary-guard: allow intercepted se
     def no_external_command(*args, **kwargs):
         raise NoExternalCommands("offline setup guard")
 
+    from lib.cicd import host
+    monkeypatch.setattr(host, "in_container", lambda: True)
     monkeypatch.setattr(subprocess, "run", no_external_command)
     with pytest.raises(NoExternalCommands, match="offline setup guard"):
         subprocess.run(["fixture-no-external-commands"])
@@ -102,9 +104,10 @@ def test_offline_project_setup_and_resume(  # binary-guard: allow intercepted se
     assert generated["written"] is True
     assert generated["required_checks"]["status"] == "known"
     for name in providers.split(","):
-        assert generated["host_capability"][name] == {
-            "status": "unknown", "reason": "host record unavailable (#1609)"
-        }
+        state = generated["host_capability"][name]
+        assert state["status"] == "unknown" and state["reason"] == "container-view"
+        assert state["checked_at"] is None
+        assert "no recorded timestamp" in state["summary"]
     posture = json.loads((tmp_path / ".claude/branch-protection.json").read_text())
     assert posture["protection"]["required_status_checks"]["contexts"] == generated["required_checks"]["checks"]
     assert main(["checks", "--path", str(tmp_path), "--json"]) == 0
@@ -266,3 +269,64 @@ jobs:
     steps: [{run: 'true'}]
 """}
     assert derive_required_checks(["github-actions"], files).status == "unknown"
+
+
+@pytest.mark.parametrize("status,reason", [
+    ("ready", "authenticated"), ("missing", "credentials-missing"), ("unknown", "probe-failed"),
+])
+def test_setup_and_resume_report_recorded_host_state(tmp_path: Path, monkeypatch, capsys, status, reason):
+    from lib.cicd import host
+    from lib.cicd.cli import main
+
+    projects = tmp_path / "projects"
+    repo = projects / "app"
+    repo.mkdir(parents=True)
+    record = projects / ".claude/cpp-host.json"
+    record.parent.mkdir()
+    checked_at = "2026-01-01T00:00:00+00:00"
+    record.write_text(json.dumps({"schema": 1, "checked_at": checked_at, "providers": {
+        "woodpecker": {"status": status, "reason": reason, "versions": {"woodpecker-cli": "3.9.0"}},
+    }}))
+    original_record = record.read_text()
+    monkeypatch.setattr(host, "in_container", lambda: False)
+    monkeypatch.setattr(host, "main_checkout", lambda path: repo)
+
+    def no_probe_or_write(*args, **kwargs):
+        raise AssertionError("project setup must only read the host record")
+
+    monkeypatch.setattr(host, "probe_host", no_probe_or_write)
+    monkeypatch.setattr(host, "write_host_record", no_probe_or_write)
+    assert main(["pipeline", "--path", str(repo), "--providers", "woodpecker",
+                 "--record", "--protection", "--write", "--json"]) == 0
+    setup = json.loads(capsys.readouterr().out)["host_capability"]["woodpecker"]
+    assert setup["status"] == status
+    assert setup["reason"] == reason
+    assert setup["checked_at"] == checked_at
+    assert setup["summary"] == f"last recorded {status} at {checked_at}"
+    assert "/cpp:init Tier 4" in setup["refresh"]
+    assert main(["checks", "--path", str(repo), "--json"]) == 0
+    resumed = json.loads(capsys.readouterr().out)
+    assert resumed["host_capability"]["woodpecker"] == setup
+    assert set(resumed["host_capability"]) == {"woodpecker"}
+    assert record.read_text() == original_record
+
+
+@pytest.mark.parametrize("unavailable", ["container", "missing", "invalid"])
+def test_unavailable_host_record_stays_unknown(tmp_path: Path, monkeypatch, unavailable):
+    from lib.cicd import host
+    from lib.cicd.checks import host_capability
+
+    repo = tmp_path / "app"
+    repo.mkdir()
+    monkeypatch.setattr(host, "in_container", lambda: unavailable == "container")
+    monkeypatch.setattr(host, "main_checkout", lambda path: repo)
+    if unavailable == "invalid":
+        record = tmp_path / ".claude/cpp-host.json"
+        record.parent.mkdir()
+        record.write_text("{invalid-json")
+    result = host_capability(repo, ["github-actions", "woodpecker"])
+    for state in result.values():
+        assert state["status"] == "unknown"
+        assert state["checked_at"] is None
+        assert "no recorded timestamp" in state["summary"]
+        assert "/cpp:init Tier 4" in state["refresh"]

@@ -320,9 +320,19 @@ def protection_record(config: CICDConfig, result: RequiredChecks) -> dict[str, A
     }}
 
 
-def unknown_host_capability(providers: list[str]) -> dict[str, dict[str, str]]:
-    # #1609 owns the reader. No provisional schema/probe is substituted here.
-    return {name: {"status": "unknown", "reason": "host record unavailable (#1609)"} for name in providers}
+def host_capability(project: str | Path, providers: list[str]) -> dict[str, dict[str, Any]]:
+    """Report the canonical host record as historical evidence, without probes."""
+    from .host import read_host_record
+    record = read_host_record(project)
+    checked_at = record["checked_at"]
+    refresh = "Refresh host capability with /cpp:init Tier 4 on the host."
+    result = {}
+    for name in require_providers(providers):
+        state = record["providers"][name]
+        summary = (f"last recorded {state['status']} at {checked_at}" if checked_at else
+                   f"unknown: {state['reason']} (no recorded timestamp)")
+        result[name] = {**state, "checked_at": checked_at, "summary": summary, "refresh": refresh}
+    return result
 
 
 def write_protection(project: str | Path, record: dict[str, Any]) -> None:

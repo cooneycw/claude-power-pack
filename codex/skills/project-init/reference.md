@@ -136,7 +136,7 @@ If the directory already exists, check what steps have been completed and resume
 - CI setup is complete only when the recorded providers, their emitted pipeline files,
   and `.claude/branch-protection.json` agree: run `python -m lib.cicd checks --path <repo> --json`.
   File presence alone never completes CI setup. `unknown` or `drift` resumes the CI step;
-  host capability is reported separately and remains unknown until its reader is available.
+  host capability is reported separately as recorded evidence with its timestamp.
 - Has `.claude/commands` symlink? → cpp:init done.
 - Has `.specify/`? → spec structure already present.
 
@@ -384,8 +384,11 @@ Required checks are derived from unconditional PR jobs: Actions matrix cells
 have separate contexts; Woodpecker uses PR contexts per emitted pipeline file.
 Push-only jobs and path-filtered pipelines cannot become mandatory checks for
 every PR. The JSON result also reports each selected provider's host capability.
-Until #1609's reader lands it explicitly says `unknown: host record unavailable
-(#1609)`; warn about missing/unknown capability and never claim the host is ready.
+Read the canonical host record without probes or writes. Show `last recorded
+<status> at <checked_at>` with the provider reason and a `/cpp:init` Tier 4 refresh
+instruction. A recorded ready verdict is historical evidence, never a claim that
+credentials work now. Warn for missing or unknown capability; an unavailable or
+container record remains unknown and never borrows another host's answer.
 
 Writing the local posture does not apply it to GitHub. Show the concrete
 `.claude/branch-protection.json` to the user and offer
