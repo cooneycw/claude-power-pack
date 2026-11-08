@@ -1,6 +1,6 @@
 ---
 description: Clean up stale worktrees and branches, and offer archival of finished waves
-allowed-tools: Bash(git:*), Bash(gh api:*), Bash(mktemp:*), Bash(printf:*), Bash(cat:*), Bash(rm:*), Bash(awk:*), Bash(grep:*), Bash(wc:*), Bash(echo:*), Bash(jq:*), Bash(~/.claude/scripts/flow-worktree-sweep.sh:*), Bash(~/.claude/scripts/flow-wave-registry.sh:*), Read
+allowed-tools: Bash(git:*), Bash(gh api:*), Bash(mktemp:*), Bash(printf:*), Bash(awk:*), Bash(grep:*), Bash(wc:*), Bash(echo:*), Bash(jq:*), Bash(~/.claude/scripts/flow-worktree-sweep.sh:*), Bash(~/.claude/scripts/flow-wave-registry.sh:*), Read
 ---
 
 # Flow: Cleanup - Prune Stale Worktrees and Branches
@@ -299,7 +299,7 @@ printf 'Preserved unfinished work.\n\n- Issue: #%s (%s)\n- Branch: `%s`\n- Pushe
 WIP_COMMENT_ID=$(gh api --method POST "repos/$WIP_REPO/issues/$WIP_ISSUE/comments" -F "body=@$WIP_BODY" --jq .id)
 [[ "$WIP_COMMENT_ID" =~ ^[0-9]+$ ]]
 WIP_READBACK=$(gh api "repos/$WIP_REPO/issues/comments/$WIP_COMMENT_ID" --jq .body)
-[[ "$WIP_READBACK" == "$(cat "$WIP_BODY")" ]]
+[[ "$WIP_READBACK" == "$(< "$WIP_BODY")" ]]
 WIP_URL=$(gh api "repos/$WIP_REPO/issues/comments/$WIP_COMMENT_ID" --jq .html_url)
 [[ "$WIP_URL" == "https://"*"/$WIP_REPO/issues/$WIP_ISSUE#issuecomment-$WIP_COMMENT_ID" ]]
 printf 'PRESERVED_WIP_HANDOFF: %s\n' "$WIP_URL"
