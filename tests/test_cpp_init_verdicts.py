@@ -16,7 +16,7 @@ INIT = ROOT / ".claude/commands/cpp/init.md"
 CASES = [
     ("**Project scope (optional, this project only):**", "✓ Commands symlinked"),
     ("**Permission Profile Configuration**", "✓ Permission profile configured"),
-    ("**Makefile Setup (Optional)**", "✓ Makefile created from template"),
+    # Retired Makefile writer: read-only handoff cases live in test_cpp_init_no_makefile.py.
     ("#### 5b. Run Codex Doctor", "[x] codex doctor: all checks passed"),
     ("#### 3c. Register MCP Servers", "✓ playwright MCP"),
     ("#### 3c. Register MCP Servers", "✓ tavily MCP"),

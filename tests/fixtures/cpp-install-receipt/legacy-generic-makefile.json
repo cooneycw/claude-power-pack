@@ -1,0 +1,74 @@
+{
+  "cpp_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "offered_steps": [
+    "commands",
+    "stash-guard",
+    "scripts",
+    "permission-profile",
+    "generic-makefile"
+  ],
+  "permissions": {
+    "counts": {
+      "allow": null,
+      "ask": null,
+      "deny": null
+    },
+    "profile": "unknown",
+    "verification": "unverified"
+  },
+  "recorded_at": "2026-01-01T00:00:00Z",
+  "schema": 1,
+  "selected": {
+    "capabilities": [
+      "commands",
+      "scripts"
+    ],
+    "profile": "Standard",
+    "tier": 2
+  },
+  "steps": [
+    {
+      "exit_code": null,
+      "outcome": "installed",
+      "recorded_at": "2026-01-01T00:00:00Z",
+      "step": "commands",
+      "user_scope": [
+        "claude-commands"
+      ]
+    },
+    {
+      "exit_code": null,
+      "outcome": "installed",
+      "recorded_at": "2026-01-01T00:00:00Z",
+      "step": "stash-guard",
+      "user_scope": []
+    },
+    {
+      "exit_code": null,
+      "outcome": "installed",
+      "recorded_at": "2026-01-01T00:00:00Z",
+      "step": "scripts",
+      "user_scope": [
+        "claude-scripts"
+      ]
+    },
+    {
+      "exit_code": null,
+      "outcome": "installed",
+      "recorded_at": "2026-01-01T00:00:00Z",
+      "step": "permission-profile",
+      "user_scope": []
+    },
+    {
+      "exit_code": null,
+      "outcome": "installed",
+      "recorded_at": "2026-01-01T00:00:00Z",
+      "step": "generic-makefile",
+      "user_scope": []
+    }
+  ],
+  "user_scope": {
+    "claude-commands": "~/.claude/commands (CPP family links)",
+    "claude-scripts": "~/.claude/scripts (CPP helper links)"
+  }
+}

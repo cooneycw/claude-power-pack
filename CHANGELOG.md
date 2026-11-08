@@ -39,6 +39,10 @@
 
 ### Behaviour changes you may notice
 
+- `cpp:init` retires its generic Makefile offer; use `/project:init` for new
+  projects or `/cicd:init` for existing repositories. Historical install receipts
+  remain readable (Refs #1587, R3).
+
 - MCP setup saves private per-run temporary artifacts under `$TMPDIR` so later
   tool calls can reload outcomes, then removes the run after saving the receipt (Refs #1587, R2).
 - Codex MCP registration now honors `SECOND_OPINION_URL`, matching Claude,

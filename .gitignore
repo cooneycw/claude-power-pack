@@ -377,3 +377,6 @@ woodpecker/wp-cli-env.sh
 !tests/fixtures/model_presence/canonical_codex_survival.json
 # Historical schema-1 receipt compatibility fixture (#1649).
 !tests/fixtures/cpp-host-install-receipt/legacy-tier4.json
+
+# Representative historical generic-Makefile receipt (#1587 R3).
+!tests/fixtures/cpp-install-receipt/legacy-generic-makefile.json

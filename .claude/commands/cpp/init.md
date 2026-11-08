@@ -531,7 +531,7 @@ run only after their own choice, with the same destinations repeated there.
 | Applies to | Writes and scope | Credential handling |
 | --- | --- | --- |
 | Tier 1, all tiers | User command-family symlinks under `~/.claude/commands/` are installed/refreshed and stale CPP-owned links may be pruned; foreign content is preserved. Optional project `.claude/commands` symlink and `.claude/` directory. The default shared-stash guard installs the repository's `reference-transaction` hook at the common Git hooks directory or configured absolute `core.hooksPath`; refusal/foreign hooks are reported. Opt-out removes CPP's own hook and records `cpp.stashGuard=false` in the repository Git config. | None. |
-| Tier 2 and inherited 3/4/5 | Link **all executable scripts** supplied under `{CPP_DIR}/scripts/` into `~/.claude/scripts/`, including the host-write helper. Create project `.claude/settings.local.json` only if absent, and append the relevant settings/friction ignore entries to an existing `.gitignore`. Optional user-level `~/.claude/settings.json` merges permission and hook entries; optional `~/.bashrc` prompt/tmux additions; optional starter `Makefile`; global npm Happy installation uses its reported prefix/cache; uv Spec-Kit uses its tool directory, executable directory (normally `~/.local/bin`) and cache. | Permission lists are configuration, not credential values; existing unrelated settings are preserved. |
+| Tier 2 and inherited 3/4/5 | Link **all executable scripts** supplied under `{CPP_DIR}/scripts/` into `~/.claude/scripts/`, including the host-write helper. Create project `.claude/settings.local.json` only if absent, and append the relevant settings/friction ignore entries to an existing `.gitignore`. Optional user-level `~/.claude/settings.json` merges permission and hook entries; optional `~/.bashrc` prompt/tmux additions; global npm Happy installation uses its reported prefix/cache; uv Spec-Kit uses its tool directory, executable directory (normally `~/.local/bin`) and cache. | Permission lists are configuration, not credential values; existing unrelated settings are preserved. |
 | Tier 3 and inherited 4/5 | User-scope Claude MCP registrations update `${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json`: second-opinion URL, Playwright and conditional Tavily (when `TAVILY_API_KEY` is available). npm/npx uses its configured cache; Playwright can download browser binaries to `~/.cache/ms-playwright` on later use. Optional desk pool creates project `.claude/playwright-pool.json` if absent and adds user MCP desk registrations; later browser use writes `.claude/playwright-state/`. | Tavily requires Node.js 20+. `TAVILY_API_KEY` is read from the environment and stored **in plaintext** in the Tavily server environment entry in that user MCP config. Show its name and destination only, never its value. External second-opinion provider keys remain in its separate repository; CPP registers its URL. |
 | Tier 4 | Probe every registered provider independently. Ask once for the projects folder (default: CPP main-checkout parent). Write only `<projects>/.claude/cpp-host.json` through the defer-aware seam; uv uses `~/.cache/claude-power-pack/host-ci/{venv,uv}` and disables project bytecode writes. No project generation. | Persist only verdicts, controlled reasons, timestamp and numeric versions; credentials never enter argv, output or the record. |
 | Tier 5 | Optional global npm Codex CLI installation; optional MCP registration updates `${CODEX_HOME:-$HOME/.codex}/config.toml`. CPP skills install under `$HOME/.codex/skills/` even when CODEX_HOME differs, with managed entries refreshed or pruned and lock `~/.codex/.cpp-skill-install.lock`. Common-memory harness links `~/.local/bin/cpp-memory` and copies `~/.codex/prompts/cpp-memory.md`. | The auth check reads existing auth state. `codex login` is advice, not an init credential write. A separately invoked login has its own credential storage. |
@@ -602,10 +602,6 @@ This will make the following changes:
     • Add tmux auto-start to ~/.bashrc
     • Each new terminal tab opens its own tmux session
     • Skipped inside existing tmux sessions and non-interactive shells
-
-  [Tier 2 - Makefile] (optional)
-    • Create starter Makefile with lint, test, deploy targets
-    • Used by /flow:finish and /flow:deploy
 
   Disk usage: ~50 KB
 
@@ -837,7 +833,7 @@ offered; do not add unrelated tiers):
 | Existing steps | Receipt IDs |
 | --- | --- |
 | Tier 1 command setup / optional project scope / stash guard | `commands`, `project-commands`, `stash-guard` |
-| Tier 2 scripts / profile / prompt / optional Makefile | `scripts`, `permission-profile`, `shell-prompt`, `generic-makefile` |
+| Tier 2 scripts / profile / prompt | `scripts`, `permission-profile`, `shell-prompt` |
 | Tier 2 optional user allowlist / census / reminders / tmux / Happy / Spec-Kit | `user-flow-allowlist`, `permission-census`, `session-reminders`, `tmux-autostart`, `happy-cli`, `spec-kit-cli` |
 | Tier 3 uv / second-opinion / playwright / tavily / optional pool | `uv`, `second-opinion`, `playwright`, `tavily`, `browser-pool` |
 | Tier 4 host CI capability record | `host-ci` |
@@ -1605,40 +1601,14 @@ echo "  Add later by appending to ~/.bashrc:"
 echo '  if command -v tmux &>/dev/null && [ -z "$TMUX" ] && [[ $- == *i* ]]; then tmux new-session; fi'
 ```
 
-**Makefile Setup (Optional)**
+**Project Makefile Handoff**
 
-Consent: copy the project `Makefile` only when absent; an existing file is skipped.
+Configure project build targets through `/project:init` for new projects or
+`/cicd:init` for existing repositories. Run that project workflow separately;
+this host setup leaves every existing project entry intact.
 
-If no Makefile exists in the project root, offer to create one from the template:
-
-```
-=== Optional: Makefile ===
-
-The /flow commands use Makefile targets for quality gates and deployment:
-  /flow:finish  → runs the project's declared quality gates
-  /flow:deploy  → runs `make deploy`
-
-Create a starter Makefile? [y/N]
-```
-
-If yes:
 ```bash
-if [ ! -f "Makefile" ]; then
-  if cp "$CPP_DIR/templates/Makefile.example" Makefile; then
-    echo "✓ Makefile created from template"
-  else
-    echo "WARNING: setup command failed (exit $?)."
-  fi
-  echo "  Edit targets to match your project's commands"
-else
-  echo "→ Makefile already exists (skipped)"
-fi
-```
-
-If no:
-```bash
-echo "→ Makefile creation skipped"
-echo "  You can copy it later: cp $CPP_DIR/templates/Makefile.example Makefile"
+echo "Project Makefile setup: /project:init (new projects); /cicd:init (existing repositories)."
 ```
 
 **Happy CLI Installation (Optional)**
