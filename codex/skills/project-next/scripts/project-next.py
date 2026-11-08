@@ -1301,7 +1301,11 @@ def render_cpp(
             coverage_note += "; unparsed: " + ", ".join(unparsed) + " - premise result unknown for these records"
     if mode == "brief":
         if unparsed:
-            lines.append(f"Premise staleness: {coverage_note}; {len(flags)} advisory flag(s) from parsed records")
+            detail = f"{len(flags)} advisory flag(s) from parsed records"
+            if flags:
+                numbers = ", ".join(f"#{number}" for number in sorted({item.issue_number for item in flags}))
+                detail += f" on {numbers} - confirm with `/flow:eli5`"
+            lines.append(f"Premise staleness: {coverage_note}; {detail}")
         elif flags:
             numbers = ", ".join(f"#{number}" for number in sorted({item.issue_number for item in flags}))
             lines.append(f"Premise staleness: {len(flags)} advisory flag(s) on {numbers} - confirm with `/flow:eli5`")

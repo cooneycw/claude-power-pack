@@ -495,7 +495,8 @@ def test_unparsed_adrs_do_not_hide_real_flags_from_parsed_records(tmp_path, caps
         assert extensions["premise_flags"][0]["issue_number"] == 12
         assert extensions["premise_coverage"]["unparsed"] == [source]
     else:
-        assert "#12" in output and source in output and "unparsed" in output
+        premise = output.split("Premise staleness", 1)[1].split("Worktree delivery", 1)[0]
+        assert "#12" in premise and source in premise and "unparsed" in premise
         assert "no spec predates a live decision" not in output
 
 
