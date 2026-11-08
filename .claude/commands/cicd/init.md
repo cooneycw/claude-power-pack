@@ -1,6 +1,6 @@
 ---
 description: Detect framework and generate/validate Makefile for CI/CD integration
-allowed-tools: Bash(python3:*), Bash(PYTHONPATH=*), Bash(ls:*), Bash(test:*), Bash(cat:*), Bash(grep:*), Bash(cp:*), Read, Write
+allowed-tools: Bash(python3:*), Bash(PYTHONPATH=*), Bash(ls:*), Bash(test:*), Bash(cat:*), Bash(grep:*), Bash(cp:*), Read, Write, AskUserQuestion
 ---
 
 # /cicd:init - Framework Detection & Makefile Setup
@@ -88,28 +88,33 @@ fi
 
 ---
 
-## Step 4: Generate cicd.yml (if not exists)
+## Step 4: Select, record and generate CI
 
-If `.claude/cicd.yml` does not exist, generate it from detected defaults:
+Read registered choices with `python -m lib.cicd provider --registry --json`.
+Read the repository selection with `python -m lib.cicd provider --path "$PWD" --json`.
+If unknown, ask using AskUserQuestion with `multiSelect: true` over the registry;
+require one or more explicit names. Today either `woodpecker`, `github-actions`,
+or both names may be selected; there is no assumed default or combined enum.
+Reuse an existing valid selection unless the user asks to change it.
+
+Preview and record through the shared Python writer, preserving unrelated config:
 
 ```bash
-if [ ! -f ".claude/cicd.yml" ]; then
-  # Get detection result as JSON
-  DETECT_JSON=$(PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd detect --json)
-fi
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd pipeline --path "$PWD" --providers "$CI_PROVIDERS" --record --protection --json
 ```
 
-Generate `.claude/cicd.yml` with:
-- Detected framework and package manager (commented out - auto-detection is preferred)
-- Build section with required and recommended targets
-- Deploy section with placeholder target metadata
-- Required `pipeline.providers` list, selected explicitly from the registered providers.
-  Record the selection with `python -m lib.cicd pipeline --providers NAME[,NAME] --record`.
-  Missing providers are `unknown` and generation stops; never assume GitHub Actions.
+Review all proposed `files`, including both providers' pipelines and
+`.claude/branch-protection.json`. Ask before overwriting any existing file.
+Write the reviewed proposal with the same command plus `--write`, then run
+`python -m lib.cicd checks --path "$PWD" --json`. Missing, unsupported or drifted
+evidence stops setup; existing Makefile/config files alone do not establish
+that CI is complete. This is the same setup used by `/project:init`.
 
-Use the `templates/cicd.yml.example` as reference but generate a minimal version with only the relevant sections for the detected framework.
-
-If `.claude/cicd.yml` already exists, skip this step and report "cicd.yml already configured".
+Report host capability independently. Until #1609's reader is on main, the
+result explicitly reports `unknown: host record unavailable (#1609)`; warn
+without substituting credentials or claiming ready. Applying protection is
+separate: show the resulting local JSON and offer `scripts/branch-protection.sh
+--apply` only after explicit approval. No default calls GitHub's protection API.
 
 ---
 
@@ -122,7 +127,11 @@ Framework:       {detected}
 Package Manager: {detected}
 
 Makefile:        {Generated from template | Validated (N/M targets)}
-Config:          {.claude/cicd.yml generated | Already exists}
+Config:          {.claude/cicd.yml recorded provider list}
+CI Providers:    {selected names}
+Pipelines:       {all generated paths}
+Required Checks: {derived PR contexts; consistency result}
+Host CI:         {per-provider capability including unknown}
 
 Next Steps:
   1. Review and customize your Makefile targets

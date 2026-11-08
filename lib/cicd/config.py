@@ -320,7 +320,7 @@ class BranchProtection(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     require_pr_review: bool = True
-    require_status_checks: list[str] = Field(default_factory=lambda: ["lint", "test"])
+    require_status_checks: list[str] = Field(default_factory=list)
     require_up_to_date: bool = True
 
 
@@ -442,6 +442,7 @@ class CICDConfig(BaseModel):
     pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
     container: ContainerConfig = Field(default_factory=ContainerConfig)
     infrastructure: InfrastructureConfig = Field(default_factory=InfrastructureConfig)
+    branch_protection: BranchProtection = Field(default_factory=BranchProtection)
 
     @classmethod
     def load(
@@ -538,7 +539,7 @@ class CICDConfig(BaseModel):
         issues: list[str] = []
 
         # Validate known sections
-        known_sections = {"build", "health", "pipeline", "container", "infrastructure"}
+        known_sections = {"build", "health", "pipeline", "container", "infrastructure", "branch_protection"}
         unknown = set(data.keys()) - known_sections
         if unknown:
             issues.append(

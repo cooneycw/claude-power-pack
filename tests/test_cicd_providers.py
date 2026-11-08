@@ -290,16 +290,15 @@ def test_unreadable_record_has_unknown_marker(tmp_path: Path, capsys, monkeypatc
     assert "CICD_PROVIDERS: unknown" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("selection", [None, ["woodpecker", "github-actions"]])
-def test_infra_generation_refuses_unknown_or_multiple_providers(tmp_path: Path, capsys, selection):
+def test_infra_generation_refuses_unknown_providers(tmp_path: Path, capsys):
     from lib.cicd.cli import main
     path = tmp_path / ".claude/cicd.yml"
     path.parent.mkdir()
-    path.write_text(json.dumps({"build": {}} if selection is None else {"pipeline": {"providers": selection}}))
+    path.write_text(json.dumps({"build": {}}))
     before = path.read_bytes()
     assert main(["infra-pipeline", "--path", str(tmp_path), "--json"]) != 0
     error = capsys.readouterr().err
-    assert "record pipeline.providers" in error if selection is None else "multiple providers" in error
+    assert "record pipeline.providers" in error
     assert path.read_bytes() == before
     assert not (tmp_path / ".github").exists()
     assert not (tmp_path / ".woodpecker.yml").exists()

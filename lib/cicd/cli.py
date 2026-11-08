@@ -238,51 +238,63 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
         config.pipeline.providers = explicit
     require_providers(config.pipeline.providers)
 
-    # Check secrets configuration
     warnings = _check_secrets_source(config)
-
+    files = generate_pipeline(info, config)
+    required = None
+    if getattr(args, "protection", False):
+        from .checks import derive_required_checks, protection_record
+        required = derive_required_checks(config.pipeline.providers, files)
+        files[".claude/branch-protection.json"] = json.dumps(protection_record(config, required), indent=2) + "\n"
+    # Derive and validate every requested artifact before writing any pipeline.
+    if args.write:
+        for filename in files:
+            if (Path(args.path) / filename).is_symlink():
+                raise ValueError("refusing to overwrite generated-file symlink: " + filename)
+        for filename, content in files.items():
+            if filename == ".claude/branch-protection.json":
+                from .checks import write_protection
+                write_protection(args.path, json.loads(content))
+            else:
+                output = Path(args.path) / filename
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_text(content)
+    from .checks import unknown_host_capability
+    host = unknown_host_capability(config.pipeline.providers)
     if args.json:
-        files = generate_pipeline(info, config)
-        result = {"provider": config.pipeline.provider, "providers": config.pipeline.providers, "files": files}
+        result = {"provider": config.pipeline.provider, "providers": config.pipeline.providers,
+                  "files": files, "written": bool(args.write), "host_capability": host}
+        if required is not None:
+            result["required_checks"] = required.to_dict()
         if warnings:
             result["warnings"] = warnings
         print(json.dumps(result, indent=2))
         return 0
-
-    # Print warnings
     for warning in warnings:
         print(warning)
-    if warnings:
-        print()
-
-    # Dry run by default, write with --write
-    if args.write:
-        files = generate_pipeline(info, config, output_dir=args.path)
-    else:
-        files = generate_pipeline(info, config)
-
-    secrets_source = config.pipeline.secrets_source
-    print(f"Pipeline providers: {','.join(config.pipeline.providers)}")
-    print(f"Secrets source: {secrets_source}")
-    print(f"Framework: {info.framework.label} ({info.package_manager.label})")
-    print()
-
-    for filepath, content in files.items():
+    print("Pipeline providers: " + ",".join(config.pipeline.providers))
+    for name, state in host.items():
+        print(f"Host {name}: {state['status']} - {state['reason']}")
+    for filename, content in files.items():
         if args.write:
-            print(f"Wrote: {filepath}")
+            print("Wrote: " + filename)
         else:
-            print(f"--- {filepath} ---")
+            print(f"--- {filename} ---")
             print(content)
-
     if not args.write:
         print("(dry run - use --write to create files)")
-
     return 0
+
 
 
 def cmd_provider(args: argparse.Namespace) -> int:
     """Read only the project's explicit provider record, without inference."""
-    from .providers import ProviderError, read_provider_record
+    from .providers import PROVIDERS, ProviderError, read_provider_record
+    if getattr(args, "registry", False):
+        if args.json:
+            print(json.dumps({"registered_providers": list(PROVIDERS)}))
+        else:
+            print("CICD_PROVIDER_REGISTRY: " + ",".join(PROVIDERS))
+        return 0
     try:
         record = read_provider_record(args.path)
         names, source = record.providers, record.source
@@ -294,6 +306,46 @@ def cmd_provider(args: argparse.Namespace) -> int:
     else:
         print(f"CICD_PROVIDERS: {','.join(names) if names else 'unknown'} ({source})")
     return code
+
+
+def cmd_checks(args: argparse.Namespace) -> int:
+    """Inspect generated PR contexts and local declared protection, without API calls."""
+    from .checks import (
+        check_posture,
+        derive_required_checks,
+        protection_record,
+        read_pipeline_files,
+        unknown_host_capability,
+        write_protection,
+    )
+    from .config import CICDConfig
+    from .providers import read_provider_record, require_providers
+    providers = require_providers(read_provider_record(args.path).providers)
+    required = derive_required_checks(providers, read_pipeline_files(args.path))
+    path = Path(args.path) / ".claude/branch-protection.json"
+    if args.write:
+        posture = protection_record(CICDConfig.load(args.path), required)
+        write_protection(args.path, posture)
+    else:
+        try:
+            posture = json.loads(path.read_text())
+        except (OSError, ValueError):
+            posture = None
+    assessment = check_posture(required, posture)
+    result = {"providers": providers, "derivation": required.to_dict(), "consistency": assessment,
+              "host_capability": unknown_host_capability(providers)}
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print("CICD_REQUIRED_CHECKS: " + assessment["status"])
+        print("Providers: " + ",".join(providers))
+        print(f"{required.examined_files} supported pipeline file(s); "
+              f"{len(required.checks)} unconditional PR context(s)")
+        if required.reason:
+            print(required.reason)
+        for name, host in result["host_capability"].items():
+            print(f"Host {name}: {host['status']} - {host['reason']}")
+    return {"ok": 0, "drift": 1, "unknown": 2}[assessment["status"]]
 
 
 def cmd_health(args: argparse.Namespace) -> int:
@@ -621,23 +673,23 @@ def cmd_infra_pipeline(args: argparse.Namespace) -> int:
     """Generate CI/CD pipelines for infrastructure tiers."""
     from .config import CICDConfig
     from .infrastructure import generate_infra_pipeline
-    from .providers import ProviderError, require_providers
-    explicit = [args.provider] if args.provider else None
+    from .providers import normalize_providers, require_providers
+    explicit = None
+    if getattr(args, "providers", None):
+        explicit = require_providers(args.providers.split(","))
+    elif args.provider:
+        explicit = normalize_providers({"provider": args.provider})
     config = CICDConfig.load(args.path, provider_override=explicit)
     selected = require_providers(config.pipeline.providers)
-    if len(selected) != 1:
-        raise ProviderError("infra-pipeline does not yet support multiple providers: " + ",".join(selected))
-    provider = selected[0]
-    if provider not in ("github-actions", "woodpecker"):
-        raise ProviderError("infra-pipeline does not support provider: " + provider)
+    provider = config.pipeline.provider
 
     if args.json:
-        files = generate_infra_pipeline(config.infrastructure, provider)
-        print(json.dumps({"provider": provider, "files": list(files.keys())}, indent=2))
+        files = generate_infra_pipeline(config.infrastructure, selected)
+        print(json.dumps({"provider": provider, "providers": selected, "files": list(files.keys())}, indent=2))
         return 0
 
     if args.write:
-        files = generate_infra_pipeline(config.infrastructure, provider, output_dir=args.path)
+        files = generate_infra_pipeline(config.infrastructure, selected, output_dir=args.path)
         print(f"Pipeline provider: {provider}")
         print(f"IaC: {config.infrastructure.provider}")
         print()
@@ -648,7 +700,7 @@ def cmd_infra_pipeline(args: argparse.Namespace) -> int:
             approval = "manual approval required" if tier_cfg.approval_required else "auto-deploy"
             print(f"  {tier_name}: {approval}")
     else:
-        files = generate_infra_pipeline(config.infrastructure, provider)
+        files = generate_infra_pipeline(config.infrastructure, selected)
         for filepath, content in sorted(files.items()):
             print(f"--- {filepath} ---")
             print(content)
@@ -1036,6 +1088,10 @@ def create_parser() -> argparse.ArgumentParser:
 
     provider_parser = subparsers.add_parser("provider", help="Read recorded project CI providers")
     _add_common_args(provider_parser)
+    provider_parser.add_argument("--registry", action="store_true", help="List registered choices")
+    checks_parser = subparsers.add_parser("checks", help="Compare emitted PR checks and local protection")
+    _add_common_args(checks_parser)
+    checks_parser.add_argument("--write", action="store_true", help="Write local protection only")
 
     # 'pipeline' subcommand
     pipeline_parser = subparsers.add_parser(
@@ -1052,6 +1108,7 @@ def create_parser() -> argparse.ArgumentParser:
     )
     provider_selection.add_argument("--providers", help="Comma-separated registered provider names")
     pipeline_parser.add_argument("--record", action="store_true", help="Persist the explicit selection in cicd.yml")
+    pipeline_parser.add_argument("--protection", action="store_true", help="Also derive local branch-protection.json")
     pipeline_parser.add_argument(
         "--write",
         "-w",
@@ -1095,11 +1152,13 @@ def create_parser() -> argparse.ArgumentParser:
         help="Generate CI/CD pipelines for infrastructure tiers with approval gates",
     )
     _add_common_args(infra_pipeline_parser)
-    infra_pipeline_parser.add_argument(
-        "--provider", choices=["github-actions", "woodpecker"],
+    infra_selection = infra_pipeline_parser.add_mutually_exclusive_group()
+    infra_selection.add_argument(
+        "--provider", choices=["github-actions", "woodpecker", "both"],
         default=None,
         help="Pipeline provider (overrides cicd.yml)",
     )
+    infra_selection.add_argument("--providers", help="Comma-separated registered CI providers")
     infra_pipeline_parser.add_argument(
         "--write", "-w", action="store_true",
         help="Write files to disk (default: dry run to stdout)",
@@ -1136,6 +1195,7 @@ def main(argv: list[str] | None = None) -> int:
         "container": cmd_container,
         "pipeline": cmd_pipeline,
         "provider": cmd_provider,
+        "checks": cmd_checks,
         "infra-init": cmd_infra_init,
         "infra-discover": cmd_infra_discover,
         "infra-pipeline": cmd_infra_pipeline,
@@ -1143,7 +1203,7 @@ def main(argv: list[str] | None = None) -> int:
 
     handler = commands.get(args.command)
     if handler:
-        if args.command in ("pipeline", "provider", "infra-pipeline"):
+        if args.command in ("pipeline", "provider", "infra-pipeline", "checks"):
             try:
                 return handler(args)
             except (ValueError, OSError) as exc:

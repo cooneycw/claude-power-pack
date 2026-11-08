@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Project and existing-repository CI setup can select registered providers, derive unconditional PR checks (including matrix cells), generate local protection, and verify consistency; infrastructure generation supports the provider list (#1608).
+
 ### Fixed
 
 - The unattended helper installer now includes `project-next.py`, so checkout installs satisfy the Claude preflight engine dependency; project-next documents the colocated library requirement for legacy copy installs and emits the installed-family exit marker on stderr (#1619).
