@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- `cpp:init` saves a project install receipt with recorded step outcomes and
+  shared-component references; its summary and `cpp:status` distinguish failed,
+  missing, stale and incomplete records (Refs #1587, R4).
+
 ### Fixed
 
 - The unattended helper installer now includes `project-next.py`, so checkout installs satisfy the Claude preflight engine dependency; project-next documents the colocated library requirement for legacy copy installs and emits the installed-family exit marker on stderr (#1619).
