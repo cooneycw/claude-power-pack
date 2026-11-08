@@ -192,7 +192,9 @@ def _init_3c_block() -> str:
     text = (ROOT / ".claude/commands/cpp/init.md").read_text()
     section = text[text.index("#### 3c. Register MCP Servers") :]
     start = section.index("```bash\n") + len("```bash\n")
-    return section[start : section.index("\n```", start)]
+    match = re.search(r"# CPP_MCP_ROUTINES_BEGIN\n(.*?)# CPP_MCP_ROUTINES_END", text, re.S)
+    assert match, "shared MCP routines must exist"
+    return match[1] + "\n" + section[start : section.index("\n```", start)]
 
 
 _STUB = """#!/bin/sh

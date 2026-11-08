@@ -18,18 +18,18 @@ CASES = [
     ("#### 5b. Run Codex Doctor", "[x] codex doctor: all checks passed"),
     ("#### 3c. Register MCP Servers", "✓ playwright MCP"),
     ("#### 3c. Register MCP Servers", "✓ tavily MCP"),
-    ("#### 3d. Register the browser desk pool", "✓ playwright-desk-1 registered"),
+    ("#### 3d. Register the browser desk pool", "✓ playwright-desk-1 MCP registered"),
     ("#### 3d. Register the browser desk pool", "✓ Seeded .claude/playwright-pool.json"),
     ("If no Makefile exists, offer to generate one:", "✓ Makefile generated"),
     ("#### 4b. Generate cicd.yml", "✓ .claude/cicd.yml created from template"),
     ("#### 4b. Generate cicd.yml", "✓ .claude/cicd.yml created with defaults"),
     ("#### 4d. CI Pipeline Generation", "✓ .github/workflows/ci.yml generated"),
     ("#### 4e. Container Generation", "✓ Container files generated"),
-    ("#### 5d. Register MCP Servers with Codex", "Registered second-opinion with Codex"),
-    ("#### 5d. Register MCP Servers with Codex", "Registered playwright (upstream"),
-    ("### 8a. Sequential Thinking", "✓ Sequential Thinking MCP registered"),
-    ("### 8b. Codex MCP Registration", "✓ second-opinion registered with Codex"),
-    ("### 8b. Codex MCP Registration", "✓ playwright (upstream"),
+    ("#### 5d. Register MCP Servers with Codex", "✓ second-opinion MCP registered with Codex"),
+    ("#### 5d. Register MCP Servers with Codex", "✓ playwright MCP registered with Codex"),
+    ("### 8a. Sequential Thinking", "✓ sequential-thinking MCP registered"),
+    ("### 8b. Codex MCP Registration", "✓ second-opinion MCP registered with Codex"),
+    ("### 8b. Codex MCP Registration", "✓ playwright MCP registered with Codex"),
 ]
 
 
@@ -51,7 +51,9 @@ def test_step_verdict_follows_exit_status(tmp_path, heading, success, list_rc, s
     bindir.mkdir()
     stub = """#!/bin/bash
 case "$*" in
-  'mcp list') exit "$LIST_RC" ;;
+  'mcp list'*)
+    if [ "$LIST_RC" = 0 ]; then printf '[]\\n'; fi
+    exit "$LIST_RC" ;;
   'mcp add '*) printf 'called\n' >> "$CALL_LOG" ;;
 esac
 exit "$STEP_RC"
@@ -92,7 +94,11 @@ exit "$STEP_RC"
     # Pin the negative condition: the command itself fails without diagnostics.
     probe = subprocess.run([str(bindir / "codex"), "doctor"], env=env, capture_output=True, text=True, timeout=10)
     assert (probe.returncode, probe.stdout, probe.stderr) == (step_rc, "", "")
-    result = subprocess.run(["bash", "-c", block[1]], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30)
+    routines = re.search(r"# CPP_MCP_ROUTINES_BEGIN\n(.*?)# CPP_MCP_ROUTINES_END", text, re.S)[1]
+    result = subprocess.run(
+        ["bash", "-c", routines + "\n" + block[1]], cwd=tmp_path, env=env,
+        capture_output=True, text=True, timeout=30,
+    )
     output = result.stdout + result.stderr
     assert "syntax error" not in output, output
     assert (success in output) is (step_rc == 0 and list_rc == 0), output

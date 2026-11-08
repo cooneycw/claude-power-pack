@@ -197,7 +197,8 @@ def test_codex_decline_creates_directory_even_without_setup_source(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     assert not (project / ".agents").exists(), "fixture must start without generated directory"
-    result = subprocess.run(["bash", "-c", selected[0]], cwd=project,
+    routines = re.search(r"# CPP_MCP_ROUTINES_BEGIN\n(.*?)# CPP_MCP_ROUTINES_END", SOURCE.read_text(), re.S)[1]
+    result = subprocess.run(["bash", "-c", routines + "\n" + selected[0]], cwd=project,
                             env=dict(os.environ, CPP_DIR=str(missing)), capture_output=True, text=True)
     assert result.returncode == 0
     assert (project / ".agents").is_dir()

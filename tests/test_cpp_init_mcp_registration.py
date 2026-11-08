@@ -12,7 +12,9 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 INIT = ROOT / ".claude/commands/cpp/init.md"
-SHELL = pytest.mark.skipif(any(shutil.which(x) is None for x in ("bash", "python3")), reason="requires bash and python3")
+SHELL = pytest.mark.skipif(
+    any(shutil.which(x) is None for x in ("bash", "python3")), reason="requires bash and python3",
+)
 
 
 def definitions(text=None):
@@ -29,7 +31,7 @@ def literal_adds(text):
     """Census literal client/add commands in executable Bash fences only."""
     active = False
     found = []
-    for line in text.splitlines():
+    for line in re.sub(r"\\\n", " ", text).splitlines():
         if line.strip().startswith("```"):
             active = line.strip() in {"```bash", "```sh"}
             continue
@@ -38,19 +40,24 @@ def literal_adds(text):
         try:
             args = shlex.split(line, comments=True)
         except ValueError:
-            continue  # continued commands are pinned separately below
+            continue  # embedded Python multiline strings are not literal client calls
+        if args and args[0] in {"echo", "printf"}:
+            continue
         for i in range(len(args) - 2):
             if args[i] in {"claude", "codex"} and args[i + 1:i + 3] == ["mcp", "add"]:
                 found.append(args[i])
     return found
 
 
-def test_one_registration_definition_per_client():
-    text = INIT.read_text()
+def assert_single_definition(text):
     assert sorted(literal_adds(text)) == ["claude", "codex"]
     for client in ("claude", "codex"):
         assert text.count(f"cpp_register_{client}_mcp() {{") == 1
         assert literal_adds("```bash\n" + definitions(text) + "\n```").count(client) == 1
+
+
+def test_one_registration_definition_per_client():
+    assert_single_definition(INIT.read_text())
 
 
 def fake_environment(tmp_path):
@@ -65,10 +72,22 @@ args = sys.argv[1:]
 with open(os.environ["MCP_CALL_LOG"], "a") as f:
     f.write(json.dumps([client, *args]) + "\n")
 if args[:2] == ["mcp", "list"]:
-    print(os.environ.get("CODEX_LIST_JSON", "[]") if client == "codex" and "--json" in args else "")
+    state = pathlib.Path(os.environ["MCP_FAKE_REGISTRY"])
+    default = state.read_text() if state.exists() else "[]"
+    print(os.environ.get("CODEX_LIST_JSON", default) if client == "codex" and "--json" in args else "")
     sys.exit(int(os.environ.get("LIST_RC", "0")))
 if args[:2] == ["mcp", "add"]:
-    sys.exit(int(os.environ.get("ADD_RC", "0")))
+    rc = int(os.environ.get("ADD_RC", "0"))
+    if not rc and client == "codex":
+        state = pathlib.Path(os.environ["MCP_FAKE_REGISTRY"])
+        data = json.loads(state.read_text()) if state.exists() else []
+        state.write_text(json.dumps([*data, {"name": args[2]}]))
+    if not rc and client == "claude":
+        path = pathlib.Path(os.environ["CLAUDE_CONFIG_DIR"]) / ".claude.json"
+        data = json.loads(path.read_text()) if path.exists() else {}
+        data.setdefault("mcpServers", {})[args[6]] = {"type": args[3]}
+        path.write_text(json.dumps(data))
+    sys.exit(rc)
 sys.exit(0)
 '''
     for name in ("claude", "codex"):
@@ -81,6 +100,7 @@ sys.exit(0)
         path.chmod(0o755)
     env = dict(os.environ, HOME=str(home), CLAUDE_CONFIG_DIR=str(home), CODEX_HOME=str(home / ".codex"),
                PATH=f"{bindir}:{os.environ['PATH']}", MCP_CALL_LOG=str(log), CPP_DIR=str(ROOT),
+               MCP_FAKE_REGISTRY=str(tmp_path / "codex-list.json"),
                SECOND_OPINION_URL="http://fixture-server.invalid:9123", TAVILY_API_KEY="fixture-only-placeholder")
     for key in ("LIST_RC", "ADD_RC", "CODEX_LIST_JSON"):
         env.pop(key, None)
@@ -103,3 +123,166 @@ def test_codex_entrypoint_honors_second_opinion_url(tmp_path, heading):
     assert result.returncode == 0, result.stdout + result.stderr
     adds = [c for c in calls if c[:3] == ["codex", "mcp", "add"] and "second-opinion" in c]
     assert adds == [["codex", "mcp", "add", "second-opinion", "--url", "http://fixture-server.invalid:9123/mcp"]]
+
+
+def rows(code):
+    return code + '\nprintf "__ROW__%s\\n" "${CPP_MCP_RESULTS[@]}"\n'
+
+
+def observed(result):
+    return {row["step"]: row for line in result.stdout.splitlines() if line.startswith("__ROW__")
+            for row in [json.loads(line[len("__ROW__"):])]}  # fixed metadata, never CLI output
+
+
+@SHELL
+@pytest.mark.parametrize("client,server,step", [
+    ("claude", "second-opinion", "second-opinion"),
+    ("claude", "playwright", "playwright"), ("claude", "tavily", "tavily"),
+    ("claude", "sequential-thinking", "sequential-thinking"),
+    ("codex", "second-opinion", "codex-second-opinion"), ("codex", "playwright", "codex-playwright"),
+])
+@pytest.mark.parametrize("exit_code", [0, 19])
+def test_registration_records_actual_add_exit_without_values(tmp_path, client, server, step, exit_code):
+    result, calls = run(tmp_path, rows(f'cpp_register_{client}_mcp {server}'), ADD_RC=str(exit_code))
+    adds = [c for c in calls if c[:3] == [client, "mcp", "add"]]
+    assert len(adds) == 1
+    record = observed(result)[step]
+    assert record == {"step": step, "outcome": "FAILED" if exit_code else "installed", "exit_code": exit_code}
+    if client == "claude":
+        assert adds[0][3:7] == ["--transport", "http" if server == "second-opinion" else "stdio", "--scope", "user"]
+    if server != "second-opinion":
+        assert "--" in adds[0] and "npx" in adds[0]
+    assert "fixture-only-placeholder" not in result.stdout + result.stderr
+    assert "fixture-server.invalid" not in result.stdout + result.stderr
+    if exit_code:
+        assert "MCP registered" not in result.stdout
+
+
+@SHELL
+@pytest.mark.parametrize("client", ["claude", "codex"])
+def test_failed_list_does_not_run_add_and_records_unverified(tmp_path, client):
+    result, calls = run(tmp_path, rows(f'cpp_register_{client}_mcp second-opinion'), LIST_RC="19")
+    assert not [c for c in calls if c[1:3] == ["mcp", "add"]]
+    step = "second-opinion" if client == "claude" else "codex-second-opinion"
+    assert observed(result)[step] == {"step": step, "outcome": "unverified"}
+    assert "could not be read" in result.stdout
+
+
+@SHELL
+@pytest.mark.parametrize("raw", ["not-json", "{}", '["second-opinion"]', '[{"name": 7}]'])
+def test_unreadable_codex_list_never_registers(tmp_path, raw):
+    assert raw != "[]", "fixture is not the valid absent-registration list"
+    result, calls = run(tmp_path, rows('cpp_register_codex_mcp second-opinion'), CODEX_LIST_JSON=raw)
+    assert not [c for c in calls if c[1:3] == ["mcp", "add"]]
+    assert observed(result)["codex-second-opinion"]["outcome"] == "unverified"
+
+
+@SHELL
+def test_codex_existing_exact_name_is_already_without_add(tmp_path):
+    result, calls = run(tmp_path, rows('cpp_register_codex_mcp second-opinion'),
+                        CODEX_LIST_JSON='[{"name":"second-opinion"}]')
+    assert not [c for c in calls if c[1:3] == ["mcp", "add"]]
+    assert observed(result)["codex-second-opinion"]["outcome"] == "already"
+
+
+@SHELL
+def test_codex_neighbor_name_is_not_our_registration(tmp_path):
+    result, calls = run(tmp_path, rows('cpp_register_codex_mcp second-opinion'),
+                        CODEX_LIST_JSON='[{"name":"second-opinion-neighbor"}]')
+    assert len([c for c in calls if c[1:3] == ["mcp", "add"]]) == 1
+    assert observed(result)["codex-second-opinion"]["outcome"] == "installed"
+
+
+@SHELL
+def test_tier5_then_extras_does_not_repeat_existing_codex_add(tmp_path):
+    code = block('#### 5d. Register MCP Servers with Codex')
+    code += "\n"
+    code += block('### 8b. Codex MCP Registration')
+    result, calls = run(tmp_path, rows(code))
+    assert len([c for c in calls if c[1:3] == ["mcp", "add"]]) == 2
+    assert {x["outcome"] for x in observed(result).values()} == {"already"}
+
+
+@SHELL
+def test_registration_failure_reaches_actual_receipt_and_summary(tmp_path):
+    source = INIT.read_text()
+    consumer = re.search(r'# CPP_INSTALL_RECEIPT_WRITE_BEGIN\n(.*?)# CPP_INSTALL_RECEIPT_WRITE_END', source, re.S)[1]
+    consumer = consumer.replace('--cpp-dir "$CPP_DIR"', '--revision ' + 'a' * 40)
+    initial = [{"step": "commands", "outcome": "installed"}, {"step": "stash-guard", "outcome": "already"},
+               {"step": "codex-second-opinion", "outcome": "installed"}]
+    result, calls = run(tmp_path, 'cpp_register_codex_mcp second-opinion\n' + consumer, ADD_RC="19",
+                        STEP_RESULTS_JSON=json.dumps(initial),
+                        OFFERED_STEPS_JSON=json.dumps([x['step'] for x in initial]),
+                        SELECTED_TIER="1", PROFILE_NAME="not-selected", PERMISSION_REPORT="{}")
+    assert len([c for c in calls if c[1:3] == ["mcp", "add"]]) == 1
+    receipt_path = tmp_path / '.claude/cpp-install.json'
+    assert receipt_path.is_file(), result.stdout + result.stderr
+    receipt = json.loads(receipt_path.read_text())
+    record = next(x for x in receipt['steps'] if x['step'] == 'codex-second-opinion')
+    assert record['outcome'] == 'FAILED' and record['exit_code'] == 19
+    assert 'CPP Installation Incomplete' in result.stdout
+    assert 'CPP Installation Complete' not in result.stdout
+
+
+@pytest.mark.parametrize("name", ["bad-duplicate-claude", "bad-duplicate-codex", "bad-continued-duplicate"])
+def test_duplicate_registration_control_rejects_bad_and_accepts_repair(name):
+    fixtures = ROOT / 'tests/fixtures/cpp-init-mcp-registration'
+    bad = (fixtures / f'{name}.md').read_text()
+    good = (fixtures / 'good-shared.md').read_text()
+    assert len(literal_adds(bad)) == 3, "fixture must contain the second literal registration"
+    with pytest.raises(AssertionError):
+        assert_single_definition(bad)
+    assert_single_definition(good)
+
+
+@SHELL
+@pytest.mark.parametrize("client", ["claude", "codex"])
+def test_repeated_registration_uses_existing_config_without_second_add(tmp_path, client):
+    result, calls = run(tmp_path, rows(f'cpp_register_{client}_mcp playwright\ncpp_register_{client}_mcp playwright'))
+    assert len([c for c in calls if c[1:3] == ["mcp", "add"]]) == 1
+    assert {x['outcome'] for x in observed(result).values()} == {'already'}
+
+
+@SHELL
+def test_pool_keeps_failed_desk_when_later_desk_succeeds(tmp_path):
+    code = 'cpp_register_claude_mcp custom-desk-one desk\nexport ADD_RC=0\n'
+    code += 'cpp_register_claude_mcp custom-desk-two desk'
+    result, calls = run(tmp_path, rows(code), ADD_RC="19")
+    adds = [c for c in calls if c[1:3] == ["mcp", "add"]]
+    assert len(adds) == 2
+    assert all(c[-1] == '--isolated' and '@playwright/mcp@0.0.77' in c for c in adds)
+    assert observed(result)['browser-pool']['outcome'] == 'FAILED'
+
+
+@SHELL
+@pytest.mark.parametrize("client", ["claude", "codex"])
+def test_missing_npx_skips_stdio_without_add(tmp_path, client):
+    code = 'command() { if [ "$1 $2" = "-v npx" ]; then return 1; else builtin command "$@"; fi; }\n'
+    code += f'cpp_register_{client}_mcp playwright'
+    result, calls = run(tmp_path, rows(code))
+    assert not [c for c in calls if c[1:3] == ["mcp", "add"]]
+    assert {x['outcome'] for x in observed(result).values()} == {'skipped'}
+
+
+@SHELL
+def test_missing_tavily_key_is_an_explicit_optional_skip(tmp_path):
+    result, calls = run(tmp_path, rows('cpp_register_claude_mcp tavily'), TAVILY_API_KEY='')
+    assert not [c for c in calls if c[1:3] == ["mcp", "add"]]
+    assert observed(result)['tavily']['outcome'] == 'skipped'
+
+
+@SHELL
+def test_pool_keeps_unverified_desk_when_later_desk_succeeds(tmp_path):
+    code = 'cpp_register_claude_mcp "not a valid name" desk\ncpp_register_claude_mcp custom-desk desk'
+    result, calls = run(tmp_path, rows(code))
+    assert len([c for c in calls if c[1:3] == ["mcp", "add"]]) == 1
+    assert observed(result)['browser-pool']['outcome'] == 'unverified'
+
+
+@SHELL
+@pytest.mark.parametrize("client", ["claude", "codex"])
+def test_function_preserves_nonzero_add_exit_for_callers(tmp_path, client):
+    result, calls = run(tmp_path, f'if cpp_register_{client}_mcp playwright; then exit 0; else exit "$?"; fi',
+                        ADD_RC='19')
+    assert result.returncode == 19
+    assert len([c for c in calls if c[1:3] == ["mcp", "add"]]) == 1
