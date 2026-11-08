@@ -241,3 +241,28 @@ def test_unverifiable_check_app_binding_is_unknown():
     assert check_posture(result, posture)["status"] == "ok"
     posture["protection"]["required_status_checks"]["checks"][0]["app_id"] = 12345
     assert check_posture(result, posture)["status"] == "unknown"
+
+
+def test_explicit_matrix_name_is_outside_supported_generated_shape():
+    from lib.cicd.checks import derive_required_checks
+    config = CICDConfig.model_validate({"pipeline": {"providers": ["github-actions"]}})
+    files = generate_pipeline(FrameworkInfo(Framework.PYTHON, PackageManager.UV), config)
+    assert derive_required_checks(config.pipeline.providers, files).status == "known"
+    assert "  ci:\n" in files[".github/workflows/ci.yml"]
+    files[".github/workflows/ci.yml"] = files[".github/workflows/ci.yml"].replace("  ci:\n", "  ci:\n    name: Test\n")
+    assert derive_required_checks(config.pipeline.providers, files).status == "unknown"
+
+
+def test_mutually_exclusive_sibling_filters_are_unknown():
+    from lib.cicd.checks import derive_required_checks
+    files = {".github/workflows/ci.yml": """on:
+  pull_request:
+  push:
+    paths: [lib/**]
+    paths-ignore: [docs/**]
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps: [{run: 'true'}]
+"""}
+    assert derive_required_checks(["github-actions"], files).status == "unknown"

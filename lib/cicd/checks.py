@@ -116,6 +116,8 @@ def github_actions_checks(files: dict[str, str]) -> RequiredChecks:
                 allowed = {"branches", "paths", "paths-ignore"} if event != "workflow_dispatch" else set()
                 if event == "pull_request":
                     allowed.add("types")
+                if {"paths", "paths-ignore"} <= set(options):
+                    raise UnknownChecks(filename + ": mutually exclusive path filters")
                 if set(options) - allowed:
                     raise UnknownChecks(filename + ": unsupported " + event + " filter")
                 for key, values in options.items():
@@ -166,6 +168,8 @@ def github_actions_checks(files: dict[str, str]) -> RequiredChecks:
             if strategy is None:
                 names.append(name)
                 continue
+            if "name" in job:
+                raise UnknownChecks(filename + ": explicit matrix job names are outside CPP-generated shapes")
             matrix = _mapping(_mapping(strategy, filename + " strategy").get("matrix"), filename + " matrix")
             if not matrix or {"include", "exclude"} & set(matrix):
                 raise UnknownChecks(filename + ": unsupported matrix shape")
