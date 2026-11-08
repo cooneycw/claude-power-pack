@@ -94,8 +94,10 @@ The `source_record_sha256` values identify the original JSONL records without
 terminating newlines. The retained shape is `response_item/custom_tool_call`
 with name `exec`, directly emitting an awaited `tools.exec_command` result;
 the linked `custom_tool_call_output` contains the completed-script header and
-structured shell result. This rollout has no corresponding CommandExecution
-item for this probe. Cwd was replaced with `/fixture/repo`, call/item ids were
+structured shell result. This source rollout also contains a corresponding
+CommandExecution event; the fixture isolates the custom call/result pair to
+exercise the serialization reported by #1624. Cwd was replaced with
+`/fixture/repo`, call/item ids were
 normalized, and timestamps, ordinals, internal metadata and transport metadata
 were removed. Command, JS structure, output blocks, exit code and HEAD are
 preserved. There are no credentials or private host names in the fixture.
