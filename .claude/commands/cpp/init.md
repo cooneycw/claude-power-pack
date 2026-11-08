@@ -1747,13 +1747,28 @@ fi
 # @playwright/mcp with --isolated (blank context per lease; session identity lives
 # in the portable state file, not the desk).
 unset 'CPP_MCP_RESULTS[browser-pool]'
-if ! DESKS=$(python3 -c "import json; print('\n'.join(json.load(open('.claude/playwright-pool.json'))['desks']))"); then
-  cpp_mcp_record browser-pool unverified
-  echo "WARNING: browser desk configuration could not be read; no desks registered."
+if DESKS=$(python3 - <<'PY_DESKS'
+import json, re, sys
+try:
+    with open('.claude/playwright-pool.json', encoding='utf-8') as f:
+        data = json.load(f)
+    desks = data.get('desks') if isinstance(data, dict) else None
+    if not isinstance(desks, list) or not desks:
+        sys.exit(3)
+    if any(not isinstance(name, str) or not re.fullmatch(r'[a-zA-Z0-9_-]+', name) for name in desks):
+        sys.exit(3)
+except (OSError, ValueError):
+    sys.exit(3)
+print('\n'.join(desks))
+PY_DESKS
+); then
+  # Every element has been validated before the first registration.
+  while IFS= read -r desk; do
+    if cpp_register_claude_mcp "$desk" desk; then :; else echo "WARNING: browser desk setup incomplete"; fi
+  done <<< "$DESKS"
 else
-for desk in $DESKS; do
-  if cpp_register_claude_mcp "$desk" desk; then :; else echo "WARNING: browser desk setup incomplete"; fi
-done
+  cpp_mcp_record browser-pool unverified
+  echo "WARNING: browser desk configuration could not be read or has invalid names; no desks registered."
 fi
 
 echo ""

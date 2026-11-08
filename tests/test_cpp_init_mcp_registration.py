@@ -28,7 +28,12 @@ def block(heading):
 
 
 def literal_adds(text):
-    """Census literal client/add commands in executable Bash fences only."""
+    """Census literal client/add commands in executable Bash fences only.
+
+    Conservatively reject MCP-add text combined with substitution syntax, even
+    when quoting may make that text inert. Put such advice in a plain fence.
+    This is a bounded source policy, not a general Bash interpreter.
+    """
     active = False
     found = []
     for line in re.sub(r"\\\n", " ", text).splitlines():
@@ -37,6 +42,9 @@ def literal_adds(text):
             continue
         if not active:
             continue
+        if not line.lstrip().startswith("#") and ("$(" in line or "`" in line):
+            hint = r"\b(?:claude|codex)\b[\"']?\s+[\"']?mcp[\"']?\s+[\"']?add\b"
+            assert not re.search(hint, line), "MCP add combined with substitution syntax is not allowed"
         try:
             lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|(){}")
             lexer.whitespace_split = True
