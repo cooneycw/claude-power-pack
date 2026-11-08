@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 #: NEGATIVE-CONTROL: controls/cpp-host-write
+#: NEGATIVE-CONTROL: controls/cpp-host-atomic
 #:
 #: Three verdicts - 0 wrote, 3 deferred by request, 1 failed - and /cpp:init
 #: and /cpp:update read the exit to decide whether to proceed, skip-and-say-so,
@@ -10,6 +11,9 @@
 #: register the new control is not in - which is exactly what it did here
 #: before this marker was added.
 #:
+#: HOST-SURFACE: <projects>/.claude/cpp-host.json owner=cpp write=replace certified=authored
+#: The projects-root surface is chosen at runtime. The HOME observation harness
+#: does not certify that dynamic path; controls/cpp-host-atomic exercises it.
 #: HOST-SURFACE: ~/.claude/settings.json owner=cpp write=merge certified=authored
 #: HOST-SURFACE: ~/.claude owner=cpp write=mkdir certified=observed
 #: HOST-SURFACE: ~/.claude/scripts owner=cpp write=mkdir certified=observed
@@ -361,6 +365,35 @@ cmd_file_write() {
     printf 'cpp-host-write: ok %s (written)\n' "$(normalise "$target")"
 }
 
+# Atomic replacement for the host CI record. Refuse before creating parents;
+# failure leaves the previous record intact. Content arrives on stdin, not argv.
+cmd_file_write_atomic() {
+    local target="$1"
+    is_deferred "$target" && { refuse "$target" cpp; return $?; }
+    PYTHONPATH='' python3 -c '
+import os, pathlib, stat, sys, tempfile
+target = pathlib.Path(sys.argv[1])
+tmp = None
+try:
+    content = sys.stdin.read()
+    if target.is_symlink() or (target.exists() and not stat.S_ISREG(target.stat().st_mode)):
+        raise OSError("unsupported target")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".cpp-host-", dir=target.parent)
+    with os.fdopen(fd, "w") as stream:
+        stream.write(content)
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(tmp, target)
+except OSError:
+    if tmp is not None:
+        pathlib.Path(tmp).unlink(missing_ok=True)
+    print("cpp-host-write: FAILED atomic host record write", file=sys.stderr)
+    sys.exit(1)
+' "$target" || return 1
+    printf 'cpp-host-write: ok %s (written atomically)\n' "$(normalise "$target")"
+}
+
 cmd_json_merge_sections() {
     local template="$1" target="$2"; shift 2
     is_deferred "$target" && { refuse "$target" cpp; return $?; }
@@ -462,6 +495,7 @@ main() {
         probe-writable) cmd_probe_writable "${args[0]:?directory required}" ;;
         link-into)      cmd_link_into "${args[0]:?source required}" "${args[1]:?dir required}" "${args[2]:?name required}" ;;
         unlink-orphan)  cmd_unlink_orphan "${args[0]:?dir required}" "${args[1]:?name required}" ;;
+        file-write-atomic) cmd_file_write_atomic "${args[0]:?target required}" ;;
         file-write)     cmd_file_write "${args[0]:?target required}" "${args[1]-}" ;;
         json-merge-sections) cmd_json_merge_sections "${args[0]:?template required}" "${args[1]:?target required}" "${args[@]:2}" ;;
         settings-edit)  cmd_settings_edit ;;

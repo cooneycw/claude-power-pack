@@ -68,11 +68,7 @@ def test_init_repair_is_allowed_and_cpp_calls_are_process_selected():
         (
             INIT,
             [
-                ("detect", ("--json",)),
-                ("detect", ("--generate-makefile",)),
-                ("check", ("--summary",)),
-                ("pipeline", ("--write",)),
-                ("container", ("--write",)),
+                ("host-ci", ("--write",)),
             ],
         ),
         (ROOT / ".claude/commands/flow/auto.md", [("verify", ("--baseline", "--summary")), ("verify", ())]),
@@ -104,7 +100,7 @@ def test_init_repair_is_allowed_and_cpp_calls_are_process_selected():
 @pytest.mark.parametrize("mutation", ["wrong-project", "missing-project", "bare-python", "empty"])
 def test_process_policy_assertion_rejects_missing_or_changed_sites(tmp_path, monkeypatch, mutation):
     text = INIT.read_text()
-    assert text.count('--project "$CPP_DIR"') >= 5
+    assert text.count('--project "$CPP_DIR"') == 1
     if mutation == "wrong-project":
         text = text.replace('--project "$CPP_DIR"', '--project "."')
     elif mutation == "missing-project":

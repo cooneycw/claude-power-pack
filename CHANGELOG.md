@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- cpp:init Tier 4 now records independent host CI capabilities instead of generating project files; project consumers share a container-aware, worktree-stable reader (#1609).
+
 - CI providers are now an explicit per-project list with a canonical reader and targeted recording command; missing selections stop pipeline generation instead of silently selecting GitHub Actions (#1607).
 
 - Flow cleanup, wave closure and early flow handoff now require an issue-visible record for deliberately preserved and pushed unfinished work, including the pushed tip and remaining work, with publication readback before reporting the handoff complete (#1614).

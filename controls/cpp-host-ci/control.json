@@ -1,0 +1,80 @@
+{
+  "_comment": [
+    "#1609: host capability verdicts and persistence are consumed by other sessions without re-deriving authentication or the write.",
+    "All API/credential responses are bounded fixtures; no live authentication or AWS store. Constructed anchors are deliberately blind, with no historical provenance claim."
+  ],
+  "gate": "lib/cicd/host.py",
+  "invocation": [
+    "python3",
+    "controls/cpp-host-ci/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^HOST_CI: not-ready ",
+  "good_signal": "^HOST_CI: ready$",
+  "cases": [
+    {
+      "name": "bad-auth",
+      "input": "cases/bad-auth",
+      "expect": "BAD",
+      "why": "bad auth"
+    },
+    {
+      "name": "bad-scope",
+      "input": "cases/bad-scope",
+      "expect": "BAD",
+      "why": "bad scope"
+    },
+    {
+      "name": "bad-unintrospectable",
+      "input": "cases/bad-unintrospectable",
+      "expect": "BAD",
+      "why": "bad unintrospectable"
+    },
+    {
+      "name": "bad-probe-error",
+      "input": "cases/bad-probe-error",
+      "expect": "BAD",
+      "why": "bad probe error"
+    },
+    {
+      "name": "good-ready",
+      "input": "cases/good-ready",
+      "expect": "GOOD",
+      "why": "good ready"
+    },
+    {
+      "name": "bad-container",
+      "input": "cases/bad-container",
+      "expect": "BAD",
+      "why": "Reader consumed by another session: bad container"
+    },
+    {
+      "name": "bad-record-missing",
+      "input": "cases/bad-record-missing",
+      "expect": "BAD",
+      "why": "Reader consumed by another session: bad record missing"
+    },
+    {
+      "name": "bad-record-invalid",
+      "input": "cases/bad-record-invalid",
+      "expect": "BAD",
+      "why": "Reader consumed by another session: bad record invalid"
+    },
+    {
+      "name": "good-record-ready",
+      "input": "cases/good-record-ready",
+      "expect": "GOOD",
+      "why": "Reader consumed by another session: good record ready"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "path": "anchors/assume-ready.py",
+      "sha256": "6443278e18821a511c4bd1360ba40027ed64c8a275e0073ccfb6ed8cb87fd79d",
+      "why": "A successful answer that ignores the state the consumer relies on."
+    }
+  ]
+}
