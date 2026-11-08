@@ -28,9 +28,13 @@ fi
 
 ## Instructions
 
-1. **Read configuration** from `.claude/cicd.yml` infrastructure section.
+1. **Read configuration** from `.claude/cicd.yml`, including the recorded
+   `pipeline.providers` list. Use `python -m lib.cicd provider --json`; unknown
+   stops generation. An explicit `--providers NAME[,NAME]` override is deliberate.
+   Generate each selected provider; legacy `--provider both` remains readable.
 
-2. **Generate pipelines:**
+2. **Preview** without `--write`. Review every emitted path for all selected
+   providers; ask before overwriting existing files. Then generate the reviewed files:
 
 ```bash
 PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd infra-pipeline --path "$(pwd)" --write
@@ -48,6 +52,10 @@ Each tier gets its own workflow file, triggered only by changes to that tier's d
 - `.github/workflows/infra-foundation.yml` - Manual approval required
 - `.github/workflows/infra-platform.yml` - Auto-deploy (configurable)
 - `.github/workflows/infra-app.yml` - Auto-deploy
+
+Woodpecker emits `.woodpecker/infra-<tier>.yml` for each tier. Selecting both
+providers emits both path families. These path-filtered workflows do not supply
+unconditional required contexts for every PR; `cicd checks` reports that boundary.
 
 ### Approval Gates
 

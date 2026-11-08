@@ -4,6 +4,7 @@
 
 ### Added
 
+- Project and existing-repository CI setup can select registered providers, derive unconditional PR checks (including matrix cells), generate local protection, and verify consistency; infrastructure generation supports the provider list (#1608).
 - `cpp:init` saves a project install receipt with recorded step outcomes and
   shared-component references; its summary and `cpp:status` distinguish failed,
   missing, stale and incomplete records (Refs #1587, R4).
