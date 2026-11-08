@@ -444,23 +444,28 @@ class CICDConfig(BaseModel):
     infrastructure: InfrastructureConfig = Field(default_factory=InfrastructureConfig)
 
     @classmethod
-    def load(cls, project_root: Optional[str] = None) -> CICDConfig:
+    def load(
+        cls, project_root: Optional[str] = None, *, provider_override: Optional[list[str]] = None
+    ) -> CICDConfig:
         """Load config from .claude/cicd.yml or use defaults."""
         if project_root is None:
             project_root = os.getcwd()
 
         config_path = Path(project_root) / ".claude" / "cicd.yml"
         if config_path.exists():
-            return cls._from_yaml(config_path)
+            return cls._from_yaml(config_path, provider_override=provider_override)
 
-        return cls._defaults()
+        config = cls._defaults()
+        if provider_override is not None:
+            config.pipeline = PipelineConfig(providers=provider_override)
+        return config
 
     @classmethod
     def _defaults(cls) -> CICDConfig:
         return cls()
 
     @classmethod
-    def _from_yaml(cls, path: Path) -> CICDConfig:
+    def _from_yaml(cls, path: Path, *, provider_override: Optional[list[str]] = None) -> CICDConfig:
         """Parse YAML config file using Pydantic model_validate.
 
         With extra="ignore" on all models, unknown keys are silently
@@ -472,6 +477,15 @@ class CICDConfig(BaseModel):
             return cls._defaults()
         with open(path) as f:
             data = parse_config_mapping(f.read(), str(path))
+
+        if provider_override is not None:
+            pipeline = data.get("pipeline") or {}
+            if not isinstance(pipeline, dict):
+                raise ValueError("pipeline must be a mapping before recording providers")
+            pipeline = dict(pipeline)
+            pipeline.pop("provider", None)
+            pipeline["providers"] = provider_override
+            data["pipeline"] = pipeline
 
         # Soften per-probe failures so one bad entry cannot take the whole
         # config - and the fail-open verification gate - down with it (#620).

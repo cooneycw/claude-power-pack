@@ -244,3 +244,47 @@ def test_comment_preservation_control_rejects_roundtrip_writer(tmp_path: Path, m
     monkeypatch.setattr(providers, "record_providers", blind_roundtrip)
     with pytest.raises(AssertionError):
         test_writer_preserves_unrelated_comments_order_and_pipeline_settings(tmp_path)
+
+
+def test_explicit_cli_selection_repairs_invalid_record(tmp_path: Path, capsys):
+    from lib.cicd.cli import main
+    path = tmp_path / ".claude/cicd.yml"
+    path.parent.mkdir()
+    path.write_text("# retained\npipeline:\n  providers: [unregistered-ci]\n  branches: {pr: [test]}\n")
+    assert main(["pipeline", "--path", str(tmp_path), "--providers", "woodpecker", "--record", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["providers"] == ["woodpecker"]
+    assert "# retained" in path.read_text()
+    assert "branches: {pr: [test]}" in path.read_text()
+
+
+def test_merged_ambiguous_provider_mapping_refuses(tmp_path: Path):
+    from lib.cicd.providers import read_provider_record
+    path = tmp_path / ".claude/cicd.yml"
+    path.parent.mkdir()
+    path.write_text("pipeline: {<<: {providers: [woodpecker], providers: [github-actions]}}\n")
+    with pytest.raises(ValueError, match="merge|duplicate"):
+        read_provider_record(tmp_path)
+    with pytest.raises(ValueError, match="merge|duplicate"):
+        CICDConfig.load(str(tmp_path))
+
+
+def test_one_run_override_repairs_selection_without_recording(tmp_path: Path, capsys):
+    from lib.cicd.cli import main
+    path = tmp_path / ".claude/cicd.yml"
+    path.parent.mkdir()
+    before = "pipeline:\n  provider: obsolete-ci\n"
+    path.write_text(before)
+    assert main(["pipeline", "--path", str(tmp_path), "--provider", "woodpecker", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["providers"] == ["woodpecker"]
+    assert path.read_text() == before
+
+
+def test_unreadable_record_has_unknown_marker(tmp_path: Path, capsys, monkeypatch):
+    from lib.cicd.cli import main
+
+    def unreadable(*args, **kwargs):
+        raise PermissionError("fixture refuses read")
+
+    monkeypatch.setattr(Path, "read_text", unreadable)
+    assert main(["provider", "--path", str(tmp_path)]) == 2
+    assert "CICD_PROVIDERS: unknown" in capsys.readouterr().out

@@ -223,14 +223,13 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
     from .config import CICDConfig
     from .pipeline import generate_pipeline
     info = detect_framework(args.path)
-    config = CICDConfig.load(args.path)
-
     from .providers import normalize_providers, record_providers, require_providers
     explicit = None
     if getattr(args, "providers", None) is not None:
         explicit = require_providers(args.providers.split(","))
     elif args.provider:
         explicit = normalize_providers({"provider": args.provider})
+    config = CICDConfig.load(args.path, provider_override=explicit)
     if getattr(args, "record", False):
         if explicit is None:
             raise ValueError("--record requires --providers NAME[,NAME] or --provider NAME")
@@ -1141,7 +1140,16 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 return handler(args)
             except (ValueError, OSError) as exc:
-                print(f"cicd: {exc}", file=sys.stderr)
+                if hasattr(exc, "errors"):
+                    # Pydantic's str includes complete input dictionaries; a
+                    # configuration diagnostic must not dump their values.
+                    detail = "; ".join(
+                        ".".join(str(part) for part in error["loc"]) + ": " + error["msg"]
+                        for error in exc.errors(include_input=False)
+                    )
+                else:
+                    detail = str(exc)
+                print(f"cicd: {detail}", file=sys.stderr)
                 return 2
         return handler(args)
 

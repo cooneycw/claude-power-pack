@@ -90,10 +90,14 @@ def parse_config_mapping(text: str, source: str) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ProviderError(f"{source}: config must be a mapping")
     assert isinstance(node, yaml.MappingNode)
+    if any(key.tag == "tag:yaml.org,2002:merge" for key, _ in node.value):
+        raise ProviderError(f"{source}: top-level YAML merges cannot define an unambiguous provider record")
     pipelines = [value for key, value in node.value if key.value == "pipeline"]
     if len(pipelines) > 1:
         raise ProviderError(f"{source}: duplicate pipeline sections")
     if pipelines and isinstance(pipelines[0], yaml.MappingNode):
+        if any(key.tag == "tag:yaml.org,2002:merge" for key, _ in pipelines[0].value):
+            raise ProviderError(f"{source}: pipeline YAML merges are unsupported; record providers explicitly")
         keys = [key.value for key, _ in pipelines[0].value if key.value in ("provider", "providers")]
         if len(keys) != len(set(keys)):
             raise ProviderError(f"{source}: duplicate provider keys")
@@ -102,10 +106,10 @@ def parse_config_mapping(text: str, source: str) -> dict[str, Any]:
 
 def read_provider_record(project: str | Path) -> ProviderRecord:
     path = Path(project) / ".claude/cicd.yml"
-    if not path.exists():
-        return ProviderRecord((), f"{path}: file missing")
     try:
         data = parse_config_mapping(path.read_text(), str(path))
+    except FileNotFoundError:
+        return ProviderRecord((), f"{path}: file missing")
     except OSError as exc:
         raise ProviderError(f"could not read {path}: {type(exc).__name__}") from exc
     pipeline = data.get("pipeline", {})
@@ -182,7 +186,7 @@ def record_providers(project: str | Path, names: list[str]) -> None:
         updated = "".join(lines)
     # Validate the edited record before touching disk, including multi-document
     # YAML, duplicate/conflicting selections, and accidental span damage.
-    parsed = yaml.safe_load(updated)
+    parsed = parse_config_mapping(updated, str(path))
     if normalize_providers(parsed["pipeline"]) != selected:
         raise ProviderError("provider edit did not produce the requested record")
     path.parent.mkdir(parents=True, exist_ok=True)
