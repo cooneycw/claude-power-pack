@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import os
+import shutil
 import stat
 import subprocess
 import textwrap
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 DRIFT_SCRIPT = ROOT / "scripts" / "drift-detect.sh"
@@ -480,3 +483,106 @@ def test_orphan_detection_ignores_sibling_worktree_templates(tmp_path: Path) -> 
     assert result.returncode == 1
     # The sibling worktree's template must NOT suppress orphan detection.
     assert "orphaned systemd unit mcp-second-opinion" in output
+
+
+# Committed controls: a clean host, an unassessed Docker inventory with real
+# non-Docker drift, and an unhealthy Docker container. No host PATH is inherited.
+@pytest.mark.parametrize(
+    ("docker_present", "port_conflict", "expected_rc"),
+    [(False, False, 0), (False, True, 1), (True, False, 1)],
+    ids=["docker-absent-clean", "docker-absent-port-drift", "docker-unhealthy"],
+)
+def test_drift_detect_controlled_inventory(
+    tmp_path: Path, docker_present: bool, port_conflict: bool, expected_rc: int
+) -> None:
+    tools = ("bash", "dirname", "date", "grep", "sort", "awk", "cat", "sed",
+             "mktemp", "head", "tr", "basename", "wc", "paste", "rm")
+    for tool in tools:
+        if shutil.which(tool) is None:
+            pytest.skip(f"requires {tool}")
+
+    repo = tmp_path / "repo"
+    (repo / "scripts").mkdir(parents=True)
+    script = repo / "scripts" / "drift-detect.sh"
+    shutil.copyfile(DRIFT_SCRIPT, script)
+    (repo / "docker-compose.yml").write_text("services: {}\n")
+    home = tmp_path / "home"
+    home.mkdir()
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for tool in tools:
+        (bin_dir / tool).symlink_to(shutil.which(tool))
+    # This fixture has no installed units or shared scripts. Avoid consulting
+    # the host's /etc/systemd/system, while keeping later port checks real.
+    _write_executable(bin_dir / "find", "#!/usr/bin/env bash\nexit 0\n")
+    _write_executable(bin_dir / "sysctl", """
+        #!/usr/bin/env bash
+        case "$2" in
+          vm.swappiness) echo 10 ;;
+          vm.vfs_cache_pressure) echo 50 ;;
+          fs.inotify.max_user_watches) echo 524288 ;;
+          fs.inotify.max_user_instances) echo 512 ;;
+        esac
+    """)
+    listeners = ""
+    if port_conflict:
+        listeners = (
+            'LISTEN 0 4096 0.0.0.0:8081 0.0.0.0:* users:(("first",pid=1,fd=4))\n'
+            'LISTEN 0 4096 127.0.0.1:8081 0.0.0.0:* users:(("second",pid=2,fd=5))\n'
+        )
+    _write_executable(bin_dir / "ss", "#!/usr/bin/env bash\ncat <<'EOF'\n" + listeners + "EOF\n")
+    if docker_present:
+        _write_executable(bin_dir / "docker", """
+            #!/usr/bin/env bash
+            echo 'fixture-container:Up (unhealthy)'
+        """)
+    env = {**os.environ, "PATH": str(bin_dir), "HOME": str(home)}
+    docker_probe = subprocess.run(
+        ["bash", "-c", "command -v docker"], env=env, capture_output=True, check=False
+    )
+    if docker_present:
+        assert docker_probe.returncode == 0
+        assert docker_probe.stdout.decode().strip() == str(bin_dir / "docker")
+    else:
+        # Assert the negative precondition before running the reporter (#1629).
+        assert shutil.which("docker", path=env["PATH"]) is None
+        assert docker_probe.returncode == 1
+        assert not docker_probe.stdout
+
+    result = subprocess.run(
+        ["bash", str(script)], cwd=repo, env=env, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False,
+    )
+    output = result.stdout
+    assert result.returncode == expected_rc, output
+    assert "checked," in output, output
+    if docker_present:
+        assert "docker - container fixture-container is unhealthy" in output
+    else:
+        assert "docker - not installed" in output
+        assert "mcp deployment models - NOT ASSESSED (docker not installed)" in output
+        assert "orphaned Docker MCPs - docker not installed" in output
+        assert "no Docker/systemd conflicts or failed units" not in output
+        assert "docker - all running containers healthy" not in output
+        assert "orphaned Docker MCPs - none detected" not in output
+    if port_conflict:
+        assert "port binding conflict - port 8081" in output
+        assert "DRIFT DETECTED" in output
+    elif not docker_present:
+        assert "ports - no MCP listeners" in output
+        assert "NO DRIFT" in output
+
+    if not docker_present:
+        # Exercise the collector independently too: the public reporter guards
+        # its call, but a missing optional tool must not trip errexit here.
+        script.write_text(
+            DRIFT_SCRIPT.read_text().removesuffix('main "$@"\n')
+            + 'DOCKER_STATUS[stale]="Up"\ncollect_docker_status\n'
+            + '[[ -z "${DOCKER_STATUS[stale]:-}" ]]\necho collector-completed\n'
+        )
+        collector = subprocess.run(
+            ["bash", str(script)], cwd=repo, env=env, text=True,
+            capture_output=True, check=False,
+        )
+        assert collector.returncode == 0, collector.stderr
+        assert collector.stdout.strip() == "collector-completed"
