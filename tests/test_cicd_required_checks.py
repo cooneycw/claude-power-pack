@@ -49,10 +49,10 @@ def test_wrong_provider_and_push_context_are_committed_bad_postures():
     config = CICDConfig.model_validate({"pipeline": {"providers": ["woodpecker"]}})
     files = generate_pipeline(FrameworkInfo(Framework.PYTHON, PackageManager.UV), config)
     result = derive_required_checks(config.pipeline.providers, files)
-    good = {"protection": {"required_status_checks": {"contexts": list(result.checks)}}}
+    good = {"branch": "main", "protection": {"required_status_checks": {"contexts": list(result.checks)}}}
     assert check_posture(result, good)["status"] == "ok"
     for bad in ("ci", "ci/woodpecker/push/woodpecker"):
-        posture = {"protection": {"required_status_checks": {"contexts": [bad]}}}
+        posture = {"branch": "main", "protection": {"required_status_checks": {"contexts": [bad]}}}
         assert check_posture(result, posture)["status"] == "drift"
 
 
@@ -161,7 +161,7 @@ def test_incomplete_job_is_not_a_known_check_population():
 def test_known_label_cannot_make_zero_contexts_clean():
     from lib.cicd.checks import RequiredChecks, check_posture, protection_record
     empty = RequiredChecks("known")
-    posture = {"protection": {"required_status_checks": {"contexts": []}}}
+    posture = {"branch": "main", "protection": {"required_status_checks": {"contexts": []}}}
     assert check_posture(empty, posture)["status"] == "unknown"
     with pytest.raises(ValueError):
         protection_record(CICDConfig(), empty)
@@ -192,3 +192,31 @@ def test_provider_registry_supplies_prompt_choices(tmp_path: Path, capsys):
     from lib.cicd.providers import PROVIDERS
     assert main(["provider", "--registry", "--path", str(tmp_path), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["registered_providers"] == list(PROVIDERS)
+
+
+def test_invalid_pull_request_trigger_is_unknown():
+    from lib.cicd.checks import derive_required_checks
+    files = {".github/workflows/ci.yml":
+             "on:\n  pull_request: []\njobs:\n  ci:\n    runs-on: ubuntu-latest\n    steps: [{run: 'true'}]\n"}
+    assert derive_required_checks(["github-actions"], files).status == "unknown"
+
+
+def test_each_selected_provider_must_establish_pr_population():
+    from lib.cicd.checks import derive_required_checks
+    config = CICDConfig.model_validate({"pipeline": {"providers": ["github-actions", "woodpecker"]}})
+    files = generate_pipeline(FrameworkInfo(Framework.PYTHON, PackageManager.UV), config)
+    assert derive_required_checks(config.pipeline.providers, files).status == "known"
+    assert "event: [push, pull_request]" in files[".woodpecker.yml"]
+    files[".woodpecker.yml"] = files[".woodpecker.yml"].replace("event: [push, pull_request]", "event: push")
+    assert derive_required_checks(config.pipeline.providers, files).status == "unknown"
+
+
+def test_protection_for_wrong_branch_is_drift():
+    from lib.cicd.checks import check_posture, derive_required_checks, protection_record
+    config = CICDConfig.model_validate({"pipeline": {"providers": ["woodpecker"]}})
+    files = generate_pipeline(FrameworkInfo(Framework.PYTHON, PackageManager.UV), config)
+    result = derive_required_checks(config.pipeline.providers, files)
+    posture = protection_record(config, result)
+    assert check_posture(result, posture)["status"] == "ok"
+    posture["branch"] = "develop"
+    assert check_posture(result, posture)["status"] == "drift"

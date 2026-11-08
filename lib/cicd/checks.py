@@ -58,6 +58,8 @@ def _yaml(text: str, filename: str) -> dict[str, Any]:
         if isinstance(node, yaml.SequenceNode):
             return [plain_data(value) for value in node.value]
         if isinstance(node, yaml.ScalarNode):
+            if node.style is None and node.value.lower() in ("", "null", "~"):
+                return None
             return node.value
         raise UnknownChecks(filename + ": unsupported YAML node")
 
@@ -109,7 +111,9 @@ def github_actions_checks(files: dict[str, str]) -> RequiredChecks:
             excluded.append(filename + ": no pull_request event")
             continue
         if isinstance(trigger, dict):
-            filters = trigger["pull_request"] or {}
+            filters = trigger["pull_request"]
+            if filters is None:
+                filters = {}
             filters = _mapping(filters, filename + " pull_request")
             _main_branch(filters.get("branches"), filename)
             if any(key in filters for key in ("paths", "paths-ignore", "types")):
@@ -231,6 +235,8 @@ def derive_required_checks(providers: list[str], files: dict[str, str]) -> Requi
             result = derive(files)
             if result.status != "known":
                 raise UnknownChecks(result.reason)
+            if not result.checks or result.examined_files <= 0:
+                raise UnknownChecks(name + ": no unconditional PR context population")
             names.extend(result.checks)
             excluded.extend(result.excluded)
             examined += result.examined_files
@@ -266,6 +272,10 @@ def check_posture(result: RequiredChecks, posture: Any) -> dict[str, Any]:
         actual = [*contexts, *(item["context"] for item in keyed)]
     except (KeyError, TypeError, AttributeError, ValueError):
         return {"status": "unknown", "reason": "required-check posture missing or malformed"}
+    if not isinstance(posture.get("branch"), str):
+        return {"status": "unknown", "reason": "protection branch missing or malformed"}
+    if posture["branch"] != "main":
+        return {"status": "drift", "reason": "protection branch must match supported PR target main"}
     missing = sorted(set(result.checks) - set(actual))
     extra = sorted(set(actual) - set(result.checks))
     return {"status": "drift" if missing or extra else "ok", "missing": missing, "extra": extra,
