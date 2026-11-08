@@ -5,6 +5,9 @@
 ### Fixed
 
 - Project-next names unparsed architecture decision records in every premise-staleness report and JSON coverage, so an incomplete ADR corpus cannot read as a clean scan (#1614).
+- Worktree claims and wave roles treat Linux process states `Z` and `X` as
+  exited, reporting `owner-zombie` rather than retaining a dead owner's lock.
+  Live owners retain their existing held/live classification (#1605).
 - Full-scope counter-model receipts recognize the current Codex custom `exec`
   wrapper's directly awaited shell call and its linked successful result.
   Missing probes, foreign heads, assistant prose and unsupported JavaScript
