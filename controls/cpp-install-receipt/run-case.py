@@ -36,7 +36,8 @@ def run(gate: Path, case: Path) -> int:
     elif scenario not in {"complete", "old-green-write-fails", "summary-unreadable", "absent", "invalid"}:
         raise ValueError("unknown fixture scenario")
 
-    with tempfile.TemporaryDirectory(prefix="cpp-install-control-") as directory:
+    with tempfile.TemporaryDirectory(prefix="cpp-install-control-") as directory, \
+            tempfile.TemporaryDirectory(prefix="cpp-install-state-") as scratch:
         project = Path(directory)
         path = project / ".claude/cpp-install.json"
         if scenario == "old-green-write-fails":
@@ -88,7 +89,7 @@ def run(gate: Path, case: Path) -> int:
         initial = re.search(r"# CPP_MCP_RUN_INIT_BEGIN\n(.*?)# CPP_MCP_RUN_INIT_END", text, re.S)
         assert initial and initial[1].strip(), "must use the actual run initializer"
         setup = subprocess.run(["bash", "-c", initial[1]], cwd=project, capture_output=True, text=True,
-                               env=dict(os.environ, CPP_DIR=str(ROOT)), timeout=15)
+                               env=dict(os.environ, CPP_DIR=str(ROOT), TMPDIR=scratch), timeout=15)
         assert setup.returncode == 0, setup.stdout + setup.stderr
         run_paths = [line.split("=", 1)[1] for line in setup.stdout.splitlines()
                      if line.startswith("CPP_MCP_RUN_DIR=")]

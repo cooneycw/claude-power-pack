@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Private project run state for cpp:init across fresh harness shells (#1587 R2).
+"""Private temporary run state for cpp:init across fresh harness shells (#1587 R2).
 
 This persists fixed observations, not credentials, endpoints or live readiness.
 The caller binds the returned absolute run path explicitly in every tool call.
@@ -15,7 +15,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-#: HOST-SURFACE: none - writes explicitly selected project run artifacts only.
+#: HOST-SURFACE: none - transient private run artifacts under TMPDIR only.
 #: NEGATIVE-CONTROL: controls/cpp-mcp-state
 STEPS = {"second-opinion", "playwright", "tavily", "sequential-thinking", "browser-pool",
          "codex-second-opinion", "codex-playwright"}
@@ -49,16 +49,16 @@ def read(path: Path, *, pending: bool = False) -> list[dict]:
     return checked(json.loads((path / "results.json").read_text()))
 
 
-def begin(document: Path, project: Path) -> Path:
+def begin(document: Path) -> Path:
     bodies = re.findall(r"^# CPP_MCP_ROUTINES_BEGIN\n(.*?)^# CPP_MCP_ROUTINES_END$",
                         document.read_text(), re.M | re.S)
     if len(bodies) != 1:
         raise ValueError("invalid source")
-    base = project / ".claude/cpp-init-mcp"
-    if base.is_symlink():
-        raise ValueError("invalid destination")
-    base.mkdir(mode=0o700, parents=True, exist_ok=True)
-    path = Path(tempfile.mkdtemp(prefix="run-", dir=base)).resolve()
+    base = Path(os.environ.get("TMPDIR") or tempfile.gettempdir())
+    path = Path(tempfile.mkdtemp(prefix="cpp-init-mcp-", dir=base)).resolve()
+    marker = path / ".cpp-mcp-state"
+    marker.write_text("cpp-mcp-state/v1\n")
+    marker.chmod(0o600)
     script = path / "routines.sh"
     # Pin the verified state helper path, independently of later shell bindings.
     prefix = "CPP_MCP_STATE_HELPER=" + shlex.quote(str(Path(__file__).resolve())) + "\n"
@@ -85,13 +85,29 @@ def save(path: Path, rows: list[str]) -> None:
     (path / "pending").unlink(missing_ok=True)
 
 
+
+def cleanup(path: Path) -> None:
+    """Remove only a generated run's known files; refuse unknown contents."""
+    marker = path / ".cpp-mcp-state"
+    if path.is_symlink() or not path.name.startswith("cpp-init-mcp-") or marker.is_symlink():
+        raise ValueError("not an owned run")
+    if marker.read_text() != "cpp-mcp-state/v1\n":
+        raise ValueError("not an owned run")
+    entries = list(path.iterdir())
+    allowed = {"routines.sh", "results.json", "pending", ".cpp-mcp-state"}
+    if any(entry.name not in allowed or entry.is_dir() for entry in entries):
+        raise ValueError("unexpected run contents")
+    for entry in entries:
+        entry.unlink()
+    path.rmdir()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     initial = commands.add_parser("begin")
     initial.add_argument("--document", required=True, type=Path)
-    initial.add_argument("--project-dir", required=True, type=Path)
-    for verb in ("load", "attempt", "save"):
+    for verb in ("load", "attempt", "save", "cleanup"):
         sub = commands.add_parser(verb)
         sub.add_argument("--run-dir", required=True, type=Path)
         if verb == "save":
@@ -99,7 +115,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         if args.command == "begin":
-            print(begin(args.document, args.project_dir))
+            print(begin(args.document))
         elif args.command == "load":
             for row in read(args.run_dir):
                 print(row["step"] + "\t" + json.dumps(row, separators=(",", ":")))
@@ -107,6 +123,8 @@ def main() -> int:
             read(args.run_dir)
             with (args.run_dir / "pending").open("x", encoding="utf-8") as stream:
                 stream.write("registration pending\n")
+        elif args.command == "cleanup":
+            cleanup(args.run_dir)
         else:
             save(args.run_dir, args.rows)
     except (OSError, ValueError, TypeError):

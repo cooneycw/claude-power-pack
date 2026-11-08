@@ -383,7 +383,7 @@
     "cpp-mcp-state.py": {
       "class": "tested",
       "consumer": "tests/test_cpp_init_mcp_registration.py",
-      "reason": "Persists and validates selected project MCP run state across fresh harness shells; controls/cpp-mcp-state rejects interrupted or invalid state against a constructed blind loader."
+      "reason": "Persists and validates private temporary MCP run state across fresh harness shells; controls/cpp-mcp-state rejects interrupted or invalid state against a constructed blind loader."
     }
   }
 }

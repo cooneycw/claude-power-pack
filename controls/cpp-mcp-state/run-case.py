@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise real/anchor state loaders with owned project metadata only."""
+"""Exercise real/anchor state loaders with owned temporary metadata only."""
 import json
 import subprocess
 import sys

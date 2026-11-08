@@ -33,8 +33,8 @@
 
 ### Behaviour changes you may notice
 
-- MCP setup saves private per-run project artifacts under `.claude/cpp-init-mcp/`
-  so later tool calls and the final receipt can reload observed outcomes (Refs #1587, R2).
+- MCP setup saves private per-run temporary artifacts under `$TMPDIR` so later
+  tool calls can reload outcomes, then removes the run after saving the receipt (Refs #1587, R2).
 - Codex MCP registration now honors `SECOND_OPINION_URL`, matching Claude,
   instead of always registering localhost port 8080 (Refs #1587, R2).
 

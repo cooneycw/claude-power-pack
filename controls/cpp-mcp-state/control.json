@@ -10,7 +10,7 @@
   "good_signal": "^CPP_MCP_STATE_CONTROL: loaded$",
   "detect_signal": "^CPP_MCP_STATE_CONTROL: refused$",
   "unknown_signal": "^CPP_MCP_STATE_CONTROL: unknown$",
-  "limits": "Owned project metadata only, no clients or network. Pending-over-old-green and malformed results must refuse; repaired cases load. Missing results are unknown. This does not attest host writes, connectivity or authenticity of project metadata.",
+  "limits": "Owned temporary metadata only, no clients or network. Pending-over-old-green and malformed results must refuse; repaired cases load. Missing results are unknown. This does not attest host writes, connectivity or authenticity of project metadata.",
   "cases": [
     {
       "name": "good-loaded",

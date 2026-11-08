@@ -501,14 +501,13 @@ If user selects "Custom", ask which categories to enable using multi-select:
 
 ### Applicable write and credential inventory
 
-All tiers generate private project `.claude/cpp-init-mcp/` per-run directories
-containing `routines.sh`, `results.json` and a pending-attempt marker. The
-routines file is copied from this verified command document and later sourced
-by each setup block; results contain fixed IDs/outcomes/exits, no credential or
-endpoint values. Initialization creates parents; recording atomically replaces
-the per-run results file. These files are separate from the final project install
-receipt. Retain failed/interrupted runs for diagnosis; remove a run directory
-only after its final receipt is saved and inspected.
+All tiers create a private temporary run directory under `$TMPDIR` (or the
+system temporary directory), mode 0700. It contains generated `routines.sh`,
+fixed-ID `results.json`, an ownership marker and pending-attempt state. Files
+contain no credential or endpoint values. Recording atomically replaces the
+results file. After the final project receipt is written, remove these temporary
+files and report cleanup. Failed persistence retains temporary state for retry.
+These artifacts are not written into the target project.
 
 Every selected tier also creates project `.claude/cpp-install.json`, atomically
 replacing an existing receipt after installation and optional choices. It records
@@ -865,7 +864,7 @@ successful sub-operation must not overwrite that failure.
 
 Every Bash tool invocation starts a fresh shell. Do not rely on functions,
 arrays or variables surviving a prior call. The initialization block below
-creates a private per-run project directory and prints its absolute path.
+creates a private per-run temporary directory and prints its absolute path.
 For EACH later Bash tool call, bind `CPP_DIR` to the verified checkout and
 `CPP_MCP_RUN_DIR` to that exact printed path in that same invocation. Carry the
 literal path in the wizard's context; do not assume an exported variable lasts.
@@ -876,7 +875,7 @@ and saved outcomes itself. Missing/unreadable run state refuses the block.
 The following fenced body is template data for the initialization block, not a
 separate setup action. The generated script contains these definitions and the verified state-helper
 path, no credential values. The checkout helper `scripts/cpp-mcp-state.py` owns
-project-file initialization, validation and atomic persistence; it is mode 0644,
+temporary-file initialization, validation and atomic persistence; it is mode 0644,
 invoked with python3 and not linked into the executable host-helper population. Call registration only after approval for the named server
 and its disclosed destinations. Recovery initializes a new run after approval.
 
@@ -1062,14 +1061,14 @@ cpp_mcp_load
 Initialize the per-run files now, after confirmation. Retain the printed path
 and rebind it explicitly in each later tool call; each new wizard/recovery run
 must initialize its own directory, even in the same project. These temporary
-project artifacts are historical setup observations, not a host readiness scan.
-Do not copy another run's results. They may be removed after the final receipt
-has been saved and inspected; no automatic cleanup is attempted on failure.
+local artifacts are historical setup observations, not a host readiness scan.
+Do not copy another run's results. They are removed after the final receipt is
+written; failed persistence retains the temporary run for retry.
 
 ```bash
 # CPP_MCP_RUN_INIT_BEGIN
 if CPP_MCP_RUN_DIR=$(python3 "$CPP_DIR/scripts/cpp-mcp-state.py" begin \
-    --document "$CPP_DIR/.claude/commands/cpp/init.md" --project-dir "$PWD"); then
+    --document "$CPP_DIR/.claude/commands/cpp/init.md"); then
   printf 'CPP_MCP_RUN_DIR=%s\n' "$CPP_MCP_RUN_DIR"
 else
   echo "CPP Installation Incomplete"
@@ -3042,6 +3041,11 @@ if printf '%s\n' "$STEP_RESULTS_JSON" | python3 "$CPP_DIR/scripts/cpp-install-re
     --tier "$SELECTED_TIER" --profile "$PROFILE_NAME" \
     --offered-steps "$OFFERED_STEPS_JSON" \
     --permission-report "$PERMISSION_REPORT"; then
+  if python3 "$CPP_MCP_STATE_HELPER" cleanup --run-dir "$CPP_MCP_RUN_DIR"; then
+    echo "MCP setup temporary run removed after receipt persistence."
+  else
+    echo "WARNING: receipt saved, but temporary MCP run cleanup failed; inspect the retained run."
+  fi
   if CPP_INSTALL_SUMMARY=$(python3 "$CPP_DIR/scripts/cpp-install-receipt.py" summary --project-dir "$PWD" --cpp-dir "$CPP_DIR"); then
     printf '%s\n' "$CPP_INSTALL_SUMMARY"
   else
