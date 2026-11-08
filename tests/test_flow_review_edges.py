@@ -10,6 +10,28 @@ from tests.test_flow_watch_recorded import SCRIPT, gh_fixture, requires_tools
 
 
 @requires_tools
+@pytest.mark.parametrize("newer_state", ["SUCCESS", "IN_PROGRESS"])
+@pytest.mark.parametrize("red_first", [True, False])
+def test_same_name_actions_runs_cannot_hide_red(tmp_path, newer_state, red_first):
+    record = tmp_path / ".claude/cicd.yml"
+    record.parent.mkdir()
+    record.write_text("pipeline:\n  providers: [github-actions]\n")
+    gh = gh_fixture(tmp_path)
+    rows = ["ci|https://github.com/o/r/actions/runs/100/job/1|FAILURE",
+            "ci|https://github.com/o/r/actions/runs/101/job/2|" + newer_state]
+    if not red_first:
+        rows.reverse()
+    assert any(row.endswith("|FAILURE") for row in rows)
+    gh.write_text(gh.read_text().replace("ci|https://github.com/o/r/actions/runs/19|FAILURE", "\n".join(rows)))
+    result = subprocess.run(["bash", str(SCRIPT), "12", "--path", str(tmp_path), "--repo", "o/r", "--timeout", "0"],
+                            env={**os.environ, "FLOW_PR_WATCH_GH": str(gh)},
+                            capture_output=True, text=True, timeout=20)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "FLOW_PR_WATCH: red" in result.stdout
+    assert "FLOW_PR_WATCH_URL=https://github.com/o/r/actions/runs/100/job/1" in result.stdout
+
+
+@requires_tools
 @pytest.mark.parametrize("conclusion", ["SKIPPED", "NEUTRAL"])
 def test_satisfied_actions_check_settles_green(tmp_path, conclusion):
     record = tmp_path / ".claude/cicd.yml"

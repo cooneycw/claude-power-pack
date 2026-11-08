@@ -312,10 +312,10 @@ gh_pr_json() { # gh_pr_json <json-fields> <jq-filter>
 # rollup. The rollup mixes two node shapes - a commit STATUS (context/state/
 # targetUrl, what Woodpecker posts) and a GitHub CHECK RUN (name/status/
 # conclusion/detailsUrl) - so both are flattened to `context|url|state`. Only
-# rows whose context exactly matches the named context and whose URL is shaped
-# like a Woodpecker pipeline permalink are considered. The highest pipeline
-# number within that one context wins, safely preferring a re-run in the same
-# lane over a stale one without crossing into another lane.
+# rows whose context exactly matches the named context and whose URL belongs
+# to the selected provider are considered. Woodpecker prefers its latest
+# pipeline. Actions can share a check name across push and PR runs on one
+# head: any red wins there, then pending, then green; run number breaks ties.
 rollup_pipeline() { # -> "<number>|<state>|<url>" or empty
     local fields=statusCheckRollup
     local filter='.statusCheckRollup[]? | "\(.context // .name // "")|\(.targetUrl // .detailsUrl // "")|\(.state // .conclusion // .status // "PENDING")"'
@@ -328,17 +328,25 @@ rollup_pipeline() { # -> "<number>|<state>|<url>" or empty
     gh_pr_json "$fields" "$filter" \
     | {
         best_num=-1
+        best_rank=-1
         best=""
         while IFS='|' read -r ctx url state; do
             [[ "$ctx" == "$CONTEXT" ]] || continue
+            rank=0
             if [[ "${CPP_FLOW_PR_WATCH_BACKEND:-woodpecker}" == "github-actions" ]]; then
                 [[ "$url" =~ /actions/runs/([0-9]+) ]] || continue
+                num="${BASH_REMATCH[1]}"
+                case "$(outcome_of "$state")" in
+                    failure) rank=2 ;;
+                    pending) rank=1 ;;
+                esac
             else
                 [[ "$url" =~ /pipeline/([0-9]+) ]] || continue
+                num="${BASH_REMATCH[1]}"
             fi
-            num="${BASH_REMATCH[1]}"
-            if [[ "$num" -gt "$best_num" ]]; then
+            if (( rank > best_rank || (rank == best_rank && num > best_num) )); then
                 best_num="$num"
+                best_rank="$rank"
                 best="$num|$state|$url"
             fi
         done

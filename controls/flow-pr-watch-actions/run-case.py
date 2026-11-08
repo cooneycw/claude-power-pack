@@ -9,8 +9,16 @@ from pathlib import Path
 
 def main():
     gate, case = map(Path, sys.argv[1:])
-    state = (case / "state.txt").read_text().strip()
-    assert state in {"SUCCESS", "FAILURE"}
+    if (case / "rollup.txt").exists():
+        rollup = (case / "rollup.txt").read_text().strip()
+        rows = [row.split("|") for row in rollup.splitlines()]
+        assert rows and all(len(row) == 3 and row[0] == "ci" and
+                            row[1].startswith("https://github.com/o/r/actions/runs/") and
+                            row[2] in {"SUCCESS", "FAILURE"} for row in rows)
+    else:
+        state = (case / "state.txt").read_text().strip()
+        assert state in {"SUCCESS", "FAILURE"}
+        rollup = 'ci|https://github.com/o/r/actions/runs/19|' + state
     with tempfile.TemporaryDirectory(prefix="actions-watch-control-") as directory:
         root = Path(directory)
         (root / ".claude").mkdir()
@@ -25,7 +33,7 @@ elif args[:2] == ['pr','view']:
     if fields == 'headRefOid,baseRefName':
         print(json.dumps({'headRefOid':'a'*40,'baseRefName':'main'}))
     elif fields == 'headRefOid': print('a'*40)
-    elif fields in {'statusCheckRollup','headRefOid,statusCheckRollup'}: print('ci|https://github.com/o/r/actions/runs/19|STATE')
+    elif fields in {'statusCheckRollup','headRefOid,statusCheckRollup'}: print(ROLLUP)
     else: raise SystemExit(1)
 elif args[:2] == ['run','view']:
     if '--log-failed' in args:
@@ -35,7 +43,7 @@ elif args[:2] == ['run','view']:
         print('unit|failure|2026-11-08T00:00:00Z|81|')
     else: raise SystemExit(1)
 else: raise SystemExit(1)
-'''.replace('STATE', state))
+'''.replace('ROLLUP', repr(rollup)))
         gh.chmod(0o755)
         wp = root / "wpcli"
         wp.write_text(f'#!/bin/sh\necho called > "{root / "wp-called"}"\nexit 19\n')

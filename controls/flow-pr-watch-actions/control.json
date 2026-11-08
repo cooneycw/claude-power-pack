@@ -10,7 +10,7 @@
   "detect_signal": "^ACTIONS_WATCH: red surfaced$",
   "good_signal": "^ACTIONS_WATCH: no red \\((green|unknown)\\)$",
   "unavailable_signal": "^ACTIONS_WATCH: unavailable",
-  "limits": "Offline recorded github-actions provider and required check ci with Actions run permalink. A red must report red/exit1 without querying Woodpecker. Historical anchor d410794c accepts --context ci but rejects Actions URLs, returns unknown and misses the red. The good case admits historical unknown for anchor agreement; the bad case detects always-unknown or timeouts-as-clean. No live API, credential probes, full log-attribution or baseline coverage is claimed; test_flow_watch_recorded.py separately pins failed-log and baseline behavior. Canonical JSON-subset provider read needs no dependency install.",
+  "limits": "Offline recorded github-actions provider and required check ci with Actions run permalink. A red must report red/exit1 without querying Woodpecker. Historical anchor d410794c accepts --context ci but rejects Actions URLs, returns unknown and misses the red. The good case admits historical unknown for anchor agreement; the bad case detects always-unknown or timeouts-as-clean. No live API, credential probes, full log-attribution or baseline coverage is claimed; test_flow_watch_recorded.py separately pins failed-log and baseline behavior. Canonical JSON-subset provider read needs no dependency install. The same-name case supplies an older red and a newer green Actions run on one pinned head; any red must survive run-number selection, as with push and pull_request runs sharing the required check name.",
   "cases": [
     {
       "name": "bad-actions-red",
@@ -21,6 +21,11 @@
       "name": "good-actions-green",
       "input": "cases/good-actions-green",
       "expect": "GOOD"
+    },
+    {
+      "name": "bad-actions-same-name-red",
+      "input": "cases/bad-actions-same-name-red",
+      "expect": "BAD"
     }
   ],
   "anchors": [
