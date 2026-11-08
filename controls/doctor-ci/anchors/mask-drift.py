@@ -134,17 +134,29 @@ def live_posture(project: Path, ctx: DoctorContext) -> tuple[dict[str, Any] | No
     if not ctx.which("git") or not ctx.which("gh"):
         return None, "GitHub protection reader unavailable"
     try:
+        identity = ctx.command(["git", "-C", str(project), "rev-parse", "--show-toplevel"], project)
+        if identity.returncode or Path(identity.stdout.strip()).resolve() != project:
+            return None, "target directory is not the inspected Git worktree root"
         remote = ctx.command(["git", "-C", str(project), "remote", "get-url", "origin"], project)
         slug = _slug(remote.stdout.strip()) if remote.returncode == 0 else None
         if not slug:
             return None, "target repository identity unavailable"
         classic_code, classic = _api(ctx, project, f"repos/{slug}/branches/main/protection")
-        rules_code, rules = _api(ctx, project, f"repos/{slug}/rules/branches/main")
+        # gh follows every Link page. A failed later page returns nonzero;
+        # never accept its partial stdout as complete protection evidence.
+        rules_result = ctx.command(["gh", "api", "--hostname", "github.com", "--paginate", "--slurp",
+                                    f"repos/{slug}/rules/branches/main?per_page=100"], project)
+        if rules_result.returncode:
+            return None, "ruleset protection unreadable or pagination incomplete"
+        pages = json.loads(rules_result.stdout)
+        if not isinstance(pages, list) or not pages or any(not isinstance(page, list) for page in pages):
+            return None, "ruleset page population unreadable"
+        rules = [rule for page in pages for rule in page]
         if classic_code == 404 and isinstance(classic, dict) and classic.get("message") == "Branch not protected":
             classic = {"required_status_checks": {"contexts": [], "checks": []}}
         elif classic_code != 200:
             return None, "classic protection unreadable"
-        if rules_code != 200 or not isinstance(rules, list) or not isinstance(classic, dict):
+        if not isinstance(classic, dict):
             return None, "ruleset protection unreadable"
         if "required_status_checks" not in classic:
             raise ValueError("classic check population absent")
@@ -173,7 +185,8 @@ def live_posture(project: Path, ctx: DoctorContext) -> tuple[dict[str, Any] | No
                 checks.append({"context": value["context"], "app_id": value.get("integration_id")})
         return {"branch": "main", "protection": {"required_status_checks": {
             "contexts": contexts, "checks": checks}}}, "classic and rulesets examined"
-    except (OSError, subprocess.SubprocessError, ValueError, TypeError, KeyError, AttributeError, IndexError):
+    except (OSError, RuntimeError, subprocess.SubprocessError, ValueError,
+            TypeError, KeyError, AttributeError, IndexError):
         return None, "GitHub protection evidence unreadable or malformed"
 
 

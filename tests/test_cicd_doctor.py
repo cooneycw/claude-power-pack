@@ -142,7 +142,8 @@ def _host(status='ready'):
             'providers':{name:{'status':status, 'reason':'fixture', 'versions':{}} for name in providers.PROVIDERS}}
 
 
-def _context(root, *, classic=None, rules=None, classic_code=200, rules_code=200, host=None):
+def _context(root, *, classic=None, rules=None, classic_code=200, rules_code=200, host=None,
+             rule_pages=None, late_failure=False):
     import json
     from types import SimpleNamespace
 
@@ -156,11 +157,21 @@ def _context(root, *, classic=None, rules=None, classic_code=200, rules_code=200
         assert kwargs['cwd'] == root
         assert not any(key.startswith('GIT_') for key in kwargs['env'])
         if argv[0] == 'git':
+            if argv[-2:] == ['rev-parse', '--show-toplevel']:
+                return SimpleNamespace(returncode=0, stdout=str(root) + '\n')
             assert argv == ['git', '-C', str(root), 'remote', 'get-url', 'origin']
             return SimpleNamespace(returncode=0, stdout='git@github.com:fixture/selected.git\n')
-        assert argv[:5] == ['gh', 'api', '--include', '--hostname', 'github.com']
+        assert argv[0:2] == ['gh', 'api']
+        assert argv[argv.index('--hostname') + 1] == 'github.com'
         assert argv[-1].startswith('repos/fixture/selected/')
-        code, body = (rules_code, rules) if '/rules/' in argv[-1] else (classic_code, classic)
+        if '/rules/' in argv[-1] and '--paginate' in argv:
+            assert '--slurp' in argv and 'per_page=100' in argv[-1]
+            pages = rule_pages if rule_pages is not None else [rules]
+            return SimpleNamespace(returncode=0 if rules_code == 200 and not late_failure else 1,
+                                   stdout=json.dumps(pages[:1] if late_failure else pages),
+                                   stderr='PRIVATE_API_PAYLOAD_CANARY')
+        code, body = (rules_code, rule_pages[0] if rule_pages is not None else rules) \
+            if '/rules/' in argv[-1] else (classic_code, classic)
         return SimpleNamespace(returncode=0 if code == 200 else 1,
                                stdout=f'HTTP/2.0 {code} fixture\r\n\r\n' + json.dumps(body),
                                stderr='PRIVATE_API_PAYLOAD_CANARY')
@@ -309,6 +320,7 @@ def test_canonical_host_reader_is_used_from_relocated_worktree_and_container(tmp
     git('add', '.')
     git('-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-m', 'fixture')
     linked = tmp_path / 'relocated/worktree'
+    git('remote', 'add', 'origin', 'git@github.com:fixture/selected.git')
     git('worktree', 'add', '-b', 'linked', str(linked))
     target = main.parent / '.claude/cpp-host.json'
     target.parent.mkdir()
@@ -324,6 +336,8 @@ def test_canonical_host_reader_is_used_from_relocated_worktree_and_container(tmp
     monkeypatch.setattr(host, 'probe_host', lambda *args:pytest.fail('doctor must never probe host credentials'))
     ctx, _ = _context(linked)
     ctx.host_reader = host.read_host_record
+    fake = ctx.run
+    ctx.run = lambda argv, **kwargs: subprocess.run(argv, **kwargs) if argv[0] == 'git' else fake(argv, **kwargs)
     before = target.read_bytes()
     assert _by_id(collect(linked, ctx))['host-capability']['status'] == 'ok'
     assert target.read_bytes() == before
@@ -437,3 +451,38 @@ def test_cli_without_dependency_packages_reports_unknown_instead_of_a_traceback(
     assert {item['status'] for item in value['rows']} == {'unknown'}
     assert all('dependencies unavailable' in item['reason'] for item in value['rows'])
     assert result.stderr == ''
+
+
+@pytest.mark.parametrize('late_failure,expected', [(False, 'drift'), (True, 'unknown')])
+def test_later_rules_page_is_examined_and_failed_pagination_is_unknown(tmp_path, late_failure, expected):
+    from lib.cicd.doctor import collect
+    _project(tmp_path)
+    pages = [[], [{'type':'required_status_checks',
+                   'parameters':{'required_status_checks':[{'context':'later-page-check'}]}}]]
+    assert not pages[0] and pages[1][0]['parameters']['required_status_checks'][0]['context'] == 'later-page-check'
+    ctx, _ = _context(tmp_path, rule_pages=pages, late_failure=late_failure)
+    item = _by_id(collect(tmp_path, ctx))['required-checks']
+    assert item['status'] == expected
+    if not late_failure:
+        assert item['evidence']['sources']['live']['extra'] == ['later-page-check']
+
+
+@pytest.mark.skipif(shutil.which('git') is None, reason='requires git')
+def test_nested_project_does_not_borrow_parent_git_identity(tmp_path):
+    from lib.cicd.doctor import collect
+    parent = tmp_path / 'parent'
+    project = parent / 'nested'
+    _project(project)
+    subprocess.run(['git', '-C', str(parent), 'init'], check=True, capture_output=True)
+    subprocess.run(['git', '-C', str(parent), 'remote', 'add', 'origin',
+                    'git@github.com:fixture/selected.git'], check=True, capture_output=True)
+    assert not (project / '.git').exists() and (parent / '.git').is_dir()
+    ctx, calls = _context(project)
+    fake = ctx.run
+
+    def actual_git(argv, **kwargs):
+        return subprocess.run(argv, **kwargs) if argv[0] == 'git' else fake(argv, **kwargs)
+    ctx.run = actual_git
+    value = collect(project, ctx)
+    assert _by_id(value)['required-checks']['status'] == 'unknown'
+    assert not any(argv[0] == 'gh' for argv in calls), 'must not query protection for an ancestor repository'
