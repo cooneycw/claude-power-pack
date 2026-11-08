@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Full-scope counter-model receipts recognize the current Codex custom `exec`
+  wrapper's directly awaited shell call and its linked successful result.
+  Missing probes, foreign heads, assistant prose and unsupported JavaScript
+  still refuse artifact binding (#1624).
+
 ### Behaviour changes you may notice
 
 - CPP now states a bash 4.4 floor. `flow-preflight` gains a required `bash` check, so `/cpp:init`, `/cpp:update` and `/flow:doctor` report a bash below it, and `/flow:auto` refuses to start until it is upgraded. On macOS: `brew install bash`, first on PATH (#1628).

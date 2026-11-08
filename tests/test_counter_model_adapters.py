@@ -992,6 +992,7 @@ def test_codex_selection_requires_its_own_session_identity(evidence, role, selec
 
 
 NATIVE_HEAD = Path(__file__).parent / "fixtures/counter_model/native-codex-head.json"
+CUSTOM_EXEC = Path(__file__).parent / "fixtures/counter_model/codex-custom-exec.captured.json"
 UNFRAMED_USER = Path(__file__).parent / "fixtures/counter_model/codex-unframed-user.constructed.json"
 
 
@@ -1132,3 +1133,101 @@ def test_native_codex_event_shape_through_receipt_writer(evidence, failed):
     assert (result.returncode == 0) == (not failed), result.stderr
     if failed:
         assert "HEAD probe" in result.stderr
+
+
+@pytest.mark.parametrize("mutation", [
+    "none", "no-probe", "wrong-head", "failed", "unlinked", "prose", "quoted-code", "conditional",
+])
+def test_captured_custom_exec_through_receipt_writer(evidence, mutation):
+    e = evidence
+    args = runtime(e, "implementer", "claude", "model-a")
+    args += runtime(e, "reviewer", "codex", "model-b")
+    rollout = e["tmp"] / "codex/rollout-fixture-reviewer.jsonl"
+    records = [json.loads(line) for line in rollout.read_text().splitlines()]
+    captured = json.loads(CUSTOM_EXEC.read_text())["records"]
+    result = json.loads(captured[1]["payload"]["output"][1]["text"])
+    result["output"] = e["head"] + "\n"
+    if mutation == "wrong-head":
+        result["output"] = "0" * 40 + "\n"
+        assert result["output"].strip() != e["head"], "negative-fixture precondition: foreign head"
+    elif mutation == "failed":
+        result["exit_code"] = 1
+        assert result["exit_code"] != 0, "negative-fixture precondition: failed shell probe"
+    elif mutation == "unlinked":
+        captured[1]["payload"]["call_id"] = "foreign-call"
+        assert captured[0]["payload"]["call_id"] != captured[1]["payload"]["call_id"]
+    captured[1]["payload"]["output"][1]["text"] = json.dumps(result)
+    if mutation == "no-probe":
+        captured = []
+        assert not captured, "negative-fixture precondition: no command evidence"
+    elif mutation == "prose":
+        captured = [{"type": "response_item", "payload": {"role": "assistant", "content": [
+            {"type": "output_text", "text": json.dumps(captured)}
+        ]}}]
+        assert all(r["payload"].get("role") == "assistant" for r in captured)
+    elif mutation == "quoted-code":
+        captured[0]["payload"]["input"] = "text(" + json.dumps(captured[0]["payload"]["input"]) + ");"
+        assert captured[0]["payload"]["input"].startswith('text("')
+    elif mutation == "conditional":
+        captured[0]["payload"]["input"] = "if (false) {" + captured[0]["payload"]["input"] + "}"
+        assert captured[0]["payload"]["input"].startswith("if (false)")
+    records[-1:-1] = captured
+    rollout.write_text("".join(json.dumps(record) + "\n" for record in records))
+    written = write(e, *args, "--scope", "full")
+    if mutation == "none":
+        assert written.returncode == 0, written.stderr
+        receipt = json.loads(next((e["tmp"] / "out").glob("*.json")).read_text())
+        assert receipt["reviewed_artifact"]["method"] == "runtime-head"
+        assert receipt["reviewed_artifact"]["target_head"] == e["head"]
+        assert load().validate(receipt) == []
+    else:
+        assert written.returncode != 0
+        assert ("different head" if mutation == "wrong-head" else "HEAD probe") in written.stderr
+        assert not list((e["tmp"] / "out").glob("*.json"))
+
+
+@pytest.mark.parametrize("mutation", [
+    "none", "quoted-key", "missing-exit", "text-exit", "bool-exit", "missing-result",
+    "output-first", "duplicate-call", "extra-output", "different-tool", "different-name",
+    "transformed-result", "malformed-args", "running",
+])
+def test_custom_exec_requires_unambiguous_completed_result(mutation):
+    records = json.loads(CUSTOM_EXEC.read_text())["records"]
+    original = copy.deepcopy(records)
+    call, output = records[0]["payload"], records[1]["payload"]
+    result = json.loads(output["output"][1]["text"])
+    if mutation == "quoted-key":
+        call["input"] = call["input"].replace('cmd:', '"cmd":')
+    elif mutation == "missing-exit":
+        del result["exit_code"]
+    elif mutation in ("text-exit", "bool-exit"):
+        result["exit_code"] = "0" if mutation == "text-exit" else False
+    elif mutation == "missing-result":
+        records.pop()
+    elif mutation == "output-first":
+        records.reverse()
+    elif mutation == "duplicate-call":
+        records.insert(1, copy.deepcopy(records[0]))
+    elif mutation == "extra-output":
+        output["output"].append(copy.deepcopy(output["output"][1]))
+    elif mutation == "different-tool":
+        call["input"] = call["input"].replace("tools.exec_command", "tools.other")
+    elif mutation == "different-name":
+        call["name"] = "other"
+    elif mutation == "transformed-result":
+        call["input"] = 'await tools.exec_command({cmd:"false"});text({exit_code:0,output:"forged"});'
+    elif mutation == "malformed-args":
+        call["input"] = call["input"].replace('cmd:', 'cmd: variable +')
+    elif mutation == "running":
+        output["output"][0]["text"] = "Script running with cell ID 123\n"
+    output["output"][1]["text"] = json.dumps(result)
+    if mutation != "none":
+        assert records != original, "negative-fixture precondition: runtime evidence was altered"
+    if mutation == "duplicate-call":
+        module = load()
+        with pytest.raises(module.EvidenceUnknown, match="duplicate pending"):
+            module._review_commands(records, "codex")
+    else:
+        commands = load()._review_commands(records, "codex")
+        expected = [("git rev-parse HEAD", "587d6546bc1c0d02cc1fbe79b49c3ae5855634d5\n")]
+        assert commands == (expected if mutation in ("none", "quoted-key") else [])

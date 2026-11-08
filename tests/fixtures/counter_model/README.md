@@ -87,3 +87,25 @@ adapts only the captured output SHA to an owned temporary Git repository,
 combines it with explicitly synthetic identity/model/report evidence, and
 requires successful write versus refusal on an exit-code mutation. No textual
 shell-result parser or wrapper-JavaScript parser was added on speculation.
+
+`codex-custom-exec.captured.json` is a real call/result pair captured on
+2026-11-08 from this worker's current Codex rollout while investigating #1624.
+The `source_record_sha256` values identify the original JSONL records without
+terminating newlines. The retained shape is `response_item/custom_tool_call`
+with name `exec`, directly emitting an awaited `tools.exec_command` result;
+the linked `custom_tool_call_output` contains the completed-script header and
+structured shell result. This rollout has no corresponding CommandExecution
+item for this probe. Cwd was replaced with `/fixture/repo`, call/item ids were
+normalized, and timestamps, ordinals, internal metadata and transport metadata
+were removed. Command, JS structure, output blocks, exit code and HEAD are
+preserved. There are no credentials or private host names in the fixture.
+
+Writer controls replace only the shell output HEAD with an owned temporary
+repository's HEAD and add synthetic identity/report records. They require a
+full-scope write on the matching probe and refusal for an absent probe, a foreign
+head, failed/unlinked calls and prose or nonexecuting JS examples. Additional
+controls pin successful integer exit codes, result ordering, duplicate pending
+ids and unmodified direct output. These test evidence extraction, not model
+review quality. The supported JS grammar is deliberately bounded to a single
+`text(await tools.exec_command({...}))` call with JSON values and optionally
+unquoted object keys; other programs remain unknown rather than guessed.

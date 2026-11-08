@@ -1687,23 +1687,99 @@ def _review_inputs(records: list[dict], runtime: str) -> list[tuple[int, str]]:
     return inputs
 
 
+def _codex_exec_command(source: object) -> str | None:
+    """Recognize a direct, awaited shell call whose returned object is emitted.
+
+    This is a deliberately bounded JS grammar, not a search for command-looking
+    substrings. Quoted examples, conditionals, arbitrary text() and transformed
+    results cannot establish which shell call produced the output.
+    """
+    if not isinstance(source, str):
+        return None
+    match = re.fullmatch(
+        r"\s*text\s*\(\s*await\s+tools\.exec_command\s*\(\s*(\{.*\})\s*\)\s*\)\s*;?\s*",
+        source, re.S,
+    )
+    if not match:
+        return None
+    # Tokenize before quoting JS object keys, so key-looking text inside a
+    # string remains untouched. Only JSON values and bare object keys qualify.
+    raw = match.group(1)
+    tokens = []
+    position = 0
+    token = re.compile(
+        r'\s*("(?:[^"\\\x00-\x1f]|\\["\\/bfnrt]|\\u[0-9a-fA-F]{4})*"'
+        r'|[A-Za-z_$][\w$]*|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}\[\]:,])'
+    )
+    while position < len(raw):
+        part = token.match(raw, position)
+        if not part:
+            if raw[position:].strip():
+                return None
+            break
+        tokens.append(part.group(1))
+        position = part.end()
+    normalized = "".join(
+        json.dumps(value) if re.fullmatch(r"[A-Za-z_$][\w$]*", value)
+        and index + 1 < len(tokens) and tokens[index + 1] == ":" else value
+        for index, value in enumerate(tokens)
+    )
+    try:
+        args = json.loads(normalized)
+    except ValueError:
+        return None
+    return args.get("cmd") if isinstance(args, dict) and isinstance(args.get("cmd"), str) else None
+
+
+def _codex_exec_output(output: object) -> str | None:
+    """Read the captured completed exec envelope and its single shell result."""
+    if (not isinstance(output, list) or len(output) != 2
+            or not all(isinstance(part, dict) and part.get("type") == "input_text"
+                       and isinstance(part.get("text"), str) for part in output)):
+        return None
+    if not re.fullmatch(r"Script completed\nWall time [0-9.]+ seconds\nOutput:\n", output[0]["text"]):
+        return None
+    try:
+        result = json.loads(output[1]["text"])
+    except ValueError:
+        return None
+    if (isinstance(result, dict) and type(result.get("exit_code")) is int
+            and result["exit_code"] == 0 and isinstance(result.get("output"), str)):
+        return result["output"]
+    return None
+
+
 def _review_commands(records: list[dict], runtime: str) -> list[tuple[str, str]]:
     """Supported runtime command/results only, never assistant prose or user text."""
     commands = []
     calls: dict[str, str] = {}
+    exec_calls: dict[str, str] = {}
 
     def remember(call_id: object, command: object) -> None:
         if not isinstance(call_id, str) or not call_id.strip():
             raise EvidenceUnknown("runtime command requires a nonempty call id")
         if not isinstance(command, str):
             raise EvidenceUnknown("runtime command requires string command text")
-        if call_id in calls:
+        if call_id in calls or call_id in exec_calls:
             raise EvidenceUnknown("ambiguous duplicate pending runtime command id")
         calls[call_id] = command
 
     for r in records:
         if runtime == "codex":
             p = r.get("payload", {})
+            if r.get("type") == "response_item" and p.get("type") == "custom_tool_call" and p.get("name") == "exec":
+                command = _codex_exec_command(p.get("input"))
+                if command is not None:
+                    call_id = p.get("call_id")
+                    remember(call_id, command)
+                    exec_calls[call_id] = calls.pop(call_id)
+                continue
+            if r.get("type") == "response_item" and p.get("type") == "custom_tool_call_output":
+                command = exec_calls.pop(p.get("call_id"), None)
+                output = _codex_exec_output(p.get("output"))
+                if command is not None and output is not None:
+                    commands.append((command, output))
+                continue
             if (
                 r.get("type") == "response_item"
                 and p.get("type") == "function_call"
