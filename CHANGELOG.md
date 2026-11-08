@@ -5,7 +5,7 @@
 ### Fixed
 
 - Serialize the live control-file tracking scan with the deliberate untracked-probe test, preventing intermittent xdist CI failures without changing the existing hold budget (#1641).
-
+- Partial worktree-removal verification now names its Git 2.36 minimum on older or unrecognized Git versions, rather than reporting a misleading registry-read failure (#1621).
 - Worktree claims and wave roles treat Linux process states `Z` and `X` as
   exited, reporting `owner-zombie` rather than retaining a dead owner's lock.
   Live owners retain their existing held/live classification (#1605).
