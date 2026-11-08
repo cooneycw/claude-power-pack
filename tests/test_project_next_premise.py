@@ -14,6 +14,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "project-next.py"
 SPEC = importlib.util.spec_from_file_location("cpp_project_next_premise", SCRIPT)
@@ -432,3 +434,95 @@ def test_json_output_carries_the_premise_flags(tmp_path: Path, capsys: object) -
     assert [item["issue_number"] for item in premise] == [12]
     assert premise[0]["decision_path"] == "docs/decisions/0007-worktree-base-location.md"
     assert premise[0]["spec_path"] == ".specify/specs/worktree-scaffolding/spec.md"
+
+
+@pytest.mark.parametrize("mixed", [False, True], ids=["all-unparsed", "mixed"])
+@pytest.mark.parametrize("mode", ["brief", "compact", "full", "json"])
+def test_unparsed_adrs_are_never_reported_as_a_clean_premise_scan(tmp_path, capsys, mixed, mode):
+    source = "docs/adr/0003-environment-release-deployment.md"
+    _write(tmp_path / source, (ROOT / "tests/fixtures/unparsed-accepted-adr.md").read_text())
+    if mixed:
+        _decision(tmp_path, "0001-worktrees.md", title="Worktrees", status="Accepted", decided="2026-09-01")
+    records, warnings = project_next._decision_records(tmp_path)
+    # Assert the actual malformed population before consuming the report.
+    assert len(records) == int(mixed)
+    assert len(warnings) == 1 and source in warnings[0]
+    fixture = tmp_path / "state.json"
+    fixture.write_text(json.dumps(project_next.asdict(_state())))
+    assert project_next.main([str(tmp_path), f"--{mode}", "--input", str(fixture)]) == 0
+    output = capsys.readouterr().out
+    if mode == "json":
+        coverage = json.loads(output)["cpp_extensions"]["premise_coverage"]
+        assert coverage["unparsed"] == [source]
+        assert len(coverage["parsed"]) == int(mixed)
+    else:
+        premise = output.split("Premise staleness", 1)[1].split("Worktree delivery", 1)[0]
+        assert "unparsed" in premise and source in premise
+        assert "Premise staleness: none" not in output
+        assert "no spec predates a live decision" not in premise
+
+
+@pytest.mark.parametrize("mode", ["brief", "compact", "full", "json"])
+def test_fully_parsed_adr_corpus_can_still_report_no_premise_flags(tmp_path, capsys, mode):
+    _decision(tmp_path, "0001-worktrees.md", title="Worktrees", status="Accepted", decided="2026-09-01")
+    records, warnings = project_next._decision_records(tmp_path)
+    assert len(records) == 1 and not warnings
+    fixture = tmp_path / "state.json"
+    fixture.write_text(json.dumps(project_next.asdict(_state())))
+    assert project_next.main([str(tmp_path), f"--{mode}", "--input", str(fixture)]) == 0
+    output = capsys.readouterr().out
+    if mode == "json":
+        assert json.loads(output)["cpp_extensions"]["premise_flags"] == []
+    elif mode == "brief":
+        assert "Premise staleness: none" in output
+    else:
+        assert "no spec predates a live decision" in output
+
+
+@pytest.mark.parametrize("mode", ["brief", "compact", "full", "json"])
+def test_unparsed_adrs_do_not_hide_real_flags_from_parsed_records(tmp_path, capsys, mode):
+    source = "docs/adr/0003-environment-release-deployment.md"
+    _write(tmp_path / source, (ROOT / "tests/fixtures/unparsed-accepted-adr.md").read_text())
+    _decision(tmp_path, "0007-worktrees.md", title="Worktree placement", status="Accepted", decided="2026-09-01")
+    _spec(tmp_path, "worktree-scaffolding", title="Worktree scaffolding", created="2026-05-01")
+    state = _spec_derived_state("worktree-scaffolding")
+    fixture = tmp_path / "state.json"
+    fixture.write_text(json.dumps(project_next.asdict(state)))
+    assert project_next.main([str(tmp_path), f"--{mode}", "--input", str(fixture)]) == 0
+    output = capsys.readouterr().out
+    if mode == "json":
+        extensions = json.loads(output)["cpp_extensions"]
+        assert extensions["premise_flags"][0]["issue_number"] == 12
+        assert extensions["premise_coverage"]["unparsed"] == [source]
+    else:
+        premise = output.split("Premise staleness", 1)[1].split("Worktree delivery", 1)[0]
+        assert "#12" in premise and source in premise and "unparsed" in premise
+        assert "no spec predates a live decision" not in output
+
+
+@pytest.mark.parametrize("failure", ["decode", "read"])
+def test_unreadable_decision_paths_remain_in_coverage(tmp_path, monkeypatch, failure):
+    source = "docs/adr/0003-unreadable.md"
+    bad = tmp_path / source
+    bad.parent.mkdir(parents=True)
+    if failure == "decode":
+        bad.write_bytes(b"\xff")
+        with pytest.raises(UnicodeError):
+            bad.read_text(encoding="utf-8")
+    else:
+        bad.touch()
+        original = Path.read_text
+
+        def denied(path, *args, **kwargs):
+            if path == bad:
+                raise PermissionError("fixture denies this ADR")
+            return original(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", denied)
+        with pytest.raises(PermissionError):
+            bad.read_text(encoding="utf-8")
+    _decision(tmp_path, "0001-worktrees.md", title="Worktrees", status="Accepted", decided="2026-09-01")
+    inventory = project_next._decision_inventory(tmp_path)
+    assert inventory.coverage.unparsed == (source,)
+    assert len(inventory.coverage.parsed) == len(inventory.records) == 1
+    assert len(inventory.warnings) == 1 and source in inventory.warnings[0]

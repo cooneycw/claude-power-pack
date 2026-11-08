@@ -51,6 +51,7 @@
 #   --finish-partial-removal
 #                    VERIFY (never remove) a worktree already left half-
 #                    deleted (no .git file, directory still present).
+#                    Requires Git 2.36 or newer for a NUL-delimited registry.
 #                    Requires --owner-repo AND --allow-dirty (there is no
 #                    .git left to ask whether the directory is clean, so
 #                    this path cannot be trusted by default). ALSO requires
@@ -638,6 +639,22 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
             exit 11
             ;;
     esac
+
+    # Git before 2.36 prints raw paths in line-delimited porcelain. A
+    # newline in ANOTHER registered path can forge fields/records there;
+    # rejecting newlines in our target alone cannot make that fallback safe.
+    # Require the NUL-capable version for this mode, without raising the
+    # minimum for ordinary removal. Unknown version is not proven capable.
+    FP_GIT_VERSION="$(git --version 2>/dev/null || true)"
+    if [[ ! "$FP_GIT_VERSION" =~ ^git[[:space:]]version[[:space:]]([0-9]+)\.([0-9]+)($|[.[:space:]]) ]]; then
+        echo -e "${RED}Error: could not determine Git version (found: ${FP_GIT_VERSION:-unavailable}); --finish-partial-removal requires git >= 2.36${NC}" >&2
+        exit 13
+    fi
+    if (( 10#${BASH_REMATCH[1]} < 2 || (10#${BASH_REMATCH[1]} == 2 && 10#${BASH_REMATCH[2]} < 36) )); then
+        echo -e "${RED}Error: --finish-partial-removal requires git >= 2.36 (found: $FP_GIT_VERSION)${NC}" >&2
+        echo "  Older Git cannot supply the NUL-delimited worktree registry required for safe ownership verification." >&2
+        exit 13
+    fi
 
     # Parse `git worktree list --porcelain -z` field by field, NUL-delimited -
     # never sed/grep/line-based. Measured (issue #1524): each record ends with
