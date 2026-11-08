@@ -186,16 +186,17 @@ def pytest_incomplete_reason(output: str, error: str) -> Optional[str]:
 
     Summary counts describe completed populations only (#1617). Start banners
     without matching tails, or explicit interruption diagnostics even under
-    quiet pytest, are independent evidence of an unfinished population. Streams
-    are counted together because wrappers can route starts and tails separately.
+    quiet pytest, are independent evidence of an unfinished population. A tail
+    on another stream cannot establish which session completed; refuse the
+    filtered retry conservatively when same-stream completion is unproven.
     Balanced, labelled negative-control output belongs to its child experiment.
     Missing banners alone prove nothing; ordinary quiet single runs may retry.
     """
     starts = tails = 0
-    pending_sessions = unmatched_tails = 0
+    pending_sessions = 0
     for stream in (output, error):
         text, _ = _extract_control_segments(stream or "")
-        pending = early_tails = 0
+        pending = 0
         for line in text.splitlines():
             if re.match(r"^(?:!+\s*)?(?:KeyboardInterrupt\b|Interrupted:)", line.strip()):
                 return "pytest interruption diagnostic"
@@ -206,14 +207,8 @@ def pytest_incomplete_reason(output: str, error: str) -> Optional[str]:
                 tails += 1
                 if pending:
                     pending -= 1
-                else:
-                    early_tails += 1
         pending_sessions += pending
-        # A quiet invocation's earlier tail cannot finish a LATER start on
-        # this stream. Only a different stream can supply its missing tail.
-        if not pending:
-            unmatched_tails += early_tails
-    if pending_sessions > unmatched_tails:
+    if pending_sessions:
         return (
             "unfinished pytest session in captured stream order "
             f"({starts} start banners, {tails} completed summaries)"

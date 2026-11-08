@@ -58,14 +58,14 @@ def test_interrupted_composite_cannot_be_cleared_by_filtered_retry(tmp_path: Pat
     ("=== 1 failed in 0.1s ===\n!!! Interrupted: stopping !!!\n", ""),
     ("=== test session starts ===\n=== test session starts ===\n",
      "=== 1 failed in 0.1s ===\n"),
+    ("=== test session starts ===\n", "=== 1 failed in 0.1s ===\n"),
+    ("=== 1 failed in 0.1s ===\n", "=== test session starts ===\n"),
 ])
 def test_incomplete_evidence_is_independent_of_completed_summary_count(output, error):
     assert pytest_incomplete_reason(output, error) is not None
 
 
 @pytest.mark.parametrize("output,error", [
-    ("=== test session starts ===\n", "=== 1 failed in 0.1s ===\n"),
-    ("=== 1 failed in 0.1s ===\n", "=== test session starts ===\n"),
     ("=== test session starts ===\n=== test session starts ===\n"
      "=== 1 passed in 0.1s ===\n=== 1 failed in 0.1s ===\n", ""),
     ("=== 1 failed in 0.1s ===\n", ""),
@@ -82,6 +82,32 @@ def test_unmarked_quiet_interruption_cannot_be_inferred():
     # No start or interruption signal: indistinguishable from a completed quiet
     # invocation. The detector claims only to refuse observed incomplete work.
     assert pytest_incomplete_reason("=== 1 failed in 0.1s ===\n", "") is None
+
+
+def test_crossed_stream_completion_cannot_be_attributed():
+    # These streams could describe two completed sessions OR an unfinished
+    # population plus an unrelated summary. Refuse only the filtered retry;
+    # the original completed passing composite is still allowed to pass.
+    assert pytest_incomplete_reason(
+        "=== 1 failed in 0.1s ===\n=== test session starts ===\n",
+        "=== test session starts ===\n=== 1 passed in 0.1s ===\n",
+    ) is not None
+
+
+@requires_shell
+def test_unrelated_stderr_summary_cannot_complete_a_stdout_session(tmp_path):
+    command = (
+        "if [ -f attempted ]; then printf '%s\\n' '=== 1 passed in 0.01s ==='; "
+        "else touch attempted; printf '%s\\n' '=== 1 failed in 0.01s ===' "
+        "'FAILED tests/unit.py::test_one - AssertionError' >&2; "
+        "printf '%s\\n' '=== test session starts ==='; exit 1; fi"
+    )
+    log = StringIO()
+    result = DeterministicRunner(
+        project_root=tmp_path, output=log, rerun_failed=True
+    ).run("check", step_defs=[StepDef(id="test", command=command)])
+    assert not result.success, log.getvalue()
+    assert not result.reruns
 
 
 @requires_shell
