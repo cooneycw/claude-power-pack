@@ -32,7 +32,8 @@ if [[ "$1 $2" == "pr view" ]]; then
     case "$arg" in
       headRefOid,baseRefName) echo '{"headRefOid":"HEAD","baseRefName":"main"}'; exit 0 ;;
       headRefOid) echo HEAD; exit 0 ;;
-      statusCheckRollup) echo 'ci|https://github.com/o/r/actions/runs/19|FAILURE'; exit 0 ;;
+      statusCheckRollup|headRefOid,statusCheckRollup)
+        echo 'ci|https://github.com/o/r/actions/runs/19|FAILURE'; exit 0 ;;
     esac
   done
 fi
@@ -122,3 +123,80 @@ def test_unreadable_classic_protection_cannot_be_hidden_by_readable_rulesets(tmp
     else:
         with pytest.raises(ProviderError, match="unreadable"):
             required_contexts("o/r", "main", "fixture-gh")
+
+
+def moving_head_gh(tmp_path: Path, after: int) -> Path:
+    import sys
+    gh = gh_fixture(tmp_path)
+    base = tmp_path / "gh-base"
+    gh.rename(base)
+    counter = tmp_path / "head-count"
+    gh.write_text(f"#!{sys.executable}\n" + f'''import json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+if args[:2] == ['pr','view'] and 'headRefOid,baseRefName' in args:
+    file = Path({str(counter)!r})
+    count = int(file.read_text()) if file.exists() else 0
+    file.write_text(str(count+1))
+    print(json.dumps({{'headRefOid': {HEAD!r} if count < {after} else 'b'*40, 'baseRefName':'main'}}))
+else:
+    os.execv({str(base)!r}, [{str(base)!r}, *args])
+''')
+    gh.chmod(0o755)
+    return gh
+
+
+@requires_tools
+@pytest.mark.parametrize("after,code,verdict", [(1, 2, "unknown"), (2, 1, "red")])
+def test_head_movement_requires_evidence_and_never_erases_an_observed_red(tmp_path: Path, after, code, verdict):
+    record = tmp_path / ".claude/cicd.yml"
+    record.parent.mkdir()
+    record.write_text("pipeline:\n  providers: [github-actions]\n")
+    gh = moving_head_gh(tmp_path, after)
+    result = subprocess.run(["bash", str(SCRIPT), "12", "--path", str(tmp_path), "--repo", "o/r", "--timeout", "0"],
+                            env={**os.environ, "FLOW_PR_WATCH_GH": str(gh)},
+                            capture_output=True, text=True, timeout=20)
+    assert result.returncode == code, result.stdout + result.stderr
+    assert "FLOW_PR_WATCH: " + verdict in result.stdout
+
+
+@requires_tools
+@pytest.mark.parametrize("conclusion", ["timed_out", "startup_failure", "action_required", "future_red"])
+def test_non_test_actions_failure_is_never_excused_by_a_baselined_test(tmp_path: Path, conclusion):
+    record = tmp_path / ".claude/cicd.yml"
+    record.parent.mkdir()
+    record.write_text("pipeline:\n  providers: [github-actions]\n")
+    gh = gh_fixture(tmp_path)
+    source = gh.read_text().replace("echo 'tests|failure|2026-11-08T00:00:00Z|81|'", (
+        "printf '%s\\n' 'tests|failure|2026-11-08T00:00:00Z|81|' "
+        f"'build|{conclusion}|2026-11-08T00:00:00Z|82|'"))
+    source = source.replace('#!/usr/bin/env bash\n', '''#!/usr/bin/env bash
+if [[ "$1 $2" == "run view" && "$*" == *"--job 82"* && "$*" == *"--log-failed"* ]]; then
+  echo 'job ended without a pytest conclusion'; exit 0
+fi
+''', 1)
+    gh.write_text(source)
+    baseline = tmp_path / "baseline"
+    baseline.write_text("tests/test_feature.py::test_regression\n")
+    result = subprocess.run(["bash", str(SCRIPT), "12", "--path", str(tmp_path), "--repo", "o/r",
+                             "--timeout", "0", "--baseline", str(baseline)],
+                            env={**os.environ, "FLOW_PR_WATCH_GH": str(gh)},
+                            capture_output=True, text=True, timeout=20)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "FLOW_PR_WATCH: red" in result.stdout
+
+
+@pytest.mark.parametrize("kind,code,verdict", [
+    ("killed", 0, "cancelled"), ("red", 1, "red"), ("unknown", 2, "unknown"),
+])
+def test_supersession_requires_kill_signature_and_preserves_real_failures(capsys, kind, code, verdict):
+    from lib.cicd.flow import moved_watch
+    output = ("FLOW_PR_WATCH_PIPELINE=19\nFLOW_PR_WATCH_KILL_SIGNATURE=1\n"
+              "FLOW_PR_WATCH_SUMMARY_FAILED=-\nFLOW_PR_WATCH_FAILED=-\n")
+    if kind == "red":
+        output = output.replace("FLOW_PR_WATCH_FAILED=-", "FLOW_PR_WATCH_FAILED=tests/test_app.py::test_real")
+    elif kind == "unknown":
+        output = output.replace("FLOW_PR_WATCH_KILL_SIGNATURE=1", "FLOW_PR_WATCH_KILL_SIGNATURE=0")
+    state = "red" if kind != "unknown" else "unknown"
+    assert moved_watch([("ci", state, output)], {"headRefOid": HEAD}, {"headRefOid": "b" * 40}) == code
+    assert "FLOW_PR_WATCH: " + verdict in capsys.readouterr().out

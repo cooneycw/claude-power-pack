@@ -1,6 +1,7 @@
 """Recorded provider routing must precede any provider probes (#1610 A)."""
 
 import shutil
+import signal
 from pathlib import Path
 
 import pytest
@@ -49,7 +50,7 @@ def test_unknown_record_stops_without_guessing_a_provider(tmp_path: Path):
 @pytest.mark.parametrize("states,expected", [
     (["success", "success"], "success"), (["success", "failure"], "failure"),
     (["running", "failure"], "failure"), (["unknown", "running"], "running"),
-    (["success", "not-found"], "unknown"), ([], "unknown"),
+    (["success", "not-found"], "not-found"), ([], "unknown"),
 ])
 def test_combined_provider_population_requires_every_green(states, expected):
     from lib.cicd.flow import aggregate
@@ -254,7 +255,8 @@ def test_registry_extension_needs_no_consumer_enum_change(tmp_path: Path, monkey
 
 @requires_bash
 @pytest.mark.skipif(shutil.which("sleep") is None, reason="requires sleep for the signal fixture")
-def test_recorded_dispatch_signal_reports_real_exit_and_stops_children(tmp_path: Path):
+@pytest.mark.parametrize("signum,code", [(signal.SIGTERM, 143), (signal.SIGHUP, 129)], ids=["TERM", "HUP"])
+def test_recorded_dispatch_signal_reports_real_exit_and_stops_children(tmp_path: Path, signum, code):
     import os
     import signal
     import subprocess
@@ -279,11 +281,11 @@ def test_recorded_dispatch_signal_reports_real_exit_and_stops_children(tmp_path:
             time.sleep(0.01)
         assert ready.exists(), "fixture must reach the blocking backend"
         child_pid = int(ready.read_text())
-        process.send_signal(signal.SIGTERM)
+        process.send_signal(signum)
         _, stderr = process.communicate(timeout=5)
-        assert process.returncode == 143, stderr
+        assert process.returncode == code, stderr
         assert stderr.count("FLOW_CI_EXIT=") == 1
-        assert stderr.rstrip().endswith("FLOW_CI_EXIT=143")
+        assert stderr.rstrip().endswith(f"FLOW_CI_EXIT={code}")
         with pytest.raises(ProcessLookupError):
             os.kill(child_pid, 0)
     finally:
@@ -370,3 +372,59 @@ exit 1
                        "FLOW_CI_CURL": str(curl), "FLOW_CI_GH": str(gh)})
     assert _markers(result.stdout)["FLOW_CI_STATUS"] == ["failure"], result.stdout + result.stderr
     assert count.read_text().strip() == "1", "HEAD must be captured before dispatch, not once per provider"
+
+
+def test_wait_retries_a_provider_that_has_not_registered_its_pipeline(tmp_path: Path, monkeypatch, capsys):
+    import subprocess
+
+    from lib.cicd import flow
+    record = tmp_path / ".claude/cicd.yml"
+    record.parent.mkdir()
+    record.write_text("pipeline:\n  providers: [github-actions]\n")
+    states = iter(["not-found", "failure"])
+    calls = []
+
+    def backend(script, argv, lane):
+        state = next(states)
+        calls.append(state)
+        return subprocess.CompletedProcess(argv, 0, stdout=(
+            "FLOW_CI_PROVIDER: github-actions\nFLOW_CI_REF: " + SHA + "\nFLOW_CI_STATUS: " + state + "\n"), stderr="")
+    monkeypatch.setattr(flow, "shell_status", backend)
+    monkeypatch.setattr(flow.time, "sleep", lambda seconds: None)
+    assert flow.status_main("owned-backend", [SHA, "--path", str(tmp_path), "--wait", "30", "--exit-code"]) == 1
+    assert calls == ["not-found", "failure"]
+    assert "FLOW_CI_STATUS: failure" in capsys.readouterr().out
+
+
+@requires_bash
+def test_wait_retries_actual_empty_actions_listing(tmp_path: Path, monkeypatch, capsys):
+    import json
+    import os
+
+    from lib.cicd import flow
+    from tests.test_flow_ci_status import SCRIPT
+    record = tmp_path / ".claude/cicd.yml"
+    record.parent.mkdir()
+    record.write_text("pipeline:\n  providers: [github-actions]\n")
+    counter = tmp_path / "gh-count"
+    gh = tmp_path / "gh"
+    runs = json.dumps([_gha_run(19, "failure")])
+    gh.write_text(f'''#!/bin/sh
+if [ "$1 $2" = "run list" ]; then
+    n=0; [ ! -f "{counter}" ] || n=$(cat "{counter}")
+    echo $((n+1)) > "{counter}"
+    if [ "$n" = 0 ]; then echo '[]'; else echo '{runs}'; fi
+    exit 0
+fi
+exit 1
+''')
+    gh.chmod(0o755)
+    monkeypatch.setenv("FLOW_CI_GH", str(gh))
+    monkeypatch.setenv("FLOW_CI_AWS", "/nonexistent/aws")
+    monkeypatch.setattr(flow.time, "sleep", lambda seconds: None)
+    assert os.access(gh, os.X_OK)
+    code = flow.status_main(str(SCRIPT), [SHA, "--path", str(tmp_path), "--repo", "o/r", "--event", "pull_request",
+                                        "--wait", "30", "--exit-code"])
+    assert code == 1
+    assert counter.read_text().strip() == "2"
+    assert "FLOW_CI_STATUS: failure" in capsys.readouterr().out

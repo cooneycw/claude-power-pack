@@ -152,6 +152,7 @@ trap 'signal_exit 129' HUP
 trap 'printf "FLOW_PR_WATCH_EXIT=%d\n" "$?" >&2' EXIT
 
 PR_NUMBER=""
+WATCH_EXPECT_HEAD=""
 REPO=""
 TIMEOUT=1800
 INTERVAL=15
@@ -172,6 +173,7 @@ die_usage() {
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --fallback-provider-probes) shift ;;
+        --watch-head) WATCH_EXPECT_HEAD="${2:-}"; [[ "$WATCH_EXPECT_HEAD" =~ ^[0-9a-fA-F]{40}$ ]] || die_usage "--watch-head needs a full SHA"; shift 2 ;;
         --repo)       REPO="${2:-}"; [[ -n "$REPO" ]] || die_usage "--repo needs owner/name"; shift 2 ;;
         --repo=*)     REPO="${1#*=}"; shift ;;
         --timeout)    TIMEOUT="${2:-}"; [[ "$TIMEOUT" =~ ^[0-9]+$ ]] || die_usage "--timeout needs seconds"; shift 2 ;;
@@ -247,6 +249,13 @@ emit() {
     echo "FLOW_PR_WATCH_HEAD=$HEAD_SHA"
     echo "FLOW_PR_WATCH_PIPELINE=$PIPELINE"
     echo "FLOW_PR_WATCH_STATE=${STATE:-unknown}"
+    local kill_signature=0
+    if [[ "${STATE,,}" == "killed" || "${STATE,,}" == "cancelled" || "${CANCELED_STEP:-0}" -eq 1 ]] \
+       || [[ "${SIMULTANEOUS_STOP:-0}" -eq 1 && "${HAS_SUMMARY:-0}" -eq 0 ]]; then
+        kill_signature=1
+    fi
+    if [[ "${HAS_SUMMARY:-0}" -eq 1 && "${#FAILED_IDS[@]}" -gt 0 ]]; then kill_signature=0; fi
+    echo "FLOW_PR_WATCH_KILL_SIGNATURE=$kill_signature"
     echo "FLOW_PR_WATCH_URL=$URL"
     echo "FLOW_PR_WATCH_SUPERSEDED_BY=$SUPERSEDED_BY"
     if [[ "${#FAILED_IDS[@]}" -gt 0 ]]; then
@@ -308,8 +317,15 @@ gh_pr_json() { # gh_pr_json <json-fields> <jq-filter>
 # number within that one context wins, safely preferring a re-run in the same
 # lane over a stale one without crossing into another lane.
 rollup_pipeline() { # -> "<number>|<state>|<url>" or empty
-    gh_pr_json statusCheckRollup \
-        '.statusCheckRollup[]? | "\(.context // .name // "")|\(.targetUrl // .detailsUrl // "")|\(.state // .conclusion // .status // "PENDING")"' \
+    local fields=statusCheckRollup
+    local filter='.statusCheckRollup[]? | "\(.context // .name // "")|\(.targetUrl // .detailsUrl // "")|\(.state // .conclusion // .status // "PENDING")"'
+    if [[ -n "$WATCH_EXPECT_HEAD" ]]; then
+        # One GraphQL snapshot binds the rollup to its head. A later PR head
+        # must never supply the statuses for the pinned watch.
+        fields=headRefOid,statusCheckRollup
+        filter="select(.headRefOid == \"$WATCH_EXPECT_HEAD\") | $filter"
+    fi
+    gh_pr_json "$fields" "$filter" \
     | {
         best_num=-1
         best=""
@@ -434,6 +450,11 @@ if [[ -z "$WATCH_HEAD" ]]; then
     emit
 fi
 HEAD_SHA="$WATCH_HEAD"
+if [[ -n "$WATCH_EXPECT_HEAD" && "$WATCH_HEAD" != "$WATCH_EXPECT_HEAD" ]]; then
+    HEAD_SHA="$WATCH_EXPECT_HEAD"
+    echo "flow-pr-watch: head moved before the pinned watch began; no cancellation evidence." >&2
+    emit
+fi
 
 DEADLINE=$(( $(date +%s) + TIMEOUT ))
 SUPERSEDED=0
@@ -444,6 +465,10 @@ while :; do
     CURRENT_HEAD="$(gh_pr_json headRefOid '.headRefOid')"
     if [[ -n "$CURRENT_HEAD" && "$CURRENT_HEAD" != "$WATCH_HEAD" ]]; then
         SUPERSEDED=1
+        if [[ -n "$WATCH_EXPECT_HEAD" && "$PIPELINE" == "-" ]]; then
+            echo "flow-pr-watch: pinned head moved before any run was examined; no cancellation evidence." >&2
+            emit
+        fi
         if have_wpcli; then
             NEWER="$(wp_pipeline_for_sha "$CURRENT_HEAD")"
             [[ -n "$NEWER" ]] && SUPERSEDED_BY="${NEWER%%|*}"
@@ -559,8 +584,19 @@ TOTAL_FAILED=0
 COUNT_SEEN=0
 CANCELED_STEP=0
 HAS_SUMMARY=0
+NON_TEST_FAILURE=0
+failed_watch_step() {
+    if [[ "${CPP_FLOW_PR_WATCH_BACKEND:-probe}" == "github-actions" ]]; then
+        case "${1,,}" in success|skipped|neutral) return 1 ;; *) return 0 ;; esac
+    fi
+    case "${1,,}" in failure|error|killed) return 0 ;; *) return 1 ;; esac
+}
 while IFS='|' read -r name state _ pid error; do
-    case "${state,,}" in failure|error|killed) ;; *) continue ;; esac
+    failed_watch_step "$state" || continue
+    if [[ "${CPP_FLOW_PR_WATCH_BACKEND:-probe}" == "github-actions" && "$state" != "failure" ]]; then
+        NON_TEST_FAILURE=1
+        echo "flow-pr-watch: non-test Actions conclusion '$state' in $name cannot be baselined." >&2
+    fi
     [[ "$error" == "Canceled" ]] && CANCELED_STEP=1
     LOG=""
     if [[ -n "$pid" ]] && ! LOG="$(wp_log "$PIPELINE" "$pid")"; then
@@ -770,6 +806,11 @@ if [[ "$SUPERSEDED" -eq 1 ]]; then
     else
         echo "flow-pr-watch: pipeline #$PIPELINE was superseded, but its log carries no pytest summary - classifying on the failures, not on the supersession." >&2
     fi
+fi
+
+if [[ "$NON_TEST_FAILURE" -eq 1 ]]; then
+    VERDICT="red"
+    emit
 fi
 
 if [[ "$UNRESOLVED" -eq 1 ]]; then

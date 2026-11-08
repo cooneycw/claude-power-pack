@@ -25,7 +25,7 @@ elif args[:2] == ['pr','view']:
     if fields == 'headRefOid,baseRefName':
         print(json.dumps({'headRefOid':'a'*40,'baseRefName':'main'}))
     elif fields == 'headRefOid': print('a'*40)
-    elif fields == 'statusCheckRollup': print('ci|https://github.com/o/r/actions/runs/19|STATE')
+    elif fields in {'statusCheckRollup','headRefOid,statusCheckRollup'}: print('ci|https://github.com/o/r/actions/runs/19|STATE')
     else: raise SystemExit(1)
 elif args[:2] == ['run','view']:
     if '--log-failed' in args:

@@ -109,9 +109,9 @@ def aggregate(states: list[str]) -> str:
         return "stalled"
     if any(state in {"running", "pending"} for state in states):
         return "running"
-    if not states or any(state != "success" for state in states):
+    if not states or any(state not in {"success", "not-found"} for state in states):
         return "unknown"
-    return "success"
+    return "not-found" if "not-found" in states else "success"
 
 
 def callback(hook: str):
@@ -141,7 +141,7 @@ def child_stderr(stderr: str, marker: str) -> None:
 
 def entry(function, marker: str, *args) -> int:
     code = 1
-    previous = {sig: signal.signal(sig, stop_children) for sig in (signal.SIGINT, signal.SIGTERM)}
+    previous = {sig: signal.signal(sig, stop_children) for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
     try:
         code = function(*args)
         return code
@@ -257,10 +257,11 @@ def status_main(script: str, argv: list[str]) -> int:
     print("FLOW_CI_PROVIDER: " + ",".join(name for name, _ in lanes))
     print("FLOW_CI_LANES: " + json.dumps({name: {"status": state, "evidence": report}
                                            for name, state, report in reports}, sort_keys=True))
-    wait = "none" if args.wait <= 0 else ("expired" if verdict == "running" else "settled")
+    wait = "none" if args.wait <= 0 else (
+        f"expired ({args.wait}s)" if verdict in {"running", "not-found"} else "settled")
     print("FLOW_CI_WAIT: " + wait)
     print("FLOW_CI_STATUS: " + verdict)
-    if verdict == "unknown":
+    if verdict in {"unknown", "not-found"}:
         return 2
     return 1 if args.exit_code and verdict in {"failure", "stalled"} else 0
 
@@ -344,6 +345,57 @@ def context_lanes(project: str | Path, contexts: list[str]) -> list[tuple[str, s
     return result
 
 
+def observed_watch_failure(output: str) -> bool:
+    return any(line.lower() in {
+        "flow_pr_watch_state=failure", "flow_pr_watch_state=error", "flow_pr_watch_state=killed",
+        "flow_pr_watch_state=cancelled", "flow_pr_watch_state=timed_out", "flow_pr_watch_state=startup_failure",
+        "flow_pr_watch_state=action_required", "flow_pr_watch_state=stale",
+    } for line in output.splitlines())
+
+
+def cancellation_evidence(output: str) -> bool:
+    fields: dict[str, list[str]] = {}
+    for line in output.splitlines():
+        if line.startswith("FLOW_PR_WATCH_") and "=" in line:
+            key, value = line.split("=", 1)
+            fields.setdefault(key, []).append(value)
+    pipeline = fields.get("FLOW_PR_WATCH_PIPELINE", [])
+    return (fields.get("FLOW_PR_WATCH_KILL_SIGNATURE") == ["1"]
+            and fields.get("FLOW_PR_WATCH_FAILED") == ["-"]
+            and fields.get("FLOW_PR_WATCH_SUMMARY_FAILED") in (["0"], ["-"])
+            and len(pipeline) == 1 and pipeline[0].isdigit() and int(pipeline[0]) > 0)
+
+
+def emit_watch(reports: list[tuple[str, str, str]], verdict: str, head: str) -> int:
+    candidates = [item for item in reports if item[1] == verdict]
+    if verdict == "red":
+        candidates = [item for item in candidates if not cancellation_evidence(item[2])] or candidates
+    elif verdict == "cancelled":
+        candidates = [item for item in reports if cancellation_evidence(item[2])]
+    decisive = (candidates or reports)[0] if reports else None
+    if decisive:
+        for line in decisive[2].splitlines():
+            if not line.startswith(("FLOW_PR_WATCH: ", "FLOW_PR_WATCH_HEAD=")):
+                print(line)
+    print("FLOW_PR_WATCH_HEAD=" + head)
+    print("FLOW_PR_WATCH_CONTEXTS=" + json.dumps({context: state for context, state, _ in reports}))
+    print("FLOW_PR_WATCH: " + verdict)
+    return {"red": 1, "unknown": 2, "timeout": 5}.get(verdict, 0)
+
+
+def moved_watch(reports: list[tuple[str, str, str]], original: dict, current: dict) -> int:
+    if any(state == "red" and not cancellation_evidence(output) for _, state, output in reports):
+        verdict = "red"
+    elif current["headRefOid"] != original["headRefOid"] and any(
+        cancellation_evidence(output) for _, _, output in reports
+    ):
+        verdict = "cancelled"
+    else:
+        verdict = "unknown"
+    print("flow-pr-watch: PR head/base changed; cancellation needs witnessed kill evidence.", file=sys.stderr)
+    return emit_watch(reports, verdict, original["headRefOid"])
+
+
 def watch_main(script: str, argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="flow-pr-watch.sh")
     parser.add_argument("pr")
@@ -398,14 +450,11 @@ def watch_main(script: str, argv: list[str]) -> int:
         while True:
             current = head()
             if current != original:
-                print("FLOW_PR_WATCH_HEAD=" + original["headRefOid"])
-                print("FLOW_PR_WATCH: cancelled" if current["headRefOid"] != original["headRefOid"] else
-                      "FLOW_PR_WATCH: unknown")
-                return 0 if current["headRefOid"] != original["headRefOid"] else 2
+                return moved_watch(reports, original, current)
             reports = []
             for context, name, lane in selected:
                 watch_argv = [pr, "--path", args.path, "--repo", repo,
-                           "--context", context, "--timeout", "0"]
+                              "--context", context, "--timeout", "0", "--watch-head", original["headRefOid"]]
                 if args.baseline:
                     watch_argv.extend(["--baseline", args.baseline])
                 response = callback(PROVIDERS[name].flow_watch)(script, watch_argv, lane)
@@ -413,11 +462,14 @@ def watch_main(script: str, argv: list[str]) -> int:
                 verdicts = [line.removeprefix("FLOW_PR_WATCH: ") for line in response.stdout.splitlines()
                             if line.startswith("FLOW_PR_WATCH: ")]
                 verdict = verdicts[0] if len(verdicts) == 1 and response.returncode in {0, 1, 5} else "unknown"
-                if verdict == "unknown" and any(line.lower() in {
-                    "flow_pr_watch_state=failure", "flow_pr_watch_state=error", "flow_pr_watch_state=killed",
-                    "flow_pr_watch_state=cancelled", "flow_pr_watch_state=timed_out",
-                } for line in response.stdout.splitlines()):
-                    verdict = "red"  # Unknown log attribution cannot erase an observed red check.
+                if verdict == "unknown" and observed_watch_failure(response.stdout):
+                    verdict = "red"  # Unknown attribution cannot erase an observed red check.
+                if verdict == "cancelled" and not cancellation_evidence(response.stdout):
+                    verdict = "red" if observed_watch_failure(response.stdout) else "unknown"
+                if [line for line in response.stdout.splitlines() if line.startswith("FLOW_PR_WATCH_HEAD=")] != [
+                    "FLOW_PR_WATCH_HEAD=" + original["headRefOid"]
+                ]:
+                    verdict = "unknown"
                 reports.append((context, verdict, response.stdout))
             states = [verdict for _, verdict, _ in reports]
             if "red" in states:
@@ -431,19 +483,12 @@ def watch_main(script: str, argv: list[str]) -> int:
             if verdict != "unknown" or args.timeout == 0 or time.monotonic() >= deadline:
                 break
             time.sleep(min(max(1, args.interval), max(0, deadline - time.monotonic())))
-        if head() != original:
-            print("FLOW_PR_WATCH_HEAD=" + original["headRefOid"])
-            print("FLOW_PR_WATCH: cancelled")
-            return 0
-        decisive = next((item for item in reports if item[1] == verdict), reports[0])
-        for line in decisive[2].splitlines():
-            if not line.startswith("FLOW_PR_WATCH: "):
-                print(line)
-        print("FLOW_PR_WATCH_CONTEXTS=" + json.dumps({context: state for context, state, _ in reports}))
+        current = head()
+        if current != original:
+            return moved_watch(reports, original, current)
         if verdict == "unknown" and args.timeout > 0 and time.monotonic() >= deadline:
             verdict = "timeout"
-        print("FLOW_PR_WATCH: " + verdict)
-        return {"red": 1, "unknown": 2, "timeout": 5}.get(verdict, 0)
+        return emit_watch(reports, verdict, original["headRefOid"])
     except (ProviderError, OSError, ValueError, ImportError, AttributeError, subprocess.SubprocessError) as exc:
         print(f"flow-pr-watch: {exc}; {REMEDY}", file=sys.stderr)
         print("FLOW_PR_WATCH: unknown")

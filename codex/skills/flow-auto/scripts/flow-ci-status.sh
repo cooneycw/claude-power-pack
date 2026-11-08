@@ -198,7 +198,7 @@ while [[ $# -gt 0 ]]; do
             if [[ "${2:-}" =~ ^[0-9]+$ ]]; then WAIT_SECS="$2"; shift 2; else WAIT_SECS=600; shift; fi
             ;;
         --wait=*)      WAIT_SECS="${1#*=}"; [[ "$WAIT_SECS" =~ ^[0-9]+$ ]] || die_usage "--wait needs seconds"; shift ;;
-        -h|--help)     sed -n '2,117p' "$0"; exit 0 ;;
+        -h|--help)     sed -n '2,/^$/p' "$0"; exit 0 ;;
         -*)            die_usage "unknown argument: $1" ;;
         *)             [[ -z "$SHA" ]] || die_usage "unexpected argument: $1"; SHA="$1"; shift ;;
     esac
@@ -1017,8 +1017,11 @@ gha_stall_check() {
     else STALL_CHECK="checked"; fi
 }
 if [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "woodpecker" && "$HAVE_JQ" -eq 1 ]] && command -v "$GH_BIN" >/dev/null 2>&1; then
-    ALL_RUNS="$(gha_runs)"
-    if [[ -n "$ALL_RUNS" && "$(jq -r 'if type == "array" then length else 0 end' <<<"$ALL_RUNS" 2>/dev/null)" -gt 0 ]]; then
+    if ! ALL_RUNS="$(gha_runs)"; then ALL_RUNS=""; fi
+    if [[ -n "$ALL_RUNS" ]] && jq -e 'type == "array"' <<<"$ALL_RUNS" >/dev/null 2>&1 && {
+        [[ "${CPP_FLOW_CI_BACKEND:-probe}" == "github-actions" ]] ||
+        [[ "$(jq -r length <<<"$ALL_RUNS")" -gt 0 ]];
+    }; then
         PROVIDER="github-actions"
         DEADLINE=$(( $(date +%s) + WAIT_SECS ))
         while :; do
