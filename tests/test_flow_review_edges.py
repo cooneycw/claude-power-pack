@@ -68,3 +68,51 @@ def test_status_fallback_budgets_requested_wait_and_reports_timeout(tmp_path, mo
     assert output.err.count("FLOW_CI_EXIT=") == 1
     if hung:
         assert "fallback" in output.err.lower()
+
+
+@pytest.mark.parametrize("failure_at", ["next-context", "final-head"])
+@pytest.mark.parametrize("timeout", [False, True])
+@pytest.mark.parametrize("first_verdict,code", [("red", 1), ("green", 2)])
+def test_remote_read_error_preserves_only_established_red(tmp_path, monkeypatch, capsys,
+                                                        failure_at, timeout, first_verdict, code):
+    from lib.cicd import flow
+    from tests.test_flow_watch_recorded import HEAD
+
+    record = tmp_path / ".claude/cicd.yml"
+    record.parent.mkdir()
+    record.write_text("pipeline:\n  providers: [github-actions]\n")
+    head_reads = 0
+    context_reads = 0
+
+    def fail(argv):
+        if timeout:
+            raise subprocess.TimeoutExpired(argv, 30)
+        raise subprocess.CalledProcessError(1, argv, stderr="owned API outage")
+
+    def head_read(argv, **kwargs):
+        nonlocal head_reads
+        head_reads += 1
+        if failure_at == "final-head" and head_reads == 3:
+            fail(argv)
+        return subprocess.CompletedProcess(argv, 0, '{"headRefOid":"' + HEAD + '","baseRefName":"main"}', "")
+
+    def context_read(script, argv, lane):
+        nonlocal context_reads
+        context_reads += 1
+        if failure_at == "next-context" and context_reads == 2:
+            fail(argv)
+        verdict = first_verdict if context_reads == 1 else "green"
+        output = ("FLOW_PR_WATCH_HEAD=" + HEAD + "\nFLOW_PR_WATCH: " + verdict + "\n"
+                  "FLOW_PR_WATCH_FAILED=" + ("tests/test_owned.py::test_failure" if verdict == "red" else "-") + "\n")
+        return subprocess.CompletedProcess(argv, 1 if verdict == "red" else 0, output, "")
+
+    monkeypatch.setattr(flow, "command", head_read)
+    monkeypatch.setattr(flow, "required_contexts", lambda *args: ["ci", "lint"])
+    monkeypatch.setattr(flow, "callback", lambda hook: context_read)
+    result = flow.watch_entry("fixture-watch.sh", ["12", "--path", str(tmp_path), "--repo", "o/r", "--timeout", "0"])
+    output = capsys.readouterr()
+    assert result == code, output.out + output.err
+    assert "FLOW_PR_WATCH: " + ("red" if first_verdict == "red" else "unknown") in output.out
+    assert output.err.count("FLOW_PR_WATCH_EXIT=") == 1
+    if first_verdict == "red":
+        assert "FLOW_PR_WATCH_FAILED=tests/test_owned.py::test_failure" in output.out

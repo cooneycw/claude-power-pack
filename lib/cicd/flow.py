@@ -416,6 +416,8 @@ def watch_main(script: str, argv: list[str]) -> int:
     parser.add_argument("--fallback-provider-probes", action="store_true")
     args = parser.parse_args(argv)
     gh = os.environ.get("FLOW_PR_WATCH_GH", "gh")
+    reports: list[tuple[str, str, str]] = []
+    original: dict = {}
     try:
         if not args.pr.lstrip("#").isdigit() or args.timeout < 0:
             parser.error("numeric PR and nonnegative timeout required")
@@ -499,6 +501,10 @@ def watch_main(script: str, argv: list[str]) -> int:
         return emit_watch(reports, verdict, original["headRefOid"])
     except (ProviderError, OSError, ValueError, ImportError, AttributeError, subprocess.SubprocessError) as exc:
         print(f"flow-pr-watch: {exc}; {REMEDY}", file=sys.stderr)
+        if any(state == "red" for _, state, _ in reports):
+            # Later unreadable evidence cannot erase a failure already tied
+            # to the pinned head by the provider response contract.
+            return emit_watch(reports, "red", original["headRefOid"])
         print("FLOW_PR_WATCH: unknown")
         return 2
 
