@@ -1,0 +1,12 @@
+{
+  "target": "host-capability",
+  "host": {
+    "schema": 1,
+    "checked_at": null,
+    "providers": {
+      "github-actions": {
+        "status": "unknown"
+      }
+    }
+  }
+}

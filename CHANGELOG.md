@@ -11,6 +11,8 @@
 
 ### Fixed
 
+- Flow doctor now cross-checks recorded CI providers against registered pipeline files, declared/live required status checks and historical host capability, preserving unknown evidence; its fallback row remains explicitly unavailable until the shared lane planner lands (#1611).
+
 - Tier 4/5 installation receipts now use the observed host CI record write instead of requiring retired project generators; deferred, failed and unknown writes remain incomplete, and historical schema-1 project-generation receipts still read (#1649).
 - Flow CI refuses mixed Woodpecker credential sources instead of sending an AWS token to an unrelated environment-selected server (or the reverse), while complete and matching pairs keep working (#1644).
 

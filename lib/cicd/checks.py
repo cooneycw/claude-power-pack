@@ -6,6 +6,7 @@ push-only and path-filtered workflows cannot supply mandatory checks on every PR
 
 from __future__ import annotations
 
+import fnmatch
 import importlib
 import itertools
 import json
@@ -270,12 +271,40 @@ def derive_required_checks(providers: list[str], files: dict[str, str]) -> Requi
         return RequiredChecks("unknown", reason=str(exc), examined_files=examined, excluded=tuple(excluded))
 
 
+def read_pipeline_inventory(project: str | Path) -> dict[str, list[str]]:
+    """Registry-owned pipeline paths, including a future provider's canonical file."""
+    root = Path(project)
+    inventory = {}
+    for name, provider in PROVIDERS.items():
+        patterns = provider.pipeline_patterns or (provider.pipeline_file,)
+        paths: set[Path] = set()
+        for pattern in patterns:
+            relative = Path(pattern)
+            if (relative.is_absolute() or ".." in relative.parts
+                    or any(char in str(relative.parent) for char in "*?[")):
+                raise ValueError("unsupported registered pipeline pattern")
+            parent = root / relative.parent
+            try:
+                # Path.glob can suppress PermissionError and falsely establish
+                # absence. Enumerate explicitly so an unreadable scope is unknown.
+                entries = list(parent.iterdir())
+            except FileNotFoundError:
+                lineage = (parent, *parent.parents)
+                if any(path.is_symlink() for path in lineage if path == root or path.is_relative_to(root)):
+                    raise OSError("registered pipeline scope has an unreachable link") from None
+                continue
+            paths.update(path for path in entries if fnmatch.fnmatchcase(path.name, relative.name))
+        # A directory, broken link or unreadable path is not a proved absence.
+        if any(not path.is_file() for path in paths):
+            raise OSError("pipeline path is not a readable regular file")
+        inventory[name] = sorted(str(path.relative_to(root)) for path in paths)
+    return inventory
+
+
 def read_pipeline_files(project: str | Path) -> dict[str, str]:
     root = Path(project)
-    paths = [*root.glob(".github/workflows/*.yml"), *root.glob(".github/workflows/*.yaml"),
-             *root.glob(".woodpecker/*.yml"), *root.glob(".woodpecker/*.yaml")]
-    paths.extend(path for path in (root / ".woodpecker.yml", root / ".woodpecker.yaml") if path.is_file())
-    return {str(path.relative_to(root)): path.read_text() for path in paths}
+    inventory = read_pipeline_inventory(root)
+    return {name: (root / name).read_text() for paths in inventory.values() for name in paths}
 
 
 def check_posture(result: RequiredChecks, posture: Any) -> dict[str, Any]:

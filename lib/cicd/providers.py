@@ -24,6 +24,7 @@ class ProviderSpec:
     ci_lane: str
     host_check: str
     infra_generator: str = ""
+    pipeline_patterns: tuple[str, ...] = ()
 
 
 # Hook identities are shared with the later host/flow consumers. Generators
@@ -33,11 +34,13 @@ PROVIDERS = {
         "github-actions", "generate_github_actions", ".github/workflows/ci.yml",
         "lib.cicd.checks:github_actions_checks", "github-actions", "github-actions-auth",
         infra_generator="_generate_gh_infra_pipeline",
+        pipeline_patterns=(".github/workflows/*.yml", ".github/workflows/*.yaml"),
     ),
     "woodpecker": ProviderSpec(
         "woodpecker", "generate_woodpecker", ".woodpecker.yml",
         "lib.cicd.checks:woodpecker_checks", "woodpecker", "woodpecker-auth",
         infra_generator="_generate_woodpecker_infra_pipeline",
+        pipeline_patterns=(".woodpecker.yml", ".woodpecker.yaml", ".woodpecker/*.yml", ".woodpecker/*.yaml"),
     ),
 }
 
