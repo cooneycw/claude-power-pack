@@ -86,7 +86,10 @@ def initialize_mcp(project, env):
     """Execute the shipped initializer in its own tool-like subprocess."""
     match = re.search(r'# CPP_MCP_RUN_INIT_BEGIN\n(.*?)# CPP_MCP_RUN_INIT_END', INIT.read_text(), re.S)
     assert match, 'per-run initializer must exist'
-    result = subprocess.run(['bash', '-c', match[1]], cwd=project, env=dict(env, CPP_DIR=str(ROOT)),
+    scratch = project.parent / (project.name + "-mcp-temp")
+    scratch.mkdir(exist_ok=True)
+    result = subprocess.run(['bash', '-c', match[1]], cwd=project,
+                            env=dict(env, CPP_DIR=str(ROOT), TMPDIR=str(scratch)),
                             capture_output=True, text=True, timeout=15)
     assert result.returncode == 0, result.stdout + result.stderr
     paths = [x.split('=', 1)[1] for x in result.stdout.splitlines() if x.startswith('CPP_MCP_RUN_DIR=')]
@@ -382,6 +385,9 @@ def test_pool_rejects_entire_invalid_population_before_any_registration(tmp_path
 def test_registration_block_works_in_a_fresh_shell_after_initialization(tmp_path):
     env, log = fake_environment(tmp_path)
     initial = re.search(r'# CPP_MCP_RUN_INIT_BEGIN\n(.*?)# CPP_MCP_RUN_INIT_END', INIT.read_text(), re.S)
+    scratch = tmp_path.parent / (tmp_path.name + '-mcp-temp')
+    scratch.mkdir(exist_ok=True)
+    env['TMPDIR'] = str(scratch)
     setup = subprocess.run(['bash', '-c', initial[1] if initial else definitions()],
                            cwd=tmp_path, env=env, capture_output=True, text=True, timeout=15)
     assert setup.returncode == 0, setup.stdout + setup.stderr
@@ -422,17 +428,21 @@ def test_receipt_reloads_registration_from_a_different_shell(tmp_path, add_rc):
             {"step": "codex-playwright", "outcome": "installed"}]
     env.update(STEP_RESULTS_JSON=json.dumps(data), OFFERED_STEPS_JSON=json.dumps([x['step'] for x in data]),
                SELECTED_TIER='1', PROFILE_NAME='not-selected', PERMISSION_REPORT='{}')
+    run = Path(env['CPP_MCP_RUN_DIR'])
+    assert not run.is_relative_to(tmp_path), "run artifacts must stay outside the target project"
+    assert run.stat().st_mode & 0o777 == 0o700
+    assert all((run / name).stat().st_mode & 0o777 == 0o600 for name in ('routines.sh', 'results.json'))
+    assert 'fixture-only-placeholder' not in (run / 'routines.sh').read_text()
+    assert 'fixture-only-placeholder' not in (run / 'results.json').read_text()
     summary = invoke(tmp_path, env, consumer())
     receipt = json.loads((tmp_path / '.claude/cpp-install.json').read_text())
     codex = [x for x in receipt['steps'] if x['step'].startswith('codex-')]
     assert {x['outcome'] for x in codex} == ({'FAILED'} if add_rc == '19' else {'installed'})
     assert {x['exit_code'] for x in codex} == {int(add_rc)}
     assert ('CPP Installation Complete' in summary.stdout) is (add_rc == '0')
-    run = Path(env['CPP_MCP_RUN_DIR'])
-    assert run.stat().st_mode & 0o777 == 0o700
-    assert all((run / name).stat().st_mode & 0o777 == 0o600 for name in ('routines.sh', 'results.json'))
-    assert 'fixture-only-placeholder' not in (run / 'routines.sh').read_text()
-    assert 'fixture-only-placeholder' not in (run / 'results.json').read_text()
+    assert not Path(env['CPP_MCP_RUN_DIR']).exists()
+    assert 'temporary run removed' in summary.stdout
+    assert not (tmp_path / '.claude/cpp-init-mcp').exists()
 
 
 @SHELL
@@ -506,3 +516,73 @@ def test_state_helper_rejects_invalid_metadata_without_values(tmp_path, rows_dat
 def test_state_helper_stays_outside_executable_host_link_population():
     assert STATE_HELPER.is_file()
     assert STATE_HELPER.stat().st_mode & 0o111 == 0
+
+
+@SHELL
+@pytest.mark.parametrize('fault', ['missing-marker', 'unknown-file'])
+def test_cleanup_refuses_unowned_or_unexpected_contents(tmp_path, fault):
+    env, _ = fake_environment(tmp_path)
+    path = Path(initialize_mcp(tmp_path, env))
+    if fault == 'missing-marker':
+        (path / '.cpp-mcp-state').unlink()
+        assert not (path / '.cpp-mcp-state').exists()
+    else:
+        (path / 'user-file').write_text('retain')
+        assert (path / 'user-file').is_file()
+    result = subprocess.run([sys.executable, str(STATE_HELPER), 'cleanup', '--run-dir', str(path)],
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 3
+    assert path.is_dir() and (path / 'routines.sh').is_file()
+    if fault == 'unknown-file':
+        assert (path / 'user-file').read_text() == 'retain'
+
+
+@SHELL
+def test_failed_receipt_persistence_retains_temp_run_for_retry(tmp_path):
+    env, _ = fake_environment(tmp_path)
+    path = Path(initialize_mcp(tmp_path, env))
+    bad = [{"step": "commands", "outcome": "not-an-outcome"}]
+    assert bad[0]['outcome'] not in {'installed', 'already', 'skipped', 'declined', 'FAILED', 'unverified'}
+    env.update(CPP_MCP_RUN_DIR=str(path), STEP_RESULTS_JSON=json.dumps(bad),
+               OFFERED_STEPS_JSON='["commands","stash-guard"]', SELECTED_TIER='1',
+               PROFILE_NAME='not-selected', PERMISSION_REPORT='{}')
+    result = invoke(tmp_path, env, consumer())
+    assert 'CPP Installation Incomplete' in result.stdout
+    assert 'temporary run removed' not in result.stdout
+    assert path.is_dir() and (path / 'results.json').is_file()
+
+
+@SHELL
+@pytest.mark.skipif(shutil.which('git') is None, reason='requires git for scratch-project status')
+def test_completed_setup_removes_temp_state_and_leaves_scratch_project_clean(tmp_path):
+    project = tmp_path / 'project'
+    project.mkdir()
+    git_env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1')
+
+    def git(*args):
+        return subprocess.run(['git', '-c', 'core.hooksPath=/dev/null', *args], cwd=project, env=git_env,
+                              check=True, capture_output=True, text=True).stdout
+
+    git('init', '-q')
+    # The durable R4 receipt is intentional; only that file is ignored here.
+    (project / '.gitignore').write_text('.claude/cpp-install.json\n')
+    git('add', '.gitignore')
+    git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture')
+    probe = project / 'must-be-seen'
+    probe.write_text('status negative control')
+    assert 'must-be-seen' in git('status', '--porcelain'), 'git status must see an untracked file'
+    probe.unlink()
+    assert not git('status', '--porcelain'), 'fixture must start clean'
+    env, _ = fake_environment(tmp_path)
+    path = Path(initialize_mcp(project, env))
+    env['CPP_MCP_RUN_DIR'] = str(path)
+    registration = invoke(project, env, block('#### 5d. Register MCP Servers with Codex'))
+    assert 'MCP registered' in registration.stdout
+    data = [{"step": "commands", "outcome": "installed"}, {"step": "stash-guard", "outcome": "already"}]
+    env.update(STEP_RESULTS_JSON=json.dumps(data),
+               OFFERED_STEPS_JSON='["commands","stash-guard","codex-second-opinion","codex-playwright"]',
+               SELECTED_TIER='1', PROFILE_NAME='not-selected', PERMISSION_REPORT='{}')
+    summary = invoke(project, env, consumer())
+    assert 'CPP Installation Complete' in summary.stdout, summary.stdout + summary.stderr
+    assert not path.exists(), 'temporary run must be gone after receipt persistence'
+    assert not git('status', '--porcelain'), 'run artifacts must not become committable project files'
