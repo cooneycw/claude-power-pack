@@ -356,3 +356,21 @@ def test_pool_rejects_entire_invalid_population_before_any_registration(tmp_path
     records = observed(result)
     assert 'browser-pool' in records, result.stdout + result.stderr
     assert records['browser-pool']['outcome'] == 'unverified'
+
+
+@SHELL
+def test_registration_block_works_in_a_fresh_shell_after_initialization(tmp_path):
+    env, log = fake_environment(tmp_path)
+    initial = re.search(r'# CPP_MCP_RUN_INIT_BEGIN\n(.*?)# CPP_MCP_RUN_INIT_END', INIT.read_text(), re.S)
+    setup = subprocess.run(['bash', '-c', initial[1] if initial else definitions()],
+                           cwd=tmp_path, env=env, capture_output=True, text=True, timeout=15)
+    assert setup.returncode == 0, setup.stdout + setup.stderr
+    for line in setup.stdout.splitlines():
+        if line.startswith('CPP_MCP_RUN_DIR='):
+            env['CPP_MCP_RUN_DIR'] = line.split('=', 1)[1]
+    # No functions/arrays from the first subprocess can exist in this shell.
+    result = subprocess.run(['bash', '-c', block('#### 5d. Register MCP Servers with Codex')],
+                            cwd=tmp_path, env=env, capture_output=True, text=True, timeout=15)
+    calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+    assert 'command not found' not in result.stderr, result.stdout + result.stderr
+    assert len([c for c in calls if c[1:3] == ['mcp', 'add']]) == 2
