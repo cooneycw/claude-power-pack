@@ -104,6 +104,7 @@ def test_failed_log_fetch_cannot_turn_a_known_red_into_a_baselined_flake(tmp_pat
 
 @pytest.mark.parametrize("http", [403, 404])
 def test_unreadable_classic_protection_cannot_be_hidden_by_readable_rulesets(tmp_path: Path, monkeypatch, http):
+    from lib.cicd import flow
     from lib.cicd.flow import required_contexts
     from lib.cicd.providers import ProviderError
 
@@ -113,7 +114,7 @@ def test_unreadable_classic_protection_cannot_be_hidden_by_readable_rulesets(tmp
         return subprocess.CompletedProcess(argv, 0, stdout=json.dumps([
             {"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "ci"}]}}
         ]), stderr="")
-    monkeypatch.setattr(subprocess, "run", api)
+    monkeypatch.setattr(flow, "command", api)
     if http == 404:
         assert required_contexts("o/r", "main", "fixture-gh") == ["ci"]
     else:

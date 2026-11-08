@@ -9,12 +9,56 @@ import argparse
 import importlib
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
 from pathlib import Path
 
 from .providers import PROVIDERS, REMEDY, ProviderError, read_provider_record, require_providers
+
+_children: set[subprocess.Popen] = set()
+
+
+def command(argv: list[str], *, timeout: float = 120, check: bool = False, **kwargs) -> subprocess.CompletedProcess:
+    """Own each provider command's process group through timeout or signals."""
+    if kwargs.pop("capture_output", False):
+        kwargs["stdout"] = subprocess.PIPE
+        kwargs["stderr"] = subprocess.PIPE
+    input_value = kwargs.pop("input", None)
+    child = subprocess.Popen(argv, start_new_session=True, **kwargs)
+    _children.add(child)
+    try:
+        stdout, stderr = child.communicate(input=input_value, timeout=timeout)
+        result = subprocess.CompletedProcess(argv, child.returncode, stdout, stderr)
+        if check:
+            result.check_returncode()
+        return result
+    except BaseException:
+        try:
+            os.killpg(child.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            child.communicate(timeout=2)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            child.communicate()
+        raise
+    finally:
+        _children.discard(child)
+
+
+def stop_children(signum: int, frame) -> None:
+    for child in list(_children):
+        try:
+            os.killpg(child.pid, signum)
+        except ProcessLookupError:
+            pass
+    raise SystemExit(128 + signum)
 
 
 def provider_lanes(project: str | Path) -> list[tuple[str, str]]:
@@ -77,13 +121,13 @@ def callback(hook: str):
 
 
 def shell_status(script: str, argv: list[str], lane: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["bash", script, *argv, "--wait", "0"],
+    return command(["bash", script, *argv, "--wait", "0"],
                           env={**os.environ, "CPP_FLOW_CI_BACKEND": lane},
                           capture_output=True, text=True, timeout=120)
 
 
 def shell_watch(script: str, argv: list[str], lane: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["bash", script, *argv],
+    return command(["bash", script, *argv],
                           env={**os.environ, "CPP_FLOW_PR_WATCH_BACKEND": lane},
                           capture_output=True, text=True, timeout=120)
 
@@ -96,6 +140,7 @@ def child_stderr(stderr: str, marker: str) -> None:
 
 def entry(function, marker: str, *args) -> int:
     code = 1
+    previous = {sig: signal.signal(sig, stop_children) for sig in (signal.SIGINT, signal.SIGTERM)}
     try:
         code = function(*args)
         return code
@@ -103,6 +148,8 @@ def entry(function, marker: str, *args) -> int:
         code = exc.code if isinstance(exc.code, int) else 1
         raise
     finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
         print(f"{marker}={code}", file=sys.stderr)
 
 
@@ -128,10 +175,10 @@ def status_main(script: str, argv: list[str]) -> int:
     plan = lane_plan(args.path, allow_fallback=args.fallback_provider_probes)
     if plan["fallback"]["would_trigger"]:
         env = {**os.environ, "CPP_FLOW_CI_BACKEND": "probe"}
-        command = ["bash", script, *backend_args, "--wait", str(args.wait)]
+        fallback_argv = ["bash", script, *backend_args, "--wait", str(args.wait)]
         if args.exit_code:
-            command.append("--exit-code")
-        result = subprocess.run(command, env=env, capture_output=True, text=True)
+            fallback_argv.append("--exit-code")
+        result = command(fallback_argv, env=env, capture_output=True, text=True)
         print(result.stdout, end="")
         child_stderr(result.stderr, "FLOW_CI_EXIT")
         return result.returncode
@@ -197,7 +244,7 @@ def required_contexts(repo: str, branch: str, gh: str) -> list[str]:
     answered = False
     for endpoint in (f"repos/{repo}/branches/{branch}/protection/required_status_checks",
                      f"repos/{repo}/rules/branches/{branch}"):
-        response = subprocess.run([gh, "api", endpoint], capture_output=True, text=True, timeout=30)
+        response = command([gh, "api", endpoint], capture_output=True, text=True, timeout=30)
         if response.returncode:
             # Classic protection's explicit 404 means no classic rule; a 403,
             # transport failure or malformed response leaves an unexamined
@@ -280,12 +327,12 @@ def watch_main(script: str, argv: list[str]) -> int:
         provider_lanes(args.path)
         repo = args.repo
         if not repo:
-            response = subprocess.run([gh, "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
+            response = command([gh, "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
                                       cwd=args.path, capture_output=True, text=True, timeout=30, check=True)
             repo = response.stdout.strip()
         pr = args.pr.lstrip("#")
         def head() -> dict:
-            response = subprocess.run([gh, "pr", "view", pr, "--repo", repo,
+            response = command([gh, "pr", "view", pr, "--repo", repo,
                                        "--json", "headRefOid,baseRefName"],
                                       capture_output=True, text=True, timeout=30, check=True)
             value = json.loads(response.stdout)
@@ -311,11 +358,11 @@ def watch_main(script: str, argv: list[str]) -> int:
                 return 0 if current["headRefOid"] != original["headRefOid"] else 2
             reports = []
             for context, name, lane in selected:
-                command = [pr, "--path", args.path, "--repo", repo,
+                watch_argv = [pr, "--path", args.path, "--repo", repo,
                            "--context", context, "--timeout", "0"]
                 if args.baseline:
-                    command.extend(["--baseline", args.baseline])
-                response = callback(PROVIDERS[name].flow_watch)(script, command, lane)
+                    watch_argv.extend(["--baseline", args.baseline])
+                response = callback(PROVIDERS[name].flow_watch)(script, watch_argv, lane)
                 child_stderr(response.stderr, "FLOW_PR_WATCH_EXIT")
                 verdicts = [line.removeprefix("FLOW_PR_WATCH: ") for line in response.stdout.splitlines()
                             if line.startswith("FLOW_PR_WATCH: ")]

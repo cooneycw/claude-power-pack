@@ -417,24 +417,38 @@ fi
 # so the helper could report the push pipeline's green over a red required
 # check. So the default is now the lane the base branch REQUIRES, read from
 # GitHub; when that cannot be decided the old default stands and says so.
+PROTECTION_UNREADABLE=0
 derive_event() {
     local default_branch contexts ctx pr=0 push=0 other=0
     if ! command -v "$GH_BIN" >/dev/null 2>&1; then
+        [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "probe" ]] && PROTECTION_UNREADABLE=1
         EVENT_SOURCE="default: gh unavailable, required contexts unreadable"; return
     fi
     default_branch="$("$GH_BIN" api "repos/$REPO" --jq .default_branch 2>/dev/null)"
     if [[ -z "$default_branch" ]]; then
+        [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "probe" ]] && PROTECTION_UNREADABLE=1
         EVENT_SOURCE="default: default branch unreadable, required contexts unreadable"; return
     fi
-    local classic="" rules="" answered=0 protection_source="classic"
+    local classic="" rules="" answered=0 unreadable=0 protection_source="classic"
     if classic="$("$GH_BIN" api "repos/$REPO/branches/$default_branch/protection/required_status_checks" \
-            --jq '((.contexts // []) + ((.checks // []) | map(.context))) | unique | .[]' 2>/dev/null)"; then
+            --jq '((.contexts // []) + ((.checks // []) | map(.context))) | unique | .[]' 2>&1)"; then
         answered=1
+    elif [[ "$classic" == *"(HTTP 404)"* ]]; then
+        classic=""; answered=1
+    else
+        classic=""; unreadable=1
     fi
     if rules="$("$GH_BIN" api "repos/$REPO/rules/branches/$default_branch" \
-            --jq '[.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[]?.context] | unique | .[]' 2>/dev/null)"; then
+            --jq '[.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[]?.context] | unique | .[]' 2>&1)"; then
         answered=1
         [[ -n "$rules" ]] && protection_source="classic + rulesets"
+    else
+        rules=""; unreadable=1
+    fi
+    if [[ "$unreadable" -eq 1 && "${CPP_FLOW_CI_BACKEND:-probe}" != "probe" ]]; then
+        PROTECTION_UNREADABLE=1
+        EVENT_SOURCE="unknown: required protection source unreadable on $default_branch"
+        return
     fi
     if [[ "$answered" -eq 0 ]]; then
         EVENT_SOURCE="default: required contexts unreadable on $default_branch"; return
@@ -484,6 +498,10 @@ if [[ -z "$PREFER_EVENT" ]]; then
     derive_event
 fi
 [[ -n "$PREFER_EVENT" ]] || PREFER_EVENT="$DEFAULT_EVENT"
+if [[ "$PROTECTION_UNREADABLE" -eq 1 ]]; then
+    echo "flow-ci-status: required protection unreadable; pass an explicit --event only when its scope is known." >&2
+    emit
+fi
 
 # ── jq preflight (issue #789) ──────────────────────────────────────────────
 # The Woodpecker API lane and the GitHub Actions lane both parse JSON with jq;

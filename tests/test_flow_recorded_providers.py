@@ -1,5 +1,6 @@
 """Recorded provider routing must precede any provider probes (#1610 A)."""
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -96,6 +97,8 @@ if [ "$1" = api ]; then
   case "$2" in
     repos/o/r) echo main; exit 0 ;;
     {endpoint}) printf '%s' '{payload}' | jq -r "$4"; exit $? ;;
+    *required_status_checks) echo 'gh: Branch not protected (HTTP 404)' >&2; exit 1 ;;
+    */rules/branches/*) echo '[]' | jq -r "$4"; exit $? ;;
   esac
 fi
 exit 1
@@ -154,8 +157,11 @@ def test_lane_plan_is_offline_and_fallback_is_only_a_future_action(  # binary-gu
     def no_commands(*args, **kwargs):
         raise RuntimeError("offline plan guard")
     monkeypatch.setattr(subprocess, "run", no_commands)
+    monkeypatch.setattr(subprocess, "Popen", no_commands)
     with pytest.raises(RuntimeError, match="offline plan guard"):
         subprocess.run(["fixture-no-remote-probes"])
+    with pytest.raises(RuntimeError, match="offline plan guard"):
+        subprocess.Popen(["fixture-no-remote-probes"])
     missing = lane_plan(tmp_path)
     assert missing["status"] == "unknown" and missing["source"] == "unknown"
     assert missing["fallback"] == {"requested": False, "would_trigger": False}
@@ -243,3 +249,75 @@ def test_registry_extension_needs_no_consumer_enum_change(tmp_path: Path, monkey
     config.write_text("pipeline:\n  providers: [github-actions, future]\n")
     assert flow.context_lanes(tmp_path, ["ci", "ci/future/build"]) == [
         ("ci", "github-actions", "github-actions"), ("ci/future/build", "future", "future-lane")]
+
+
+@requires_bash
+@pytest.mark.skipif(shutil.which("sleep") is None, reason="requires sleep for the signal fixture")
+def test_recorded_dispatch_signal_reports_real_exit_and_stops_children(tmp_path: Path):
+    import os
+    import signal
+    import subprocess
+    import time
+
+    from tests.test_flow_ci_status import SCRIPT
+    record = tmp_path / ".claude/cicd.yml"
+    record.parent.mkdir()
+    record.write_text("pipeline:\n  providers: [github-actions]\n")
+    ready = tmp_path / "ready"
+    gh = tmp_path / "gh"
+    gh.write_text(f'#!/bin/sh\necho $$ > "{ready}"\nexec sleep 60\n')
+    gh.chmod(0o755)
+    child_pid = None
+    process = subprocess.Popen(["bash", str(SCRIPT), SHA, "--path", str(tmp_path), "--repo", "o/r",
+                                "--event", "pull_request"],
+                               env={**os.environ, "FLOW_CI_GH": str(gh)},
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+    try:
+        deadline = time.monotonic() + 5
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert ready.exists(), "fixture must reach the blocking backend"
+        child_pid = int(ready.read_text())
+        process.send_signal(signal.SIGTERM)
+        _, stderr = process.communicate(timeout=5)
+        assert process.returncode == 143, stderr
+        assert stderr.count("FLOW_CI_EXIT=") == 1
+        assert stderr.rstrip().endswith("FLOW_CI_EXIT=143")
+        with pytest.raises(ProcessLookupError):
+            os.kill(child_pid, 0)
+    finally:
+        for pid in (child_pid,):
+            if pid is not None:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=5)
+
+
+@requires_bash
+def test_partial_protection_read_cannot_choose_a_green_event(tmp_path: Path):
+    from tests.test_flow_ci_status import _both_lanes_curl
+    record = tmp_path / ".claude/cicd.yml"
+    record.parent.mkdir()
+    record.write_text("pipeline:\n  providers: [woodpecker]\n")
+    gh = tmp_path / "gh"
+    gh.write_text('''#!/bin/sh
+case "$2" in
+  repos/o/r) echo main; exit 0 ;;
+  *required_status_checks) echo 'gh: Forbidden (HTTP 403)' >&2; exit 1 ;;
+  */rules/branches/*) echo 'ci/woodpecker/push/woodpecker'; exit 0 ;;
+esac
+exit 1
+''')
+    gh.chmod(0o755)
+    curl = _both_lanes_curl(tmp_path)
+    result = _run(tmp_path, SHA, "--path", str(tmp_path), "--repo", "o/r", recorded=True,
+                  env={"FLOW_CI_CURL": str(curl), "FLOW_CI_GH": str(gh)})
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert _markers(result.stdout)["FLOW_CI_STATUS"] == ["unknown"]
+    assert "unreadable" in result.stdout + result.stderr
