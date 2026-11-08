@@ -1,0 +1,40 @@
+{
+  "gate": "scripts/flow-finish-gate.sh",
+  "invocation": [
+    "python3",
+    "controls/flow-finish-coordination/run_case.py",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^CPP_COORDINATION_REFUSED: no gate work started$",
+  "unavailable_signal": "^CPP_COORDINATION_CONTROL: unavailable",
+  "limits": "Proves an explicitly enabled finish caller refuses to start gate work when its supervisor refuses, and still runs the old green gate when granted. Fake coordinator, no service/DB/network: actual Kyle CLI renewal, watchdog process-tree stopping and authority authorization are not established here. The historical gate ignores the rollout signal and runs work after refusal; the same fixture gives it a clean good run. Off-path, metadata, credential isolation and nested invocation are separately covered by focused regression tests. A planted garbage flag must stay on the old path even with a refusing supervisor configured.",
+  "cases": [
+    {
+      "name": "good-held",
+      "input": "cases/good-held",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-refused",
+      "input": "cases/bad-refused",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-garbage",
+      "input": "cases/good-garbage",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "6bc585a3fecffbf42d0d1d9d800696caccc58a3b",
+      "origin": "scripts/flow-finish-gate.sh",
+      "path": "anchors/6bc585a-flow-finish-gate.sh",
+      "sha256": "806d036315afe7a7d0bc631d38a3c8267dc45c8b6bbb218643a0c6a09d0a6855",
+      "why": "Unmodified pre-opt-in caller; it starts the gate despite a refused supervisor and agrees on the green fixture."
+    }
+  ]
+}

@@ -134,6 +134,9 @@ HELPERS=(
     # Installing the gate alone would put a script at the stable path that exits 2
     # on every invocation - which is what it did before this line existed.
     gate-lib.sh
+    # flow-finish-gate.sh and gh-pr-merge.sh source this rollout signal (kyle#2130);
+    # without it both stay on the pre-coordination path.
+    coordination-admission.sh
     flow-ci-status.sh
     flow-pr-watch.sh
     gh-pr-merge.sh

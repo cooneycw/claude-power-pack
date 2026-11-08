@@ -1433,3 +1433,39 @@ its constructed anchor hardcodes the comparison off and misses it.
 - `counter-model-receipt` (#1557, #1580): `write` derives both sides of a counter-model review rather than accepting model names. A resumed Codex implementation with multiple complete turn-model identities writes schema 4: `implementers` is a nonempty unique list from the full retained rollout, the reviewer stays scalar, and overlap with any implementer refuses. Unknown implementation turns and mixed reviewer evidence still refuse; schemas 1-3 remain valid. Opt-in `--implementer-flow-run RUN` is the narrower schema-3 path for a genuinely fresh Codex flow whose original harness events prove the bounded run scope; `audit-flow RECEIPT --codex-sessions-dir ROOT` re-derives that captured prefix. Neither route accepts a caller-selected model or arbitrary history window. See ADR 0007 for both evidence boundaries.
 
 - `flow-preflight` - `flow-preflight.sh` bootstraps the stdlib `flow-preflight.py` observer on Python 3.10+. It aggregates local gh capabilities, uv presence, CPP-only Python 3.11 availability, the bash floor (4.4, read from the caller's PATH only), git identity presence, optional reviewer presence and resolved engine ownership. Required gaps and unknowns remain distinct; no install, identity write or authentication is performed. Its installed-Python coverage is PATH and the selected uv install directory, not all possible host runtime directories.
+
+## `coordination-admission`
+
+A shared rollout decision for `gh-pr-merge.sh` and `flow-finish-gate.sh`. Only
+exact `on` plus newline bytes in the owner-controlled rollout flag activate
+service coordination. `CPP_COORDINATION_ADMISSION_FILE` is a test hook only
+and must not be set in operational environments. The default is the `admission`
+file inside the dedicated `claude-power-pack/coordination` folder under the
+operator's XDG configuration directory (falling back to the user's `.config`
+directory). Only this dedicated folder is shared read-only with containers;
+other CPP configuration stays outside the mount. Mount the folder rather than
+the flag so replacement and removal remain visible to running processes.
+Missing, unreadable, symlinked or malformed files preserve the old queue read
+and gate execution. The owner changes this signal at the joint switch;
+merging helpers does not enable it. The service's
+own admission flag and credentials are separate prerequisites. An older bundle
+missing this helper uses the old path, so installed/bundled coverage must be
+verified before the owner switches.
+
+On opt-in, the finish caller delegates the whole gate once to
+`kyle-lock run full-suite`; `CPP_KYLE_LOCK_BIN` selects its executable (default
+`kyle-lock`). Metadata-only modes do not acquire. Missing supervisor or refused
+admission starts no gate work. The supervisor's exit codes overlap the gate's
+(refused 3 is the gate's `warn`), so the parent gate does not pass them through:
+the continued gate records its own status in a file and its verdict line is
+held back, and only a supervisor exit equal to that status is the gate's
+verdict. Anything else - refused, queued, frozen, unavailable, usage, a lease
+lost or a stop unconfirmed after the gate finished - is one `fail` with the
+supervisor's code named, and the parent writes the single exit line. Authority configuration is stripped from the
+supervised child's environment, and a descendant continuation marker prevents
+nested acquisition. The marker is not a security boundary. CPP merges acquire
+no `main-merge` barrier and keep all existing required-check/base/head rules;
+only advisory queue-budget reads are skipped after opt-in.
+
+Generated repository bundles must remain in sync for parity. Host helper
+installation and activation are separate owner runbook actions. The flag is read on every call, so existing processes observe the switch without restarting.

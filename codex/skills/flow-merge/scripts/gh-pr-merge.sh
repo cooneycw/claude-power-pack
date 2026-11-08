@@ -355,6 +355,15 @@
 
 set -uo pipefail
 
+# An older installed bundle can lack this rollout helper. Unknown stays on
+# the original path; installing a new caller alone never activates coordination.
+coordination_admission_on() { return 1; }
+_coordination_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+if [[ -r "$_coordination_dir/coordination-admission.sh" ]]; then
+    # shellcheck source=scripts/coordination-admission.sh
+    . "$_coordination_dir/coordination-admission.sh"
+fi
+
 # Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
 trap 'printf "GH_PR_MERGE_EXIT=%d\n" "$?" >&2' EXIT
 
@@ -1840,7 +1849,9 @@ if (( ADMIN_OPT_IN == 0 )); then
         echo "GH_PR_MERGE_BASE_STALE: 0"
     fi
 
-    wait_out_woodpecker_queue
+    if ! coordination_admission_on; then
+        wait_out_woodpecker_queue
+    fi
     wait_rc=0
     wait_for_required_checks || wait_rc=$?
     if (( wait_rc == 10 )); then
