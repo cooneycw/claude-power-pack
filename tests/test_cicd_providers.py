@@ -230,8 +230,9 @@ def test_writer_records_example_without_dropping_template_comments(tmp_path: Pat
 
 
 def test_comment_preservation_control_rejects_roundtrip_writer(tmp_path: Path, monkeypatch):
-    from lib.cicd import providers
     import yaml
+
+    from lib.cicd import providers
 
     def blind_roundtrip(project, names):
         path = Path(project) / ".claude/cicd.yml"
