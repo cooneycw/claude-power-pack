@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#: NEGATIVE-CONTROL: controls/flow-ci-credential-pair
 # flow-ci-status.sh - Resolve the CI outcome for ONE commit SHA (issues #766, #768).
 #
 # Problem:
@@ -23,8 +24,9 @@
 # ADVISORY and FAIL-OPEN: no token, no network, no provider all yield `unknown`
 # and exit 0, never a blocked flow (unless --exit-code).
 #
-# The token is read from $WOODPECKER_API_TOKEN when exported, else fetched from
-# AWS Secrets Manager. It is never echoed, and never passed on a command line
+# Complete environment credentials are used together. An incomplete pair may
+# use AWS Secrets Manager only when its supplied half matches the secret pair.
+# Credentials are never echoed, and never passed on a command line
 # where `ps` could see it.
 #
 # Usage:
@@ -465,10 +467,22 @@ if [[ "$HAVE_JQ" -eq 1 && ( -z "$WP_TOKEN" || -z "$WP_SERVER" ) ]]; then
             --secret-id "$SECRET_NAME" --region "$AWS_REGION" \
             --query SecretString --output text 2>/dev/null)"
         if [[ -n "$SECRET_JSON" ]]; then
-            [[ -z "$WP_TOKEN" ]] && WP_TOKEN="$(jq -r '.WOODPECKER_API_TOKEN // empty' <<<"$SECRET_JSON" 2>/dev/null)"
-            [[ -z "$WP_SERVER" ]] && WP_SERVER="$(jq -r '.WOODPECKER_HOST // .WOODPECKER_URL // empty' <<<"$SECRET_JSON" 2>/dev/null)"
+            SECRET_TOKEN="$(jq -er '.WOODPECKER_API_TOKEN | select(type == "string" and length > 0)' <<<"$SECRET_JSON" 2>/dev/null)"
+            SECRET_SERVER="$(jq -er '(.WOODPECKER_HOST // .WOODPECKER_URL) | select(type == "string" and length > 0)' <<<"$SECRET_JSON" 2>/dev/null)"
+            if [[ -n "$SECRET_TOKEN" && -n "$SECRET_SERVER" ]]; then
+                # Never send secret A's token to environment B's endpoint, or
+                # environment A's token to secret B's endpoint (#1644).
+                if [[ ( -n "$WP_TOKEN" && "$WP_TOKEN" != "$SECRET_TOKEN" ) \
+                   || ( -n "$WP_SERVER" && "${WP_SERVER%/}" != "${SECRET_SERVER%/}" ) ]]; then
+                    unset SECRET_JSON SECRET_TOKEN SECRET_SERVER WP_TOKEN WP_SERVER
+                    echo "flow-ci-status: Woodpecker credential sources do not match (fail-open unknown)" >&2
+                    emit
+                fi
+                WP_TOKEN="$SECRET_TOKEN"
+                WP_SERVER="$SECRET_SERVER"
+            fi
         fi
-        unset SECRET_JSON
+        unset SECRET_JSON SECRET_TOKEN SECRET_SERVER
     fi
 fi
 WP_SERVER="${WP_SERVER%/}"
