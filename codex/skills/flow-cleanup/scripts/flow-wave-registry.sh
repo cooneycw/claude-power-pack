@@ -427,8 +427,8 @@
 #                           way to construct a chosen pid+starttime pairing for
 #                           a test without depending on real kernel pid reuse,
 #                           which cannot be forced on demand
-#   FLOW_WAVE_PROC_ROOT     '/proc' root override (issue #1094) - lets a test
-#                           feed pid_started_of() a CRAFTED stat line (a comm
+#   FLOW_WAVE_PROC_ROOT     '/proc' stat override (issues #1094, #1605) - lets a test
+#                           feed state/start-time readers a CRAFTED line (a comm
 #                           containing a space or a parenthesis) through the
 #                           real parser, rather than asserting the parser is
 #                           correct without ever exercising it
@@ -640,7 +640,7 @@ emit() {
   echo "FLOW_WAVE: $1"
 }
 
-# pid_state PID -> alive | gone | unknown, for a pid on THIS host.
+# pid_state PID -> alive | zombie | gone | unknown, for a pid on THIS host.
 #
 # `kill -0` has TWO failure modes behind ONE return code, and collapsing them is
 # what #869 fixes. They are not degrees of the same answer; they are opposite
@@ -656,7 +656,8 @@ emit() {
 #
 # `/proc/<pid>` is consulted first where it exists because it answers directly
 # and without ambiguity: the kernel keeps an entry for every live process on the
-# host regardless of who owns it, so presence is existence and absence is death.
+# host regardless of who owns it. A present pid may have exited but remain
+# unreaped; a readable stat state Z/X is terminal despite its retained pid.
 #
 # `unknown` is a real third answer, not a polite `gone`: a host with no /proc
 # whose `kill` reports something we do not recognise has an UNENUMERABLE process
@@ -664,7 +665,7 @@ emit() {
 # refused when it moved off pid liveness (#814). Never checked and
 # checked-but-undecidable are different facts.
 pid_state() {
-  local pid="$1" err
+  local pid="$1" err stat rest proc_root
   # shellcheck disable=SC2015  # intended: take the fallback unless EVERY test holds (#972)
   [ -n "$pid" ] && [ "$pid" != "-" ] && [ "$pid" != "null" ] || { echo gone; return; }
   case "$pid" in ''|*[!0-9]*) echo gone; return ;; esac
@@ -687,6 +688,15 @@ pid_state() {
   fi
 
   if [ -d /proc/self ]; then
+    proc_root="${FLOW_WAVE_PROC_ROOT:-/proc}"
+    if stat="$(cat "$proc_root/$pid/stat" 2>/dev/null)"; then
+      case "$stat" in
+        *") "*)
+          rest="${stat##*) }"
+          case "$rest" in Z\ *|X\ *) echo zombie; return ;; esac
+          ;;
+      esac
+    fi
     if [ -d "/proc/$pid" ]; then echo alive; else echo gone; fi
     return
   fi
@@ -1119,6 +1129,7 @@ _liveness_compute() {
       ;;
     # A leftover socket file is NOT evidence against a confirmed death, so it is
     # not consulted on this branch at all.
+    zombie) echo "stale owner-zombie"; return ;;
     gone)  echo "stale pid-gone"; return ;;
   esac
 

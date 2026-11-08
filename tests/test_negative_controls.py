@@ -1099,33 +1099,6 @@ def test_the_narrow_self_registration_check_misses_a_different_controls_untracke
     assert generalized_failures["controls/beta"][0] == "UNTRACKED", generalized_failures
 
 
-@requires_git
-def test_every_discovered_controls_files_are_tracked() -> None:
-    """The control is only real in a CLEAN CHECKOUT, and .gitignore hides it.
-
-    GENERALIZES the former `test_every_file_of_the_self_registration_is_tracked`
-    (#1406), which asserted this ONLY for `controls/check-negative-controls`.
-    The untracked-nested-fixture trap (#964, #953, and #1406's own
-    control.json-depth finding) is a property of the .gitignore shape, not of
-    any one control, and the narrow test only ever proved it for itself - see
-    the companion test above, which shows a different control's untracked
-    file passing right past a check scoped that way.
-
-    DISCOVERY ONLY (issue #1311's budget lesson): `harness.discover()` plus one
-    `git ls-files` per control directory, no battery run - under CI load a
-    full battery run crossed the 120s budget three times before #1311 moved
-    the test above off it, and this generalization must not reintroduce that.
-    """
-    harness = _load_harness_module()
-    registrations = harness.discover(ROOT)
-    control_dirs = sorted({control for _path, control in registrations})
-    assert control_dirs, "discover() found no registrations; this test is vacuous"
-
-    failures = _check_all_tracked(harness, ROOT, control_dirs)
-    assert not failures, (
-        "these control(s) are not PROVEN tracked (tracked/UNTRACKED/unverified), so a "
-        f"clean checkout may get a broken control: {failures}"
-    )
 
 def test_discover_is_not_recursive_so_nested_case_trees_are_not_double_discovered() -> None:
     """The self-registration nests whole repos under controls/.
@@ -1218,7 +1191,7 @@ _CONTENDED = frozenset({errno.EAGAIN, errno.EACCES, errno.EWOULDBLOCK})
 
 #: pyproject sets `timeout = 120` per test, so a lock deadline above that can
 #: NEVER fire - pytest kills the test first and the careful diagnostic below is
-#: unreachable by construction (#1061 counter-model re-review, MEDIUM). The two
+#: unreachable by construction (#1061 counter-model re-review, MEDIUM). The three
 #: callers raise their own budget with `@pytest.mark.timeout` to cover waiting
 #: for the lock AND doing the work; this deadline stays comfortably inside that
 #: raised budget so the lock's explanation is what the reader gets.
@@ -1299,7 +1272,7 @@ def live_controls_tree_exclusive(
     accidental shared mutable fixture), but the same remedy: give the test
     exercising the MECHANISM its own private resource instead.
 
-    WHY A LOCK AND NOT A MARKER (issue #1061). Two tests in this file use the
+    WHY A LOCK AND NOT A MARKER (issue #1061). Three tests in this file use the
     REAL tree and one of them DIRTIES it: `test_an_untracked_control_file_
     refuses_the_green` plants an untracked probe (for at most `_HOLD_BUDGET`,
     which that test enforces on itself, #1444) because a committed one would be
@@ -1351,6 +1324,39 @@ def live_controls_tree_exclusive(
             fcntl.flock(fh, fcntl.LOCK_UN)
     finally:
         os.close(fh)
+
+
+@requires_git
+@pytest.mark.timeout(_TEST_BUDGET)
+def test_every_discovered_controls_files_are_tracked() -> None:
+    """The control is only real in a CLEAN CHECKOUT, and .gitignore hides it.
+
+    GENERALIZES the former `test_every_file_of_the_self_registration_is_tracked`
+    (#1406), which asserted this ONLY for `controls/check-negative-controls`.
+    The untracked-nested-fixture trap (#964, #953, and #1406's own
+    control.json-depth finding) is a property of the .gitignore shape, not of
+    any one control, and the narrow test only ever proved it for itself - see
+    the companion test above, which shows a different control's untracked
+    file passing right past a check scoped that way.
+
+    DISCOVERY ONLY (issue #1311's budget lesson): `harness.discover()` plus one
+    `git ls-files` per control directory, no battery run - under CI load a
+    full battery run crossed the 120s budget three times before #1311 moved
+    the test above off it, and this generalization must not reintroduce that.
+    The lock covers discovery and all tracking reads as one snapshot (#1641):
+    the planter can otherwise expose its deliberate untracked probe mid-scan.
+    """
+    harness = _load_harness_module()
+    with live_controls_tree_exclusive():
+        registrations = harness.discover(ROOT)
+        control_dirs = sorted({control for _path, control in registrations})
+        assert control_dirs, "discover() found no registrations; this test is vacuous"
+
+        failures = _check_all_tracked(harness, ROOT, control_dirs)
+        assert not failures, (
+            "these control(s) are not PROVEN tracked (tracked/UNTRACKED/unverified), so a "
+            f"clean checkout may get a broken control: {failures}"
+        )
 
 
 def _forced_pass_harness(tmp_path: Path) -> Path:
