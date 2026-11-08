@@ -1190,7 +1190,8 @@ missing required or offered observations become unverified. Optional declined
 choices are recorded, never invented from missing input.
 
 `summary` and `status` re-read and validate the receipt. A failed write does not
-render an older green receipt; no receipt, invalid/unreadable, failed, incomplete
+render an older green receipt; a failed summary read still emits the wizard's
+incomplete verdict and retains its diagnostic. No receipt, invalid/unreadable, failed, incomplete
 and stale records remain distinct. A stale failed receipt reports both facts.
 This is recorded installation evidence, not a live readiness/connection check or
 a tamper-proof attestation. The receipt's UTC stamps are recording times.

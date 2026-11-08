@@ -2919,7 +2919,14 @@ if printf '%s\n' "$STEP_RESULTS_JSON" | python3 "$CPP_DIR/scripts/cpp-install-re
     --tier "$SELECTED_TIER" --profile "$PROFILE_NAME" \
     --offered-steps "$OFFERED_STEPS_JSON" \
     --permission-report "$PERMISSION_REPORT"; then
-  python3 "$CPP_DIR/scripts/cpp-install-receipt.py" summary --project-dir "$PWD" --cpp-dir "$CPP_DIR"
+  if CPP_INSTALL_SUMMARY=$(python3 "$CPP_DIR/scripts/cpp-install-receipt.py" summary --project-dir "$PWD" --cpp-dir "$CPP_DIR"); then
+    printf '%s\n' "$CPP_INSTALL_SUMMARY"
+  else
+    printf '%s\n' "$CPP_INSTALL_SUMMARY"
+    if ! printf '%s\n' "$CPP_INSTALL_SUMMARY" | grep -qxF 'CPP Installation Incomplete'; then
+      echo "CPP Installation Incomplete"
+    fi
+  fi
 else
   echo "CPP Installation Incomplete"
   echo "Receipt write FAILED: retain the observed step outcomes and retry; do not render an older receipt as this run's summary."
@@ -2933,6 +2940,10 @@ into installed. The `write` exit says only whether persistence succeeded;
 stale recorded state. A write failure itself is reported, with no success
 summary and no fallback to an old receipt. Preserve the observed results in
 the conversation for recovery.
+
+A failed summary read or revision lookup also ends with an explicit incomplete
+verdict, retaining the helper's diagnostic. It never omits the final verdict or
+substitutes a success derived from the selected tier.
 
 The helper's output is the authoritative final summary. The template below
 shows its fields: `{STEP_RESULTS}` and `{MCP_RESULTS}` come from receipt steps

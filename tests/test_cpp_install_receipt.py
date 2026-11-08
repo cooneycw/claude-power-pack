@@ -232,9 +232,9 @@ def test_registered_controls_discriminate_and_repaired_cases_stop_detection():
     ], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "NEGATIVE_CONTROL_VERDICT: PASS" in result.stdout
-    for case in ("bad-nonzero", "bad-missing-offered", "bad-old-green-write-fails"):
+    for case in ("bad-nonzero", "bad-missing-offered", "bad-old-green-write-fails", "bad-summary-read"):
         assert f"on case {case}: missed the known-bad input (blind, as required)" in result.stdout
-    for case in ("good-repaired-nonzero", "good-repaired-offered", "good-repaired-write"):
+    for case in ("good-repaired-nonzero", "good-repaired-offered", "good-repaired-write", "good-repaired-summary"):
         assert f"case {case}: expected=GOOD observed=GOOD" in result.stdout
 
 
@@ -260,3 +260,44 @@ def test_conditional_tavily_skip_and_stash_opt_out_are_not_install_failures():
                       {"step": "stash-guard", "outcome": "declined"},
                       {"step": "tavily", "outcome": "skipped"}]}
     assert module.complete(data), "an explicit conditional skip must remain distinct from missing evidence"
+
+
+@pytest.mark.skipif(any(shutil.which(tool) is None for tool in ("bash", "python3", "git")),
+                    reason="real helper and shipped shell consumer require bash/python3/git")
+@pytest.mark.parametrize("fault", ["absent", "invalid", "revision-unavailable"])
+def test_failed_summary_read_always_emits_incomplete_verdict(tmp_path, fault):
+    text = (ROOT / ".claude/commands/cpp/init.md").read_text()
+    match = re.search(r"# CPP_INSTALL_RECEIPT_WRITE_BEGIN\n(.*?)# CPP_INSTALL_RECEIPT_WRITE_END", text, re.S)
+    assert match
+    wrapper = tmp_path / "receipt-fault.py"
+    missing_cpp = tmp_path / "missing-cpp-checkout"
+    assert not missing_cpp.exists(), "negative-fixture precondition: owned revision lookup target absent"
+    wrapper.write_text(
+        "import pathlib, subprocess, sys\n"
+        f"helper = {str(HELPER)!r}\n"
+        "args = sys.argv[1:]\n"
+        f"fault = {fault!r}\n"
+        "if args[0] == 'summary' and fault == 'revision-unavailable':\n"
+        f"    args += ['--cpp-dir', {str(missing_cpp)!r}]\n"
+        "result = subprocess.run([sys.executable, helper, *args])\n"
+        "if args[0] == 'write' and result.returncode == 0:\n"
+        "    receipt = pathlib.Path('.claude/cpp-install.json')\n"
+        "    if fault == 'absent':\n"
+        "        receipt.unlink()\n"
+        "        assert not receipt.exists()\n"
+        "    if fault == 'invalid':\n"
+        "        receipt.write_text('{')\n"
+        "        assert receipt.read_text() == '{'\n"
+        "raise SystemExit(result.returncode)\n"
+    )
+    script = match[1].replace('"$CPP_DIR/scripts/cpp-install-receipt.py"', '"$CPP_TEST_RECEIPT_HELPER"')
+    result = subprocess.run(
+        ["bash", "-c", script], cwd=tmp_path, capture_output=True, text=True, timeout=15,
+        env=dict(os.environ, CPP_DIR=str(ROOT), CPP_TEST_RECEIPT_HELPER=str(wrapper),
+                 SELECTED_TIER="1", PROFILE_NAME="not-selected", PERMISSION_REPORT="{}",
+                 STEP_RESULTS_JSON=json.dumps(CASES[0]["steps"]),
+                 OFFERED_STEPS_JSON=json.dumps(["commands", "stash-guard"])),
+    )
+    assert "CPP_INSTALL_RECEIPT: saved" in result.stdout, "precondition: persistence succeeded before summary fault"
+    assert "CPP Installation Incomplete" in result.stdout, result.stdout + result.stderr
+    assert "CPP Installation Complete" not in result.stdout

@@ -33,7 +33,7 @@ def run(gate: Path, case: Path) -> int:
     elif scenario == "declined":
         offered.append("project-commands")
         observations.append({"step": "project-commands", "outcome": "declined"})
-    elif scenario not in {"complete", "old-green-write-fails", "absent", "invalid"}:
+    elif scenario not in {"complete", "old-green-write-fails", "summary-unreadable", "absent", "invalid"}:
         raise ValueError("unknown fixture scenario")
 
     with tempfile.TemporaryDirectory(prefix="cpp-install-control-") as directory:
@@ -70,11 +70,24 @@ def run(gate: Path, case: Path) -> int:
         assert match and match[1].strip(), "must exercise the actual shipped consumer"
         # Adapt transport only: select the supplied real/anchor helper and a
         # fixed revision, so controls require neither git nor host configuration.
+        command_gate = gate
+        if scenario == "summary-unreadable":
+            command_gate = project / "summary-fault.py"
+            command_gate.write_text(
+                "import pathlib, subprocess, sys\n"
+                f"gate = {str(gate)!r}\n"
+                "result = subprocess.run([sys.executable, gate, *sys.argv[1:]])\n"
+                f"if sys.argv[1] == 'write' and result.returncode == 0 and not {repair!r}:\n"
+                "    receipt = pathlib.Path('.claude/cpp-install.json')\n"
+                "    receipt.unlink(missing_ok=True)\n"
+                "    assert not receipt.exists(), 'negative-fixture precondition: summary input absent'\n"
+                "raise SystemExit(result.returncode)\n"
+            )
         script = match[1].replace('"$CPP_DIR/scripts/cpp-install-receipt.py"', '"$CPP_RECEIPT_CONTROL_GATE"')
         script = script.replace('--cpp-dir "$CPP_DIR"', '--revision "$CPP_RECEIPT_CONTROL_REVISION"')
         result = subprocess.run(
             ["bash", "-c", script], cwd=project, capture_output=True, text=True, timeout=15,
-            env=dict(os.environ, CPP_RECEIPT_CONTROL_GATE=str(gate), CPP_RECEIPT_CONTROL_REVISION=REVISION,
+            env=dict(os.environ, CPP_RECEIPT_CONTROL_GATE=str(command_gate), CPP_RECEIPT_CONTROL_REVISION=REVISION,
                      SELECTED_TIER="1", PROFILE_NAME="not-selected", PERMISSION_REPORT="{}",
                      STEP_RESULTS_JSON=json.dumps(observations), OFFERED_STEPS_JSON=json.dumps(offered)),
         )

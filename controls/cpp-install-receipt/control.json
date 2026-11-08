@@ -9,9 +9,9 @@
   "good_exit": 0,
   "good_signal": "^CPP Installation Complete$",
   "detect_signal": "^CPP Installation Incomplete$",
-  "unknown_signal": "^(?:CPP_INSTALL_RECEIPT: (?:no receipt|unreadable or invalid receipt)|CPP_INSTALL_CONTROL: unknown - )",
+  "unknown_signal": "\\ACPP_INSTALL_RECEIPT: (?:no receipt|unreadable or invalid receipt)[^\\n]*\\n?\\Z|^CPP_INSTALL_CONTROL: unknown - ",
   "unavailable_signal": "^CPP_INSTALL_CONTROL: unavailable - ",
-  "limits": "Exercises the actual wizard persistence/summary branch in an owned temporary project, substituting only the helper path and explicit fixture revision. Fixed metadata only; no model, installer, real credentials, host writes or network. BAD inputs are a nonzero exit mislabeled installed, an offered step without an observation, and an old green receipt behind a destination symlink which the real writer refuses. Each has a committed repaired GOOD case. UNKNOWN status cases distinguish absent and malformed records. Recorded state is historical evidence, not current connectivity. The always-complete anchor is constructed, not a historical pre-fix artifact.",
+  "limits": "Exercises the actual wizard persistence/summary branch in an owned temporary project, substituting only the helper path and explicit fixture revision. Fixed metadata only; no model, installer, real credentials, host writes or network. BAD inputs are a nonzero exit mislabeled installed, an offered step without an observation, and an old green receipt behind a destination symlink which the real writer refuses. Each has a committed repaired GOOD case. UNKNOWN status cases distinguish absent and malformed records. Recorded state is historical evidence, not current connectivity. The always-complete anchor is constructed, not a historical pre-fix artifact. A summary read fault after successful persistence must still produce the wizard incomplete verdict; its repaired case preserves the saved file.",
   "cases": [
     {
       "name": "good-complete",
@@ -62,6 +62,16 @@
       "name": "unknown-invalid",
       "input": "cases/unknown-invalid",
       "expect": "UNKNOWN"
+    },
+    {
+      "name": "bad-summary-read",
+      "input": "cases/bad-summary-read",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-repaired-summary",
+      "input": "cases/good-repaired-summary",
+      "expect": "GOOD"
     }
   ],
   "anchors": [
@@ -71,7 +81,10 @@
       "origin": "scripts/cpp-install-receipt.py",
       "path": "anchors/always-complete.py",
       "sha256": "83ae310d98f5257ceb16c28711e9047aa3ba435020605976680ab51011a4fc00",
-      "why": "Constructed substitute retains absent/malformed status detection but its writer and summary always declare complete, ignoring persistence, exit codes and offered observations. Thus only the intended outcome/consumer blindness differs on BAD inputs; known GOOD and UNKNOWN cases remain identical. No historical no-receipt helper exists to vendor."
+      "why": "Constructed substitute retains absent/malformed status detection but its writer and summary always declare complete, ignoring persistence, exit codes and offered observations. Thus only the intended outcome/consumer blindness differs on all four BAD inputs; known GOOD and UNKNOWN cases remain identical. No historical no-receipt helper exists to vendor."
     }
+  ],
+  "_comment": [
+    "UNKNOWN receipt status is a standalone terminal status message. When the wizard reports a final installation verdict, its complete/incomplete line is the consumer contract; an earlier missing-receipt diagnostic is retained but does not override that final verdict."
   ]
 }
