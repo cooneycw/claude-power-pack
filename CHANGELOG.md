@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Flow CI refuses mixed Woodpecker credential sources instead of sending an AWS token to an unrelated environment-selected server (or the reverse), while complete and matching pairs keep working (#1644).
+
 - The unattended helper installer now includes `project-next.py`, so checkout installs satisfy the Claude preflight engine dependency; project-next documents the colocated library requirement for legacy copy installs and emits the installed-family exit marker on stderr (#1619).
 
 - CI providers are now an explicit per-project list with a canonical reader and targeted recording command; missing selections stop pipeline generation instead of silently selecting GitHub Actions (#1607).
