@@ -460,7 +460,7 @@ def test_a_stdout_only_marker_would_not_satisfy_the_static_check() -> None:
 @pytest.mark.parametrize(("arguments", "expected"), [
     (["--help"], 0), (["--cpp-invalid-option"], 2), (["--input", "fixture-absent.json"], 2),
 ])
-def test_project_next_reports_actual_status_on_stderr(arguments, expected, tmp_path):  # binary-guard: allow offline argv
+def test_project_next_reports_actual_status_on_stderr(arguments, expected, tmp_path):  # binary-guard: allow offline
     if arguments[0] == "--input":
         assert not (tmp_path / arguments[1]).exists()
     result = subprocess.run(
