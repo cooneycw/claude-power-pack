@@ -488,12 +488,14 @@ def test_orphan_detection_ignores_sibling_worktree_templates(tmp_path: Path) -> 
 # Committed controls: a clean host, an unassessed Docker inventory with real
 # non-Docker drift, and an unhealthy Docker container. No host PATH is inherited.
 @pytest.mark.parametrize(
-    ("docker_present", "port_conflict", "expected_rc"),
-    [(False, False, 0), (False, True, 1), (True, False, 1)],
-    ids=["docker-absent-clean", "docker-absent-port-drift", "docker-unhealthy"],
+    ("docker_present", "port_conflict", "systemd_state", "expected_rc"),
+    [(False, False, "", 0), (False, True, "", 1), (True, False, "", 1),
+     (False, False, "failed", 1), (False, False, "activating", 1)],
+    ids=["docker-absent-clean", "docker-absent-port-drift", "docker-unhealthy",
+         "docker-absent-unit-failed", "docker-absent-unit-activating"],
 )
 def test_drift_detect_controlled_inventory(
-    tmp_path: Path, docker_present: bool, port_conflict: bool, expected_rc: int
+    tmp_path: Path, docker_present: bool, port_conflict: bool, systemd_state: str, expected_rc: int
 ) -> None:
     tools = ("bash", "dirname", "date", "grep", "sort", "awk", "cat", "sed",
              "mktemp", "head", "tr", "basename", "wc", "paste", "rm")
@@ -536,6 +538,18 @@ def test_drift_detect_controlled_inventory(
             #!/usr/bin/env bash
             echo 'fixture-container:Up (unhealthy)'
         """)
+    if systemd_state:
+        # Current CPP ships no first-party MCPs. Populate its existing inventory
+        # contract so the unit-only half cannot silently become Docker-dependent.
+        script.write_text(script.read_text().replace(
+            'declare -A DOCKER_STATUS=()',
+            'declare -A DOCKER_STATUS=()\nMCP_SERVERS=(fixture)\nMCP_SYSTEMD_UNITS[fixture]=cpp-fixture'
+        ))
+        _write_executable(bin_dir / "systemctl", f"""
+            #!/usr/bin/env bash
+            if [[ "$*" == *"show -p LoadState"* ]]; then echo loaded; fi
+            if [[ "$*" == *"is-active"* ]]; then echo {systemd_state}; fi
+        """)
     env = {**os.environ, "PATH": str(bin_dir), "HOME": str(home)}
     docker_probe = subprocess.run(
         ["bash", "-c", "command -v docker"], env=env, capture_output=True, check=False
@@ -549,6 +563,13 @@ def test_drift_detect_controlled_inventory(
         assert docker_probe.returncode == 1
         assert not docker_probe.stdout
 
+    if systemd_state:
+        unit_probe = subprocess.run(
+            ["systemctl", "--user", "is-active", "cpp-fixture"],
+            env=env, text=True, capture_output=True, check=False,
+        )
+        assert unit_probe.stdout.strip() == systemd_state
+
     result = subprocess.run(
         ["bash", str(script)], cwd=repo, env=env, text=True,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False,
@@ -560,13 +581,17 @@ def test_drift_detect_controlled_inventory(
         assert "docker - container fixture-container is unhealthy" in output
     else:
         assert "docker - not installed" in output
-        assert "mcp deployment models - NOT ASSESSED (docker not installed)" in output
+        assert "mcp deployment models - Docker/systemd conflict NOT ASSESSED (docker not installed)" in output
         assert "orphaned Docker MCPs - docker not installed" in output
         assert "no Docker/systemd conflicts or failed units" not in output
         assert "docker - all running containers healthy" not in output
         assert "orphaned Docker MCPs - none detected" not in output
     if port_conflict:
         assert "port binding conflict - port 8081" in output
+        assert "DRIFT DETECTED" in output
+    elif systemd_state:
+        diagnosis = "failed" if systemd_state == "failed" else "stuck activating"
+        assert f"systemd - unit cpp-fixture is {diagnosis} (fixture)" in output
         assert "DRIFT DETECTED" in output
     elif not docker_present:
         assert "ports - no MCP listeners" in output
