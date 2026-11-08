@@ -111,3 +111,31 @@ ids and unmodified direct output. These test evidence extraction, not model
 review quality. The supported JS grammar is deliberately bounded to a single
 `text(await tools.exec_command({...}))` call with JSON values and optionally
 unquoted object keys; other programs remain unknown rather than guessed.
+
+`codex-custom-exec.schema-0.166.json` is an explicitly constructed custom-only
+rollout fragment, not a capture of the 2026-11-04 host review. Its response-item
+schema comes from Codex tag `rust-v0.166.0`, commit
+`6ff1e1ca3b30fc8b914720681fcf5fe62e95f856`:
+[ResponseItem and output body definitions](https://github.com/openai/codex/blob/6ff1e1ca3b30fc8b914720681fcf5fe62e95f856/codex-rs/protocol/src/models.rs).
+`ResponseItem` uses snake-case `type` tags; `CustomToolCall` carries string
+`call_id`, `name` and `input`, while `CustomToolCallOutput` carries `call_id`
+and `FunctionCallOutputPayload`. `FunctionCallOutputBody::ContentItems` permits
+the output content array. These response items are independent variants; the
+schema does not require a native CommandExecution event alongside them.
+
+The direct JavaScript/structured-result transport is based on the separately
+retained real 0.164.0 capture above. Optional response ids/status/metadata were
+omitted, the command argument key is quoted, and shell output is an owned
+40-character test HEAD. The fragment contains only the custom pair and no
+native event or assistant prose. Writer cases supply synthetic identity/report
+records and adapt the output to their owned repository. Missing probes and
+foreign heads are committed refusal cases for both captured and schema-derived
+inputs; existing native-event controls remain independently exercised.
+
+Version distinction: #1605 records Codex 0.166.0 on the operator's host; these
+containers run 0.164.0. The whole 0.164.0 interactive and EXEC rollouts retained
+native events readable before the fix. The root cause of the reported 11-04
+host refusal is therefore INFERRED from the custom-only blind spot, not
+reproduced from that original rollout. Per the owner ruling, #1624 reopens if a
+host review is refused again. The schema proves format support, not what that
+host persisted or a version-specific omission of native events.

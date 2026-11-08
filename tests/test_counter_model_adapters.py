@@ -993,6 +993,7 @@ def test_codex_selection_requires_its_own_session_identity(evidence, role, selec
 
 NATIVE_HEAD = Path(__file__).parent / "fixtures/counter_model/native-codex-head.json"
 CUSTOM_EXEC = Path(__file__).parent / "fixtures/counter_model/codex-custom-exec.captured.json"
+SCHEMA_EXEC = Path(__file__).parent / "fixtures/counter_model/codex-custom-exec.schema-0.166.json"
 UNFRAMED_USER = Path(__file__).parent / "fixtures/counter_model/codex-unframed-user.constructed.json"
 
 
@@ -1138,13 +1139,16 @@ def test_native_codex_event_shape_through_receipt_writer(evidence, failed):
 @pytest.mark.parametrize("mutation", [
     "none", "no-probe", "wrong-head", "failed", "unlinked", "prose", "quoted-code", "conditional",
 ])
-def test_captured_custom_exec_through_receipt_writer(evidence, mutation):
+@pytest.mark.parametrize("custom_fixture", [CUSTOM_EXEC, SCHEMA_EXEC], ids=["captured-0.164", "schema-0.166"])
+def test_captured_custom_exec_through_receipt_writer(evidence, mutation, custom_fixture):
     e = evidence
     args = runtime(e, "implementer", "claude", "model-a")
     args += runtime(e, "reviewer", "codex", "model-b")
     rollout = e["tmp"] / "codex/rollout-fixture-reviewer.jsonl"
     records = [json.loads(line) for line in rollout.read_text().splitlines()]
-    captured = json.loads(CUSTOM_EXEC.read_text())["records"]
+    captured = json.loads(custom_fixture.read_text())["records"]
+    assert all(r["type"] == "response_item" for r in captured), \
+        "precondition: custom-only evidence cannot rely on native CommandExecution events"
     result = json.loads(captured[1]["payload"]["output"][1]["text"])
     result["output"] = e["head"] + "\n"
     if mutation == "wrong-head":
@@ -1239,3 +1243,12 @@ def test_custom_exec_requires_unambiguous_completed_result(mutation):
         commands = load()._review_commands(records, "codex")
         expected = [("git rev-parse HEAD", "587d6546bc1c0d02cc1fbe79b49c3ae5855634d5\n")]
         assert commands == (expected if mutation in ("none", "quoted-key") else [])
+
+
+def test_schema_custom_only_rollout_supplies_the_head_probe():
+    records = json.loads(SCHEMA_EXEC.read_text())["records"]
+    assert [record["payload"]["type"] for record in records] == ["custom_tool_call", "custom_tool_call_output"], \
+        "precondition: schema-derived fragment has no native event or prose evidence"
+    assert load()._review_commands(records, "codex") == [
+        ("git rev-parse HEAD", "1111111111111111111111111111111111111111\n")
+    ]
