@@ -1,0 +1,19 @@
+{
+  "target": "required-checks",
+  "declared": {
+    "status": "ok",
+    "reason": "known fixture checks",
+    "missing": [],
+    "extra": [],
+    "examined_files": 1,
+    "required_contexts": 1
+  },
+  "live": {
+    "status": "ok",
+    "reason": "known fixture checks",
+    "missing": [],
+    "extra": [],
+    "examined_files": 1,
+    "required_contexts": 1
+  }
+}

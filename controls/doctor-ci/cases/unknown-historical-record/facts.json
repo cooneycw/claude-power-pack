@@ -1,0 +1,10 @@
+{
+  "target": "pipeline-files",
+  "providers": [],
+  "inventory": {
+    "github-actions": [],
+    "woodpecker": [
+      ".woodpecker.yml"
+    ]
+  }
+}

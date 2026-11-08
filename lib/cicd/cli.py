@@ -54,6 +54,19 @@ from .detector import detect_framework, detect_infrastructure
 from .runner import resume_run, run_plan, show_status
 
 
+def cmd_doctor_ci(args: argparse.Namespace) -> int:
+    """Read provider consistency; never generate or repair configuration."""
+    from .doctor import IDS, collect, render, report, row
+    try:
+        value = collect(args.path)
+    except ImportError:
+        value = report([row(name, "unknown", "existing CPP diagnostic dependencies unavailable") for name in IDS], [])
+    except Exception:
+        value = report([row(name, "unknown", "diagnostic collection failed") for name in IDS], [])
+    print(json.dumps(value, indent=2) if args.json else render(value))
+    return value["exit_code"]
+
+
 def cmd_host_ci(args: argparse.Namespace) -> int:
     """Report every registered host capability independently of project choice."""
     from .host import probe_host, read_host_record, write_host_record
@@ -355,7 +368,7 @@ def cmd_checks(args: argparse.Namespace) -> int:
     from .config import CICDConfig
     from .providers import read_provider_record, require_providers
     providers = require_providers(read_provider_record(args.path).providers)
-    required = derive_required_checks(providers, read_pipeline_files(args.path))
+    required = derive_required_checks(providers, read_pipeline_files(args.path, provider_names=providers))
     path = Path(args.path) / ".claude/branch-protection.json"
     if args.write:
         posture = protection_record(CICDConfig.load(args.path), required)
@@ -1120,6 +1133,9 @@ def create_parser() -> argparse.ArgumentParser:
         help="Write files to disk (default: dry run to stdout)",
     )
 
+    doctor_parser = subparsers.add_parser("doctor-ci", help="Read provider, pipeline, protection and host consistency")
+    _add_common_args(doctor_parser)
+
     host_parser = subparsers.add_parser("host-ci", help="Probe or read host CI capabilities")
     _add_common_args(host_parser)
     host_mode = host_parser.add_mutually_exclusive_group()
@@ -1241,6 +1257,7 @@ def main(argv: list[str] | None = None) -> int:
         "checks": cmd_checks,
         "flow-host": cmd_flow_host,
         "host-ci": cmd_host_ci,
+        "doctor-ci": cmd_doctor_ci,
         "infra-init": cmd_infra_init,
         "infra-discover": cmd_infra_discover,
         "infra-pipeline": cmd_infra_pipeline,

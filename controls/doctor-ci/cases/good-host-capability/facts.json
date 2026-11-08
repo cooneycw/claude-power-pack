@@ -1,0 +1,12 @@
+{
+  "target": "host-capability",
+  "host": {
+    "schema": 1,
+    "checked_at": "2026-11-08T00:00:00+00:00",
+    "providers": {
+      "github-actions": {
+        "status": "ready"
+      }
+    }
+  }
+}
