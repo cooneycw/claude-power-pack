@@ -158,7 +158,7 @@ def make_receipt(args: argparse.Namespace, cpp_revision: str) -> dict:
         raise ValueError("STEP_RESULTS must be a list")
     now = timestamp()
     offered = offered_steps(args.offered_steps, args.tier)
-    steps = []
+    steps: list[dict] = []
     seen = set()
     for item in data:
         if not isinstance(item, dict) or set(item) - {"step", "outcome", "user_scope", "exit_code"}:
