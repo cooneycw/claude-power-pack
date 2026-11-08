@@ -94,12 +94,25 @@ def test_unmarked_quiet_interruption_cannot_be_inferred():
     assert pytest_incomplete_reason("=== 1 failed in 0.1s ===\n", "") is None
 
 
-def test_silent_same_stream_child_replacement_is_indistinguishable():
+@requires_shell
+def test_silent_same_stream_child_replacement_is_indistinguishable(tmp_path):
     # This can be one completed verbose child, or an unfinished verbose child
     # silently replaced by a quiet child. With NO diagnostic or signal status,
     # their bytes are identical. The detector does not claim to distinguish it.
     transcript = "=== test session starts ===\n=== 1 failed in 0.1s ===\n"
     assert pytest_incomplete_reason(transcript, "") is None
+    command = (
+        "if [ -f attempted ]; then printf '%s\\n' '=== 1 passed in 0.1s ==='; "
+        "else touch attempted; printf '%s\\n' '=== test session starts ===' "
+        "'=== 1 failed in 0.1s ===' 'FAILED tests/unit.py::test_one - AssertionError'; "
+        "exit 1; fi"
+    )
+    result = DeterministicRunner(
+        project_root=tmp_path, output=StringIO(), rerun_failed=True
+    ).run("check", step_defs=[StepDef(id="test", command=command)])
+    # Deliberately pin the residual at the verdict, not only the extractor.
+    assert result.success
+    assert result.reruns[0]["outcome"] == "passed-in-isolation"
 
 
 def test_crossed_stream_completion_cannot_be_attributed():
