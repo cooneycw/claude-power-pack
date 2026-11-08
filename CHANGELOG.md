@@ -13,6 +13,8 @@
 
 ### Fixed
 
+- Merge-queue API calls pass authorization headers through stdin so bearer credentials stay out of curl process arguments (#1656).
+
 - `cpp:init` shares one MCP registration routine per client and records actual
   registration outcomes in its install receipt (Refs #1587, R2).
 - `project:init` uses the guarded framework Makefile writer, preserves existing entries and symlinks, and stops on generation failure without creating an empty Makefile or reporting success (#1650).
