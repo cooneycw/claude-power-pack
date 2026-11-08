@@ -84,6 +84,11 @@ opaque reference, not proof that the work or tests passed; do not store secrets.
 
 ## Put semantics and publication acknowledgement
 
+The filesystem store is initialized by `assign`, with a persistent root marker
+and receipts directory. A missing/moved directory after initialization is
+unavailable, not known absence, and is never recreated by a check. Writes sync
+the file and containing directory; new state directories sync their parents.
+
 Put must atomically create an immutable terminal receipt. For concurrent calls,
 there is one authoritative result. Retries with the same schema, identity,
 outcome and evidence return the original receipt, including its first

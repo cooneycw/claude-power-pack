@@ -25,8 +25,8 @@ def call(root, verb, *args, env=None):
     return result.returncode, json.loads(result.stdout)
 
 
-def assign(root):
-    code, value = call(root, 'assign', '--deadline', DEADLINE, '--now', BEFORE, '--extension-seconds','60')
+def assign(root, env=None):
+    code, value = call(root, 'assign', '--deadline', DEADLINE, '--now', BEFORE, '--extension-seconds','60',env=env)
     assert code == 0 and value['status'] == 'assigned'
 
 
@@ -210,7 +210,7 @@ def test_external_adapter_round_trip_shared_across_processes(tmp_path):
                   f'p=Path({str(shared)!r})\n'
                   'if sys.argv[1]=="put": p.write_text(sys.stdin.read())\n'
                   'print(p.read_text() if p.exists() else json.dumps({"key":sys.argv[2],"receipt":None}))\n')
-    assign(tmp_path)
+    assign(tmp_path, env=env)
     publish(tmp_path, env=env)
     code, value = call(tmp_path,'check','--now',AFTER,env=env)
     assert code == 0 and value['outcome'] == 'succeeded'
@@ -225,3 +225,86 @@ def test_committed_empty_adapter_response_is_unknown(tmp_path):
     for verb, args in [('check',['--now',AFTER]), ('complete',['--outcome','succeeded'])]:
         code, value = call(tmp_path,verb,*args,env=env)
         assert code == 3 and value['status'] == 'unknown'
+
+
+def load_helper():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('wave_completion_under_test', SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_atomic_replacement_syncs_directory_after_rename(tmp_path, monkeypatch):
+    import stat
+    helper = load_helper()
+    events = []
+    real_sync, real_replace = helper.os.fsync, helper.os.replace
+    def sync(fd):
+        events.append('sync-dir' if stat.S_ISDIR(os.fstat(fd).st_mode) else 'sync-file')
+        return real_sync(fd)
+    def replace(*args):
+        events.append('replace')
+        return real_replace(*args)
+    monkeypatch.setattr(helper.os,'fsync',sync)
+    monkeypatch.setattr(helper.os,'replace',replace)
+    helper.atomic_write(tmp_path / 'result.json', {'result':'fixture'})
+    assert events == ['sync-file','replace','sync-dir']
+
+
+@pytest.mark.parametrize('now', [BEFORE, AFTER])
+def test_disappeared_store_is_unknown_without_extension(tmp_path, now):
+    assign(tmp_path)
+    publish(tmp_path)
+    store = tmp_path / 'receipts'
+    assert store.is_dir()
+    store.rename(tmp_path / 'detached-receipts')
+    code, value = call(tmp_path,'check','--now',now,'--liveness','alive','--observed-at',now)
+    assert code == 3 and value['status'] == 'unknown'
+    state = json.loads((tmp_path / 'wave-a/assignments/worker-a.json').read_text())
+    assert state['extensions'] == 0
+    assert not store.exists()
+
+
+def test_receipt_finished_during_adapter_get_is_not_future_evidence(tmp_path):
+    assign(tmp_path)
+    receipt = publish(tmp_path)['receipt']
+    env = adapter(tmp_path, 'import json,sys,time\nfrom datetime import datetime,timezone\n'
+                  'time.sleep(.05)\n'
+                  f'receipt={receipt!r}\n'
+                  'receipt["finished_at"]=datetime.now(timezone.utc).isoformat()\n'
+                  'print(json.dumps({"key":sys.argv[2],"receipt":receipt}))\n')
+    env['FLOW_WAVE_RECEIPT_TIMEOUT'] = '2'
+    code, value = call(tmp_path,'check',env=env)
+    assert code == 0 and value['status'] == 'complete'
+
+
+def test_inconsistent_unextended_assignment_is_unknown(tmp_path):
+    assign(tmp_path)
+    path = tmp_path / 'wave-a/assignments/worker-a.json'
+    value = json.loads(path.read_text())
+    value['deadline'] = '2027-01-01T00:00:00Z'
+    assert value['extensions'] == 0 and value['deadline'] != value['initial_deadline']
+    path.write_text(json.dumps(value))
+    code, result = call(tmp_path,'check','--now',AFTER)
+    assert code == 3 and result['status'] == 'unknown'
+
+
+def test_assignment_retry_does_not_recreate_disappeared_store(tmp_path):
+    assign(tmp_path)
+    (tmp_path / 'receipts').rename(tmp_path / 'detached')
+    code, value = call(tmp_path,'assign','--deadline',DEADLINE,'--now',BEFORE,'--extension-seconds','60')
+    assert code == 3 and value['status'] == 'unknown'
+    assert not (tmp_path / 'receipts').exists()
+
+
+def test_new_state_directories_sync_parent_entries(tmp_path, monkeypatch):
+    helper = load_helper()
+    synced = []
+    actual = helper.sync_directory
+    def sync(path):
+        synced.append(path)
+        actual(path)
+    monkeypatch.setattr(helper,'sync_directory',sync)
+    helper.durable_mkdir(tmp_path / 'wave/assignments')
+    assert synced == [tmp_path, tmp_path / 'wave']

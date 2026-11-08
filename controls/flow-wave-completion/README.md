@@ -6,7 +6,7 @@ message with a usable receipt, or preserves a terminal failure/cancellation.
 Each GOOD case repairs message delivery while keeping the same terminal
 receipt, including failed and cancelled outcomes. UNKNOWN has neither message nor receipt and cannot report completion.
 
-The constructed anchor changes only the check's receipt read to require a
+The constructed anchor changes only the check's receipt consumption to require a
 message. The dropped-done case then fails to proceed, while its delivered
 repair still succeeds. This is an executable model of the old message-only
 policy, not vendored historical executable code: the old wave instructions had

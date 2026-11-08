@@ -45,6 +45,7 @@ these rules remain in [commands-reference.md](docs/commands-reference.md) and
 - `docs/agents/closing-report-contract.md` - canonical closing-report contract: owner TO-DO first, then plain language, then evidence.
 - `docs/agents/shared-stash-stack.md` - why a worktree shares one stash stack, the safe alternatives, and what `stash-worktree-guard.sh` does and cannot do.
 - `docs/agents/flow-plan-record.md` - background for `/flow:auto`'s plan record, as-read snapshot and plan-compliance checks (`scripts/flow-plan-record.py`); linked from the procedure, not required reading.
+- `docs/agents/flow-wave-completion.md` - provider-neutral receipt-store adapter contract, terminal assignment identities and finite deadline reconciliation for `/flow:wave`.
 - `docs/agents/execution-evidence.md` - the `/flow:check` execution-record pilot: what the runner records, where it is kept, and the exact claim `scripts/execution-evidence-verify.py` lets a reader make.
 - `docs/agents/counter-model-evidence.md` - runtime identity adapters, reviewed-artifact binding, producer requirements, and historical receipt compatibility.
 - `docs/agents/flow-permissions-guide.md` - short plain-language guide for users: which `/flow:*` command to use when, what the `/cpp:init` setup menus and the optional allowlist change, and why a helper may still prompt; linked from `/flow:help` and `/cpp:help`.

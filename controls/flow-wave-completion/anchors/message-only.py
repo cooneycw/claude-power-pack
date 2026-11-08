@@ -72,6 +72,26 @@ def read_json(path: Path) -> Any:
         raise Unknown('stored evidence unreadable or malformed') from None
 
 
+def sync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def durable_mkdir(path: Path) -> None:
+    if path.is_dir():
+        return
+    durable_mkdir(path.parent)
+    try:
+        path.mkdir()
+    except FileExistsError:
+        if not path.is_dir():
+            raise Unknown('state directory unavailable') from None
+    sync_directory(path.parent)
+
+
 def atomic_write(path: Path, value: dict) -> None:
     temporary = None
     try:
@@ -83,14 +103,16 @@ def atomic_write(path: Path, value: dict) -> None:
             os.fsync(output.fileno())
         os.replace(temporary, path)
         temporary = None
+        sync_directory(path.parent)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
 
 
 @contextmanager
-def locked(path: Path):
-    path.parent.mkdir(parents=True, exist_ok=True)
+def locked(path: Path, *, create_parent: bool = True):
+    if create_parent:
+        durable_mkdir(path.parent)
     with path.open('a') as handle:
         deadline = time.monotonic() + 5
         while True:
@@ -127,8 +149,25 @@ class FileStore:
 
     def __init__(self, root: Path):
         self.root = root / 'receipts'
+        self.marker = root / '.receipt-store.json'
+
+    def available(self):
+        if self.root.is_symlink() or not self.root.is_dir() or read_json(self.marker) != {'schema':1}:
+            raise Unknown('receipt store unavailable')
+
+    def initialize(self):
+        with locked(self.marker.with_suffix('.lock'), create_parent=False):
+            try:
+                self.marker.stat()
+            except FileNotFoundError:
+                if self.marker.is_symlink() or self.root.is_symlink():
+                    raise Unknown('receipt store unavailable') from None
+                durable_mkdir(self.root)
+                atomic_write(self.marker, {'schema':1})
+            self.available()
 
     def get(self, key: str) -> dict | None:
+        self.available()
         path = self.root / (key + '.json')
         try:
             value = json.loads(path.read_text())
@@ -137,14 +176,16 @@ class FileStore:
             return value
         except FileNotFoundError:
             # A broken store path is unreadable, not established absence.
-            if path.is_symlink() or self.root.is_symlink():
+            self.available()
+            if path.is_symlink():
                 raise Unknown('receipt store unavailable') from None
             return None
         except (OSError, ValueError, UnicodeError):
             raise Unknown('receipt store unavailable or malformed') from None
 
     def put(self, key: str, receipt: dict) -> dict:
-        with locked(self.root / (key + '.lock')):
+        self.available()
+        with locked(self.root / (key + '.lock'), create_parent=False):
             existing = self.get(key)
             if existing is not None:
                 if not same_result(existing, receipt):
@@ -233,8 +274,13 @@ def validate_assignment(value: Any, subject: dict) -> dict:
             or type(value.get('extensions')) is not int or value['extensions'] not in (0,1)
             or type(value.get('extension_seconds')) is not int or not 1 <= value['extension_seconds'] <= 86400):
         raise Unknown('assignment state malformed or not current')
-    timestamp(value.get('initial_deadline'))
-    timestamp(value.get('deadline'))
+    initial = timestamp(value.get('initial_deadline'))
+    current = timestamp(value.get('deadline'))
+    if (type(value.get('schema')) is not int
+            or type(value['identity'].get('generation')) is not int
+            or value['extensions'] == 0 and current != initial
+            or value['extensions'] == 1 and current <= initial):
+        raise Unknown('assignment deadline/extension history inconsistent')
     return value
 
 
@@ -272,7 +318,11 @@ def execute(args: argparse.Namespace) -> tuple[int, dict]:
             current = None
         except (OSError, ValueError, UnicodeError):
             raise Unknown('assignment state unreadable') from None
+        if not args.now:
+            now = datetime.now(timezone.utc)
         if args.verb == 'assign':
+            if isinstance(store, FileStore):
+                store.initialize()
             deadline = stamp(timestamp(args.deadline))
             if not 1 <= args.extension_seconds <= 86400:
                 raise Unknown('extension-seconds must be between 1 and 86400')
@@ -302,6 +352,8 @@ def execute(args: argparse.Namespace) -> tuple[int, dict]:
         receipt = store.get(key)
         if receipt is not None and not args.message_arrived:
             return 4, {'status':'waiting', 'deadline':current['deadline'], 'key':key}
+        if not args.now:
+            now = datetime.now(timezone.utc)
         if receipt is not None:
             receipt = validate_receipt(receipt, subject)
             if timestamp(receipt['finished_at']) > now:
@@ -348,7 +400,7 @@ def main(argv: list[str] | None = None) -> int:
         code, result = 1, {'status':'refused', 'reason':str(exc)}
     except Unknown as exc:
         code, result = 3, {'status':'unknown', 'reason':str(exc)}
-    except (OSError, ValueError, TypeError, KeyError, OverflowError):
+    except (OSError, ValueError, TypeError, KeyError, OverflowError, RecursionError):
         code, result = 3, {'status':'unknown', 'reason':'completion state or store unavailable or malformed'}
     print(json.dumps(result, sort_keys=True))
     return code
