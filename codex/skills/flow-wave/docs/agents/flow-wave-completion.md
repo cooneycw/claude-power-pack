@@ -86,7 +86,11 @@ opaque reference, not proof that the work or tests passed; do not store secrets.
 
 The filesystem store is initialized by `assign`, with a persistent root marker
 and receipts directory. A missing/moved directory after initialization is
-unavailable, not known absence, and is never recreated by a check. Writes sync
+unavailable, not known absence, and is never recreated by a check. The
+coordinator also retains a per-role initialization marker outside its assignment
+directory, under `<root>/.assigned-roles/<wave>/<role>.json`. Missing assignment
+state after initialization is UNKNOWN; retries cannot reset extension history.
+Do not delete these markers or state files to recover a live assignment. Writes sync
 the file and containing directory; new state directories sync their parents.
 
 Put must atomically create an immutable terminal receipt. For concurrent calls,

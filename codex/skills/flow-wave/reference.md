@@ -594,6 +594,9 @@ Read the JSON `status` and preserve the terminal `outcome`:
   conflict; this is not successful completion.
 
 Re-running `assign` for the same identity/policy preserves extension history.
+The coordinator retains per-role history markers outside the assignment
+directory. Missing state after initialization is UNKNOWN, never a new budget.
+Do not remove markers to bypass that refusal.
 A new assignment needs a higher generation; checking a superseded assignment
 is UNKNOWN. The helper's optional `--now` is for deterministic offline replay;
 operational calls use the real UTC clock. Archive these files with the wave

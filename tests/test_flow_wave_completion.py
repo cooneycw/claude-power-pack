@@ -308,3 +308,15 @@ def test_new_state_directories_sync_parent_entries(tmp_path, monkeypatch):
     monkeypatch.setattr(helper,'sync_directory',sync)
     helper.durable_mkdir(tmp_path / 'wave/assignments')
     assert synced == [tmp_path, tmp_path / 'wave']
+
+
+def test_missing_assignment_cannot_reset_one_extension_budget(tmp_path):
+    assign(tmp_path)
+    code, value = call(tmp_path,'check','--now',AFTER,'--liveness','alive','--observed-at',AFTER)
+    assert code == 4 and value['status'] == 'extended'
+    path = tmp_path / 'wave-a/assignments/worker-a.json'
+    path.unlink()
+    assert not path.exists()
+    code, value = call(tmp_path,'assign','--deadline','2026-11-08T11:00:00Z','--now',AFTER)
+    assert code == 3 and value['status'] == 'unknown'
+    assert not path.exists()

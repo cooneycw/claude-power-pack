@@ -307,7 +307,19 @@ def execute(args: argparse.Namespace) -> tuple[int, dict]:
             raise Unknown('published receipt readback did not match')
         return 0, {'status':'recorded', 'key':key, 'receipt':result}
     path = root / subject['wave'] / 'assignments' / (subject['role'] + '.json')
+    history = root / '.assigned-roles' / subject['wave'] / (subject['role'] + '.json')
+    history_value = {'schema':1, 'wave':subject['wave'], 'role':subject['role']}
     with locked(path.with_suffix('.lock')):
+        try:
+            seen = json.loads(history.read_text())
+            if seen != history_value:
+                raise Unknown('assignment history malformed or belongs to another role')
+        except FileNotFoundError:
+            if history.is_symlink():
+                raise Unknown('assignment history unavailable') from None
+            seen = None
+        except (OSError, ValueError, UnicodeError):
+            raise Unknown('assignment history unreadable') from None
         try:
             current = json.loads(path.read_text())
             if not isinstance(current, dict):
@@ -318,6 +330,8 @@ def execute(args: argparse.Namespace) -> tuple[int, dict]:
             current = None
         except (OSError, ValueError, UnicodeError):
             raise Unknown('assignment state unreadable') from None
+        if (current is None) != (seen is None):
+            raise Unknown('assignment state/history missing; cannot reset deadline or extension budget')
         if not args.now:
             now = datetime.now(timezone.utc)
         if args.verb == 'assign':
@@ -346,6 +360,9 @@ def execute(args: argparse.Namespace) -> tuple[int, dict]:
                 raise Refused('new assignment deadline must be in the future')
             current = {'schema':1, 'identity':subject, 'initial_deadline':deadline, 'deadline':deadline,
                        'extension_seconds':args.extension_seconds, 'extensions':0}
+            if seen is None:
+                durable_mkdir(history.parent)
+                atomic_write(history, history_value)
             atomic_write(path, current)
             return 0, {'status':'assigned', **current, 'key':key}
         current = validate_assignment(current, subject)
