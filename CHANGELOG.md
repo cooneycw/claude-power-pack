@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Worktree claims and wave roles treat Linux process states `Z` and `X` as
+  exited, reporting `owner-zombie` rather than retaining a dead owner's lock.
+  Live owners retain their existing held/live classification (#1605).
+
 ### Behaviour changes you may notice
 
 - CPP now states a bash 4.4 floor. `flow-preflight` gains a required `bash` check, so `/cpp:init`, `/cpp:update` and `/flow:doctor` report a bash below it, and `/flow:auto` refuses to start until it is upgraded. On macOS: `brew install bash`, first on PATH (#1628).
