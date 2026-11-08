@@ -1,0 +1,82 @@
+{
+  "_comment": [
+    "#1649: current host-only Tier4 outcomes feed an installation-completion verdict consumed by other sessions.",
+    "The actual host step and final receipt branch execute in separate owned shell processes. Only uv transport is stubbed; actual host receipt text/status drive the helper. No live provider/host writes.",
+    "The constructed anchor changes only host observation derivation to assume written+0. It misses deferred, failed/old-green retry, unknown, absent receipt, contradictory receipt/status and duplicate malformed receipt cases, while all written-provider variants remain complete.",
+    "Historical schema1 project-generation read compatibility is separately pinned by an immutable fixture in tests/fixtures/cpp-host-install-receipt."
+  ],
+  "gate": "scripts/cpp-install-receipt.py",
+  "invocation": [
+    "python3",
+    "controls/cpp-host-install-receipt/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "good_signal": "^CPP Installation Complete$",
+  "detect_signal": "^CPP Installation Incomplete$",
+  "cases": [
+    {
+      "name": "good-written",
+      "input": "cases/good-written",
+      "expect": "GOOD",
+      "why": "good written"
+    },
+    {
+      "name": "good-missing-provider-written",
+      "input": "cases/good-missing-provider-written",
+      "expect": "GOOD",
+      "why": "good missing provider written"
+    },
+    {
+      "name": "good-unknown-provider-written",
+      "input": "cases/good-unknown-provider-written",
+      "expect": "GOOD",
+      "why": "good unknown provider written"
+    },
+    {
+      "name": "bad-deferred",
+      "input": "cases/bad-deferred",
+      "expect": "BAD",
+      "why": "bad deferred"
+    },
+    {
+      "name": "bad-failed-retry",
+      "input": "cases/bad-failed-retry",
+      "expect": "BAD",
+      "why": "bad failed retry"
+    },
+    {
+      "name": "bad-unknown",
+      "input": "cases/bad-unknown",
+      "expect": "BAD",
+      "why": "bad unknown"
+    },
+    {
+      "name": "bad-no-receipt-zero",
+      "input": "cases/bad-no-receipt-zero",
+      "expect": "BAD",
+      "why": "bad no receipt zero"
+    },
+    {
+      "name": "bad-contradictory-receipt",
+      "input": "cases/bad-contradictory-receipt",
+      "expect": "BAD",
+      "why": "bad contradictory receipt"
+    },
+    {
+      "name": "bad-duplicate-receipt",
+      "input": "cases/bad-duplicate-receipt",
+      "expect": "BAD",
+      "why": "bad duplicate receipt"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "path": "anchors/assume-host-written.py",
+      "sha256": "61c7b6b251ef71a130ca8cb8d6433c9414b561d8747d6a06579954756b7199be",
+      "why": "Treat every actual host write outcome as written+0 while retaining the real writer, required steps and historical reader."
+    }
+  ]
+}

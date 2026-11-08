@@ -372,3 +372,6 @@ woodpecker/wp-cli-env.sh
 
 # Staged CI binaries (shellcheck pinned copy, issue #960)
 .ci-bin/
+
+# Historical schema-1 receipt compatibility fixture (#1649).
+!tests/fixtures/cpp-host-install-receipt/legacy-tier4.json

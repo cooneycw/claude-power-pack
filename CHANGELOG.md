@@ -13,6 +13,7 @@
 
 - `project:init` uses the guarded framework Makefile writer, preserves existing entries and symlinks, and stops on generation failure without creating an empty Makefile or reporting success (#1650).
 
+- Tier 4/5 installation receipts now use the observed host CI record write instead of requiring retired project generators; deferred, failed and unknown writes remain incomplete, and historical schema-1 project-generation receipts still read (#1649).
 - Flow CI refuses mixed Woodpecker credential sources instead of sending an AWS token to an unrelated environment-selected server (or the reverse), while complete and matching pairs keep working (#1644).
 
 - cpp:init Tier 4 now records independent host CI capabilities instead of generating project files; project consumers share a container-aware, worktree-stable reader (#1609).
