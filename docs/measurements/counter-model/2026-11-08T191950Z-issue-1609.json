@@ -5,6 +5,18 @@
     "deferred": 0,
     "rejected": 2
   },
+  "disposition_notes": [
+    {
+      "disposition": "rejected",
+      "finding": "Custom projects-folder record is not visible to installer outside that folder",
+      "reason": "The selected folder applies to projects directly inside it. Consumer roots remain main-checkout parents, without a reader override; positive/decoy coverage pins this contract."
+    },
+    {
+      "disposition": "rejected",
+      "finding": "Linked worktree with separate Git directory and absent core.worktree cannot locate main",
+      "reason": "Owner ruling cs-orch19233: Git has no reverse pointer in this combination. Return unknown(host-root-unavailable), never guess by ancestor walking or root override. A committed exact-combination test and PR Known limits disclosure are required. No fourth pass is authorized."
+    }
+  ],
   "extra_passes_reason": "cs-orch requires independent review with a cumulative three-pass ceiling; pass 3 verifies credential-pair and timestamp fixes from pass 2, with no fourth pass.",
   "head": "2eff34f53351fa0e64ce76fa7ae3f3375ee0b501",
   "implementer": "codex/gpt-6.1-sol",

@@ -399,3 +399,25 @@ def test_matching_partial_environment_can_use_the_same_aws_pair(partial):
                      tools=('woodpecker-cli', 'aws'),
                      env={**partial, 'CPP_WOODPECKER_SECRET': 'fixture', 'AWS_REGION': 'fixture-region'})
     assert host.check_woodpecker(ctx)['status'] == 'ready'
+
+
+@requires_git
+def test_separate_git_dir_linked_without_reverse_pointer_is_unknown(tmp_path, monkeypatch):
+    monkeypatch.setattr(host, 'in_container', lambda: False)
+    main = tmp_path / 'projects/main'
+    main.mkdir(parents=True)
+    git(main, 'init', '--separate-git-dir', str(tmp_path / 'metadata'))
+    git(main, '-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid',
+        'commit', '--allow-empty', '-m', 'fixture')
+    linked = tmp_path / 'elsewhere/linked'
+    git(main, 'worktree', 'add', '-b', 'separate-linked', str(linked))
+    config = subprocess.run(['git', '-C', str(main), 'config', '--get', 'core.worktree'],
+                            capture_output=True, text=True)
+    assert config.returncode == 1 and not config.stdout, 'fixture must lack a reverse main-checkout pointer'
+    ctx, _ = context(github())
+    record = host.probe_host(ctx)
+    put_record(main.parent, record)
+    assert host.read_host_record(main) == record
+    result = host.read_host_record(linked)
+    assert {v['status'] for v in result['providers'].values()} == {'unknown'}
+    assert {v['reason'] for v in result['providers'].values()} == {'host-root-unavailable'}
