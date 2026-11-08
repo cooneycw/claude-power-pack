@@ -45,8 +45,7 @@ def main():
         value = module.host_row(selected, data['host'])
     else:
         assert target == 'fallback'
-        # The unavailable shared lane planner is an explicit current bound.
-        value = module.row('fallback', 'unknown', 'lane plan unavailable (#1610)')
+        value = module.lane_row(selected, data['plan'], data['explicit'])
     print('DOCTOR_ROW: ' + value['status'] + ' (' + value['reason'] + ')')
     return {'ok':0, 'drift':1, 'unknown':3}[value['status']]
 

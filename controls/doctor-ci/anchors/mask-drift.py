@@ -77,6 +77,47 @@ def host_row(names: list[str], record: dict[str, Any] | None) -> dict[str, Any]:
                providers=states, checked_at=checked, current_connectivity="not examined")
 
 
+def lane_row(names: list[str], plan: Any, explicit: Any) -> dict[str, Any]:
+    """Report canonical offline plans; never execute their fallback probes."""
+    if not isinstance(plan, dict) or not isinstance(explicit, dict):
+        return row(IDS[3], "unknown", "offline lane plan unavailable; " + REMEDY)
+    default = plan.get("fallback")
+    requested = explicit.get("fallback")
+    if (not isinstance(default, dict) or not isinstance(requested, dict)
+            or default.get("requested") is not False or default.get("would_trigger") is not False
+            or requested.get("requested") is not True
+            or type(requested.get("would_trigger")) is not bool):
+        return row(IDS[3], "unknown", "offline fallback evidence malformed")
+    trigger = requested["would_trigger"]
+    evidence = {"fallback_would_trigger": False, "explicit_fallback_would_trigger": trigger,
+                "scope": "offline plan only; no provider probes executed"}
+    if plan.get("status") == "unknown" and explicit.get("status") == "unknown" and trigger:
+        return row(IDS[3], "unknown",
+                   "recorded lane unavailable; fallback requires --fallback-provider-probes; " + REMEDY, **evidence)
+    selected = plan.get("providers")
+    lanes = plan.get("lanes")
+    if (plan.get("status") != "ok" or explicit.get("status") != "ok" or trigger
+            or plan.get("source") != "recorded" or explicit.get("source") != "recorded"
+            or not isinstance(selected, list) or not selected
+            or any(not isinstance(name, str) or name not in PROVIDERS for name in selected)
+            or len(set(selected)) != len(selected)
+            or not isinstance(lanes, list)
+            or explicit.get("providers") != selected or explicit.get("lanes") != lanes):
+        return row(IDS[3], "unknown", "offline lane evidence incomplete or inconsistent", **evidence)
+    expected = [{"provider": name, "lane": PROVIDERS[name].ci_lane} for name in names if name in PROVIDERS]
+    if selected != names or lanes != expected:
+        return row(IDS[3], "drift", "offline lane plan disagrees with recorded providers", **evidence)
+    return row(IDS[3], "ok", "recorded lanes selected; fallback would not trigger", lanes=lanes, **evidence)
+
+
+def collect_lane(root: Path, names: list[str]) -> dict[str, Any]:
+    try:
+        from .flow import lane_plan
+        return lane_row(names, lane_plan(root), lane_plan(root, allow_fallback=True))
+    except Exception:
+        return lane_row(names, None, None)
+
+
 def report(rows: list[dict[str, Any]], names: list[str]) -> dict[str, Any]:
     # Missing/foreign/duplicate rows cannot make an incomplete population green.
     if ([value.get("id") for value in rows] != list(IDS)
@@ -218,7 +259,8 @@ def collect(project: str | Path, ctx: DoctorContext | None = None) -> dict[str, 
         # provider choice, or expose parser exception text as user output.
         names = []
     if not names:
-        return report([row(name, "unknown", "provider record missing or invalid; " + REMEDY) for name in IDS], [])
+        return report([row(name, "unknown", "provider record missing or invalid; " + REMEDY)
+                       for name in IDS[:3]] + [collect_lane(root, names)], [])
     try:
         inventory = read_pipeline_inventory(root)
         files = read_pipeline_files(root)
@@ -245,7 +287,7 @@ def collect(project: str | Path, ctx: DoctorContext | None = None) -> dict[str, 
     except Exception:
         host_record = None
     rows = [file_row, required_row(declared, live), host_row(names, host_record),
-            row(IDS[3], "unknown", "lane plan unavailable (#1610)")]
+            collect_lane(root, names)]
     return report(rows, names)
 
 
@@ -277,6 +319,12 @@ def render(value: dict[str, Any]) -> str:
             details.append("checked_at=" + str(evidence["checked_at"]))
             details.extend(name + "=" + status for name, status in evidence["providers"].items())
             details.append("not current connectivity")
+        elif item["id"] == "fallback" and evidence:
+            details.extend(item["provider"] + "=" + item["lane"] for item in evidence.get("lanes", []))
+            details.append("default fallback=" + str(evidence["fallback_would_trigger"]).lower())
+            details.append("with --fallback-provider-probes="
+                           + str(evidence["explicit_fallback_would_trigger"]).lower())
+            details.append("offline; no probes executed")
         suffix = "; " + "; ".join(details) if details else ""
         lines.append(f"{prefix}: {item['status']} ({item['reason']}{suffix})")
     return "\n".join(lines)

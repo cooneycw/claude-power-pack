@@ -332,9 +332,11 @@ unconditional PR contexts supported by the shared derivation, not every branch
 policy or arbitrary workflow expression. An unreadable protection source or
 unverified app binding is unknown. Host-ready means last recorded ready at the
 reported timestamp; refresh it with `/cpp:init` Tier 4 on the host when needed.
-The fallback row explicitly reports `unknown (lane plan unavailable (#1610))`
-until the shared offline lane-plan integration lands; do not probe another CI
-provider to invent this answer.
+The fallback row uses the canonical offline lane planner, names the recorded
+lanes, and reports whether fallback would trigger by default and with the
+explicit `--fallback-provider-probes` option. Missing records or unavailable
+handlers remain unknown even when explicit fallback would trigger. This
+diagnostic executes no provider probes.
 
 If `CPP_DIR` is not found, report CI/CD readiness unknown (`lib/cicd` unavailable).
 Do not mark a skipped diagnostic as successful.

@@ -188,15 +188,15 @@ def _by_id(value):
     (('woodpecker',), ['ci/woodpecker/pr/woodpecker']),
     (('github-actions', 'woodpecker'), ['verify', 'ci/woodpecker/pr/woodpecker']),
 ])
-def test_known_relationships_and_explicit_unavailable_lane_plan(tmp_path, names, contexts):
+def test_known_relationships_and_recorded_lane_plan(tmp_path, names, contexts):
     from lib.cicd.doctor import collect
     _project(tmp_path, names)
     ctx, _ = _context(tmp_path, classic={'required_status_checks':{'contexts':contexts}})
     before = {str(p.relative_to(tmp_path)):p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
     value = collect(tmp_path, ctx)
-    assert [row['status'] for row in value['rows']] == ['ok', 'ok', 'ok', 'unknown']
-    assert value['rows'][-1]['reason'] == 'lane plan unavailable (#1610)'
-    assert value['status'] == 'unknown' and value['exit_code'] == 3
+    assert [row['status'] for row in value['rows']] == ['ok', 'ok', 'ok', 'ok']
+    assert value['rows'][-1]['evidence']['fallback_would_trigger'] is False
+    assert value['status'] == 'ok' and value['exit_code'] == 0
     assert {str(p.relative_to(tmp_path)):p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()} == before
 
 
@@ -364,7 +364,7 @@ def test_protection_probe_errors_do_not_escape_or_become_green(tmp_path, failure
     assert 'PRIVATE_API_PAYLOAD_CANARY' not in render(value)
 
 
-def test_cli_json_and_text_have_identical_unknown_verdict(tmp_path, monkeypatch, capsys):
+def test_cli_json_and_text_have_identical_known_verdict(tmp_path, monkeypatch, capsys):
     import json
 
     from lib.cicd import cli, doctor
@@ -372,12 +372,12 @@ def test_cli_json_and_text_have_identical_unknown_verdict(tmp_path, monkeypatch,
     ctx, _ = _context(tmp_path)
     actual = doctor.collect
     monkeypatch.setattr(doctor, 'collect', lambda path:actual(path, ctx))
-    assert cli.main(['doctor-ci', '--path', str(tmp_path), '--json']) == 3
+    assert cli.main(['doctor-ci', '--path', str(tmp_path), '--json']) == 0
     data = json.loads(capsys.readouterr().out)
-    assert data['rows'][-1]['reason'] == 'lane plan unavailable (#1610)'
-    assert cli.main(['doctor-ci', '--path', str(tmp_path)]) == 3
+    assert data['rows'][-1]['status'] == 'ok'
+    assert cli.main(['doctor-ci', '--path', str(tmp_path)]) == 0
     text = capsys.readouterr().out
-    assert 'CI_FALLBACK: unknown' in text
+    assert 'CI_FALLBACK: ok' in text
     assert 'CI_PIPELINE_FILES: ok' in text
 
 
@@ -509,3 +509,76 @@ def test_empty_successful_git_identity_is_not_the_current_directory(tmp_path, mo
     assert seen, 'must inspect a successful but empty identity response'
     assert _by_id(value)['required-checks']['status'] == 'unknown'
     assert not any(argv[0] == 'gh' for argv in calls)
+
+
+def test_doctor_uses_canonical_offline_plans_without_probing(tmp_path, monkeypatch):
+    from lib.cicd import doctor, flow
+    _project(tmp_path)
+    ctx, _ = _context(tmp_path)
+    real = flow.lane_plan
+    calls = []
+    def plan(path, *, allow_fallback=False):
+        calls.append((path, allow_fallback))
+        return real(path, allow_fallback=allow_fallback)
+    monkeypatch.setattr(flow, 'lane_plan', plan)
+    monkeypatch.setattr(flow, 'command', lambda *a, **kw:pytest.fail('offline plan ran a command'))
+    value = doctor.collect(tmp_path, ctx)
+    assert calls == [(tmp_path, False), (tmp_path, True)]
+    item = value['rows'][-1]
+    assert item['status'] == 'ok'
+    assert item['evidence']['lanes'] == [{'provider':'github-actions', 'lane':'github-actions'}]
+    assert item['evidence']['fallback_would_trigger'] is False
+    assert item['evidence']['explicit_fallback_would_trigger'] is False
+    assert value['exit_code'] == 0
+
+
+def test_missing_record_explains_explicit_fallback_without_probe(tmp_path, monkeypatch):
+    from lib.cicd import doctor, flow
+    monkeypatch.setattr(flow, 'command', lambda *a, **kw:pytest.fail('offline plan ran a command'))
+    item = doctor.collect(tmp_path)['rows'][-1]
+    assert item['status'] == 'unknown'
+    assert item['evidence']['fallback_would_trigger'] is False
+    assert item['evidence']['explicit_fallback_would_trigger'] is True
+
+
+def test_unavailable_lane_handler_preserves_other_known_rows(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    from lib.cicd.doctor import collect
+    _project(tmp_path)
+    monkeypatch.setitem(providers.PROVIDERS, 'github-actions',
+                        replace(providers.PROVIDERS['github-actions'], flow_status=''))
+    ctx, _ = _context(tmp_path)
+    value = collect(tmp_path, ctx)
+    assert [item['status'] for item in value['rows']] == ['ok', 'ok', 'ok', 'unknown']
+    assert value['rows'][-1]['evidence']['explicit_fallback_would_trigger'] is True
+
+
+@pytest.mark.parametrize('case,status', [('bad-lane-plan','drift'), ('good-lane-plan','ok'),
+                                        ('unknown-lane-plan','unknown')])
+def test_lane_verdict_controls(case, status):
+    import json
+
+    from lib.cicd.doctor import lane_row
+    data = json.loads((ROOT / 'controls/doctor-ci/cases' / case / 'facts.json').read_text())
+    assert lane_row(['github-actions'], data['plan'], data['explicit'])['status'] == status
+
+
+@pytest.mark.parametrize('plan,explicit', [(None, None), ({}, {}),
+    ({'fallback':{'requested':False,'would_trigger':False}},
+     {'fallback':{'requested':True,'would_trigger':'false'}})])
+def test_malformed_lane_evidence_never_green(plan, explicit):
+    from lib.cicd.doctor import lane_row
+    assert lane_row(['github-actions'], plan, explicit)['status'] == 'unknown'
+
+
+def test_failed_lane_reader_does_not_hide_independent_relationships(tmp_path, monkeypatch):
+    from lib.cicd import doctor, flow
+    _project(tmp_path)
+    ctx, _ = _context(tmp_path)
+    def broken(*args, **kwargs):
+        raise RuntimeError('PRIVATE_LANE_EXCEPTION_CANARY')
+    monkeypatch.setattr(flow, 'lane_plan', broken)
+    result = doctor.collect(tmp_path, ctx)
+    assert [item['status'] for item in result['rows']] == ['ok','ok','ok','unknown']
+    assert 'PRIVATE_LANE_EXCEPTION_CANARY' not in doctor.render(result)

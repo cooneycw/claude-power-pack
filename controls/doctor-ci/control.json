@@ -2,7 +2,7 @@
   "_comment": [
     "#1611: each doctor relationship is read as evidence by users/other sessions; absence of proof never means ok.",
     "This stdlib control drives normalized-fact verdicts, not raw-source collection; actual canonical collector and published-shell regressions are in tests/test_cicd_doctor.py. Historical config absence is unknown; the explicit Actions/Woodpecker mismatch is labelled constructed.",
-    "The constructed anchor masks only drift as ok, preserving known-good and unknown cases; it misses all three current drift lines. Fallback remains explicit unknown until the owner-required #1610 integration."
+    "The constructed anchor masks only drift as ok, preserving known-good and unknown cases; it misses each of the four relationship drift lines. Fallback facts describe offline plans, never probe execution."
   ],
   "gate": "lib/cicd/doctor.py",
   "invocation": [
@@ -81,14 +81,26 @@
       "input": "cases/unknown-lane-plan",
       "expect": "UNKNOWN",
       "why": "unknown lane plan"
+    },
+    {
+      "name": "bad-lane-plan",
+      "input": "cases/bad-lane-plan",
+      "expect": "BAD",
+      "why": "known lane plan contradicts the recorded provider"
+    },
+    {
+      "name": "good-lane-plan",
+      "input": "cases/good-lane-plan",
+      "expect": "GOOD",
+      "why": "repaired recorded-provider lane; no fallback even when explicitly enabled"
     }
   ],
   "anchors": [
     {
       "kind": "constructed",
       "path": "anchors/mask-drift.py",
-      "sha256": "6c8d5d6538f0b3c704972032d35b2bb99f7b21a0b6fe936ead7f4d5e81cd45cc",
-      "why": "Masks proven drift as ok while preserving the three repaired positives and five unexaminable cases."
+      "sha256": "611a7472f01420e663ae79704dab49111dfbcfe05a4b80dd9ba6278d096300ba",
+      "why": "Masks proven drift as ok while preserving all four repaired positives and five unexaminable cases."
     }
   ]
 }

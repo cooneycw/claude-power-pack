@@ -1,0 +1,37 @@
+{
+  "target": "fallback",
+  "plan": {
+    "status": "ok",
+    "source": "recorded",
+    "providers": [
+      "github-actions"
+    ],
+    "lanes": [
+      {
+        "provider": "github-actions",
+        "lane": "github-actions"
+      }
+    ],
+    "fallback": {
+      "requested": false,
+      "would_trigger": false
+    }
+  },
+  "explicit": {
+    "status": "ok",
+    "source": "recorded",
+    "providers": [
+      "github-actions"
+    ],
+    "lanes": [
+      {
+        "provider": "github-actions",
+        "lane": "github-actions"
+      }
+    ],
+    "fallback": {
+      "requested": true,
+      "would_trigger": false
+    }
+  }
+}

@@ -12,5 +12,7 @@ YAML/protection parser. It does not verify collection. Pytest separately runs
 the canonical YAML/check readers, GitHub API collector with offline responses,
 container/worktree host reader, and the actual published doctor procedure.
 The constructed anchor changes only drift to ok, preserving known-good and
-unknown behavior. Row4 remains explicit unknown until #1610 PR A lands; its
-integration and drift controls will be a separate owner-reviewed commit.
+unknown behavior. Row 4 consumes normalized canonical offline lane plans:
+a recorded-provider mismatch is drift, a repaired plan is ok, and unavailable
+recorded lanes stay unknown. Both default and explicit fallback flags are
+reported without executing provider probes.
