@@ -599,6 +599,12 @@ def _make_stubs(
 def _run(
     cwd: Path, stubs: dict, *args: str, extra_env: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess[str]:
+    # These cases exercise merge guards with a valid project record. Provider
+    # refusal and host snapshot controls have their own cases.
+    record = cwd / ".claude/cicd.yml"
+    if not record.exists():
+        record.parent.mkdir(exist_ok=True)
+        record.write_text("pipeline:\n  providers: [woodpecker]\n")
     env = os.environ.copy()
     env.pop("CPP_KYLE_COORDINATION_ADMISSION", None)
     env["CPP_COORDINATION_ADMISSION_FILE"] = str(cwd / "absent-coordination-flag")
@@ -631,6 +637,8 @@ def _run(
             set(extra_env) & {"GH_PR_MERGE_GH", "GH_PR_MERGE_GIT", "GH_PR_MERGE_CURL"}
         ), "the stub binary paths are invariants, not overridable via extra_env"
         env.update(extra_env)
+        if env.get("WOODPECKER_API_TOKEN") and not env.get("WOODPECKER_SERVER"):
+            env["WOODPECKER_SERVER"] = "https://wp.example.invalid"
         if "CPP_KYLE_COORDINATION_ADMISSION" in extra_env:
             value = extra_env["CPP_KYLE_COORDINATION_ADMISSION"]
             flag = cwd / "coordination-flag"

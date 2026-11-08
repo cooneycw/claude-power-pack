@@ -1,0 +1,35 @@
+{
+  "gate": "scripts/flow-pr-watch.sh",
+  "invocation": [
+    "python3",
+    "controls/flow-pr-watch-actions/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^ACTIONS_WATCH: red surfaced$",
+  "good_signal": "^ACTIONS_WATCH: no red \\((green|unknown)\\)$",
+  "unavailable_signal": "^ACTIONS_WATCH: unavailable",
+  "limits": "Offline recorded github-actions provider and required check ci with Actions run permalink. A red must report red/exit1 without querying Woodpecker. Historical anchor d410794c accepts --context ci but rejects Actions URLs, returns unknown and misses the red. The good case admits historical unknown for anchor agreement; the bad case detects always-unknown or timeouts-as-clean. No live API, credential probes, full log-attribution or baseline coverage is claimed; test_flow_watch_recorded.py separately pins failed-log and baseline behavior. Canonical JSON-subset provider read needs no dependency install.",
+  "cases": [
+    {
+      "name": "bad-actions-red",
+      "input": "cases/bad-actions-red",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-actions-green",
+      "input": "cases/good-actions-green",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "d410794c0f76e06a0a21be795963e346cc005c88",
+      "origin": "scripts/flow-pr-watch.sh",
+      "path": "anchors/pre-1610-flow-pr-watch.sh",
+      "sha256": "05935f75c2a0b78a5d8a6b0529486ea1d844de13c14927710b16dbef7c4c028e"
+    }
+  ]
+}

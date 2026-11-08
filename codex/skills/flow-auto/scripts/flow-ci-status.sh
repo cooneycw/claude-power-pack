@@ -120,6 +120,23 @@
 
 set -uo pipefail
 
+# Explicit compatibility probing does not need the project-record reader or
+# Python. Keep it available when those prerequisites themselves are missing.
+_ci_args=()
+for _ci_arg in "$@"; do
+    if [[ "$_ci_arg" == "--fallback-provider-probes" ]] && ! command -v python3 >/dev/null 2>&1; then
+        export CPP_FLOW_CI_BACKEND=probe
+    else
+        _ci_args+=("$_ci_arg")
+    fi
+done
+set -- "${_ci_args[@]}"
+_ci_original_args=("$@")
+if [[ "${CPP_FLOW_CI_BACKEND:-}" == "probe" ]]; then
+    echo "FLOW_CI_SELECTION: fallback (explicit provider probing)"
+fi
+
+
 # Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
 trap 'printf "FLOW_CI_EXIT=%d\n" "$?" >&2' EXIT
 
@@ -158,6 +175,7 @@ die_usage() {
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --fallback-provider-probes) shift ;;
         --path)        CHECK_PATH="${2:-}"; [[ -n "$CHECK_PATH" ]] || die_usage "--path needs a directory"; shift 2 ;;
         --path=*)      CHECK_PATH="${1#*=}"; shift ;;
         --repo)        REPO="${2:-}"; [[ -n "$REPO" ]] || die_usage "--repo needs owner/name"; shift 2 ;;
@@ -181,7 +199,34 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-PROVIDER="none"
+# Resolve CPP source, never parse project YAML in this consumer. Installed
+# helpers may be symlinks; generated mirrors can locate their containing checkout.
+if [[ -z "${CPP_FLOW_CI_BACKEND:-}" && "$*" != "--help" && "$*" != "-h" ]]; then
+    exec python3 - "$0" "${_ci_original_args[@]}" <<'PYCODE'
+import os, sys
+from pathlib import Path
+script = Path(sys.argv[1]).resolve()
+candidates = [*script.parents, Path(os.environ.get("CLAUDE_PLUGIN_ROOT", "/nonexistent")),
+              Path.home() / "Projects/claude-power-pack", Path("/opt/claude-power-pack"),
+              Path.home() / ".claude-power-pack"]
+for root in candidates:
+    if (root / "lib/cicd/flow.py").is_file():
+        runtime = root / ".venv/bin/python"
+        if runtime.is_file() and Path(sys.prefix) != root / ".venv":
+            code = "import sys; sys.path.insert(0, sys.argv[1]); from lib.cicd.flow import status_entry; raise SystemExit(status_entry(sys.argv[2], sys.argv[3:]))"
+            os.execv(str(runtime), [str(runtime), "-c", code, str(root), str(script), *sys.argv[2:]])
+        sys.path.insert(0, str(root))
+        from lib.cicd.flow import status_entry
+        raise SystemExit(status_entry(str(script), sys.argv[2:]))
+print("flow-ci-status: CPP provider reader unavailable; restore the CPP installation", file=sys.stderr)
+print("FLOW_CI_STATUS: unknown")
+print("FLOW_CI_EXIT=2", file=sys.stderr)
+raise SystemExit(2)
+PYCODE
+fi
+
+PROVIDER="${CPP_FLOW_CI_BACKEND:-none}"
+[[ "$PROVIDER" == "probe" ]] && PROVIDER="none"
 PIPELINE="-"
 URL="-"
 STATUS="unknown"
@@ -381,10 +426,20 @@ derive_event() {
     if [[ -z "$default_branch" ]]; then
         EVENT_SOURCE="default: default branch unreadable, required contexts unreadable"; return
     fi
-    if ! contexts="$("$GH_BIN" api "repos/$REPO/branches/$default_branch/protection/required_status_checks" \
-            --jq '.contexts[]' 2>/dev/null)"; then
+    local classic="" rules="" answered=0 protection_source="classic"
+    if classic="$("$GH_BIN" api "repos/$REPO/branches/$default_branch/protection/required_status_checks" \
+            --jq '((.contexts // []) + ((.checks // []) | map(.context))) | unique | .[]' 2>/dev/null)"; then
+        answered=1
+    fi
+    if rules="$("$GH_BIN" api "repos/$REPO/rules/branches/$default_branch" \
+            --jq '[.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[]?.context] | unique | .[]' 2>/dev/null)"; then
+        answered=1
+        [[ -n "$rules" ]] && protection_source="classic + rulesets"
+    fi
+    if [[ "$answered" -eq 0 ]]; then
         EVENT_SOURCE="default: required contexts unreadable on $default_branch"; return
     fi
+    contexts="$(printf '%s\n%s\n' "$classic" "$rules" | awk 'NF && !seen[$0]++')"
     # ONLY WOODPECKER'S OWN CONTEXTS DECIDE (counter-model review). Matching any
     # `/pr/` or `/push/` let a neighbouring provider's `other-ci/push/tests`
     # turn a pr-only repository into "both lanes required" and hand the verdict
@@ -399,6 +454,7 @@ derive_event() {
     done <<<"$contexts"
     local listed
     listed="$(paste -sd, <<<"$contexts")"
+    [[ "$protection_source" == *rulesets* ]] && listed="${listed} [classic + rulesets]"
     # The branch NAMED, because it is the DEFAULT branch's protection that was
     # read (counter-model review): this helper resolves a commit, not a PR, so it
     # does not know which base a PR targets. A PR into a differently-protected
@@ -460,7 +516,7 @@ if [[ -z "$AWS_BIN" ]]; then
     if [[ -x "$HOME/.local/bin/aws" ]]; then AWS_BIN="$HOME/.local/bin/aws"; else AWS_BIN="aws"; fi
 fi
 
-if [[ "$HAVE_JQ" -eq 1 && ( -z "$WP_TOKEN" || -z "$WP_SERVER" ) ]]; then
+if [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "github-actions" && "$HAVE_JQ" -eq 1 && ( -z "$WP_TOKEN" || -z "$WP_SERVER" ) ]]; then
     # The secret is JSON, so this resolution path needs jq too (issue #789).
     if command -v "$AWS_BIN" >/dev/null 2>&1; then
         SECRET_JSON="$("$AWS_BIN" secretsmanager get-secret-value \
@@ -578,7 +634,7 @@ wp_stall_check() {
 }
 
 # ── Woodpecker lookup ──────────────────────────────────────────────────────
-if [[ "$HAVE_JQ" -eq 1 && -n "$WP_TOKEN" && -n "$WP_SERVER" ]]; then
+if [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "github-actions" && "$HAVE_JQ" -eq 1 && -n "$WP_TOKEN" && -n "$WP_SERVER" ]]; then
     REPO_JSON="$(wp_api "/api/repos/lookup/$REPO")"
     REPO_ID="$(jq -r '.id // empty' <<<"$REPO_JSON" 2>/dev/null)"
     # Minutes; the AGENT enforces it, which is what makes "past it" evidence
@@ -653,7 +709,7 @@ if [[ "$HAVE_JQ" -eq 1 && -n "$WP_TOKEN" && -n "$WP_SERVER" ]]; then
 fi
 
 # ── Woodpecker CLI fallback ────────────────────────────────────────────────
-if command -v "$WPCLI_BIN" >/dev/null 2>&1; then
+if [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "github-actions" ]] && command -v "$WPCLI_BIN" >/dev/null 2>&1; then
     WPCLI_ROWS="$("$WPCLI_BIN" pipeline ls --output-no-headers \
         --output 'go-template={{range .}}{{.Number}}|{{.Status}}|{{.Commit}}|{{.Event}}{{"\n"}}{{end}}' \
         --limit 50 "$REPO" 2>/dev/null)"
@@ -937,7 +993,7 @@ gha_stall_check() {
     elif [[ -n "$why" ]]; then STALL_CHECK="unavailable ($why)"
     else STALL_CHECK="checked"; fi
 }
-if [[ "$HAVE_JQ" -eq 1 ]] && command -v "$GH_BIN" >/dev/null 2>&1; then
+if [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "woodpecker" && "$HAVE_JQ" -eq 1 ]] && command -v "$GH_BIN" >/dev/null 2>&1; then
     ALL_RUNS="$(gha_runs)"
     if [[ -n "$ALL_RUNS" && "$(jq -r 'if type == "array" then length else 0 end' <<<"$ALL_RUNS" 2>/dev/null)" -gt 0 ]]; then
         PROVIDER="github-actions"

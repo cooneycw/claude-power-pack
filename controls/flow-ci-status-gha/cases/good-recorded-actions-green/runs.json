@@ -1,0 +1,10 @@
+[
+  {
+    "databaseId": 19,
+    "status": "completed",
+    "conclusion": "success",
+    "event": "pull_request",
+    "workflowName": "ci",
+    "url": "https://github.com/o/r/actions/runs/19"
+  }
+]
