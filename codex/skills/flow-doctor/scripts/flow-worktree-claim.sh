@@ -108,7 +108,7 @@
 #   FLOW_CLAIM_HOST         override this host's name
 #   FLOW_CLAIM_LIVE_PIDS    ':'-separated pids to treat as alive (bypasses
 #                           kill -0, so a test can simulate a live sibling)
-#   FLOW_CLAIM_PROC_ROOT    override /proc for the start-time witness. A test
+#   FLOW_CLAIM_PROC_ROOT    override /proc for process state and start time. A test
 #                           seam, not a knob: it exists so BOTH witness lanes -
 #                           readable and unreadable - are reachable on a host
 #                           whose /proc works, which is every host the suite
@@ -208,25 +208,29 @@ pid_exists() {
 # Sets O_WITNESS to how identity was decided, which classify() then uses to pick
 # between the decisive and the bounded lane.
 is_alive() {
-  local pid="$1" host="$2" witness="${3:-}"
+  local pid="$1" host="$2" witness="${3:-}" line rest
   O_WITNESS="-"
   [ -n "$pid" ] && [ "$pid" != "-" ] || return 1
   # A pid only means something on the machine that recorded it.
   [ "$host" = "$SELF_HOST" ] || return 1
   pid_exists "$pid" || return 1
   O_WITNESS="$(witness_state "$pid" "$witness")"
-  case "$O_WITNESS" in
-    # The pid exists and started when the claim says it did: this IS the owner.
-    matched) return 0 ;;
-    # The pid exists but is a DIFFERENT process wearing a recycled number. This
-    # is the one reading that may contradict `kill -0`, and it is the whole of
-    # specimen #3: without it, a dead session reads as live forever.
-    mismatched) return 1 ;;
-    # Identity could not be established either way. Fall back to existence, as
-    # before #1032 - classify() then applies the age bound so this lane cannot
-    # wedge a repo permanently.
-    *) return 0 ;;
-  esac
+  # A recycled pid belongs to another process, even if that process is a
+  # zombie. Preserve that identity distinction before checking owner state.
+  [ "$O_WITNESS" != mismatched ] || return 1
+  # Zombies keep both their pid and start time until their parent reaps them.
+  # Read state after the LAST ') ' so a comm containing spaces/parens is safe.
+  if line="$(cat "$PROC_ROOT/$pid/stat" 2>/dev/null)"; then
+    case "$line" in
+      *") "*)
+        rest="${line##*) }"
+        case "$rest" in Z\ *|X\ *) O_STALE_REASON=owner-zombie; return 1 ;; esac
+        ;;
+    esac
+  fi
+  # A matching witness proves the existing process is the owner. Without a
+  # readable witness/state, retain the existence fallback and its age bound.
+  return 0
 }
 
 # aged_out -> 0 when the claim is older than the configured bound.
@@ -347,10 +351,11 @@ classify() {
     fi
     STATE=held; return 0
   fi
-  # Not alive. Same host is decisively stale, but for one of two different
-  # reasons, and only the witness distinguishes them.
+  # Same-host death, terminal state and pid recycling carry distinct reasons.
   if [ "$O_HOST" = "$SELF_HOST" ]; then
-    if [ "$O_WITNESS" = mismatched ]; then
+    if [ "$O_STALE_REASON" = owner-zombie ]; then
+      : # A readable terminal state is decisive even with no start-time witness.
+    elif [ "$O_WITNESS" = mismatched ]; then
       O_STALE_REASON=recycled-pid
     else
       O_STALE_REASON=owner-exited

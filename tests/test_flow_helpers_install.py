@@ -10,9 +10,13 @@ Contract:
 
 from __future__ import annotations
 
+import ast
+import json
 import os
 import re
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -742,3 +746,80 @@ def test_a_truncated_digest_is_not_compared(tmp_path: Path, bundle_source: Path)
 
     assert _verdict(proc) == "unverifiable-source", proc.stdout + proc.stderr
     assert proc.returncode == 6
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="installer requires bash")
+def test_checkout_engine_dependency_reaches_preflight_and_cli(tmp_path: Path):
+    """Use preflight's real engine requirement, not a copy of HELPERS."""
+    home = tmp_path / "host"
+    proc = _run(home=home, source=ROOT / "scripts")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert _verdict(proc) == "installed"
+    env = {**os.environ, "HOME": str(home)}
+    env.pop("PYTHONPATH", None)
+    env.pop("PYTHONHOME", None)
+    observer = home / ".claude/scripts/flow-preflight.py"
+    check = subprocess.run(
+        [sys.executable, str(observer), "--json", "--harness", "claude", "--checks", "engine"],
+        cwd=tmp_path, env=env, capture_output=True, text=True, check=False,
+    )
+    assert check.returncode == 0, check.stdout + check.stderr
+    report = json.loads(check.stdout)
+    assert report["selected_checks"] == ["engine"]
+    assert [(item["id"], item["status"]) for item in report["checks"]] == [("engine", "ok")]
+    fixture = tmp_path / "state.json"
+    fixture.write_text(json.dumps({"repository": "fixture/project", "issues": []}))
+    engine = home / ".claude/scripts/project-next.py"
+    run = subprocess.run(
+        [sys.executable, str(engine), "--input", str(fixture), "--json"],
+        cwd=tmp_path, env=env, capture_output=True, text=True, check=False,
+    )
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert json.loads(run.stdout)["repository"] == "fixture/project"
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="installer requires bash")
+def test_preflight_detects_installer_omitting_its_required_engine(tmp_path: Path, monkeypatch):
+    """Committed negative control: successful helper install is not readiness."""
+    source = INSTALLER.read_text()
+    required = _preflight_claude_script_names()
+    for name in required:
+        assert f"    {name}\n" in source
+    blind = tmp_path / "blind-installer.sh"
+    for name in required:
+        source = source.replace(f"    {name}\n", "", 1)
+    blind.write_text(source)
+    blind.chmod(0o755)
+    monkeypatch.setattr("tests.test_flow_helpers_install.INSTALLER", blind)
+    home = tmp_path / "host"
+    proc = _run(home=home, source=ROOT / "scripts")
+    assert proc.returncode == 0 and _verdict(proc) == "installed"
+    assert not (home / ".claude/scripts/project-next.py").exists()
+    check = subprocess.run(
+        [sys.executable, str(home / ".claude/scripts/flow-preflight.py"),
+         "--json", "--harness", "claude", "--checks", "engine"],
+        cwd=tmp_path, env={**os.environ, "HOME": str(home)},
+        capture_output=True, text=True, check=False,
+    )
+    assert check.returncode == 1, check.stdout + check.stderr
+    assert json.loads(check.stdout)["checks"][0]["status"] == "missing"
+
+
+def _preflight_claude_script_names() -> set[str]:
+    """Derive literal home / '.claude/scripts/...' dependencies in the observer."""
+    tree = ast.parse((ROOT / "scripts/flow-preflight.py").read_text())
+    paths = {
+        Path(node.right.value).name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div)
+        and isinstance(node.left, ast.Name) and node.left.id == "home"
+        and isinstance(node.right, ast.Constant) and isinstance(node.right.value, str)
+        and node.right.value.startswith(".claude/scripts/")
+    }
+    assert paths, "preflight Claude script-path extraction found nothing; update the extractor"
+    return paths
+
+
+def test_preflight_claude_script_paths_are_in_the_installer():
+    required = _preflight_claude_script_names()
+    assert required <= set(installer_helper_names()), f"uninstalled preflight paths: {required - set(HELPERS)}"

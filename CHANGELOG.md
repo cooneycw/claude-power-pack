@@ -10,6 +10,17 @@
 
 ### Fixed
 
+- The unattended helper installer now includes `project-next.py`, so checkout installs satisfy the Claude preflight engine dependency; project-next documents the colocated library requirement for legacy copy installs and emits the installed-family exit marker on stderr (#1619).
+
+- CI providers are now an explicit per-project list with a canonical reader and targeted recording command; missing selections stop pipeline generation instead of silently selecting GitHub Actions (#1607).
+
+- Flow cleanup, wave closure and early flow handoff now require an issue-visible record for deliberately preserved and pushed unfinished work, including the pushed tip and remaining work, with publication readback before reporting the handoff complete (#1614).
+- Serialize the live control-file tracking scan with the deliberate untracked-probe test, preventing intermittent xdist CI failures without changing the existing hold budget (#1641).
+- Project-next names unparsed architecture decision records in every premise-staleness report and JSON coverage, so an incomplete ADR corpus cannot read as a clean scan (#1614).
+- Partial worktree-removal verification now names its Git 2.36 minimum on older or unrecognized Git versions, rather than reporting a misleading registry-read failure (#1621).
+- Worktree claims and wave roles treat Linux process states `Z` and `X` as
+  exited, reporting `owner-zombie` rather than retaining a dead owner's lock.
+  Live owners retain their existing held/live classification (#1605).
 - Full-scope counter-model receipts recognize the current Codex custom `exec`
   wrapper's directly awaited shell call and its linked successful result.
   Missing probes, foreign heads, assistant prose and unsupported JavaScript

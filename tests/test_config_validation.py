@@ -32,7 +32,7 @@ class TestPydanticMigration:
         assert config.build.framework == "auto"
         assert config.build.package_manager == "auto"
         assert config.build.required_targets == ["lint", "test"]
-        assert config.pipeline.provider == "github-actions"
+        assert config.pipeline.provider == "unknown"
         assert config.health.post_deploy is False
         assert config.container.enabled is False
         assert config.infrastructure.provider == "terraform"
@@ -153,7 +153,7 @@ class TestYamlLoading:
     def test_load_defaults_no_file(self, tmp_path):
         config = CICDConfig.load(str(tmp_path))
         assert config.build.framework == "auto"
-        assert config.pipeline.provider == "github-actions"
+        assert config.pipeline.provider == "unknown"
 
     def test_load_from_yaml(self, tmp_path):
         claude_dir = tmp_path / ".claude"
@@ -278,7 +278,7 @@ pipeline:
 """
         )
         issues = CICDConfig.validate_file(config_file)
-        assert any("jenkins" in i and "invalid" in i for i in issues)
+        assert any("jenkins" in i and "unregistered" in i for i in issues)
 
     def test_validate_missing_endpoint_url(self, tmp_path):
         config_file = tmp_path / "cicd.yml"
@@ -378,7 +378,7 @@ class TestCliValidate:
 
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir()
-        (claude_dir / "cicd.yml").write_text("build:\n  framework: python\n")
+        (claude_dir / "cicd.yml").write_text("build:\n  framework: python\npipeline:\n  providers: [woodpecker]\n")
         result = main(["validate", "--path", str(tmp_path)])
         assert result == 0
 
@@ -387,7 +387,7 @@ class TestCliValidate:
 
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir()
-        (claude_dir / "cicd.yml").write_text("build:\n  framework: python\n")
+        (claude_dir / "cicd.yml").write_text("build:\n  framework: python\npipeline:\n  providers: [woodpecker]\n")
         result = main(["validate", "--path", str(tmp_path), "--json"])
         assert result == 0
         output = json.loads(capsys.readouterr().out)
@@ -525,7 +525,7 @@ class TestNestedUnknownKeys:
 
     def _validate(self, tmp_path, body):
         config_file = tmp_path / "cicd.yml"
-        config_file.write_text(body)
+        config_file.write_text("pipeline:\n  providers: [woodpecker]\n" + body)
         return CICDConfig.validate_file(config_file)
 
     def test_endpoint_typo_reported(self, tmp_path):
@@ -586,7 +586,7 @@ class TestValidateFileProbeRequirement:
 
     def _validate(self, tmp_path, body):
         config_file = tmp_path / "cicd.yml"
-        config_file.write_text(body)
+        config_file.write_text("pipeline:\n  providers: [woodpecker]\n" + body)
         return CICDConfig.validate_file(config_file)
 
     def test_portless_unit_entry_is_valid(self, tmp_path):

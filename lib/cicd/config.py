@@ -272,7 +272,34 @@ class PipelineConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    provider: str = "github-actions"  # github-actions | woodpecker | both
+    providers: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _provider_record(cls, value: Any) -> Any:
+        from .providers import normalize_providers
+        if value is None:
+            value = {}
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        data["providers"] = normalize_providers(data)
+        data.pop("provider", None)
+        return data
+
+    @property
+    def provider(self) -> str:
+        # Compatibility display for old callers. Dispatch uses the list.
+        if len(self.providers) == 1:
+            return self.providers[0]
+        if set(self.providers) == {"github-actions", "woodpecker"}:
+            return "both"
+        return ",".join(self.providers) or "unknown"
+
+    @provider.setter
+    def provider(self, value: str) -> None:
+        from .providers import normalize_providers
+        self.providers = normalize_providers({"provider": value})
     branches: dict[str, list[str]] = Field(
         default_factory=lambda: {
             "main": ["lint", "test", "typecheck", "build"],
@@ -417,35 +444,48 @@ class CICDConfig(BaseModel):
     infrastructure: InfrastructureConfig = Field(default_factory=InfrastructureConfig)
 
     @classmethod
-    def load(cls, project_root: Optional[str] = None) -> CICDConfig:
+    def load(
+        cls, project_root: Optional[str] = None, *, provider_override: Optional[list[str]] = None
+    ) -> CICDConfig:
         """Load config from .claude/cicd.yml or use defaults."""
         if project_root is None:
             project_root = os.getcwd()
 
         config_path = Path(project_root) / ".claude" / "cicd.yml"
         if config_path.exists():
-            return cls._from_yaml(config_path)
+            return cls._from_yaml(config_path, provider_override=provider_override)
 
-        return cls._defaults()
+        config = cls._defaults()
+        if provider_override is not None:
+            config.pipeline = PipelineConfig(providers=provider_override)
+        return config
 
     @classmethod
     def _defaults(cls) -> CICDConfig:
         return cls()
 
     @classmethod
-    def _from_yaml(cls, path: Path) -> CICDConfig:
+    def _from_yaml(cls, path: Path, *, provider_override: Optional[list[str]] = None) -> CICDConfig:
         """Parse YAML config file using Pydantic model_validate.
 
         With extra="ignore" on all models, unknown keys are silently
         dropped - ensuring backwards compatibility with older configs.
         """
         try:
-            import yaml
+            from .providers import parse_config_mapping
         except ImportError:
             return cls._defaults()
-
         with open(path) as f:
-            data = yaml.safe_load(f) or {}
+            data = parse_config_mapping(f.read(), str(path))
+
+        if provider_override is not None:
+            pipeline = data.get("pipeline") or {}
+            if not isinstance(pipeline, dict):
+                raise ValueError("pipeline must be a mapping before recording providers")
+            pipeline = dict(pipeline)
+            pipeline.pop("provider", None)
+            pipeline["providers"] = provider_override
+            data["pipeline"] = pipeline
 
         # Soften per-probe failures so one bad entry cannot take the whole
         # config - and the fail-open verification gate - down with it (#620).
@@ -515,16 +555,18 @@ class CICDConfig(BaseModel):
                     "Did you mean pipeline.provider? Move it to the 'pipeline' section."
                 )
 
+        if not data.get("pipeline"):
+            issues.append("pipeline.providers is required; record at least one registered provider")
+
         # Validate pipeline section
         pipeline_data = data.get("pipeline", {})
         if pipeline_data and isinstance(pipeline_data, dict):
-            provider = pipeline_data.get("provider", "")
-            valid_providers = {"github-actions", "woodpecker", "both"}
-            if provider and provider not in valid_providers:
-                issues.append(
-                    f"pipeline.provider '{provider}' is invalid. "
-                    f"Valid values: {', '.join(sorted(valid_providers))}"
-                )
+            from .providers import ProviderError, normalize_providers
+            try:
+                if not normalize_providers(pipeline_data):
+                    issues.append("pipeline.providers is required; record at least one registered provider")
+            except ProviderError as exc:
+                issues.append(str(exc))
 
             secrets_source = pipeline_data.get("secrets_source", "platform")
             valid_sources = {"platform", "aws-secrets-manager"}

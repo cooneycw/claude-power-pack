@@ -32,6 +32,7 @@ import os
 import re
 import subprocess
 import sys
+import traceback
 from dataclasses import asdict, dataclass, field, replace
 from datetime import date
 from pathlib import Path
@@ -197,6 +198,21 @@ class SpecPremise:
 
 
 @dataclass(frozen=True)
+class DecisionCoverage:
+    """Named ADR candidates that could and could not be read for premise checks."""
+
+    parsed: tuple[str, ...] = ()
+    unparsed: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class DecisionInventory:
+    records: tuple[DecisionRecord, ...]
+    warnings: tuple[str, ...]
+    coverage: DecisionCoverage
+
+
+@dataclass(frozen=True)
 class PremiseFlag:
     issue_number: int
     spec_slug: str
@@ -245,6 +261,7 @@ class CppExtensions:
     premise_flags: tuple[PremiseFlag, ...] = field(default_factory=tuple)
     wayfinder_map: WayfinderMap | None = None
     worktree_delivery: tuple[WorktreeDelivery, ...] = field(default_factory=tuple)
+    premise_coverage: DecisionCoverage | None = None
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -818,10 +835,16 @@ def _header_fields(lines: Sequence[str]) -> tuple[str, dict[str, str], list[str]
     return heading, fields, repeated
 
 
-def _decision_records(repository: Path) -> tuple[tuple[DecisionRecord, ...], list[str]]:
-    """Read every architecture decision record the repository publishes."""
+def _decision_inventory(repository: Path) -> DecisionInventory:
+    """Read ADR-shaped files in DECISION_DIRECTORIES, retaining unparsed paths.
+
+    Warnings alone cannot qualify a later 'none' verdict (#1614). Keep coverage
+    structured so every renderer and the JSON consumer can see missing input.
+    Files outside DECISION_FILENAME are not part of this candidate population.
+    """
     records: list[DecisionRecord] = []
     warnings: list[str] = []
+    unparsed: list[str] = []
     for relative in DECISION_DIRECTORIES:
         directory = repository / relative
         if not directory.is_dir():
@@ -833,8 +856,9 @@ def _decision_records(repository: Path) -> tuple[tuple[DecisionRecord, ...], lis
             source = f"{relative}/{path.name}"
             try:
                 lines = path.read_text(encoding="utf-8").splitlines()
-            except OSError as exc:
+            except (OSError, UnicodeError) as exc:
                 warnings.append(f"cannot read {source}: {exc}")
+                unparsed.append(source)
                 continue
             heading, fields, _ = _header_fields(lines)
             leading = re.match(r"[A-Za-z]+", fields.get("status", ""))
@@ -842,6 +866,7 @@ def _decision_records(repository: Path) -> tuple[tuple[DecisionRecord, ...], lis
             decided = _iso_date(fields.get("date", ""))
             if not status or not decided:
                 warnings.append(f"{source}: decision record needs parsable 'Status' and 'Date' header fields")
+                unparsed.append(source)
                 continue
             title = DECISION_HEADING.sub("", heading).strip() or heading or path.stem
             records.append(
@@ -854,7 +879,16 @@ def _decision_records(repository: Path) -> tuple[tuple[DecisionRecord, ...], lis
                     domains=_declared_domains(fields.get("domains") or fields.get("domain") or ""),
                 )
             )
-    return tuple(records), warnings
+    return DecisionInventory(
+        tuple(records), tuple(warnings),
+        DecisionCoverage(tuple(item.path for item in records), tuple(unparsed)),
+    )
+
+
+def _decision_records(repository: Path) -> tuple[tuple[DecisionRecord, ...], list[str]]:
+    """Compatibility reader; live reporting also consumes structured coverage."""
+    inventory = _decision_inventory(repository)
+    return inventory.records, list(inventory.warnings)
 
 
 def _spec_premise(repository: Path, slug: str, relative: str) -> SpecPremise | None:
@@ -910,6 +944,7 @@ def premise_flags(
     repository: Path,
     state: RepositoryState,
     result: RecommendationResult,
+    inventory: DecisionInventory | None = None,
 ) -> tuple[tuple[PremiseFlag, ...], tuple[str, ...]]:
     """Flag open spec-derived issues whose parent spec predates a live decision.
 
@@ -924,7 +959,8 @@ def premise_flags(
     state a live decision, and the record that replaced a superseded one carries
     its own date, so the successor raises the flag the predecessor cannot.
     """
-    decisions, warnings = _decision_records(repository)
+    inventory = inventory if inventory is not None else _decision_inventory(repository)
+    decisions, warnings = inventory.records, list(inventory.warnings)
     live = tuple(record for record in decisions if record.status == LIVE_DECISION_STATUS)
     if not live:
         return (), tuple(warnings)
@@ -1257,8 +1293,21 @@ def render_cpp(
             lines.append("- no specifications found")
 
     flags = extensions.premise_flags
+    coverage = extensions.premise_coverage
+    unparsed = coverage.unparsed if coverage is not None else ()
+    coverage_note = ""
+    if coverage is not None:
+        coverage_note = f"ADR coverage: {len(coverage.parsed)} parsed, {len(unparsed)} unparsed"
+        if unparsed:
+            coverage_note += "; unparsed: " + ", ".join(unparsed) + " - premise result unknown for these records"
     if mode == "brief":
-        if flags:
+        if unparsed:
+            detail = f"{len(flags)} advisory flag(s) from parsed records"
+            if flags:
+                numbers = ", ".join(f"#{number}" for number in sorted({item.issue_number for item in flags}))
+                detail += f" on {numbers} - confirm with `/flow:eli5`"
+            lines.append(f"Premise staleness: {coverage_note}; {detail}")
+        elif flags:
             numbers = ", ".join(f"#{number}" for number in sorted({item.issue_number for item in flags}))
             lines.append(f"Premise staleness: {len(flags)} advisory flag(s) on {numbers} - confirm with `/flow:eli5`")
         else:
@@ -1277,14 +1326,18 @@ def render_cpp(
                 f"| #{item.issue_number} | {item.spec_slug} | {item.spec_dated} | {item.decision_id} | "
                 f"{item.decision_dated} | {item.domain} | {item.match} | {item.reason} |"
             )
-        if not flags:
+        if not flags and not unparsed:
             lines.append("| - | - | - | - | - | - | - | no spec predates a live decision in its domain |")
+        if coverage_note:
+            lines.extend(("", coverage_note))
         lines.extend(("", PREMISE_ADVISORY))
     else:
         lines.extend(("", "### Premise staleness (advisory)"))
         lines.extend(f"- issue #{item.issue_number}: {item.reason}" for item in flags)
-        if not flags:
+        if not flags and not unparsed:
             lines.append("- none: no spec predates a live decision in its domain")
+        if coverage_note:
+            lines.append(f"- {coverage_note}")
         lines.extend(("", PREMISE_ADVISORY))
 
     delivery = extensions.worktree_delivery
@@ -1438,7 +1491,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
     lifecycle, lifecycle_warnings = classify_spec_lifecycle(repository, engine_state, result)
-    premise, premise_warnings = premise_flags(repository, engine_state, result)
+    decisions = _decision_inventory(repository)
+    premise, premise_warnings = premise_flags(repository, engine_state, result, decisions)
     warnings = tuple(item for item in (native_warning, *lifecycle_warnings, *premise_warnings) if item)
     wayfinder_map, wayfinder_payload = read_wayfinder_map(repository)
     delivery = worktree_delivery(
@@ -1451,6 +1505,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         wayfinder_map=wayfinder_map,
         warnings=warnings,
         premise_flags=premise,
+        premise_coverage=decisions.coverage,
         worktree_delivery=delivery,
     )
     if args.json:
@@ -1465,4 +1520,29 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # Preserve stderr ordering and exit status on usage, exceptions and failed
+    # output flushes, following the installed helper family contract (#1031).
+    _code = 1
+    try:
+        _code = main()
+    except SystemExit as _exc:
+        _code = _exc.code if isinstance(_exc.code, int) else int(bool(_exc.code))
+    except BaseException:  # noqa: BLE001 - diagnostic retained before marker
+        traceback.print_exc()
+        _code = 1
+    _flush_failed = False
+    try:
+        sys.stdout.flush()
+    except BaseException:  # noqa: BLE001 - reported, then exited
+        traceback.print_exc()
+        _flush_failed = True
+        if _code == 0:
+            _code = 1
+    print(f"PROJECT_NEXT_EXIT={_code}", file=sys.stderr)
+    if _flush_failed:
+        try:
+            sys.stderr.flush()
+        except BaseException:  # noqa: BLE001 - no remaining reporting channel
+            pass
+        os._exit(_code)
+    raise SystemExit(_code)

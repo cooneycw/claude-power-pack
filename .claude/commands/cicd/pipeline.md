@@ -5,9 +5,14 @@ allowed-tools: Bash(python3:*), Bash(PYTHONPATH=*), Bash(cat:*), Bash(ls:*), Bas
 
 # CI/CD Pipeline Generation
 
-Generate CI/CD workflows from your Makefile targets. Defaults to GitHub Actions;
-set `pipeline.provider: woodpecker` (or `both`) in `.claude/cicd.yml` to emit a
-self-hosted Woodpecker `.woodpecker.yml`. For a hardened self-hosted pipeline
+Generate CI/CD workflows from your Makefile targets. Read the explicit project
+selection with `python -m lib.cicd provider --path <repo>`. Missing providers are
+`unknown` and generation stops. Record one or more registered names with
+`python -m lib.cicd pipeline --providers woodpecker,github-actions --record`;
+select only the providers the project uses. `--record` preserves unrelated YAML
+bytes and refuses a provider-line edit that would discard a comment, naming its
+line. A one-run `--providers` override is deliberate and is persisted only with
+`--record`. For a hardened self-hosted pipeline
 (secret-scan + image-security + runtime-smoke) and to scaffold the Woodpecker
 server/agent, use `/cicd:woodpecker` instead.
 
@@ -77,12 +82,12 @@ To view: cat .github/workflows/ci.yml
 - Configure pipeline settings in `.claude/cicd.yml`:
   ```yaml
   pipeline:
-    provider: github-actions   # github-actions | woodpecker | both
+    providers: [github-actions]   # one or more registered names
     branches:
       main: [lint, test, typecheck, build, deploy]
       pr: [lint, test, typecheck]
     matrix:
       python: ["3.11", "3.12"]
   ```
-- Self-hosted Woodpecker: set `provider: woodpecker` (or `both`) and see
+- Self-hosted Woodpecker: include `woodpecker` in `providers` and see
   `/cicd:woodpecker` + `docs/skills/woodpecker-ci.md` for the hardening stages.
