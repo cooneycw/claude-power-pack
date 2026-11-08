@@ -84,16 +84,6 @@
     ]
   },
   {
-    "id": "makefile",
-    "start": "**Makefile Setup (Optional)**",
-    "end": "\n```",
-    "required": [
-      "Consent:",
-      "Makefile",
-      "absent"
-    ]
-  },
-  {
     "id": "happy",
     "start": "**Happy CLI Installation (Optional)**",
     "end": "\n```",
