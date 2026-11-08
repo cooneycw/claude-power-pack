@@ -173,3 +173,19 @@ def test_observation_failure_invalidates_old_green_metadata_before_receipt_save(
     assert 'FINAL_ROWS: <>' in result.stdout
     assert 'Host CI observation unverified' in result.stderr
     assert 'Host CI record persisted;' not in result.stdout
+
+
+@pytest.mark.skipif(any(shutil.which(name) is None for name in ('bash', 'env', 'python3', 'git')),
+                    reason='registered control requires bash/env/python3/git')
+def test_registered_host_control_preserves_fresh_shell_mcp_receipt_integration():
+    result = subprocess.run([
+        sys.executable, str(ROOT / 'scripts/check-negative-controls.py'), '--root', str(ROOT),
+        '--strict', '--control', 'controls/cpp-host-install-receipt',
+    ], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert 'NEGATIVE_CONTROL_VERDICT: PASS' in result.stdout
+    for name in ('good-written', 'good-missing-provider-written', 'good-unknown-provider-written'):
+        assert f'case {name}: expected=GOOD observed=GOOD' in result.stdout
+    for name in ('bad-deferred', 'bad-failed-retry', 'bad-unknown', 'bad-no-receipt-zero',
+                 'bad-contradictory-receipt', 'bad-duplicate-receipt'):
+        assert f'on case {name}: missed the known-bad input (blind, as required)' in result.stdout
