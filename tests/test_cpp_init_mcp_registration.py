@@ -142,7 +142,7 @@ def rows(code):
 
 
 def observed(result):
-    return {row["step"]: row for line in result.stdout.splitlines() if line.startswith("__ROW__")
+    return {row["step"]: row for line in result.stdout.splitlines() if line.startswith("__ROW__") and line != "__ROW__"
             for row in [json.loads(line[len("__ROW__"):])]}  # fixed metadata, never CLI output
 
 
@@ -238,6 +238,7 @@ def test_registration_failure_reaches_actual_receipt_and_summary(tmp_path):
 
 @pytest.mark.parametrize("name", [
     "bad-duplicate-claude", "bad-duplicate-codex", "bad-continued-duplicate", "bad-duplicate-after-echo",
+    "bad-duplicate-substitution",
 ])
 def test_duplicate_registration_control_rejects_bad_and_accepts_repair(name):
     fixtures = ROOT / 'tests/fixtures/cpp-init-mcp-registration'
@@ -290,7 +291,9 @@ def test_pool_keeps_unverified_desk_when_later_desk_succeeds(tmp_path):
     code = 'cpp_register_claude_mcp "not a valid name" desk\ncpp_register_claude_mcp custom-desk desk'
     result, calls = run(tmp_path, rows(code))
     assert len([c for c in calls if c[1:3] == ["mcp", "add"]]) == 1
-    assert observed(result)['browser-pool']['outcome'] == 'unverified'
+    records = observed(result)
+    assert 'browser-pool' in records, result.stdout + result.stderr
+    assert records['browser-pool']['outcome'] == 'unverified'
 
 
 @SHELL
@@ -324,3 +327,24 @@ def test_unreadable_pool_config_still_persists_incomplete_receipt(tmp_path):
     record = next(x for x in json.loads(receipt_path.read_text())['steps'] if x['step'] == 'browser-pool')
     assert record['outcome'] == 'unverified'
     assert 'CPP Installation Incomplete' in result.stdout
+
+
+@SHELL
+@pytest.mark.skipif(shutil.which('mkdir') is None, reason='requires mkdir for pool snippet')
+@pytest.mark.parametrize('data', [
+    {"desks": ["good-desk", "not a valid name"]}, {"desks": "not-a-list"},
+    {"desks": ["good-desk", 7]}, {"desks": []}, {"missing-desks": []},
+])
+def test_pool_rejects_entire_invalid_population_before_any_registration(tmp_path, data):
+    config = tmp_path / '.claude/playwright-pool.json'
+    config.parent.mkdir()
+    config.write_text(json.dumps(data))
+    population = data.get('desks')
+    valid = (isinstance(population, list) and bool(population)
+             and all(isinstance(x, str) and re.fullmatch(r'[a-zA-Z0-9_-]+', x) for x in population))
+    assert not valid, 'fixture must not contain a valid desk-name population'
+    result, calls = run(tmp_path, rows(block('#### 3d. Register the browser desk pool')))
+    assert not [c for c in calls if c[1:3] == ["mcp", "add"]]
+    records = observed(result)
+    assert 'browser-pool' in records, result.stdout + result.stderr
+    assert records['browser-pool']['outcome'] == 'unverified'
