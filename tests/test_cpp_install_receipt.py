@@ -1,5 +1,7 @@
 """Exercise the project receipt and the summary/status its consumers read."""
 
+import importlib.util
+import io
 import json
 import os
 import re
@@ -7,6 +9,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -156,3 +159,25 @@ def test_checkout_helper_is_not_in_executable_host_link_population():
     assert not HELPER.stat().st_mode & 0o111
     source = (ROOT / ".claude/commands/cpp/init.md").read_text()
     assert '[ -f "$script" ] && [ -x "$script" ] || continue' in source
+
+
+def test_missing_offered_observation_cannot_make_a_complete_receipt(monkeypatch):
+    spec = importlib.util.spec_from_file_location("install_receipt", HELPER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    offered = ["commands", "stash-guard", "project-commands"]
+    observations = CASES[0]["steps"]
+    assert "project-commands" not in {item["step"] for item in observations}, \
+        "negative-fixture precondition: an explicitly offered step has no observation"
+    args = SimpleNamespace(tier=1, profile="not-selected", permission_report="{}", offered_steps=json.dumps(offered))
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(observations)))
+    receipt = module.make_receipt(args, REVISION)
+    assert not module.complete(receipt), "missing offered observation was silently reported complete"
+    assert next(item for item in receipt["steps"] if item["step"] == "project-commands")["outcome"] == "unverified"
+
+
+def test_receipt_project_write_is_disclosed_before_installation_confirmation():
+    source = (ROOT / ".claude/commands/cpp/init.md").read_text()
+    execution = source.index("## Step 5:")
+    disclosure = source[:execution]
+    assert ".claude/cpp-install.json" in disclosure, "the project write must be disclosed before confirmation"
