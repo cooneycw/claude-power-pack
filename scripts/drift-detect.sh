@@ -191,7 +191,7 @@ fix_remove_systemd_unit() {
 
 collect_docker_status() {
     DOCKER_STATUS=()
-    command -v docker &>/dev/null || return
+    command -v docker &>/dev/null || return 0
 
     local line name status
     local compose_file="$REPO_ROOT/docker-compose.yml"
@@ -340,6 +340,10 @@ check_docker_compose() {
 
 # --- MCP deployment model conflicts ---
 check_mcp_deployment_models() {
+    if ! command -v docker &>/dev/null; then
+        skip "mcp deployment models - Docker/systemd conflict NOT ASSESSED (docker not installed)"
+    fi
+
     collect_docker_status
 
     local has_issue=false
@@ -382,7 +386,11 @@ check_mcp_deployment_models() {
     done
 
     if ! $has_issue; then
-        ok "mcp deployment models - no Docker/systemd conflicts or failed units"
+        if command -v docker &>/dev/null; then
+            ok "mcp deployment models - no Docker/systemd conflicts or failed units"
+        else
+            ok "mcp systemd units - no failed or stuck activating units"
+        fi
     fi
 }
 

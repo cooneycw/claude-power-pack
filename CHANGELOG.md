@@ -8,6 +8,7 @@
   wrapper's directly awaited shell call and its linked successful result.
   Missing probes, foreign heads, assistant prose and unsupported JavaScript
   still refuse artifact binding (#1624).
+- Drift detection now completes on hosts without Docker, reports Docker-dependent checks as skipped, and preserves drift findings from later checks (#1629).
 
 ### Behaviour changes you may notice
 
