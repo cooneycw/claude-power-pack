@@ -32,9 +32,11 @@ a tree where everything was.
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -175,33 +177,51 @@ def test_the_detector_flags_NONE_of_the_legitimate_uses() -> None:
     )
 
 
+# #1587 R2 consolidated the two Codex NAME="${entry%%:*}" loops. Preserve
+# the historical fixture above as the detector's GOOD control. The live source
+# now binds the caller's exact server once, with both original callers retained.
+CANONICAL_CODEX_BINDING = 'local server="$1" id="codex-$1" list state rc'
+CANONICAL_CODEX_CALL = (
+    'if cpp_register_codex_mcp second-opinion; then :; else '
+    'echo "WARNING: Codex second-opinion setup incomplete"; fi'
+)
+
+
+def assert_legitimate_occurrences_survive(rel: str, text: str) -> None:
+    want = Counter(
+        ln for o, ln in _fixture_sites("legitimate_uses.txt") if o.rsplit(":", 1)[0] == rel
+    )
+    if rel == ".claude/commands/cpp/init.md":
+        historical = want.pop('NAME="${entry%%:*}"')
+        assert historical == 2, "retargeting must account for both historical Codex loops"
+        want[CANONICAL_CODEX_BINDING] = 1
+        want[CANONICAL_CODEX_CALL] = historical
+    have = Counter(line.strip() for line in text.splitlines())
+    for line, minimum in want.items():
+        assert have[line] >= minimum, (
+            f"{rel}: expected at least {minimum} occurrence(s) of {line!r}, found {have[line]}. "
+            "A legitimate path/model derivation or its canonical registration caller was removed."
+        )
+
+
 @pytest.mark.parametrize(
     "rel", sorted({o.rsplit(":", 1)[0] for o, _ in _fixture_sites("legitimate_uses.txt")}), ids=str
 )
 def test_every_legitimate_occurrence_survives(rel: str) -> None:
-    """NEGATIVE MEMBERSHIP, counted per occurrence (#910 condition D).
+    """Preserve live derivations and the multiplicity of their canonical callers."""
+    assert_legitimate_occurrences_survive(rel, (REPO / rel).read_text(encoding="utf-8"))
 
-    Substring membership let one occurrence stand in for another: cpp/init.md
-    carries `NAME="${entry%%:*}"` TWICE, and removing the first left an `in
-    text` assertion passing on the second. Multiplicity is checked instead, so
-    losing either one fails.
-    """
-    from collections import Counter
-    want = Counter(
-        ln for o, ln in _fixture_sites("legitimate_uses.txt") if o.rsplit(":", 1)[0] == rel
-    )
-    text = (REPO / rel).read_text(encoding="utf-8")
-    have = Counter()
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped in want:
-            have[stripped] += 1
-    for line, n in want.items():
-        assert have[line] >= n, (
-            f"{rel}: expected at least {n} occurrence(s) of {line!r}, found "
-            f"{have[line]}. A legitimate path derivation was removed along with "
-            f"the defective greps."
-        )
+
+@pytest.mark.parametrize("case", json.loads((FIXTURES / "canonical_codex_survival.json").read_text()),
+                         ids=lambda case: case["name"])
+def test_canonical_derivation_and_each_caller_have_discriminating_controls(case) -> None:
+    rel = ".claude/commands/cpp/init.md"
+    if case["expected"] == "good":
+        assert_legitimate_occurrences_survive(rel, case["text"])
+    else:
+        assert case["text"].count(case["missing_line"]) < case["minimum"], "fixture must omit its required occurrence"
+        with pytest.raises(AssertionError, match=re.escape(repr(case["missing_line"]))):
+            assert_legitimate_occurrences_survive(rel, case["text"])
 
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bash runs the shipped expression")

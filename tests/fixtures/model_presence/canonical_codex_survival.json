@@ -1,0 +1,28 @@
+[
+  {
+    "name": "good-canonical-binding-and-two-callers",
+    "expected": "good",
+    "text": "-m \"gemma-ollama/${GEMMA_MODEL%%:*}\" \\\nlocal server=\"$1\" id=\"codex-$1\" list state rc\n# Tier 5\nif cpp_register_codex_mcp second-opinion; then :; else echo \"WARNING: Codex second-opinion setup incomplete\"; fi\n# Optional extras\nif cpp_register_codex_mcp second-opinion; then :; else echo \"WARNING: Codex second-opinion setup incomplete\"; fi\n"
+  },
+  {
+    "name": "missing-binding",
+    "expected": "bad",
+    "missing_line": "local server=\"$1\" id=\"codex-$1\" list state rc",
+    "minimum": 1,
+    "text": "-m \"gemma-ollama/${GEMMA_MODEL%%:*}\" \\\n\n# Tier 5\nif cpp_register_codex_mcp second-opinion; then :; else echo \"WARNING: Codex second-opinion setup incomplete\"; fi\n# Optional extras\nif cpp_register_codex_mcp second-opinion; then :; else echo \"WARNING: Codex second-opinion setup incomplete\"; fi\n"
+  },
+  {
+    "name": "missing-tier5-call",
+    "expected": "bad",
+    "missing_line": "if cpp_register_codex_mcp second-opinion; then :; else echo \"WARNING: Codex second-opinion setup incomplete\"; fi",
+    "minimum": 2,
+    "text": "-m \"gemma-ollama/${GEMMA_MODEL%%:*}\" \\\nlocal server=\"$1\" id=\"codex-$1\" list state rc\n# Tier 5\n\n# Optional extras\nif cpp_register_codex_mcp second-opinion; then :; else echo \"WARNING: Codex second-opinion setup incomplete\"; fi\n"
+  },
+  {
+    "name": "missing-extras-call",
+    "expected": "bad",
+    "missing_line": "if cpp_register_codex_mcp second-opinion; then :; else echo \"WARNING: Codex second-opinion setup incomplete\"; fi",
+    "minimum": 2,
+    "text": "-m \"gemma-ollama/${GEMMA_MODEL%%:*}\" \\\nlocal server=\"$1\" id=\"codex-$1\" list state rc\n# Tier 5\nif cpp_register_codex_mcp second-opinion; then :; else echo \"WARNING: Codex second-opinion setup incomplete\"; fi\n# Optional extras\n\n"
+  }
+]

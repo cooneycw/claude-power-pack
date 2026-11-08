@@ -373,5 +373,7 @@ woodpecker/wp-cli-env.sh
 # Staged CI binaries (shellcheck pinned copy, issue #960)
 .ci-bin/
 
+# Canonical replacement cases for the frozen model-presence good fixture.
+!tests/fixtures/model_presence/canonical_codex_survival.json
 # Historical schema-1 receipt compatibility fixture (#1649).
 !tests/fixtures/cpp-host-install-receipt/legacy-tier4.json
