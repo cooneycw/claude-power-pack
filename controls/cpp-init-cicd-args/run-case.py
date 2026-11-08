@@ -47,7 +47,8 @@ def populate(root, scenario):
     elif scenario == "bad-empty":
         commands = []
     elif scenario == "bad-floor":
-        commands = commands[:1]
+        commands = ["# python -m lib.cicd host-ci --write"]
+        assert not any(not item.startswith("#") for item in commands)
     elif scenario == "bad-after-redirection":
         commands.append("python -m lib.cicd detect 2>/dev/null --no-such-flag")
     elif scenario == "good-punctuation":

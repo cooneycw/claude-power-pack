@@ -20,11 +20,6 @@ CASES = [
     ("#### 3c. Register MCP Servers", "✓ tavily MCP"),
     ("#### 3d. Register the browser desk pool", "✓ playwright-desk-1 registered"),
     ("#### 3d. Register the browser desk pool", "✓ Seeded .claude/playwright-pool.json"),
-    ("If no Makefile exists, offer to generate one:", "✓ Makefile generated"),
-    ("#### 4b. Generate cicd.yml", "✓ .claude/cicd.yml created from template"),
-    ("#### 4b. Generate cicd.yml", "✓ .claude/cicd.yml created with defaults"),
-    ("#### 4d. CI Pipeline Generation", "✓ .github/workflows/ci.yml generated"),
-    ("#### 4e. Container Generation", "✓ Container files generated"),
     ("#### 5d. Register MCP Servers with Codex", "Registered second-opinion with Codex"),
     ("#### 5d. Register MCP Servers with Codex", "Registered playwright (upstream"),
     ("### 8a. Sequential Thinking", "✓ Sequential Thinking MCP registered"),
@@ -127,3 +122,31 @@ def test_config_file_alone_does_not_prove_credentials(tmp_path):
     )
     assert "API credentials unverified" in result.stdout
     assert "[x]" not in result.stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="requires bash")
+@pytest.mark.skipif(shutil.which("env") is None, reason="requires env")
+@pytest.mark.parametrize("step_rc,state", [(0, "written"), (1, "failed"), (127, "failed"),
+                                          (3, "deferred"), (3, "unavailable"), (3, "unknown")])
+def test_host_record_verdict_never_claims_persistence_without_a_receipt(tmp_path, step_rc, state):
+    tier = INIT.read_text().split("### Tier 4 Execution", 1)[1].split("### Tier 5 Execution", 1)[0]
+    blocks = [b for b in re.findall(r"```bash\n(.*?)```", tier, re.S) if "CPP_HOST_RUNTIME=" in b]
+    assert len(blocks) == 1
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    uv = bindir / "uv"
+    uv.write_text('#!/bin/bash\nprintf "HOST_CI_RECORD: %s\\n" "$RECORD_STATE"\nexit "$STEP_RC"\n')
+    uv.chmod(0o755)
+    env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", CPP_DIR=str(ROOT),
+               CPP_PROJECTS_ROOT=str(tmp_path / "projects"), HOME=str(tmp_path / "home"),
+               STEP_RC=str(step_rc), RECORD_STATE=state)
+    probe = subprocess.run([str(uv)], env=env, capture_output=True, text=True, timeout=10)
+    assert probe.returncode == step_rc and state in probe.stdout, "fixture must supply the exact write outcome"
+    result = subprocess.run(["bash", "-c", blocks[0]], cwd=tmp_path, env=env,
+                            capture_output=True, text=True, timeout=10)
+    output = result.stdout + result.stderr
+    assert ("Host CI record persisted;" in output) is (step_rc == 0)
+    assert ("previous record preserved" in output) is (step_rc in {1, 127})
+    assert result.returncode == (1 if step_rc in {1, 127} else 0)
+    if step_rc == 3:
+        assert "unconfirmed" in output and "previous record preserved" not in output

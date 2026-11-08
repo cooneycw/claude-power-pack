@@ -1,12 +1,10 @@
-"""Run the real CLI and the shipped Tier 4 snippet against scratch projects."""
+"""Run the project Makefile CLI against scratch projects (host-only Tier 4 does not generate)."""
 
 from __future__ import annotations
 
 import errno
 import json
 import os
-import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -14,7 +12,6 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-INIT = ROOT / ".claude/commands/cpp/init.md"
 
 
 def project(tmp_path: Path, framework: str = "node") -> Path:
@@ -38,41 +35,17 @@ def cli(root: Path, *options: str) -> subprocess.CompletedProcess[str]:
 
 
 @pytest.mark.parametrize("framework,command", [("node", "npm test"), ("python", "uv run pytest")])
-@pytest.mark.skipif(shutil.which("bash") is None, reason="requires bash")
-@pytest.mark.skipif(shutil.which("uv") is None, reason="requires uv")
-@pytest.mark.skipif(shutil.which("env") is None, reason="requires env")
-def test_actual_tier4_snippet_generates_framework_makefile(tmp_path, framework, command):
+def test_cli_generates_framework_makefile_content(tmp_path, framework, command):
     root = project(tmp_path, framework)
     assert not (root / "Makefile").exists()
-    # The source intentionally pins Python3.11. Do not mistake an unavailable
-    # interpreter for a regression in the generator, or download one in a test.
-    available = subprocess.run(
-        ["uv", "python", "find", "3.11"],
-        env=dict(os.environ, UV_PYTHON_DOWNLOADS="never"),
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    if available.returncode:
-        pytest.skip("requires an installed Python3.11 for the actual pinned snippet")
-    text = INIT.read_text().split("If no Makefile exists, offer to generate one:", 1)[1]
-    block = re.search(r"```bash\n(.*?)```", text, re.S)
-    assert block, "the actual Tier4 generation block must exist"
-    result = subprocess.run(
-        ["bash", "-c", block[1]],
-        cwd=root,
-        env=dict(os.environ, CPP_DIR=str(ROOT), UV_OFFLINE="1", UV_NO_SYNC="1"),
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    result = cli(root, "--generate-makefile")
     assert result.returncode == 0, result.stderr
     target = root / "Makefile"
     assert target.is_file(), result.stdout + result.stderr
     content = target.read_text()
     assert "# Detected:" in content, "a generic template is not framework generation"
     assert command in content
-    assert "✓ Makefile generated" in result.stdout
+    assert "Wrote Makefile:" in result.stdout
 
 
 @pytest.mark.parametrize("framework", ["node", "python"])

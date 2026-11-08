@@ -10,8 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 
 class ProviderError(ValueError):
     """A project has no usable, explicitly recorded provider selection."""
@@ -41,6 +39,19 @@ PROVIDERS = {
         "lib.cicd.checks:woodpecker_checks", "woodpecker", "woodpecker-auth",
         infra_generator="_generate_woodpecker_infra_pipeline",
     ),
+}
+
+@dataclass(frozen=True)
+class HostCheckSpec:
+    """A provider-owned probe and the only tool versions it may persist."""
+
+    probe: str
+    tools: tuple[str, ...]
+
+
+HOST_CHECKS = {
+    "github-actions-auth": HostCheckSpec("lib.cicd.host:check_github", ("gh",)),
+    "woodpecker-auth": HostCheckSpec("lib.cicd.host:check_woodpecker", ("woodpecker-cli",)),
 }
 
 REMEDY = "record pipeline.providers in .claude/cicd.yml with pipeline --providers NAME[,NAME] --record"
@@ -83,6 +94,8 @@ class ProviderRecord:
 
 def parse_config_mapping(text: str, source: str) -> dict[str, Any]:
     """Reject ambiguous provider records before the shared YAML load."""
+    import yaml
+
     try:
         node = yaml.compose(text)
         data = yaml.safe_load(text)
@@ -134,6 +147,8 @@ def record_providers(project: str | Path, names: list[str]) -> None:
     Flow mappings and aliased/anchored records are refused rather than guessed.
     Comments in any span we would replace produce an exact line diagnostic.
     """
+    import yaml
+
     selected = require_providers(names)
     path = Path(project) / ".claude/cicd.yml"
     if path.is_symlink():

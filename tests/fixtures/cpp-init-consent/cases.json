@@ -13,7 +13,7 @@
       "cpp.stashGuard=false",
       ".gitignore",
       "~/.claude/settings.json",
-      ".woodpecker.yml",
+      "<projects>/.claude/cpp-host.json",
       ".cpp-skill-install.lock",
       "~/.codex/prompts/cpp-memory.md",
       "QWEN_OLLAMA_URL",
@@ -124,48 +124,6 @@
       ".claude/playwright-pool.json",
       "user MCP config",
       "~/.cache/ms-playwright"
-    ]
-  },
-  {
-    "id": "framework",
-    "start": "#### 4a. Framework Detection and Makefile",
-    "end": "\n```",
-    "required": [
-      "Consent:",
-      "Makefile",
-      "absent"
-    ]
-  },
-  {
-    "id": "health",
-    "start": "#### 4c. Health Check Configuration",
-    "end": "\n```",
-    "required": [
-      "Consent:",
-      ".claude/cicd.yml"
-    ]
-  },
-  {
-    "id": "pipeline",
-    "start": "#### 4d. CI Pipeline Generation",
-    "end": "\n```",
-    "required": [
-      "Consent:",
-      ".github/workflows/ci.yml",
-      ".woodpecker.yml",
-      "overwrite"
-    ]
-  },
-  {
-    "id": "container",
-    "start": "#### 4e. Container Generation",
-    "end": "\n```",
-    "required": [
-      "Consent:",
-      "Dockerfile",
-      "docker-compose.yml",
-      ".dockerignore",
-      "overwrite"
     ]
   },
   {
@@ -310,6 +268,21 @@
       "plaintext",
       "SELECT 1",
       "CPP_MEMORIES_DSN"
+    ]
+  },
+  {
+    "id": "host-ci",
+    "start": "### Tier 4 Disclosure (Host CI Capabilities)",
+    "end": "Proceed? [y/N]",
+    "required": [
+      "Ask once",
+      "projects folder",
+      "main checkout",
+      "cpp-host.json",
+      "host-write/defer",
+      "Credentials",
+      "~/.cache/claude-power-pack/host-ci",
+      "no project files"
     ]
   }
 ]

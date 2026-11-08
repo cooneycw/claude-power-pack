@@ -54,6 +54,34 @@ from .detector import detect_framework, detect_infrastructure
 from .runner import resume_run, run_plan, show_status
 
 
+def cmd_host_ci(args: argparse.Namespace) -> int:
+    """Report every registered host capability independently of project choice."""
+    from .host import probe_host, read_host_record, write_host_record
+
+    if args.read:
+        record = read_host_record(args.path)
+        state = "read"
+    else:
+        record = probe_host()
+        state = "not-requested"
+        if args.write:
+            if not args.projects_root:
+                print("host-ci: --write requires --projects-root", file=sys.stderr)
+                return 2
+            try:
+                state = write_host_record(record, args.projects_root, args.path)
+            except (OSError, ValueError):
+                state = "failed"
+    report = {**record, "record_state": state}
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        for name, result in record["providers"].items():
+            print(f"{name}: {result['status']} ({result['reason']})")
+        print(f"HOST_CI_RECORD: {state}")
+    return 1 if state == "failed" else 3 if state in {"deferred", "unavailable", "unknown"} else 0
+
+
 def cmd_detect(args: argparse.Namespace) -> int:
     """Detect project framework and package manager."""
     makefile_path = None
@@ -1086,6 +1114,13 @@ def create_parser() -> argparse.ArgumentParser:
         help="Write files to disk (default: dry run to stdout)",
     )
 
+    host_parser = subparsers.add_parser("host-ci", help="Probe or read host CI capabilities")
+    _add_common_args(host_parser)
+    host_mode = host_parser.add_mutually_exclusive_group()
+    host_mode.add_argument("--read", action="store_true", help="Read host record without probes")
+    host_mode.add_argument("--write", action="store_true", help="Persist via the host-write seam")
+    host_parser.add_argument("--projects-root", type=Path, help="Approved host projects folder for --write")
+
     provider_parser = subparsers.add_parser("provider", help="Read recorded project CI providers")
     _add_common_args(provider_parser)
     provider_parser.add_argument("--registry", action="store_true", help="List registered choices")
@@ -1196,6 +1231,7 @@ def main(argv: list[str] | None = None) -> int:
         "pipeline": cmd_pipeline,
         "provider": cmd_provider,
         "checks": cmd_checks,
+        "host-ci": cmd_host_ci,
         "infra-init": cmd_infra_init,
         "infra-discover": cmd_infra_discover,
         "infra-pipeline": cmd_infra_pipeline,

@@ -84,8 +84,8 @@ def test_cli_factory_changes_are_authoritative(tmp_path, monkeypatch):
 def test_real_document_population_is_measured():
     report = checker.scan(ROOT)
     direct = [i for i in report.invocations if i.path == checker.DOCUMENT]
-    assert len(direct) == checker.MIN_INVOCATIONS == 5
-    assert {i.argv[0] for i in direct} == {"detect", "check", "pipeline", "container"}
+    assert len(direct) == checker.MIN_INVOCATIONS == 1
+    assert {i.argv[0] for i in direct} == {"host-ci"}
 
 
 def test_unreadable_document_is_not_clean(tmp_path, capsys):

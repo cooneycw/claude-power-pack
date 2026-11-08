@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "cpp_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "recorded_at": "2026-01-01T00:00:00Z",
+  "selected": {
+    "tier": 1,
+    "profile": "not-selected",
+    "capabilities": [
+      "commands"
+    ]
+  },
+  "offered_steps": [
+    "commands",
+    "stash-guard"
+  ],
+  "steps": [
+    {
+      "step": "commands",
+      "outcome": "installed",
+      "recorded_at": "2026-01-01T00:00:00Z",
+      "exit_code": null,
+      "user_scope": [
+        "claude-commands"
+      ]
+    },
+    {
+      "step": "stash-guard",
+      "outcome": "already",
+      "recorded_at": "2026-01-01T00:00:00Z",
+      "exit_code": null,
+      "user_scope": []
+    }
+  ],
+  "user_scope": {
+    "claude-commands": "~/.claude/commands (CPP family links)"
+  },
+  "permissions": {
+    "profile": "unknown",
+    "verification": "unverified",
+    "counts": {
+      "allow": null,
+      "ask": null,
+      "deny": null
+    }
+  }
+}
