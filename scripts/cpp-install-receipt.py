@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+#: HOST-SURFACE: none - writes the explicitly selected project receipt, not a user-scope installation surface
 """Persist cpp:init's observed STEP_RESULTS; report recorded state, not live health.
 
 Input is metadata only: fixed step IDs, outcome enums, and reference IDs. Never

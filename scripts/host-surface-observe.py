@@ -182,6 +182,10 @@ INVOCATIONS: dict[str, list[list[str]]] = {
     #: The sandbox is not a git repository, so the run ends at `unknown` having
     #: written nothing, which is exactly its declaration (`none`).
     "cpp-checkout-freshness.sh": [["--path", "{HOME}"]],
+    # Like stash-worktree-guard, the writer operates on a project, not a fixed
+    # host surface. Exercise its read-only status path with no git dependency;
+    # receipt write/atomicity are covered by its owned-project tests/controls.
+    "cpp-install-receipt.py": [["status", "--project-dir", "{HOME}", "--revision", "a" * 40]],
     "codex-skill-sync.py": [["--install"]],
     "install-memory-harness.sh": [[]],
     "commands-mirror-sync.sh": [[]],
