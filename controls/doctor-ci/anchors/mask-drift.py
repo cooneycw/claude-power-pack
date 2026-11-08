@@ -135,7 +135,9 @@ def live_posture(project: Path, ctx: DoctorContext) -> tuple[dict[str, Any] | No
         return None, "GitHub protection reader unavailable"
     try:
         identity = ctx.command(["git", "-C", str(project), "rev-parse", "--show-toplevel"], project)
-        if identity.returncode or Path(identity.stdout.strip()).resolve() != project:
+        if identity.returncode or not identity.stdout.strip():
+            return None, "target Git worktree identity unavailable"
+        if Path(identity.stdout.strip()).resolve() != project:
             return None, "target directory is not the inspected Git worktree root"
         remote = ctx.command(["git", "-C", str(project), "remote", "get-url", "origin"], project)
         slug = _slug(remote.stdout.strip()) if remote.returncode == 0 else None

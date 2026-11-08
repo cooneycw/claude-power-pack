@@ -486,3 +486,26 @@ def test_nested_project_does_not_borrow_parent_git_identity(tmp_path):
     value = collect(project, ctx)
     assert _by_id(value)['required-checks']['status'] == 'unknown'
     assert not any(argv[0] == 'gh' for argv in calls), 'must not query protection for an ancestor repository'
+
+
+def test_empty_successful_git_identity_is_not_the_current_directory(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from lib.cicd.doctor import collect
+    _project(tmp_path)
+    ctx, calls = _context(tmp_path)
+    original = ctx.run
+    seen = []
+
+    def empty_identity(argv, **kwargs):
+        if argv[0] == 'git' and argv[-2:] == ['rev-parse', '--show-toplevel']:
+            seen.append(True)
+            return SimpleNamespace(returncode=0, stdout='')
+        return original(argv, **kwargs)
+    ctx.run = empty_identity
+    monkeypatch.chdir(tmp_path)
+    assert Path.cwd() == tmp_path
+    value = collect(tmp_path, ctx)
+    assert seen, 'must inspect a successful but empty identity response'
+    assert _by_id(value)['required-checks']['status'] == 'unknown'
+    assert not any(argv[0] == 'gh' for argv in calls)

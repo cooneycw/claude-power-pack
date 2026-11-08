@@ -87,7 +87,7 @@
     {
       "kind": "constructed",
       "path": "anchors/mask-drift.py",
-      "sha256": "c21d80cb636dd1ee04e70d957695a75e84707037138b1c7d18586537cd9c0854",
+      "sha256": "6c8d5d6538f0b3c704972032d35b2bb99f7b21a0b6fe936ead7f4d5e81cd45cc",
       "why": "Masks proven drift as ok while preserving the three repaired positives and five unexaminable cases."
     }
   ]
