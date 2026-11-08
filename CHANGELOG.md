@@ -5,6 +5,10 @@
 ### Fixed
 
 - Project-next names unparsed architecture decision records in every premise-staleness report and JSON coverage, so an incomplete ADR corpus cannot read as a clean scan (#1614).
+- Full-scope counter-model receipts recognize the current Codex custom `exec`
+  wrapper's directly awaited shell call and its linked successful result.
+  Missing probes, foreign heads, assistant prose and unsupported JavaScript
+  still refuse artifact binding (#1624).
 - Refuse filtered pytest retries when a test invocation was interrupted or started without completing a summary, so a passing subset cannot clear an unfinished composite target (#1617).
 - Drift detection now completes on hosts without Docker, reports Docker-dependent checks as skipped, and preserves drift findings from later checks (#1629).
 

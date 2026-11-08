@@ -1,0 +1,37 @@
+{
+  "source_record_sha256": [
+    "40fbca0a5de83b85c990e624df27c7dbabe28ed9715318171936611a838ac393",
+    "aa80f1244fd4b148477b71e37dfeb8a65257247c89b63087b71c079a021e0bbd"
+  ],
+  "records": [
+    {
+      "type": "response_item",
+      "payload": {
+        "type": "custom_tool_call",
+        "id": "captured-call",
+        "status": "completed",
+        "call_id": "captured-exec",
+        "name": "exec",
+        "input": "text(await tools.exec_command({cmd:\"git rev-parse HEAD\",\"workdir\":\"/fixture/repo\"}));\n"
+      }
+    },
+    {
+      "type": "response_item",
+      "payload": {
+        "type": "custom_tool_call_output",
+        "id": "captured-result",
+        "call_id": "captured-exec",
+        "output": [
+          {
+            "type": "input_text",
+            "text": "Script completed\nWall time 0.7 seconds\nOutput:\n"
+          },
+          {
+            "type": "input_text",
+            "text": "{\"chunk_id\":\"f51a7b\",\"wall_time_seconds\":0.000043932,\"exit_code\":0,\"original_token_count\":11,\"output\":\"587d6546bc1c0d02cc1fbe79b49c3ae5855634d5\\n\"}"
+          }
+        ]
+      }
+    }
+  ]
+}
