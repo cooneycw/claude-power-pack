@@ -1,0 +1,43 @@
+{
+  "provenance": {
+    "kind": "schema-derived, not a captured host rollout",
+    "codex_version": "0.166.0",
+    "source_commit": "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856",
+    "source": "https://github.com/openai/codex/blob/6ff1e1ca3b30fc8b914720681fcf5fe62e95f856/codex-rs/protocol/src/models.rs",
+    "definitions": [
+      "ResponseItem::CustomToolCall",
+      "ResponseItem::CustomToolCallOutput",
+      "FunctionCallOutputBody::ContentItems"
+    ],
+    "transport_basis": "Direct exec JS and completed structured output envelope captured on Codex 0.164.0 in codex-custom-exec.captured.json",
+    "limit": "The schema permits these response items independently; this fixture does not establish which events the 2026-11-04 host persisted."
+  },
+  "records": [
+    {
+      "type": "response_item",
+      "payload": {
+        "type": "custom_tool_call",
+        "call_id": "schema-head-probe",
+        "name": "exec",
+        "input": "text(await tools.exec_command({\"cmd\":\"git rev-parse HEAD\"}));"
+      }
+    },
+    {
+      "type": "response_item",
+      "payload": {
+        "type": "custom_tool_call_output",
+        "call_id": "schema-head-probe",
+        "output": [
+          {
+            "type": "input_text",
+            "text": "Script completed\nWall time 0.1 seconds\nOutput:\n"
+          },
+          {
+            "type": "input_text",
+            "text": "{\"exit_code\": 0, \"output\": \"1111111111111111111111111111111111111111\\n\"}"
+          }
+        ]
+      }
+    }
+  ]
+}

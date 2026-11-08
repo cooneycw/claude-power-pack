@@ -87,3 +87,55 @@ adapts only the captured output SHA to an owned temporary Git repository,
 combines it with explicitly synthetic identity/model/report evidence, and
 requires successful write versus refusal on an exit-code mutation. No textual
 shell-result parser or wrapper-JavaScript parser was added on speculation.
+
+`codex-custom-exec.captured.json` is a real call/result pair captured on
+2026-11-08 from this worker's current Codex rollout while investigating #1624.
+The `source_record_sha256` values identify the original JSONL records without
+terminating newlines. The retained shape is `response_item/custom_tool_call`
+with name `exec`, directly emitting an awaited `tools.exec_command` result;
+the linked `custom_tool_call_output` contains the completed-script header and
+structured shell result. This source rollout also contains a corresponding
+CommandExecution event; the fixture isolates the custom call/result pair to
+exercise the serialization reported by #1624. Cwd was replaced with
+`/fixture/repo`, call/item ids were
+normalized, and timestamps, ordinals, internal metadata and transport metadata
+were removed. Command, JS structure, output blocks, exit code and HEAD are
+preserved. There are no credentials or private host names in the fixture.
+
+Writer controls replace only the shell output HEAD with an owned temporary
+repository's HEAD and add synthetic identity/report records. They require a
+full-scope write on the matching probe and refusal for an absent probe, a foreign
+head, failed/unlinked calls and prose or nonexecuting JS examples. Additional
+controls pin successful integer exit codes, result ordering, duplicate pending
+ids and unmodified direct output. These test evidence extraction, not model
+review quality. The supported JS grammar is deliberately bounded to a single
+`text(await tools.exec_command({...}))` call with JSON values and optionally
+unquoted object keys; other programs remain unknown rather than guessed.
+
+`codex-custom-exec.schema-0.166.json` is an explicitly constructed custom-only
+rollout fragment, not a capture of the 2026-11-04 host review. Its response-item
+schema comes from Codex tag `rust-v0.166.0`, commit
+`6ff1e1ca3b30fc8b914720681fcf5fe62e95f856`:
+[ResponseItem and output body definitions](https://github.com/openai/codex/blob/6ff1e1ca3b30fc8b914720681fcf5fe62e95f856/codex-rs/protocol/src/models.rs).
+`ResponseItem` uses snake-case `type` tags; `CustomToolCall` carries string
+`call_id`, `name` and `input`, while `CustomToolCallOutput` carries `call_id`
+and `FunctionCallOutputPayload`. `FunctionCallOutputBody::ContentItems` permits
+the output content array. These response items are independent variants; the
+schema does not require a native CommandExecution event alongside them.
+
+The direct JavaScript/structured-result transport is based on the separately
+retained real 0.164.0 capture above. Optional response ids/status/metadata were
+omitted, the command argument key is quoted, and shell output is an owned
+40-character test HEAD. The fragment contains only the custom pair and no
+native event or assistant prose. Writer cases supply synthetic identity/report
+records and adapt the output to their owned repository. Missing probes and
+foreign heads are committed refusal cases for both captured and schema-derived
+inputs; existing native-event controls remain independently exercised.
+
+Version distinction: #1605 records Codex 0.166.0 on the operator's host; these
+containers run 0.164.0. The whole 0.164.0 interactive and EXEC rollouts retained
+native events readable before the fix. The root cause of the reported 11-04
+host refusal is therefore INFERRED from the custom-only blind spot, not
+reproduced from that original rollout. Per the owner ruling, #1624 reopens if a
+host review is refused again. The schema proves format support, not what that
+host persisted or a version-specific omission of native events.
