@@ -4,10 +4,12 @@
 
 Every file below is a byte-identical copy of its canonical source in the claude-power-pack checkout, at the SAME path shown here relative to the repository root - editing a copy here has no effect once the mirror is regenerated, and the next `make codex-skills` overwrites it silently. Edit the canonical source and run `make codex-skills`.
 
+- `docs/agents/flow-wave-completion.md`
 - `docs/decisions/0006-worktree-teardown-ownership.md`
 - `scripts/flow-driver-capability.sh`
 - `scripts/flow-pr-watch.sh`
 - `scripts/flow-vantage.sh`
+- `scripts/flow-wave-completion.py`
 - `scripts/flow-wave-lexicon.sh`
 - `scripts/flow-wave-mailbox.sh`
 - `scripts/flow-wave-plan.py`

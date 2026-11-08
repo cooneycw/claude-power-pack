@@ -482,6 +482,123 @@ survive schematisation, and a vocabulary that crowds them out costs more than it
 saves. If a line is an argument, leave it as prose - `--no-lexicon` on `send` is
 the escape when a prose line happens to open with a reserved word.
 
+## Completion: receipts and deadlines (#1658)
+
+**the message is the shortcut, the receipt plus the deadline is the guarantee**.
+Use this for every assigned role/run, including gates and reviews. A `done`,
+`handoff` or verdict message wakes an earlier receipt check; its text is never
+the completion record. The same deadline check is required when no message
+arrives. This is an operator-driven protocol: the helper does not schedule a
+background check or wake a session. Record a finite deadline and arrange a
+coordinator-owned timer/available bounded wake route before handing out work.
+After a coordinator restart, reload its assignment files and check every due
+assignment before granting more work. An overdue assignment with no completed
+check is UNKNOWN, never evidence that the worker is still running.
+
+### Establish the store before assigning work
+
+The coordinator chooses an existing absolute `--state-root`, recorded in each
+brief as `FLOW_WAVE_COMPLETION_ROOT`. It owns assignment state under
+`<root>/<wave>/assignments/<role>.json`. The default filesystem receipt store
+is `<root>/receipts/`; both participants must share that actual storage. Two
+private filesystems with the same path spelling do not qualify. The existing
+host-local XDG runtime namespace is suitable only for roles sharing that host
+namespace and access. Do not use a worker-private result file as the guarantee.
+
+For another shared service, configure `FLOW_WAVE_RECEIPT_ADAPTER` in both roles
+as a JSON argv array, for example `'["/absolute/path/receipt-store-adapter"]'`.
+CPP calls that program without a shell, appending `get KEY` or `put KEY`.
+`get` receives empty stdin; `put` receives `{"key": KEY, "receipt": OBJECT}`.
+Both return `{"key": KEY, "receipt": OBJECT}`; only a successful `get` may
+return `receipt: null` for established absence. The opaque key binds wave,
+role, assignment-id and generation. Put must be atomic, immutable and durable;
+retries of the same outcome/evidence are idempotent and contradictions must
+not overwrite the stored result. CPP validates key/identity and reads back a
+publication before confirming it. Adapter failures, malformed responses and
+timeouts produce UNKNOWN (exit 3); stderr is not echoed. The timeout defaults
+to 10 seconds, configurable with `FLOW_WAVE_RECEIPT_TIMEOUT` (0.05-60 seconds).
+The exact adapter contract is in
+[Wave completion receipt-store interface](docs/agents/flow-wave-completion.md).
+No Kyle-specific service is called by CPP. The coordinator's assignment state
+still needs its explicit local root; an adapter lets worker receipts reach it
+without sharing the coordinator's filesystem.
+
+At setup, run the assign/complete/check sequence below with a dedicated
+`store-probe` assignment: the worker publishes, and the coordinator reads the
+matching receipt through its own configured store. Proceed only after the
+coordinator verifies it. Then assign the real work with a higher generation.
+Unavailable storage means UNKNOWN and an explicit relay/escalation, not a
+substitution of pasted message text for a receipt. The probe establishes
+accessibility at setup; each later read/write can still fail and must be checked.
+
+### Assign, finish, and reconcile
+
+Each brief carries `WAVE`, `ROLE`, a new `ASSIGNMENT_ID`, an increasing integer
+`GENERATION` for that role, and a UTC `DEADLINE` with timezone. Record them and
+a finite one-time extension budget before sending the brief:
+
+```bash
+python3 "$CPP_DIR/scripts/flow-wave-completion.py" assign \
+  --state-root "$FLOW_WAVE_COMPLETION_ROOT" --wave "$WAVE" --role "$ROLE" \
+  --assignment-id "$ASSIGNMENT_ID" --generation "$GENERATION" \
+  --deadline "$DEADLINE" --extension-seconds 600
+```
+
+The worker writes its terminal receipt **before** optional completion mail,
+using `succeeded`, `failed`, or `cancelled` as the observed outcome. A failure
+or cancellation is still terminal; it is not successful work. Record a bounded
+evidence reference, never credentials. An interrupted/killed worker may never
+get to write: that is exactly the absent-receipt UNKNOWN path below, not success.
+
+```bash
+python3 "$CPP_DIR/scripts/flow-wave-completion.py" complete \
+  --state-root "$FLOW_WAVE_COMPLETION_ROOT" --wave "$WAVE" --role "$ROLE" \
+  --assignment-id "$ASSIGNMENT_ID" --generation "$GENERATION" \
+  --outcome "$OUTCOME" --evidence "$RESULT_REFERENCE"
+```
+
+The coordinator runs this at the deadline **whether or not a message arrived**,
+and immediately on any earlier completion message. Add `--message-arrived` on
+that early wake only as a hint; it does not change the evidence or verdict:
+
+```bash
+python3 "$CPP_DIR/scripts/flow-wave-completion.py" check \
+  --state-root "$FLOW_WAVE_COMPLETION_ROOT" --wave "$WAVE" --role "$ROLE" \
+  --assignment-id "$ASSIGNMENT_ID" --generation "$GENERATION" \
+  --liveness "$LIVENESS" --observed-at "$LIVENESS_OBSERVED_AT"
+```
+
+`LIVENESS` is `alive`, `gone` or `unknown`. Derive it using the existing registry
+identity/vantage rules or the available native observation route; never infer
+it from silence, a stale heartbeat, or a PID in another namespace. `alive`
+requires a matching current-assignment observation no more than 60 seconds old,
+with its UTC time in `LIVENESS_OBSERVED_AT`. If not established, use `unknown`
+and omit `--observed-at`. The helper checks the observation's freshness, not
+its truth; it does not probe processes or establish cross-container liveness.
+
+Read the JSON `status` and preserve the terminal `outcome`:
+
+- `complete`: matching receipt found; proceed with that outcome. Exit 0 means
+  succeeded, exit 1 means failed/cancelled. Neither may be overwritten by a
+  message. A wrong assignment/generation or malformed receipt is UNKNOWN.
+- `waiting` (exit 4): no receipt before the deadline. Re-arm the timer for the
+  recorded deadline; a message is optional.
+- `extended` (exit 4): no receipt at the deadline, with fresh `alive` evidence;
+  exactly one extension was persisted. Re-arm once for the returned deadline.
+- `escalated` (exit 3): no receipt at the extended deadline. Escalate; another
+  alive observation cannot renew it again.
+- `unknown` (exit 3): receipt/store/assignment unreadable, or no receipt at the
+  deadline with gone/unknown/unproven liveness. Record UNKNOWN and escalate.
+- `refused` (exit 1): conflicting terminal publication, changed retry policy or
+  non-increasing generation. Preserve the stored evidence and resolve the
+  conflict; this is not successful completion.
+
+Re-running `assign` for the same identity/policy preserves extension history.
+A new assignment needs a higher generation; checking a superseded assignment
+is UNKNOWN. The helper's optional `--now` is for deterministic offline replay;
+operational calls use the real UTC clock. Archive these files with the wave
+namespace and keep external-adapter receipts according to that store's policy.
+
 ## Phase 1: Scaffold the issue set
 
 - **Spec-kit repo:** run `"${CPP_SKILL_DIR:-/dev/null}"/scripts/speckit-tasks-to-issues.sh` (dedup-safe) to emit
