@@ -48,6 +48,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -64,6 +65,7 @@ pytestmark = pytest.mark.skipif(
 #: helper basename -> the marker namespace it already uses on its own output.
 NAMESPACES = {
     "flow-preflight.py": "FLOW_PREFLIGHT",
+    "project-next.py": "PROJECT_NEXT",
     "flow-preflight.sh": "FLOW_PREFLIGHT_BOOTSTRAP",
     "flow-start-resolve.sh": "FLOW_START_RESOLVE",
     "flow-live-driver-guard.sh": "FLOW_LIVE_DRIVER",
@@ -453,3 +455,19 @@ def test_a_stdout_only_marker_would_not_satisfy_the_static_check() -> None:
     stdout_only = 'trap \'printf "TOY_EXIT=%d\\n" "$?"\' EXIT\n'
     assert ">&2" not in stdout_only
     assert "file=sys.stderr" not in stdout_only
+
+
+@pytest.mark.parametrize(("arguments", "expected"), [
+    (["--help"], 0), (["--cpp-invalid-option"], 2), (["--input", "fixture-absent.json"], 2),
+])
+def test_project_next_reports_actual_status_on_stderr(arguments, expected, tmp_path):  # binary-guard: allow offline
+    if arguments[0] == "--input":
+        assert not (tmp_path / arguments[1]).exists()
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS / "project-next.py"), *arguments],
+        cwd=tmp_path, capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == expected, result.stderr
+    lines = result.stderr.splitlines()
+    assert lines and lines[-1] == f"PROJECT_NEXT_EXIT={expected}", result.stderr
+    assert "PROJECT_NEXT_EXIT=" not in result.stdout

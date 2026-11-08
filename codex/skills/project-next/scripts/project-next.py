@@ -32,6 +32,7 @@ import os
 import re
 import subprocess
 import sys
+import traceback
 from dataclasses import asdict, dataclass, field, replace
 from datetime import date
 from pathlib import Path
@@ -1519,4 +1520,29 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # Preserve stderr ordering and exit status on usage, exceptions and failed
+    # output flushes, following the installed helper family contract (#1031).
+    _code = 1
+    try:
+        _code = main()
+    except SystemExit as _exc:
+        _code = _exc.code if isinstance(_exc.code, int) else int(bool(_exc.code))
+    except BaseException:  # noqa: BLE001 - diagnostic retained before marker
+        traceback.print_exc()
+        _code = 1
+    _flush_failed = False
+    try:
+        sys.stdout.flush()
+    except BaseException:  # noqa: BLE001 - reported, then exited
+        traceback.print_exc()
+        _flush_failed = True
+        if _code == 0:
+            _code = 1
+    print(f"PROJECT_NEXT_EXIT={_code}", file=sys.stderr)
+    if _flush_failed:
+        try:
+            sys.stderr.flush()
+        except BaseException:  # noqa: BLE001 - no remaining reporting channel
+            pass
+        os._exit(_code)
+    raise SystemExit(_code)

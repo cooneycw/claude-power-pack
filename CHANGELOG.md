@@ -2,9 +2,16 @@
 
 ## [Unreleased]
 
+### Added
+
+- `cpp:init` saves a project install receipt with recorded step outcomes and
+  shared-component references; its summary and `cpp:status` distinguish failed,
+  missing, stale and incomplete records (Refs #1587, R4).
+
 ### Fixed
 
 - cpp:init Tier 4 now records independent host CI capabilities instead of generating project files; project consumers share a container-aware, worktree-stable reader (#1609).
+- The unattended helper installer now includes `project-next.py`, so checkout installs satisfy the Claude preflight engine dependency; project-next documents the colocated library requirement for legacy copy installs and emits the installed-family exit marker on stderr (#1619).
 
 - CI providers are now an explicit per-project list with a canonical reader and targeted recording command; missing selections stop pipeline generation instead of silently selecting GitHub Actions (#1607).
 
