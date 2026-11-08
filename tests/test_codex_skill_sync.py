@@ -2049,7 +2049,9 @@ def test_the_shell_lib_rule_does_not_widen_to_unrelated_scripts() -> None:
         "a script that sources nothing must pull in nothing"
     )
     both = mod.find_bundled_shell_libs(["flow-finish-gate.sh", "flow-vantage.sh"])
-    assert set(both) == {"scripts/gate-lib.sh"}, (
+    # flow-finish-gate.sh sources exactly two siblings: gate-lib.sh and the
+    # coordination rollout signal (kyle#2130).
+    assert set(both) == {"scripts/gate-lib.sh", "scripts/coordination-admission.sh"}, (
         f"only the sourced library may be added; got {sorted(both)}"
     )
 

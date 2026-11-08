@@ -600,6 +600,8 @@ def _run(
     cwd: Path, stubs: dict, *args: str, extra_env: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
+    env.pop("CPP_KYLE_COORDINATION_ADMISSION", None)
+    env["CPP_COORDINATION_ADMISSION_FILE"] = str(cwd / "absent-coordination-flag")
     env.pop("GH_PR_MERGE_STRICT_DELETIONS", None)  # host setting must not leak in
     # A real WOODPECKER_API_TOKEN/SERVER on the host must never leak into a test -
     # it would make the #717 queue-wait code hit the real Woodpecker server
@@ -629,6 +631,12 @@ def _run(
             set(extra_env) & {"GH_PR_MERGE_GH", "GH_PR_MERGE_GIT", "GH_PR_MERGE_CURL"}
         ), "the stub binary paths are invariants, not overridable via extra_env"
         env.update(extra_env)
+        if "CPP_KYLE_COORDINATION_ADMISSION" in extra_env:
+            value = extra_env["CPP_KYLE_COORDINATION_ADMISSION"]
+            flag = cwd / "coordination-flag"
+            flag.write_text("on\n" if value == "1" else value)
+            env["CPP_COORDINATION_ADMISSION_FILE"] = str(flag)
+            env.pop("CPP_KYLE_COORDINATION_ADMISSION", None)
 
     # Invariants (never overridable, not even via extra_env): the stub binary
     # paths. Set AFTER extra_env so nothing can point a test at the real
@@ -4081,3 +4089,44 @@ def test_report_base_advance_degrades_cleanly_with_no_root(tmp_path: Path) -> No
     stderr = _call_report_base_advance(Path("/nonexistent"), "", "deadbeef", "main")
     assert "base advanced (unknown..deadbeef)" in stderr
     assert "branch protection requires an up-to-date head" in stderr
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq not installed")
+@pytest.mark.parametrize("signal", [None, "", "0", "unknown", "true", "1"])
+def test_coordination_signal_preserves_queue_unless_explicitly_enabled(tmp_path: Path, signal: str | None):
+    stubs = _make_stubs(tmp_path, merge_exit=0, pr_state="MERGED",
+                        woodpecker_pipeline_statuses=["pending", "pending", "running"])
+    extra = {"WOODPECKER_API_TOKEN": "test-token"}
+    if signal is not None:
+        extra["CPP_KYLE_COORDINATION_ADMISSION"] = signal
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-2130", extra_env=extra)
+    assert result.returncode == 0, result.stderr
+    calls = _calls(stubs)
+    polls = [c for c in calls if "/pipelines?per_page=5" in c]
+    assert len(polls) == (0 if signal == "1" else 3), calls
+    assert ("is queued" in result.stderr) == (signal != "1")
+    assert any(c.startswith("gh pr merge") for c in calls), calls
+
+
+@pytest.mark.parametrize("status,expected", [("FAILURE", 1), ("PENDING", 1), ("SUCCESS", 0)])
+def test_coordination_does_not_bypass_required_checks(tmp_path: Path, status: str, expected: int):
+    stubs = _make_stubs(tmp_path, merge_exit=0, pr_state="OPEN",
+                        required_contexts=[WOODPECKER], check_rollup=[[(WOODPECKER, status)]])
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-2130",
+                  extra_env={"CPP_KYLE_COORDINATION_ADMISSION": "1"})
+    merged = any(c.startswith("gh pr merge") for c in _calls(stubs))
+    assert merged == (expected == 0), result.stderr
+    if expected:
+        assert result.returncode != 0
+
+
+def test_coordination_does_not_bypass_the_head_pin(tmp_path: Path):
+    # Opt-in skips only the advisory queue read; a head that moved after CI
+    # must still be a CLEAN STOP with no squash attempted (kyle#2130).
+    stubs = _make_stubs(tmp_path, merge_exit=0, pr_state="MERGED")
+    verified = "0123456789abcdef0123456789abcdef01234567"
+    result = _run(_linked_worktree(tmp_path), stubs,
+                  "--match-head-commit", verified, "42", "issue-2130",
+                  extra_env={"CPP_KYLE_COORDINATION_ADMISSION": "1"})
+    assert result.returncode == 11, result.stderr
+    assert [c for c in _calls(stubs) if c.startswith("gh pr merge")] == []
