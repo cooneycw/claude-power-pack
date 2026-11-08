@@ -38,14 +38,26 @@ def literal_adds(text):
         if not active:
             continue
         try:
-            args = shlex.split(line, comments=True)
+            lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|(){}")
+            lexer.whitespace_split = True
+            args = list(lexer)
         except ValueError:
             continue  # embedded Python multiline strings are not literal client calls
-        if args and args[0] in {"echo", "printf"}:
-            continue
-        for i in range(len(args) - 2):
-            if args[i] in {"claude", "codex"} and args[i + 1:i + 3] == ["mcp", "add"]:
-                found.append(args[i])
+        # Output arguments are not executable commands; a subsequent command is.
+        segments = [[]]
+        for token in args:
+            if token and all(char in ";&|(){}" for char in token):
+                segments.append([])
+            else:
+                segments[-1].append(token)
+        for command in segments:
+            while command and command[0] in {"if", "elif", "then", "else"}:
+                command = command[1:]
+            if command and command[0] in {"echo", "printf"}:
+                continue
+            for i in range(len(command) - 2):
+                if command[i] in {"claude", "codex"} and command[i + 1:i + 3] == ["mcp", "add"]:
+                    found.append(command[i])
     return found
 
 
@@ -224,7 +236,9 @@ def test_registration_failure_reaches_actual_receipt_and_summary(tmp_path):
     assert 'CPP Installation Complete' not in result.stdout
 
 
-@pytest.mark.parametrize("name", ["bad-duplicate-claude", "bad-duplicate-codex", "bad-continued-duplicate", "bad-duplicate-after-echo"])
+@pytest.mark.parametrize("name", [
+    "bad-duplicate-claude", "bad-duplicate-codex", "bad-continued-duplicate", "bad-duplicate-after-echo",
+])
 def test_duplicate_registration_control_rejects_bad_and_accepts_repair(name):
     fixtures = ROOT / 'tests/fixtures/cpp-init-mcp-registration'
     bad = (fixtures / f'{name}.md').read_text()

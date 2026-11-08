@@ -1750,11 +1750,11 @@ unset 'CPP_MCP_RESULTS[browser-pool]'
 if ! DESKS=$(python3 -c "import json; print('\n'.join(json.load(open('.claude/playwright-pool.json'))['desks']))"); then
   cpp_mcp_record browser-pool unverified
   echo "WARNING: browser desk configuration could not be read; no desks registered."
-  exit 1
-fi
+else
 for desk in $DESKS; do
   if cpp_register_claude_mcp "$desk" desk; then :; else echo "WARNING: browser desk setup incomplete"; fi
 done
+fi
 
 echo ""
 echo "IMPORTANT: restart Claude Code so the playwright-desk-* servers load at startup"
