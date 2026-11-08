@@ -1,0 +1,70 @@
+{
+  "branch": "issue-1628-cpp-helpers-require-bash-4-with-no-stated-requirem",
+  "counts": {
+    "accepted": 4,
+    "deferred": 2,
+    "rejected": 0
+  },
+  "extra_passes_reason": "Owner explicitly requested a third pass: pass 2 fixes were otherwise unreviewed",
+  "head": "f24491d30a52dfb1a0b075bbc8c3be38c53a02b4",
+  "implementer": "claude/claude-opus-5-5",
+  "implementer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "27f25522-4db3-4f8b-b5fe-c92c7bb5b74e",
+    "sources": [
+      {
+        "bytes": 2996975,
+        "path": "-Users-cooneycw-Projects/27f25522-4db3-4f8b-b5fe-c92c7bb5b74e.jsonl",
+        "sha256": "d56e7cb70c165754aea25e6eeeaef70964e6bbcde73dc728032997801278db94"
+      }
+    ],
+    "transcript": "-Users-cooneycw-Projects/27f25522-4db3-4f8b-b5fe-c92c7bb5b74e.jsonl"
+  },
+  "issue": "1628",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 3,
+  "recorded_at": "2026-11-07T19:26:18Z",
+  "red_cases": {
+    "already_covered": 4,
+    "proposed": 6
+  },
+  "reviewed_artifact": {
+    "base_sha": "6bc585a3fecffbf42d0d1d9d800696caccc58a3b",
+    "merge_base": "6bc585a3fecffbf42d0d1d9d800696caccc58a3b",
+    "method": "captured-patch",
+    "patch_sha256": "706cf82196852032bb3f088684a8aa3076627b3a44dd22b65d00f729f279ff62",
+    "report_record": 151,
+    "target_head": "f24491d30a52dfb1a0b075bbc8c3be38c53a02b4"
+  },
+  "reviewer": "codex/gpt-5.6-sol",
+  "reviewer_evidence": {
+    "exec_log": "review-3.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-5.6-sol"
+    ],
+    "rollout": "2026/11/07/rollout-2026-11-07T13-42-54-01a1b752-1c6d-7351-b159-1d53a96f6fa0.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 135674,
+        "path": "review-3.jsonl",
+        "sha256": "2438144ebb35c7eaf58ae2847466ce9a6618d0bc3cc8d77fe00a665889ae1f55"
+      },
+      {
+        "bytes": 963318,
+        "path": "2026/11/07/rollout-2026-11-07T13-42-54-01a1b752-1c6d-7351-b159-1d53a96f6fa0.jsonl",
+        "sha256": "a97c9c9b99024745b23a95107b7d8c561ae51473c73a80a1ea4166b203f7f5a8"
+      }
+    ],
+    "thread_id": "01a1b752-1c6d-7351-b159-1d53a96f6fa0"
+  },
+  "schema": 5,
+  "scope": "unverified",
+  "status": "ran"
+}

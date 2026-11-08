@@ -49,7 +49,7 @@ def test_required_preflight_precedes_every_later_effect(tmp_path, population):
     script.write_text(SCRIPT.read_text())
     payload = installed / "flow-preflight.py"
     payload.write_text((ROOT / "scripts/flow-preflight.py").read_text())
-    ids = ("gh", "uv", "cpp_python", "user.name", "user.email", "codex", "engine")
+    ids = ("gh", "uv", "cpp_python", "bash", "user.name", "user.email", "codex", "engine")
     checks = [
         dict(id=name, status="ok", required=name != "codex", message="", remediation="", evidence={}) for name in ids
     ]

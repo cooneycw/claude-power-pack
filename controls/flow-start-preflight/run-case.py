@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory() as directory:
     script = installed / "flow-start-resolve.sh"
     script.write_bytes(gate.read_bytes())
     (installed / "flow-preflight.py").write_bytes((root / "scripts/flow-preflight.py").read_bytes())
-    ids = ["gh", "uv", "cpp_python", "user.name", "user.email", "codex", "engine"]
+    ids = ["gh", "uv", "cpp_python", "bash", "user.name", "user.email", "codex", "engine"]
     code = case.get("exit", 0)
     checks = [
         dict(id=name, status="ok", required=name != "codex", message="", remediation="", evidence={}) for name in ids

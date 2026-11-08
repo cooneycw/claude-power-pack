@@ -33,7 +33,7 @@ def test_tier4_prerequisites_gate_only_tier4(tmp_path, population):
         scope="selected",
         full_host_ready=None,
         selected_checks=["uv", "cpp_python"],
-        unexamined_checks=["gh", "user.name", "user.email", "codex", "engine"],
+        unexamined_checks=["gh", "bash", "user.name", "user.email", "codex", "engine"],
         checks=checks,
         required_gaps=int(code == 1),
         required_unknown=int(code == 3),
@@ -118,3 +118,38 @@ def test_process_policy_assertion_rejects_missing_or_changed_sites(tmp_path, mon
     monkeypatch.setitem(globals(), "INIT", owned)
     with pytest.raises(AssertionError):
         test_init_repair_is_allowed_and_cpp_calls_are_process_selected()
+
+
+def _bash_floor_block(path):
+    blocks = re.findall(r"```bash\n(.*?)```", path.read_text(), re.S)
+    found = [block for block in blocks if "--checks bash" in block]
+    assert len(found) == 1, path
+    return found[0]
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="requires bash")
+@pytest.mark.parametrize("document", [INIT, ROOT / ".claude/commands/cpp/update.md"], ids=["init", "update"])
+@pytest.mark.parametrize("code, quiet", [(0, True), (1, False), (3, False), (127, False)])
+def test_bash_floor_block_is_silent_only_when_the_floor_is_met(tmp_path, document, code, quiet):
+    helper = tmp_path / "scripts/flow-preflight.sh"
+    helper.parent.mkdir()
+    helper.write_text(f"#!/bin/sh\necho 'UNSUPPORTED bash: fixture'\nexit {code}\n")
+    helper.chmod(0o755)
+    result = subprocess.run(
+        ["bash", "-c", _bash_floor_block(document)],
+        env=dict(os.environ, CPP_DIR=str(tmp_path)),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    if quiet:
+        assert result.stdout == ""
+    else:
+        assert f"BASH_FLOOR: not met or not verified (exit {code})" in result.stdout
+
+
+def test_init_asks_the_checkout_on_every_tier_after_locating_it():
+    text = INIT.read_text()
+    call = text.index('"$CPP_DIR/scripts/flow-preflight.sh" --checks bash')
+    assert text.index("## Step 1: Locate CPP Source") < call < text.index("## Step 2: Detect Current State")
+

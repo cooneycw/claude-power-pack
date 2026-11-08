@@ -8,5 +8,5 @@
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
 16302cb9f88ce225f2673dc3730667cd9081f8c44f2696b7f5ee732b27555660  friction-log.sh
-31ff4ea2c863e580c40fa80f3fad66d1b443382140d6e7f397435825809c05e3  hook-permission-census.sh
+dc0f02c9629388e3a703e552b6c9d11d7c014b0d81624cceab9c5443da1e5781  hook-permission-census.sh
 c3a1e04186d8985f9b683dce5b10a929e4c1ba98ea91031bc54584e888787cd5  measurement-shape-scan.py

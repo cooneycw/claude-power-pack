@@ -9,7 +9,7 @@
 # Verifying arrival needs a key that is not in this bundle.
 c7c9717f7266e0bedc84386c42e5a723134a8c618c330ab9b7bd3f80eab33654  flow-helpers-install.sh
 cbd85a9e0e08471a9c0be29725c177a09059a58a5604e0543263f2cf55cad6ca  flow-live-driver-guard.sh
-d91f96a83de31a6bf9381469618f202a54a7291642766df75371f48936f3b0ad  flow-preflight.py
-1069332f343f45bc47cdc96a539b46cbb7bf24c327f76a77497f353a20340132  flow-preflight.sh
+7f19b3a4e171180dced1742d54be8e09f6399d82bdcfba611c5ded634e00a0f3  flow-preflight.py
+513c58d202b21e333b2275a0d8a29017f92778aa32b8fa513e1515aa55d48022  flow-preflight.sh
 d9b513d17a1821545bd0f1550d5f37fbd98109a456ce6e76d54329c97b89e1ad  flow-start-resolve.sh
 cc7e9fee8358f959310ee38b221825511065c413386f39e5291a78ca33959745  stash-worktree-guard.sh

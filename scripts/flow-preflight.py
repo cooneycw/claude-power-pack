@@ -19,7 +19,10 @@ REQUIRED_FIELDS = {
     "issue": {"blockedBy", "blocking", "parent", "subIssues", "assignees"},
     "pr": {"closingIssuesReferences"},
 }
-CHECK_IDS = ("gh", "uv", "cpp_python", "user.name", "user.email", "codex", "engine")
+CHECK_IDS = ("gh", "uv", "cpp_python", "bash", "user.name", "user.email", "codex", "engine")
+# 4.0 for `;&` and associative arrays, 4.3 for `wait -n` and namerefs, and 4.4 for
+# "${empty[@]}" under `set -u`, which is what stops install-drift.sh on older bash.
+BASH_FLOOR = (4, 4)
 
 
 def parse_checks(value):
@@ -286,6 +289,41 @@ def python_check(repo, home):
     )
 
 
+def bash_check(repo):
+    floor = "%d.%d" % BASH_FLOOR
+    remediation = f"Install bash {floor} or newer and put it first on PATH (macOS: brew install bash)"
+    path = shutil.which("bash")
+    if not path:
+        return check("bash", "missing", "bash is absent from this PATH", remediation, floor=floor)
+    # Absolute before run() changes directory: a relative PATH entry names the
+    # caller's bash, and resolved from the repository it would name a neighbour's.
+    path = os.path.abspath(path)
+    code, out, _ = run([path, "--version"], repo, dict(os.environ, LC_ALL="C"))
+    version = re.match(r"GNU bash, version (\d+)\.(\d+)", out)
+    if code != 0 or not version:
+        return check("bash", "unknown", "bash version could not be verified", remediation, floor=floor, path=path)
+    found = int(version.group(1)), int(version.group(2))
+    text = "%d.%d" % found
+    if found < BASH_FLOOR:
+        return check(
+            "bash",
+            "unsupported",
+            f"bash {text} is below CPP's {floor} floor; helpers will fail with raw shell errors",
+            remediation,
+            floor=floor,
+            path=path,
+            version=text,
+        )
+    return check(
+        "bash",
+        "ok",
+        f"bash on this PATH meets CPP's {floor} floor (other PATHs, such as launchd jobs, unexamined)",
+        floor=floor,
+        path=path,
+        version=text,
+    )
+
+
 def observe(args):
     try:
         repo = Path(args.repo).resolve()
@@ -313,6 +351,7 @@ def observe(args):
             "Install uv explicitly if missing; this observer never installs it",
         ),
         "cpp_python": lambda: python_check(repo or home, home),
+        "bash": lambda: bash_check(repo or home),
         "user.name": lambda: identity("user.name"),
         "user.email": lambda: identity("user.email"),
         "codex": lambda: check(

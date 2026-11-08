@@ -320,6 +320,32 @@ mandatory; everything below is what you execute *after* confirming it is current
 
 ---
 
+## Step 3.6: Bash Floor Report (issue #1628)
+
+CPP's helpers need bash 4.4 or newer, and macOS ships 3.2. Below the floor, later
+steps fail with raw shell errors that do not name the cause, so say it once here
+in plain words. Call the CHECKOUT copy: the pull may have changed the check, and
+an installed helper from before this version does not have it.
+
+```bash
+BASH_FLOOR_REPORT=$("$CPP_DIR/scripts/flow-preflight.sh" --checks bash 2>/dev/null)
+BASH_FLOOR_RC=$?
+if [ "$BASH_FLOOR_RC" -ne 0 ]; then
+  printf '%s\n' "$BASH_FLOOR_REPORT"
+  echo "BASH_FLOOR: not met or not verified (exit $BASH_FLOOR_RC)"
+fi
+```
+
+- No output - the floor is met on this PATH. Say nothing and move on.
+- `BASH_FLOOR:` with exit 1 (`UNSUPPORTED` or `MISSING`) - report the line and its
+  remedy prominently, and carry it to Step 10. Do not stop the update: expect helper
+  failures in the steps below, and attribute them to this rather than diagnosing
+  each one.
+- `BASH_FLOOR:` with any other exit - report that the floor was not verified. Never
+  relay it as met.
+
+---
+
 ## Step 4: Update Dependencies
 
 CPP no longer ships in-repo MCP server venvs. The second-opinion server is an
@@ -783,6 +809,12 @@ Act on `STASH_GUARD:`:
   and change nothing; merging the two is the user's call.
 - `unsupported` - git below 2.28, or a RELATIVE `core.hooksPath`. Report the
   reason rather than a bare failure.
+- No `STASH_GUARD:` line - the guard did not run, which is NOT `unsupported`, and
+  the exit-127 fallback does not apply. Only when Step 3.6 reported exit 1 with
+  `UNSUPPORTED bash` and this is a shell `syntax error` (issue #1628), report
+  `→ Shared-stash guard: NOT installed (bash below floor)`. Otherwise old bash is
+  not the established cause: report `→ Shared-stash guard: NOT installed (cause
+  unknown)` with the helper's own diagnostic. Either way, continue.
 
 **Turning it off from here** is the same one action that records the choice:
 
@@ -2145,6 +2177,7 @@ Version: v{OLD_VERSION} -> v{NEW_VERSION}
 Commit:  {OLD_COMMIT} -> {NEW_COMMIT} {(finished on FINISH_COMMIT - moved during this run) if it differs}
 Branch:  {BRANCH}
 Tier:    {TIER} {(upgraded from X if applicable)}
+{Bash:   Step 3.6 finding with its remedy - only when Step 3.6 reported one}
 Helpers: {Step 5b refresh line}; {Step 5b orphan-prune line}
 
 Changes pulled:

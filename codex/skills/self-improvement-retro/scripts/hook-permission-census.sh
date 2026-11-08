@@ -69,7 +69,11 @@ command -v python3 >/dev/null 2>&1 || exit 0
 # rule + the risk tier happen in python (reliable JSON, injection-safe via env).
 # Any failure prints nothing -> we skip. python's stdout is captured here and
 # never reaches THIS hook's stdout, preserving the observe-only contract.
-DERIVED="$(CENSUS_INPUT="$INPUT" python3 <<'PYEOF' 2>/dev/null
+#
+# The program sits in a TOP-LEVEL heredoc, never inside $(...): bash 3.2 cannot
+# parse a quote in a heredoc within a command substitution, and a syntax error
+# exits 2, which is not fail-open (issue #1628).
+IFS= read -r -d '' CENSUS_PY <<'PYEOF' || true
 import os
 import re
 import shlex
@@ -466,7 +470,7 @@ else:
 # One line, tab-separated. Nothing else on stdout.
 sys.stdout.write("%s\t%s\t%s\n" % (signal, fix, tier))
 PYEOF
-)" || DERIVED=""
+DERIVED="$(CENSUS_INPUT="$INPUT" python3 -c "$CENSUS_PY" 2>/dev/null)" || DERIVED=""
 
 # No derivation -> fail-open skip.
 [ -n "$DERIVED" ] || exit 0
