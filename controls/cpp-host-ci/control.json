@@ -67,13 +67,31 @@
       "input": "cases/good-record-ready",
       "expect": "GOOD",
       "why": "Reader consumed by another session: good record ready"
+    },
+    {
+      "name": "bad-credential-mix",
+      "input": "cases/bad-credential-mix",
+      "expect": "BAD",
+      "why": "Second review regression: bad credential mix"
+    },
+    {
+      "name": "good-credential-pair",
+      "input": "cases/good-credential-pair",
+      "expect": "GOOD",
+      "why": "Second review regression: good credential pair"
+    },
+    {
+      "name": "bad-timestamp",
+      "input": "cases/bad-timestamp",
+      "expect": "BAD",
+      "why": "Second review regression: bad timestamp"
     }
   ],
   "anchors": [
     {
       "kind": "constructed",
       "path": "anchors/assume-ready.py",
-      "sha256": "6443278e18821a511c4bd1360ba40027ed64c8a275e0073ccfb6ed8cb87fd79d",
+      "sha256": "f3e21226ccd086bed242103b411e4ac59f8fb8c8f9eec873dac8d1bb61b693d4",
       "why": "A successful answer that ignores the state the consumer relies on."
     }
   ]

@@ -353,3 +353,49 @@ def test_selected_projects_folder_applies_to_its_projects_not_installer(reposito
     assert host.write_host_record(record, custom, repository, host.ProbeContext(container=False)) == 'written'
     assert host.read_host_record(project)['providers'] == record['providers']
     assert {v['status'] for v in host.read_host_record(repository)['providers'].values()} == {'unknown'}
+
+
+@pytest.mark.parametrize('partial', [
+    {'WOODPECKER_SERVER': 'https://other.invalid'},
+    {'WOODPECKER_API_TOKEN': 'other-private-canary'},
+])
+def test_partial_environment_never_mixes_unrelated_aws_credentials(partial):
+    secret = response(stdout=json.dumps({'WOODPECKER_API_TOKEN': CANARY,
+                                        'WOODPECKER_HOST': 'https://fixture.invalid'}))
+    ctx, calls = context(woodpecker(secret=secret, info=response(stdout='fixture-user')),
+                         tools=('woodpecker-cli', 'aws'),
+                         env={**partial, 'CPP_WOODPECKER_SECRET': 'fixture', 'AWS_REGION': 'fixture-region'})
+    got = host.check_woodpecker(ctx)
+    assert got['status'] == 'unknown'
+    assert not any(argv[1:2] == ['info'] for argv, _ in calls), 'no token may be sent to a different source endpoint'
+    assert CANARY not in json.dumps(got)
+
+
+@requires_git
+@pytest.mark.parametrize('timestamp,expected', [
+    ('0001-01-01T00:00:00+01:00', None),
+    ('9999-12-31T23:59:59-01:00', None),
+    ('2026-11-08T10:00:00+01:00', '2026-11-08T09:00:00+00:00'),
+])
+def test_timestamp_overflow_is_unknown_and_normal_offset_normalizes(repository, monkeypatch, timestamp, expected):
+    monkeypatch.setattr(host, 'in_container', lambda: False)
+    record = host._unknown('record-unavailable')
+    record['checked_at'] = timestamp
+    put_record(repository.parent, record)
+    result = host.read_host_record(repository)
+    assert result['checked_at'] == expected
+    if expected is None:
+        assert {v['reason'] for v in result['providers'].values()} == {'record-invalid'}
+
+
+@pytest.mark.parametrize('partial', [
+    {'WOODPECKER_SERVER': 'https://fixture.invalid/'},
+    {'WOODPECKER_API_TOKEN': CANARY},
+])
+def test_matching_partial_environment_can_use_the_same_aws_pair(partial):
+    secret = response(stdout=json.dumps({'WOODPECKER_API_TOKEN': CANARY,
+                                        'WOODPECKER_HOST': 'https://fixture.invalid'}))
+    ctx, _ = context(woodpecker(secret=secret, info=response(stdout='fixture-user')),
+                     tools=('woodpecker-cli', 'aws'),
+                     env={**partial, 'CPP_WOODPECKER_SECRET': 'fixture', 'AWS_REGION': 'fixture-region'})
+    assert host.check_woodpecker(ctx)['status'] == 'ready'

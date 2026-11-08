@@ -18,7 +18,7 @@ def main():
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
-    if scenario in {'bad-container', 'bad-record-missing', 'bad-record-invalid', 'good-record-ready'}:
+    if scenario in {'bad-container', 'bad-record-missing', 'bad-record-invalid', 'bad-timestamp', 'good-record-ready'}:
         with tempfile.TemporaryDirectory(prefix='host-record-control-') as directory:
             root = Path(directory)
             main = root / 'project'
@@ -28,7 +28,8 @@ def main():
             target = root / '.claude/cpp-host.json'
             if scenario != 'bad-record-missing':
                 target.parent.mkdir()
-                record = {'schema': 1, 'checked_at': '2026-11-08T10:00:00Z',
+                record = {'schema': 1, 'checked_at': ('0001-01-01T00:00:00+01:00' if scenario == 'bad-timestamp'
+                                         else '2026-11-08T10:00:00Z'),
                           'providers': {name: {'status': 'ready', 'reason': 'authenticated', 'versions': {}}
                                         for name in ('github-actions', 'woodpecker')}}
                 target.write_text('invalid-private-canary' if scenario == 'bad-record-invalid' else json.dumps(record))
@@ -43,6 +44,28 @@ def main():
             ready = all(row['status'] == 'ready' for row in result['providers'].values())
             print('HOST_CI: ready' if ready else 'HOST_CI: not-ready unknown')
             return 0 if ready else 1
+    if scenario in {'bad-credential-mix', 'good-credential-pair'}:
+        calls = []
+        def woodpecker_run(argv, **kwargs):
+            calls.append(argv)
+            if argv[:2] == ['woodpecker-cli', '--version']:
+                return SimpleNamespace(returncode=0, stdout='woodpecker-cli 3.11.0')
+            if argv[0] == 'aws':
+                return SimpleNamespace(returncode=0, stdout=json.dumps({
+                    'WOODPECKER_API_TOKEN': 'private-canary', 'WOODPECKER_HOST': 'https://source.invalid'}))
+            assert argv[:2] == ['woodpecker-cli', 'info']
+            return SimpleNamespace(returncode=0, stdout='fixture-user')
+        server = 'https://other.invalid' if scenario == 'bad-credential-mix' else 'https://source.invalid'
+        assert server == 'https://source.invalid' or scenario == 'bad-credential-mix'
+        ctx = ProbeContext(run=woodpecker_run, which=lambda tool: tool, container=False,
+                           env={'WOODPECKER_SERVER': server})
+        result = module.check_woodpecker(ctx)
+        if result['status'] == 'ready':
+            print('HOST_CI: ready')
+            return 0
+        assert not any(argv[1:2] == ['info'] for argv in calls)
+        print('HOST_CI: not-ready ' + result['status'])
+        return 1
     auth = 1 if scenario == 'bad-auth' else 0
     scopes = 'public_repo, repo:status' if scenario == 'bad-scope' else 'repo'
     header = '' if scenario == 'bad-unintrospectable' else 'X-OAuth-Scopes: ' + scopes + '\n'

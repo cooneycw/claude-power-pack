@@ -23,6 +23,7 @@ from . import providers
 REASONS = frozenset({
     "authenticated", "tool-absent", "auth-missing", "repo-scope-missing",
     "scope-not-introspectable", "credentials-missing", "credential-resolution-failed",
+    "credential-source-mismatch",
     "probe-failed", "probe-malformed", "hook-unavailable", "container-view",
     "host-root-unavailable", "record-unavailable", "record-invalid", "provider-unrecorded",
 })
@@ -114,8 +115,18 @@ def check_woodpecker(ctx: ProbeContext) -> dict[str, Any]:
             data = json.loads(secret.stdout)
             if not isinstance(data, dict):
                 raise ValueError
-            token = token or data.get("WOODPECKER_API_TOKEN", "")
-            server = server or data.get("WOODPECKER_HOST") or data.get("WOODPECKER_URL", "")
+            secret_token = data.get("WOODPECKER_API_TOKEN", "")
+            secret_server = data.get("WOODPECKER_HOST") or data.get("WOODPECKER_URL", "")
+            if not isinstance(secret_token, str) or not isinstance(secret_server, str):
+                raise ValueError
+            if not secret_token or not secret_server:
+                return verdict("missing", "credentials-missing", versions)
+            # An incomplete environment pair must not borrow a token or server
+            # from an unrelated secret. Verify its supplied half before filling.
+            if ((token and token != secret_token)
+                    or (server and server.rstrip("/") != secret_server.rstrip("/"))):
+                return verdict("unknown", "credential-source-mismatch", versions)
+            token, server = secret_token, secret_server
         if not isinstance(token, str) or not isinstance(server, str):
             raise ValueError
         if not token or not server:
@@ -231,7 +242,7 @@ def read_host_record(repo: str | Path) -> dict[str, Any]:
         if checked.tzinfo is None:
             raise ValueError
         record["checked_at"] = checked.astimezone(timezone.utc).isoformat()
-    except (KeyError, ValueError, TypeError):
+    except (KeyError, ValueError, TypeError, OverflowError):
         return _unknown("record-invalid")
     for name, provider in providers.PROVIDERS.items():
         if name in data["providers"]:
