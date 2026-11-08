@@ -8,7 +8,7 @@
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
 439d8e012be0936bee854aea7a17894d7ce2e013a2e2b1509950c062a9009d50  flow-driver-capability.sh
-8280145728d96c5064a66bec7ca0569fa9ad185b55f7fab42dd0a5172368f15d  flow-pr-watch.sh
+2fa487cc26f1d7db1afc684272d5e822eaad3f47541f91307eeec640aea0f33b  flow-pr-watch.sh
 884634889faafd9a962b2cfc261b1589b6680c1bb76d40624706ece890500a93  flow-vantage.sh
 3bbec65d4ed57937f3c35c872f5ef3fbe512d501208ac123a70b0e91ff1802f7  flow-wave-lexicon.sh
 6dbd93b3bbf4293c2e7d89c1077667399d7c532854b937d823c84f68eac4e383  flow-wave-mailbox.sh

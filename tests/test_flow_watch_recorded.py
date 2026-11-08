@@ -59,7 +59,8 @@ exit 1
 
 
 @requires_tools
-def test_actions_red_check_is_reported_instead_of_timing_out(tmp_path: Path):
+@pytest.mark.parametrize("fallback", [False, True])
+def test_actions_red_check_is_reported_instead_of_timing_out(tmp_path: Path, fallback):
     config = tmp_path / ".claude/cicd.yml"
     config.parent.mkdir()
     config.write_text("pipeline:\n  providers: [github-actions]\n")
@@ -67,7 +68,8 @@ def test_actions_red_check_is_reported_instead_of_timing_out(tmp_path: Path):
     wp = tmp_path / "woodpecker-cli"
     wp.write_text('#!/bin/sh\necho called > "' + str(tmp_path / "wp-called") + '"\nexit 19\n')
     wp.chmod(0o755)
-    result = subprocess.run(["bash", str(SCRIPT), "12", "--path", str(tmp_path), "--repo", "o/r", "--timeout", "0"],
+    result = subprocess.run(["bash", str(SCRIPT), "12", "--path", str(tmp_path), "--repo", "o/r", "--timeout", "0",
+                             *(["--fallback-provider-probes"] if fallback else [])],
                             env={**os.environ, "FLOW_PR_WATCH_GH": str(gh), "FLOW_PR_WATCH_WPCLI": str(wp)},
                             capture_output=True, text=True, timeout=20)
     assert result.returncode == 1, result.stdout + result.stderr

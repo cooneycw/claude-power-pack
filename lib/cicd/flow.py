@@ -9,6 +9,7 @@ import argparse
 import importlib
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -164,6 +165,12 @@ def watch_entry(script: str, argv: list[str]) -> int:
 def status_main(script: str, argv: list[str]) -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--path", default=os.getcwd())
+    parser.add_argument("sha", nargs="?")
+    parser.add_argument("--repo")
+    parser.add_argument("--event")
+    parser.add_argument("--secret-name")
+    parser.add_argument("--region")
+    parser.add_argument("--strict-event", action="store_true")
     parser.add_argument("--wait", nargs="?", const=600, type=int, default=0)
     parser.add_argument("--exit-code", action="store_true")
     parser.add_argument("--fallback-provider-probes", action="store_true")
@@ -172,10 +179,17 @@ def status_main(script: str, argv: list[str]) -> int:
         parser.error("--wait needs nonnegative seconds")
     # --path is re-supplied explicitly to every backend, independent of cwd.
     backend_args = [*remaining, "--path", args.path]
+    for attribute in ("repo", "event", "secret_name", "region"):
+        value = getattr(args, attribute)
+        if value is not None:
+            backend_args.extend(["--" + attribute.replace("_", "-"), value])
+    if args.strict_event:
+        backend_args.append("--strict-event")
     plan = lane_plan(args.path, allow_fallback=args.fallback_provider_probes)
     if plan["fallback"]["would_trigger"]:
         env = {**os.environ, "CPP_FLOW_CI_BACKEND": "probe"}
-        fallback_argv = ["bash", script, *backend_args, "--wait", str(args.wait)]
+        fallback_argv = ["bash", script, *([args.sha] if args.sha else []),
+                         *backend_args, "--wait", str(args.wait)]
         if args.exit_code:
             fallback_argv.append("--exit-code")
         result = command(fallback_argv, env=env, capture_output=True, text=True)
@@ -189,6 +203,23 @@ def status_main(script: str, argv: list[str]) -> int:
         print("FLOW_CI_STATUS: unknown")
         return 2
     lanes = [(item["provider"], item["lane"]) for item in plan["lanes"]]
+    # Capture mutable refs ONCE. Independent lanes must describe the same
+    # commit even if the checkout moves during dispatch or a long wait.
+    pinned = args.sha or "HEAD"
+    if re.fullmatch(r"[0-9a-fA-F]{40}", pinned):
+        pinned = pinned.lower()
+    else:
+        try:
+            resolved = command(["git", "-C", args.path, "rev-parse", "--verify", "--end-of-options",
+                                pinned + "^{commit}"], capture_output=True, text=True, timeout=10, check=True)
+            pinned = resolved.stdout.strip()
+            if not re.fullmatch(r"[0-9a-f]{40}", pinned):
+                raise ProviderError("commit ref did not resolve to a full SHA")
+        except (OSError, ValueError, subprocess.SubprocessError):
+            print("flow-ci-status: commit ref unreadable; name the full commit SHA", file=sys.stderr)
+            print("FLOW_CI_STATUS: unknown")
+            return 2
+    backend_args.insert(0, pinned)
     deadline = time.monotonic() + args.wait
     reports: list[tuple[str, str, dict[str, list[str]]]] = []
     while True:
@@ -199,7 +230,11 @@ def status_main(script: str, argv: list[str]) -> int:
                 child_stderr(result.stderr, "FLOW_CI_EXIT")
                 report = markers(result.stdout)
                 values = report.get("FLOW_CI_STATUS", [])
-                state = values[0] if len(values) == 1 and result.returncode == 0 else "unknown"
+                state = values[0] if len(values) == 1 and (
+                    result.returncode == 0 or result.returncode == 1 and values[0] in {"failure", "stalled"}
+                ) else "unknown"
+                if report.get("FLOW_CI_REF") != [pinned] or report.get("FLOW_CI_PROVIDER") != [name]:
+                    state = "unknown"
             except (OSError, ValueError, ImportError, AttributeError, subprocess.SubprocessError):
                 report, state = {}, "unknown"
             reports.append((name, state, report))
@@ -310,21 +345,32 @@ def context_lanes(project: str | Path, contexts: list[str]) -> list[tuple[str, s
 
 
 def watch_main(script: str, argv: list[str]) -> int:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(prog="flow-pr-watch.sh")
     parser.add_argument("pr")
     parser.add_argument("--path", default=os.getcwd())
     parser.add_argument("--repo")
     parser.add_argument("--context")
-    parser.add_argument("--timeout", type=int, default=600)
+    parser.add_argument("--timeout", type=int, default=1800)
     parser.add_argument("--interval", type=int, default=15)
     parser.add_argument("--baseline")
+    parser.add_argument("--fallback-provider-probes", action="store_true")
     args = parser.parse_args(argv)
     gh = os.environ.get("FLOW_PR_WATCH_GH", "gh")
     try:
         if not args.pr.lstrip("#").isdigit() or args.timeout < 0:
             parser.error("numeric PR and nonnegative timeout required")
         # Validate the canonical record before any remote probe.
-        provider_lanes(args.path)
+        plan = lane_plan(args.path, allow_fallback=args.fallback_provider_probes)
+        if plan["fallback"]["would_trigger"]:
+            fallback_args = [arg for arg in argv if arg != "--fallback-provider-probes"]
+            result = command(["bash", script, *fallback_args],
+                             env={**os.environ, "CPP_FLOW_PR_WATCH_BACKEND": "probe"},
+                             capture_output=True, text=True, timeout=max(120, args.timeout + 120))
+            print(result.stdout, end="")
+            child_stderr(result.stderr, "FLOW_PR_WATCH_EXIT")
+            return result.returncode
+        if plan["status"] != "ok":
+            raise ProviderError(plan["reason"])
         repo = args.repo
         if not repo:
             response = command([gh, "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],

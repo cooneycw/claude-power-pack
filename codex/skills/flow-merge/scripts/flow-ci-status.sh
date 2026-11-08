@@ -18,11 +18,11 @@
 #   connect timeout", which are materially different outcomes.
 #
 # So this helper anchors on the SHA, never on list position, and names the
-# failed STEPS. It has three provider lanes: the Woodpecker HTTP API when its
-# credentials resolve, authenticated `woodpecker-cli` with machine-readable
-# go-template output otherwise (issue #768), then GitHub Actions. It is
-# ADVISORY and FAIL-OPEN: no token, no network, no provider all yield `unknown`
-# and exit 0, never a blocked flow (unless --exit-code).
+# failed STEPS. By default it reads recorded providers through the canonical
+# registry, pins one SHA and examines each selected lane independently.
+# Woodpecker uses its HTTP API or authenticated CLI; Actions uses gh.
+# Unknown records or unexamined evidence exit 2. Legacy probing is available
+# only with --fallback-provider-probes and reports its advisory fallback scope.
 #
 # Complete environment credentials are used together. An incomplete pair may
 # use AWS Secrets Manager only when its supplied half matches the secret pair.
@@ -33,6 +33,7 @@
 #   flow-ci-status.sh [SHA] [--path <checkout>] [--repo <owner/name>]
 #                     [--event push|pull_request] [--wait [SECONDS]]
 #                     [--secret-name <name>] [--region <region>] [--exit-code]
+#                     [--fallback-provider-probes]
 #
 #   SHA            Commit to resolve (default: HEAD of the checkout).
 #   --path <dir>   The checkout to read HEAD/remote from - DECLARED by the
@@ -47,7 +48,8 @@
 #                  Required contexts that are ALL non-Woodpecker (GitHub
 #                  Actions check names such as `test`, `lint`) mean `any`:
 #                  every event counts (issue #1604). Both lanes, no required
-#                  context, or unreadable falls back to `push`, and the
+#                  context keeps `push`; unreadable protection stops recorded
+#                  dispatch (explicit probing keeps the legacy default). The
 #                  FLOW_CI_EVENT line says which source decided. `--event any`
 #                  may also be passed.
 #   --strict-event Treat the event as a FILTER, not a preference (issue #1300):
@@ -56,12 +58,15 @@
 #                  the required pull_request lane.
 #   --wait [SECS]  Poll until the status is terminal or SECS elapse
 #                  (default 600, 15s interval). Without it, report once.
-#   --exit-code    Exit 1 when the verdict is `failure`. Every other verdict,
-#                  including `unknown`, still exits 0.
+#   --exit-code    Exit 1 on failure/stalled; recorded unknown exits 2.
+#   --fallback-provider-probes  Permit labelled legacy probing ONLY when the
+#                  record cannot select lanes; valid records still win.
 #
 # Output ends with a machine-readable contract - the failed-step lines, when
 # present, immediately precede the verdict:
-#   FLOW_CI_PROVIDER: woodpecker | github-actions | none
+#   FLOW_CI_PROVIDER: <selected provider names, comma separated> | none
+#   FLOW_CI_SELECTION: recorded | unknown | fallback (...)
+#   FLOW_CI_LANES: <per-provider evidence JSON> (recorded dispatch)
 #   FLOW_CI_REF: <sha>
 #   FLOW_CI_REPO: <owner/name|->           (issue #1262)
 #   FLOW_CI_EVENT: <event> (<source>)      (issue #1262; source is `flag`,
@@ -1065,5 +1070,5 @@ if [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "woodpecker" && "$HAVE_JQ" -eq 1 ]] && 
     fi
 fi
 
-echo "flow-ci-status: no CI provider answered for $REPO @ ${SHA:0:12} (fail-open)" >&2
+echo "flow-ci-status: no selected CI lane answered for $REPO @ ${SHA:0:12} (unknown)" >&2
 emit

@@ -235,7 +235,8 @@ def test_registry_extension_needs_no_consumer_enum_change(tmp_path: Path, monkey
     from lib.cicd.providers import PROVIDERS, ProviderSpec
     monkeypatch.setattr(flow, "fixture_context", lambda context: context.startswith("ci/future/"), raising=False)
     monkeypatch.setattr(flow, "fixture_status", lambda script, argv, lane: subprocess.CompletedProcess(
-        "fixture", 0, stdout="FLOW_CI_PROVIDER: future\nFLOW_CI_STATUS: success\n", stderr=""), raising=False)
+        "fixture", 0, stdout="FLOW_CI_PROVIDER: future\nFLOW_CI_REF: " + SHA + "\nFLOW_CI_STATUS: success\n",
+        stderr=""), raising=False)
     monkeypatch.setattr(flow, "fixture_watch", lambda *args: None, raising=False)
     monkeypatch.setitem(PROVIDERS, "future", ProviderSpec(
         "future", "fixture_generator", ".fixture.yml", "fixture_checks", "future-lane", "fixture-host",
@@ -244,7 +245,7 @@ def test_registry_extension_needs_no_consumer_enum_change(tmp_path: Path, monkey
     config = tmp_path / ".claude/cicd.yml"
     config.parent.mkdir()
     config.write_text("pipeline:\n  providers: [future]\n")
-    assert flow.status_main("must-not-run.sh", ["--path", str(tmp_path)]) == 0
+    assert flow.status_main("must-not-run.sh", [SHA, "--path", str(tmp_path)]) == 0
     assert "FLOW_CI_PROVIDER: future" in capsys.readouterr().out
     config.write_text("pipeline:\n  providers: [github-actions, future]\n")
     assert flow.context_lanes(tmp_path, ["ci", "ci/future/build"]) == [
@@ -321,3 +322,51 @@ exit 1
     assert result.returncode == 2, result.stdout + result.stderr
     assert _markers(result.stdout)["FLOW_CI_STATUS"] == ["unknown"]
     assert "unreadable" in result.stdout + result.stderr
+
+
+@requires_bash
+def test_default_head_is_pinned_once_before_multiple_provider_queries(tmp_path: Path):
+    import json
+    import os
+
+    from tests.test_flow_ci_status import OTHER_SHA
+    record = tmp_path / ".claude/cicd.yml"
+    record.parent.mkdir()
+    record.write_text("pipeline:\n  providers: [woodpecker, github-actions]\n")
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    git = binary / "git"
+    count = tmp_path / "head-reads"
+    git.write_text(f'''#!/usr/bin/env bash
+ref="${{@: -1}}"
+ref="${{ref%'^{{commit}}'}}"
+case "$ref" in
+  HEAD)
+    n=0; [ ! -f "{count}" ] || n=$(cat "{count}")
+    echo $((n+1)) > "{count}"
+    if [ "$n" = 0 ]; then echo {SHA}; else echo {OTHER_SHA}; fi ;;
+  *) echo "$ref" ;;
+esac
+''')
+    git.chmod(0o755)
+    curl = _write_fake_curl(binary, {
+        "/lookup/": {"id": 7}, "/pipelines?": [{"number": 12, "commit": SHA,
+                                                   "event": "pull_request", "status": "success"}],
+    }, tmp_path / "curl.log")
+    gh = binary / "gh"
+    bad, good = json.dumps([_gha_run(19, "failure")]), json.dumps([_gha_run(20, "success")])
+    gh.write_text(f'''#!/usr/bin/env bash
+if [[ "$1 $2" == "run list" ]]; then
+  for arg in "$@"; do
+    if [ "$arg" = "{SHA}" ]; then echo '{bad}'; exit 0; fi
+  done
+  echo '{good}'; exit 0
+fi
+exit 1
+''')
+    gh.chmod(0o755)
+    result = _run(tmp_path, "--path", str(tmp_path), "--repo", "o/r", "--event", "pull_request", recorded=True,
+                  env={"PATH": str(binary) + os.pathsep + os.environ["PATH"],
+                       "FLOW_CI_CURL": str(curl), "FLOW_CI_GH": str(gh)})
+    assert _markers(result.stdout)["FLOW_CI_STATUS"] == ["failure"], result.stdout + result.stderr
+    assert count.read_text().strip() == "1", "HEAD must be captured before dispatch, not once per provider"

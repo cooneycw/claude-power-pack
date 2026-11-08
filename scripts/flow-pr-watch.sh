@@ -46,7 +46,7 @@
 # Usage:
 #   flow-pr-watch.sh <pr-number> [--repo <owner/name>] [--timeout <s>]
 #                    [--interval <s>] [--context <ctx>] [--baseline <file>]
-#                    [--path <checkout>]
+#                    [--path <checkout>] [--fallback-provider-probes]
 #
 #   <pr-number>     The PR to watch (required).
 #   --repo          owner/name override; default resolved from `gh`, else the
@@ -54,8 +54,10 @@
 #   --timeout <s>   Give up after S seconds (default 1800). `--timeout 0` reads
 #                   once and reports whatever state it finds - no blocking.
 #   --interval <s>  Poll interval (default 15).
-#   --context <ctx> Select the exact GitHub status context to watch. Default:
-#                   ci/woodpecker/pr/woodpecker (the PR lane).
+#   --context <ctx> Scope to one context required by the PR base. Default:
+#                   every required context for the recorded provider list.
+#   --fallback-provider-probes  Permit labelled legacy Woodpecker probing only
+#                   when the canonical record cannot select lanes.
 #   --baseline <f>  Declared-flaky test ids, one per line; `#` comments and blank
 #                   lines ignored. Default:
 #                   <checkout>/.claude/flow-flake-baseline.txt when it exists.
@@ -123,42 +125,18 @@
 set -uo pipefail
 _watch_args=()
 for _watch_arg in "$@"; do
-    if [[ "$_watch_arg" == "--fallback-provider-probes" ]]; then
+    if [[ "$_watch_arg" == "--fallback-provider-probes" ]] && ! command -v python3 >/dev/null 2>&1; then
         export CPP_FLOW_PR_WATCH_BACKEND=probe
     else
         _watch_args+=("$_watch_arg")
     fi
 done
 set -- "${_watch_args[@]}"
+_watch_original_args=("$@")
 if [[ "${CPP_FLOW_PR_WATCH_BACKEND:-}" == "probe" ]]; then
     echo "FLOW_PR_WATCH_SELECTION=fallback (explicit provider probing)"
 fi
 
-# Resolve CPP source, never parse project YAML in this consumer. Installed
-# helpers may be symlinks; generated mirrors can locate their containing checkout.
-if [[ -z "${CPP_FLOW_PR_WATCH_BACKEND:-}" && "$*" != "--help" && "$*" != "-h" ]]; then
-    exec python3 - "$0" "$@" <<'PYCODE'
-import os, sys
-from pathlib import Path
-script = Path(sys.argv[1]).resolve()
-candidates = [*script.parents, Path(os.environ.get("CLAUDE_PLUGIN_ROOT", "/nonexistent")),
-              Path.home() / "Projects/claude-power-pack", Path("/opt/claude-power-pack"),
-              Path.home() / ".claude-power-pack"]
-for root in candidates:
-    if (root / "lib/cicd/flow.py").is_file():
-        runtime = root / ".venv/bin/python"
-        if runtime.is_file() and Path(sys.prefix) != root / ".venv":
-            code = "import sys; sys.path.insert(0, sys.argv[1]); from lib.cicd.flow import watch_entry; raise SystemExit(watch_entry(sys.argv[2], sys.argv[3:]))"
-            os.execv(str(runtime), [str(runtime), "-c", code, str(root), str(script), *sys.argv[2:]])
-        sys.path.insert(0, str(root))
-        from lib.cicd.flow import watch_entry
-        raise SystemExit(watch_entry(str(script), sys.argv[2:]))
-print("flow-pr-watch: CPP provider reader unavailable; restore the CPP installation", file=sys.stderr)
-print("FLOW_PR_WATCH: unknown")
-print("FLOW_PR_WATCH_EXIT=2", file=sys.stderr)
-raise SystemExit(2)
-PYCODE
-fi
 
 # Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
 # Invoked only via the `trap` calls below; shellcheck cannot see that.
@@ -193,6 +171,7 @@ die_usage() {
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --fallback-provider-probes) shift ;;
         --repo)       REPO="${2:-}"; [[ -n "$REPO" ]] || die_usage "--repo needs owner/name"; shift 2 ;;
         --repo=*)     REPO="${1#*=}"; shift ;;
         --timeout)    TIMEOUT="${2:-}"; [[ "$TIMEOUT" =~ ^[0-9]+$ ]] || die_usage "--timeout needs seconds"; shift 2 ;;
@@ -226,6 +205,33 @@ done
 [[ -n "$PR_NUMBER" ]] || die_usage "a PR number is required"
 [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || die_usage "PR number must be numeric: $PR_NUMBER"
 [[ "$INTERVAL" -gt 0 ]] || INTERVAL=1
+
+# Resolve CPP source, never parse project YAML in this consumer. Installed
+# helpers may be symlinks; generated mirrors can locate their containing checkout.
+if [[ -z "${CPP_FLOW_PR_WATCH_BACKEND:-}" && "$*" != "--help" && "$*" != "-h" ]]; then
+    exec python3 - "$0" "${_watch_original_args[@]}" <<'PYCODE'
+import os, sys
+from pathlib import Path
+script = Path(sys.argv[1]).resolve()
+candidates = [*script.parents, Path(os.environ.get("CLAUDE_PLUGIN_ROOT", "/nonexistent")),
+              Path.home() / "Projects/claude-power-pack", Path("/opt/claude-power-pack"),
+              Path.home() / ".claude-power-pack"]
+for root in candidates:
+    if (root / "lib/cicd/flow.py").is_file():
+        runtime = root / ".venv/bin/python"
+        if runtime.is_file() and Path(sys.prefix) != root / ".venv":
+            code = "import sys; sys.path.insert(0, sys.argv[1]); from lib.cicd.flow import watch_entry; raise SystemExit(watch_entry(sys.argv[2], sys.argv[3:]))"
+            os.execv(str(runtime), [str(runtime), "-c", code, str(root), str(script), *sys.argv[2:]])
+        sys.path.insert(0, str(root))
+        from lib.cicd.flow import watch_entry
+        raise SystemExit(watch_entry(str(script), sys.argv[2:]))
+print("flow-pr-watch: CPP provider reader unavailable; restore the CPP installation", file=sys.stderr)
+print("FLOW_PR_WATCH: unknown")
+print("FLOW_PR_WATCH_EXIT=2", file=sys.stderr)
+raise SystemExit(2)
+PYCODE
+fi
+
 
 HEAD_SHA="-"
 PIPELINE="-"
