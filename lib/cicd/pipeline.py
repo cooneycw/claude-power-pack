@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 from .config import CICDConfig
+from .enrolment import github_actions_job, woodpecker_step
 from .models import Framework, FrameworkInfo, PackageManager
 
 # Docker images for Woodpecker CI steps
@@ -135,17 +136,22 @@ def generate_github_actions(info: FrameworkInfo, config: CICDConfig) -> str:
     if main_steps:
         lines.append("  push:")
         lines.append("    branches: [main]")
-    if pr_steps:
-        lines.append("  pull_request:")
-        lines.append("    branches: [main]")
+    # Enrolment is examined on every PR, even with no application PR targets.
+    lines.append("  pull_request:")
+    lines.append("    branches: [main]")
     lines.append("")
 
     # Jobs
     lines.append("jobs:")
+    lines.extend(github_actions_job(config._cpp_revision))
 
     # Lint + test job
     lines.append("  ci:")
     lines.append("    runs-on: ubuntu-latest")
+    if not pr_steps:
+        # Adding the enrolment trigger must not start main-only application
+        # targets (especially deploy) on a pull request.
+        lines.append("    if: github.ref == 'refs/heads/main' && github.event_name == 'push'")
 
     # Strategy matrix
     if matrix:
@@ -278,9 +284,12 @@ def generate_woodpecker(info: FrameworkInfo, config: CICDConfig) -> str:
     lines.append("  branch: [main]")
     lines.append("  event: [push, pull_request]")
     lines.append("")
+    lines.extend(["clone:", "  - name: git", "    image: woodpeckerci/plugin-git:2",
+                  "    settings:", "      depth: 0", "      merge_pull_request: false", ""])
 
     # Steps
     lines.append("steps:")
+    lines.extend(woodpecker_step(config._cpp_revision))
 
     # Self-hosted CI hardening stages are opt-in (default off). Woodpecker runs
     # steps sequentially in listed order when no step declares depends_on, so

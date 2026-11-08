@@ -4,6 +4,8 @@
 
 ### Added
 
+- Main app CI templates check counter-model enrolment through a verified CPP checkout pinned to the recorded install revision; known forks warn, while unreadable metadata and fetch/bootstrap errors remain UNKNOWN (#1610, part B; infrastructure-only templates excluded).
+
 - Flow CI status and PR watches select recorded provider lanes, combine required results, read classic/ruleset contexts, and report host snapshot preflight without credential probes (Refs #1610, part A; template enrolment remains separate).
 
 - Project and existing-repository CI setup can select registered providers, derive unconditional PR checks (including matrix cells), generate local protection, and verify consistency; infrastructure generation supports the provider list (#1608).

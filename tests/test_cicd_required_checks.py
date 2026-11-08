@@ -29,9 +29,10 @@ def test_infra_legacy_both_never_silently_selects_woodpecker():
 
 
 @pytest.mark.parametrize("providers,expected", [
-    (["github-actions"], ["ci (3.11)", "ci (3.12)"]),
+    (["github-actions"], ["ci (3.11)", "ci (3.12)", "counter-model-enrolment"]),
     (["woodpecker"], ["ci/woodpecker/pr/woodpecker"]),
-    (["woodpecker", "github-actions"], ["ci (3.11)", "ci (3.12)", "ci/woodpecker/pr/woodpecker"]),
+    (["woodpecker", "github-actions"],
+     ["ci (3.11)", "ci (3.12)", "ci/woodpecker/pr/woodpecker", "counter-model-enrolment"]),
 ])
 def test_generated_checks_expand_matrix_and_exclude_push_only(providers, expected):
     from lib.cicd.checks import derive_required_checks

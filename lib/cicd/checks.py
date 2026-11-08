@@ -201,8 +201,14 @@ def woodpecker_checks(files: dict[str, str]) -> RequiredChecks:
     excluded = []
     for filename, text in sorted(selected.items()):
         pipeline = _yaml(text, filename)
-        if set(pipeline) - {"when", "steps"}:
+        if set(pipeline) - {"when", "steps", "clone"}:
             raise UnknownChecks(filename + ": unsupported Woodpecker shape")
+        if "clone" in pipeline:
+            clone = pipeline["clone"]
+            if (not isinstance(clone, list) or len(clone) != 1 or
+                    clone[0] != {"name": "git", "image": "woodpeckerci/plugin-git:2",
+                                 "settings": {"depth": "0", "merge_pull_request": "false"}}):
+                raise UnknownChecks(filename + ": unsupported clone configuration")
         when = _mapping(pipeline.get("when"), filename + " when")
         _main_branch(when.get("branch"), filename)
         if "pull_request" not in _events(when.get("event"), filename):

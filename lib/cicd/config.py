@@ -82,7 +82,7 @@ import warnings
 from pathlib import Path
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError, field_validator, model_validator
 
 # Safe path/target chars for values that are interpolated into generated CI
 # shell commands (defense-in-depth against a malicious .claude/cicd.yml).
@@ -436,6 +436,8 @@ class CICDConfig(BaseModel):
     """Full CI/CD configuration."""
 
     model_config = ConfigDict(extra="ignore")
+    # Derived from cpp:init, never accepted from editable cicd.yml fields.
+    _cpp_revision: str = PrivateAttr(default="")
 
     build: BuildConfig = Field(default_factory=BuildConfig)
     health: HealthConfig = Field(default_factory=HealthConfig)
@@ -454,11 +456,13 @@ class CICDConfig(BaseModel):
 
         config_path = Path(project_root) / ".claude" / "cicd.yml"
         if config_path.exists():
-            return cls._from_yaml(config_path, provider_override=provider_override)
-
-        config = cls._defaults()
-        if provider_override is not None:
-            config.pipeline = PipelineConfig(providers=provider_override)
+            config = cls._from_yaml(config_path, provider_override=provider_override)
+        else:
+            config = cls._defaults()
+            if provider_override is not None:
+                config.pipeline = PipelineConfig(providers=provider_override)
+        from .enrolment import installed_revision
+        config._cpp_revision = installed_revision(project_root)
         return config
 
     @classmethod
