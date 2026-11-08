@@ -224,12 +224,12 @@ def test_registration_failure_reaches_actual_receipt_and_summary(tmp_path):
     assert 'CPP Installation Complete' not in result.stdout
 
 
-@pytest.mark.parametrize("name", ["bad-duplicate-claude", "bad-duplicate-codex", "bad-continued-duplicate"])
+@pytest.mark.parametrize("name", ["bad-duplicate-claude", "bad-duplicate-codex", "bad-continued-duplicate", "bad-duplicate-after-echo"])
 def test_duplicate_registration_control_rejects_bad_and_accepts_repair(name):
     fixtures = ROOT / 'tests/fixtures/cpp-init-mcp-registration'
     bad = (fixtures / f'{name}.md').read_text()
     good = (fixtures / 'good-shared.md').read_text()
-    assert len(literal_adds(bad)) == 3, "fixture must contain the second literal registration"
+    assert bad != good and "mcp add second-opinion" in bad, "fixture must add a second registration"
     with pytest.raises(AssertionError):
         assert_single_definition(bad)
     assert_single_definition(good)
@@ -286,3 +286,27 @@ def test_function_preserves_nonzero_add_exit_for_callers(tmp_path, client):
                         ADD_RC='19')
     assert result.returncode == 19
     assert len([c for c in calls if c[1:3] == ["mcp", "add"]]) == 1
+
+
+@SHELL
+@pytest.mark.skipif(shutil.which('mkdir') is None, reason='requires mkdir for pool snippet')
+def test_unreadable_pool_config_still_persists_incomplete_receipt(tmp_path):
+    config = tmp_path / '.claude/playwright-pool.json'
+    config.parent.mkdir()
+    config.write_text('{')
+    with pytest.raises(ValueError):
+        json.loads(config.read_text())
+    consumer = re.search(r'# CPP_INSTALL_RECEIPT_WRITE_BEGIN\n(.*?)# CPP_INSTALL_RECEIPT_WRITE_END',
+                         INIT.read_text(), re.S)[1]
+    consumer = consumer.replace('--cpp-dir "$CPP_DIR"', '--revision ' + 'a' * 40)
+    code = block('#### 3d. Register the browser desk pool') + '\n' + consumer
+    initial = [{"step": "commands", "outcome": "installed"}, {"step": "stash-guard", "outcome": "already"}]
+    result, calls = run(tmp_path, code, STEP_RESULTS_JSON=json.dumps(initial),
+                        OFFERED_STEPS_JSON='["commands","stash-guard","browser-pool"]',
+                        SELECTED_TIER="1", PROFILE_NAME="not-selected", PERMISSION_REPORT="{}")
+    assert not [c for c in calls if c[1:3] == ["mcp", "add"]]
+    receipt_path = tmp_path / '.claude/cpp-install.json'
+    assert receipt_path.is_file(), result.stdout + result.stderr
+    record = next(x for x in json.loads(receipt_path.read_text())['steps'] if x['step'] == 'browser-pool')
+    assert record['outcome'] == 'unverified'
+    assert 'CPP Installation Incomplete' in result.stdout
