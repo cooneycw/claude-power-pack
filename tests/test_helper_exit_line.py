@@ -84,6 +84,9 @@ NAMESPACES = {
     # installed inside the self-invocation branch so sourcing it cannot replace
     # the caller's trap. Marker prefix `GATE_LIB:` already, hence the namespace.
     "gate-lib.sh": "GATE_LIB",
+    # A sourced rollout signal (kyle#2130); its exit line is installed only on
+    # direct execution with no existing EXIT trap, the gate-lib.sh rule.
+    "coordination-admission.sh": "COORDINATION_ADMISSION",
     "flow-ci-status.sh": "FLOW_CI",
     "flow-pr-watch.sh": "FLOW_PR_WATCH",
     "gh-pr-merge.sh": "GH_PR_MERGE",

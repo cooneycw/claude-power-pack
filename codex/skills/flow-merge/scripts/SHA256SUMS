@@ -7,11 +7,12 @@
 # corruption, a partial edit, and post-build modification. It does NOT
 # detect a coherently regenerated bundle and says NOTHING about arrival.
 # Verifying arrival needs a key that is not in this bundle.
+d1e7f70fc3784c4a9f53e9328caecf848447b704c79a079a3211e2f5c68b273e  coordination-admission.sh
 0fb4db73201915a40b835d12bcd2128302cf5c22878cd57434ab194f7b85cc73  counter-model-receipt.py
 ac98a22b90537cd3a5efee3f466831796343d545eaf899cc3877059863b8a75f  flow-ci-status.sh
-806d036315afe7a7d0bc631d38a3c8267dc45c8b6bbb218643a0c6a09d0a6855  flow-finish-gate.sh
+3ed92cd14031e6cc3055967c5fe865f0a43e0a84fccc854da84e2e5c15ffc9ea  flow-finish-gate.sh
 28ee4b87e67d8fc715fa480806023077d80cf6bab4c16906fd29471d30510281  flow-worktree-claim.sh
 16302cb9f88ce225f2673dc3730667cd9081f8c44f2696b7f5ee732b27555660  friction-log.sh
 4095e524bf802a97f48add745e5c64addfe1055eac67c484b5ad81e5c26b38a8  gate-lib.sh
-a44e285612c90508f77afe1f90601f0adb9c526ea73c331e17bcc677f897e508  gh-pr-merge.sh
+dd3c811a4b6bcb9bde157902b1ec98a9083b529b9fe35c00e77cada9fea7321d  gh-pr-merge.sh
 30ebbd9dc11a27591c8fa6437544e1a82c2b09d6da59050fbddb533754638ec6  worktree-remove.sh
