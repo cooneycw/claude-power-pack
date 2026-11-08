@@ -24,7 +24,7 @@ sys.path.insert(0, str(ROOT))
 from lib.cicd.cli import create_parser  # noqa: E402
 
 DOCUMENT = ".claude/commands/cpp/init.md"
-MIN_INVOCATIONS = 5
+MIN_INVOCATIONS = 1  # Tier 4 probes host capabilities; project generation moved to project:init.
 MODULE = "lib.cicd"
 MODULE_HINT = re.compile(r"(?:(?<![\w.])lib\.cicd|(?<![\w.])-mlib\.cicd)(?![\w.])")
 EXPANSION = re.compile(r"\$(?:[A-Za-z_]\w*|\{[A-Za-z_]\w*\})")

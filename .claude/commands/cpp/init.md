@@ -188,12 +188,12 @@ Ask the user which tier they want to install using the AskUserQuestion tool:
 | 1 | **Minimal** | Commands symlinks and project stash guard |
 | 2 | **Standard** | + Scripts and shell prompt |
 | 3 | **Full** | + MCP servers (external second-opinion + playwright) |
-| 4 | **CI/CD** | + Build system, health checks, pipelines, containers |
+| 4 | **CI/CD** | + Host CI capability checks and record |
 | 5 | **Codex** | + Codex CLI orchestration (cross-model implementation and review) |
 | 6 | **Local Qwen** | + Local-model orchestration via Ollama-served Qwen (zero API cost, private) |
 | 7 | **Local Gemma** | + Second local-model lane via Ollama-served Gemma 4 on a GPU box (zero API cost, private, faster) |
 
-Default recommendation: **Standard** for most users, **Full** for MCP-powered workflows, **CI/CD** for projects needing build automation, **Codex** for cross-model implementation workflows, **Local Qwen** or **Local Gemma** for zero-cost/private local-model implementation.
+Default recommendation: **Standard** for most users, **Full** for MCP-powered workflows, **CI/CD** to record host CI capabilities, **Codex** for cross-model implementation workflows, **Local Qwen** or **Local Gemma** for zero-cost/private local-model implementation.
 
 Tier 6 is optional and additive: it layers on Tier 1 (commands symlink) and
 does not require Tiers 2-5. It uses the Qwen Code CLI as its harness and talks
@@ -525,7 +525,7 @@ run only after their own choice, with the same destinations repeated there.
 | Tier 1, all tiers | User command-family symlinks under `~/.claude/commands/` are installed/refreshed and stale CPP-owned links may be pruned; foreign content is preserved. Optional project `.claude/commands` symlink and `.claude/` directory. The default shared-stash guard installs the repository's `reference-transaction` hook at the common Git hooks directory or configured absolute `core.hooksPath`; refusal/foreign hooks are reported. Opt-out removes CPP's own hook and records `cpp.stashGuard=false` in the repository Git config. | None. |
 | Tier 2 and inherited 3/4/5 | Link **all executable scripts** supplied under `{CPP_DIR}/scripts/` into `~/.claude/scripts/`, including the host-write helper. Create project `.claude/settings.local.json` only if absent, and append the relevant settings/friction ignore entries to an existing `.gitignore`. Optional user-level `~/.claude/settings.json` merges permission and hook entries; optional `~/.bashrc` prompt/tmux additions; optional starter `Makefile`; global npm Happy installation uses its reported prefix/cache; uv Spec-Kit uses its tool directory, executable directory (normally `~/.local/bin`) and cache. | Permission lists are configuration, not credential values; existing unrelated settings are preserved. |
 | Tier 3 and inherited 4/5 | User-scope Claude MCP registrations update `${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json`: second-opinion URL, Playwright and conditional Tavily (when `TAVILY_API_KEY` is available). npm/npx uses its configured cache; Playwright can download browser binaries to `~/.cache/ms-playwright` on later use. Optional desk pool creates project `.claude/playwright-pool.json` if absent and adds user MCP desk registrations; later browser use writes `.claude/playwright-state/`. | Tavily requires Node.js 20+. `TAVILY_API_KEY` is read from the environment and stored **in plaintext** in the Tavily server environment entry in that user MCP config. Show its name and destination only, never its value. External second-opinion provider keys remain in its separate repository; CPP registers its URL. |
-| Tier 4 and inherited 5 | Create project `Makefile` and `.claude/cicd.yml` when absent; optional health configuration edits the latter. Generate project `.github/workflows/ci.yml`, `.woodpecker.yml`, or both according to provider selection; generate project `Dockerfile`, `docker-compose.yml`, `.dockerignore` for optional containers; Pipeline and container destinations may overwrite existing content after the applicable confirmation. `uv run --project {CPP_DIR}` may sync the CPP checkout's generated `.venv` and the configured uv cache. These commands prohibit Python runtime downloads. | Generated CI configuration can name secret references; never display secret values. |
+| Tier 4 | Probe every registered provider independently. Ask once for the projects folder (default: CPP main-checkout parent). Write only `<projects>/.claude/cpp-host.json` through the defer-aware seam; uv uses `~/.cache/claude-power-pack/host-ci/{venv,uv}` and disables project bytecode writes. No project generation. | Persist only verdicts, controlled reasons, timestamp and numeric versions; credentials never enter argv, output or the record. |
 | Tier 5 | Optional global npm Codex CLI installation; optional MCP registration updates `${CODEX_HOME:-$HOME/.codex}/config.toml`. CPP skills install under `$HOME/.codex/skills/` even when CODEX_HOME differs, with managed entries refreshed or pruned and lock `~/.codex/.cpp-skill-install.lock`. Common-memory harness links `~/.local/bin/cpp-memory` and copies `~/.codex/prompts/cpp-memory.md`. | The auth check reads existing auth state. `codex login` is advice, not an init credential write. A separately invoked login has its own credential storage. |
 | Tier 6/7 | Preserve the disclosed `~/.claude/scripts/cpp-host-write.sh` bootstrap link. Optional global npm Qwen Code/OpenCode installation uses its global prefix/cache. Optional endpoint persistence adds `QWEN_OLLAMA_URL` or `GEMMA_OLLAMA_URL` to the resolved shell RC path. Tier 7 merges provider/agent entries into `~/.config/opencode/opencode.json`. Optional smoke tests may create temporary probe files and vendor runtime cache/logs. Ollama model pulls shown here are instructions for the serving host, not an automatic init download. | Local Ollama requires no cloud API key; do not print any credentials embedded in a supplied endpoint. |
 
@@ -655,44 +655,42 @@ This will make the following changes:
 Proceed? [y/N]
 ```
 
-### Tier 4 Disclosure (CI/CD)
+### Tier 4 Disclosure (Host CI Capabilities)
+
+Ask once for the host projects folder. Default to the parent of the verified
+CPP **main checkout**, resolved through Git common-dir/worktree metadata, even
+when CPP runs in a relocated worktree. Store the answer in `CPP_PROJECTS_ROOT`;
+do not walk up from the current directory. Show the resolved folder before
+approval. Reject a folder inside the invoked repository.
 
 ```
-=== Tier 4: CI/CD Installation ===
+=== Tier 4: Host CI Capabilities ===
 
 This will make the following changes:
 
   [Tier 1 + 2 + 3 - All Full components]
     (see above)
 
-  [Tier 4A - Build System]
-    • Detect project framework and package manager
-    • Generate/validate Makefile with standard targets
-    • Create .claude/cicd.yml configuration
-
-  [Tier 4B - Health Checks] (optional)
-    • Configure endpoint health checks in cicd.yml
-    • Configure process port checks
-
-  [Tier 4C - CI/CD Pipeline] (optional)
-    • Generate .github/workflows/ci.yml from Makefile targets
-    • Include caching, matrix builds, secrets references
-
-  [Tier 4D - Container] (optional)
-    • Generate Dockerfile (multi-stage, framework-specific)
-    • Generate docker-compose.yml
-    • Generate .dockerignore
-
-  Disk usage: ~0 MB (generated files only)
+  [Tier 4 - Host CI capabilities]
+    - Check every registered provider independently; do not select a provider.
+    - GitHub: verify real github.com authentication and classic repo scope.
+      Non-introspectable scope is unknown; a public repository is no proof.
+    - Woodpecker: verify CLI/auth using environment credentials or the existing
+      AWS Secrets Manager source. Credentials stay out of output and the record.
+    - Write <projects>/.claude/cpp-host.json through the host-write/defer seam.
+      Record only verdicts, controlled reasons, checked-at and tool versions.
+    - uv may sync ~/.cache/claude-power-pack/host-ci/{venv,uv}; no project files.
+    - A container or unreachable host reports unknown, never mounted-host ready.
 
   To undo:
     # Tier 1+2+3 cleanup (see above)
-    rm .claude/cicd.yml
-    rm .github/workflows/ci.yml
-    rm Dockerfile docker-compose.yml .dockerignore
+    # Remove only the host record at the approved projects folder:
+    Delete <projects>/.claude/cpp-host.json (only this host record).
 
 Proceed? [y/N]
 ```
+
+For project CI selection and file generation, use `/project:init` or `/cicd:init`.
 
 ### Tier 5 Disclosure (Codex)
 
@@ -1708,12 +1706,12 @@ echo "(MCP config is read only at startup; mid-session registration does not tak
 echo "Then verify with: /browser:session pool"
 ```
 
-### Tier 4 Execution (CI/CD)
+### Tier 4 Execution (Host CI Capabilities)
 
-Before any Tier 4 detection/generation command, run this boundary using the
-verified CPP source. A refusal leaves Tier 4 unexecuted: report its actual
-missing/unknown prerequisites and continue only other authorized setup/repair
-choices. Do not describe an unexecuted Tier 4 as successful.
+Run the prerequisite boundary against the verified CPP source before any host
+probe. A refusal leaves Tier 4 unexecuted: report missing/unknown prerequisites
+and continue only other authorized setup/repair choices. Never claim persistence
+when the seam fails or defers. This tier performs no project generation.
 
 <!-- CPP_TIER4_PREFLIGHT_BEGIN -->
 ```bash
@@ -1721,179 +1719,45 @@ CPP_TIER4_REPORT=$(bash "$CPP_DIR/scripts/flow-preflight.sh" --json --repo "$PWD
 CPP_TIER4_STATUS=$?
 printf '%s\n' "$CPP_TIER4_REPORT" | bash "$CPP_DIR/scripts/flow-preflight.sh" --json --checks uv,cpp_python --validate-exit "$CPP_TIER4_STATUS"
 if [ "$?" -ne 0 ]; then
-  echo "Tier 4 prerequisites unverified; no Tier 4 generator ran." >&2
+  echo "Tier 4 prerequisites unverified; no host CI probe ran." >&2
   exit 1
 fi
 ```
 <!-- CPP_TIER4_PREFLIGHT_END -->
 
-#### 4a. Framework Detection and Makefile
-
-Consent: the optional generator creates project `Makefile` only when absent. Detection/generation via uv may sync the CPP checkout `.venv` and configured uv cache; include those areas in the tier approval.
-
-```bash
-# Detect framework
-echo "Detecting project framework..."
-DETECT_JSON=$(PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd detect --json)
-DETECT_STATUS=$?
-if [ "$DETECT_STATUS" -ne 0 ]; then
-  echo "Framework detection failed (exit $DETECT_STATUS); no generator ran." >&2
-  exit 1
-fi
-FRAMEWORK=$(echo "$DETECT_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('framework','unknown'))" 2>/dev/null || echo "unknown")
-PKG_MGR=$(echo "$DETECT_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('package_manager','unknown'))" 2>/dev/null || echo "unknown")
-echo "Detected: $FRAMEWORK ($PKG_MGR)"
-```
-
-If no Makefile exists, offer to generate one:
-
-The CLI refuses an existing Makefile by default. This wizard never passes
-`--force`; replacing a user's Makefile requires a separate explicit decision.
+The projects-folder answer is requested once during disclosure. If the user
+accepts the default, resolve it from the verified CPP main checkout:
 
 ```bash
-if [ ! -f "Makefile" ]; then
-  echo ""
-  echo "No Makefile found. Generate one from the detected framework template?"
-  # Use AskUserQuestion to confirm
-  # If yes:
-  if PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd detect --path "$PWD" --generate-makefile; then
-    echo "✓ Makefile generated"
+if [ -z "${CPP_PROJECTS_ROOT:-}" ]; then
+  CPP_COMMON_DIR=$(git -C "$CPP_DIR" rev-parse --path-format=absolute --git-common-dir) || exit 1
+  CPP_CURRENT_GIT_DIR=$(git -C "$CPP_DIR" rev-parse --absolute-git-dir) || exit 1
+  if [ "$CPP_CURRENT_GIT_DIR" = "$CPP_COMMON_DIR" ]; then
+    CPP_MAIN_CHECKOUT=$(git -C "$CPP_DIR" rev-parse --show-toplevel) || exit 1
+    CPP_PROJECTS_ROOT=$(dirname "$CPP_MAIN_CHECKOUT")
   else
-    echo "WARNING: setup command failed (exit $?)."
+    CPP_PROJECTS_ROOT=$(git --git-dir "$CPP_COMMON_DIR" worktree list --porcelain -z | python3 -c 'import pathlib,sys; entry=sys.stdin.read().split("\0",1)[0]; assert entry.startswith("worktree "); main=pathlib.Path(entry[9:]); assert (main/".git").exists(); print(main.parent)') || exit 1
   fi
-else
-  echo "→ Makefile already exists"
-  echo "  Run /cicd:check to validate targets"
 fi
 ```
 
-If Makefile exists, run a quick check:
+Use a host-local uv environment/cache and disable bytecode writes. `--locked`
+behavior keeps the CPP lock unchanged even if the invoked repository is CPP.
+These runtime cache locations are part of Tier 4 consent; no project `.venv`,
+Makefile, cicd config, workflow or container files are created by this tier.
 
 ```bash
-if [ -f "Makefile" ]; then
-  echo ""
-  echo "Validating Makefile..."
-  PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd check --summary 2>/dev/null || echo "  (validation skipped)"
-fi
+CPP_HOST_RUNTIME="$HOME/.cache/claude-power-pack/host-ci"
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" UV_PROJECT_ENVIRONMENT="$CPP_HOST_RUNTIME/venv" UV_CACHE_DIR="$CPP_HOST_RUNTIME/uv" UV_LOCKED=1 PYTHONDONTWRITEBYTECODE=1 uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd host-ci --path "$PWD" --projects-root "$CPP_PROJECTS_ROOT" --write
+CPP_HOST_CI_STATUS=$?
+case "$CPP_HOST_CI_STATUS" in
+  0) echo "Host CI record persisted; see each provider's independent verdict above." ;;
+  3) echo "Host CI persistence deferred, unavailable or unconfirmed; see record state above." ;;
+  *) echo "Host CI record write failed; previous record preserved." >&2; exit 1 ;;
+esac
 ```
 
-#### 4b. Generate cicd.yml
-
-```bash
-if [ ! -f ".claude/cicd.yml" ]; then
-  mkdir -p .claude
-  # Generate cicd.yml with detected defaults
-  if [ -f "$CPP_DIR/templates/cicd.yml.example" ]; then
-    if cp "$CPP_DIR/templates/cicd.yml.example" .claude/cicd.yml; then
-      echo "✓ .claude/cicd.yml created from template"
-    else
-      echo "WARNING: setup command failed (exit $?)."
-    fi
-    echo "  Edit to configure health checks and smoke tests"
-  else
-    if cat > .claude/cicd.yml << 'CICD_EOF'
-build:
-  framework: auto
-  package_manager: auto
-  required_targets: [lint, test]
-  recommended_targets: [format, typecheck, build, deploy, clean, verify]
-
-health:
-  endpoints: []
-  processes: []
-  smoke_tests: []
-  post_deploy: false
-CICD_EOF
-    then
-      echo "✓ .claude/cicd.yml created with defaults"
-    else
-      echo "WARNING: configuration write failed (exit $?)."
-    fi
-  fi
-else
-  echo "→ .claude/cicd.yml already exists (skipped)"
-fi
-```
-
-#### 4c. Health Check Configuration (Optional)
-
-Consent: update project `.claude/cicd.yml` with the supplied health URLs and port checks. Show the proposed entries before confirmation; redact credentials in URLs.
-
-Ask the user if they want to configure health checks:
-
-```
-=== Optional: Health Checks ===
-
-Configure endpoint health checks for post-deploy verification?
-
-This lets /cicd:health and /flow:deploy verify your services are running.
-
-Example:
-  health:
-    endpoints:
-      - url: http://localhost:8000/health
-        name: API Server
-
-Configure health checks? [y/N]
-```
-
-If yes, use AskUserQuestion to get endpoint URLs, then update `.claude/cicd.yml`.
-
-#### 4d. CI Pipeline Generation (Optional)
-
-Consent: generate project `.github/workflows/ci.yml`, `.woodpecker.yml`, or both according to the selected provider. These can overwrite existing files; show the selected destinations before confirmation. Secret references are names, never values.
-
-Ask the user if they want to generate a CI pipeline:
-
-```
-=== Optional: CI Pipeline ===
-
-Generate a GitHub Actions CI workflow from your Makefile targets?
-
-This creates .github/workflows/ci.yml using `make lint`, `make test`, etc.
-
-Generate CI pipeline? [y/N]
-```
-
-If yes:
-
-```bash
-if PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd pipeline --write 2>/dev/null; then
-  if [ -f ".github/workflows/ci.yml" ]; then
-    echo "✓ .github/workflows/ci.yml generated"
-  else
-    echo "WARNING: pipeline generator returned success but ci.yml is absent."
-  fi
-else
-  echo "WARNING: pipeline generation failed (exit $?)."
-fi
-```
-
-#### 4e. Container Generation (Optional)
-
-Consent: generate project `Dockerfile`, `docker-compose.yml`, and `.dockerignore`. These can overwrite existing files; show the destinations before confirmation.
-
-Ask the user if they want to generate container files:
-
-```
-=== Optional: Container Files ===
-
-Generate Dockerfile and docker-compose.yml for your project?
-
-Uses multi-stage builds with framework-specific optimization.
-
-Generate container files? [y/N]
-```
-
-If yes:
-
-```bash
-if PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd container --write 2>/dev/null; then
-  echo "✓ Container files generated"
-else
-  echo "WARNING: setup command failed (exit $?)."
-fi
-```
+For project CI selection and file generation, use `/project:init` or `/cicd:init`.
 
 ### Tier 5 Execution (Codex Orchestration)
 
