@@ -939,7 +939,7 @@ woodpecker_repo_id() {
     [[ -n "$server" ]] || return 1
     repo_full=$("$GH_BIN" repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
     [[ -z "$repo_full" ]] && return 1
-    raw=$("$CURL_BIN" -sf -H "Authorization: Bearer $WOODPECKER_API_TOKEN" \
+    raw=$(printf 'Authorization: Bearer %s\n' "$WOODPECKER_API_TOKEN" | "$CURL_BIN" -sf -H @- \
         -H "Accept: application/json" "${server}/api/repos/lookup/${repo_full}" 2>/dev/null) || return 1
     id=$(jq -r '.id // empty' <<<"$raw" 2>/dev/null)
     [[ -z "$id" || "$id" == "null" ]] && return 1
@@ -956,7 +956,7 @@ woodpecker_pipeline_status() {
     local sha raw
     sha=$("$GIT_BIN" rev-parse HEAD 2>/dev/null)
     [[ -z "$sha" ]] && return 1
-    raw=$("$CURL_BIN" -sf -H "Authorization: Bearer $WOODPECKER_API_TOKEN" \
+    raw=$(printf 'Authorization: Bearer %s\n' "$WOODPECKER_API_TOKEN" | "$CURL_BIN" -sf -H @- \
         -H "Accept: application/json" \
         "${WOODPECKER_SERVER_RESOLVED}/api/repos/${WOODPECKER_REPO_ID}/pipelines?per_page=5" 2>/dev/null) || return 1
     jq -r --arg sha "$sha" '[.[] | select(.commit == $sha)] | .[0].status // empty' <<<"$raw" 2>/dev/null
