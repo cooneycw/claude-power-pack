@@ -107,7 +107,24 @@ def github_actions_checks(files: dict[str, str]) -> RequiredChecks:
     for filename, text in sorted(selected.items()):
         workflow = _yaml(text, filename)
         trigger = workflow.get("on")
-        if "pull_request" not in _events(trigger, filename, allow_mapping=True):
+        events = _events(trigger, filename, allow_mapping=True)
+        if isinstance(trigger, dict):
+            for event, options in trigger.items():
+                if options is None:
+                    continue
+                options = _mapping(options, filename + " " + event)
+                allowed = {"branches", "paths", "paths-ignore"} if event != "workflow_dispatch" else set()
+                if event == "pull_request":
+                    allowed.add("types")
+                if set(options) - allowed:
+                    raise UnknownChecks(filename + ": unsupported " + event + " filter")
+                for key, values in options.items():
+                    if not isinstance(values, list) or not values or not all(
+                        isinstance(value, str) and value for value in values
+                    ):
+                        raise UnknownChecks(filename + ": invalid " + event + " " + key + " filter")
+                _main_branch(options.get("branches"), filename)
+        if "pull_request" not in events:
             excluded.append(filename + ": no pull_request event")
             continue
         if isinstance(trigger, dict):
@@ -269,6 +286,8 @@ def check_posture(result: RequiredChecks, posture: Any) -> dict[str, Any]:
         if not isinstance(keyed, list) or not all(isinstance(item, dict) and isinstance(item.get("context"), str)
                                                 for item in keyed):
             raise ValueError("checks must name contexts")
+        if any(item.get("app_id") not in (None, -1) for item in keyed):
+            return {"status": "unknown", "reason": "required-check app binding cannot be verified from local pipelines"}
         actual = [*contexts, *(item["context"] for item in keyed)]
     except (KeyError, TypeError, AttributeError, ValueError):
         return {"status": "unknown", "reason": "required-check posture missing or malformed"}

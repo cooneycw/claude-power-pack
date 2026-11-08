@@ -220,3 +220,24 @@ def test_protection_for_wrong_branch_is_drift():
     assert check_posture(result, posture)["status"] == "ok"
     posture["branch"] = "develop"
     assert check_posture(result, posture)["status"] == "drift"
+
+
+@pytest.mark.parametrize("trigger", ["push: []", "push: broken", "workflow_dispatch: []"])
+def test_invalid_sibling_trigger_is_unknown(trigger):
+    from lib.cicd.checks import derive_required_checks
+    files = {".github/workflows/ci.yml":
+             ("on:\n  pull_request:\n  " + trigger +
+              "\njobs:\n  ci:\n    runs-on: ubuntu-latest\n    steps: [{run: 'true'}]\n")}
+    assert derive_required_checks(["github-actions"], files).status == "unknown"
+
+
+def test_unverifiable_check_app_binding_is_unknown():
+    from lib.cicd.checks import check_posture, derive_required_checks, protection_record
+    config = CICDConfig.model_validate({"pipeline": {"providers": ["woodpecker"]}})
+    files = generate_pipeline(FrameworkInfo(Framework.PYTHON, PackageManager.UV), config)
+    result = derive_required_checks(config.pipeline.providers, files)
+    posture = protection_record(config, result)
+    posture["protection"]["required_status_checks"] = {"checks": [{"context": result.checks[0]}]}
+    assert check_posture(result, posture)["status"] == "ok"
+    posture["protection"]["required_status_checks"]["checks"][0]["app_id"] = 12345
+    assert check_posture(result, posture)["status"] == "unknown"
