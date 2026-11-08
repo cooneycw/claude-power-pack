@@ -103,7 +103,7 @@ def _pipeline(number: int, commit: str, status: str, event: str = "push") -> dic
     return {"number": number, "commit": commit, "status": status, "event": event}
 
 
-def _run(tmp_path: Path, *args: str, env: dict | None = None) -> subprocess.CompletedProcess:
+def _run(tmp_path: Path, *args: str, env: dict | None = None, recorded: bool = False) -> subprocess.CompletedProcess:
     full_env = os.environ.copy()
     # Never let a real credential or a real binary leak into a test.
     for key in ("WOODPECKER_API_TOKEN", "WOODPECKER_SERVER", "WOODPECKER_HOST"):
@@ -120,7 +120,7 @@ def _run(tmp_path: Path, *args: str, env: dict | None = None) -> subprocess.Comp
     )
     full_env.update(env or {})
     return subprocess.run(
-        ["bash", str(SCRIPT), *args],
+        ["bash", str(SCRIPT), *([] if recorded else ["--fallback-provider-probes"]), *args],
         capture_output=True,
         text=True,
         env=full_env,
@@ -481,7 +481,7 @@ def test_fetches_token_from_aws_when_not_exported(tmp_path):
     aws.chmod(0o755)
     env = {"FLOW_CI_CURL": str(curl), "FLOW_CI_AWS": str(aws)}
     result = subprocess.run(
-        ["bash", str(SCRIPT), SHA, "--repo", "o/r"],
+        ["bash", str(SCRIPT), "--fallback-provider-probes", SHA, "--repo", "o/r"],
         capture_output=True, text=True, cwd=str(tmp_path),
         env={**{k: v for k, v in os.environ.items()
                 if k not in ("WOODPECKER_API_TOKEN", "WOODPECKER_SERVER", "WOODPECKER_HOST")},
@@ -572,7 +572,7 @@ def test_missing_jq_names_itself_instead_of_reporting_a_bare_unknown(tmp_path):
     # removed jq at all - which is the #695 failure exactly.
     assert shutil.which("jq", path=str(fake_path)) is None, "fixture must lack jq"
     result = subprocess.run(
-        ["bash", str(SCRIPT), SHA, "--repo", "o/r", "--path", str(tmp_path)],
+        ["bash", str(SCRIPT), "--fallback-provider-probes", SHA, "--repo", "o/r", "--path", str(tmp_path)],
         capture_output=True,
         text=True,
         env={
@@ -606,7 +606,7 @@ def test_the_wpcli_lane_still_answers_without_jq(tmp_path):
     argv_log = tmp_path / "wpcli-argv.log"
     wpcli = _write_fake_wpcli(tmp_path, [f"1249|success|{SHA}|push"], [], argv_log)
     result = subprocess.run(
-        ["bash", str(SCRIPT), SHA, "--repo", "o/r", "--path", str(tmp_path)],
+        ["bash", str(SCRIPT), "--fallback-provider-probes", SHA, "--repo", "o/r", "--path", str(tmp_path)],
         capture_output=True,
         text=True,
         env={
@@ -854,7 +854,7 @@ def test_the_repo_is_resolved_INSIDE_the_declared_path_not_the_caller_cwd(tmp_pa
     gh.chmod(0o755)
     caller = _git_checkout(tmp_path / "caller", "https://github.com/owner/neighbour.git")
     result = subprocess.run(
-        ["bash", str(SCRIPT), "--path", str(checkout)],
+        ["bash", str(SCRIPT), "--fallback-provider-probes", "--path", str(checkout)],
         capture_output=True, text=True, cwd=str(caller),
         env={**os.environ, "FLOW_CI_GH": str(gh), "FLOW_CI_CURL": "/nonexistent/curl",
              "FLOW_CI_WPCLI": "/nonexistent/wp", "FLOW_CI_AWS": "/nonexistent/aws"},

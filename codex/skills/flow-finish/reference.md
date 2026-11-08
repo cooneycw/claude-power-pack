@@ -99,6 +99,23 @@ fi
 This is the early half of the #462 stale-branch guard; the Step-7 `/flow-merge`
 guard remains the final backstop.
 
+### Step 1c: Recorded CI and host preflight
+
+Before CI-dependent finish or merge work, run the canonical reader using the
+resolved CPP runtime (the checkout's `uv run --project` / `PYTHONPATH` contract):
+
+```bash
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd flow-host --path /path/to/worktree
+```
+
+An unknown project selection stops with the `pipeline --providers ... --record`
+remedy. A SELECTED provider whose host snapshot says `missing` stops with the
+named `/cpp:init` Tier 4 refresh remedy. Host `unknown`, including container-view
+or an unreadable record, is a warning and proceeds; show its reason and recorded
+as-of timestamp. A historical ready record never claims current authentication.
+The deterministic quality runner and `--enrolment-only` remain provider- and
+host-neutral; this orchestration preflight does not change those commands.
+
 ### Step 2: Run Quality Gates via Deterministic Runner (primary path)
 
 **Primary path:** ONE audited helper owns the deterministic-runner invocation

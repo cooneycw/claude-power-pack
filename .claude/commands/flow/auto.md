@@ -1681,7 +1681,8 @@ fill this step.
    absent required-lane pipeline stays `not-found` and the wait continues.) On
    `stalled` (issue #1552) the pipeline is dead, not slow: do not merge and do
    not keep waiting - report the URL and stalled steps and stop for the user,
-   who must kill it on the Woodpecker server and re-run CI. On
+   who must cancel the reported Actions run (`gh run cancel <id>`) or have the
+   Woodpecker operator stop its pipeline, then re-run CI. On
    `success`, invoke the merge helper at once, PINNED to the sha that wait
    was keyed on (issue #1543): pass `--match-head-commit <pr-head-sha>`, so a
    push that lands between the green and the squash is refused (exit 11)
@@ -2083,16 +2084,23 @@ grep over that shared list is a coin flip. The helper matches on `.commit` and
 cannot make that mistake; it also fetches the token from AWS Secrets Manager
 itself when it is not exported.
 
-The helper now has three provider lanes (#768): the Woodpecker HTTP API when a
-token resolves, `woodpecker-cli` in machine-readable `go-template` mode when it
-does not, and GitHub Actions. The CLI lane still anchors on the exact commit
+The helper reads the project's explicit provider list through the canonical
+reader and registry, then dispatches only those lanes. Woodpecker uses HTTP or
+its machine-readable CLI; Actions uses `gh`. Every selected lane is examined:
+any failure is red, any running lane keeps the result running while none is red,
+and success requires all selected lanes to be examined and green. An unknown
+record stops with the writer remedy. Probing is available only via the explicit
+`--fallback-provider-probes` compatibility flag and reports `FLOW_CI_SELECTION:
+fallback`; it is never an implicit lane choice. The CLI lane still anchors on the exact commit
 SHA, which is precisely what the #516 improvisation failed to do.
 
 The helper prints a machine-readable contract, the failed-step lines (when any)
 immediately before the verdict:
 
 ```
-FLOW_CI_PROVIDER: woodpecker | github-actions | none
+FLOW_CI_PROVIDER: <selected name[,name...] or none>
+FLOW_CI_SELECTION: recorded | unknown | fallback (...)
+FLOW_CI_LANES: <per-provider JSON evidence for recorded dispatch>
 FLOW_CI_REF: <sha>
 FLOW_CI_REPO: <owner/name|->
 FLOW_CI_EVENT: <event> (flag | branch-protection on <branch>: <contexts> | default: <why>)
@@ -2130,9 +2138,10 @@ Act on `FLOW_CI_STATUS`:
   repository's own timeout, which the agent enforces - so its agent lost it,
   typically to a restart (issue #1552; measured in
   cooneycw/woodpecker-baseline#2). Report `FLOW_CI_URL`, the `FLOW_CI_STALLED`
-  reason and every `FLOW_CI_STALLED_STEP`, and tell the user it needs killing
-  on the Woodpecker server. The helper reports only; it never cancels, and an
-  API cancel is known NOT to finish such a workflow.
+  reason and every `FLOW_CI_STALLED_STEP`. For Actions, name the run and offer
+  `gh run cancel <id>` followed by a re-run. For a lost Woodpecker workflow,
+  stop for its server operator: an API cancel may not finish that workflow.
+  The helper reports only and never cancels either provider.
 - `failure` WITH a `FLOW_CI_STALLED: terminal-pipeline-live-children` line ->
   handle as `failure` above, and also report that the pipeline ended while
   steps are still listed running (a cancel that did not land).
@@ -2149,12 +2158,15 @@ Act on `FLOW_CI_STATUS`:
   window, no matching pipeline was found AT EXPIRY. Say that, with the window,
   rather than "CI may not be wired". It does not prove one never registered (a
   pipeline can appear and then leave the listing), so do not claim that either.
-- `unknown` -> the helper could not reach a provider (no credentials, no
-  network). It is fail-open by design: warn and proceed.
+- `unknown` -> stop CI-dependent deployment or merge work. Report the named
+  record, tool or provider evidence gap; do not interpret an unexamined lane as
+  green. An explicitly requested compatibility probe remains labelled fallback,
+  and its advisory result never establishes recorded-provider completeness.
 
 `--wait` defaults to 600s and polls every 15s; pass `--wait <seconds>` to change
 it, or omit `--wait` for a single-shot read. Without `--event`, the preferred
-event is DERIVED from the DEFAULT branch's required status contexts (issue #1262;
+event is DERIVED from the DEFAULT branch's classic `.contexts` / `.checks`
+and applicable ruleset required contexts (issue #1262;
 a PR into a differently-protected base should pass `--event`):
 `ci/woodpecker/pr/*` required alone means `pull_request`, `ci/woodpecker/push/*`
 alone means `push`, and both, neither or unreadable falls back to `push` -

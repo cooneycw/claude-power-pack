@@ -128,6 +128,16 @@ squash whose text carries a negated or incidental closing keyword beside an issu
 number (exits 5 and 7), and that guard cannot tell an example from an instruction. It
 is a backstop, not this decision.
 
+**Recorded CI preflight:** use `python -m lib.cicd flow-host --path <worktree>`
+through the resolved CPP runtime before CI-dependent merge work. Unknown project
+providers stop with the canonical record-writer remedy. For selected providers,
+a host snapshot of `missing` stops with `/cpp:init` Tier 4 as the refresh remedy;
+host `unknown` warns and proceeds, including container-view. Report the as-of
+status and timestamp, never current readiness. `gh-pr-merge.sh` repeats this
+read-only preflight before a live merge (stop exit 13), so a bypass of the prose
+cannot silently ignore a recorded missing capability. It does not probe or write
+host credentials. Quality gates and enrolment-only remain host-neutral.
+
 **When CI outlasts main's quiet window (issue #1300):** a required check takes
 15-20 minutes here, longer than `main` stays still. Wait for green on the
 REQUIRED lane, then merge in the same breath:
@@ -139,8 +149,8 @@ REQUIRED lane, then merge in the same breath:
 On `FLOW_CI_STATUS: stalled` (issue #1552) the pipeline is dead, not slow: the
 server lists it `running` past the repository's own timeout, so its agent lost
 it. Do not merge and do not keep waiting; report the `FLOW_CI_URL` and the
-`FLOW_CI_STALLED_STEP` lines and stop - it must be killed on the Woodpecker
-server and CI re-run.
+`FLOW_CI_STALLED_STEP` lines and stop - cancel the reported run using its provider: GitHub Actions (`gh run cancel <id>`),
+or the Woodpecker server/operator. Then re-run CI.
 
 On `FLOW_CI_STATUS: success`, run the merge below at once - or pass
 `--wait-ci[=SECS]` to the helper, which turns its required-check wait into a

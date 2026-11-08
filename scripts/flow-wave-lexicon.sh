@@ -819,7 +819,7 @@ parse_merge() { # parse_merge LINENO REST
   bare="${bare% is green}"; bare="${bare% passes}"
   bare="$(trim "$bare")"
   if [ -z "$bare" ] || [[ "$bare" =~ ^($VAGUE_PREDICATES)$ ]]; then
-    add_err "$ln" "MERGE: AUTHORIZED #$issue names a vague predicate ('$pred') - name the CHECK (e.g. 'ci/woodpecker/pr/woodpecker'), since 'CI' does not distinguish the PR pipeline from the push pipeline"
+    add_err "$ln" "MERGE: AUTHORIZED #$issue names a vague predicate ('$pred') - name the CHECK (e.g. 'ci (3.11)' or 'ci/woodpecker/pr/woodpecker'), since 'CI' does not distinguish the PR pipeline from the push pipeline"
     return
   fi
   add_tr "MERGE" "AUTHORIZED #$issue when $pred"

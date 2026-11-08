@@ -24,6 +24,10 @@ class ProviderSpec:
     ci_lane: str
     host_check: str
     infra_generator: str = ""
+    flow_context: str = ""
+    flow_status: str = ""
+    flow_watch: str = ""
+    flow_context_priority: int = 0
 
 
 # Hook identities are shared with the later host/flow consumers. Generators
@@ -33,11 +37,16 @@ PROVIDERS = {
         "github-actions", "generate_github_actions", ".github/workflows/ci.yml",
         "lib.cicd.checks:github_actions_checks", "github-actions", "github-actions-auth",
         infra_generator="_generate_gh_infra_pipeline",
+        flow_context="lib.cicd.flow:github_actions_context",
+        flow_status="lib.cicd.flow:shell_status", flow_watch="lib.cicd.flow:shell_watch",
+        flow_context_priority=-1,
     ),
     "woodpecker": ProviderSpec(
         "woodpecker", "generate_woodpecker", ".woodpecker.yml",
         "lib.cicd.checks:woodpecker_checks", "woodpecker", "woodpecker-auth",
         infra_generator="_generate_woodpecker_infra_pipeline",
+        flow_context="lib.cicd.flow:woodpecker_context",
+        flow_status="lib.cicd.flow:shell_status", flow_watch="lib.cicd.flow:shell_watch",
     ),
 }
 
@@ -94,6 +103,21 @@ class ProviderRecord:
 
 def parse_config_mapping(text: str, source: str) -> dict[str, Any]:
     """Reject ambiguous provider records before the shared YAML load."""
+    # JSON is a YAML subset and can be read by minimal offline consumers
+    # without provisioning PyYAML. Keep this in the ONE canonical reader;
+    # shell consumers never grow their own config parser.
+    if text.lstrip().startswith("{"):
+        def unique(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ProviderError(f"{source}: duplicate JSON config key {key!r}")
+                result[key] = value
+            return result
+        try:
+            return json.loads(text, object_pairs_hook=unique)
+        except json.JSONDecodeError:
+            pass  # A flow-style YAML mapping may need the full YAML reader.
     import yaml
 
     try:

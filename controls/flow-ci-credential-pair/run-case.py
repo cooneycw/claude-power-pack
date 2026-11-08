@@ -35,7 +35,8 @@ def exercise(gate, scenario):
         curl.chmod(0o755)
         env = {k: v for k, v in os.environ.items()
                if k not in {'WOODPECKER_API_TOKEN', 'WOODPECKER_SERVER', 'WOODPECKER_HOST'}}
-        env.update(FLOW_CI_CURL=str(curl), FLOW_CI_AWS=str(aws), FLOW_CI_GH='/nonexistent/gh',
+        env.update(CPP_FLOW_CI_BACKEND='probe', FLOW_CI_CURL=str(curl), FLOW_CI_AWS=str(aws),
+                   FLOW_CI_GH='/nonexistent/gh',
                    FLOW_CI_WPCLI='/nonexistent/woodpecker-cli', FLOW_CI_SLEEP='/nonexistent/sleep', HOME=str(root))
         supplied = {
             'bad-server-mix': {'WOODPECKER_SERVER': SERVER_B},

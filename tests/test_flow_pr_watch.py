@@ -229,7 +229,7 @@ def _run(tmp_path: Path, *args: str, env: dict | None = None) -> subprocess.Comp
     )
     full_env.update(env or {})
     return subprocess.run(
-        ["bash", str(SCRIPT), *args],
+        ["bash", str(SCRIPT), "--fallback-provider-probes", *args],
         capture_output=True,
         text=True,
         env=full_env,

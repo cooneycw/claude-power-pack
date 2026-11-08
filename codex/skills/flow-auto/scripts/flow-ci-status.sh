@@ -18,11 +18,11 @@
 #   connect timeout", which are materially different outcomes.
 #
 # So this helper anchors on the SHA, never on list position, and names the
-# failed STEPS. It has three provider lanes: the Woodpecker HTTP API when its
-# credentials resolve, authenticated `woodpecker-cli` with machine-readable
-# go-template output otherwise (issue #768), then GitHub Actions. It is
-# ADVISORY and FAIL-OPEN: no token, no network, no provider all yield `unknown`
-# and exit 0, never a blocked flow (unless --exit-code).
+# failed STEPS. By default it reads recorded providers through the canonical
+# registry, pins one SHA and examines each selected lane independently.
+# Woodpecker uses its HTTP API or authenticated CLI; Actions uses gh.
+# Unknown records or unexamined evidence exit 2. Legacy probing is available
+# only with --fallback-provider-probes and reports its advisory fallback scope.
 #
 # Complete environment credentials are used together. An incomplete pair may
 # use AWS Secrets Manager only when its supplied half matches the secret pair.
@@ -33,6 +33,7 @@
 #   flow-ci-status.sh [SHA] [--path <checkout>] [--repo <owner/name>]
 #                     [--event push|pull_request] [--wait [SECONDS]]
 #                     [--secret-name <name>] [--region <region>] [--exit-code]
+#                     [--fallback-provider-probes]
 #
 #   SHA            Commit to resolve (default: HEAD of the checkout).
 #   --path <dir>   The checkout to read HEAD/remote from - DECLARED by the
@@ -47,7 +48,8 @@
 #                  Required contexts that are ALL non-Woodpecker (GitHub
 #                  Actions check names such as `test`, `lint`) mean `any`:
 #                  every event counts (issue #1604). Both lanes, no required
-#                  context, or unreadable falls back to `push`, and the
+#                  context keeps `push`; unreadable protection stops recorded
+#                  dispatch (explicit probing keeps the legacy default). The
 #                  FLOW_CI_EVENT line says which source decided. `--event any`
 #                  may also be passed.
 #   --strict-event Treat the event as a FILTER, not a preference (issue #1300):
@@ -56,12 +58,15 @@
 #                  the required pull_request lane.
 #   --wait [SECS]  Poll until the status is terminal or SECS elapse
 #                  (default 600, 15s interval). Without it, report once.
-#   --exit-code    Exit 1 when the verdict is `failure`. Every other verdict,
-#                  including `unknown`, still exits 0.
+#   --exit-code    Exit 1 on failure/stalled; recorded unknown exits 2.
+#   --fallback-provider-probes  Permit labelled legacy probing ONLY when the
+#                  record cannot select lanes; valid records still win.
 #
 # Output ends with a machine-readable contract - the failed-step lines, when
 # present, immediately precede the verdict:
-#   FLOW_CI_PROVIDER: woodpecker | github-actions | none
+#   FLOW_CI_PROVIDER: <selected provider names, comma separated> | none
+#   FLOW_CI_SELECTION: recorded | unknown | fallback (...)
+#   FLOW_CI_LANES: <per-provider evidence JSON> (recorded dispatch)
 #   FLOW_CI_REF: <sha>
 #   FLOW_CI_REPO: <owner/name|->           (issue #1262)
 #   FLOW_CI_EVENT: <event> (<source>)      (issue #1262; source is `flag`,
@@ -120,6 +125,23 @@
 
 set -uo pipefail
 
+# Explicit compatibility probing does not need the project-record reader or
+# Python. Keep it available when those prerequisites themselves are missing.
+_ci_args=()
+for _ci_arg in "$@"; do
+    if [[ "$_ci_arg" == "--fallback-provider-probes" ]] && ! command -v python3 >/dev/null 2>&1; then
+        export CPP_FLOW_CI_BACKEND=probe
+    else
+        _ci_args+=("$_ci_arg")
+    fi
+done
+set -- "${_ci_args[@]}"
+_ci_original_args=("$@")
+if [[ "${CPP_FLOW_CI_BACKEND:-}" == "probe" ]]; then
+    echo "FLOW_CI_SELECTION: fallback (explicit provider probing)"
+fi
+
+
 # Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
 trap 'printf "FLOW_CI_EXIT=%d\n" "$?" >&2' EXIT
 
@@ -158,6 +180,7 @@ die_usage() {
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --fallback-provider-probes) shift ;;
         --path)        CHECK_PATH="${2:-}"; [[ -n "$CHECK_PATH" ]] || die_usage "--path needs a directory"; shift 2 ;;
         --path=*)      CHECK_PATH="${1#*=}"; shift ;;
         --repo)        REPO="${2:-}"; [[ -n "$REPO" ]] || die_usage "--repo needs owner/name"; shift 2 ;;
@@ -175,13 +198,40 @@ while [[ $# -gt 0 ]]; do
             if [[ "${2:-}" =~ ^[0-9]+$ ]]; then WAIT_SECS="$2"; shift 2; else WAIT_SECS=600; shift; fi
             ;;
         --wait=*)      WAIT_SECS="${1#*=}"; [[ "$WAIT_SECS" =~ ^[0-9]+$ ]] || die_usage "--wait needs seconds"; shift ;;
-        -h|--help)     sed -n '2,117p' "$0"; exit 0 ;;
+        -h|--help)     sed -n '2,/^$/p' "$0"; exit 0 ;;
         -*)            die_usage "unknown argument: $1" ;;
         *)             [[ -z "$SHA" ]] || die_usage "unexpected argument: $1"; SHA="$1"; shift ;;
     esac
 done
 
-PROVIDER="none"
+# Resolve CPP source, never parse project YAML in this consumer. Installed
+# helpers may be symlinks; generated mirrors can locate their containing checkout.
+if [[ -z "${CPP_FLOW_CI_BACKEND:-}" && "$*" != "--help" && "$*" != "-h" ]]; then
+    exec python3 - "$0" "${_ci_original_args[@]}" <<'PYCODE'
+import os, sys
+from pathlib import Path
+script = Path(sys.argv[1]).resolve()
+candidates = [*script.parents, Path(os.environ.get("CLAUDE_PLUGIN_ROOT", "/nonexistent")),
+              Path.home() / "Projects/claude-power-pack", Path("/opt/claude-power-pack"),
+              Path.home() / ".claude-power-pack"]
+for root in candidates:
+    if (root / "lib/cicd/flow.py").is_file():
+        runtime = root / ".venv/bin/python"
+        if runtime.is_file() and Path(sys.prefix) != root / ".venv":
+            code = "import sys; sys.path.insert(0, sys.argv[1]); from lib.cicd.flow import status_entry; raise SystemExit(status_entry(sys.argv[2], sys.argv[3:]))"
+            os.execv(str(runtime), [str(runtime), "-c", code, str(root), str(script), *sys.argv[2:]])
+        sys.path.insert(0, str(root))
+        from lib.cicd.flow import status_entry
+        raise SystemExit(status_entry(str(script), sys.argv[2:]))
+print("flow-ci-status: CPP provider reader unavailable; restore the CPP installation", file=sys.stderr)
+print("FLOW_CI_STATUS: unknown")
+print("FLOW_CI_EXIT=2", file=sys.stderr)
+raise SystemExit(2)
+PYCODE
+fi
+
+PROVIDER="${CPP_FLOW_CI_BACKEND:-none}"
+[[ "$PROVIDER" == "probe" ]] && PROVIDER="none"
 PIPELINE="-"
 URL="-"
 STATUS="unknown"
@@ -372,19 +422,43 @@ fi
 # so the helper could report the push pipeline's green over a red required
 # check. So the default is now the lane the base branch REQUIRES, read from
 # GitHub; when that cannot be decided the old default stands and says so.
+PROTECTION_UNREADABLE=0
 derive_event() {
     local default_branch contexts ctx pr=0 push=0 other=0
     if ! command -v "$GH_BIN" >/dev/null 2>&1; then
+        [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "probe" ]] && PROTECTION_UNREADABLE=1
         EVENT_SOURCE="default: gh unavailable, required contexts unreadable"; return
     fi
     default_branch="$("$GH_BIN" api "repos/$REPO" --jq .default_branch 2>/dev/null)"
     if [[ -z "$default_branch" ]]; then
+        [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "probe" ]] && PROTECTION_UNREADABLE=1
         EVENT_SOURCE="default: default branch unreadable, required contexts unreadable"; return
     fi
-    if ! contexts="$("$GH_BIN" api "repos/$REPO/branches/$default_branch/protection/required_status_checks" \
-            --jq '.contexts[]' 2>/dev/null)"; then
+    local classic="" rules="" answered=0 unreadable=0 protection_source="classic"
+    if classic="$("$GH_BIN" api "repos/$REPO/branches/$default_branch/protection/required_status_checks" \
+            --jq '((.contexts // []) + ((.checks // []) | map(.context))) | unique | .[]' 2>&1)"; then
+        answered=1
+    elif [[ "$classic" == *"(HTTP 404)"* ]]; then
+        classic=""; answered=1
+    else
+        classic=""; unreadable=1
+    fi
+    if rules="$("$GH_BIN" api "repos/$REPO/rules/branches/$default_branch" \
+            --jq '[.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[]?.context] | unique | .[]' 2>&1)"; then
+        answered=1
+        [[ -n "$rules" ]] && protection_source="classic + rulesets"
+    else
+        rules=""; unreadable=1
+    fi
+    if [[ "$unreadable" -eq 1 && "${CPP_FLOW_CI_BACKEND:-probe}" != "probe" ]]; then
+        PROTECTION_UNREADABLE=1
+        EVENT_SOURCE="unknown: required protection source unreadable on $default_branch"
+        return
+    fi
+    if [[ "$answered" -eq 0 ]]; then
         EVENT_SOURCE="default: required contexts unreadable on $default_branch"; return
     fi
+    contexts="$(printf '%s\n%s\n' "$classic" "$rules" | awk 'NF && !seen[$0]++')"
     # ONLY WOODPECKER'S OWN CONTEXTS DECIDE (counter-model review). Matching any
     # `/pr/` or `/push/` let a neighbouring provider's `other-ci/push/tests`
     # turn a pr-only repository into "both lanes required" and hand the verdict
@@ -399,6 +473,7 @@ derive_event() {
     done <<<"$contexts"
     local listed
     listed="$(paste -sd, <<<"$contexts")"
+    [[ "$protection_source" == *rulesets* ]] && listed="${listed} [classic + rulesets]"
     # The branch NAMED, because it is the DEFAULT branch's protection that was
     # read (counter-model review): this helper resolves a commit, not a PR, so it
     # does not know which base a PR targets. A PR into a differently-protected
@@ -428,6 +503,10 @@ if [[ -z "$PREFER_EVENT" ]]; then
     derive_event
 fi
 [[ -n "$PREFER_EVENT" ]] || PREFER_EVENT="$DEFAULT_EVENT"
+if [[ "$PROTECTION_UNREADABLE" -eq 1 ]]; then
+    echo "flow-ci-status: required protection unreadable; pass an explicit --event only when its scope is known." >&2
+    emit
+fi
 
 # ── jq preflight (issue #789) ──────────────────────────────────────────────
 # The Woodpecker API lane and the GitHub Actions lane both parse JSON with jq;
@@ -460,7 +539,7 @@ if [[ -z "$AWS_BIN" ]]; then
     if [[ -x "$HOME/.local/bin/aws" ]]; then AWS_BIN="$HOME/.local/bin/aws"; else AWS_BIN="aws"; fi
 fi
 
-if [[ "$HAVE_JQ" -eq 1 && ( -z "$WP_TOKEN" || -z "$WP_SERVER" ) ]]; then
+if [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "github-actions" && "$HAVE_JQ" -eq 1 && ( -z "$WP_TOKEN" || -z "$WP_SERVER" ) ]]; then
     # The secret is JSON, so this resolution path needs jq too (issue #789).
     if command -v "$AWS_BIN" >/dev/null 2>&1; then
         SECRET_JSON="$("$AWS_BIN" secretsmanager get-secret-value \
@@ -578,7 +657,7 @@ wp_stall_check() {
 }
 
 # ── Woodpecker lookup ──────────────────────────────────────────────────────
-if [[ "$HAVE_JQ" -eq 1 && -n "$WP_TOKEN" && -n "$WP_SERVER" ]]; then
+if [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "github-actions" && "$HAVE_JQ" -eq 1 && -n "$WP_TOKEN" && -n "$WP_SERVER" ]]; then
     REPO_JSON="$(wp_api "/api/repos/lookup/$REPO")"
     REPO_ID="$(jq -r '.id // empty' <<<"$REPO_JSON" 2>/dev/null)"
     # Minutes; the AGENT enforces it, which is what makes "past it" evidence
@@ -653,7 +732,7 @@ if [[ "$HAVE_JQ" -eq 1 && -n "$WP_TOKEN" && -n "$WP_SERVER" ]]; then
 fi
 
 # ── Woodpecker CLI fallback ────────────────────────────────────────────────
-if command -v "$WPCLI_BIN" >/dev/null 2>&1; then
+if [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "github-actions" ]] && command -v "$WPCLI_BIN" >/dev/null 2>&1; then
     WPCLI_ROWS="$("$WPCLI_BIN" pipeline ls --output-no-headers \
         --output 'go-template={{range .}}{{.Number}}|{{.Status}}|{{.Commit}}|{{.Event}}{{"\n"}}{{end}}' \
         --limit 50 "$REPO" 2>/dev/null)"
@@ -937,9 +1016,12 @@ gha_stall_check() {
     elif [[ -n "$why" ]]; then STALL_CHECK="unavailable ($why)"
     else STALL_CHECK="checked"; fi
 }
-if [[ "$HAVE_JQ" -eq 1 ]] && command -v "$GH_BIN" >/dev/null 2>&1; then
-    ALL_RUNS="$(gha_runs)"
-    if [[ -n "$ALL_RUNS" && "$(jq -r 'if type == "array" then length else 0 end' <<<"$ALL_RUNS" 2>/dev/null)" -gt 0 ]]; then
+if [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "woodpecker" && "$HAVE_JQ" -eq 1 ]] && command -v "$GH_BIN" >/dev/null 2>&1; then
+    if ! ALL_RUNS="$(gha_runs)"; then ALL_RUNS=""; fi
+    if [[ -n "$ALL_RUNS" ]] && jq -e 'type == "array"' <<<"$ALL_RUNS" >/dev/null 2>&1 && {
+        [[ "${CPP_FLOW_CI_BACKEND:-probe}" == "github-actions" ]] ||
+        [[ "$(jq -r length <<<"$ALL_RUNS")" -gt 0 ]];
+    }; then
         PROVIDER="github-actions"
         DEADLINE=$(( $(date +%s) + WAIT_SECS ))
         while :; do
@@ -991,5 +1073,5 @@ if [[ "$HAVE_JQ" -eq 1 ]] && command -v "$GH_BIN" >/dev/null 2>&1; then
     fi
 fi
 
-echo "flow-ci-status: no CI provider answered for $REPO @ ${SHA:0:12} (fail-open)" >&2
+echo "flow-ci-status: no selected CI lane answered for $REPO @ ${SHA:0:12} (unknown)" >&2
 emit

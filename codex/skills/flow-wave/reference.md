@@ -121,7 +121,7 @@ declared data the registry inherits to every role:
   --gate "stop at /flow-auto Step 3; orchestrator judges; --yes forbidden" \
   --ledger "delivered / in-scope / residual" \
   --merge-authority worker \
-  --deploy-policy "woodpecker-only"
+  --deploy-policy "recorded CI providers only"
 ```
 
 Three of these fields exist because of a specific failure, and skipping them
@@ -995,7 +995,7 @@ issue ledger alone does not mean its runtime wave has been closed.
 
 ## Hazards (confront, do not assume away)
 
-- **One CI agent serializes the wave.** N workers produce N queued Woodpecker
+- **One CI agent serializes the wave.** N workers produce N queued CI
   pipelines on one agent; wall-clock scales with the queue, not the worker
   count. Tell workers this so a slow pipeline is not misread as a failing one,
   and cap in-flight PRs (2-3 on a single-agent host) rather than maximizing
