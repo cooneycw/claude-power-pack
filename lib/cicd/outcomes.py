@@ -180,6 +180,47 @@ _UNITTEST_DETAIL = re.compile(
 
 _PYTEST_SESSION_START = re.compile(r"^=+\s*test session starts\s*=+\s*$")
 
+
+def pytest_incomplete_reason(output: str, error: str) -> Optional[str]:
+    """Refuse filtered retries when observed pytest work may be unfinished.
+
+    Summary counts describe completed populations only (#1617). Start banners
+    without matching tails, or explicit interruption diagnostics even under
+    quiet pytest, are independent evidence of an unfinished population. Streams
+    are counted together because wrappers can route starts and tails separately.
+    Balanced, labelled negative-control output belongs to its child experiment.
+    Missing banners alone prove nothing; ordinary quiet single runs may retry.
+    """
+    starts = tails = 0
+    pending_sessions = unmatched_tails = 0
+    for stream in (output, error):
+        text, _ = _extract_control_segments(stream or "")
+        pending = early_tails = 0
+        for line in text.splitlines():
+            if re.match(r"^(?:!+\s*)?(?:KeyboardInterrupt\b|Interrupted:)", line.strip()):
+                return "pytest interruption diagnostic"
+            if _PYTEST_SESSION_START.match(line):
+                starts += 1
+                pending += 1
+            elif _parse_pytest_line(line) is not None:
+                tails += 1
+                if pending:
+                    pending -= 1
+                else:
+                    early_tails += 1
+        pending_sessions += pending
+        # A quiet invocation's earlier tail cannot finish a LATER start on
+        # this stream. Only a different stream can supply its missing tail.
+        if not pending:
+            unmatched_tails += early_tails
+    if pending_sessions > unmatched_tails:
+        return (
+            "unfinished pytest session in captured stream order "
+            f"({starts} start banners, {tails} completed summaries)"
+        )
+    return None
+
+
 # Pytest's short-summary ids make a first-attempt flake nameable and countable
 # in the #769 report. They are NOT the selection mechanism: ``--last-failed``
 # narrows the re-run from pytest's own cache, so this best-effort parse is never

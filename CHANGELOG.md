@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Refuse filtered pytest retries when a test invocation was interrupted or started without completing a summary, so a passing subset cannot clear an unfinished composite target (#1617).
+
 ### Behaviour changes you may notice
 
 - CPP now states a bash 4.4 floor. `flow-preflight` gains a required `bash` check, so `/cpp:init`, `/cpp:update` and `/flow:doctor` report a bash below it, and `/flow:auto` refuses to start until it is upgraded. On macOS: `brew install bash`, first on PATH (#1628).

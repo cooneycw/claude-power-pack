@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any, Optional, TextIO
 
 from .coverage import SCOPE_COMPONENT, ZERO
-from .outcomes import classify_unparsed, parse_failed_node_ids
+from .outcomes import classify_unparsed, parse_failed_node_ids, pytest_incomplete_reason
 from .state import ResumeStateEvidence, RunState, StepStatus, compute_tree_signature
 from .steps import (
     # GATE_STEP_IDS is deliberately NOT imported here any more (#1155). The
@@ -1357,6 +1357,9 @@ class DeterministicRunner:
                 # below is meaningless for it: there are no failed ids to
                 # re-run, only an unfinished run.
                 timed_out = result.exit_code == TIMEOUT_EXIT_CODE
+                incomplete = pytest_incomplete_reason(result.output, result.error)
+                if result.exit_code in (-2, -9, -15, 130, 137, 143):
+                    incomplete = f"step interrupted (exit {result.exit_code})"
                 if timed_out:
                     budget = step_def.timeout_seconds
                     self._log(
@@ -1376,9 +1379,16 @@ class DeterministicRunner:
                         f"    stdout (tail): {_tail_lines(result.output)}\n"
                         f"    stderr (tail): {_tail_lines(result.error)}"
                     )
+                if self.rerun_failed and step.is_test_step() and incomplete:
+                    self._log(
+                        f"  {step.id}: incomplete test invocation; declining "
+                        f"filtered retry ({incomplete}; issue #1617); "
+                        "the original failure stands"
+                    )
                 if (
                     self.rerun_failed
                     and not timed_out
+                    and not incomplete
                     and step.is_test_step()
                     and outcome is not None
                     and outcome.framework == "pytest"
@@ -1399,6 +1409,7 @@ class DeterministicRunner:
                     and outcome.framework == "pytest"
                     and outcome.failed + outcome.errors > 0
                     and outcome.invocations == 1
+                    and not incomplete
                 ):
                     failed_ids = _failed_ids_from_both_streams(
                         result.output, result.error
@@ -1426,7 +1437,16 @@ class DeterministicRunner:
                     reproduced: list[str] = []
                     appeared: list[str] = []
                     unobserved: list[str] = []
-                    if rerun_outcome is not None and rerun_outcome.nothing_ran:
+                    rerun_incomplete = pytest_incomplete_reason(
+                        rerun_result.output, rerun_result.error
+                    )
+                    if rerun_incomplete:
+                        rerun_verdict = "inconclusive"
+                        self._log(
+                            f"  {step.id}: RE-RUN INCONCLUSIVE - "
+                            f"{rerun_incomplete}; the original failure stands"
+                        )
+                    elif rerun_outcome is not None and rerun_outcome.nothing_ran:
                         rerun_verdict = "inconclusive"
                         self._log(
                             f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
