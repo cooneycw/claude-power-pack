@@ -93,8 +93,10 @@ deploy:
 # -------------------------------------------------------------------
 # Pipeline Configuration (used by /cicd:pipeline)
 # -------------------------------------------------------------------
-# pipeline:
-#   provider: github-actions   # github-actions | woodpecker | both
+pipeline:
+  # Required: record one or more registered CI providers before generation.
+  # Choose woodpecker, github-actions, or both names in the list.
+  providers: []
 #   branches:
 #     main: [lint, test, typecheck, build, deploy]
 #     pr: [lint, test, typecheck]
