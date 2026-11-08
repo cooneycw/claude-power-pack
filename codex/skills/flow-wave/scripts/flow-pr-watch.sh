@@ -434,6 +434,11 @@ resolve_wp_event() { # resolve_wp_event <context> -> event name, or empty
 # buckets. Anything unrecognized is pending, so an unknown state makes the watch
 # keep waiting rather than inventing a terminal verdict.
 outcome_of() {
+    if [[ "${CPP_FLOW_PR_WATCH_BACKEND:-woodpecker}" == "github-actions" ]]; then
+        case "${1,,}" in
+            skipped|neutral) echo "success"; return ;;
+        esac
+    fi
     case "${1,,}" in
         success)                                            echo "success" ;;
         failure|error|killed|cancelled|timed_out|declined)  echo "failure" ;;

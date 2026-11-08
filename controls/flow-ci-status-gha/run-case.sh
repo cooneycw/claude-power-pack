@@ -28,6 +28,7 @@ if [ "\$1 \$2" = "run list" ]; then cat "$case_dir/runs.json"; exit 0; fi
 if [ "\$1" = "api" ] && [ -f "$case_dir/contexts" ]; then
     case "\$2" in
         *required_status_checks) cat "$case_dir/contexts"; exit 0 ;;
+        */rules/branches/*) exit 0 ;; # readable ruleset response with no required contexts
         repos/*/*/*) exit 1 ;;
         repos/*) echo main; exit 0 ;;
     esac

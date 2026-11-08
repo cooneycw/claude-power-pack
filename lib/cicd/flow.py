@@ -192,7 +192,15 @@ def status_main(script: str, argv: list[str]) -> int:
                          *backend_args, "--wait", str(args.wait)]
         if args.exit_code:
             fallback_argv.append("--exit-code")
-        result = command(fallback_argv, env=env, capture_output=True, text=True)
+        try:
+            result = command(fallback_argv, env=env, capture_output=True, text=True,
+                             timeout=max(120, args.wait + 120))
+        except subprocess.TimeoutExpired:
+            print("flow-ci-status: explicit provider-probe fallback exceeded its wait budget", file=sys.stderr)
+            print("FLOW_CI_SELECTION: fallback")
+            print("FLOW_CI_PROVIDER: unknown")
+            print("FLOW_CI_STATUS: unknown")
+            return 2
         print(result.stdout, end="")
         child_stderr(result.stderr, "FLOW_CI_EXIT")
         return result.returncode
@@ -440,11 +448,11 @@ def watch_main(script: str, argv: list[str]) -> int:
             return value
         original = head()
         contexts = required_contexts(repo, original["baseRefName"], gh)
+        selected = context_lanes(args.path, contexts)
         if args.context:
             if args.context not in contexts:
                 raise ProviderError("requested context is not required by this PR base")
-            contexts = [args.context]
-        selected = context_lanes(args.path, contexts)
+            selected = [item for item in selected if item[0] == args.context]
         deadline = time.monotonic() + args.timeout
         reports = []
         while True:
