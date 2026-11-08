@@ -1,0 +1,70 @@
+{
+  "branch": "fix/1617-interrupted-composite",
+  "counts": {
+    "accepted": 1,
+    "deferred": 0,
+    "rejected": 2
+  },
+  "extra_passes_reason": "Accepted cross-stream attribution hole and make quiet-child interruption coverage; re-reviewed final exact patch after fixes. Fully silent same-stream replacement is an explicit unobservable residual.",
+  "head": "e48bfd3cc92f43551cc2fa86cf798626f6993d5c",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/08/rollout-2026-11-08T14-15-21-01a1bb83-84a8-73f3-9a28-1c147bf50eaf.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 1442158,
+        "path": "2026/11/08/rollout-2026-11-08T14-15-21-01a1bb83-84a8-73f3-9a28-1c147bf50eaf.jsonl",
+        "sha256": "37b164bb369d13523df287a2c11f9da5362b12397b380c42474a28ecc8654762"
+      }
+    ],
+    "thread_id": "01a1bb83-84a8-73f3-9a28-1c147bf50eaf"
+  },
+  "issue": "1617",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 3,
+  "recorded_at": "2026-11-08T14:38:55Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 2
+  },
+  "reviewed_artifact": {
+    "base_sha": "587d6546bc1c0d02cc1fbe79b49c3ae5855634d5",
+    "merge_base": "587d6546bc1c0d02cc1fbe79b49c3ae5855634d5",
+    "method": "captured-patch",
+    "patch_sha256": "3068d0306dd0b1616fcb8eb6437d65c42f55de2b83c7acf4a3cf9979386eafe7",
+    "report_record": 17,
+    "target_head": "e48bfd3cc92f43551cc2fa86cf798626f6993d5c"
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "exec_log": "1617-review-v3.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6-astra"
+    ],
+    "rollout": "2026/11/08/rollout-2026-11-08T14-38-15-01a1bb98-7d98-73b1-ae52-978cc18db148.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 950,
+        "path": "1617-review-v3.jsonl",
+        "sha256": "7c728a19c83f47bced243ca6558ec8e63265b9892e9c6229cdd3835590ed356d"
+      },
+      {
+        "bytes": 138596,
+        "path": "2026/11/08/rollout-2026-11-08T14-38-15-01a1bb98-7d98-73b1-ae52-978cc18db148.jsonl",
+        "sha256": "289170a36c19dfc68c26fa573c1559dad9e21c3eb7e34dfdde5cb73e2b708198"
+      }
+    ],
+    "thread_id": "01a1bb98-7d98-73b1-ae52-978cc18db148"
+  },
+  "schema": 5,
+  "scope": "diff-only",
+  "status": "ran"
+}

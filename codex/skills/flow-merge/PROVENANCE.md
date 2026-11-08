@@ -8,6 +8,7 @@ Every file below is a byte-identical copy of its canonical source in the claude-
 - `docs/agents/detector-contracts.md`
 - `docs/agents/issue-contract.md`
 - `docs/agents/knowledge-lifecycle.md`
+- `scripts/coordination-admission.sh`
 - `scripts/counter-model-receipt.py`
 - `scripts/flow-ci-status.sh`
 - `scripts/flow-finish-gate.sh`
