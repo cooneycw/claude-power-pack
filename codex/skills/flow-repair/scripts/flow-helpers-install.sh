@@ -111,6 +111,7 @@ TARGET_DIR="$HOME_DIR/.claude/scripts"
 HELPERS=(
     flow-preflight.sh
     flow-preflight.py
+    project-next.py
     flow-start-resolve.sh
     flow-live-driver-guard.sh
     flow-stale-check.sh
