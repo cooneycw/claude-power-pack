@@ -179,6 +179,56 @@ _UNITTEST_DETAIL = re.compile(
 )
 
 _PYTEST_SESSION_START = re.compile(r"^=+\s*test session starts\s*=+\s*$")
+INTERRUPTED_EXIT_CODES = frozenset({-2, -9, -15, 130, 137, 143})
+_MAKE_RECIPE_EXIT = re.compile(
+    r"^(?:g?make)(?:\[\d+\])?:\s+\*\*\*\s+\[.+\]\s+"
+    r"(?:Error (?P<code>\d+)|(?P<signal>Killed|Interrupt|Terminated))"
+    r"(?:\s+\(ignored\))?\s*$"
+)
+
+
+def pytest_incomplete_reason(output: str, error: str) -> Optional[str]:
+    """Refuse filtered retries when observed pytest work may be unfinished.
+
+    Summary counts describe completed populations only (#1617). Start banners
+    without matching tails, or explicit interruption diagnostics even under
+    quiet pytest, are independent evidence of an unfinished population. A tail
+    on another stream cannot establish which session completed; refuse the
+    filtered retry conservatively when same-stream completion is unproven.
+    Balanced, labelled negative-control output belongs to its child experiment.
+    Missing banners alone prove nothing; ordinary quiet single runs may retry.
+    """
+    starts = tails = 0
+    pending_sessions = 0
+    for stream in (output, error):
+        text, _ = _extract_control_segments(stream or "")
+        pending = 0
+        for line in text.splitlines():
+            recipe = _MAKE_RECIPE_EXIT.match(line.strip())
+            if recipe and (
+                recipe.group("signal")
+                or int(recipe.group("code")) in INTERRUPTED_EXIT_CODES
+            ):
+                return f"make recipe interrupted ({recipe.group('signal') or recipe.group('code')})"
+            # A test may print this diagnostic as data. Refusing its filtered
+            # retry is the conservative choice; the original failure stands.
+            if re.match(r"^(?:!+\s*)?(?:KeyboardInterrupt\b|Interrupted:)", line.strip()):
+                return "pytest interruption diagnostic"
+            if _PYTEST_SESSION_START.match(line):
+                starts += 1
+                pending += 1
+            elif _parse_pytest_line(line) is not None:
+                tails += 1
+                if pending:
+                    pending -= 1
+        pending_sessions += pending
+    if pending_sessions:
+        return (
+            "unfinished pytest session in captured stream order "
+            f"({starts} start banners, {tails} completed summaries)"
+        )
+    return None
+
 
 # Pytest's short-summary ids make a first-attempt flake nameable and countable
 # in the #769 report. They are NOT the selection mechanism: ``--last-failed``

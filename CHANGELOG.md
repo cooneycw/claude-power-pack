@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Refuse filtered pytest retries when a test invocation was interrupted or started without completing a summary, so a passing subset cannot clear an unfinished composite target (#1617).
 - Drift detection now completes on hosts without Docker, reports Docker-dependent checks as skipped, and preserves drift findings from later checks (#1629).
 
 ### Behaviour changes you may notice
