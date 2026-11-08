@@ -621,8 +621,15 @@ def cmd_infra_pipeline(args: argparse.Namespace) -> int:
     """Generate CI/CD pipelines for infrastructure tiers."""
     from .config import CICDConfig
     from .infrastructure import generate_infra_pipeline
-    config = CICDConfig.load(args.path)
-    provider = args.provider or config.pipeline.provider
+    from .providers import ProviderError, require_providers
+    explicit = [args.provider] if args.provider else None
+    config = CICDConfig.load(args.path, provider_override=explicit)
+    selected = require_providers(config.pipeline.providers)
+    if len(selected) != 1:
+        raise ProviderError("infra-pipeline does not yet support multiple providers: " + ",".join(selected))
+    provider = selected[0]
+    if provider not in ("github-actions", "woodpecker"):
+        raise ProviderError("infra-pipeline does not support provider: " + provider)
 
     if args.json:
         files = generate_infra_pipeline(config.infrastructure, provider)
@@ -1136,7 +1143,7 @@ def main(argv: list[str] | None = None) -> int:
 
     handler = commands.get(args.command)
     if handler:
-        if args.command in ("pipeline", "provider"):
+        if args.command in ("pipeline", "provider", "infra-pipeline"):
             try:
                 return handler(args)
             except (ValueError, OSError) as exc:

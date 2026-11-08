@@ -89,7 +89,8 @@ def parse_config_mapping(text: str, source: str) -> dict[str, Any]:
         return {}
     if not isinstance(data, dict):
         raise ProviderError(f"{source}: config must be a mapping")
-    assert isinstance(node, yaml.MappingNode)
+    if not isinstance(node, yaml.MappingNode):
+        raise ProviderError(f"{source}: config must be a YAML mapping")
     if any(key.tag == "tag:yaml.org,2002:merge" for key, _ in node.value):
         raise ProviderError(f"{source}: top-level YAML merges cannot define an unambiguous provider record")
     pipelines = [value for key, value in node.value if key.value == "pipeline"]

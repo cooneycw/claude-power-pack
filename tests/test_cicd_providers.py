@@ -288,3 +288,25 @@ def test_unreadable_record_has_unknown_marker(tmp_path: Path, capsys, monkeypatc
     monkeypatch.setattr(Path, "read_text", unreadable)
     assert main(["provider", "--path", str(tmp_path)]) == 2
     assert "CICD_PROVIDERS: unknown" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("selection", [None, ["woodpecker", "github-actions"]])
+def test_infra_generation_refuses_unknown_or_multiple_providers(tmp_path: Path, capsys, selection):
+    from lib.cicd.cli import main
+    path = tmp_path / ".claude/cicd.yml"
+    path.parent.mkdir()
+    path.write_text(json.dumps({"build": {}} if selection is None else {"pipeline": {"providers": selection}}))
+    before = path.read_bytes()
+    assert main(["infra-pipeline", "--path", str(tmp_path), "--json"]) != 0
+    error = capsys.readouterr().err
+    assert "record pipeline.providers" in error if selection is None else "multiple providers" in error
+    assert path.read_bytes() == before
+    assert not (tmp_path / ".github").exists()
+    assert not (tmp_path / ".woodpecker.yml").exists()
+
+
+def test_infra_explicit_single_provider_is_accepted(tmp_path: Path, capsys):
+    from lib.cicd.cli import main
+    assert main(["infra-pipeline", "--path", str(tmp_path), "--provider", "woodpecker", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["provider"] == "woodpecker"
+    assert not (tmp_path / ".claude/cicd.yml").exists()
