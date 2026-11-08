@@ -5,6 +5,7 @@
 ### Fixed
 
 - Project-next names unparsed architecture decision records in every premise-staleness report and JSON coverage, so an incomplete ADR corpus cannot read as a clean scan (#1614).
+- Partial worktree-removal verification now names its Git 2.36 minimum on older or unrecognized Git versions, rather than reporting a misleading registry-read failure (#1621).
 - Worktree claims and wave roles treat Linux process states `Z` and `X` as
   exited, reporting `owner-zombie` rather than retaining a dead owner's lock.
   Live owners retain their existing held/live classification (#1605).

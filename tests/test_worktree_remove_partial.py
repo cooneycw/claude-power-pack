@@ -1157,3 +1157,73 @@ def test_prescan_ignores_a_sticky_parent_the_caller_owns(tmp_path: Path) -> None
         f"stdout={res.stdout}\nstderr={res.stderr}"
     )
     assert not wt.exists()
+
+
+@requires_git
+@pytest.mark.parametrize(
+    ("git_version", "supports_nul", "expected_rc"),
+    [("2.34.1", False, 13), ("2.35.9", False, 13),
+     ("2.36.0", True, 15), ("3.0.0.vendor", True, 15),
+     ("unknown", False, 13)],
+    ids=["ubuntu-2204", "last-unsupported", "minimum-supported", "future-major", "unknown-version"],
+)
+def test_finish_partial_git_version_contract(
+    tmp_path: Path, git_version: str, supports_nul: bool, expected_rc: int
+) -> None:
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "wt", "feature")
+    _half_delete(wt)
+    assert not (wt / ".git").exists()
+    assert wt.is_dir()
+    real_git = shutil.which("git")
+    assert real_git is not None
+    bindir = tmp_path / "old-git-bin"
+    bindir.mkdir()
+    stub = bindir / "git"
+    # This shim models the old binary's behaviour, not just its version text.
+    # The same control runs independently of the Git shipped by the CI image.
+    stub.write_text(
+        "#!/bin/bash\n"
+        'if [[ "$1" == "--version" ]]; then\n'
+        f"  printf '%s\\n' 'git version {git_version}'\n"
+        "  exit 0\nfi\n"
+        + ("" if supports_nul else
+           'if [[ " $* " == *" worktree list --porcelain -z "* ]]; then\n'
+           '  echo "error: unknown switch z" >&2\n'
+           '  exit 129\nfi\n')
+        + f'exec "{real_git}" "$@"\n'
+    )
+    stub.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}"}
+    version_probe = subprocess.run(
+        [str(stub), "--version"], env=env, capture_output=True, text=True, check=False
+    )
+    assert version_probe.stdout.strip() == f"git version {git_version}"
+    nul_probe = subprocess.run(
+        [str(stub), "-C", str(main), "worktree", "list", "--porcelain", "-z"],
+        env=env, capture_output=True, check=False,
+    )
+    if supports_nul:
+        assert nul_probe.returncode == 0
+        assert b"\0" in nul_probe.stdout
+    else:
+        assert nul_probe.returncode == 129
+        assert b"unknown switch z" in nul_probe.stderr
+
+    result = _run_remove(
+        main, str(wt), "--finish-partial-removal", "--owner-repo", str(main),
+        "--allow-dirty", "--allow-unpushed", env=env,
+    )
+    assert result.returncode == expected_rc, result.stdout + result.stderr
+    assert wt.exists(), "verification must never remove the directory"
+    if supports_nul:
+        assert "WORKTREE_REMOVE_FINISH_PARTIAL: confirmed" in result.stderr
+        assert "rm -rf --" in result.stdout
+    else:
+        assert "git >= 2.36" in result.stderr
+        assert f"found: git version {git_version}" in result.stderr
+        assert "--finish-partial-removal" in result.stderr
+        assert "rm -rf --" not in result.stdout
+        assert "WORKTREE_REMOVE_FINISH_PARTIAL: confirmed" not in result.stderr
+        if git_version == "unknown":
+            assert "could not determine" in result.stderr
