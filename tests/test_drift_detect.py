@@ -565,7 +565,7 @@ def test_drift_detect_controlled_inventory(
 
     if systemd_state:
         unit_probe = subprocess.run(
-            ["systemctl", "--user", "is-active", "cpp-fixture"],
+            [str(bin_dir / "systemctl"), "--user", "is-active", "cpp-fixture"],
             env=env, text=True, capture_output=True, check=False,
         )
         assert unit_probe.stdout.strip() == systemd_state
