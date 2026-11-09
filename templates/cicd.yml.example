@@ -100,6 +100,12 @@ pipeline:
 #   branches:
 #     main: [lint, test, typecheck, build, deploy]
 #     pr: [lint, test, typecheck]
+#   # Reserved target deploy belongs only in main, never pr. Both providers
+#   # run it solely in their dedicated main-push deployment stage. With pr: [],
+#   # main's other targets still run on pushes; deploy-only adds no lint/test.
+#   # Woodpecker runtime_smoke must use a non-deploy smoke_target.
+#   # Entries are single target names; use exact deploy, not ./deploy aliases.
+#   # Names start with a letter, then contain only letters, digits, '_' or '-'.
 #   matrix:
 #     python-version: ["3.11", "3.12"]
 #
