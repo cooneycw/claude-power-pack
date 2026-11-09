@@ -10,6 +10,18 @@ change. Infrastructure-only repositories are not enrolled by these jobs.
 The excluded gap is recorded in the
 [Nit Store](https://github.com/cooneycw/claude-power-pack/issues/864#issuecomment-6728623706).
 
+## Actions deploy migration
+
+**AWS/OIDC consumers must migrate IAM trust before their first regenerated
+deploy.** The dedicated job's `environment: production` changes its exact OIDC
+subject from `repo:O/R:ref:refs/heads/main` to
+`repo:O/R:environment:production` (`O/R` is the consumer slug). Configure the
+GitHub production environment to allow `main` only, then update the role's exact
+subject condition while retaining the audience check. See the
+[OIDC migration steps](../skills/cicd-verification.md#actions-deploy-oidc-migration).
+The default `contents: read` also applies to platform deploys; tag pushes and
+release creation need an explicit write grant on the dedicated deploy job.
+
 ## Immutable checker source
 
 The single revision source is `.claude/cpp-install.json`'s `cpp_revision`, which
@@ -38,7 +50,8 @@ unavailable fork evidence is UNKNOWN (exit 5), never a fork warning. Branch
 names do not establish fork status.
 
 Actions uses its event's head/base repository identities, `github.head_ref`,
-and a full-history checkout of the PR head (`fetch-depth: 0`). Its push-side
+and a full-history checkout of the PR head (`fetch-depth: 0`) with credential
+persistence disabled. The checkout action is pinned to an immutable commit SHA. Its push-side
 enrolment job is not applicable and does not evaluate receipts. Enabling the PR
 trigger does not enable main-only application targets on PRs.
 

@@ -124,12 +124,16 @@ unknown 'trusted enrolment checker could not decide'
 
 
 def github_actions_job(pin: str) -> list[str]:
+    # Bootstrap extraction remains stdlib-only; the workflow renderer shares pins.
+    from .actions import CHECKOUT
+
     lines = ["  counter-model-enrolment:", "    runs-on: ubuntu-latest", "    timeout-minutes: 10", "    permissions:",
              "      contents: read", "    env:", "      CPP_PR_EVENT: ${{ github.event_name }}",
              "      CPP_PR_BRANCH: ${{ github.head_ref }}",
              "      CPP_PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}",
              "      CPP_PR_BASE_REPO: ${{ github.event.pull_request.base.repo.full_name }}",
-             "    steps:", "      - uses: actions/checkout@v4", "        with:", "          fetch-depth: 0",
+             "    steps:", f"      - uses: {CHECKOUT}", "        with:", "          fetch-depth: 0",
+             "          persist-credentials: false",
              "          ref: ${{ github.event.pull_request.head.sha || github.sha }}",
              "      - name: Check counter-model enrolment", "        shell: bash", "        run: |"]
     lines.extend("          " + line for line in bootstrap_script(pin, "github-actions").splitlines())

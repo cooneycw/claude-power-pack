@@ -253,21 +253,87 @@ Run `python -m lib.cicd validate` to check your configuration.
 
 ### GitHub Actions
 
-Generated via `/cicd:pipeline` using templates in `templates/workflows/`:
+`/cicd:pipeline` renders main application workflows from `lib/cicd/pipeline.py`.
+The maintained consumer templates are `templates/workflows/ci-{python,node,go,rust,powershell}.yml`
+and `templates/workflows/deploy.yml`. CPP's own CI remains `.woodpecker.yml`.
+Infrastructure generators are outside this main-application hardening slice;
+their remaining mutable action references are recorded in the
+[Nit Store](https://github.com/cooneycw/claude-power-pack/issues/864#issuecomment-6730203811).
 
-```yaml
-# .github/workflows/ci.yml (generated)
-name: CI
-on: [push, pull_request]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v4
-      - run: make lint
-      - run: make test
-```
+The renderer reads immutable action commits from `lib/cicd/actions.py`. Tests
+tie the static templates' copies to those constants, and tie the scanner image
+to the Makefile and Woodpecker pin. The Python uv installer uses a fixed version.
+Every checkout disables credential persistence, and every job has a timeout.
+
+Workflow permissions default to `contents: read` for both platform and AWS
+deployments. A platform `make deploy` that pushes tags or creates releases needs
+an explicit `contents: write` grant on the dedicated deploy job; the generator
+does not grant it automatically. Only an AWS deploy job receives
+`id-token: write`.
+
+The workflow concurrency group includes the commit SHA. Different commits run
+independently, so a burst of main merges cannot replace a middle commit's
+pending lint/test/scan run. In-progress runs are not cancelled. No
+`pull_request_target` or `workflow_run` trigger is emitted.
+
+The dedicated deploy job has a separate repository/production concurrency group
+with `cancel-in-progress: false`. A running deployment finishes before another
+starts. GitHub retains only one pending deployment per group: a newer pending
+deployment supersedes an older pending one. CI runs remain independent per SHA;
+this policy intentionally does not deploy every intermediate commit.
+
+The independent `secret-scan` job checks full git history with a pinned gitleaks
+container and redacted output. It needs no provider token or action license.
+The dedicated deploy job waits for application CI and the secret scan (the
+standalone deploy template's dedicated job waits for the scan). Regenerate the local required-check declaration
+alongside the workflow so `secret-scan` is included in PR protection.
+
+The dedicated deploy job selects the consumer's `production` GitHub environment. Configure
+that environment's protection rules in the consumer repository if deployment
+approval is required; an `environment` declaration alone does not create those
+rules. The templates remain consumer-owned and can be reviewed and customized.
+CPP's own workflows, deployment environments and secret bindings are unchanged.
+
+A pre-existing main-only target configuration can also emit `make deploy` in
+the general `ci` job, before the dedicated job's dependencies and environment.
+[Issue #1664](https://github.com/cooneycw/claude-power-pack/issues/1664) tracks
+that separate duplicate-deployment path. The controls described above govern
+the dedicated deploy job.
+
+#### Actions deploy OIDC migration
+
+**Before using a regenerated AWS deploy workflow, update its IAM trust policy.**
+Adding `environment: production` changes GitHub's OIDC `sub` from
+`repo:O/R:ref:refs/heads/main` to `repo:O/R:environment:production`, where `O/R`
+is the consumer's owner/repository slug. A policy that still accepts only the
+ref subject denies the first regenerated deployment.
+
+1. Configure the consumer's GitHub `production` environment to permit deployment
+   from `main` only, plus any required reviewers. The environment subject no
+   longer includes the branch, so this restriction preserves the branch bound.
+2. Change the role trust policy's exact subject condition to the environment
+   subject, retaining its existing GitHub OIDC provider and audience check:
+
+   ```json
+   {
+     "StringEquals": {
+       "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+       "token.actions.githubusercontent.com:sub": "repo:O/R:environment:production"
+     }
+   }
+   ```
+
+   Replace `O/R` with the consumer slug. A controlled cutover may temporarily
+   allow both exact old and new subjects; remove the old subject after migration.
+   Do not replace the subject restriction with a broad repository wildcard.
+3. Regenerate and review the consumer workflow, then validate the deployment
+   against the migrated trust policy. CPP changes no live GitHub environment or
+   AWS role itself.
+
+The generated counter-model enrolment job retains its immutable CPP revision,
+full-history PR-head checkout and documented fork policy. Its checkout also
+disables credential persistence. Refresh `/cpp:init` install metadata and review
+the regenerated workflow when updating the pinned checker or action revisions.
 
 ### Template Selection
 

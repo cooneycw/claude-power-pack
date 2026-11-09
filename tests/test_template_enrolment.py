@@ -209,7 +209,7 @@ def test_enrolment_trigger_does_not_run_main_only_targets_on_pr():
     assert "pull_request" in document["on"]
     assert document["jobs"]["ci"]["if"] == "github.ref == 'refs/heads/main' && github.event_name == 'push'"
     result = derive_required_checks(["github-actions"], {".github/workflows/ci.yml": text})
-    assert result.status == "known" and result.checks == ("counter-model-enrolment",)
+    assert result.status == "known" and result.checks == ("counter-model-enrolment", "secret-scan")
 
 
 def test_required_check_reader_refuses_unexamined_clone_shape():

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
+
+import yaml
 
 from lib.cicd.cli import _check_secrets_source
 from lib.cicd.config import CICDConfig, WoodpeckerConfig
@@ -13,6 +16,13 @@ from lib.cicd.pipeline import (
     generate_pipeline,
     generate_woodpecker,
 )
+
+
+def _assert_pinned_action(text: str, repository: str) -> None:
+    document = yaml.load(text, Loader=yaml.BaseLoader)
+    uses = [step["uses"] for job in document["jobs"].values() for step in job["steps"]
+            if step.get("uses", "").startswith(repository + "@")]
+    assert uses and all(re.fullmatch(re.escape(repository) + r"@[0-9a-f]{40}", value) for value in uses)
 
 
 def _make_info(
@@ -91,8 +101,8 @@ class TestGitHubActionsPython:
         config = _make_config()
         output = generate_github_actions(info, config)
         assert "name: CI" in output
-        assert "actions/checkout@v4" in output
-        assert "actions/setup-python@v5" in output
+        _assert_pinned_action(output, "actions/checkout")
+        _assert_pinned_action(output, "actions/setup-python")
 
     def test_uv_caching(self) -> None:
         info = _make_info(Framework.PYTHON, PackageManager.UV)
@@ -163,7 +173,7 @@ class TestGitHubActionsNode:
         info = _make_info(Framework.NODE, PackageManager.NPM)
         config = _make_config()
         output = generate_github_actions(info, config)
-        assert "actions/setup-node@v4" in output
+        _assert_pinned_action(output, "actions/setup-node")
 
     def test_npm_caching(self) -> None:
         info = _make_info(Framework.NODE, PackageManager.NPM)
@@ -213,7 +223,7 @@ class TestGitHubActionsGo:
         info = _make_info(Framework.GO, PackageManager.GO)
         config = _make_config()
         output = generate_github_actions(info, config)
-        assert "actions/setup-go@v5" in output
+        _assert_pinned_action(output, "actions/setup-go")
 
     def test_go_caching(self) -> None:
         info = _make_info(Framework.GO, PackageManager.GO)
@@ -249,7 +259,7 @@ class TestGitHubActionsRust:
         info = _make_info(Framework.RUST, PackageManager.CARGO)
         config = _make_config()
         output = generate_github_actions(info, config)
-        assert "dtolnay/rust-toolchain@stable" in output
+        _assert_pinned_action(output, "dtolnay/rust-toolchain")
 
     def test_cargo_caching(self) -> None:
         info = _make_info(Framework.RUST, PackageManager.CARGO)
@@ -280,7 +290,7 @@ class TestGitHubActionsPowerShell:
         config = _make_config()
         output = generate_github_actions(info, config)
         assert "name: CI" in output
-        assert "actions/checkout@v4" in output
+        _assert_pinned_action(output, "actions/checkout")
 
     def test_powershell_caching(self) -> None:
         info = _make_info(Framework.POWERSHELL, PackageManager.PSRESOURCEGET)
@@ -324,7 +334,7 @@ class TestDeployJob:
         config = _make_config(branches={"main": ["lint", "test", "deploy"], "pr": ["lint", "test"]})
         output = generate_github_actions(info, config)
         assert "deploy:" in output
-        assert "needs: ci" in output
+        assert set(yaml.load(output, Loader=yaml.BaseLoader)["jobs"]["deploy"]["needs"]) == {"ci", "secret-scan"}
         assert "refs/heads/main" in output
         assert "make deploy" in output
 
@@ -572,7 +582,7 @@ class TestInstallCommands:
 
     def test_python_uv(self) -> None:
         cmds = _get_install_commands(Framework.PYTHON, PackageManager.UV)
-        assert "pip install uv" in cmds
+        assert any(re.fullmatch(r"python -m pip install uv==\d+\.\d+\.\d+", cmd) for cmd in cmds)
         assert "uv sync" in cmds
 
     def test_python_pip(self) -> None:
@@ -660,10 +670,10 @@ class TestWorkflowTemplates:
             assert "jobs" in parsed, f"{name} missing 'jobs'"
             assert "ci" in parsed["jobs"], f"{name} missing 'ci' job"
 
-    def test_ci_templates_use_checkout_v4(self) -> None:
+    def test_ci_templates_use_pinned_checkout(self) -> None:
         for name in ["ci-python.yml", "ci-node.yml", "ci-go.yml", "ci-rust.yml", "ci-powershell.yml"]:
             content = (self.TEMPLATE_DIR / name).read_text()
-            assert "actions/checkout@v4" in content, f"{name} missing checkout@v4"
+            _assert_pinned_action(content, "actions/checkout")
 
     def test_ci_templates_use_makefile_targets(self) -> None:
         for name in ["ci-python.yml", "ci-node.yml", "ci-go.yml", "ci-rust.yml", "ci-powershell.yml"]:
@@ -674,7 +684,7 @@ class TestWorkflowTemplates:
     def test_ci_templates_have_caching(self) -> None:
         for name in ["ci-python.yml", "ci-node.yml", "ci-go.yml", "ci-rust.yml", "ci-powershell.yml"]:
             content = (self.TEMPLATE_DIR / name).read_text()
-            assert "actions/cache@v4" in content, f"{name} missing cache action"
+            _assert_pinned_action(content, "actions/cache")
 
     def test_deploy_template(self) -> None:
         import yaml
@@ -729,7 +739,7 @@ class TestGitHubActionsAWSSecrets:
             aws_secret_name="my-project/deploy",
         )
         output = generate_github_actions(info, config)
-        assert "aws-actions/configure-aws-credentials@v4" in output
+        _assert_pinned_action(output, "aws-actions/configure-aws-credentials")
         assert "secrets.AWS_ROLE_ARN" in output
 
     def test_aws_sm_deploy_fetches_secrets(self) -> None:
@@ -740,7 +750,7 @@ class TestGitHubActionsAWSSecrets:
             aws_secret_name="my-project/deploy",
         )
         output = generate_github_actions(info, config)
-        assert "aws-actions/aws-secretsmanager-get-secrets@v2" in output
+        _assert_pinned_action(output, "aws-actions/aws-secretsmanager-get-secrets")
         assert "my-project/deploy" in output
         assert "parse-json-secrets: true" in output
 

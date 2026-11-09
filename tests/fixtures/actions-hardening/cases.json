@@ -1,0 +1,469 @@
+[
+  {
+    "file": "bad-00-remote_refs.yml",
+    "property": "remote_refs",
+    "path": [
+      "jobs",
+      "ci",
+      "steps",
+      0,
+      "uses"
+    ],
+    "bad_value": "actions/checkout@v4",
+    "remove_to_fix": false
+  },
+  {
+    "file": "bad-01-permissions.yml",
+    "property": "permissions",
+    "path": [
+      "permissions",
+      "contents"
+    ],
+    "bad_value": "write",
+    "remove_to_fix": false
+  },
+  {
+    "file": "bad-02-permissions.yml",
+    "property": "permissions",
+    "path": [
+      "jobs",
+      "ci",
+      "permissions"
+    ],
+    "bad_value": {
+      "contents": "read",
+      "id-token": "write"
+    },
+    "remove_to_fix": true
+  },
+  {
+    "file": "bad-03-checkout_credentials.yml",
+    "property": "checkout_credentials",
+    "path": [
+      "jobs",
+      "ci",
+      "steps",
+      0,
+      "with",
+      "persist-credentials"
+    ],
+    "bad_value": "true",
+    "remove_to_fix": false
+  },
+  {
+    "file": "bad-04-concurrency.yml",
+    "property": "concurrency",
+    "path": [
+      "concurrency",
+      "cancel-in-progress"
+    ],
+    "bad_value": "true",
+    "remove_to_fix": false
+  },
+  {
+    "file": "bad-05-timeouts.yml",
+    "property": "timeouts",
+    "path": [
+      "jobs",
+      "deploy",
+      "timeout-minutes"
+    ],
+    "bad_value": "0",
+    "remove_to_fix": false
+  },
+  {
+    "file": "bad-06-gitleaks.yml",
+    "property": "gitleaks",
+    "path": [
+      "jobs",
+      "secret-scan",
+      "steps",
+      1,
+      "run"
+    ],
+    "bad_value": "docker run --rm --env HOME=/tmp --user \"$(id -u):$(id -g)\" -v \"$PWD:/repo:ro\" zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f detect --source=/repo  --no-banner\n",
+    "remove_to_fix": false
+  },
+  {
+    "file": "bad-07-gitleaks.yml",
+    "property": "gitleaks",
+    "path": [
+      "jobs",
+      "secret-scan",
+      "steps",
+      1,
+      "run"
+    ],
+    "bad_value": "docker run --rm --env HOME=/tmp --user \"$(id -u):$(id -g)\" -v \"$PWD:/repo:ro\" zricethezav/gitleaks:v8.30.1 detect --source=/repo --redact --no-banner\n",
+    "remove_to_fix": false
+  },
+  {
+    "file": "bad-08-gitleaks.yml",
+    "property": "gitleaks",
+    "path": [
+      "jobs",
+      "deploy",
+      "needs"
+    ],
+    "bad_value": [
+      "ci"
+    ],
+    "remove_to_fix": false
+  },
+  {
+    "file": "bad-09-deploy_environment.yml",
+    "property": "deploy_environment",
+    "path": [
+      "jobs",
+      "deploy",
+      "environment"
+    ],
+    "bad_value": "",
+    "remove_to_fix": false
+  },
+  {
+    "file": "bad-10-uv_version.yml",
+    "property": "uv_version",
+    "path": [
+      "jobs",
+      "ci",
+      "steps",
+      1,
+      "run"
+    ],
+    "bad_value": "python -m pip install uv\nuv sync",
+    "remove_to_fix": false
+  },
+  {
+    "file": "bad-11-safe_trigger.yml",
+    "property": "safe_trigger",
+    "path": [
+      "on",
+      "pull_request_target"
+    ],
+    "bad_value": {},
+    "remove_to_fix": true
+  },
+  {
+    "file": "bad-12-unneeded-oidc.yml",
+    "property": "permissions",
+    "path": [
+      "jobs",
+      "deploy",
+      "permissions"
+    ],
+    "bad_value": {
+      "contents": "read",
+      "id-token": "write"
+    },
+    "remove_to_fix": true
+  },
+  {
+    "file": "bad-13-shallow-scan.yml",
+    "property": "gitleaks",
+    "path": [
+      "jobs",
+      "secret-scan",
+      "steps",
+      0,
+      "with",
+      "fetch-depth"
+    ],
+    "bad_value": "1",
+    "remove_to_fix": false
+  },
+  {
+    "file": "bad-14-conditional-scan.yml",
+    "property": "gitleaks",
+    "path": [
+      "jobs",
+      "secret-scan",
+      "if"
+    ],
+    "bad_value": "github.event_name == 'push'",
+    "remove_to_fix": true
+  },
+  {
+    "file": "bad-15-reusable-ref.yml",
+    "property": "remote_refs",
+    "path": [
+      "jobs",
+      "reusable",
+      "uses"
+    ],
+    "bad_value": "org/repo/.github/workflows/x.yml@main",
+    "remove_to_fix": false,
+    "good_file": "good-reusable-ref.yml"
+  },
+  {
+    "file": "bad-16-scan-continue.yml",
+    "property": "gitleaks",
+    "path": [
+      "jobs",
+      "secret-scan",
+      "continue-on-error"
+    ],
+    "bad_value": "true",
+    "remove_to_fix": true
+  },
+  {
+    "file": "bad-17-scan-step-if.yml",
+    "property": "gitleaks",
+    "path": [
+      "jobs",
+      "secret-scan",
+      "steps",
+      1,
+      "if"
+    ],
+    "bad_value": "false",
+    "remove_to_fix": true
+  },
+  {
+    "file": "bad-18-scan-ignore-exit.yml",
+    "property": "gitleaks",
+    "path": [
+      "jobs",
+      "secret-scan",
+      "steps",
+      1,
+      "run"
+    ],
+    "bad_value": "docker run --rm --env HOME=/tmp --user \"$(id -u):$(id -g)\" -v \"$PWD:/repo:ro\" zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f detect --source=/repo --redact --no-banner || true\n",
+    "remove_to_fix": false
+  },
+  {
+    "file": "bad-19-workflow-run.yml",
+    "property": "safe_trigger",
+    "path": [
+      "on",
+      "workflow_run"
+    ],
+    "bad_value": {
+      "workflows": [
+        "CI"
+      ],
+      "types": [
+        "completed"
+      ]
+    },
+    "remove_to_fix": true
+  },
+  {
+    "file": "bad-20-deploy-cancel.yml",
+    "property": "concurrency",
+    "path": [
+      "jobs",
+      "deploy",
+      "concurrency",
+      "cancel-in-progress"
+    ],
+    "bad_value": "true",
+    "remove_to_fix": false
+  },
+  {
+    "file": "bad-21-checkout-token.yml",
+    "property": "checkout_credentials",
+    "path": [
+      "jobs",
+      "ci",
+      "steps",
+      0,
+      "with",
+      "token"
+    ],
+    "bad_value": "${{ secrets.CHECKOUT_TOKEN }}",
+    "remove_to_fix": true
+  },
+  {
+    "file": "bad-22-deploy-always.yml",
+    "property": "deploy_environment",
+    "path": [
+      "jobs",
+      "deploy",
+      "if"
+    ],
+    "bad_value": "true || github.event_name == 'push'",
+    "remove_to_fix": false
+  },
+  {
+    "file": "bad-23-scan-step-continue.yml",
+    "property": "gitleaks",
+    "path": [
+      "jobs",
+      "secret-scan",
+      "steps",
+      1,
+      "continue-on-error"
+    ],
+    "bad_value": "true",
+    "remove_to_fix": true
+  },
+  {
+    "file": "bad-24-shared-main-queue.yml",
+    "property": "concurrency",
+    "path": [
+      "concurrency",
+      "group"
+    ],
+    "bad_value": "${{ github.workflow }}-${{ github.ref }}",
+    "remove_to_fix": false
+  },
+  {
+    "file": "bad-25-action-pin-drift.yml",
+    "property": "pin_registry",
+    "path": [
+      "jobs",
+      "ci",
+      "steps",
+      0,
+      "uses"
+    ],
+    "bad_value": "actions/checkout@2222222222222222222222222222222222222222",
+    "remove_to_fix": false
+  },
+  {
+    "file": "bad-26-scanner-pin-drift.yml",
+    "property": "pin_registry",
+    "path": [
+      "jobs",
+      "secret-scan",
+      "steps",
+      1,
+      "run"
+    ],
+    "bad_value": "docker run --rm --env HOME=/tmp --user \"$(id -u):$(id -g)\" -v \"$PWD:/repo:ro\" zricethezav/gitleaks:v8.30.1@sha256:2222222222222222222222222222222222222222222222222222222222222222 detect --source=/repo --redact --no-banner\n",
+    "remove_to_fix": false
+  },
+  {
+    "file": "bad-27-deploy-no-group.yml",
+    "property": "concurrency",
+    "path": [
+      "jobs",
+      "deploy",
+      "concurrency"
+    ],
+    "missing": true,
+    "remove_to_fix": false
+  },
+  {
+    "file": "bad-28-deploy-per-sha.yml",
+    "property": "concurrency",
+    "path": [
+      "jobs",
+      "deploy",
+      "concurrency",
+      "group"
+    ],
+    "bad_value": "deploy-${{ github.repository }}-${{ github.sha }}-production",
+    "remove_to_fix": false
+  },
+  {
+    "file": "bad-29-scan-shell.yml",
+    "property": "gitleaks",
+    "path": [
+      "jobs",
+      "secret-scan",
+      "steps",
+      1,
+      "shell"
+    ],
+    "bad_value": "echo {0}",
+    "remove_to_fix": true
+  },
+  {
+    "file": "bad-30-scan-exit-zero.yml",
+    "property": "gitleaks",
+    "path": [
+      "jobs",
+      "secret-scan",
+      "steps",
+      1,
+      "run"
+    ],
+    "bad_value": "docker run --rm --env HOME=/tmp --user \"$(id -u):$(id -g)\" -v \"$PWD:/repo:ro\" zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f detect --source=/repo --redact --no-banner --exit-code 0\n",
+    "remove_to_fix": false
+  },
+  {
+    "file": "bad-31-scan-job-shell.yml",
+    "property": "gitleaks",
+    "path": [
+      "jobs",
+      "secret-scan",
+      "defaults"
+    ],
+    "bad_value": {
+      "run": {
+        "shell": "echo {0}"
+      }
+    },
+    "remove_to_fix": true
+  },
+  {
+    "file": "bad-32-scan-workflow-shell.yml",
+    "property": "gitleaks",
+    "path": [
+      "defaults"
+    ],
+    "bad_value": {
+      "run": {
+        "shell": "echo {0}"
+      }
+    },
+    "remove_to_fix": true
+  },
+  {
+    "file": "bad-33-scan-container.yml",
+    "property": "gitleaks",
+    "path": [
+      "jobs",
+      "secret-scan",
+      "container"
+    ],
+    "bad_value": {
+      "image": "example/scan-container:stub"
+    },
+    "remove_to_fix": true
+  },
+  {
+    "file": "bad-34-scan-other-repository.yml",
+    "property": "gitleaks",
+    "path": [
+      "jobs",
+      "secret-scan",
+      "steps",
+      0,
+      "with",
+      "repository"
+    ],
+    "bad_value": "other/clean-repository",
+    "remove_to_fix": true
+  },
+  {
+    "file": "bad-35-scan-other-ref.yml",
+    "property": "gitleaks",
+    "path": [
+      "jobs",
+      "secret-scan",
+      "steps",
+      0,
+      "with",
+      "ref"
+    ],
+    "bad_value": "unrelated-clean-branch",
+    "remove_to_fix": true
+  },
+  {
+    "file": "bad-36-deploy-no-ci.yml",
+    "property": "gitleaks",
+    "path": [
+      "jobs",
+      "deploy",
+      "needs"
+    ],
+    "bad_value": [
+      "secret-scan"
+    ],
+    "remove_to_fix": false
+  }
+]

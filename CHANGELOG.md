@@ -2,7 +2,16 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking for AWS consumers:** regenerated Actions deploy jobs use OIDC subject
+  `repo:O/R:environment:production`; migrate IAM trust to this exact subject
+  before regenerating. Dedicated production deploys are now serialized: active
+  deploys finish, and only the newest pending deploy is retained (#1604).
+
 ### Added
+
+- Consumer main-app Actions workflows and static templates pin action commits and uv, limit token permissions, disable checkout credential persistence, bound job duration, isolate CI concurrency by commit SHA, select a deployment environment, and require a redacted full-history secret scan (Closes #1604; CPP-owned and infrastructure workflows excluded).
 
 - Main app CI templates check counter-model enrolment through a verified CPP checkout pinned to the recorded install revision; known forks warn, while unreadable metadata and fetch/bootstrap errors remain UNKNOWN (#1610, part B; infrastructure-only templates excluded).
 

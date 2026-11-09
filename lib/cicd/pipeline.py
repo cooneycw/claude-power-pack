@@ -9,6 +9,20 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+from .actions import (
+    AWS_CREDENTIALS,
+    AWS_SECRETS,
+    CACHE,
+    CHECKOUT,
+    SETUP_GO,
+    SETUP_NODE,
+    SETUP_PYTHON,
+    SETUP_RUST,
+    UV_VERSION,
+    deploy_concurrency,
+    secret_scan_job,
+    workflow_permissions_and_concurrency,
+)
 from .config import CICDConfig
 from .enrolment import github_actions_job, woodpecker_enrolment_graph, woodpecker_step
 from .models import Framework, FrameworkInfo, PackageManager
@@ -35,10 +49,10 @@ _DEFAULT_MATRIX: dict[Framework, dict[str, list[str]]] = {
 
 # Setup actions for GitHub Actions
 _GH_SETUP_ACTIONS: dict[Framework, dict[str, str]] = {
-    Framework.PYTHON: {"action": "actions/setup-python@v5", "version_key": "python-version"},
-    Framework.NODE: {"action": "actions/setup-node@v4", "version_key": "node-version"},
-    Framework.GO: {"action": "actions/setup-go@v5", "version_key": "go-version"},
-    Framework.RUST: {"action": "dtolnay/rust-toolchain@stable", "version_key": "toolchain"},
+    Framework.PYTHON: {"action": SETUP_PYTHON, "version_key": "python-version"},
+    Framework.NODE: {"action": SETUP_NODE, "version_key": "node-version"},
+    Framework.GO: {"action": SETUP_GO, "version_key": "go-version"},
+    Framework.RUST: {"action": SETUP_RUST, "version_key": "toolchain"},
 }
 
 # Cache paths by framework
@@ -141,13 +155,16 @@ def generate_github_actions(info: FrameworkInfo, config: CICDConfig) -> str:
     lines.append("    branches: [main]")
     lines.append("")
 
+    lines.extend(workflow_permissions_and_concurrency())
     # Jobs
     lines.append("jobs:")
     lines.extend(github_actions_job(config._cpp_revision))
+    lines.extend(secret_scan_job())
 
     # Lint + test job
     lines.append("  ci:")
     lines.append("    runs-on: ubuntu-latest")
+    lines.append("    timeout-minutes: 30")
     if not pr_steps:
         # Adding the enrolment trigger must not start main-only application
         # targets (especially deploy) on a pull request.
@@ -163,7 +180,7 @@ def generate_github_actions(info: FrameworkInfo, config: CICDConfig) -> str:
     lines.append("")
 
     lines.append("    steps:")
-    lines.append("      - uses: actions/checkout@v4")
+    lines.extend([f"      - uses: {CHECKOUT}", "        with:", "          persist-credentials: false"])
 
     # Setup action
     setup = _GH_SETUP_ACTIONS.get(fw)
@@ -180,7 +197,7 @@ def generate_github_actions(info: FrameworkInfo, config: CICDConfig) -> str:
     # Cache
     cache_info = _CACHE_PATHS.get((fw, pm))
     if cache_info:
-        lines.append("      - uses: actions/cache@v4")
+        lines.append(f"      - uses: {CACHE}")
         lines.append("        with:")
         lines.append(f"          path: {cache_info['path']}")
         lines.append(
@@ -207,8 +224,11 @@ def generate_github_actions(info: FrameworkInfo, config: CICDConfig) -> str:
     # Deploy job (only on main push)
     if "deploy" in main_steps:
         lines.append("  deploy:")
-        lines.append("    needs: ci")
+        lines.append("    needs: [ci, secret-scan]")
         lines.append("    runs-on: ubuntu-latest")
+        lines.append("    timeout-minutes: 20")
+        lines.append("    environment: production")
+        lines.extend(deploy_concurrency())
         lines.append("    if: github.ref == 'refs/heads/main' && github.event_name == 'push'")
 
         use_aws = config.pipeline.secrets_source == "aws-secrets-manager"
@@ -218,7 +238,7 @@ def generate_github_actions(info: FrameworkInfo, config: CICDConfig) -> str:
             lines.append("      contents: read")
 
         lines.append("    steps:")
-        lines.append("      - uses: actions/checkout@v4")
+        lines.extend([f"      - uses: {CHECKOUT}", "        with:", "          persist-credentials: false"])
         if setup:
             lines.append(f"      - uses: {setup['action']}")
             if fw == Framework.PYTHON:
@@ -229,7 +249,7 @@ def generate_github_actions(info: FrameworkInfo, config: CICDConfig) -> str:
             # AWS credentials via OIDC
             aws_region = config.pipeline.aws_region or "us-east-1"
             lines.append("      - name: Configure AWS credentials")
-            lines.append("        uses: aws-actions/configure-aws-credentials@v4")
+            lines.append(f"        uses: {AWS_CREDENTIALS}")
             lines.append("        with:")
             lines.append("          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}")
             lines.append(f"          aws-region: {aws_region}")
@@ -237,7 +257,7 @@ def generate_github_actions(info: FrameworkInfo, config: CICDConfig) -> str:
             aws_secret = config.pipeline.aws_secret_name
             if aws_secret:
                 lines.append("      - name: Fetch deploy secrets")
-                lines.append("        uses: aws-actions/aws-secretsmanager-get-secrets@v2")
+                lines.append(f"        uses: {AWS_SECRETS}")
                 lines.append("        with:")
                 lines.append("          secret-ids: |")
                 lines.append(f"            {aws_secret}")
@@ -458,7 +478,7 @@ def _get_install_commands(fw: Framework, pm: PackageManager) -> list[str]:
     """Get dependency install commands for a framework/PM combo."""
     mapping: dict[tuple[Framework, PackageManager], list[str]] = {
         (Framework.PYTHON, PackageManager.UV): [
-            "pip install uv",
+            f"python -m pip install uv=={UV_VERSION}",
             "uv sync",
         ],
         (Framework.PYTHON, PackageManager.PIP): [
