@@ -25,7 +25,9 @@ def main():
         root = Path(directory)
         for name in ("required", "runs"):
             (root / (name + ".json")).write_text(json.dumps(data[name]))
-        (root / "rollup.txt").write_text(data["rollup"])
+        rollup = [{"context": line.rsplit("|", 1)[0], "state": line.rsplit("|", 1)[1]}
+                  for line in data["rollup"].splitlines()]
+        (root / "rollup.json").write_text(json.dumps({"statusCheckRollup": rollup}))
         gh = root / "gh"
         gh.write_text('''#!/usr/bin/env bash
 case "$1 $2" in
@@ -33,9 +35,8 @@ case "$1 $2" in
   api*rules/branches/*) echo '[]' | jq -r "$4"; exit $? ;;
   api*check-runs*) file="$FIXTURE/runs.json" ;;
   'pr view')
-    if [[ "$*" == *statusCheckRollup* ]]; then cat "$FIXTURE/rollup.txt"
-    else echo 'branch aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; fi
-    exit 0 ;;
+    if [[ "$*" == *statusCheckRollup* ]]; then file="$FIXTURE/rollup.json"
+    else echo 'branch aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; exit 0; fi ;;
   *) exit 2 ;;
 esac
 while (($#)); do

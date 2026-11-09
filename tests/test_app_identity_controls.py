@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
                     reason="controls shell out to bash and jq")
 @pytest.mark.parametrize("control,case,gate,prefix", [
     ("gh-pr-merge-app-identity", "bad-wrong-app", "gh-pr-merge.sh", "APP_CHECK_CONTROL"),
+    ("gh-pr-merge-app-identity", "bad-delimiter-spoof", "gh-pr-merge.sh", "APP_CHECK_CONTROL"),
     ("gh-pr-merge-app-identity", "bad-plain-status", "gh-pr-merge.sh", "APP_CHECK_CONTROL"),
     ("gh-pr-merge-app-identity", "bad-red-first", "gh-pr-merge.sh", "APP_CHECK_CONTROL"),
     ("gh-pr-merge-app-identity", "bad-pending-first", "gh-pr-merge.sh", "APP_CHECK_CONTROL"),
@@ -43,7 +44,7 @@ def test_removing_the_planted_defect_removes_detection(tmp_path, control, case, 
             rows[0]["app"]["id"] = 15368
         else:
             rows.pop(0)
-        data["rollup"] = "test|SUCCESS\n"
+        data["rollup"] = "test|SUCCESS\n" + ("lint|SUCCESS\n" if case == "bad-delimiter-spoof" else "")
     else:
         data["live"]["required_status_checks"]["checks"][0]["app_id"] = 15368
     data["condition"] = "good"

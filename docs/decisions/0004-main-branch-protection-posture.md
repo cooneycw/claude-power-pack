@@ -174,6 +174,8 @@ drift, and applies the declared payload without stripping it.
 `gh-pr-merge.sh` unions classic check/app pairs and ruleset
 `context`/`integration_id` pairs. App-bound observations come from all pages of
 REST check runs on one immutable PR head, including all runs of each identity.
+Identity keys carry a fixed origin prefix and JSON-encoded names, so a literal
+pipe, quote or newline in a status name cannot become an app identity.
 An ordinary commit status or another app's same-name check cannot satisfy that
 requirement. Within one app/name identity, red wins over pending, and pending
 wins over green, in either API order. A failed paginated read supplies no green

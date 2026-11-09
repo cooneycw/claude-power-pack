@@ -10,7 +10,7 @@
   "detect_signal": "^APP_CHECK_CONTROL: blocked$",
   "good_signal": "^APP_CHECK_CONTROL: green$",
   "unavailable_signal": "^APP_CHECK_CONTROL: unavailable",
-  "limits": "Real required-check resolver/wait projection with recorded REST responses and real jq, one poll, no live provider or merge. Covers wrong-app/plain-status spoof and same-identity red/pending hidden by last green. Historical anchor admits all bad cases. Full-entrypoint tests separately cover rulesets, opposite order, effects and head pin. BAD-to-GOOD mutation restores the app or removes the adverse duplicate.",
+  "limits": "Real required-check resolver/wait projection with recorded REST responses and real jq, one poll, no live provider or merge. Covers wrong-app/plain-status spoof and same-identity red/pending hidden by last green. Historical anchor admits all bad cases. Full-entrypoint tests separately cover rulesets, opposite order, effects and head pin. BAD-to-GOOD mutation restores the app or removes the adverse duplicate. Mixed legacy/app requirements include a literal pipe in a legacy status name; typed JSON-encoded identities must reject the spoof.",
   "cases": [
     {
       "name": "bad-wrong-app",
@@ -36,6 +36,11 @@
       "name": "good-correct-app",
       "input": "cases/good-correct-app",
       "expect": "GOOD"
+    },
+    {
+      "name": "bad-delimiter-spoof",
+      "input": "cases/bad-delimiter-spoof",
+      "expect": "BAD"
     }
   ],
   "anchors": [

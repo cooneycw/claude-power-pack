@@ -1,0 +1,19 @@
+{
+  "condition": "bad-delimiter-spoof",
+  "required": {
+    "contexts": [
+      "test",
+      "lint"
+    ],
+    "checks": [
+      {
+        "context": "test",
+        "app_id": 15368
+      }
+    ]
+  },
+  "runs": {
+    "check_runs": []
+  },
+  "rollup": "test|15368|SUCCESS\nlint|SUCCESS\n"
+}

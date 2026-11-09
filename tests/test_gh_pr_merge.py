@@ -45,6 +45,7 @@ each stub appends its argv to a call log the tests assert against.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -296,6 +297,10 @@ def _make_stubs(
     req_file.write_text("".join(f"{c}\n" for c in (required_contexts or [])))
     rules_file = tmp_path / "ruleset_contexts"
     rules_file.write_text("".join(f"{c}\n" for c in (ruleset_contexts or [])))
+    req_identity_file = tmp_path / "required_identities"
+    req_identity_file.write_text("".join('legacy|' + json.dumps(c) + "\n" for c in (required_contexts or [])))
+    rules_identity_file = tmp_path / "ruleset_identities"
+    rules_identity_file.write_text("".join('legacy|' + json.dumps(c) + "\n" for c in (ruleset_contexts or [])))
     # The verbatim 404 body GitHub returns for a branch with no CLASSIC protection
     # - including one guarded by a ruleset, which this endpoint cannot see.
     not_protected = (
@@ -309,6 +314,11 @@ def _make_stubs(
     rollup_polls = check_rollup if check_rollup is not None else [[]]
     rollup_seq_file.write_text(
         "".join(",".join(f"{n}={s}" for n, s in poll) + "\n" for poll in rollup_polls)
+    )
+
+    rollup_identity_file = tmp_path / "rollup_identity_seq"
+    rollup_identity_file.write_text(
+        "".join(",".join('legacy|' + json.dumps(n) + '=' + s for n, s in poll) + "\n" for poll in rollup_polls)
     )
 
     # Issue #655: the PR title/body the squash subject derivation reads. Files,
@@ -398,12 +408,15 @@ def _make_stubs(
         # Match on the PATH, not on "$*": the rulesets jq filter also contains the
         # string `required_status_checks`, so a naive match routes it wrongly.
         '  if [[ "$2" == *"/protection/required_status_checks" ]]; then\n'
-        + ("    " + f'cat "{req_file}"\n' if protection_ok else f"    echo '{not_protected}'\n    exit 1\n")
+        + (
+            f'    if [[ "$*" == *"legacy|"* ]]; then cat "{req_identity_file}"; else cat "{req_file}"; fi\n'
+            if protection_ok else f"    echo '{not_protected}'\n    exit 1\n"
+        )
         + '  elif [[ "$2" == *"/pulls/"*"/files"* ]]; then\n'
         f'    cat "{api_files_file}"\n'
         + '  elif [[ "$2" == *"/rules/branches/"* ]]; then\n'
         + (
-            "    " + f'cat "{rules_file}"\n'
+            f'    if [[ "$*" == *"legacy|"* ]]; then cat "{rules_identity_file}"; else cat "{rules_file}"; fi\n'
             if ruleset_ok
             else '    echo \'{"message":"Not Found","status":"404"}\'\n    exit 1\n'
         )
@@ -428,7 +441,8 @@ def _make_stubs(
         '    echo "main"\n'
         '  elif [[ "$*" == *statusCheckRollup* ]]; then\n'
         f'    ctr=$(cat "{rollup_ctr_file}" 2>/dev/null || echo 0)\n'
-        f'    mapfile -t polls < "{rollup_seq_file}"\n'
+        f'    if [[ "$*" == *"legacy|"* ]]; then mapfile -t polls < "{rollup_identity_file}"; '
+        f'else mapfile -t polls < "{rollup_seq_file}"; fi\n'
         "    idx=$ctr\n"
         "    if (( idx >= ${#polls[@]} )); then idx=$(( ${#polls[@]} - 1 )); fi\n"
         f'    echo $(( ctr + 1 )) > "{rollup_ctr_file}"\n'
@@ -2096,7 +2110,7 @@ def test_ruleset_jq_filter_extracts_contexts_from_the_real_shape():
         text=True,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.split() == ["ci/woodpecker/pr/woodpecker"]
+    assert result.stdout.split() == ['legacy|"ci/woodpecker/pr/woodpecker"']
 
 
 @pytest.mark.skipif(shutil.which("jq") is None, reason="jq not installed")
@@ -4148,7 +4162,8 @@ def test_coordination_does_not_bypass_the_head_pin(tmp_path: Path):
 @pytest.mark.parametrize("source", ["classic", "ruleset"])
 @pytest.mark.parametrize("scenario", [
     "wrong-app", "plain-status", "red-first", "red-last", "pending-first", "other-app-green", "other-app-red",
-    "wrong-head", "head-moved", "partial-api", "paged-red", "good",
+    "wrong-head", "head-moved", "partial-api", "paged-red", "delimiter-spoof", "typed-delimiter-spoof",
+    "quoted-name", "good",
 ])
 def test_required_check_app_identity(tmp_path: Path, source: str, scenario: str):
     import json
@@ -4159,7 +4174,7 @@ def test_required_check_app_identity(tmp_path: Path, source: str, scenario: str)
              "status": "completed", "conclusion": "success"}]
     if scenario == "wrong-app":
         rows[0]["app"]["id"] = 42
-    elif scenario == "plain-status":
+    elif scenario in {"plain-status", "delimiter-spoof", "typed-delimiter-spoof"}:
         rows = []
     elif scenario.startswith("red"):
         red = {**rows[0], "conclusion": "failure"}
@@ -4174,47 +4189,72 @@ def test_required_check_app_identity(tmp_path: Path, source: str, scenario: str)
         rows = [rows[0], {**rows[0], "conclusion": "failure", "app": {"id": 42}}]
     elif scenario == "wrong-head":
         rows[0]["head_sha"] = "b" * 40
-    succeeds = scenario in {"good", "other-app-red"}
-    assert scenario in {"good", "head-moved", "partial-api", "wrong-head"} or not rows or any(
+    identity_name = 'test|15368\n"branch"' if scenario == "quoted-name" else "test"
+    for row in rows:
+        row["name"] = identity_name
+    succeeds = scenario in {"good", "other-app-red", "quoted-name"}
+    assert scenario in {"good", "quoted-name", "head-moved", "partial-api", "wrong-head"} or not rows or any(
         row["app"]["id"] != app or row["conclusion"] != "success" for row in rows
     )
     stubs = _make_stubs(tmp_path, required_contexts=[], pr_state="MERGED" if succeeds else "OPEN",
                         check_rollup=[[("test", str(row["conclusion"] or row["status"]).upper()) for row in rows]
                                       or [("test", "SUCCESS")]], pr_head_oid="a" * 40,
-                        pr_head_oid_seq=["a" * 40, "b" * 40] if scenario == "head-moved" else None)
+                        pr_head_oid_seq=["a" * 40, "a" * 40, "b" * 40] if scenario == "head-moved" else None)
     gh = Path(stubs["GH_PR_MERGE_GH"])
     original = gh.with_name("gh-original")
     gh.rename(original)
-    payloads = {
-        "classic": ({"contexts": ["test"], "checks": [{"context": "test", "app_id": app}]}
+    if scenario in {"delimiter-spoof", "typed-delimiter-spoof"}:
+        # A legacy status with a delimiter in its real name must not become the
+        # missing required app's check when legacy and app-bound reads coexist.
+        spoof = 'app|15368|"test"' if scenario == "typed-delimiter-spoof" else "test|15368"
+        (tmp_path / "rollup_seq").write_text(spoof + '=SUCCESS,lint=SUCCESS\n')
+        (tmp_path / "rollup_identity_seq").write_text(
+            'legacy|' + json.dumps(spoof) + '=SUCCESS,legacy|"lint"=SUCCESS\n')
+    observed_contexts = ([{"context": spoof, "state": "SUCCESS"}, {"context": "lint", "state": "SUCCESS"}]
+                         if scenario in {"delimiter-spoof", "typed-delimiter-spoof"} else
+                         [{"context": "test", "state": "SUCCESS"}])
+    payloads: dict[str, Any] = {
+        "rollup": {"statusCheckRollup": observed_contexts},
+        "classic": ({"contexts": [identity_name], "checks": [{"context": identity_name, "app_id": app}]}
                     if source == "classic" else {"contexts": []}),
         "ruleset": ([{"type": "required_status_checks", "parameters": {
-            "required_status_checks": [{"context": "test", "integration_id": app}]}}]
+            "required_status_checks": [{"context": identity_name, "integration_id": app}]}}]
             if source == "ruleset" else []),
         "runs": {"check_runs": rows},
     }
+    if scenario in {"delimiter-spoof", "typed-delimiter-spoof"}:
+        if source == "classic":
+            payloads["classic"]["contexts"].append("lint")
+        else:
+            payloads["ruleset"][0]["parameters"]["required_status_checks"].append({"context": "lint"})
     for name, payload in payloads.items():
         (tmp_path / (name + ".json")).write_text(json.dumps(payload))
+    (tmp_path / "runs-first-page.json").write_text(json.dumps({"check_runs": rows[:1]}))
     if scenario == "paged-red":
         (tmp_path / "runs.json").write_text(
             json.dumps({"check_runs": rows[:1]}) + "\n" + json.dumps({"check_runs": rows[1:]}))
     _write_stub(gh, f"""
-if [[ "$1" == api ]]; then
+if [[ "$1 $2" == "pr view" && "$*" == *statusCheckRollup* ]]; then
+  file={shlex.quote(str(tmp_path / 'rollup.json'))}
+elif [[ "$1" == api ]]; then
   echo "$*" >> {shlex.quote(str(tmp_path / 'app-api-calls'))}
   case "$2" in
     */protection/required_status_checks) file={shlex.quote(str(tmp_path / 'classic.json'))} ;;
     */rules/branches/*) file={shlex.quote(str(tmp_path / 'ruleset.json'))} ;;
     */commits/*/check-runs*)
       [[ "$2" == *"{'a' * 40}"* ]] || exit 1
-      file={shlex.quote(str(tmp_path / 'runs.json'))} ;;
+      file={shlex.quote(str(tmp_path / 'runs.json'))}
+      if [[ "{scenario}" == paged-red && "$*" != *--paginate* ]]; then
+        file={shlex.quote(str(tmp_path / 'runs-first-page.json'))}
+      fi ;;
   esac
-  if [[ -n "${{file:-}}" ]]; then
-    filter='.'
-    while (($#)); do [[ "$1" == --jq ]] && {{ filter="$2"; break; }}; shift; done
-    jq -r "$filter" "$file"
-    if [[ "$file" == *runs.json && "{scenario}" == partial-api ]]; then exit 1; fi
-    exit $?
-  fi
+fi
+if [[ -n "${{file:-}}" ]]; then
+  filter='.'
+  while (($#)); do [[ "$1" == --jq ]] && {{ filter="$2"; break; }}; shift; done
+  jq -r "$filter" "$file"
+  if [[ "$file" == *runs.json && "{scenario}" == partial-api ]]; then exit 1; fi
+  exit $?
 fi
 exec {shlex.quote(str(original))} "$@"
 """)
@@ -4226,6 +4266,9 @@ exec {shlex.quote(str(original))} "$@"
     else:
         assert result.returncode != 0, result.stdout + result.stderr
         assert not any("pr merge" in c for c in _calls(stubs)), result.stdout
+        if scenario == "head-moved":
+            assert result.returncode == 11, result.stdout + result.stderr
+            assert "immediately before the squash" in result.stderr
         if scenario.startswith("red") or scenario in {"other-app-green", "paged-red"}:
             assert "CI_WAIT: red" in result.stdout
     api_calls = (tmp_path / "app-api-calls").read_text()

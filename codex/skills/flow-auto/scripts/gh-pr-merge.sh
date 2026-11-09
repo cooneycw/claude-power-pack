@@ -693,8 +693,8 @@ resolve_required_contexts() {
     # shellcheck disable=SC2016
     if out=$(_gh_api_jq "repos/{owner}/{repo}/branches/${PR_BASE_BRANCH}/protection/required_status_checks" \
                         '(.checks // []) as $checks |
-                         ([($checks[] | .context + (if .app_id == null or .app_id == -1 then "" else "|" + (.app_id|tostring) end))]
-                         + [(.contexts // [])[] | select(. as $name | all($checks[]; .context != $name))]) | unique | .[]'); then
+                         ([($checks[] | (if .app_id == null or .app_id == -1 then "legacy|" else "app|" + (.app_id|tostring) + "|" end) + (.context|@json))]
+                         + [(.contexts // [])[] | select(. as $name | all($checks[]; .context != $name)) | "legacy|" + (. | @json)]) | unique | .[]'); then
         answered=1
         while IFS= read -r line; do
             [[ -n "$line" ]] && found+=("$line")
@@ -704,7 +704,7 @@ resolve_required_contexts() {
     if out=$(_gh_api_jq "repos/{owner}/{repo}/rules/branches/${PR_BASE_BRANCH}" \
                         '[.[] | select(.type == "required_status_checks")
                               | .parameters.required_status_checks[]?
-                              | .context + (if .integration_id == null or .integration_id == -1 then "" else "|" + (.integration_id|tostring) end)] | unique | .[]'); then
+                              | (if .integration_id == null or .integration_id == -1 then "legacy|" else "app|" + (.integration_id|tostring) + "|" end) + (.context|@json)] | unique | .[]'); then
         answered=1
         while IFS= read -r line; do
             [[ -n "$line" ]] && found+=("$line")
@@ -729,6 +729,8 @@ resolve_required_contexts() {
     fi
 }
 
+# Keys have a fixed origin prefix and JSON-encoded name; a delimiter or newline
+# in a status/check name cannot impersonate another identity.
 # Unbound legacy requirements use the PR rollup. App-bound requirements use
 # REST check-runs: gh's statusCheckRollup projection does not expose app.id.
 # Read all pages on one immutable head; never admit a status-context row as an
@@ -737,11 +739,11 @@ check_states() {
     local key need_legacy=0 need_apps=0 out head
     if [[ "$RESOLVE_STATUS" == unresolved ]]; then need_legacy=1; fi
     for key in "${REQUIRED_CONTEXTS[@]}"; do
-        if [[ "$key" == *"|"* ]]; then need_apps=1; else need_legacy=1; fi
+        if [[ "$key" == app\|* ]]; then need_apps=1; else need_legacy=1; fi
     done
     if (( need_legacy )); then
         out=$("$GH_BIN" pr view "$PR_NUMBER" --json statusCheckRollup \
-            --jq '.statusCheckRollup[] | "\(.context // .name)|\(.state // .conclusion // .status // "PENDING")"' \
+            --jq '.statusCheckRollup[] | "legacy|\((.context // .name)|@json)|\(.state // .conclusion // .status // "PENDING")"' \
             2>/dev/null) || return 1
         [[ -z "$out" ]] || printf '%s\n' "$out"
     fi
@@ -755,7 +757,7 @@ check_states() {
         [[ "$head" =~ ^[0-9a-f]{40}$ ]] || return 1
         out=$("$GH_BIN" api "repos/{owner}/{repo}/commits/${head}/check-runs?filter=all&per_page=100" \
             --paginate --jq '.check_runs[] | select(.head_sha == "'"$head"'") |
-                "\(.name)|\(.app.id)|\(if .status == "completed" then (.conclusion // "UNKNOWN") else .status end)"' \
+                "app|\(.app.id)|\(.name|@json)|\(if .status == "completed" then (.conclusion // "UNKNOWN") else .status end)"' \
             2>/dev/null) || return 1
         [[ -z "$out" ]] || printf '%s\n' "$out"
     fi
@@ -823,7 +825,7 @@ wait_for_required_checks() {
     # that window, including retries. Unbound legacy behavior stays unchanged.
     local requirement observed_head
     for requirement in "${required[@]}"; do
-        if [[ "$requirement" == *"|"* ]] && (( MATCH_HEAD_SET == 0 )); then
+        if [[ "$requirement" == app\|* ]] && (( MATCH_HEAD_SET == 0 )); then
             observed_head=$("$GH_BIN" pr view "$PR_NUMBER" --json headRefName,headRefOid \
                 --jq '.headRefName + " " + .headRefOid' 2>/dev/null) || observed_head=""
             observed_head="${observed_head##* }"
@@ -929,7 +931,7 @@ wait_for_observed_checks() {
         while IFS= read -r line; do
             [[ -z "$line" ]] && continue
             observed=$(( observed + 1 ))
-            name="${line%%|*}"
+            name="${line%|*}"
             state="${line##*|}"
             case "${state^^}" in
                 SUCCESS|NEUTRAL|SKIPPED)
