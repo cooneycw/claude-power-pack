@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / 'scripts/flow-wave-completion.py'
+SCRIPT = ROOT / 'scripts' / 'flow-wave-completion.py'
 pytestmark = pytest.mark.skipif(shutil.which(sys.executable) is None, reason='requires Python')
 IDENTITY = ['--wave','wave-a','--role','worker-a','--assignment-id','task-a','--generation','1']
 BEFORE = '2026-11-08T10:00:00Z'
@@ -105,13 +105,15 @@ def adapter(tmp_path, body):
     path = tmp_path / 'adapter.py'
     path.write_text(body)
     return {'FLOW_WAVE_RECEIPT_ADAPTER':json.dumps([sys.executable,str(path)]),
-            'FLOW_WAVE_RECEIPT_TIMEOUT':'0.1'}
+            'FLOW_WAVE_RECEIPT_TIMEOUT':'5'}
 
 
 @pytest.mark.parametrize('body', ["raise RuntimeError('PRIVATE_ADAPTER_ERROR')", 'import time; time.sleep(10)'])
 def test_adapter_error_or_timeout_is_unknown(tmp_path, body):
     assign(tmp_path)
     env = adapter(tmp_path, body)
+    if 'time.sleep' in body:
+        env['FLOW_WAVE_RECEIPT_TIMEOUT'] = '0.1'
     code, value = call(tmp_path,'check','--now',AFTER,'--liveness','alive','--observed-at',AFTER,env=env)
     assert code == 3 and value['status'] == 'unknown'
     assert 'PRIVATE_ADAPTER_ERROR' not in json.dumps(value)
@@ -139,7 +141,7 @@ def test_published_wave_requires_receipts_and_deadline_check():
     text = (ROOT / '.claude/commands/flow/wave.md').read_text()
     assert 'the message is the shortcut, the receipt plus the deadline is the guarantee' in text
     for verb in ('assign','complete','check'):
-        assert f'flow-wave-completion.py" {verb}' in text
+        assert f'flow-wave-completion.py {verb}' in text
 
 
 def test_adapter_ack_without_readable_receipt_is_unknown(tmp_path):
@@ -161,25 +163,34 @@ def test_json_null_receipt_is_not_established_absence(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which('bash') is None or shutil.which('python3') is None, reason='requires bash/Python')
-def test_published_assign_complete_check_recipe_runs(tmp_path):
+@pytest.mark.parametrize('section', ['setup','loop'])
+def test_published_assign_complete_check_recipe_runs(tmp_path, section):
     import re
     from datetime import datetime, timedelta, timezone
 
     text = (ROOT / '.claude/commands/flow/wave.md').read_text()
-    recipes = [block for block in re.findall(r'```bash\n(.*?)```', text, re.S)
-               if 'flow-wave-completion.py"' in block]
-    assert len(recipes) == 3
-    env = {**os.environ,'CPP_DIR':str(ROOT),'FLOW_WAVE_COMPLETION_ROOT':str(tmp_path),
+    scope = (text.split('## Completion:',1)[1].split('## Phase 1:',1)[0] if section == 'setup'
+             else text.split('## Phase 2:',1)[1].split('## Phase 3:',1)[0])
+    recipes = [block for block in re.findall(r'```bash\n(.*?)```', scope, re.S)
+               if 'flow-wave-completion.py' in block]
+    assert len(recipes) == (3 if section == 'setup' else 4)
+    task_home = tmp_path / 'home'
+    installed = task_home / '.claude/scripts/flow-wave-completion.py'
+    installed.parent.mkdir(parents=True)
+    installed.write_bytes(SCRIPT.read_bytes())
+    env = {**os.environ,'HOME':str(task_home),'FLOW_WAVE_COMPLETION_ROOT':str(tmp_path),
            'WAVE':'wave-a','ROLE':'worker-a','ASSIGNMENT_ID':'task-a','GENERATION':'1',
            'DEADLINE':(datetime.now(timezone.utc)+timedelta(minutes=5)).isoformat(),
            'OUTCOME':'succeeded','RESULT_REFERENCE':'fixture-result','LIVENESS':'unknown',
            'LIVENESS_OBSERVED_AT':'','FLOW_WAVE_RECEIPT_ADAPTER':''}
+    env.pop('CPP_DIR', None)
     results = []
     for recipe in recipes:
         result = subprocess.run(['bash','-c',recipe],env=env,capture_output=True,text=True,timeout=8)
         assert result.returncode == 0, result.stdout + result.stderr
         results.append(json.loads(result.stdout))
-    assert [r['status'] for r in results] == ['assigned','recorded','complete']
+    assert [r['status'] for r in results] == (['assigned','recorded','complete'] if section == 'setup'
+                                             else ['assigned','recorded','complete','complete'])
 
 
 def test_new_generation_supersedes_old_assignment(tmp_path):
@@ -358,3 +369,173 @@ def test_visible_receipt_with_failing_directory_sync_is_unknown_to_reader(tmp_pa
     capsys.readouterr()
     assert helper.main(['check',*common,'--now',AFTER]) == 3
     assert json.loads(capsys.readouterr().out)['status'] == 'unknown'
+
+
+@pytest.mark.skipif(shutil.which('bash') is None, reason='requires bash installer')
+def test_completion_helper_is_installed_at_stable_path(tmp_path):
+    home = tmp_path / 'home'
+    result = subprocess.run(['bash',str(ROOT / 'scripts/flow-helpers-install.sh')],
+                            env={**os.environ,'FLOW_HELPERS_HOME':str(home),
+                                 'FLOW_HELPERS_SOURCE':str(ROOT / 'scripts')},
+                            capture_output=True,text=True,timeout=15)
+    assert result.returncode == 0, result.stderr
+    assert (home / '.claude/scripts/flow-wave-completion.py').is_file()
+
+
+def test_phase_two_calls_completion_protocol_in_actual_loop():
+    text = (ROOT / '.claude/commands/flow/wave.md').read_text()
+    phase = text.split('## Phase 2:',1)[1].split('## Phase 3:',1)[0]
+    for section, verbs in [('2. Assign',('assign',)),('4. Verify the PR',('complete','check')),
+                           ('5. Release the next issue',('check',))]:
+        body = phase.split('### '+section,1)[1].split('\n### ',1)[0]
+        for verb in verbs:
+            assert f'flow-wave-completion.py {verb}' in body
+
+
+def test_higher_generation_recovers_marker_only_assignment(tmp_path):
+    assign(tmp_path)
+    path = tmp_path / 'wave-a/assignments/worker-a.json'
+    path.unlink()
+    code, value = call(tmp_path,'assign','--deadline',DEADLINE,'--now',BEFORE,
+                       '--generation','2','--assignment-id','task-b')
+    assert code == 0 and value['status'] == 'assigned'
+    assert value['identity']['generation'] == 2 and value['extensions'] == 0
+    code, value = call(tmp_path,'check','--now',AFTER)
+    assert code == 3 and value['status'] == 'unknown'
+
+
+@pytest.mark.parametrize('seconds,expected', [(2,0),(5,0),(6,3)])
+def test_finished_at_has_bounded_clock_skew(tmp_path, seconds, expected):
+    from datetime import datetime, timedelta
+    assign(tmp_path)
+    publish(tmp_path)
+    path = next((tmp_path / 'receipts').glob('*.json'))
+    receipt = json.loads(path.read_text())
+    receipt['finished_at'] = (datetime.fromisoformat(AFTER.replace('Z','+00:00'))
+                              + timedelta(seconds=seconds)).isoformat()
+    path.write_text(json.dumps(receipt))
+    code, value = call(tmp_path,'check','--now',AFTER,'--message-arrived')
+    assert code == expected
+    assert value['status'] == ('complete' if expected == 0 else 'unknown')
+
+
+def test_readback_inequality_guard(tmp_path, monkeypatch, capsys):
+    helper = load_helper()
+    receipt = publish_fixture_receipt()
+    changed = {**receipt,'finished_at':DEADLINE}
+    class Store:
+        reads = 0
+        def get(self, key):
+            self.reads += 1
+            return None if self.reads == 1 else changed
+        def put(self, key, value):
+            return receipt
+    monkeypatch.setattr(helper,'store_for',lambda root:Store())
+    assert helper.main(['complete','--state-root',str(tmp_path),*IDENTITY,
+                        '--outcome','succeeded','--finished-at',BEFORE]) == 3
+    assert json.loads(capsys.readouterr().out)['status'] == 'unknown'
+
+
+def publish_fixture_receipt():
+    return {'schema':1,'identity':{'wave':'wave-a','role':'worker-a','assignment_id':'task-a','generation':1},
+            'outcome':'succeeded','finished_at':BEFORE,'evidence':''}
+
+
+def test_adapter_put_rejects_different_terminal_result(monkeypatch):
+    helper = load_helper()
+    receipt = publish_fixture_receipt()
+    store = helper.AdapterStore('["unused"]')
+    monkeypatch.setattr(store,'invoke',lambda *args:{**receipt,'outcome':'failed'})
+    with pytest.raises(helper.Unknown):
+        store.put('fixture-key',receipt)
+
+
+def test_gone_with_fresh_timestamp_never_extends(tmp_path):
+    assign(tmp_path)
+    code, value = call(tmp_path,'check','--now',AFTER,'--liveness','gone','--observed-at',AFTER)
+    assert code == 3 and value['status'] == 'unknown'
+    assert json.loads((tmp_path / 'wave-a/assignments/worker-a.json').read_text())['extensions'] == 0
+
+
+@pytest.mark.parametrize('body', [
+    'print(json.dumps({"key":"wrong-key","receipt":None}))',
+    'print(json.dumps({"key":sys.argv[2],"receipt":None}));sys.exit(7)',
+    'print(" "*1048577+json.dumps({"key":sys.argv[2],"receipt":None}))',
+])
+def test_adapter_response_guards_distinguish_unusable_from_absence(tmp_path, body):
+    assign(tmp_path)
+    env = adapter(tmp_path,'import json,sys\n'+body+'\n')
+    env['FLOW_WAVE_RECEIPT_TIMEOUT'] = '2'
+    code, value = call(tmp_path,'check','--now',BEFORE,env=env)
+    assert code == 3 and value['status'] == 'unknown'
+
+
+def test_file_store_rejects_conflict_inside_publication_lock(tmp_path):
+    helper = load_helper()
+    store = helper.FileStore(tmp_path)
+    store.initialize()
+    receipt = publish_fixture_receipt()
+    existing = {**receipt,'outcome':'failed'}
+    store.put('fixture',existing)
+    with pytest.raises(helper.Refused):
+        store.put('fixture',receipt)
+    assert store.get('fixture') == existing
+
+
+@pytest.mark.parametrize('finished', ['20261108T100000Z','2026-11-08 10:00:00Z',
+    '2026-11-08T10:00:00-00:00','2026-11-08T10:00:00.1234567Z'])
+def test_receipt_timestamp_grammar_is_exact(tmp_path, finished):
+    assign(tmp_path)
+    code, value = call(tmp_path,'complete','--outcome','succeeded','--finished-at',finished)
+    assert code == 3 and value['status'] == 'unknown'
+
+
+def test_generation_is_json_exact_integer(tmp_path):
+    code, value = call(tmp_path,'assign','--deadline',DEADLINE,'--now',BEFORE,
+                       '--generation',str(2**53))
+    assert code == 3 and value['status'] == 'unknown'
+
+
+def test_unknown_receipt_fields_are_rejected(tmp_path):
+    assign(tmp_path)
+    publish(tmp_path)
+    path = next((tmp_path / 'receipts').glob('*.json'))
+    receipt = json.loads(path.read_text())
+    receipt['extra'] = {}
+    path.write_text(json.dumps(receipt))
+    code, value = call(tmp_path,'check','--now',AFTER)
+    assert code == 3 and value['status'] == 'unknown'
+
+
+@pytest.mark.parametrize('payload', [
+    '{"key":"wrong","key":"KEY","receipt":null}',
+    '{"key":"KEY","receipt":NaN}',
+    '{"key":"KEY","receipt":Infinity}',
+    '{"key":"KEY","receipt":-Infinity}',
+    '{"key":"KEY","receipt":1e999}',
+])
+def test_adapter_rejects_non_strict_json(tmp_path, payload):
+    helper = load_helper()
+    env = adapter(tmp_path, 'import sys\nprint('+repr(payload)+'.replace("KEY",sys.argv[2]))\n')
+    os_argv = env['FLOW_WAVE_RECEIPT_ADAPTER']
+    store = helper.AdapterStore(os_argv)
+    with pytest.raises(helper.Unknown):
+        store.get('fixture-key')
+
+
+def test_adapter_encoding_is_explicit_utf8(tmp_path, monkeypatch):
+    helper = load_helper()
+    receipt = publish_fixture_receipt()
+    receipt['evidence'] = 'caf\u00e9'
+    env = adapter(tmp_path,'import json,sys\n'
+                  f'value={{"key":sys.argv[2],"receipt":{receipt!r}}}\n'
+                  'sys.stdout.buffer.write(json.dumps(value,ensure_ascii=False).encode("utf-8"))\n')
+    observed = []
+    actual = helper.subprocess.Popen
+    def launch(*args, **kwargs):
+        observed.append(kwargs)
+        return actual(*args, **kwargs)
+    monkeypatch.setattr(helper.subprocess,'Popen',launch)
+    store = helper.AdapterStore(env['FLOW_WAVE_RECEIPT_ADAPTER'])
+    assert store.get('fixture-key')['evidence'] == 'caf\u00e9'
+    assert observed and observed[0].get('encoding') == 'utf-8'

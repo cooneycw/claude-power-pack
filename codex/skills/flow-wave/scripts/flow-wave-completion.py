@@ -27,6 +27,9 @@ from typing import Any
 # NEGATIVE-CONTROL: controls/flow-wave-completion
 TOKEN = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z')
 OUTCOMES = {'succeeded', 'failed', 'cancelled'}
+MAX_GENERATION = 2**53 - 1
+CLOCK_SKEW_SECONDS = 5
+UTC_TIMESTAMP = re.compile(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)\Z')
 
 
 class Unknown(Exception):
@@ -39,6 +42,8 @@ class Refused(Exception):
 
 def timestamp(value: str) -> datetime:
     try:
+        if not isinstance(value, str) or not UTC_TIMESTAMP.fullmatch(value):
+            raise ValueError
         result = datetime.fromisoformat(value.replace('Z', '+00:00'))
         if result.utcoffset() != timedelta(0):
             raise ValueError
@@ -51,13 +56,18 @@ def stamp(value: datetime) -> str:
     return value.isoformat().replace('+00:00', 'Z')
 
 
+def validate_identity(subject: Any) -> dict:
+    if (not isinstance(subject, dict) or set(subject) != {'wave','role','assignment_id','generation'}
+            or any(not isinstance(subject.get(field), str) or not TOKEN.fullmatch(subject[field])
+                   for field in ('wave','role','assignment_id'))
+            or type(subject.get('generation')) is not int or not 1 <= subject['generation'] <= MAX_GENERATION):
+        raise Unknown('invalid wave/role/assignment identity or generation outside 1..2^53-1')
+    return subject
+
+
 def identity(args: argparse.Namespace) -> dict:
-    for value in (args.wave, args.role, args.assignment_id):
-        if not TOKEN.fullmatch(value):
-            raise Unknown('invalid wave, role or assignment identifier')
-    if args.generation < 1:
-        raise Unknown('generation must be positive')
-    return {'wave':args.wave, 'role':args.role, 'assignment_id':args.assignment_id, 'generation':args.generation}
+    return validate_identity({'wave':args.wave, 'role':args.role,
+                              'assignment_id':args.assignment_id, 'generation':args.generation})
 
 
 def key_for(subject: dict) -> str:
@@ -65,9 +75,27 @@ def key_for(subject: dict) -> str:
     return 'v1-' + hashlib.sha256(encoded).hexdigest()
 
 
+def strict_json(text: str) -> Any:
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise Unknown('duplicate JSON key')
+            result[key] = value
+        return result
+    def constant(value):
+        raise Unknown('non-finite JSON number')
+    def floating(value):
+        result = float(value)
+        if not math.isfinite(result):
+            raise Unknown('non-finite JSON number')
+        return result
+    return json.loads(text, object_pairs_hook=pairs, parse_constant=constant, parse_float=floating)
+
+
 def read_json(path: Path) -> Any:
     try:
-        return json.loads(path.read_text())
+        return strict_json(path.read_text(encoding="utf-8"))
     except (OSError, ValueError, UnicodeError):
         raise Unknown('stored evidence unreadable or malformed') from None
 
@@ -95,9 +123,9 @@ def durable_mkdir(path: Path) -> None:
 def atomic_write(path: Path, value: dict) -> None:
     temporary = None
     try:
-        with tempfile.NamedTemporaryFile(mode='w', dir=path.parent, delete=False) as output:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent, delete=False) as output:
             temporary = Path(output.name)
-            json.dump(value, output, sort_keys=True)
+            json.dump(value, output, sort_keys=True, allow_nan=False)
             output.write('\n')
             output.flush()
             os.fsync(output.fileno())
@@ -130,7 +158,8 @@ def locked(path: Path, *, create_parent: bool = True):
 
 
 def validate_receipt(value: Any, subject: dict) -> dict:
-    if (not isinstance(value, dict) or type(value.get('schema')) is not int or value['schema'] != 1
+    if (not isinstance(value, dict) or set(value) != {'schema','identity','outcome','finished_at','evidence'}
+            or type(value.get('schema')) is not int or value['schema'] != 1
             or not isinstance(value.get('identity'), dict)
             or type(value['identity'].get('generation')) is not int or value.get('identity') != subject
             or value.get('outcome') not in OUTCOMES
@@ -170,7 +199,7 @@ class FileStore:
         self.available()
         path = self.root / (key + '.json')
         try:
-            value = json.loads(path.read_text())
+            value = strict_json(path.read_text(encoding="utf-8"))
             if not isinstance(value, dict):
                 raise Unknown('receipt store contains malformed evidence')
             # A prior writer may have renamed successfully but failed its
@@ -210,7 +239,7 @@ class AdapterStore:
 
     def __init__(self, configured: str):
         try:
-            self.argv = json.loads(configured)
+            self.argv = strict_json(configured)
             self.timeout = float(os.environ.get('FLOW_WAVE_RECEIPT_TIMEOUT', '10'))
             if (not isinstance(self.argv, list) or not self.argv
                     or any(not isinstance(item, str) or not item for item in self.argv)
@@ -223,12 +252,13 @@ class AdapterStore:
         process = None
         try:
             process = subprocess.Popen([*self.argv, verb, key], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                       stderr=subprocess.DEVNULL, text=True, start_new_session=True)
-            output, _ = process.communicate(json.dumps({'key':key, 'receipt':receipt}) if verb == 'put' else '',
-                                            timeout=self.timeout)
+                                       stderr=subprocess.DEVNULL, text=True, encoding='utf-8', start_new_session=True)
+            payload = (json.dumps({'key':key, 'receipt':receipt}, separators=(',', ':'), allow_nan=False)
+                       if verb == 'put' else '')
+            output, _ = process.communicate(payload, timeout=self.timeout)
             if process.returncode or len(output) > 1024 * 1024:
                 raise Unknown('receipt adapter failed')
-            value = json.loads(output)
+            value = strict_json(output)
             if not isinstance(value, dict) or set(value) != {'key','receipt'} or value['key'] != key:
                 raise Unknown('receipt adapter returned another key or malformed response')
             return value['receipt']
@@ -312,12 +342,16 @@ def execute(args: argparse.Namespace) -> tuple[int, dict]:
         return 0, {'status':'recorded', 'key':key, 'receipt':result}
     path = root / subject['wave'] / 'assignments' / (subject['role'] + '.json')
     history = root / '.assigned-roles' / subject['wave'] / (subject['role'] + '.json')
-    history_value = {'schema':1, 'wave':subject['wave'], 'role':subject['role']}
+    history_value = {'schema':1, 'identity':subject}
     with locked(path.with_suffix('.lock')):
         try:
-            seen = json.loads(history.read_text())
-            if seen != history_value:
-                raise Unknown('assignment history malformed or belongs to another role')
+            seen = strict_json(history.read_text(encoding="utf-8"))
+            if (not isinstance(seen, dict) or set(seen) != {'schema','identity'}
+                    or type(seen.get('schema')) is not int or seen['schema'] != 1):
+                raise Unknown('assignment history malformed')
+            prior = validate_identity(seen['identity'])
+            if prior['wave'] != subject['wave'] or prior['role'] != subject['role']:
+                raise Unknown('assignment history belongs to another role')
         except FileNotFoundError:
             if history.is_symlink():
                 raise Unknown('assignment history unavailable') from None
@@ -325,7 +359,7 @@ def execute(args: argparse.Namespace) -> tuple[int, dict]:
         except (OSError, ValueError, UnicodeError):
             raise Unknown('assignment history unreadable') from None
         try:
-            current = json.loads(path.read_text())
+            current = strict_json(path.read_text(encoding="utf-8"))
             if not isinstance(current, dict):
                 raise Unknown('assignment state malformed')
         except FileNotFoundError:
@@ -334,8 +368,16 @@ def execute(args: argparse.Namespace) -> tuple[int, dict]:
             current = None
         except (OSError, ValueError, UnicodeError):
             raise Unknown('assignment state unreadable') from None
-        if (current is None) != (seen is None):
-            raise Unknown('assignment state/history missing; cannot reset deadline or extension budget')
+        if seen is None and current is not None:
+            raise Unknown('assignment history missing; cannot reset deadline or extension budget')
+        if seen is not None and (current is None or current.get('identity') != seen['identity']):
+            if current is not None:
+                prior_state = validate_assignment(current, validate_identity(current.get('identity')))
+                if prior_state['identity']['generation'] >= seen['identity']['generation']:
+                    raise Unknown('assignment state/history inconsistent')
+            if args.verb != 'assign' or subject['generation'] <= seen['identity']['generation']:
+                raise Unknown('assignment publication interrupted; recovery requires a strictly higher generation')
+            current = None
         if not args.now:
             now = datetime.now(timezone.utc)
         if args.verb == 'assign':
@@ -351,7 +393,8 @@ def execute(args: argparse.Namespace) -> tuple[int, dict]:
                 validate_assignment(current, existing)
                 if (existing.get('wave') != subject['wave'] or existing.get('role') != subject['role']
                         or not isinstance(existing.get('assignment_id'), str)
-                        or not TOKEN.fullmatch(existing['assignment_id']) or existing['generation'] < 1):
+                        or not TOKEN.fullmatch(existing['assignment_id'])
+                        or not 1 <= existing['generation'] <= MAX_GENERATION):
                     raise Unknown('existing assignment belongs to another role or is malformed')
                 if existing == subject:
                     if (current['initial_deadline'] != deadline
@@ -364,7 +407,7 @@ def execute(args: argparse.Namespace) -> tuple[int, dict]:
                 raise Refused('new assignment deadline must be in the future')
             current = {'schema':1, 'identity':subject, 'initial_deadline':deadline, 'deadline':deadline,
                        'extension_seconds':args.extension_seconds, 'extensions':0}
-            if seen is None:
+            if seen != history_value:
                 durable_mkdir(history.parent)
                 atomic_write(history, history_value)
             atomic_write(path, current)
@@ -375,7 +418,7 @@ def execute(args: argparse.Namespace) -> tuple[int, dict]:
             now = datetime.now(timezone.utc)
         if receipt is not None:
             receipt = validate_receipt(receipt, subject)
-            if timestamp(receipt['finished_at']) > now:
+            if timestamp(receipt['finished_at']) > now + timedelta(seconds=CLOCK_SKEW_SECONDS):
                 raise Unknown('receipt completion timestamp is in the future')
             return (0 if receipt['outcome'] == 'succeeded' else 1), {
                 'status':'complete', 'outcome':receipt['outcome'], 'receipt':receipt, 'key':key}

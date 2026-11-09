@@ -538,7 +538,7 @@ Each brief carries `WAVE`, `ROLE`, a new `ASSIGNMENT_ID`, an increasing integer
 a finite one-time extension budget before sending the brief:
 
 ```bash
-python3 "$CPP_DIR/scripts/flow-wave-completion.py" assign \
+python3 "${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-completion.py assign \
   --state-root "$FLOW_WAVE_COMPLETION_ROOT" --wave "$WAVE" --role "$ROLE" \
   --assignment-id "$ASSIGNMENT_ID" --generation "$GENERATION" \
   --deadline "$DEADLINE" --extension-seconds 600
@@ -551,7 +551,7 @@ evidence reference, never credentials. An interrupted/killed worker may never
 get to write: that is exactly the absent-receipt UNKNOWN path below, not success.
 
 ```bash
-python3 "$CPP_DIR/scripts/flow-wave-completion.py" complete \
+python3 "${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-completion.py complete \
   --state-root "$FLOW_WAVE_COMPLETION_ROOT" --wave "$WAVE" --role "$ROLE" \
   --assignment-id "$ASSIGNMENT_ID" --generation "$GENERATION" \
   --outcome "$OUTCOME" --evidence "$RESULT_REFERENCE"
@@ -562,7 +562,7 @@ and immediately on any earlier completion message. Add `--message-arrived` on
 that early wake only as a hint; it does not change the evidence or verdict:
 
 ```bash
-python3 "$CPP_DIR/scripts/flow-wave-completion.py" check \
+python3 "${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-completion.py check \
   --state-root "$FLOW_WAVE_COMPLETION_ROOT" --wave "$WAVE" --role "$ROLE" \
   --assignment-id "$ASSIGNMENT_ID" --generation "$GENERATION" \
   --liveness "$LIVENESS" --observed-at "$LIVENESS_OBSERVED_AT"
@@ -580,7 +580,10 @@ Read the JSON `status` and preserve the terminal `outcome`:
 
 - `complete`: matching receipt found; proceed with that outcome. Exit 0 means
   succeeded, exit 1 means failed/cancelled. Neither may be overwritten by a
-  message. A wrong assignment/generation or malformed receipt is UNKNOWN.
+  message. A wrong assignment/generation or malformed receipt is UNKNOWN. Worker clocks
+  may lead the coordinator by at most 5 seconds; a larger future timestamp is
+  UNKNOWN and must be retried after checking clock synchronization before
+  treating the role as gone or escalating.
 - `waiting` (exit 4): no receipt before the deadline. Re-arm the timer for the
   recorded deadline; a message is optional.
 - `extended` (exit 4): no receipt at the deadline, with fresh `alive` evidence;
@@ -596,7 +599,11 @@ Read the JSON `status` and preserve the terminal `outcome`:
 Re-running `assign` for the same identity/policy preserves extension history.
 The coordinator retains per-role history markers outside the assignment
 directory. Missing state after initialization is UNKNOWN, never a new budget.
-Do not remove markers to bypass that refusal.
+If publication was interrupted after the marker write, a new assignment with a
+strictly higher generation than the marker may start fresh. The marker stores
+the highest reserved identity; retrying that generation cannot reset its
+budget. Keep the old evidence and record the explicit reassignment. Do not
+delete markers or reuse the interrupted generation.
 A new assignment needs a higher generation; checking a superseded assignment
 is UNKNOWN. The helper's optional `--now` is for deterministic offline replay;
 operational calls use the real UTC clock. Archive these files with the wave
@@ -709,6 +716,23 @@ conventions the later ones inherit. `Serialized-resource: <name>` body lines
 are the precise override for non-path resources.
 
 ### 2. Assign
+
+
+Before sending any assignment, establish the shared store as described under
+Completion, select a finite UTC `DEADLINE` and one-time extension budget, and
+record the worker's complete assignment identity. Run this and require
+`status: assigned` before sending the brief:
+
+```bash
+python3 "${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-completion.py assign \
+  --state-root "$FLOW_WAVE_COMPLETION_ROOT" --wave "$WAVE" --role "$ROLE" \
+  --assignment-id "$ASSIGNMENT_ID" --generation "$GENERATION" \
+  --deadline "$DEADLINE" --extension-seconds 600
+```
+
+Include that identity, store configuration, deadline and result reference in the
+brief. Arm the coordinator's deadline wake now; do not defer it until the worker
+reports. On an assignment/storage refusal, record UNKNOWN and do not dispatch.
 
 For each idle registered worker, pick the next startable issue subject to:
 
@@ -956,7 +980,33 @@ always on is how the distinction gets lost.
 
 ### 4. Verify the PR
 
-When the worker reports CI green: check the PR diff against the gate
+The assigned worker writes its terminal result before sending an optional
+completion message. This step is required for success, failure and cancellation:
+
+```bash
+python3 "${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-completion.py complete \
+  --state-root "$FLOW_WAVE_COMPLETION_ROOT" --wave "$WAVE" --role "$ROLE" \
+  --assignment-id "$ASSIGNMENT_ID" --generation "$GENERATION" \
+  --outcome "$OUTCOME" --evidence "$RESULT_REFERENCE"
+```
+
+At the recorded deadline, or earlier when completion mail arrives, the
+coordinator reads the receipt regardless of message delivery:
+
+```bash
+python3 "${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-completion.py check \
+  --state-root "$FLOW_WAVE_COMPLETION_ROOT" --wave "$WAVE" --role "$ROLE" \
+  --assignment-id "$ASSIGNMENT_ID" --generation "$GENERATION" \
+  --liveness "$LIVENESS" --observed-at "$LIVENESS_OBSERVED_AT"
+```
+
+Use `unknown` and omit the observation timestamp if current liveness cannot be
+established. Apply the Completion status table: re-arm waiting/extended once,
+escalate UNKNOWN/expired, and preserve failed/cancelled outcomes. A message with
+no usable receipt is not enough. After a matching succeeded receipt, independently
+read actual CI and the PR evidence below; the receipt does not establish CI green.
+
+After the succeeded receipt is reconciled and actual CI is green: check the PR diff against the gate
 conditions actually landed (named tests exist and assert the pinned behavior),
 confirm the required checks are green, and take the completeness ledger. Check
 the worktree HEAD against `origin/main` yourself (`git -C <wt> rev-list
@@ -996,6 +1046,22 @@ silently downgrades a real regression, which is why the verdict always prints
 the ids it excused.
 
 ### 5. Release the next issue
+
+Before freeing the worker or handing out its next generation, reconcile the
+current assignment once more, even if no completion message arrived:
+
+```bash
+python3 "${CPP_SKILL_DIR:-/dev/null}"/scripts/flow-wave-completion.py check \
+  --state-root "$FLOW_WAVE_COMPLETION_ROOT" --wave "$WAVE" --role "$ROLE" \
+  --assignment-id "$ASSIGNMENT_ID" --generation "$GENERATION" \
+  --liveness "$LIVENESS" --observed-at "$LIVENESS_OBSERVED_AT"
+```
+
+Require `status: complete` and handle its original outcome explicitly. Do not
+release a waiting/extended/UNKNOWN assignment as finished; resolve or escalate
+it. A failed/cancelled terminal result is complete work accounting, not approval
+to merge. Retain its receipt and follow the failure/cancellation ruling. Only a
+succeeded result with accepted evidence reaches the merge path below.
 
 On ledger acceptance the worker proceeds to merge (Step 7-9), then gets its
 next assignment from the CURRENT plan (step 1 re-ran after the verdict).
