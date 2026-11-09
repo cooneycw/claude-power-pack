@@ -51,17 +51,26 @@ No new secret binding is required by the generated template. Woodpecker's clone
 has depth 0 and disables synthetic PR merges to preserve head attribution.
 
 The Woodpecker step installs its own shell/git/HTTP tools; installation failures
-are UNKNOWN. Runtime dollars in its emitted command are escaped for provider
+are UNKNOWN. Enrolment is independent of application checks; explicit dependency
+edges retain their secret-scan, build, security, smoke and deploy ordering.
+Runtime dollars in its emitted command are escaped for provider
 substitution. See the official [environment](https://woodpecker-ci.org/docs/usage/environment)
 and [workflow syntax](https://woodpecker-ci.org/docs/usage/workflow-syntax)
 documentation for the provider fields and escaping contract.
 
 ## Evidence boundaries
 
+On `pull_request`, the PR's own workflow runs, so a same-repository PR can edit the pin or the job.
+
 `controls/pinned-enrolment` executes the actual emitted shell with owned git and
-HTTP stubs. Committed bad inputs cover moving or short refs, SHA mismatch,
-fetch/bootstrap errors, missing receipts and unreadable metadata; valid receipts
-and known forks are positive controls. The synthetic unenforced anchor misses
-every refusal. These controls do not claim live provider coverage. Unit tests
+HTTP stubs, using Actions' `bash -eo pipefail` behavior for its cases. Committed
+bad inputs cover moving or short refs, SHA mismatch, fetch/bootstrap errors,
+missing same-repository receipts on both providers, and unreadable metadata.
+Cases pin UNKNOWN to exit 5 and missing receipts to exit 1. Valid receipts and
+known forks are positive controls. The synthetic unenforced anchor misses every
+refusal; the separate `pinned-enrolment-fork-evidence` and
+`pinned-enrolment-exit-class` batteries prove near-miss anchors cannot hide absent
+fork evidence or collapse UNKNOWN into FAIL. These controls do not claim live
+provider coverage. Unit tests
 also fetch a local trusted CPP fixture, run the real enrolment-only helper and
 verify a receipt at an ancestor of the consumer HEAD.

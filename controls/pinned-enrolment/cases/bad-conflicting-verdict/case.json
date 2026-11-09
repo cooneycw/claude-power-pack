@@ -1,1 +1,1 @@
-{"scenario": "conflicting-verdict"}
+{"scenario": "conflicting-verdict", "expected_exit": 5}

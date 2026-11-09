@@ -47,6 +47,7 @@ these rules remain in [commands-reference.md](docs/commands-reference.md) and
 - `docs/agents/flow-plan-record.md` - background for `/flow:auto`'s plan record, as-read snapshot and plan-compliance checks (`scripts/flow-plan-record.py`); linked from the procedure, not required reading.
 - `docs/agents/execution-evidence.md` - the `/flow:check` execution-record pilot: what the runner records, where it is kept, and the exact claim `scripts/execution-evidence-verify.py` lets a reader make.
 - `docs/agents/counter-model-evidence.md` - runtime identity adapters, reviewed-artifact binding, producer requirements, and historical receipt compatibility.
+- `docs/agents/generated-ci-enrolment.md` - main app CI enrolment, immutable checker pins, fork policy, metadata requirements, and the infrastructure-only exclusion.
 - `docs/agents/flow-permissions-guide.md` - short plain-language guide for users: which `/flow:*` command to use when, what the `/cpp:init` setup menus and the optional allowlist change, and why a helper may still prompt; linked from `/flow:help` and `/cpp:help`.
 - `docs/agents/evidence-deleting-idioms.md` - the git and shell idioms that remove the diagnostic and keep the success line: the pinned base, deletion accounting before a push, `$?` after a pipe, and which distinction a tidying flag deletes.
 - `ISSUE_DRIVEN_DEVELOPMENT.md` - issue-driven development source.

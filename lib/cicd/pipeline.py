@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 from .config import CICDConfig
-from .enrolment import github_actions_job, woodpecker_step
+from .enrolment import github_actions_job, woodpecker_enrolment_graph, woodpecker_step
 from .models import Framework, FrameworkInfo, PackageManager
 
 # Docker images for Woodpecker CI steps
@@ -291,10 +291,8 @@ def generate_woodpecker(info: FrameworkInfo, config: CICDConfig) -> str:
     lines.append("steps:")
     lines.extend(woodpecker_step(config._cpp_revision))
 
-    # Self-hosted CI hardening stages are opt-in (default off). Woodpecker runs
-    # steps sequentially in listed order when no step declares depends_on, so
-    # the correct order (secret-scan -> build -> image-security -> smoke ->
-    # deploy) falls out of emission order without switching to DAG mode.
+    # Self-hosted hardening stages retain their listed order through explicit
+    # dependency edges below; enrolment is independent of the application DAG.
     wp = config.pipeline.woodpecker
 
     # Secret-scan stage: self-hosted CI has no native secret scanning.
@@ -372,7 +370,7 @@ def generate_woodpecker(info: FrameworkInfo, config: CICDConfig) -> str:
         lines.append("      event: push")
         lines.append("")
 
-    return "\n".join(lines)
+    return "\n".join(woodpecker_enrolment_graph(lines))
 
 
 #: Metadata-only gitleaks report template (issue #1405, matching #1288's own

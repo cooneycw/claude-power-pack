@@ -1,1 +1,1 @@
-{"fork": true, "scenario": "missing-receipt", "provider": "woodpecker"}
+{"fork": true, "scenario": "missing-receipt", "provider": "woodpecker", "expected_exit": 0}

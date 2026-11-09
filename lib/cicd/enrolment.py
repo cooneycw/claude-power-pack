@@ -3,6 +3,8 @@
 Infra generators remain path-scoped and are deliberately not enrolled here.
 """
 # NEGATIVE-CONTROL: controls/pinned-enrolment
+# NEGATIVE-CONTROL: controls/pinned-enrolment-fork-evidence
+# NEGATIVE-CONTROL: controls/pinned-enrolment-exit-class
 from __future__ import annotations
 
 import json
@@ -37,6 +39,8 @@ base_repo="${CPP_PR_BASE_REPO:-}"
 if [[ "$provider" == woodpecker ]]; then
     event="${CI_PIPELINE_EVENT:-}"
     branch="${CI_COMMIT_SOURCE_BRANCH:-}"
+    head_repo=""
+    base_repo=""
 fi
 case "$event" in
     push) echo 'CPP_COUNTER_MODEL_ENROLMENT: not-applicable (push)'; exit 0 ;;
@@ -101,10 +105,13 @@ resolved=$(git -C "$cpp_tmp" rev-parse HEAD) || unknown 'CPP checkout revision u
 [[ "$(git rev-parse HEAD)" == "$consumer_head" ]] || unknown 'consumer head changed during bootstrap'
 [[ -r "$cpp_tmp/scripts/flow-finish-gate.sh" && -r "$cpp_tmp/scripts/counter-model-receipt.py" ]] ||
     unknown 'CPP enrolment bootstrap incomplete'
-output=$(PYTHONPATH='' PYTHONNOUSERSITE=1 \
+if output=$(PYTHONPATH='' PYTHONNOUSERSITE=1 \
     CM_RECEIPT_HELPER="$cpp_tmp/scripts/counter-model-receipt.py" FLOW_GATE_CPP_DIR="$cpp_tmp" \
-    bash "$cpp_tmp/scripts/flow-finish-gate.sh" --enrolment-only --branch "$branch" 2>&1)
-status=$?
+    bash "$cpp_tmp/scripts/flow-finish-gate.sh" --enrolment-only --branch "$branch" </dev/null 2>&1); then
+    status=0
+else
+    status=$?
+fi
 printf '%s\n' "$output"
 [[ "$(grep -c '^FLOW_FINISH_GATE: ' <<<"$output")" == 1 ]] || unknown 'ambiguous checker verdict'
 if [[ "$status" == 0 && "$(grep -cx 'FLOW_FINISH_GATE: ok' <<<"$output")" == 1 ]]; then
@@ -141,3 +148,21 @@ def woodpecker_step(pin: str) -> list[str]:
     lines.extend("        " + line.replace("$", "$$") for line in bootstrap_script(pin, "woodpecker").splitlines())
     lines.extend(["        CPP_ENROLMENT_BOOTSTRAP", ""])
     return lines
+
+
+def woodpecker_enrolment_graph(lines: list[str]) -> list[str]:
+    """Keep enrolment independent while retaining application step ordering."""
+    result: list[str] = []
+    previous: str | None = None
+    in_steps = False
+    for line in lines:
+        result.append(line)
+        if line == "steps:":
+            in_steps = True
+        if in_steps and line.startswith("  - name: "):
+            name = line.removeprefix("  - name: ")
+            parents = [] if name == "counter-model-enrolment" or previous is None else [previous]
+            result.append("    depends_on: " + json.dumps(parents))
+            if name != "counter-model-enrolment":
+                previous = name
+    return result

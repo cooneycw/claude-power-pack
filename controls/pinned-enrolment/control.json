@@ -8,8 +8,8 @@
   ],
   "good_exit": 0,
   "detect_signal": "^PINNED_ENROLMENT_CONTROL: refused unsafe proceed$",
-  "good_signal": "^PINNED_ENROLMENT_CONTROL: ready$",
-  "limits": "Executes the shell emitted by the supplied stdlib enrolment module with owned git/curl metadata stubs. The verdict is whether an unsafe proceed was refused, not whether a PR is bad: a runtime UNKNOWN is a refusal here. Covers moving/short pins, exact resolved SHA, fetch/bootstrap failure, missing same-repo receipt, positive fork evidence and API errors. No live network, actual provider interpolation or complete trusted checker/ancestry coverage is claimed; unit integration tests separately cover those seams. The constructed unenforced anchor allows every input, preserving the valid receipt and known-fork cases while missing every refusal. Also refuses conflicting trusted-checker verdicts rather than selecting a convenient green line.",
+  "good_signal": "^PINNED_ENROLMENT_CONTROL: (ready|missed contract)$",
+  "limits": "Executes the shell emitted by the supplied stdlib enrolment module with owned git/curl metadata stubs. The verdict is whether an unsafe proceed was refused, not whether a PR is bad: a runtime UNKNOWN is a refusal here. Covers moving/short pins, exact resolved SHA, fetch/bootstrap failure, missing same-repo receipt, positive fork evidence and API errors. No live network, actual provider interpolation or complete trusted checker/ancestry coverage is claimed; unit integration tests separately cover those seams. The constructed unenforced anchor allows every input, preserving the valid receipt and known-fork cases while missing every refusal. Also refuses conflicting trusted-checker verdicts rather than selecting a convenient green line. Each case pins its exact exit: runtime UNKNOWN must be 5, same-repository missing receipts must be 1, and valid or positively known fork cases must be 0. A wrong refusal class is a missed contract. GHA cases use bash -eo pipefail. Woodpecker fixtures unset all CPP_PR variables so only the provider API can supply identities. Near-miss anchors separately demonstrate sensitivity to fork evidence and UNKNOWN/FAIL conflation.",
   "cases": [
     {
       "name": "bad-moving-branch",
@@ -52,6 +52,21 @@
       "expect": "BAD"
     },
     {
+      "name": "bad-conflicting-verdict",
+      "input": "cases/bad-conflicting-verdict",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-actions-missing-head",
+      "input": "cases/bad-actions-missing-head",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-woodpecker-missing-receipt",
+      "input": "cases/bad-woodpecker-missing-receipt",
+      "expect": "BAD"
+    },
+    {
       "name": "good-receipt",
       "input": "cases/good-receipt",
       "expect": "GOOD"
@@ -65,11 +80,6 @@
       "name": "good-known-woodpecker-fork",
       "input": "cases/good-known-woodpecker-fork",
       "expect": "GOOD"
-    },
-    {
-      "name": "bad-conflicting-verdict",
-      "input": "cases/bad-conflicting-verdict",
-      "expect": "BAD"
     }
   ],
   "anchors": [

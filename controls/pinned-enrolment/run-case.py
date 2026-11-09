@@ -15,9 +15,17 @@ def main():
         result, calls = exercise(Path(directory), pin=data.get("pin", PIN),
                                  scenario=data.get("scenario", "ok"),
                                  fork=data.get("fork", False), provider=data.get("provider", "github-actions"),
-                                 gate=gate)
+                                 gate=gate, metadata=data.get("metadata"))
     output = result.stdout
-    if result.returncode in {1, 5} and "CPP_COUNTER_MODEL_ENROLMENT: " in output:
+    expected = data["expected_exit"]
+    if result.returncode != expected:
+        if expected != 0:
+            print("PINNED_ENROLMENT_CONTROL: missed contract")
+            return 0
+        print("PINNED_ENROLMENT_CONTROL: malformed evidence")
+        return 3
+    state = "fail" if expected == 1 else "unknown"
+    if expected in {1, 5} and "CPP_COUNTER_MODEL_ENROLMENT: " + state in output:
         print("PINNED_ENROLMENT_CONTROL: refused unsafe proceed")
         return 1
     if result.returncode == 0 and any("CPP_COUNTER_MODEL_ENROLMENT: " + state in output for state in ("ok", "warn")):

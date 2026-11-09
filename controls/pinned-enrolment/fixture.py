@@ -9,7 +9,7 @@ from pathlib import Path
 PIN = "a" * 40
 
 def exercise(tmp_path: Path, pin=PIN, *, scenario="ok", fork=False, provider="github-actions",
-             gate=None, metadata=None):
+             gate=None, metadata=None, shell_flags=None, stdin=None):
     source = Path(gate) if gate else Path(__file__).resolve().parents[2] / "lib/cicd/enrolment.py"
     spec = importlib.util.spec_from_file_location("pinned_enrolment_under_test", source)
     assert spec and spec.loader
@@ -40,6 +40,8 @@ if [[ "$1" == -C ]]; then
 case "$OWNED_SCENARIO" in
  missing-receipt) echo 'FLOW_FINISH_GATE: fail (counter-model line missing)'; exit 1 ;;
  broken-bootstrap) exit 127 ;;
+ old-checker) exit 2 ;;
+ reads-stdin) if read -r value; then exit 98; else echo 'FLOW_FINISH_GATE: ok'; exit 0; fi ;;
  conflicting-verdict) printf 'FLOW_FINISH_GATE: ok\\nFLOW_FINISH_GATE: fail\\n'; exit 0 ;;
  *) echo 'FLOW_FINISH_GATE: ok'; exit 0 ;;
 esac
@@ -63,7 +65,7 @@ esac
     curl.write_text("""#!/bin/bash
 [[ "$OWNED_SCENARIO" == metadata-error ]] && exit 22
 printf '{"base":{"repo":{"full_name":"o/r"}},"head":{"ref":"owned-branch","sha":"%s",' "$OWNED_PIN"
-printf '"repo":{"full_name":"%s"}}}\\n' "$CPP_PR_HEAD_REPO"
+printf '"repo":{"full_name":"%s"}}}\\n' "$OWNED_API_HEAD_REPO"
 """)
     curl.chmod(0o755)
     env = {**os.environ, "PATH": str(binaries) + os.pathsep + os.environ["PATH"],
@@ -72,12 +74,19 @@ printf '"repo":{"full_name":"%s"}}}\\n' "$CPP_PR_HEAD_REPO"
            "CI_PIPELINE_EVENT": "pull_request", "CI_COMMIT_SOURCE_BRANCH": "owned-branch",
            "CI_COMMIT_PULL_REQUEST": "12", "CI_REPO": "o/r", "CI_FORGE_TYPE": "github",
            "CI_FORGE_URL": "https://github.com", "OWNED_CALLS": str(calls), "OWNED_PIN": PIN,
-           "OWNED_PROJECT": str(tmp_path), "OWNED_SCENARIO": scenario}
+           "OWNED_PROJECT": str(tmp_path), "OWNED_SCENARIO": scenario,
+           "OWNED_API_HEAD_REPO": "fork/r" if fork else "o/r"}
+    if provider == "woodpecker":
+        for key in list(env):
+            if key.startswith("CPP_PR_"):
+                env.pop(key)
     if metadata:
         assert set(metadata) <= {
             "CPP_PR_EVENT", "CPP_PR_BRANCH", "CPP_PR_HEAD_REPO", "CPP_PR_BASE_REPO", "CI_FORGE_TYPE",
         }
         env.update(metadata)
-    result = subprocess.run(["bash", "-c", bootstrap_script(pin, provider)], cwd=tmp_path,
-                            env=env, capture_output=True, text=True, timeout=15)
+    if shell_flags is None:
+        shell_flags = ("-eo", "pipefail") if provider == "github-actions" else ()
+    result = subprocess.run(["bash", *shell_flags, "-c", bootstrap_script(pin, provider)], cwd=tmp_path,
+                            env=env, input=stdin, capture_output=True, text=True, timeout=15)
     return result, calls.read_text() if calls.exists() else ""

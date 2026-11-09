@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -280,3 +281,59 @@ def test_metadata_reader_never_imports_consumer_modules(tmp_path):
     result, calls = exercise(tmp_path, provider="woodpecker")
     assert not sentinel.exists(), "metadata parsing executed a module from the consumer checkout"
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@requires_bash
+@pytest.mark.parametrize("scenario,expected", [("missing-receipt", 1), ("broken-bootstrap", 5), ("old-checker", 5)])
+def test_actions_errexit_still_reports_checker_verdict(tmp_path, scenario, expected):
+    result, calls = exercise(tmp_path, scenario=scenario, shell_flags=("-eo", "pipefail"))
+    assert result.returncode == expected, result.stdout + result.stderr
+    assert "CPP_COUNTER_MODEL_ENROLMENT: " + ("fail" if expected == 1 else "unknown") in result.stdout
+
+
+@requires_bash
+def test_checker_cannot_read_the_bootstrap_input_stream(tmp_path):
+    result, calls = exercise(tmp_path, scenario="reads-stdin", stdin="owned input not for the checker\n")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "CPP_COUNTER_MODEL_ENROLMENT: ok" in result.stdout
+
+
+def test_woodpecker_app_checks_do_not_depend_on_enrolment():
+    from lib.cicd.config import WoodpeckerConfig
+    config = CICDConfig()
+    config.pipeline.woodpecker = WoodpeckerConfig(secret_scan=True, image_security=True, runtime_smoke=True)
+    document = yaml.load(generate_woodpecker(_make_info(), config), Loader=yaml.BaseLoader)
+    steps = document["steps"]
+    dag = any("depends_on" in step for step in steps)
+    parents = {}
+    previous = None
+    for step in steps:
+        parents[step["name"]] = step.get("depends_on", [] if dag or previous is None else [previous])
+        previous = step["name"]
+
+    def ancestors(name):
+        return {parent for p in parents[name] for parent in ({p} | ancestors(p))}
+
+    assert parents["counter-model-enrolment"] == []
+    for name in parents:
+        if name != "counter-model-enrolment":
+            assert "counter-model-enrolment" not in ancestors(name), name
+    assert "secret-scan" in ancestors("lint")
+    assert "lint" in ancestors("test")
+
+
+def test_docs_state_pr_workflow_and_pin_are_editable():
+    text = (Path(__file__).resolve().parents[1] / "docs/agents/generated-ci-enrolment.md").read_text()
+    assert "PR's own workflow" in text and "edit the pin" in text
+
+
+@requires_bash
+def test_control_distinguishes_fetch_unknown_from_receipt_failure():
+    root = Path(__file__).resolve().parents[1]
+    control = root / "controls/pinned-enrolment"
+    result = subprocess.run([sys.executable, str(control / "run-case.py"),
+                             str(root / "controls/pinned-enrolment-exit-class/anchors/unknown-as-fail.py"),
+                             str(control / "cases/bad-fetch-failure")],
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "missed contract" in result.stdout, "control accepted FAIL where the case requires UNKNOWN"

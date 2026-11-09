@@ -1,1 +1,1 @@
-{"scenario": "broken-bootstrap"}
+{"scenario": "broken-bootstrap", "expected_exit": 5}

@@ -1,1 +1,1 @@
-{"scenario": "metadata-error", "provider": "woodpecker"}
+{"scenario": "metadata-error", "provider": "woodpecker", "expected_exit": 5}
