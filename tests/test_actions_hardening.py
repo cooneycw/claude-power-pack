@@ -126,6 +126,9 @@ def assert_property(document: dict[str, Any], prop: str) -> None:
                    and 0 < int(job["timeout-minutes"]) <= 360 for job in jobs.values())
     elif prop == "gitleaks":
         scan = jobs.get("secret-scan", {})
+        # Extra execution context (container, env, services, defaults, etc.) can
+        # replace Docker or change which repository the apparently safe scan sees.
+        assert set(scan) <= {"runs-on", "timeout-minutes", "permissions", "steps"}
         assert scan.get("runs-on") == "ubuntu-latest" and "if" not in scan
         assert scan.get("continue-on-error", "false") == "false"
         # Ubuntu's implicit shell is the emitted policy. A custom/default shell
@@ -150,10 +153,14 @@ def assert_property(document: dict[str, Any], prop: str) -> None:
         assert re.search(r"zricethezav/gitleaks:[\w.]+@sha256:[0-9a-f]{64}", runs)
         assert "--redact" in runs and "--no-git" not in runs
         checkout = next(step for step in scan["steps"] if step.get("uses", "").startswith("actions/checkout@"))
+        assert set(checkout["with"]) == {"fetch-depth", "persist-credentials"}
         assert checkout["with"]["fetch-depth"] == "0"
         if "deploy" in jobs:
             needs = jobs["deploy"].get("needs", [])
-            assert "secret-scan" in ([needs] if isinstance(needs, str) else needs)
+            dependencies = [needs] if isinstance(needs, str) else needs
+            assert "secret-scan" in dependencies
+            if "ci" in jobs:
+                assert "ci" in dependencies
     elif prop == "deploy_environment":
         assert jobs.get("deploy", {}).get("environment") == "production"
         condition = jobs["deploy"].get("if", "")

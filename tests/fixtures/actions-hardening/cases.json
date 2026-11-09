@@ -411,5 +411,59 @@
       }
     },
     "remove_to_fix": true
+  },
+  {
+    "file": "bad-33-scan-container.yml",
+    "property": "gitleaks",
+    "path": [
+      "jobs",
+      "secret-scan",
+      "container"
+    ],
+    "bad_value": {
+      "image": "example/scan-container:stub"
+    },
+    "remove_to_fix": true
+  },
+  {
+    "file": "bad-34-scan-other-repository.yml",
+    "property": "gitleaks",
+    "path": [
+      "jobs",
+      "secret-scan",
+      "steps",
+      0,
+      "with",
+      "repository"
+    ],
+    "bad_value": "other/clean-repository",
+    "remove_to_fix": true
+  },
+  {
+    "file": "bad-35-scan-other-ref.yml",
+    "property": "gitleaks",
+    "path": [
+      "jobs",
+      "secret-scan",
+      "steps",
+      0,
+      "with",
+      "ref"
+    ],
+    "bad_value": "unrelated-clean-branch",
+    "remove_to_fix": true
+  },
+  {
+    "file": "bad-36-deploy-no-ci.yml",
+    "property": "gitleaks",
+    "path": [
+      "jobs",
+      "deploy",
+      "needs"
+    ],
+    "bad_value": [
+      "secret-scan"
+    ],
+    "remove_to_fix": false
   }
 ]
