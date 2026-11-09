@@ -121,6 +121,18 @@ def generate_pipeline(
     return files
 
 
+def _application_targets(branches: dict[str, list[str]]) -> list[str]:
+    """Reserve deploy for the guarded main-push stage in either provider."""
+    if "deploy" in branches.get("pr", []):
+        raise ValueError(
+            "pipeline.branches.pr cannot include reserved target 'deploy'; "
+            "move it to pipeline.branches.main for guarded main-push deployment"
+        )
+    # Select the fallback first: a deploy-only main must not invent lint/test.
+    selected = branches.get("pr", []) or branches.get("main", []) or ["lint", "test"]
+    return [target for target in selected if target != "deploy"]
+
+
 def generate_github_actions(info: FrameworkInfo, config: CICDConfig) -> str:
     """Generate a GitHub Actions CI workflow.
 
@@ -134,6 +146,7 @@ def generate_github_actions(info: FrameworkInfo, config: CICDConfig) -> str:
     fw = info.framework
     pm = info.package_manager
     branches = config.pipeline.branches
+    steps = _application_targets(branches)
     matrix = config.pipeline.matrix or _DEFAULT_MATRIX.get(fw, {})
 
     lines: list[str] = []
@@ -215,7 +228,6 @@ def generate_github_actions(info: FrameworkInfo, config: CICDConfig) -> str:
         lines.append("")
 
     # Steps from Makefile targets
-    steps = pr_steps or main_steps or ["lint", "test"]
     for step in steps:
         lines.append(f"      - name: {step.capitalize()}")
         lines.append(f"        run: make {step}")
@@ -291,6 +303,13 @@ def generate_woodpecker(info: FrameworkInfo, config: CICDConfig) -> str:
     fw = info.framework
     pm = info.package_manager
     branches = config.pipeline.branches
+    steps = _application_targets(branches)
+    wp = config.pipeline.woodpecker
+    if wp.runtime_smoke and wp.smoke_target == "deploy":
+        raise ValueError(
+            "pipeline.woodpecker.smoke_target cannot be reserved target 'deploy'; "
+            "use a smoke-test target and put deploy in pipeline.branches.main"
+        )
     image = _WOODPECKER_IMAGES.get(fw, "ubuntu:24.04")
     install_cmds = _WOODPECKER_INSTALL.get((fw, pm), [])
 
@@ -313,14 +332,9 @@ def generate_woodpecker(info: FrameworkInfo, config: CICDConfig) -> str:
 
     # Self-hosted hardening stages retain their listed order through explicit
     # dependency edges below; enrolment is independent of the application DAG.
-    wp = config.pipeline.woodpecker
-
     # Secret-scan stage: self-hosted CI has no native secret scanning.
     if wp.secret_scan:
         lines.extend(_woodpecker_secret_scan_step(wp.secret_scan_config))
-
-    # Use PR steps (superset for CI), fall back to main
-    steps = branches.get("pr", branches.get("main", ["lint", "test"]))
 
     for step in steps:
         lines.append(f"  - name: {step}")
@@ -329,6 +343,9 @@ def generate_woodpecker(info: FrameworkInfo, config: CICDConfig) -> str:
         for cmd in install_cmds:
             lines.append(f"      - {cmd}")
         lines.append(f"      - make {step}")
+        if not branches.get("pr"):
+            # Main-only targets must not run on the enrolment PR trigger.
+            lines.extend(["    when:", "      branch: main", "      event: push"])
         lines.append("")
 
     # Image-security stage: Trivy config (Dockerfile/compose misconfig) +
