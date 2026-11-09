@@ -1,0 +1,70 @@
+{
+  "branch": "feat/1604-actions-hardening",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "Owner authorized three launches; first interrupted and unused; owner19930/19935 requested final source-delta review. Both final findings accepted and repaired after review; final owner exact-head review pending.",
+  "head": "46d555163590f0b334228a4dd2364918f6b277bc",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/08/rollout-2026-11-08T14-14-53-01a1bb83-1a47-7b20-9a18-a39641fddde4.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 26254015,
+        "path": "2026/11/08/rollout-2026-11-08T14-14-53-01a1bb83-1a47-7b20-9a18-a39641fddde4.jsonl",
+        "sha256": "67d817ce969ef2b080db7ab30e9c8321cecbc69005b0b74ccf97fa945a9096a7"
+      }
+    ],
+    "thread_id": "01a1bb83-1a47-7b20-9a18-a39641fddde4"
+  },
+  "issue": "1604",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 3,
+  "recorded_at": "2026-11-09T03:06:08Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 2
+  },
+  "reviewed_artifact": {
+    "base_sha": "a02ccbd57fc92da3ebb16456547a642e4c86838c",
+    "merge_base": "a02ccbd57fc92da3ebb16456547a642e4c86838c",
+    "method": "captured-patch",
+    "patch_sha256": "7789f52c556f624e0db16c6c4eb01deb6d0dc6231080e54af9b246124d85c12d",
+    "report_record": 31,
+    "target_head": "46d555163590f0b334228a4dd2364918f6b277bc"
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "exec_log": "review1604b-pass3.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6-astra"
+    ],
+    "rollout": "2026/11/09/rollout-2026-11-09T03-00-26-01a1be3f-f948-7bf3-8082-7380136a462a.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 2888,
+        "path": "review1604b-pass3.jsonl",
+        "sha256": "9600110f9e6e97de5ce32ae0c2bc02b8ed94e9535348de5bf50e0020cc23895b"
+      },
+      {
+        "bytes": 466616,
+        "path": "2026/11/09/rollout-2026-11-09T03-00-26-01a1be3f-f948-7bf3-8082-7380136a462a.jsonl",
+        "sha256": "a9379281f65ad4d00249fb9ac3f688bf352903502310085cb2cb249e55f5b58c"
+      }
+    ],
+    "thread_id": "01a1be3f-f948-7bf3-8082-7380136a462a"
+  },
+  "schema": 5,
+  "scope": "diff-only",
+  "status": "ran"
+}
