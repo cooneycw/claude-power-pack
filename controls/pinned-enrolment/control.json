@@ -1,0 +1,95 @@
+{
+  "gate": "lib/cicd/enrolment.py",
+  "invocation": [
+    "python3",
+    "controls/pinned-enrolment/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^PINNED_ENROLMENT_CONTROL: refused unsafe proceed$",
+  "good_signal": "^PINNED_ENROLMENT_CONTROL: (ready|missed contract)$",
+  "limits": "Executes the shell emitted by the supplied stdlib enrolment module with owned git/curl metadata stubs. The verdict is whether an unsafe proceed was refused, not whether a PR is bad: a runtime UNKNOWN is a refusal here. Covers moving/short pins, exact resolved SHA, fetch/bootstrap failure, missing same-repo receipt, positive fork evidence and API errors. No live network, actual provider interpolation or complete trusted checker/ancestry coverage is claimed; unit integration tests separately cover those seams. The constructed unenforced anchor allows every input, preserving the valid receipt and known-fork cases while missing every refusal. Also refuses conflicting trusted-checker verdicts rather than selecting a convenient green line. Each case pins its exact exit: runtime UNKNOWN must be 5, same-repository missing receipts must be 1, and valid or positively known fork cases must be 0. A wrong refusal class is a missed contract. GHA cases use bash -eo pipefail. Woodpecker fixtures unset all CPP_PR variables so only the provider API can supply identities. Near-miss anchors separately demonstrate sensitivity to fork evidence and UNKNOWN/FAIL conflation.",
+  "cases": [
+    {
+      "name": "bad-moving-branch",
+      "input": "cases/bad-moving-branch",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-moving-tag",
+      "input": "cases/bad-moving-tag",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-short-sha",
+      "input": "cases/bad-short-sha",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-sha-mismatch",
+      "input": "cases/bad-sha-mismatch",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-fetch-failure",
+      "input": "cases/bad-fetch-failure",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-bootstrap-failure",
+      "input": "cases/bad-bootstrap-failure",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-missing-receipt",
+      "input": "cases/bad-missing-receipt",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-metadata-error",
+      "input": "cases/bad-metadata-error",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-conflicting-verdict",
+      "input": "cases/bad-conflicting-verdict",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-actions-missing-head",
+      "input": "cases/bad-actions-missing-head",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-woodpecker-missing-receipt",
+      "input": "cases/bad-woodpecker-missing-receipt",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-receipt",
+      "input": "cases/good-receipt",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-known-fork",
+      "input": "cases/good-known-fork",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-known-woodpecker-fork",
+      "input": "cases/good-known-woodpecker-fork",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "synthetic",
+      "path": "anchors/unenforced.py",
+      "sha256": "3906278afc097407c115b9fe18cdf686245a07b902d7813547d825ac33fff417",
+      "why": "Models an absent enrolment boundary: all changes proceed under a warning, with no pin, bootstrap or receipt verification.",
+      "sha": "0000000",
+      "origin": "constructed unenforced bootstrap that lets all inputs proceed"
+    }
+  ]
+}

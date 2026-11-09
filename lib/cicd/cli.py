@@ -280,6 +280,11 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
     require_providers(config.pipeline.providers)
 
     warnings = _check_secrets_source(config)
+    if not config._cpp_revision:
+        warnings.append(
+            "WARNING: CPP enrolment pin unavailable; run /cpp:init to record .claude/cpp-install.json, "
+            "then regenerate. The generated enrolment job will report UNKNOWN."
+        )
     files = generate_pipeline(info, config)
     required = None
     if getattr(args, "protection", False):

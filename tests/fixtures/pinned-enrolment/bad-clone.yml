@@ -1,0 +1,14 @@
+when:
+  branch: [main]
+  event: [push, pull_request]
+clone:
+  - name: git
+    image: woodpeckerci/plugin-git:2
+    settings:
+      depth: 1
+      merge_pull_request: false
+steps:
+  - name: lint
+    image: python:3.11-bookworm
+    commands:
+      - echo owned-fixture

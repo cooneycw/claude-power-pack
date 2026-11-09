@@ -1,0 +1,45 @@
+{
+  "gate": "lib/cicd/enrolment.py",
+  "invocation": [
+    "python3",
+    "controls/pinned-enrolment/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^PINNED_ENROLMENT_CONTROL: refused unsafe proceed$",
+  "good_signal": "^PINNED_ENROLMENT_CONTROL: (ready|missed contract)$",
+  "limits": "Near miss: the bootstrap otherwise behaves correctly but collapses UNKNOWN into FAIL exit1 instead of retry exit5. Executes the same emitted shell with owned offline fixtures; exact expected exits are case data. This battery is separate because each anchor must miss every BAD case in its own declared population.",
+  "cases": [
+    {
+      "name": "bad-fetch-failure",
+      "input": "cases/bad-fetch-failure",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-bootstrap-failure",
+      "input": "cases/bad-bootstrap-failure",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-receipt",
+      "input": "cases/good-receipt",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-known-fork",
+      "input": "cases/good-known-fork",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "synthetic",
+      "sha": "0000000",
+      "origin": "Near miss: the bootstrap otherwise behaves correctly but collapses UNKNOWN into FAIL exit1 instead of retry exit5.",
+      "path": "anchors/unknown-as-fail.py",
+      "sha256": "48922f6451a7acae0db801b352806341f16a2d000177438eed6555d625ec5291",
+      "why": "Near miss: the bootstrap otherwise behaves correctly but collapses UNKNOWN into FAIL exit1 instead of retry exit5."
+    }
+  ]
+}

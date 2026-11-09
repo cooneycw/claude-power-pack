@@ -1,0 +1,40 @@
+{
+  "gate": "lib/cicd/enrolment.py",
+  "invocation": [
+    "python3",
+    "controls/pinned-enrolment/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^PINNED_ENROLMENT_CONTROL: refused unsafe proceed$",
+  "good_signal": "^PINNED_ENROLMENT_CONTROL: (ready|missed contract)$",
+  "limits": "Near miss: the bootstrap omits positive fork evidence and treats an absent Actions head identity as a fork warning. Executes the same emitted shell with owned offline fixtures; exact expected exits are case data. This battery is separate because each anchor must miss every BAD case in its own declared population.",
+  "cases": [
+    {
+      "name": "bad-actions-missing-head",
+      "input": "cases/bad-actions-missing-head",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-receipt",
+      "input": "cases/good-receipt",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-known-fork",
+      "input": "cases/good-known-fork",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "synthetic",
+      "sha": "0000000",
+      "origin": "Near miss: the bootstrap omits positive fork evidence and treats an absent Actions head identity as a fork warning.",
+      "path": "anchors/unproved-fork.py",
+      "sha256": "1b538b7225375a01584e61741468807a6d05c3aa9970f03830114f4754f07876",
+      "why": "Near miss: the bootstrap omits positive fork evidence and treats an absent Actions head identity as a fork warning."
+    }
+  ]
+}
