@@ -133,13 +133,15 @@ records; no host result attests to a container's tools or credentials.
 
 Absorbs #1604 items 6 (`flow-pr-watch.sh`), 8 (enrolment as an Actions job; fork PRs warn) and 11 (docs for both providers).
 
-- [ ] `flow-ci-status.sh` and `flow-pr-watch.sh` select their lanes from P1's reader: one lane per listed provider through the registry (any red is red; running while none is red and any runs), stop on `unknown`. Probing survives only as a fallback that says it is one.
-- [ ] `flow-pr-watch.sh` derives its check from protection and the record, accepts Actions run URLs, and extracts failing tests with `gh run view --log-failed`.
-- [ ] Finish/merge preflight compares the project provider with the host record and stops early with a named remedy.
-- [ ] Enrolment as a job in every registered provider's generated template. Owner ruling: a fork PR WARNS, a same-repository PR without a receipt still FAILS; tell them apart from the provider's event data (Actions: head repo differs from base repo), never the branch name. Negative controls for both.
-- [ ] `derive_event` reads rulesets and `.checks`, as `gh-pr-merge.sh` already does.
-- [ ] Recovery and docs text per provider: `auto.md`, `merge.md`, `wave.md`, `register.md`, the lexicon example.
-- [ ] Negative controls: a Woodpecker-known repo whose commit ran only on Actions, recorded `github-actions`, resolves on the Actions lane; `flow-pr-watch` reports a red Actions check instead of timing out.
+- [x] `flow-ci-status.sh` and `flow-pr-watch.sh` select their lanes from P1's reader: one lane per listed provider through the registry (any red is red; running while none is red and any runs), stop on `unknown`. Probing survives only as a fallback that says it is one.
+- [x] `flow-pr-watch.sh` derives its check from protection and the record, accepts Actions run URLs, and extracts failing tests with `gh run view --log-failed`.
+- [x] Finish/merge preflight compares the project provider with the host record and stops early with a named remedy.
+- [x] Enrolment as a job in every registered provider's main app template (PR B; infrastructure-only generators explicitly excluded in [Nit Store](https://github.com/cooneycw/claude-power-pack/issues/864#issuecomment-6728623706)). Owner ruling: a fork PR WARNS, a same-repository PR without a receipt still FAILS; tell them apart from the provider's event data (Actions: head repo differs from base repo), never the branch name. Negative controls for both.
+- [x] `derive_event` reads rulesets and `.checks`, as `gh-pr-merge.sh` already does.
+- [x] Recovery and docs text per provider: `auto.md`, `merge.md`, `wave.md`, `register.md`, the lexicon example.
+- [x] Negative controls: a Woodpecker-known repo whose commit ran only on Actions, recorded `github-actions`, resolves on the Actions lane; `flow-pr-watch` reports a red Actions check instead of timing out.
+
+Owner pin ruling (2026-11-08): jobs use the immutable full CPP revision recorded by `/cpp:init`, verify the resolved checkout SHA, and report fetch/bootstrap failures as UNKNOWN/retry. See [generated CI enrolment](../agents/generated-ci-enrolment.md).
 
 ### P5 - `/flow:doctor` cross-checks the four signals (#1611)
 

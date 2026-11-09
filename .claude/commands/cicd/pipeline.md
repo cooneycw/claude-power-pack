@@ -16,6 +16,15 @@ line. A one-run `--providers` override is deliberate and is persisted only with
 (secret-scan + image-security + runtime-smoke) and to scaffold the Woodpecker
 server/agent, use `/cicd:woodpecker` instead.
 
+Main application templates include counter-model enrolment for both providers.
+The checker pin comes from `.claude/cpp-install.json` written by `/cpp:init`,
+never a moving branch or tag. Missing or invalid install metadata produces an
+UNKNOWN job; refresh `/cpp:init` and regenerate. Same-repository PRs need a
+receipt; positively identified fork PRs warn. Unreadable fork metadata stays
+UNKNOWN. Infrastructure-only templates are excluded and are not enrolled by
+this change. See [generated CI enrolment](../../../docs/agents/generated-ci-enrolment.md)
+for pin updates, full-history checkout and Woodpecker metadata requirements.
+
 ## Steps
 
 1. **Check for task manifest** - if `.claude/cicd_tasks.yml` exists, use it to inform pipeline generation:
