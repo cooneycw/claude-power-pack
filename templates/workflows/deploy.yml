@@ -13,8 +13,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   secret-scan:
@@ -35,6 +35,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production
+    concurrency:
+      group: deploy-${{ github.repository }}-production
+      cancel-in-progress: false
     needs: secret-scan
     if: github.event_name == 'push'
 

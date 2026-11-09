@@ -9,9 +9,17 @@ selection with `python -m lib.cicd provider --path <repo>`. Missing providers ar
 select only the providers the project uses. `--record` preserves unrelated YAML
 bytes and refuses a provider-line edit that would discard a comment, naming its
 line. A one-run `--providers` override is deliberate and is persisted only with
-`--record`. For a hardened self-hosted pipeline
-(secret-scan + image-security + runtime-smoke) and to scaffold the Woodpecker
-server/agent, use `/cicd-woodpecker` instead.
+`--record`. Generated main-app Actions workflows include pinned actions, bounded
+jobs, read-only default permissions and a full-history redacted secret scan.
+For additional self-hosted image-security/runtime-smoke stages and Woodpecker
+server/agent scaffolding, use `/cicd-woodpecker`.
+
+Actions deploy jobs select the consumer's production environment. AWS/OIDC
+consumers must migrate the exact IAM subject to
+`repo:O/R:environment:production` and restrict that environment to main before
+regenerating; see the [OIDC migration steps](https://github.com/cooneycw/claude-power-pack/blob/main/docs/skills/cicd-verification.md#actions-deploy-oidc-migration).
+The default `contents: read` also applies to platform deploys. A deploy target
+that pushes tags or creates releases needs an explicit job-level write grant.
 
 Main application templates include counter-model enrolment for both providers.
 The checker pin comes from `.claude/cpp-install.json` written by `/cpp:init`,

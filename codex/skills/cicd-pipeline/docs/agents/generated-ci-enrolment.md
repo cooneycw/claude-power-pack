@@ -10,6 +10,18 @@ change. Infrastructure-only repositories are not enrolled by these jobs.
 The excluded gap is recorded in the
 [Nit Store](https://github.com/cooneycw/claude-power-pack/issues/864#issuecomment-6728623706).
 
+## Actions deploy migration
+
+**AWS/OIDC consumers must migrate IAM trust before their first regenerated
+deploy.** The dedicated job's `environment: production` changes its exact OIDC
+subject from `repo:O/R:ref:refs/heads/main` to
+`repo:O/R:environment:production` (`O/R` is the consumer slug). Configure the
+GitHub production environment to allow `main` only, then update the role's exact
+subject condition while retaining the audience check. See the
+[OIDC migration steps](https://github.com/cooneycw/claude-power-pack/blob/main/docs/skills/cicd-verification.md#actions-deploy-oidc-migration).
+The default `contents: read` also applies to platform deploys; tag pushes and
+release creation need an explicit write grant on the dedicated deploy job.
+
 ## Immutable checker source
 
 The single revision source is `.claude/cpp-install.json`'s `cpp_revision`, which

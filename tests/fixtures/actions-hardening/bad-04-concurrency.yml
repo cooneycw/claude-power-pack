@@ -7,7 +7,7 @@
     "contents": "read"
   },
   "concurrency": {
-    "group": "${{ github.workflow }}-${{ github.ref }}",
+    "group": "${{ github.workflow }}-${{ github.ref }}-${{ github.sha }}",
     "cancel-in-progress": "true"
   },
   "jobs": {
@@ -65,7 +65,11 @@
         {
           "run": "make deploy"
         }
-      ]
+      ],
+      "concurrency": {
+        "group": "deploy-${{ github.repository }}-production",
+        "cancel-in-progress": false
+      }
     }
   }
 }

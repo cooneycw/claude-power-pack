@@ -7,8 +7,8 @@
     "contents": "read"
   },
   "concurrency": {
-    "group": "${{ github.workflow }}-${{ github.ref }}",
-    "cancel-in-progress": "${{ github.event_name == 'pull_request' }}"
+    "group": "${{ github.workflow }}-${{ github.ref }}-${{ github.sha }}",
+    "cancel-in-progress": "false"
   },
   "jobs": {
     "ci": {
@@ -69,6 +69,10 @@
       "permissions": {
         "contents": "read",
         "id-token": "write"
+      },
+      "concurrency": {
+        "group": "deploy-${{ github.repository }}-production",
+        "cancel-in-progress": false
       }
     }
   }

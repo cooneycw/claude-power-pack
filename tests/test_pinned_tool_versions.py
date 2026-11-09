@@ -79,3 +79,14 @@ def test_jq_pin_is_declared_where_tools_version_check_reads_it() -> None:
     stager = (ROOT / "scripts" / "ci-stage-jq.py").read_text(encoding="utf-8")
     match = re.search(r"^JQ_URL\s*=\s*\"[^\"]*/jq-(\d+(?:\.\d+)+)/", stager, re.M)
     assert match, "ci-stage-jq.py no longer declares a parseable jq release version"
+
+
+
+def test_consumer_scanner_pin_matches_local_and_ci_instruments() -> None:
+    from lib.cicd.actions import GITLEAKS_IMAGE
+
+    makefile_pin = _makefile_pin("GITLEAKS_IMAGE")
+    ci_pins = _woodpecker_images("zricethezav/gitleaks")
+    assert makefile_pin and ci_pins, "both instrument populations must be observed"
+    assert GITLEAKS_IMAGE == makefile_pin
+    assert set(ci_pins) == {GITLEAKS_IMAGE}

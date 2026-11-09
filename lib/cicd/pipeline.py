@@ -19,6 +19,7 @@ from .actions import (
     SETUP_PYTHON,
     SETUP_RUST,
     UV_VERSION,
+    deploy_concurrency,
     secret_scan_job,
     workflow_permissions_and_concurrency,
 )
@@ -227,6 +228,7 @@ def generate_github_actions(info: FrameworkInfo, config: CICDConfig) -> str:
         lines.append("    runs-on: ubuntu-latest")
         lines.append("    timeout-minutes: 20")
         lines.append("    environment: production")
+        lines.extend(deploy_concurrency())
         lines.append("    if: github.ref == 'refs/heads/main' && github.event_name == 'push'")
 
         use_aws = config.pipeline.secrets_source == "aws-secrets-manager"

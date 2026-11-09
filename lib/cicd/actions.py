@@ -18,10 +18,18 @@ GITLEAKS_IMAGE = 'zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb
 
 
 def workflow_permissions_and_concurrency() -> list[str]:
-    # Cancel obsolete PR work; let an active main deployment finish.
+    # Different commits must not share GitHub's one-pending-run queue: a newer
+    # main push would otherwise cancel the middle commit's CI before it runs.
     return ["permissions:", "  contents: read", "", "concurrency:",
-            "  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}",
-            "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}", ""]
+            "  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.sha }}",
+            "  cancel-in-progress: false", ""]
+
+
+def deploy_concurrency() -> list[str]:
+    # Serialize production independently of CI. GitHub retains one active and
+    # one pending deploy; a newer pending deploy supersedes an older pending one.
+    return ["    concurrency:", "      group: deploy-${{ github.repository }}-production",
+            "      cancel-in-progress: false"]
 
 
 def secret_scan_job() -> list[str]:

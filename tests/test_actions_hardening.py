@@ -9,6 +9,7 @@ import copy
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -17,6 +18,7 @@ from typing import Any
 import pytest
 import yaml
 
+from lib.cicd import actions as action_pins
 from lib.cicd.config import CICDConfig
 from lib.cicd.models import Framework, FrameworkInfo, PackageManager
 from lib.cicd.pipeline import generate_github_actions
@@ -38,7 +40,7 @@ CASES = [(sample, prop) for sample in SAMPLES for prop in COMMON]
 CASES += [(sample, "deploy_environment") for sample in SAMPLES
           if sample.startswith("generated-") or sample == "static-deploy"]
 CASES += [(sample, "uv_version") for sample in ("generated-python", "static-ci-python")]
-CANCEL_PULL_REQUEST = "${{ github.event_name == 'pull_request' }}"
+MAIN_PUSH_CONDITION = "github.ref == 'refs/heads/main' && github.event_name == 'push'"
 
 
 def workflow(sample: str) -> dict[str, Any]:
@@ -55,6 +57,31 @@ def workflow(sample: str) -> dict[str, Any]:
     return yaml.load(text, Loader=yaml.BaseLoader)
 
 
+def action_references(document: dict[str, Any]) -> list[str]:
+    jobs = document["jobs"]
+    return ([job["uses"] for job in jobs.values() if "uses" in job]
+            + [step["uses"] for job in jobs.values() for step in job.get("steps", []) if "uses" in step])
+
+
+def assert_shared_pins(document: dict[str, Any]) -> None:
+    fields = ("CHECKOUT", "CACHE", "SETUP_PYTHON", "SETUP_NODE", "SETUP_GO", "SETUP_RUST",
+              "AWS_CREDENTIALS", "AWS_SECRETS")
+    values = [getattr(action_pins, field) for field in fields]
+    assert all(re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", value) for value in values)
+    registry = {value.split("@", 1)[0]: value for value in values}
+    assert len(registry) == len(fields), "each action repository needs one canonical pin"
+    references = action_references(document)
+    assert references, "no action references examined"
+    for reference in references:
+        repository = reference.split("@", 1)[0]
+        assert repository in registry
+        assert reference == registry[repository]
+    commands = [step["run"] for step in document["jobs"]["secret-scan"]["steps"] if "run" in step]
+    images = [token for command in commands for token in shlex.split(command)
+              if token.startswith("zricethezav/gitleaks:")]
+    assert images and set(images) == {action_pins.GITLEAKS_IMAGE}
+
+
 def assert_property(document: dict[str, Any], prop: str) -> None:
     jobs = document.get("jobs", {})
     assert jobs, "no workflow jobs examined"
@@ -62,8 +89,9 @@ def assert_property(document: dict[str, Any], prop: str) -> None:
     checkouts = [step for step in steps if step.get("uses", "").startswith("actions/checkout@")]
     assert checkouts, "no checkout steps examined"
     if prop == "remote_refs":
-        actions = [step["uses"] for step in steps if "uses" in step]
-        assert actions and all(re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", action) for action in actions)
+        actions = action_references(document)
+        assert actions and all(isinstance(action, str) and
+                               re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", action) for action in actions)
     elif prop == "permissions":
         assert document.get("permissions") == {"contents": "read"}
         for name, job in jobs.items():
@@ -75,34 +103,61 @@ def assert_property(document: dict[str, Any], prop: str) -> None:
                            for step in job.get("steps", []))
     elif prop == "checkout_credentials":
         assert all(step.get("with", {}).get("persist-credentials") == "false" for step in checkouts)
+        assert all("token" not in step.get("with", {}) for step in checkouts)
     elif prop == "concurrency":
         policy = document.get("concurrency", {})
         assert "${{ github.workflow }}" in policy.get("group", "")
         assert "github.ref" in policy.get("group", "")
-        assert policy.get("cancel-in-progress") == CANCEL_PULL_REQUEST
+        assert "${{ github.sha }}" in policy.get("group", "")
+        assert policy.get("cancel-in-progress", "false") == "false"
+        for name, job in jobs.items():
+            if name == "deploy":
+                assert "concurrency" in job
+            if "concurrency" in job:
+                job_policy = job["concurrency"]
+                assert isinstance(job_policy, dict) and job_policy.get("group")
+                assert job_policy.get("cancel-in-progress", "false") == "false"
+                if name == "deploy":
+                    assert job_policy["group"] == "deploy-${{ github.repository }}-production"
+                else:
+                    assert "${{ github.sha }}" in job_policy["group"]
     elif prop == "timeouts":
         assert all(str(job.get("timeout-minutes", "")).isdigit()
                    and 0 < int(job["timeout-minutes"]) <= 360 for job in jobs.values())
     elif prop == "gitleaks":
         scan = jobs.get("secret-scan", {})
-        assert scan.get("runs-on") == "ubuntu-latest" and not scan.get("if")
-        runs = "\n".join(step.get("run", "") for step in scan.get("steps", []))
+        assert scan.get("runs-on") == "ubuntu-latest" and "if" not in scan
+        assert scan.get("continue-on-error", "false") == "false"
+        scan_steps = scan.get("steps", [])
+        assert all("if" not in step and step.get("continue-on-error", "false") == "false" for step in scan_steps)
+        commands = [step["run"].strip() for step in scan_steps if "run" in step]
+        assert len(commands) == 1
+        runs = commands[0]
+        assert shlex.split(runs)[:2] == ["docker", "run"]
+        assert not re.search(r"[|&;\n]", runs), "scan command must not mask its failure with shell control flow"
         assert re.search(r"zricethezav/gitleaks:[\w.]+@sha256:[0-9a-f]{64}", runs)
         assert "--redact" in runs and "--no-git" not in runs
         checkout = next(step for step in scan["steps"] if step.get("uses", "").startswith("actions/checkout@"))
         assert checkout["with"]["fetch-depth"] == "0"
         if "deploy" in jobs:
-            assert "secret-scan" in jobs["deploy"].get("needs", [])
+            needs = jobs["deploy"].get("needs", [])
+            assert "secret-scan" in ([needs] if isinstance(needs, str) else needs)
     elif prop == "deploy_environment":
         assert jobs.get("deploy", {}).get("environment") == "production"
-        assert "github.event_name == 'push'" in jobs["deploy"].get("if", "")
+        condition = jobs["deploy"].get("if", "")
+        assert condition == MAIN_PUSH_CONDITION or (
+            condition == "github.event_name == 'push'" and document["on"].get("push", {}).get("branches") == ["main"]
+        )
     elif prop == "uv_version":
         runs = "\n".join(step.get("run", "") for step in steps)
         assert re.search(r"pip install uv==\d+\.\d+\.\d+(?:\s|$)", runs)
         assert not re.search(r"pip install uv(?:\s|$)", runs)
+    elif prop == "pin_registry":
+        assert_shared_pins(document)
     elif prop == "safe_trigger":
         assert "on" in document
-        assert "pull_request_target" not in document["on"]
+        assert isinstance(document["on"], dict) and document["on"]
+        assert set(document["on"]) <= {"push", "pull_request", "workflow_dispatch"}
     else:
         raise AssertionError("unexamined property: " + prop)
 
@@ -112,22 +167,26 @@ def test_consumer_workflow_hardening(sample: str, prop: str):
     assert_property(workflow(sample), prop)
 
 
-# Each fixture changes exactly one property of a fully hardened workflow. These
-# are committed BAD/GOOD assertion controls, not an additional product gate.
+# Each fixture changes one property of its applicable GOOD workflow. The reusable
+# workflow case checks only reference immutability, not the callee's policy.
+# These are committed assertion controls, not an additional product gate.
 FIXTURES = ROOT / "tests/fixtures/actions-hardening"
 BAD_CASES = json.loads((FIXTURES / "cases.json").read_text())
 
 
 @pytest.mark.parametrize("case", BAD_CASES, ids=[case["file"] for case in BAD_CASES])
 def test_bad_fixture_is_detected_and_repair_removes_detection(case):
-    good = yaml.load((FIXTURES / "good.yml").read_text(), Loader=yaml.BaseLoader)
+    good = yaml.load((FIXTURES / case.get("good_file", "good.yml")).read_text(), Loader=yaml.BaseLoader)
     bad = yaml.load((FIXTURES / case["file"]).read_text(), Loader=yaml.BaseLoader)
     bad_parent, good_parent = bad, good
     for key in case["path"][:-1]:
         bad_parent, good_parent = bad_parent[key], good_parent[key]
     key = case["path"][-1]
-    assert bad_parent[key] == case["bad_value"], "the planted defect is absent"
-    assert case["remove_to_fix"] or bad_parent[key] != good_parent[key]
+    if case.get("missing"):
+        assert key not in bad_parent and key in good_parent, "fixture must omit the required field"
+    else:
+        assert bad_parent[key] == case["bad_value"], "the planted defect is absent"
+        assert case["remove_to_fix"] or bad_parent[key] != good_parent[key]
     with pytest.raises(AssertionError):
         assert_property(bad, case["property"])
     fixed = copy.deepcopy(bad)
@@ -144,7 +203,7 @@ def test_bad_fixture_is_detected_and_repair_removes_detection(case):
 
 def test_good_fixture_covers_every_hardening_property():
     good = yaml.load((FIXTURES / "good.yml").read_text(), Loader=yaml.BaseLoader)
-    for prop in COMMON + ["deploy_environment", "uv_version"]:
+    for prop in COMMON + ["deploy_environment", "uv_version", "pin_registry"]:
         assert_property(good, prop)
 
 
@@ -184,3 +243,36 @@ def test_scanner_command_preserves_exit_and_mounts_read_only(tmp_path, scanner_e
     assert re.fullmatch(r"\d+:\d+", arguments[arguments.index("--user") + 1])
     assert arguments[arguments.index("--env") + 1] == "HOME=/tmp"
     assert "--redact" in arguments and "--no-git" not in arguments
+
+
+
+def test_main_commit_concurrency_groups_are_distinct():
+    template = workflow("generated-python")["concurrency"]["group"]
+    groups = []
+    for sha in ("a" * 40, "b" * 40, "c" * 40):
+        group = template
+        for expression, value in {
+            "${{ github.workflow }}": "CI", "${{ github.ref }}": "refs/heads/main",
+            "${{ github.event.pull_request.number || github.ref }}": "refs/heads/main",
+            "${{ github.sha }}": sha,
+        }.items():
+            group = group.replace(expression, value)
+        assert "${{" not in group, "concurrency expression was not examined"
+        groups.append(group)
+    assert len(set(groups)) == 3, "main commits must not share GitHub's one-pending-run queue"
+
+
+
+@pytest.mark.parametrize("sample", [name for name in SAMPLES if name.startswith("static-")])
+def test_static_actions_and_scanner_match_canonical_pins(sample):
+    assert_shared_pins(workflow(sample))
+
+
+@pytest.mark.parametrize("sample", ["generated-python", "static-deploy"])
+def test_dedicated_deploy_serializes_commits_without_cancelling_active(sample):
+    policy = workflow(sample)["jobs"]["deploy"].get("concurrency", {})
+    assert policy.get("cancel-in-progress") == "false"
+    assert policy.get("group") == "deploy-${{ github.repository }}-production"
+    groups = [policy["group"].replace("${{ github.repository }}", "O/R").replace("${{ github.sha }}", sha)
+              for sha in ("a" * 40, "b" * 40, "c" * 40)]
+    assert len(set(groups)) == 1, "production deploys from different commits need the same queue"
