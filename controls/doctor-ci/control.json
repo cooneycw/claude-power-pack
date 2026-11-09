@@ -1,0 +1,106 @@
+{
+  "_comment": [
+    "#1611: each doctor relationship is read as evidence by users/other sessions; absence of proof never means ok.",
+    "This stdlib control drives normalized-fact verdicts, not raw-source collection; actual canonical collector and published-shell regressions are in tests/test_cicd_doctor.py. Historical config absence is unknown; the explicit Actions/Woodpecker mismatch is labelled constructed.",
+    "The anchor masks normalized drift as ok. Three BAD cases represent independent relationships. The fourth is only a defensive normalized lane mismatch: stable runtime records cannot produce it, since names and plans use the same reader/registry."
+  ],
+  "gate": "lib/cicd/doctor.py",
+  "invocation": [
+    "python3",
+    "controls/doctor-ci/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "good_signal": "^DOCTOR_ROW: ok ",
+  "detect_signal": "^DOCTOR_ROW: drift ",
+  "unknown_signal": "^DOCTOR_ROW: unknown ",
+  "cases": [
+    {
+      "name": "bad-provider-files",
+      "input": "cases/bad-provider-files",
+      "expect": "BAD",
+      "why": "bad provider files"
+    },
+    {
+      "name": "good-provider-files",
+      "input": "cases/good-provider-files",
+      "expect": "GOOD",
+      "why": "good provider files"
+    },
+    {
+      "name": "unknown-historical-record",
+      "input": "cases/unknown-historical-record",
+      "expect": "UNKNOWN",
+      "why": "unknown historical record"
+    },
+    {
+      "name": "unknown-file-scope",
+      "input": "cases/unknown-file-scope",
+      "expect": "UNKNOWN",
+      "why": "unknown file scope"
+    },
+    {
+      "name": "bad-required-checks",
+      "input": "cases/bad-required-checks",
+      "expect": "BAD",
+      "why": "bad required checks"
+    },
+    {
+      "name": "good-required-checks",
+      "input": "cases/good-required-checks",
+      "expect": "GOOD",
+      "why": "good required checks"
+    },
+    {
+      "name": "unknown-required-checks",
+      "input": "cases/unknown-required-checks",
+      "expect": "UNKNOWN",
+      "why": "unknown required checks"
+    },
+    {
+      "name": "bad-host-capability",
+      "input": "cases/bad-host-capability",
+      "expect": "BAD",
+      "why": "bad host capability"
+    },
+    {
+      "name": "good-host-capability",
+      "input": "cases/good-host-capability",
+      "expect": "GOOD",
+      "why": "good host capability"
+    },
+    {
+      "name": "unknown-host-capability",
+      "input": "cases/unknown-host-capability",
+      "expect": "UNKNOWN",
+      "why": "unknown host capability"
+    },
+    {
+      "name": "unknown-lane-plan",
+      "input": "cases/unknown-lane-plan",
+      "expect": "UNKNOWN",
+      "why": "unknown lane plan"
+    },
+    {
+      "name": "bad-lane-plan",
+      "input": "cases/bad-lane-plan",
+      "expect": "BAD",
+      "why": "constructed normalized mismatch exercises defensive lane verdict only; not reachable with a stable runtime record"
+    },
+    {
+      "name": "good-lane-plan",
+      "input": "cases/good-lane-plan",
+      "expect": "GOOD",
+      "why": "repaired recorded-provider lane; no fallback even when explicitly enabled"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "path": "anchors/mask-drift.py",
+      "sha256": "611a7472f01420e663ae79704dab49111dfbcfe05a4b80dd9ba6278d096300ba",
+      "why": "Masks proven drift as ok while preserving all four repaired positives and five unexaminable cases."
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "target": "pipeline-files",
+  "inventory": {
+    "github-actions": [
+      ".github/workflows/ci.yml"
+    ],
+    "woodpecker": []
+  }
+}

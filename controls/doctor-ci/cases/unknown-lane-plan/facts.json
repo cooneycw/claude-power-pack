@@ -1,0 +1,26 @@
+{
+  "target": "fallback",
+  "plan": {
+    "status": "unknown",
+    "source": "unknown",
+    "providers": [],
+    "lanes": [],
+    "fallback": {
+      "requested": false,
+      "would_trigger": false
+    }
+  },
+  "explicit": {
+    "status": "unknown",
+    "source": "fallback",
+    "providers": [],
+    "lanes": [],
+    "fallback": {
+      "requested": true,
+      "would_trigger": true
+    }
+  },
+  "providers": [
+    "github-actions"
+  ]
+}

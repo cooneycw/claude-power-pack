@@ -15,6 +15,7 @@
 
 ### Fixed
 
+- Flow doctor now cross-checks recorded CI providers against registered pipeline files, declared/live required status checks and historical host capability, preserving unknown evidence and reporting canonical offline lane selection and explicit fallback behavior without probing providers (#1611).
 - Merge-queue API calls pass authorization headers through stdin so bearer credentials stay out of curl process arguments (#1656).
 
 - `cpp:init` shares one MCP registration routine per client and records actual

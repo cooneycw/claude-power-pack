@@ -286,17 +286,62 @@ PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd
 grep -q "endpoints:" .claude/cicd.yml 2>/dev/null && echo "PASS health endpoints" || echo "MISSING health endpoints"
 grep -q "smoke_tests:" .claude/cicd.yml 2>/dev/null && echo "PASS smoke tests" || echo "MISSING smoke tests"
 
-# 5. CI pipeline files
-[ -f ".github/workflows/ci.yml" ] || [ -f ".woodpecker.yml" ] && echo "PASS CI pipeline" || echo "MISSING CI pipeline"
+# 5. Provider consistency is reported separately below.
 
 # 6. Dockerfile (optional)
 [ -f "Dockerfile" ] && echo "PASS Dockerfile" || echo "OPTIONAL Dockerfile"
 ```
 
-If `CPP_DIR` is not found, skip this entire section and note in the report:
+Run the provider cross-check once. It reads the canonical provider list, the
+registry's pipeline-file patterns, declared and live required status checks
+(classic protection and branch rules), and the recorded host capability. Its
+host row is a historical snapshot with a timestamp, not a credential probe.
+It does not generate files, install dependencies or refresh authentication.
+Other legacy checks above retain their existing uv behavior.
+
+Use the existing CPP environment with bytecode writes disabled; do not sync or
+create an environment during diagnosis. An absent environment reports unknown.
+
+<!-- CPP_DOCTOR_CI_BEGIN -->
+```bash
+if [ -x "$CPP_DIR/.venv/bin/python" ]; then
+  CPP_DOCTOR_CI_REPORT=$(PYTHONPATH="$CPP_DIR" "$CPP_DIR/.venv/bin/python" -P -B -m lib.cicd doctor-ci --path "$PWD")
+  CPP_DOCTOR_CI_STATUS=$?
+  if [ -n "$CPP_DOCTOR_CI_REPORT" ]; then
+    printf '%s\n' "$CPP_DOCTOR_CI_REPORT"
+  else
+    for CPP_DOCTOR_ROW in CI_PIPELINE_FILES CI_REQUIRED_CHECKS CI_HOST_CAPABILITY CI_FALLBACK; do
+      echo "$CPP_DOCTOR_ROW: unknown (provider diagnostic could not be examined)"
+    done
+  fi
+else
+  CPP_DOCTOR_CI_STATUS=3
+  for CPP_DOCTOR_ROW in CI_PIPELINE_FILES CI_REQUIRED_CHECKS CI_HOST_CAPABILITY CI_FALLBACK; do
+    echo "$CPP_DOCTOR_ROW: unknown (existing CPP Python environment unavailable)"
+  done
+fi
 ```
-CI/CD Readiness: skipped (lib/cicd not available)
-```
+<!-- CPP_DOCTOR_CI_END -->
+
+Report all four rows as `ok`, `drift (what)` or `unknown (why)`. Never translate
+unknown into PASS. `doctor-ci` exits 0 only when all four rows are ok,
+1 when any row proves drift (retaining any other unknowns), and 3 otherwise for
+unknown evidence. `--json` retains the same rows and aggregate exit code.
+Pipeline-file scope is the registry-declared patterns; required-check scope is
+unconditional PR contexts supported by the shared derivation, not every branch
+policy or arbitrary workflow expression. An unreadable protection source or
+unverified app binding is unknown. Host-ready means last recorded ready at the
+reported timestamp; refresh it with `/cpp:init` Tier 4 on the host when needed.
+The fallback row uses the canonical offline lane planner, names the recorded
+lanes, and reports whether fallback would trigger by default and with the
+explicit `--fallback-provider-probes` option. Missing records or unavailable
+handlers remain unknown even when explicit fallback would trigger. This
+diagnostic executes no provider probes. The lane row describes the runtime
+plan; it does not independently detect lane drift, because selection and plan
+use the same canonical record and registry.
+
+If `CPP_DIR` is not found, report CI/CD readiness unknown (`lib/cicd` unavailable).
+Do not mark a skipped diagnostic as successful.
 
 ### Step 7c: MCP Server Wiring
 
@@ -389,6 +434,15 @@ Output a single diagnostic report in this format:
 | Helper freshness | ✅/⚠️ | `flow-helpers-install.sh --check`: ok / stale (plugin upgraded, installed copies behind) |
 | Flow allowlist | ✅/⚠️/❌ | 38/38 rules in ~/.claude/settings.json / N missing / settings.json missing |
 
+### CI Provider Consistency
+
+| Relationship | Status | Details |
+|---|---|---|
+| Recorded provider / registered pipeline files | ok / drift / unknown | Named file scope, missing or unrecorded provider files |
+| Recorded provider / required status checks | ok / drift / unknown | Derived unconditional PR contexts versus declared and live protection |
+| Recorded provider / host snapshot | ok / drift / unknown | Last recorded capability and checked-at timestamp; not live connectivity |
+| Flow helper fallback | ok / drift / unknown | Offline lane plan, or explicit unavailable reason |
+
 ### MCP Server Wiring
 
 | Server | Transport | Status | Details |
@@ -415,7 +469,7 @@ Output a single diagnostic report in this format:
 
 ### CI/CD & Verification
 
-*(Only shown when lib/cicd is available. If not available, show: "CI/CD Readiness: skipped (lib/cicd not available - install CPP for CI/CD features)")*
+*(Only shown when lib/cicd is available. If not available, show: "CI/CD Readiness: unknown (lib/cicd unavailable - install CPP for CI/CD features)")*
 
 | Check | Status | Details |
 |-------|--------|---------|
@@ -424,12 +478,20 @@ Output a single diagnostic report in this format:
 | Makefile completeness | ✅/⚠️ | 6/7 targets (typecheck missing) |
 | Health endpoints | ✅/⚠️ | 2 configured / Not configured |
 | Smoke tests | ✅/⚠️ | 3 configured / Not configured |
-| CI pipeline | ✅/❌ | .github/workflows/ci.yml / Not found |
+| CI provider consistency | ok / drift / unknown | Aggregate of the four relationship rows above; unknown is not ready |
 | Dockerfile | ⚠️ | Not configured (optional) |
 
 ### Actions Needed
 
-(Only if there are failures or warnings)
+For CI provider drift or unknown evidence, name the affected relationship. A
+missing provider record needs an explicit choice through `/cicd:init`; never
+infer it from files or protection. Required-check differences need a reviewed
+project/protection correction. Host evidence needs a host-side `/cpp:init`
+Tier 4 refresh when current capability matters. An unavailable lane plan stays
+unknown until that shared planner is available. Diagnosis itself changes none
+of these records.
+
+(Only if there are failures, warnings, drift or unknown evidence)
 
 1. ❌ **Makefile missing** - Create a Makefile with `lint`, `test`, and `deploy` targets for `/flow:finish` and `/flow:deploy`. Run `/cicd:init` to auto-generate from a stack-specific template, or copy one manually:
    - Python (uv): `cp ~/Projects/claude-power-pack/templates/makefiles/python-uv.mk Makefile`
