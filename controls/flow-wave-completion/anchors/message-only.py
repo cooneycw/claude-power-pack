@@ -17,8 +17,10 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import tempfile
 import time
+import traceback
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -308,9 +310,10 @@ def validate_assignment(value: Any, subject: dict) -> dict:
             or type(value.get('extensions')) is not int or value['extensions'] not in (0,1)
             or type(value.get('extension_seconds')) is not int or not 1 <= value['extension_seconds'] <= 86400):
         raise Unknown('assignment state malformed or not current')
+    assigned = timestamp(value.get('assigned_at'))
     initial = timestamp(value.get('initial_deadline'))
     current = timestamp(value.get('deadline'))
-    if (type(value.get('schema')) is not int
+    if (initial <= assigned or type(value.get('schema')) is not int
             or type(value['identity'].get('generation')) is not int
             or value['extensions'] == 0 and current != initial
             or value['extensions'] == 1 and current <= initial):
@@ -405,7 +408,8 @@ def execute(args: argparse.Namespace) -> tuple[int, dict]:
                     raise Refused('new assignment requires a later generation')
             if timestamp(deadline) <= now:
                 raise Refused('new assignment deadline must be in the future')
-            current = {'schema':1, 'identity':subject, 'initial_deadline':deadline, 'deadline':deadline,
+            current = {'schema':1, 'identity':subject, 'assigned_at':stamp(now),
+                       'initial_deadline':deadline, 'deadline':deadline,
                        'extension_seconds':args.extension_seconds, 'extensions':0}
             if seen != history_value:
                 durable_mkdir(history.parent)
@@ -420,7 +424,10 @@ def execute(args: argparse.Namespace) -> tuple[int, dict]:
             now = datetime.now(timezone.utc)
         if receipt is not None:
             receipt = validate_receipt(receipt, subject)
-            if timestamp(receipt['finished_at']) > now + timedelta(seconds=CLOCK_SKEW_SECONDS):
+            finished = timestamp(receipt['finished_at'])
+            if finished < timestamp(current['assigned_at']) - timedelta(seconds=CLOCK_SKEW_SECONDS):
+                raise Unknown('receipt completion predates this assignment')
+            if finished > now + timedelta(seconds=CLOCK_SKEW_SECONDS):
                 raise Unknown('receipt completion timestamp is in the future')
             return (0 if receipt['outcome'] == 'succeeded' else 1), {
                 'status':'complete', 'outcome':receipt['outcome'], 'receipt':receipt, 'key':key}
@@ -471,4 +478,29 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == '__main__':
-    raise SystemExit(main())
+    # Installed helpers report their own status after diagnostics and flushing,
+    # so a pipe cannot replace it with the status of tail/head (#1031).
+    _code = 3
+    try:
+        _code = main()
+    except SystemExit as _exc:
+        _code = _exc.code if isinstance(_exc.code, int) else int(bool(_exc.code))
+    except BaseException:  # noqa: BLE001 - reported before the final status
+        traceback.print_exc()
+        _code = 3
+    _flush_failed = False
+    try:
+        sys.stdout.flush()
+    except BaseException:  # noqa: BLE001 - a failed data write is unknown
+        traceback.print_exc()
+        _flush_failed = True
+        if _code == 0:
+            _code = 3
+    print(f"FLOW_WAVE_COMPLETION_EXIT={_code}", file=sys.stderr)
+    if _flush_failed:
+        try:
+            sys.stderr.flush()
+        except BaseException:  # noqa: BLE001 - no remaining reporting channel
+            pass
+        os._exit(_code)
+    raise SystemExit(_code)

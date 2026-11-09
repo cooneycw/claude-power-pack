@@ -52,7 +52,7 @@
     {
       "kind": "constructed",
       "path": "anchors/message-only.py",
-      "sha256": "ca5eef2108b18a53321850df7902da176d5f72e785cf392afef11b5c4ba6f58a",
+      "sha256": "25f2b039dcc70acb45e66fefedf2cd1697c0f89a7197a71d199b82ebe4f04b27",
       "why": "The subject with receipt consumption gated on message arrival: it remains waiting when the done message is lost, despite a terminal receipt. It reproduces message-only policy, not a historical executable; the old wave procedure had no completion helper."
     }
   ]

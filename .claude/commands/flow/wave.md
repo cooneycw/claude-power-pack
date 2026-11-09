@@ -581,7 +581,8 @@ Read the JSON `status` and preserve the terminal `outcome`:
   message. A wrong assignment/generation or malformed receipt is UNKNOWN. Worker clocks
   may lead the coordinator by at most 5 seconds; a larger future timestamp is
   UNKNOWN and must be retried after checking clock synchronization before
-  treating the role as gone or escalating.
+  treating the role as gone or escalating. `finished_at` may not predate the
+  recorded `assigned_at` by more than the same 5-second allowance.
 - `waiting` (exit 4): no receipt before the deadline. Re-arm the timer for the
   recorded deadline; a message is optional.
 - `extended` (exit 4): no receipt at the deadline, with fresh `alive` evidence;
@@ -715,23 +716,6 @@ are the precise override for non-path resources.
 
 ### 2. Assign
 
-
-Before sending any assignment, establish the shared store as described under
-Completion, select a finite UTC `DEADLINE` and one-time extension budget, and
-record the worker's complete assignment identity. Run this and require
-`status: assigned` before sending the brief:
-
-```bash
-python3 ~/.claude/scripts/flow-wave-completion.py assign \
-  --state-root "$FLOW_WAVE_COMPLETION_ROOT" --wave "$WAVE" --role "$ROLE" \
-  --assignment-id "$ASSIGNMENT_ID" --generation "$GENERATION" \
-  --deadline "$DEADLINE" --extension-seconds 600
-```
-
-Include that identity, store configuration, deadline and result reference in the
-brief. Arm the coordinator's deadline wake now; do not defer it until the worker
-reports. On an assignment/storage refusal, record UNKNOWN and do not dispatch.
-
 For each idle registered worker, pick the next startable issue subject to:
 
 - **Lane disjointness**: no two in-flight issues sharing a contended path or
@@ -837,6 +821,23 @@ For each idle registered worker, pick the next startable issue subject to:
   issue marked assigned in your ledger whose box still shows `UNREAD` is the
   2026-08-11 failure reproducing: the plan looks healthy from both ends while
   nothing moves.
+
+Before sending any assignment, establish the shared store as described under
+Completion, select a finite UTC `DEADLINE` and one-time extension budget, and
+record the worker's complete assignment identity. Run this and require
+`status: assigned` before sending the brief:
+
+```bash
+python3 ~/.claude/scripts/flow-wave-completion.py assign \
+  --state-root "$FLOW_WAVE_COMPLETION_ROOT" --wave "$WAVE" --role "$ROLE" \
+  --assignment-id "$ASSIGNMENT_ID" --generation "$GENERATION" \
+  --deadline "$DEADLINE" --extension-seconds 600
+```
+
+Include that identity, store configuration, deadline and result reference in the
+brief. Arm the coordinator's deadline wake now; do not defer it until the worker
+reports. Do not dispatch unless the helper returns `status: assigned`;
+preserve any refusal or UNKNOWN for resolution.
 
 ### 3. Judge the Step-3 gate
 
@@ -1012,6 +1013,31 @@ the worktree HEAD against `origin/main` yourself (`git -C <wt> rev-list
 discipline**: with N workers merging, main moves under everyone; three of four
 workers were caught behind at least once in the reference run.
 
+#### Rework after verification
+
+The succeeded receipt above covers PR-ready work only. If verification rejects
+it or asks for changes, create a new assignment and finite deadline **before**
+any rework starts. Choose `REWORK_GENERATION` strictly higher than the current
+reserved generation and a new `REWORK_ASSIGNMENT_ID`; keep the immutable old
+receipt. Rework is not an extension of a completed assignment:
+
+<!-- CPP_WAVE_REWORK_BEGIN -->
+```bash
+ASSIGNMENT_ID="$REWORK_ASSIGNMENT_ID"
+GENERATION="$REWORK_GENERATION"
+DEADLINE="$REWORK_DEADLINE"
+python3 ~/.claude/scripts/flow-wave-completion.py assign \
+  --state-root "$FLOW_WAVE_COMPLETION_ROOT" --wave "$WAVE" --role "$ROLE" \
+  --assignment-id "$ASSIGNMENT_ID" --generation "$GENERATION" \
+  --deadline "$DEADLINE" --extension-seconds 600
+```
+
+Do not dispatch unless `status: assigned`. Send the new identity/deadline and
+arm its wake. When rework finishes, the worker repeats this step's `complete`
+command for the new generation; the coordinator repeats `check` and PR/CI
+verification at its deadline or earlier wake. Repeat this reassignment for each
+rejected verification; never reuse the old succeeded receipt as rework evidence.
+
 **Then WATCH the run your clearance starts (issue #788).** Clearing a PR's queue
 position starts its next pipeline, and until #788 nothing watched the result: on
 the `kyle-completion` wave (2026-09-05) the owner spotted a red pipeline on a
@@ -1061,8 +1087,61 @@ it. A failed/cancelled terminal result is complete work accounting, not approval
 to merge. Retain its receipt and follow the failure/cancellation ruling. Only a
 succeeded result with accepted evidence reaches the merge path below.
 
-On ledger acceptance the worker proceeds to merge (Step 7-9), then gets its
-next assignment from the CURRENT plan (step 1 re-ran after the verdict).
+On ledger acceptance, merging (Steps 7-9) is a separate bounded assignment.
+Before granting it, capture the verified PR head as `EXPECTED_HEAD` and record a
+new identity, strictly higher `MERGE_GENERATION` and finite `MERGE_DEADLINE`:
+
+```bash
+ASSIGNMENT_ID="$MERGE_ASSIGNMENT_ID"
+GENERATION="$MERGE_GENERATION"
+DEADLINE="$MERGE_DEADLINE"
+python3 ~/.claude/scripts/flow-wave-completion.py assign \
+  --state-root "$FLOW_WAVE_COMPLETION_ROOT" --wave "$WAVE" --role "$ROLE" \
+  --assignment-id "$ASSIGNMENT_ID" --generation "$GENERATION" \
+  --deadline "$DEADLINE" --extension-seconds 600
+```
+
+Do not dispatch unless `status: assigned`; retain this merge identity for the
+following observations and receipt. Arm its deadline wake. A merge message
+prompts an earlier read; at the deadline read GitHub whether or not mail arrived:
+
+<!-- CPP_WAVE_MERGE_OBSERVE_BEGIN -->
+```bash
+gh pr view "$PR" --repo "$REPO" --json state,mergedAt,mergeCommit,headRefOid
+```
+
+Only GitHub `state: MERGED`, a recorded merge commit/time, and a matching
+`headRefOid: EXPECTED_HEAD` establish that this reviewed PR merged. A message,
+queue clearance, old PR-ready receipt or worker exit status cannot substitute.
+Unreadable/mismatched GitHub evidence is UNKNOWN; an open PR is still unmerged.
+Handle the merge assignment's waiting/extension/escalation policy at its
+recorded deadline. A changed head needs renewed verification and a new assignment.
+
+After observing the merge, the worker or coordinator publishes the observed
+terminal result for the **merge** assignment. Set `MERGE_OUTCOME=succeeded`
+only for the verified GitHub merge above, and reference that observed evidence;
+failed/cancelled work remains failed/cancelled and does not authorize release as
+merged:
+
+```bash
+python3 ~/.claude/scripts/flow-wave-completion.py complete \
+  --state-root "$FLOW_WAVE_COMPLETION_ROOT" --wave "$WAVE" --role "$ROLE" \
+  --assignment-id "$ASSIGNMENT_ID" --generation "$GENERATION" \
+  --outcome "$MERGE_OUTCOME" --evidence "$MERGE_RESULT_REFERENCE"
+```
+
+Reconcile that merge identity before freeing the worker; a lost completion
+message is harmless because the receipt and deadline remain:
+
+```bash
+python3 ~/.claude/scripts/flow-wave-completion.py check \
+  --state-root "$FLOW_WAVE_COMPLETION_ROOT" --wave "$WAVE" --role "$ROLE" \
+  --assignment-id "$ASSIGNMENT_ID" --generation "$GENERATION" \
+  --liveness "$LIVENESS" --observed-at "$LIVENESS_OBSERVED_AT"
+```
+
+After the merge is verified and its result reconciled, pick the next assignment
+from the CURRENT plan (step 1 re-ran after the verdict).
 
 ## Phase 3: Close, promote, and report issue economy
 

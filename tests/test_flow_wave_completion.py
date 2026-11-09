@@ -21,6 +21,7 @@ def call(root, verb, *args, env=None):
     result = subprocess.run([sys.executable, str(SCRIPT), verb, '--state-root', str(root), *IDENTITY, *args],
                             env={**os.environ, 'FLOW_WAVE_RECEIPT_ADAPTER':'', **(env or {})},
                             capture_output=True, text=True, timeout=8)
+    assert result.stderr.splitlines()[-1] == f'FLOW_WAVE_COMPLETION_EXIT={result.returncode}'
     assert result.stdout.strip(), result.stderr
     return result.returncode, json.loads(result.stdout)
 
@@ -172,8 +173,8 @@ def test_published_assign_complete_check_recipe_runs(tmp_path, section):
     scope = (text.split('## Completion:',1)[1].split('## Phase 1:',1)[0] if section == 'setup'
              else text.split('## Phase 2:',1)[1].split('## Phase 3:',1)[0])
     recipes = [block for block in re.findall(r'```bash\n(.*?)```', scope, re.S)
-               if 'flow-wave-completion.py' in block]
-    assert len(recipes) == (3 if section == 'setup' else 4)
+               if 'flow-wave-completion.py' in block and 'REWORK_GENERATION' not in block]
+    assert len(recipes) == (3 if section == 'setup' else 7)
     task_home = tmp_path / 'home'
     installed = task_home / '.claude/scripts/flow-wave-completion.py'
     installed.parent.mkdir(parents=True)
@@ -182,15 +183,23 @@ def test_published_assign_complete_check_recipe_runs(tmp_path, section):
            'WAVE':'wave-a','ROLE':'worker-a','ASSIGNMENT_ID':'task-a','GENERATION':'1',
            'DEADLINE':(datetime.now(timezone.utc)+timedelta(minutes=5)).isoformat(),
            'OUTCOME':'succeeded','RESULT_REFERENCE':'fixture-result','LIVENESS':'unknown',
+           'MERGE_ASSIGNMENT_ID':'task-merge','MERGE_GENERATION':'2',
+           'MERGE_DEADLINE':(datetime.now(timezone.utc)+timedelta(minutes=5)).isoformat(),
+           'MERGE_OUTCOME':'succeeded','MERGE_RESULT_REFERENCE':'fixture-github-result',
            'LIVENESS_OBSERVED_AT':'','FLOW_WAVE_RECEIPT_ADAPTER':''}
     env.pop('CPP_DIR', None)
     results = []
     for recipe in recipes:
         result = subprocess.run(['bash','-c',recipe],env=env,capture_output=True,text=True,timeout=8)
         assert result.returncode == 0, result.stdout + result.stderr
-        results.append(json.loads(result.stdout))
-    assert [r['status'] for r in results] == (['assigned','recorded','complete'] if section == 'setup'
-                                             else ['assigned','recorded','complete','complete'])
+        value = json.loads(result.stdout)
+        results.append(value)
+        if value['status'] == 'assigned':
+            env['ASSIGNMENT_ID'] = value['identity']['assignment_id']
+            env['GENERATION'] = str(value['identity']['generation'])
+    expected = (['assigned','recorded','complete'] if section == 'setup' else
+                ['assigned','recorded','complete','complete','assigned','recorded','complete'])
+    assert [r['status'] for r in results] == expected
 
 
 def test_new_generation_supersedes_old_assignment(tmp_path):
@@ -539,3 +548,94 @@ def test_adapter_encoding_is_explicit_utf8(tmp_path, monkeypatch):
     store = helper.AdapterStore(env['FLOW_WAVE_RECEIPT_ADAPTER'])
     assert store.get('fixture-key')['evidence'] == 'caf\u00e9'
     assert observed and observed[0].get('encoding') == 'utf-8'
+
+
+@pytest.mark.parametrize('backend', ['filesystem','adapter'])
+def test_receipt_cannot_predate_its_assignment(tmp_path, backend):
+    assign(tmp_path)  # Initializes the shared store for a different generation.
+    args = ['--generation','2','--assignment-id','task-b']
+    code, value = call(tmp_path,'complete','--outcome','succeeded',
+                       '--finished-at','2000-01-01T00:00:00Z',*args)
+    assert code == 0 and value['status'] == 'recorded'
+    env = None
+    if backend == 'adapter':
+        receipt = value['receipt']
+        env = adapter(tmp_path,'import json,sys\nprint(json.dumps({"key":sys.argv[2],"receipt":'
+                      + repr(receipt) + '}))\n')
+    code, value = call(tmp_path,'assign','--deadline',DEADLINE,'--now',BEFORE,*args)
+    assert code == 0 and value['status'] == 'assigned'
+    code, value = call(tmp_path,'check','--now',AFTER,*args,env=env)
+    assert code == 3 and value['status'] == 'unknown'
+
+
+@pytest.mark.parametrize('seconds,expected', [(2,0),(5,0),(6,3)])
+def test_receipt_lower_time_bound_has_skew_allowance(tmp_path, seconds, expected):
+    from datetime import datetime, timedelta
+    assign(tmp_path)
+    finished = (datetime.fromisoformat(BEFORE.replace('Z','+00:00')) - timedelta(seconds=seconds)).isoformat()
+    code, value = call(tmp_path,'complete','--outcome','succeeded','--finished-at',finished)
+    assert code == 0
+    code, value = call(tmp_path,'check','--now',AFTER)
+    assert code == expected and value['status'] == ('complete' if expected == 0 else 'unknown')
+
+
+@pytest.mark.skipif(shutil.which('bash') is None, reason='requires bash recipe')
+def test_published_rework_assigns_higher_generation(tmp_path):
+    import re
+    from datetime import datetime, timedelta, timezone
+
+    text = (ROOT / '.claude/commands/flow/wave.md').read_text()
+    recipe = re.search(r'<!-- CPP_WAVE_REWORK_BEGIN -->\s*```bash\n(.*?)```',text,re.S)
+    assert recipe is not None, 'verification rework needs its own published assignment'
+    assign(tmp_path)
+    publish(tmp_path)
+    task_home = tmp_path / 'home'
+    installed = task_home / '.claude/scripts/flow-wave-completion.py'
+    installed.parent.mkdir(parents=True)
+    installed.write_bytes(SCRIPT.read_bytes())
+    env = {**os.environ,'HOME':str(task_home),'FLOW_WAVE_COMPLETION_ROOT':str(tmp_path),
+           'WAVE':'wave-a','ROLE':'worker-a','ASSIGNMENT_ID':'task-a','GENERATION':'1',
+           'REWORK_ASSIGNMENT_ID':'task-rework','REWORK_GENERATION':'2',
+           'REWORK_DEADLINE':(datetime.now(timezone.utc)+timedelta(minutes=5)).isoformat(),
+           'FLOW_WAVE_RECEIPT_ADAPTER':''}
+    env.pop('CPP_DIR',None)
+    result = subprocess.run(['bash','-c',recipe[1]],env=env,capture_output=True,text=True,timeout=8)
+    assert result.returncode == 0, result.stdout+result.stderr
+    assigned = json.loads(result.stdout)
+    assert assigned['status'] == 'assigned' and assigned['identity']['generation'] == 2
+    assert assigned['identity']['assignment_id'] == 'task-rework'
+    assert assigned['extensions'] == 0
+    # The old PR-ready receipt cannot complete the rework assignment.
+    code, value = call(tmp_path,'check','--generation','2','--assignment-id','task-rework')
+    assert code == 4 and value['status'] == 'waiting'
+
+
+@pytest.mark.skipif(shutil.which('bash') is None, reason='requires bash recipe')
+def test_published_merge_observes_github_state(tmp_path):
+    import re
+    text = (ROOT / '.claude/commands/flow/wave.md').read_text()
+    recipe = re.search(r'<!-- CPP_WAVE_MERGE_OBSERVE_BEGIN -->\s*```bash\n(.*?)```',text,re.S)
+    assert recipe is not None
+    bindir = tmp_path / 'bin'
+    bindir.mkdir()
+    gh = bindir / 'gh'
+    gh.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$GH_CALLS"\n'
+                  'printf \'%s\\n\' \'{"state":"MERGED","mergedAt":"2026-11-09T00:00:00Z",'
+                  '"mergeCommit":{"oid":"fixture-merge"},"headRefOid":"fixture-head"}\'\n')
+    gh.chmod(0o755)
+    calls = tmp_path / 'gh-calls'
+    env = {**os.environ,'PATH':str(bindir)+os.pathsep+os.environ['PATH'],
+           'PR':'42','REPO':'fixture/repo','GH_CALLS':str(calls)}
+    assert shutil.which('gh',path=env['PATH']) == str(gh), 'recipe must never contact live GitHub'
+    result = subprocess.run(['bash','-c',recipe[1]],env=env,capture_output=True,text=True,timeout=8)
+    assert result.returncode == 0
+    assert json.loads(result.stdout)['state'] == 'MERGED'
+    assert calls.read_text().splitlines() == ['pr','view','42','--repo','fixture/repo','--json',
+                                             'state,mergedAt,mergeCommit,headRefOid']
+
+
+def test_assignment_timestamp_is_stable_on_idempotent_retry(tmp_path):
+    code, first = call(tmp_path,'assign','--deadline',DEADLINE,'--now',BEFORE)
+    assert code == 0 and first['assigned_at'] == BEFORE
+    code, second = call(tmp_path,'assign','--deadline',DEADLINE,'--now','2026-11-08T10:00:30Z')
+    assert code == 0 and second['assigned_at'] == first['assigned_at']

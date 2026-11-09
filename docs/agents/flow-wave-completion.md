@@ -96,7 +96,13 @@ present and a valid calendar date/time. Basic dates, space separators, leap
 seconds, `-00:00` and other offsets are rejected), and `evidence` (string, at most 4096 characters, possibly
 empty). The coordinator permits up to 5 seconds of positive worker-clock skew. A
 timestamp more than 5 seconds ahead is UNKNOWN; retry after checking clock
-synchronization before escalating. This does not extend an assignment deadline. Evidence is an
+synchronization before escalating. Assignment state records the coordinator
+`assigned_at` timestamp once, preserving it across idempotent retries. A receipt
+with `finished_at` earlier than `assigned_at` minus 5 seconds is also UNKNOWN,
+for filesystem and external stores alike. Publication may store such a receipt,
+but it cannot complete a later assignment; matching identity alone is not enough.
+The receipt schema/key are unchanged: `assigned_at` belongs to coordinator
+assignment state, not the receipt or adapter request. This does not extend an assignment deadline. Evidence is an
 opaque reference, not proof that the work or tests passed; do not store secrets.
 
 ## Put semantics and publication acknowledgement
@@ -148,6 +154,9 @@ external deployment's storage or permissions.
 ## Helper results and deadlines
 
 The helper emits a JSON result for normal reconciliation/storage failures.
+As an installed flow helper it also emits `FLOW_WAVE_COMPLETION_EXIT=<code>`
+as the last stderr line, after flushing stdout; it does not add that metadata
+to the JSON data channel.
 Successful `assign` (`assigned`) and publication (`recorded`) exit 0. `check`
 exits 0 only for a matching succeeded receipt; matching failed/cancelled receipts
 have `status:complete` and exit 1. A conflicting mutation is `refused`, exit 1.
