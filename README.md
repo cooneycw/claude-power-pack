@@ -5,7 +5,7 @@
 ## What It Does
 
 - **Workflow commands** (`/flow:auto`, `/flow:start`, `/flow:eli5`, `/flow:finish`) - Issue-driven development with worktrees, a pre-implementation ELI5 plan/necessity approval gate that cannot be bypassed (#775), quality gates, automated PR lifecycle, and CI verification. The necessity gate also ships standalone as [eli5-gate](https://github.com/cooneycw/eli5-gate) - installable without CPP via `/plugin marketplace add cooneycw/eli5-gate` or `npx skills add cooneycw/eli5-gate`; CPP vendors its canonical core (file gate improvements there)
-- **Wave orchestration** (`/flow:wave`, `/flow:register`, `/flow:sync`) - dependency-ordered issue waves fanned out across worker sessions, coordinated through a durable mailbox with an armed/stale/dead watch status visible on the roster (#778, #801), and per-driver capability declarations (scope, web access) so an orchestrator can check whether a driver can do the work before assigning it, not after a worker refuses (#783)
+- **Wave orchestration** (`/flow:wave`, `/flow:register`, `/flow:sync`) - dependency-ordered issue waves with per-driver capability declarations and durable mailbox delivery. Assignment-bound receipts and finite deadlines make completion recoverable when a message is lost, including rework and merge. The coordinator must arrange deadline checks and establish a shared receipt store; the helper does not install a scheduler. See the [receipt-store and deadline contract](docs/agents/flow-wave-completion.md).
 - **MCP servers** extending Claude Code's capabilities:
   - **Second Opinion** - Multi-model code review via external LLMs (Gemini, OpenAI, Anthropic), served by the external `cooneycw/mcp-second-opinion` repo and registered at user scope by `/cpp:init` (streamable-http)
   - **Browser automation** - upstream `@playwright/mcp` server (npx/stdio, no container), registered by `/cpp:init`
@@ -13,7 +13,7 @@
 - **PowerPoint generation** - Slide decks via the native Anthropic `pptx` skill (`npx skills add anthropics/skills@pptx`)
 - **Security scanning** (`/security:scan`) - Native vulnerability detection with git history analysis
 - **Secrets management** (`/secrets:*`) - Tiered credential storage (dotenv, env-file, AWS Secrets Manager) with audit logging and a web UI
-- **CI/CD integration** (`/cicd:*`) - Framework detection, Makefile generation, health checks, and IaC scaffolding
+- **CI/CD integration** (`/cicd:*`) - Explicit per-project GitHub Actions/Woodpecker provider selection, framework Makefile and pipeline generation, local PR protection, health checks, and IaC scaffolding
 - **Woodpecker CI** - Self-hosted pipeline (secret-scan, lint, test, typecheck) with programmatic status polling
 - **Project scaffolding** (`/project:init`) - Zero-to-GitHub-repo setup with Makefile, CI pipeline, and Docker config
 - **Skills ecosystem** - Discover, install, and manage agent skills from [skills.sh](https://skills.sh/) via native `npx skills` and the `/plugin` marketplace (the CPP `/skills:*` wrapper was retired in issue #437)
@@ -22,6 +22,8 @@
 ## Requirements
 
 - Python 3.11+
+- Bash 4.4+ first on PATH (on macOS: `brew install bash`)
+- Git for repository workflows; Git 2.36+ is required specifically for `worktree-remove.sh --finish-partial-removal` verification
 - [uv](https://docs.astral.sh/uv/) package manager
 - Docker (optional - only to run the external second-opinion server locally, or as the gitleaks fallback for `make secret-scan`)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
@@ -43,16 +45,30 @@ Existing CPP marketplace users should run `/plugin uninstall <family>@cpp` for e
 
 ### Host setup
 
-`/cpp:init` also configures the out-of-band infrastructure used by some command families:
+`/cpp:init` configures host tools and shared infrastructure. It records observed
+installation outcomes in `.claude/cpp-install.json`; these are historical
+observations, not proof of current connectivity. It does not generate project
+Makefiles or CI pipelines. Framework-first ordering and the general rechecker
+remain unfinished work under [#1587](https://github.com/cooneycw/claude-power-pack/issues/1587).
+
+Host setup includes:
 
 - **External Second Opinion server** - the multi-model review server lives in its own repo ([cooneycw/mcp-second-opinion](https://github.com/cooneycw/mcp-second-opinion)). Start the external server, then register it with `claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"` (for a remote host, export `SECOND_OPINION_URL` first rather than editing the URL, so every install names the same endpoint).
 - **Browser automation** - registers the upstream `@playwright/mcp` npx/stdio server (no container).
 - **Tavily web tools** - registers the upstream [tavily-mcp](https://github.com/tavily-ai/tavily-mcp) npx/stdio server for web search, extract, crawl, and map. Requires `TAVILY_API_KEY` (stored in AWS Secrets Manager `claude-power-pack/mcp-keys`).
 - **Secrets provisioning** - AWS Secrets Manager access for Woodpecker CI keys (`essent-ai`) and the `CPP_MEMORIES_DSN` common-memory DSN; fetched directly via the AWS SDK/CLI.
+- **Host CI capabilities** - Tier 4 probes each registered provider independently and writes `<projects>/.claude/cpp-host.json`. Project consumers show the recorded timestamp and readiness; missing, inaccessible and container-unavailable evidence stays unknown. Refresh the host record when current capability matters.
 - **Bootstrap prerequisites** - bash 4.4 or newer first on PATH (macOS ships 3.2: `brew install bash`), `jq`, and the optional spec-kit CLI (`specify`, the engine behind `/spec:adopt`). `/cpp:init`, `/cpp:update` and `/flow:doctor` report a bash below that floor, and `/flow:auto` refuses to start on one.
 - **Permission census hook + flow allowlist** - registers the observe-only PermissionRequest census hook and merges the read-only `/flow:*` allowlist - including the audited flow helper-script rules that make `/flow:auto` Phase 1 prompt-free (issue #581) - into `~/.claude/settings.json` (both user-confirmed).
 
 `/cpp:update` refreshes those same host artifacts. See [`docs/HOST_MANAGED_ARTIFACTS.md`](docs/HOST_MANAGED_ARTIFACTS.md) for the full inventory.
+
+Use `/project:init` for a new project or `/cicd:init` for an existing repository.
+They record the explicit `pipeline.providers` list in `.claude/cicd.yml`,
+generate the selected providers' pipelines and derive local
+`.claude/branch-protection.json` from supported PR checks. A missing provider
+choice is unknown, not an implicit Actions default. Applying protection to
+GitHub requires separate explicit approval. See the [CI provider chain](docs/architecture/ci-provider-chain.md).
 
 ### Developing CPP itself
 
@@ -65,7 +81,14 @@ uv sync --extra dev
 make verify
 ```
 
-`make verify` closes by naming every checker in the repository it did NOT run, with the reason for each - host-dependent checks, network checks, and the control battery. A checker accounted for nowhere fails the gate, so one cannot be added and wired to nothing (#1028).
+`make verify` runs lint, the test suite, typecheck, security/static checks and
+the registered negative-control battery. The local battery uses
+`--strict --allow-unavailable`: a control whose tool is absent is explicitly
+unexamined, not a passing control. The CI battery stages its required tools and
+uses strict mode without that allowance; mutation probing is a separate check.
+The closing coverage report names checkers that were not run and why, including
+CI-only or host/network-dependent checks. A checker accounted for nowhere fails
+the gate, so it cannot silently be wired to nothing (#1028).
 
 `.claude/commands/<family>/*.md` is the permanent source of truth. It feeds only the generated Codex harness surface: `scripts/codex-skill-sync.py` emits per-command Codex skills under `codex/skills/` (`make codex-skills`, issue #555), guarded by an explicit `codex-skills-check` step in both CI and `make verify` (#1028). A bundled helper ships with what it actually runs - its sibling scripts and the libraries it imports - so the shipped copy can start. The older flat `codex/prompts/` surface it replaced was retired at the #556 cutover. Codex's GLOBAL instructions are a separate, opt-in surface: `make codex-global-agents` builds `~/.codex/AGENTS.md` from `~/.claude/CLAUDE.md` plus the owner's `~/.codex/AGENTS.local.md`, and `/cpp:status` reports when the two have drifted (#1441).
 
@@ -107,12 +130,12 @@ claude-power-pack/
 | Workflow | `/flow:start 42` | Create worktree for an issue |
 | Workflow | `/flow:eli5 42` | Plain-language intent + necessity verdict + plan approval gate |
 | Workflow | `/flow:finish` | Lint, test, typecheck, commit, push, create PR |
-| Workflow | `/flow:wave` | Orchestrate a dependency-ordered issue wave across worker sessions |
+| Workflow | `/flow:wave` | Orchestrate issue waves with assignment receipts, deadlines and explicit recovery |
 | Improve | `/self-improvement:retro` | Post-run friction retro: capture -> codify durable fixes (the grill-me cycle) |
-| Project | `/project:init myapp` | Scaffold a new project |
+| Project | `/project:init myapp` | Scaffold a new project with explicit CI provider selection and local PR protection |
 | Security | `/security:scan` | Full vulnerability scan |
 | Secrets | `/secrets:list` | List managed credentials |
-| CI/CD | `/cicd:init` | Detect framework, generate Makefile |
+| CI/CD | `/cicd:init` | Configure framework build/CI, record providers and derive local PR protection for an existing repo |
 | Docs | `/documentation:c4` | Generate C4 architecture diagrams |
 | Browser | `/browser:session create gmail` | Named concurrent browser sessions (lease-desk pool) |
 | Review | `/second-opinion:start` | Get code review from external LLMs |
@@ -139,7 +162,15 @@ Woodpecker CI runs on every push and PR via a self-hosted agent:
 - **Validate:** lint (ruff) + test (pytest, parallel with an explicit worker cap - never `-n auto`) + typecheck (mypy) in a single consolidated step
 - **Negative controls:** every registered gate must still report BAD on its known-bad fixture and GOOD on its known-good one, and each control must be demonstrated against a vendored anchor that MISSES the known-bad input - a control with no anchor is `UNPROVEN` and fails the step (#924). A case may also register that the gate must REFUSE a verdict - the "I could not look, or could not look completely" branch every gate here has - which is told apart from both a finding and a crash by a declared marker (#1129)
 - **Python SAST:** `bandit` over `lib/` and `scripts/`, gated at severity >= MEDIUM (#962). The skip list is EMPTY: codex-power-pack's inherited `--skip B104,B108,B310,B602` was measured against this tree and found to remove 10 of its 11 MEDIUM+ findings, because `shell=True` and hard-coded `/tmp` paths are what a repository of shell-out helpers does. The accepted residual lives one line per (file, rule, count) in `.bandit-audit-allow`, so a new site is a finding and a fixed one turns the gate red until its line comes out - though a same-count replacement is a named, tested blind spot rather than a claim. The step runs the live positive control BEFORE the audit, because a scan that cannot see prints the same clean line as a clean tree. The band BELOW that threshold is enumerated by RULE CLASS rather than counted in aggregate (#1114): all seven classes in this tree were read and accepted, each carries a `reviewed-low` record pointing at [ADR 0010](docs/decisions/0010-bandit-low-band-disposition.md), and a LOW finding whose class has no record reddens the gate - which is the opposite of the `--skip` #962 rejected, since it suppresses nothing and adds a distinction the count could not draw
-- **CI verification:** `flow:auto` polls the Woodpecker API after merge to confirm the pipeline passes
+- **Consumer CI verification:** `flow:auto` polls the project's recorded provider lanes after merge: Actions through GitHub, Woodpecker through its API/CLI. It aggregates the selected lanes and preserves missing or unknown evidence rather than inferring success.
+
+Generated main application pipelines for both providers check counter-model
+receipts through a verified CPP checkout pinned to the install receipt's
+immutable revision. Same-repository PRs without a valid receipt fail;
+positively identified forks warn, while missing pin/identity or bootstrap errors
+are UNKNOWN/retry. Infrastructure-only templates are excluded. Update CPP,
+refresh `/cpp:init`, regenerate the pipeline and review the pin change to adopt
+this job in an existing generated file. See [generated CI enrolment](docs/agents/generated-ci-enrolment.md).
 
 The image-build, CVE-scan, SBOM, compose-policy, and runtime-smoke stages were retired with CPP's Docker MCP runtime in #469.
 
@@ -148,13 +179,11 @@ Architecture: Woodpecker server on a dedicated VM, agent on the dev workstation,
 ## Changelog
 
 **What a version number means here (Nit Store #864, absorbed into #1499):**
-each heading below is a MILESTONE recorded against rolling `main`, not a git
-tag or a GitHub release - the only tag this repository has ever cut is
-`v1.1.0`, and no release has been published. Cutting an actual tagged release
-is a separate, standing operator checkpoint tracked at
-[#1278](https://github.com/cooneycw/claude-power-pack/issues/1278); until
-that happens, "v10.1.0" names a point in this Changelog and in `pyproject.toml`,
-not a commit you can fetch by tag.
+the older headings record milestones on rolling `main`. `v10.1.0` is now a
+real annotated tag at [`626a96d9`](https://github.com/cooneycw/claude-power-pack/commit/626a96d927ae35776e062d6b4d2e6e19c24ab630), created retroactively by owner ruling.
+It can be fetched with `git fetch origin tag v10.1.0`. No GitHub Release has
+been published. Further release/tag decisions remain the operator checkpoint
+tracked at [#1278](https://github.com/cooneycw/claude-power-pack/issues/1278).
 
 ### v10.1.0 (2026-10-28)
 
@@ -176,8 +205,8 @@ The [full consumer-action ledger](CHANGELOG.md#behaviour-changes-you-may-notice)
 also covers helper paths, guarded merges, CI identity/status, wave/session
 contracts and bounded evaluation/resume evidence.
 
-This is a version milestone on rolling main: no tag or GitHub release. The
-broader init redesign, framework-first ordering and general rechecker remain
+This milestone is fetchable as tag `v10.1.0`; no GitHub Release is published.
+The remaining framework-first ordering and general rechecker are still
 #1587 work. Advisory evaluation remains bounded and current content is stale;
 this release makes no claim of behavioral assurance or deployed-host upgrades.
 
