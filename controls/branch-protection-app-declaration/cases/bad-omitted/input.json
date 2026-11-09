@@ -1,0 +1,15 @@
+{
+  "branch": "main",
+  "protection": {
+    "required_status_checks": {
+      "contexts": [
+        "test"
+      ],
+      "checks": [
+        {
+          "context": "test"
+        }
+      ]
+    }
+  }
+}

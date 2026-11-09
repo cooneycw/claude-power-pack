@@ -144,3 +144,62 @@ prevented from reaching for it on its own - which is where the real risk was.
   keep `enforce_admins` off.
 - 2026-07-19, owner: apply the posture **after** the implementing PR merges, so a
   bug in the new wait cannot block its own delivery.
+
+### App-bound checks for Actions consumers (#1604)
+
+A consumer can declare the app as well as the context in
+`.claude/branch-protection.json`:
+
+```json
+{
+  "branch": "main",
+  "protection": {
+    "required_status_checks": {
+      "strict": true,
+      "checks": [{"context": "test", "app_id": 15368}]
+    }
+  }
+}
+```
+
+This is the `required_status_checks` fragment of a complete protection payload;
+retain the repository's other declared protection settings when applying it.
+`checks[].app_id` binds a required check to that GitHub App. A declaration must
+supply a positive integer app ID, or `-1` as the only explicit unbound value.
+Omitted/null IDs are refused before checking or applying: GitHub's PUT can bind
+an omitted app ID to the recent app, unlike null in a read response, which this
+helper normalizes as unbound. Legacy `contexts` entries without corresponding
+`checks` entries remain supported as name-only requirements. GitHub also mirrors
+bound check names into `contexts`; that mirror does not create a second unbound requirement. `branch-protection.sh`
+preserves the app binding in its normalized `checks` output, compares it for
+drift, and applies the declared payload without stripping it.
+
+`gh-pr-merge.sh` unions classic check/app pairs and ruleset
+`context`/`integration_id` pairs. App-bound observations come from all pages of
+REST check runs on one immutable PR head using `filter=latest`. Superseded
+attempts do not block a successful rerun. The API considers at most the 1000
+most recent suites for a ref; pagination does not remove that suite limit.
+Identity keys carry a fixed origin prefix and JSON-encoded names, so a literal
+pipe, quote or newline in a status name cannot become an app identity.
+Another app's same-name check cannot satisfy the requirement. Within the latest
+rows returned for one app/name identity, genuine duplicates remain conservative:
+red wins over pending, and pending wins over green, in either API order. A failed
+paginated read supplies no green snapshot, and expiry reports that read as unreadable rather than claiming CI never posted.
+
+Known status-provider limitation: GitHub can satisfy an app-bound requirement
+with a commit status posted by that same app. This helper authenticates app IDs
+only on check runs; it cannot safely map a status creator to the bound app.
+Consequently it refuses an app-bound status-only provider even when GitHub would
+allow it, and names this limitation at expiry. Inspect the provider and evidence
+before choosing the existing conscious owner override; a missing attributable
+check run is not proof that CI never posted.
+
+App-bound merges acquire a head pin even when the caller supplied no
+`--match-head-commit`; the final read and GitHub's server-side head condition
+keep that snapshot attached to the commit being squashed.
+
+Generated name-only protection remains explicitly unbound until the consumer
+declares app IDs. Local workflow YAML establishes check names, not runtime app
+authenticity: `lib.cicd` continues to report app-bound local posture comparison
+as unknown. The live `branch-protection.sh check` is the app-binding drift
+check. CPP's own Woodpecker declaration remains name-only under ADR 0004.

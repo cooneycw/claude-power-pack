@@ -1,0 +1,40 @@
+{
+  "gate": "scripts/branch-protection.sh",
+  "invocation": [
+    "python3",
+    "controls/branch-protection-app-identity/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^APP_POSTURE_CONTROL: drift$",
+  "good_signal": "^APP_POSTURE_CONTROL: in-sync$",
+  "unavailable_signal": "^APP_POSTURE_CONTROL: unavailable",
+  "limits": "Whole drift checker with recorded classic REST payloads, real jq and no network or apply. Same context population, only the app binding differs. Historical name-only anchor misses both wrong-app and unbound-app drift. BAD-to-GOOD mutation changes only app_id to the declared app. No claim of local YAML authenticating a runtime app.",
+  "cases": [
+    {
+      "name": "bad-wrong-app",
+      "input": "cases/bad-wrong-app",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-unbound-app",
+      "input": "cases/bad-unbound-app",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-correct-app",
+      "input": "cases/good-correct-app",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "dc4e238f069475cc1adfd482df41da75b4e6961b",
+      "origin": "scripts/branch-protection.sh",
+      "path": "anchors/pre-1604-branch-protection.sh",
+      "sha256": "6088fcfabfe79e1de10433b019f24239857a16aab73b942f415f32155868e78c"
+    }
+  ]
+}

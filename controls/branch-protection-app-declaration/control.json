@@ -1,0 +1,40 @@
+{
+  "gate": "scripts/branch-protection.sh",
+  "invocation": [
+    "python3",
+    "controls/branch-protection-app-declaration/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^APP_DECLARATION_CONTROL: refused$",
+  "good_signal": "^APP_DECLARATION_CONTROL: applied$",
+  "unavailable_signal": "^APP_DECLARATION_CONTROL: unavailable",
+  "limits": "Whole --apply entrypoint with an owned gh stub recording the actual PUT stdin. Null/omitted check app IDs must refuse before PUT; explicit -1 applies byte-equivalent JSON. Historical anchor1a13bc6e applies both ambiguous inputs. No live protection mutation or claim about authenticating status creators. Repairing only the declaration to app_id:-1 must remove refusal.",
+  "cases": [
+    {
+      "name": "bad-null",
+      "input": "cases/bad-null",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-omitted",
+      "input": "cases/bad-omitted",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-explicit-unbound",
+      "input": "cases/good-explicit-unbound",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "1a13bc6e184aebfaa1a3ddb8d492f2b6a80d78ce",
+      "origin": "scripts/branch-protection.sh",
+      "path": "anchors/pre-owner-review-branch-protection.sh",
+      "sha256": "074a28aa67e2ec15d46a9b6c031e480ac3363d20649416f16a71801c3f79c820"
+    }
+  ]
+}
