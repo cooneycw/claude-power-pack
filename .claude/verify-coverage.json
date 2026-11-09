@@ -384,6 +384,11 @@
       "class": "tested",
       "consumer": "tests/test_cpp_init_mcp_registration.py",
       "reason": "Persists and validates private temporary MCP run state across fresh harness shells; controls/cpp-mcp-state rejects interrupted or invalid state against a constructed blind loader."
+    },
+    "flow-wave-completion.py": {
+      "class": "tested",
+      "consumer": "tests/test_flow_wave_completion.py",
+      "reason": "Actual assign/complete/check CLI, published recipes, deadlines and fake adapter failures are exercised offline."
     }
   }
 }

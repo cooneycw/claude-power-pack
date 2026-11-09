@@ -122,6 +122,7 @@ HELPERS=(
     flow-wave-mailbox.sh
     flow-wave-lexicon.sh
     flow-wave-plan.py
+    flow-wave-completion.py
     speckit-context.py
     # The only supported route from a plan to issues (#1618). It resolves
     # speckit-context.py beside itself, so the pair must install together, and

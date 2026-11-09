@@ -1,0 +1,59 @@
+{
+  "gate": "scripts/flow-wave-completion.py",
+  "invocation": [
+    "python3",
+    "controls/flow-wave-completion/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "good_signal": "^WAVE_COMPLETION_CONTROL: ok ",
+  "detect_signal": "^WAVE_COMPLETION_CONTROL: finding ",
+  "unknown_signal": "^WAVE_COMPLETION_CONTROL: unknown ",
+  "unavailable_signal": "^WAVE_COMPLETION_CONTROL: unavailable ",
+  "cases": [
+    {
+      "name": "bad-dropped-done",
+      "input": "cases/bad-dropped-done",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-delivered-done",
+      "input": "cases/good-delivered-done",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-failed-role",
+      "input": "cases/bad-failed-role",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-cancelled-role",
+      "input": "cases/bad-cancelled-role",
+      "expect": "BAD"
+    },
+    {
+      "name": "unknown-no-receipt",
+      "input": "cases/unknown-no-receipt",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "good-failed-role",
+      "input": "cases/good-failed-role",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-cancelled-role",
+      "input": "cases/good-cancelled-role",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "path": "anchors/message-only.py",
+      "sha256": "25f2b039dcc70acb45e66fefedf2cd1697c0f89a7197a71d199b82ebe4f04b27",
+      "why": "The subject with receipt consumption gated on message arrival: it remains waiting when the done message is lost, despite a terminal receipt. It reproduces message-only policy, not a historical executable; the old wave procedure had no completion helper."
+    }
+  ]
+}
