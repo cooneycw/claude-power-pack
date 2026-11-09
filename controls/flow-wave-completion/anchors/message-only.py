@@ -173,6 +173,10 @@ class FileStore:
             value = json.loads(path.read_text())
             if not isinstance(value, dict):
                 raise Unknown('receipt store contains malformed evidence')
+            # A prior writer may have renamed successfully but failed its
+            # directory sync. Neither retries nor readers may acknowledge it
+            # until the directory entry is known to be synchronized.
+            sync_directory(self.root)
             return value
         except FileNotFoundError:
             # A broken store path is unreadable, not established absence.

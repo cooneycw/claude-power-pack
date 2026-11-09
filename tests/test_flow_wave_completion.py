@@ -320,3 +320,41 @@ def test_missing_assignment_cannot_reset_one_extension_budget(tmp_path):
     code, value = call(tmp_path,'assign','--deadline','2026-11-08T11:00:00Z','--now',AFTER)
     assert code == 3 and value['status'] == 'unknown'
     assert not path.exists()
+
+
+def test_failed_directory_sync_is_retried_before_publication_ack(tmp_path, monkeypatch, capsys):
+    helper = load_helper()
+    common = ['--state-root',str(tmp_path),*IDENTITY]
+    assert helper.main(['assign',*common,'--deadline',DEADLINE,'--now',BEFORE]) == 0
+    capsys.readouterr()
+    actual = helper.sync_directory
+    def fail_receipt_directory(path):
+        if path == tmp_path / 'receipts':
+            raise OSError('fixture directory sync unavailable')
+        return actual(path)
+    monkeypatch.setattr(helper,'sync_directory',fail_receipt_directory)
+    args = ['complete',*common,'--outcome','succeeded','--finished-at',BEFORE]
+    assert helper.main(args) == 3
+    assert json.loads(capsys.readouterr().out)['status'] == 'unknown'
+    receipt = json.loads(next((tmp_path / 'receipts').glob('*.json')).read_text())
+    assert helper.main(args) == 3
+    assert json.loads(capsys.readouterr().out)['status'] == 'unknown'
+    monkeypatch.setattr(helper,'sync_directory',actual)
+    assert helper.main(args) == 0
+    assert json.loads(capsys.readouterr().out)['receipt'] == receipt
+
+
+def test_visible_receipt_with_failing_directory_sync_is_unknown_to_reader(tmp_path, monkeypatch, capsys):
+    helper = load_helper()
+    common = ['--state-root',str(tmp_path),*IDENTITY]
+    assert helper.main(['assign',*common,'--deadline',DEADLINE,'--now',BEFORE]) == 0
+    actual = helper.sync_directory
+    def fail_receipt_directory(path):
+        if path == tmp_path / 'receipts':
+            raise OSError('fixture directory sync unavailable')
+        return actual(path)
+    monkeypatch.setattr(helper,'sync_directory',fail_receipt_directory)
+    assert helper.main(['complete',*common,'--outcome','succeeded','--finished-at',BEFORE]) == 3
+    capsys.readouterr()
+    assert helper.main(['check',*common,'--now',AFTER]) == 3
+    assert json.loads(capsys.readouterr().out)['status'] == 'unknown'

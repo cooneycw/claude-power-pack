@@ -92,6 +92,8 @@ directory, under `<root>/.assigned-roles/<wave>/<role>.json`. Missing assignment
 state after initialization is UNKNOWN; retries cannot reset extension history.
 Do not delete these markers or state files to recover a live assignment. Writes sync
 the file and containing directory; new state directories sync their parents.
+Reading an existing filesystem receipt also syncs its containing directory
+before using it, so a failed writer sync cannot be skipped by a retry or reader.
 
 Put must atomically create an immutable terminal receipt. For concurrent calls,
 there is one authoritative result. Retries with the same schema, identity,
