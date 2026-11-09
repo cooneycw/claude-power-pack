@@ -17,6 +17,9 @@
 
 ### Fixed
 
+- Merge waits retain required-check app identity, pin app-bound observations to the squashed head, and preserve genuine latest-attempt red/pending duplicates; superseded failures permit a green rerun, branch-protection drift includes app IDs, and ambiguous check declarations refuse before apply (Refs #1604, items 7/10).
+- Flow wave records assignment-bound completion receipts and finite deadlines, recovers a lost done message from its receipt, and reports unavailable storage or missing completion as unknown; shared stores can use a provider-neutral adapter (#1658).
+
 - Flow doctor now cross-checks recorded CI providers against registered pipeline files, declared/live required status checks and historical host capability, preserving unknown evidence and reporting canonical offline lane selection and explicit fallback behavior without probing providers (#1611).
 - Merge-queue API calls pass authorization headers through stdin so bearer credentials stay out of curl process arguments (#1656).
 

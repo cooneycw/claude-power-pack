@@ -29,6 +29,9 @@
 # Env (test hooks - unset in normal use):
 #   BRANCH_PROTECTION_GH   override the `gh` binary (default: gh)
 
+#: NEGATIVE-CONTROL: controls/branch-protection-app-identity
+#: NEGATIVE-CONTROL: controls/branch-protection-app-declaration
+
 set -uo pipefail
 
 GH_BIN="${BRANCH_PROTECTION_GH:-gh}"
@@ -84,18 +87,33 @@ else
 fi
 API_PATH="repos/$SLUG/branches/$BRANCH/protection"
 
+# An omitted/null app_id has write semantics (bind to the recent app), unlike
+# null in GitHub's read response (unbound). Require explicit declaration intent
+# before either comparing or applying; -1 is the sole unbound checks value.
+if [[ "$MODE" != show ]] && ! jq -e '
+    (.protection.required_status_checks.checks // []) |
+    type == "array" and all(.[];
+      (.app_id | type) == "number" and
+      (.app_id == -1 or (.app_id > 0 and .app_id == (.app_id | floor))))
+    ' "$CONFIG" >/dev/null 2>&1; then
+    echo "BRANCH_PROTECTION: ambiguous-app - each declared check needs an explicit positive integer app_id, or app_id: -1 for any app; null and omitted IDs cannot be applied unambiguously." >&2
+    exit 1
+fi
+
 # The keys this posture governs, normalized to one shape so the live GitHub
 # representation (nested {"enabled": bool} objects) and the declared file (plain
 # booleans) are comparable. Keys NOT listed here are deliberately unmanaged.
 normalize_live() {
-    jq -S '{
+    jq -S 'def check_identities:
+        (.checks // []) as $checks |
+        ([($checks[] | {context, app_id: (if .app_id == null then -1 else .app_id end)})]
+         + [(.contexts // [])[] | select(. as $name | all($checks[]; .context != $name))
+             | {context: ., app_id: -1}]) | unique | sort_by(.context, .app_id);
+    {
       required_status_checks: (
         if .required_status_checks == null then null else {
           strict: (.required_status_checks.strict // false),
-          contexts: ((
-            (.required_status_checks.contexts // [])
-            + ((.required_status_checks.checks // []) | map(.context))
-          ) | unique)
+          checks: (.required_status_checks | check_identities)
         } end),
       required_pull_request_reviews: (
         if .required_pull_request_reviews == null then null else {
@@ -110,11 +128,16 @@ normalize_live() {
 }
 
 normalize_declared() {
-    jq -S '.protection | {
+    jq -S 'def check_identities:
+        (.checks // []) as $checks |
+        ([($checks[] | {context, app_id: (if .app_id == null then -1 else .app_id end)})]
+         + [(.contexts // [])[] | select(. as $name | all($checks[]; .context != $name))
+             | {context: ., app_id: -1}]) | unique | sort_by(.context, .app_id);
+    .protection | {
       required_status_checks: (
         if .required_status_checks == null then null else {
           strict: (.required_status_checks.strict // false),
-          contexts: ((.required_status_checks.contexts // []) | unique)
+          checks: (.required_status_checks | check_identities)
         } end),
       required_pull_request_reviews: (
         if .required_pull_request_reviews == null then null else {

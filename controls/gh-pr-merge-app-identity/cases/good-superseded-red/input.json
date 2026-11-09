@@ -1,0 +1,46 @@
+{
+  "condition": "good",
+  "required": {
+    "contexts": [
+      "test"
+    ],
+    "checks": [
+      {
+        "context": "test",
+        "app_id": 15368
+      }
+    ]
+  },
+  "runs": {
+    "check_runs": [
+      {
+        "name": "test",
+        "app": {
+          "id": 15368
+        },
+        "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "status": "completed",
+        "conclusion": "failure",
+        "id": 10,
+        "check_suite": {
+          "id": 7
+        }
+      },
+      {
+        "name": "test",
+        "app": {
+          "id": 15368
+        },
+        "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "status": "completed",
+        "conclusion": "success",
+        "id": 11,
+        "check_suite": {
+          "id": 7
+        }
+      }
+    ]
+  },
+  "rollup": "test|SUCCESS\n",
+  "superseded": true
+}
