@@ -733,17 +733,19 @@ resolve_required_contexts() {
 # in a status/check name cannot impersonate another identity.
 # Unbound legacy requirements use the PR rollup. App-bound requirements use
 # REST check-runs: gh's statusCheckRollup projection does not expose app.id.
-# Read all pages on one immutable head; never admit a status-context row as an
+# Read all returned latest attempts on one immutable head (the API considers
+# at most the 1000 most recent suites). Superseded red attempts must not block a
+# successful rerun. Never admit an unattributed status-context row as an
 # app-authenticated check, or partial API output after a failed page.
 check_states() {
     local key need_legacy=0 need_apps=0 out head
     if [[ "$RESOLVE_STATUS" == unresolved ]]; then need_legacy=1; fi
-    for key in "${REQUIRED_CONTEXTS[@]}"; do
+    for key in ${REQUIRED_CONTEXTS+"${REQUIRED_CONTEXTS[@]}"}; do
         if [[ "$key" == app\|* ]]; then need_apps=1; else need_legacy=1; fi
     done
     if (( need_legacy )); then
         out=$("$GH_BIN" pr view "$PR_NUMBER" --json statusCheckRollup \
-            --jq '.statusCheckRollup[] | "legacy|\((.context // .name)|@json)|\(.state // .conclusion // .status // "PENDING")"' \
+            --jq '.statusCheckRollup[]? | "legacy|\((.context // .name)|@json)|\(.state // .conclusion // .status // "PENDING")"' \
             2>/dev/null) || return 1
         [[ -z "$out" ]] || printf '%s\n' "$out"
     fi
@@ -755,7 +757,7 @@ check_states() {
             head="${head##* }"
         fi
         [[ "$head" =~ ^[0-9a-f]{40}$ ]] || return 1
-        out=$("$GH_BIN" api "repos/{owner}/{repo}/commits/${head}/check-runs?filter=all&per_page=100" \
+        out=$("$GH_BIN" api "repos/{owner}/{repo}/commits/${head}/check-runs?filter=latest&per_page=100" \
             --paginate --jq '.check_runs[] | select(.head_sha == "'"$head"'") |
                 "app|\(.app.id)|\(.name|@json)|\(if .status == "completed" then (.conclusion // "UNKNOWN") else .status end)"' \
             2>/dev/null) || return 1
@@ -839,12 +841,13 @@ wait_for_required_checks() {
     done
 
     local delay="${GH_PR_MERGE_CHECK_DELAY:-10}"
-    local i ctx state line pending failed missing running key old snapshot
+    local i ctx state line pending failed missing running key old snapshot readable unreadable app_missing
     [[ -n "$WAIT_CI_SECS" ]] && WAIT_DEADLINE=$(( $(now_epoch) + WAIT_CI_SECS ))
 
     for ((i = 1; ; i++)); do
         local -A states=()
-        snapshot=$(check_states) || snapshot=""
+        readable=1
+        snapshot=$(check_states) || { snapshot=""; readable=0; }
         while IFS= read -r line; do
             [[ -z "$line" ]] && continue
             key="${line%|*}"
@@ -859,6 +862,8 @@ wait_for_required_checks() {
         failed=""
         missing=""
         running=""
+        unreadable=""
+        app_missing=""
         for ctx in "${required[@]}"; do
             state="${states[$ctx]:-MISSING}"
             case "${state^^}" in
@@ -869,7 +874,13 @@ wait_for_required_checks() {
                     ;;
                 MISSING)
                     pending+="${ctx} (${state}) "
-                    missing+="${ctx} "
+                    if (( readable == 0 )); then
+                        unreadable+="${ctx} "
+                    elif [[ "$ctx" == app\|* ]]; then
+                        app_missing+="${ctx} "
+                    else
+                        missing+="${ctx} "
+                    fi
                     ;;
                 *)
                     pending+="${ctx} (${state}) "
@@ -902,6 +913,11 @@ wait_for_required_checks() {
     echo "GH_PR_MERGE_CI_WAIT: expired ($(wait_budget_label))"
     echo "CLEAN STOP: the required-check wait for PR #$PR_NUMBER ran out ($(wait_budget_label)) - not merging, and not a failure (issue #1300)." >&2
     [[ -n "$running" ]] && echo "  still running: ${running}- CI has not finished; re-run the merge when it is green (--wait-ci[=SECS] waits longer)." >&2
+    [[ -n "$unreadable" ]] && echo "  unreadable check snapshot: ${unreadable}- the provider/API read failed; no conclusion about whether CI posted is available." >&2
+    if [[ -n "$app_missing" ]]; then
+        echo "  no attributable latest check run: ${app_missing}" >&2
+        echo "  Limitation: this helper is unable to authenticate app-authored commit statuses. GitHub may accept one from the bound app, but this client only authenticates check runs; inspect the provider before using the documented owner override." >&2
+    fi
     [[ -n "$missing" ]] && echo "  never posted a status: ${missing}- no pipeline has reported these contexts at all; check that CI was triggered for this head." >&2
     echo "  Do NOT re-gate or re-sync for this: nothing about the branch is wrong." \
          "Overriding a required check would defeat the posture; the break-glass is" \

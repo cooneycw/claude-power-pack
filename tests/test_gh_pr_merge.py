@@ -4163,7 +4163,7 @@ def test_coordination_does_not_bypass_the_head_pin(tmp_path: Path):
 @pytest.mark.parametrize("scenario", [
     "wrong-app", "plain-status", "red-first", "red-last", "pending-first", "other-app-green", "other-app-red",
     "wrong-head", "head-moved", "partial-api", "paged-red", "delimiter-spoof", "typed-delimiter-spoof",
-    "quoted-name", "good",
+    "quoted-name", "superseded-red", "app-status", "good",
 ])
 def test_required_check_app_identity(tmp_path: Path, source: str, scenario: str):
     import json
@@ -4174,13 +4174,17 @@ def test_required_check_app_identity(tmp_path: Path, source: str, scenario: str)
              "status": "completed", "conclusion": "success"}]
     if scenario == "wrong-app":
         rows[0]["app"]["id"] = 42
-    elif scenario in {"plain-status", "delimiter-spoof", "typed-delimiter-spoof"}:
+    elif scenario in {"plain-status", "app-status", "delimiter-spoof", "typed-delimiter-spoof"}:
         rows = []
     elif scenario.startswith("red"):
         red = {**rows[0], "conclusion": "failure"}
         rows = [red, rows[0]] if scenario == "red-first" else [rows[0], red]
     elif scenario == "pending-first":
         rows = [{**rows[0], "status": "in_progress", "conclusion": None}, rows[0]]
+    elif scenario == "superseded-red":
+        rows = [{**rows[0], "conclusion": "failure", "id": 10, "check_suite": {"id": 7}},
+                {**rows[0], "id": 11, "check_suite": {"id": 7}}]
+        assert rows[0]["check_suite"] == rows[1]["check_suite"] and rows[0]["id"] < rows[1]["id"]
     elif scenario == "paged-red":
         rows = [rows[0], {**rows[0], "conclusion": "failure"}]
     elif scenario == "other-app-green":
@@ -4190,9 +4194,11 @@ def test_required_check_app_identity(tmp_path: Path, source: str, scenario: str)
     elif scenario == "wrong-head":
         rows[0]["head_sha"] = "b" * 40
     identity_name = 'test|15368\n"branch"' if scenario == "quoted-name" else "test"
-    for row in rows:
+    for index, row in enumerate(rows):
         row["name"] = identity_name
-    succeeds = scenario in {"good", "other-app-red", "quoted-name"}
+        row.setdefault("id", 1000 + index)
+        row.setdefault("check_suite", {"id": 100 + index})
+    succeeds = scenario in {"good", "other-app-red", "quoted-name", "superseded-red"}
     assert scenario in {"good", "quoted-name", "head-moved", "partial-api", "wrong-head"} or not rows or any(
         row["app"]["id"] != app or row["conclusion"] != "success" for row in rows
     )
@@ -4230,6 +4236,7 @@ def test_required_check_app_identity(tmp_path: Path, source: str, scenario: str)
     for name, payload in payloads.items():
         (tmp_path / (name + ".json")).write_text(json.dumps(payload))
     (tmp_path / "runs-first-page.json").write_text(json.dumps({"check_runs": rows[:1]}))
+    (tmp_path / "runs-latest.json").write_text(json.dumps({"check_runs": rows[-1:]}))
     if scenario == "paged-red":
         (tmp_path / "runs.json").write_text(
             json.dumps({"check_runs": rows[:1]}) + "\n" + json.dumps({"check_runs": rows[1:]}))
@@ -4244,6 +4251,9 @@ elif [[ "$1" == api ]]; then
     */commits/*/check-runs*)
       [[ "$2" == *"{'a' * 40}"* ]] || exit 1
       file={shlex.quote(str(tmp_path / 'runs.json'))}
+      if [[ "{scenario}" == superseded-red && "$2" == *filter=latest* ]]; then
+        file={shlex.quote(str(tmp_path / 'runs-latest.json'))}
+      fi
       if [[ "{scenario}" == paged-red && "$*" != *--paginate* ]]; then
         file={shlex.quote(str(tmp_path / 'runs-first-page.json'))}
       fi ;;
@@ -4266,13 +4276,19 @@ exec {shlex.quote(str(original))} "$@"
     else:
         assert result.returncode != 0, result.stdout + result.stderr
         assert not any("pr merge" in c for c in _calls(stubs)), result.stdout
+        if scenario == "app-status":
+            assert "unable to authenticate app-authored commit statuses" in result.stderr
+            assert "never posted a status" not in result.stderr
+        if scenario == "partial-api":
+            assert "unreadable" in result.stderr
+            assert "never posted a status" not in result.stderr
         if scenario == "head-moved":
             assert result.returncode == 11, result.stdout + result.stderr
             assert "immediately before the squash" in result.stderr
         if scenario.startswith("red") or scenario in {"other-app-green", "paged-red"}:
             assert "CI_WAIT: red" in result.stdout
     api_calls = (tmp_path / "app-api-calls").read_text()
-    assert "filter=all&per_page=100 --paginate" in api_calls, api_calls
+    assert "filter=latest&per_page=100 --paginate" in api_calls, api_calls
 
 
 @pytest.mark.parametrize("states", [["FAILURE", "SUCCESS"], ["SUCCESS", "FAILURE"], ["PENDING", "SUCCESS"]])

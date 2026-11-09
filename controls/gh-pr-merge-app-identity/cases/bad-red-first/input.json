@@ -20,7 +20,11 @@
         },
         "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "status": "completed",
-        "conclusion": "failure"
+        "conclusion": "failure",
+        "id": 1000,
+        "check_suite": {
+          "id": 100
+        }
       },
       {
         "name": "test",
@@ -29,7 +33,11 @@
         },
         "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "status": "completed",
-        "conclusion": "success"
+        "conclusion": "success",
+        "id": 1001,
+        "check_suite": {
+          "id": 101
+        }
       }
     ]
   },

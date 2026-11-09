@@ -20,7 +20,11 @@
         },
         "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "status": "completed",
-        "conclusion": "success"
+        "conclusion": "success",
+        "id": 1000,
+        "check_suite": {
+          "id": 100
+        }
       }
     ]
   },

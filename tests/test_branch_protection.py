@@ -289,3 +289,37 @@ def test_app_binding_is_compared(tmp_path: Path, live_app: int | None, expected:
     result = _run(tmp_path, _make_stub(tmp_path, live), config=config)
     assert result.returncode == expected, result.stdout + result.stderr
     assert ("in-sync" if expected == 0 else "drift") in result.stdout + result.stderr
+
+
+@requires_jq
+@pytest.mark.parametrize("mode", ["check", "--apply"])
+@pytest.mark.parametrize("app", [None, "omitted"])
+def test_ambiguous_declared_app_refuses_before_api(tmp_path: Path, mode: str, app):
+    declared = json.loads(POSTURE.read_text())
+    check = {"context": "test"}
+    if app != "omitted":
+        check["app_id"] = app
+    assert check.get("app_id") is None, "fixture must have no explicit app identity"
+    declared["protection"]["required_status_checks"] = {"contexts": ["test"], "checks": [check]}
+    config = tmp_path / "posture.json"
+    config.write_text(json.dumps(declared))
+    stubs = _make_stub(tmp_path, LIVE_IN_SYNC)
+    result = _run(tmp_path, stubs, mode, config=config)
+    assert result.returncode == 1
+    assert "BRANCH_PROTECTION: ambiguous-app" in result.stderr
+    assert "app_id: -1" in result.stderr
+    assert _calls(stubs) == [], "ambiguous input must not be applied or described as drift"
+
+
+@requires_jq
+def test_explicit_unbound_declared_app_is_supported(tmp_path: Path):
+    declared = json.loads(POSTURE.read_text())
+    declared["protection"]["required_status_checks"] = {
+        "strict": True, "checks": [{"context": "test", "app_id": -1}]
+    }
+    config = tmp_path / "posture.json"
+    config.write_text(json.dumps(declared))
+    live = json.loads(json.dumps(LIVE_IN_SYNC))
+    live["required_status_checks"] = {"strict": True, "checks": [{"context": "test", "app_id": None}]}
+    result = _run(tmp_path, _make_stub(tmp_path, live), config=config)
+    assert result.returncode == 0, result.stdout + result.stderr

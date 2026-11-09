@@ -314,7 +314,7 @@ another repo (the escalation clause); a row can be both.
 | 47 | `drift-detect.sh` | drift / none | `make drift-check`; the deploy path | G |
 | 48 | `bootstrap-check.sh` (`lib.cicd` bootstrap) | blocking checks exit 0 | the deploy path | G |
 | 49 | `mcp-drift.py` | orphaned infrastructure found / none | teardown | G |
-| 50 | `branch-protection.sh check` | live protection matches posture, including app bindings (`controls/branch-protection-app-identity`, historical name-only anchor) | whether protection is re-applied (ADR 0004) | G |
+| 50 | `branch-protection.sh check` | live protection matches posture, including app bindings (`controls/branch-protection-app-identity`, historical name-only anchor) and explicit declaration app intent before apply (`controls/branch-protection-app-declaration`, historical ambiguous-PUT anchor) | whether protection is re-applied (ADR 0004) | G |
 | 51 | `commands-mirror-sync.sh` | mirror drift | refresh of an out-of-repo command mirror | G |
 | 52 | `retired-surface-prune.py --check` | retired surfaces present / none | `make host-surfaces-check`; prune | G |
 | 53 | `lib.cicd check` | Makefile-standards verdict | `/cicd:check` in any repo | X |

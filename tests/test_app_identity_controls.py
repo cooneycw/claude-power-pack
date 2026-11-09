@@ -52,3 +52,20 @@ def test_removing_the_planted_defect_removes_detection(tmp_path, control, case, 
     fixed = subprocess.run([*command, str(tmp_path)], capture_output=True, text=True, timeout=15)
     assert fixed.returncode == 0, fixed.stdout + fixed.stderr
     assert prefix + (": green" if "runs" in data else ": in-sync") in fixed.stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None or shutil.which("jq") is None,
+                    reason="controls shell out to bash and jq")
+@pytest.mark.parametrize("case", ["bad-null", "bad-omitted"])
+def test_explicit_unbound_repair_removes_declaration_refusal(tmp_path, case):
+    directory = ROOT / "controls/branch-protection-app-declaration"
+    data = json.loads((directory / "cases" / case / "input.json").read_text())
+    check = data["protection"]["required_status_checks"]["checks"][0]
+    assert check.get("app_id") is None, "fixture must have ambiguous app intent"
+    command = [sys.executable, str(directory / "run-case.py"), str(ROOT / "scripts/branch-protection.sh")]
+    bad = subprocess.run([*command, str(directory / "cases" / case)], capture_output=True, text=True, timeout=15)
+    assert bad.returncode == 1 and "APP_DECLARATION_CONTROL: refused" in bad.stdout, bad.stdout + bad.stderr
+    check["app_id"] = -1
+    (tmp_path / "input.json").write_text(json.dumps(data))
+    fixed = subprocess.run([*command, str(tmp_path)], capture_output=True, text=True, timeout=15)
+    assert fixed.returncode == 0 and "APP_DECLARATION_CONTROL: applied" in fixed.stdout, fixed.stdout + fixed.stderr

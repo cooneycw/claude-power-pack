@@ -28,12 +28,21 @@ def main():
         rollup = [{"context": line.rsplit("|", 1)[0], "state": line.rsplit("|", 1)[1]}
                   for line in data["rollup"].splitlines()]
         (root / "rollup.json").write_text(json.dumps({"statusCheckRollup": rollup}))
+        if data.get("superseded"):
+            assert len(rows) == 2 and rows[0]["check_suite"] == rows[1]["check_suite"]
+            assert rows[0]["conclusion"] == "failure" and rows[1]["conclusion"] == "success"
+            assert rows[0]["id"] < rows[1]["id"]
+            (root / "runs-latest.json").write_text(json.dumps({"check_runs": rows[-1:]}))
         gh = root / "gh"
         gh.write_text('''#!/usr/bin/env bash
 case "$1 $2" in
   api*protection/required_status_checks) file="$FIXTURE/required.json" ;;
   api*rules/branches/*) echo '[]' | jq -r "$4"; exit $? ;;
-  api*check-runs*) file="$FIXTURE/runs.json" ;;
+  api*check-runs*)
+    file="$FIXTURE/runs.json"
+    if [[ "$2" == *filter=latest* && -f "$FIXTURE/runs-latest.json" ]]; then
+      file="$FIXTURE/runs-latest.json"
+    fi ;;
   'pr view')
     if [[ "$*" == *statusCheckRollup* ]]; then file="$FIXTURE/rollup.json"
     else echo 'branch aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; exit 0; fi ;;

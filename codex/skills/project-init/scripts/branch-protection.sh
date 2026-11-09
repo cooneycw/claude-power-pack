@@ -30,6 +30,7 @@
 #   BRANCH_PROTECTION_GH   override the `gh` binary (default: gh)
 
 #: NEGATIVE-CONTROL: controls/branch-protection-app-identity
+#: NEGATIVE-CONTROL: controls/branch-protection-app-declaration
 
 set -uo pipefail
 
@@ -85,6 +86,19 @@ else
     SLUG='{owner}/{repo}'
 fi
 API_PATH="repos/$SLUG/branches/$BRANCH/protection"
+
+# An omitted/null app_id has write semantics (bind to the recent app), unlike
+# null in GitHub's read response (unbound). Require explicit declaration intent
+# before either comparing or applying; -1 is the sole unbound checks value.
+if [[ "$MODE" != show ]] && ! jq -e '
+    (.protection.required_status_checks.checks // []) |
+    type == "array" and all(.[];
+      (.app_id | type) == "number" and
+      (.app_id == -1 or (.app_id > 0 and .app_id == (.app_id | floor))))
+    ' "$CONFIG" >/dev/null 2>&1; then
+    echo "BRANCH_PROTECTION: ambiguous-app - each declared check needs an explicit positive integer app_id, or app_id: -1 for any app; null and omitted IDs cannot be applied unambiguously." >&2
+    exit 1
+fi
 
 # The keys this posture governs, normalized to one shape so the live GitHub
 # representation (nested {"enabled": bool} objects) and the declared file (plain
