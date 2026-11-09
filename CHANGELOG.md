@@ -2,89 +2,121 @@
 
 ## [Unreleased]
 
-### Changed
+## [10.2.0] - 2026-11-09
 
-- `/cpp:init` selects independent capabilities, with the seven former tiers
-  retained as presets. Custom Codex + Gemma installs their commands and local
-  seam and required scripts without CI/CD or Claude MCP setup. Schema-2 installation
-  receipts bind outcomes to that selection; schema-1 records remain readable,
-  including their immutable pin used by generated CI enrolment (#1587).
-
-- **Breaking for AWS consumers:** regenerated Actions deploy jobs use OIDC subject
-  `repo:O/R:environment:production`; migrate IAM trust to this exact subject
-  before regenerating. Dedicated production deploys are now serialized: active
-  deploys finish, and only the newest pending deploy is retained (#1604).
-
-### Added
-
-- Consumer main-app Actions workflows and static templates pin action commits and uv, limit token permissions, disable checkout credential persistence, bound job duration, isolate CI concurrency by commit SHA, select a deployment environment, and require a redacted full-history secret scan (Closes #1604; CPP-owned and infrastructure workflows excluded).
-
-- Main app CI templates check counter-model enrolment through a verified CPP checkout pinned to the recorded install revision; known forks warn, while unreadable metadata and fetch/bootstrap errors remain UNKNOWN (#1610, part B; infrastructure-only templates excluded).
-
-- Flow CI status and PR watches select recorded provider lanes, combine required results, read classic/ruleset contexts, and report host snapshot preflight without credential probes (Refs #1610, part A; template enrolment remains separate).
-
-- Project and existing-repository CI setup can select registered providers, derive unconditional PR checks (including matrix cells), generate local protection, and verify consistency; infrastructure generation supports the provider list (#1608).
-- `cpp:init` saves a project install receipt with recorded step outcomes and
-  shared-component references; its summary and `cpp:status` distinguish failed,
-  missing, stale and incomplete records (Refs #1587, R4).
-
-### Fixed
-
-- Merge waits retain required-check app identity, pin app-bound observations to the squashed head, and preserve genuine latest-attempt red/pending duplicates; superseded failures permit a green rerun, branch-protection drift includes app IDs, and ambiguous check declarations refuse before apply (Refs #1604, items 7/10).
-- Flow wave records assignment-bound completion receipts and finite deadlines, recovers a lost done message from its receipt, and reports unavailable storage or missing completion as unknown; shared stores can use a provider-neutral adapter (#1658).
-
-- Flow doctor now cross-checks recorded CI providers against registered pipeline files, declared/live required status checks and historical host capability, preserving unknown evidence and reporting canonical offline lane selection and explicit fallback behavior without probing providers (#1611).
-- Merge-queue API calls pass authorization headers through stdin so bearer credentials stay out of curl process arguments (#1656).
-
-- `cpp:init` shares one MCP registration routine per client and records actual
-  registration outcomes in its install receipt (Refs #1587, R2).
-- `project:init` uses the guarded framework Makefile writer, preserves existing entries and symlinks, and stops on generation failure without creating an empty Makefile or reporting success (#1650).
-
-- Tier 4/5 installation receipts now use the observed host CI record write instead of requiring retired project generators; deferred, failed and unknown writes remain incomplete, and historical schema-1 project-generation receipts still read (#1649).
-- Flow CI refuses mixed Woodpecker credential sources instead of sending an AWS token to an unrelated environment-selected server (or the reverse), while complete and matching pairs keep working (#1644).
-
-- cpp:init Tier 4 now records independent host CI capabilities instead of generating project files; project consumers share a container-aware, worktree-stable reader (#1609).
-- The unattended helper installer now includes `project-next.py`, so checkout installs satisfy the Claude preflight engine dependency; project-next documents the colocated library requirement for legacy copy installs and emits the installed-family exit marker on stderr (#1619).
-
-- CI providers are now an explicit per-project list with a canonical reader and targeted recording command; missing selections stop pipeline generation instead of silently selecting GitHub Actions (#1607).
-
-- Flow cleanup, wave closure and early flow handoff now require an issue-visible record for deliberately preserved and pushed unfinished work, including the pushed tip and remaining work, with publication readback before reporting the handoff complete (#1614).
-- Serialize the live control-file tracking scan with the deliberate untracked-probe test, preventing intermittent xdist CI failures without changing the existing hold budget (#1641).
-- Project-next names unparsed architecture decision records in every premise-staleness report and JSON coverage, so an incomplete ADR corpus cannot read as a clean scan (#1614).
-- Partial worktree-removal verification now names its Git 2.36 minimum on older or unrecognized Git versions, rather than reporting a misleading registry-read failure (#1621).
-- Worktree claims and wave roles treat Linux process states `Z` and `X` as
-  exited, reporting `owner-zombie` rather than retaining a dead owner's lock.
-  Live owners retain their existing held/live classification (#1605).
-- Full-scope counter-model receipts recognize the current Codex custom `exec`
-  wrapper's directly awaited shell call and its linked successful result.
-  Missing probes, foreign heads, assistant prose and unsupported JavaScript
-  still refuse artifact binding (#1624).
-- Refuse filtered pytest retries when a test invocation was interrupted or started without completing a summary, so a passing subset cannot clear an unfinished composite target (#1617).
-- Drift detection now completes on hosts without Docker, reports Docker-dependent checks as skipped, and preserves drift findings from later checks (#1629).
+Independent host-install capabilities, explicit project CI providers, guarded
+consumer workflows, and recoverable wave completion. This section covers 37
+merged PRs since annotated v10.1.0 (`626a96d9..f34b9ec0`). The project-init
+feature in #1623 was fully reverted by #1625 and contributes no net feature.
 
 ### Behaviour changes you may notice
 
-- Regenerated Actions and Woodpecker pipelines run `deploy` only in the dedicated
-  main-push stage; main-only deployment no longer also runs in ordinary CI.
-  `pipeline.branches.pr` containing `deploy` is now an error: move it to
-  `pipeline.branches.main`. An enabled Woodpecker runtime-smoke stage with
-  `pipeline.woodpecker.smoke_target: deploy` is also an error: select a separate
-  smoke-test target. Branch targets and enabled smoke targets must now match
-  `[A-Za-z][A-Za-z0-9_-]*`: split compound entries, rename targets with other
-  characters, and use exact `deploy` in main rather than path aliases
-  (Closes #1664).
+- **AWS Actions deployments need an IAM trust migration before regeneration.**
+  The OIDC subject changes from `repo:O/R:ref:refs/heads/main` to
+  `repo:O/R:environment:production`. Update the exact IAM subject and restrict
+  the GitHub production environment to main. Review/regenerate required checks
+  to include `secret-scan`. CI queues are isolated by commit SHA; the dedicated
+  production deploy group does not cancel the active deployment, and only the
+  newest pending deployment is retained. Deployments that write tags/releases
+  need an explicit dedicated-job permission grant (#1663).
+- **Deployment targets cannot run as ordinary CI or smoke work.** Both generated
+  providers reserve `deploy` for the dedicated main-push stage. Remove it from
+  `pipeline.branches.pr` and put it in `pipeline.branches.main`; select a separate
+  non-deploy `pipeline.woodpecker.smoke_target` when runtime smoke is enabled.
+  Branch and enabled smoke targets must match `[A-Za-z][A-Za-z0-9_-]*`: split
+  compound entries and rename targets containing paths, dots, options or variable
+  syntax. Main-only application work is retained; deploy-only main adds no
+  unconfigured lint/test targets. Woodpecker has no Actions-style serialized
+  concurrency group (#1665).
+- **New main-app pipelines enforce pinned counter-model enrolment.** Update CPP,
+  refresh its install receipt, regenerate the pipeline and review its immutable
+  CPP pin. Same-repository PRs need a valid counter-model receipt; known forks
+  warn, while missing identity/pins and bootstrap failures stay UNKNOWN/retry.
+  Infrastructure-only templates are excluded. Both schema-1 and schema-2 install
+  receipts can supply the validated pin (#1659, #1666).
+- **Host setup selects capabilities rather than forcing a cumulative tier.**
+  Choose independent capabilities in `/cpp:init`; the seven historical tiers
+  remain presets. Custom Codex + Gemma selects commands, required scripts and
+  their local seam without CI/CD or Claude MCP setup. New schema-2 install
+  receipts bind requested/resolved selections to permitted observed outcomes;
+  schema-1 records remain readable. Unreadable selection stays unknown, and
+  selecting a component is not proof it installed successfully (#1666, #1642).
+- **Project setup owns build and CI generation.** `/cpp:init` no longer offers a
+  generic project Makefile or generates project CI. Use `/project:init` for a new
+  project or `/cicd:init` for an existing repository. Record `pipeline.providers`
+  explicitly; a missing choice is UNKNOWN and stops generation/flow dispatch.
+  Historical scalar provider records still read. Generated local protection
+  does not authorize applying remote GitHub protection (#1645, #1655, #1639,
+  #1646, #1653).
+- **App-bound protection declarations need explicit intent.** Set a positive
+  `checks[].app_id`, or `-1` for any app; null/omitted IDs refuse before apply.
+  Required app identity and the immutable head now survive merge waits. Legacy
+  name-only contexts remain unbound; status-only app-bound providers can still
+  be refused because app authentication is bounded to check runs (#1661).
+- **Wave completion requires shared receipts and finite deadlines.** Establish a
+  coordinator-visible filesystem store or configured provider-neutral adapter,
+  assignment IDs/generations and bounded rework/merge assignments. Arrange the
+  coordinator's wake/deadline checks: the helper is not a scheduler. Mail is a
+  shortcut; absent or unreadable completion evidence remains unknown (#1660).
+- **Helper prerequisites and WIP handoffs are explicit.** Put Bash 4.4+ first on
+  PATH (`brew install bash` on macOS); Git 2.36+ is specifically required for
+  partial worktree-removal verification. Deliberately preserved pushed work
+  needs an issue-visible, read-back branch/tip/provenance handoff (#1630, #1637,
+  #1640).
 
-- `cpp:init` retires its generic Makefile offer; use `/project:init` for new
-  projects or `/cicd:init` for existing repositories. Historical install receipts
-  remain readable (Refs #1587, R3).
+### Added
 
-- MCP setup saves private per-run temporary artifacts under `$TMPDIR` so later
-  tool calls can reload outcomes, then removes the run after saving the receipt (Refs #1587, R2).
-- Codex MCP registration now honors `SECOND_OPINION_URL`, matching Claude,
-  instead of always registering localhost port 8080 (Refs #1587, R2).
+- Recorded Actions/Woodpecker provider lanes, Actions PR watching, classic and
+  ruleset required checks, matrix-aware local protection, and bounded doctor
+  reports for provider/files/checks/host consistency (#1606, #1646, #1653, #1654).
+- Hardened consumer main-app Actions rendering and maintained templates:
+  immutable action commits, a fixed uv version, read-only defaults, credential-free checkouts,
+  job timeouts, a redacted full-history secret scan and guarded production
+  deployment. CPP-owned and infrastructure workflows are outside this change
+  (#1663).
+- Independent host capability snapshots and install receipts, with missing,
+  stale, failed, deferred and unknown evidence kept distinct from success
+  (#1642, #1645, #1651, #1666).
+- Project-next always offers a bounded recommendation and reports per-issue
+  delivery evidence and resolved cross-repository blockers (#1627).
+- Opt-in coordination-service callers; admission remains OFF unless the owner
+  explicitly enables the joint rollout (#1631).
 
-- CPP now states a bash 4.4 floor. `flow-preflight` gains a required `bash` check, so `/cpp:init`, `/cpp:update` and `/flow:doctor` report a bash below it, and `/flow:auto` refuses to start until it is upgraded. On macOS: `brew install bash`, first on PATH (#1628).
-- `hook-permission-census.sh` now parses under bash 3.2, so it no longer exits 2 from a syntax error on a stock macOS host (#1628).
+### Fixed
+
+- Keep Woodpecker server/token credentials paired with their source, and pass
+  merge-queue bearer headers through stdin instead of curl arguments (#1648,
+  #1657).
+- Preserve Makefile entries and symlinks during project generation; stop on
+  generation failure instead of reporting an empty successful result (#1652).
+- Share MCP registration per client, honor `SECOND_OPINION_URL` for Codex, and
+  retain per-run outcomes and cleanup. Host-install completion now follows the
+  observed host-record write rather than retired project generators (#1647,
+  #1651).
+- Bind required-check observations to the exact head and app; a superseded red
+  attempt can yield to a successful rerun, while genuine red/pending duplicates
+  remain conservative. Keep unreadable evidence distinct from absent checks
+  (#1661).
+- Keep interrupted pytest populations failed after filtered retries, and finish
+  drift reports without treating unavailable Docker checks as assessed (#1634,
+  #1632).
+- Release Linux zombie-owned worktree claims and wave roles, name the conditional
+  Git floor, and expose unparsed ADR coverage instead of a false clean report
+  (#1635, #1637, #1636).
+- Install the spec-to-issues converter and project-next entry point with their
+  required helper/library context; recognize supported Codex custom-exec HEAD
+  probes and skip only proven zero-usage synthetic Claude harness records in
+  counter-model evidence (#1620, #1638, #1633, #1616).
+- Serialize live control-file tracking scans with deliberate probe writers, and
+  keep the permission census hook parseable on stock macOS Bash 3.2 (#1643,
+  #1630).
+
+### Documentation
+
+- Record the per-project provider/host-capability architecture and implementation
+  plan, and correct README claims about the actual v10.1.0 tag, provider lanes,
+  setup boundaries, verification and wave receipt/deadline protocol (#1613,
+  #1662).
 
 ## [10.1.0] - 2026-10-28
 

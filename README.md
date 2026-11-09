@@ -1,6 +1,6 @@
 # Claude Power Pack
 
-**v10.1.0** - A productivity toolkit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and Codex: explicit test/review evidence contracts, host preflight, clearer init permissions and consent, and guarded framework Makefile generation.
+**v10.2.0** - Independent host-install capabilities, explicit project CI providers, guarded consumer workflows, and recoverable wave completion for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and Codex.
 
 ## What It Does
 
@@ -26,12 +26,12 @@
 - Git for repository workflows; Git 2.36+ is required specifically for `worktree-remove.sh --finish-partial-removal` verification
 - [uv](https://docs.astral.sh/uv/) package manager
 - Docker (optional - only to run the external second-opinion server locally, or as the gitleaks fallback for `make secret-scan`)
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI for Claude Code workflows, or Codex CLI for Codex workflows
 - GitHub CLI (`gh`) for issue/PR workflows
 
 ## Install
 
-CPP's own plugin marketplace was retired by issue #662 and ADR [0005](docs/decisions/0005-retire-plugin-marketplace-distribution.md). Clone the repository; the tiered `/cpp:init` + `/cpp:update` symlink surface is the canonical command installation path (restored by issue #663):
+CPP's own plugin marketplace was retired by issue #662 and ADR [0005](docs/decisions/0005-retire-plugin-marketplace-distribution.md). Clone the repository; the `/cpp:init` capability chooser + `/cpp:update` symlink surface is the canonical command installation path (restored by issue #663):
 
 ```bash
 git clone https://github.com/cooneycw/claude-power-pack.git
@@ -45,19 +45,28 @@ Existing CPP marketplace users should run `/plugin uninstall <family>@cpp` for e
 
 ### Host setup
 
-`/cpp:init` configures host tools and shared infrastructure. It records observed
-installation outcomes in `.claude/cpp-install.json`; these are historical
-observations, not proof of current connectivity. It does not generate project
-Makefiles or CI pipelines. Framework-first ordering and the general rechecker
-remain unfinished work under [#1587](https://github.com/cooneycw/claude-power-pack/issues/1587).
+`/cpp:init` selects independent host-install capabilities: commands, scripts,
+MCP servers, CI/CD host checks, Codex, Qwen, Gemma and optional extras. The seven
+historical tiers remain quick-start presets. Real prerequisites are resolved
+without forcing unrelated components: Codex needs commands and scripts; local
+model lanes need commands. Custom Codex + Gemma includes commands, runtime
+scripts and the local seam without CI/CD or Claude MCP setup. Each optional
+extra keeps its own consent question. See the [capability and preset table](.claude/commands/cpp/help.md#installation-capabilities-and-presets).
 
-Host setup includes:
+New schema-2 `.claude/cpp-install.json` receipts bind requested/resolved
+capabilities to permitted observed outcomes. Schema-1 receipts remain readable,
+including their immutable CI-enrolment pin. These are historical observations,
+not proof of current connectivity; unreadable selection stays unknown, and a
+selected component is not a successful installation. Host setup does not
+generate project Makefiles or CI pipelines.
+
+Depending on the selected capabilities, host setup includes:
 
 - **External Second Opinion server** - the multi-model review server lives in its own repo ([cooneycw/mcp-second-opinion](https://github.com/cooneycw/mcp-second-opinion)). Start the external server, then register it with `claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"` (for a remote host, export `SECOND_OPINION_URL` first rather than editing the URL, so every install names the same endpoint).
 - **Browser automation** - registers the upstream `@playwright/mcp` npx/stdio server (no container).
 - **Tavily web tools** - registers the upstream [tavily-mcp](https://github.com/tavily-ai/tavily-mcp) npx/stdio server for web search, extract, crawl, and map. Requires `TAVILY_API_KEY` (stored in AWS Secrets Manager `claude-power-pack/mcp-keys`).
 - **Secrets provisioning** - AWS Secrets Manager access for Woodpecker CI keys (`essent-ai`) and the `CPP_MEMORIES_DSN` common-memory DSN; fetched directly via the AWS SDK/CLI.
-- **Host CI capabilities** - Tier 4 probes each registered provider independently and writes `<projects>/.claude/cpp-host.json`. Project consumers show the recorded timestamp and readiness; missing, inaccessible and container-unavailable evidence stays unknown. Refresh the host record when current capability matters.
+- **Host CI capabilities** - The selected `cicd` capability (legacy CI/CD preset) probes each registered provider independently and writes `<projects>/.claude/cpp-host.json`. Project consumers show the recorded timestamp and readiness; missing, inaccessible and container-unavailable evidence stays unknown. Refresh the host record when current capability matters.
 - **Bootstrap prerequisites** - bash 4.4 or newer first on PATH (macOS ships 3.2: `brew install bash`), `jq`, and the optional spec-kit CLI (`specify`, the engine behind `/spec:adopt`). `/cpp:init`, `/cpp:update` and `/flow:doctor` report a bash below that floor, and `/flow:auto` refuses to start on one.
 - **Permission census hook + flow allowlist** - registers the observe-only PermissionRequest census hook and merges the read-only `/flow:*` allowlist - including the audited flow helper-script rules that make `/flow:auto` Phase 1 prompt-free (issue #581) - into `~/.claude/settings.json` (both user-confirmed).
 
@@ -172,6 +181,29 @@ are UNKNOWN/retry. Infrastructure-only templates are excluded. Update CPP,
 refresh `/cpp:init`, regenerate the pipeline and review the pin change to adopt
 this job in an existing generated file. See [generated CI enrolment](docs/agents/generated-ci-enrolment.md).
 
+### Consumer pipeline migrations
+
+Before regenerating AWS Actions deploy jobs, change IAM's exact OIDC subject
+from `repo:O/R:ref:refs/heads/main` to `repo:O/R:environment:production` and
+restrict the GitHub production environment to main. Review/regenerate required
+checks to include `secret-scan`. Generated consumer Actions jobs pin action
+commits and uv, limit permissions, disable checkout credential persistence,
+bound job duration and scan full history with redaction. CI concurrency is
+per-SHA; the dedicated production deploy group lets the active deploy finish
+and retains only the newest pending deploy. Tag/release writers need an
+explicit dedicated-job permission grant.
+
+Both generated providers reserve `deploy` for their dedicated main-push stage.
+Move it from `pipeline.branches.pr` to `pipeline.branches.main`, and choose a
+separate non-deploy `pipeline.woodpecker.smoke_target` when runtime smoke is
+enabled. Branch and enabled smoke targets must match `[A-Za-z][A-Za-z0-9_-]*`:
+split compound entries and rename targets with paths, dots, options or variable
+syntax. Main-only application work is retained; deploy-only main invents no
+lint/test targets. Woodpecker has no Actions-style serialized concurrency group.
+See the [full migration notes](CHANGELOG.md).
+
+### CPP's own CI
+
 The image-build, CVE-scan, SBOM, compose-policy, and runtime-smoke stages were retired with CPP's Docker MCP runtime in #469.
 
 Architecture: Woodpecker server on a dedicated VM, agent on the dev workstation, connected via gRPC over Tailscale. Web UI at `woodpecker.essent-ai.com` via Cloudflare tunnel.
@@ -184,6 +216,27 @@ real annotated tag at [`626a96d9`](https://github.com/cooneycw/claude-power-pack
 It can be fetched with `git fetch origin tag v10.1.0`. No GitHub Release has
 been published. Further release/tag decisions remain the operator checkpoint
 tracked at [#1278](https://github.com/cooneycw/claude-power-pack/issues/1278).
+
+### v10.2.0 (2026-11-09)
+
+Independent host-install capabilities and explicit project CI providers, with
+hardened consumer workflows and recoverable wave completion. The release covers
+37 merged PRs since v10.1.0; #1623 was fully reverted by #1625 and contributes no
+net feature. See [CHANGELOG.md](CHANGELOG.md) for the full release and migration
+notes.
+
+- **Setup:** select independent capabilities or a historical tier preset;
+  schema-2 install receipts retain selection and observed outcomes, while
+  schema-1 records remain readable. Project setup owns Makefiles and pipelines.
+- **Consumer CI:** recorded Actions/Woodpecker lanes, pinned main-app enrolment,
+  app-bound required checks and hardened Actions jobs. Before regenerating AWS
+  deploys, migrate IAM to `repo:O/R:environment:production` and restrict that
+  environment to main; adopt the `secret-scan` required check.
+- **Deployment:** PR/smoke `deploy` targets and non-allowlisted target names now
+  error with repair guidance. Production Actions deployment has its own
+  non-cancelling serialized group.
+- **Recovery:** shared assignment-bound wave receipts and finite deadlines,
+  issue-visible preserved-WIP handoffs, and distinct absent/unknown evidence.
 
 ### v10.1.0 (2026-10-28)
 
