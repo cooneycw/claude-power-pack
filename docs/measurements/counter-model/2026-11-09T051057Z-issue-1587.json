@@ -1,0 +1,70 @@
+{
+  "branch": "issue-1587-capability-selection-r1",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "Orchestrator mail19998 and PR1666 exact-head review authorized the final pass over the newly identified Codex runtime scripts prerequisite, structural guard-deletion controls, public capability help/status and selection diagnostics.",
+  "head": "6efcb8f9fb77f13bf3c847ee8197132a9c634934",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/08/rollout-2026-11-08T14-14-24-01a1bb82-a99e-7851-a7a9-477bf3590bf8.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 15560471,
+        "path": "2026/11/08/rollout-2026-11-08T14-14-24-01a1bb82-a99e-7851-a7a9-477bf3590bf8.jsonl",
+        "sha256": "4dbcf694559ee43a5f88bbf42d3cb50080dc800f08e94b2b9aff68ee32f8e295"
+      }
+    ],
+    "thread_id": "01a1bb82-a99e-7851-a7a9-477bf3590bf8"
+  },
+  "issue": "1587",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 3,
+  "recorded_at": "2026-11-09T05:10:57Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 6
+  },
+  "reviewed_artifact": {
+    "base_sha": "caca37b1f991c6d809d79ae6874ea12a709d2249",
+    "merge_base": "caca37b1f991c6d809d79ae6874ea12a709d2249",
+    "method": "captured-patch",
+    "patch_sha256": "c3e76265bd9fcd971b504ed886d77cdfbc7a2473b6d785342909a8132822d856",
+    "report_record": 19,
+    "target_head": "6efcb8f9fb77f13bf3c847ee8197132a9c634934"
+  },
+  "reviewer": "codex/gpt-6.1-terra",
+  "reviewer_evidence": {
+    "exec_log": "review-1587-r1-pass3.stream.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-terra"
+    ],
+    "rollout": "2026/11/09/rollout-2026-11-09T05-08-42-01a1beb5-6aa5-7df3-871d-081db10f77b5.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 1750,
+        "path": "review-1587-r1-pass3.stream.jsonl",
+        "sha256": "f115c4c1a7db89426e8b2a3480cba7371f622eaf0c3b144dcd1a7812c2af0a7b"
+      },
+      {
+        "bytes": 535874,
+        "path": "2026/11/09/rollout-2026-11-09T05-08-42-01a1beb5-6aa5-7df3-871d-081db10f77b5.jsonl",
+        "sha256": "a21c0fe87f48d937b89fc905966d4175893ba6edec8be325d7acb65b5965cdee"
+      }
+    ],
+    "thread_id": "01a1beb5-6aa5-7df3-871d-081db10f77b5"
+  },
+  "schema": 5,
+  "scope": "diff-only",
+  "status": "ran"
+}
