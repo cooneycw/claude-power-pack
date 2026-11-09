@@ -58,6 +58,16 @@
 
 ### Behaviour changes you may notice
 
+- Regenerated Actions and Woodpecker pipelines run `deploy` only in the dedicated
+  main-push stage; main-only deployment no longer also runs in ordinary CI.
+  `pipeline.branches.pr` containing `deploy` is now an error: move it to
+  `pipeline.branches.main`. An enabled Woodpecker runtime-smoke stage with
+  `pipeline.woodpecker.smoke_target: deploy` is also an error: select a separate
+  smoke-test target. Branch targets and enabled smoke targets must now match
+  `[A-Za-z][A-Za-z0-9_-]*`: split compound entries, rename targets with other
+  characters, and use exact `deploy` in main rather than path aliases
+  (Closes #1664).
+
 - `cpp:init` retires its generic Makefile offer; use `/project:init` for new
   projects or `/cicd:init` for existing repositories. Historical install receipts
   remain readable (Refs #1587, R3).
