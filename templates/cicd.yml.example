@@ -105,6 +105,7 @@ pipeline:
 #   # main's other targets still run on pushes; deploy-only adds no lint/test.
 #   # Woodpecker runtime_smoke must use a non-deploy smoke_target.
 #   # Entries are single target names; use exact deploy, not ./deploy aliases.
+#   # Names start with a letter, then contain only letters, digits, '_' or '-'.
 #   matrix:
 #     python-version: ["3.11", "3.12"]
 #

@@ -123,20 +123,11 @@ def generate_pipeline(
 
 
 def _require_single_target(target: str, setting: str) -> None:
-    if not re.fullmatch(r"[A-Za-z0-9_./][A-Za-z0-9_./-]*", target):
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", target):
         raise ValueError(
             f"{setting} must contain a single Makefile target per entry "
-            "(letters, digits, '_', '.', '/', or '-', with no leading '-'); "
+            "(start with a letter, then letters, digits, '_' or '-'); "
             "split multiple targets into separate entries"
-        )
-    # GNU Make strips leading ./ when matching a target to its recipe.
-    canonical = target
-    while canonical.startswith("./"):
-        canonical = canonical[2:]
-    if canonical == "deploy" and target != canonical:
-        raise ValueError(
-            f"{setting} aliases reserved target 'deploy'; "
-            "use the exact name 'deploy' only in pipeline.branches.main"
         )
 
 

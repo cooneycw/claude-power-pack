@@ -93,7 +93,9 @@ def test_woodpecker_runtime_smoke_cannot_alias_deploy():
 
 @pytest.mark.parametrize("generator", [generate_github_actions, generate_woodpecker])
 @pytest.mark.parametrize("branch", ["main", "pr"])
-@pytest.mark.parametrize("target", ["lint deploy", "lint;make deploy", "-fdeploy"])
+@pytest.mark.parametrize("target", [
+    "lint deploy", "lint;make deploy", "-fdeploy", "$(T)", "VAR=x deploy", "-C dir deploy",
+])
 def test_application_entries_are_single_make_targets(generator, branch, target):
     config = CICDConfig()
     config.pipeline.branches = {branch: [target]}
@@ -112,18 +114,37 @@ def test_programmatic_smoke_target_cannot_be_compound():
 
 @pytest.mark.parametrize("generator", [generate_github_actions, generate_woodpecker])
 @pytest.mark.parametrize("branch", ["main", "pr"])
-@pytest.mark.parametrize("target", ["./deploy", "././deploy"])
+@pytest.mark.parametrize("target", ["./deploy", "././deploy", ".//deploy"])
 def test_deploy_alias_requires_canonical_main_setting(generator, branch, target):
     config = CICDConfig()
     config.pipeline.branches = {branch: [target]}
-    with pytest.raises(ValueError, match=r"reserved target.*pipeline\.branches\.main"):
+    with pytest.raises(ValueError, match=r"single.*target"):
         generator(_info(), config)
 
 
-@pytest.mark.parametrize("target", ["./deploy", "././deploy"])
+@pytest.mark.parametrize("target", ["./deploy", "././deploy", ".//deploy"])
 def test_smoke_deploy_alias_is_rejected(target):
     config = CICDConfig()
     config.pipeline.woodpecker.runtime_smoke = True
     config.pipeline.woodpecker.smoke_target = target
-    with pytest.raises(ValueError, match=r"reserved target.*pipeline\.branches\.main"):
+    with pytest.raises(ValueError, match=r"single.*target"):
+        generate_woodpecker(_info(), config)
+
+
+@pytest.mark.parametrize("generator", [generate_github_actions, generate_woodpecker])
+@pytest.mark.parametrize("branch", ["main", "pr"])
+@pytest.mark.parametrize("target", ["deploy/", "deploy.", "dir/deploy", ".deploy"])
+def test_application_target_allowlist_excludes_paths_and_dots(generator, branch, target):
+    config = CICDConfig()
+    config.pipeline.branches = {branch: [target]}
+    with pytest.raises(ValueError, match=r"single.*target"):
+        generator(_info(), config)
+
+
+@pytest.mark.parametrize("target", ["deploy/", "deploy.", "dir/deploy", ".deploy"])
+def test_smoke_target_uses_the_same_allowlist(target):
+    config = CICDConfig()
+    config.pipeline.woodpecker.runtime_smoke = True
+    config.pipeline.woodpecker.smoke_target = target
+    with pytest.raises(ValueError, match=r"single.*target"):
         generate_woodpecker(_info(), config)
