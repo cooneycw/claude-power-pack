@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -9,13 +10,18 @@ from pathlib import Path
 PIN = "a" * 40
 
 def exercise(tmp_path: Path, pin=PIN, *, scenario="ok", fork=False, provider="github-actions",
-             gate=None, metadata=None, shell_flags=None, stdin=None):
+             gate=None, metadata=None, shell_flags=None, stdin=None, receipt_schema=None):
     source = Path(gate) if gate else Path(__file__).resolve().parents[2] / "lib/cicd/enrolment.py"
     spec = importlib.util.spec_from_file_location("pinned_enrolment_under_test", source)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     bootstrap_script = module.bootstrap_script
+    if receipt_schema is not None:
+        receipt = tmp_path / ".claude/cpp-install.json"
+        receipt.parent.mkdir()
+        receipt.write_text(json.dumps({"schema": receipt_schema, "cpp_revision": PIN}))
+        pin = module.installed_revision(tmp_path)
 
     binaries = tmp_path / "bin"
     binaries.mkdir()

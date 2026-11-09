@@ -17,7 +17,7 @@ requires_tools = pytest.mark.skipif(
 
 
 def _tier4():
-    text = INIT.read_text().split("### Tier 4 Execution", 1)[1].split("### Tier 5 Execution", 1)[0]
+    text = INIT.read_text().split("### CI/CD Execution", 1)[1].split("### Codex Execution", 1)[0]
     blocks = re.findall(r"```bash\n(.*?)```", text, re.S)
     assert blocks, "Tier 4 has no executable procedure"
     return "\n".join(blocks)
@@ -72,6 +72,7 @@ elif 'container' in args:
     result = subprocess.run(
         ["bash", "-c", _tier4()], cwd=repo,
         env={**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}", "CPP_DIR": str(cpp),
+            "CPP_CAPABILITIES_JSON": '["cicd"]',
              "CPP_PROJECTS_ROOT": str(tmp_path / "projects"), "PYTHONPATH": ""},
         capture_output=True, text=True, timeout=30,
     )

@@ -378,7 +378,7 @@
     "cpp-install-receipt.py": {
       "class": "tested",
       "consumer": "tests/test_cpp_install_receipt.py",
-      "reason": "Persists project installation observations and reports the saved state for cpp:init and cpp:status; controls/cpp-install-receipt distinguishes failed, missing-offered and failed-write outcomes against a constructed blind reporter."
+      "reason": "Persists project installation observations and reports the saved state for cpp:init and cpp:status; controls/cpp-install-receipt distinguishes failed, missing-offered and failed-write outcomes against a constructed blind reporter. Capability planning, independent execution and schema-2 membership are exercised by tests/test_cpp_capability_plan.py and controls/cpp-capability-selection; legacy schema-1 compatibility remains covered."
     },
     "cpp-mcp-state.py": {
       "class": "tested",

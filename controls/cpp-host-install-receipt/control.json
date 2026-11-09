@@ -75,7 +75,7 @@
     {
       "kind": "constructed",
       "path": "anchors/assume-host-written.py",
-      "sha256": "61c7b6b251ef71a130ca8cb8d6433c9414b561d8747d6a06579954756b7199be",
+      "sha256": "5459657c393d44b531ef940d3b978f58ba8f4aacf2e3a346b16c7e71c87acfb0",
       "why": "Treat every actual host write outcome as written+0 while retaining the real writer, required steps and historical reader."
     }
   ]

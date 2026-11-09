@@ -30,7 +30,7 @@ def exercise(gate, case):
 
     text = (ROOT / '.claude/commands/cpp/init.md').read_text()
     host = next(block for block in re.findall(r'```bash\n(.*?)```', text, re.S)
-                if block.startswith('CPP_HOST_RUNTIME='))
+                if '\nCPP_HOST_RUNTIME=' in block or block.startswith('CPP_HOST_RUNTIME='))
     final = re.search(r'# CPP_INSTALL_RECEIPT_WRITE_BEGIN\n(.*?)# CPP_INSTALL_RECEIPT_WRITE_END', text, re.S)
     assert final and final[1].strip()
     with tempfile.TemporaryDirectory(prefix='host-install-control-') as directory, \
@@ -50,7 +50,8 @@ def exercise(gate, case):
             assert observations[-1]['outcome'] == 'written' and spec['exit'] != 0
         report = 'github-actions: ' + spec.get('provider', 'ready') + ' (private-payload-canary)\n' + spec['report']
         env = {**os.environ, 'PATH':str(bindir) + os.pathsep + os.environ['PATH'],
-               'CPP_DIR':str(cpp), 'CPP_PROJECTS_ROOT':str(root / 'projects'), 'HOME':str(root / 'home'),
+               'CPP_DIR':str(cpp), 'CPP_CAPABILITIES_JSON':'["cicd"]',
+           'CPP_PROJECTS_ROOT':str(root / 'projects'), 'HOME':str(root / 'home'),
                'CONTROL_HOST_REPORT':report, 'CONTROL_HOST_EXIT':str(spec['exit']),
                'STEP_RESULTS_JSON':json.dumps(observations)}
         assert uv.is_file() and os.access(uv, os.X_OK)
@@ -79,7 +80,7 @@ def exercise(gate, case):
                      if line.startswith('CPP_MCP_RUN_DIR=')]
         assert len(run_paths) == 1 and Path(run_paths[0]).is_absolute()
         final_env = {**env, 'CPP_MCP_RUN_DIR':run_paths[0], 'STEP_RESULTS_JSON':json.dumps(rows),
-                     'SELECTED_TIER':'4', 'PROFILE_NAME':'not-selected',
+                      'CPP_CAPABILITIES_JSON':'["commands","scripts","mcp","cicd"]' , 'PROFILE_NAME':'not-selected',
                      'OFFERED_STEPS_JSON':json.dumps(BASE + ['host-ci']), 'PERMISSION_REPORT':'{}'}
         consumer = final[1].replace('--cpp-dir "$CPP_DIR"', '--revision "' + 'a' * 40 + '"')
         result = subprocess.run(['bash', '-c', consumer], cwd=root, env=final_env,

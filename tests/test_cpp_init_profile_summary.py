@@ -17,18 +17,21 @@ INIT = ROOT / ".claude/commands/cpp/init.md"
 CASES = json.loads((ROOT / "tests/fixtures/cpp-init-permission-summary/cases.json").read_text())
 
 
-def _profile_tiers(text):
+def _profile_capability(text):
     section = text.split("## Step 3b:", 1)[1].split("## Step 4:", 1)[0]
     matches = re.findall(r"^\*\*Only show this step.*?$", section, re.M)
-    assert len(matches) == 1, "profile question needs one explicit tier condition"
-    tiers = {int(value) for value in re.findall(r"Tier ([1-7])", matches[0])}
-    assert tiers, "tier extractor must examine a nonempty condition"
-    return tiers
+    assert len(matches) == 1, "profile question needs one explicit capability condition"
+    assert matches[0] == "**Only show this step if the resolved capabilities include `scripts`.**"
+    return "scripts"
 
 
 @pytest.mark.parametrize("tier", range(1, 8))
 def test_profile_question_covers_every_tier_that_installs_tier_two(tier):
-    assert (tier in _profile_tiers(INIT.read_text())) is (tier in {2, 3, 4, 5})
+    from tests.test_cpp_capability_plan import receipt
+
+    assert (_profile_capability(INIT.read_text()) in receipt.capability_plan(preset=tier)["capabilities"]) is (
+        tier in {2, 3, 4, 5}
+    )
 
 
 def _observer_code():

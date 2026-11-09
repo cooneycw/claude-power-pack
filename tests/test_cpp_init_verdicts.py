@@ -79,7 +79,7 @@ exit "$STEP_RC"
     (tmp_path / ".github/workflows/ci.yml").write_text("# pre-existing workflow\n")
     env = dict(
         os.environ,
-        HOME=str(home),
+        HOME=str(home), CPP_CAPABILITIES_JSON='["commands","scripts","mcp","cicd","codex","extras"]',
         CLAUDE_CONFIG_DIR=str(home),
         PATH=f"{bindir}:{os.environ['PATH']}",
         CPP_DIR=str(tmp_path / "empty-cpp") if success.endswith("with defaults") else str(ROOT),
@@ -123,7 +123,8 @@ def test_config_file_alone_does_not_prove_credentials(tmp_path):
     assert block
     result = subprocess.run(
         ["bash", "-c", "codex() { :; };\n" + block[1]],
-        env=dict(os.environ, HOME=str(tmp_path), OPENAI_API_KEY=""),
+        env=dict(os.environ, HOME=str(tmp_path), OPENAI_API_KEY="",
+                 CPP_DIR=str(ROOT), CPP_CAPABILITIES_JSON='["codex"]'),
         capture_output=True,
         text=True,
         timeout=10,
@@ -137,7 +138,7 @@ def test_config_file_alone_does_not_prove_credentials(tmp_path):
 @pytest.mark.parametrize("step_rc,state", [(0, "written"), (1, "failed"), (127, "failed"),
                                           (3, "deferred"), (3, "unavailable"), (3, "unknown")])
 def test_host_record_verdict_never_claims_persistence_without_a_receipt(tmp_path, step_rc, state):
-    tier = INIT.read_text().split("### Tier 4 Execution", 1)[1].split("### Tier 5 Execution", 1)[0]
+    tier = INIT.read_text().split("### CI/CD Execution", 1)[1].split("### Codex Execution", 1)[0]
     blocks = [b for b in re.findall(r"```bash\n(.*?)```", tier, re.S) if "CPP_HOST_RUNTIME=" in b]
     assert len(blocks) == 1
     bindir = tmp_path / "bin"
@@ -146,7 +147,8 @@ def test_host_record_verdict_never_claims_persistence_without_a_receipt(tmp_path
     uv.write_text('#!/bin/bash\nprintf "HOST_CI_RECORD: %s\\n" "$RECORD_STATE"\nexit "$STEP_RC"\n')
     uv.chmod(0o755)
     env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", CPP_DIR=str(ROOT),
-               CPP_PROJECTS_ROOT=str(tmp_path / "projects"), HOME=str(tmp_path / "home"),
+               CPP_CAPABILITIES_JSON='["cicd"]', CPP_PROJECTS_ROOT=str(tmp_path / "projects"),
+               HOME=str(tmp_path / "home"),
                STEP_RC=str(step_rc), RECORD_STATE=state)
     probe = subprocess.run([str(uv)], env=env, capture_output=True, text=True, timeout=10)
     assert probe.returncode == step_rc and state in probe.stdout, "fixture must supply the exact write outcome"

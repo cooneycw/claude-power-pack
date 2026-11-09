@@ -72,8 +72,8 @@ def test_historical_schema1_project_generation_record_still_reads(tmp_path):
                     or shutil.which('python3') is None, reason='requires bash, env, python3')
 @pytest.mark.parametrize('provider_state', ['ready', 'missing', 'unknown'])
 def test_actual_host_step_records_write_receipt_independent_of_provider_verdict(tmp_path, provider_state):
-    tier = (ROOT / '.claude/commands/cpp/init.md').read_text().split('### Tier 4 Execution', 1)[1]
-    blocks = [b for b in re.findall(r'```bash\n(.*?)```', tier.split('### Tier 5 Execution', 1)[0], re.S)
+    tier = (ROOT / '.claude/commands/cpp/init.md').read_text().split('### CI/CD Execution', 1)[1]
+    blocks = [b for b in re.findall(r'```bash\n(.*?)```', tier.split('### Codex Execution', 1)[0], re.S)
               if 'CPP_HOST_RUNTIME=' in b]
     assert len(blocks) == 1
     bindir = tmp_path / 'bin'
@@ -82,7 +82,8 @@ def test_actual_host_step_records_write_receipt_independent_of_provider_verdict(
     uv.write_text('#!/bin/bash\nprintf "%s\\n" "$FIXTURE_REPORT"\nexit 0\n')
     uv.chmod(0o755)
     env = {**os.environ, 'PATH':str(bindir) + os.pathsep + os.environ['PATH'],
-           'CPP_DIR':str(ROOT), 'CPP_PROJECTS_ROOT':str(tmp_path / 'projects'), 'HOME':str(tmp_path),
+           'CPP_DIR':str(ROOT), 'CPP_CAPABILITIES_JSON':'["cicd"]',
+           'CPP_PROJECTS_ROOT':str(tmp_path / 'projects'), 'HOME':str(tmp_path),
            'STEP_RESULTS_JSON':json.dumps(rows()),
            'FIXTURE_REPORT':f'github-actions: {provider_state} (fixture)\nHOST_CI_RECORD: written'}
     assert shutil.which('uv', path=env['PATH']) == str(uv)
@@ -151,10 +152,14 @@ def test_incomplete_legacy_population_is_not_a_compatibility_bypass(tmp_path):
                     or shutil.which('python3') is None, reason='requires bash, env, python3')
 def test_observation_failure_invalidates_old_green_metadata_before_receipt_save(tmp_path):
     source = (ROOT / '.claude/commands/cpp/init.md').read_text()
-    block = next(b for b in re.findall(r'```bash\n(.*?)```', source, re.S) if b.startswith('CPP_HOST_RUNTIME='))
+    block = next(b for b in re.findall(r'```bash\n(.*?)```', source, re.S) if '\nCPP_HOST_RUNTIME=' in b)
     cpp = tmp_path / 'cpp'
     (cpp / 'scripts').mkdir(parents=True)
-    (cpp / 'scripts/cpp-install-receipt.py').write_text('raise SystemExit(1)\n')
+    (cpp / 'scripts/cpp-install-receipt.py').write_text(
+        'import runpy, sys\n'
+        'if sys.argv[1] == "host-ci-outcome": raise SystemExit(1)\n'
+        f'runpy.run_path({str(HELPER)!r}, run_name="__main__")\n'
+    )
     bindir = tmp_path / 'bin'
     bindir.mkdir()
     uv = bindir / 'uv'
@@ -162,7 +167,8 @@ def test_observation_failure_invalidates_old_green_metadata_before_receipt_save(
     uv.chmod(0o755)
     old_rows = rows() + [{'step':'host-ci', 'outcome':'written', 'exit_code':0}]
     env = {**os.environ, 'PATH':str(bindir) + os.pathsep + os.environ['PATH'],
-           'CPP_DIR':str(cpp), 'CPP_PROJECTS_ROOT':str(tmp_path / 'projects'), 'HOME':str(tmp_path),
+           'CPP_DIR':str(cpp), 'CPP_CAPABILITIES_JSON':'["cicd"]',
+           'CPP_PROJECTS_ROOT':str(tmp_path / 'projects'), 'HOME':str(tmp_path),
            'STEP_RESULTS_JSON':json.dumps(old_rows)}
     assert shutil.which('uv', path=env['PATH']) == str(uv)
     assert old_rows[-1]['outcome'] == 'written'

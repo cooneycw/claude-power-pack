@@ -142,6 +142,7 @@ sys.exit(0)
     env = dict(os.environ, HOME=str(home), CLAUDE_CONFIG_DIR=str(home), CODEX_HOME=str(home / ".codex"),
                PATH=f"{bindir}:{os.environ['PATH']}", MCP_CALL_LOG=str(log), CPP_DIR=str(ROOT),
                MCP_FAKE_REGISTRY=str(tmp_path / "codex-list.json"),
+               CPP_CAPABILITIES_JSON='["mcp","codex","extras"]',
                SECOND_OPINION_URL="http://fixture-server.invalid:9123", TAVILY_API_KEY="fixture-only-placeholder")
     for key in ("LIST_RC", "ADD_RC", "CODEX_LIST_JSON"):
         env.pop(key, None)
@@ -256,7 +257,8 @@ def test_registration_failure_reaches_actual_receipt_and_summary(tmp_path):
     result, calls = run(tmp_path, 'cpp_register_codex_mcp second-opinion\n' + consumer, ADD_RC="19",
                         STEP_RESULTS_JSON=json.dumps(initial),
                         OFFERED_STEPS_JSON=json.dumps([x['step'] for x in initial]),
-                        SELECTED_TIER="1", PROFILE_NAME="not-selected", PERMISSION_REPORT="{}")
+                        CPP_CAPABILITIES_JSON='["commands","codex","extras"]',
+                            PROFILE_NAME="not-selected", PERMISSION_REPORT="{}")
     assert len([c for c in calls if c[1:3] == ["mcp", "add"]]) == 1
     receipt_path = tmp_path / '.claude/cpp-install.json'
     assert receipt_path.is_file(), result.stdout + result.stderr
@@ -351,7 +353,7 @@ def test_unreadable_pool_config_still_persists_incomplete_receipt(tmp_path):
     initial = [{"step": "commands", "outcome": "installed"}, {"step": "stash-guard", "outcome": "already"}]
     result, calls = run(tmp_path, code, STEP_RESULTS_JSON=json.dumps(initial),
                         OFFERED_STEPS_JSON='["commands","stash-guard","browser-pool"]',
-                        SELECTED_TIER="1", PROFILE_NAME="not-selected", PERMISSION_REPORT="{}")
+                        CPP_CAPABILITIES_JSON='["commands","mcp"]', PROFILE_NAME="not-selected", PERMISSION_REPORT="{}")
     assert not [c for c in calls if c[1:3] == ["mcp", "add"]]
     receipt_path = tmp_path / '.claude/cpp-install.json'
     assert receipt_path.is_file(), result.stdout + result.stderr
@@ -426,8 +428,11 @@ def test_receipt_reloads_registration_from_a_different_shell(tmp_path, add_rc):
     data = [{"step": "commands", "outcome": "installed"}, {"step": "stash-guard", "outcome": "already"},
             {"step": "codex-second-opinion", "outcome": "installed"},
             {"step": "codex-playwright", "outcome": "installed"}]
+    data += [{"step": step, "outcome": "already"} for step in
+             ("codex-cli", "codex-doctor", "codex-auth", "codex-skills", "memory-harness")]
     env.update(STEP_RESULTS_JSON=json.dumps(data), OFFERED_STEPS_JSON=json.dumps([x['step'] for x in data]),
-               SELECTED_TIER='1', PROFILE_NAME='not-selected', PERMISSION_REPORT='{}')
+               CPP_CAPABILITIES_JSON='["commands","codex","extras"]',
+                   PROFILE_NAME='not-selected', PERMISSION_REPORT='{}')
     run = Path(env['CPP_MCP_RUN_DIR'])
     assert not run.is_relative_to(tmp_path), "run artifacts must stay outside the target project"
     assert run.stat().st_mode & 0o777 == 0o700
@@ -436,7 +441,7 @@ def test_receipt_reloads_registration_from_a_different_shell(tmp_path, add_rc):
     assert 'fixture-only-placeholder' not in (run / 'results.json').read_text()
     summary = invoke(tmp_path, env, consumer())
     receipt = json.loads((tmp_path / '.claude/cpp-install.json').read_text())
-    codex = [x for x in receipt['steps'] if x['step'].startswith('codex-')]
+    codex = [x for x in receipt['steps'] if x['step'] in {'codex-second-opinion', 'codex-playwright'}]
     assert {x['outcome'] for x in codex} == ({'FAILED'} if add_rc == '19' else {'installed'})
     assert {x['exit_code'] for x in codex} == {int(add_rc)}
     assert ('CPP Installation Complete' in summary.stdout) is (add_rc == '0')
@@ -544,7 +549,7 @@ def test_failed_receipt_persistence_retains_temp_run_for_retry(tmp_path):
     bad = [{"step": "commands", "outcome": "not-an-outcome"}]
     assert bad[0]['outcome'] not in {'installed', 'already', 'skipped', 'declined', 'FAILED', 'unverified'}
     env.update(CPP_MCP_RUN_DIR=str(path), STEP_RESULTS_JSON=json.dumps(bad),
-               OFFERED_STEPS_JSON='["commands","stash-guard"]', SELECTED_TIER='1',
+               OFFERED_STEPS_JSON='["commands","stash-guard"]', CPP_CAPABILITIES_JSON='["commands","codex","extras"]' ,
                PROFILE_NAME='not-selected', PERMISSION_REPORT='{}')
     result = invoke(tmp_path, env, consumer())
     assert 'CPP Installation Incomplete' in result.stdout
@@ -579,9 +584,12 @@ def test_completed_setup_removes_temp_state_and_leaves_scratch_project_clean(tmp
     registration = invoke(project, env, block('#### 5d. Register MCP Servers with Codex'))
     assert 'MCP registered' in registration.stdout
     data = [{"step": "commands", "outcome": "installed"}, {"step": "stash-guard", "outcome": "already"}]
+    data += [{"step": step, "outcome": "already"} for step in
+             ("codex-cli", "codex-doctor", "codex-auth", "codex-skills", "memory-harness")]
     env.update(STEP_RESULTS_JSON=json.dumps(data),
-               OFFERED_STEPS_JSON='["commands","stash-guard","codex-second-opinion","codex-playwright"]',
-               SELECTED_TIER='1', PROFILE_NAME='not-selected', PERMISSION_REPORT='{}')
+               OFFERED_STEPS_JSON=json.dumps([x['step'] for x in data] + ['codex-second-opinion', 'codex-playwright']),
+               CPP_CAPABILITIES_JSON='["commands","codex","extras"]',
+                   PROFILE_NAME='not-selected', PERMISSION_REPORT='{}')
     summary = invoke(project, env, consumer())
     assert 'CPP Installation Complete' in summary.stdout, summary.stdout + summary.stderr
     assert not path.exists(), 'temporary run must be gone after receipt persistence'

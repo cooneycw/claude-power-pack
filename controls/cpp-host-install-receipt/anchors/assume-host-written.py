@@ -6,7 +6,6 @@ Input is metadata only: fixed step IDs, outcome enums, and reference IDs. Never
 pass command output, configuration, endpoints, credentials or environment values.
 The project receipt is not a host installation surface or a successful step.
 """
-# NEGATIVE-CONTROL: controls/cpp-install-receipt
 
 from __future__ import annotations
 
@@ -87,6 +86,70 @@ OPTIONAL_STEPS = {
     "happy-cli", "spec-kit-cli", "memory-store-start", "memory-store-ping",
 }
 STEPS = set().union(*TIER_STEPS.values(), OPTIONAL_STEPS, LEGACY_TIER4_STEPS)
+
+# Installation capabilities are independent. Only real prerequisites belong in
+# this graph; the historical tier ladder survives exclusively as preset data.
+CAPABILITY_ORDER = ("commands", "scripts", "mcp", "cicd", "codex", "qwen", "gemma", "extras")
+CAPABILITY_DEPENDENCIES = {
+    "commands": (), "scripts": (), "mcp": (), "cicd": (),
+    "codex": ("commands",), "qwen": ("commands",), "gemma": ("commands",), "extras": (),
+}
+CAPABILITY_REQUIRED = {TIER_CAPABILITIES[number]: tuple(steps) for number, steps in TIER_STEPS.items()}
+CAPABILITY_REQUIRED["extras"] = ()
+CAPABILITY_OPTIONAL = {
+    "commands": ("project-commands",),
+    "scripts": ("shell-prompt", "user-flow-allowlist", "permission-census", "session-reminders",
+                "tmux-autostart", "happy-cli", "spec-kit-cli"),
+    "mcp": ("browser-pool",),
+    "cicd": (),
+    "codex": ("codex-second-opinion", "codex-playwright", "codex-tavily"),
+    "qwen": ("qwen-endpoint", "qwen-smoke", "qwen-always-on"),
+    "gemma": ("gemma-endpoint", "gemma-smoke"),
+    "extras": ("sequential-thinking", "codex-second-opinion", "codex-playwright", "codex-tavily",
+               "workstation-tuning", "memory-store", "memory-store-start", "memory-store-ping"),
+}
+CAPABILITY_PRESETS = {
+    number: tuple(TIER_CAPABILITIES[tier] for tier in (range(1, number + 1) if number <= 5 else (1, number)))
+    + ("extras",) for number in TIER_STEPS
+}
+
+
+def capability_plan(requested: object = None, *, preset: int | None = None) -> dict:
+    """Resolve a validated selection in dependency order, without host writes."""
+    if preset is not None:
+        if type(preset) is not int or preset not in CAPABILITY_PRESETS or requested is not None:
+            raise ValueError("choose capabilities or one preset")
+        requested = list(CAPABILITY_PRESETS[preset])
+    if (not isinstance(requested, list) or not requested
+            or any(not isinstance(cap, str) or cap not in CAPABILITY_DEPENDENCIES for cap in requested)):
+        raise ValueError("capability selection invalid")
+    selected: set[str] = set()
+    visiting: set[str] = set()
+
+    def include(cap: str) -> None:
+        if cap in visiting:
+            raise ValueError("capability dependency cycle")
+        if cap in selected:
+            return
+        visiting.add(cap)
+        for dependency in CAPABILITY_DEPENDENCIES[cap]:
+            include(dependency)
+        visiting.remove(cap)
+        selected.add(cap)
+
+    for cap in requested:
+        include(cap)
+    capabilities = [cap for cap in CAPABILITY_ORDER if cap in selected]
+    sections = []
+    for cap in capabilities:
+        if cap in {"qwen", "gemma"} and "local-seam" not in sections:
+            sections.append("local-seam")
+        sections.append(cap)
+    required = [step for cap in capabilities for step in CAPABILITY_REQUIRED[cap]]
+    allowed = list(dict.fromkeys([*required, *(step for cap in capabilities for step in CAPABILITY_OPTIONAL[cap])]))
+    return {"preset": preset, "requested": [cap for cap in CAPABILITY_ORDER if cap in requested],
+            "capabilities": capabilities, "sections": sections,
+            "required_steps": required, "allowed_steps": allowed}
 
 
 def required_steps(tier: int, *, legacy: bool = False) -> list[str]:
@@ -205,7 +268,20 @@ def make_receipt(args: argparse.Namespace, cpp_revision: str) -> dict:
     if not isinstance(data, list):
         raise ValueError("STEP_RESULTS must be a list")
     now = timestamp()
-    offered = offered_steps(args.offered_steps, args.tier)
+    custom = getattr(args, "capabilities", None) is not None or getattr(args, "preset", None) is not None
+    if custom:
+        plan = capability_plan(json.loads(args.capabilities) if args.capabilities is not None else None,
+                               preset=args.preset)
+        offered = json.loads(args.offered_steps)
+        if (not isinstance(offered, list) or any(not isinstance(step, str) or step not in plan["allowed_steps"]
+                                               for step in offered) or len(set(offered)) != len(offered)):
+            raise ValueError("offered steps outside selected capabilities")
+        offered = list(dict.fromkeys([*plan["required_steps"], *offered]))
+        selection = {"preset": plan["preset"], "requested": plan["requested"],
+                     "capabilities": plan["capabilities"], "profile": args.profile}
+    else:
+        offered = offered_steps(args.offered_steps, args.tier)
+        selection = {"tier": args.tier, "profile": args.profile, "capabilities": selected_capabilities(args.tier)}
     steps: list[dict] = []
     seen = set()
     for item in data:
@@ -226,8 +302,8 @@ def make_receipt(args: argparse.Namespace, cpp_revision: str) -> dict:
                           "exit_code": None, "user_scope": STEP_REFS.get(step, [])})
     refs = sorted({ref for step in steps for ref in step["user_scope"]})
     return {
-        "schema": 1, "cpp_revision": cpp_revision, "recorded_at": now,
-        "selected": {"tier": args.tier, "profile": args.profile, "capabilities": selected_capabilities(args.tier)},
+        "schema": 2 if custom else 1, "cpp_revision": cpp_revision, "recorded_at": now,
+        "selected": selection,
         "offered_steps": offered, "steps": steps,
         "user_scope": {ref: REFERENCES[ref] for ref in refs},
         "permissions": permissions(json.loads(args.permission_report)),
@@ -239,26 +315,38 @@ def validate(data: object) -> dict:
         "schema", "cpp_revision", "recorded_at", "selected", "offered_steps", "steps", "user_scope", "permissions",
     }:
         raise ValueError("receipt shape invalid")
-    if type(data["schema"]) is not int or data["schema"] != 1 or not valid_time(data["recorded_at"]):
+    if type(data["schema"]) is not int or data["schema"] not in {1, 2} or not valid_time(data["recorded_at"]):
         raise ValueError("receipt version or timestamp invalid")
     if (not isinstance(data["cpp_revision"], str)
             or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", data["cpp_revision"])):
         raise ValueError("receipt revision invalid")
     selected = data["selected"]
-    if not isinstance(selected, dict) or set(selected) != {"tier", "profile", "capabilities"}:
+    if not isinstance(selected, dict) or selected.get("profile") not in PROFILES:
         raise ValueError("receipt selection invalid")
-    if type(selected["tier"]) is not int or selected["tier"] not in TIER_STEPS or selected["profile"] not in PROFILES:
-        raise ValueError("receipt selection invalid")
-    if selected["capabilities"] != selected_capabilities(selected["tier"]):
-        raise ValueError("receipt selected capabilities invalid")
+    if data["schema"] == 1:
+        if (set(selected) != {"tier", "profile", "capabilities"}
+                or type(selected["tier"]) is not int or selected["tier"] not in TIER_STEPS):
+            raise ValueError("receipt selection invalid")
+        if selected["capabilities"] != selected_capabilities(selected["tier"]):
+            raise ValueError("receipt selected capabilities invalid")
+        plan = None
+    else:
+        if set(selected) != {"preset", "requested", "profile", "capabilities"}:
+            raise ValueError("receipt selection invalid")
+        preset = selected["preset"]
+        plan = capability_plan(preset=preset) if preset is not None else capability_plan(selected["requested"])
+        if selected["requested"] != plan["requested"] or selected["capabilities"] != plan["capabilities"]:
+            raise ValueError("receipt selected capabilities invalid")
     offered = data["offered_steps"]
     if (not isinstance(offered, list)
             or any(not isinstance(step, str) or step not in STEPS for step in offered)
             or len(set(offered)) != len(offered)):
         raise ValueError("receipt offered population invalid")
-    legacy = (selected["tier"] in {4, 5} and "host-ci" not in offered
+    legacy = (data["schema"] == 1 and selected["tier"] in {4, 5} and "host-ci" not in offered
               and LEGACY_TIER4_STEPS <= set(offered))
-    if not set(required_steps(selected["tier"], legacy=legacy)) <= set(offered):
+    required = plan["required_steps"] if plan is not None else required_steps(selected["tier"], legacy=legacy)
+    if (not set(required) <= set(offered)
+            or (plan is not None and not set(offered) <= set(plan["allowed_steps"]))):
         raise ValueError("receipt offered population invalid")
     if not isinstance(data["steps"], list) or not data["steps"]:
         raise ValueError("receipt outcomes absent")
@@ -319,8 +407,11 @@ def report(path: Path, current: str, summary: bool) -> int:
     if summary:
         print("CPP Installation Complete" if complete(data) and not stale else "CPP Installation Incomplete")
         print(f"Recorded CPP revision: {data['cpp_revision']}")
-        print(f"Selected tier: {data['selected']['tier']}; selected profile: {data['selected']['profile']}")
-        print("Selected capabilities (tier preset): " + ", ".join(data["selected"]["capabilities"]))
+        if data["schema"] == 1:
+            print(f"Selected tier: {data['selected']['tier']}; selected profile: {data['selected']['profile']}")
+        else:
+            print(f"Selected preset: {data['selected']['preset'] or 'custom'}; selected profile: {data['selected']['profile']}")
+        print("Selected capabilities: " + ", ".join(data["selected"]["capabilities"]))
         print(f"Recorded outcomes for {len(data['offered_steps'])} offered steps (not live health probes):")
         for item in data["steps"]:
             print(f"  {item['step']}: {item['outcome']} ({item['recorded_at']})")
@@ -352,11 +443,14 @@ def write(path: Path, data: dict) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("write", "summary", "status", "host-ci-outcome"))
+    parser.add_argument("command", choices=("write", "summary", "status", "host-ci-outcome", "plan", "section"))
     parser.add_argument("--project-dir", type=Path, default=Path.cwd())
     parser.add_argument("--cpp-dir", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--revision", help="explicit CPP revision (otherwise read local checkout HEAD)")
     parser.add_argument("--tier", type=int, choices=range(1, 8))
+    parser.add_argument("--capabilities", help="JSON array of independent capability names")
+    parser.add_argument("--preset", type=int, choices=range(1, 8))
+    parser.add_argument("--section", help="capability section identifier (section command only)")
     parser.add_argument("--profile", choices=sorted(PROFILES))
     parser.add_argument("--offered-steps", help="JSON array of fixed step IDs offered by this run; required for write")
     parser.add_argument("--permission-report", default="{}", help="permission observer metadata only")
@@ -365,6 +459,15 @@ def main() -> int:
     args = parser.parse_args()
     path = args.project_dir / ".claude/cpp-install.json"
     try:
+        if args.command in {"plan", "section"}:
+            requested = json.loads(args.capabilities) if args.capabilities is not None else None
+            plan = capability_plan(requested, preset=args.preset)
+            if args.command == "section":
+                if args.section not in {*CAPABILITY_ORDER, "local-seam"}:
+                    raise ValueError("unknown capability section")
+                return 0 if args.section in plan["sections"] else 3
+            print(json.dumps(plan))
+            return 0
         if args.command == "host-ci-outcome":
             if args.exit_code is None:
                 raise ValueError("observed exit status required")
@@ -372,8 +475,9 @@ def main() -> int:
             return 0
         current = revision(args)
         if args.command == "write":
-            if args.tier is None or args.profile is None:
-                raise ValueError("tier and profile required")
+            if (args.profile is None or (args.tier is None and args.capabilities is None and args.preset is None)
+                    or (args.tier is not None and (args.capabilities is not None or args.preset is not None))):
+                raise ValueError("one selection and profile required")
             data = validate(make_receipt(args, current))
             write(path, data)
             print("CPP_INSTALL_RECEIPT: saved .claude/cpp-install.json (step outcomes unchanged)")

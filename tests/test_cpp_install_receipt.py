@@ -148,7 +148,7 @@ def test_shipped_summary_reads_saved_outcomes_and_never_reuses_old_receipt(tmp_p
     result = subprocess.run(
         ["bash", "-c", match[1]], cwd=tmp_path,
         env=dict(os.environ, CPP_DIR=str(ROOT), CPP_MCP_RUN_DIR=initialize_mcp(tmp_path, os.environ),
-                 SELECTED_TIER="1", PROFILE_NAME="not-selected",
+                 CPP_CAPABILITIES_JSON='["commands"]' , PROFILE_NAME="not-selected",
                  STEP_RESULTS_JSON=json.dumps(data), OFFERED_STEPS_JSON=json.dumps(["commands", "stash-guard"]),
                  PERMISSION_REPORT="{}"),
         capture_output=True, text=True, timeout=10,
@@ -298,7 +298,7 @@ def test_failed_summary_read_always_emits_incomplete_verdict(tmp_path, fault):
         ["bash", "-c", script], cwd=tmp_path, capture_output=True, text=True, timeout=15,
         env=dict(os.environ, CPP_DIR=str(ROOT), CPP_TEST_RECEIPT_HELPER=str(wrapper),
                  CPP_MCP_RUN_DIR=initialize_mcp(tmp_path, os.environ),
-                 SELECTED_TIER="1", PROFILE_NAME="not-selected", PERMISSION_REPORT="{}",
+                 CPP_CAPABILITIES_JSON='["commands"]' , PROFILE_NAME="not-selected", PERMISSION_REPORT="{}",
                  STEP_RESULTS_JSON=json.dumps(CASES[0]["steps"]),
                  OFFERED_STEPS_JSON=json.dumps(["commands", "stash-guard"])),
     )
