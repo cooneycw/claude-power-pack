@@ -4,6 +4,8 @@
 
 ### Added
 
+- Consumer main-app Actions workflows and static templates pin action commits and uv, limit token permissions, disable checkout credential persistence, bound job duration, protect active deployments from cancellation, select a deployment environment, and require a redacted full-history secret scan (Closes #1604; CPP-owned and infrastructure workflows excluded).
+
 - Main app CI templates check counter-model enrolment through a verified CPP checkout pinned to the recorded install revision; known forks warn, while unreadable metadata and fetch/bootstrap errors remain UNKNOWN (#1610, part B; infrastructure-only templates excluded).
 
 - Flow CI status and PR watches select recorded provider lanes, combine required results, read classic/ruleset contexts, and report host snapshot preflight without credential probes (Refs #1610, part A; template enrolment remains separate).

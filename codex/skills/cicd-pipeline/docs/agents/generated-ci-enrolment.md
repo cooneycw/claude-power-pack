@@ -38,7 +38,8 @@ unavailable fork evidence is UNKNOWN (exit 5), never a fork warning. Branch
 names do not establish fork status.
 
 Actions uses its event's head/base repository identities, `github.head_ref`,
-and a full-history checkout of the PR head (`fetch-depth: 0`). Its push-side
+and a full-history checkout of the PR head (`fetch-depth: 0`) with credential
+persistence disabled. The checkout action is pinned to an immutable commit SHA. Its push-side
 enrolment job is not applicable and does not evaluate receipts. Enabling the PR
 trigger does not enable main-only application targets on PRs.
 

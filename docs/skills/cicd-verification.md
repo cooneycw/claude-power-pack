@@ -253,21 +253,36 @@ Run `python -m lib.cicd validate` to check your configuration.
 
 ### GitHub Actions
 
-Generated via `/cicd:pipeline` using templates in `templates/workflows/`:
+`/cicd:pipeline` renders main application workflows from `lib/cicd/pipeline.py`.
+The maintained consumer templates are `templates/workflows/ci-{python,node,go,rust,powershell}.yml`
+and `templates/workflows/deploy.yml`. CPP's own CI remains `.woodpecker.yml`.
+Infrastructure generators are outside this main-application hardening slice;
+their remaining mutable action references are recorded in the
+[Nit Store](https://github.com/cooneycw/claude-power-pack/issues/864#issuecomment-6730203811).
 
-```yaml
-# .github/workflows/ci.yml (generated)
-name: CI
-on: [push, pull_request]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v4
-      - run: make lint
-      - run: make test
-```
+Remote actions use immutable commit SHAs shared in `lib/cicd/actions.py`; the
+Python uv installer uses a fixed version. Workflow permissions default to
+`contents: read`, and only an AWS deploy job receives `id-token: write`.
+Every checkout disables credential persistence, and every job has a timeout.
+Concurrency cancels obsolete PR runs while letting an active main deployment
+finish. No `pull_request_target` trigger is emitted.
+
+The independent `secret-scan` job checks full git history with a pinned gitleaks
+container and redacted output. It needs no provider token or action license.
+Deploy waits for application CI and the secret scan (the standalone deploy
+template waits for the scan). Regenerate the local required-check declaration
+alongside the workflow so `secret-scan` is included in PR protection.
+
+Deploy jobs select the consumer's `production` GitHub environment. Configure
+that environment's protection rules in the consumer repository if deployment
+approval is required; an `environment` declaration alone does not create those
+rules. The templates remain consumer-owned and can be reviewed and customized.
+CPP's own workflows, deployment environments and secret bindings are unchanged.
+
+The generated counter-model enrolment job retains its immutable CPP revision,
+full-history PR-head checkout and documented fork policy. Its checkout also
+disables credential persistence. Refresh `/cpp:init` install metadata and review
+the regenerated workflow when updating the pinned checker or action revisions.
 
 ### Template Selection
 
