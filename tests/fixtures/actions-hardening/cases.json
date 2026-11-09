@@ -229,7 +229,7 @@
       1,
       "run"
     ],
-    "bad_value": "docker run --rm --env HOME=/tmp --user \"$(id -u):$(id -g)\" -v \"$PWD:/repo:ro\" zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f detect --source=/repo --redact --no-banner\n || true",
+    "bad_value": "docker run --rm --env HOME=/tmp --user \"$(id -u):$(id -g)\" -v \"$PWD:/repo:ro\" zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f detect --source=/repo --redact --no-banner || true\n",
     "remove_to_fix": false
   },
   {
@@ -357,5 +357,59 @@
     ],
     "bad_value": "deploy-${{ github.repository }}-${{ github.sha }}-production",
     "remove_to_fix": false
+  },
+  {
+    "file": "bad-29-scan-shell.yml",
+    "property": "gitleaks",
+    "path": [
+      "jobs",
+      "secret-scan",
+      "steps",
+      1,
+      "shell"
+    ],
+    "bad_value": "echo {0}",
+    "remove_to_fix": true
+  },
+  {
+    "file": "bad-30-scan-exit-zero.yml",
+    "property": "gitleaks",
+    "path": [
+      "jobs",
+      "secret-scan",
+      "steps",
+      1,
+      "run"
+    ],
+    "bad_value": "docker run --rm --env HOME=/tmp --user \"$(id -u):$(id -g)\" -v \"$PWD:/repo:ro\" zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f detect --source=/repo --redact --no-banner --exit-code 0\n",
+    "remove_to_fix": false
+  },
+  {
+    "file": "bad-31-scan-job-shell.yml",
+    "property": "gitleaks",
+    "path": [
+      "jobs",
+      "secret-scan",
+      "defaults"
+    ],
+    "bad_value": {
+      "run": {
+        "shell": "echo {0}"
+      }
+    },
+    "remove_to_fix": true
+  },
+  {
+    "file": "bad-32-scan-workflow-shell.yml",
+    "property": "gitleaks",
+    "path": [
+      "defaults"
+    ],
+    "bad_value": {
+      "run": {
+        "shell": "echo {0}"
+      }
+    },
+    "remove_to_fix": true
   }
 ]

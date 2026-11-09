@@ -128,12 +128,24 @@ def assert_property(document: dict[str, Any], prop: str) -> None:
         scan = jobs.get("secret-scan", {})
         assert scan.get("runs-on") == "ubuntu-latest" and "if" not in scan
         assert scan.get("continue-on-error", "false") == "false"
+        # Ubuntu's implicit shell is the emitted policy. A custom/default shell
+        # such as echo {0} can report success without executing the script.
+        assert "shell" not in document.get("defaults", {}).get("run", {})
+        assert "shell" not in scan.get("defaults", {}).get("run", {})
         scan_steps = scan.get("steps", [])
+        assert all("shell" not in step for step in scan_steps if "run" in step)
         assert all("if" not in step and step.get("continue-on-error", "false") == "false" for step in scan_steps)
         commands = [step["run"].strip() for step in scan_steps if "run" in step]
         assert len(commands) == 1
         runs = commands[0]
-        assert shlex.split(runs)[:2] == ["docker", "run"]
+        tokens = shlex.split(runs)
+        assert tokens[:2] == ["docker", "run"]
+        image_positions = [index for index, token in enumerate(tokens) if token.startswith("zricethezav/gitleaks:")]
+        assert len(image_positions) == 1
+        # Keep the actual scanner invocation closed: --exit-code 0, --help,
+        # --log-opts and similar options can turn a successful process into a
+        # non-enforcing scan even when its redaction/image checks still match.
+        assert tokens[image_positions[0] + 1:] == ["detect", "--source=/repo", "--redact", "--no-banner"]
         assert not re.search(r"[|&;\n]", runs), "scan command must not mask its failure with shell control flow"
         assert re.search(r"zricethezav/gitleaks:[\w.]+@sha256:[0-9a-f]{64}", runs)
         assert "--redact" in runs and "--no-git" not in runs
@@ -276,3 +288,22 @@ def test_dedicated_deploy_serializes_commits_without_cancelling_active(sample):
     groups = [policy["group"].replace("${{ github.repository }}", "O/R").replace("${{ github.sha }}", sha)
               for sha in ("a" * 40, "b" * 40, "c" * 40)]
     assert len(set(groups)) == 1, "production deploys from different commits need the same queue"
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="fixture control uses Bash")
+def test_ignored_exit_fixture_is_valid_shell_and_masks_a_real_failure(tmp_path):
+    fixture = yaml.load((FIXTURES / "bad-18-scan-ignore-exit.yml").read_text(), Loader=yaml.BaseLoader)
+    command = fixture["jobs"]["secret-scan"]["steps"][1]["run"]
+    syntax = subprocess.run(["bash", "-n", "-c", command], capture_output=True, text=True, timeout=10)
+    assert syntax.returncode == 0, syntax.stderr
+    docker = tmp_path / "docker"
+    marker = tmp_path / "scanner-ran"
+    docker.write_text('#!/bin/sh\nprintf ran > "$SCANNER_MARKER"\nexit 5\n')
+    docker.chmod(0o755)
+    env = {**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ.get("PATH", ""),
+           "SCANNER_MARKER": str(marker)}
+    assert shutil.which("docker", path=env["PATH"]) == str(docker)
+    result = subprocess.run(["bash", "-e", "-c", command], env=env, cwd=tmp_path,
+                            capture_output=True, text=True, timeout=10)
+    assert marker.read_text() == "ran", "owned scanner failure must actually execute"
+    assert result.returncode == 0, "the BAD fixture must swallow the scanner's exit 5"
