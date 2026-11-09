@@ -1,0 +1,69 @@
+{
+  "branch": "issue-1587-capability-selection-r1",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "b2022a20f4b773e9b9191502bccb9a252e818f00",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/08/rollout-2026-11-08T14-14-24-01a1bb82-a99e-7851-a7a9-477bf3590bf8.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 14471240,
+        "path": "2026/11/08/rollout-2026-11-08T14-14-24-01a1bb82-a99e-7851-a7a9-477bf3590bf8.jsonl",
+        "sha256": "fb5ac238f43e1ae27e0269ea11bb4e90396ce1b2d09e02892ab57b1a5e9f63c0"
+      }
+    ],
+    "thread_id": "01a1bb82-a99e-7851-a7a9-477bf3590bf8"
+  },
+  "issue": "1587",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 2,
+  "recorded_at": "2026-11-09T04:46:24Z",
+  "red_cases": {
+    "already_covered": 4,
+    "proposed": 4
+  },
+  "reviewed_artifact": {
+    "base_sha": "caca37b1f991c6d809d79ae6874ea12a709d2249",
+    "merge_base": "caca37b1f991c6d809d79ae6874ea12a709d2249",
+    "method": "captured-patch",
+    "patch_sha256": "037815ed5de96384faf207f8fca7edc9246fe1268c5d964d00a149d69ecb05fd",
+    "report_record": 17,
+    "target_head": "b2022a20f4b773e9b9191502bccb9a252e818f00"
+  },
+  "reviewer": "codex/gpt-6.1-terra",
+  "reviewer_evidence": {
+    "exec_log": "review-1587-r1-pass2.stream.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-terra"
+    ],
+    "rollout": "2026/11/09/rollout-2026-11-09T04-45-48-01a1bea0-713e-7ce0-8b58-7dd6f991532f.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 1528,
+        "path": "review-1587-r1-pass2.stream.jsonl",
+        "sha256": "29581b94fa546f9ae51ad03dd41590503ca6708f32fd8fa7889b8ed7cac7454e"
+      },
+      {
+        "bytes": 474491,
+        "path": "2026/11/09/rollout-2026-11-09T04-45-48-01a1bea0-713e-7ce0-8b58-7dd6f991532f.jsonl",
+        "sha256": "d6a6f35e5a5a7290794334e1b51ac325148749d708f09ad32559c5e9841c49e9"
+      }
+    ],
+    "thread_id": "01a1bea0-713e-7ce0-8b58-7dd6f991532f"
+  },
+  "schema": 5,
+  "scope": "diff-only",
+  "status": "ran"
+}
