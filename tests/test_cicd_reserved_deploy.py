@@ -89,3 +89,22 @@ def test_woodpecker_runtime_smoke_cannot_alias_deploy():
     config.pipeline.woodpecker.smoke_target = "deploy"
     with pytest.raises(ValueError, match=r"pipeline\.woodpecker\.smoke_target.*pipeline\.branches\.main"):
         generate_woodpecker(_info(), config)
+
+
+@pytest.mark.parametrize("generator", [generate_github_actions, generate_woodpecker])
+@pytest.mark.parametrize("branch", ["main", "pr"])
+@pytest.mark.parametrize("target", ["lint deploy", "lint;make deploy", "-fdeploy"])
+def test_application_entries_are_single_make_targets(generator, branch, target):
+    config = CICDConfig()
+    config.pipeline.branches = {branch: [target]}
+    with pytest.raises(ValueError, match=rf"pipeline\.branches\.{branch}.*single.*target"):
+        generator(_info(), config)
+
+
+def test_programmatic_smoke_target_cannot_be_compound():
+    config = CICDConfig()
+    config.pipeline.woodpecker.runtime_smoke = True
+    # Assignment bypasses the model's load-time shell-token validator.
+    config.pipeline.woodpecker.smoke_target = "deploy lint"
+    with pytest.raises(ValueError, match=r"pipeline\.woodpecker\.smoke_target.*single.*target"):
+        generate_woodpecker(_info(), config)

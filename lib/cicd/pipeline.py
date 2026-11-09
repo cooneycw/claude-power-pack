@@ -6,6 +6,7 @@ from detected framework information and configuration.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -121,8 +122,20 @@ def generate_pipeline(
     return files
 
 
+def _require_single_target(target: str, setting: str) -> None:
+    if not re.fullmatch(r"[A-Za-z0-9_./][A-Za-z0-9_./-]*", target):
+        raise ValueError(
+            f"{setting} must contain a single Makefile target per entry "
+            "(letters, digits, '_', '.', '/', or '-', with no leading '-'); "
+            "split multiple targets into separate entries"
+        )
+
+
 def _application_targets(branches: dict[str, list[str]]) -> list[str]:
     """Reserve deploy for the guarded main-push stage in either provider."""
+    for branch in ("main", "pr"):
+        for target in branches.get(branch, []):
+            _require_single_target(target, f"pipeline.branches.{branch}")
     if "deploy" in branches.get("pr", []):
         raise ValueError(
             "pipeline.branches.pr cannot include reserved target 'deploy'; "
@@ -305,6 +318,8 @@ def generate_woodpecker(info: FrameworkInfo, config: CICDConfig) -> str:
     branches = config.pipeline.branches
     steps = _application_targets(branches)
     wp = config.pipeline.woodpecker
+    if wp.runtime_smoke:
+        _require_single_target(wp.smoke_target, "pipeline.woodpecker.smoke_target")
     if wp.runtime_smoke and wp.smoke_target == "deploy":
         raise ValueError(
             "pipeline.woodpecker.smoke_target cannot be reserved target 'deploy'; "
