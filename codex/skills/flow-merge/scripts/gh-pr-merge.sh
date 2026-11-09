@@ -354,6 +354,8 @@
 #   GH_PR_MERGE_STRICT_DELETIONS=1   turn surfaced deletions into the exit-4
 #                                    clean pre-squash stop (issue #657)
 
+#: NEGATIVE-CONTROL: controls/gh-pr-merge-app-identity
+
 set -uo pipefail
 
 # An older installed bundle can lack this rollout helper. Unknown stays on
@@ -687,8 +689,12 @@ resolve_required_contexts() {
     local -a found=()
     local answered=0
 
+    # jq variables are intentionally literal in this filter.
+    # shellcheck disable=SC2016
     if out=$(_gh_api_jq "repos/{owner}/{repo}/branches/${PR_BASE_BRANCH}/protection/required_status_checks" \
-                        '((.contexts // []) + ((.checks // []) | map(.context))) | unique | .[]'); then
+                        '(.checks // []) as $checks |
+                         ([($checks[] | .context + (if .app_id == null or .app_id == -1 then "" else "|" + (.app_id|tostring) end))]
+                         + [(.contexts // [])[] | select(. as $name | all($checks[]; .context != $name))]) | unique | .[]'); then
         answered=1
         while IFS= read -r line; do
             [[ -n "$line" ]] && found+=("$line")
@@ -697,7 +703,8 @@ resolve_required_contexts() {
 
     if out=$(_gh_api_jq "repos/{owner}/{repo}/rules/branches/${PR_BASE_BRANCH}" \
                         '[.[] | select(.type == "required_status_checks")
-                              | .parameters.required_status_checks[]?.context] | unique | .[]'); then
+                              | .parameters.required_status_checks[]?
+                              | .context + (if .integration_id == null or .integration_id == -1 then "" else "|" + (.integration_id|tostring) end)] | unique | .[]'); then
         answered=1
         while IFS= read -r line; do
             [[ -n "$line" ]] && found+=("$line")
@@ -722,15 +729,48 @@ resolve_required_contexts() {
     fi
 }
 
-# Current state of each check on the PR head, as `name|state` lines. The rollup
-# mixes two node types - a commit STATUS (context/state, what Woodpecker posts)
-# and a GitHub CHECK RUN (name/status/conclusion) - so both are flattened to one
-# shape. A check run that is still running has no conclusion yet; report its
-# status so the poller treats it as pending rather than as an unknown.
+# Unbound legacy requirements use the PR rollup. App-bound requirements use
+# REST check-runs: gh's statusCheckRollup projection does not expose app.id.
+# Read all pages on one immutable head; never admit a status-context row as an
+# app-authenticated check, or partial API output after a failed page.
 check_states() {
-    "$GH_BIN" pr view "$PR_NUMBER" --json statusCheckRollup \
-        --jq '.statusCheckRollup[] | "\(.context // .name)|\(.state // .conclusion // .status // "PENDING")"' \
-        2>/dev/null
+    local key need_legacy=0 need_apps=0 out head
+    if [[ "$RESOLVE_STATUS" == unresolved ]]; then need_legacy=1; fi
+    for key in "${REQUIRED_CONTEXTS[@]}"; do
+        if [[ "$key" == *"|"* ]]; then need_apps=1; else need_legacy=1; fi
+    done
+    if (( need_legacy )); then
+        out=$("$GH_BIN" pr view "$PR_NUMBER" --json statusCheckRollup \
+            --jq '.statusCheckRollup[] | "\(.context // .name)|\(.state // .conclusion // .status // "PENDING")"' \
+            2>/dev/null) || return 1
+        [[ -z "$out" ]] || printf '%s\n' "$out"
+    fi
+    if (( need_apps )); then
+        head="$MATCH_HEAD_COMMIT"
+        if [[ -z "$head" ]]; then
+            head=$("$GH_BIN" pr view "$PR_NUMBER" --json headRefName,headRefOid \
+                --jq '.headRefName + " " + .headRefOid' 2>/dev/null) || return 1
+            head="${head##* }"
+        fi
+        [[ "$head" =~ ^[0-9a-f]{40}$ ]] || return 1
+        out=$("$GH_BIN" api "repos/{owner}/{repo}/commits/${head}/check-runs?filter=all&per_page=100" \
+            --paginate --jq '.check_runs[] | select(.head_sha == "'"$head"'") |
+                "\(.name)|\(.app.id)|\(if .status == "completed" then (.conclusion // "UNKNOWN") else .status end)"' \
+            2>/dev/null) || return 1
+        [[ -z "$out" ]] || printf '%s\n' "$out"
+    fi
+    return 0
+}
+
+# Conservative within one identity, independent of response order. Red beats
+# pending, which beats green. In particular a same-name green from another app
+# is a different key and cannot hide the required app's red or missing result.
+check_state_rank() {
+    case "${1^^}" in
+        FAILURE|ERROR|CANCELLED|TIMED_OUT|ACTION_REQUIRED|STARTUP_FAILURE|STALE) echo 3 ;;
+        SUCCESS|NEUTRAL|SKIPPED) echo 1 ;;
+        *) echo 2 ;;
+    esac
 }
 
 # THE WAIT'S BUDGET (issue #1300). Without --wait-ci it is the historical
@@ -777,16 +817,41 @@ wait_for_required_checks() {
 
     local -a required=("${REQUIRED_CONTEXTS[@]}")
 
+    # Pin even callers that supplied no explicit --match-head-commit when app
+    # provenance is load-bearing. Otherwise a green snapshot of A could permit
+    # a squash of B after the PR head moves. The existing final/server pin closes
+    # that window, including retries. Unbound legacy behavior stays unchanged.
+    local requirement observed_head
+    for requirement in "${required[@]}"; do
+        if [[ "$requirement" == *"|"* ]] && (( MATCH_HEAD_SET == 0 )); then
+            observed_head=$("$GH_BIN" pr view "$PR_NUMBER" --json headRefName,headRefOid \
+                --jq '.headRefName + " " + .headRefOid' 2>/dev/null) || observed_head=""
+            observed_head="${observed_head##* }"
+            if [[ ! "$observed_head" =~ ^[0-9a-f]{40}$ ]]; then
+                echo "GH_PR_MERGE_CI_WAIT: unknown (app-bound check head unreadable)" >&2
+                return 1
+            fi
+            MATCH_HEAD_COMMIT="$observed_head"
+            MATCH_HEAD_SET=1
+        fi
+    done
+
     local delay="${GH_PR_MERGE_CHECK_DELAY:-10}"
-    local i ctx state line pending failed missing running
+    local i ctx state line pending failed missing running key old snapshot
     [[ -n "$WAIT_CI_SECS" ]] && WAIT_DEADLINE=$(( $(now_epoch) + WAIT_CI_SECS ))
 
     for ((i = 1; ; i++)); do
         local -A states=()
+        snapshot=$(check_states) || snapshot=""
         while IFS= read -r line; do
             [[ -z "$line" ]] && continue
-            states["${line%%|*}"]="${line##*|}"
-        done < <(check_states)
+            key="${line%|*}"
+            state="${line##*|}"
+            old="${states[$key]:-}"
+            if [[ -z "$old" ]] || (( $(check_state_rank "$state") > $(check_state_rank "$old") )); then
+                states["$key"]="$state"
+            fi
+        done <<<"$snapshot"
 
         pending=""
         failed=""
@@ -797,7 +862,7 @@ wait_for_required_checks() {
             case "${state^^}" in
                 SUCCESS|NEUTRAL|SKIPPED)
                     ;;
-                FAILURE|ERROR|CANCELLED|TIMED_OUT|ACTION_REQUIRED|STARTUP_FAILURE)
+                FAILURE|ERROR|CANCELLED|TIMED_OUT|ACTION_REQUIRED|STARTUP_FAILURE|STALE)
                     failed+="${ctx} (${state}) "
                     ;;
                 MISSING)
@@ -869,7 +934,7 @@ wait_for_observed_checks() {
             case "${state^^}" in
                 SUCCESS|NEUTRAL|SKIPPED)
                     ;;
-                FAILURE|ERROR|CANCELLED|TIMED_OUT|ACTION_REQUIRED|STARTUP_FAILURE)
+                FAILURE|ERROR|CANCELLED|TIMED_OUT|ACTION_REQUIRED|STARTUP_FAILURE|STALE)
                     failed+="${name} (${state}) "
                     ;;
                 *)

@@ -1,0 +1,37 @@
+{
+  "condition": "bad-pending-first",
+  "required": {
+    "contexts": [
+      "test"
+    ],
+    "checks": [
+      {
+        "context": "test",
+        "app_id": 15368
+      }
+    ]
+  },
+  "runs": {
+    "check_runs": [
+      {
+        "name": "test",
+        "app": {
+          "id": 15368
+        },
+        "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "status": "in_progress",
+        "conclusion": null
+      },
+      {
+        "name": "test",
+        "app": {
+          "id": 15368
+        },
+        "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "rollup": "test|IN_PROGRESS\ntest|SUCCESS\n"
+}

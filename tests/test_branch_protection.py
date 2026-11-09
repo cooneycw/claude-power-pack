@@ -270,3 +270,22 @@ def test_extracting_die_usage_did_not_change_what_the_script_says() -> None:
         "branch-protection.sh: unknown argument '--bogus'\n"
         "Usage: branch-protection.sh [check|--apply|--show] [--config <path>] [--repo <owner/name>]\n"
     ), repr(result.stderr)
+
+
+@requires_jq
+@pytest.mark.parametrize("live_app,expected", [(15368, 0), (42, 1), (None, 1), (-1, 1)])
+def test_app_binding_is_compared(tmp_path: Path, live_app: int | None, expected: int):
+    declared = json.loads(POSTURE.read_text())
+    declared["protection"]["required_status_checks"] = {
+        "strict": True, "contexts": ["test"], "checks": [{"context": "test", "app_id": 15368}]
+    }
+    config = tmp_path / "posture.json"
+    config.write_text(json.dumps(declared))
+    live = json.loads(json.dumps(LIVE_IN_SYNC))
+    live["required_status_checks"] = {
+        "strict": True, "contexts": ["test"], "checks": [{"context": "test", "app_id": live_app}]
+    }
+    assert expected == 0 or live_app != 15368
+    result = _run(tmp_path, _make_stub(tmp_path, live), config=config)
+    assert result.returncode == expected, result.stdout + result.stderr
+    assert ("in-sync" if expected == 0 else "drift") in result.stdout + result.stderr

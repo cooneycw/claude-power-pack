@@ -15,6 +15,8 @@
 
 ### Fixed
 
+- Merge waits retain required-check app identity, pin app-bound observations to the squashed head, and preserve red/pending duplicates; branch-protection drift includes app IDs (Refs #1604, items 7/10).
+
 - Flow doctor now cross-checks recorded CI providers against registered pipeline files, declared/live required status checks and historical host capability, preserving unknown evidence and reporting canonical offline lane selection and explicit fallback behavior without probing providers (#1611).
 - Merge-queue API calls pass authorization headers through stdin so bearer credentials stay out of curl process arguments (#1656).
 

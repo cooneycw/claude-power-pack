@@ -29,6 +29,8 @@
 # Env (test hooks - unset in normal use):
 #   BRANCH_PROTECTION_GH   override the `gh` binary (default: gh)
 
+#: NEGATIVE-CONTROL: controls/branch-protection-app-identity
+
 set -uo pipefail
 
 GH_BIN="${BRANCH_PROTECTION_GH:-gh}"
@@ -88,14 +90,16 @@ API_PATH="repos/$SLUG/branches/$BRANCH/protection"
 # representation (nested {"enabled": bool} objects) and the declared file (plain
 # booleans) are comparable. Keys NOT listed here are deliberately unmanaged.
 normalize_live() {
-    jq -S '{
+    jq -S 'def check_identities:
+        (.checks // []) as $checks |
+        ([($checks[] | {context, app_id: (if .app_id == null then -1 else .app_id end)})]
+         + [(.contexts // [])[] | select(. as $name | all($checks[]; .context != $name))
+             | {context: ., app_id: -1}]) | unique | sort_by(.context, .app_id);
+    {
       required_status_checks: (
         if .required_status_checks == null then null else {
           strict: (.required_status_checks.strict // false),
-          contexts: ((
-            (.required_status_checks.contexts // [])
-            + ((.required_status_checks.checks // []) | map(.context))
-          ) | unique)
+          checks: (.required_status_checks | check_identities)
         } end),
       required_pull_request_reviews: (
         if .required_pull_request_reviews == null then null else {
@@ -110,11 +114,16 @@ normalize_live() {
 }
 
 normalize_declared() {
-    jq -S '.protection | {
+    jq -S 'def check_identities:
+        (.checks // []) as $checks |
+        ([($checks[] | {context, app_id: (if .app_id == null then -1 else .app_id end)})]
+         + [(.contexts // [])[] | select(. as $name | all($checks[]; .context != $name))
+             | {context: ., app_id: -1}]) | unique | sort_by(.context, .app_id);
+    .protection | {
       required_status_checks: (
         if .required_status_checks == null then null else {
           strict: (.required_status_checks.strict // false),
-          contexts: ((.required_status_checks.contexts // []) | unique)
+          checks: (.required_status_checks | check_identities)
         } end),
       required_pull_request_reviews: (
         if .required_pull_request_reviews == null then null else {

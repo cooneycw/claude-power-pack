@@ -1,0 +1,50 @@
+{
+  "gate": "scripts/gh-pr-merge.sh",
+  "invocation": [
+    "python3",
+    "controls/gh-pr-merge-app-identity/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^APP_CHECK_CONTROL: blocked$",
+  "good_signal": "^APP_CHECK_CONTROL: green$",
+  "unavailable_signal": "^APP_CHECK_CONTROL: unavailable",
+  "limits": "Real required-check resolver/wait projection with recorded REST responses and real jq, one poll, no live provider or merge. Covers wrong-app/plain-status spoof and same-identity red/pending hidden by last green. Historical anchor admits all bad cases. Full-entrypoint tests separately cover rulesets, opposite order, effects and head pin. BAD-to-GOOD mutation restores the app or removes the adverse duplicate.",
+  "cases": [
+    {
+      "name": "bad-wrong-app",
+      "input": "cases/bad-wrong-app",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-plain-status",
+      "input": "cases/bad-plain-status",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-red-first",
+      "input": "cases/bad-red-first",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-pending-first",
+      "input": "cases/bad-pending-first",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-correct-app",
+      "input": "cases/good-correct-app",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "dc4e238f069475cc1adfd482df41da75b4e6961b",
+      "origin": "scripts/gh-pr-merge.sh",
+      "path": "anchors/pre-1604-gh-pr-merge.sh",
+      "sha256": "c9549d463ecefd854163c6a4ed4d8ac1a7e49f2317619cbdc6eed5cc52342d1b"
+    }
+  ]
+}

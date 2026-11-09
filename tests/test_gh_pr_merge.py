@@ -50,6 +50,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -4138,3 +4139,106 @@ def test_coordination_does_not_bypass_the_head_pin(tmp_path: Path):
                   extra_env={"CPP_KYLE_COORDINATION_ADMISSION": "1"})
     assert result.returncode == 11, result.stderr
     assert [c for c in _calls(stubs) if c.startswith("gh pr merge")] == []
+
+
+# App provenance uses recorded REST payloads and the real jq filters (#1604).
+# Legacy harness rows are deliberately still exposed: a name-only implementation
+# sees a plausible green spoof, rather than failing because a new API is absent.
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq not installed")
+@pytest.mark.parametrize("source", ["classic", "ruleset"])
+@pytest.mark.parametrize("scenario", [
+    "wrong-app", "plain-status", "red-first", "red-last", "pending-first", "other-app-green", "other-app-red",
+    "wrong-head", "head-moved", "partial-api", "paged-red", "good",
+])
+def test_required_check_app_identity(tmp_path: Path, source: str, scenario: str):
+    import json
+    import shlex
+
+    app = 15368
+    rows: list[dict[str, Any]] = [{"name": "test", "app": {"id": app}, "head_sha": "a" * 40,
+             "status": "completed", "conclusion": "success"}]
+    if scenario == "wrong-app":
+        rows[0]["app"]["id"] = 42
+    elif scenario == "plain-status":
+        rows = []
+    elif scenario.startswith("red"):
+        red = {**rows[0], "conclusion": "failure"}
+        rows = [red, rows[0]] if scenario == "red-first" else [rows[0], red]
+    elif scenario == "pending-first":
+        rows = [{**rows[0], "status": "in_progress", "conclusion": None}, rows[0]]
+    elif scenario == "paged-red":
+        rows = [rows[0], {**rows[0], "conclusion": "failure"}]
+    elif scenario == "other-app-green":
+        rows = [{**rows[0], "conclusion": "failure"}, {**rows[0], "app": {"id": 42}}]
+    elif scenario == "other-app-red":
+        rows = [rows[0], {**rows[0], "conclusion": "failure", "app": {"id": 42}}]
+    elif scenario == "wrong-head":
+        rows[0]["head_sha"] = "b" * 40
+    succeeds = scenario in {"good", "other-app-red"}
+    assert scenario in {"good", "head-moved", "partial-api", "wrong-head"} or not rows or any(
+        row["app"]["id"] != app or row["conclusion"] != "success" for row in rows
+    )
+    stubs = _make_stubs(tmp_path, required_contexts=[], pr_state="MERGED" if succeeds else "OPEN",
+                        check_rollup=[[("test", str(row["conclusion"] or row["status"]).upper()) for row in rows]
+                                      or [("test", "SUCCESS")]], pr_head_oid="a" * 40,
+                        pr_head_oid_seq=["a" * 40, "b" * 40] if scenario == "head-moved" else None)
+    gh = Path(stubs["GH_PR_MERGE_GH"])
+    original = gh.with_name("gh-original")
+    gh.rename(original)
+    payloads = {
+        "classic": ({"contexts": ["test"], "checks": [{"context": "test", "app_id": app}]}
+                    if source == "classic" else {"contexts": []}),
+        "ruleset": ([{"type": "required_status_checks", "parameters": {
+            "required_status_checks": [{"context": "test", "integration_id": app}]}}]
+            if source == "ruleset" else []),
+        "runs": {"check_runs": rows},
+    }
+    for name, payload in payloads.items():
+        (tmp_path / (name + ".json")).write_text(json.dumps(payload))
+    if scenario == "paged-red":
+        (tmp_path / "runs.json").write_text(
+            json.dumps({"check_runs": rows[:1]}) + "\n" + json.dumps({"check_runs": rows[1:]}))
+    _write_stub(gh, f"""
+if [[ "$1" == api ]]; then
+  echo "$*" >> {shlex.quote(str(tmp_path / 'app-api-calls'))}
+  case "$2" in
+    */protection/required_status_checks) file={shlex.quote(str(tmp_path / 'classic.json'))} ;;
+    */rules/branches/*) file={shlex.quote(str(tmp_path / 'ruleset.json'))} ;;
+    */commits/*/check-runs*)
+      [[ "$2" == *"{'a' * 40}"* ]] || exit 1
+      file={shlex.quote(str(tmp_path / 'runs.json'))} ;;
+  esac
+  if [[ -n "${{file:-}}" ]]; then
+    filter='.'
+    while (($#)); do [[ "$1" == --jq ]] && {{ filter="$2"; break; }}; shift; done
+    jq -r "$filter" "$file"
+    if [[ "$file" == *runs.json && "{scenario}" == partial-api ]]; then exit 1; fi
+    exit $?
+  fi
+fi
+exec {shlex.quote(str(original))} "$@"
+""")
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1604-fix")
+    if succeeds:
+        assert result.returncode == 0, result.stderr
+        assert "CI_WAIT: green" in result.stdout
+        assert any("pr merge" in c and "--match-head-commit " + "a" * 40 in c for c in _calls(stubs))
+    else:
+        assert result.returncode != 0, result.stdout + result.stderr
+        assert not any("pr merge" in c for c in _calls(stubs)), result.stdout
+        if scenario.startswith("red") or scenario in {"other-app-green", "paged-red"}:
+            assert "CI_WAIT: red" in result.stdout
+    api_calls = (tmp_path / "app-api-calls").read_text()
+    assert "filter=all&per_page=100 --paginate" in api_calls, api_calls
+
+
+@pytest.mark.parametrize("states", [["FAILURE", "SUCCESS"], ["SUCCESS", "FAILURE"], ["PENDING", "SUCCESS"]])
+def test_unbound_duplicate_checks_are_conservative(tmp_path: Path, states: list[str]):
+    assert any(state != "SUCCESS" for state in states)
+    stubs = _make_stubs(tmp_path, required_contexts=["test"],
+                        check_rollup=[[("test", s) for s in states]], pr_state="OPEN")
+    result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1604-fix")
+    assert result.returncode != 0
+    assert not any("pr merge" in c for c in _calls(stubs))
+    if "FAILURE" in states:
+        assert "CI_WAIT: red" in result.stdout

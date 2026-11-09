@@ -1,0 +1,18 @@
+{
+  "condition": "bad-plain-status",
+  "required": {
+    "contexts": [
+      "test"
+    ],
+    "checks": [
+      {
+        "context": "test",
+        "app_id": 15368
+      }
+    ]
+  },
+  "runs": {
+    "check_runs": []
+  },
+  "rollup": "test|SUCCESS\n"
+}

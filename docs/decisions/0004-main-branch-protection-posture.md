@@ -144,3 +144,45 @@ prevented from reaching for it on its own - which is where the real risk was.
   keep `enforce_admins` off.
 - 2026-07-19, owner: apply the posture **after** the implementing PR merges, so a
   bug in the new wait cannot block its own delivery.
+
+### App-bound checks for Actions consumers (#1604)
+
+A consumer can declare the app as well as the context in
+`.claude/branch-protection.json`:
+
+```json
+{
+  "branch": "main",
+  "protection": {
+    "required_status_checks": {
+      "strict": true,
+      "checks": [{"context": "test", "app_id": 15368}]
+    }
+  }
+}
+```
+
+This is the `required_status_checks` fragment of a complete protection payload;
+retain the repository's other declared protection settings when applying it.
+`checks[].app_id` binds a required check to that GitHub App. Null or `-1` means
+explicitly unbound, as does a legacy `contexts` entry with no corresponding
+`checks` entry. GitHub also mirrors bound check names into `contexts`; that
+mirror does not create a second unbound requirement. `branch-protection.sh`
+preserves the app binding in its normalized `checks` output, compares it for
+drift, and applies the declared payload without stripping it.
+
+`gh-pr-merge.sh` unions classic check/app pairs and ruleset
+`context`/`integration_id` pairs. App-bound observations come from all pages of
+REST check runs on one immutable PR head, including all runs of each identity.
+An ordinary commit status or another app's same-name check cannot satisfy that
+requirement. Within one app/name identity, red wins over pending, and pending
+wins over green, in either API order. A failed paginated read supplies no green
+snapshot. App-bound merges acquire a head pin even when the caller supplied no
+`--match-head-commit`; the final read and GitHub's server-side head condition
+keep that snapshot attached to the commit being squashed.
+
+Generated name-only protection remains explicitly unbound until the consumer
+declares app IDs. Local workflow YAML establishes check names, not runtime app
+authenticity: `lib.cicd` continues to report app-bound local posture comparison
+as unknown. The live `branch-protection.sh check` is the app-binding drift
+check. CPP's own Woodpecker declaration remains name-only under ADR 0004.
