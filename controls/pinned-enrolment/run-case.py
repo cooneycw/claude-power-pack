@@ -15,7 +15,7 @@ def main():
         result, calls = exercise(Path(directory), pin=data.get("pin", PIN),
                                  scenario=data.get("scenario", "ok"),
                                  fork=data.get("fork", False), provider=data.get("provider", "github-actions"),
-                                 gate=gate, metadata=data.get("metadata"))
+                                 gate=gate, metadata=data.get("metadata"), receipt_schema=data.get("receipt_schema"))
     output = result.stdout
     expected = data["expected_exit"]
     if result.returncode != expected:

@@ -20,6 +20,7 @@ def test_tier4_prerequisites_gate_only_tier4(tmp_path, population):
     assert match, "Tier 4 must have an executable readiness boundary"
     installed = tmp_path / "cpp/scripts"
     installed.mkdir(parents=True)
+    (installed / "cpp-install-receipt.py").write_bytes((ROOT / "scripts/cpp-install-receipt.py").read_bytes())
     (installed / "flow-preflight.py").write_text((ROOT / "scripts/flow-preflight.py").read_text())
     checks = [
         dict(id=name, required=True, status="ok", message="", remediation="", evidence={})
@@ -52,7 +53,7 @@ def test_tier4_prerequisites_gate_only_tier4(tmp_path, population):
     result = subprocess.run(
         ["bash", "-c", script],
         cwd=tmp_path,
-        env=dict(os.environ, CPP_DIR=str(installed.parent)),
+        env=dict(os.environ, CPP_DIR=str(installed.parent), CPP_CAPABILITIES_JSON='["cicd"]'),
         capture_output=True,
         text=True,
         timeout=30,

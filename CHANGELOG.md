@@ -4,6 +4,12 @@
 
 ### Changed
 
+- `/cpp:init` selects independent capabilities, with the seven former tiers
+  retained as presets. Custom Codex + Gemma installs their commands and local
+  seam and required scripts without CI/CD or Claude MCP setup. Schema-2 installation
+  receipts bind outcomes to that selection; schema-1 records remain readable,
+  including their immutable pin used by generated CI enrolment (#1587).
+
 - **Breaking for AWS consumers:** regenerated Actions deploy jobs use OIDC subject
   `repo:O/R:environment:production`; migrate IAM trust to this exact subject
   before regenerating. Dedicated production deploys are now serialized: active

@@ -100,7 +100,7 @@ def run(gate: Path, case: Path) -> int:
             ["bash", "-c", script], cwd=project, capture_output=True, text=True, timeout=15,
             env=dict(os.environ, CPP_MCP_RUN_DIR=run_paths[0], CPP_RECEIPT_CONTROL_GATE=str(command_gate),
                      CPP_RECEIPT_CONTROL_REVISION=REVISION,
-                     SELECTED_TIER="1", PROFILE_NAME="not-selected", PERMISSION_REPORT="{}",
+                     CPP_CAPABILITIES_JSON='["commands"]' , PROFILE_NAME="not-selected", PERMISSION_REPORT="{}",
                      STEP_RESULTS_JSON=json.dumps(observations), OFFERED_STEPS_JSON=json.dumps(offered)),
         )
         print(result.stdout, end="")

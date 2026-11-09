@@ -1,0 +1,76 @@
+{
+  "gate": "scripts/cpp-install-receipt.py",
+  "invocation": [
+    "python3",
+    "controls/cpp-capability-selection/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "good_signal": "^CPP_CAPABILITY_CONTROL: allowed$",
+  "detect_signal": "^CPP_CAPABILITY_CONTROL: refused$",
+  "unavailable_signal": "^CPP_CAPABILITY_CONTROL: unavailable$",
+  "limits": "Offline section admission and persisted offered-population boundaries. Custom Codex + Gemma must include required scripts but refuse mcp and cicd execution and host-ci receipt insertion. Gemma alone refuses scripts. Explicit cicd selection repairs the CI/CD boundaries. Does not attest installation success, client reachability or arbitrary Bash content. Unit tests execute the actual wizard shell guard and structurally require the correct leading guard on every component Bash block, with committed guard-deletion fragments.",
+  "cases": [
+    {
+      "name": "good-codex",
+      "input": "cases/good-codex",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-gemma",
+      "input": "cases/good-gemma",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-shared-seam",
+      "input": "cases/good-shared-seam",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-unselected-cicd",
+      "input": "cases/bad-unselected-cicd",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-explicit-cicd",
+      "input": "cases/good-explicit-cicd",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-unselected-scripts",
+      "input": "cases/bad-unselected-scripts",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-unselected-mcp",
+      "input": "cases/bad-unselected-mcp",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-unselected-receipt",
+      "input": "cases/bad-unselected-receipt",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-selected-receipt",
+      "input": "cases/good-selected-receipt",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-codex-required-scripts",
+      "input": "cases/good-codex-required-scripts",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "all-components",
+      "origin": "scripts/cpp-install-receipt.py",
+      "path": "anchors/all-components.py",
+      "sha256": "95b15705ec32c9541c6e389189a6f2a1a6942f52490a0c9a8f36e58e1ff15f5e",
+      "why": "Constructed resolver preserves requested/resolved capability metadata and ordinary validations but allows all execution sections and offered step IDs, exposing the missing selection boundary on every BAD input while retaining all GOOD inputs."
+    }
+  ]
+}

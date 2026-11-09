@@ -17,7 +17,8 @@ def installed_revision(project: str | Path) -> str:
     """One pin source: .claude/cpp-install.json, written by cpp:init."""
     try:
         value = json.loads((Path(project) / ".claude/cpp-install.json").read_text())
-        pin = value.get("cpp_revision") if isinstance(value, dict) and value.get("schema") == 1 else None
+        pin = value.get("cpp_revision") if (isinstance(value, dict) and type(value.get("schema")) is int
+                                            and value["schema"] in {1, 2}) else None
         return pin if isinstance(pin, str) and re.fullmatch(r"[0-9a-f]{40}", pin) else ""
     except (OSError, ValueError):
         return ""

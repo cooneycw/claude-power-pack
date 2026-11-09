@@ -1,4 +1,5 @@
 """Host-only Tier4 receipt construction, actual write outcomes and old schema1."""
+import ast
 import json
 import os
 import re
@@ -16,6 +17,33 @@ BASE = ['commands', 'stash-guard', 'scripts', 'permission-profile', 'uv',
         'second-opinion', 'playwright', 'tavily']
 CODEX = ['codex-cli', 'codex-doctor', 'codex-auth', 'codex-skills', 'memory-harness']
 LEGACY = ROOT / 'tests/fixtures/cpp-host-install-receipt/legacy-tier4.json'
+
+
+def assert_only_host_observation_is_blind(subject, anchor):
+    trees = [ast.parse(text) for text in (subject, anchor)]
+    for tree in trees:
+        functions = [node for node in tree.body if isinstance(node, ast.FunctionDef)
+                     and node.name == 'host_ci_results']
+        assert len(functions) == 1
+        functions[0].body = [ast.Pass()]
+    assert ast.dump(trees[0], include_attributes=False) == ast.dump(trees[1], include_attributes=False), \
+        'constructed anchor differs beyond host_ci_results'
+
+
+@pytest.mark.parametrize('unrelated_change', [False, True])
+def test_regenerated_host_anchor_preserves_all_other_behavior(unrelated_change):
+    subject = HELPER.read_text()
+    anchor = (ROOT / 'controls/cpp-host-install-receipt/anchors/assume-host-written.py').read_text()
+    if unrelated_change:
+        # Known-bad comparator input: an extra outcome changes the receipt
+        # validator independently of the intended host-observation blindness.
+        assert '"declined", "FAILED", "unverified"' in anchor
+        anchor = anchor.replace('"declined", "FAILED", "unverified"',
+                                '"declined", "FAILED", "unverified", "invented-success"', 1)
+        with pytest.raises(AssertionError, match='differs beyond host_ci_results'):
+            assert_only_host_observation_is_blind(subject, anchor)
+    else:
+        assert_only_host_observation_is_blind(subject, anchor)
 
 
 def invoke(project, command, *, data=None, tier=4):
@@ -72,8 +100,8 @@ def test_historical_schema1_project_generation_record_still_reads(tmp_path):
                     or shutil.which('python3') is None, reason='requires bash, env, python3')
 @pytest.mark.parametrize('provider_state', ['ready', 'missing', 'unknown'])
 def test_actual_host_step_records_write_receipt_independent_of_provider_verdict(tmp_path, provider_state):
-    tier = (ROOT / '.claude/commands/cpp/init.md').read_text().split('### Tier 4 Execution', 1)[1]
-    blocks = [b for b in re.findall(r'```bash\n(.*?)```', tier.split('### Tier 5 Execution', 1)[0], re.S)
+    tier = (ROOT / '.claude/commands/cpp/init.md').read_text().split('### CI/CD Execution', 1)[1]
+    blocks = [b for b in re.findall(r'```bash\n(.*?)```', tier.split('### Codex Execution', 1)[0], re.S)
               if 'CPP_HOST_RUNTIME=' in b]
     assert len(blocks) == 1
     bindir = tmp_path / 'bin'
@@ -82,7 +110,8 @@ def test_actual_host_step_records_write_receipt_independent_of_provider_verdict(
     uv.write_text('#!/bin/bash\nprintf "%s\\n" "$FIXTURE_REPORT"\nexit 0\n')
     uv.chmod(0o755)
     env = {**os.environ, 'PATH':str(bindir) + os.pathsep + os.environ['PATH'],
-           'CPP_DIR':str(ROOT), 'CPP_PROJECTS_ROOT':str(tmp_path / 'projects'), 'HOME':str(tmp_path),
+           'CPP_DIR':str(ROOT), 'CPP_CAPABILITIES_JSON':'["cicd"]',
+           'CPP_PROJECTS_ROOT':str(tmp_path / 'projects'), 'HOME':str(tmp_path),
            'STEP_RESULTS_JSON':json.dumps(rows()),
            'FIXTURE_REPORT':f'github-actions: {provider_state} (fixture)\nHOST_CI_RECORD: written'}
     assert shutil.which('uv', path=env['PATH']) == str(uv)
@@ -151,10 +180,14 @@ def test_incomplete_legacy_population_is_not_a_compatibility_bypass(tmp_path):
                     or shutil.which('python3') is None, reason='requires bash, env, python3')
 def test_observation_failure_invalidates_old_green_metadata_before_receipt_save(tmp_path):
     source = (ROOT / '.claude/commands/cpp/init.md').read_text()
-    block = next(b for b in re.findall(r'```bash\n(.*?)```', source, re.S) if b.startswith('CPP_HOST_RUNTIME='))
+    block = next(b for b in re.findall(r'```bash\n(.*?)```', source, re.S) if '\nCPP_HOST_RUNTIME=' in b)
     cpp = tmp_path / 'cpp'
     (cpp / 'scripts').mkdir(parents=True)
-    (cpp / 'scripts/cpp-install-receipt.py').write_text('raise SystemExit(1)\n')
+    (cpp / 'scripts/cpp-install-receipt.py').write_text(
+        'import runpy, sys\n'
+        'if sys.argv[1] == "host-ci-outcome": raise SystemExit(1)\n'
+        f'runpy.run_path({str(HELPER)!r}, run_name="__main__")\n'
+    )
     bindir = tmp_path / 'bin'
     bindir.mkdir()
     uv = bindir / 'uv'
@@ -162,7 +195,8 @@ def test_observation_failure_invalidates_old_green_metadata_before_receipt_save(
     uv.chmod(0o755)
     old_rows = rows() + [{'step':'host-ci', 'outcome':'written', 'exit_code':0}]
     env = {**os.environ, 'PATH':str(bindir) + os.pathsep + os.environ['PATH'],
-           'CPP_DIR':str(cpp), 'CPP_PROJECTS_ROOT':str(tmp_path / 'projects'), 'HOME':str(tmp_path),
+           'CPP_DIR':str(cpp), 'CPP_CAPABILITIES_JSON':'["cicd"]',
+           'CPP_PROJECTS_ROOT':str(tmp_path / 'projects'), 'HOME':str(tmp_path),
            'STEP_RESULTS_JSON':json.dumps(old_rows)}
     assert shutil.which('uv', path=env['PATH']) == str(uv)
     assert old_rows[-1]['outcome'] == 'written'

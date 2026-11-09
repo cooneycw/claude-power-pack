@@ -65,7 +65,8 @@ def test_host_setup_never_creates_or_changes_a_project_makefile(tmp_path, framew
         assert not target.exists() and not target.is_symlink(), "fixture must start without Makefile"
     before = snapshot(tmp_path)
     result = subprocess.run(["bash", "-c", makefile_block()], cwd=tmp_path,
-                            env=dict(os.environ, CPP_DIR=str(ROOT)), capture_output=True, text=True, timeout=10)
+                            env=dict(os.environ, CPP_DIR=str(ROOT),
+                                CPP_CAPABILITIES_JSON='["scripts"]'), capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stdout + result.stderr
     assert snapshot(tmp_path) == before, "cpp:init must leave project files, modes and symlink entries untouched"
 

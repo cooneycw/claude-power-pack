@@ -11,7 +11,7 @@ INIT = ROOT / ".claude/commands/cpp/init.md"
 
 def test_local_qwen_uses_its_current_harness():
     text = INIT.read_text()
-    tier = text.split("Tier 6 is optional and additive:", 1)[1].split("Tier 7 is likewise", 1)[0]
+    tier = text.split("## Step 3: Select Capabilities", 1)[1].split("## Step 3b:", 1)[0]
     assert "Qwen Code" in tier
     assert "reuses the Codex CLI" not in tier
 
@@ -99,4 +99,5 @@ def test_memory_harness_installation_tier_is_accurate():
 def test_minimal_tier_mentions_default_stash_guard():
     text = INIT.read_text()
     assert "| 1 | **Minimal** | Commands symlink only |" not in text
-    assert "Commands symlinks and project stash guard" in text
+    assert "| 1 | Minimal | commands, extras |" in text
+    assert "default project stash guard" in text

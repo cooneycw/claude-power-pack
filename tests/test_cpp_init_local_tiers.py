@@ -11,7 +11,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 INIT = ROOT / ".claude/commands/cpp/init.md"
-BOOTSTRAP = "### Local-model host-write seam (Tiers 6/7 only)"
+BOOTSTRAP = "### Local-model host-write seam (qwen/gemma capabilities)"
 
 
 def snippets(text, start, end):
@@ -23,7 +23,7 @@ def local_script(kind):
     text = INIT.read_text()
     # On pre-fix main there is no local-tier bootstrap. Execute the actual
     # configuration snippets there too, so missing files make the regression red.
-    bootstrap = snippets(text, BOOTSTRAP, "### Tier 6 Execution")[0] if BOOTSTRAP in text else ""
+    bootstrap = snippets(text, BOOTSTRAP, "### Qwen Execution")[0] if BOOTSTRAP in text else ""
     if kind == "qwen":
         blocks = snippets(text, "#### 6c. Remote Access", "#### 6d.")[:2]
     elif kind == "gemma":
@@ -51,7 +51,7 @@ def test_fresh_local_tier_writes_without_tier2(tmp_path, kind, shell):
         os.environ,
         HOME=str(home),
         SHELL=f"/bin/{shell}",
-        CPP_DIR=str(ROOT),
+        CPP_DIR=str(ROOT), CPP_CAPABILITIES_JSON='["qwen","gemma"]',
         CPP_DEFER_SURFACES="",
         QWEN_ENDPOINT="http://model.invalid:11434",
         GEMMA_ENDPOINT="http://model.invalid:11434",
@@ -105,7 +105,7 @@ def test_unavailable_local_seam_refuses_before_configuration(tmp_path, populatio
     env = dict(
         os.environ,
         HOME=str(home),
-        CPP_DIR=str(ROOT),
+        CPP_DIR=str(ROOT), CPP_CAPABILITIES_JSON='["qwen","gemma"]',
         CPP_DEFER_SURFACES="~/.claude/scripts" if population == "deferred" else "",
     )
     result = subprocess.run(["bash", "-c", local_script("fence")], env=env, capture_output=True, text=True, timeout=20)

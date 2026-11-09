@@ -23,7 +23,7 @@ verified CPP source found in Step 1 to repair it. Never invoke a target-project
 lookalike. Do not stop authorized setup or repair because identity, gh, optional
 review tooling or the installation itself needs attention. No login, tool
 installation, git configuration change or runtime download happens in this
-observation. Tier 4 separately requires verified uv and installed CPP Python.
+observation. The cicd capability separately requires verified uv and installed CPP Python.
 
 ## Step 1: Locate CPP Source
 
@@ -177,43 +177,58 @@ Report current state to user.
 
 ---
 
-## Step 3: Select Installation Tier
+## Step 3: Select Capabilities
 
-Ask the user which tier they want to install using the AskUserQuestion tool:
+Ask which capabilities the user wants with a multi-select AskUserQuestion:
+**commands**, **scripts**, **MCP servers**, **CI/CD host checks**, **Codex**,
+**Qwen**, **Gemma**, and **optional extras**. Any combination is supported.
+Explain that Codex also installs commands and scripts used by its orchestration
+commands; Qwen and Gemma install their commands. Optional
+extras enables later individual questions; it never consents to those writes.
+The commands capability includes command-family symlinks and the default project stash guard.
 
-**Options:**
+Offer the historical tier names as quick-start presets that preselect choices:
 
-| Tier | Name | Description |
-|------|------|-------------|
-| 1 | **Minimal** | Commands symlinks and project stash guard |
-| 2 | **Standard** | + Scripts and shell prompt |
-| 3 | **Full** | + MCP servers (external second-opinion + playwright) |
-| 4 | **CI/CD** | + Host CI capability checks and record |
-| 5 | **Codex** | + Codex CLI orchestration (cross-model implementation and review) |
-| 6 | **Local Qwen** | + Local-model orchestration via Ollama-served Qwen (zero API cost, private) |
-| 7 | **Local Gemma** | + Second local-model lane via Ollama-served Gemma 4 on a GPU box (zero API cost, private, faster) |
+| Preset | Name | Preselected capabilities |
+| --- | --- | --- |
+| 1 | Minimal | commands, extras |
+| 2 | Standard | commands, scripts, extras |
+| 3 | Full | commands, scripts, mcp, extras |
+| 4 | CI/CD | commands, scripts, mcp, cicd, extras |
+| 5 | Codex | commands, scripts, mcp, cicd, codex, extras |
+| 6 | Local Qwen | commands, qwen, extras |
+| 7 | Local Gemma | commands, gemma, extras |
 
-Default recommendation: **Standard** for most users, **Full** for MCP-powered workflows, **CI/CD** to record host CI capabilities, **Codex** for cross-model implementation workflows, **Local Qwen** or **Local Gemma** for zero-cost/private local-model implementation.
+The Codex preset preserves its historical contents, including CI/CD. A custom
+**Codex + Gemma** choice resolves to **commands, scripts, codex, gemma** and does
+not install Claude MCP servers or CI/CD host checks. Qwen uses Qwen Code;
+Gemma uses OpenCode. Both local lanes can be selected together.
 
-Tier 6 is optional and additive: it layers on Tier 1 (commands symlink) and
-does not require Tiers 2-5. It uses the Qwen Code CLI as its harness and talks
-directly to the selected Ollama endpoint; the Codex CLI is not used for this lane.
+Resolve the choice with the checkout helper before any installation write.
+Its capability catalog, prerequisite graph, preset table and step ownership are
+authoritative; do not infer dependencies from section numbers or duplicate the
+graph in the wizard. For custom choices, use fixed machine IDs from the list:
 
-Tier 7 is likewise optional and additive, and independent of Tier 6: a
-different model, a different harness (OpenCode), a different env var, and its
-own config block. Installing both is supported and needs no coordination -
-pick Tier 7 when a GPU box is available (markedly faster) or when a second,
-non-Qwen local opinion is wanted.
+```bash
+# Bind this JSON to the user's actual choices in each fresh Bash tool call.
+CPP_CAPABILITIES_JSON='["codex","gemma"]'
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" plan --capabilities "$CPP_CAPABILITIES_JSON"
+```
 
----
+For an unchanged preset, call `plan --preset N` instead, and use its `requested`
+array as `CPP_CAPABILITIES_JSON` in subsequent calls. If the user edits those
+choices, resolve them as a custom selection. Retain the returned plan and show
+its resolved capabilities, prerequisites and execution order for confirmation.
+Stop on a plan error. Selection never proves installation success.
 
-Record the chosen number as `SELECTED_TIER`. Record the chosen profile as
-`PROFILE_NAME`; use `not-selected` for Tiers 1, 6 and 7, which do not ask this
-question. These are selections, never proof that a step succeeded.
+Record `PROFILE_NAME=not-selected` unless the resolved plan includes `scripts`.
+Keep the requested array bound explicitly in every Bash tool call; variables
+do not survive between tool calls. Never substitute a default preset when the
+selection binding is absent.
 
-## Step 3b: Permission Profile (Tier 2+)
+## Step 3b: Permission Profile (scripts capability)
 
-**Only show this step if user selected Tier 2, Tier 3, Tier 4, or Tier 5.**
+**Only show this step if the resolved capabilities include `scripts`.**
 
 Claude Code prompts "Allow?" before running tools. You can auto-approve safe operations to reduce interruptions while blocking dangerous commands.
 
@@ -491,7 +506,7 @@ If user selects "Custom", ask which categories to enable using multi-select:
 - **Matching deny rules take precedence** - In normal rule evaluation, deny wins over ask, and ask wins over allow
 - **Native policy still applies** - Profiles configure permission rules; the selected permission mode and sandbox settings also govern execution
 - **Nothing masks tool output** - CPP registers no output filter, so treat anything a command prints as reaching the transcript verbatim
-- **Trusted and YOLO require Tier 2** - Offer the broad-approval chooser only when the Tier 2 helper scripts are installed
+- **Trusted and YOLO require scripts** - Offer the broad-approval chooser only when the resolved scripts capability installs the required helpers
 
 ---
 
@@ -501,7 +516,7 @@ If user selects "Custom", ask which categories to enable using multi-select:
 
 ### Applicable write and credential inventory
 
-All tiers create a private temporary run directory under `$TMPDIR` (or the
+Every selection creates a private temporary run directory under `$TMPDIR` (or the
 system temporary directory), mode 0700. It contains generated `routines.sh`,
 fixed-ID `results.json`, an ownership marker and pending-attempt state. Files
 contain no credential or endpoint values. Recording atomically replaces the
@@ -509,18 +524,18 @@ results file. After the final project receipt is written, remove these temporary
 files and report cleanup. Failed persistence retains temporary state for retry.
 These artifacts are not written into the target project.
 
-Every selected tier also creates project `.claude/cpp-install.json`, atomically
+Every selection also creates project `.claude/cpp-install.json`, atomically
 replacing an existing receipt after installation and optional choices. It records
-the selected tier/profile and capabilities, offered steps and their observed
+the requested and resolved capabilities/profile, offered steps and their observed
 outcomes, recording times, CPP revision and fixed references to shared user
 components. It stores no credentials, endpoints or configuration values. An
 existing receipt is replaced only after the new record is saved successfully;
 a failed write is reported as incomplete and never displays the older receipt
 as this run's result. Include this project-file write in the confirmation below.
 
-Before the selected tier's Proceed question, show this inventory with only the
-applicable rows, including inherited tiers (2 through 5 inherit all lower tiers;
-6 and 7 inherit Tier 1 plus their own local-model setup). Resolve `{PROJECT}`,
+Before the Proceed question, show this inventory with only rows belonging to
+the resolved capabilities. Presets expand through the same resolver; custom
+choices never inherit another preset's contents. Resolve `{PROJECT}`,
 `{CPP_DIR}`, the home/config directories, the npm global prefix, and the Git hook
 location using read-only inspection. If a location cannot be resolved, label it
 unknown before asking; do not make a temporary write to test access. Selecting a
@@ -530,12 +545,13 @@ run only after their own choice, with the same destinations repeated there.
 
 | Applies to | Writes and scope | Credential handling |
 | --- | --- | --- |
-| Tier 1, all tiers | User command-family symlinks under `~/.claude/commands/` are installed/refreshed and stale CPP-owned links may be pruned; foreign content is preserved. Optional project `.claude/commands` symlink and `.claude/` directory. The default shared-stash guard installs the repository's `reference-transaction` hook at the common Git hooks directory or configured absolute `core.hooksPath`; refusal/foreign hooks are reported. Opt-out removes CPP's own hook and records `cpp.stashGuard=false` in the repository Git config. | None. |
-| Tier 2 and inherited 3/4/5 | Link **all executable scripts** supplied under `{CPP_DIR}/scripts/` into `~/.claude/scripts/`, including the host-write helper. Create project `.claude/settings.local.json` only if absent, and append the relevant settings/friction ignore entries to an existing `.gitignore`. Optional user-level `~/.claude/settings.json` merges permission and hook entries; optional `~/.bashrc` prompt/tmux additions; global npm Happy installation uses its reported prefix/cache; uv Spec-Kit uses its tool directory, executable directory (normally `~/.local/bin`) and cache. | Permission lists are configuration, not credential values; existing unrelated settings are preserved. |
-| Tier 3 and inherited 4/5 | User-scope Claude MCP registrations update `${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json`: second-opinion URL, Playwright and conditional Tavily (when `TAVILY_API_KEY` is available). npm/npx uses its configured cache; Playwright can download browser binaries to `~/.cache/ms-playwright` on later use. Optional desk pool creates project `.claude/playwright-pool.json` if absent and adds user MCP desk registrations; later browser use writes `.claude/playwright-state/`. | Tavily requires Node.js 20+. `TAVILY_API_KEY` is read from the environment and stored **in plaintext** in the Tavily server environment entry in that user MCP config. Show its name and destination only, never its value. External second-opinion provider keys remain in its separate repository; CPP registers its URL. |
-| Tier 4 | Probe every registered provider independently. Ask once for the projects folder (default: CPP main-checkout parent). Write only `<projects>/.claude/cpp-host.json` through the defer-aware seam; uv uses `~/.cache/claude-power-pack/host-ci/{venv,uv}` and disables project bytecode writes. No project generation. | Persist only verdicts, controlled reasons, timestamp and numeric versions; credentials never enter argv, output or the record. |
-| Tier 5 | Optional global npm Codex CLI installation; optional MCP registration updates `${CODEX_HOME:-$HOME/.codex}/config.toml`. CPP skills install under `$HOME/.codex/skills/` even when CODEX_HOME differs, with managed entries refreshed or pruned and lock `~/.codex/.cpp-skill-install.lock`. Common-memory harness links `~/.local/bin/cpp-memory` and copies `~/.codex/prompts/cpp-memory.md`. | The auth check reads existing auth state. `codex login` is advice, not an init credential write. A separately invoked login has its own credential storage. |
-| Tier 6/7 | Preserve the disclosed `~/.claude/scripts/cpp-host-write.sh` bootstrap link. Optional global npm Qwen Code/OpenCode installation uses its global prefix/cache. Optional endpoint persistence adds `QWEN_OLLAMA_URL` or `GEMMA_OLLAMA_URL` to the resolved shell RC path. Tier 7 merges provider/agent entries into `~/.config/opencode/opencode.json`. Optional smoke tests may create temporary probe files and vendor runtime cache/logs. Ollama model pulls shown here are instructions for the serving host, not an automatic init download. | Local Ollama requires no cloud API key; do not print any credentials embedded in a supplied endpoint. |
+| commands | User command-family symlinks under `~/.claude/commands/` are installed/refreshed and stale CPP-owned links may be pruned; foreign content is preserved. Optional project `.claude/commands` symlink and `.claude/` directory. The default shared-stash guard installs the repository's `reference-transaction` hook at the common Git hooks directory or configured absolute `core.hooksPath`; refusal/foreign hooks are reported. Opt-out removes CPP's own hook and records `cpp.stashGuard=false` in the repository Git config. | None. |
+| scripts | Link **all executable scripts** supplied under `{CPP_DIR}/scripts/` into `~/.claude/scripts/`, including the host-write helper. Create project `.claude/settings.local.json` only if absent, and append the relevant settings/friction ignore entries to an existing `.gitignore`. Optional user-level `~/.claude/settings.json` merges permission and hook entries; optional `~/.bashrc` prompt/tmux additions; global npm Happy installation uses its reported prefix/cache; uv Spec-Kit uses its tool directory, executable directory (normally `~/.local/bin`) and cache. | Permission lists are configuration, not credential values; existing unrelated settings are preserved. |
+| mcp | User-scope Claude MCP registrations update `${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json`: second-opinion URL, Playwright and conditional Tavily (when `TAVILY_API_KEY` is available). npm/npx uses its configured cache; Playwright can download browser binaries to `~/.cache/ms-playwright` on later use. Optional desk pool creates project `.claude/playwright-pool.json` if absent and adds user MCP desk registrations; later browser use writes `.claude/playwright-state/`. | Tavily requires Node.js 20+. `TAVILY_API_KEY` is read from the environment and stored **in plaintext** in the Tavily server environment entry in that user MCP config. Show its name and destination only, never its value. External second-opinion provider keys remain in its separate repository; CPP registers its URL. |
+| cicd | Probe every registered provider independently. Ask once for the projects folder (default: CPP main-checkout parent). Write only `<projects>/.claude/cpp-host.json` through the defer-aware seam; uv uses `~/.cache/claude-power-pack/host-ci/{venv,uv}` and disables project bytecode writes. No project generation. | Persist only verdicts, controlled reasons, timestamp and numeric versions; credentials never enter argv, output or the record. |
+| codex | Optional global npm Codex CLI installation; optional MCP registration updates `${CODEX_HOME:-$HOME/.codex}/config.toml`. CPP skills install under `$HOME/.codex/skills/` even when CODEX_HOME differs, with managed entries refreshed or pruned and lock `~/.codex/.cpp-skill-install.lock`. Common-memory harness links `~/.local/bin/cpp-memory` and copies `~/.codex/prompts/cpp-memory.md`. | The auth check reads existing auth state. `codex login` is advice, not an init credential write. A separately invoked login has its own credential storage. |
+| qwen/gemma | Preserve the disclosed `~/.claude/scripts/cpp-host-write.sh` bootstrap link. Optional global npm Qwen Code/OpenCode installation uses its global prefix/cache. Optional endpoint persistence adds `QWEN_OLLAMA_URL` or `GEMMA_OLLAMA_URL` to the resolved shell RC path. Gemma merges provider/agent entries into `~/.config/opencode/opencode.json`. Optional smoke tests may create temporary probe files and vendor runtime cache/logs. Ollama model pulls shown here are instructions for the serving host, not an automatic init download. | Local Ollama requires no cloud API key; do not print any credentials embedded in a supplied endpoint. |
+| extras | Enables the later individual choices for Sequential Thinking, Codex MCP registration, workstation tuning and the common-memory backend. Show each selected tool's destinations and undo instructions again at its own question; no optional write is authorized by this row alone. | Repeat the credential name and storage scope at each applicable choice, never the value. |
 
 For every credential supplied to a selected optional tool, name its environment
 variable and actual persistent storage scope before confirmation, say whether it
@@ -543,6 +559,13 @@ is plaintext, and never echo or interpolate its value into the disclosure. The
 vendor cache/config areas above are vendor-managed; this inventory lists CPP's
 controlled destinations and relevant vendor areas, not every file a vendor may
 create at runtime.
+
+For an unchanged preset, show its historical disclosure below. For a custom
+choice, compose the disclosure solely from the applicable inventory rows above,
+show the selected component destinations and undo instructions, and ask
+**Proceed with these capabilities? [y/N]** once. Do not show cumulative preset
+disclosures for a custom choice. In either case, refusal makes no installation
+writes. Optional choices still require their own later consent.
 
 ### Tier 1 Disclosure (Minimal)
 
@@ -793,6 +816,47 @@ Proceed? [y/N]
 
 Execute only the components that aren't already installed.
 
+### Capability execution guard
+
+The plan's `sections` is the execution order. Execute only those sections,
+once each, and offer optional extras only if `extras` appears. Section numbers
+below are navigation labels; they never imply that another component runs.
+The shared MCP initializer is bookkeeping used by the final receipt for every
+selection; it performs no client registration by itself.
+
+Every component Bash block below begins with an executable selection check.
+Retain that check when running or adapting the block. The equivalent wrapper
+below shows its admission contract in the same tool call. Bind `CPP_DIR`, `CPP_CAPABILITIES_JSON` to the confirmed requested array,
+`CPP_SECTION` to the component's fixed ID, and other block inputs explicitly in
+that call. Replace the body marker with the exact block when using this wrapper. Do not
+run a component's fenced blocks directly or default a missing selection. This
+also applies to optional substeps: a later optional choice cannot enable an
+unselected component. Keep its own consent checks inside the guard.
+
+```bash
+# CPP_CAPABILITY_EXECUTION_GUARD_BEGIN
+if python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+    --capabilities "$CPP_CAPABILITIES_JSON" --section "$CPP_SECTION"; then
+  # CPP_CAPABILITY_BODY
+  :
+else
+  CPP_SECTION_STATUS=$?
+  if [ "$CPP_SECTION_STATUS" -eq 3 ]; then
+    echo "Component $CPP_SECTION not selected; no installation attempted."
+  else
+    echo "ERROR: capability selection invalid; installation stopped." >&2
+  fi
+  exit "$CPP_SECTION_STATUS"
+fi
+# CPP_CAPABILITY_EXECUTION_GUARD_END
+```
+
+For example, the host CI block is `CPP_SECTION=cicd`, Codex uses `codex`,
+and the shared local-model bootstrap uses `local-seam`. An unselected section
+returns 3 before its body; it adds no offered steps or observations. An invalid
+selection stops the run. Record command outcomes from the body, never from
+the guard's successful selection check.
+
 Keep the existing observed `{STEP_RESULTS}` as structured `STEP_RESULTS_JSON`
 for the receipt as well as for display. This is the same outcome record, not a
 second checklist. Add/update one entry after each attempted step or explicit
@@ -803,13 +867,13 @@ failed / deferred wording for ordinary steps to `installed` / `FAILED` / `skippe
 must have an outcome too, including `declined` when the user says no.
 
 Maintain `OFFERED_STEPS_JSON`, an array of the fixed IDs below, separately from
-outcomes. Start with the selected tier's steps; add an optional ID **before**
+outcomes. Start with the plan's `required_steps`; add an optional ID **before**
 offering its choice, even when the user later declines it. Do not reconstruct
 this population from successful or observed results. A missing observation for
 an offered step is `unverified`, so an unrecorded optional choice cannot make
 the summary complete. Choices never offered by this run are outside its record.
-The helper records the current tier preset's selected capabilities separately
-from outcomes; this does not introduce the later capability-selection redesign.
+Only IDs in the plan's `allowed_steps` may be offered or recorded. The receipt
+re-derives this boundary from the selection; unselected steps cannot enter it.
 
 Each entry has only `step`, `outcome`, the observed numeric `exit_code` when
 available, and optionally `user_scope` reference IDs. A nonzero exit forces
@@ -819,7 +883,7 @@ available, and optionally `user_scope` reference IDs. A nonzero exit forces
 completes it. A deferred/unknown write is not a completed installation. Provider
 ready/missing/unknown verdicts are independent of whether the record was written.
 Historical schema-1 receipts retain the retired project-generation IDs; new
-Tier 4/5 construction requires only `host-ci` at that tier.
+The `cicd` capability requires only `host-ci`.
 Do not put stdout, stderr, command arguments, settings, endpoints, environment
 variables, credentials or their values into the record. The helper stamps each
 outcome with the UTC time it was recorded in the receipt, not an invented
@@ -1079,7 +1143,9 @@ fi
 ```
 
 
-### Tier 1 Execution
+### Commands Execution
+
+Execution guard: `CPP_SECTION=commands`.
 
 **User scope first (issue #663):** per-family symlinks into
 `~/.claude/commands/` serve the command surface to every session on this
@@ -1089,6 +1155,8 @@ re-implement it inline. Call it BARE (the #581 allowlist rule matches the
 stable path); on exit 127 fall back to `"$CPP_DIR/scripts/cpp-commands-link.sh"`:
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section commands || exit $?
 ~/.claude/scripts/cpp-commands-link.sh
 ```
 
@@ -1101,6 +1169,8 @@ stale cached copies.
 **Project scope (optional, this project only):**
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section commands || exit $?
 # Create .claude directory if needed
 mkdir -p .claude
 
@@ -1130,6 +1200,8 @@ Install it into THIS project, bare (resolution order per #581/#590; on exit 127
 fall back to `"$CPP_DIR/scripts/stash-worktree-guard.sh"`):
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section commands || exit $?
 ~/.claude/scripts/stash-worktree-guard.sh --install .
 ```
 
@@ -1168,6 +1240,8 @@ On `n`, turn it off and RECORD the choice, so `/cpp:update` and the flow
 worktree lane do not reinstall it:
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section commands || exit $?
 ~/.claude/scripts/stash-worktree-guard.sh --uninstall .
 ```
 
@@ -1175,9 +1249,13 @@ That writes `cpp.stashGuard=false` in the repository config. The way back on is
 `--enable`, and the prompt above must not be shown again while the record
 stands.
 
-### Tier 2 Execution
+### Scripts Execution
+
+Execution guard: `CPP_SECTION=scripts`.
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section scripts || exit $?
 # BOOTSTRAP THE SEAM, AND CREATE ITS DIRECTORY IN ONE CALL (issue #1198).
 #
 # This line used to invoke ~/.claude/scripts/cpp-host-write.sh to CREATE
@@ -1252,6 +1330,8 @@ echo "→ Helper scripts: $SEAM_OK linked/current, $SEAM_DEFERRED deferred, $SEA
 Based on the profile selected in Step 3b, generate `.claude/settings.local.json`:
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section scripts || exit $?
 # Generate settings.local.json based on selected profile
 # (The profile JSON content is determined by user selection in Step 3b)
 
@@ -1291,6 +1371,8 @@ re-running `/cpp:init` never duplicates a line already present, and a project
 with no `.gitignore` at all is left alone (this step never creates one):
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section scripts || exit $?
 if [ -f ".gitignore" ]; then
   FRICTION_HEADER_WRITTEN=0
   for pattern in ".claude/friction.jsonl" ".claude/friction/"; do
@@ -1348,6 +1430,8 @@ Rationale and caveats: templates/claude-settings-permissions.md)  [y/N]
 If yes:
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section scripts || exit $?
 TEMPLATE="$CPP_DIR/templates/claude-settings-permissions.json"
 TARGET="$HOME/.claude/settings.json"
 
@@ -1386,6 +1470,8 @@ echo "  Note: sed is allowed for the flow slug pipeline; see the template doc fo
 If no:
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section scripts || exit $?
 echo "→ Flow allowlist skipped"
 echo "  Merge later via /cpp:update, or read templates/claude-settings-permissions.md"
 ```
@@ -1417,6 +1503,8 @@ or alters a permission decision.  [y/N]
 If yes:
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section scripts || exit $?
 TARGET="$HOME/.claude/settings.json"
 CENSUS_CMD="~/.claude/scripts/hook-permission-census.sh"
 # Through the declaring seam (#1132): the helper owns the write, this
@@ -1443,6 +1531,8 @@ esac
 If no:
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section scripts || exit $?
 echo "→ Permission-prompt census hook skipped"
 echo "  Register later via /cpp:update, or read docs/HOST_MANAGED_ARTIFACTS.md"
 ```
@@ -1481,6 +1571,8 @@ Silent when there is nothing to report.  [y/N default N]
 If yes:
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section scripts || exit $?
 TARGET="$HOME/.claude/settings.json"
 RETRO_CMD="~/.claude/scripts/hook-pending-retro.sh"
 # Through the declaring seam (#1132): the helper owns the write, this
@@ -1508,6 +1600,8 @@ esac
 If no:
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section scripts || exit $?
 echo "→ Pending-retro reminder skipped (default)"
 echo "  Enable later via /cpp:update"
 ```
@@ -1529,6 +1623,8 @@ Add to ~/.bashrc? [y/N]
 
 If yes:
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section scripts || exit $?
 # Add to bashrc through the declaring helper (#1139). The helper declares
 # ~/.bashrc as a host surface it writes, and a managed environment can defer
 # it with --defer ~/.bashrc and get a stated refusal rather than a failure.
@@ -1569,6 +1665,8 @@ Add to ~/.bashrc? [y/N]
 
 If yes:
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section scripts || exit $?
 # Check if tmux is installed
 if ! command -v tmux &>/dev/null; then
   echo "⚠ tmux not found. Install it first:"
@@ -1596,6 +1694,8 @@ fi
 
 If no:
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section scripts || exit $?
 echo "→ Tmux auto-start skipped"
 echo "  Add later by appending to ~/.bashrc:"
 echo '  if command -v tmux &>/dev/null && [ -z "$TMUX" ] && [[ $- == *i* ]]; then tmux new-session; fi'
@@ -1608,6 +1708,8 @@ Configure project build targets through `/project:init` for new projects or
 this host setup leaves every existing project entry intact.
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section scripts || exit $?
 echo "Project Makefile setup: /project:init (new projects); /cicd:init (existing repositories)."
 ```
 
@@ -1628,6 +1730,8 @@ Install happy-cli? [y/N]
 
 If yes:
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section scripts || exit $?
 # Check if already installed
 if command -v happy &>/dev/null; then
   echo "→ happy-cli already installed (skipped)"
@@ -1647,6 +1751,8 @@ echo "  Verify /cpp:happy-check availability with /cpp:status."
 
 If no:
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section scripts || exit $?
 echo "→ Happy CLI installation skipped"
 ```
 
@@ -1672,6 +1778,8 @@ Install the spec-kit CLI? [y/N]
 
 If yes:
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section scripts || exit $?
 # Check if already installed
 if command -v specify &>/dev/null; then
   echo "→ spec-kit CLI already installed (skipped)"
@@ -1691,10 +1799,14 @@ echo "  Verify /spec:adopt availability with /cpp:status."
 
 If no:
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section scripts || exit $?
 echo "→ Spec-Kit CLI installation skipped (/spec:adopt installs it on first use)"
 ```
 
-### Tier 3 Execution
+### MCP Execution
+
+Execution guard: `CPP_SECTION=mcp`.
 
 #### 3a. Legacy Runtime Note (informational)
 
@@ -1706,6 +1818,8 @@ aws-secrets-agent, mcp-playwright-persistent) behind, run /cpp:update to tear
 them down.
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section mcp || exit $?
 LEGACY_SYSTEMD_UNITS=""
 for unit in mcp-second-opinion second-opinion mcp-playwright mcp-playwright-persistent playwright-persistent mcp-evaluate evaluate mcp-coordination coordination; do
   [ -f "/etc/systemd/system/${unit}.service" ] && LEGACY_SYSTEMD_UNITS="$LEGACY_SYSTEMD_UNITS system:${unit}"
@@ -1747,6 +1861,8 @@ re-register (`claude mcp remove second-opinion -s user`, then this step again).
 #### 3c. Register MCP Servers
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section mcp || exit $?
 # Rebind CPP_MCP_RUN_DIR to this run's printed absolute path in this tool call.
 if [ -z "${CPP_MCP_RUN_DIR-}" ] || ! source "$CPP_MCP_RUN_DIR/routines.sh"; then
   echo "CPP Installation Incomplete"
@@ -1781,6 +1897,8 @@ If the user opts in, seed the pool config into the project and register the desk
 stdio MCP servers (upstream via `npx`, no custom image, pinned version):
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section mcp || exit $?
 # Rebind CPP_MCP_RUN_DIR to this run's printed absolute path in this tool call.
 if [ -z "${CPP_MCP_RUN_DIR-}" ] || ! source "$CPP_MCP_RUN_DIR/routines.sh"; then
   echo "CPP Installation Incomplete"
@@ -1831,7 +1949,9 @@ echo "(MCP config is read only at startup; mid-session registration does not tak
 echo "Then verify with: /browser:session pool"
 ```
 
-### Tier 4 Execution (Host CI Capabilities)
+### CI/CD Execution (Host CI Capabilities)
+
+Execution guard: `CPP_SECTION=cicd`.
 
 Run the prerequisite boundary against the verified CPP source before any host
 probe. A refusal leaves Tier 4 unexecuted: report missing/unknown prerequisites
@@ -1840,6 +1960,8 @@ when the seam fails or defers. This tier performs no project generation.
 
 <!-- CPP_TIER4_PREFLIGHT_BEGIN -->
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section cicd || exit $?
 CPP_TIER4_REPORT=$(bash "$CPP_DIR/scripts/flow-preflight.sh" --json --repo "$PWD" --checks uv,cpp_python)
 CPP_TIER4_STATUS=$?
 printf '%s\n' "$CPP_TIER4_REPORT" | bash "$CPP_DIR/scripts/flow-preflight.sh" --json --checks uv,cpp_python --validate-exit "$CPP_TIER4_STATUS"
@@ -1854,6 +1976,8 @@ The projects-folder answer is requested once during disclosure. If the user
 accepts the default, resolve it from the verified CPP main checkout:
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section cicd || exit $?
 if [ -z "${CPP_PROJECTS_ROOT:-}" ]; then
   CPP_COMMON_DIR=$(git -C "$CPP_DIR" rev-parse --path-format=absolute --git-common-dir) || exit 1
   CPP_CURRENT_GIT_DIR=$(git -C "$CPP_DIR" rev-parse --absolute-git-dir) || exit 1
@@ -1872,6 +1996,8 @@ These runtime cache locations are part of Tier 4 consent; no project `.venv`,
 Makefile, cicd config, workflow or container files are created by this tier.
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section cicd || exit $?
 CPP_HOST_RUNTIME="$HOME/.cache/claude-power-pack/host-ci"
 CPP_HOST_CI_REPORT=$(PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" UV_PROJECT_ENVIRONMENT="$CPP_HOST_RUNTIME/venv" UV_CACHE_DIR="$CPP_HOST_RUNTIME/uv" UV_LOCKED=1 PYTHONDONTWRITEBYTECODE=1 uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd host-ci --path "$PWD" --projects-root "$CPP_PROJECTS_ROOT" --write)
 CPP_HOST_CI_STATUS=$?
@@ -1896,13 +2022,17 @@ esac
 
 For project CI selection and file generation, use `/project:init` or `/cicd:init`.
 
-### Tier 5 Execution (Codex Orchestration)
+### Codex Execution (Codex Orchestration)
+
+Execution guard: `CPP_SECTION=codex`.
 
 #### 5a. Check Codex CLI
 
 Consent: before offering an absent CLI install, show the resolved npm global prefix and cache used by @openai/codex. This installs a host-wide executable; it does not perform login.
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section codex || exit $?
 echo ""
 echo "=== Tier 5: Codex Orchestration ==="
 echo ""
@@ -1931,6 +2061,8 @@ fi
 #### 5b. Run Codex Doctor
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section codex || exit $?
 if command -v codex &>/dev/null; then
   echo ""
   echo "Running codex doctor..."
@@ -1950,6 +2082,8 @@ fi
 #### 5c. Observe Codex Authentication Configuration
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section codex || exit $?
 if command -v codex &>/dev/null; then
   echo ""
   echo "=== Codex Authentication Configuration ==="
@@ -1979,6 +2113,8 @@ Consent: register the selected servers in `${CODEX_HOME:-$HOME/.codex}/config.to
 Use the shared per-client definitions above, just as in Step 6 section 8b. Record both IDs in the offered-step set before asking this choice:
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section codex || exit $?
 # Rebind CPP_MCP_RUN_DIR to this run's printed absolute path in this tool call.
 if [ -z "${CPP_MCP_RUN_DIR-}" ] || ! source "$CPP_MCP_RUN_DIR/routines.sh"; then
   echo "CPP Installation Incomplete"
@@ -2012,6 +2148,8 @@ is decided by the GENERATED marker: hand-curated skill dirs, skills the user
 wrote, and dotted runtime state such as `.system` are never touched.
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section codex || exit $?
 if command -v codex &>/dev/null; then
   echo ""
   echo "=== Installing CPP Codex Skills ==="
@@ -2035,14 +2173,18 @@ every executable helper since issue #669), but that dir is not on `PATH` -
 this harness remains the canonical `PATH` install. Idempotent.
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section codex || exit $?
 bash "$CPP_DIR/scripts/install-memory-harness.sh" \
   || echo "WARNING: memory harness install failed (continuing)"
 ```
 
-### Local-model host-write seam (Tiers 6/7 only)
+### Local-model host-write seam (qwen/gemma capabilities)
 
-If Tier 6 or Tier 7 was selected, run this block once before its setup commands.
-These tiers need only the declaring host-write helper, not the rest of Tier 2.
+Execution guard: `CPP_SECTION=local-seam`.
+
+When qwen or gemma is selected, run this block once before either local setup.
+These capabilities need only the declaring host-write helper, not all scripts.
 Use the verified checkout copy to bootstrap it on a fresh host. An existing
 unusable path is refused rather than overwritten; a deferred install leaves
 local-tier configuration unexecuted. If this block returns nonzero, stop the
@@ -2051,6 +2193,8 @@ blocks. Report that outcome in the final summary; other authorized setup may
 continue.
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section local-seam || exit $?
 CPP_LOCAL_SEAM="$HOME/.claude/scripts/cpp-host-write.sh"
 if [ ! -e "$CPP_LOCAL_SEAM" ] && [ ! -L "$CPP_LOCAL_SEAM" ]; then
   "$CPP_DIR/scripts/cpp-host-write.sh" link-into \
@@ -2075,10 +2219,11 @@ fi
 echo "Local-model host-write seam available: $CPP_LOCAL_SEAM"
 ```
 
-### Tier 6 Execution (Local Qwen Orchestration)
+### Qwen Execution (Local Qwen Orchestration)
 
-Only run when the user selected Tier 6. This tier layers on Tier 1 only; do
-not force Tiers 2-5 first. Ask whether this machine SERVES the model or
+Execution guard: `CPP_SECTION=qwen`.
+
+Only run when the resolved plan includes `qwen`; commands are its prerequisite. Ask whether this machine SERVES the model or
 CONSUMES a remote server before running the checks.
 
 #### 6a. Verify the Qwen Code CLI Harness (no API key needed)
@@ -2086,6 +2231,8 @@ CONSUMES a remote server before running the checks.
 Consent: before offering an absent Qwen Code CLI install, show the resolved npm global prefix and cache used by @qwen-code/qwen-code. No cloud API key is stored.
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section qwen || exit $?
 echo ""
 echo "=== Tier 6: Local Qwen Orchestration ==="
 echo ""
@@ -2114,6 +2261,8 @@ fi
 #### 6b. Verify the Ollama Server and Model
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section qwen || exit $?
 QWEN_ENDPOINT="${QWEN_OLLAMA_URL:-http://127.0.0.1:11434}"
 QWEN_MODEL="${QWEN_MODEL:-qwen3.8-code:latest}"
 
@@ -2167,6 +2316,8 @@ Choose the rc file from the user's shell: `~/.zshrc` when `$SHELL` ends in
 `zsh`, otherwise `~/.bashrc`:
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section qwen || exit $?
 case "${SHELL##*/}" in
   zsh) QWEN_RC="$HOME/.zshrc"; QWEN_RC_DISPLAY="~/.zshrc" ;;
   *) QWEN_RC="$HOME/.bashrc"; QWEN_RC_DISPLAY="~/.bashrc" ;;
@@ -2190,6 +2341,8 @@ Add to ${QWEN_RC_DISPLAY}? [y/N]
 
 If yes:
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section qwen || exit $?
 # Through the declaring seam (#1132). This block used to write "$QWEN_RC"
 # inline - the same ~/.bashrc that two other blocks already routed through the
 # helper - so a defer-set naming ~/.bashrc refused those two, printed a stated
@@ -2210,6 +2363,8 @@ esac
 
 If no:
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section qwen || exit $?
 echo "-> QWEN_OLLAMA_URL persistence skipped"
 echo "  Set QWEN_OLLAMA_URL in $QWEN_RC_DISPLAY to the selected endpoint; its value is withheld from output."
 ```
@@ -2226,6 +2381,8 @@ every modern Codex invocation, including unrelated `/codex:*` commands.
 Consent: offer to skip before running the real Qwen harness. It contacts the selected Ollama endpoint and can write vendor runtime cache/logs in its configured user area; it can take minutes.
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section qwen || exit $?
 QWEN_ENDPOINT="${QWEN_OLLAMA_URL:-http://127.0.0.1:11434}"
 timeout 600 qwen --openai-base-url "$QWEN_ENDPOINT/v1" --openai-api-key ollama \
   --auth-type openai -m "$QWEN_MODEL" \
@@ -2244,6 +2401,8 @@ second-opinion consultation, so the local Qwen weighs in on every review at
 zero cost. Offer to enable it:
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section qwen || exit $?
 # Check whether the running server already supports it
 SO_HEALTH=$(curl -sf --max-time 5 "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/" > /dev/null 2>&1 && echo up || echo down)
 echo "second-opinion server: $SO_HEALTH"
@@ -2261,9 +2420,11 @@ echo "second-opinion server: $SO_HEALTH"
 - Verify with the server's `health_check` tool: `always_consult_models`
   should list `qwen-local` and `ollama_configured` should be true.
 
-### Tier 7 Execution (Local Gemma Orchestration)
+### Gemma Execution (Local Gemma Orchestration)
 
-Only run when the user selected Tier 7. It is independent of Tier 6: different
+Execution guard: `CPP_SECTION=gemma`.
+
+Only run when the resolved plan includes `gemma`. It is independent of Qwen: different
 model, harness, env var, and config block.
 
 #### 7a. Verify the OpenCode Harness (no API key needed)
@@ -2271,6 +2432,8 @@ model, harness, env var, and config block.
 Consent: before offering an absent OpenCode CLI install, show the resolved npm global prefix and cache used by opencode-ai. No cloud API key is stored.
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section gemma || exit $?
 echo ""
 echo "=== Tier 7: Local Gemma Orchestration ==="
 echo ""
@@ -2287,6 +2450,8 @@ fi
 #### 7b. Verify the Ollama Server and Model
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section gemma || exit $?
 GEMMA_ENDPOINT="${GEMMA_OLLAMA_URL:-http://127.0.0.1:11434}"
 GEMMA_MODEL="${GEMMA_MODEL:-gemma4-code:latest}"
 
@@ -2350,6 +2515,8 @@ Choose the rc file from the user's shell: `~/.zshrc` when `$SHELL` ends in
 `zsh`, otherwise `~/.bashrc`:
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section gemma || exit $?
 case "${SHELL##*/}" in
   zsh) GEMMA_RC="$HOME/.zshrc"; GEMMA_RC_DISPLAY="~/.zshrc" ;;
   *) GEMMA_RC="$HOME/.bashrc"; GEMMA_RC_DISPLAY="~/.bashrc" ;;
@@ -2373,6 +2540,8 @@ Add to ${GEMMA_RC_DISPLAY}? [y/N]
 
 If yes:
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section gemma || exit $?
 # Through the declaring seam (#1132). This block used to write "$GEMMA_RC"
 # inline - the same ~/.bashrc that two other blocks already routed through the
 # helper - so a defer-set naming ~/.bashrc refused those two, printed a stated
@@ -2393,6 +2562,8 @@ esac
 
 If no:
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section gemma || exit $?
 echo "-> GEMMA_OLLAMA_URL persistence skipped"
 echo "  Set GEMMA_OLLAMA_URL in $GEMMA_RC_DISPLAY to the selected endpoint; its value is withheld from output."
 ```
@@ -2406,6 +2577,8 @@ user's OpenCode config; never overwrite an existing file, which may hold their
 own providers and agents.
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section gemma || exit $?
 OC_CONFIG="$HOME/.config/opencode/opencode.json"
 
 # Through the declaring seam (#1132). This merge was embedded PYTHON, which is
@@ -2447,6 +2620,8 @@ prompt. A bare curl probe checks endpoint reachability but does not exercise
 this harness or establish that tool calling works.
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section gemma || exit $?
 SMOKE_DIR=$(mktemp -d)
 echo "probe" > "$SMOKE_DIR/probe.txt"
 GEMMA_OLLAMA_URL="$GEMMA_ENDPOINT" timeout 120 opencode run \
@@ -2499,6 +2674,8 @@ Install Node.js (https://nodejs.org/), then:
 
 ## Step 6: Optional Extras
 
+Execution guard: `CPP_SECTION=extras`. Skip this whole step unless `extras` is selected.
+
 After the selected tier steps have run, offer optional extras before the final summary.
 
 ### 8a. Sequential Thinking
@@ -2520,6 +2697,8 @@ Install Sequential Thinking? [y/N]
 If yes:
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section extras || exit $?
 # Rebind CPP_MCP_RUN_DIR to this run's printed absolute path in this tool call.
 if [ -z "${CPP_MCP_RUN_DIR-}" ] || ! source "$CPP_MCP_RUN_DIR/routines.sh"; then
   echo "CPP Installation Incomplete"
@@ -2531,6 +2710,8 @@ if cpp_register_claude_mcp sequential-thinking; then :; else echo "WARNING: Sequ
 
 If no:
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section extras || exit $?
 # Rebind CPP_MCP_RUN_DIR to this run's printed absolute path in this tool call.
 if [ -z "${CPP_MCP_RUN_DIR-}" ] || ! source "$CPP_MCP_RUN_DIR/routines.sh"; then
   echo "CPP Installation Incomplete"
@@ -2561,6 +2742,8 @@ Register with Codex? [y/N]
 If yes:
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section extras || exit $?
 # Rebind CPP_MCP_RUN_DIR to this run's printed absolute path in this tool call.
 if [ -z "${CPP_MCP_RUN_DIR-}" ] || ! source "$CPP_MCP_RUN_DIR/routines.sh"; then
   echo "CPP Installation Incomplete"
@@ -2582,6 +2765,8 @@ fi
 If no:
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section extras || exit $?
 # Rebind CPP_MCP_RUN_DIR to this run's printed absolute path in this tool call.
 if [ -z "${CPP_MCP_RUN_DIR-}" ] || ! source "$CPP_MCP_RUN_DIR/routines.sh"; then
   echo "CPP Installation Incomplete"
@@ -2628,6 +2813,8 @@ Apply workstation tuning? [y/N]
 If yes:
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section extras || exit $?
 # Run bash-prep script
 if [ -f "$CPP_DIR/scripts/bash-prep.sh" ]; then
   bash "$CPP_DIR/scripts/bash-prep.sh" --apply
@@ -2638,6 +2825,8 @@ fi
 
 If no:
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section extras || exit $?
 echo "→ Workstation tuning skipped"
 echo "  Run later: bash ~/.claude/scripts/bash-prep.sh"
 echo "  Or check current values: bash ~/.claude/scripts/bash-prep.sh --check"
@@ -2679,6 +2868,8 @@ Persist the choice to the backend file the client reads
 (`resolve_backend()` in `lib/cpp_memory/config.py`):
 
 ```bash
+python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
+  --capabilities "${CPP_CAPABILITIES_JSON-}" --section extras || exit $?
 BACKEND_FILE="$HOME/.config/claude-power-pack/secrets/cpp-memories.backend"
 
 case "$MEM_BACKEND_CHOICE" in
@@ -2858,7 +3049,8 @@ printf '%s\n' "$PERMISSION_REPORT"
 
 Persist the observed outcomes and permission metadata now. `.claude/cpp-install.json`
 is a PROJECT write; it is outside the HOME-only host-write seam. It contains
-schema version 1, the local CPP HEAD revision, selected tier/profile, per-step
+schema version 2, the local CPP HEAD revision, requested/resolved capabilities,
+optional preset and selected profile, per-step
 outcomes and recording timestamps, and fixed user-scope references. It replaces
 the prior receipt atomically; it contains no command output or configuration
 values. The receipt is historical evidence, not a live connectivity probe.
@@ -2888,9 +3080,12 @@ else
   exit 1
 fi
 # CPP_MCP_RECEIPT_MERGE_END
+# For an unchanged confirmed preset, replace --capabilities with --preset N
+# in this invocation to retain preset provenance. Otherwise retain the actual
+# requested capability array; never invent a preset for a custom selection.
 if printf '%s\n' "$STEP_RESULTS_JSON" | python3 "$CPP_DIR/scripts/cpp-install-receipt.py" write \
     --project-dir "$PWD" --cpp-dir "$CPP_DIR" \
-    --tier "$SELECTED_TIER" --profile "$PROFILE_NAME" \
+    --capabilities "$CPP_CAPABILITIES_JSON" --profile "$PROFILE_NAME" \
     --offered-steps "$OFFERED_STEPS_JSON" \
     --permission-report "$PERMISSION_REPORT"; then
   if python3 "$CPP_MCP_STATE_HELPER" cleanup --run-dir "$CPP_MCP_RUN_DIR"; then

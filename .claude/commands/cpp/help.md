@@ -26,17 +26,28 @@ The four utility commands above were folded into the `cpp` family from loose
 top-level files (issue #582) so plugin and Codex-skill packaging deliver them;
 `/cpp:init|status|update` remain repo-local (not shipped in the cpp plugin).
 
-## Installation Tiers
+## Installation Capabilities and Presets
 
-CPP uses a tiered installation model:
+`/cpp:init` selects commands, scripts, MCP servers, CI/CD host checks, Codex,
+Qwen, Gemma and optional extras independently. The resolver adds real
+prerequisites: Codex needs commands and scripts; local model lanes need
+commands. Custom Codex + Gemma includes commands and scripts without Claude
+MCP servers or CI/CD setup. Each optional extra has its own consent question.
 
-| Tier | Name | What's Included |
-|------|------|-----------------|
-| 1 | **Minimal** | Commands + Skills symlinks |
-| 2 | **Standard** | + Scripts, hooks, shell prompt |
-| 3 | **Full** | + MCP servers (uv, API keys) |
-| 4 | **CI/CD** | + Build system, health checks, pipelines, containers |
-| 5 | **Codex** | + Codex CLI orchestration (cross-model implementation and review) |
+Historical tier names remain quick-start presets:
+
+| Preset | Name | Preselected capabilities |
+| --- | --- | --- |
+| 1 | Minimal | commands, extras |
+| 2 | Standard | commands, scripts, extras |
+| 3 | Full | commands, scripts, mcp, extras |
+| 4 | CI/CD | commands, scripts, mcp, cicd, extras |
+| 5 | Codex | commands, scripts, mcp, cicd, codex, extras |
+| 6 | Local Qwen | commands, qwen, extras |
+| 7 | Local Gemma | commands, gemma, extras |
+
+The `cicd` capability records host CI capabilities. Project build files,
+pipelines and containers belong to `/project:init` or `/cicd:init`.
 
 ## Quick Start
 

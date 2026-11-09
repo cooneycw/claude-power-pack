@@ -77,7 +77,7 @@ def test_locator_does_not_invoke_a_write_probe_before_consent(tmp_path, served, 
 def test_local_pg_output_has_no_credential_userinfo(tmp_path):
     section = SOURCE.read_text().split("### 8d. Common-Memory Store Backend", 1)[1]
     blocks = re.findall(r"^```bash\n(.*?)^```$", section, re.M | re.S)
-    candidates = [block for block in blocks if block.startswith('BACKEND_FILE=')]
+    candidates = [block for block in blocks if '\nBACKEND_FILE=' in block or block.startswith('BACKEND_FILE=')]
     assert len(candidates) == 1, "fixture must execute the real backend choice block"
     home = tmp_path / "home"
     scripts = home / ".claude/scripts"
@@ -90,7 +90,9 @@ def test_local_pg_output_has_no_credential_userinfo(tmp_path):
     docker = bins / "docker"
     docker.write_text('#!/bin/sh\nprintf called > "$HOME/docker-called"\nexit 19\n')
     docker.chmod(0o755)
-    env = dict(os.environ, HOME=str(home), MEM_BACKEND_CHOICE="ii", PATH=f"{bins}:{os.environ['PATH']}")
+    env = dict(os.environ, CPP_DIR=str(ROOT),
+        CPP_CAPABILITIES_JSON='["extras"]',
+        HOME=str(home), MEM_BACKEND_CHOICE="ii", PATH=f"{bins}:{os.environ['PATH']}")
     assert shutil.which("docker", path=env["PATH"]) == str(docker), "fixture must intercept Docker"
     assert helper.is_file() and os.access(helper, os.X_OK)
     assert not (home / "docker-called").exists(), "fixture must not start Docker"
@@ -142,7 +144,9 @@ case "$last" in
 esac
 ''')
     curl.chmod(0o755)
-    env = dict(os.environ, PATH=f"{bins}:{os.environ['PATH']}", CPP_TEST_CURL=state, CPP_TEST_MARKER=str(marker))
+    env = dict(os.environ, CPP_DIR=str(ROOT),
+        CPP_CAPABILITIES_JSON='["qwen","gemma"]',
+        PATH=f"{bins}:{os.environ['PATH']}", CPP_TEST_CURL=state, CPP_TEST_MARKER=str(marker))
     env[name + "_OLLAMA_URL"] = endpoint
     env[name + "_ENDPOINT"] = endpoint
     env[name + "_RC_DISPLAY"] = "fixture.rc"
@@ -199,7 +203,9 @@ def test_codex_decline_creates_directory_even_without_setup_source(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     assert not (project / ".agents").exists(), "fixture must start without generated directory"
-    env = dict(os.environ, CPP_DIR=str(missing))
+    (missing / "scripts").mkdir(parents=True)
+    (missing / "scripts/cpp-install-receipt.py").write_bytes((ROOT / "scripts/cpp-install-receipt.py").read_bytes())
+    env = dict(os.environ, CPP_DIR=str(missing), CPP_CAPABILITIES_JSON='["extras"]')
     env["CPP_MCP_RUN_DIR"] = initialize_mcp(project, env)
     result = subprocess.run(["bash", "-c", selected[0]], cwd=project,
                             env=env, capture_output=True, text=True)

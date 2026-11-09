@@ -14,6 +14,8 @@ step 3c and /cpp:update's step 6b.0.
 
 from __future__ import annotations
 
+import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -46,8 +48,22 @@ _needs_bash = pytest.mark.skipif(
 def _run(block: str, tmp_path: Path) -> str:
     out = subprocess.run(
         ["bash", "-c", block], cwd=tmp_path, capture_output=True, text=True, timeout=30,
+        env={**os.environ, "CPP_DIR": str(ROOT), "CPP_CAPABILITIES_JSON": json.dumps(["scripts"])},
     )
     return out.stdout + out.stderr
+
+
+@_needs_bash
+def test_deselected_scripts_leave_gitignore_untouched(tmp_path):
+    path = tmp_path / ".gitignore"
+    path.write_text("node_modules/\n")
+    before = path.read_bytes()
+    result = subprocess.run(
+        ["bash", "-c", _init_friction_block()], cwd=tmp_path, capture_output=True, text=True, timeout=30,
+        env={**os.environ, "CPP_DIR": str(ROOT), "CPP_CAPABILITIES_JSON": '["commands"]'},
+    )
+    assert path.read_bytes() == before, "deselected scripts must not add friction ignore entries"
+    assert result.returncode == 3, result.stdout + result.stderr
 
 
 @_needs_bash
