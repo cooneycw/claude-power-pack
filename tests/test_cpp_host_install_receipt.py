@@ -1,4 +1,5 @@
 """Host-only Tier4 receipt construction, actual write outcomes and old schema1."""
+import ast
 import json
 import os
 import re
@@ -16,6 +17,33 @@ BASE = ['commands', 'stash-guard', 'scripts', 'permission-profile', 'uv',
         'second-opinion', 'playwright', 'tavily']
 CODEX = ['codex-cli', 'codex-doctor', 'codex-auth', 'codex-skills', 'memory-harness']
 LEGACY = ROOT / 'tests/fixtures/cpp-host-install-receipt/legacy-tier4.json'
+
+
+def assert_only_host_observation_is_blind(subject, anchor):
+    trees = [ast.parse(text) for text in (subject, anchor)]
+    for tree in trees:
+        functions = [node for node in tree.body if isinstance(node, ast.FunctionDef)
+                     and node.name == 'host_ci_results']
+        assert len(functions) == 1
+        functions[0].body = [ast.Pass()]
+    assert ast.dump(trees[0], include_attributes=False) == ast.dump(trees[1], include_attributes=False), \
+        'constructed anchor differs beyond host_ci_results'
+
+
+@pytest.mark.parametrize('unrelated_change', [False, True])
+def test_regenerated_host_anchor_preserves_all_other_behavior(unrelated_change):
+    subject = HELPER.read_text()
+    anchor = (ROOT / 'controls/cpp-host-install-receipt/anchors/assume-host-written.py').read_text()
+    if unrelated_change:
+        # Known-bad comparator input: an extra outcome changes the receipt
+        # validator independently of the intended host-observation blindness.
+        assert '"declined", "FAILED", "unverified"' in anchor
+        anchor = anchor.replace('"declined", "FAILED", "unverified"',
+                                '"declined", "FAILED", "unverified", "invented-success"', 1)
+        with pytest.raises(AssertionError, match='differs beyond host_ci_results'):
+            assert_only_host_observation_is_blind(subject, anchor)
+    else:
+        assert_only_host_observation_is_blind(subject, anchor)
 
 
 def invoke(project, command, *, data=None, tier=4):
