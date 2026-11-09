@@ -87,7 +87,7 @@ components are references to shared installations, not copies of settings or
 credentials. Keep the receipt verdict in the final status summary even if a
 later live probe reports a different result; identify the two observations.
 
-## Step 2: Check Tier 1 (Minimal)
+## Step 2: Check Commands capability (Minimal)
 
 Check if commands and skills are symlinked:
 
@@ -103,7 +103,7 @@ else
 fi
 ```
 
-## Step 3: Check Tier 2 (Standard)
+## Step 3: Check Scripts capability (Standard)
 
 Check scripts, hooks, and shell prompt:
 
@@ -249,7 +249,7 @@ if [ "$(uname)" = "Linux" ]; then
 fi
 ```
 
-## Step 4: Check Tier 3 (Full)
+## Step 4: Check MCP capability (Full)
 
 Check MCP servers and dependencies:
 
@@ -415,13 +415,16 @@ The last line is `CAPABILITY_READINESS: ready|degraded|unknown`; `--json` prints
 same rows for a machine consumer. The probes call no model and install nothing: a server
 launched through npx or uvx is reported `unexamined` rather than started.
 
-## Step 5: Check Tier 4 (CI/CD)
+## Step 5: Check Project CI/CD observations capability (CI/CD)
 
-Check CI/CD build system, health checks, pipeline, and container configuration:
+These read-only project configuration observations are separate from the host-only
+`cicd` installation capability. They do not prove that host CI was selected or
+recorded; use the install receipt for that verdict. Inspect the project build
+system, health checks, pipeline and container configuration:
 
 ```bash
 echo ""
-echo "Tier 4 (CI/CD):"
+echo "Project CI/CD observations:"
 
 # Check cicd.yml
 if [ -f ".claude/cicd.yml" ]; then
@@ -471,13 +474,13 @@ else
 fi
 ```
 
-## Step 6: Check Tier 5 (Codex Orchestration)
+## Step 6: Check Codex capability (Codex Orchestration)
 
 Check Codex CLI installation, configuration, and MCP registrations:
 
 ```bash
 echo ""
-echo "Tier 5 (Codex):"
+echo "Codex:"
 
 # Check Codex CLI
 if command -v codex &>/dev/null; then
@@ -554,15 +557,16 @@ else
 fi
 ```
 
-## Step 7: Check Tier 6 (Local Qwen Orchestration)
+## Step 7: Check Qwen capability (Local Qwen Orchestration)
 
-Tier 6 is OPTIONAL and additive - report it as "not installed (optional)"
-rather than "missing" when absent. It needs the Qwen Code CLI as a harness
+Qwen is independently selectable. If the receipt selects it, report absent
+requirements as missing selected components; otherwise label absence optional
+(or selection unknown if the receipt is unreadable). It needs the Qwen Code CLI as a harness
 (no cloud API key) plus a reachable Ollama server holding the Qwen model.
 
 ```bash
 echo ""
-echo "Tier 6 (Local Qwen - optional):"
+echo "Qwen (independently selectable):"
 
 QWEN_ENDPOINT="${QWEN_OLLAMA_URL:-http://127.0.0.1:11434}"
 QWEN_MODEL="${QWEN_MODEL:-qwen3.8-code:latest}"
@@ -602,16 +606,17 @@ if [ -n "$QWEN_CODEX_PROFILE" ]; then
 fi
 ```
 
-## Step 8: Check Tier 7 (Local Gemma Orchestration)
+## Step 8: Check Gemma capability (Local Gemma Orchestration)
 
-Tier 7 is OPTIONAL and additive - report it as "not installed (optional)"
-rather than "missing" when absent. It needs the OpenCode CLI as a harness
+Gemma is independently selectable. If the receipt selects it, report absent
+requirements as missing selected components; otherwise label absence optional
+(or selection unknown if the receipt is unreadable). It needs the OpenCode CLI as a harness
 (no cloud API key), a reachable Ollama server holding the Gemma model, and the
 `gemma-implementer` agent profile that carries the mechanical fence.
 
 ```bash
 echo ""
-echo "Tier 7 (Local Gemma - optional):"
+echo "Gemma (independently selectable):"
 
 GEMMA_ENDPOINT="${GEMMA_OLLAMA_URL:-http://127.0.0.1:11434}"
 GEMMA_MODEL="${GEMMA_MODEL:-gemma4-code:latest}"
@@ -666,9 +671,9 @@ proves the native-API path works - run `/gemma:status`.
 
 Based on the checks above, report:
 
-1. **Current tier level** - Which tier is fully installed
+1. **Selected capabilities and preset** - Read the install receipt; keep requested/resolved capabilities and optional preset distinct from observed outcomes. Without a readable receipt, report selection unknown rather than infer a cumulative tier
 2. **MCP wiring** - second-opinion is external (cooneycw/mcp-second-opinion), registered at user scope; there is no CPP-managed container runtime
-3. **Missing components** - What needs to be installed
+3. **Missing selected components** - What the selected installation still requires; show unrelated project observations separately, and do not treat an unselected capability as an installation failure
 4. **Recommendation** - Suggest running `/cpp:init` if incomplete, or `/cpp:update` if legacy systemd units remain
 
 Example output format:
@@ -681,11 +686,11 @@ CPP Installation Status
 Checkout: ~/Projects/claude-power-pack (branch main)
   [~] Freshness: behind 3 (run /cpp:update)
 
-Tier 1 (Minimal):
+Commands:
   [x] Commands symlinked
   Status: Complete
 
-Tier 2 (Standard):
+Scripts:
   [x] Scripts: 5/5 installed
   [x] Hooks: 2 hooks configured
   [x] Permission profile: Standard
@@ -693,7 +698,7 @@ Tier 2 (Standard):
   [ ] Shell prompt: not configured
   Status: Partial
 
-Tier 3 (Full):
+MCP:
   [x] uv: 0.5.x
   [x] second-opinion: registered (external cooneycw/mcp-second-opinion, user scope)
   [x] playwright: registered (upstream @playwright/mcp, npx/stdio)
@@ -706,7 +711,7 @@ Tier 3 (Full):
     none (ok)
   Status: Partial
 
-Tier 4 (CI/CD):
+Project CI/CD observations:
   [x] cicd.yml: configured
   [x] Framework detected: python (uv)
   [x] Makefile: 8 targets
@@ -714,7 +719,7 @@ Tier 4 (CI/CD):
   [ ] Dockerfile: not found
   Status: Partial
 
-Tier 5 (Codex):
+Codex:
   [x] Codex CLI: 0.137.0
   [x] codex doctor: passed
   [x] OpenAI API key: set in environment
@@ -724,14 +729,14 @@ Tier 5 (Codex):
   [x] Codex commands: 4/4 available
   Status: Complete
 
-Tier 6 (Local Qwen - optional):
+Qwen (independently selectable):
   [x] Qwen Code CLI harness with headless stream-json support
   [x] Ollama server reachable at http://127.0.0.1:11434
   [x] Model present: qwen3.8-code:latest
   [x] Qwen commands: 4/4 available
   Status: Complete
 
-Tier 7 (Local Gemma - optional):
+Gemma (independently selectable):
   [x] OpenCode harness: 1.18.29
   [x] Ollama server reachable at http://proxvmgemma23:11434
   [x] Model present: gemma4-code:latest
@@ -742,7 +747,8 @@ Tier 7 (Local Gemma - optional):
 
 ---------------------------------
 Install receipt: {literal receipt verdict(s) from Step 1c}
-Current Level: Tier 2 (Standard)
+Selected capabilities: {requested/resolved capabilities from the receipt, or unknown}
+Preset: {recorded preset, custom, or unknown}
 MCP wiring: second-opinion external, user scope (no CPP container runtime)
 Missing: Shell prompt, CI pipeline, Dockerfile
 

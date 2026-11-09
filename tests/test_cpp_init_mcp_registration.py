@@ -429,7 +429,8 @@ def test_receipt_reloads_registration_from_a_different_shell(tmp_path, add_rc):
             {"step": "codex-second-opinion", "outcome": "installed"},
             {"step": "codex-playwright", "outcome": "installed"}]
     data += [{"step": step, "outcome": "already"} for step in
-             ("codex-cli", "codex-doctor", "codex-auth", "codex-skills", "memory-harness")]
+             ("scripts", "permission-profile", "codex-cli", "codex-doctor", "codex-auth",
+              "codex-skills", "memory-harness")]
     env.update(STEP_RESULTS_JSON=json.dumps(data), OFFERED_STEPS_JSON=json.dumps([x['step'] for x in data]),
                CPP_CAPABILITIES_JSON='["commands","codex","extras"]',
                    PROFILE_NAME='not-selected', PERMISSION_REPORT='{}')
@@ -585,7 +586,8 @@ def test_completed_setup_removes_temp_state_and_leaves_scratch_project_clean(tmp
     assert 'MCP registered' in registration.stdout
     data = [{"step": "commands", "outcome": "installed"}, {"step": "stash-guard", "outcome": "already"}]
     data += [{"step": step, "outcome": "already"} for step in
-             ("codex-cli", "codex-doctor", "codex-auth", "codex-skills", "memory-harness")]
+             ("scripts", "permission-profile", "codex-cli", "codex-doctor", "codex-auth",
+              "codex-skills", "memory-harness")]
     env.update(STEP_RESULTS_JSON=json.dumps(data),
                OFFERED_STEPS_JSON=json.dumps([x['step'] for x in data] + ['codex-second-opinion', 'codex-playwright']),
                CPP_CAPABILITIES_JSON='["commands","codex","extras"]',

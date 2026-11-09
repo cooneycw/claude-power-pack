@@ -95,7 +95,7 @@ STEPS = set().union(*TIER_STEPS.values(), OPTIONAL_STEPS, LEGACY_TIER4_STEPS)
 CAPABILITY_ORDER = ("commands", "scripts", "mcp", "cicd", "codex", "qwen", "gemma", "extras")
 CAPABILITY_DEPENDENCIES = {
     "commands": (), "scripts": (), "mcp": (), "cicd": (),
-    "codex": ("commands",), "qwen": ("commands",), "gemma": ("commands",), "extras": (),
+    "codex": ("commands", "scripts"), "qwen": ("commands",), "gemma": ("commands",), "extras": (),
 }
 CAPABILITY_REQUIRED = {TIER_CAPABILITIES[number]: tuple(steps) for number, steps in TIER_STEPS.items()}
 CAPABILITY_REQUIRED["extras"] = ()
@@ -505,6 +505,8 @@ def main() -> int:
                   "retain observed STEP_RESULTS and retry")
         elif args.command == "host-ci-outcome":
             print("CPP_INSTALL_HOST_CI: unverified - observation metadata invalid")
+        elif args.command in {"plan", "section"}:
+            print("CPP_INSTALL_SELECTION: invalid capability selection or section")
         else:
             print("CPP_INSTALL_RECEIPT: unverified - CPP revision unavailable or receipt could not be examined")
         return 1

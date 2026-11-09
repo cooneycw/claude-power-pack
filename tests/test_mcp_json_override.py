@@ -216,6 +216,7 @@ def _run_3c(
     home_servers: dict | None = None,
     project_servers: dict | None = None,
     raw_config: str | None = None,
+    capabilities: tuple[str, ...] = ("mcp",),
 ) -> tuple[str, list[str]]:
     # CPP_DIR is a fixture checkout, never ROOT: the scope check reads the
     # project's .mcp.json, and the repository ships none (issue #1256), so a
@@ -245,6 +246,7 @@ def _run_3c(
         "HOME": str(tmp_path),
         "CLAUDE_CONFIG_DIR": str(cfg),
         "CPP_DIR": str(cpp),
+        "CPP_CAPABILITIES_JSON": json.dumps(capabilities),
         "STUB_LOG": str(log),
         "STUB_ADD_EXIT": str(add_exit),
     }
@@ -255,12 +257,21 @@ def _run_3c(
         ["bash", "-c", _init_3c_block()], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60
     )
     calls = log.read_text().splitlines() if log.exists() else []
+    if "mcp" not in capabilities:
+        assert out.returncode == 3, out.stdout + out.stderr
     return out.stdout + out.stderr, [c for c in calls if c.startswith("mcp add") and "second-opinion" in c]
 
 
 _needs_shell = pytest.mark.skipif(
     shutil.which("bash") is None or shutil.which("python3") is None, reason="needs bash and python3"
 )
+
+
+@_needs_shell
+def test_deselected_mcp_makes_no_client_calls(tmp_path):
+    out, adds = _run_3c(tmp_path, user_servers={}, capabilities=("commands",))
+    assert not adds, out
+    assert not (tmp_path / "claude.log").exists(), "deselected MCP must not even list client registrations"
 
 
 @_needs_shell

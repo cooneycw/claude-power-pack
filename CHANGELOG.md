@@ -6,7 +6,7 @@
 
 - `/cpp:init` selects independent capabilities, with the seven former tiers
   retained as presets. Custom Codex + Gemma installs their commands and local
-  seam without CI/CD, scripts or Claude MCP setup. Schema-2 installation
+  seam and required scripts without CI/CD or Claude MCP setup. Schema-2 installation
   receipts bind outcomes to that selection; schema-1 records remain readable,
   including their immutable pin used by generated CI enrolment (#1587).
 

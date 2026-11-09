@@ -104,12 +104,12 @@ def test_presets_preserve_existing_contents(preset, capabilities, steps):
     assert set(plan["allowed_steps"]) == set(steps).union(*(OPTIONAL_CONTENTS[cap] for cap in capabilities))
 
 
-def test_codex_and_gemma_do_not_inherit_cicd_or_other_tiers():
+def test_codex_and_gemma_resolve_runtime_scripts_without_mcp_or_cicd():
     plan = receipt.capability_plan(["gemma", "codex"])
-    assert plan["capabilities"] == ["commands", "codex", "gemma"]
-    assert plan["sections"] == ["commands", "codex", "local-seam", "gemma"]
+    assert plan["capabilities"] == ["commands", "scripts", "codex", "gemma"]
+    assert plan["sections"] == ["commands", "scripts", "codex", "local-seam", "gemma"]
     assert "host-ci" not in plan["allowed_steps"]
-    assert "scripts" not in plan["required_steps"]
+    assert {"scripts", "permission-profile"} <= set(plan["required_steps"])
     assert "second-opinion" not in plan["allowed_steps"]
 
 
@@ -137,15 +137,15 @@ def test_existing_schema_reader_does_not_tolerate_additive_selection():
 def test_custom_receipt_records_selection_without_inheriting_host_ci(tmp_path):
     plan = receipt.capability_plan(["codex", "gemma"])
     outcomes = [{"step": step, "outcome": "already"} for step in plan["required_steps"]]
-    result = run(tmp_path, "write", "--capabilities", '["codex","gemma"]', "--profile", "not-selected", data=outcomes)
+    result = run(tmp_path, "write", "--capabilities", '["codex","gemma"]', "--profile", "Standard", data=outcomes)
     assert result.returncode == 0, result.stdout + result.stderr
     data = json.loads((tmp_path / ".claude/cpp-install.json").read_text())
     assert data["schema"] == 2
     assert data["selected"] == {
         "preset": None,
         "requested": ["codex", "gemma"],
-        "capabilities": ["commands", "codex", "gemma"],
-        "profile": "not-selected",
+        "capabilities": ["commands", "scripts", "codex", "gemma"],
+        "profile": "Standard",
     }
     assert "host-ci" not in data["offered_steps"]
     assert run(tmp_path, "summary").returncode == 0
@@ -169,7 +169,7 @@ def test_revision_reader_accepts_known_receipt_versions_only(tmp_path, schema, e
         ("codex", 0, True),
         ("gemma", 0, True),
         ("cicd", 3, False),
-        ("scripts", 3, False),
+        ("scripts", 0, True),
         ("local-seam", 0, True),
         ("typo", 1, False),
     ],
@@ -207,6 +207,77 @@ def test_every_live_component_names_its_execution_guard():
         section = text.split("### " + name + " Execution", 1)[1].split("```", 1)[0]
         assert f"Execution guard: `CPP_SECTION={cap}`." in section
     assert "Only IDs in the plan's `allowed_steps`" in text
+
+
+COMPONENT_HEADINGS = {
+    "### Commands Execution": "commands",
+    "### Scripts Execution": "scripts",
+    "### MCP Execution": "mcp",
+    "### CI/CD Execution": "cicd",
+    "### Codex Execution": "codex",
+    "### Local-model host-write seam": "local-seam",
+    "### Qwen Execution": "qwen",
+    "### Gemma Execution": "gemma",
+    "## Step 6: Optional Extras": "extras",
+    "## Error Handling": None,
+    "## Step 7:": None,
+}
+
+
+def assert_component_block_guards(text):
+    selected = None
+    examined = []
+    for part in re.split(r"(^#{2,3} .*?$|```bash\n.*?```)", text, flags=re.M | re.S):
+        if part.startswith("#"):
+            for heading, capability in COMPONENT_HEADINGS.items():
+                if part.startswith(heading):
+                    selected = capability
+                    break
+        elif part.startswith("```bash\n") and selected:
+            block = part.removeprefix("```bash\n").removesuffix("```")
+            expected = (
+                'python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \\\n'
+                '  --capabilities "${CPP_CAPABILITIES_JSON-}" --section ' + selected + " || exit $?\n"
+            )
+            assert block.startswith(expected), f"{selected} block missing its first executable selection guard"
+            examined.append(selected)
+    assert examined, "must examine at least one component block"
+    return examined
+
+
+def test_every_component_bash_block_starts_with_its_own_guard():
+    examined = assert_component_block_guards((ROOT / ".claude/commands/cpp/init.md").read_text())
+    assert set(examined) == set(COMPONENT_HEADINGS.values()) - {None}
+
+
+@pytest.mark.parametrize("name", ["missing-host-ci-guard.md", "missing-spec-kit-guard.md"])
+def test_structural_scan_rejects_committed_guard_deletion(name):
+    bad = (ROOT / "tests/fixtures/cpp-capability-guards" / name).read_text()
+    with pytest.raises(AssertionError, match="missing its first executable selection guard"):
+        assert_component_block_guards(bad)
+
+
+def test_selection_errors_do_not_claim_revision_failure(tmp_path):
+    result = run(tmp_path, "plan", "--capabilities", '["unknown"]')
+    assert result.returncode == 1
+    assert "CPP_INSTALL_SELECTION: invalid capability selection or section" in result.stdout
+    assert "revision" not in result.stdout
+
+
+def test_public_help_and_status_describe_selection_instead_of_a_level():
+    for document in ("init.md", "help.md"):
+        text = (ROOT / ".claude/commands/cpp" / document).read_text()
+        rows = re.findall(r"^\| ([1-7]) \| [^|]+ \| ([a-z, ]+) \|$", text, re.M)
+        assert len(rows) == 7, "every preset must have one visible capability row"
+        assert {int(number): contents.split(", ") for number, contents in rows} == {
+            number: capabilities for number, capabilities, _ in PRESETS
+        }
+    help_text = (ROOT / ".claude/commands/cpp/help.md").read_text()
+    assert "Build system, health checks, pipelines, containers" not in help_text
+    assert "commands and scripts" in help_text
+    status = (ROOT / ".claude/commands/cpp/status.md").read_text()
+    assert "Current tier level" not in status and "Current Level: Tier" not in status
+    assert "Selected capabilities and preset" in status
 
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="requires bash")

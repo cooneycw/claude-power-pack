@@ -182,7 +182,8 @@ Report current state to user.
 Ask which capabilities the user wants with a multi-select AskUserQuestion:
 **commands**, **scripts**, **MCP servers**, **CI/CD host checks**, **Codex**,
 **Qwen**, **Gemma**, and **optional extras**. Any combination is supported.
-Explain that Codex, Qwen and Gemma also install the commands they use. Optional
+Explain that Codex also installs commands and scripts used by its orchestration
+commands; Qwen and Gemma install their commands. Optional
 extras enables later individual questions; it never consents to those writes.
 The commands capability includes command-family symlinks and the default project stash guard.
 
@@ -199,8 +200,8 @@ Offer the historical tier names as quick-start presets that preselect choices:
 | 7 | Local Gemma | commands, gemma, extras |
 
 The Codex preset preserves its historical contents, including CI/CD. A custom
-**Codex + Gemma** choice resolves to **commands, codex, gemma** and does not
-install scripts, Claude MCP servers, or CI/CD host checks. Qwen uses Qwen Code;
+**Codex + Gemma** choice resolves to **commands, scripts, codex, gemma** and does
+not install Claude MCP servers or CI/CD host checks. Qwen uses Qwen Code;
 Gemma uses OpenCode. Both local lanes can be selected together.
 
 Resolve the choice with the checkout helper before any installation write.

@@ -1206,8 +1206,8 @@ provenance; unknown schema versions remain unverified. Generated CI enrolment
 accepts the immutable `cpp_revision` from both known schemas. Its committed
 reader-to-bootstrap controls preserve schema 1 and reject unknown/boolean
 versions. `controls/cpp-capability-selection` proves that custom Codex + Gemma
-cannot run scripts, Claude MCP or CI/CD sections or insert a host-ci outcome;
-explicitly selecting CI/CD repairs the refusal. Its constructed all-components
+requires scripts while refusing Claude MCP or CI/CD sections and host-ci outcomes;
+Gemma alone refuses scripts, and explicitly selecting CI/CD repairs its refusal. Its constructed all-components
 anchor misses each known-bad selection boundary.
 
 `summary` and `status` re-read and validate the receipt. A failed write does not

@@ -92,7 +92,7 @@ STEPS = set().union(*TIER_STEPS.values(), OPTIONAL_STEPS, LEGACY_TIER4_STEPS)
 CAPABILITY_ORDER = ("commands", "scripts", "mcp", "cicd", "codex", "qwen", "gemma", "extras")
 CAPABILITY_DEPENDENCIES = {
     "commands": (), "scripts": (), "mcp": (), "cicd": (),
-    "codex": ("commands",), "qwen": ("commands",), "gemma": ("commands",), "extras": (),
+    "codex": ("commands", "scripts"), "qwen": ("commands",), "gemma": ("commands",), "extras": (),
 }
 CAPABILITY_REQUIRED = {TIER_CAPABILITIES[number]: tuple(steps) for number, steps in TIER_STEPS.items()}
 CAPABILITY_REQUIRED["extras"] = ()
@@ -422,7 +422,8 @@ def report(path: Path, current: str, summary: bool) -> int:
         if data["schema"] == 1:
             print(f"Selected tier: {data['selected']['tier']}; selected profile: {data['selected']['profile']}")
         else:
-            print(f"Selected preset: {data['selected']['preset'] or 'custom'}; selected profile: {data['selected']['profile']}")
+            print(f"Selected preset: {data['selected']['preset'] or 'custom'}; "
+                  f"selected profile: {data['selected']['profile']}")
         print("Selected capabilities: " + ", ".join(data["selected"]["capabilities"]))
         print(f"Recorded outcomes for {len(data['offered_steps'])} offered steps (not live health probes):")
         for item in data["steps"]:
@@ -501,6 +502,8 @@ def main() -> int:
                   "retain observed STEP_RESULTS and retry")
         elif args.command == "host-ci-outcome":
             print("CPP_INSTALL_HOST_CI: unverified - observation metadata invalid")
+        elif args.command in {"plan", "section"}:
+            print("CPP_INSTALL_SELECTION: invalid capability selection or section")
         else:
             print("CPP_INSTALL_RECEIPT: unverified - CPP revision unavailable or receipt could not be examined")
         return 1

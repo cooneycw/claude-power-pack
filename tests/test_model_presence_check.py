@@ -430,6 +430,8 @@ def _probe_blocks(rel: str) -> list[tuple[str, str]]:
 def _run_probe(prefix: str, block: str, endpoint: str) -> str:
     env = {
         **__import__("os").environ,
+        "CPP_DIR": str(REPO),
+        "CPP_CAPABILITIES_JSON": json.dumps(["qwen", "gemma"]),
         f"{prefix}_OLLAMA_URL": endpoint,
         f"{prefix}_MODEL": "probe-model:latest",
         f"{prefix}_LANE_PRESENT": "true",
