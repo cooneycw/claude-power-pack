@@ -129,6 +129,15 @@ def _require_single_target(target: str, setting: str) -> None:
             "(letters, digits, '_', '.', '/', or '-', with no leading '-'); "
             "split multiple targets into separate entries"
         )
+    # GNU Make strips leading ./ when matching a target to its recipe.
+    canonical = target
+    while canonical.startswith("./"):
+        canonical = canonical[2:]
+    if canonical == "deploy" and target != canonical:
+        raise ValueError(
+            f"{setting} aliases reserved target 'deploy'; "
+            "use the exact name 'deploy' only in pipeline.branches.main"
+        )
 
 
 def _application_targets(branches: dict[str, list[str]]) -> list[str]:

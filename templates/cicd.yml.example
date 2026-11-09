@@ -104,6 +104,7 @@ pipeline:
 #   # run it solely in their dedicated main-push deployment stage. With pr: [],
 #   # main's other targets still run on pushes; deploy-only adds no lint/test.
 #   # Woodpecker runtime_smoke must use a non-deploy smoke_target.
+#   # Entries are single target names; use exact deploy, not ./deploy aliases.
 #   matrix:
 #     python-version: ["3.11", "3.12"]
 #

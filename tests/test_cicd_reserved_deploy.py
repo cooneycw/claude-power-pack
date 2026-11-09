@@ -108,3 +108,22 @@ def test_programmatic_smoke_target_cannot_be_compound():
     config.pipeline.woodpecker.smoke_target = "deploy lint"
     with pytest.raises(ValueError, match=r"pipeline\.woodpecker\.smoke_target.*single.*target"):
         generate_woodpecker(_info(), config)
+
+
+@pytest.mark.parametrize("generator", [generate_github_actions, generate_woodpecker])
+@pytest.mark.parametrize("branch", ["main", "pr"])
+@pytest.mark.parametrize("target", ["./deploy", "././deploy"])
+def test_deploy_alias_requires_canonical_main_setting(generator, branch, target):
+    config = CICDConfig()
+    config.pipeline.branches = {branch: [target]}
+    with pytest.raises(ValueError, match=r"reserved target.*pipeline\.branches\.main"):
+        generator(_info(), config)
+
+
+@pytest.mark.parametrize("target", ["./deploy", "././deploy"])
+def test_smoke_deploy_alias_is_rejected(target):
+    config = CICDConfig()
+    config.pipeline.woodpecker.runtime_smoke = True
+    config.pipeline.woodpecker.smoke_target = target
+    with pytest.raises(ValueError, match=r"reserved target.*pipeline\.branches\.main"):
+        generate_woodpecker(_info(), config)
