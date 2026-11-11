@@ -1,0 +1,106 @@
+# Word budgets for command documents (issue #1669). One document per line:
+# <words><TAB><path under .claude/commands>. Checked by
+# `make command-docs-budget-check` (scripts/check-claude-md-budget.py --commands).
+#
+# A command document is read in full by every run that invokes it. It holds the
+# steps to execute; rationale and incident history belong in a linked reference.
+#
+# flow/auto.md carries its owner-approved target (#1669). Every other number is
+# an INTERIM CAP - the document's size when the gate landed - so nothing grows
+# while it waits to be trimmed. Owner targets still owed (#1669): flow/register.md
+# 8208, flow/wave.md 6954, flow/finish.md 1791. Lower a number when you trim;
+# raising one needs a reason in the PR.
+464	browser/help.md
+1077	browser/session.md
+425	cicd/check.md
+213	cicd/container.md
+497	cicd/health.md
+791	cicd/help.md
+226	cicd/infra-discover.md
+278	cicd/infra-init.md
+300	cicd/infra-pipeline.md
+755	cicd/init.md
+664	cicd/pipeline.md
+581	cicd/smoke.md
+1184	cicd/verify.md
+518	cicd/woodpecker.md
+242	claude-md/help.md
+1396	claude-md/lint.md
+1613	codex/ask.md
+7730	codex/auto.md
+6359	codex/code_review.md
+1134	codex/exec.md
+640	codex/help.md
+537	codex/status.md
+786	cpp/dockers.md
+220	cpp/happy-check.md
+1148	cpp/help.md
+19422	cpp/init.md
+206	cpp/load-best-practices.md
+245	cpp/load-mcp-docs.md
+3817	cpp/status.md
+14442	cpp/update.md
+1123	documentation/c4.md
+290	documentation/help.md
+1218	documentation/pptx.md
+457	evaluate/help.md
+2284	evaluate/issue.md
+10183	flow/auto.md
+1837	flow/check.md
+2258	flow/cleanup.md
+1561	flow/deploy.md
+3686	flow/doctor.md
+2651	flow/eli5.md
+4753	flow/finish.md
+984	flow/help.md
+4082	flow/merge.md
+16426	flow/register.md
+1113	flow/repair.md
+1708	flow/start.md
+450	flow/status.md
+386	flow/sync.md
+11837	flow/wave.md
+9547	gemma/auto.md
+1779	gemma/exec.md
+1859	gemma/help.md
+1831	gemma/status.md
+201	github/help.md
+434	github/issue-close.md
+591	github/issue-create.md
+316	github/issue-list.md
+417	github/issue-update.md
+222	github/issue-view.md
+286	project/help.md
+3781	project/init.md
+580	project/lite.md
+2327	project/next.md
+499	qa/help.md
+1279	qa/test.md
+8938	qwen/auto.md
+1554	qwen/exec.md
+1521	qwen/help.md
+1243	qwen/status.md
+546	second-opinion/help.md
+460	second-opinion/models.md
+443	second-opinion/start.md
+111	secrets/delete.md
+187	secrets/get.md
+131	secrets/help.md
+66	secrets/list.md
+98	secrets/rotate.md
+107	secrets/run.md
+99	secrets/set.md
+159	secrets/ui.md
+221	secrets/validate.md
+170	security/deep.md
+198	security/explain.md
+879	security/help.md
+604	security/permissions.md
+152	security/quick.md
+226	security/scan.md
+951	self-improvement/deployment.md
+387	self-improvement/help.md
+470	self-improvement/memory.md
+2645	self-improvement/retro.md
+585	spec/adopt.md
+608	spec/help.md

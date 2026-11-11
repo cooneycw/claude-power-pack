@@ -14,6 +14,13 @@ Usage:
     python3 scripts/check-claude-md-budget.py
     python3 scripts/check-claude-md-budget.py --root DIR
     python3 scripts/check-claude-md-budget.py AGENTS.md --budget 450
+    python3 scripts/check-claude-md-budget.py --commands
+
+`--commands` (issue #1669) applies the same measurement to EVERY command
+document under `.claude/commands/`. A command document is always-loaded for the
+run that invokes it, so its size is a per-run cost. Budgets are declared one
+per line in `.claude/command-word-budgets.tsv`; a document with no declared
+budget fails, so a new command cannot arrive uncapped.
 """
 
 from __future__ import annotations
@@ -60,6 +67,16 @@ DOCUMENT_BUDGETS = {
 }
 
 
+#: NEGATIVE-CONTROL: controls/command-docs-budget
+#:     The `--commands` mode (issue #1669). A separate registration from
+#:     controls/claude-md-budget because a control carries one invocation, and
+#:     this mode reads a different population (every command document) against
+#:     a different budget source (the declared table, not DOCUMENT_BUDGETS).
+COMMANDS_DIR = Path(".claude/commands")
+COMMAND_BUDGETS = Path(".claude/command-word-budgets.tsv")
+COMMANDS_LABEL = "command-docs-budget"
+
+
 def word_count(path: Path) -> int:
     """Return the whitespace-delimited count used by ``wc -w``."""
     return len(path.read_text(encoding="utf-8").split())
@@ -68,6 +85,68 @@ def word_count(path: Path) -> int:
 def check(path: Path, *, budget: int = WORD_BUDGET) -> tuple[bool, int]:
     count = word_count(path)
     return count <= budget, count
+
+
+def load_command_budgets(path: Path) -> dict[str, int]:
+    """Read `<words><TAB><document>` lines; `#` starts a comment.
+
+    Raises ValueError on a line that is not exactly that shape, on a
+    non-positive budget and on a document declared twice: a table that is
+    silently half-read would cap fewer documents than it appears to.
+    """
+    budgets: dict[str, int] = {}
+    for number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        fields = line.split("\t")
+        if len(fields) != 2 or not fields[0].isdigit() or int(fields[0]) <= 0 or not fields[1]:
+            raise ValueError(f"{path.name}:{number}: expected '<words><TAB><document>', got {raw!r}")
+        if fields[1] in budgets:
+            raise ValueError(f"{path.name}:{number}: {fields[1]} is declared twice")
+        budgets[fields[1]] = int(fields[0])
+    return budgets
+
+
+def check_commands(root: Path) -> tuple[list[str], int]:
+    """Every command document against its declared budget.
+
+    Returns (problems, documents examined). The population is the documents on
+    disk, never the table: a table entry is a claim, a file is a fact.
+    """
+    commands = root / COMMANDS_DIR
+    table = root / COMMAND_BUDGETS
+    if not commands.is_dir():
+        return [f"missing {commands}"], 0
+    if not table.is_file():
+        return [f"missing {table}"], 0
+    try:
+        budgets = load_command_budgets(table)
+    except ValueError as exc:
+        return [str(exc)], 0
+    documents = sorted(p for p in commands.rglob("*.md") if p.is_file())
+    if not documents:
+        # Zero documents examined is not "all within budget".
+        return [f"no command documents found under {commands}"], 0
+    problems: list[str] = []
+    seen: set[str] = set()
+    for path in documents:
+        name = path.relative_to(commands).as_posix()
+        seen.add(name)
+        if name not in budgets:
+            problems.append(
+                f"{name} has no declared budget; add a line to {COMMAND_BUDGETS.as_posix()}"
+            )
+            continue
+        within, count = check(path, budget=budgets[name])
+        if not within:
+            problems.append(
+                f"{name} has {count} words; budget is {budgets[name]} "
+                f"({count - budgets[name]} over)"
+            )
+    for name in sorted(set(budgets) - seen):
+        problems.append(f"{name} is declared in {COMMAND_BUDGETS.as_posix()} but does not exist")
+    return problems, len(documents)
 
 
 def _label(path: Path) -> str:
@@ -98,7 +177,20 @@ def main(argv: list[str] | None = None) -> int:
         default=Path(__file__).resolve().parents[1],
         help="repo root (default: the checkout this script lives in)",
     )
+    parser.add_argument(
+        "--commands",
+        action="store_true",
+        help="check every .claude/commands document against its declared budget",
+    )
     args = parser.parse_args(argv)
+    if args.commands:
+        problems, examined = check_commands(args.root.resolve())
+        if not problems:
+            print(f"{COMMANDS_LABEL}: ok - {examined} command documents within their declared budgets")
+            return 0
+        for problem in problems:
+            print(f"{COMMANDS_LABEL}: {problem}", file=sys.stderr)
+        return 1
     path = args.root.resolve() / args.document
     label = _label(path)
     if not path.is_file():

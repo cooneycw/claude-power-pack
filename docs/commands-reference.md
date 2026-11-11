@@ -46,6 +46,23 @@ permissive. CPP dogfoods deploy verification through its service-less import
 smoke probe, and `tests/test_step9_verify_executes.py` executes the documented
 baseline/verify pair so invocation drift is a test failure rather than prose.
 
+## Command documents hold steps; rationale lives in a reference (#1669)
+
+A command document is read in full by every run that invokes it, so its size is
+a per-run cost. It holds the steps to execute. The reason a rule exists, and the
+incident behind it, goes in a linked reference under `docs/reference/`.
+
+- Every document under `.claude/commands/` has a word budget, one per line in
+  `.claude/command-word-budgets.tsv`. `make command-docs-budget-check` (part of
+  `make verify`) fails a document over its budget and a document with no
+  declared budget. Lower a number when you trim; raising one needs a reason.
+- A trimmed document's executable steps are recorded before the trim in a
+  fixture named in `scripts/check-claude-md-behavior.py`
+  (`COMMAND_STEP_FIXTURES`), and `make claude-md-behavior-check` fails if one
+  leaves the document. The reference does not count: a run does not read it.
+- `/flow:auto` is the first document trimmed this way. Its history is in
+  [flow-auto-rationale.md](reference/flow-auto-rationale.md).
+
 ## Workflow commands - detail beyond the skill listing
 
   - Optional second arg `PROJECT` targets a repo other than the session cwd (resolved as a path, else `~/Projects/<name>`); such cross-repo runs ride the deterministic git-worktree lane end-to-end instead of `EnterWorktree`, which cannot leave the session repo (#578)

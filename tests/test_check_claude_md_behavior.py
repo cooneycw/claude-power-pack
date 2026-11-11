@@ -381,3 +381,109 @@ def test_the_negative_case_reds_a_deliberately_blind_variant(tmp_path: Path) -> 
         "the real check must red where the blind variant cannot - otherwise "
         "widening it to tolerate link rewrites cost its discriminating power"
     )
+
+
+# --- issue #1669: a trimmed command document keeps its recorded steps ----------
+
+_STEP_DOC = ".claude/commands/flow/auto.md"
+
+
+def _write_steps(root: Path, *, body: str | None, needles: list[str] | None, retirements=None) -> None:
+    (root / "CLAUDE.md").write_text("Short routing file.", encoding="utf-8")
+    _write_fixture(root, retirements={"never-output-secrets": "not under test here"})
+    if body is not None:
+        doc = root / _STEP_DOC
+        doc.parent.mkdir(parents=True, exist_ok=True)
+        doc.write_text(body, encoding="utf-8")
+    if needles is not None:
+        fixture = root / behavior.COMMAND_STEP_FIXTURES[_STEP_DOC]
+        fixture.parent.mkdir(parents=True, exist_ok=True)
+        fixture.write_text(
+            json.dumps(
+                {
+                    "version": behavior.FIXTURE_VERSION,
+                    "obligations": [
+                        {"slug": f"step-{i}", "needle": needle} for i, needle in enumerate(needles)
+                    ],
+                    "retirements": {} if retirements is None else retirements,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+
+def test_a_command_document_that_keeps_every_step_passes(tmp_path: Path) -> None:
+    _write_steps(
+        tmp_path,
+        body="Run it bare:\n\n```bash\n~/.claude/scripts/flow-finish-gate.sh\n```\n`FLOW_FINISH_GATE: fail` stops.",
+        needles=["~/.claude/scripts/flow-finish-gate.sh", "FLOW_FINISH_GATE: fail"],
+    )
+
+    assert behavior.check_tree(tmp_path) == []
+
+
+def test_a_step_dropped_from_the_command_document_fails(tmp_path: Path) -> None:
+    """The red case: trimming removed a step, not only its rationale."""
+    _write_steps(
+        tmp_path,
+        body="Run the gate. `FLOW_FINISH_GATE: fail` stops.",
+        needles=["~/.claude/scripts/flow-finish-gate.sh", "FLOW_FINISH_GATE: fail"],
+    )
+
+    findings = behavior.check_tree(tmp_path)
+
+    assert [finding.kind for finding in findings] == ["missing-step"]
+    assert "flow-finish-gate.sh" in findings[0].detail
+
+
+def test_a_step_that_moved_to_the_reference_still_fails(tmp_path: Path) -> None:
+    """Stricter than the CLAUDE.md obligations: docs/ does not count for a step.
+
+    A run reads the command document, not its reference. The same needle found
+    only under docs/ satisfies an obligation and must NOT satisfy a step.
+    """
+    _write_steps(tmp_path, body="Run the gate.", needles=["~/.claude/scripts/flow-finish-gate.sh"])
+    docs = tmp_path / "docs" / "reference"
+    docs.mkdir(parents=True)
+    (docs / "flow-auto-rationale.md").write_text(
+        "History: ~/.claude/scripts/flow-finish-gate.sh", encoding="utf-8"
+    )
+
+    assert [finding.kind for finding in behavior.check_tree(tmp_path)] == ["missing-step"]
+
+
+def test_a_deleted_step_fixture_is_a_finding_not_a_pass(tmp_path: Path) -> None:
+    _write_steps(tmp_path, body="Run the gate.", needles=None)
+
+    findings = behavior.check_tree(tmp_path)
+
+    assert [(f.kind, f.detail) for f in findings] == [
+        ("missing-step-fixture", f"{_STEP_DOC}: expected {behavior.COMMAND_STEP_FIXTURES[_STEP_DOC]}")
+    ]
+
+
+def test_an_empty_step_fixture_is_refused(tmp_path: Path) -> None:
+    _write_steps(tmp_path, body="Run the gate.", needles=[])
+
+    assert [finding.kind for finding in behavior.check_tree(tmp_path)] == ["invalid-fixture"]
+
+
+def test_a_named_step_retirement_is_honoured(tmp_path: Path) -> None:
+    _write_steps(
+        tmp_path,
+        body="Run the gate.",
+        needles=["~/.claude/scripts/old-helper.sh"],
+        retirements={"step-0": "old-helper.sh was removed in a later change"},
+    )
+
+    assert behavior.check_tree(tmp_path) == []
+
+
+def test_the_real_flow_auto_fixture_is_substantial_and_satisfied() -> None:
+    """The committed fixture is the pre-trim document's steps, not a token list."""
+    root = SCRIPT.parents[1]
+    steps, retirements = behavior._load_fixture(root / behavior.COMMAND_STEP_FIXTURES[_STEP_DOC])
+
+    assert len(steps) >= 300, "the pre-trim flow/auto.md held 301 recorded steps"
+    assert retirements == {}
+    assert behavior.check_command_steps(root) == []

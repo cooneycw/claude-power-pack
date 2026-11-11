@@ -25,6 +25,14 @@ source exists, and the bytes match. An altered copy, a copy in a hand-curated
 skill, a copy whose source is gone, and policy pasted into a command body are
 all still reported, and an unverifiable copy fails closed.
 
+Command documents get a STRICTER form of the same method (issue #1669). A
+command document is trimmed by moving rationale to a linked reference, and the
+risk is a step moving with it. ``COMMAND_STEP_FIXTURES`` maps a command document
+to a fixture of its executable steps captured BEFORE its trim: every command
+line, verdict marker and exit-code rule. Each must still be found in the
+document ITSELF - docs/ does not count, because a step that only the reference
+carries is a step the run never reads.
+
 Usage:
     python3 scripts/check-claude-md-behavior.py
     python3 scripts/check-claude-md-behavior.py --root DIR
@@ -42,6 +50,11 @@ from pathlib import Path
 
 FIXTURE = Path("tests/fixtures/claude-md-obligations.fixture")
 FIXTURE_VERSION = 1
+#: Command document -> the fixture of its pre-trim executable steps (#1669).
+#: Add a line when a command document is trimmed against a word budget.
+COMMAND_STEP_FIXTURES = {
+    ".claude/commands/flow/auto.md": "tests/fixtures/flow-command-steps.fixture",
+}
 NORMATIVE_TABLE_MARKER = "| Knowledge in the completed spec | Durable home |"
 LIFECYCLE_REFERENCE = "knowledge-lifecycle.md"
 LIFECYCLE_BOUNDARY_FILES = frozenset(
@@ -248,6 +261,45 @@ def _search_corpus(root: Path, claude_source: str) -> str:
     return re.sub(r"\s+", " ", "\n".join(chunks)).casefold()
 
 
+def _fold(text: str) -> str:
+    return re.sub(r"\s+", " ", text).casefold()
+
+
+def check_command_steps(root: Path) -> list[Finding]:
+    """Every pre-trim executable step is still in its command document (#1669).
+
+    A tree that has neither the document nor its fixture is not this
+    repository's layout and is not examined. Either one without the other is a
+    finding: a deleted fixture must not read as "every step preserved".
+    """
+    findings: list[Finding] = []
+    for document, fixture in COMMAND_STEP_FIXTURES.items():
+        doc_path, fixture_path = root / document, root / fixture
+        if not doc_path.is_file() and not fixture_path.is_file():
+            continue
+        if not fixture_path.is_file():
+            findings.append(Finding("missing-step-fixture", f"{document}: expected {fixture}"))
+            continue
+        if not doc_path.is_file():
+            findings.append(Finding("missing-file", document))
+            continue
+        try:
+            steps, retirements = _load_fixture(fixture_path)
+        except ValueError as exc:
+            findings.append(Finding("invalid-fixture", str(exc)))
+            continue
+        if not steps:
+            findings.append(Finding("invalid-fixture", f"{fixture}: no steps to check"))
+            continue
+        body = _fold(doc_path.read_text(encoding="utf-8"))
+        findings.extend(
+            Finding("missing-step", f"{document}: {slug}: expected step text {needle!r}")
+            for slug, needle in steps
+            if slug not in retirements and _fold(needle) not in body
+        )
+    return findings
+
+
 def check_tree(root: Path) -> list[Finding]:
     claude_path = root / "CLAUDE.md"
     if not claude_path.is_file():
@@ -287,6 +339,7 @@ def check_tree(root: Path) -> list[Finding]:
                 )
             if LIFECYCLE_REFERENCE in source and relative not in LIFECYCLE_BOUNDARY_FILES:
                 findings.append(Finding("non-boundary-lifecycle-pointer", relative))
+    findings.extend(check_command_steps(root))
     return findings
 
 
@@ -302,7 +355,10 @@ def main(argv: list[str] | None = None) -> int:
     root = args.root.resolve()
     findings = check_tree(root)
     if not findings:
-        print("claude-md-behavior: ok - obligations remain findable and lifecycle policy is local")
+        print(
+            "claude-md-behavior: ok - obligations remain findable, lifecycle policy is local, "
+            "and trimmed command documents keep their recorded steps"
+        )
         return 0
     print(f"claude-md-behavior: {len(findings)} finding(s)", file=sys.stderr)
     for finding in findings:

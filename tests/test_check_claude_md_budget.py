@@ -218,3 +218,78 @@ def test_the_caller_guard_ignores_documentation_and_sees_continuations(tmp_path:
         "a continuation must be joined into the command it belongs to, or an "
         "override simply moves to the next line"
     )
+
+
+# --- issue #1669: the same measurement over every command document ------------
+
+
+def _commands_tree(root: Path, documents: dict[str, int], table: str) -> None:
+    commands = root / budget.COMMANDS_DIR
+    for name, words in documents.items():
+        path = commands / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("word " * words, encoding="utf-8")
+    commands.mkdir(parents=True, exist_ok=True)
+    (root / budget.COMMAND_BUDGETS).write_text(table, encoding="utf-8")
+
+
+def test_commands_mode_accepts_a_document_exactly_at_its_budget(tmp_path: Path, capsys) -> None:
+    _commands_tree(tmp_path, {"flow/auto.md": 100}, "100\tflow/auto.md\n")
+
+    assert budget.main(["--commands", "--root", str(tmp_path)]) == 0
+    assert capsys.readouterr().out.strip() == (
+        "command-docs-budget: ok - 1 command documents within their declared budgets"
+    )
+
+
+def test_commands_mode_rejects_one_word_over(tmp_path: Path, capsys) -> None:
+    """The acceptance case: one word over reports the other verdict."""
+    _commands_tree(tmp_path, {"flow/auto.md": 101}, "100\tflow/auto.md\n")
+
+    assert budget.main(["--commands", "--root", str(tmp_path)]) == 1
+    assert "flow/auto.md has 101 words; budget is 100 (1 over)" in capsys.readouterr().err
+
+
+def test_commands_mode_fails_an_undeclared_document(tmp_path: Path, capsys) -> None:
+    """A new command must not arrive uncapped: no line in the table is a failure."""
+    _commands_tree(tmp_path, {"flow/auto.md": 10, "flow/new.md": 10}, "100\tflow/auto.md\n")
+
+    assert budget.main(["--commands", "--root", str(tmp_path)]) == 1
+    assert "flow/new.md has no declared budget" in capsys.readouterr().err
+
+
+def test_commands_mode_fails_when_there_is_nothing_to_examine(tmp_path: Path, capsys) -> None:
+    """Zero documents examined is not 'all within budget'."""
+    _commands_tree(tmp_path, {}, "100\tflow/auto.md\n")
+    assert not list((tmp_path / budget.COMMANDS_DIR).rglob("*.md")), "fixture must hold no document"
+
+    assert budget.main(["--commands", "--root", str(tmp_path)]) == 1
+    assert "no command documents found" in capsys.readouterr().err
+
+
+def test_commands_mode_fails_a_stale_table_entry(tmp_path: Path, capsys) -> None:
+    _commands_tree(tmp_path, {"flow/auto.md": 10}, "100\tflow/auto.md\n100\tflow/gone.md\n")
+
+    assert budget.main(["--commands", "--root", str(tmp_path)]) == 1
+    assert "flow/gone.md is declared" in capsys.readouterr().err
+
+
+def test_commands_mode_refuses_a_table_it_cannot_fully_read(tmp_path: Path, capsys) -> None:
+    """A half-read table would cap fewer documents than it appears to."""
+    for table in ("100 flow/auto.md\n", "0\tflow/auto.md\n", "100\tflow/auto.md\n90\tflow/auto.md\n"):
+        _commands_tree(tmp_path, {"flow/auto.md": 10}, table)
+        assert budget.main(["--commands", "--root", str(tmp_path)]) == 1, table
+        assert "command-word-budgets.tsv:" in capsys.readouterr().err
+
+
+def test_the_real_repo_declares_the_owner_target_for_flow_auto() -> None:
+    """Pins the number #1669 approved, so raising it is a visible, reviewed edit."""
+    root = SCRIPT.parents[1]
+    budgets = budget.load_command_budgets(root / budget.COMMAND_BUDGETS)
+    on_disk = {
+        p.relative_to(root / budget.COMMANDS_DIR).as_posix()
+        for p in (root / budget.COMMANDS_DIR).rglob("*.md")
+    }
+
+    assert budgets["flow/auto.md"] == 10_183
+    assert on_disk and on_disk == set(budgets), "every command document is declared, and nothing else"

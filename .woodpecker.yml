@@ -393,6 +393,16 @@ steps:
     commands:
       - python3 scripts/check-claude-md-budget.py AGENTS.md
 
+  # Every command document stays inside its declared word budget (#1669). Reads
+  # .claude/commands and the budget table only - no git, no network. Shown RED
+  # locally on the untrimmed flow/auto.md (20924 words against 10183) before the
+  # trim landed, and its committed red case is controls/command-docs-budget.
+  command-docs-budget-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/check-claude-md-budget.py --commands
+
   # Is every host write in /cpp:init and /cpp:update still through the seam? (#1132)
   #
   # IN CI ON ARRIVAL, not filed for later: #1146 recorded ten `make verify`

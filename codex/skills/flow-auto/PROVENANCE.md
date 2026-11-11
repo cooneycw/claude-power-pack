@@ -13,13 +13,13 @@ Every file below is a byte-identical copy of its canonical source in the claude-
 - `docs/decisions/0007-counter-model-review.md`
 - `docs/decisions/0008-instrument-negative-control-bound.md`
 - `docs/decisions/0009-oscillation-control.md`
+- `docs/reference/flow-auto-rationale.md`
 - `lib/vendor.py`
 - `scripts/check-ignored-additions.sh`
 - `scripts/codex-skill-resync.sh`
 - `scripts/codex-skill-sync.py`
 - `scripts/coordination-admission.sh`
 - `scripts/counter-model-receipt.py`
-- `scripts/counter-model-reviewer-attribution.py`
 - `scripts/eli5-vendor.py`
 - `scripts/flow-ci-status.sh`
 - `scripts/flow-driver-capability.sh`
@@ -35,7 +35,6 @@ Every file below is a byte-identical copy of its canonical source in the claude-
 - `scripts/friction-log.sh`
 - `scripts/gate-lib.sh`
 - `scripts/gh-pr-merge.sh`
-- `scripts/hook-permission-census.sh`
 - `scripts/nit-store-resolve.sh`
 - `scripts/speckit-context.py`
 - `scripts/stash-worktree-guard.sh`
