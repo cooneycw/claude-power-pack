@@ -537,9 +537,9 @@ Branch pushed: issue-42-fix-login → origin
 PR created: https://github.com/owner/repo/pull/78
   Title: fix(auth): Resolve login redirect loop (Closes #42)
 
-Supplemental findings: 1 stored in the nit store (#864)
+Supplemental findings: 1 stored in the nit store (#77)
   - scripts/deploy.sh:42 unquoted $PATH expansion
-    https://github.com/owner/repo/issues/864#issuecomment-123456789
+    https://github.com/owner/repo/issues/77#issuecomment-123456789
 ```
 
 ## Closing report

@@ -1,7 +1,7 @@
 """Pin: the closing lifecycle surfaces route a supplemental finding to the nit store (issue #865).
 
-The nit stores exist (kyle #1004, claude-power-pack #864, skillc #20; the map now
-lives once, in scripts/nit-store-resolve.sh - #1272/#1273),
+The nit stores exist (kyle #1004, skillc #20, and claude-power-pack's, found by search since #1673;
+the map now lives once, in scripts/nit-store-resolve.sh - #1272/#1273),
 but before #865 no command document told a worker to use one. A finding noticed
 while closing an issue had nowhere to go: too small to widen the change for, too
 real to drop, and by the time the PR merged it had scrolled out of context. It was
@@ -348,13 +348,25 @@ def test_resolver_matches_from_a_per_issue_worktree(tmp_path: Path, surface: Pat
     every invocation - must stay dead now the map lives in the resolver.
     """
     code, output, calls = _run_resolver(
-        tmp_path, surface, origin="https://github.com/cooneycw/claude-power-pack.git",
-        issues={"864": OPEN_STORE},
+        tmp_path, surface, origin="https://github.com/cooneycw/kyle.git",
+        issues={"1004": OPEN_STORE},
     )
-    assert code == 0 and "NIT_STORE=864" in output, output
+    assert code == 0 and "NIT_STORE=1004" in output, output
     assert not [c for c in calls if c[:2] == ["issue", "list"]], (
         f"fell through to the search despite a known remote: {calls}"
     )
+
+
+@requires_shell
+@pytest.mark.parametrize("surface", SURFACES, ids=lambda p: p.name)
+def test_this_repository_resolves_to_a_rolled_over_store(tmp_path: Path, surface: Path) -> None:
+    """Issue #1673: claude-power-pack's store rolls over monthly, so the published
+    block must reach a successor whose number is written nowhere - with #864 closed."""
+    code, output, _ = _run_resolver(
+        tmp_path, surface, origin="https://github.com/cooneycw/claude-power-pack.git",
+        issues={"864": {"state": "CLOSED", "title": "Nit Store"}, "1700": OPEN_STORE},
+    )
+    assert code == 0 and "NIT_STORE=1700" in output and "NIT_STORE=864" not in output, output
 
 
 @requires_shell
@@ -380,10 +392,10 @@ def test_resolver_refuses_to_answer_without_a_repository(tmp_path: Path, surface
 def test_a_closed_mapped_store_is_never_answered(tmp_path: Path, surface: Path) -> None:
     """The #227 shape (#1273): the map pointed at a CLOSED issue and nothing checked."""
     code, output, _ = _run_resolver(
-        tmp_path, surface, origin="https://github.com/cooneycw/claude-power-pack.git",
-        issues={"864": {"state": "CLOSED", "title": "Nit Store"}},
+        tmp_path, surface, origin="https://github.com/cooneycw/kyle.git",
+        issues={"1004": {"state": "CLOSED", "title": "Nit Store"}},
     )
-    assert code == 1 and "NIT_STORE=864" not in output and "normal issue" in output, output
+    assert code == 1 and "NIT_STORE=1004" not in output and "normal issue" in output, output
 
 
 @requires_shell

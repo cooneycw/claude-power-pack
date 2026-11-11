@@ -4,6 +4,13 @@
 
 ### Behaviour changes you may notice
 
+- **This repository's Nit Store is found by title, not by number.**
+  `nit-store-resolve.sh` no longer maps claude-power-pack to #864; it answers
+  the one open issue titled exactly `Nit Store`, so the store can roll over
+  monthly with no code change (`docs/agents/nit-store-rollover.md`). Two open
+  stores answer `unknown` and nothing is posted. `maintain-loop-indicator.py
+  --capture` reads the resolved store; pass `--nit-store 864` to read the old
+  one (#1673).
 - **Upgrading across 10.2.0: record your CI provider before the next merge.**
   Since 10.2.0 `gh-pr-merge.sh` (exit 13) and `flow-ci-status.sh` (exit 2) stop
   when a project has no `pipeline.providers` in `.claude/cicd.yml`. Record it

@@ -72,9 +72,11 @@ echo "NIT_STORE_REPO=$REPO"
 # THE MAP - the only copy. Add a repository here, not in a command document.
 # Keyed on OWNER/NAME: a fork or a same-named repository under another owner is
 # a different repository, and must be searched, not handed its namesake's number.
+# cooneycw/claude-power-pack is deliberately NOT mapped (issue #1673): its Nit
+# Store rolls over monthly, so a number written here would go stale at every
+# rollover. It is found by the exact-title search below, like any unmapped repo.
 case "$REPO" in
     cooneycw/kyle)              MAPPED=1004 ;;
-    cooneycw/claude-power-pack) MAPPED=864 ;;
     cooneycw/skillc)            MAPPED=20 ;;
     *)                          MAPPED="" ;;
 esac
@@ -115,6 +117,26 @@ found=$(printf '%s\n' "$listing" | grep -v '^TOTAL ' || true)
 count=$(printf '%s\n' "$found" | grep -c '^[0-9][0-9]*$' || true)
 case "$count" in
     0) none "$REPO has no open issue titled 'Nit Store'" ;;
-    1) echo "NIT_STORE=$found"; echo "NIT_STORE_STATUS: ok"; exit 0 ;;
+    1) ;;
     *) unknown "$REPO has $count open issues titled 'Nit Store'; which one is not decidable here" ;;
 esac
+
+# THE SEARCH IS AN INDEX, AND AN INDEX LAGS (issue #1673, counter-model review).
+# Just after a rollover the listing can still return the predecessor as "open"
+# although it has been closed, and the mapped branch's direct read - the check
+# this whole script exists for - was never applied to a searched number. So the
+# one candidate is read directly, exactly as a mapped number is, before it is
+# answered. A stale candidate is `none`: GitHub was asked and this is not an
+# open Nit Store, so the finding is filed as a normal issue rather than posted
+# into a closed inbox.
+if ! got=$(gh issue view "$found" --repo "$REPO" --json state,title \
+             --jq '.state + "\t" + .title' 2>/dev/null); then
+    unknown "gh could not read $REPO#$found"
+fi
+state=${got%%$'\t'*}
+title=${got#*$'\t'}
+[ "$state" = "OPEN" ] || none "the search returned $REPO#$found, which is $state, not OPEN (a search index can lag a rollover)"
+[ "$title" = "Nit Store" ] || none "the search returned $REPO#$found, which is titled '$title', not 'Nit Store'"
+echo "NIT_STORE=$found"
+echo "NIT_STORE_STATUS: ok"
+exit 0
