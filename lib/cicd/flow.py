@@ -258,9 +258,11 @@ def status_main(script: str, argv: list[str]) -> int:
                     report.pop("FLOW_CI_RETRYABLE", None)
             except (OSError, ValueError, ImportError, AttributeError, subprocess.SubprocessError):
                 report, state = {}, "unknown"
-            if state != "unknown":
+            # A validated "found it, could not read it yet" IS an answer: the
+            # lane reached its provider (counter-model review, pass 2).
+            if state != "unknown" or report.get("FLOW_CI_RETRYABLE"):
                 answered.add(name)
-            elif name in answered or report.get("FLOW_CI_RETRYABLE"):
+            if state == "unknown" and name in answered:
                 retry_lanes.add(name)
             reports.append((name, state, report))
         verdict = aggregate([state for _, state, _ in reports])

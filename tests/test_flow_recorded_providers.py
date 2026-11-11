@@ -519,3 +519,12 @@ def test_recorded_woodpecker_cli_wait_survives_a_failed_relisting(tmp_path: Path
     assert counter.read_text().strip() == "3", out
     assert code == 0, out
     assert "FLOW_CI_STATUS: success" in out and "FLOW_CI_WAIT: settled" in out
+
+
+def test_wait_polls_through_unreadable_then_a_failed_listing(tmp_path: Path, monkeypatch, capsys):
+    """Counter-model review pass 2: unreadable, then a bare unknown, then green."""
+    flow, calls = _recorded_backend(tmp_path, monkeypatch, [
+        UNREADABLE, "FLOW_CI_STATUS: unknown\n", "FLOW_CI_STATUS: success\n"])
+    assert flow.status_main("owned-backend", [SHA, "--path", str(tmp_path), "--wait", "30"]) == 0
+    assert len(calls) == 3
+    assert "FLOW_CI_STATUS: success" in capsys.readouterr().out
