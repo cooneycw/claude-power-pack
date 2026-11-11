@@ -11,8 +11,6 @@ Worktrees are visible siblings created outside the repo on the git lane (issue
 #627: `<parent>/<repo>-<branch>`, or `$FLOW_WORKTREE_BASE` when set). `git
 worktree list`, `git worktree prune`, and `git worktree remove` operate on them
 exactly as they do on any worktree, so this command is the correct cleanup path.
-The native `EnterWorktree`/`ExitWorktree` lane is retired (#440 superseded), so
-there is no native worktree state to reconcile here.
 
 ## Arguments
 
@@ -84,8 +82,7 @@ everywhere at once. If a refusal is wrong, that is the user's call on that one
 path, not this command's.
 
 A worktree with **no PR is always skipped** - a preserved WIP branch and a
-wayfinder research branch both look like that permanently, and both were live on
-the measured host.
+wayfinder research branch both look like that permanently.
 
 Who owns teardown and why it is a sweep rather than the merging session:
 [ADR 0006](../../../docs/decisions/0006-worktree-teardown-ownership.md).
@@ -138,6 +135,17 @@ show as `--merged`, so force-delete only a branch whose CURRENT tip is proven la
 
 ```bash
 REPO=$(git -C "$MAIN_REPO" remote get-url origin | sed -E 's#^(git@|https://)github\.com[:/]##; s#\.git$##')
+# Delete ONLY the proven commit: update-ref fails if the branch moved since.
+delete_proven() {
+    if git -C "$MAIN_REPO" worktree list --porcelain | grep -qx "branch refs/heads/$1"; then
+        echo "KEPT: $1 (checked out in a worktree)"
+    elif git -C "$MAIN_REPO" update-ref -d "refs/heads/$1" "$2" 2>/dev/null; then
+        git -C "$MAIN_REPO" config --remove-section "branch.$1" 2>/dev/null || true
+        echo "DELETED: $1 ($3)"
+    else
+        echo "KEPT: $1 (tip changed during cleanup)"
+    fi
+}
 for branch in $(git -C "$MAIN_REPO" branch --format='%(refname:short)' --list 'issue-*'); do
     echo "$WORKTREE_BRANCHES" | grep -qx "$branch" && continue
     REMOTE=$(git -C "$MAIN_REPO" config "branch.${branch}.remote" 2>/dev/null || echo "")
@@ -147,14 +155,13 @@ for branch in $(git -C "$MAIN_REPO" branch --format='%(refname:short)' --list 'i
     TIP=$(git -C "$MAIN_REPO" rev-parse "refs/heads/$branch")
     # Proof 1: the merge helper recorded this commit as landed (#916).
     if [[ "$(git -C "$MAIN_REPO" config "branch.${branch}.cpp-merged-head" 2>/dev/null)" == "$TIP" ]]; then
-        echo "DELETE: $branch (landed: merge-helper record)"; continue
+        delete_proven "$branch" "$TIP" "landed: merge-helper record"; continue
     fi
-    # Proof 2: a MERGED PR here whose head is this commit.
     PRS=$(gh pr list -R "$REPO" --head "$branch" --state merged --json headRefOid 2>/dev/null) || PRS=""
     if ! printf '%s' "$PRS" | jq -e 'type == "array"' >/dev/null 2>&1; then
         echo "KEPT: $branch (could not ask GitHub)"
     elif printf '%s' "$PRS" | jq -e --arg t "$TIP" 'any(.[]; .headRefOid == $t)' >/dev/null; then
-        echo "DELETE: $branch (landed: merged PR head)"
+        delete_proven "$branch" "$TIP" "landed: merged PR head"
     elif printf '%s' "$PRS" | jq -e 'length > 0' >/dev/null; then
         echo "KEPT: $branch (tip differs from merged head)"
     else
@@ -163,9 +170,9 @@ for branch in $(git -C "$MAIN_REPO" branch --format='%(refname:short)' --list 'i
 done
 ```
 
-Run `git -C "$MAIN_REPO" branch -D` on `DELETE:` branches only. Never delete a
-`KEPT:` branch: a failed, empty or unreadable answer is unknown, not "no PR".
-Report each deleted branch with its proof and each kept branch with its reason.
+Never delete a `KEPT:` branch by hand: a failed, empty or unreadable answer is
+unknown, not "no PR". Report each `DELETED:` branch with its proof and each kept
+branch with its reason.
 
 ### Step 5: Prune Stale Remote Tracking Branches
 
@@ -179,9 +186,7 @@ This removes `remotes/origin/issue-*` references for branches already deleted on
 `refs/remotes/origin/<branch>`, and that ref is what `git log @{u}..` needs to
 answer "is anything unpushed here". The sweep carries a second, independent
 answer for that question (the PR's own head commit, which survives the prune), so
-running it after a prune still works - but it then has one signal where it could
-have had two, and #888's lesson was precisely that two guards sharing one input
-degrade to one.
+a later run still works, on one signal where it could have had two.
 
 Report how many remote tracking branches were pruned.
 
@@ -329,7 +334,7 @@ draft PRs for a historical backlog; report the missing handoff instead.
   passes `--force`. Step 6 removes wave state only after a verified archive and
   the user's per-wave selection. Other steps remove references and branches.
 - Only deletes `issue-*` pattern branches in the squash-merge detection path (other branches require `--merged` confirmation)
-- Use `git branch -d` (safe delete) for merged branches, `git branch -D` (force) only for a `DELETE:` branch from Step 4
+- Use `git branch -d` (safe delete) for merged branches, never `git branch -D`: Step 4 deletes a proven tip itself
 - Run automatically after `/flow:merge` or manually anytime
 - Normal cleanup needs network access for `git fetch --prune`; a deliberate
   preserved-WIP handoff also needs GitHub publication and readback.

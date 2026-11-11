@@ -43,6 +43,8 @@ while [ $# -gt 0 ]; do
 done
 answer="$GH_STUB_DIR/$head"
 [ -f "$answer.fail" ] && exit 1
+# A neighbour session commits to the branch while cleanup is classifying it.
+[ -f "$answer.advance" ] && git -C "$GH_STUB_REPO" update-ref "refs/heads/$head" "$(cat "$answer.advance")"
 [ -f "$answer" ] && cat "$answer"
 exit 0
 """
@@ -96,14 +98,20 @@ def scratch(tmp_path: Path):
         env = dict(os.environ)
         env["PATH"] = str(stub_dir) + os.pathsep + env["PATH"]
         env["GH_STUB_DIR"] = str(stub_dir)
+        env["GH_STUB_REPO"] = str(repo)
         script = f'MAIN_REPO={json.dumps(str(repo))}\nWORKTREE_BRANCHES=""\n{step4_block()}'
         proc = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, check=False)
         assert proc.returncode == 0, proc.stderr
         verdicts = {}
         for line in proc.stdout.splitlines():
-            match = re.match(r"(DELETE|KEPT): (\S+) \((.*)\)$", line)
+            match = re.match(r"(DELETED|KEPT): (\S+) \((.*)\)$", line)
             assert match, f"unexpected output line: {line!r}"
             verdicts[match.group(2)] = f"{match.group(1)}: {match.group(3)}"
+            # the verdict must be what actually happened to the ref
+            exists = subprocess.run(
+                [*GIT, "show-ref", "--verify", "--quiet", f"refs/heads/{match.group(2)}"], cwd=repo, check=False
+            ).returncode == 0
+            assert exists == (match.group(1) == "KEPT"), f"{line!r} but branch exists={exists}"
         return verdicts
 
     return repo, stub_dir, branch, run
@@ -113,7 +121,7 @@ def test_a_branch_the_merge_helper_recorded_as_landed_is_deleted(scratch):
     repo, stub_dir, branch, run = scratch
     tip = branch("issue-1-recorded")
     _git(repo, "config", "branch.issue-1-recorded.cpp-merged-head", tip)
-    assert run() == {"issue-1-recorded": "DELETE: landed: merge-helper record"}
+    assert run() == {"issue-1-recorded": "DELETED: landed: merge-helper record"}
     assert not (stub_dir / "calls.log").exists(), "the offline record needs no GitHub call"
 
 
@@ -121,7 +129,7 @@ def test_a_branch_whose_tip_is_a_merged_pr_head_is_deleted(scratch):
     repo, stub_dir, branch, run = scratch
     tip = branch("issue-2-merged")
     (stub_dir / "issue-2-merged").write_text(json.dumps([{"headRefOid": tip}]), encoding="utf-8")
-    assert run() == {"issue-2-merged": "DELETE: landed: merged PR head"}
+    assert run() == {"issue-2-merged": "DELETED: landed: merged PR head"}
     calls = (stub_dir / "calls.log").read_text(encoding="utf-8")
     assert "-R acme/widget" in calls, f"the query must name MAIN_REPO's repository: {calls!r}"
     assert "--state merged" in calls
@@ -148,6 +156,33 @@ def test_a_tip_past_the_merged_head_is_kept(scratch):
     _git(repo, "checkout", "-q", "main")
     (stub_dir / "issue-4-moved").write_text(json.dumps([{"headRefOid": merged_tip}]), encoding="utf-8")
     assert run() == {"issue-4-moved": "KEPT: tip differs from merged head"}
+
+
+def test_a_branch_that_moves_after_it_was_proven_is_kept(scratch):
+    """The deletion is bound to the PROVEN commit, not to the branch name. A
+    neighbour session commits to the branch between the proof and the delete;
+    deleting by name would destroy that new commit (counter-model review)."""
+    repo, stub_dir, branch, run = scratch
+    proven = branch("issue-7-raced")
+    _git(repo, "checkout", "-q", "issue-7-raced")
+    (repo / "neighbour.txt").write_text("new work\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "neighbour")
+    newer = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "checkout", "-q", "main")
+    _git(repo, "update-ref", "refs/heads/issue-7-raced", proven)  # as cleanup first sees it
+    (stub_dir / "issue-7-raced").write_text(json.dumps([{"headRefOid": proven}]), encoding="utf-8")
+    (stub_dir / "issue-7-raced.advance").write_text(newer, encoding="utf-8")
+    assert run() == {"issue-7-raced": "KEPT: tip changed during cleanup"}
+    assert _git(repo, "rev-parse", "refs/heads/issue-7-raced") == newer
+
+
+def test_a_proven_branch_checked_out_in_a_worktree_is_kept(scratch, tmp_path):
+    repo, stub_dir, branch, run = scratch
+    tip = branch("issue-8-checked-out")
+    _git(repo, "config", "branch.issue-8-checked-out.cpp-merged-head", tip)
+    _git(repo, "worktree", "add", "-q", str(tmp_path / "wt"), "issue-8-checked-out")
+    assert run() == {"issue-8-checked-out": "KEPT: checked out in a worktree"}
 
 
 @pytest.mark.parametrize(
@@ -180,6 +215,7 @@ def test_no_sentence_gives_a_gone_remote_as_sufficient_reason():
     text = DOC.read_text(encoding="utf-8")
     for phrase in (
         "Remote deleted:",
+        "branch -D` on",
         "safe to delete locally",
         "only for branches whose remote was deleted",
         "remote branch deleted - squash-merged PR",
