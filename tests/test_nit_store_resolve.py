@@ -82,27 +82,30 @@ def _run(tmp_path: Path, issues: dict, *args: str, fail: bool = False,
 
 OPEN_STORE = {"state": "OPEN", "title": "Nit Store"}
 CPP, CXPP, OTHER = "cooneycw/claude-power-pack", "cooneycw/codex-power-pack", "someone/other"
+# A repository the resolver still MAPS. claude-power-pack left the map in #1673
+# (its store rolls over monthly), so the map-path cases run against kyle.
+KYLE = "cooneycw/kyle"
 
 
 def test_a_mapped_open_nit_store_is_the_answer(tmp_path: Path) -> None:
-    rc, out = _run(tmp_path, {CPP: {"864": OPEN_STORE}}, "--repo", CPP)
-    assert rc == 0 and "NIT_STORE=864" in out and "NIT_STORE_SOURCE=map" in out, out
+    rc, out = _run(tmp_path, {KYLE: {"1004": OPEN_STORE}}, "--repo", KYLE)
+    assert rc == 0 and "NIT_STORE=1004" in out and "NIT_STORE_SOURCE=map" in out, out
 
 
 def test_a_closed_mapped_target_is_none_never_the_number(tmp_path: Path) -> None:
     """The #227 shape: the map named an issue that had been CLOSED."""
-    rc, out = _run(tmp_path, {CPP: {"864": {"state": "CLOSED", "title": "Nit Store"}}}, "--repo", CPP)
+    rc, out = _run(tmp_path, {KYLE: {"1004": {"state": "CLOSED", "title": "Nit Store"}}}, "--repo", KYLE)
     assert rc == 1 and "NIT_STORE_STATUS: none" in out and "normal issue" in out, out
-    assert "NIT_STORE=864" not in out
+    assert "NIT_STORE=1004" not in out
 
 
 def test_a_retitled_mapped_target_is_refused(tmp_path: Path) -> None:
-    rc, out = _run(tmp_path, {CPP: {"864": {"state": "OPEN", "title": "Release checklist"}}}, "--repo", CPP)
-    assert rc == 1 and "not 'Nit Store'" in out and "NIT_STORE=864" not in out, out
+    rc, out = _run(tmp_path, {KYLE: {"1004": {"state": "OPEN", "title": "Release checklist"}}}, "--repo", KYLE)
+    assert rc == 1 and "not 'Nit Store'" in out and "NIT_STORE=1004" not in out, out
 
 
 def test_an_unreadable_mapped_target_is_unknown_not_none(tmp_path: Path) -> None:
-    rc, out = _run(tmp_path, {CPP: {"864": OPEN_STORE}}, "--repo", CPP, fail=True)
+    rc, out = _run(tmp_path, {KYLE: {"1004": OPEN_STORE}}, "--repo", KYLE, fail=True)
     assert rc == 3 and "NIT_STORE_STATUS: unknown" in out and "NIT_STORE=" not in out.replace(
         "NIT_STORE_REPO=", ""), out
 
@@ -194,3 +197,32 @@ def test_an_origin_that_is_not_github_is_unknown(tmp_path: Path, url: str) -> No
     subprocess.run(["git", "-C", str(wt), "remote", "add", "origin", url], check=True)
     rc, out = _run(tmp_path, {CPP: {"864": OPEN_STORE}}, cwd=wt)
     assert rc == 3 and "not a github.com remote" in out and "NIT_STORE=864" not in out, out
+
+
+# --- claude-power-pack resolves by search, across a rollover (issue #1673) ---
+
+def test_cpp_is_found_by_search_not_by_a_hard_coded_number(tmp_path: Path) -> None:
+    """The successor store has a number nobody wrote down anywhere."""
+    rc, out = _run(tmp_path, {CPP: {"1700": OPEN_STORE}}, "--repo", CPP)
+    assert rc == 0 and "NIT_STORE=1700" in out and "NIT_STORE_SOURCE=search" in out, out
+
+
+def test_after_a_rollover_the_successor_is_the_answer_not_864(tmp_path: Path) -> None:
+    """#864 CLOSED and a successor OPEN. The mapped resolver answered `none`
+    here (it read #864, found it closed, and never looked further), so every
+    finding after a rollover would have been filed as a normal issue."""
+    rc, out = _run(tmp_path, {CPP: {"864": {"state": "CLOSED", "title": "Nit Store"},
+                                   "1700": OPEN_STORE}}, "--repo", CPP)
+    assert rc == 0 and "NIT_STORE=1700" in out and "NIT_STORE=864" not in out, out
+
+
+def test_mid_rollover_with_both_stores_open_is_unknown(tmp_path: Path) -> None:
+    """Successor opened before #864 was closed: which one is not decidable, so
+    nothing is posted. The rollover procedure closes the old store FIRST."""
+    rc, out = _run(tmp_path, {CPP: {"864": OPEN_STORE, "1700": OPEN_STORE}}, "--repo", CPP)
+    assert rc == 3 and "2 open issues" in out and "NIT_STORE=864" not in out, out
+
+
+def test_between_close_and_reopen_cpp_has_no_store(tmp_path: Path) -> None:
+    rc, out = _run(tmp_path, {CPP: {"864": {"state": "CLOSED", "title": "Nit Store"}}}, "--repo", CPP)
+    assert rc == 1 and "NIT_STORE_STATUS: none" in out and "normal issue" in out, out

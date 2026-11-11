@@ -397,3 +397,96 @@ def test_dated_friction_records_are_in_the_window(tmp_path: Path, capsys) -> Non
     _, out, _ = _run(path, capsys)
     assert "window 2026-09-01..2026-09-20" in out, out
     assert "3 active day(s)" in out, out
+
+
+# --------------------------------------------------------------------------- #
+# Which issue is the Nit Store is RESOLVED, never a constant (issue #1673).
+#
+# The store rolls over monthly. This file's subject held `NIT_STORE = 864`, so
+# after a rollover `--capture` would have kept reading the closed predecessor:
+# a capture that parses, looks like an observation, and has stopped growing.
+# Red on the pre-#1673 script: it has no `resolve_nit_store`, `capture` takes no
+# store, and `main` refuses `--nit-store`.
+
+
+def _record_gh(monkeypatch) -> list[list[str]]:
+    """Replace the GitHub reader with one that records and answers 'unreadable'."""
+    calls: list[list[str]] = []
+
+    def fake(args: list[str]):
+        calls.append(args)
+        return None
+
+    monkeypatch.setattr(indicator, "_gh", fake)
+    return calls
+
+
+def test_capture_reads_the_resolved_store_not_864(tmp_path: Path, monkeypatch, capsys) -> None:
+    calls = _record_gh(monkeypatch)
+    monkeypatch.setattr(indicator, "resolve_nit_store", lambda: (1700, ""))
+    indicator.main(["--capture", str(tmp_path / "c.json"), "--root", str(tmp_path)])
+    capsys.readouterr()
+    endpoints = [a for call in calls for a in call if "/comments" in a]
+    assert endpoints and all(e.endswith("/issues/1700/comments") for e in endpoints), calls
+
+
+def test_capture_without_a_resolvable_store_is_unknown_and_reads_nothing(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """Mid-rollover (two open stores) the resolver says unknown. Falling back to
+    a remembered number here is exactly the stale read this change removes."""
+    calls = _record_gh(monkeypatch)
+    monkeypatch.setattr(indicator, "resolve_nit_store",
+                        lambda: (None, "unknown - 2 open issues titled 'Nit Store'"))
+    dest = tmp_path / "c.json"
+    code = indicator.main(["--capture", str(dest), "--root", str(tmp_path)])
+    err = capsys.readouterr().err
+    assert code == indicator.UNKNOWN_EXIT and "UNKNOWN" in err and "2 open issues" in err, err
+    assert not dest.exists() and calls == [], calls
+
+
+def test_a_named_store_is_read_without_asking_the_resolver(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """How a CLOSED predecessor's history stays readable after a rollover."""
+    calls = _record_gh(monkeypatch)
+
+    def never() -> tuple[int | None, str]:
+        raise AssertionError("the resolver was consulted despite --nit-store")
+
+    monkeypatch.setattr(indicator, "resolve_nit_store", never)
+    indicator.main(["--capture", str(tmp_path / "c.json"), "--root", str(tmp_path),
+                    "--nit-store", "864"])
+    capsys.readouterr()
+    assert any(a.endswith("/issues/864/comments") for call in calls for a in call), calls
+
+
+def test_resolve_nit_store_drives_the_real_resolver_across_a_rollover(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The real resolver behind a stub `gh`: #864 closed, a successor open."""
+    import shutil
+
+    if shutil.which("bash") is None:
+        pytest.skip("bash is required")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    gh = bindir / "gh"
+    gh.write_text(
+        "#!/usr/bin/env bash\n"
+        'case "$1 $2" in\n'
+        '  "issue list") printf "TOTAL %s\\n" "${STUB_TOTAL}"; printf "%s" "${STUB_FOUND}" ;;\n'
+        "  *) exit 1 ;;\n"
+        "esac\n"
+    )
+    gh.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bindir}:{__import__('os').environ['PATH']}")
+
+    monkeypatch.setenv("STUB_TOTAL", "1")
+    monkeypatch.setenv("STUB_FOUND", "1700\n")
+    assert indicator.resolve_nit_store() == (1700, "")
+
+    monkeypatch.setenv("STUB_TOTAL", "2")
+    monkeypatch.setenv("STUB_FOUND", "864\n1700\n")
+    number, why = indicator.resolve_nit_store()
+    assert number is None and why.startswith("unknown") and "2 open issues" in why, why

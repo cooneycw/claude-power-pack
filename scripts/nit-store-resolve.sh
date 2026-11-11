@@ -72,9 +72,11 @@ echo "NIT_STORE_REPO=$REPO"
 # THE MAP - the only copy. Add a repository here, not in a command document.
 # Keyed on OWNER/NAME: a fork or a same-named repository under another owner is
 # a different repository, and must be searched, not handed its namesake's number.
+# cooneycw/claude-power-pack is deliberately NOT mapped (issue #1673): its Nit
+# Store rolls over monthly, so a number written here would go stale at every
+# rollover. It is found by the exact-title search below, like any unmapped repo.
 case "$REPO" in
     cooneycw/kyle)              MAPPED=1004 ;;
-    cooneycw/claude-power-pack) MAPPED=864 ;;
     cooneycw/skillc)            MAPPED=20 ;;
     *)                          MAPPED="" ;;
 esac
