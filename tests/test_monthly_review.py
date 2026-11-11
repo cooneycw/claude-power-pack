@@ -347,3 +347,58 @@ def test_a_failed_issue_create_is_refused_not_reported_created(monkeypatch, caps
     runner = Runner({**QUIET, "--state all": _listing(), "label create": (0, "")})
     code, out = _main(monkeypatch, runner, "create", capsys=capsys)
     assert code == helper.UNKNOWN_EXIT and "refused" in out and "CREATE: created" not in out
+
+
+# --------------------------------------------------------------------------- #
+# Counter-model review, pass 2 (issue #1703)
+
+
+def test_every_scan_read_targets_the_repository_the_resolver_named() -> None:
+    """A fork checkout: the store was resolved in the fork, and `gh` would default
+    to upstream. Reading #77 by number alone read an unrelated upstream issue."""
+    resolver = (0, "NIT_STORE_REPO=someone/fork\nNIT_STORE=77\nNIT_STORE_STATUS: ok\n")
+    comments = json.dumps({"comments": [{}], "createdAt": "2026-12-01T00:00:00Z"})
+    runner = Runner({"nit-store-resolve": resolver, "issue view 77 --repo someone/fork": (0, comments),
+                     "issue list --repo someone/fork": (0, "[]")})
+    repo = mr.resolved_repo(resolver[1])
+    items = mr.scan(runner, RESOLVER, None, TODAY, None, repo)
+    assert repo == "someone/fork"
+    gh_calls = [c for c in runner.calls if c[0] == "gh"]
+    assert gh_calls and all("someone/fork" in c for c in gh_calls), gh_calls
+    assert [i.state for i in items if i.source == "nit-store"] == ["due"]
+
+
+def test_a_review_created_during_the_scan_is_not_duplicated(monkeypatch, capsys) -> None:
+    """The state was read once, BEFORE a scan that takes a while. A review another
+    session opened meanwhile was invisible, and this run wrote a second one."""
+
+    class Racing(Runner):
+        listings = 0
+
+        def __call__(self, command):
+            if "--state" in command and "all" in command:
+                Racing.listings += 1
+                self.calls.append(list(command))
+                return _listing() if Racing.listings == 1 else _listing(_review(41, "2026-12"))
+            return super().__call__(command)
+
+    runner = Racing({**QUIET, "label create": (0, ""), "issue create": (0, "https://github.com/o/r/issues/99\n")})
+    code, out = _main(monkeypatch, runner, "create", capsys=capsys)
+    assert Racing.listings == 2, "the state must be re-read after the scan"
+    assert code == 0 and "MONTHLY_REVIEW_CREATE: exists #41" in out, out
+    assert not [c for c in runner.calls if c[:3] == ["gh", "issue", "create"]], runner.calls
+
+
+def test_a_run_from_a_subdirectory_reads_the_repositorys_budget(tmp_path: Path, monkeypatch, capsys) -> None:
+    """From `scripts/` the budget file was looked for under `scripts/.claude` and
+    its absence reported as 'this repository declares no ... budget'."""
+    root = _budget_repo(tmp_path, "1\tx/a.md\n", {"x/a.md": "one two three"})
+    nested = root / "scripts"
+    nested.mkdir()
+    assert not (nested / ".claude").exists()  # precondition: nothing to find from the subdirectory
+    runner = Runner({**{k: v for k, v in QUIET.items() if k != "rev-parse"},
+                     "--show-toplevel": (0, str(root) + "\n"), "--git-common-dir": (1, "")})
+    monkeypatch.setattr(helper, "make_runner", lambda r: runner)
+    assert helper.main(["--today", TODAY.isoformat(), "--root", str(nested), "scan"]) == 0
+    out = capsys.readouterr().out
+    assert "over their word budget: x/a.md (3 > 1)" in out and "declares no" not in out, out

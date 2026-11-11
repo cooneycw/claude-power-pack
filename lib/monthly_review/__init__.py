@@ -213,10 +213,27 @@ def _json_list(runner: Runner, command: Sequence[str]) -> tuple[list[dict[str, o
     return rows, ""
 
 
+def repo_args(repo: str | None) -> list[str]:
+    """`--repo OWNER/NAME` when the repository is known, else gh's own default."""
+    return ["--repo", repo] if repo else []
+
+
+def resolved_repo(resolver_output: str) -> str | None:
+    """The repository the resolver worked out from `origin` (None if it could not).
+
+    EVERY read in a scan targets this one repository. In a fork checkout `gh`
+    can default to the upstream, so a store resolved in the fork and then read
+    by number alone would be some unrelated upstream issue of the same number.
+    """
+    found = re.search(r"^NIT_STORE_REPO=(\S+/\S+)$", resolver_output or "", re.M)
+    return found.group(1) if found else None
+
+
 def scan_nit_store(runner: Runner, resolver: Path, today: date) -> tuple[list[Item], int | None]:
     """The Nit Store's line, and its number so the evergreen scan can skip it."""
     source = "nit-store"
     code, out = runner(["bash", str(resolver)])
+    repo = resolved_repo(out)
     status = re.search(r"^NIT_STORE_STATUS: (\w+)(?: - (.*))?$", out or "", re.M)
     number = re.search(r"^NIT_STORE=(\d+)$", out or "", re.M)
     if status is None:
@@ -226,7 +243,7 @@ def scan_nit_store(runner: Runner, resolver: Path, today: date) -> tuple[list[It
     if status.group(1) != "ok" or number is None:
         return [Item(source, "unread", f"the Nit Store could not be resolved ({status.group(2) or status.group(1)})")], None
     store = int(number.group(1))
-    code, out = runner(["gh", "issue", "view", str(store), "--json", "comments,createdAt"])
+    code, out = runner(["gh", "issue", "view", str(store), *repo_args(repo), "--json", "comments,createdAt"])
     try:
         data = json.loads(out) if code == 0 else None
         comments = len(data["comments"])
@@ -248,11 +265,11 @@ def scan_nit_store(runner: Runner, resolver: Path, today: date) -> tuple[list[It
     ], store
 
 
-def scan_evergreen(runner: Runner, skip: int | None) -> list[Item]:
+def scan_evergreen(runner: Runner, skip: int | None, repo: str | None = None) -> list[Item]:
     source = "evergreen"
     rows, why = _json_list(
         runner,
-        ["gh", "issue", "list", "--state", "open", "--label", EVERGREEN_LABEL,
+        ["gh", "issue", "list", *repo_args(repo), "--state", "open", "--label", EVERGREEN_LABEL,
          "--limit", str(LIST_LIMIT), "--json", "number,title"],
     )
     if rows is None:
@@ -265,11 +282,11 @@ def scan_evergreen(runner: Runner, skip: int | None) -> list[Item]:
     return items or [Item(source, "clear", f"no open issue is labelled `{EVERGREEN_LABEL}`")]
 
 
-def scan_follow_ups(runner: Runner, month: str) -> list[Item]:
+def scan_follow_ups(runner: Runner, month: str, repo: str | None = None) -> list[Item]:
     source = "follow-up"
     rows, why = _json_list(
         runner,
-        ["gh", "issue", "list", "--state", "open", "--label", FOLLOW_UP_LABEL,
+        ["gh", "issue", "list", *repo_args(repo), "--state", "open", "--label", FOLLOW_UP_LABEL,
          "--limit", str(LIST_LIMIT), "--json", "number,title,body"],
     )
     if rows is None:
@@ -364,15 +381,16 @@ def scan_command_budget(root: Path | None) -> list[Item]:
 
 
 def scan(
-    runner: Runner, resolver: Path, friction_log: Path | None, today: date, root: Path | None = None
+    runner: Runner, resolver: Path, friction_log: Path | None, today: date, root: Path | None = None,
+    repo: str | None = None,
 ) -> list[Item]:
     nit, store = scan_nit_store(runner, resolver, today)
     return [
         *nit,
-        *scan_evergreen(runner, store),
+        *scan_evergreen(runner, store, repo),
         *scan_command_budget(root),
         *scan_friction(friction_log),
-        *scan_follow_ups(runner, month_of(today)),
+        *scan_follow_ups(runner, month_of(today), repo),
     ]
 
 
