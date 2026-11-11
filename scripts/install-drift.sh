@@ -144,7 +144,12 @@ set -uo pipefail
 # removed here too: a second `trap ... EXIT` further down would REPLACE this
 # one and silently drop the exit trailer.
 CODEX_EXPECT_TMP=""
-trap 'rc=$?; [ -n "$CODEX_EXPECT_TMP" ] && rm -rf "$CODEX_EXPECT_TMP"; printf "INSTALL_DRIFT_EXIT=%d\n" "$rc" >&2' EXIT
+on_exit() {
+    local rc=$?
+    [ -n "$CODEX_EXPECT_TMP" ] && rm -rf "$CODEX_EXPECT_TMP"
+    printf "INSTALL_DRIFT_EXIT=%d\n" "$rc" >&2
+}
+trap on_exit EXIT
 
 SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
 SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
