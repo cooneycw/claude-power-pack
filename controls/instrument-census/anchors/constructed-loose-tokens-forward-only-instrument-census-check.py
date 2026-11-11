@@ -46,13 +46,19 @@ from pathlib import Path
 #: diagnosis.
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-ADR_REL = "docs/decisions/0008-instrument-negative-control-bound.md"
+#: Since #1671 the census is data beside the controls; the decision record is
+#: still read when a tree keeps its census there. The anchor follows the gate
+#: here so it misses a data-home bad case through its own two blindnesses
+#: below, not by failing to find the file.
+CENSUS_REL = "controls/census.md"
+LEGACY_ADR_REL = "docs/decisions/0008-instrument-negative-control-bound.md"
 SCRIPTS_REL = "scripts"
 
 BACKTICKED_RE = re.compile(r"`([^`]+)`")
 
 
 def run_check(root: Path) -> int:
+    ADR_REL = CENSUS_REL if (root / CENSUS_REL).is_file() else LEGACY_ADR_REL
     adr = root / ADR_REL
     scripts_dir = root / SCRIPTS_REL
 

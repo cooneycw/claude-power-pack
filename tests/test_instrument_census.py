@@ -94,7 +94,7 @@ def test_the_two_readers_of_the_census_count_the_same_rows():
     wrong answer. Found by the counter-model review (codex, gpt-6-astra), second
     pass.
     """
-    text = (ROOT / icc.ADR_REL).read_text(encoding="utf-8")
+    text = (ROOT / icc.CENSUS_REL).read_text(encoding="utf-8")
     census = cnc.instrument_census(ROOT)
     assert len(icc.census_subjects(text)) == census.rows
     # #1036 turned this test's invariant into a RUNTIME one: the battery now
@@ -133,7 +133,7 @@ def test_every_declared_external_is_actually_absent_from_scripts():
     silently exempt that file from the STALE direction forever. The declaration
     is for things with no file to carry a marker, never a way to quiet a real one.
     """
-    text = (ROOT / icc.ADR_REL).read_text(encoding="utf-8")
+    text = (ROOT / icc.CENSUS_REL).read_text(encoding="utf-8")
     files = set(icc.script_files(ROOT))
     stems = {Path(name).stem for name in files}
     for name in sorted(icc.declared_externals(text)):
@@ -459,6 +459,84 @@ def test_resolve_adr_prefers_the_default_path(tmp_path):
     assert path == root / icc.ADR_REL and label == icc.ADR_REL
 
 
+# --------------------------------------------------------------------------- #
+# #1671 - the census is DATA (`controls/census.md`); the decision record keeps
+# the rule. The resolver's ORDER is the whole change, so each rung is pinned.
+# --------------------------------------------------------------------------- #
+
+
+def _data_home(root: Path, text: str) -> Path:
+    path = root / icc.CENSUS_REL
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_the_real_census_is_the_data_file_and_the_adr_carries_no_table():
+    """The move itself, pinned on the real tree (issue #1671).
+
+    If a census table reappears in the ADR, adding an instrument is editing a
+    decision record again - the thing the issue removed - and the gate, which
+    reads the data file first, would never notice the copy drifting.
+    """
+    path, label = icc.resolve_adr(ROOT)
+    assert label == icc.CENSUS_REL and path == ROOT / icc.CENSUS_REL
+    adr = (ROOT / icc.ADR_REL).read_text(encoding="utf-8")
+    assert icc.census_rows(adr) == [], "ADR 0008 carries census rows again"
+    assert icc.retired_rows(adr) == ([], "absent")
+    assert not icc.declared_externals(adr)
+    assert icc.CENSUS_REL in adr, "the ADR no longer points at the census"
+
+
+def test_the_data_file_wins_over_a_table_left_in_the_decision_record(tmp_path, capsys):
+    """THE RED CASE for #1671: FAILS on the pre-#1671 gate, which read the record.
+
+    The data file omits `beta.sh`; a leftover table in the record names it. The
+    census is the data file, so this tree is UNACCOUNTED - reading the record
+    instead reports it clean, over a table nobody maintains.
+    """
+    root = _tree(
+        tmp_path,
+        ["alpha.sh", "beta.sh"],
+        _adr("| 1 | `alpha.sh` | v | c | G |\n| 2 | `beta.sh` | v | c | G |\n"),
+    )
+    _data_home(root, _adr("| 1 | `alpha.sh` | v | c | G |\n"))
+    path, label = icc.resolve_adr(root)
+    assert path == root / icc.CENSUS_REL and label == icc.CENSUS_REL
+    assert icc.main(["check", "--root", str(root)]) == 1
+    out = capsys.readouterr().out
+    assert f"UNACCOUNTED: scripts/beta.sh is named by no census row and no exclusion in {icc.CENSUS_REL}" in out
+
+
+def test_a_data_file_beside_a_table_free_decision_record_passes(tmp_path, capsys):
+    """The other half: this repository's own shape since #1671 must not red."""
+    root = _tree(tmp_path, ["alpha.sh"], "# the rule only\n\nThe enumeration lives in controls/census.md.\n")
+    _data_home(root, _adr("| 1 | `alpha.sh` | v | c | G |\n"))
+    assert icc.main(["check", "--root", str(root)]) == 0, capsys.readouterr().out
+
+
+def test_a_record_emptied_of_its_table_with_no_data_file_is_unread(tmp_path, capsys):
+    """A HALF-DONE MOVE IS LOUD: tables out of the record, data file never added.
+
+    That tree has no census anywhere. It must refuse as unread - not report
+    every script UNACCOUNTED, and never pass.
+    """
+    root = _tree(tmp_path, ["alpha.sh"], "# the rule only\n\nThe enumeration lives in controls/census.md.\n")
+    assert not (root / icc.CENSUS_REL).exists(), "precondition: no data file"
+    assert icc.main(["check", "--root", str(root)]) == 1
+    out = capsys.readouterr().out
+    assert "parsed to 0 census rows" in out and "UNACCOUNTED" not in out
+
+
+def test_all_three_readers_resolve_the_data_file(tmp_path):
+    """One resolver, three readers (#1264) - still true after the move."""
+    root = _tree(tmp_path, ["alpha.sh"], "# the rule only\n")
+    _data_home(root, _adr("| 1 | `alpha.sh` | v | c | G |\n"))
+    census = cnc.instrument_census(root)
+    assert census.rows == 1 and census.whence == icc.CENSUS_REL
+    assert census.subjects == {"alpha.sh"}
+
+
 def test_the_census_at_another_repositorys_path_is_checked(tmp_path, capsys):
     """THE RED CASE (issue #1264): kyle files the decision under docs/adr/."""
     root = _tree(tmp_path, ["alpha.sh"], _adr("| 1 | `alpha.sh` | v | c | G |\n"))
@@ -608,7 +686,7 @@ def test_the_gate_registers_its_negative_control():
 
 def test_the_gate_is_itself_a_census_row():
     """It must account for ITSELF, or its first run reports itself UNACCOUNTED."""
-    text = (ROOT / icc.ADR_REL).read_text(encoding="utf-8")
+    text = (ROOT / icc.CENSUS_REL).read_text(encoding="utf-8")
     assert "instrument-census-check.py" in set(icc.census_subjects(text))
 
 
@@ -781,7 +859,7 @@ def test_a_retired_number_may_not_be_reused(tmp_path, capsys):
 
 
 def test_retired_rows_are_outside_the_denominator():
-    text = (ROOT / icc.ADR_REL).read_text(encoding="utf-8")
+    text = (ROOT / icc.CENSUS_REL).read_text(encoding="utf-8")
     retired, found = icc.retired_rows(text)
     assert found and {n for n, _ in retired} >= {32, 45}
     assert not {n for n, _ in retired} & {icc.row_number(r) for r in icc.census_rows(text)}
@@ -997,6 +1075,6 @@ def test_the_real_lib_security_subject_no_longer_needs_externals():
     it resolves structurally now (a real `lib/security/` package), not merely
     because the real-tree drift gate above happens to be green for other
     reasons."""
-    text = (ROOT / icc.ADR_REL).read_text(encoding="utf-8")
+    text = (ROOT / icc.CENSUS_REL).read_text(encoding="utf-8")
     assert "lib.security" not in icc.declared_externals(text)
     assert icc.lib_subject_problem("lib.security", ROOT) is None

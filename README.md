@@ -398,7 +398,8 @@ the point: a control battery nothing checks is the defect it exists to find.
 >   keep growing, so no replacement number is written here - it would be the
 >   next stale one. Derive them instead: `make negative-controls` prints
 >   `NEGATIVE_CONTROL_REGISTERED:` and the enumerated relation, and
->   `make instrument-census-check` reads the census rows of
+>   `make instrument-census-check` reads the census rows, which since #1671 are
+>   in [controls/census.md](controls/census.md) and no longer inside
 >   [ADR 0008](docs/decisions/0008-instrument-negative-control-bound.md). The
 >   CI step list likewise changed: the `hadolint` Dockerfile lint named in the
 >   external-binary list below was retired by #943.
@@ -406,7 +407,7 @@ the point: a control battery nothing checks is the defect it exists to find.
 **Deliberately not stated as a coverage fraction over the 63-row census, because
 the two numbers are counted independently.** Five of the six register against a
 row in [ADR 0008](docs/decisions/0008-instrument-negative-control-bound.md)'s
-census; `check-oscillation` is a **new** instrument that the census does not yet
+census (kept in [controls/census.md](controls/census.md) since #1671); `check-oscillation` is a **new** instrument that the census does not yet
 enumerate, so the registration count is not a subset of the census and "6 of 63"
 would be a fraction whose numerator and denominator do not describe the same
 set. `secret-scan` also covers only the working-tree half of its row - the CI

@@ -145,7 +145,10 @@ CONSUMER_REQUIRED = ("tested", "runtime")
 
 #: ADR 0008's census, and the gate that derives its membership. The census
 #: answers "is this an instrument"; this gate asks it rather than deciding again.
-CENSUS_REL = "docs/decisions/0008-instrument-negative-control-bound.md"
+#: Since #1671 it is data beside the controls rather than a section of the ADR;
+#: which file is read is still the census rule's `resolve_adr` to say, and this
+#: constant only names the default in messages.
+CENSUS_REL = "controls/census.md"
 CENSUS_GATE_REL = "scripts/instrument-census-check.py"
 
 #: Where a `tested` consumer must live, and the target that runs them. `tested`

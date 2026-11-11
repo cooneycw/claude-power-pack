@@ -46,7 +46,27 @@
     "every merge in the repository.",
     "",
     "Stdlib-only and git-free, like the gate: no binary this fixture needs is absent",
-    "from the slim CI image, so the control gives the same verdict there as here."
+    "from the slim CI image, so the control gives the same verdict there as here.",
+    "",
+    "THE DATA HOME (issue #1671). The census moved out of ADR 0008 into",
+    "`controls/census.md`, and the gate now reads that file first. The four cases",
+    "above keep their census inside the decision record on purpose: that is still",
+    "a supported location (kyle keeps its census there), so they are the control",
+    "for the fallback, and the known-bad case #1060 committed is the one #1671's",
+    "acceptance names - run before and after the move, red both times.",
+    "",
+    "Two more cases put the census where the real one now is, and each ALSO",
+    "carries a decision record that disagrees with it, so the cases discriminate",
+    "on precedence and not only on location:",
+    "",
+    "  bad-unaccounted-data-home   the data file omits `beta-tool.sh`; a leftover",
+    "                              table in the decision record accounts for it.",
+    "                              The pre-#1671 gate, which reads the record,",
+    "                              scores this tree clean (measured).",
+    "  good-accounted-data-home    the data file is exact; the decision record",
+    "                              holds no table at all, the real record's shape",
+    "                              since #1671. The pre-#1671 gate parses 0 rows",
+    "                              and refuses this correct tree (measured)."
   ],
   "gate": "scripts/instrument-census-check.py",
   "invocation": [
@@ -58,6 +78,7 @@
   ],
   "good_exit": 0,
   "detect_signal": "^(UNACCOUNTED|STALE): ",
+  "good_signal": "^instrument-census-check: ok - all \\d+ file\\(s\\) in scripts/ are accounted for by ",
   "cases": [
     {
       "name": "bad-unaccounted",
@@ -78,10 +99,22 @@
       "why": "A census row for `make nosuch` where the tree's Makefile defines only `verify` (#1276). Before #1276 every `make <target>` row read as the one subject `make`, and with `make` declared external this row resolved silently, so the census could keep describing a deleted Makefile gate forever. It is now the typed subject `make:nosuch`, validated against the Makefile, and STALE. The external `make` stays declared in this fixture precisely so the old reading had a way to pass."
     },
     {
+      "name": "bad-unaccounted-data-home",
+      "input": "cases/bad-unaccounted-data-home",
+      "expect": "BAD",
+      "why": "The #1060 known-bad shape at the census's home since #1671: `controls/census.md` names `beta-tool.sh` in prose and in no row or exclusion. The tree also holds a decision record whose leftover table DOES account for it, so a gate that still reads the record first scores this clean - measured against the pre-#1671 gate. If this scores GOOD, the gate is reading a census nobody maintains any more and an unenumerated instrument is invisible again."
+    },
+    {
       "name": "good-accounted",
       "input": "cases/good-accounted",
       "expect": "GOOD",
       "why": "A tree whose census matches it exactly, exercising all three accounting paths - a census row, an exclusion row, and a declared external subject. THE HALF THAT MATTERS for a gate wedged at 'fail': a check that refuses every tree passes both bad cases on its own, and this gate is in `make verify`, so a false red blocks every merge in the repository. The external path is here deliberately - it is a list that NARROWS, and a good case that never exercised it would leave the direction where it must NOT fire unproven. Since #1276 it also carries a `make verify` row and a Makefile defining `verify`, so the typed-subject path is exercised in the direction where it must NOT fire."
+    },
+    {
+      "name": "good-accounted-data-home",
+      "input": "cases/good-accounted-data-home",
+      "expect": "GOOD",
+      "why": "A tree whose `controls/census.md` matches it exactly, beside a decision record that carries no census table - the shape this repository has had since #1671. A gate that reads the record first parses 0 rows and refuses it (measured against the pre-#1671 gate), and this gate is in `make verify`, so that false red would block every merge. It exercises the same three accounting paths and the typed `make verify` subject as `good-accounted`."
     }
   ],
   "anchors": [
@@ -90,8 +123,8 @@
       "sha": "constructed-loose-tokens-forward-only",
       "origin": "scripts/instrument-census-check.py",
       "path": "anchors/constructed-loose-tokens-forward-only-instrument-census-check.py",
-      "sha256": "64dba620af1f76c1ac3db6e95c58b7515893d366d1e3a15a6da7ede36a9a3ff0",
-      "why": "CONSTRUCTED: the gate is new and never shipped blind, so there is no revision to vendor - `--verify-provenance` therefore reports `unverified`, which is correct and must never be read as `ok`. This is the FIRST FRAMING of the problem, on the record: #1060 as filed described the forward direction and said nothing about the extraction rule, and written straight from that sentence you get this file - every backticked token anywhere in the document counts, and there is no STALE check. It misses `bad-unaccounted` because the prose names the script, misses `bad-stale-subject` because it never looks in that direction, and agrees with the real gate on `good-accounted`, which is what makes the demonstration isolated."
+      "sha256": "d7232d5b6035fd5bc6a90f742c8f5faf443d47bc4e1dcaa926410072b2ee296f",
+      "why": "CONSTRUCTED: the gate is new and never shipped blind, so there is no revision to vendor - `--verify-provenance` therefore reports `unverified`, which is correct and must never be read as `ok`. This is the FIRST FRAMING of the problem, on the record: #1060 as filed described the forward direction and said nothing about the extraction rule, and written straight from that sentence you get this file - every backticked token anywhere in the document counts, and there is no STALE check. It misses `bad-unaccounted` because the prose names the script, misses `bad-stale-subject` because it never looks in that direction, and agrees with the real gate on `good-accounted`, which is what makes the demonstration isolated. Since #1671 it resolves the census the way the gate does (`controls/census.md`, else the decision record), a change to WHERE it reads and not to either blindness: it must miss `bad-unaccounted-data-home` because the prose names the script, never because it could not find the file. It is constructed, so re-cutting it rewrites no history."
     }
   ]
 }
