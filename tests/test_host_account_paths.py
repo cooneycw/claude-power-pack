@@ -171,6 +171,11 @@ receipt = _load("counter_model_receipt_for_1689", "scripts/counter-model-receipt
         (PLAIN + ACCOUNT, ENCODED + ACCOUNT + "/abc.jsonl", ENCODED + "user/abc.jsonl"),
         (MAC + ACCOUNT, "-Us" + "ers-" + ACCOUNT + "-Projects/abc.jsonl", "-Us" + "ers-user-Projects/abc.jsonl"),
         (PLAIN + ACCOUNT, PLAIN + ACCOUNT + "/x/y.jsonl", PLAIN + "user/x/y.jsonl"),
+        # Claude turns EVERY non-alphanumeric character into a dash, so a dotted
+        # or underscored account is encoded with dashes (counter-model review).
+        (PLAIN + "jane.doe", ENCODED + "jane-doe-Projects/abc.jsonl", ENCODED + "user-Projects/abc.jsonl"),
+        (PLAIN + "jane_doe", ENCODED + "jane-doe-Projects/abc.jsonl", ENCODED + "user-Projects/abc.jsonl"),
+        (PLAIN + "user.name", ENCODED + "user-name-Projects/abc.jsonl", ENCODED + "user-Projects/abc.jsonl"),
         # a different account that merely shares a prefix is someone else's name
         (PLAIN + ACCOUNT, ENCODED + ACCOUNT + "x-Projects/a.jsonl", ENCODED + ACCOUNT + "x-Projects/a.jsonl"),
         # Codex rollouts are date paths and carry no account

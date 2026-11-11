@@ -1690,11 +1690,19 @@ def _redact_home_account(recorded: str, home: Path | None = None) -> str:
         return recorded
     neutral = (home.parent / HOME_ACCOUNT_PLACEHOLDER).as_posix()
     out = recorded.replace(plain, neutral)
-    encoded, neutral_encoded = plain.replace("/", "-"), neutral.replace("/", "-")
+    # Claude encodes EVERY non-alphanumeric character of the working directory
+    # as a dash, not only the separators: the home of `user.name` becomes
+    # `-home-user-name`. Matching only the slash form left such an account in
+    # the record (counter-model review, #1689). Both encodings are tried,
+    # because not every producer is known to share Claude's rule.
+    neutral_encoded = re.sub(r"[^A-Za-z0-9]", "-", neutral)
+    encodings = dict.fromkeys((re.sub(r"[^A-Za-z0-9]", "-", plain), plain.replace("/", "-")))
     parts = []
     for part in out.split("/"):
-        if part == encoded or part.startswith(encoded + "-"):
-            part = neutral_encoded + part[len(encoded):]
+        for encoded in encodings:
+            if part == encoded or part.startswith(encoded + "-"):
+                part = neutral_encoded + part[len(encoded):]
+                break
         parts.append(part)
     return "/".join(parts)
 
