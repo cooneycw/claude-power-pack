@@ -168,6 +168,13 @@ sentences of ordinary prose - there is no required per-item line, no separate
 artifact, no schema and no checkbox gate. What is not allowed is silence: an item
 nobody mentions is unresolved, never delivered by default.
 
+**Say where it was demonstrated.** When the project has a lane file
+(`.claude/lanes.md`), a Demonstrated item names the lanes it was demonstrated
+in. A listed lane nobody names is not tested - never covered by default. The
+plan answers every listed lane before the work starts and the closing report
+shows the same rows with results; the four answers and the format are in
+[the lanes reference](lanes.md). A project with no lane file is asked nothing.
+
 **Say which claims are machine-checked.** "lint and tests pass" is evidence about
 checks. Whether the intended behaviour arrived is a judgement, by an agent or a
 person, and the report should not let the first stand in for the second.
