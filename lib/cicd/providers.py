@@ -156,6 +156,33 @@ def parse_config_mapping(text: str, source: str) -> dict[str, Any]:
 RECORD_PATH = ".claude/cicd.yml"
 
 
+def linked_worktree_main(project: str | Path) -> Path | None:
+    """The main checkout of the linked worktree whose TOP LEVEL is `project`.
+
+    Read from git's own files, with no subprocess: a linked worktree's `.git`
+    is a FILE naming its private git directory, which holds a `commondir`
+    file (a submodule's does not) and a `gitdir` file pointing back at this
+    worktree. Anything else - the main checkout, a subdirectory, a submodule,
+    a bare repository, an unreadable file - answers None.
+    """
+    try:
+        here = Path(project).resolve()
+        pointer = (here / ".git").read_text().strip()
+        if not pointer.startswith("gitdir:"):
+            return None
+        private = (here / pointer[len("gitdir:"):].strip()).resolve()
+        back = (private / (private / "gitdir").read_text().strip()).resolve()
+        if back != here / ".git":
+            return None
+        common = (private / (private / "commondir").read_text().strip()).resolve()
+        main = common.parent
+        if common.name != ".git" or main == here or not main.is_dir():
+            return None
+        return main
+    except (OSError, ValueError):
+        return None
+
+
 def shared_record_path(project: str | Path) -> Path | None:
     """The main checkout's UNTRACKED record, for a linked worktree that has none.
 
@@ -173,31 +200,28 @@ def shared_record_path(project: str | Path) -> Path | None:
         it sits on a branch that predates or deliberately deleted it, and
         borrowing main's copy would hide that;
       - any git failure answers None. An unanswerable question is not a yes.
+
+    ONE local `git ls-files` runs, and only once a linked worktree has a
+    main-checkout record to consider. Every other path - including every
+    project that is not a linked worktree - spawns nothing, which keeps
+    `lane_plan` offline for them.
     """
     import subprocess
 
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-
-    def git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, timeout=10, env=env)
-
-    try:
-        here = Path(project).resolve()
-        top = git(here, "rev-parse", "--show-toplevel")
-        if top.returncode or Path(top.stdout.strip()).resolve() != here:
-            return None
-        from .host import main_checkout
-        main = main_checkout(here)
-        if main is None or main.resolve() == here:
-            return None
-        candidate = main / RECORD_PATH
-        if not candidate.is_file():
-            return None
-        # Exit 1 is git's "not tracked"; 0 is tracked; anything else is unknown.
-        tracked = git(main, "ls-files", "--error-unmatch", "--", RECORD_PATH)
-        return candidate if tracked.returncode == 1 else None
-    except (OSError, subprocess.SubprocessError, ValueError, ImportError):
+    main = linked_worktree_main(project)
+    if main is None:
         return None
+    candidate = main / RECORD_PATH
+    if not candidate.is_file():
+        return None
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    try:
+        # Exit 1 is git's "not tracked"; 0 is tracked; anything else is unknown.
+        tracked = subprocess.run(["git", "-C", str(main), "ls-files", "--error-unmatch", "--", RECORD_PATH],
+                                 capture_output=True, text=True, timeout=10, env=env)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return candidate if tracked.returncode == 1 else None
 
 
 def read_provider_record(project: str | Path) -> ProviderRecord:

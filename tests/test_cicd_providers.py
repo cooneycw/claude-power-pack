@@ -1,6 +1,7 @@
 """Recorded provider contract and known-bad inputs (#1607)."""
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -349,7 +350,7 @@ def _record(root: Path, text: str = "pipeline:\n  providers: [woodpecker]\n") ->
     return path
 
 
-requires_git = pytest.mark.skipif(__import__("shutil").which("git") is None, reason="requires git")
+requires_git = pytest.mark.skipif(shutil.which("git") is None, reason="requires git")
 
 
 @requires_git
