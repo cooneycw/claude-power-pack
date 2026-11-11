@@ -63,6 +63,53 @@ incident behind it, goes in a linked reference under `docs/reference/`.
 - `/flow:auto` is the first document trimmed this way. Its history is in
   [flow-auto-rationale.md](reference/flow-auto-rationale.md).
 
+### Rationale moved out of `/flow:eli5` and `/codex:code_review` (#1695)
+
+Both documents were at their word budgets when #1695 added the lane pointer and
+the lane question (see [the lanes reference](agents/lanes.md)). The passages
+below were moved here verbatim to pay for them. They explain why a step exists;
+no step was removed.
+
+From `/flow:eli5`, the closing-report section (issue #965):
+
+> Note the asymmetry this closes, because it is the whole of #965: the bar below
+> applies when an agent wants a **yes**, and until #965 nothing applied when it
+> hands the work **back** - the moment the context is largest and the reader's
+> attention thinnest.
+
+From `/codex:code_review` Step 2, above the `trap` that removes the diff file:
+
+> Four refusal paths below (no common ancestor, no diff vs BASE, an unreadable
+> or disallowed sandbox mode, a HOME that cannot be created) used to `exit 3`
+> without removing $DIFF_FILE - only the two LATER refusals in the next block
+> did (issue #1494). A trap covers every exit from THIS point in this shell,
+> including ones added later, rather than four hand-matched `rm -f` calls that
+> the next refusal added here would silently miss again.
+
+From `/codex:code_review` Step 2, in the merge-base comment (issue #927):
+
+> Measured: a reviewer handed such a diff returned three confident findings
+> against a file the author had never touched, all of them accurate
+> descriptions of reverting someone else's merged work.
+
+From `/codex:code_review` Step 2, above the untracked-file enumeration:
+
+> BOTH commands run from the WORKTREE ROOT explicitly, not the caller's cwd
+> (codex review, Codex-flagged): `git add -N .` and `git ls-files` are
+> relative to cwd, so invoked from a subdirectory they would only mark
+> untracked files beneath it - a new file elsewhere in the worktree would
+> stay invisible to the diff exactly as before this fix, while the count
+> would silently omit it too.
+
+From `/codex:code_review` Step 2, the empty-diff rule (issue #1015):
+
+> This used to
+> stop here - exit 0, "nothing to review vs $BASE" - and that early exit produced
+> no findings report at all. A caller parsing the transcript therefore read
+> `unparseable` and recorded the run as `skipped / reviewer-unavailable`: a skip
+> whose reason names an inability that did not happen. The reviewer was available
+> and was never asked.
+
 ## Workflow commands - detail beyond the skill listing
 
   - Optional second arg `PROJECT` targets a repo other than the session cwd (resolved as a path, else `~/Projects/<name>`); such cross-repo runs ride the deterministic git-worktree lane end-to-end instead of `EnterWorktree`, which cannot leave the session repo (#578)

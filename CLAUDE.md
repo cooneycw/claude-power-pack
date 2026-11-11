@@ -43,6 +43,7 @@ these rules remain in [commands-reference.md](docs/commands-reference.md) and
 - `docs/agents/knowledge-lifecycle.md` - canonical completed-spec graduation policy.
 - `docs/agents/delivery-pilots.md` - maintained report on what the balanced-delivery wave observed: evidence classes, what each does not establish, and the wave's own approval/duplication/requirement failures.
 - `docs/agents/glossary.md` - defined terms: instrument (with the ADR 0008 bound), harness, counter-model.
+- `docs/agents/lanes.md` - lanes exercised: the lane file (`.claude/lanes.md`), and how a plan and a closing report say which lanes a claim was tested in.
 - `docs/agents/closing-report-contract.md` - canonical closing-report contract: owner TO-DO first, then plain language, then evidence.
 - `docs/agents/shared-stash-stack.md` - why a worktree shares one stash stack, the safe alternatives, and what `stash-worktree-guard.sh` does and cannot do.
 - `docs/agents/nit-store-rollover.md` - the monthly Nit Store rollover: aggregate, close, then open the successor; why nothing names the store's number.

@@ -238,11 +238,6 @@ is canonical for what a run emits when it ENDS. It cites this floor; it does
 not re-author one. Two plain-language standards in one repository would be a
 convention collision, and the point of pointing here is that there is only one.
 
-Note the asymmetry this closes, because it is the whole of #965: the bar below
-applies when an agent wants a **yes**, and until #965 nothing applied when it
-hands the work **back** - the moment the context is largest and the reader's
-attention thinnest.
-
 ## CPP integration: challenge the plan, not just its freshness (issue #859)
 
 This section is CPP-owned and sits OUTSIDE the vendored core above. The core asks
@@ -260,6 +255,13 @@ evidence the review did not anticipate is Step 4's revision path in
 choices - those never return here - but it does NOT remove the existing route for a
 consequential change: altering promised behaviour or crossing a deliberate boundary
 still needs agreement from the authority that already holds it.
+
+## CPP integration: answer the lane file (issue #1695)
+
+CPP-owned, OUTSIDE the vendored core. When the project has `.claude/lanes.md`,
+Section C answers EVERY listed lane - will test, will refuse, not applicable or
+not covered - per [the lanes reference](../../../docs/agents/lanes.md). No lane
+file asks nothing.
 
 ## CPP integration: Section B also asks this host, not only GitHub (issue #1262)
 
