@@ -62,8 +62,34 @@ MANIFEST_NAME = codex_skill_sync.MANIFEST_NAME
 
 
 def test_real_repo_skills_in_sync():
-    """codex/skills/ must match what the generator produces from source."""
+    """The BUILT codex/skills/ matches what the generator produces from source.
+
+    The tree is build output since #1670; tests/conftest.py builds it once per
+    session. So this no longer says anything about what a commit carries - it
+    says the tree the rest of this file reads is the current one, and that
+    generating twice gives the same answer.
+    """
     assert codex_skill_sync.main(["--check"]) == 0
+
+
+def test_no_generated_skill_is_tracked_in_git():
+    """The point of #1670, pinned: an ordinary PR cannot rewrite a mirror that
+    git does not hold. If a generated file is ever force-added, every later
+    script edit goes back to rewriting its copies and their manifests."""
+    git = shutil.which("git")
+    if git is None:
+        pytest.skip("git not available")
+    probe = subprocess.run(
+        [git, "-C", str(ROOT), "rev-parse", "--is-inside-work-tree"],
+        capture_output=True, text=True, check=False,
+    )
+    if probe.returncode != 0:
+        pytest.skip("not a git checkout")
+    tracked = subprocess.run(
+        [git, "-C", str(ROOT), "ls-files", "--", "codex/skills"],
+        capture_output=True, text=True, check=True,
+    ).stdout.split()
+    assert tracked == ["codex/skills/README.md"], tracked
 
 
 def test_real_repo_skill_dirs_are_managed():
@@ -1088,10 +1114,24 @@ def test_long_body_splits_to_reference_md(tmp_repo):
 
 def test_check_detects_missing_drift_stale_and_orphan(tmp_repo, capsys):
     out = tmp_repo / "codex" / "skills"
-    assert codex_skill_sync.main(["--check"]) == 1  # nothing generated yet
+    # Nothing generated yet is its OWN verdict, not drift (#1670): the tree is
+    # build output, and an empty one is what every fresh clone holds.
+    assert codex_skill_sync.main(["--check"]) == codex_skill_sync.NOT_GENERATED_EXIT
+    captured = capsys.readouterr()
+    assert "NOT GENERATED" in captured.err
+    assert "MISSING" not in captured.out
 
     codex_skill_sync.main(["--write"])
     assert codex_skill_sync.main(["--check"]) == 0
+    capsys.readouterr()
+
+    # A PARTLY generated tree is still drift, file by file.
+    gone = out / "qa-test" / "SKILL.md"
+    kept = gone.read_text()
+    gone.unlink()
+    assert codex_skill_sync.main(["--check"]) == 1
+    assert "MISSING" in capsys.readouterr().out
+    gone.write_text(kept)
 
     skill_md = out / "qa-test" / "SKILL.md"
     pristine = skill_md.read_text()
@@ -1238,6 +1278,82 @@ def test_install_copies_generated_skills(tmp_repo, tmp_home):
     assert codex_skill_sync.main(["--install"]) == 0
     assert (tmp_home / "flow-auto" / "SKILL.md").is_file()
     assert (tmp_home / "qa-test" / "SKILL.md").is_file()
+
+
+# --- the install is the fidelity gate (#1670) --------------------------------
+
+
+def _alter_consistently(tree: Path) -> Path:
+    """Alter one bundled script and RECOMPUTE its manifest line, so the tree is
+    internally consistent and still differs from its source."""
+    script = next(iter(sorted(tree.glob("*/scripts/*.sh"))))
+    script.write_text(script.read_text() + "# altered-after-generation\n")
+    manifest = script.parent / codex_skill_sync.MANIFEST_NAME
+    digest = hashlib.sha256(script.read_bytes()).hexdigest()
+    lines = [
+        f"{digest}  {script.name}\n" if line.rstrip("\n").endswith(f"  {script.name}") else line
+        for line in manifest.read_text().splitlines(keepends=True)
+    ]
+    manifest.write_text("".join(lines))
+    # Precondition of the negative case, asserted rather than assumed.
+    assert f"{digest}  {script.name}" in manifest.read_text()
+    return script
+
+
+def test_a_bare_install_never_publishes_the_checkouts_tree(tmp_repo, tmp_home):
+    """A stale or hand-edited build left in the checkout is an ordinary state
+    now, so a bare --install must not read it: it builds its own tree."""
+    codex_skill_sync.main(["--write"])
+    out = tmp_repo / "codex" / "skills"
+    script = _alter_consistently(out)
+    rel = script.relative_to(out)
+
+    assert codex_skill_sync.main(["--install"]) == 0
+
+    published = tmp_home / rel
+    assert "altered-after-generation" not in published.read_text()
+    assert published.read_bytes() == (tmp_repo / "scripts" / script.name).read_bytes()
+    # ...and it did not quietly "repair" the checkout's tree either.
+    assert "altered-after-generation" in script.read_text()
+
+
+def test_a_named_tree_that_differs_from_its_source_is_refused(tmp_repo, tmp_home, capsys):
+    codex_skill_sync.main(["--write"])
+    out = tmp_repo / "codex" / "skills"
+    _alter_consistently(out)
+    capsys.readouterr()
+
+    assert codex_skill_sync.main(["--install", "--output-root", str(out)]) == 1
+
+    captured = capsys.readouterr()
+    assert "DRIFT" in captured.out
+    assert "REFUSING to install" in captured.err
+    assert not tmp_home.exists() or not any(tmp_home.iterdir()), (
+        "a refused install published something"
+    )
+
+
+def test_a_named_tree_that_matches_its_source_installs(tmp_repo, tmp_home, tmp_path):
+    elsewhere = tmp_path / "built" / "skills"
+    assert codex_skill_sync.main(["--write", "--output-root", str(elsewhere)]) == 0
+    assert codex_skill_sync.main(["--install", "--output-root", str(elsewhere)]) == 0
+    assert (tmp_home / "flow-auto" / "SKILL.md").is_file()
+    # --output-root wrote THERE and nowhere else.
+    assert not (tmp_repo / "codex" / "skills" / "flow-auto").exists()
+
+
+def test_an_ungenerated_named_tree_is_refused_not_installed_empty(tmp_repo, tmp_home, tmp_path, capsys):
+    """Publishing an empty tree would prune every managed skill on the host."""
+    empty = tmp_path / "nothing-here"
+    assert codex_skill_sync.main(["--install", "--output-root", str(empty)]) == 1
+    assert "NOT GENERATED" in capsys.readouterr().err
+    assert not tmp_home.exists() or not any(tmp_home.iterdir())
+
+
+def test_output_root_does_not_leak_into_the_next_call(tmp_repo, tmp_path):
+    before = codex_skill_sync.OUTPUT_ROOT
+    codex_skill_sync.main(["--write", "--output-root", str(tmp_path / "x")])
+    assert codex_skill_sync.OUTPUT_ROOT == before
 
 
 def test_install_is_idempotent(tmp_repo, tmp_home):
@@ -1952,7 +2068,9 @@ def test_an_install_at_a_redirected_destination_still_works(tmp_path, monkeypatc
     monkeypatch.setattr(sync, "OUTPUT_ROOT", _one_skill_source(tmp_path))
     dest = tmp_path / "elsewhere" / "skills"
     monkeypatch.setattr(sync, "install_dest_root", lambda: dest)
-    assert sync.main(["--install"]) == 0
+    # The PUBLISH step, which is where the guard lives. `main(["--install"])`
+    # no longer publishes a hand-built tree (#1670): it builds its own.
+    assert sync.run_install() == 0
     assert (dest / "only-skill" / "SKILL.md").is_file()
 '''
 

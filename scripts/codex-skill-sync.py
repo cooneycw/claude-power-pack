@@ -17,8 +17,9 @@ Issue #555 (companion to codex-power-pack epic cooneycw/codex-power-pack#64,
 story B1, ratified hybrid SoT): evolved the flat custom-prompt surface
 (scripts/codex-prompt-sync.py, issue #446, retired at the #556 cutover) into
 real Codex skills. ADR 0001 section 5 fixes the source of
-truth as .claude/commands/<family>/*.md; this script emits checked-in
-per-command skill directories under codex/skills/:
+truth as .claude/commands/<family>/*.md; this script emits per-command skill
+directories under codex/skills/. That tree is IGNORED BUILD OUTPUT since issue
+#1670 (ADR 0013) - only its README is tracked - so it is built on demand:
 
     codex/skills/<family>-<command>/
         SKILL.md        # frontmatter (name/description) + harness adaptations
@@ -27,10 +28,15 @@ per-command skill directories under codex/skills/:
         scripts/<name>  # helper scripts the body references, bundled byte-identical
 
 Usage:
-    codex-skill-sync.py                      # --check (default): exit 1 on drift
+    codex-skill-sync.py                      # --check (default): exit 1 on drift,
+                                             #   exit 3 when nothing is generated
     codex-skill-sync.py --check [family...]  # check some or all families
-    codex-skill-sync.py --write [family...]  # (re)generate codex/skills/
-    codex-skill-sync.py --install            # copy skill dirs -> ~/.codex/skills/
+    codex-skill-sync.py --write [family...]  # (re)build codex/skills/
+    codex-skill-sync.py --install            # build privately, check the build,
+                                             #   publish it -> ~/.codex/skills/
+    codex-skill-sync.py --output-root DIR    # with any mode: use DIR as the tree;
+                                             #   with --install, DIR is checked
+                                             #   and REFUSED if it differs
 
 Harness transforms: source frontmatter is replaced by Codex skill frontmatter
 (name + description with trigger words front-loaded, JSON-escaped so YAML stays
@@ -62,6 +68,7 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 from urllib.parse import quote
@@ -1971,7 +1978,32 @@ def completeness_errors() -> list[str]:
     return errors
 
 
+#: `--check` verdict for a build tree that holds no generated skill at all (issue
+#: #1670). Since `codex/skills/` stopped being tracked, a fresh clone has an
+#: empty tree, and "nothing has been generated here" is a different fact from
+#: "what is here has drifted": the first is repaired by `--write` and says
+#: nothing about anyone's edit. It gets its own code so a caller reading `$?`
+#: can tell them apart, and one line instead of three hundred MISSING ones.
+NOT_GENERATED_EXIT = 3
+
+
+def has_generated_skills(root: Path) -> bool:
+    """True when `root` holds at least one MANAGED skill dir."""
+    if not root.is_dir():
+        return False
+    return any(d.is_dir() and is_managed(d) for d in root.iterdir())
+
+
 def run_check(selected: list[str]) -> int:
+    if not has_generated_skills(OUTPUT_ROOT):
+        print(
+            f"codex-skill-sync: NOT GENERATED - {OUTPUT_ROOT} holds no generated skill."
+            " It is build output, not a tracked tree (issue #1670): run"
+            " `scripts/codex-skill-sync.py --write` (make codex-skills) to build it."
+            " This is not drift, and nothing was compared.",
+            file=sys.stderr,
+        )
+        return NOT_GENERATED_EXIT
     outputs = expected_outputs(selected)
     drift = 0
     for error in completeness_errors():
@@ -2571,7 +2603,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--install", action="store_true",
-        help="copy codex/skills/ dirs (generated + curated) to ~/.codex/skills/",
+        help=(
+            "build the skills in a private tree, check that tree against the"
+            " sources, then publish it to ~/.codex/skills/. With --write or"
+            " --output-root the named tree is checked and published instead;"
+            " a tree that differs from its sources is refused"
+        ),
+    )
+    parser.add_argument(
+        "--output-root", metavar="DIR", default=None,
+        help="read and write the generated tree at DIR instead of codex/skills/",
     )
     parser.add_argument("families", nargs="*", help="subset of families (default: all)")
     args = parser.parse_args(argv)
@@ -2591,16 +2632,83 @@ def main(argv: list[str] | None = None) -> int:
         #: would install a tree this invocation never generated.
         return run_list_mirrors(args.list_mirrors, selected)
 
-    if args.write:
-        rc = run_write(selected)
-    elif args.install and not args.check:
-        rc = 0  # install-only invocation
-    else:
-        rc = run_check(selected)
+    #: `--output-root` rebinds the module's one output tree for THIS call only.
+    #: Restored on the way out, because `main()` is also called in-process (the
+    #: tests, the controls) and a leaked override would silently redirect the
+    #: next caller's `--write`.
+    global OUTPUT_ROOT  # noqa: PLW0603
+    previous = OUTPUT_ROOT
+    if args.output_root is not None:
+        OUTPUT_ROOT = Path(args.output_root).expanduser().resolve()
+    try:
+        if args.install:
+            return run_validated_install(
+                selected,
+                write=args.write,
+                private_build=args.output_root is None and not args.write,
+            )
+        if args.write:
+            return run_write(selected)
+        return run_check(selected)
+    finally:
+        OUTPUT_ROOT = previous
 
-    if rc == 0 and args.install:
-        rc = run_install()
-    return rc
+
+def run_validated_install(selected: list[str], *, write: bool, private_build: bool) -> int:
+    """Build (or take) a tree, CHECK it against the sources, then publish it.
+
+    THE FIDELITY GATE LIVES HERE NOW (issue #1670). While `codex/skills/` was a
+    tracked tree, CI's `--check` was what stood between a mirror that differed
+    from its source and a host: `--install` copied whatever the checkout held,
+    unexamined, on the strength of that tree having been "already current and
+    CI-gated". The tree is build output now, so nothing upstream vouches for
+    it, and a stale or hand-edited build left in a checkout is an ordinary
+    state rather than a CI failure someone already saw.
+
+    So the check moved to the one boundary every install crosses:
+
+    - a bare `--install` never reads the checkout's tree at all. It generates
+      into a private directory and publishes that, so what reaches the host is
+      what the sources produce NOW;
+    - `--write --install` and `--output-root DIR --install` name a tree, and
+      that tree is compared against the sources before a single file is
+      published. A difference REFUSES the install, exit 1, destination
+      untouched.
+
+    The check covers ALL families whatever subset was selected: the publish
+    step prunes every managed skill its source tree does not carry, so
+    publishing a partial tree deletes the rest of the host's skills.
+    """
+    if private_build:
+        with tempfile.TemporaryDirectory(prefix="cpp-codex-skills-") as tmp:
+            return _install_from(Path(tmp) / "codex" / "skills", selected, write=True)
+    return _install_from(OUTPUT_ROOT, selected, write=write)
+
+
+def _install_from(root: Path, selected: list[str], *, write: bool) -> int:
+    global OUTPUT_ROOT  # noqa: PLW0603
+    previous = OUTPUT_ROOT
+    #: A private build is the whole surface; a named tree keeps the caller's
+    #: family selection for the WRITE, and is still checked in full below.
+    private = root != previous
+    OUTPUT_ROOT = root
+    try:
+        if write:
+            rc = run_write(list(FAMILIES) if private else selected)
+            if rc != 0:
+                return rc
+        rc = run_check(list(FAMILIES))
+        if rc != 0:
+            print(
+                f"codex-skill-sync: REFUSING to install from {root} - it does not match"
+                " what the sources generate (see above). Nothing was published;"
+                f" {install_dest_root()} is unchanged.",
+                file=sys.stderr,
+            )
+            return 1
+        return run_install()
+    finally:
+        OUTPUT_ROOT = previous
 
 
 if __name__ == "__main__":

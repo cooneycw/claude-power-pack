@@ -57,7 +57,7 @@ these rules remain in [commands-reference.md](docs/commands-reference.md) and
 - `.specify/` - active specifications, plans, tasks, templates, and lifecycle ledger.
 - `.claude/commands/` - canonical Claude command documents and detailed state machines.
 - `.claude/skills/` - canonical topic-skill packages and provenance.
-- `codex/skills/` - generated Codex command-skill mirrors; regenerate with `make codex-skills`.
+- `codex/skills/` - generated Codex command-skill mirrors; ignored build output since #1670 (ADR 0013), built with `make codex-skills`, never committed.
 - `scripts/` - deterministic helpers and repository checks.
 - `controls/` - registered negative controls: per-gate known-bad, known-good and known-unexaminable fixtures, and the vendored blind anchors that prove each control can fail.
 - `lib/cicd/` - CI/CD configuration, runner, health, smoke, and deployment verification.
@@ -129,7 +129,7 @@ Makefile targets are the canonical build interface. Required local gates are:
 - `make verify` - full pre-deploy verification, including persistent-context checks. It closes by naming every checker it did NOT run, with the reason; a checker accounted for nowhere reds the gate (`make verify-coverage-check`).
 - `make skills-check` - validate topic-skill names, trigger reachability, provenance, and mirror parity. Deliberately NOT in `make verify` (#1028): it compares host-local managed installs, so its verdict depends on the box. `verify` covers the canonical half through `make test` and names the rest as unexamined.
 - `make project-next-check` - verify the project-next engine against its ownership pins.
-- `make codex-skills` - regenerate mirrors after command-document changes.
+- `make codex-skills` - build the ignored Codex mirrors; `make codex-install` builds, checks and installs them on this host.
 
 Flow runner, deployment, baseline, and fallback behavior remains in
 [commands-reference.md](docs/commands-reference.md); per-helper behavior remains
