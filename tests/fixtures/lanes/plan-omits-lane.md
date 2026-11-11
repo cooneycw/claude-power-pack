@@ -14,3 +14,15 @@ Risks: no notable risks.
 |---|---|
 | Environment | will test: dev and prod differ only in the `ARCHIVE_ENABLED` flag (on in dev, off in prod), and tests set it each way |
 | Data size | not applicable: one record is archived at a time |
+
+### Tests in this change (`tests/test_archive.py`)
+```python
+def test_archive_succeeds_with_flag_on(client, new_session, settings):
+    settings.ARCHIVE_ENABLED = True
+    assert client.post(f"/records/{new_session.id}/archive").status_code == 200
+
+
+def test_archive_hidden_with_flag_off(client, new_session, settings):
+    settings.ARCHIVE_ENABLED = False
+    assert client.post(f"/records/{new_session.id}/archive").status_code == 404
+```

@@ -15,3 +15,22 @@ Risks: no notable risks.
 | Environment | will test: dev and prod differ only in the `ARCHIVE_ENABLED` flag (on in dev, off in prod), and tests set it each way |
 | Session age | will refuse: an older session gets "archiving is not available for this session", and a test asserts it |
 | Data size | not applicable: one record is archived at a time |
+
+### Tests in this change (`tests/test_archive.py`)
+```python
+def test_archive_succeeds_with_flag_on(client, new_session, settings):
+    settings.ARCHIVE_ENABLED = True
+    assert client.post(f"/records/{new_session.id}/archive").status_code == 200
+
+
+def test_archive_hidden_with_flag_off(client, new_session, settings):
+    settings.ARCHIVE_ENABLED = False
+    assert client.post(f"/records/{new_session.id}/archive").status_code == 404
+
+
+def test_archive_refused_for_an_older_session(client, older_session, settings):
+    settings.ARCHIVE_ENABLED = True
+    response = client.post(f"/records/{older_session.id}/archive")
+    assert response.status_code == 409
+    assert "archiving is not available for this session" in response.text
+```

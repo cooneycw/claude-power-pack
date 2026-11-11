@@ -111,7 +111,7 @@ def test_the_plan_gate_pointer_sits_outside_the_vendored_core() -> None:
 # --- the counter-model question ----------------------------------------------
 
 QUESTION_OMITTED = "each listed lane that the plan's 'Lanes for this change' table in this diff does not answer"
-QUESTION_NO_TABLE = "if the diff holds no such table, say that once"
+QUESTION_NO_TABLE = "with no such table, say so once (no defect for Tier 1 or a standalone review)"
 QUESTION_UNTESTED = "each lane the plan marks 'will test' that no test in the diff exercises"
 QUESTION_SILENT = "With no LANE LIST, do not raise lanes."
 
@@ -227,6 +227,25 @@ def test_the_lane_file_is_found_from_a_subdirectory(repo: Path) -> None:
     assert "| Session age |" in run_block(sub)
 
 
+def test_the_lane_file_is_found_from_a_linked_worktree(repo: Path, tmp_path_factory: pytest.TempPathFactory) -> None:
+    """The Checkout lane (#1677's shape): a linked worktree reads ITS OWN tree's file."""
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid"}
+    (repo / ".claude").mkdir()
+    shutil.copy(FIXTURES / "lanes.md", repo / ".claude" / "lanes.md")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True, env=env)
+    subprocess.run(["git", "commit", "-qm", "lanes"], cwd=repo, check=True, env=env)
+    linked = tmp_path_factory.mktemp("linked") / "wt"
+    subprocess.run(["git", "worktree", "add", "-q", "-b", "side", str(linked)], cwd=repo, check=True, env=env)
+    assert (linked / ".git").is_file()  # a linked worktree, not a second clone
+    (linked / ".claude" / "lanes.md").write_text(
+        "| Only here | a / b | the linked worktree's own copy |\n", encoding="utf-8"
+    )
+    handed = run_block(linked)
+    assert "| Only here |" in handed
+    assert "| Session age |" not in handed, "the main checkout's lane file was read from a linked worktree"
+
+
 def test_an_unreadable_lane_file_is_said_and_never_read_as_absent(repo: Path) -> None:
     if os.geteuid() == 0:
         pytest.skip("root reads a mode-000 file, so the unreadable state cannot be built")
@@ -295,6 +314,15 @@ def test_the_example_pair_differs_by_exactly_the_omitted_lane() -> None:
     complete = answered_lanes((FIXTURES / "plan-complete.md").read_text(encoding="utf-8"))
     assert complete == listed
     assert listed - omits == {"Session age"}
+
+
+def test_the_example_plans_carry_the_tests_the_question_is_asked_about() -> None:
+    """Question (2) asks about tests in the diff, so a plan with none cannot read clean."""
+    omits = (FIXTURES / "plan-omits-lane.md").read_text(encoding="utf-8")
+    complete = (FIXTURES / "plan-complete.md").read_text(encoding="utf-8")
+    for body in (omits, complete):
+        assert "settings.ARCHIVE_ENABLED = True" in body and "settings.ARCHIVE_ENABLED = False" in body
+    assert "older_session" in complete and "older_session" not in omits
 
 
 def test_the_example_plans_do_not_give_the_answer_away() -> None:

@@ -108,15 +108,15 @@ forbids one). Two readers check it:
    lane marked `will test` that no test in the diff exercises.
 
 **The second reader is a model, so its red case is an observation, not a
-repeatable check.** `tests/fixtures/lanes/` holds an example lane list, a plan
-that omits a listed lane and the same plan answering every lane. The question
-was put to Codex (`gpt-6.1-sol`) over both, three times, on 2026-11-11. It
-reported the omitted lane for the first plan all three times. For the second
-plan it reported no lane finding twice; the first time it reported a loosely
-worded answer in the example itself, which was then tightened. To repeat it,
-hand the reviewer the fixture lane list and each plan with the lane question
-from `/codex:code_review`, and read whether the omitted lane is reported for
-the first and not for the second. One run does not
+repeatable check.** `tests/fixtures/lanes/` holds an example lane list, a plan that omits a listed
+lane and the same plan answering every lane, each with the tests it adds. The
+question was put to Codex (`gpt-6.1-sol`) over both, four times, on 2026-11-11.
+It reported the omitted lane for the first plan all four times. For the second
+plan it reported no lane finding three times; the first time it reported a
+loosely worded answer in the example itself, which was then tightened. To
+repeat it, hand the reviewer the fixture lane list and each plan with the lane
+question from `/codex:code_review`, and read whether the omitted lane is
+reported for the first and not for the second. One run does not
 establish that the next run answers the same way.
 
 **Not covered.** The delegated-driver review surfaces (`/codex:auto`,
