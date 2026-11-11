@@ -2044,13 +2044,15 @@ def test_a_FOUND_pipeline_with_an_EMPTY_status_is_polled_not_reported(tmp_path):
 
 @requires_bash
 def test_an_unreadable_status_that_NEVER_resolves_expires_nonzero_and_says_so(tmp_path):
+    # 3s, not 1: a whole-second deadline can pass before the SECOND poll on a
+    # loaded host, and this test needs at least two.
     counter = tmp_path / "count"
     curl = _write_sequenced_curl(tmp_path, [[_pipeline(4726, SHA, "")]], counter)
-    result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "push", "--wait", "1",
+    result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "push", "--wait", "3",
                   env={"FLOW_CI_CURL": str(curl)})
     m = _markers(result.stdout)
     assert m["FLOW_CI_STATUS"] == ["unknown"], result.stdout + result.stderr
-    assert m["FLOW_CI_WAIT"] == ["expired (1s)"]
+    assert m["FLOW_CI_WAIT"] == ["expired (3s)"]
     assert m["FLOW_CI_PIPELINE"] == ["4726"]
     assert len(m["FLOW_CI_RETRYABLE"]) == 1
     assert int(counter.read_text()) > 1, "it must have kept polling to the deadline"
@@ -2091,15 +2093,17 @@ def test_wpcli_a_FAILED_relisting_mid_wait_is_polled_through(tmp_path):
 
 @requires_bash
 def test_wpcli_a_relisting_that_KEEPS_failing_expires_nonzero_and_keeps_the_pipeline(tmp_path):
+    # 3s, not 1: a whole-second deadline can pass before the SECOND poll on a
+    # loaded host, and this test needs at least two.
     counter = tmp_path / "count"
     wpcli = _write_sequenced_wpcli(tmp_path, [f"4726|running|{SHA}|push", None], counter)
     missing_curl = Path("/nonexistent/curl")
     assert not missing_curl.exists()
-    result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "push", "--wait", "1",
+    result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "push", "--wait", "3",
                   env={"FLOW_CI_CURL": str(missing_curl), "FLOW_CI_WPCLI": str(wpcli)})
     m = _markers(result.stdout)
     assert m["FLOW_CI_STATUS"] == ["unknown"], result.stdout + result.stderr
-    assert m["FLOW_CI_WAIT"] == ["expired (1s)"]
+    assert m["FLOW_CI_WAIT"] == ["expired (3s)"]
     assert m["FLOW_CI_PIPELINE"] == ["4726"]
     assert result.returncode == 5
 
