@@ -451,7 +451,8 @@ def _recorded_backend(tmp_path: Path, monkeypatch, replies: list[str]):
     return flow, calls
 
 
-UNREADABLE = "FLOW_CI_PIPELINE: 4726\nFLOW_CI_RETRYABLE: pipeline #4726 found; status '' unreadable\nFLOW_CI_STATUS: unknown\n"
+UNREADABLE = ("FLOW_CI_PIPELINE: 4726\nFLOW_CI_RETRYABLE: pipeline #4726 found; status '' unreadable\n"
+              "FLOW_CI_STATUS: unknown\n")
 
 
 def test_wait_polls_a_found_but_unreadable_pipeline(tmp_path: Path, monkeypatch, capsys):
